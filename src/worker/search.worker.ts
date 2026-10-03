@@ -104,7 +104,7 @@ function state(): { dataset: Dataset; engine: QueryEngine } {
 
 function handleLoad(message: LoadRequest): void {
   const started = performance.now();
-  const next = ingestDataset({
+  const { dataset: next, encoding } = ingestDataset({
     name: message.name,
     delimiter: message.delimiter,
     hasHeaders: message.hasHeaders,
@@ -135,6 +135,7 @@ function handleLoad(message: LoadRequest): void {
     stats: next.stats,
     ingestMs: performance.now() - started,
     source: message.buffer !== undefined ? "file" : "paste",
+    encoding,
   });
 }
 

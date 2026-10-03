@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { buildDataset } from "../src/data/build.js";
+import { decodeText } from "../src/parse/encoding.js";
 import { parseDelimited } from "../src/parse/parse.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../src/search/aggregates.js";
 import { QueryEngine, type ColumnFilter } from "../src/search/query-engine.js";
@@ -25,7 +26,14 @@ if (csvPath === "") {
 const maxRows = Number.parseInt(arg("rows", "0"), 10);
 const label = arg("name", basename(csvPath).replace(/\.[^.]+$/, ""));
 
-let text = readFileSync(csvPath, "utf8");
+const fileBuffer = readFileSync(csvPath);
+const decoded = decodeText(
+  fileBuffer.buffer.slice(
+    fileBuffer.byteOffset,
+    fileBuffer.byteOffset + fileBuffer.byteLength,
+  ) as ArrayBuffer,
+);
+let text = decoded.text;
 if (maxRows > 0) {
   let index = -1;
   let lines = 0;
@@ -81,7 +89,7 @@ function sampleToken(columnIndex: number): string {
   const counts = new Map<string, number>();
   const limit = Math.min(raw.length, 20_000);
   for (let i = 0; i < limit; i++) {
-    const tokens = raw[i].toLowerCase().split(/[^a-z0-9]+/g);
+    const tokens = raw[i].toLowerCase().split(/[^\p{L}\p{N}]+/gu);
     for (const token of tokens) {
       if (token.length >= 6 && token.length <= 12) {
         counts.set(token, (counts.get(token) ?? 0) + 1);
@@ -250,6 +258,7 @@ const columnSummary = [
 console.log(`# TurboFuzz real-data benchmark — ${label}`);
 console.log("");
 console.log(`- Rows: ${parsed.rows.length.toLocaleString()} · Columns: ${parsed.headers.length}`);
+console.log(`- Encoding: ${decoded.encoding}`);
 console.log(`- Ingest: parse ${fmt(parseMs)} ms · build/types/stats ${fmt(buildMs)} ms · rss ${rss.toFixed(0)} MB`);
 console.log(`- Warm: normalize ${fmt(normalizedMs)} ms · fuzzy+phonetic index ${fmt(indexBuildMs)} ms`);
 console.log(`- Columns: ${columnSummary}`);

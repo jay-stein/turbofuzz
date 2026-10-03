@@ -1,5 +1,6 @@
 import type { DatasetStats } from "../data/stats.js";
 import type { Delimiter } from "../parse/delimiter.js";
+import type { FileEncoding } from "../parse/encoding.js";
 import type { ColumnStats } from "../parse/infer.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnType } from "../types.js";
@@ -122,6 +123,7 @@ export interface LoadedMessage {
   stats: DatasetStats;
   ingestMs: number;
   source: "paste" | "file";
+  encoding: FileEncoding | null;
 }
 
 export interface ResultsMessage {

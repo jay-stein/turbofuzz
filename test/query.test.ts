@@ -55,6 +55,15 @@ test("combined filters intersect", () => {
   assert.deepEqual([...engine.evaluate(filters)], [1]);
 });
 
+test("fuzzy matches the ss spelling of ß", () => {
+  const local = buildDataset("t", ["name"], [["Straße 12"], ["Other Place"]]);
+  const localEngine = new QueryEngine(local);
+  const hits = [
+    ...localEngine.evaluate(new Map([[0, { kind: "text", mode: "fuzzy", query: "strasse" }]])),
+  ];
+  assert.ok(hits.includes(0), `expected Straße row in ${JSON.stringify(hits)}`);
+});
+
 test("empty query returns all rows", () => {
   const filters = new Map<number, ColumnFilter>([
     [0, { kind: "text", mode: "contains", query: "   " }],

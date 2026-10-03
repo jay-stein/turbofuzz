@@ -305,9 +305,10 @@ export class App {
       loaded.stats.duplicateRows > 0
         ? ` · ${loaded.stats.duplicateRows.toLocaleString()} duplicate rows`
         : "";
+    const encodingText = loaded.encoding === "windows-1252" ? " · windows-1252" : "";
     this.metaEl.textContent =
       `${loaded.rowCount.toLocaleString()} rows × ${loaded.columnCount} columns` +
-      `${duplicateText} · ${emptyPct.toFixed(1)}% empty · ${Math.round(loaded.ingestMs)} ms`;
+      `${duplicateText} · ${emptyPct.toFixed(1)}% empty${encodingText} · ${Math.round(loaded.ingestMs)} ms`;
 
     this.table?.dispose();
     clear(this.tableHost);

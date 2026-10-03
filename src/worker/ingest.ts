@@ -1,5 +1,6 @@
 import { buildDataset } from "../data/build.js";
 import type { Dataset } from "../data/dataset.js";
+import { decodeText, type FileEncoding } from "../parse/encoding.js";
 import { parseDelimited } from "../parse/parse.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { ProgressPhase } from "./protocol.js";
@@ -18,12 +19,23 @@ export interface IngestOptions {
   onProgress?: (progress: IngestProgress) => void;
 }
 
-export function ingestDataset(options: IngestOptions): Dataset {
-  const text =
-    options.text ?? (options.buffer === undefined ? "" : new TextDecoder().decode(options.buffer));
+export interface IngestResult {
+  dataset: Dataset;
+  encoding: FileEncoding | null;
+}
+
+export function ingestDataset(options: IngestOptions): IngestResult {
+  let text = options.text;
+  let encoding: FileEncoding | null = null;
+
+  if (text === undefined && options.buffer !== undefined) {
+    const decoded = decodeText(options.buffer);
+    text = decoded.text;
+    encoding = decoded.encoding;
+  }
 
   options.onProgress?.({ phase: "parse" });
-  const parsed = parseDelimited(text, {
+  const parsed = parseDelimited(text ?? "", {
     delimiter: options.delimiter,
     hasHeaders: options.hasHeaders,
   });
@@ -32,5 +44,5 @@ export function ingestDataset(options: IngestOptions): Dataset {
     options.onProgress?.({ phase: "build", detail });
   });
 
-  return dataset;
+  return { dataset, encoding };
 }

@@ -5,7 +5,7 @@ import { ingestDataset } from "../src/worker/ingest.js";
 test("ingestDataset parses text and reports progress", () => {
   const phases: string[] = [];
   const details: string[] = [];
-  const dataset = ingestDataset({
+  const { dataset, encoding } = ingestDataset({
     name: "test",
     delimiter: "auto",
     hasHeaders: true,
@@ -19,6 +19,7 @@ test("ingestDataset parses text and reports progress", () => {
   assert.equal(dataset.rowCount, 3);
   assert.equal(dataset.columnCount, 2);
   assert.equal(dataset.name, "test");
+  assert.equal(encoding, null);
   assert.deepEqual(
     dataset.columns.map((column) => column.type),
     ["category", "integer"],
@@ -29,14 +30,14 @@ test("ingestDataset parses text and reports progress", () => {
   assert.ok(details.includes("Computing dataset stats…"));
 });
 
-test("ingestDataset decodes transferred array buffers", () => {
+test("ingestDataset decodes transferred UTF-8 array buffers", () => {
   const encoded = new TextEncoder().encode("a,b\n1,2\n3,4");
   const buffer = encoded.buffer.slice(
     encoded.byteOffset,
     encoded.byteOffset + encoded.byteLength,
   ) as ArrayBuffer;
 
-  const dataset = ingestDataset({
+  const { dataset, encoding } = ingestDataset({
     name: "buffer",
     delimiter: "auto",
     hasHeaders: true,
@@ -44,5 +45,30 @@ test("ingestDataset decodes transferred array buffers", () => {
   });
 
   assert.equal(dataset.rowCount, 2);
+  assert.equal(encoding, "utf-8");
   assert.deepEqual(dataset.columns.map((column) => column.name), ["a", "b"]);
+});
+
+test("ingestDataset falls back to windows-1252 for legacy files", () => {
+  // quoted: "price\n"\x80343,000"\n" -> price "€343,000" in windows-1252
+  const bytes = Uint8Array.from([
+    0x70, 0x72, 0x69, 0x63, 0x65, 0x0a, 0x22, 0x80, 0x33, 0x34, 0x33, 0x2c, 0x30, 0x30, 0x30,
+    0x22, 0x0a,
+  ]);
+  const buffer = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+
+  const { dataset, encoding } = ingestDataset({
+    name: "legacy",
+    delimiter: "auto",
+    hasHeaders: true,
+    buffer,
+  });
+
+  assert.equal(encoding, "windows-1252");
+  assert.equal(dataset.columns[0].raw[0], "€343,000");
+  assert.equal(dataset.columns[0].type, "number");
+  assert.equal(dataset.columns[0].numbers()[0], 343000);
 });
