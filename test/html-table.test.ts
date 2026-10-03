@@ -64,3 +64,65 @@ test("returns null when there is no data-shaped table", () => {
   );
   assert.equal(firstTableRows("<p>no tables here</p>"), null);
 });
+
+test("extracts ARIA grids", () => {
+  const html = `
+    <div role="grid" aria-rowcount="3" aria-colcount="2">
+      <div role="row">
+        <div role="columnheader">Name</div><div role="columnheader">Age</div>
+      </div>
+      <div role="row">
+        <div role="gridcell">Alice</div><div role="gridcell">30</div>
+      </div>
+      <div role="row">
+        <div role="gridcell">Bob</div><div role="gridcell">40</div>
+      </div>
+    </div>`;
+
+  assert.deepEqual(firstTableRows(html), [
+    ["Name", "Age"],
+    ["Alice", "30"],
+    ["Bob", "40"],
+  ]);
+});
+
+test("scores candidates and prefers the richer table, not DOM order", () => {
+  const html = `
+    <table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>
+    <table>
+      <tr><th>Name</th><th>City</th><th>Score</th></tr>
+      <tr><td>Alice</td><td>Melbourne</td><td>10</td></tr>
+      <tr><td>Bob</td><td>Sydney</td><td>20</td></tr>
+      <tr><td>Cara</td><td>Brisbane</td><td>30</td></tr>
+    </table>`;
+
+  const rows = firstTableRows(html);
+  assert.equal(rows?.[0]?.[0], "Name");
+  assert.equal(rows?.length, 4);
+});
+
+test("excludes statically hidden tables", () => {
+  const html = `
+    <table style="display:none"><tr><th>Hidden</th><th>Col</th></tr><tr><td>a</td><td>b</td></tr></table>
+    <table><tr><th>Name</th><th>Age</th></tr><tr><td>Alice</td><td>30</td></tr></table>`;
+
+  assert.deepEqual(firstTableRows(html), [
+    ["Name", "Age"],
+    ["Alice", "30"],
+  ]);
+});
+
+test("stitches an adjacent header-only table onto its data table", () => {
+  const html = `
+    <table><tr><th>Name</th><th>Age</th></tr></table>
+    <table>
+      <tr><td>Alice</td><td>30</td></tr>
+      <tr><td>Bob</td><td>40</td></tr>
+    </table>`;
+
+  assert.deepEqual(firstTableRows(html), [
+    ["Name", "Age"],
+    ["Alice", "30"],
+    ["Bob", "40"],
+  ]);
+});
