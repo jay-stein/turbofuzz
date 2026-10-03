@@ -131,6 +131,7 @@ export interface ResultsMessage {
   queryMs: number;
   facets: Record<number, number[]>;
   histograms: Record<number, number[]>;
+  firstRows: string[][];
 }
 
 export interface SortedMessage {
@@ -139,6 +140,7 @@ export interface SortedMessage {
   count: number;
   column: number;
   dir: 1 | -1;
+  firstRows: string[][];
 }
 
 export interface RowsMessage {
@@ -157,6 +159,7 @@ export interface ColumnMetaMessage {
   queryMs: number;
   facets: Record<number, number[]>;
   histograms: Record<number, number[]>;
+  firstRows: string[][];
 }
 
 export interface StatsMessage {

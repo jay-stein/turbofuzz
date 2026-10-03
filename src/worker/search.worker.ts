@@ -1,5 +1,6 @@
 import type { ColumnData } from "../data/column.js";
 import type { Dataset } from "../data/dataset.js";
+import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
 import type { BitSet } from "../search/bitset.js";
 import { buildRank, orderIds } from "../search/order.js";
 import { QueryEngine, type ColumnFilter } from "../search/query-engine.js";
@@ -27,10 +28,13 @@ let dataset: Dataset | null = null;
 let engine: QueryEngine | null = null;
 const filters = new Map<number, ColumnFilter>();
 let sortedIds: Uint32Array = new Uint32Array(0);
-let rank: Uint32Array | null = null;
-let sortColumn = -1;
+let rankColumn = -1;
+let rankAsc: Uint32Array | null = null;
 let sortDir: 1 | -1 = 1;
 let exportIds: Uint32Array | null = null;
+const histogramCache = new HistogramCache();
+
+const FIRST_PAGE_ROWS = 40;
 
 function post(message: WorkerResponse, transfer?: Transferable[]): void {
   if (transfer !== undefined && transfer.length > 0) scope.postMessage(message, transfer);
@@ -113,10 +117,11 @@ function handleLoad(message: LoadRequest): void {
   dataset = next;
   engine = new QueryEngine(next);
   filters.clear();
-  rank = null;
-  sortColumn = -1;
+  rankColumn = -1;
+  rankAsc = null;
   sortDir = 1;
   exportIds = null;
+  histogramCache.clear();
   sortedIds = engine.evaluate(filters);
 
   post({
@@ -150,7 +155,7 @@ function handleSetFilter(message: SetFilterRequest): void {
 
   const started = performance.now();
   const bits = engine.evaluateBits(filters);
-  sortedIds = orderIds(bits, rank);
+  sortedIds = orderIds(bits, rankAsc, sortDir);
   const queryMs = performance.now() - started;
   post({
     type: "results",
@@ -159,6 +164,7 @@ function handleSetFilter(message: SetFilterRequest): void {
     queryMs,
     facets: computeFacets(dataset, engine, bits),
     histograms: computeHistograms(dataset, engine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
   });
 }
 
@@ -167,7 +173,7 @@ function handleClearFilters(message: { requestId: number }): void {
   filters.clear();
   const started = performance.now();
   const bits = engine.evaluateBits(filters);
-  sortedIds = orderIds(bits, rank);
+  sortedIds = orderIds(bits, rankAsc, sortDir);
   const queryMs = performance.now() - started;
   post({
     type: "results",
@@ -176,6 +182,7 @@ function handleClearFilters(message: { requestId: number }): void {
     queryMs,
     facets: computeFacets(dataset, engine, bits),
     histograms: computeHistograms(dataset, engine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
   });
 }
 
@@ -183,44 +190,53 @@ function handleSort(message: SortRequest): void {
   const { dataset, engine } = state();
 
   if (message.column < 0) {
-    rank = null;
-    sortColumn = -1;
+    rankColumn = -1;
+    rankAsc = null;
     sortDir = 1;
   } else {
-    post({ type: "progress", phase: "sort", column: message.column, active: true });
-    rank = buildRank(dataset, message.column, message.dir);
-    sortColumn = message.column;
+    if (message.column !== rankColumn) {
+      post({ type: "progress", phase: "sort", column: message.column, active: true });
+      rankAsc = buildRank(dataset, message.column);
+      rankColumn = message.column;
+      post({ type: "progress", phase: "sort", column: message.column, active: false });
+    }
     sortDir = message.dir;
-    post({ type: "progress", phase: "sort", column: message.column, active: false });
   }
 
   const bits = engine.evaluateBits(filters);
-  sortedIds = orderIds(bits, rank);
+  sortedIds = orderIds(bits, rankAsc, sortDir);
   post({
     type: "sorted",
     requestId: message.requestId,
     count: sortedIds.length,
-    column: sortColumn,
+    column: rankColumn,
     dir: sortDir,
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
   });
 }
 
-function handleGetRows(message: GetRowsRequest): void {
-  if (dataset === null) {
-    post({ type: "rows", requestId: message.requestId, start: 0, rows: [] });
-    return;
-  }
-  const start = Math.max(0, message.start);
-  const end = Math.min(message.end, sortedIds.length);
+function rowsSlice(start: number, end: number): string[][] {
+  if (dataset === null) return [];
+  const boundedStart = Math.max(0, start);
+  const boundedEnd = Math.min(end, sortedIds.length);
   const columns = dataset.columns;
   const rows: string[][] = [];
-  for (let i = start; i < end; i++) {
+  for (let i = boundedStart; i < boundedEnd; i++) {
     const rowIndex = sortedIds[i];
     const row = new Array<string>(columns.length);
     for (let c = 0; c < columns.length; c++) row[c] = columns[c].raw[rowIndex];
     rows.push(row);
   }
-  post({ type: "rows", requestId: message.requestId, start, rows });
+  return rows;
+}
+
+function handleGetRows(message: GetRowsRequest): void {
+  post({
+    type: "rows",
+    requestId: message.requestId,
+    start: Math.max(0, message.start),
+    rows: rowsSlice(message.start, message.end),
+  });
 }
 
 function handleSetType(message: SetTypeRequest): void {
@@ -229,16 +245,17 @@ function handleSetType(message: SetTypeRequest): void {
   column.setType(message.columnType);
   filters.delete(message.column);
   engine.invalidate();
+  histogramCache.delete(message.column);
 
-  if (sortColumn === message.column) {
-    rank = null;
-    sortColumn = -1;
+  if (rankColumn === message.column) {
+    rankColumn = -1;
+    rankAsc = null;
     sortDir = 1;
   }
 
   const started = performance.now();
   const bits = engine.evaluateBits(filters);
-  sortedIds = orderIds(bits, rank);
+  sortedIds = orderIds(bits, rankAsc, sortDir);
   post({
     type: "columnMeta",
     requestId: message.requestId,
@@ -248,6 +265,7 @@ function handleSetType(message: SetTypeRequest): void {
     queryMs: performance.now() - started,
     facets: computeFacets(dataset, engine, bits),
     histograms: computeHistograms(dataset, engine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
   });
 }
 
@@ -309,35 +327,25 @@ function metaFor(column: ColumnData): ColumnMeta {
 
 /**
  * Filtered histograms for range-filtered columns. The distribution excludes
- * the column's own filter so the full baseline stays visible while the
- * selected band is highlighted in the UI.
+ * the column's own filter, so dragging that column's range reuses the cached
+ * histogram (its "other filters" signature did not change).
  */
-function computeHistograms(
-  dataset: Dataset,
-  engine: QueryEngine,
-): Record<number, number[]> {
+function computeHistograms(dataset: Dataset, engine: QueryEngine): Record<number, number[]> {
   const histograms: Record<number, number[]> = {};
   for (const [columnIndex, filter] of filters) {
     if (filter.kind !== "range") continue;
-    const column = dataset.columns[columnIndex];
-    const base = column.histogram();
-    if (base === null) continue;
 
-    const numbers = column.numbers();
-    const baseBits = engine.evaluateBits(filters, columnIndex);
-    const binCount = base.bins.length;
-    const bins = new Array<number>(binCount).fill(0);
-    const scale = base.max > base.min ? binCount / (base.max - base.min) : 0;
-
-    for (let row = 0; row < dataset.rowCount; row++) {
-      if (!baseBits.get(row)) continue;
-      const value = numbers[row];
-      if (!Number.isFinite(value)) continue;
-      let bin = scale > 0 ? Math.floor((value - base.min) * scale) : 0;
-      if (bin < 0) bin = 0;
-      else if (bin >= binCount) bin = binCount - 1;
-      bins[bin]++;
+    const signature = filtersSignature(filters, columnIndex);
+    const cached = histogramCache.get(columnIndex, signature);
+    if (cached !== null) {
+      histograms[columnIndex] = cached;
+      continue;
     }
+
+    const baseBits = engine.evaluateBits(filters, columnIndex);
+    const bins = filteredHistogram(dataset.columns[columnIndex], baseBits, dataset.rowCount);
+    if (bins === null) continue;
+    histogramCache.set(columnIndex, signature, bins);
     histograms[columnIndex] = bins;
   }
   return histograms;

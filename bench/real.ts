@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { buildDataset } from "../src/data/build.js";
 import { parseDelimited } from "../src/parse/parse.js";
+import { filteredHistogram, filtersSignature, HistogramCache } from "../src/search/aggregates.js";
 import { QueryEngine, type ColumnFilter } from "../src/search/query-engine.js";
 import { buildRank, orderIds } from "../src/search/order.js";
 import type { TextMode } from "../src/types.js";
@@ -173,6 +174,26 @@ if (numberIndex >= 0) {
       times.push(timeIt(() => evalFilter(numberIndex, { kind: "range", min: minValue, max: null })));
     }
     record("slider: range drag (fresh each step)", times);
+
+    const numberColumn = dataset.columns[numberIndex];
+    const histogramCache = new HistogramCache();
+    const histogramTimes: number[] = [];
+    for (let step = 1; step <= 10; step++) {
+      const minValue = numericMin + ((numericMax - numericMin) * step) / 20;
+      const filterSet = new Map<number, ColumnFilter>([
+        [numberIndex, { kind: "range", min: minValue, max: null }],
+      ]);
+      const signature = filtersSignature(filterSet, numberIndex);
+      histogramTimes.push(
+        timeIt(() => {
+          if (histogramCache.get(numberIndex, signature) !== null) return;
+          const baseBits = engine.evaluateBits(filterSet, numberIndex);
+          const bins = filteredHistogram(numberColumn, baseBits, dataset.rowCount);
+          if (bins !== null) histogramCache.set(numberIndex, signature, bins);
+        }),
+      );
+    }
+    record("slider: histogram (other-filter cached)", histogramTimes);
   }
 }
 
@@ -210,11 +231,11 @@ if (numberIndex >= 0 && numericMin !== null && categoryLabels.length > 0) {
 const sortColumn = numberIndex >= 0 ? numberIndex : 0;
 const bits = engine.evaluateBits(new Map());
 const sortTimes: number[] = [];
-sortTimes.push(timeIt(() => buildRank(dataset, sortColumn, 1)));
-const rank = buildRank(dataset, sortColumn, 1);
-sortTimes.push(timeIt(() => orderIds(bits, rank)));
-sortTimes.push(timeIt(() => buildRank(dataset, sortColumn, -1)));
-record("sort: build asc / order / build desc", sortTimes);
+sortTimes.push(timeIt(() => buildRank(dataset, sortColumn)));
+const rank = buildRank(dataset, sortColumn);
+sortTimes.push(timeIt(() => orderIds(bits, rank, 1)));
+sortTimes.push(timeIt(() => orderIds(bits, rank, -1)));
+record("sort: build asc / order asc / order desc", sortTimes);
 
 const columnSummary = [
   `text=${dataset.columns[textIndex]?.name} (${dataset.columns[textIndex]?.type})`,
