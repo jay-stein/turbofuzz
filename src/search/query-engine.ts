@@ -26,9 +26,10 @@ export class QueryEngine {
     return this.evaluateBits(filters).toIndices();
   }
 
-  evaluateBits(filters: ReadonlyMap<number, ColumnFilter>): BitSet {
+  evaluateBits(filters: ReadonlyMap<number, ColumnFilter>, excludeColumn = -1): BitSet {
     let acc: BitSet | null = null;
     for (const [columnIndex, filter] of filters) {
+      if (columnIndex === excludeColumn) continue;
       const bits = this.bitsFor(columnIndex, filter);
       if (acc === null) acc = bits.clone();
       else acc.and(bits);

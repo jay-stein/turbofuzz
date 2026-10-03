@@ -406,6 +406,10 @@ textarea:focus {
   background: var(--panel-2);
 }
 
+.value-row.zero {
+  opacity: 0.45;
+}
+
 .value-label {
   flex: 1;
   white-space: nowrap;

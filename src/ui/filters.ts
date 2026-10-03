@@ -20,6 +20,7 @@ export class FilterPanel {
   private readonly listEl: HTMLElement;
   private cards: HTMLElement[] = [];
   private statusEls: HTMLElement[] = [];
+  private countEls: HTMLElement[][] = [];
 
   constructor(
     root: HTMLElement,
@@ -36,6 +37,7 @@ export class FilterPanel {
     clear(this.listEl);
     this.cards = [];
     this.statusEls = [];
+    this.countEls = [];
     this.metas.forEach((meta, index) => {
       const card = this.buildCard(meta, index);
       this.listEl.append(card);
@@ -50,6 +52,23 @@ export class FilterPanel {
 
   setStatus(index: number, text: string): void {
     this.statusEls[index].textContent = text;
+  }
+
+  /**
+   * Updates live faceted counts. Values with zero matches under the other
+   * active filters are dimmed but stay visible and clickable.
+   */
+  applyResults(facets: Record<number, number[]>): void {
+    for (const key of Object.keys(facets)) {
+      const column = Number(key);
+      const els = this.countEls[column];
+      if (els === undefined) continue;
+      const counts = facets[column];
+      for (let i = 0; i < els.length && i < counts.length; i++) {
+        els[i].textContent = counts[i].toLocaleString();
+        els[i].closest(".value-row")?.classList.toggle("zero", counts[i] === 0);
+      }
+    }
   }
 
   clearStatuses(): void {
@@ -236,6 +255,7 @@ export class FilterPanel {
       cardActive(body, this.filters.has(index));
     };
 
+    const countEls: HTMLElement[] = [];
     categories.labels.forEach((label, id) => {
       const row = el("label", { class: "value-row" }) as HTMLLabelElement;
       row.dataset.label = label;
@@ -246,13 +266,16 @@ export class FilterPanel {
         else selected.delete(id);
         apply();
       });
+      const countEl = el("span", { class: "value-count" }, [categories.counts[id].toLocaleString()]);
+      countEls.push(countEl);
       row.append(
         checkbox,
         el("span", { class: "value-label", title: label }, [label]),
-        el("span", { class: "value-count" }, [categories.counts[id].toLocaleString()]),
+        countEl,
       );
       list.append(row);
     });
+    this.countEls[index] = countEls;
 
     const actions = el("div", { class: "value-actions" });
     const allButton = el("button", { class: "link", type: "button" }, ["All"]);

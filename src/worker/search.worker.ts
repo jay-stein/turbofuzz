@@ -130,25 +130,31 @@ function handleSetFilter(message: SetFilterRequest): void {
   const started = performance.now();
   const bits = engine.evaluateBits(filters);
   sortedIds = orderIds(bits, rank);
+  const queryMs = performance.now() - started;
   post({
     type: "results",
     requestId: message.requestId,
     count: sortedIds.length,
-    queryMs: performance.now() - started,
+    queryMs,
+    facets: computeFacets(dataset, engine, bits),
+    histograms: {},
   });
 }
 
 function handleClearFilters(message: { requestId: number }): void {
-  const { engine } = state();
+  const { dataset, engine } = state();
   filters.clear();
   const started = performance.now();
   const bits = engine.evaluateBits(filters);
   sortedIds = orderIds(bits, rank);
+  const queryMs = performance.now() - started;
   post({
     type: "results",
     requestId: message.requestId,
     count: sortedIds.length,
-    queryMs: performance.now() - started,
+    queryMs,
+    facets: computeFacets(dataset, engine, bits),
+    histograms: {},
   });
 }
 
@@ -219,7 +225,35 @@ function handleSetType(message: SetTypeRequest): void {
     meta: metaFor(column),
     count: sortedIds.length,
     queryMs: performance.now() - started,
+    facets: computeFacets(dataset, engine, bits),
+    histograms: {},
   });
+}
+
+/**
+ * Per-value counts for category columns under the current filters, excluding
+ * each column's own filter so unchecking always remains meaningful.
+ */
+function computeFacets(
+  dataset: Dataset,
+  engine: QueryEngine,
+  resultBits: BitSet,
+): Record<number, number[]> {
+  const facets: Record<number, number[]> = {};
+  for (let columnIndex = 0; columnIndex < dataset.columnCount; columnIndex++) {
+    const column = dataset.columns[columnIndex];
+    if (column.type !== "category" && column.type !== "boolean") continue;
+    const categories = column.categories();
+    const base = filters.has(columnIndex)
+      ? engine.evaluateBits(filters, columnIndex)
+      : resultBits;
+    const counts = new Array<number>(categories.bits.length);
+    for (let value = 0; value < categories.bits.length; value++) {
+      counts[value] = base.andCount(categories.bits[value]);
+    }
+    facets[columnIndex] = counts;
+  }
+  return facets;
 }
 
 function handleGetStats(message: GetStatsRequest): void {
@@ -285,7 +319,7 @@ function metaFor(column: ColumnData): ColumnMeta {
     const built = column.categories();
     categories = { labels: built.labels, counts: built.counts };
   }
-  return { name: column.name, type: column.type, stats: column.stats, categories };
+  return { name: column.name, type: column.type, stats: column.stats, categories, histogram: null };
 }
 
 function detailsFor(column: ColumnData): ColumnDetail {

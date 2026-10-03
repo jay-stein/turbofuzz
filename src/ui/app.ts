@@ -274,6 +274,7 @@ export class App {
       .setFilter(column, filter)
       .then((message) => {
         this.updateCount(message.count, message.queryMs);
+        this.filterPanel?.applyResults(message.facets);
         this.table?.setCount(message.count);
         this.table?.invalidateRows();
       })
@@ -287,6 +288,7 @@ export class App {
         this.metas[column] = message.meta;
         this.filters.delete(column);
         this.filterPanel?.updateMeta(column, message.meta);
+        this.filterPanel?.applyResults(message.facets);
         this.updateCount(message.count, message.queryMs);
         this.table?.setCount(message.count);
         this.table?.invalidateRows();
@@ -316,6 +318,7 @@ export class App {
       .clearFilters()
       .then((message) => {
         this.updateCount(message.count, message.queryMs);
+        this.filterPanel?.applyResults(message.facets);
         this.table?.setCount(message.count);
         this.table?.invalidateRows();
       })

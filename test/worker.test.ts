@@ -58,7 +58,12 @@ test("search worker handles the full request lifecycle", async () => {
     column: 0,
     filter: { kind: "text", mode: "contains", query: "alice" },
   });
-  assert.equal(find("results", 3).count, 1);
+  const filteredResults = find("results", 3) as unknown as {
+    count: number;
+    facets: Record<number, number[]>;
+  };
+  assert.equal(filteredResults.count, 1);
+  assert.deepEqual(filteredResults.facets[0], [1, 1, 1]);
 
   send({ type: "getRows", requestId: 4, start: 0, end: 5 });
   const filtered = find("rows", 4) as unknown as { rows: string[][] };

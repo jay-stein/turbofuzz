@@ -57,6 +57,15 @@ export class BitSet {
     return total;
   }
 
+  /** Popcount of `this AND other` without allocating an intermediate set. */
+  andCount(other: BitSet): number {
+    let total = 0;
+    const w = this.words;
+    const o = other.words;
+    for (let i = 0; i < w.length; i++) total += popcount32(w[i] & o[i]);
+    return total;
+  }
+
   toIndices(): Uint32Array {
     let total = 0;
     const w = this.words;

@@ -14,6 +14,13 @@ export interface ColumnMeta {
   type: ColumnType;
   stats: ColumnStats;
   categories: CategoryMeta | null;
+  histogram: HistogramMeta | null;
+}
+
+export interface HistogramMeta {
+  bins: number[];
+  min: number;
+  max: number;
 }
 
 export interface ColumnDetail {
@@ -111,6 +118,8 @@ export interface ResultsMessage {
   requestId: number;
   count: number;
   queryMs: number;
+  facets: Record<number, number[]>;
+  histograms: Record<number, number[]>;
 }
 
 export interface SortedMessage {
@@ -135,6 +144,8 @@ export interface ColumnMetaMessage {
   meta: ColumnMeta;
   count: number;
   queryMs: number;
+  facets: Record<number, number[]>;
+  histograms: Record<number, number[]>;
 }
 
 export interface StatsMessage {
