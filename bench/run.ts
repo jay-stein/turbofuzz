@@ -1,10 +1,10 @@
 import { writeFileSync } from "node:fs";
 import { arch, cpus, platform, release } from "node:os";
-import { FuzzyIndex } from "./fuzzy-index.js";
+import { FuzzyIndex } from "../src/search/fuzzy-index.js";
 import { generateDataset } from "./data.js";
-import { BitSet } from "./lib/bitset.js";
-import { jaroWinkler } from "./lib/jaro-winkler.js";
-import { normalize } from "./lib/normalize.js";
+import { BitSet } from "../src/search/bitset.js";
+import { jaroWinkler } from "../src/search/jaro-winkler.js";
+import { normalize } from "../src/search/normalize.js";
 import { count, measure, memMB, ms, type Timing } from "./bench-utils.js";
 import { LinearSubstringEngine } from "./baselines/linear.js";
 import { FuseEngine } from "./baselines/fuse.js";

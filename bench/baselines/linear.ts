@@ -1,4 +1,4 @@
-import { normalize } from "../lib/normalize.js";
+import { normalize } from "../../src/search/normalize.js";
 import type { RowEngine } from "./types.js";
 
 export class LinearSubstringEngine implements RowEngine {

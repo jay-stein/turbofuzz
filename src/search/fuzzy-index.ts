@@ -1,6 +1,6 @@
-import { BitSet, popcount32 } from "./lib/bitset.js";
-import { jaroWinkler } from "./lib/jaro-winkler.js";
-import { tokenize } from "./lib/normalize.js";
+import { BitSet, popcount32 } from "./bitset.js";
+import { jaroWinkler } from "./jaro-winkler.js";
+import { tokenize } from "./normalize.js";
 
 export interface FuzzyQueryOptions {
   maxDistance?: number;

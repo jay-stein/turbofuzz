@@ -20,6 +20,14 @@ export class BitSet {
     return (this.words[i >>> 5] & (1 << (i & 31))) !== 0;
   }
 
+  setAll(): void {
+    this.words.fill(0xffffffff);
+    const remainder = this.size & 31;
+    if (remainder !== 0) {
+      this.words[this.words.length - 1] = (1 << remainder) - 1;
+    }
+  }
+
   or(other: BitSet): void {
     const w = this.words;
     const o = other.words;
@@ -47,6 +55,23 @@ export class BitSet {
     const w = this.words;
     for (let i = 0; i < w.length; i++) total += popcount32(w[i]);
     return total;
+  }
+
+  toIndices(): Uint32Array {
+    let total = 0;
+    const w = this.words;
+    for (let i = 0; i < w.length; i++) total += popcount32(w[i]);
+    const out = new Uint32Array(total);
+    let k = 0;
+    for (let i = 0; i < w.length; i++) {
+      let word = w[i];
+      while (word !== 0) {
+        const bit = 31 - Math.clz32(word & -word);
+        out[k++] = (i << 5) + bit;
+        word &= word - 1;
+      }
+    }
+    return out;
   }
 
   first(n: number): number[] {
