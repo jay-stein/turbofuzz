@@ -419,7 +419,7 @@ export class App {
       onRequestRows: (start, end, done) => {
         void this.client
           .getRows(start, end)
-          .then((message) => done(message.start, message.rows))
+          .then((message) => done(message.start, message.rows, message.groups))
           .catch(() => done(start, []));
       },
     });
@@ -443,6 +443,9 @@ export class App {
     this.summaryBand?.setSpecials(this.specialDuplicates, this.specialNulls);
 
     const active = kind === "duplicates" ? this.specialDuplicates : this.specialNulls;
+    // Grouping takes over ordering in the worker, so clear the sort indicator.
+    if (kind === "duplicates" && active) this.table?.setSort(-1, 1);
+
     this.queueSend(() =>
       this.client
         .setSpecial(kind, active)
@@ -450,7 +453,7 @@ export class App {
           this.updateCount(message.count, message.queryMs);
           this.filterPanel?.applyResults(message.facets, message.histograms);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows);
+          this.table?.setFirstRows(message.firstRows, message.firstGroups);
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -491,7 +494,7 @@ export class App {
           this.updateCount(message.count, message.queryMs);
           if (!preview) this.filterPanel?.applyResults(message.facets, message.histograms);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows);
+          this.table?.setFirstRows(message.firstRows, message.firstGroups);
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -508,7 +511,7 @@ export class App {
           this.filterPanel?.applyResults(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows);
+          this.table?.setFirstRows(message.firstRows, message.firstGroups);
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -524,7 +527,7 @@ export class App {
           this.table?.setSort(message.column, message.dir);
           this.updateCount(message.count, 0);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows);
+          this.table?.setFirstRows(message.firstRows, message.firstGroups);
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -549,7 +552,7 @@ export class App {
       this.updateCount(message.count, message.queryMs);
       this.filterPanel?.applyResults(message.facets, message.histograms);
       this.table?.setCount(message.count);
-      this.table?.setFirstRows(message.firstRows);
+      this.table?.setFirstRows(message.firstRows, message.firstGroups);
     });
   }
 

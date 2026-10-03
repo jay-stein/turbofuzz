@@ -18,7 +18,7 @@ export interface ResultTableOptions {
   onRequestRows: (
     start: number,
     end: number,
-    done: (start: number, rows: string[][]) => void,
+    done: (start: number, rows: string[][], groups?: boolean[]) => void,
   ) => void;
 }
 
@@ -35,6 +35,7 @@ export class ResultTable {
   private sortColumn = -1;
   private sortDir: 1 | -1 = 1;
   private highlights: HighlightRule[] = [];
+  private readonly groupStarts = new Set<number>();
   private readonly cache = new Map<number, string[]>();
   private pendingStart = -1;
   private pendingEnd = -1;
@@ -107,9 +108,13 @@ export class ResultTable {
   }
 
   /** Seeds the cache with the eagerly shipped first page and repaints. */
-  setFirstRows(rows: string[][]): void {
+  setFirstRows(rows: string[][], groups?: boolean[]): void {
     this.cache.clear();
-    for (let i = 0; i < rows.length; i++) this.cache.set(i, rows[i]);
+    this.groupStarts.clear();
+    for (let i = 0; i < rows.length; i++) {
+      this.cache.set(i, rows[i]);
+      if (groups?.[i] === true) this.groupStarts.add(i);
+    }
     this.pendingStart = -1;
     this.pendingEnd = -1;
     this.lastStart = -1;
@@ -224,19 +229,24 @@ export class ResultTable {
     for (let i = start; i < end; i++) {
       const row = this.cache.get(i);
       if (row === undefined) missing = true;
-      fragment.append(this.buildRow(row));
+      fragment.append(this.buildRow(i, row));
     }
     this.rowsHost.append(fragment);
 
     if (missing && (this.pendingStart !== start || this.pendingEnd !== end)) {
       this.pendingStart = start;
       this.pendingEnd = end;
-      this.options.onRequestRows(start, end, (rowsStart, rows) => {
+      this.options.onRequestRows(start, end, (rowsStart, rows, groups) => {
         if (this.pendingStart === start && this.pendingEnd === end) {
           this.pendingStart = -1;
           this.pendingEnd = -1;
         }
-        for (let i = 0; i < rows.length; i++) this.cache.set(rowsStart + i, rows[i]);
+        for (let i = 0; i < rows.length; i++) {
+          const position = rowsStart + i;
+          this.cache.set(position, rows[i]);
+          this.groupStarts.delete(position);
+          if (groups?.[i] === true) this.groupStarts.add(position);
+        }
         this.pruneCache(start);
         this.lastStart = -1;
         this.lastEnd = -1;
@@ -245,10 +255,11 @@ export class ResultTable {
     }
   }
 
-  private buildRow(row: string[] | undefined): HTMLElement {
+  private buildRow(index: number, row: string[] | undefined): HTMLElement {
     const tr = el("div", { class: "tr" });
     tr.style.gridTemplateColumns = this.gridTemplate();
     if (row === undefined) tr.classList.add("skeleton");
+    if (this.groupStarts.has(index)) tr.classList.add("group-start");
     for (let c = 0; c < this.columns.length; c++) {
       const cell = el("div", { class: "td" });
       if (row !== undefined) this.fillCell(cell, row[c] ?? "", c);

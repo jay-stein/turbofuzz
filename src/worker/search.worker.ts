@@ -32,6 +32,8 @@ let rankColumn = -1;
 let rankAsc: Uint32Array | null = null;
 let sortDir: 1 | -1 = 1;
 let exportIds: Uint32Array | null = null;
+let duplicateRank: Uint32Array | null = null;
+const specials = new Set<"duplicates" | "nulls">();
 const histogramCache = new HistogramCache();
 
 const FIRST_PAGE_ROWS = 40;
@@ -105,6 +107,51 @@ function state(): { dataset: Dataset; engine: QueryEngine } {
   return { dataset, engine };
 }
 
+/**
+ * Duplicates view: when the duplicates toggle is on and no explicit sort is
+ * active, rows are ordered by content hash so identical rows sit together.
+ */
+function computeSortedIds(bits: BitSet): Uint32Array {
+  if (specials.has("duplicates") && rankAsc === null) return orderByDuplicates(bits);
+  return orderIds(bits, rankAsc, sortDir);
+}
+
+function orderByDuplicates(bits: BitSet): Uint32Array {
+  const { dataset } = state();
+  if (duplicateRank === null) {
+    const rank = new Uint32Array(dataset.rowCount);
+    for (let i = 0; i < rank.length; i++) rank[i] = i;
+    const hashes = dataset.rowHashes;
+    rank.sort((a, b) => {
+      const ha = hashes[a];
+      const hb = hashes[b];
+      return ha === hb ? a - b : ha - hb;
+    });
+    duplicateRank = rank;
+  }
+
+  const out = new Uint32Array(bits.count());
+  let k = 0;
+  for (let i = 0; i < duplicateRank.length; i++) {
+    const row = duplicateRank[i];
+    if (bits.get(row)) out[k++] = row;
+  }
+  return out;
+}
+
+/** True where a row starts a new duplicate group (for separators). */
+function groupFlags(start: number, end: number): boolean[] | undefined {
+  if (!specials.has("duplicates") || rankAsc !== null || dataset === null) return undefined;
+  const boundedEnd = Math.min(end, sortedIds.length);
+  const flags: boolean[] = new Array(Math.max(0, boundedEnd - start));
+  const hashes = dataset.rowHashes;
+  for (let i = start; i < boundedEnd; i++) {
+    flags[i - start] =
+      i === 0 || hashes[sortedIds[i]] !== hashes[sortedIds[i - 1]];
+  }
+  return flags;
+}
+
 function handleLoad(message: LoadRequest): void {
   const started = performance.now();
   const { dataset: next, encoding } = ingestDataset({
@@ -125,6 +172,8 @@ function handleLoad(message: LoadRequest): void {
   rankAsc = null;
   sortDir = 1;
   exportIds = null;
+  duplicateRank = null;
+  specials.clear();
   histogramCache.clear();
   sortedIds = engine.evaluate(filters);
 
@@ -160,7 +209,7 @@ function handleSetFilter(message: SetFilterRequest): void {
 
   const started = performance.now();
   const bits = engine.evaluateBits(filters);
-  sortedIds = orderIds(bits, rankAsc, sortDir);
+  sortedIds = computeSortedIds(bits);
   const queryMs = performance.now() - started;
   const preview = message.preview === true;
   post({
@@ -171,6 +220,7 @@ function handleSetFilter(message: SetFilterRequest): void {
     facets: preview ? {} : computeFacets(dataset, engine, bits),
     histograms: preview ? {} : computeHistograms(dataset, engine),
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
   });
 }
 
@@ -179,7 +229,7 @@ function handleClearFilters(message: { requestId: number }): void {
   filters.clear();
   const started = performance.now();
   const bits = engine.evaluateBits(filters);
-  sortedIds = orderIds(bits, rankAsc, sortDir);
+  sortedIds = computeSortedIds(bits);
   const queryMs = performance.now() - started;
   post({
     type: "results",
@@ -189,6 +239,7 @@ function handleClearFilters(message: { requestId: number }): void {
     facets: computeFacets(dataset, engine, bits),
     histograms: computeHistograms(dataset, engine),
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
   });
 }
 
@@ -199,9 +250,20 @@ function handleSetSpecial(message: {
 }): void {
   const { dataset, engine } = state();
   engine.setSpecial(message.kind, message.active);
+  if (message.active) specials.add(message.kind);
+  else specials.delete(message.kind);
+
+  // Grouping takes over the ordering; drop any column sort so identical rows
+  // are actually adjacent.
+  if (message.kind === "duplicates" && message.active) {
+    rankColumn = -1;
+    rankAsc = null;
+    sortDir = 1;
+  }
+
   const started = performance.now();
   const bits = engine.evaluateBits(filters);
-  sortedIds = orderIds(bits, rankAsc, sortDir);
+  sortedIds = computeSortedIds(bits);
   post({
     type: "results",
     requestId: message.requestId,
@@ -210,6 +272,7 @@ function handleSetSpecial(message: {
     facets: computeFacets(dataset, engine, bits),
     histograms: computeHistograms(dataset, engine),
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
   });
 }
 
@@ -231,7 +294,7 @@ function handleSort(message: SortRequest): void {
   }
 
   const bits = engine.evaluateBits(filters);
-  sortedIds = orderIds(bits, rankAsc, sortDir);
+  sortedIds = computeSortedIds(bits);
   post({
     type: "sorted",
     requestId: message.requestId,
@@ -239,6 +302,7 @@ function handleSort(message: SortRequest): void {
     column: rankColumn,
     dir: sortDir,
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
   });
 }
 
@@ -258,11 +322,13 @@ function rowsSlice(start: number, end: number): string[][] {
 }
 
 function handleGetRows(message: GetRowsRequest): void {
+  const start = Math.max(0, message.start);
   post({
     type: "rows",
     requestId: message.requestId,
-    start: Math.max(0, message.start),
-    rows: rowsSlice(message.start, message.end),
+    start,
+    rows: rowsSlice(start, message.end),
+    groups: groupFlags(start, message.end),
   });
 }
 
@@ -282,7 +348,7 @@ function handleSetType(message: SetTypeRequest): void {
 
   const started = performance.now();
   const bits = engine.evaluateBits(filters);
-  sortedIds = orderIds(bits, rankAsc, sortDir);
+  sortedIds = computeSortedIds(bits);
   post({
     type: "columnMeta",
     requestId: message.requestId,
@@ -293,6 +359,7 @@ function handleSetType(message: SetTypeRequest): void {
     facets: computeFacets(dataset, engine, bits),
     histograms: computeHistograms(dataset, engine),
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
   });
 }
 

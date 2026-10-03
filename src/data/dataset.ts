@@ -10,6 +10,7 @@ export class Dataset {
     readonly stats: DatasetStats,
     readonly duplicateBits: BitSet,
     readonly nullRowBits: BitSet,
+    readonly rowHashes: Uint32Array,
   ) {}
 
   get columnCount(): number {

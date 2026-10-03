@@ -144,6 +144,7 @@ export interface ResultsMessage {
   facets: Record<number, number[]>;
   histograms: Record<number, number[]>;
   firstRows: string[][];
+  firstGroups?: boolean[];
 }
 
 export interface SortedMessage {
@@ -153,6 +154,7 @@ export interface SortedMessage {
   column: number;
   dir: 1 | -1;
   firstRows: string[][];
+  firstGroups?: boolean[];
 }
 
 export interface RowsMessage {
@@ -160,6 +162,7 @@ export interface RowsMessage {
   requestId: number;
   start: number;
   rows: string[][];
+  groups?: boolean[];
 }
 
 export interface ColumnMetaMessage {
@@ -172,6 +175,7 @@ export interface ColumnMetaMessage {
   facets: Record<number, number[]>;
   histograms: Record<number, number[]>;
   firstRows: string[][];
+  firstGroups?: boolean[];
 }
 
 export interface StatsMessage {

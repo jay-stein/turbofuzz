@@ -16,6 +16,7 @@ export interface IngestStats {
   stats: DatasetStats;
   duplicateBits: BitSet;
   nullRowBits: BitSet;
+  rowHashes: Uint32Array;
 }
 
 /**
@@ -129,5 +130,6 @@ export function computeDatasetStats(
     },
     duplicateBits,
     nullRowBits,
+    rowHashes: hashes,
   };
 }
