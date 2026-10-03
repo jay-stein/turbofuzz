@@ -91,6 +91,17 @@ export class ResultTable {
     this.render();
   }
 
+  /** Seeds the cache with the eagerly shipped first page and repaints. */
+  setFirstRows(rows: string[][]): void {
+    this.cache.clear();
+    for (let i = 0; i < rows.length; i++) this.cache.set(i, rows[i]);
+    this.pendingStart = -1;
+    this.pendingEnd = -1;
+    this.lastStart = -1;
+    this.lastEnd = -1;
+    this.render();
+  }
+
   private toggleSort(column: number): void {
     let dir: 1 | -1 | 0;
     if (this.sortColumn !== column) dir = 1;

@@ -54,6 +54,9 @@ export class App {
   private rowCount = 0;
   private datasetName = "";
   private loading = false;
+  private generation = 0;
+  private inFlight = false;
+  private pendingSend: { generation: number; send: () => Promise<void> } | null = null;
   private filters = new Map<number, ColumnFilter>();
   private filterPanel: FilterPanel | null = null;
   private table: ResultTable | null = null;
@@ -248,6 +251,8 @@ export class App {
   }): Promise<void> {
     if (this.loading) return;
     this.loading = true;
+    this.generation++;
+    this.pendingSend = null;
     this.statusEl.textContent = "Parsing…";
     this.statusEl.classList.remove("error");
 
@@ -329,49 +334,78 @@ export class App {
     this.updateGuardrail(loaded, loaded.source === "file");
   }
 
+  /**
+   * Keeps at most one query in flight; a newer interaction replaces the
+   * pending one instead of queueing behind a slow index build or sort.
+   */
+  private queueSend(send: () => Promise<void>): void {
+    if (this.inFlight) {
+      this.pendingSend = { generation: this.generation, send };
+      return;
+    }
+    this.runSend(send);
+  }
+
+  private runSend(send: () => Promise<void>): void {
+    this.inFlight = true;
+    void send().finally(() => {
+      this.inFlight = false;
+      const next = this.pendingSend;
+      this.pendingSend = null;
+      if (next !== null && next.generation === this.generation) this.runSend(next.send);
+    });
+  }
+
   private changeFilter(column: number, filter: ColumnFilter | null): void {
     if (filter === null) this.filters.delete(column);
     else this.filters.set(column, filter);
 
     this.table?.setHighlights(this.highlightRules());
 
-    void this.client
-      .setFilter(column, filter)
-      .then((message) => {
-        this.updateCount(message.count, message.queryMs);
-        this.filterPanel?.applyResults(message.facets, message.histograms);
-        this.table?.setCount(message.count);
-        this.table?.invalidateRows();
-      })
-      .catch((error: unknown) => this.showError(error));
+    this.queueSend(() =>
+      this.client
+        .setFilter(column, filter)
+        .then((message) => {
+          this.updateCount(message.count, message.queryMs);
+          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(message.firstRows);
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
   }
 
   private changeType(column: number, type: ColumnType): void {
-    void this.client
-      .setType(column, type)
-      .then((message) => {
-        this.metas[column] = message.meta;
-        this.filters.delete(column);
-        this.filterPanel?.updateMeta(column, message.meta);
-        this.filterPanel?.applyResults(message.facets, message.histograms);
-        this.updateCount(message.count, message.queryMs);
-        this.table?.setCount(message.count);
-        this.table?.invalidateRows();
-      })
-      .catch((error: unknown) => this.showError(error));
+    this.queueSend(() =>
+      this.client
+        .setType(column, type)
+        .then((message) => {
+          this.metas[column] = message.meta;
+          this.filters.delete(column);
+          this.filterPanel?.updateMeta(column, message.meta);
+          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.updateCount(message.count, message.queryMs);
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(message.firstRows);
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
   }
 
   private changeSort(column: number, dir: 1 | -1 | 0): void {
     const sortColumn = dir === 0 ? -1 : column;
     const sortDir: 1 | -1 = dir === 0 ? 1 : dir;
-    void this.client
-      .sort(sortColumn, sortDir)
-      .then((message) => {
-        this.table?.setSort(message.column, message.dir);
-        this.updateCount(message.count, 0);
-        this.table?.invalidateRows();
-      })
-      .catch((error: unknown) => this.showError(error));
+    this.queueSend(() =>
+      this.client
+        .sort(sortColumn, sortDir)
+        .then((message) => {
+          this.table?.setSort(message.column, message.dir);
+          this.updateCount(message.count, 0);
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(message.firstRows);
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
   }
 
   private clearFilters(): void {
@@ -379,15 +413,17 @@ export class App {
     this.filters.clear();
     this.filterPanel?.rebuild();
     this.table?.setHighlights([]);
-    void this.client
-      .clearFilters()
-      .then((message) => {
-        this.updateCount(message.count, message.queryMs);
-        this.filterPanel?.applyResults(message.facets, message.histograms);
-        this.table?.setCount(message.count);
-        this.table?.invalidateRows();
-      })
-      .catch((error: unknown) => this.showError(error));
+    this.queueSend(() =>
+      this.client
+        .clearFilters()
+        .then((message) => {
+          this.updateCount(message.count, message.queryMs);
+          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(message.firstRows);
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
   }
 
   private openStats(): void {
