@@ -143,7 +143,7 @@ export class FuzzyIndex {
 
       if (qt.length < 3) {
         const start = profile ? performance.now() : 0;
-        const matched = this.matchPrefix(qt);
+        const matched = this.matchShort(qt);
         ids = matched.ids;
         scores = matched.scores;
         candidateCount += ids.length;
@@ -272,15 +272,48 @@ export class FuzzyIndex {
     }
 
     const out: number[] = [];
+    const seen = new Set<number>();
     for (let i = 0; i < touched.length; i++) {
       const id = touched[i];
       if (this.votes[id] < minVotes) continue;
       const tok = this.tokens[id];
       if (Math.abs(tok.length - qLen) > k) continue;
       if (popcount32(qMask & ~this.masks[id]) > k) continue;
+      seen.add(id);
+      out.push(id);
+    }
+
+    // Prefix matches bypass the length window: identifiers like "mac000007"
+    // are legitimate fuzzy matches for "mac" even though Jaro-Winkler scores
+    // them well, the bigram prefilter's length check would drop them first.
+    const prefix = this.matchPrefix(q);
+    for (let i = 0; i < prefix.ids.length; i++) {
+      const id = prefix.ids[i];
+      if (seen.has(id)) continue;
+      seen.add(id);
       out.push(id);
     }
     return out;
+  }
+
+  /**
+   * Short queries (1-2 chars) are below the bigram index's resolution:
+   * match tokens that start with or contain the text.
+   */
+  private matchShort(q: string): { ids: number[]; scores: number[] } {
+    const prefix = this.matchPrefix(q);
+    const ids = prefix.ids;
+    const scores = prefix.scores;
+    const seen = new Set<number>(ids);
+    const tokens = this.tokens;
+    for (let id = 0; id < tokens.length; id++) {
+      if (seen.has(id)) continue;
+      if (tokens[id].includes(q)) {
+        ids.push(id);
+        scores.push(0.85);
+      }
+    }
+    return { ids, scores };
   }
 
   private matchPrefix(q: string): { ids: number[]; scores: number[] } {
