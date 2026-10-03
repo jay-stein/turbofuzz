@@ -1,4 +1,5 @@
 import { clear, el } from "./dom.js";
+import { isNullToken } from "../parse/null-tokens.js";
 
 const ROW_HEIGHT = 28;
 const DEFAULT_COL_WIDTH = 180;
@@ -35,6 +36,7 @@ export class ResultTable {
   private sortColumn = -1;
   private sortDir: 1 | -1 = 1;
   private highlights: HighlightRule[] = [];
+  private nullHighlight = false;
   private readonly groupStarts = new Set<number>();
   private readonly cache = new Map<number, string[]>();
   private pendingStart = -1;
@@ -80,6 +82,15 @@ export class ResultTable {
     this.sortColumn = column;
     this.sortDir = dir;
     this.renderHeader();
+  }
+
+  /** Tints null/empty cells; used while the Null rows filter is active. */
+  setNullHighlight(active: boolean): void {
+    if (this.nullHighlight === active) return;
+    this.nullHighlight = active;
+    this.lastStart = -1;
+    this.lastEnd = -1;
+    this.render();
   }
 
   setHighlights(highlights: HighlightRule[]): void {
@@ -278,6 +289,12 @@ export class ResultTable {
   }
 
   private fillCell(cell: HTMLElement, value: string, columnIndex: number): void {
+    if (this.nullHighlight && isNullToken(value)) {
+      cell.classList.add("null-cell");
+      cell.textContent = value;
+      return;
+    }
+
     const rule = this.highlights.find((candidate) => candidate.column === columnIndex);
     if (rule === undefined || rule.query.trim() === "") {
       cell.textContent = value;

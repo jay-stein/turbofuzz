@@ -445,6 +445,7 @@ export class App {
     const active = kind === "duplicates" ? this.specialDuplicates : this.specialNulls;
     // Grouping takes over ordering in the worker, so clear the sort indicator.
     if (kind === "duplicates" && active) this.table?.setSort(-1, 1);
+    if (kind === "nulls") this.table?.setNullHighlight(active);
 
     this.queueSend(() =>
       this.client
@@ -544,6 +545,7 @@ export class App {
     this.summaryBand?.setSpecials(false, false);
     this.filterPanel?.rebuild();
     this.table?.setHighlights([]);
+    this.table?.setNullHighlight(false);
 
     this.queueSend(async () => {
       if (hadDuplicates) await this.client.setSpecial("duplicates", false);
