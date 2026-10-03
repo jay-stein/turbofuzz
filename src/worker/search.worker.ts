@@ -137,7 +137,7 @@ function handleSetFilter(message: SetFilterRequest): void {
     count: sortedIds.length,
     queryMs,
     facets: computeFacets(dataset, engine, bits),
-    histograms: {},
+    histograms: computeHistograms(dataset, engine),
   });
 }
 
@@ -154,7 +154,7 @@ function handleClearFilters(message: { requestId: number }): void {
     count: sortedIds.length,
     queryMs,
     facets: computeFacets(dataset, engine, bits),
-    histograms: {},
+    histograms: computeHistograms(dataset, engine),
   });
 }
 
@@ -226,7 +226,7 @@ function handleSetType(message: SetTypeRequest): void {
     count: sortedIds.length,
     queryMs: performance.now() - started,
     facets: computeFacets(dataset, engine, bits),
-    histograms: {},
+    histograms: computeHistograms(dataset, engine),
   });
 }
 
@@ -319,7 +319,49 @@ function metaFor(column: ColumnData): ColumnMeta {
     const built = column.categories();
     categories = { labels: built.labels, counts: built.counts };
   }
-  return { name: column.name, type: column.type, stats: column.stats, categories, histogram: null };
+  return {
+    name: column.name,
+    type: column.type,
+    stats: column.stats,
+    categories,
+    histogram: column.histogram(),
+  };
+}
+
+/**
+ * Filtered histograms for range-filtered columns. The distribution excludes
+ * the column's own filter so the full baseline stays visible while the
+ * selected band is highlighted in the UI.
+ */
+function computeHistograms(
+  dataset: Dataset,
+  engine: QueryEngine,
+): Record<number, number[]> {
+  const histograms: Record<number, number[]> = {};
+  for (const [columnIndex, filter] of filters) {
+    if (filter.kind !== "range") continue;
+    const column = dataset.columns[columnIndex];
+    const base = column.histogram();
+    if (base === null) continue;
+
+    const numbers = column.numbers();
+    const baseBits = engine.evaluateBits(filters, columnIndex);
+    const binCount = base.bins.length;
+    const bins = new Array<number>(binCount).fill(0);
+    const scale = base.max > base.min ? binCount / (base.max - base.min) : 0;
+
+    for (let row = 0; row < dataset.rowCount; row++) {
+      if (!baseBits.get(row)) continue;
+      const value = numbers[row];
+      if (!Number.isFinite(value)) continue;
+      let bin = scale > 0 ? Math.floor((value - base.min) * scale) : 0;
+      if (bin < 0) bin = 0;
+      else if (bin >= binCount) bin = binCount - 1;
+      bins[bin]++;
+    }
+    histograms[columnIndex] = bins;
+  }
+  return histograms;
 }
 
 function detailsFor(column: ColumnData): ColumnDetail {

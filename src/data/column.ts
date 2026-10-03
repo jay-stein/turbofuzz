@@ -25,6 +25,7 @@ export class ColumnData {
   private cats: CategorySet | null = null;
   private medianValue: number | null = null;
   private medianComputed = false;
+  private histCache: { bins: number[]; min: number; max: number } | null = null;
 
   constructor(
     readonly name: string,
@@ -108,6 +109,7 @@ export class ColumnData {
     this.stats.stddev = null;
     this.medianValue = null;
     this.medianComputed = false;
+    this.histCache = null;
     if (type === "date") {
       this.dateOrder = detectDateOrder(stratifiedSample(this.raw, 500));
     }
@@ -171,6 +173,42 @@ export class ColumnData {
       this.nums = out;
     }
     return this.nums;
+  }
+
+  /**
+   * Static full-column histogram for numeric/date columns. One O(rows) scan,
+   * cached; the UI uses it as the baseline distribution behind active range
+   * filters.
+   */
+  histogram(binCount = 64): { bins: number[]; min: number; max: number } | null {
+    const numeric = this.type === "integer" || this.type === "number" || this.type === "date";
+    if (!numeric) return null;
+    if (this.histCache !== null && this.histCache.bins.length === binCount) return this.histCache;
+
+    const numbers = this.numbers();
+    const min = this.stats.min;
+    const max = this.stats.max;
+    if (min === null || max === null) return null;
+
+    const bins = new Array<number>(binCount).fill(0);
+    if (max > min) {
+      const scale = binCount / (max - min);
+      for (let i = 0; i < numbers.length; i++) {
+        const value = numbers[i];
+        if (!Number.isFinite(value)) continue;
+        let bin = Math.floor((value - min) * scale);
+        if (bin < 0) bin = 0;
+        else if (bin >= binCount) bin = binCount - 1;
+        bins[bin]++;
+      }
+    } else {
+      for (let i = 0; i < numbers.length; i++) {
+        if (Number.isFinite(numbers[i])) bins[0]++;
+      }
+    }
+
+    this.histCache = { bins, min, max };
+    return this.histCache;
   }
 
   /**

@@ -59,6 +59,20 @@ test("median of an even count averages the middle values", () => {
   assert.equal(dataset.columns[0].median(), 2.5);
 });
 
+test("numeric histogram bins values and clamps the last bin", () => {
+  const dataset = buildDataset("t", ["n"], [["0"], ["25"], ["50"], ["75"], ["100"]]);
+  const histogram = dataset.columns[0].histogram(4);
+  assert.ok(histogram !== null);
+  assert.deepEqual(histogram.bins, [1, 1, 1, 2]);
+  assert.equal(histogram.min, 0);
+  assert.equal(histogram.max, 100);
+});
+
+test("histogram is null for non-numeric columns", () => {
+  const dataset = buildDataset("t", ["n"], [["alpha"], ["beta"], ["gamma"]]);
+  assert.equal(dataset.columns[0].histogram(8), null);
+});
+
 test("medianSampled is exact for small columns", () => {
   const dataset = buildDataset("t", ["n"], [["2"], ["4"], ["6"], ["8"]]);
   assert.equal(dataset.columns[0].medianSampled(100), 5);
