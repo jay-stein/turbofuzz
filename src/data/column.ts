@@ -46,6 +46,7 @@ export class ColumnData {
       nulls: 0,
       distinct: 0,
       samples: [],
+      topValues: [],
       min: null,
       max: null,
       mean: null,
@@ -55,7 +56,8 @@ export class ColumnData {
       avgLength: null,
     };
     const nullMask = new BitSet(raw.length);
-    const seen = new Set<string>();
+    const counts = new Map<string, number>();
+    const top: { label: string; count: number }[] = [];
     let presentCount = 0;
     let lengthSum = 0;
     let minLength = Infinity;
@@ -68,7 +70,7 @@ export class ColumnData {
         nullMask.set(i);
         continue;
       }
-      seen.add(value);
+      counts.set(value, (counts.get(value) ?? 0) + 1);
       if (stats.samples.length < 5) stats.samples.push(value);
       presentCount++;
       const length = value.trim().length;
@@ -76,12 +78,24 @@ export class ColumnData {
       if (length < minLength) minLength = length;
       if (length > maxLength) maxLength = length;
     }
-    stats.distinct = seen.size;
+    stats.distinct = counts.size;
     if (presentCount > 0) {
       stats.minLength = minLength;
       stats.maxLength = maxLength;
       stats.avgLength = lengthSum / presentCount;
     }
+
+    // Bounded top-3 selection: no full sort over potentially millions of keys.
+    for (const [label, count] of counts) {
+      if (top.length < 3) {
+        top.push({ label, count });
+        top.sort((a, b) => b.count - a.count);
+      } else if (count > top[2].count) {
+        top[2] = { label, count };
+        top.sort((a, b) => b.count - a.count);
+      }
+    }
+    stats.topValues = top;
 
     const sample = stratifiedSample(raw, 1000);
     const inferred = inferColumnType(sample, stats, raw.length);

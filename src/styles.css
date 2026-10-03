@@ -375,8 +375,8 @@ textarea:focus {
 
 .stat-card {
   flex: none;
-  width: 158px;
-  height: 88px;
+  width: 164px;
+  height: 104px;
   text-align: left;
   display: flex;
   flex-direction: column;
@@ -459,29 +459,29 @@ textarea:focus {
   stroke-linejoin: round;
 }
 
-.cat-bars {
+.top-values {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-top: 1px;
+  margin-top: 2px;
 }
 
-.cat-row {
+.top-row {
   display: flex;
   align-items: center;
   gap: 5px;
 }
 
-.cat-label {
+.top-label {
   font-size: 10.5px;
-  color: var(--text-dim);
-  max-width: 56px;
+  color: var(--text);
+  max-width: 54px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.cat-bar {
+.top-bar {
   flex: 1;
   height: 5px;
   background: var(--panel-2);
@@ -489,10 +489,17 @@ textarea:focus {
   overflow: hidden;
 }
 
-.cat-bar i {
+.top-bar i {
   display: block;
   height: 100%;
   background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.top-count {
+  flex: none;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--text-dim);
 }
 
 .filter-card.flash {

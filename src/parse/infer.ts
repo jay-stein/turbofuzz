@@ -8,10 +8,16 @@ export interface InferredType {
   dateOrder?: DateOrder;
 }
 
+export interface TopValue {
+  label: string;
+  count: number;
+}
+
 export interface ColumnStats {
   nulls: number;
   distinct: number;
   samples: string[];
+  topValues: TopValue[];
   min: number | null;
   max: number | null;
   mean: number | null;

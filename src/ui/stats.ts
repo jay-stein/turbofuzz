@@ -115,10 +115,18 @@ function describe(column: StatsMessage["columns"][number]): string {
   }
 
   if (column.type === "string" || column.type === "identifier") {
-    if (column.avgLength === null || column.minLength === null || column.maxLength === null) {
-      return "—";
+    const parts: string[] = [];
+    if (column.topValues !== null && column.topValues.length > 0) {
+      parts.push(
+        column.topValues
+          .map((entry) => `${entry.label} ${entry.count.toLocaleString()}`)
+          .join(" · "),
+      );
     }
-    return `length avg ${column.avgLength.toFixed(1)} (${column.minLength}–${column.maxLength})`;
+    if (column.avgLength !== null && column.minLength !== null && column.maxLength !== null) {
+      parts.push(`len avg ${column.avgLength.toFixed(1)} (${column.minLength}–${column.maxLength})`);
+    }
+    return parts.length > 0 ? parts.join(" · ") : "—";
   }
 
   if (column.min === null || column.max === null) return "—";

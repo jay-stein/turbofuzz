@@ -1,7 +1,13 @@
 import { clear, el } from "./dom.js";
 import { toDateInputValue } from "../parse/dates.js";
+import type { TopValue } from "../parse/infer.js";
 import { TYPE_LABELS } from "../types.js";
 import type { ColumnMeta, LoadedMessage } from "../worker/protocol.js";
+
+const COMPACT = new Intl.NumberFormat(undefined, {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
 
 export interface SummaryBandCallbacks {
   onToggleSpecial: (kind: "duplicates" | "nulls") => void;
@@ -146,8 +152,8 @@ export class SummaryBand {
         main.textContent = "—";
       }
       card.append(main);
-    } else if (meta.categories !== null && meta.categories.labels.length > 0) {
-      card.append(buildCategoryBars(meta));
+    } else if (meta.stats.topValues.length > 0) {
+      card.append(buildTopValues(meta.stats.topValues));
     } else {
       card.append(
         el("div", { class: "stat-card-main" }, [`${meta.stats.distinct.toLocaleString()} distinct`]),
@@ -197,25 +203,23 @@ function buildSparkline(bins: number[]): SVGElement {
   return svg;
 }
 
-function buildCategoryBars(meta: ColumnMeta): HTMLElement {
-  const wrap = el("div", { class: "cat-bars" });
-  const categories = meta.categories;
-  if (categories === null) return wrap;
+function buildTopValues(topValues: TopValue[]): HTMLElement {
+  const wrap = el("div", { class: "top-values" });
+  const max = topValues[0]?.count ?? 1;
 
-  const entries = categories.labels.map((label, index) => ({
-    label,
-    count: categories.counts[index],
-  }));
-  entries.sort((a, b) => b.count - a.count);
-  const max = entries.length > 0 ? entries[0].count : 1;
-
-  for (const entry of entries.slice(0, 3)) {
-    const row = el("div", { class: "cat-row" });
-    const bar = el("span", { class: "cat-bar" });
+  for (const entry of topValues.slice(0, 3)) {
+    const row = el("div", { class: "top-row" });
+    const bar = el("span", { class: "top-bar" });
     const fill = el("i");
     fill.style.width = `${max > 0 ? Math.max(3, (entry.count / max) * 100) : 0}%`;
     bar.append(fill);
-    row.append(el("span", { class: "cat-label", title: entry.label }, [entry.label]), bar);
+    row.append(
+      el("span", { class: "top-label", title: entry.label }, [entry.label]),
+      bar,
+      el("span", { class: "top-count", title: entry.count.toLocaleString() }, [
+        COMPACT.format(entry.count),
+      ]),
+    );
     wrap.append(row);
   }
   return wrap;

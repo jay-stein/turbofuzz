@@ -394,6 +394,8 @@ function detailsFor(column: ColumnData): ColumnDetail {
       .map((label, index) => ({ label, count: built.counts[index] }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
+  } else if (column.stats.topValues.length > 0) {
+    topValues = column.stats.topValues;
   }
 
   return {

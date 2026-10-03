@@ -92,6 +92,19 @@ test("histogram is null for non-numeric columns", () => {
   assert.equal(dataset.columns[0].histogram(8), null);
 });
 
+test("stats carry the top three values with exact counts", () => {
+  const dataset = buildDataset(
+    "t",
+    ["v"],
+    [["a"], ["b"], ["a"], ["c"], ["a"], ["b"], ["d"]],
+  );
+  assert.deepEqual(dataset.columns[0].stats.topValues, [
+    { label: "a", count: 3 },
+    { label: "b", count: 2 },
+    { label: "c", count: 1 },
+  ]);
+});
+
 test("medianSampled is exact for small columns", () => {
   const dataset = buildDataset("t", ["n"], [["2"], ["4"], ["6"], ["8"]]);
   assert.equal(dataset.columns[0].medianSampled(100), 5);
