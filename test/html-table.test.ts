@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import { firstTableRows } from "../src/ui/html-table.js";
+import { findDataTables, firstTableRows } from "../src/ui/html-table.js";
 
 const window = new Window();
 (globalThis as Record<string, unknown>).DOMParser = window.DOMParser;
@@ -110,6 +110,56 @@ test("excludes statically hidden tables", () => {
     ["Name", "Age"],
     ["Alice", "30"],
   ]);
+});
+
+test("findDataTables returns descriptors and data sizes, best first", () => {
+  const html = `
+    <h2>Quarterly performance</h2>
+    <table>
+      <tr><th>Region</th><th>Q1</th></tr>
+      <tr><td>North</td><td>10</td></tr>
+      <tr><td>South</td><td>20</td></tr>
+    </table>
+    <table aria-label="Small extras">
+      <tr><th>X</th><th>Y</th></tr>
+      <tr><td>1</td><td>2</td></tr>
+    </table>`;
+
+  const tables = findDataTables(html, 10);
+  assert.equal(tables.length, 2);
+  assert.equal(tables[0].label, "Quarterly performance");
+  assert.deepEqual([tables[0].rows, tables[0].columns], [2, 2]);
+  assert.equal(tables[1].label, "Small extras");
+});
+
+test("findDataTables prefers a caption and falls back to generic numbering", () => {
+  const html = `
+    <table>
+      <caption>Sales by region</caption>
+      <tr><th>A</th><th>B</th></tr>
+      <tr><td>1</td><td>2</td></tr>
+    </table>
+    <table>
+      <tr><th>A</th><th>B</th></tr>
+      <tr><td>3</td><td>4</td></tr>
+    </table>`;
+
+  const tables = findDataTables(html, 10);
+  assert.equal(tables[0].label, "Sales by region");
+  assert.equal(tables[1].label, "Table 2");
+});
+
+test("findDataTables respects the limit and excludes degenerate tables", () => {
+  const html = `
+    <table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>
+    <table><tr><th>A</th><th>B</th></tr><tr><td>3</td><td>4</td></tr></table>
+    <table><tr><td>junk</td></tr></table>`;
+
+  assert.equal(findDataTables(html, 1).length, 1);
+  const all = findDataTables(html, 10);
+  assert.equal(all.length, 2);
+  assert.equal(all[0].label, "Table 1");
+  assert.equal(all[1].label, "Table 2");
 });
 
 test("stitches an adjacent header-only table onto its data table", () => {

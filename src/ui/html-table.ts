@@ -2,6 +2,13 @@ export interface ScrapedTable {
   rows: string[][];
 }
 
+export interface TableCandidate {
+  label: string;
+  rows: number;
+  columns: number;
+  grid: string[][];
+}
+
 interface Candidate {
   element: Element;
   grid: string[][];
@@ -163,10 +170,6 @@ function maxColumns(grid: string[][]): number {
   return grid.reduce((max, row) => Math.max(max, row.length), 0);
 }
 
-function isDataShaped(grid: string[][]): boolean {
-  return grid.length >= 3 && maxColumns(grid) >= 2;
-}
-
 function isMinimumShape(grid: string[][]): boolean {
   return grid.length >= 2 && maxColumns(grid) >= 2;
 }
@@ -240,15 +243,75 @@ function isExcluded(element: Element): boolean {
   return isStaticallyHidden(element);
 }
 
+function cleanText(raw: string | null | undefined): string {
+  return (raw ?? "").replace(/\s+/g, " ").trim().slice(0, 100);
+}
+
+function headingText(element: Element): string | null {
+  if (/^H[1-6]$/.test(element.tagName)) {
+    const text = cleanText(element.textContent);
+    return text === "" ? null : text;
+  }
+  for (const child of Array.from(element.children)) {
+    if (/^H[1-6]$/.test(child.tagName)) {
+      const text = cleanText(child.textContent);
+      if (text !== "") return text;
+    }
+  }
+  return null;
+}
+
+/** Nearest preceding heading, walking up a few ancestor levels. */
+function nearestHeading(element: Element): string | null {
+  let node: Element | null = element;
+  for (let depth = 0; depth < 3 && node !== null; depth++) {
+    let sibling = node.previousElementSibling;
+    while (sibling !== null) {
+      const heading = headingText(sibling);
+      if (heading !== null) return heading;
+      sibling = sibling.previousElementSibling;
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function descriptorFor(element: Element): string | null {
+  for (const child of Array.from(element.children)) {
+    if (child.tagName === "CAPTION") {
+      const text = cleanText(child.textContent);
+      if (text !== "") return text;
+    }
+  }
+  const aria = cleanText(element.getAttribute("aria-label"));
+  if (aria !== "") return aria;
+  const summary = cleanText(element.getAttribute("summary"));
+  if (summary !== "") return summary;
+
+  const figure = element.closest("figure");
+  const figcaption = figure?.querySelector("figcaption");
+  if (figcaption !== null && figcaption !== undefined) {
+    const text = cleanText(figcaption.textContent);
+    if (text !== "") return text;
+  }
+
+  return nearestHeading(element);
+}
+
+function dataRowCount(candidate: Candidate): number {
+  const hasHeader = candidate.headerFlags[0] === true;
+  return Math.max(0, candidate.grid.length - (hasHeader ? 1 : 0));
+}
+
 /**
- * Picks the single most data-rich grid on a page and extracts it.
+ * Finds up to `limit` data-rich grids on a page, best first.
  *
  * Candidates: HTML tables plus ARIA tables/grids/treegrids (covers many
  * server-rendered React/Angular grids). Declarative shadow DOM roots are also
  * scanned; imperative shadow DOM, iframes and JS-rendered grids are not
  * present in raw HTML and therefore out of scope for this static scraper.
  */
-export function firstTableRows(html: string): string[][] | null {
+export function findDataTables(html: string, limit = 10): TableCandidate[] {
   const doc = new DOMParser().parseFromString(html, "text/html");
 
   const roots: ParentNode[] = [doc];
@@ -275,7 +338,7 @@ export function firstTableRows(html: string): string[][] | null {
       });
     }
   }
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) return [];
 
   stitchHeaderTables(candidates);
   const live = candidates.filter((candidate) => !candidate.consumed);
@@ -283,13 +346,28 @@ export function firstTableRows(html: string): string[][] | null {
   const scored = live
     .filter((candidate) => isMinimumShape(candidate.grid))
     .map((candidate) => ({ candidate, score: dataRichnessScore(candidate) }));
-  if (scored.length === 0) return null;
+  if (scored.length === 0) return [];
 
-  const solid = scored.filter((entry) => isDataShaped(entry.candidate.grid));
-  const pool = solid.length > 0 ? solid : scored;
+  const pool = scored;
   pool.sort((a, b) => b.score - a.score);
 
-  const rows = pool[0].candidate.grid.map((row) => row.slice());
-  while (rows.length > 0 && rows[0].every((cell) => cell === "")) rows.shift();
-  return rows.length > 0 ? rows : null;
+  return pool.slice(0, Math.max(1, limit)).flatMap((entry, index) => {
+    const rows = entry.candidate.grid.map((row) => row.slice());
+    while (rows.length > 0 && rows[0].every((cell) => cell === "")) rows.shift();
+    if (rows.length === 0) return [];
+    return [
+      {
+        label: descriptorFor(entry.candidate.element) ?? `Table ${index + 1}`,
+        rows: dataRowCount(entry.candidate),
+        columns: maxColumns(entry.candidate.grid),
+        grid: rows,
+      },
+    ];
+  });
+}
+
+/** Convenience wrapper: the single most data-rich grid, or null. */
+export function firstTableRows(html: string): string[][] | null {
+  const best = findDataTables(html, 1)[0];
+  return best === undefined ? null : best.grid;
 }

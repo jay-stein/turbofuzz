@@ -5,7 +5,7 @@ import type { ColumnType } from "../types.js";
 import type { ColumnMeta, LoadedMessage, ProgressMessage } from "../worker/protocol.js";
 import { clear, el } from "./dom.js";
 import { FilterPanel } from "./filters.js";
-import { firstTableRows } from "./html-table.js";
+import { findDataTables, type TableCandidate } from "./html-table.js";
 import { sampleCsv } from "./sample.js";
 import { SummaryBand } from "./summary-band.js";
 import { openStatsModal } from "./stats.js";
@@ -118,6 +118,9 @@ export class App {
   private textarea!: HTMLTextAreaElement;
   private urlInput!: HTMLInputElement;
   private urlButton!: HTMLButtonElement;
+  private tablePickerEl!: HTMLElement;
+  private tablePickerTitle!: HTMLElement;
+  private tablePickerList!: HTMLElement;
   private delimiterSelect!: HTMLSelectElement;
   private headersCheckbox!: HTMLInputElement;
   private statusEl!: HTMLElement;
@@ -285,6 +288,15 @@ export class App {
     );
     card.append(urlSection);
 
+    const pickerHead = el("div", { class: "table-picker-head" });
+    this.tablePickerTitle = el("span", { class: "table-picker-title" });
+    const pickerCancel = el("button", { class: "link", type: "button" }, ["Cancel"]);
+    pickerCancel.addEventListener("click", () => this.hideTablePicker());
+    pickerHead.append(this.tablePickerTitle, pickerCancel);
+    this.tablePickerList = el("div", { class: "table-picker-list" });
+    this.tablePickerEl = el("div", { class: "table-picker hidden" }, [pickerHead, this.tablePickerList]);
+    card.append(this.tablePickerEl);
+
     this.statusEl = el("div", { class: "status" });
     card.append(this.statusEl);
 
@@ -379,6 +391,7 @@ export class App {
     this.loading = true;
     this.generation++;
     this.pendingSend = null;
+    this.hideTablePicker();
     this.statusEl.textContent = "Parsing…";
     this.statusEl.classList.remove("error");
 
@@ -412,6 +425,7 @@ export class App {
       this.setStatusError("Enter a URL first.");
       return;
     }
+    this.hideTablePicker();
     try {
       this.statusEl.textContent = "Downloading…";
       this.statusEl.classList.remove("error");
@@ -432,12 +446,54 @@ export class App {
       }
 
       const html = decodeText(buffer).text;
-      const rows = firstTableRows(html);
-      if (rows === null) throw new Error("No <table> found on that page");
-      await this.loadTable(rows, nameFromUrl(url));
+      const tables = findDataTables(html, 10);
+      if (tables.length === 0) throw new Error("No data tables found on that page");
+      if (tables.length === 1) {
+        await this.loadTable(tables[0].grid, this.tableNameFor(tables[0], url));
+        return;
+      }
+      this.statusEl.textContent = "";
+      this.showTablePicker(tables, url);
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Download failed");
     }
+  }
+
+  private tableNameFor(table: TableCandidate, url: string): string {
+    return table.label.startsWith("Table ") ? nameFromUrl(url) : table.label;
+  }
+
+  private hideTablePicker(): void {
+    this.tablePickerEl.classList.add("hidden");
+  }
+
+  private showTablePicker(tables: TableCandidate[], url: string): void {
+    clear(this.tablePickerList);
+    this.tablePickerTitle.textContent =
+      tables.length === 1 ? "1 table found" : `${tables.length} tables found — pick one`;
+
+    tables.forEach((table, index) => {
+      const option = el("button", { class: "table-option", type: "button" });
+      option.append(el("span", { class: "table-option-index" }, [`Table ${index + 1}`]));
+      if (!table.label.startsWith("Table ")) {
+        option.append(el("span", { class: "table-option-name" }, [table.label]));
+      }
+      if (index === 0) {
+        option.append(el("span", { class: "table-option-best" }, ["best match"]));
+      }
+      option.append(
+        el("span", { class: "table-option-size" }, [
+          `${table.rows.toLocaleString()} rows × ${table.columns} columns`,
+        ]),
+      );
+      option.addEventListener("click", () => {
+        this.hideTablePicker();
+        void this.loadTable(table.grid, this.tableNameFor(table, url));
+      });
+      this.tablePickerList.append(option);
+    });
+
+    this.tablePickerEl.classList.remove("hidden");
   }
 
   private updateUrlButton(): void {
