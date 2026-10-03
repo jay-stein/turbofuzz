@@ -1,0 +1,21 @@
+{
+  "name": "table-fuzzy-search",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser-based fuzzy search over tabular data (client-side, no backend)",
+  "scripts": {
+    "bench": "tsx bench/run.ts",
+    "bench:quick": "tsx bench/run.ts --sizes=10000 --iterations=10",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@leeoniya/ufuzzy": "^1.0.19",
+    "@types/flexsearch": "^0.7.6",
+    "@types/node": "^26.6.4",
+    "flexsearch": "^0.7.43",
+    "fuse.js": "^7.5.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
