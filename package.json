@@ -22,6 +22,7 @@
     "@types/papaparse": "^5.5.2",
     "flexsearch": "^0.7.43",
     "fuse.js": "^7.5.0",
+    "happy-dom": "^20.14.5",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.2"
