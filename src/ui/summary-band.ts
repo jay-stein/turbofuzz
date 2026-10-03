@@ -25,6 +25,7 @@ export class SummaryBand {
   private nullButton!: HTMLButtonElement;
   private duplicateCount = 0;
   private nullCount = 0;
+  private renderToken = 0;
 
   constructor(
     private readonly root: HTMLElement,
@@ -39,7 +40,8 @@ export class SummaryBand {
     this.duplicateCount = stats.rowsInDuplicateGroups;
     this.nullCount = stats.rowsWithNulls;
 
-    this.root.append(this.buildOverview(loaded), this.buildColumns(loaded));
+    const token = ++this.renderToken;
+    this.root.append(this.buildOverview(loaded), this.buildColumns(loaded, token));
     this.setSpecials(false, false);
     this.root.classList.remove("hidden");
   }
@@ -108,9 +110,28 @@ export class SummaryBand {
     return overview;
   }
 
-  private buildColumns(loaded: LoadedMessage): HTMLElement {
+  /**
+   * Cards are appended in animation-frame chunks: wide datasets (hundreds of
+   * columns) paint the first screen immediately instead of building every
+   * card synchronously.
+   */
+  private buildColumns(loaded: LoadedMessage, token: number): HTMLElement {
     const columns = el("div", { class: "summary-columns" });
-    loaded.columns.forEach((meta, index) => columns.append(this.buildColumnCard(meta, index)));
+    const firstChunk = 36;
+    let index = 0;
+
+    const appendChunk = (): void => {
+      if (token !== this.renderToken) return;
+      const end = Math.min(loaded.columns.length, index + firstChunk);
+      const fragment = document.createDocumentFragment();
+      for (; index < end; index++) {
+        fragment.append(this.buildColumnCard(loaded.columns[index], index));
+      }
+      columns.append(fragment);
+      if (index < loaded.columns.length) requestAnimationFrame(appendChunk);
+    };
+
+    appendChunk();
     return columns;
   }
 

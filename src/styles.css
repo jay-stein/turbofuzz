@@ -377,6 +377,8 @@ textarea:focus {
   flex: none;
   width: 164px;
   height: 104px;
+  content-visibility: auto;
+  contain-intrinsic-size: 164px 104px;
   text-align: left;
   display: flex;
   flex-direction: column;
@@ -554,6 +556,8 @@ textarea:focus {
   border-radius: var(--radius);
   padding: 9px 10px 7px;
   background: var(--panel);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 110px;
 }
 
 .filter-card.active {
