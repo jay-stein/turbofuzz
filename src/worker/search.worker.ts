@@ -158,13 +158,14 @@ function handleSetFilter(message: SetFilterRequest): void {
   const bits = engine.evaluateBits(filters);
   sortedIds = orderIds(bits, rankAsc, sortDir);
   const queryMs = performance.now() - started;
+  const preview = message.preview === true;
   post({
     type: "results",
     requestId: message.requestId,
     count: sortedIds.length,
     queryMs,
-    facets: computeFacets(dataset, engine, bits),
-    histograms: computeHistograms(dataset, engine),
+    facets: preview ? {} : computeFacets(dataset, engine, bits),
+    histograms: preview ? {} : computeHistograms(dataset, engine),
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
   });
 }

@@ -65,6 +65,7 @@ export type SetFilterRequest = {
   requestId: number;
   column: number;
   filter: ColumnFilter | null;
+  preview?: boolean;
 };
 
 export type ClearFiltersRequest = { type: "clearFilters"; requestId: number };

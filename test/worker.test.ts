@@ -108,6 +108,22 @@ test("search worker handles the full request lifecycle", async () => {
     "histogram excludes the column's own filter",
   );
 
+  send({
+    type: "setFilter",
+    requestId: 13,
+    column: 1,
+    filter: { kind: "range", min: 35, max: null },
+    preview: true,
+  });
+  const preview = find("results", 13) as unknown as {
+    count: number;
+    facets: Record<number, number[]>;
+    histograms: Record<number, number[]>;
+  };
+  assert.equal(preview.count, 2);
+  assert.deepEqual(preview.facets, {});
+  assert.deepEqual(preview.histograms, {});
+
   send({ type: "clearFilters", requestId: 10 });
   assert.equal(find("results", 10).count, 3);
 

@@ -58,8 +58,12 @@ export class SearchWorkerClient {
     return this.request<LoadedMessage>({ type: "load", ...options }, transfer);
   }
 
-  setFilter(column: number, filter: ColumnFilter | null): Promise<ResultsMessage> {
-    return this.request<ResultsMessage>({ type: "setFilter", column, filter });
+  setFilter(
+    column: number,
+    filter: ColumnFilter | null,
+    preview = false,
+  ): Promise<ResultsMessage> {
+    return this.request<ResultsMessage>({ type: "setFilter", column, filter, preview });
   }
 
   clearFilters(): Promise<ResultsMessage> {

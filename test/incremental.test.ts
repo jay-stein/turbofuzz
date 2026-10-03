@@ -100,6 +100,26 @@ test("facet delta updates match full recomputation", () => {
   }
 });
 
+test("range narrowing matches full scans while dragging", () => {
+  const dataset = makeDataset();
+  const engine = new QueryEngine(dataset);
+  const steps: [number | null, number | null][] = [
+    [0, 1000],
+    [100, null],
+    [200, null],
+    [300, 900],
+    [350, 700],
+    [50, 500],
+    [null, 400],
+    [null, null],
+  ];
+  for (const [min, max] of steps) {
+    const got = evalIds(engine, 2, { kind: "range", min, max });
+    const expected = evalIds(new QueryEngine(dataset), 2, { kind: "range", min, max });
+    assert.deepEqual(got, expected, `range ${min}..${max}`);
+  }
+});
+
 test("earlier facet results stay correct after later deltas", () => {
   const dataset = makeDataset();
   const engine = new QueryEngine(dataset);

@@ -25,6 +25,10 @@ export class QueryEngine {
   private cache = new Map<number, { sig: string; bits: BitSet }>();
   private readonly prefixStacks = new Map<number, { query: string; bits: BitSet }[]>();
   private readonly valuesState = new Map<number, { selected: Set<number>; bits: BitSet }>();
+  private readonly rangeState = new Map<
+    number,
+    { min: number | null; max: number | null; bits: BitSet }
+  >();
   private readonly all: BitSet;
 
   constructor(private readonly dataset: Dataset) {
@@ -52,6 +56,7 @@ export class QueryEngine {
     this.cache.clear();
     this.prefixStacks.clear();
     this.valuesState.clear();
+    this.rangeState.clear();
   }
 
   private bitsFor(columnIndex: number, filter: ColumnFilter): BitSet {
@@ -65,7 +70,6 @@ export class QueryEngine {
 
   private compute(columnIndex: number, filter: ColumnFilter): BitSet {
     const column = this.dataset.columns[columnIndex];
-    const rowCount = this.dataset.rowCount;
 
     switch (filter.kind) {
       case "text": {
@@ -86,19 +90,8 @@ export class QueryEngine {
         return this.textBits(columnIndex, query, filter.mode === "exact");
       }
 
-      case "range": {
-        const bits = new BitSet(rowCount);
-        const numbers = column.numbers();
-        const { min, max } = filter;
-        for (let i = 0; i < numbers.length; i++) {
-          const value = numbers[i];
-          if (Number.isNaN(value)) continue;
-          if (min !== null && value < min) continue;
-          if (max !== null && value > max) continue;
-          bits.set(i);
-        }
-        return bits;
-      }
+      case "range":
+        return this.rangeBits(columnIndex, filter.min, filter.max);
 
       case "values":
         return this.valuesBits(columnIndex, filter.selected);
@@ -148,6 +141,48 @@ export class QueryEngine {
 
     if (stack.length >= MAX_PREFIX_DEPTH) stack.shift();
     stack.push({ query, bits: containsBits });
+    return bits;
+  }
+
+  /**
+   * Range filters narrow monotonically while a slider thumb moves inward:
+   * when the new [min,max] is inside the previous one, only the previous
+   * selection is rescanned instead of the whole column.
+   */
+  private rangeBits(columnIndex: number, min: number | null, max: number | null): BitSet {
+    const rowCount = this.dataset.rowCount;
+    const numbers = this.dataset.columns[columnIndex].numbers();
+    const previous = this.rangeState.get(columnIndex);
+
+    const isSubset =
+      previous !== undefined &&
+      (previous.min === null || (min !== null && min >= previous.min)) &&
+      (previous.max === null || (max !== null && max <= previous.max));
+    // Only worth narrowing from a genuinely sparse selection; scanning a
+    // dense subset costs about as much as scanning the raw column.
+    const shouldNarrow =
+      previous !== undefined && isSubset && previous.bits.count() * 2 < rowCount;
+
+    const bits = new BitSet(rowCount);
+    if (previous !== undefined && shouldNarrow) {
+      previous.bits.forEachRow((row) => {
+        const value = numbers[row];
+        if (Number.isNaN(value)) return;
+        if (min !== null && value < min) return;
+        if (max !== null && value > max) return;
+        bits.set(row);
+      });
+    } else {
+      for (let i = 0; i < numbers.length; i++) {
+        const value = numbers[i];
+        if (Number.isNaN(value)) continue;
+        if (min !== null && value < min) continue;
+        if (max !== null && value > max) continue;
+        bits.set(i);
+      }
+    }
+
+    this.rangeState.set(columnIndex, { min, max, bits });
     return bits;
   }
 

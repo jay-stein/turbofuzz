@@ -176,12 +176,29 @@ if (numberIndex >= 0) {
   numericMin = column.stats.min;
   numericMax = column.stats.max;
   if (numericMin !== null && numericMax !== null) {
-    const times: number[] = [];
+    const span = numericMax - numericMin;
+    const wide: number[] = [];
     for (let step = 1; step <= 10; step++) {
-      const minValue = numericMin + ((numericMax - numericMin) * step) / 20;
-      times.push(timeIt(() => evalFilter(numberIndex, { kind: "range", min: minValue, max: null })));
+      const minValue = numericMin + (span * step) / 20;
+      wide.push(timeIt(() => evalFilter(numberIndex, { kind: "range", min: minValue, max: null })));
     }
-    record("slider: range drag (fresh each step)", times);
+    record("slider: wide drag (fresh each step)", wide);
+
+    evalFilter(numberIndex, {
+      kind: "range",
+      min: numericMin + span * 0.4,
+      max: numericMin + span * 0.55,
+    });
+    const narrowMin = numericMin;
+    const narrowMax = numericMin + span * 0.55;
+    const narrow: number[] = [];
+    for (let step = 1; step <= 10; step++) {
+      const minValue = narrowMin + span * (0.4 + step * 0.01);
+      narrow.push(
+        timeIt(() => evalFilter(numberIndex, { kind: "range", min: minValue, max: narrowMax })),
+      );
+    }
+    record("slider: drag within 15% selection", narrow);
 
     const numberColumn = dataset.columns[numberIndex];
     const histogramCache = new HistogramCache();
