@@ -78,6 +78,17 @@ export class ResultTable {
   }
 
   setHighlights(highlights: HighlightRule[]): void {
+    const unchanged =
+      highlights.length === this.highlights.length &&
+      highlights.every((rule, index) => {
+        const previous = this.highlights[index];
+        return (
+          rule.column === previous.column &&
+          rule.query === previous.query &&
+          rule.mode === previous.mode
+        );
+      });
+    if (unchanged) return;
     this.highlights = highlights;
     this.invalidateRows();
   }

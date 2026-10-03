@@ -1,4 +1,5 @@
 import { clear, el } from "./dom.js";
+import { RangeSlider } from "./range-slider.js";
 import { COLUMN_TYPES, TYPE_LABELS, type ColumnType, type TextMode } from "../types.js";
 import { parseDate, toDateInputValue } from "../parse/dates.js";
 import { parseNumber } from "../parse/numbers.js";
@@ -6,7 +7,7 @@ import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 
 export interface FilterPanelCallbacks {
-  onFilter: (column: number, filter: ColumnFilter | null) => void;
+  onFilter: (column: number, filter: ColumnFilter | null, preview?: boolean) => void;
   onTypeChange: (column: number, type: ColumnType) => void;
 }
 
@@ -22,7 +23,7 @@ export class FilterPanel {
   private cards: HTMLElement[] = [];
   private statusEls: HTMLElement[] = [];
   private countEls: HTMLElement[][] = [];
-  private histograms: (HistogramView | null)[] = [];
+  private sliders: (RangeSlider | null)[] = [];
 
   constructor(
     root: HTMLElement,
@@ -40,7 +41,7 @@ export class FilterPanel {
     this.cards = [];
     this.statusEls = [];
     this.countEls = [];
-    this.histograms = [];
+    this.sliders = [];
     this.metas.forEach((meta, index) => {
       const card = this.buildCard(meta, index);
       this.listEl.append(card);
@@ -74,13 +75,14 @@ export class FilterPanel {
     }
 
     this.metas.forEach((meta, column) => {
-      const view = this.histograms[column];
-      if (view === null || view === undefined || meta.histogram === null) return;
-      view.setBins(histograms[column] ?? meta.histogram.bins);
+      const slider = this.sliders[column];
+      if (slider === null || slider === undefined || meta.histogram === null) return;
+      slider.setBounds(meta.histogram.min, meta.histogram.max);
+      slider.setBins(histograms[column] ?? meta.histogram.bins);
       const filter = this.filters.get(column);
       const min = filter?.kind === "range" ? filter.min : null;
       const max = filter?.kind === "range" ? filter.max : null;
-      view.setRange(min, max, meta.histogram.min, meta.histogram.max);
+      slider.setRange(min, max);
     });
   }
 
@@ -212,21 +214,60 @@ export class FilterPanel {
       maxInput.value = isDate ? toDateInputValue(current.max) : String(current.max);
     }
 
-    const apply = (): void => {
+    const emit = (preview: boolean): void => {
       const min = this.readRangeValue(minInput.value, isDate);
       const max = this.readRangeValue(maxInput.value, isDate);
       this.callbacks.onFilter(
         index,
         min === null && max === null ? null : { kind: "range", min, max },
+        preview,
       );
       cardActive(body, this.filters.has(index));
-      if (meta.histogram !== null) {
-        this.histograms[index]?.setRange(min, max, meta.histogram.min, meta.histogram.max);
-      }
     };
 
-    minInput.addEventListener("input", apply);
-    maxInput.addEventListener("input", apply);
+    const syncInputs = (min: number | null, max: number | null): void => {
+      minInput.value = min === null ? "" : isDate ? toDateInputValue(min) : String(min);
+      maxInput.value = max === null ? "" : isDate ? toDateInputValue(max) : String(max);
+    };
+
+    let slider: RangeSlider | null = null;
+    if (meta.histogram !== null) {
+      slider = new RangeSlider({
+        binCount: meta.histogram.bins.length,
+        onInput: (min, max, preview) => {
+          syncInputs(min, max);
+          this.callbacks.onFilter(
+            index,
+            min === null && max === null ? null : { kind: "range", min, max },
+            preview,
+          );
+          cardActive(body, this.filters.has(index));
+        },
+      });
+      slider.setBounds(meta.histogram.min, meta.histogram.max);
+      slider.setBins(meta.histogram.bins);
+      slider.setRange(current?.min ?? null, current?.max ?? null);
+      this.sliders[index] = slider;
+    } else {
+      this.sliders[index] = null;
+    }
+
+    const syncSlider = (): void => {
+      slider?.setRange(
+        this.readRangeValue(minInput.value, isDate),
+        this.readRangeValue(maxInput.value, isDate),
+      );
+    };
+    minInput.addEventListener("input", () => {
+      syncSlider();
+      emit(true);
+    });
+    maxInput.addEventListener("input", () => {
+      syncSlider();
+      emit(true);
+    });
+    minInput.addEventListener("change", () => emit(false));
+    maxInput.addEventListener("change", () => emit(false));
 
     const inputs = el("div", { class: "range-inputs" }, [
       minInput,
@@ -234,21 +275,7 @@ export class FilterPanel {
       maxInput,
     ]);
     body.append(inputs);
-
-    if (meta.histogram !== null) {
-      const view = new HistogramView(meta.histogram.bins.length);
-      view.setBins(meta.histogram.bins);
-      view.setRange(
-        current?.min ?? null,
-        current?.max ?? null,
-        meta.histogram.min,
-        meta.histogram.max,
-      );
-      body.append(view.el);
-      this.histograms[index] = view;
-    } else {
-      this.histograms[index] = null;
-    }
+    if (slider !== null) body.append(slider.el);
 
     return body;
   }
@@ -362,44 +389,4 @@ export class FilterPanel {
 
 function cardActive(from: HTMLElement, active: boolean): void {
   from.closest(".filter-card")?.classList.toggle("active", active);
-}
-
-class HistogramView {
-  readonly el: HTMLElement;
-  private readonly bars: HTMLElement[] = [];
-
-  constructor(binCount: number) {
-    this.el = el("div", { class: "histogram" });
-    for (let i = 0; i < binCount; i++) {
-      const bar = el("div", { class: "hist-bar" });
-      this.bars.push(bar);
-      this.el.append(bar);
-    }
-  }
-
-  setBins(bins: number[]): void {
-    let max = 0;
-    for (let i = 0; i < bins.length; i++) {
-      if (bins[i] > max) max = bins[i];
-    }
-    for (let i = 0; i < this.bars.length; i++) {
-      const count = bins[i] ?? 0;
-      const percent = max > 0 && count > 0 ? Math.max(3, (count / max) * 100) : 0;
-      this.bars[i].style.height = `${percent}%`;
-      this.bars[i].title = count.toLocaleString();
-    }
-  }
-
-  setRange(min: number | null, max: number | null, dataMin: number, dataMax: number): void {
-    const noSelection = min === null && max === null;
-    const span = dataMax - dataMin || 1;
-    for (let i = 0; i < this.bars.length; i++) {
-      const binStart = dataMin + (i / this.bars.length) * span;
-      const binEnd = dataMin + ((i + 1) / this.bars.length) * span;
-      const selected =
-        !noSelection && (min === null || binEnd > min) && (max === null || binStart < max);
-      this.bars[i].classList.toggle("selected", selected);
-      this.bars[i].classList.toggle("dimmed", !noSelection && !selected);
-    }
-  }
 }

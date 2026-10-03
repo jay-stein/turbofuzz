@@ -327,7 +327,7 @@ export class App {
 
     clear(this.filterHost);
     this.filterPanel = new FilterPanel(this.filterHost, this.metas, this.filters, {
-      onFilter: (column, filter) => this.changeFilter(column, filter),
+      onFilter: (column, filter, preview) => this.changeFilter(column, filter, preview ?? false),
       onTypeChange: (column, type) => this.changeType(column, type),
     });
 
@@ -357,7 +357,7 @@ export class App {
     });
   }
 
-  private changeFilter(column: number, filter: ColumnFilter | null): void {
+  private changeFilter(column: number, filter: ColumnFilter | null, preview = false): void {
     if (filter === null) this.filters.delete(column);
     else this.filters.set(column, filter);
 
@@ -365,10 +365,10 @@ export class App {
 
     this.queueSend(() =>
       this.client
-        .setFilter(column, filter)
+        .setFilter(column, filter, preview)
         .then((message) => {
           this.updateCount(message.count, message.queryMs);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
+          if (!preview) this.filterPanel?.applyResults(message.facets, message.histograms);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows);
         })
