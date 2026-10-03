@@ -196,15 +196,18 @@ export class FilterPanel {
     const isDate = meta.type === "date";
     const inputType = isDate ? "date" : "number";
 
+    const step = isDate ? undefined : meta.type === "integer" ? "1" : "any";
     const minInput = el("input", {
       class: "range-input",
       type: inputType,
       placeholder: "Min",
+      ...(step === undefined ? {} : { step }),
     }) as HTMLInputElement;
     const maxInput = el("input", {
       class: "range-input",
       type: inputType,
       placeholder: "Max",
+      ...(step === undefined ? {} : { step }),
     }) as HTMLInputElement;
 
     if (current?.min !== null && current?.min !== undefined) {
@@ -234,6 +237,8 @@ export class FilterPanel {
     if (meta.histogram !== null) {
       slider = new RangeSlider({
         binCount: meta.histogram.bins.length,
+        integer: meta.type === "integer",
+        isDate,
         onInput: (min, max, preview) => {
           syncInputs(min, max);
           this.callbacks.onFilter(

@@ -2,8 +2,12 @@ import { el } from "./dom.js";
 
 export interface RangeSliderOptions {
   binCount: number;
+  integer?: boolean;
+  isDate?: boolean;
   onInput: (min: number | null, max: number | null, preview: boolean) => void;
 }
+
+const DAY_MS = 86_400_000;
 
 type DragKind = "lo" | "hi" | "band";
 
@@ -140,6 +144,8 @@ export class RangeSlider {
   }
 
   private snap(value: number): number {
+    if (this.options.integer === true) return Math.round(value);
+    if (this.options.isDate === true) return Math.round(value / DAY_MS) * DAY_MS;
     const span = this.dataMax - this.dataMin;
     if (span <= 0) return this.dataMin;
     const step = span / this.bars.length;
@@ -225,7 +231,12 @@ export class RangeSlider {
   }
 
   private onKey(event: KeyboardEvent, kind: "lo" | "hi"): void {
-    const step = (this.dataMax - this.dataMin) / this.bars.length;
+    const step =
+      this.options.integer === true
+        ? 1
+        : this.options.isDate === true
+          ? DAY_MS
+          : (this.dataMax - this.dataMin) / this.bars.length;
     let delta = 0;
     if (event.key === "ArrowLeft" || event.key === "ArrowDown") delta = -step;
     else if (event.key === "ArrowRight" || event.key === "ArrowUp") delta = step;
