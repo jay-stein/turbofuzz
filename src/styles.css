@@ -849,35 +849,58 @@ button:disabled {
 
 .th {
   display: flex;
+  align-items: stretch;
+  background: var(--panel-2);
+  border-right: 1px solid var(--border-subtle);
+  min-width: 0;
+}
+
+.th-label {
+  flex: 1;
+  display: flex;
   align-items: center;
   gap: 5px;
-  text-align: left;
   padding: 7px 10px;
   border: none;
   background: transparent;
   color: var(--text);
+  font: inherit;
   font-weight: 650;
   font-size: 12.5px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  border-right: 1px solid var(--border-subtle);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
 }
 
-.th:hover {
+.th-label:hover {
   background: var(--accent-soft);
 }
 
-.th.sort-asc::after {
+.th-label.sort-asc::after {
   content: "▲";
   font-size: 9px;
   color: var(--accent);
 }
 
-.th.sort-desc::after {
+.th-label.sort-desc::after {
   content: "▼";
   font-size: 9px;
   color: var(--accent);
+}
+
+.col-resize {
+  flex: none;
+  width: 7px;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.col-resize:hover,
+.col-resize.active {
+  background: var(--accent-soft);
 }
 
 .table-spacer {

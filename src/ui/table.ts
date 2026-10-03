@@ -1,7 +1,9 @@
 import { clear, el } from "./dom.js";
 
 const ROW_HEIGHT = 28;
-const COL_WIDTH = 180;
+const DEFAULT_COL_WIDTH = 180;
+const MIN_COL_WIDTH = 56;
+const MAX_COL_WIDTH = 720;
 const OVERSCAN = 10;
 const CACHE_LIMIT = 4000;
 
@@ -28,6 +30,7 @@ export class ResultTable {
   private readonly onResize = (): void => this.render();
 
   private columns: string[] = [];
+  private widths: number[] = [];
   private count = 0;
   private sortColumn = -1;
   private sortDir: 1 | -1 = 1;
@@ -60,6 +63,7 @@ export class ResultTable {
 
   setColumns(columns: string[]): void {
     this.columns = columns;
+    this.widths = columns.map(() => DEFAULT_COL_WIDTH);
     this.renderHeader();
     this.invalidateRows();
   }
@@ -67,7 +71,7 @@ export class ResultTable {
   setCount(count: number): void {
     this.count = count;
     this.spacer.style.height = `${count * ROW_HEIGHT}px`;
-    this.spacer.style.width = `${this.columns.length * COL_WIDTH}px`;
+    this.spacer.style.width = `${this.totalWidth()}px`;
     this.render();
   }
 
@@ -121,18 +125,78 @@ export class ResultTable {
     this.options.onSort(column, dir);
   }
 
+  private gridTemplate(): string {
+    return this.widths.map((width) => `${width}px`).join(" ");
+  }
+
+  private totalWidth(): number {
+    return this.widths.reduce((total, width) => total + width, 0);
+  }
+
+  private applyWidths(): void {
+    const template = this.gridTemplate();
+    this.header.style.gridTemplateColumns = template;
+    this.header.style.width = `${this.totalWidth()}px`;
+    this.spacer.style.width = `${this.totalWidth()}px`;
+    for (const row of this.rowsHost.querySelectorAll<HTMLElement>(".tr")) {
+      row.style.gridTemplateColumns = template;
+    }
+  }
+
+  private startResize(event: PointerEvent, index: number): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = this.widths[index];
+    const grip = event.currentTarget as HTMLElement;
+    grip.classList.add("active");
+
+    const onMove = (move: PointerEvent): void => {
+      this.widths[index] = Math.min(
+        MAX_COL_WIDTH,
+        Math.max(MIN_COL_WIDTH, startWidth + (move.clientX - startX)),
+      );
+      this.applyWidths();
+    };
+    const onUp = (): void => {
+      grip.classList.remove("active");
+      window.removeEventListener("pointermove", onMove);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { once: true });
+  }
+
   private renderHeader(): void {
     clear(this.header);
-    const count = this.columns.length;
-    this.header.style.gridTemplateColumns = `repeat(${count}, ${COL_WIDTH}px)`;
-    this.header.style.width = `${count * COL_WIDTH}px`;
+    const template = this.gridTemplate();
+    this.header.style.gridTemplateColumns = template;
+    this.header.style.width = `${this.totalWidth()}px`;
 
     this.columns.forEach((name, index) => {
-      const cell = el("button", { class: "th", type: "button", title: `Sort by ${name}` }, [name]);
+      const cell = el("div", { class: "th" });
+      const label = el(
+        "button",
+        { class: "th-label", type: "button", title: `Sort by ${name}` },
+        [name],
+      );
       if (index === this.sortColumn) {
-        cell.classList.add(this.sortDir === 1 ? "sort-asc" : "sort-desc");
+        label.classList.add(this.sortDir === 1 ? "sort-asc" : "sort-desc");
       }
-      cell.addEventListener("click", () => this.toggleSort(index));
+      label.addEventListener("click", () => this.toggleSort(index));
+
+      const grip = el("div", {
+        class: "col-resize",
+        title: "Drag to resize · double-click to reset",
+      });
+      grip.addEventListener("pointerdown", (event) =>
+        this.startResize(event as PointerEvent, index),
+      );
+      grip.addEventListener("dblclick", () => {
+        this.widths[index] = DEFAULT_COL_WIDTH;
+        this.applyWidths();
+      });
+
+      cell.append(label, grip);
       this.header.append(cell);
     });
   }
@@ -183,7 +247,7 @@ export class ResultTable {
 
   private buildRow(row: string[] | undefined): HTMLElement {
     const tr = el("div", { class: "tr" });
-    tr.style.gridTemplateColumns = `repeat(${this.columns.length}, ${COL_WIDTH}px)`;
+    tr.style.gridTemplateColumns = this.gridTemplate();
     if (row === undefined) tr.classList.add("skeleton");
     for (let c = 0; c < this.columns.length; c++) {
       const cell = el("div", { class: "td" });
