@@ -2,6 +2,7 @@ import type { ColumnData } from "../data/column.js";
 import type { Dataset } from "../data/dataset.js";
 import type { BitSet } from "../search/bitset.js";
 import { QueryEngine, type ColumnFilter } from "../search/query-engine.js";
+import { buildCsv } from "./csv.js";
 import { ingestDataset } from "./ingest.js";
 import type {
   ColumnDetail,
@@ -28,6 +29,7 @@ let sortedIds: Uint32Array = new Uint32Array(0);
 let rank: Uint32Array | null = null;
 let sortColumn = -1;
 let sortDir: 1 | -1 = 1;
+let exportIds: Uint32Array | null = null;
 
 function post(message: WorkerResponse, transfer?: Transferable[]): void {
   if (transfer !== undefined && transfer.length > 0) scope.postMessage(message, transfer);
@@ -70,6 +72,23 @@ function handle(message: WorkerRequest): void {
     case "getStats":
       handleGetStats(message);
       break;
+    case "startExport":
+      exportIds = sortedIds.slice();
+      post({ type: "exportStarted", requestId: message.requestId, total: exportIds.length });
+      break;
+    case "getCsv": {
+      const { dataset } = state();
+      const ids = exportIds ?? sortedIds;
+      const start = Math.max(0, message.start);
+      const end = Math.min(message.end, ids.length);
+      post({
+        type: "csv",
+        requestId: message.requestId,
+        start,
+        text: buildCsv(dataset, ids, start, end, start === 0),
+      });
+      break;
+    }
   }
 }
 
@@ -96,6 +115,7 @@ function handleLoad(message: LoadRequest): void {
   rank = null;
   sortColumn = -1;
   sortDir = 1;
+  exportIds = null;
   sortedIds = engine.evaluate(filters);
 
   post({

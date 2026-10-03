@@ -10,6 +10,43 @@ import { ResultTable, type HighlightRule } from "./table.js";
 import { SearchWorkerClient } from "./worker-client.js";
 
 const LARGE_PASTE_ROWS = 300_000;
+const CLIPBOARD_ROW_LIMIT = 100_000;
+const EXPORT_CHUNK_ROWS = 20_000;
+
+function exportFileName(name: string): string {
+  const base = name
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^a-zA-Z0-9-_]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return (base === "" ? "turbofuzz" : base).toLowerCase();
+}
+
+async function copyText(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText !== undefined) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // fall through to the legacy path
+    }
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  textarea.remove();
+  return ok;
+}
 
 export class App {
   private readonly client = new SearchWorkerClient();
@@ -29,6 +66,9 @@ export class App {
   private statusEl!: HTMLElement;
   private metaEl!: HTMLElement;
   private countEl!: HTMLElement;
+  private actionEl!: HTMLElement;
+  private copyButton!: HTMLButtonElement;
+  private exportButton!: HTMLButtonElement;
   private bannerEl!: HTMLElement;
   private filterHost!: HTMLElement;
   private tableHost!: HTMLElement;
@@ -146,9 +186,34 @@ export class App {
 
     const results = el("main", { class: "results" });
     const resultsBar = el("div", { class: "results-bar" });
+    const resultsRow = el("div", { class: "results-row" });
     this.countEl = el("span", { class: "count" });
+    this.actionEl = el("span", { class: "action-status" });
+
+    this.copyButton = el(
+      "button",
+      { class: "ghost small", type: "button", title: "Copy filtered rows as CSV" },
+      ["Copy"],
+    ) as HTMLButtonElement;
+    this.copyButton.addEventListener("click", () => void this.copyResults());
+
+    this.exportButton = el(
+      "button",
+      { class: "ghost small", type: "button", title: "Download filtered rows as CSV" },
+      ["Export CSV"],
+    ) as HTMLButtonElement;
+    this.exportButton.addEventListener("click", () => void this.exportCsv());
+
+    resultsRow.append(
+      this.countEl,
+      el("span", { class: "grow" }),
+      this.actionEl,
+      this.copyButton,
+      this.exportButton,
+    );
+
     this.bannerEl = el("div", { class: "banner hidden" });
-    resultsBar.append(this.countEl, this.bannerEl);
+    resultsBar.append(resultsRow, this.bannerEl);
     this.tableHost = el("div", { class: "table-host" });
     results.append(resultsBar, this.tableHost);
 
@@ -348,11 +413,75 @@ export class App {
     return rules;
   }
 
+  private async copyResults(): Promise<void> {
+    if (this.datasetName === "" || this.loading) return;
+    try {
+      const { total } = await this.client.startExport();
+      if (total === 0) return;
+
+      const take = Math.min(total, CLIPBOARD_ROW_LIMIT);
+      const parts: string[] = [];
+      for (let start = 0; start < take; start += EXPORT_CHUNK_ROWS) {
+        const chunk = await this.client.getCsv(start, Math.min(start + EXPORT_CHUNK_ROWS, take));
+        parts.push(chunk.text);
+      }
+
+      const copied = await copyText(parts.join(""));
+      if (!copied) {
+        this.setAction("Clipboard blocked — use Export CSV");
+      } else if (take < total) {
+        this.setAction(`Copied first ${take.toLocaleString()} of ${total.toLocaleString()} rows`);
+      } else {
+        this.setAction(`Copied ${total.toLocaleString()} rows`);
+      }
+    } catch (error) {
+      this.showError(error);
+    }
+  }
+
+  private async exportCsv(): Promise<void> {
+    if (this.datasetName === "" || this.loading) return;
+    try {
+      const { total } = await this.client.startExport();
+      if (total === 0) return;
+
+      const parts: BlobPart[] = ["\uFEFF"];
+      for (let start = 0; start < total; start += EXPORT_CHUNK_ROWS) {
+        this.actionEl.textContent = `Exporting… ${Math.round((start / total) * 100)}%`;
+        const end = Math.min(start + EXPORT_CHUNK_ROWS, total);
+        const chunk = await this.client.getCsv(start, end);
+        parts.push(chunk.text);
+      }
+
+      const blob = new Blob(parts, { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${exportFileName(this.datasetName)}-filtered.csv`;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      this.setAction(`Exported ${total.toLocaleString()} rows`);
+    } catch (error) {
+      this.showError(error);
+    }
+  }
+
+  private setAction(text: string): void {
+    this.actionEl.textContent = text;
+    window.setTimeout(() => {
+      if (this.actionEl.textContent === text) this.actionEl.textContent = "";
+    }, 4000);
+  }
+
   private updateCount(count: number, queryMs: number): void {
     const timeText = queryMs < 1 ? "<1" : String(Math.round(queryMs));
     this.countEl.textContent = `${count.toLocaleString()} of ${this.rowCount.toLocaleString()} rows · ${timeText} ms`;
     const total = this.metas.length;
     this.countEl.title = `${count.toLocaleString()} matching rows out of ${this.rowCount.toLocaleString()} (${total} columns)`;
+    this.copyButton.disabled = count === 0;
+    this.exportButton.disabled = count === 0;
   }
 
   private updateGuardrail(loaded: LoadedMessage, fromFile: boolean): void {

@@ -3,6 +3,8 @@ import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnType } from "../types.js";
 import type {
   ColumnMetaMessage,
+  CsvChunkMessage,
+  ExportStartedMessage,
   LoadedMessage,
   ProgressMessage,
   ResultsMessage,
@@ -78,6 +80,14 @@ export class SearchWorkerClient {
 
   getStats(): Promise<StatsMessage> {
     return this.request<StatsMessage>({ type: "getStats" });
+  }
+
+  startExport(): Promise<ExportStartedMessage> {
+    return this.request<ExportStartedMessage>({ type: "startExport" });
+  }
+
+  getCsv(start: number, end: number): Promise<CsvChunkMessage> {
+    return this.request<CsvChunkMessage>({ type: "getCsv", start, end });
   }
 
   dispose(): void {

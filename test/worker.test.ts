@@ -107,4 +107,15 @@ test("search worker handles the full request lifecycle", async () => {
     3,
     "histogram excludes the column's own filter",
   );
+
+  send({ type: "clearFilters", requestId: 10 });
+  assert.equal(find("results", 10).count, 3);
+
+  send({ type: "startExport", requestId: 11 });
+  const exportStarted = find("exportStarted", 11) as unknown as { total: number };
+  assert.equal(exportStarted.total, 3);
+
+  send({ type: "getCsv", requestId: 12, start: 0, end: 3 });
+  const csv = find("csv", 12) as unknown as { text: string };
+  assert.equal(csv.text, "name,age\r\nAlice,30\r\nBob,40\r\nCara,50\r\n");
 });

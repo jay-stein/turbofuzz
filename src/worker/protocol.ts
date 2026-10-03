@@ -91,6 +91,15 @@ export type SetTypeRequest = {
 
 export type GetStatsRequest = { type: "getStats"; requestId: number };
 
+export type StartExportRequest = { type: "startExport"; requestId: number };
+
+export type GetCsvRequest = {
+  type: "getCsv";
+  requestId: number;
+  start: number;
+  end: number;
+};
+
 export type WorkerRequest =
   | LoadRequest
   | SetFilterRequest
@@ -98,7 +107,9 @@ export type WorkerRequest =
   | SortRequest
   | GetRowsRequest
   | SetTypeRequest
-  | GetStatsRequest;
+  | GetStatsRequest
+  | StartExportRequest
+  | GetCsvRequest;
 
 export interface LoadedMessage {
   type: "loaded";
@@ -157,6 +168,19 @@ export interface StatsMessage {
   columns: ColumnDetail[];
 }
 
+export interface ExportStartedMessage {
+  type: "exportStarted";
+  requestId: number;
+  total: number;
+}
+
+export interface CsvChunkMessage {
+  type: "csv";
+  requestId: number;
+  start: number;
+  text: string;
+}
+
 export interface ErrorMessage {
   type: "error";
   requestId: number;
@@ -171,4 +195,6 @@ export type WorkerResponse =
   | RowsMessage
   | ColumnMetaMessage
   | StatsMessage
+  | ExportStartedMessage
+  | CsvChunkMessage
   | ErrorMessage;

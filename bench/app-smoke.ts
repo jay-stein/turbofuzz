@@ -2,6 +2,7 @@ import { generateDataset } from "./data.js";
 import { parseDelimited } from "../src/parse/parse.js";
 import { buildDataset } from "../src/data/build.js";
 import { QueryEngine, type ColumnFilter } from "../src/search/query-engine.js";
+import { buildCsv } from "../src/worker/csv.js";
 import { memMB } from "./bench-utils.js";
 
 const sizeArg = process.argv.find((argument) => argument.startsWith("--rows="));
@@ -87,3 +88,11 @@ for (let i = 0; i < runs; i++) {
 }
 console.log(`combined filter matches:   ${matches.toLocaleString()}`);
 console.log(`combined query median:     ${median(times).toFixed(2)} ms (over ${runs} runs)`);
+
+const allIds = engine.evaluate(new Map());
+start = performance.now();
+const csvText = buildCsv(dataset, allIds, 0, allIds.length, true);
+const csvMs = performance.now() - start;
+console.log(
+  `csv export (${allIds.length.toLocaleString()} rows): ${csvMs.toFixed(0)} ms, ${(csvText.length / 1048576).toFixed(1)} MB`,
+);
