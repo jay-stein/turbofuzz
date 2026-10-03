@@ -1,3 +1,4 @@
+import { doubleMetaphone } from "double-metaphone";
 import { BitSet, popcount32 } from "./bitset.js";
 import { jaroWinkler } from "./jaro-winkler.js";
 import { tokenize } from "./normalize.js";
@@ -50,6 +51,7 @@ export class FuzzyIndex {
   private tokens: string[] = [];
   private postings: number[][] = [];
   private grams = new Map<string, number[]>();
+  private phonetic = new Map<string, number[]>();
   private masks = new Uint32Array(0);
   private sortedIds = new Uint32Array(0);
   private voteStamp = new Uint32Array(0);
@@ -88,6 +90,7 @@ export class FuzzyIndex {
       const tok = this.tokens[id];
       this.masks[id] = letterMask(tok);
       totalGrams += addGrams(tok, id, this.grams);
+      addPhonetic(tok, id, this.phonetic);
     }
     const tIndex = performance.now();
 
@@ -208,6 +211,41 @@ export class FuzzyIndex {
     };
   }
 
+  /**
+   * Exact lookup on precomputed Double Metaphone codes. One encode + hash
+   * lookup per query token, then posting-list expansion; no row scanning.
+   */
+  phoneticSearch(query: string): { tokenIds: number[]; rowBits: BitSet } {
+    const queryTokens = tokenize(query);
+    const tokenIds: number[] = [];
+    const rowBits = new BitSet(this.rowCount);
+    if (queryTokens.length === 0) return { tokenIds, rowBits };
+
+    let acc: BitSet | null = null;
+    for (const qt of queryTokens) {
+      const [primary, secondary] = doubleMetaphone(qt);
+      const seen = new Set<number>();
+      const bits = new BitSet(this.rowCount);
+      const codes = primary === secondary ? [primary] : [primary, secondary];
+      for (const code of codes) {
+        if (code === "") continue;
+        const list = this.phonetic.get(code);
+        if (list === undefined) continue;
+        for (let i = 0; i < list.length; i++) {
+          const id = list[i];
+          if (seen.has(id)) continue;
+          seen.add(id);
+          tokenIds.push(id);
+          const post = this.postings[id];
+          for (let p = 0; p < post.length; p++) bits.set(post[p]);
+        }
+      }
+      if (acc === null) acc = bits;
+      else acc.and(bits);
+    }
+    return { tokenIds, rowBits: acc ?? rowBits };
+  }
+
   private candidates(q: string, k: number): number[] {
     const grams = uniqueGramsOf(q);
     const minVotes = Math.max(0, grams.length - NGRAM_SIZE * k);
@@ -292,6 +330,23 @@ function addGrams(token: string, id: number, grams: Map<string, number[]>): numb
     added++;
   }
   return added;
+}
+
+function addPhonetic(token: string, id: number, map: Map<string, number[]>): void {
+  if (!/[a-z]/.test(token)) return;
+  const [primary, secondary] = doubleMetaphone(token);
+  addPhoneticCode(primary, id, map);
+  if (secondary !== primary) addPhoneticCode(secondary, id, map);
+}
+
+function addPhoneticCode(code: string, id: number, map: Map<string, number[]>): void {
+  if (code === "") return;
+  let list = map.get(code);
+  if (list === undefined) {
+    list = [];
+    map.set(code, list);
+  }
+  list.push(id);
 }
 
 function uniqueGramsOf(s: string): string[] {

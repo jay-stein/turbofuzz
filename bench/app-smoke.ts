@@ -38,8 +38,13 @@ const buildMs = performance.now() - start;
 const rssAfterBuild = memMB().rssMB;
 
 start = performance.now();
-dataset.columns[0].fuzzyIndex();
+const nameIndex = dataset.columns[0].fuzzyIndex();
 const fuzzyBuildMs = performance.now() - start;
+
+start = performance.now();
+const phoneticRuns = 100;
+for (let i = 0; i < phoneticRuns; i++) nameIndex.phoneticSearch("Jonson");
+const phoneticMs = (performance.now() - start) / phoneticRuns;
 
 start = performance.now();
 dataset.columns[3].medianSampled();
@@ -68,6 +73,7 @@ console.log(
     `${dataset.stats.totalNullCells.toLocaleString()} empty cells)`,
 );
 console.log(`fuzzy index build (name):  ${fuzzyBuildMs.toFixed(0)} ms`);
+console.log(`phonetic query (avg):      ${phoneticMs.toFixed(3)} ms`);
 console.log(`median sampled (stats):    ${medianMs.toFixed(0)} ms`);
 
 engine.evaluate(filters);

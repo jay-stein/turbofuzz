@@ -27,4 +27,4 @@ export const TYPE_LABELS: Record<ColumnType, string> = {
   identifier: "ID / Exact",
 };
 
-export type TextMode = "contains" | "exact" | "fuzzy";
+export type TextMode = "contains" | "exact" | "fuzzy" | "phonetic";

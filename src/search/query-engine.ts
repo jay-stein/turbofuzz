@@ -60,6 +60,13 @@ export class QueryEngine {
         const query = normalize(filter.query);
         if (query === "") return this.all.clone();
 
+        if (filter.mode === "phonetic") {
+          const index = column.fuzzyIndex();
+          const phonetic = index.phoneticSearch(filter.query).rowBits;
+          if (phonetic.count() > 0) return phonetic;
+          return index.search(filter.query).rowBits;
+        }
+
         if (filter.mode === "fuzzy") {
           return column.fuzzyIndex().search(filter.query).rowBits;
         }

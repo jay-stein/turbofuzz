@@ -337,7 +337,11 @@ export class App {
   private highlightRules(): HighlightRule[] {
     const rules: HighlightRule[] = [];
     for (const [column, filter] of this.filters) {
-      if (filter.kind === "text" && filter.mode !== "fuzzy" && filter.query.trim() !== "") {
+      if (
+        filter.kind === "text" &&
+        filter.query.trim() !== "" &&
+        (filter.mode === "contains" || filter.mode === "exact")
+      ) {
         rules.push({ column, query: filter.query, mode: filter.mode });
       }
     }

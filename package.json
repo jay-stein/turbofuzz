@@ -26,6 +26,7 @@
     "vite": "^8.3.2"
   },
   "dependencies": {
+    "double-metaphone": "^2.0.1",
     "papaparse": "^5.7.0"
   }
 }

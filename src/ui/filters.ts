@@ -14,6 +14,7 @@ const TEXT_MODES: { value: TextMode; label: string }[] = [
   { value: "contains", label: "Contains" },
   { value: "exact", label: "Exact" },
   { value: "fuzzy", label: "Fuzzy" },
+  { value: "phonetic", label: "Sounds like" },
 ];
 
 export class FilterPanel {
