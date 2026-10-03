@@ -137,7 +137,7 @@ export class SummaryBand {
       meta.type === "integer" || meta.type === "number" || meta.type === "date";
 
     if (numeric && meta.histogram !== null && meta.histogram.max > meta.histogram.min) {
-      card.append(buildSparkline(meta.histogram.bins));
+      card.append(buildMiniHistogram(meta.histogram.bins));
     }
 
     if (numeric) {
@@ -176,31 +176,41 @@ export class SummaryBand {
   }
 }
 
-function buildSparkline(bins: number[]): SVGElement {
-  const width = 120;
-  const height = 26;
-  let max = 0;
-  for (const bin of bins) {
-    if (bin > max) max = bin;
-  }
+const MINI_BARS = 32;
 
-  const points: string[] = [];
-  if (max > 0 && bins.length > 1) {
-    for (let i = 0; i < bins.length; i++) {
-      const x = (i / (bins.length - 1)) * width;
-      const y = height - (bins[i] / max) * (height - 3) - 1;
-      points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+function buildMiniHistogram(bins: number[]): HTMLElement {
+  const wrap = el("div", { class: "mini-hist" });
+
+  // Downsample to at most MINI_BARS bars by summing groups, so the bars stay
+  // wide enough to read at card width.
+  let bars: number[];
+  if (bins.length <= MINI_BARS) {
+    bars = bins.slice();
+  } else {
+    bars = [];
+    const groupSize = bins.length / MINI_BARS;
+    for (let i = 0; i < MINI_BARS; i++) {
+      const start = Math.floor(i * groupSize);
+      const end = Math.min(bins.length, Math.floor((i + 1) * groupSize));
+      let sum = 0;
+      for (let j = start; j < end; j++) sum += bins[j];
+      bars.push(sum);
     }
   }
 
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("class", "sparkline");
-  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  svg.setAttribute("preserveAspectRatio", "none");
-  const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-  polyline.setAttribute("points", points.join(" "));
-  svg.append(polyline);
-  return svg;
+  let max = 0;
+  for (const count of bars) {
+    if (count > max) max = count;
+  }
+
+  const total = bars.reduce((sum, count) => sum + count, 0);
+  for (const count of bars) {
+    const bar = el("span", { class: "mini-bar" });
+    bar.style.height = max > 0 && count > 0 ? `${Math.max(8, (count / max) * 100)}%` : "0%";
+    bar.title = `${count.toLocaleString()} (${total > 0 ? ((count / total) * 100).toFixed(1) : "0.0"}%)`;
+    wrap.append(bar);
+  }
+  return wrap;
 }
 
 function buildTopValues(topValues: TopValue[]): HTMLElement {
