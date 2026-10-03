@@ -1,4 +1,4 @@
-# Fuzzy search benchmark
+# TurboFuzz fuzzy search benchmark
 
 - Date: 2026-10-03T07:19:16.453Z
 - Machine: 12th Gen Intel(R) Core(TM) i5-12500H

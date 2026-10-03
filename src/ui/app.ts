@@ -44,7 +44,7 @@ export class App {
     clear(this.root);
 
     const topbar = el("header", { class: "topbar" });
-    topbar.append(el("div", { class: "brand" }, ["FuzzyFind"]));
+    topbar.append(el("div", { class: "brand" }, ["TurboFuzz"]));
     this.metaEl = el("div", { class: "meta" });
     topbar.append(this.metaEl);
 

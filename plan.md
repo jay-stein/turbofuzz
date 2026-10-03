@@ -504,7 +504,7 @@ Initial concept:
 
 ```text
 ┌───────────────────────────────────────────────────────────┐
-│  FuzzyFind                                                │
+│  TurboFuzz                                                │
 │                                                           │
 │  Drop CSV here                    [ Choose CSV ]           │
 │                                                           │

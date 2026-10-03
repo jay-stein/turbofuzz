@@ -98,7 +98,7 @@ const iterations = Number.parseInt(arg("iterations", "25"), 10);
 const outPath = arg("out", "");
 
 const report: string[] = [];
-report.push("# Fuzzy search benchmark");
+report.push("# TurboFuzz fuzzy search benchmark");
 report.push("");
 report.push(`- Date: ${new Date().toISOString()}`);
 report.push(`- Machine: ${cpus()[0]?.model ?? "unknown"}`);
