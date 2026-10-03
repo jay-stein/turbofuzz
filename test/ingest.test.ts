@@ -49,6 +49,30 @@ test("ingestDataset decodes transferred UTF-8 array buffers", () => {
   assert.deepEqual(dataset.columns.map((column) => column.name), ["a", "b"]);
 });
 
+test("ingestDataset builds datasets from scraped tables", () => {
+  const { dataset, encoding } = ingestDataset({
+    name: "scraped",
+    delimiter: "auto",
+    hasHeaders: true,
+    table: {
+      rows: [
+        ["Name", "Age"],
+        ["Alice", "30"],
+        ["Bob"],
+      ],
+      hasHeaders: true,
+    },
+  });
+
+  assert.equal(encoding, null);
+  assert.deepEqual(
+    dataset.columns.map((column) => column.name),
+    ["Name", "Age"],
+  );
+  assert.equal(dataset.rowCount, 2);
+  assert.deepEqual(dataset.columns[1].raw, ["30", ""]);
+});
+
 test("ingestDataset falls back to windows-1252 for legacy files", () => {
   // quoted: "price\n"\x80343,000"\n" -> price "€343,000" in windows-1252
   const bytes = Uint8Array.from([

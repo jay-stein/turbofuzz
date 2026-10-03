@@ -19,6 +19,6 @@ export function buildDataset(
     return ColumnData.create(header, raw);
   });
   onProgress?.("Computing dataset stats…");
-  const stats = computeDatasetStats(columns, rowCount);
-  return new Dataset(name, rowCount, columns, stats);
+  const { stats, duplicateBits, nullRowBits } = computeDatasetStats(columns, rowCount);
+  return new Dataset(name, rowCount, columns, stats, duplicateBits, nullRowBits);
 }

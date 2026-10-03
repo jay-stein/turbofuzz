@@ -4,6 +4,7 @@ import type { ColumnType } from "../types.js";
 import type { ColumnMeta, LoadedMessage, ProgressMessage } from "../worker/protocol.js";
 import { clear, el } from "./dom.js";
 import { FilterPanel } from "./filters.js";
+import { firstTableRows } from "./html-table.js";
 import { sampleCsv } from "./sample.js";
 import { openStatsModal } from "./stats.js";
 import { ResultTable, type HighlightRule } from "./table.js";
@@ -19,6 +20,16 @@ function exportFileName(name: string): string {
     .replace(/[^a-zA-Z0-9-_]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return (base === "" ? "turbofuzz" : base).toLowerCase();
+}
+
+function nameFromUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    const last = url.pathname.split("/").filter(Boolean).pop();
+    return last === undefined ? url.hostname : last;
+  } catch {
+    return "remote-data";
+  }
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -64,6 +75,7 @@ export class App {
   private pasteView!: HTMLElement;
   private workspace!: HTMLElement;
   private textarea!: HTMLTextAreaElement;
+  private urlInput!: HTMLInputElement;
   private delimiterSelect!: HTMLSelectElement;
   private headersCheckbox!: HTMLInputElement;
   private statusEl!: HTMLElement;
@@ -73,6 +85,13 @@ export class App {
   private copyButton!: HTMLButtonElement;
   private exportButton!: HTMLButtonElement;
   private bannerEl!: HTMLElement;
+  private insightsEl!: HTMLElement;
+  private duplicateButton!: HTMLButtonElement;
+  private nullButton!: HTMLButtonElement;
+  private specialDuplicates = false;
+  private specialNulls = false;
+  private duplicateCount = 0;
+  private nullCount = 0;
   private filterHost!: HTMLElement;
   private tableHost!: HTMLElement;
   private statsButton!: HTMLButtonElement;
@@ -161,6 +180,20 @@ export class App {
     controls.append(fileButton, fileInput, loadButton);
     card.append(controls);
 
+    const urlRow = el("div", { class: "url-controls" });
+    this.urlInput = el("input", {
+      class: "text-input url-input",
+      type: "text",
+      placeholder: "https://example.com/data.csv — or a page containing a table",
+      spellcheck: "false",
+    }) as HTMLInputElement;
+    const loadUrlButton = el("button", { class: "ghost", type: "button" }, ["Load URL"]);
+    loadUrlButton.addEventListener("click", () => void this.loadFromUrl());
+    const scrapeButton = el("button", { class: "ghost", type: "button" }, ["Scrape table"]);
+    scrapeButton.addEventListener("click", () => void this.scrapeFirstTable());
+    urlRow.append(this.urlInput, loadUrlButton, scrapeButton);
+    card.append(urlRow);
+
     this.statusEl = el("div", { class: "status" });
     card.append(this.statusEl);
 
@@ -220,7 +253,9 @@ export class App {
     this.tableHost = el("div", { class: "table-host" });
     results.append(resultsBar, this.tableHost);
 
-    workspace.append(sidebar, results);
+    this.insightsEl = el("div", { class: "insights hidden" });
+    const body = el("div", { class: "workspace-body" }, [sidebar, results]);
+    workspace.append(this.insightsEl, body);
     return workspace;
   }
 
@@ -275,6 +310,74 @@ export class App {
     }
   }
 
+  private async loadFromUrl(): Promise<void> {
+    const url = this.urlInput.value.trim();
+    if (url === "") {
+      this.setStatusError("Enter a URL first.");
+      return;
+    }
+    try {
+      this.statusEl.textContent = "Downloading…";
+      this.statusEl.classList.remove("error");
+      const response = await fetch(`/api/fetch?url=${encodeURIComponent(url)}`);
+      if (!response.ok) throw new Error(`Download failed (${response.status})`);
+      const buffer = await response.arrayBuffer();
+      await this.load({ buffer, name: nameFromUrl(url), source: "file" });
+    } catch (error) {
+      this.setStatusError(error instanceof Error ? error.message : "Download failed");
+    }
+  }
+
+  private async scrapeFirstTable(): Promise<void> {
+    const url = this.urlInput.value.trim();
+    if (url === "") {
+      this.setStatusError("Enter a URL first.");
+      return;
+    }
+    try {
+      this.statusEl.textContent = "Downloading page…";
+      this.statusEl.classList.remove("error");
+      const response = await fetch(`/api/fetch?url=${encodeURIComponent(url)}`);
+      if (!response.ok) throw new Error(`Download failed (${response.status})`);
+      const html = await response.text();
+      const rows = firstTableRows(html);
+      if (rows === null) throw new Error("No <table> found on that page");
+      await this.loadTable(rows, nameFromUrl(url));
+    } catch (error) {
+      this.setStatusError(error instanceof Error ? error.message : "Scrape failed");
+    }
+  }
+
+  private async loadTable(rows: string[][], name: string): Promise<void> {
+    if (this.loading) return;
+    this.loading = true;
+    this.generation++;
+    this.pendingSend = null;
+    this.statusEl.textContent = "Building table…";
+    this.statusEl.classList.remove("error");
+
+    try {
+      const hasHeaders = this.headersCheckbox.checked;
+      const loaded = await this.client.load({
+        name,
+        delimiter: "auto",
+        hasHeaders,
+        table: { rows, hasHeaders },
+      });
+      this.statusEl.textContent = "";
+      this.openWorkspace(loaded);
+    } catch (error) {
+      this.setStatusError(error instanceof Error ? error.message : "Failed to build table");
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private setStatusError(message: string): void {
+    this.statusEl.textContent = message;
+    this.statusEl.classList.add("error");
+  }
+
   private handleProgress(progress: ProgressMessage): void {
     if (progress.phase === "parse") {
       this.statusEl.textContent = "Parsing…";
@@ -292,6 +395,9 @@ export class App {
     this.rowCount = loaded.rowCount;
     this.datasetName = loaded.name;
     this.filters.clear();
+    this.specialDuplicates = false;
+    this.specialNulls = false;
+    this.buildInsights(loaded);
 
     this.pasteView.classList.add("hidden");
     this.workspace.classList.remove("hidden");
@@ -333,6 +439,71 @@ export class App {
 
     this.updateCount(loaded.rowCount, 0);
     this.updateGuardrail(loaded, loaded.source === "file");
+  }
+
+  private buildInsights(loaded: LoadedMessage): void {
+    clear(this.insightsEl);
+    const stats = loaded.stats;
+    this.duplicateCount = stats.rowsInDuplicateGroups;
+    this.nullCount = stats.rowsWithNulls;
+    this.insightsEl.append(
+      el("span", { class: "insight-chip" }, [
+        `${loaded.rowCount.toLocaleString()} rows · ${loaded.columnCount} columns`,
+      ]),
+    );
+
+    this.duplicateButton = el(
+      "button",
+      { class: "insight-chip action", type: "button", title: "Filter to rows that appear more than once" },
+      [`Duplicate rows: ${stats.rowsInDuplicateGroups.toLocaleString()}`],
+    ) as HTMLButtonElement;
+    this.duplicateButton.addEventListener("click", () => this.toggleSpecial("duplicates"));
+    this.insightsEl.append(this.duplicateButton);
+
+    this.nullButton = el(
+      "button",
+      {
+        class: "insight-chip action",
+        type: "button",
+        title: "Filter to rows containing at least one empty/null cell",
+      },
+      [`Null rows: ${stats.rowsWithNulls.toLocaleString()}`],
+    ) as HTMLButtonElement;
+    this.nullButton.addEventListener("click", () => this.toggleSpecial("nulls"));
+    this.insightsEl.append(this.nullButton);
+
+    this.updateInsightButtons();
+    this.insightsEl.classList.remove("hidden");
+  }
+
+  private updateInsightButtons(): void {
+    this.duplicateButton.classList.toggle("active", this.specialDuplicates);
+    this.nullButton.classList.toggle("active", this.specialNulls);
+    this.duplicateButton.textContent = this.specialDuplicates
+      ? "Duplicate rows: on"
+      : `Duplicate rows: ${this.duplicateCount.toLocaleString()}`;
+    this.nullButton.textContent = this.specialNulls
+      ? "Null rows: on"
+      : `Null rows: ${this.nullCount.toLocaleString()}`;
+  }
+
+  private toggleSpecial(kind: "duplicates" | "nulls"): void {
+    if (kind === "duplicates") this.specialDuplicates = !this.specialDuplicates;
+    else this.specialNulls = !this.specialNulls;
+    this.updateInsightButtons();
+
+    const active = kind === "duplicates" ? this.specialDuplicates : this.specialNulls;
+    this.queueSend(() =>
+      this.client
+        .setSpecial(kind, active)
+        .then((message) => {
+          this.updateCount(message.count, message.queryMs);
+          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(message.firstRows);
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
   }
 
   /**
@@ -410,21 +581,26 @@ export class App {
   }
 
   private clearFilters(): void {
-    if (this.filters.size === 0) return;
+    const hadDuplicates = this.specialDuplicates;
+    const hadNulls = this.specialNulls;
+    if (this.filters.size === 0 && !hadDuplicates && !hadNulls) return;
+
     this.filters.clear();
+    this.specialDuplicates = false;
+    this.specialNulls = false;
+    this.updateInsightButtons();
     this.filterPanel?.rebuild();
     this.table?.setHighlights([]);
-    this.queueSend(() =>
-      this.client
-        .clearFilters()
-        .then((message) => {
-          this.updateCount(message.count, message.queryMs);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
-          this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows);
-        })
-        .catch((error: unknown) => this.showError(error)),
-    );
+
+    this.queueSend(async () => {
+      if (hadDuplicates) await this.client.setSpecial("duplicates", false);
+      if (hadNulls) await this.client.setSpecial("nulls", false);
+      const message = await this.client.clearFilters();
+      this.updateCount(message.count, message.queryMs);
+      this.filterPanel?.applyResults(message.facets, message.histograms);
+      this.table?.setCount(message.count);
+      this.table?.setFirstRows(message.firstRows);
+    });
   }
 
   private openStats(): void {

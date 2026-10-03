@@ -18,6 +18,25 @@ test("counts duplicate rows exactly", () => {
   assert.equal(dataset.stats.duplicateGroups, 1);
 });
 
+test("builds duplicate and null row bitsets", () => {
+  const dataset = buildDataset(
+    "t",
+    ["a", "b"],
+    [
+      ["1", "x"],
+      ["1", "x"],
+      ["2", "y"],
+      ["", ""],
+      ["", "z"],
+    ],
+  );
+  assert.deepEqual([...dataset.duplicateBits.toIndices()], [0, 1]);
+  assert.deepEqual([...dataset.nullRowBits.toIndices()], [3, 4]);
+  assert.equal(dataset.stats.rowsInDuplicateGroups, 2);
+  assert.equal(dataset.stats.rowsWithNulls, 2);
+  assert.equal(dataset.stats.duplicateGroups, 1);
+});
+
 test("counts empty rows and null cells", () => {
   const dataset = buildDataset(
     "t",

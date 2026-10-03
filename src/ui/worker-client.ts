@@ -29,6 +29,7 @@ export interface LoadOptions {
   hasHeaders: boolean;
   text?: string;
   buffer?: ArrayBuffer;
+  table?: { rows: string[][]; hasHeaders: boolean };
 }
 
 export class SearchWorkerClient {
@@ -68,6 +69,10 @@ export class SearchWorkerClient {
 
   clearFilters(): Promise<ResultsMessage> {
     return this.request<ResultsMessage>({ type: "clearFilters" });
+  }
+
+  setSpecial(kind: "duplicates" | "nulls", active: boolean): Promise<ResultsMessage> {
+    return this.request<ResultsMessage>({ type: "setSpecial", kind, active });
   }
 
   sort(column: number, dir: 1 | -1): Promise<SortedMessage> {

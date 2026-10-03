@@ -1,3 +1,4 @@
+import type { BitSet } from "../search/bitset.js";
 import type { ColumnData } from "./column.js";
 import type { DatasetStats } from "./stats.js";
 
@@ -7,6 +8,8 @@ export class Dataset {
     readonly rowCount: number,
     readonly columns: ColumnData[],
     readonly stats: DatasetStats,
+    readonly duplicateBits: BitSet,
+    readonly nullRowBits: BitSet,
   ) {}
 
   get columnCount(): number {

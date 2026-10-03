@@ -124,6 +124,12 @@ test("search worker handles the full request lifecycle", async () => {
   assert.deepEqual(preview.facets, {});
   assert.deepEqual(preview.histograms, {});
 
+  send({ type: "setSpecial", requestId: 14, kind: "duplicates", active: true });
+  assert.equal(find("results", 14).count, 0);
+  send({ type: "setSpecial", requestId: 15, kind: "duplicates", active: false });
+  // the preview range filter from request 13 is still active
+  assert.equal(find("results", 15).count, 2);
+
   send({ type: "clearFilters", requestId: 10 });
   assert.equal(find("results", 10).count, 3);
 

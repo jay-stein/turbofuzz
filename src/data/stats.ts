@@ -1,12 +1,21 @@
+import { BitSet } from "../search/bitset.js";
 import type { ColumnData } from "./column.js";
 
 export interface DatasetStats {
   duplicateRows: number;
   duplicateGroups: number;
+  rowsInDuplicateGroups: number;
   emptyRows: number;
+  rowsWithNulls: number;
   totalNullCells: number;
   totalCells: number;
   computeMs: number;
+}
+
+export interface IngestStats {
+  stats: DatasetStats;
+  duplicateBits: BitSet;
+  nullRowBits: BitSet;
 }
 
 function hashRow(columns: readonly ColumnData[], row: number, columnCount: number): number {
@@ -38,16 +47,18 @@ function rowsEqual(
 /**
  * One-time O(rows) pass. Duplicate detection hashes each row and only falls
  * back to exact comparison for rows that land in the same hash bucket, so it
- * is exact without building full row-key strings.
+ * is exact without building full row-key strings. Also produces the row masks
+ * used by the "show duplicates" / "show null rows" toggles.
  */
 export function computeDatasetStats(
   columns: readonly ColumnData[],
   rowCount: number,
-): DatasetStats {
+): IngestStats {
   const started = performance.now();
   const columnCount = columns.length;
   const buckets = new Map<number, number[]>();
   const duplicateBuckets = new Set<number>();
+  const duplicateBits = new BitSet(rowCount);
   let duplicateRows = 0;
 
   for (let row = 0; row < rowCount; row++) {
@@ -60,6 +71,8 @@ export function computeDatasetStats(
     let isDuplicate = false;
     for (let i = 0; i < bucket.length; i++) {
       if (rowsEqual(columns, row, bucket[i], columnCount)) {
+        duplicateBits.set(row);
+        duplicateBits.set(bucket[i]);
         isDuplicate = true;
         break;
       }
@@ -86,15 +99,24 @@ export function computeDatasetStats(
     if (empty) emptyRows++;
   }
 
+  const nullRowBits = new BitSet(rowCount);
+  for (const column of columns) nullRowBits.or(column.nullMask);
+
   let totalNullCells = 0;
   for (const column of columns) totalNullCells += column.stats.nulls;
 
   return {
-    duplicateRows,
-    duplicateGroups,
-    emptyRows,
-    totalNullCells,
-    totalCells: rowCount * columnCount,
-    computeMs: performance.now() - started,
+    stats: {
+      duplicateRows,
+      duplicateGroups,
+      rowsInDuplicateGroups: duplicateBits.count(),
+      emptyRows,
+      rowsWithNulls: nullRowBits.count(),
+      totalNullCells,
+      totalCells: rowCount * columnCount,
+      computeMs: performance.now() - started,
+    },
+    duplicateBits,
+    nullRowBits,
   };
 }

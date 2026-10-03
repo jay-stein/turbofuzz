@@ -58,6 +58,7 @@ export type LoadRequest = {
   hasHeaders: boolean;
   text?: string;
   buffer?: ArrayBuffer;
+  table?: { rows: string[][]; hasHeaders: boolean };
 };
 
 export type SetFilterRequest = {
@@ -69,6 +70,13 @@ export type SetFilterRequest = {
 };
 
 export type ClearFiltersRequest = { type: "clearFilters"; requestId: number };
+
+export type SetSpecialRequest = {
+  type: "setSpecial";
+  requestId: number;
+  kind: "duplicates" | "nulls";
+  active: boolean;
+};
 
 export type SortRequest = {
   type: "sort";
@@ -106,6 +114,7 @@ export type WorkerRequest =
   | LoadRequest
   | SetFilterRequest
   | ClearFiltersRequest
+  | SetSpecialRequest
   | SortRequest
   | GetRowsRequest
   | SetTypeRequest

@@ -21,7 +21,10 @@ const MAX_FACET_DELTA = 64;
  * - category value filters keep their selected set and bitset, so toggling one
  *   value is a single AND/OR pass instead of re-ORing every value.
  */
+export type SpecialFilter = "duplicates" | "nulls";
+
 export class QueryEngine {
+  private readonly special = new Set<SpecialFilter>();
   private cache = new Map<number, { sig: string; bits: BitSet }>();
   private readonly prefixStacks = new Map<number, { query: string; bits: BitSet }[]>();
   private readonly valuesState = new Map<number, { selected: Set<number>; bits: BitSet }>();
@@ -42,6 +45,12 @@ export class QueryEngine {
 
   evaluateBits(filters: ReadonlyMap<number, ColumnFilter>, excludeColumn = -1): BitSet {
     let acc: BitSet | null = null;
+    for (const kind of this.special) {
+      const bits = kind === "duplicates" ? this.dataset.duplicateBits : this.dataset.nullRowBits;
+      if (acc === null) acc = bits.clone();
+      else acc.and(bits);
+      if (acc.count() === 0) break;
+    }
     for (const [columnIndex, filter] of filters) {
       if (columnIndex === excludeColumn) continue;
       const bits = this.bitsFor(columnIndex, filter);
@@ -50,6 +59,11 @@ export class QueryEngine {
       if (acc.count() === 0) break;
     }
     return acc ?? this.all;
+  }
+
+  setSpecial(kind: SpecialFilter, active: boolean): void {
+    if (active) this.special.add(kind);
+    else this.special.delete(kind);
   }
 
   invalidate(): void {

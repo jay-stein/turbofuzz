@@ -13,20 +13,13 @@ export interface ParseOptions {
   hasHeaders?: boolean;
 }
 
-export function parseDelimited(text: string, options: ParseOptions = {}): ParsedTable {
-  const delimiter =
-    options.delimiter !== undefined && options.delimiter !== "auto"
-      ? options.delimiter
-      : detectDelimiter(text);
+export interface StructuredTable {
+  headers: string[];
+  rows: string[][];
+}
 
-  const result = Papa.parse<string[]>(text, {
-    delimiter,
-    skipEmptyLines: "greedy",
-  });
-
-  const data = result.data.filter((row) => Array.isArray(row) && row.length > 0);
-  const hasHeaders = options.hasHeaders ?? true;
-
+/** Turns a raw grid into named headers plus width-normalised rows. */
+export function structureTable(data: string[][], hasHeaders: boolean): StructuredTable {
   let headers: string[];
   let rows: string[][];
 
@@ -50,6 +43,24 @@ export function parseDelimited(text: string, options: ParseOptions = {}): Parsed
       row.length = width;
     }
   }
+
+  return { headers, rows };
+}
+
+export function parseDelimited(text: string, options: ParseOptions = {}): ParsedTable {
+  const delimiter =
+    options.delimiter !== undefined && options.delimiter !== "auto"
+      ? options.delimiter
+      : detectDelimiter(text);
+
+  const result = Papa.parse<string[]>(text, {
+    delimiter,
+    skipEmptyLines: "greedy",
+  });
+
+  const data = result.data.filter((row) => Array.isArray(row) && row.length > 0);
+  const hasHeaders = options.hasHeaders ?? true;
+  const { headers, rows } = structureTable(data, hasHeaders);
 
   return { headers, rows, delimiter, hasHeaders };
 }

@@ -120,6 +120,32 @@ test("range narrowing matches full scans while dragging", () => {
   }
 });
 
+test("special duplicate and null filters intersect with column filters", () => {
+  const dataset = buildDataset(
+    "t",
+    ["a", "b"],
+    [
+      ["1", "x"],
+      ["1", "x"],
+      ["2", ""],
+      ["3", "z"],
+    ],
+  );
+  const engine = new QueryEngine(dataset);
+
+  engine.setSpecial("duplicates", true);
+  assert.deepEqual([...engine.evaluate(new Map())], [0, 1]);
+
+  engine.setSpecial("nulls", true);
+  assert.deepEqual([...engine.evaluate(new Map())], []);
+
+  engine.setSpecial("duplicates", false);
+  assert.deepEqual([...engine.evaluate(new Map())], [2]);
+
+  engine.setSpecial("nulls", false);
+  assert.deepEqual([...engine.evaluate(new Map())], [0, 1, 2, 3]);
+});
+
 test("earlier facet results stay correct after later deltas", () => {
   const dataset = makeDataset();
   const engine = new QueryEngine(dataset);

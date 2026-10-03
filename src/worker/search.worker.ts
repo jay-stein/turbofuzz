@@ -65,6 +65,9 @@ function handle(message: WorkerRequest): void {
     case "clearFilters":
       handleClearFilters(message);
       break;
+    case "setSpecial":
+      handleSetSpecial(message);
+      break;
     case "sort":
       handleSort(message);
       break;
@@ -110,6 +113,7 @@ function handleLoad(message: LoadRequest): void {
     hasHeaders: message.hasHeaders,
     text: message.text,
     buffer: message.buffer,
+    table: message.table,
     onProgress: (progress) =>
       post({ type: "progress", phase: progress.phase, detail: progress.detail }),
   });
@@ -182,6 +186,27 @@ function handleClearFilters(message: { requestId: number }): void {
     requestId: message.requestId,
     count: sortedIds.length,
     queryMs,
+    facets: computeFacets(dataset, engine, bits),
+    histograms: computeHistograms(dataset, engine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+  });
+}
+
+function handleSetSpecial(message: {
+  requestId: number;
+  kind: "duplicates" | "nulls";
+  active: boolean;
+}): void {
+  const { dataset, engine } = state();
+  engine.setSpecial(message.kind, message.active);
+  const started = performance.now();
+  const bits = engine.evaluateBits(filters);
+  sortedIds = orderIds(bits, rankAsc, sortDir);
+  post({
+    type: "results",
+    requestId: message.requestId,
+    count: sortedIds.length,
+    queryMs: performance.now() - started,
     facets: computeFacets(dataset, engine, bits),
     histograms: computeHistograms(dataset, engine),
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),

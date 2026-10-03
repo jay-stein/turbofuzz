@@ -1,7 +1,7 @@
 import { buildDataset } from "../data/build.js";
 import type { Dataset } from "../data/dataset.js";
 import { decodeText, type FileEncoding } from "../parse/encoding.js";
-import { parseDelimited } from "../parse/parse.js";
+import { parseDelimited, structureTable } from "../parse/parse.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { ProgressPhase } from "./protocol.js";
 
@@ -16,6 +16,7 @@ export interface IngestOptions {
   hasHeaders: boolean;
   text?: string;
   buffer?: ArrayBuffer;
+  table?: { rows: string[][]; hasHeaders: boolean };
   onProgress?: (progress: IngestProgress) => void;
 }
 
@@ -25,6 +26,14 @@ export interface IngestResult {
 }
 
 export function ingestDataset(options: IngestOptions): IngestResult {
+  if (options.table !== undefined) {
+    const { headers, rows } = structureTable(options.table.rows, options.table.hasHeaders);
+    const dataset = buildDataset(options.name, headers, rows, (detail) => {
+      options.onProgress?.({ phase: "build", detail });
+    });
+    return { dataset, encoding: null };
+  }
+
   let text = options.text;
   let encoding: FileEncoding | null = null;
 
