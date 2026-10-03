@@ -94,48 +94,64 @@ function formatInt(n: number): string {
   return out;
 }
 
-export function generateDataset(size: number, seed: number): Dataset {
+export function generateDataset(
+  size: number,
+  seed: number,
+  selected?: readonly (keyof DatasetColumns)[],
+): Dataset {
   const rng = mulberry32(seed);
+  const want = selected === undefined ? null : new Set<keyof DatasetColumns>(selected);
+  const has = (name: keyof DatasetColumns): boolean => want === null || want.has(name);
+  const column = (name: keyof DatasetColumns): string[] =>
+    has(name) ? new Array<string>(size) : [];
+
   const columns: DatasetColumns = {
-    customer_name: new Array<string>(size),
-    company: new Array<string>(size),
-    suburb: new Array<string>(size),
-    state: new Array<string>(size),
-    annual_usage: new Array<string>(size),
-    year: new Array<string>(size),
-    install_date: new Array<string>(size),
-    status: new Array<string>(size),
-    nmi: new Array<string>(size),
-    solar: new Array<string>(size),
+    customer_name: column("customer_name"),
+    company: column("company"),
+    suburb: column("suburb"),
+    state: column("state"),
+    annual_usage: column("annual_usage"),
+    year: column("year"),
+    install_date: column("install_date"),
+    status: column("status"),
+    nmi: column("nmi"),
+    solar: column("solar"),
   };
 
   const seenNmi = new Set<string>();
 
   for (let i = 0; i < size; i++) {
-    columns.customer_name[i] = i < FORCED_NAMES.length
-      ? FORCED_NAMES[i]
-      : i % 3 === 0
-        ? companyName(rng)
-        : personName(rng);
-    columns.company[i] = companyName(rng);
-    columns.suburb[i] = suburbName(rng);
-    columns.state[i] = pick(rng, STATES);
-    columns.annual_usage[i] = rng() < 0.3 ? formatInt(randInt(rng, 0, 120000)) : String(randInt(rng, 0, 120000));
-    columns.year[i] = String(randInt(rng, 2018, 2026));
-    const day = String(randInt(rng, 1, 28)).padStart(2, "0");
-    const month = String(randInt(rng, 1, 12)).padStart(2, "0");
-    columns.install_date[i] = `${day}/${month}/${randInt(rng, 2019, 2026)}`;
-    columns.status[i] = pick(rng, STATUSES);
-
-    let nmi = "";
-    do {
-      nmi = String(randInt(rng, 1, 9));
-      for (let d = 0; d < 10; d++) nmi += String(randInt(rng, 0, 9));
-    } while (seenNmi.has(nmi));
-    seenNmi.add(nmi);
-    columns.nmi[i] = nmi;
-
-    columns.solar[i] = rng() < 0.35 ? "Yes" : "No";
+    if (has("customer_name")) {
+      columns.customer_name[i] = i < FORCED_NAMES.length
+        ? FORCED_NAMES[i]
+        : i % 3 === 0
+          ? companyName(rng)
+          : personName(rng);
+    }
+    if (has("company")) columns.company[i] = companyName(rng);
+    if (has("suburb")) columns.suburb[i] = suburbName(rng);
+    if (has("state")) columns.state[i] = pick(rng, STATES);
+    if (has("annual_usage")) {
+      columns.annual_usage[i] =
+        rng() < 0.3 ? formatInt(randInt(rng, 0, 120000)) : String(randInt(rng, 0, 120000));
+    }
+    if (has("year")) columns.year[i] = String(randInt(rng, 2018, 2026));
+    if (has("install_date")) {
+      const day = String(randInt(rng, 1, 28)).padStart(2, "0");
+      const month = String(randInt(rng, 1, 12)).padStart(2, "0");
+      columns.install_date[i] = `${day}/${month}/${randInt(rng, 2019, 2026)}`;
+    }
+    if (has("status")) columns.status[i] = pick(rng, STATUSES);
+    if (has("nmi")) {
+      let nmi = "";
+      do {
+        nmi = String(randInt(rng, 1, 9));
+        for (let d = 0; d < 10; d++) nmi += String(randInt(rng, 0, 9));
+      } while (seenNmi.has(nmi));
+      seenNmi.add(nmi);
+      columns.nmi[i] = nmi;
+    }
+    if (has("solar")) columns.solar[i] = rng() < 0.35 ? "Yes" : "No";
   }
 
   return { size, columns };

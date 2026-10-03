@@ -2,6 +2,7 @@ import { generateDataset } from "./data.js";
 import { parseDelimited } from "../src/parse/parse.js";
 import { buildDataset } from "../src/data/build.js";
 import { QueryEngine, type ColumnFilter } from "../src/search/query-engine.js";
+import { memMB } from "./bench-utils.js";
 
 const sizeArg = process.argv.find((argument) => argument.startsWith("--rows="));
 const size = sizeArg === undefined ? 100_000 : Number.parseInt(sizeArg.slice("--rows=".length), 10);
@@ -22,16 +23,19 @@ function median(values: number[]): number {
   return sorted[Math.floor(sorted.length / 2)];
 }
 
-const data = generateDataset(size, 42);
+const data = generateDataset(size, 42, COLUMNS);
 const csv = toCsv(data.columns as unknown as Record<string, string[]>, size);
+const rssAfterCsv = memMB().rssMB;
 
 let start = performance.now();
 const parsed = parseDelimited(csv, { delimiter: "auto" });
 const parseMs = performance.now() - start;
+const rssAfterParse = memMB().rssMB;
 
 start = performance.now();
 const dataset = buildDataset("smoke", parsed.headers, parsed.rows);
 const buildMs = performance.now() - start;
+const rssAfterBuild = memMB().rssMB;
 
 start = performance.now();
 dataset.columns[0].fuzzyIndex();
@@ -55,6 +59,9 @@ console.log(`rows: ${size.toLocaleString()}`);
 console.log(`columns: ${dataset.columnCount} (${dataset.columns.map((c) => `${c.name}:${c.type}`).join(", ")})`);
 console.log(`parse (Papa + sniff):      ${parseMs.toFixed(0)} ms`);
 console.log(`build (types + stats):     ${buildMs.toFixed(0)} ms`);
+console.log(
+  `rss: csv ${rssAfterCsv.toFixed(0)} MB → parsed ${rssAfterParse.toFixed(0)} MB → dataset ${rssAfterBuild.toFixed(0)} MB`,
+);
 console.log(
   `  └ dataset stats:         ${dataset.stats.computeMs.toFixed(0)} ms ` +
     `(${dataset.stats.duplicateRows.toLocaleString()} duplicate rows, ` +
