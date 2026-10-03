@@ -1,4 +1,5 @@
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
+import { decodeText } from "../parse/encoding.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnType } from "../types.js";
 import type { ColumnMeta, LoadedMessage, ProgressMessage } from "../worker/protocol.js";
@@ -12,6 +13,45 @@ import { ResultTable, type HighlightRule } from "./table.js";
 import { SearchWorkerClient } from "./worker-client.js";
 
 const LARGE_PASTE_ROWS = 300_000;
+const DATA_URL_EXTENSIONS = [".csv", ".tsv", ".psv", ".txt"];
+
+function isDataUrl(raw: string): boolean {
+  try {
+    const pathname = new URL(raw).pathname.toLowerCase();
+    return DATA_URL_EXTENSIONS.some((extension) => pathname.endsWith(extension));
+  } catch {
+    return false;
+  }
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function svgIcon(paths: string, className: string): SVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", className);
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.innerHTML = paths;
+  return svg;
+}
+
+function uploadIcon(): SVGElement {
+  return svgIcon(
+    '<path d="M12 15V4"/><path d="m7 9 5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
+    "dropzone-icon",
+  );
+}
+
+function globeIcon(): SVGElement {
+  return svgIcon(
+    '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.4 2.6 3.6 5.6 3.6 9s-1.2 6.4-3.6 9c-2.4-2.6-3.6-5.6-3.6-9S9.6 5.6 12 3z"/>',
+    "field-icon",
+  );
+}
 const CLIPBOARD_ROW_LIMIT = 100_000;
 const EXPORT_CHUNK_ROWS = 20_000;
 
@@ -77,6 +117,7 @@ export class App {
   private workspace!: HTMLElement;
   private textarea!: HTMLTextAreaElement;
   private urlInput!: HTMLInputElement;
+  private urlButton!: HTMLButtonElement;
   private delimiterSelect!: HTMLSelectElement;
   private headersCheckbox!: HTMLInputElement;
   private statusEl!: HTMLElement;
@@ -123,7 +164,7 @@ export class App {
     card.append(el("h1", {}, ["Search tabular data, fast"]));
     card.append(
       el("p", { class: "sub" }, [
-        "Paste rows from Excel, Sheets or any delimited text. Everything runs in your browser — nothing is uploaded.",
+        "Paste rows, drop a file, or point at a URL. Everything runs in your browser — your data never leaves it.",
       ]),
     );
 
@@ -149,42 +190,100 @@ export class App {
     this.headersCheckbox = el("input", { type: "checkbox" }) as HTMLInputElement;
     this.headersCheckbox.checked = true;
     headerLabel.append(this.headersCheckbox, "First row is header");
-    controls.append(delimiterLabel, headerLabel, el("span", { class: "grow" }));
+    const loadButton = el("button", { class: "primary", type: "button" }, ["Load pasted data"]);
+    loadButton.addEventListener("click", () => this.loadFromTextarea());
+
+    controls.append(delimiterLabel, headerLabel, el("span", { class: "grow" }), loadButton);
+    card.append(controls);
+
+    const dropzone = el("div", {
+      class: "dropzone",
+      role: "button",
+      tabindex: "0",
+      title: "CSV, TSV or PSV",
+    });
+    dropzone.append(
+      uploadIcon(),
+      el("span", {}, ["Drop a CSV / TSV / PSV here — or click to browse"]),
+    );
+    card.append(dropzone);
 
     const fileInput = el("input", {
       type: "file",
-      accept: ".csv,.tsv,.txt",
+      accept: ".csv,.tsv,.psv,.txt",
       class: "hidden",
     }) as HTMLInputElement;
-    const fileButton = el("button", { class: "ghost", type: "button" }, ["Upload file"]);
-    fileButton.addEventListener("click", () => fileInput.click());
+    const openPicker = (): void => fileInput.click();
+    dropzone.addEventListener("click", openPicker);
+    dropzone.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openPicker();
+      }
+    });
     fileInput.addEventListener("change", () => {
       const file = fileInput.files?.[0];
-      if (file === undefined) return;
-      void file
-        .arrayBuffer()
-        .then((buffer) => this.load({ buffer, name: file.name, source: "file" }));
+      if (file !== undefined) void this.loadFile(file);
     });
 
-    const loadButton = el("button", { class: "primary", type: "button" }, ["Load data"]);
-    loadButton.addEventListener("click", () => this.loadFromTextarea());
+    card.addEventListener("dragover", (event) => {
+      if (event.dataTransfer === null) return;
+      if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+      event.preventDefault();
+      dropzone.classList.add("dragging");
+    });
+    card.addEventListener("dragleave", (event) => {
+      if (event.relatedTarget !== null && card.contains(event.relatedTarget as Node)) return;
+      dropzone.classList.remove("dragging");
+    });
+    card.addEventListener("drop", (event) => {
+      const file = event.dataTransfer?.files?.[0];
+      if (file === undefined) return;
+      event.preventDefault();
+      dropzone.classList.remove("dragging");
+      void this.loadFile(file);
+    });
+    card.append(fileInput);
 
-    controls.append(fileButton, fileInput, loadButton);
-    card.append(controls);
-
+    const urlSection = el("div", { class: "url-section" });
     const urlRow = el("div", { class: "url-controls" });
+    const urlField = el("div", { class: "url-field" });
+    urlField.append(globeIcon());
     this.urlInput = el("input", {
       class: "text-input url-input",
       type: "text",
-      placeholder: "https://example.com/data.csv — or a page containing a table",
+      placeholder: "https://example.com/data.csv — or a web page with a table",
       spellcheck: "false",
     }) as HTMLInputElement;
-    const loadUrlButton = el("button", { class: "ghost", type: "button" }, ["Load URL"]);
-    loadUrlButton.addEventListener("click", () => void this.loadFromUrl());
-    const scrapeButton = el("button", { class: "ghost", type: "button" }, ["Scrape table"]);
-    scrapeButton.addEventListener("click", () => void this.scrapeFirstTable());
-    urlRow.append(this.urlInput, loadUrlButton, scrapeButton);
-    card.append(urlRow);
+    urlField.append(this.urlInput);
+
+    this.urlButton = el(
+      "button",
+      { class: "primary", type: "button" },
+      ["Load / scrape"],
+    ) as HTMLButtonElement;
+    this.urlButton.addEventListener("click", () => void this.loadFromUrl());
+    this.urlInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void this.loadFromUrl();
+      }
+    });
+    this.urlInput.addEventListener("input", () => this.updateUrlButton());
+    urlRow.append(urlField, this.urlButton);
+
+    urlSection.append(
+      urlRow,
+      el("p", { class: "url-hint" }, [
+        "Links ending in .csv, .tsv or .psv load as data; anything else is scraped for its first table.",
+      ]),
+      el("p", { class: "disclaimer" }, [
+        "Always scrape responsibly by reviewing and adhering to the website's ",
+        el("code", {}, ["robots.txt"]),
+        " file, Terms of Service, and licensing restrictions. Ensure your request rates respect the server's load limits and comply with relevant data privacy laws.",
+      ]),
+    );
+    card.append(urlSection);
 
     this.statusEl = el("div", { class: "status" });
     card.append(this.statusEl);
@@ -302,6 +401,11 @@ export class App {
     }
   }
 
+  /**
+   * One URL field, two behaviours: data links (CSV/TSV/PSV by extension or
+   * content type) load as a table, anything else is scraped for its first
+   * table.
+   */
   private async loadFromUrl(): Promise<void> {
     const url = this.urlInput.value.trim();
     if (url === "") {
@@ -313,30 +417,41 @@ export class App {
       this.statusEl.classList.remove("error");
       const response = await fetch(`/api/fetch?url=${encodeURIComponent(url)}`);
       if (!response.ok) throw new Error(`Download failed (${response.status})`);
+
+      const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
       const buffer = await response.arrayBuffer();
-      await this.load({ buffer, name: nameFromUrl(url), source: "file" });
+      const looksHtml = contentType.includes("html");
+      const looksData =
+        contentType.includes("csv") ||
+        contentType.includes("tab-separated") ||
+        contentType.includes("comma-separated");
+
+      if (looksData || (!looksHtml && isDataUrl(url))) {
+        await this.load({ buffer, name: nameFromUrl(url), source: "file" });
+        return;
+      }
+
+      const html = decodeText(buffer).text;
+      const rows = firstTableRows(html);
+      if (rows === null) throw new Error("No <table> found on that page");
+      await this.loadTable(rows, nameFromUrl(url));
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Download failed");
     }
   }
 
-  private async scrapeFirstTable(): Promise<void> {
-    const url = this.urlInput.value.trim();
-    if (url === "") {
-      this.setStatusError("Enter a URL first.");
-      return;
-    }
+  private updateUrlButton(): void {
+    this.urlButton.textContent = isDataUrl(this.urlInput.value.trim())
+      ? "Load file"
+      : "Scrape table";
+  }
+
+  private async loadFile(file: File): Promise<void> {
     try {
-      this.statusEl.textContent = "Downloading page…";
-      this.statusEl.classList.remove("error");
-      const response = await fetch(`/api/fetch?url=${encodeURIComponent(url)}`);
-      if (!response.ok) throw new Error(`Download failed (${response.status})`);
-      const html = await response.text();
-      const rows = firstTableRows(html);
-      if (rows === null) throw new Error("No <table> found on that page");
-      await this.loadTable(rows, nameFromUrl(url));
+      const buffer = await file.arrayBuffer();
+      await this.load({ buffer, name: file.name, source: "file" });
     } catch (error) {
-      this.setStatusError(error instanceof Error ? error.message : "Scrape failed");
+      this.setStatusError(error instanceof Error ? error.message : "Could not read file");
     }
   }
 
