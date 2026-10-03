@@ -6,6 +6,7 @@ import { clear, el } from "./dom.js";
 import { FilterPanel } from "./filters.js";
 import { firstTableRows } from "./html-table.js";
 import { sampleCsv } from "./sample.js";
+import { SummaryBand } from "./summary-band.js";
 import { openStatsModal } from "./stats.js";
 import { ResultTable, type HighlightRule } from "./table.js";
 import { SearchWorkerClient } from "./worker-client.js";
@@ -85,16 +86,12 @@ export class App {
   private copyButton!: HTMLButtonElement;
   private exportButton!: HTMLButtonElement;
   private bannerEl!: HTMLElement;
-  private insightsEl!: HTMLElement;
-  private duplicateButton!: HTMLButtonElement;
-  private nullButton!: HTMLButtonElement;
+  private summaryHost!: HTMLElement;
+  private summaryBand: SummaryBand | null = null;
   private specialDuplicates = false;
   private specialNulls = false;
-  private duplicateCount = 0;
-  private nullCount = 0;
   private filterHost!: HTMLElement;
   private tableHost!: HTMLElement;
-  private statsButton!: HTMLButtonElement;
 
   constructor(private readonly root: HTMLElement) {
     this.buildShell();
@@ -109,11 +106,6 @@ export class App {
     topbar.append(el("div", { class: "brand" }, ["TurboFuzz"]));
     this.metaEl = el("div", { class: "meta" });
     topbar.append(this.metaEl);
-
-    this.statsButton = el("button", { class: "ghost", type: "button" }, ["Stats"]) as HTMLButtonElement;
-    this.statsButton.classList.add("hidden");
-    this.statsButton.addEventListener("click", () => this.openStats());
-    topbar.append(this.statsButton);
 
     const newButton = el("button", { class: "ghost", type: "button" }, ["New data"]);
     newButton.addEventListener("click", () => this.showPaste());
@@ -253,9 +245,9 @@ export class App {
     this.tableHost = el("div", { class: "table-host" });
     results.append(resultsBar, this.tableHost);
 
-    this.insightsEl = el("div", { class: "insights hidden" });
+    this.summaryHost = el("div");
     const body = el("div", { class: "workspace-body" }, [sidebar, results]);
-    workspace.append(this.insightsEl, body);
+    workspace.append(this.summaryHost, body);
     return workspace;
   }
 
@@ -397,11 +389,15 @@ export class App {
     this.filters.clear();
     this.specialDuplicates = false;
     this.specialNulls = false;
-    this.buildInsights(loaded);
+    this.summaryBand = new SummaryBand(this.summaryHost, {
+      onToggleSpecial: (kind) => this.toggleSpecial(kind),
+      onOpenStats: () => this.openStats(),
+      onColumnClick: (column) => this.filterPanel?.focusColumn(column),
+    });
+    this.summaryBand.render(loaded);
 
     this.pasteView.classList.add("hidden");
     this.workspace.classList.remove("hidden");
-    this.statsButton.classList.remove("hidden");
 
     const emptyPct =
       loaded.stats.totalCells > 0
@@ -441,56 +437,10 @@ export class App {
     this.updateGuardrail(loaded, loaded.source === "file");
   }
 
-  private buildInsights(loaded: LoadedMessage): void {
-    clear(this.insightsEl);
-    const stats = loaded.stats;
-    this.duplicateCount = stats.rowsInDuplicateGroups;
-    this.nullCount = stats.rowsWithNulls;
-    this.insightsEl.append(
-      el("span", { class: "insight-chip" }, [
-        `${loaded.rowCount.toLocaleString()} rows · ${loaded.columnCount} columns`,
-      ]),
-    );
-
-    this.duplicateButton = el(
-      "button",
-      { class: "insight-chip action", type: "button", title: "Filter to rows that appear more than once" },
-      [`Duplicate rows: ${stats.rowsInDuplicateGroups.toLocaleString()}`],
-    ) as HTMLButtonElement;
-    this.duplicateButton.addEventListener("click", () => this.toggleSpecial("duplicates"));
-    this.insightsEl.append(this.duplicateButton);
-
-    this.nullButton = el(
-      "button",
-      {
-        class: "insight-chip action",
-        type: "button",
-        title: "Filter to rows containing at least one empty/null cell",
-      },
-      [`Null rows: ${stats.rowsWithNulls.toLocaleString()}`],
-    ) as HTMLButtonElement;
-    this.nullButton.addEventListener("click", () => this.toggleSpecial("nulls"));
-    this.insightsEl.append(this.nullButton);
-
-    this.updateInsightButtons();
-    this.insightsEl.classList.remove("hidden");
-  }
-
-  private updateInsightButtons(): void {
-    this.duplicateButton.classList.toggle("active", this.specialDuplicates);
-    this.nullButton.classList.toggle("active", this.specialNulls);
-    this.duplicateButton.textContent = this.specialDuplicates
-      ? "Duplicate rows: on"
-      : `Duplicate rows: ${this.duplicateCount.toLocaleString()}`;
-    this.nullButton.textContent = this.specialNulls
-      ? "Null rows: on"
-      : `Null rows: ${this.nullCount.toLocaleString()}`;
-  }
-
   private toggleSpecial(kind: "duplicates" | "nulls"): void {
     if (kind === "duplicates") this.specialDuplicates = !this.specialDuplicates;
     else this.specialNulls = !this.specialNulls;
-    this.updateInsightButtons();
+    this.summaryBand?.setSpecials(this.specialDuplicates, this.specialNulls);
 
     const active = kind === "duplicates" ? this.specialDuplicates : this.specialNulls;
     this.queueSend(() =>
@@ -588,7 +538,7 @@ export class App {
     this.filters.clear();
     this.specialDuplicates = false;
     this.specialNulls = false;
-    this.updateInsightButtons();
+    this.summaryBand?.setSpecials(false, false);
     this.filterPanel?.rebuild();
     this.table?.setHighlights([]);
 
@@ -723,7 +673,6 @@ export class App {
   private showPaste(): void {
     this.workspace.classList.add("hidden");
     this.pasteView.classList.remove("hidden");
-    this.statsButton.classList.add("hidden");
     this.textarea.focus();
   }
 }

@@ -58,6 +58,14 @@ export class FilterPanel {
     this.statusEls[index].textContent = text;
   }
 
+  focusColumn(index: number): void {
+    const card = this.cards[index];
+    if (card === undefined) return;
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+    card.classList.add("flash");
+    window.setTimeout(() => card.classList.remove("flash"), 1200);
+  }
+
   /**
    * Updates live faceted counts. Values with zero matches under the other
    * active filters are dimmed but stay visible and clickable.
@@ -97,7 +105,7 @@ export class FilterPanel {
   }
 
   private buildCard(meta: ColumnMeta, index: number): HTMLElement {
-    const card = el("div", { class: "filter-card" });
+    const card = el("div", { class: "filter-card", "data-column": String(index) });
     if (this.filters.has(index)) card.classList.add("active");
 
     const head = el("div", { class: "filter-head" });
