@@ -12,6 +12,7 @@
     "bench": "tsx bench/run.ts",
     "bench:quick": "tsx bench/run.ts --sizes=10000 --iterations=10",
     "bench:app": "tsx bench/app-smoke.ts",
+    "bench:real": "tsx bench/real.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

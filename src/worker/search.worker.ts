@@ -1,6 +1,7 @@
 import type { ColumnData } from "../data/column.js";
 import type { Dataset } from "../data/dataset.js";
 import type { BitSet } from "../search/bitset.js";
+import { buildRank, orderIds } from "../search/order.js";
 import { QueryEngine, type ColumnFilter } from "../search/query-engine.js";
 import { buildCsv } from "./csv.js";
 import { ingestDataset } from "./ingest.js";
@@ -286,48 +287,6 @@ function handleGetStats(message: GetStatsRequest): void {
     stats: dataset.stats,
     columns: dataset.columns.map(detailsFor),
   });
-}
-
-function orderIds(bits: BitSet, order: Uint32Array | null): Uint32Array {
-  if (order === null) return bits.toIndices();
-  const out = new Uint32Array(bits.count());
-  let k = 0;
-  for (let i = 0; i < order.length; i++) {
-    const row = order[i];
-    if (bits.get(row)) out[k++] = row;
-  }
-  return out;
-}
-
-function buildRank(dataset: Dataset, columnIndex: number, dir: 1 | -1): Uint32Array {
-  const column = dataset.columns[columnIndex];
-  const rowCount = dataset.rowCount;
-  const ordered = new Uint32Array(rowCount);
-  for (let i = 0; i < rowCount; i++) ordered[i] = i;
-
-  const numeric =
-    column.type === "integer" || column.type === "number" || column.type === "date";
-  if (numeric) {
-    const numbers = column.numbers();
-    ordered.sort((a, b) => {
-      const va = numbers[a];
-      const vb = numbers[b];
-      const na = Number.isNaN(va);
-      const nb = Number.isNaN(vb);
-      if (na && nb) return 0;
-      if (na) return 1;
-      if (nb) return -1;
-      return (va - vb) * dir;
-    });
-  } else {
-    const raw = column.raw;
-    ordered.sort((a, b) => {
-      const va = raw[a];
-      const vb = raw[b];
-      return (va < vb ? -1 : va > vb ? 1 : 0) * dir;
-    });
-  }
-  return ordered;
 }
 
 function metaFor(column: ColumnData): ColumnMeta {
