@@ -101,9 +101,15 @@ const COMPACT_FIRST = new Set([98, 101, 109, 110, 116, 117]);
  * the pandas NaT marker is only meaningful inside datetime columns).
  */
 export function isNullToken(raw: string): boolean {
+  // Fast reject, no allocations: no null phrase starts with a digit, and
+  // negative numbers ("-999") are real values.
+  const firstCode = raw.charCodeAt(0);
+  if (firstCode >= 48 && firstCode <= 57) return false;
+  if (firstCode === 45 && raw.length > 1 && raw.charCodeAt(1) >= 48) return false;
+
   // Cheap reject before allocating: a long value without padding cannot be a
   // null phrase (the longest phrase is ~15 characters).
-  if (raw.length > 32 && raw.charCodeAt(0) > 32 && raw.charCodeAt(raw.length - 1) > 32) {
+  if (raw.length > 32 && firstCode > 32 && raw.charCodeAt(raw.length - 1) > 32) {
     return false;
   }
 

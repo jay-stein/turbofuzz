@@ -18,18 +18,28 @@ export interface IngestStats {
   nullRowBits: BitSet;
 }
 
-function hashRow(columns: readonly ColumnData[], row: number, columnCount: number): number {
-  let hash = 0x811c9dc5;
-  for (let c = 0; c < columnCount; c++) {
-    const value = columns[c].raw[row];
-    for (let i = 0; i < value.length; i++) {
-      hash ^= value.charCodeAt(i);
+/**
+ * Row hashes are accumulated column by column so each column's string array
+ * is read sequentially (wide tables otherwise thrash the cache).
+ */
+function hashRows(columns: readonly ColumnData[], rowCount: number): Uint32Array {
+  const hashes = new Uint32Array(rowCount);
+  hashes.fill(0x811c9dc5);
+  for (let c = 0; c < columns.length; c++) {
+    const raw = columns[c].raw;
+    for (let row = 0; row < rowCount; row++) {
+      let hash = hashes[row];
+      const value = raw[row];
+      for (let i = 0; i < value.length; i++) {
+        hash ^= value.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193);
+      }
+      hash ^= 0x2f;
       hash = Math.imul(hash, 0x01000193);
+      hashes[row] = hash;
     }
-    hash ^= 0x2f;
-    hash = Math.imul(hash, 0x01000193);
   }
-  return hash >>> 0;
+  return hashes;
 }
 
 function rowsEqual(
@@ -59,10 +69,11 @@ export function computeDatasetStats(
   const buckets = new Map<number, number[]>();
   const duplicateBuckets = new Set<number>();
   const duplicateBits = new BitSet(rowCount);
+  const hashes = hashRows(columns, rowCount);
   let duplicateRows = 0;
 
   for (let row = 0; row < rowCount; row++) {
-    const hash = hashRow(columns, row, columnCount);
+    const hash = hashes[row];
     const bucket = buckets.get(hash);
     if (bucket === undefined) {
       buckets.set(hash, [row]);

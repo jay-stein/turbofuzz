@@ -50,6 +50,23 @@ test("parseNumber handles separators, currency and negatives", () => {
   assert.ok(Number.isNaN(parseNumber("")));
 });
 
+test("parseNumber fast path agrees with plain and edge values", () => {
+  assert.equal(parseNumber("123"), 123);
+  assert.equal(parseNumber("-4.5"), -4.5);
+  assert.equal(parseNumber("+7"), 7);
+  assert.equal(parseNumber(".5"), 0.5);
+  assert.equal(parseNumber("5."), 5);
+  assert.equal(parseNumber("1e5"), 100000);
+  assert.equal(parseNumber("00"), 0);
+  assert.equal(parseNumber("1 234"), 1234);
+  assert.equal(parseNumber(" 42 "), 42);
+  assert.ok(Number.isNaN(parseNumber("0x10")));
+  assert.ok(Number.isNaN(parseNumber("0b101")));
+  assert.ok(Number.isNaN(parseNumber("Infinity")));
+  assert.ok(Number.isNaN(parseNumber("-")));
+  assert.ok(Number.isNaN(parseNumber("1..2")));
+});
+
 test("parseDate handles ISO, day-first and month-first", () => {
   assert.equal(parseDate("2024-03-05"), Date.UTC(2024, 2, 5));
   assert.equal(parseDate("05/03/2024", "dmy"), Date.UTC(2024, 2, 5));

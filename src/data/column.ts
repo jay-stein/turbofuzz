@@ -2,7 +2,12 @@ import { BitSet } from "../search/bitset.js";
 import { FuzzyIndex } from "../search/fuzzy-index.js";
 import { normalize } from "../search/normalize.js";
 import { detectDateOrder, parseDate, type DateOrder } from "../parse/dates.js";
-import { inferColumnType, stratifiedSample, type ColumnStats } from "../parse/infer.js";
+import {
+  inferColumnType,
+  stratifiedSample,
+  type ColumnStats,
+  type InferredType,
+} from "../parse/infer.js";
 import { isNullToken } from "../parse/null-tokens.js";
 import { parseNumber } from "../parse/numbers.js";
 import type { ColumnType } from "../types.js";
@@ -56,7 +61,17 @@ export class ColumnData {
       avgLength: null,
     };
     const nullMask = new BitSet(raw.length);
-    const counts = new Map<string, number>();
+    const sample = stratifiedSample(raw, 1000);
+
+    // A cheap sample-only inference decides whether exact counts are needed:
+    // numeric/date columns display a histogram, not top values, so a plain
+    // distinct Set is enough and saves two hash lookups per cell.
+    const pre = preInfer(sample);
+    const collectCounts =
+      pre.type !== "integer" && pre.type !== "number" && pre.type !== "date";
+
+    const counts = collectCounts ? new Map<string, number>() : null;
+    const distinct = counts === null ? new Set<string>() : null;
     const top: { label: string; count: number }[] = [];
     let presentCount = 0;
     let lengthSum = 0;
@@ -70,15 +85,16 @@ export class ColumnData {
         nullMask.set(i);
         continue;
       }
-      counts.set(value, (counts.get(value) ?? 0) + 1);
+      if (counts !== null) counts.set(value, (counts.get(value) ?? 0) + 1);
+      else distinct?.add(value);
       if (stats.samples.length < 5) stats.samples.push(value);
       presentCount++;
-      const length = value.trim().length;
+      const length = valueLength(value);
       lengthSum += length;
       if (length < minLength) minLength = length;
       if (length > maxLength) maxLength = length;
     }
-    stats.distinct = counts.size;
+    stats.distinct = counts !== null ? counts.size : (distinct?.size ?? 0);
     if (presentCount > 0) {
       stats.minLength = minLength;
       stats.maxLength = maxLength;
@@ -86,18 +102,19 @@ export class ColumnData {
     }
 
     // Bounded top-3 selection: no full sort over potentially millions of keys.
-    for (const [label, count] of counts) {
-      if (top.length < 3) {
-        top.push({ label, count });
-        top.sort((a, b) => b.count - a.count);
-      } else if (count > top[2].count) {
-        top[2] = { label, count };
-        top.sort((a, b) => b.count - a.count);
+    if (counts !== null) {
+      for (const [label, count] of counts) {
+        if (top.length < 3) {
+          top.push({ label, count });
+          top.sort((a, b) => b.count - a.count);
+        } else if (count > top[2].count) {
+          top[2] = { label, count };
+          top.sort((a, b) => b.count - a.count);
+        }
       }
     }
     stats.topValues = top;
 
-    const sample = stratifiedSample(raw, 1000);
     const inferred = inferColumnType(sample, stats, raw.length);
     return new ColumnData(
       name,
@@ -157,11 +174,8 @@ export class ColumnData {
 
       for (let i = 0; i < this.raw.length; i++) {
         const value = this.raw[i];
-        const parsed = isNullToken(value)
-          ? NaN
-          : isDate
-            ? parseDate(value, this.dateOrder)
-            : parseNumber(value);
+        // Null markers all parse to NaN, so no separate isNullToken call.
+        const parsed = isDate ? parseDate(value, this.dateOrder) : parseNumber(value);
         out[i] = parsed;
         if (Number.isFinite(parsed)) {
           if (parsed < min) min = parsed;
@@ -302,4 +316,39 @@ export class ColumnData {
     }
     return this.cats;
   }
+}
+
+/** trim() allocation only when the value actually has edge whitespace. */
+function valueLength(value: string): number {
+  const first = value.charCodeAt(0);
+  const last = value.charCodeAt(value.length - 1);
+  return first > 32 && last > 32 ? value.length : value.trim().length;
+}
+
+/** Sample-only guess used to pick the cheaper ingest path. */
+function preInfer(sample: readonly string[]): InferredType {
+  let nulls = 0;
+  const seen = new Set<string>();
+  for (const value of sample) {
+    if (isNullToken(value)) {
+      nulls++;
+      continue;
+    }
+    seen.add(value);
+  }
+
+  const sampleStats: ColumnStats = {
+    nulls,
+    distinct: seen.size,
+    samples: [],
+    topValues: [],
+    min: null,
+    max: null,
+    mean: null,
+    stddev: null,
+    minLength: null,
+    maxLength: null,
+    avgLength: null,
+  };
+  return inferColumnType(sample, sampleStats, sample.length);
 }
