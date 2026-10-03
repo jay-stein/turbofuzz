@@ -66,6 +66,25 @@ export class BitSet {
     return total;
   }
 
+  andNot(other: BitSet): void {
+    const w = this.words;
+    const o = other.words;
+    for (let i = 0; i < w.length; i++) w[i] &= ~o[i];
+  }
+
+  /** Iterates set row indices without allocating an index array. */
+  forEachRow(fn: (row: number) => void): void {
+    const w = this.words;
+    for (let i = 0; i < w.length; i++) {
+      let word = w[i];
+      while (word !== 0) {
+        const bit = 31 - Math.clz32(word & -word);
+        fn((i << 5) + bit);
+        word &= word - 1;
+      }
+    }
+  }
+
   toIndices(): Uint32Array {
     let total = 0;
     const w = this.words;

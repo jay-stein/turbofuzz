@@ -8,13 +8,23 @@ export type ColumnFilter =
   | { kind: "range"; min: number | null; max: number | null }
   | { kind: "values"; selected: number[] };
 
+const MAX_PREFIX_DEPTH = 32;
+const MAX_FACET_DELTA = 64;
+
 /**
  * Evaluates a set of per-column filters by intersecting cached bitsets.
- * Each column's last result is cached by signature, so typing in one filter
- * only recomputes that filter and one AND over the cached rest.
+ *
+ * Two incremental strategies keep fresh queries off the full-table scan path:
+ * - contains/exact maintain a stack of prefix results (`contains("malv")` is a
+ *   subset of `contains("mal")`), so typing scans only the previous result and
+ *   backspace is a cache hit;
+ * - category value filters keep their selected set and bitset, so toggling one
+ *   value is a single AND/OR pass instead of re-ORing every value.
  */
 export class QueryEngine {
   private cache = new Map<number, { sig: string; bits: BitSet }>();
+  private readonly prefixStacks = new Map<number, { query: string; bits: BitSet }[]>();
+  private readonly valuesState = new Map<number, { selected: Set<number>; bits: BitSet }>();
   private readonly all: BitSet;
 
   constructor(private readonly dataset: Dataset) {
@@ -40,6 +50,8 @@ export class QueryEngine {
 
   invalidate(): void {
     this.cache.clear();
+    this.prefixStacks.clear();
+    this.valuesState.clear();
   }
 
   private bitsFor(columnIndex: number, filter: ColumnFilter): BitSet {
@@ -71,14 +83,7 @@ export class QueryEngine {
           return column.fuzzyIndex().search(filter.query).rowBits;
         }
 
-        const bits = new BitSet(rowCount);
-        const values = column.normalized();
-        for (let i = 0; i < values.length; i++) {
-          const value = values[i];
-          const hit = filter.mode === "exact" ? value === query : value.includes(query);
-          if (hit) bits.set(i);
-        }
-        return bits;
+        return this.textBits(columnIndex, query, filter.mode === "exact");
       }
 
       case "range": {
@@ -95,14 +100,85 @@ export class QueryEngine {
         return bits;
       }
 
-      case "values": {
-        const bits = new BitSet(rowCount);
-        const categories = column.categories();
-        for (const id of filter.selected) {
-          if (id >= 0 && id < categories.bits.length) bits.or(categories.bits[id]);
-        }
-        return bits;
+      case "values":
+        return this.valuesBits(columnIndex, filter.selected);
+    }
+  }
+
+  private textBits(columnIndex: number, query: string, exact: boolean): BitSet {
+    const rowCount = this.dataset.rowCount;
+    let stack = this.prefixStacks.get(columnIndex);
+    if (stack === undefined) {
+      stack = [];
+      this.prefixStacks.set(columnIndex, stack);
+    }
+
+    while (stack.length > 0 && !query.startsWith(stack[stack.length - 1].query)) {
+      stack.pop();
+    }
+    const base = stack.length > 0 ? stack[stack.length - 1] : null;
+
+    if (base !== null && base.query === query) {
+      if (!exact) return base.bits;
+      const bits = new BitSet(rowCount);
+      const values = this.dataset.columns[columnIndex].normalized();
+      base.bits.forEachRow((row) => {
+        if (values[row] === query) bits.set(row);
+      });
+      return bits;
+    }
+
+    const containsBits = new BitSet(rowCount);
+    const bits = exact ? new BitSet(rowCount) : containsBits;
+    const values = this.dataset.columns[columnIndex].normalized();
+
+    if (base !== null) {
+      base.bits.forEachRow((row) => {
+        const value = values[row];
+        if (value.includes(query)) containsBits.set(row);
+        if (exact && value === query) bits.set(row);
+      });
+    } else {
+      for (let i = 0; i < values.length; i++) {
+        const value = values[i];
+        if (value.includes(query)) containsBits.set(i);
+        if (exact && value === query) bits.set(i);
       }
     }
+
+    if (stack.length >= MAX_PREFIX_DEPTH) stack.shift();
+    stack.push({ query, bits: containsBits });
+    return bits;
+  }
+
+  private valuesBits(columnIndex: number, selectedIds: number[]): BitSet {
+    const categories = this.dataset.columns[columnIndex].categories();
+    const selected = new Set(selectedIds);
+    const previous = this.valuesState.get(columnIndex);
+
+    if (previous !== undefined) {
+      const added: number[] = [];
+      const removed: number[] = [];
+      for (const id of selected) if (!previous.selected.has(id)) added.push(id);
+      for (const id of previous.selected) if (!selected.has(id)) removed.push(id);
+
+      if (added.length + removed.length <= MAX_FACET_DELTA) {
+        for (const id of removed) {
+          if (id >= 0 && id < categories.bits.length) previous.bits.andNot(categories.bits[id]);
+        }
+        for (const id of added) {
+          if (id >= 0 && id < categories.bits.length) previous.bits.or(categories.bits[id]);
+        }
+        previous.selected = selected;
+        return previous.bits;
+      }
+    }
+
+    const bits = new BitSet(this.dataset.rowCount);
+    for (const id of selected) {
+      if (id >= 0 && id < categories.bits.length) bits.or(categories.bits[id]);
+    }
+    this.valuesState.set(columnIndex, { selected, bits });
+    return bits;
   }
 }
