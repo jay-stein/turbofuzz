@@ -6,6 +6,7 @@ import { clear, el } from "./dom.js";
 import { FilterPanel } from "./filters.js";
 import { ResultTable, type HighlightRule } from "./table.js";
 import { sampleCsv } from "./sample.js";
+import { openStatsModal } from "./stats.js";
 import type { Dataset } from "../data/dataset.js";
 
 export class App {
@@ -25,6 +26,7 @@ export class App {
   private countEl!: HTMLElement;
   private filterHost!: HTMLElement;
   private tableHost!: HTMLElement;
+  private statsButton!: HTMLButtonElement;
 
   constructor(private readonly root: HTMLElement) {
     this.buildShell();
@@ -38,6 +40,14 @@ export class App {
     topbar.append(el("div", { class: "brand" }, ["FuzzyFind"]));
     this.metaEl = el("div", { class: "meta" });
     topbar.append(this.metaEl);
+
+    this.statsButton = el("button", { class: "ghost", type: "button" }, ["Stats"]) as HTMLButtonElement;
+    this.statsButton.classList.add("hidden");
+    this.statsButton.addEventListener("click", () => {
+      if (this.dataset !== null) openStatsModal(this.dataset);
+    });
+    topbar.append(this.statsButton);
+
     const newButton = el("button", { class: "ghost", type: "button" }, ["New data"]);
     newButton.addEventListener("click", () => this.showPaste());
     topbar.append(newButton);
@@ -181,7 +191,17 @@ export class App {
       this.filters.clear();
 
       const elapsed = Math.round(performance.now() - started);
-      this.metaEl.textContent = `${dataset.rowCount.toLocaleString()} rows × ${dataset.columnCount} columns · ${DELIMITER_LABELS[parsed.delimiter]} · ${elapsed} ms`;
+      const emptyPct =
+        dataset.stats.totalCells > 0
+          ? (dataset.stats.totalNullCells / dataset.stats.totalCells) * 100
+          : 0;
+      const duplicateText =
+        dataset.stats.duplicateRows > 0
+          ? ` · ${dataset.stats.duplicateRows.toLocaleString()} duplicate rows`
+          : "";
+      this.metaEl.textContent =
+        `${dataset.rowCount.toLocaleString()} rows × ${dataset.columnCount} columns` +
+        `${duplicateText} · ${emptyPct.toFixed(1)}% empty · ${elapsed} ms`;
       this.statusEl.textContent = "";
       this.openWorkspace();
     } catch (error) {
@@ -195,6 +215,7 @@ export class App {
 
     this.pasteView.classList.add("hidden");
     this.workspace.classList.remove("hidden");
+    this.statsButton.classList.remove("hidden");
 
     clear(this.filterHost);
     this.filterPanel = new FilterPanel(this.filterHost, this.dataset.columns, this.filters, {
@@ -241,6 +262,7 @@ export class App {
   private showPaste(): void {
     this.workspace.classList.add("hidden");
     this.pasteView.classList.remove("hidden");
+    this.statsButton.classList.add("hidden");
     this.textarea.focus();
   }
 }

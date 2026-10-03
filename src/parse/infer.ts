@@ -14,6 +14,11 @@ export interface ColumnStats {
   samples: string[];
   min: number | null;
   max: number | null;
+  mean: number | null;
+  stddev: number | null;
+  minLength: number | null;
+  maxLength: number | null;
+  avgLength: number | null;
 }
 
 const TRUE_VALUES = new Set(["true", "yes", "y", "t"]);

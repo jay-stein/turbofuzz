@@ -1,0 +1,60 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { buildDataset } from "../src/data/build.js";
+
+test("counts duplicate rows exactly", () => {
+  const dataset = buildDataset(
+    "t",
+    ["a", "b"],
+    [
+      ["1", "x"],
+      ["1", "x"],
+      ["1", "x"],
+      ["2", "y"],
+      ["2", "z"],
+    ],
+  );
+  assert.equal(dataset.stats.duplicateRows, 2);
+  assert.equal(dataset.stats.duplicateGroups, 1);
+});
+
+test("counts empty rows and null cells", () => {
+  const dataset = buildDataset(
+    "t",
+    ["a", "b"],
+    [
+      ["", ""],
+      ["", "x"],
+      ["1", ""],
+      ["2", "y"],
+    ],
+  );
+  assert.equal(dataset.stats.emptyRows, 1);
+  assert.equal(dataset.stats.totalNullCells, 4);
+  assert.equal(dataset.stats.totalCells, 8);
+  assert.equal(dataset.columns[0].stats.nulls, 2);
+});
+
+test("computes text length stats", () => {
+  const dataset = buildDataset("t", ["a"], [["abc"], ["a"], ["abcde"]]);
+  const stats = dataset.columns[0].stats;
+  assert.equal(stats.minLength, 1);
+  assert.equal(stats.maxLength, 5);
+  assert.equal(stats.avgLength, 3);
+});
+
+test("computes numeric mean, stddev and median", () => {
+  const dataset = buildDataset("t", ["n"], [["2"], ["4"], ["6"], ["8"]]);
+  const column = dataset.columns[0];
+  column.numbers();
+  assert.equal(column.stats.mean, 5);
+  assert.equal(column.stats.min, 2);
+  assert.equal(column.stats.max, 8);
+  assert.equal(column.median(), 5);
+  assert.ok(Math.abs((column.stats.stddev ?? 0) - Math.sqrt(5)) < 1e-9);
+});
+
+test("median of an even count averages the middle values", () => {
+  const dataset = buildDataset("t", ["n"], [["1"], ["2"], ["3"], ["4"]]);
+  assert.equal(dataset.columns[0].median(), 2.5);
+});

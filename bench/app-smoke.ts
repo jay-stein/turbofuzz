@@ -37,6 +37,10 @@ start = performance.now();
 dataset.columns[0].fuzzyIndex();
 const fuzzyBuildMs = performance.now() - start;
 
+start = performance.now();
+dataset.columns[3].median();
+const medianMs = performance.now() - start;
+
 const engine = new QueryEngine(dataset);
 const statusLabels = dataset.columns[2].categories().labels;
 const activeIndex = statusLabels.indexOf("Active");
@@ -51,7 +55,13 @@ console.log(`rows: ${size.toLocaleString()}`);
 console.log(`columns: ${dataset.columnCount} (${dataset.columns.map((c) => `${c.name}:${c.type}`).join(", ")})`);
 console.log(`parse (Papa + sniff):      ${parseMs.toFixed(0)} ms`);
 console.log(`build (types + stats):     ${buildMs.toFixed(0)} ms`);
+console.log(
+  `  └ dataset stats:         ${dataset.stats.computeMs.toFixed(0)} ms ` +
+    `(${dataset.stats.duplicateRows.toLocaleString()} duplicate rows, ` +
+    `${dataset.stats.totalNullCells.toLocaleString()} empty cells)`,
+);
 console.log(`fuzzy index build (name):  ${fuzzyBuildMs.toFixed(0)} ms`);
+console.log(`median (lazy, on stats):   ${medianMs.toFixed(0)} ms`);
 
 engine.evaluate(filters);
 const runs = 30;

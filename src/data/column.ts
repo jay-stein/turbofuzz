@@ -23,6 +23,8 @@ export class ColumnData {
   private fuzzy: FuzzyIndex | null = null;
   private nums: Float64Array | null = null;
   private cats: CategorySet | null = null;
+  private medianValue: number | null = null;
+  private medianComputed = false;
 
   constructor(
     readonly name: string,
@@ -39,9 +41,24 @@ export class ColumnData {
   }
 
   static create(name: string, raw: string[]): ColumnData {
-    const stats: ColumnStats = { nulls: 0, distinct: 0, samples: [], min: null, max: null };
+    const stats: ColumnStats = {
+      nulls: 0,
+      distinct: 0,
+      samples: [],
+      min: null,
+      max: null,
+      mean: null,
+      stddev: null,
+      minLength: null,
+      maxLength: null,
+      avgLength: null,
+    };
     const nullMask = new BitSet(raw.length);
     const seen = new Set<string>();
+    let presentCount = 0;
+    let lengthSum = 0;
+    let minLength = Infinity;
+    let maxLength = -Infinity;
 
     for (let i = 0; i < raw.length; i++) {
       const value = raw[i];
@@ -52,8 +69,18 @@ export class ColumnData {
       }
       seen.add(value);
       if (stats.samples.length < 5) stats.samples.push(value);
+      presentCount++;
+      const length = value.trim().length;
+      lengthSum += length;
+      if (length < minLength) minLength = length;
+      if (length > maxLength) maxLength = length;
     }
     stats.distinct = seen.size;
+    if (presentCount > 0) {
+      stats.minLength = minLength;
+      stats.maxLength = maxLength;
+      stats.avgLength = lengthSum / presentCount;
+    }
 
     const sample = stratifiedSample(raw, 1000);
     const inferred = inferColumnType(sample, stats, raw.length);
@@ -73,6 +100,10 @@ export class ColumnData {
     this.cats = null;
     this.stats.min = null;
     this.stats.max = null;
+    this.stats.mean = null;
+    this.stats.stddev = null;
+    this.medianValue = null;
+    this.medianComputed = false;
     if (type === "date") {
       this.dateOrder = detectDateOrder(stratifiedSample(this.raw, 500));
     }
@@ -100,6 +131,10 @@ export class ColumnData {
       const out = new Float64Array(this.raw.length);
       let min = Infinity;
       let max = -Infinity;
+      let sum = 0;
+      let sumSquares = 0;
+      let finiteCount = 0;
+
       for (let i = 0; i < this.raw.length; i++) {
         const value = this.raw[i];
         const parsed = isNullToken(value)
@@ -111,13 +146,48 @@ export class ColumnData {
         if (Number.isFinite(parsed)) {
           if (parsed < min) min = parsed;
           if (parsed > max) max = parsed;
+          sum += parsed;
+          sumSquares += parsed * parsed;
+          finiteCount++;
         }
       }
-      this.stats.min = Number.isFinite(min) ? min : null;
-      this.stats.max = Number.isFinite(max) ? max : null;
+
+      if (finiteCount > 0) {
+        const mean = sum / finiteCount;
+        this.stats.min = min;
+        this.stats.max = max;
+        this.stats.mean = mean;
+        this.stats.stddev = Math.sqrt(Math.max(0, sumSquares / finiteCount - mean * mean));
+      } else {
+        this.stats.min = null;
+        this.stats.max = null;
+        this.stats.mean = null;
+        this.stats.stddev = null;
+      }
       this.nums = out;
     }
     return this.nums;
+  }
+
+  /** Computed lazily (sorts a copy of the numeric values). Cached afterwards. */
+  median(): number | null {
+    if (!this.medianComputed) {
+      const numbers = this.numbers();
+      const finite: number[] = [];
+      for (let i = 0; i < numbers.length; i++) {
+        if (Number.isFinite(numbers[i])) finite.push(numbers[i]);
+      }
+      if (finite.length === 0) {
+        this.medianValue = null;
+      } else {
+        finite.sort((a, b) => a - b);
+        const mid = finite.length >>> 1;
+        this.medianValue =
+          finite.length % 2 === 0 ? (finite[mid - 1] + finite[mid]) / 2 : finite[mid];
+      }
+      this.medianComputed = true;
+    }
+    return this.medianValue;
   }
 
   categories(): CategorySet {

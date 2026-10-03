@@ -1,5 +1,6 @@
 import { ColumnData } from "./column.js";
 import { Dataset } from "./dataset.js";
+import { computeDatasetStats } from "./stats.js";
 
 export function buildDataset(name: string, headers: string[], rows: string[][]): Dataset {
   const rowCount = rows.length;
@@ -10,5 +11,6 @@ export function buildDataset(name: string, headers: string[], rows: string[][]):
     }
     return ColumnData.create(header, raw);
   });
-  return new Dataset(name, rowCount, columns);
+  const stats = computeDatasetStats(columns, rowCount);
+  return new Dataset(name, rowCount, columns, stats);
 }
