@@ -58,3 +58,16 @@ test("median of an even count averages the middle values", () => {
   const dataset = buildDataset("t", ["n"], [["1"], ["2"], ["3"], ["4"]]);
   assert.equal(dataset.columns[0].median(), 2.5);
 });
+
+test("medianSampled is exact for small columns", () => {
+  const dataset = buildDataset("t", ["n"], [["2"], ["4"], ["6"], ["8"]]);
+  assert.equal(dataset.columns[0].medianSampled(100), 5);
+});
+
+test("medianSampled approximates large columns", () => {
+  const rows = Array.from({ length: 10_000 }, (_, i) => [String(i)]);
+  const dataset = buildDataset("t", ["n"], rows);
+  const median = dataset.columns[0].medianSampled(200);
+  assert.ok(median !== null);
+  assert.ok(Math.abs(median - 4999.5) < 100, `expected ~4999.5, got ${median}`);
+});

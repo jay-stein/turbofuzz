@@ -23,6 +23,10 @@ export class QueryEngine {
   }
 
   evaluate(filters: ReadonlyMap<number, ColumnFilter>): Uint32Array {
+    return this.evaluateBits(filters).toIndices();
+  }
+
+  evaluateBits(filters: ReadonlyMap<number, ColumnFilter>): BitSet {
     let acc: BitSet | null = null;
     for (const [columnIndex, filter] of filters) {
       const bits = this.bitsFor(columnIndex, filter);
@@ -30,7 +34,7 @@ export class QueryEngine {
       else acc.and(bits);
       if (acc.count() === 0) break;
     }
-    return (acc ?? this.all).toIndices();
+    return acc ?? this.all;
   }
 
   invalidate(): void {

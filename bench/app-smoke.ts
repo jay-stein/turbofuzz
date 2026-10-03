@@ -42,7 +42,7 @@ dataset.columns[0].fuzzyIndex();
 const fuzzyBuildMs = performance.now() - start;
 
 start = performance.now();
-dataset.columns[3].median();
+dataset.columns[3].medianSampled();
 const medianMs = performance.now() - start;
 
 const engine = new QueryEngine(dataset);
@@ -68,7 +68,7 @@ console.log(
     `${dataset.stats.totalNullCells.toLocaleString()} empty cells)`,
 );
 console.log(`fuzzy index build (name):  ${fuzzyBuildMs.toFixed(0)} ms`);
-console.log(`median (lazy, on stats):   ${medianMs.toFixed(0)} ms`);
+console.log(`median sampled (stats):    ${medianMs.toFixed(0)} ms`);
 
 engine.evaluate(filters);
 const runs = 30;

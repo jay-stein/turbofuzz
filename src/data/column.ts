@@ -94,6 +94,10 @@ export class ColumnData {
     );
   }
 
+  get fuzzyBuilt(): boolean {
+    return this.fuzzy !== null;
+  }
+
   setType(type: ColumnType): void {
     this.type = type;
     this.nums = null;
@@ -167,6 +171,26 @@ export class ColumnData {
       this.nums = out;
     }
     return this.nums;
+  }
+
+  /**
+   * Median over a strided sample when the column is larger than maxSamples.
+   * Avoids sorting millions of values for the stats modal; the estimate is
+   * accurate to roughly one sampling step across the value range.
+   */
+  medianSampled(maxSamples = 50_000): number | null {
+    const numbers = this.numbers();
+    if (numbers.length <= maxSamples) return this.median();
+    const step = numbers.length / maxSamples;
+    const sample: number[] = [];
+    for (let i = 0; i < maxSamples; i++) {
+      const value = numbers[Math.floor((i + 0.5) * step)];
+      if (Number.isFinite(value)) sample.push(value);
+    }
+    if (sample.length === 0) return null;
+    sample.sort((a, b) => a - b);
+    const mid = sample.length >>> 1;
+    return sample.length % 2 === 0 ? (sample[mid - 1] + sample[mid]) / 2 : sample[mid];
   }
 
   /** Computed lazily (sorts a copy of the numeric values). Cached afterwards. */

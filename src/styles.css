@@ -446,10 +446,27 @@ textarea:focus {
 }
 
 .results-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   padding: 7px 14px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--panel);
   flex: none;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px 5px 10px;
+  background: var(--accent-soft);
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+
+.banner-text {
+  flex: 1;
 }
 
 .count {
@@ -531,6 +548,10 @@ textarea:focus {
 
 .tr:nth-child(even) {
   background: color-mix(in srgb, var(--panel-2) 45%, transparent);
+}
+
+.tr.skeleton .td {
+  opacity: 0.3;
 }
 
 .td {

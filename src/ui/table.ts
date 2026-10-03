@@ -1,9 +1,9 @@
 import { clear, el } from "./dom.js";
-import type { Dataset } from "../data/dataset.js";
 
 const ROW_HEIGHT = 28;
 const COL_WIDTH = 180;
 const OVERSCAN = 10;
+const CACHE_LIMIT = 4000;
 
 export interface HighlightRule {
   column: number;
@@ -11,22 +11,37 @@ export interface HighlightRule {
   mode: "contains" | "exact";
 }
 
+export interface ResultTableOptions {
+  onSort: (column: number, dir: 1 | -1 | 0) => void;
+  onRequestRows: (
+    start: number,
+    end: number,
+    done: (start: number, rows: string[][]) => void,
+  ) => void;
+}
+
 export class ResultTable {
   private readonly scroller: HTMLDivElement;
   private readonly header: HTMLDivElement;
   private readonly spacer: HTMLDivElement;
   private readonly rowsHost: HTMLDivElement;
-  private dataset: Dataset | null = null;
-  private sortedIds: Uint32Array = new Uint32Array(0);
+  private readonly onResize = (): void => this.render();
+
+  private columns: string[] = [];
+  private count = 0;
   private sortColumn = -1;
   private sortDir: 1 | -1 = 1;
   private highlights: HighlightRule[] = [];
+  private readonly cache = new Map<number, string[]>();
+  private pendingStart = -1;
+  private pendingEnd = -1;
   private lastStart = -1;
   private lastEnd = -1;
 
-  private readonly onResize = (): void => this.render();
-
-  constructor(root: HTMLElement) {
+  constructor(
+    root: HTMLElement,
+    private readonly options: ResultTableOptions,
+  ) {
     this.header = el("div", { class: "table-header" });
     this.rowsHost = el("div", { class: "table-rows" });
     this.spacer = el("div", { class: "table-spacer" }, [this.rowsHost]);
@@ -39,77 +54,59 @@ export class ResultTable {
 
   dispose(): void {
     window.removeEventListener("resize", this.onResize);
-    this.dataset = null;
+    this.count = 0;
+    this.cache.clear();
   }
 
-  setData(dataset: Dataset, ids: Uint32Array, highlights: HighlightRule[] = []): void {
-    this.dataset = dataset;
-    this.sortedIds = ids;
-    this.highlights = highlights;
-    this.applySort();
+  setColumns(columns: string[]): void {
+    this.columns = columns;
     this.renderHeader();
-    this.spacer.style.height = `${this.sortedIds.length * ROW_HEIGHT}px`;
-    this.spacer.style.width = `${dataset.columnCount * COL_WIDTH}px`;
+    this.invalidateRows();
+  }
+
+  setCount(count: number): void {
+    this.count = count;
+    this.spacer.style.height = `${count * ROW_HEIGHT}px`;
+    this.spacer.style.width = `${this.columns.length * COL_WIDTH}px`;
+    this.render();
+  }
+
+  setSort(column: number, dir: 1 | -1): void {
+    this.sortColumn = column;
+    this.sortDir = dir;
+    this.renderHeader();
+  }
+
+  setHighlights(highlights: HighlightRule[]): void {
+    this.highlights = highlights;
+    this.invalidateRows();
+  }
+
+  invalidateRows(): void {
+    this.cache.clear();
+    this.pendingStart = -1;
+    this.pendingEnd = -1;
     this.lastStart = -1;
     this.lastEnd = -1;
     this.render();
   }
 
   private toggleSort(column: number): void {
-    if (this.sortColumn === column) {
-      this.sortDir = this.sortDir === 1 ? -1 : 1;
-    } else {
-      this.sortColumn = column;
-      this.sortDir = 1;
-    }
-    this.applySort();
-    this.renderHeader();
-    this.lastStart = -1;
-    this.lastEnd = -1;
-    this.render();
-  }
-
-  private applySort(): void {
-    if (this.dataset === null || this.sortColumn < 0) return;
-    const column = this.dataset.columns[this.sortColumn];
-    const dir = this.sortDir;
-    const numeric =
-      column.type === "integer" || column.type === "number" || column.type === "date";
-
-    if (numeric) {
-      const numbers = column.numbers();
-      this.sortedIds.sort((a, b) => {
-        const va = numbers[a];
-        const vb = numbers[b];
-        const na = Number.isNaN(va);
-        const nb = Number.isNaN(vb);
-        if (na && nb) return 0;
-        if (na) return 1;
-        if (nb) return -1;
-        return (va - vb) * dir;
-      });
-    } else {
-      const values = column.raw;
-      this.sortedIds.sort((a, b) => {
-        const va = values[a];
-        const vb = values[b];
-        const cmp = va < vb ? -1 : va > vb ? 1 : 0;
-        return cmp * dir;
-      });
-    }
+    let dir: 1 | -1 | 0;
+    if (this.sortColumn !== column) dir = 1;
+    else if (this.sortDir === 1) dir = -1;
+    else dir = 0;
+    this.options.onSort(column, dir);
   }
 
   private renderHeader(): void {
-    if (this.dataset === null) return;
     clear(this.header);
-    const columnCount = this.dataset.columnCount;
-    this.header.style.gridTemplateColumns = `repeat(${columnCount}, ${COL_WIDTH}px)`;
-    this.header.style.width = `${columnCount * COL_WIDTH}px`;
+    const count = this.columns.length;
+    this.header.style.gridTemplateColumns = `repeat(${count}, ${COL_WIDTH}px)`;
+    this.header.style.width = `${count * COL_WIDTH}px`;
 
-    this.dataset.columns.forEach((column, index) => {
-      const cell = el("button", { class: "th", type: "button", title: `Sort by ${column.name}` }, [
-        column.name,
-      ]);
+    this.columns.forEach((name, index) => {
+      const cell = el("button", { class: "th", type: "button", title: `Sort by ${name}` }, [name]);
       if (index === this.sortColumn) {
         cell.classList.add(this.sortDir === 1 ? "sort-asc" : "sort-desc");
       }
@@ -119,20 +116,16 @@ export class ResultTable {
   }
 
   private render(): void {
-    if (this.dataset === null) return;
     const height = this.scroller.clientHeight || 600;
     const start = Math.max(0, Math.floor(this.scroller.scrollTop / ROW_HEIGHT) - OVERSCAN);
-    const end = Math.min(
-      this.sortedIds.length,
-      start + Math.ceil(height / ROW_HEIGHT) + OVERSCAN * 2,
-    );
+    const end = Math.min(this.count, start + Math.ceil(height / ROW_HEIGHT) + OVERSCAN * 2);
     if (start === this.lastStart && end === this.lastEnd) return;
     this.lastStart = start;
     this.lastEnd = end;
 
     clear(this.rowsHost);
 
-    if (this.sortedIds.length === 0) {
+    if (this.count === 0) {
       this.rowsHost.style.transform = "translateY(0px)";
       this.rowsHost.append(el("div", { class: "empty" }, ["No matching rows"]));
       return;
@@ -140,20 +133,51 @@ export class ResultTable {
 
     this.rowsHost.style.transform = `translateY(${start * ROW_HEIGHT}px)`;
     const fragment = document.createDocumentFragment();
-    const columnCount = this.dataset.columnCount;
+    let missing = false;
 
     for (let i = start; i < end; i++) {
-      const rowIndex = this.sortedIds[i];
-      const row = el("div", { class: "tr" });
-      row.style.gridTemplateColumns = `repeat(${columnCount}, ${COL_WIDTH}px)`;
-      for (let c = 0; c < columnCount; c++) {
-        const cell = el("div", { class: "td" });
-        this.fillCell(cell, this.dataset.columns[c].raw[rowIndex] ?? "", c);
-        row.append(cell);
-      }
-      fragment.append(row);
+      const row = this.cache.get(i);
+      if (row === undefined) missing = true;
+      fragment.append(this.buildRow(row));
     }
     this.rowsHost.append(fragment);
+
+    if (missing && (this.pendingStart !== start || this.pendingEnd !== end)) {
+      this.pendingStart = start;
+      this.pendingEnd = end;
+      this.options.onRequestRows(start, end, (rowsStart, rows) => {
+        if (this.pendingStart === start && this.pendingEnd === end) {
+          this.pendingStart = -1;
+          this.pendingEnd = -1;
+        }
+        for (let i = 0; i < rows.length; i++) this.cache.set(rowsStart + i, rows[i]);
+        this.pruneCache(start);
+        this.lastStart = -1;
+        this.lastEnd = -1;
+        this.render();
+      });
+    }
+  }
+
+  private buildRow(row: string[] | undefined): HTMLElement {
+    const tr = el("div", { class: "tr" });
+    tr.style.gridTemplateColumns = `repeat(${this.columns.length}, ${COL_WIDTH}px)`;
+    if (row === undefined) tr.classList.add("skeleton");
+    for (let c = 0; c < this.columns.length; c++) {
+      const cell = el("div", { class: "td" });
+      if (row !== undefined) this.fillCell(cell, row[c] ?? "", c);
+      tr.append(cell);
+    }
+    return tr;
+  }
+
+  private pruneCache(center: number): void {
+    if (this.cache.size <= CACHE_LIMIT) return;
+    for (const key of this.cache.keys()) {
+      if (key < center - CACHE_LIMIT / 2 || key > center + CACHE_LIMIT / 2) {
+        this.cache.delete(key);
+      }
+    }
   }
 
   private fillCell(cell: HTMLElement, value: string, columnIndex: number): void {

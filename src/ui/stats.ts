@@ -1,37 +1,39 @@
 import { el } from "./dom.js";
-import type { ColumnData } from "../data/column.js";
-import type { Dataset } from "../data/dataset.js";
 import { toDateInputValue } from "../parse/dates.js";
 import { TYPE_LABELS } from "../types.js";
+import type { StatsMessage } from "../worker/protocol.js";
 
-export function openStatsModal(dataset: Dataset): void {
+export interface StatsModal {
+  fill(message: StatsMessage): void;
+}
+
+const SUMMARY_ITEMS = [
+  "Rows",
+  "Columns",
+  "Duplicate rows",
+  "Duplicate groups",
+  "Empty rows",
+  "Empty cells",
+] as const;
+
+export function openStatsModal(title: string): StatsModal {
   const overlay = el("div", { class: "modal-overlay" });
   const modal = el("div", { class: "modal" });
 
   const head = el("div", { class: "modal-head" });
-  head.append(el("h2", {}, [`Stats — ${dataset.name}`]));
+  head.append(el("h2", {}, [`Stats — ${title}`]));
   const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close" }, ["×"]);
   head.append(closeButton);
   modal.append(head);
 
-  const stats = dataset.stats;
-  const emptyPct = stats.totalCells > 0 ? (stats.totalNullCells / stats.totalCells) * 100 : 0;
   const summary = el("div", { class: "stats-summary" });
-  const items: [string, string][] = [
-    ["Rows", dataset.rowCount.toLocaleString()],
-    ["Columns", dataset.columnCount.toLocaleString()],
-    ["Duplicate rows", stats.duplicateRows.toLocaleString()],
-    ["Duplicate groups", stats.duplicateGroups.toLocaleString()],
-    ["Empty rows", stats.emptyRows.toLocaleString()],
-    ["Empty cells", `${stats.totalNullCells.toLocaleString()} (${emptyPct.toFixed(1)}%)`],
-  ];
-  for (const [label, value] of items) {
+  const summaryValues = new Map<string, HTMLElement>();
+  for (const label of SUMMARY_ITEMS) {
     const box = el("div", { class: "stat-box" });
-    box.append(
-      el("div", { class: "stat-value" }, [value]),
-      el("div", { class: "stat-label" }, [label]),
-    );
+    const value = el("div", { class: "stat-value" }, ["…"]);
+    box.append(value, el("div", { class: "stat-label" }, [label]));
     summary.append(box);
+    summaryValues.set(label, value);
   }
   modal.append(summary);
 
@@ -42,6 +44,11 @@ export function openStatsModal(dataset: Dataset): void {
   }
   table.append(el("thead", {}, [headRow]));
   const tbody = el("tbody");
+  const loadingRow = el("tr");
+  const loadingCell = el("td", { class: "details" }, ["Computing stats…"]);
+  loadingCell.colSpan = 5;
+  loadingRow.append(loadingCell);
+  tbody.append(loadingRow);
   table.append(tbody);
   modal.append(table);
 
@@ -61,69 +68,66 @@ export function openStatsModal(dataset: Dataset): void {
   overlay.append(modal);
   document.body.append(overlay);
 
-  // Fill column details after the modal paints: medians sort a copy of the
-  // numeric values and can take a few tens of ms on very large columns.
-  requestAnimationFrame(() => {
-    for (const column of dataset.columns) {
+  const fill = (message: StatsMessage): void => {
+    const stats = message.stats;
+    const emptyPct =
+      stats.totalCells > 0 ? (stats.totalNullCells / stats.totalCells) * 100 : 0;
+    const values: Record<(typeof SUMMARY_ITEMS)[number], string> = {
+      Rows: message.rowCount.toLocaleString(),
+      Columns: message.columnCount.toLocaleString(),
+      "Duplicate rows": stats.duplicateRows.toLocaleString(),
+      "Duplicate groups": stats.duplicateGroups.toLocaleString(),
+      "Empty rows": stats.emptyRows.toLocaleString(),
+      "Empty cells": `${stats.totalNullCells.toLocaleString()} (${emptyPct.toFixed(1)}%)`,
+    };
+    for (const [label, value] of Object.entries(values)) {
+      summaryValues.get(label)!.textContent = value;
+    }
+
+    tbody.replaceChildren();
+    for (const column of message.columns) {
       const row = el("tr");
       row.append(
         el("td", {}, [column.name]),
         el("td", {}, [TYPE_LABELS[column.type]]),
-        el("td", { class: "num" }, [column.stats.distinct.toLocaleString()]),
-        el("td", { class: "num" }, [column.stats.nulls.toLocaleString()]),
-        el("td", { class: "details" }, [describeColumn(column)]),
+        el("td", { class: "num" }, [column.distinct.toLocaleString()]),
+        el("td", { class: "num" }, [column.nulls.toLocaleString()]),
+        el("td", { class: "details", title: describe(column) }, [describe(column)]),
       );
       tbody.append(row);
     }
-  });
+  };
+
+  return { fill };
 }
 
-function describeColumn(column: ColumnData): string {
-  switch (column.type) {
-    case "integer":
-    case "number":
-    case "date":
-      return describeNumeric(column);
-    case "category":
-    case "boolean":
-      return describeCategories(column);
-    default:
-      return describeText(column);
-  }
-}
-
-function describeNumeric(column: ColumnData): string {
-  const stats = column.stats;
-  if (stats.min === null || stats.max === null) return "—";
+function describe(column: StatsMessage["columns"][number]): string {
   if (column.type === "date") {
-    return `${toDateInputValue(stats.min)} → ${toDateInputValue(stats.max)}`;
+    if (column.min === null || column.max === null) return "—";
+    return `${toDateInputValue(column.min)} → ${toDateInputValue(column.max)}`;
   }
-  const parts = [`min ${format(stats.min)}`];
-  const median = column.median();
-  if (median !== null) parts.push(`median ${format(median)}`);
-  if (stats.mean !== null) parts.push(`mean ${format(stats.mean)}`);
-  if (stats.stddev !== null) parts.push(`σ ${format(stats.stddev)}`);
-  parts.push(`max ${format(stats.max)}`);
+
+  if (column.type === "category" || column.type === "boolean") {
+    if (column.topValues === null || column.topValues.length === 0) return "—";
+    return column.topValues
+      .map((entry) => `${entry.label} ${entry.count.toLocaleString()}`)
+      .join(" · ");
+  }
+
+  if (column.type === "string" || column.type === "identifier") {
+    if (column.avgLength === null || column.minLength === null || column.maxLength === null) {
+      return "—";
+    }
+    return `length avg ${column.avgLength.toFixed(1)} (${column.minLength}–${column.maxLength})`;
+  }
+
+  if (column.min === null || column.max === null) return "—";
+  const parts = [`min ${format(column.min)}`];
+  if (column.median !== null) parts.push(`median ${format(column.median)}`);
+  if (column.mean !== null) parts.push(`mean ${format(column.mean)}`);
+  if (column.stddev !== null) parts.push(`σ ${format(column.stddev)}`);
+  parts.push(`max ${format(column.max)}`);
   return parts.join(" · ");
-}
-
-function describeCategories(column: ColumnData): string {
-  const categories = column.categories();
-  const entries = categories.labels.map((label, index) => ({
-    label,
-    count: categories.counts[index],
-  }));
-  entries.sort((a, b) => b.count - a.count);
-  return entries
-    .slice(0, 4)
-    .map((entry) => `${entry.label} ${entry.count.toLocaleString()}`)
-    .join(" · ");
-}
-
-function describeText(column: ColumnData): string {
-  const stats = column.stats;
-  if (stats.avgLength === null || stats.minLength === null || stats.maxLength === null) return "—";
-  return `length avg ${stats.avgLength.toFixed(1)} (${stats.minLength}–${stats.maxLength})`;
 }
 
 function format(value: number): string {

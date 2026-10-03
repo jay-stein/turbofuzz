@@ -2,12 +2,12 @@ import { clear, el } from "./dom.js";
 import { COLUMN_TYPES, TYPE_LABELS, type ColumnType, type TextMode } from "../types.js";
 import { parseDate, toDateInputValue } from "../parse/dates.js";
 import { parseNumber } from "../parse/numbers.js";
-import type { ColumnData } from "../data/column.js";
 import type { ColumnFilter } from "../search/query-engine.js";
+import type { ColumnMeta } from "../worker/protocol.js";
 
 export interface FilterPanelCallbacks {
-  onChange: () => void;
-  onTypeChange: () => void;
+  onFilter: (column: number, filter: ColumnFilter | null) => void;
+  onTypeChange: (column: number, type: ColumnType) => void;
 }
 
 const TEXT_MODES: { value: TextMode; label: string }[] = [
@@ -19,10 +19,11 @@ const TEXT_MODES: { value: TextMode; label: string }[] = [
 export class FilterPanel {
   private readonly listEl: HTMLElement;
   private cards: HTMLElement[] = [];
+  private statusEls: HTMLElement[] = [];
 
   constructor(
     root: HTMLElement,
-    private readonly columns: ColumnData[],
+    private metas: ColumnMeta[],
     private readonly filters: Map<number, ColumnFilter>,
     private readonly callbacks: FilterPanelCallbacks,
   ) {
@@ -33,25 +34,40 @@ export class FilterPanel {
 
   rebuild(): void {
     clear(this.listEl);
-    this.cards = this.columns.map((column, index) => {
-      const card = this.buildCard(column, index);
+    this.cards = [];
+    this.statusEls = [];
+    this.metas.forEach((meta, index) => {
+      const card = this.buildCard(meta, index);
       this.listEl.append(card);
-      return card;
+      this.cards.push(card);
     });
   }
 
+  updateMeta(index: number, meta: ColumnMeta): void {
+    this.metas[index] = meta;
+    this.rebuildCard(index);
+  }
+
+  setStatus(index: number, text: string): void {
+    this.statusEls[index].textContent = text;
+  }
+
+  clearStatuses(): void {
+    for (const status of this.statusEls) status.textContent = "";
+  }
+
   private rebuildCard(index: number): void {
-    const next = this.buildCard(this.columns[index], index);
+    const next = this.buildCard(this.metas[index], index);
     this.cards[index].replaceWith(next);
     this.cards[index] = next;
   }
 
-  private buildCard(column: ColumnData, index: number): HTMLElement {
+  private buildCard(meta: ColumnMeta, index: number): HTMLElement {
     const card = el("div", { class: "filter-card" });
     if (this.filters.has(index)) card.classList.add("active");
 
     const head = el("div", { class: "filter-head" });
-    head.append(el("span", { class: "filter-name", title: column.name }, [column.name]));
+    head.append(el("span", { class: "filter-name", title: meta.name }, [meta.name]));
 
     const typeSelect = el("select", {
       class: "type-select",
@@ -59,14 +75,11 @@ export class FilterPanel {
     }) as HTMLSelectElement;
     for (const type of COLUMN_TYPES) {
       const option = el("option", { value: type }, [TYPE_LABELS[type]]) as HTMLOptionElement;
-      if (type === column.type) option.selected = true;
+      if (type === meta.type) option.selected = true;
       typeSelect.append(option);
     }
     typeSelect.addEventListener("change", () => {
-      column.setType(typeSelect.value as ColumnType);
-      this.filters.delete(index);
-      this.callbacks.onTypeChange();
-      this.rebuildCard(index);
+      this.callbacks.onTypeChange(index, typeSelect.value as ColumnType);
     });
     head.append(typeSelect);
 
@@ -76,37 +89,40 @@ export class FilterPanel {
       ["×"],
     );
     clearButton.addEventListener("click", () => {
-      this.filters.delete(index);
-      this.callbacks.onChange();
+      this.callbacks.onFilter(index, null);
       this.rebuildCard(index);
     });
     head.append(clearButton);
 
-    card.append(head, this.buildBody(column, index), this.buildStats(column));
+    const status = el("span", { class: "filter-status" });
+    this.statusEls[index] = status;
+
+    card.append(head, this.buildBody(meta, index), this.buildStats(meta), status);
     return card;
   }
 
-  private buildBody(column: ColumnData, index: number): HTMLElement {
-    switch (column.type) {
+  private buildBody(meta: ColumnMeta, index: number): HTMLElement {
+    switch (meta.type) {
       case "category":
       case "boolean":
-        return this.buildValuesBody(column, index);
+        if (meta.categories !== null) return this.buildValuesBody(meta, index);
+        return this.buildTextBody(meta, index);
       case "integer":
       case "number":
       case "date":
-        return this.buildRangeBody(column, index);
+        return this.buildRangeBody(meta, index);
       default:
-        return this.buildTextBody(column, index);
+        return this.buildTextBody(meta, index);
     }
   }
 
-  private buildTextBody(column: ColumnData, index: number): HTMLElement {
+  private buildTextBody(meta: ColumnMeta, index: number): HTMLElement {
     const body = el("div", { class: "filter-body" });
     const state = this.filters.get(index);
     const current = state?.kind === "text" ? state : null;
 
     const modeSelect = el("select", { class: "mode-select", title: "Match mode" }) as HTMLSelectElement;
-    const defaultMode: TextMode = column.type === "identifier" ? "exact" : "contains";
+    const defaultMode: TextMode = meta.type === "identifier" ? "exact" : "contains";
     for (const mode of TEXT_MODES) {
       const option = el("option", { value: mode.value }, [mode.label]) as HTMLOptionElement;
       if (mode.value === (current?.mode ?? defaultMode)) option.selected = true;
@@ -121,38 +137,29 @@ export class FilterPanel {
     }) as HTMLInputElement;
     input.value = current?.query ?? "";
 
-    const status = el("span", { class: "filter-status" });
-
-    const apply = () => {
+    const apply = (): void => {
       const query = input.value;
-      if (query.trim() === "") this.filters.delete(index);
-      else this.filters.set(index, { kind: "text", mode: modeSelect.value as TextMode, query });
-      this.setCardActive(body, this.filters.has(index));
-      this.callbacks.onChange();
+      this.callbacks.onFilter(
+        index,
+        query.trim() === "" ? null : { kind: "text", mode: modeSelect.value as TextMode, query },
+      );
+      cardActive(body, this.filters.has(index));
     };
 
     input.addEventListener("input", apply);
     modeSelect.addEventListener("change", () => {
-      if ((modeSelect.value as TextMode) === "fuzzy") {
-        status.textContent = "Building index…";
-        window.setTimeout(() => {
-          apply();
-          status.textContent = "";
-        }, 0);
-      } else {
-        apply();
-      }
+      apply();
     });
 
-    body.append(modeSelect, input, status);
+    body.append(modeSelect, input);
     return body;
   }
 
-  private buildRangeBody(column: ColumnData, index: number): HTMLElement {
+  private buildRangeBody(meta: ColumnMeta, index: number): HTMLElement {
     const body = el("div", { class: "filter-body range-body" });
     const state = this.filters.get(index);
     const current = state?.kind === "range" ? state : null;
-    const isDate = column.type === "date";
+    const isDate = meta.type === "date";
     const inputType = isDate ? "date" : "number";
 
     const minInput = el("input", {
@@ -173,13 +180,14 @@ export class FilterPanel {
       maxInput.value = isDate ? toDateInputValue(current.max) : String(current.max);
     }
 
-    const apply = () => {
+    const apply = (): void => {
       const min = this.readRangeValue(minInput.value, isDate);
       const max = this.readRangeValue(maxInput.value, isDate);
-      if (min === null && max === null) this.filters.delete(index);
-      else this.filters.set(index, { kind: "range", min, max });
-      this.setCardActive(body, this.filters.has(index));
-      this.callbacks.onChange();
+      this.callbacks.onFilter(
+        index,
+        min === null && max === null ? null : { kind: "range", min, max },
+      );
+      cardActive(body, this.filters.has(index));
     };
 
     minInput.addEventListener("input", apply);
@@ -189,9 +197,11 @@ export class FilterPanel {
     return body;
   }
 
-  private buildValuesBody(column: ColumnData, index: number): HTMLElement {
+  private buildValuesBody(meta: ColumnMeta, index: number): HTMLElement {
     const body = el("div", { class: "filter-body values-body" });
-    const categories = column.categories();
+    const categories = meta.categories;
+    if (categories === null) return body;
+
     const state = this.filters.get(index);
     const selected = new Set<number>(
       state?.kind === "values" ? state.selected : categories.labels.map((_, i) => i),
@@ -216,11 +226,14 @@ export class FilterPanel {
       body.append(search);
     }
 
-    const apply = () => {
-      if (selected.size === categories.labels.length) this.filters.delete(index);
-      else this.filters.set(index, { kind: "values", selected: [...selected] });
-      this.setCardActive(body, this.filters.has(index));
-      this.callbacks.onChange();
+    const apply = (): void => {
+      this.callbacks.onFilter(
+        index,
+        selected.size === categories.labels.length
+          ? null
+          : { kind: "values", selected: [...selected] },
+      );
+      cardActive(body, this.filters.has(index));
     };
 
     categories.labels.forEach((label, id) => {
@@ -261,25 +274,23 @@ export class FilterPanel {
     return body;
   }
 
-  private buildStats(column: ColumnData): HTMLElement {
-    if (column.type === "integer" || column.type === "number" || column.type === "date") {
-      column.numbers();
-    }
+  private buildStats(meta: ColumnMeta): HTMLElement {
     const stats = el("div", { class: "filter-stats" });
-    const parts = [`${column.stats.distinct.toLocaleString()} distinct`];
-    if (column.stats.nulls > 0) parts.push(`${column.stats.nulls.toLocaleString()} empty`);
-    if (column.stats.min !== null && column.stats.max !== null) {
-      parts.push(
-        `${this.formatStat(column, column.stats.min)} … ${this.formatStat(column, column.stats.max)}`,
-      );
+    const parts = [`${meta.stats.distinct.toLocaleString()} distinct`];
+    if (meta.stats.nulls > 0) parts.push(`${meta.stats.nulls.toLocaleString()} empty`);
+
+    const numeric =
+      meta.type === "integer" || meta.type === "number" || meta.type === "date";
+    if (numeric && meta.stats.min !== null && meta.stats.max !== null) {
+      const format = (value: number): string =>
+        meta.type === "date" ? toDateInputValue(value) : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      parts.push(`${format(meta.stats.min)} … ${format(meta.stats.max)}`);
+    } else if (meta.stats.avgLength !== null) {
+      parts.push(`len avg ${meta.stats.avgLength.toFixed(1)}`);
     }
+
     stats.textContent = parts.join(" · ");
     return stats;
-  }
-
-  private formatStat(column: ColumnData, value: number): string {
-    if (column.type === "date") return toDateInputValue(value);
-    return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
   }
 
   private readRangeValue(value: string, isDate: boolean): number | null {
@@ -287,8 +298,8 @@ export class FilterPanel {
     const parsed = isDate ? parseDate(value) : parseNumber(value);
     return Number.isFinite(parsed) ? parsed : null;
   }
+}
 
-  private setCardActive(from: HTMLElement, active: boolean): void {
-    from.closest(".filter-card")?.classList.toggle("active", active);
-  }
+function cardActive(from: HTMLElement, active: boolean): void {
+  from.closest(".filter-card")?.classList.toggle("active", active);
 }

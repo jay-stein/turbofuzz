@@ -1,20 +1,25 @@
-import { parseDelimited } from "../parse/parse.js";
-import { buildDataset } from "../data/build.js";
-import { QueryEngine, type ColumnFilter } from "../search/query-engine.js";
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
+import type { ColumnFilter } from "../search/query-engine.js";
+import type { ColumnType } from "../types.js";
+import type { ColumnMeta, LoadedMessage, ProgressMessage } from "../worker/protocol.js";
 import { clear, el } from "./dom.js";
 import { FilterPanel } from "./filters.js";
-import { ResultTable, type HighlightRule } from "./table.js";
 import { sampleCsv } from "./sample.js";
 import { openStatsModal } from "./stats.js";
-import type { Dataset } from "../data/dataset.js";
+import { ResultTable, type HighlightRule } from "./table.js";
+import { SearchWorkerClient } from "./worker-client.js";
+
+const LARGE_PASTE_ROWS = 300_000;
 
 export class App {
-  private dataset: Dataset | null = null;
-  private engine: QueryEngine | null = null;
+  private readonly client = new SearchWorkerClient();
+  private metas: ColumnMeta[] = [];
+  private rowCount = 0;
+  private datasetName = "";
+  private loading = false;
+  private filters = new Map<number, ColumnFilter>();
   private filterPanel: FilterPanel | null = null;
   private table: ResultTable | null = null;
-  private readonly filters = new Map<number, ColumnFilter>();
 
   private pasteView!: HTMLElement;
   private workspace!: HTMLElement;
@@ -24,6 +29,7 @@ export class App {
   private statusEl!: HTMLElement;
   private metaEl!: HTMLElement;
   private countEl!: HTMLElement;
+  private bannerEl!: HTMLElement;
   private filterHost!: HTMLElement;
   private tableHost!: HTMLElement;
   private statsButton!: HTMLButtonElement;
@@ -31,6 +37,7 @@ export class App {
   constructor(private readonly root: HTMLElement) {
     this.buildShell();
     this.bindEvents();
+    this.client.onProgress((progress) => this.handleProgress(progress));
   }
 
   private buildShell(): void {
@@ -43,9 +50,7 @@ export class App {
 
     this.statsButton = el("button", { class: "ghost", type: "button" }, ["Stats"]) as HTMLButtonElement;
     this.statsButton.classList.add("hidden");
-    this.statsButton.addEventListener("click", () => {
-      if (this.dataset !== null) openStatsModal(this.dataset);
-    });
+    this.statsButton.addEventListener("click", () => this.openStats());
     topbar.append(this.statsButton);
 
     const newButton = el("button", { class: "ghost", type: "button" }, ["New data"]);
@@ -102,7 +107,9 @@ export class App {
     fileInput.addEventListener("change", () => {
       const file = fileInput.files?.[0];
       if (file === undefined) return;
-      void file.text().then((text) => this.loadText(text, file.name));
+      void file
+        .arrayBuffer()
+        .then((buffer) => this.load({ buffer, name: file.name, source: "file" }));
     });
 
     const loadButton = el("button", { class: "primary", type: "button" }, ["Load data"]);
@@ -117,7 +124,7 @@ export class App {
     const sampleButton = el("button", { class: "link", type: "button" }, ["Try sample data"]);
     sampleButton.addEventListener("click", () => {
       this.textarea.value = sampleCsv();
-      void this.loadText(this.textarea.value, "Sample data");
+      this.loadFromTextarea();
     });
     card.append(sampleButton);
 
@@ -140,7 +147,8 @@ export class App {
     const results = el("main", { class: "results" });
     const resultsBar = el("div", { class: "results-bar" });
     this.countEl = el("span", { class: "count" });
-    resultsBar.append(this.countEl);
+    this.bannerEl = el("div", { class: "banner hidden" });
+    resultsBar.append(this.countEl, this.bannerEl);
     this.tableHost = el("div", { class: "table-host" });
     results.append(resultsBar, this.tableHost);
 
@@ -164,82 +172,163 @@ export class App {
       this.statusEl.classList.add("error");
       return;
     }
-    void this.loadText(text, "Pasted data");
+    void this.load({ text, name: "Pasted data", source: "paste" });
   }
 
-  private async loadText(text: string, name: string): Promise<void> {
+  private async load(options: {
+    text?: string;
+    buffer?: ArrayBuffer;
+    name: string;
+    source: "paste" | "file";
+  }): Promise<void> {
+    if (this.loading) return;
+    this.loading = true;
     this.statusEl.textContent = "Parsing…";
     this.statusEl.classList.remove("error");
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
-    const started = performance.now();
     try {
-      const parsed = parseDelimited(text, {
+      const loaded = await this.client.load({
+        name: options.name,
         delimiter: this.delimiterSelect.value as Delimiter | "auto",
         hasHeaders: this.headersCheckbox.checked,
+        text: options.text,
+        buffer: options.buffer,
       });
-
-      if (parsed.rows.length === 0 || parsed.headers.length === 0) {
-        this.statusEl.textContent = "No rows found. Try a different delimiter.";
-        this.statusEl.classList.add("error");
-        return;
-      }
-
-      const dataset = buildDataset(name, parsed.headers, parsed.rows);
-      this.dataset = dataset;
-      this.engine = new QueryEngine(dataset);
-      this.filters.clear();
-
-      const elapsed = Math.round(performance.now() - started);
-      const emptyPct =
-        dataset.stats.totalCells > 0
-          ? (dataset.stats.totalNullCells / dataset.stats.totalCells) * 100
-          : 0;
-      const duplicateText =
-        dataset.stats.duplicateRows > 0
-          ? ` · ${dataset.stats.duplicateRows.toLocaleString()} duplicate rows`
-          : "";
-      this.metaEl.textContent =
-        `${dataset.rowCount.toLocaleString()} rows × ${dataset.columnCount} columns` +
-        `${duplicateText} · ${emptyPct.toFixed(1)}% empty · ${elapsed} ms`;
       this.statusEl.textContent = "";
-      this.openWorkspace();
+      this.openWorkspace(loaded);
     } catch (error) {
-      this.statusEl.textContent = error instanceof Error ? error.message : "Failed to parse data.";
+      this.statusEl.textContent =
+        error instanceof Error ? error.message : "Failed to parse data.";
       this.statusEl.classList.add("error");
+    } finally {
+      this.loading = false;
     }
   }
 
-  private openWorkspace(): void {
-    if (this.dataset === null || this.engine === null) return;
+  private handleProgress(progress: ProgressMessage): void {
+    if (progress.phase === "parse") {
+      this.statusEl.textContent = "Parsing…";
+    } else if (progress.phase === "build") {
+      this.statusEl.textContent = progress.detail ?? "Building…";
+    } else if (progress.phase === "index" && progress.column !== undefined) {
+      this.filterPanel?.setStatus(progress.column, progress.active === true ? "Building index…" : "");
+    } else if (progress.phase === "sort") {
+      if (progress.active === true) this.countEl.textContent = "Sorting…";
+    }
+  }
+
+  private openWorkspace(loaded: LoadedMessage): void {
+    this.metas = loaded.columns;
+    this.rowCount = loaded.rowCount;
+    this.datasetName = loaded.name;
+    this.filters.clear();
 
     this.pasteView.classList.add("hidden");
     this.workspace.classList.remove("hidden");
     this.statsButton.classList.remove("hidden");
 
-    clear(this.filterHost);
-    this.filterPanel = new FilterPanel(this.filterHost, this.dataset.columns, this.filters, {
-      onChange: () => this.refresh(),
-      onTypeChange: () => {
-        this.engine?.invalidate();
-        this.refresh();
-      },
-    });
+    const emptyPct =
+      loaded.stats.totalCells > 0
+        ? (loaded.stats.totalNullCells / loaded.stats.totalCells) * 100
+        : 0;
+    const duplicateText =
+      loaded.stats.duplicateRows > 0
+        ? ` · ${loaded.stats.duplicateRows.toLocaleString()} duplicate rows`
+        : "";
+    this.metaEl.textContent =
+      `${loaded.rowCount.toLocaleString()} rows × ${loaded.columnCount} columns` +
+      `${duplicateText} · ${emptyPct.toFixed(1)}% empty · ${Math.round(loaded.ingestMs)} ms`;
 
     this.table?.dispose();
     clear(this.tableHost);
-    this.table = new ResultTable(this.tableHost);
-    this.refresh();
+    this.table = new ResultTable(this.tableHost, {
+      onSort: (column, dir) => this.changeSort(column, dir),
+      onRequestRows: (start, end, done) => {
+        void this.client
+          .getRows(start, end)
+          .then((message) => done(message.start, message.rows))
+          .catch(() => done(start, []));
+      },
+    });
+    this.table.setColumns(loaded.headers);
+    this.table.setSort(-1, 1);
+    this.table.setCount(loaded.rowCount);
+
+    clear(this.filterHost);
+    this.filterPanel = new FilterPanel(this.filterHost, this.metas, this.filters, {
+      onFilter: (column, filter) => this.changeFilter(column, filter),
+      onTypeChange: (column, type) => this.changeType(column, type),
+    });
+
+    this.updateCount(loaded.rowCount, 0);
+    this.updateGuardrail(loaded, loaded.source === "file");
   }
 
-  private refresh(): void {
-    if (this.dataset === null || this.engine === null || this.table === null) return;
-    const started = performance.now();
-    const ids = this.engine.evaluate(this.filters);
-    const elapsed = performance.now() - started;
-    const timeText = elapsed < 1 ? "<1" : String(Math.round(elapsed));
-    this.countEl.textContent = `${ids.length.toLocaleString()} of ${this.dataset.rowCount.toLocaleString()} rows · ${timeText} ms`;
-    this.table.setData(this.dataset, ids, this.highlightRules());
+  private changeFilter(column: number, filter: ColumnFilter | null): void {
+    if (filter === null) this.filters.delete(column);
+    else this.filters.set(column, filter);
+
+    this.table?.setHighlights(this.highlightRules());
+
+    void this.client
+      .setFilter(column, filter)
+      .then((message) => {
+        this.updateCount(message.count, message.queryMs);
+        this.table?.setCount(message.count);
+        this.table?.invalidateRows();
+      })
+      .catch((error: unknown) => this.showError(error));
+  }
+
+  private changeType(column: number, type: ColumnType): void {
+    void this.client
+      .setType(column, type)
+      .then((message) => {
+        this.metas[column] = message.meta;
+        this.filters.delete(column);
+        this.filterPanel?.updateMeta(column, message.meta);
+        this.updateCount(message.count, message.queryMs);
+        this.table?.setCount(message.count);
+        this.table?.invalidateRows();
+      })
+      .catch((error: unknown) => this.showError(error));
+  }
+
+  private changeSort(column: number, dir: 1 | -1 | 0): void {
+    const sortColumn = dir === 0 ? -1 : column;
+    const sortDir: 1 | -1 = dir === 0 ? 1 : dir;
+    void this.client
+      .sort(sortColumn, sortDir)
+      .then((message) => {
+        this.table?.setSort(message.column, message.dir);
+        this.updateCount(message.count, 0);
+        this.table?.invalidateRows();
+      })
+      .catch((error: unknown) => this.showError(error));
+  }
+
+  private clearFilters(): void {
+    if (this.filters.size === 0) return;
+    this.filters.clear();
+    this.filterPanel?.rebuild();
+    this.table?.setHighlights([]);
+    void this.client
+      .clearFilters()
+      .then((message) => {
+        this.updateCount(message.count, message.queryMs);
+        this.table?.setCount(message.count);
+        this.table?.invalidateRows();
+      })
+      .catch((error: unknown) => this.showError(error));
+  }
+
+  private openStats(): void {
+    if (this.datasetName === "" || this.loading) return;
+    const modal = openStatsModal(this.datasetName);
+    void this.client
+      .getStats()
+      .then((message) => modal.fill(message))
+      .catch((error: unknown) => this.showError(error));
   }
 
   private highlightRules(): HighlightRule[] {
@@ -252,11 +341,34 @@ export class App {
     return rules;
   }
 
-  private clearFilters(): void {
-    if (this.dataset === null) return;
-    this.filters.clear();
-    this.filterPanel?.rebuild();
-    this.refresh();
+  private updateCount(count: number, queryMs: number): void {
+    const timeText = queryMs < 1 ? "<1" : String(Math.round(queryMs));
+    this.countEl.textContent = `${count.toLocaleString()} of ${this.rowCount.toLocaleString()} rows · ${timeText} ms`;
+    const total = this.metas.length;
+    this.countEl.title = `${count.toLocaleString()} matching rows out of ${this.rowCount.toLocaleString()} (${total} columns)`;
+  }
+
+  private updateGuardrail(loaded: LoadedMessage, fromFile: boolean): void {
+    clear(this.bannerEl);
+    const largePaste = !fromFile && loaded.rowCount > LARGE_PASTE_ROWS;
+    if (!largePaste) {
+      this.bannerEl.classList.add("hidden");
+      return;
+    }
+    this.bannerEl.append(
+      el("span", { class: "banner-text" }, [
+        `Large paste (${loaded.rowCount.toLocaleString()} rows). For datasets this size, "Upload file" is faster and more stable.`,
+      ]),
+    );
+    const dismiss = el("button", { class: "icon-btn", type: "button", title: "Dismiss" }, ["×"]);
+    dismiss.addEventListener("click", () => this.bannerEl.classList.add("hidden"));
+    this.bannerEl.append(dismiss);
+    this.bannerEl.classList.remove("hidden");
+  }
+
+  private showError(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    this.countEl.textContent = `Error: ${message}`;
   }
 
   private showPaste(): void {
