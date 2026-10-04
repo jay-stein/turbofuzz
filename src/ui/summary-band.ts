@@ -14,7 +14,8 @@ const QA_BUTTONS: { kind: SpecialKind; label: string; title: string }[] = [
   {
     kind: "duplicates",
     label: "Duplicates",
-    title: "Rows whose full content appears more than once",
+    title:
+      "All rows belonging to a duplicate group — every copy is shown so they can be compared",
   },
   {
     kind: "nulls",

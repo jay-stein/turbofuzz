@@ -10,7 +10,7 @@ export interface StatsModal {
 const SUMMARY_ITEMS = [
   "Rows",
   "Columns",
-  "Duplicate rows",
+  "Redundant rows",
   "Duplicate groups",
   "Empty rows",
   "Empty cells",
@@ -75,7 +75,7 @@ export function openStatsModal(title: string): StatsModal {
     const values: Record<(typeof SUMMARY_ITEMS)[number], string> = {
       Rows: message.rowCount.toLocaleString(),
       Columns: message.columnCount.toLocaleString(),
-      "Duplicate rows": stats.duplicateRows.toLocaleString(),
+      "Redundant rows": stats.duplicateRows.toLocaleString(),
       "Duplicate groups": stats.duplicateGroups.toLocaleString(),
       "Empty rows": stats.emptyRows.toLocaleString(),
       "Empty cells": `${stats.totalNullCells.toLocaleString()} (${emptyPct.toFixed(1)}%)`,

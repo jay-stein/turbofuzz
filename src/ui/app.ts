@@ -745,8 +745,8 @@ export class App {
         ? (loaded.stats.totalNullCells / loaded.stats.totalCells) * 100
         : 0;
     const duplicateText =
-      loaded.stats.duplicateRows > 0
-        ? ` · ${loaded.stats.duplicateRows.toLocaleString()} duplicate rows`
+      loaded.stats.duplicateGroups > 0
+        ? ` · ${loaded.stats.duplicateGroups.toLocaleString()} duplicate groups (${loaded.stats.duplicateRows.toLocaleString()} redundant rows)`
         : "";
     const encodingText = loaded.encoding === "windows-1252" ? " · windows-1252" : "";
     this.metaEl.textContent =
