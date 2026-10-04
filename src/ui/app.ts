@@ -1,4 +1,5 @@
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
+import { listArchiveEntries, readArchiveEntry, type ArchiveEntry } from "../parse/archive.js";
 import { decodeText } from "../parse/encoding.js";
 import { detectTable } from "../parse/header-detect.js";
 import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
@@ -17,7 +18,7 @@ import { ResultTable, type HighlightRule } from "./table.js";
 import { SearchWorkerClient } from "./worker-client.js";
 
 const LARGE_PASTE_ROWS = 300_000;
-const DATA_URL_EXTENSIONS = [".csv", ".tsv", ".psv", ".txt", ".xlsx", ".xls"];
+const DATA_URL_EXTENSIONS = [".csv", ".tsv", ".psv", ".txt", ".xlsx", ".xls", ".zip", ".gz"];
 const WORKBOOK_EXTENSIONS = [".xlsx", ".xls"];
 const DEFAULT_SHUFFLE_SAMPLE = 100;
 
@@ -26,7 +27,14 @@ interface PickerItem {
   rows: number;
   columns: number;
   best?: boolean;
+  detail?: string;
   onSelect: () => void;
+}
+
+function formatBytes(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function extensionOf(name: string): string {
@@ -238,13 +246,13 @@ export class App {
     });
     dropzone.append(
       uploadIcon(),
-      el("span", {}, ["Drop a CSV / TSV / PSV / Excel file here — or click to browse"]),
+      el("span", {}, ["Drop a CSV / TSV / PSV / Excel / ZIP / GZ file here — or click to browse"]),
     );
     card.append(dropzone);
 
     const fileInput = el("input", {
       type: "file",
-      accept: ".csv,.tsv,.psv,.txt,.xlsx,.xls",
+      accept: ".csv,.tsv,.psv,.txt,.xlsx,.xls,.zip,.gz",
       class: "hidden",
     }) as HTMLInputElement;
     const openPicker = (): void => fileInput.click();
@@ -309,7 +317,7 @@ export class App {
     urlSection.append(
       urlRow,
       el("p", { class: "url-hint" }, [
-        "Links ending in .csv, .tsv or .psv load as data; anything else is scraped for its first table.",
+        "Links ending in .csv, .tsv, .psv, .zip or .gz load as data; anything else is scraped for its first table.",
       ]),
       el("p", { class: "disclaimer" }, [
         "Always scrape responsibly by reviewing and adhering to the website's ",
@@ -495,6 +503,16 @@ export class App {
       const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
       const buffer = await response.arrayBuffer();
 
+      const urlExtension = extensionOf(new URL(url).pathname);
+      if (urlExtension === ".zip") {
+        await this.openArchive(buffer, nameFromUrl(url));
+        return;
+      }
+      if (urlExtension === ".gz") {
+        await this.openGzip(buffer, nameFromUrl(url));
+        return;
+      }
+
       if (isWorkbookUrl(url) || contentType.includes("spreadsheetml") || contentType.includes("ms-excel")) {
         await this.openWorkbook(buffer, nameFromUrl(url));
         return;
@@ -557,7 +575,7 @@ export class App {
       }
       option.append(
         el("span", { class: "table-option-size" }, [
-          `${item.rows.toLocaleString()} rows × ${item.columns} columns`,
+          item.detail ?? `${item.rows.toLocaleString()} rows × ${item.columns} columns`,
         ]),
       );
       option.addEventListener("click", item.onSelect);
@@ -575,7 +593,16 @@ export class App {
 
   private async loadFile(file: File): Promise<void> {
     try {
-      if (WORKBOOK_EXTENSIONS.includes(extensionOf(file.name))) {
+      const extension = extensionOf(file.name);
+      if (extension === ".zip") {
+        await this.openArchive(await file.arrayBuffer(), file.name);
+        return;
+      }
+      if (extension === ".gz") {
+        await this.openGzip(await file.arrayBuffer(), file.name);
+        return;
+      }
+      if (WORKBOOK_EXTENSIONS.includes(extension)) {
         const buffer = await file.arrayBuffer();
         await this.openWorkbook(buffer, file.name);
         return;
@@ -584,6 +611,97 @@ export class App {
       await this.load({ buffer, name: file.name, source: "file" });
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not read file");
+    }
+  }
+
+  /** Lists data files inside a ZIP and loads the only one or shows a picker. */
+  private async openArchive(buffer: ArrayBuffer, fileName: string): Promise<void> {
+    this.hideTablePicker();
+    this.statusEl.textContent = "Reading archive…";
+    this.statusEl.classList.remove("error");
+    try {
+      const entries = await listArchiveEntries(buffer);
+      if (entries.length === 0) {
+        throw new Error("No CSV, TSV, PSV, TXT, XLSX or XLS files found in that archive");
+      }
+      if (entries.length === 1) {
+        await this.openArchiveEntry(entries[0], fileName, buffer);
+        return;
+      }
+
+      this.statusEl.textContent = "";
+      this.showPicker(
+        `${entries.length} files in ${fileName} — pick one`,
+        entries.map((entry) => ({
+          label: entry.path,
+          rows: 0,
+          columns: 0,
+          detail: formatBytes(entry.size),
+          onSelect: () => {
+            this.hideTablePicker();
+            void this.openArchiveEntry(entry, fileName, buffer);
+          },
+        })),
+      );
+    } catch (error) {
+      this.setStatusError(error instanceof Error ? error.message : "Could not read archive");
+    }
+  }
+
+  private async openArchiveEntry(
+    entry: ArchiveEntry,
+    fileName: string,
+    archive: ArrayBuffer,
+  ): Promise<void> {
+    this.statusEl.textContent = `Extracting “${entry.name}”…`;
+    this.statusEl.classList.remove("error");
+    try {
+      const bytes = await readArchiveEntry(archive, entry.path);
+      const data = bytes.buffer.slice(
+        bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength,
+      ) as ArrayBuffer;
+      if (WORKBOOK_EXTENSIONS.includes(extensionOf(entry.name))) {
+        await this.openWorkbook(data, entry.name);
+        return;
+      }
+      this.statusEl.textContent = "";
+      await this.load({
+        buffer: data,
+        name: `${fileName.replace(/\.zip$/i, "")}/${entry.path}`,
+        source: "file",
+      });
+    } catch (error) {
+      this.setStatusError(error instanceof Error ? error.message : "Could not extract file");
+    }
+  }
+
+  /** Decompresses a .gz and routes the inner file (data, workbook or zip). */
+  private async openGzip(buffer: ArrayBuffer, fileName: string): Promise<void> {
+    this.hideTablePicker();
+    this.statusEl.textContent = "Decompressing…";
+    this.statusEl.classList.remove("error");
+    try {
+      const { gunzipSync } = await import("fflate");
+      const inner = gunzipSync(new Uint8Array(buffer));
+      const data = inner.buffer.slice(
+        inner.byteOffset,
+        inner.byteOffset + inner.byteLength,
+      ) as ArrayBuffer;
+      const innerName = fileName.replace(/\.gz$/i, "");
+      const extension = extensionOf(innerName);
+      if (extension === ".zip") {
+        await this.openArchive(data, innerName);
+        return;
+      }
+      if (WORKBOOK_EXTENSIONS.includes(extension)) {
+        await this.openWorkbook(data, innerName);
+        return;
+      }
+      this.statusEl.textContent = "";
+      await this.load({ buffer: data, name: innerName, source: "file" });
+    } catch (error) {
+      this.setStatusError(error instanceof Error ? error.message : "Could not decompress file");
     }
   }
 
