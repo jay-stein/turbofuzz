@@ -1,6 +1,9 @@
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
 import { decodeText } from "../parse/encoding.js";
+import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
+import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
 import type { ColumnFilter } from "../search/query-engine.js";
+import type { WorkBook } from "xlsx";
 import type { ColumnType } from "../types.js";
 import type { ColumnMeta, LoadedMessage, ProgressMessage } from "../worker/protocol.js";
 import { clear, el } from "./dom.js";
@@ -13,7 +16,30 @@ import { ResultTable, type HighlightRule } from "./table.js";
 import { SearchWorkerClient } from "./worker-client.js";
 
 const LARGE_PASTE_ROWS = 300_000;
-const DATA_URL_EXTENSIONS = [".csv", ".tsv", ".psv", ".txt"];
+const DATA_URL_EXTENSIONS = [".csv", ".tsv", ".psv", ".txt", ".xlsx", ".xls"];
+const WORKBOOK_EXTENSIONS = [".xlsx", ".xls"];
+
+interface PickerItem {
+  label: string;
+  rows: number;
+  columns: number;
+  best?: boolean;
+  onSelect: () => void;
+}
+
+function extensionOf(name: string): string {
+  const lower = name.toLowerCase();
+  const dot = lower.lastIndexOf(".");
+  return dot === -1 ? "" : lower.slice(dot);
+}
+
+function isWorkbookUrl(raw: string): boolean {
+  try {
+    return WORKBOOK_EXTENSIONS.includes(extensionOf(new URL(raw).pathname));
+  } catch {
+    return false;
+  }
+}
 
 function isDataUrl(raw: string): boolean {
   try {
@@ -118,6 +144,10 @@ export class App {
   private textarea!: HTMLTextAreaElement;
   private urlInput!: HTMLInputElement;
   private urlButton!: HTMLButtonElement;
+  private pendingWorkbook:
+    | { kind: "xlsx"; buffer: ArrayBuffer }
+    | { kind: "xls"; workbook: WorkBook }
+    | null = null;
   private tablePickerEl!: HTMLElement;
   private tablePickerTitle!: HTMLElement;
   private tablePickerList!: HTMLElement;
@@ -207,13 +237,13 @@ export class App {
     });
     dropzone.append(
       uploadIcon(),
-      el("span", {}, ["Drop a CSV / TSV / PSV here — or click to browse"]),
+      el("span", {}, ["Drop a CSV / TSV / PSV / Excel file here — or click to browse"]),
     );
     card.append(dropzone);
 
     const fileInput = el("input", {
       type: "file",
-      accept: ".csv,.tsv,.psv,.txt",
+      accept: ".csv,.tsv,.psv,.txt,.xlsx,.xls",
       class: "hidden",
     }) as HTMLInputElement;
     const openPicker = (): void => fileInput.click();
@@ -434,6 +464,12 @@ export class App {
 
       const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
       const buffer = await response.arrayBuffer();
+
+      if (isWorkbookUrl(url) || contentType.includes("spreadsheetml") || contentType.includes("ms-excel")) {
+        await this.openWorkbook(buffer, nameFromUrl(url));
+        return;
+      }
+
       const looksHtml = contentType.includes("html");
       const looksData =
         contentType.includes("csv") ||
@@ -453,7 +489,19 @@ export class App {
         return;
       }
       this.statusEl.textContent = "";
-      this.showTablePicker(tables, url);
+      this.showPicker(
+        `${tables.length} tables found — pick one`,
+        tables.map((table, index) => ({
+          label: table.label,
+          rows: table.rows,
+          columns: table.columns,
+          best: index === 0,
+          onSelect: () => {
+            this.hideTablePicker();
+            void this.loadTable(table.grid, this.tableNameFor(table, url));
+          },
+        })),
+      );
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Download failed");
     }
@@ -467,29 +515,22 @@ export class App {
     this.tablePickerEl.classList.add("hidden");
   }
 
-  private showTablePicker(tables: TableCandidate[], url: string): void {
+  private showPicker(title: string, items: PickerItem[]): void {
     clear(this.tablePickerList);
-    this.tablePickerTitle.textContent =
-      tables.length === 1 ? "1 table found" : `${tables.length} tables found — pick one`;
+    this.tablePickerTitle.textContent = title;
 
-    tables.forEach((table, index) => {
+    items.forEach((item, index) => {
       const option = el("button", { class: "table-option", type: "button" });
-      option.append(el("span", { class: "table-option-index" }, [`Table ${index + 1}`]));
-      if (!table.label.startsWith("Table ")) {
-        option.append(el("span", { class: "table-option-name" }, [table.label]));
-      }
-      if (index === 0) {
+      option.append(el("span", { class: "table-option-name" }, [item.label]));
+      if (item.best === true) {
         option.append(el("span", { class: "table-option-best" }, ["best match"]));
       }
       option.append(
         el("span", { class: "table-option-size" }, [
-          `${table.rows.toLocaleString()} rows × ${table.columns} columns`,
+          `${item.rows.toLocaleString()} rows × ${item.columns} columns`,
         ]),
       );
-      option.addEventListener("click", () => {
-        this.hideTablePicker();
-        void this.loadTable(table.grid, this.tableNameFor(table, url));
-      });
+      option.addEventListener("click", item.onSelect);
       this.tablePickerList.append(option);
     });
 
@@ -504,10 +545,78 @@ export class App {
 
   private async loadFile(file: File): Promise<void> {
     try {
+      if (WORKBOOK_EXTENSIONS.includes(extensionOf(file.name))) {
+        const buffer = await file.arrayBuffer();
+        await this.openWorkbook(buffer, file.name);
+        return;
+      }
       const buffer = await file.arrayBuffer();
       await this.load({ buffer, name: file.name, source: "file" });
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not read file");
+    }
+  }
+
+  /** Lists worksheets (biggest first) and either loads the only one or shows a picker. */
+  private async openWorkbook(buffer: ArrayBuffer, fileName: string): Promise<void> {
+    this.hideTablePicker();
+    this.statusEl.textContent = "Reading workbook…";
+    this.statusEl.classList.remove("error");
+    try {
+      let sheets;
+      if (extensionOf(fileName) === ".xls") {
+        const legacy = await listLegacySheets(buffer);
+        this.pendingWorkbook = { kind: "xls", workbook: legacy.workbook };
+        sheets = legacy.sheets;
+      } else {
+        sheets = await listWorkbookSheets(buffer);
+        this.pendingWorkbook = { kind: "xlsx", buffer };
+      }
+
+      if (sheets.length === 0) throw new Error("No worksheets found in that file");
+      if (sheets.length === 1) {
+        await this.loadSheet(sheets[0].name, fileName);
+        return;
+      }
+
+      const top = sheets.slice(0, 10);
+      this.statusEl.textContent = "";
+      this.showPicker(
+        sheets.length > top.length
+          ? `${sheets.length} worksheets — top ${top.length} by size, pick one`
+          : `${sheets.length} worksheets found — pick one`,
+        top.map((sheet, index) => ({
+          label: sheet.name,
+          rows: sheet.rows,
+          columns: sheet.columns,
+          best: index === 0,
+          onSelect: () => {
+            this.hideTablePicker();
+            void this.loadSheet(sheet.name, fileName);
+          },
+        })),
+      );
+    } catch (error) {
+      this.setStatusError(error instanceof Error ? error.message : "Could not read workbook");
+    }
+  }
+
+  private async loadSheet(sheetName: string, fileName: string): Promise<void> {
+    const pending = this.pendingWorkbook;
+    if (pending === null) return;
+    this.statusEl.textContent = `Reading “${sheetName}”…`;
+    this.statusEl.classList.remove("error");
+    try {
+      const rows =
+        pending.kind === "xlsx"
+          ? await readWorkbookSheet(pending.buffer, sheetName)
+          : await readLegacySheet(pending.workbook, sheetName);
+      if (rows.length === 0) throw new Error("That worksheet has no data");
+      this.statusEl.textContent = "";
+      const base = fileName.replace(/\.[^.]+$/, "");
+      await this.loadTable(rows, `${base} — ${sheetName}`);
+    } catch (error) {
+      this.setStatusError(error instanceof Error ? error.message : "Could not read worksheet");
     }
   }
 
