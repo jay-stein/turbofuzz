@@ -979,9 +979,21 @@ export class App {
 
   private updateCount(count: number, queryMs: number): void {
     const timeText = queryMs < 1 ? "<1" : String(Math.round(queryMs));
-    this.countEl.textContent = `${count.toLocaleString()} of ${this.rowCount.toLocaleString()} rows · ${timeText} ms`;
-    const total = this.metas.length;
-    this.countEl.title = `${count.toLocaleString()} matching rows out of ${this.rowCount.toLocaleString()} (${total} columns)`;
+    const total = this.rowCount;
+    const parts: string[] = [];
+    if (total > 0 && count < total) {
+      const shownPct = (count / total) * 100;
+      const filtered = total - count;
+      parts.push(`${count.toLocaleString()} of ${total.toLocaleString()} rows`);
+      parts.push(`${shownPct.toFixed(1)}% shown`);
+      parts.push(`${filtered.toLocaleString()} filtered out (${(100 - shownPct).toFixed(1)}%)`);
+    } else {
+      parts.push(`${count.toLocaleString()} rows`);
+    }
+    parts.push(`${timeText} ms`);
+    this.countEl.textContent = parts.join(" · ");
+    const columnCount = this.metas.length;
+    this.countEl.title = `${count.toLocaleString()} matching rows out of ${total.toLocaleString()} (${columnCount} columns)`;
     this.copyButton.disabled = count === 0;
     this.exportButton.disabled = count === 0;
   }
