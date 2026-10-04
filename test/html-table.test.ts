@@ -123,6 +123,7 @@ test("findDataTables returns descriptors and data sizes, best first", () => {
     <table aria-label="Small extras">
       <tr><th>X</th><th>Y</th></tr>
       <tr><td>1</td><td>2</td></tr>
+      <tr><td>3</td><td>4</td></tr>
     </table>`;
 
   const tables = findDataTables(html, 10);
@@ -130,6 +131,59 @@ test("findDataTables returns descriptors and data sizes, best first", () => {
   assert.equal(tables[0].label, "Quarterly performance");
   assert.deepEqual([tables[0].rows, tables[0].columns], [2, 2]);
   assert.equal(tables[1].label, "Small extras");
+});
+
+test("largest area wins even when a small table has more text", () => {
+  const html = `
+    <table>
+      <tr><th>Note</th><th>Detail</th></tr>
+      <tr><td>${"very long prose ".repeat(20)}</td><td>${"more text ".repeat(20)}</td></tr>
+      <tr><td>${"even more prose ".repeat(20)}</td><td>${"extra text ".repeat(20)}</td></tr>
+    </table>
+    <table>
+      <tr><th>A</th><th>B</th><th>C</th></tr>
+      <tr><td>1</td><td>2</td><td>3</td></tr>
+      <tr><td>4</td><td>5</td><td>6</td></tr>
+      <tr><td>7</td><td>8</td><td>9</td></tr>
+    </table>`;
+
+  const tables = findDataTables(html, 10);
+  assert.equal(tables.length, 2);
+  assert.equal(tables[0].columns, 3);
+  assert.equal(tables[0].rows, 3);
+});
+
+test("drops one-data-row tables when a bigger table exists", () => {
+  const html = `
+    <table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>
+    <table>
+      <tr><th>A</th><th>B</th></tr>
+      <tr><td>1</td><td>2</td></tr>
+      <tr><td>3</td><td>4</td></tr>
+      <tr><td>5</td><td>6</td></tr>
+    </table>`;
+
+  const tables = findDataTables(html, 10);
+  assert.equal(tables.length, 1);
+  assert.equal(tables[0].rows, 3);
+
+  const onlySmall = findDataTables(
+    '<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>',
+    10,
+  );
+  assert.equal(onlySmall.length, 1, "small table still available as a fallback");
+});
+
+test("excludes navigation chrome tables", () => {
+  const html = `
+    <nav>
+      <table><tr><th>Home</th><th>About</th></tr><tr><td>a</td><td>b</td></tr></table>
+    </nav>
+    <table><tr><th>Name</th><th>Age</th></tr><tr><td>Alice</td><td>30</td></tr></table>`;
+
+  const tables = findDataTables(html, 10);
+  assert.equal(tables.length, 1);
+  assert.deepEqual(tables[0].grid[0], ["Name", "Age"]);
 });
 
 test("findDataTables prefers a caption and falls back to generic numbering", () => {

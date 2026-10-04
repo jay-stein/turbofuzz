@@ -237,24 +237,55 @@ function dataRichnessScore(candidate: Candidate): number {
   return rows * columns * 0.4 + visibleChars * 0.3 + density * 100 + headerBonus;
 }
 
+const CHROME_CLASSES = /(^|\s)(navbox|vertical-navbox|sidebar|toc|catlinks|mw-editsection)(\s|$)/;
+
+/** Navigation/footer chrome is not data even when it is table-shaped. */
+function isStructuralChrome(element: Element): boolean {
+  let node: Element | null = element;
+  while (node !== null) {
+    const tag = node.tagName;
+    if (tag === "NAV" || tag === "FOOTER") return true;
+    const role = roleOf(node);
+    if (role === "navigation" || role === "contentinfo" || role === "banner" || role === "search") {
+      return true;
+    }
+    if (CHROME_CLASSES.test(node.getAttribute("class") ?? "")) return true;
+    node = node.parentElement;
+  }
+  return false;
+}
+
 function isExcluded(element: Element): boolean {
   const role = roleOf(element);
   if (role === "presentation" || role === "none") return true;
-  return isStaticallyHidden(element);
+  if (isStaticallyHidden(element)) return true;
+  return isStructuralChrome(element);
 }
 
 function cleanText(raw: string | null | undefined): string {
   return (raw ?? "").replace(/\s+/g, " ").trim().slice(0, 100);
 }
 
+/** Visible-ish text: textContent with style/script blocks removed. */
+function elementText(element: Element): string {
+  let source: Element = element;
+  if (element.querySelector("style, script") !== null) {
+    source = element.cloneNode(true) as Element;
+    for (const noise of Array.from(source.querySelectorAll("style, script"))) {
+      noise.remove();
+    }
+  }
+  return cleanText(source.textContent);
+}
+
 function headingText(element: Element): string | null {
   if (/^H[1-6]$/.test(element.tagName)) {
-    const text = cleanText(element.textContent);
+    const text = elementText(element);
     return text === "" ? null : text;
   }
   for (const child of Array.from(element.children)) {
     if (/^H[1-6]$/.test(child.tagName)) {
-      const text = cleanText(child.textContent);
+      const text = elementText(child);
       if (text !== "") return text;
     }
   }
@@ -279,7 +310,7 @@ function nearestHeading(element: Element): string | null {
 function descriptorFor(element: Element): string | null {
   for (const child of Array.from(element.children)) {
     if (child.tagName === "CAPTION") {
-      const text = cleanText(child.textContent);
+      const text = elementText(child);
       if (text !== "") return text;
     }
   }
@@ -291,7 +322,7 @@ function descriptorFor(element: Element): string | null {
   const figure = element.closest("figure");
   const figcaption = figure?.querySelector("figcaption");
   if (figcaption !== null && figcaption !== undefined) {
-    const text = cleanText(figcaption.textContent);
+    const text = elementText(figcaption);
     if (text !== "") return text;
   }
 
@@ -348,8 +379,18 @@ export function findDataTables(html: string, limit = 10): TableCandidate[] {
     .map((candidate) => ({ candidate, score: dataRichnessScore(candidate) }));
   if (scored.length === 0) return [];
 
-  const pool = scored;
-  pool.sort((a, b) => b.score - a.score);
+  // Prefer candidates with real data rows; fall back to any minimum-shape
+  // table when a page only has header+one-row tables.
+  const withDataRows = scored.filter((entry) => dataRowCount(entry.candidate) >= 2);
+  const pool = withDataRows.length > 0 ? withDataRows : scored;
+
+  // Largest by rows x columns wins; the richness score breaks ties.
+  pool.sort((a, b) => {
+    const areaA = dataRowCount(a.candidate) * maxColumns(a.candidate.grid);
+    const areaB = dataRowCount(b.candidate) * maxColumns(b.candidate.grid);
+    if (areaB !== areaA) return areaB - areaA;
+    return b.score - a.score;
+  });
 
   return pool.slice(0, Math.max(1, limit)).flatMap((entry, index) => {
     const rows = entry.candidate.grid.map((row) => row.slice());
