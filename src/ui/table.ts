@@ -393,9 +393,9 @@ export class ResultTable {
     const lengthFence = meta.lengthFence;
     if (lengthFence !== null) {
       const length = valueLength(value);
-      if (length < lengthFence.lo || length > lengthFence.hi) {
+      if (length > lengthFence.hi) {
         cell.classList.add("anomaly-cell");
-        cell.title = `Unusual length ${length} — expected ${Math.round(lengthFence.lo)}–${Math.round(lengthFence.hi)}`;
+        cell.title = `Overlong value — ${length} chars (expected at most ${Math.round(lengthFence.hi)})`;
       }
     }
   }

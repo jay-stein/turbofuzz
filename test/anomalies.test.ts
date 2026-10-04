@@ -54,19 +54,20 @@ test("flags a text length outside the per-column fences", () => {
   assert.notEqual(dataset.lengthFences[0], null);
 });
 
-test("large columns flag only the percentile tails of length", () => {
+test("flags lengths above three times the P90 length", () => {
   const rows: string[][] = [];
-  for (let i = 0; i < 995; i++) rows.push(["abcdefghij"]);
-  for (let i = 0; i < 5; i++) rows.push(["abcdefghijk"]);
+  for (let i = 0; i < 990; i++) rows.push(["abcdefghij"]);
+  for (let i = 0; i < 10; i++) rows.push(["x".repeat(40)]);
   const dataset = buildDataset("t", ["code"], rows);
-  assert.equal(dataset.stats.lengthAnomalyRows, 5);
+  assert.equal(dataset.stats.lengthAnomalyRows, 10);
+  assert.equal(dataset.lengthFences[0]?.hi, 30);
 });
 
-test("uniform text lengths have no fence", () => {
+test("uniform text lengths have no outliers", () => {
   const rows = Array.from({ length: 10 }, () => ["abc"]);
   const dataset = buildDataset("t", ["code"], rows);
-  assert.equal(dataset.lengthFences[0], null);
   assert.equal(dataset.stats.lengthAnomalyRows, 0);
+  assert.equal(dataset.lengthFences[0]?.hi, 9);
 });
 
 test("valueAnomalies special filter narrows to outlier rows", () => {
