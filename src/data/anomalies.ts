@@ -31,6 +31,11 @@ const MEAN_DEVIATION_RADIUS = 3.5 / 0.7979;
 const MAX_SAMPLES = 50_000;
 const MIN_SAMPLES = 20;
 const MIN_LENGTH_SAMPLES = 8;
+/** Tail fraction per side for large text columns (~1% flagged in total). */
+const LENGTH_TAIL = 0.005;
+const LENGTH_TAIL_MIN_ROWS = 200;
+/** Far Tukey multiplier used for small text columns. */
+const LENGTH_IQR_MULTIPLIER = 3;
 /** Bowley skewness above which positive columns use multiplicative (log) fences. */
 const LOG_SKEW_THRESHOLD = 0.1;
 
@@ -114,7 +119,11 @@ function numericFence(column: ColumnData): ValueFence | null {
   };
 }
 
-/** Per-column Tukey fences (1.5×IQR) on trimmed value lengths. */
+/**
+ * Length fences: large columns use percentile tails (0.5%–99.5%, so roughly
+ * 1% of values are flagged); small columns use far 3×IQR fences, where exact
+ * percentiles would be too jumpy. Constant-length columns never flag.
+ */
 function lengthFenceFor(column: ColumnData): LengthFence | null {
   if (
     column.type !== "string" &&
@@ -133,11 +142,21 @@ function lengthFenceFor(column: ColumnData): LengthFence | null {
   if (lengths.length < MIN_LENGTH_SAMPLES) return null;
 
   lengths.sort((a, b) => a - b);
+
+  if (lengths.length >= LENGTH_TAIL_MIN_ROWS) {
+    const lo = quantile(lengths, LENGTH_TAIL);
+    const hi = quantile(lengths, 1 - LENGTH_TAIL);
+    return hi > lo ? { lo, hi } : null;
+  }
+
   const q1 = quantile(lengths, 0.25);
   const q3 = quantile(lengths, 0.75);
   const iqr = q3 - q1;
   if (iqr <= 0) return null;
-  return { lo: Math.max(0, q1 - 1.5 * iqr), hi: q3 + 1.5 * iqr };
+  return {
+    lo: Math.max(0, q1 - LENGTH_IQR_MULTIPLIER * iqr),
+    hi: q3 + LENGTH_IQR_MULTIPLIER * iqr,
+  };
 }
 
 /**

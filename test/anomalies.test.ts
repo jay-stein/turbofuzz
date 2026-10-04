@@ -43,7 +43,7 @@ test("right-skewed positive columns use log fences", () => {
   assert.equal(dataset.valueAnomalyBits.get(values.length - 1), true);
 });
 
-test("flags a text length outside the per-column IQR fences", () => {
+test("flags a text length outside the per-column fences", () => {
   const rows: string[][] = [];
   for (let i = 0; i < 10; i++) rows.push(["abc"]);
   for (let i = 0; i < 10; i++) rows.push(["abcd"]);
@@ -52,6 +52,14 @@ test("flags a text length outside the per-column IQR fences", () => {
   assert.equal(dataset.stats.lengthAnomalyRows, 1);
   assert.equal(dataset.lengthAnomalyBits.get(20), true);
   assert.notEqual(dataset.lengthFences[0], null);
+});
+
+test("large columns flag only the percentile tails of length", () => {
+  const rows: string[][] = [];
+  for (let i = 0; i < 995; i++) rows.push(["abcdefghij"]);
+  for (let i = 0; i < 5; i++) rows.push(["abcdefghijk"]);
+  const dataset = buildDataset("t", ["code"], rows);
+  assert.equal(dataset.stats.lengthAnomalyRows, 5);
 });
 
 test("uniform text lengths have no fence", () => {

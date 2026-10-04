@@ -1179,6 +1179,32 @@ button:disabled {
   min-width: 0;
 }
 
+.th.row-index-head {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  justify-content: flex-end;
+  padding: 0 8px 0 4px;
+}
+
+.th-index {
+  flex: none;
+  align-self: center;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-dim);
+  opacity: 0.85;
+}
+
+.th .th-index {
+  margin-left: 7px;
+  margin-right: -3px;
+}
+
+.th-index + .th-label {
+  padding-left: 7px;
+}
+
 .th-label {
   flex: 1;
   display: flex;
@@ -1257,6 +1283,26 @@ button:disabled {
 
 .tr.dup-row .td {
   background: color-mix(in srgb, var(--null) 32%, transparent);
+}
+
+.td.row-index {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding: 0 8px 0 4px;
+  text-align: right;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  background: var(--panel);
+}
+
+.tr:nth-child(even) .td.row-index {
+  background: color-mix(in srgb, var(--panel-2) 45%, var(--panel));
+}
+
+.tr.dup-row .td.row-index {
+  background: color-mix(in srgb, var(--null) 26%, var(--panel));
 }
 
 .tr .td.null-cell {

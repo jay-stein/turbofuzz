@@ -8,6 +8,7 @@ const ROW_HEIGHT = 28;
 const DEFAULT_COL_WIDTH = 180;
 const MIN_COL_WIDTH = 56;
 const MAX_COL_WIDTH = 720;
+const INDEX_WIDTH = 46;
 const OVERSCAN = 10;
 const CACHE_LIMIT = 4000;
 
@@ -145,11 +146,11 @@ export class ResultTable {
   }
 
   private gridTemplate(): string {
-    return this.widths.map((width) => `${width}px`).join(" ");
+    return [`${INDEX_WIDTH}px`, ...this.widths.map((width) => `${width}px`)].join(" ");
   }
 
   private totalWidth(): number {
-    return this.widths.reduce((total, width) => total + width, 0);
+    return INDEX_WIDTH + this.widths.reduce((total, width) => total + width, 0);
   }
 
   private applyWidths(): void {
@@ -191,9 +192,19 @@ export class ResultTable {
     this.header.style.gridTemplateColumns = template;
     this.header.style.width = `${this.totalWidth()}px`;
 
+    const indexHead = el("div", {
+      class: "th row-index-head",
+      title: "Row number (current order) / column number",
+    });
+    indexHead.append(el("span", { class: "th-index" }, ["#"]));
+    this.header.append(indexHead);
+
     this.columns.forEach((column, index) => {
       const name = column.name;
       const cell = el("div", { class: "th" });
+      const number = el("span", { class: "th-index", title: `Column ${index + 1}` }, [
+        String(index + 1),
+      ]);
       const label = el(
         "button",
         { class: "th-label", type: "button", title: `Sort by ${name}` },
@@ -216,7 +227,7 @@ export class ResultTable {
         this.applyWidths();
       });
 
-      cell.append(label, grip);
+      cell.append(number, label, grip);
       this.header.append(cell);
     });
   }
@@ -279,6 +290,7 @@ export class ResultTable {
     if (row === undefined) tr.classList.add("skeleton");
     if (this.groupStarts.has(index)) tr.classList.add("group-start");
     if (((this.rowFlags.get(index) ?? 0) & 1) !== 0) tr.classList.add("dup-row");
+    tr.append(el("div", { class: "td row-index" }, [String(index + 1)]));
     for (let c = 0; c < this.columns.length; c++) {
       const cell = el("div", { class: "td" });
       if (row !== undefined) this.fillCell(cell, row[c] ?? "", c);
