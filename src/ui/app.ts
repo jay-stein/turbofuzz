@@ -164,6 +164,7 @@ export class App {
   private readonly specials = new Set<SpecialKind>();
   private shuffleButton!: HTMLButtonElement;
   private shuffleCount!: HTMLInputElement;
+  private shuffleActive = false;
   private filterHost!: HTMLElement;
   private tableHost!: HTMLElement;
 
@@ -730,6 +731,7 @@ export class App {
     this.datasetName = loaded.name;
     this.filters.clear();
     this.specials.clear();
+    this.shuffleActive = false;
     this.summaryBand = new SummaryBand(this.summaryHost, {
       onToggleSpecial: (kind) => this.toggleSpecial(kind),
       onOpenStats: () => this.openStats(),
@@ -757,6 +759,7 @@ export class App {
     clear(this.tableHost);
     this.table = new ResultTable(this.tableHost, {
       onSort: (column, dir) => this.changeSort(column, dir),
+      onTypeChange: (column, type) => this.changeType(column, type),
       onRequestRows: (start, end, done) => {
         void this.client
           .getRows(start, end)
@@ -779,6 +782,7 @@ export class App {
   }
 
   private toggleSpecial(kind: SpecialKind): void {
+    this.shuffleActive = false;
     const active = !this.specials.has(kind);
     if (active) this.specials.add(kind);
     else this.specials.delete(kind);
@@ -823,9 +827,11 @@ export class App {
         .shuffle(limit ?? undefined)
         .then((message) => {
           this.table?.setSort(-1, 1);
+          this.shuffleActive = message.count < this.rowCount;
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, undefined, message.firstFlags);
           this.table?.scrollToTop();
+          this.updateCount(message.count, 0);
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -854,6 +860,7 @@ export class App {
   }
 
   private changeFilter(column: number, filter: ColumnFilter | null, preview = false): void {
+    this.shuffleActive = false;
     if (filter === null) this.filters.delete(column);
     else this.filters.set(column, filter);
 
@@ -881,6 +888,7 @@ export class App {
           this.filters.delete(column);
           this.summaryBand?.setCounts(message.stats);
           this.filterPanel?.updateMeta(column, message.meta);
+          this.table?.updateColumn(column, message.meta);
           this.filterPanel?.applyResults(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
@@ -891,6 +899,7 @@ export class App {
   }
 
   private changeSort(column: number, dir: 1 | -1 | 0): void {
+    this.shuffleActive = false;
     const sortColumn = dir === 0 ? -1 : column;
     const sortDir: 1 | -1 = dir === 0 ? 1 : dir;
     this.queueSend(() =>
@@ -907,8 +916,9 @@ export class App {
   }
 
   private clearFilters(): void {
-    if (this.filters.size === 0 && this.specials.size === 0) return;
+    if (this.filters.size === 0 && this.specials.size === 0 && !this.shuffleActive) return;
     const activeSpecials = [...this.specials];
+    this.shuffleActive = false;
 
     this.filters.clear();
     this.specials.clear();
@@ -1015,7 +1025,10 @@ export class App {
     const timeText = queryMs < 1 ? "<1" : String(Math.round(queryMs));
     const total = this.rowCount;
     const parts: string[] = [];
-    if (total > 0 && count < total) {
+    if (this.shuffleActive && total > 0 && count < total) {
+      parts.push(`${count.toLocaleString()} random rows`);
+      parts.push(`sampled from ${total.toLocaleString()}`);
+    } else if (total > 0 && count < total) {
       const shownPct = (count / total) * 100;
       const filtered = total - count;
       parts.push(`${count.toLocaleString()} of ${total.toLocaleString()} rows`);

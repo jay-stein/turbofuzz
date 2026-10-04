@@ -186,11 +186,14 @@ function shuffleInPlace(ids: Uint32Array): void {
 }
 
 function handleShuffle(message: { requestId: number; limit?: number }): void {
-  const { dataset } = state();
+  const { engine } = state();
   rankColumn = -1;
   rankAsc = null;
   sortDir = 1;
   duplicateRank = null;
+  // Recompute from the filters so repeated shuffles always sample the full
+  // current result set (a previous sample must not shrink the pool).
+  sortedIds = computeSortedIds(engine.evaluateBits(filters));
   shuffleInPlace(sortedIds);
 
   const limit = message.limit;

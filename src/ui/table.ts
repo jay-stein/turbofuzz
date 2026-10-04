@@ -2,6 +2,7 @@ import { clear, el } from "./dom.js";
 import { isNullToken } from "../parse/null-tokens.js";
 import { parseNumber } from "../parse/numbers.js";
 import { valueLength } from "../parse/value-length.js";
+import { COLUMN_TYPES, TYPE_LABELS, type ColumnType } from "../types.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 
 const ROW_HEIGHT = 28;
@@ -20,6 +21,7 @@ export interface HighlightRule {
 
 export interface ResultTableOptions {
   onSort: (column: number, dir: 1 | -1 | 0) => void;
+  onTypeChange: (column: number, type: ColumnType) => void;
   onRequestRows: (
     start: number,
     end: number,
@@ -72,6 +74,13 @@ export class ResultTable {
   setColumns(columns: ColumnMeta[]): void {
     this.columns = columns;
     this.widths = columns.map(() => DEFAULT_COL_WIDTH);
+    this.renderHeader();
+    this.invalidateRows();
+  }
+
+  /** Replaces one column's metadata (type/fences) without losing widths. */
+  updateColumn(column: number, meta: ColumnMeta): void {
+    this.columns[column] = meta;
     this.renderHeader();
     this.invalidateRows();
   }
@@ -202,6 +211,7 @@ export class ResultTable {
     this.columns.forEach((column, index) => {
       const name = column.name;
       const cell = el("div", { class: "th" });
+      const top = el("div", { class: "th-top" });
       const number = el("span", { class: "th-index", title: `Column ${index + 1}` }, [
         String(index + 1),
       ]);
@@ -227,7 +237,22 @@ export class ResultTable {
         this.applyWidths();
       });
 
-      cell.append(number, label, grip);
+      const typeSelect = el("select", {
+        class: "th-type",
+        title: `Column ${index + 1} type — change to re-interpret this column`,
+      }) as HTMLSelectElement;
+      for (const type of COLUMN_TYPES) {
+        typeSelect.append(
+          el("option", { value: type }, [TYPE_LABELS[type]]) as HTMLOptionElement,
+        );
+      }
+      typeSelect.value = column.type;
+      typeSelect.addEventListener("change", () => {
+        this.options.onTypeChange(index, typeSelect.value as ColumnType);
+      });
+
+      top.append(number, label, grip);
+      cell.append(top, typeSelect);
       this.header.append(cell);
     });
   }

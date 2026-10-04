@@ -88,5 +88,5 @@ test("shuffle reorders the same rows and keeps flags", async () => {
   assert.deepEqual(limitedRows.rows, limited.firstRows);
 
   send({ type: "shuffle", requestId: 6, limit: 1000 });
-  assert.equal(find("shuffled", 6).count, 25);
+  assert.equal(find("shuffled", 6).count, 200);
 });
