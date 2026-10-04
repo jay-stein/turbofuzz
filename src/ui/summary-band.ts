@@ -33,6 +33,8 @@ const QA_BUTTONS: { kind: SpecialKind; label: string; title: string }[] = [
   },
 ];
 
+const FILTER_ICON = '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>';
+
 export interface SummaryBandCallbacks {
   onToggleSpecial: (kind: SpecialKind) => void;
   onOpenStats: () => void;
@@ -45,7 +47,10 @@ export interface SummaryBandCallbacks {
  * top-value bars for categories, length stats for text).
  */
 export class SummaryBand {
-  private readonly buttons = new Map<SpecialKind, HTMLButtonElement>();
+  private readonly buttons = new Map<
+    SpecialKind,
+    { button: HTMLButtonElement; label: HTMLSpanElement }
+  >();
   private readonly active = new Set<SpecialKind>();
   private counts: Record<SpecialKind, number> = {
     duplicates: 0,
@@ -97,12 +102,12 @@ export class SummaryBand {
 
   private syncButtons(): void {
     for (const { kind, label } of QA_BUTTONS) {
-      const button = this.buttons.get(kind);
-      if (button === undefined) continue;
+      const entry = this.buttons.get(kind);
+      if (entry === undefined) continue;
       const on = this.active.has(kind);
-      button.classList.toggle("active", on);
-      button.setAttribute("aria-pressed", on ? "true" : "false");
-      button.textContent = on
+      entry.button.classList.toggle("active", on);
+      entry.button.setAttribute("aria-pressed", on ? "true" : "false");
+      entry.label.textContent = on
         ? `✓ ${label}: on`
         : `${label}: ${this.counts[kind].toLocaleString()}`;
     }
@@ -124,10 +129,12 @@ export class SummaryBand {
       const button = el(
         "button",
         { class: "qa-button", type: "button", title },
-        [label],
+        [],
       ) as HTMLButtonElement;
+      const labelEl = el("span", { class: "qa-label" }, [label]);
+      button.append(svgIcon(FILTER_ICON, "qa-icon"), labelEl);
       button.addEventListener("click", () => this.callbacks.onToggleSpecial(kind));
-      this.buttons.set(kind, button);
+      this.buttons.set(kind, { button, label: labelEl });
       actions.append(button);
     }
     const details = el(

@@ -185,13 +185,24 @@ function shuffleInPlace(ids: Uint32Array): void {
   }
 }
 
-function handleShuffle(message: { requestId: number }): void {
+function handleShuffle(message: { requestId: number; limit?: number }): void {
   const { dataset } = state();
   rankColumn = -1;
   rankAsc = null;
   sortDir = 1;
   duplicateRank = null;
   shuffleInPlace(sortedIds);
+
+  const limit = message.limit;
+  if (
+    limit !== undefined &&
+    Number.isFinite(limit) &&
+    limit > 0 &&
+    limit < sortedIds.length
+  ) {
+    sortedIds = sortedIds.slice(0, Math.floor(limit));
+  }
+
   post({
     type: "shuffled",
     requestId: message.requestId,

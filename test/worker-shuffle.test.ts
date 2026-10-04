@@ -71,4 +71,22 @@ test("shuffle reorders the same rows and keeps flags", async () => {
   let flagged = 0;
   for (const flag of rows.flags) flagged += flag & 1;
   assert.equal(flagged, 2);
+
+  send({ type: "shuffle", requestId: 4, limit: 25 });
+  const limited = find("shuffled", 4) as unknown as {
+    count: number;
+    firstRows: string[][];
+    firstFlags: Uint8Array;
+  };
+  assert.equal(limited.count, 25);
+  assert.equal(limited.firstRows.length, 25);
+  assert.equal(limited.firstFlags.length, 25);
+
+  send({ type: "getRows", requestId: 5, start: 0, end: 25 });
+  const limitedRows = find("rows", 5) as unknown as { rows: string[][] };
+  assert.equal(limitedRows.rows.length, 25);
+  assert.deepEqual(limitedRows.rows, limited.firstRows);
+
+  send({ type: "shuffle", requestId: 6, limit: 1000 });
+  assert.equal(find("shuffled", 6).count, 25);
 });

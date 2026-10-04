@@ -83,7 +83,7 @@ export type SetSpecialRequest = {
   active: boolean;
 };
 
-export type ShuffleRequest = { type: "shuffle"; requestId: number };
+export type ShuffleRequest = { type: "shuffle"; requestId: number; limit?: number };
 
 export type SortRequest = {
   type: "sort";

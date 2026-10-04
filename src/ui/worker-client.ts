@@ -77,8 +77,8 @@ export class SearchWorkerClient {
     return this.request<ResultsMessage>({ type: "setSpecial", kind, active });
   }
 
-  shuffle(): Promise<ShuffledMessage> {
-    return this.request<ShuffledMessage>({ type: "shuffle" });
+  shuffle(limit?: number): Promise<ShuffledMessage> {
+    return this.request<ShuffledMessage>({ type: "shuffle", limit });
   }
 
   sort(column: number, dir: 1 | -1): Promise<SortedMessage> {

@@ -19,6 +19,7 @@ import { SearchWorkerClient } from "./worker-client.js";
 const LARGE_PASTE_ROWS = 300_000;
 const DATA_URL_EXTENSIONS = [".csv", ".tsv", ".psv", ".txt", ".xlsx", ".xls"];
 const WORKBOOK_EXTENSIONS = [".xlsx", ".xls"];
+const DEFAULT_SHUFFLE_SAMPLE = 100;
 
 interface PickerItem {
   label: string;
@@ -162,6 +163,7 @@ export class App {
   private summaryBand: SummaryBand | null = null;
   private readonly specials = new Set<SpecialKind>();
   private shuffleButton!: HTMLButtonElement;
+  private shuffleCount!: HTMLInputElement;
   private filterHost!: HTMLElement;
   private tableHost!: HTMLElement;
 
@@ -371,23 +373,39 @@ export class App {
     ) as HTMLButtonElement;
     this.exportButton.addEventListener("click", () => void this.exportCsv());
 
+    const shuffleControl = el("span", { class: "shuffle-control" });
+    this.shuffleCount = el("input", {
+      class: "shuffle-count",
+      type: "number",
+      min: "1",
+      step: "1",
+      value: String(DEFAULT_SHUFFLE_SAMPLE),
+      title: "Rows to sample at random — clear or 0 to shuffle all",
+      "aria-label": "Number of rows to sample",
+      spellcheck: "false",
+    }) as HTMLInputElement;
+    this.shuffleCount.addEventListener("input", () => this.updateShuffleLabel());
+
     this.shuffleButton = el(
       "button",
       {
         class: "shuffle-button",
         type: "button",
-        title: "Shuffle rows into a random order",
+        title: "Show a random sample of rows",
       },
       [],
     ) as HTMLButtonElement;
-    this.shuffleButton.append(diceIcon(), el("span", {}, ["Shuffle"]));
+    this.shuffleButton.append(diceIcon(), el("span", { class: "shuffle-label" }, []));
     this.shuffleButton.addEventListener("click", () => this.shuffleRows());
+    this.updateShuffleLabel();
+
+    shuffleControl.append(this.shuffleButton, this.shuffleCount);
 
     resultsRow.append(
       this.countEl,
       el("span", { class: "grow" }),
       this.actionEl,
-      this.shuffleButton,
+      shuffleControl,
       this.copyButton,
       this.exportButton,
     );
@@ -782,11 +800,27 @@ export class App {
     );
   }
 
+  private shuffleLimit(): number | null {
+    const raw = this.shuffleCount.value.trim();
+    if (raw === "") return null;
+    const value = Number.parseInt(raw, 10);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+
+  private updateShuffleLabel(): void {
+    const limit = this.shuffleLimit();
+    const label = this.shuffleButton.querySelector(".shuffle-label");
+    if (label !== null) {
+      label.textContent = limit === null ? "Shuffle all" : `Shuffle ${limit.toLocaleString()}`;
+    }
+  }
+
   private shuffleRows(): void {
     if (this.datasetName === "" || this.loading) return;
+    const limit = this.shuffleLimit();
     this.queueSend(() =>
       this.client
-        .shuffle()
+        .shuffle(limit ?? undefined)
         .then((message) => {
           this.table?.setSort(-1, 1);
           this.table?.setCount(message.count);
