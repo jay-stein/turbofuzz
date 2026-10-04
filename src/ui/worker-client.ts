@@ -9,7 +9,9 @@ import type {
   ProgressMessage,
   ResultsMessage,
   RowsMessage,
+  ShuffledMessage,
   SortedMessage,
+  SpecialKind,
   StatsMessage,
   WorkerRequest,
   WorkerResponse,
@@ -71,8 +73,12 @@ export class SearchWorkerClient {
     return this.request<ResultsMessage>({ type: "clearFilters" });
   }
 
-  setSpecial(kind: "duplicates" | "nulls", active: boolean): Promise<ResultsMessage> {
+  setSpecial(kind: SpecialKind, active: boolean): Promise<ResultsMessage> {
     return this.request<ResultsMessage>({ type: "setSpecial", kind, active });
+  }
+
+  shuffle(): Promise<ShuffledMessage> {
+    return this.request<ShuffledMessage>({ type: "shuffle" });
   }
 
   sort(column: number, dir: 1 | -1): Promise<SortedMessage> {

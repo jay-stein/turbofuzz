@@ -6,7 +6,7 @@ import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { WorkBook } from "xlsx";
 import type { ColumnType } from "../types.js";
-import type { ColumnMeta, LoadedMessage, ProgressMessage } from "../worker/protocol.js";
+import type { ColumnMeta, LoadedMessage, ProgressMessage, SpecialKind } from "../worker/protocol.js";
 import { clear, el } from "./dom.js";
 import { FilterPanel } from "./filters.js";
 import { findDataTables, type TableCandidate } from "./html-table.js";
@@ -77,6 +77,18 @@ function globeIcon(): SVGElement {
   return svgIcon(
     '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.4 2.6 3.6 5.6 3.6 9s-1.2 6.4-3.6 9c-2.4-2.6-3.6-5.6-3.6-9S9.6 5.6 12 3z"/>',
     "field-icon",
+  );
+}
+
+function diceIcon(): SVGElement {
+  return svgIcon(
+    '<rect x="3.2" y="3.2" width="17.6" height="17.6" rx="4.2"/>' +
+      '<circle cx="8.4" cy="8.4" r="1.2" fill="currentColor" stroke="none"/>' +
+      '<circle cx="15.6" cy="8.4" r="1.2" fill="currentColor" stroke="none"/>' +
+      '<circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/>' +
+      '<circle cx="8.4" cy="15.6" r="1.2" fill="currentColor" stroke="none"/>' +
+      '<circle cx="15.6" cy="15.6" r="1.2" fill="currentColor" stroke="none"/>',
+    "shuffle-icon",
   );
 }
 const CLIPBOARD_ROW_LIMIT = 100_000;
@@ -163,8 +175,8 @@ export class App {
   private bannerEl!: HTMLElement;
   private summaryHost!: HTMLElement;
   private summaryBand: SummaryBand | null = null;
-  private specialDuplicates = false;
-  private specialNulls = false;
+  private readonly specials = new Set<SpecialKind>();
+  private shuffleButton!: HTMLButtonElement;
   private filterHost!: HTMLElement;
   private tableHost!: HTMLElement;
 
@@ -374,10 +386,23 @@ export class App {
     ) as HTMLButtonElement;
     this.exportButton.addEventListener("click", () => void this.exportCsv());
 
+    this.shuffleButton = el(
+      "button",
+      {
+        class: "shuffle-button",
+        type: "button",
+        title: "Shuffle rows into a random order",
+      },
+      [],
+    ) as HTMLButtonElement;
+    this.shuffleButton.append(diceIcon(), el("span", {}, ["Shuffle"]));
+    this.shuffleButton.addEventListener("click", () => this.shuffleRows());
+
     resultsRow.append(
       this.countEl,
       el("span", { class: "grow" }),
       this.actionEl,
+      this.shuffleButton,
       this.copyButton,
       this.exportButton,
     );
@@ -701,8 +726,7 @@ export class App {
     this.rowCount = loaded.rowCount;
     this.datasetName = loaded.name;
     this.filters.clear();
-    this.specialDuplicates = false;
-    this.specialNulls = false;
+    this.specials.clear();
     this.summaryBand = new SummaryBand(this.summaryHost, {
       onToggleSpecial: (kind) => this.toggleSpecial(kind),
       onOpenStats: () => this.openStats(),
@@ -733,11 +757,11 @@ export class App {
       onRequestRows: (start, end, done) => {
         void this.client
           .getRows(start, end)
-          .then((message) => done(message.start, message.rows, message.groups))
+          .then((message) => done(message.start, message.rows, message.groups, message.flags))
           .catch(() => done(start, []));
       },
     });
-    this.table.setColumns(loaded.headers);
+    this.table.setColumns(loaded.columns);
     this.table.setSort(-1, 1);
     this.table.setCount(loaded.rowCount);
 
@@ -751,15 +775,14 @@ export class App {
     this.updateGuardrail(loaded, loaded.source === "file");
   }
 
-  private toggleSpecial(kind: "duplicates" | "nulls"): void {
-    if (kind === "duplicates") this.specialDuplicates = !this.specialDuplicates;
-    else this.specialNulls = !this.specialNulls;
-    this.summaryBand?.setSpecials(this.specialDuplicates, this.specialNulls);
+  private toggleSpecial(kind: SpecialKind): void {
+    const active = !this.specials.has(kind);
+    if (active) this.specials.add(kind);
+    else this.specials.delete(kind);
+    this.summaryBand?.setSpecials(this.specials);
 
-    const active = kind === "duplicates" ? this.specialDuplicates : this.specialNulls;
     // Grouping takes over ordering in the worker, so clear the sort indicator.
     if (kind === "duplicates" && active) this.table?.setSort(-1, 1);
-    if (kind === "nulls") this.table?.setNullHighlight(active);
 
     this.queueSend(() =>
       this.client
@@ -768,7 +791,22 @@ export class App {
           this.updateCount(message.count, message.queryMs);
           this.filterPanel?.applyResults(message.facets, message.histograms);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups);
+          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
+  }
+
+  private shuffleRows(): void {
+    if (this.datasetName === "" || this.loading) return;
+    this.queueSend(() =>
+      this.client
+        .shuffle()
+        .then((message) => {
+          this.table?.setSort(-1, 1);
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(message.firstRows, undefined, message.firstFlags);
+          this.table?.scrollToTop();
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -809,7 +847,7 @@ export class App {
           this.updateCount(message.count, message.queryMs);
           if (!preview) this.filterPanel?.applyResults(message.facets, message.histograms);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups);
+          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -822,11 +860,12 @@ export class App {
         .then((message) => {
           this.metas[column] = message.meta;
           this.filters.delete(column);
+          this.summaryBand?.setCounts(message.stats);
           this.filterPanel?.updateMeta(column, message.meta);
           this.filterPanel?.applyResults(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups);
+          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -842,33 +881,29 @@ export class App {
           this.table?.setSort(message.column, message.dir);
           this.updateCount(message.count, 0);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups);
+          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
         })
         .catch((error: unknown) => this.showError(error)),
     );
   }
 
   private clearFilters(): void {
-    const hadDuplicates = this.specialDuplicates;
-    const hadNulls = this.specialNulls;
-    if (this.filters.size === 0 && !hadDuplicates && !hadNulls) return;
+    if (this.filters.size === 0 && this.specials.size === 0) return;
+    const activeSpecials = [...this.specials];
 
     this.filters.clear();
-    this.specialDuplicates = false;
-    this.specialNulls = false;
-    this.summaryBand?.setSpecials(false, false);
+    this.specials.clear();
+    this.summaryBand?.setSpecials(this.specials);
     this.filterPanel?.rebuild();
     this.table?.setHighlights([]);
-    this.table?.setNullHighlight(false);
 
     this.queueSend(async () => {
-      if (hadDuplicates) await this.client.setSpecial("duplicates", false);
-      if (hadNulls) await this.client.setSpecial("nulls", false);
+      for (const kind of activeSpecials) await this.client.setSpecial(kind, false);
       const message = await this.client.clearFilters();
       this.updateCount(message.count, message.queryMs);
       this.filterPanel?.applyResults(message.facets, message.histograms);
       this.table?.setCount(message.count);
-      this.table?.setFirstRows(message.firstRows, message.firstGroups);
+      this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
     });
   }
 

@@ -1,4 +1,5 @@
 import type { ColumnData } from "../data/column.js";
+import { computeAnomalies } from "../data/anomalies.js";
 import type { Dataset } from "../data/dataset.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
 import type { BitSet } from "../search/bitset.js";
@@ -15,6 +16,7 @@ import type {
   SetFilterRequest,
   SetTypeRequest,
   SortRequest,
+  SpecialKind,
   WorkerRequest,
   WorkerResponse,
 } from "./protocol.js";
@@ -33,7 +35,7 @@ let rankAsc: Uint32Array | null = null;
 let sortDir: 1 | -1 = 1;
 let exportIds: Uint32Array | null = null;
 let duplicateRank: Uint32Array | null = null;
-const specials = new Set<"duplicates" | "nulls">();
+const specials = new Set<SpecialKind>();
 const histogramCache = new HistogramCache();
 
 const FIRST_PAGE_ROWS = 40;
@@ -69,6 +71,9 @@ function handle(message: WorkerRequest): void {
       break;
     case "setSpecial":
       handleSetSpecial(message);
+      break;
+    case "shuffle":
+      handleShuffle(message);
       break;
     case "sort":
       handleSort(message);
@@ -152,6 +157,50 @@ function groupFlags(start: number, end: number): boolean[] | undefined {
   return flags;
 }
 
+/** Bit 0 marks a row that belongs to a duplicate group. */
+function rowFlagsSlice(start: number, end: number): Uint8Array {
+  if (dataset === null) return new Uint8Array(0);
+  const boundedEnd = Math.min(end, sortedIds.length);
+  const flags = new Uint8Array(Math.max(0, boundedEnd - start));
+  for (let i = start; i < boundedEnd; i++) {
+    flags[i - start] = dataset.duplicateBits.get(sortedIds[i]) ? 1 : 0;
+  }
+  return flags;
+}
+
+/** xorshift32 Fisher–Yates over the current result ids; ~10ms at millions. */
+function shuffleInPlace(ids: Uint32Array): void {
+  let state = (Date.now() ^ Math.floor(Math.random() * 0x1_0000_0000)) >>> 0;
+  if (state === 0) state = 0x9e3779b9;
+  for (let i = ids.length - 1; i > 0; i--) {
+    state ^= state << 13;
+    state >>>= 0;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    state >>>= 0;
+    const j = state % (i + 1);
+    const swap = ids[i];
+    ids[i] = ids[j];
+    ids[j] = swap;
+  }
+}
+
+function handleShuffle(message: { requestId: number }): void {
+  const { dataset } = state();
+  rankColumn = -1;
+  rankAsc = null;
+  sortDir = 1;
+  duplicateRank = null;
+  shuffleInPlace(sortedIds);
+  post({
+    type: "shuffled",
+    requestId: message.requestId,
+    count: sortedIds.length,
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+  });
+}
+
 function handleLoad(message: LoadRequest): void {
   const started = performance.now();
   const { dataset: next, encoding } = ingestDataset({
@@ -184,7 +233,7 @@ function handleLoad(message: LoadRequest): void {
     headers: next.columns.map((column) => column.name),
     rowCount: next.rowCount,
     columnCount: next.columnCount,
-    columns: next.columns.map(metaFor),
+    columns: next.columns.map((column, index) => metaFor(next, column, index)),
     stats: next.stats,
     ingestMs: performance.now() - started,
     source: message.buffer !== undefined ? "file" : "paste",
@@ -221,6 +270,7 @@ function handleSetFilter(message: SetFilterRequest): void {
     histograms: preview ? {} : computeHistograms(dataset, engine),
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
   });
 }
 
@@ -240,12 +290,13 @@ function handleClearFilters(message: { requestId: number }): void {
     histograms: computeHistograms(dataset, engine),
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
   });
 }
 
 function handleSetSpecial(message: {
   requestId: number;
-  kind: "duplicates" | "nulls";
+  kind: SpecialKind;
   active: boolean;
 }): void {
   const { dataset, engine } = state();
@@ -273,6 +324,7 @@ function handleSetSpecial(message: {
     histograms: computeHistograms(dataset, engine),
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
   });
 }
 
@@ -303,6 +355,7 @@ function handleSort(message: SortRequest): void {
     dir: sortDir,
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
   });
 }
 
@@ -329,6 +382,7 @@ function handleGetRows(message: GetRowsRequest): void {
     start,
     rows: rowsSlice(start, message.end),
     groups: groupFlags(start, message.end),
+    flags: rowFlagsSlice(start, message.end),
   });
 }
 
@@ -336,6 +390,7 @@ function handleSetType(message: SetTypeRequest): void {
   const { dataset, engine } = state();
   const column = dataset.columns[message.column];
   column.setType(message.columnType);
+  dataset.applyAnomalies(computeAnomalies(dataset.columns, dataset.rowCount));
   filters.delete(message.column);
   engine.invalidate();
   histogramCache.delete(message.column);
@@ -353,13 +408,15 @@ function handleSetType(message: SetTypeRequest): void {
     type: "columnMeta",
     requestId: message.requestId,
     column: message.column,
-    meta: metaFor(column),
+    meta: metaFor(dataset, column, message.column),
+    stats: dataset.stats,
     count: sortedIds.length,
     queryMs: performance.now() - started,
     facets: computeFacets(dataset, engine, bits),
     histograms: computeHistograms(dataset, engine),
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
   });
 }
 
@@ -401,7 +458,7 @@ function handleGetStats(message: GetStatsRequest): void {
   });
 }
 
-function metaFor(column: ColumnData): ColumnMeta {
+function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMeta {
   if (column.type === "integer" || column.type === "number" || column.type === "date") {
     column.numbers();
   }
@@ -416,6 +473,8 @@ function metaFor(column: ColumnData): ColumnMeta {
     stats: column.stats,
     categories,
     histogram: column.histogram(),
+    valueFence: dataset.valueFences[index] ?? null,
+    lengthFence: dataset.lengthFences[index] ?? null,
   };
 }
 

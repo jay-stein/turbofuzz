@@ -1,3 +1,4 @@
+import type { LengthFence, ValueFence } from "../data/anomalies.js";
 import type { DatasetStats } from "../data/stats.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { FileEncoding } from "../parse/encoding.js";
@@ -16,6 +17,8 @@ export interface ColumnMeta {
   stats: ColumnStats;
   categories: CategoryMeta | null;
   histogram: HistogramMeta | null;
+  valueFence: ValueFence | null;
+  lengthFence: LengthFence | null;
 }
 
 export interface HistogramMeta {
@@ -71,12 +74,16 @@ export type SetFilterRequest = {
 
 export type ClearFiltersRequest = { type: "clearFilters"; requestId: number };
 
+export type SpecialKind = "duplicates" | "nulls" | "valueAnomalies" | "lengthAnomalies";
+
 export type SetSpecialRequest = {
   type: "setSpecial";
   requestId: number;
-  kind: "duplicates" | "nulls";
+  kind: SpecialKind;
   active: boolean;
 };
+
+export type ShuffleRequest = { type: "shuffle"; requestId: number };
 
 export type SortRequest = {
   type: "sort";
@@ -115,6 +122,7 @@ export type WorkerRequest =
   | SetFilterRequest
   | ClearFiltersRequest
   | SetSpecialRequest
+  | ShuffleRequest
   | SortRequest
   | GetRowsRequest
   | SetTypeRequest
@@ -145,6 +153,7 @@ export interface ResultsMessage {
   histograms: Record<number, number[]>;
   firstRows: string[][];
   firstGroups?: boolean[];
+  firstFlags?: Uint8Array;
 }
 
 export interface SortedMessage {
@@ -155,6 +164,15 @@ export interface SortedMessage {
   dir: 1 | -1;
   firstRows: string[][];
   firstGroups?: boolean[];
+  firstFlags?: Uint8Array;
+}
+
+export interface ShuffledMessage {
+  type: "shuffled";
+  requestId: number;
+  count: number;
+  firstRows: string[][];
+  firstFlags?: Uint8Array;
 }
 
 export interface RowsMessage {
@@ -163,6 +181,7 @@ export interface RowsMessage {
   start: number;
   rows: string[][];
   groups?: boolean[];
+  flags?: Uint8Array;
 }
 
 export interface ColumnMetaMessage {
@@ -170,12 +189,14 @@ export interface ColumnMetaMessage {
   requestId: number;
   column: number;
   meta: ColumnMeta;
+  stats: DatasetStats;
   count: number;
   queryMs: number;
   facets: Record<number, number[]>;
   histograms: Record<number, number[]>;
   firstRows: string[][];
   firstGroups?: boolean[];
+  firstFlags?: Uint8Array;
 }
 
 export interface StatsMessage {
@@ -211,6 +232,7 @@ export type WorkerResponse =
   | LoadedMessage
   | ResultsMessage
   | SortedMessage
+  | ShuffledMessage
   | RowsMessage
   | ColumnMetaMessage
   | StatsMessage

@@ -1,4 +1,5 @@
 import { BitSet } from "../search/bitset.js";
+import { computeAnomalies, type LengthFence, type ValueFence } from "./anomalies.js";
 import type { ColumnData } from "./column.js";
 
 export interface DatasetStats {
@@ -9,6 +10,8 @@ export interface DatasetStats {
   rowsWithNulls: number;
   totalNullCells: number;
   totalCells: number;
+  valueAnomalyRows: number;
+  lengthAnomalyRows: number;
   computeMs: number;
 }
 
@@ -17,6 +20,10 @@ export interface IngestStats {
   duplicateBits: BitSet;
   nullRowBits: BitSet;
   rowHashes: Uint32Array;
+  valueAnomalyBits: BitSet;
+  lengthAnomalyBits: BitSet;
+  valueFences: (ValueFence | null)[];
+  lengthFences: (LengthFence | null)[];
 }
 
 /**
@@ -117,6 +124,8 @@ export function computeDatasetStats(
   let totalNullCells = 0;
   for (const column of columns) totalNullCells += column.stats.nulls;
 
+  const anomalies = computeAnomalies(columns, rowCount);
+
   return {
     stats: {
       duplicateRows,
@@ -126,10 +135,16 @@ export function computeDatasetStats(
       rowsWithNulls: nullRowBits.count(),
       totalNullCells,
       totalCells: rowCount * columnCount,
+      valueAnomalyRows: anomalies.valueBits.count(),
+      lengthAnomalyRows: anomalies.lengthBits.count(),
       computeMs: performance.now() - started,
     },
     duplicateBits,
     nullRowBits,
     rowHashes: hashes,
+    valueAnomalyBits: anomalies.valueBits,
+    lengthAnomalyBits: anomalies.lengthBits,
+    valueFences: anomalies.columns.map((entry) => entry.valueFence),
+    lengthFences: anomalies.columns.map((entry) => entry.lengthFence),
   };
 }

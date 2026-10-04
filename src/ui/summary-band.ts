@@ -2,29 +2,57 @@ import { clear, el } from "./dom.js";
 import { toDateInputValue } from "../parse/dates.js";
 import type { TopValue } from "../parse/infer.js";
 import { TYPE_LABELS } from "../types.js";
-import type { ColumnMeta, LoadedMessage } from "../worker/protocol.js";
+import type { DatasetStats } from "../data/stats.js";
+import type { ColumnMeta, LoadedMessage, SpecialKind } from "../worker/protocol.js";
 
 const COMPACT = new Intl.NumberFormat(undefined, {
   notation: "compact",
   maximumFractionDigits: 1,
 });
 
+const QA_BUTTONS: { kind: SpecialKind; label: string; title: string }[] = [
+  {
+    kind: "duplicates",
+    label: "Duplicates",
+    title: "Rows whose full content appears more than once",
+  },
+  {
+    kind: "nulls",
+    label: "Nulls",
+    title: "Rows with at least one empty cell",
+  },
+  {
+    kind: "valueAnomalies",
+    label: "Value outliers",
+    title: "Numbers far from their column's median (modified z-score)",
+  },
+  {
+    kind: "lengthAnomalies",
+    label: "Length outliers",
+    title: "Text lengths outside each column's 1.5×IQR fences",
+  },
+];
+
 export interface SummaryBandCallbacks {
-  onToggleSpecial: (kind: "duplicates" | "nulls") => void;
+  onToggleSpecial: (kind: SpecialKind) => void;
   onOpenStats: () => void;
   onColumnClick: (column: number) => void;
 }
 
 /**
- * Always-visible stats band: a dataset overview card with duplicate/null
- * toggles, followed by one compact card per column (sparkline for numeric and
- * date columns, top-value bars for categories, length stats for text).
+ * Always-visible QA block: prominent duplicate/null/anomaly toggles followed
+ * by one compact card per column (sparkline for numeric and date columns,
+ * top-value bars for categories, length stats for text).
  */
 export class SummaryBand {
-  private duplicateButton!: HTMLButtonElement;
-  private nullButton!: HTMLButtonElement;
-  private duplicateCount = 0;
-  private nullCount = 0;
+  private readonly buttons = new Map<SpecialKind, HTMLButtonElement>();
+  private readonly active = new Set<SpecialKind>();
+  private counts: Record<SpecialKind, number> = {
+    duplicates: 0,
+    nulls: 0,
+    valueAnomalies: 0,
+    lengthAnomalies: 0,
+  };
   private renderToken = 0;
 
   constructor(
@@ -36,67 +64,78 @@ export class SummaryBand {
 
   render(loaded: LoadedMessage): void {
     clear(this.root);
-    const stats = loaded.stats;
-    this.duplicateCount = stats.rowsInDuplicateGroups;
-    this.nullCount = stats.rowsWithNulls;
+    this.buttons.clear();
+    this.setCounts(loaded.stats);
 
     const token = ++this.renderToken;
-    this.root.append(this.buildOverview(loaded), this.buildColumns(loaded, token));
-    this.setSpecials(false, false);
+    this.root.append(this.buildQaBlock(loaded), this.buildColumns(loaded, token));
+    this.active.clear();
+    this.syncButtons();
     this.root.classList.remove("hidden");
   }
 
-  setSpecials(duplicates: boolean, nulls: boolean): void {
-    this.duplicateButton.classList.toggle("active", duplicates);
-    this.nullButton.classList.toggle("active", nulls);
-    this.duplicateButton.textContent = duplicates
-      ? "Duplicate rows: on"
-      : `Duplicate rows: ${this.duplicateCount.toLocaleString()}`;
-    this.nullButton.textContent = nulls
-      ? "Null rows: on"
-      : `Null rows: ${this.nullCount.toLocaleString()}`;
+  setSpecials(active: ReadonlySet<SpecialKind>): void {
+    this.active.clear();
+    for (const kind of active) this.active.add(kind);
+    this.syncButtons();
+  }
+
+  /** Refreshes the counters (e.g. after a column type change). */
+  setCounts(stats: DatasetStats): void {
+    this.counts = {
+      duplicates: stats.rowsInDuplicateGroups,
+      nulls: stats.rowsWithNulls,
+      valueAnomalies: stats.valueAnomalyRows,
+      lengthAnomalies: stats.lengthAnomalyRows,
+    };
+    this.syncButtons();
   }
 
   hide(): void {
     this.root.classList.add("hidden");
   }
 
-  private buildOverview(loaded: LoadedMessage): HTMLElement {
-    const overview = el("div", { class: "summary-overview" });
+  private syncButtons(): void {
+    for (const { kind, label } of QA_BUTTONS) {
+      const button = this.buttons.get(kind);
+      if (button === undefined) continue;
+      const on = this.active.has(kind);
+      button.classList.toggle("active", on);
+      button.textContent = on
+        ? `${label}: on`
+        : `${label}: ${this.counts[kind].toLocaleString()}`;
+    }
+  }
 
-    const numbers = el("div", { class: "overview-numbers" });
-    numbers.append(
-      el("span", { class: "overview-value" }, [loaded.rowCount.toLocaleString()]),
-      el("span", { class: "overview-label" }, ["rows"]),
-      el("span", { class: "overview-sep" }, ["·"]),
-      el("span", { class: "overview-value" }, [loaded.columnCount.toLocaleString()]),
-      el("span", { class: "overview-label" }, ["columns"]),
+  private buildQaBlock(loaded: LoadedMessage): HTMLElement {
+    const block = el("div", { class: "qa-block" });
+
+    const head = el("div", { class: "qa-head" });
+    head.append(
+      el("span", { class: "qa-title" }, ["Data QA"]),
+      el("span", { class: "qa-sub" }, [
+        `${loaded.rowCount.toLocaleString()} rows × ${loaded.columnCount.toLocaleString()} cols`,
+      ]),
     );
 
-    const actions = el("div", { class: "overview-actions" });
-    this.duplicateButton = el(
-      "button",
-      { class: "pill action", type: "button", title: "Filter to rows that appear more than once" },
-      [],
-    ) as HTMLButtonElement;
-    this.duplicateButton.addEventListener("click", () => this.callbacks.onToggleSpecial("duplicates"));
-    this.nullButton = el(
-      "button",
-      {
-        class: "pill action",
-        type: "button",
-        title: "Filter to rows with at least one empty cell",
-      },
-      [],
-    ) as HTMLButtonElement;
-    this.nullButton.addEventListener("click", () => this.callbacks.onToggleSpecial("nulls"));
+    const actions = el("div", { class: "qa-actions" });
+    for (const { kind, label, title } of QA_BUTTONS) {
+      const button = el(
+        "button",
+        { class: "qa-button", type: "button", title },
+        [label],
+      ) as HTMLButtonElement;
+      button.addEventListener("click", () => this.callbacks.onToggleSpecial(kind));
+      this.buttons.set(kind, button);
+      actions.append(button);
+    }
     const details = el(
       "button",
       { class: "pill ghost", type: "button", title: "Full per-column statistics" },
       ["Details"],
     );
     details.addEventListener("click", () => this.callbacks.onOpenStats());
-    actions.append(this.duplicateButton, this.nullButton, details);
+    actions.append(details);
 
     const emptyPct =
       loaded.stats.totalCells > 0
@@ -106,8 +145,8 @@ export class SummaryBand {
     if (loaded.encoding === "windows-1252") footParts.push("windows-1252");
     footParts.push(`${Math.round(loaded.ingestMs)} ms`);
 
-    overview.append(numbers, actions, el("div", { class: "overview-foot" }, [footParts.join(" · ")]));
-    return overview;
+    block.append(head, actions, el("div", { class: "overview-foot" }, [footParts.join(" · ")]));
+    return block;
   }
 
   /**

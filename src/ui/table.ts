@@ -1,5 +1,8 @@
 import { clear, el } from "./dom.js";
 import { isNullToken } from "../parse/null-tokens.js";
+import { parseNumber } from "../parse/numbers.js";
+import { valueLength } from "../parse/value-length.js";
+import type { ColumnMeta } from "../worker/protocol.js";
 
 const ROW_HEIGHT = 28;
 const DEFAULT_COL_WIDTH = 180;
@@ -19,7 +22,7 @@ export interface ResultTableOptions {
   onRequestRows: (
     start: number,
     end: number,
-    done: (start: number, rows: string[][], groups?: boolean[]) => void,
+    done: (start: number, rows: string[][], groups?: boolean[], flags?: Uint8Array) => void,
   ) => void;
 }
 
@@ -30,14 +33,14 @@ export class ResultTable {
   private readonly rowsHost: HTMLDivElement;
   private readonly onResize = (): void => this.render();
 
-  private columns: string[] = [];
+  private columns: ColumnMeta[] = [];
   private widths: number[] = [];
   private count = 0;
   private sortColumn = -1;
   private sortDir: 1 | -1 = 1;
   private highlights: HighlightRule[] = [];
-  private nullHighlight = false;
   private readonly groupStarts = new Set<number>();
+  private readonly rowFlags = new Map<number, number>();
   private readonly cache = new Map<number, string[]>();
   private pendingStart = -1;
   private pendingEnd = -1;
@@ -62,9 +65,10 @@ export class ResultTable {
     window.removeEventListener("resize", this.onResize);
     this.count = 0;
     this.cache.clear();
+    this.rowFlags.clear();
   }
 
-  setColumns(columns: string[]): void {
+  setColumns(columns: ColumnMeta[]): void {
     this.columns = columns;
     this.widths = columns.map(() => DEFAULT_COL_WIDTH);
     this.renderHeader();
@@ -84,13 +88,9 @@ export class ResultTable {
     this.renderHeader();
   }
 
-  /** Tints null/empty cells; used while the Null rows filter is active. */
-  setNullHighlight(active: boolean): void {
-    if (this.nullHighlight === active) return;
-    this.nullHighlight = active;
-    this.lastStart = -1;
-    this.lastEnd = -1;
-    this.render();
+  scrollToTop(): void {
+    this.scroller.scrollTop = 0;
+    this.invalidateRows();
   }
 
   setHighlights(highlights: HighlightRule[]): void {
@@ -119,12 +119,15 @@ export class ResultTable {
   }
 
   /** Seeds the cache with the eagerly shipped first page and repaints. */
-  setFirstRows(rows: string[][], groups?: boolean[]): void {
+  setFirstRows(rows: string[][], groups?: boolean[], flags?: Uint8Array): void {
     this.cache.clear();
     this.groupStarts.clear();
+    this.rowFlags.clear();
     for (let i = 0; i < rows.length; i++) {
       this.cache.set(i, rows[i]);
       if (groups?.[i] === true) this.groupStarts.add(i);
+      const flag = flags?.[i] ?? 0;
+      if (flag !== 0) this.rowFlags.set(i, flag);
     }
     this.pendingStart = -1;
     this.pendingEnd = -1;
@@ -188,7 +191,8 @@ export class ResultTable {
     this.header.style.gridTemplateColumns = template;
     this.header.style.width = `${this.totalWidth()}px`;
 
-    this.columns.forEach((name, index) => {
+    this.columns.forEach((column, index) => {
+      const name = column.name;
       const cell = el("div", { class: "th" });
       const label = el(
         "button",
@@ -247,7 +251,7 @@ export class ResultTable {
     if (missing && (this.pendingStart !== start || this.pendingEnd !== end)) {
       this.pendingStart = start;
       this.pendingEnd = end;
-      this.options.onRequestRows(start, end, (rowsStart, rows, groups) => {
+      this.options.onRequestRows(start, end, (rowsStart, rows, groups, flags) => {
         if (this.pendingStart === start && this.pendingEnd === end) {
           this.pendingStart = -1;
           this.pendingEnd = -1;
@@ -257,6 +261,9 @@ export class ResultTable {
           this.cache.set(position, rows[i]);
           this.groupStarts.delete(position);
           if (groups?.[i] === true) this.groupStarts.add(position);
+          this.rowFlags.delete(position);
+          const flag = flags?.[i] ?? 0;
+          if (flag !== 0) this.rowFlags.set(position, flag);
         }
         this.pruneCache(start);
         this.lastStart = -1;
@@ -271,6 +278,7 @@ export class ResultTable {
     tr.style.gridTemplateColumns = this.gridTemplate();
     if (row === undefined) tr.classList.add("skeleton");
     if (this.groupStarts.has(index)) tr.classList.add("group-start");
+    if (((this.rowFlags.get(index) ?? 0) & 1) !== 0) tr.classList.add("dup-row");
     for (let c = 0; c < this.columns.length; c++) {
       const cell = el("div", { class: "td" });
       if (row !== undefined) this.fillCell(cell, row[c] ?? "", c);
@@ -284,16 +292,18 @@ export class ResultTable {
     for (const key of this.cache.keys()) {
       if (key < center - CACHE_LIMIT / 2 || key > center + CACHE_LIMIT / 2) {
         this.cache.delete(key);
+        this.rowFlags.delete(key);
       }
     }
   }
 
   private fillCell(cell: HTMLElement, value: string, columnIndex: number): void {
-    if (this.nullHighlight && isNullToken(value)) {
+    if (isNullToken(value)) {
       cell.classList.add("null-cell");
       cell.textContent = value;
       return;
     }
+    this.applyAnomaly(cell, value, columnIndex);
 
     const rule = this.highlights.find((candidate) => candidate.column === columnIndex);
     if (rule === undefined || rule.query.trim() === "") {
@@ -320,5 +330,33 @@ export class ResultTable {
       el("mark", {}, [value.slice(index, index + needle.length)]),
       document.createTextNode(value.slice(index + needle.length)),
     );
+  }
+
+  /** Red-tints cells outside the column's precomputed anomaly fences. */
+  private applyAnomaly(cell: HTMLElement, value: string, columnIndex: number): void {
+    const meta = this.columns[columnIndex];
+    if (meta === undefined) return;
+
+    const valueFence = meta.valueFence;
+    if (valueFence !== null) {
+      const parsed = parseNumber(value);
+      if (
+        Number.isFinite(parsed) &&
+        Math.abs(parsed - valueFence.center) > valueFence.radius
+      ) {
+        cell.classList.add("anomaly-cell");
+        cell.title = `Value outlier — median ${valueFence.center.toLocaleString()}, outside ±${valueFence.radius.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+      }
+      return;
+    }
+
+    const lengthFence = meta.lengthFence;
+    if (lengthFence !== null) {
+      const length = valueLength(value);
+      if (length < lengthFence.lo || length > lengthFence.hi) {
+        cell.classList.add("anomaly-cell");
+        cell.title = `Unusual length ${length} — expected ${Math.round(lengthFence.lo)}–${Math.round(lengthFence.hi)}`;
+      }
+    }
   }
 }

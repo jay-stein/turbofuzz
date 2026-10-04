@@ -12,6 +12,10 @@
   --mark: #ffe58a;
   --null: #faa18f;
   --null-text: #4a1d13;
+  --qa-soft: color-mix(in srgb, var(--null) 22%, var(--panel));
+  --qa-soft-strong: color-mix(in srgb, var(--null) 45%, var(--panel));
+  --qa-border: color-mix(in srgb, var(--null) 62%, var(--border));
+  --qa-text: color-mix(in srgb, var(--null-text) 80%, var(--text));
   --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 8px 24px rgb(16 24 40 / 8%);
   --radius: 10px;
   --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
@@ -133,6 +137,37 @@ button {
 .ghost.small {
   padding: 4px 10px;
   font-size: 12.5px;
+}
+
+.shuffle-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: var(--accent);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 650;
+  box-shadow: 0 1px 2px rgb(16 24 40 / 14%);
+  transition:
+    filter 0.12s ease,
+    transform 0.06s ease;
+}
+
+.shuffle-button:hover {
+  filter: brightness(1.08);
+}
+
+.shuffle-button:active {
+  transform: translateY(1px);
+}
+
+.shuffle-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 
 .icon-btn {
@@ -462,47 +497,78 @@ textarea:focus {
   background: var(--panel);
   flex: none;
   min-height: 0;
+  flex-wrap: wrap;
 }
 
-.summary-overview {
+.qa-block {
   flex: none;
-  width: 250px;
-  border: 1px solid var(--border-subtle);
+  width: 380px;
+  border: 1px solid var(--qa-border);
   border-radius: 12px;
-  padding: 9px 12px 8px;
-  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  padding: 10px 12px;
+  background: linear-gradient(180deg, var(--qa-soft), var(--panel));
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
-.overview-numbers {
+.qa-head {
   display: flex;
   align-items: baseline;
-  gap: 5px;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.overview-value {
+.qa-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--qa-text);
+}
+
+.qa-sub {
+  font-size: 11px;
   font-family: var(--mono);
-  font-size: 17px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-}
-
-.overview-label {
   color: var(--text-dim);
-  font-size: 11.5px;
 }
 
-.overview-sep {
-  color: var(--text-dim);
-  margin: 0 2px;
-}
-
-.overview-actions {
+.qa-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  align-items: center;
+}
+
+.qa-button {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--qa-border);
+  background: var(--qa-soft);
+  color: var(--qa-text);
+  white-space: nowrap;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    transform 0.06s ease;
+}
+
+.qa-button:hover {
+  background: var(--qa-soft-strong);
+}
+
+.qa-button:active {
+  transform: translateY(1px);
+}
+
+.qa-button.active {
+  background: var(--null);
+  border-color: color-mix(in srgb, var(--null) 70%, #7f1d1d);
+  color: var(--null-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 35%, transparent);
 }
 
 .pill {
@@ -1114,9 +1180,19 @@ button:disabled {
   box-shadow: inset 0 2px 0 color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
-.td.null-cell {
+.tr.dup-row .td {
+  background: color-mix(in srgb, var(--null) 32%, transparent);
+}
+
+.tr .td.null-cell {
   background: var(--null);
   color: var(--null-text);
+}
+
+.tr .td.anomaly-cell {
+  background: color-mix(in srgb, var(--null) 60%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--null) 85%, #7f1d1d);
+  font-weight: 600;
 }
 
 .td {

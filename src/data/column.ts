@@ -10,6 +10,7 @@ import {
 } from "../parse/infer.js";
 import { isNullToken } from "../parse/null-tokens.js";
 import { parseNumber } from "../parse/numbers.js";
+import { valueLength } from "../parse/value-length.js";
 import type { ColumnType } from "../types.js";
 
 export interface CategorySet {
@@ -316,13 +317,6 @@ export class ColumnData {
     }
     return this.cats;
   }
-}
-
-/** trim() allocation only when the value actually has edge whitespace. */
-function valueLength(value: string): number {
-  const first = value.charCodeAt(0);
-  const last = value.charCodeAt(value.length - 1);
-  return first > 32 && last > 32 ? value.length : value.trim().length;
 }
 
 /** Sample-only guess used to pick the cheaper ingest path. */
