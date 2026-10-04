@@ -27,13 +27,14 @@ export interface Anomalies {
 
 /** Modified z-score (Iglewicz–Hoaglin): flag |0.6745 (x − median) / MAD| > 3.5. */
 const MAD_RADIUS = 3.5 / 0.6745;
-const MEAN_DEVIATION_RADIUS = 3.5 / 0.7979;
 const MAX_SAMPLES = 50_000;
 const MIN_SAMPLES = 20;
 const MIN_LENGTH_SAMPLES = 8;
 /** Long-value rule: flag lengths above LENGTH_FACTOR × the 90th percentile. */
 const LENGTH_QUANTILE = 0.9;
 const LENGTH_FACTOR = 3;
+/** Columns more null than this are too sparse for meaningful fences. */
+const MAX_NULL_RATIO = 0.5;
 /** Bowley skewness above which positive columns use multiplicative (log) fences. */
 const LOG_SKEW_THRESHOLD = 0.1;
 
@@ -58,9 +59,10 @@ function sampleNumbers(numbers: Float64Array): number[] {
 }
 
 /**
- * MAD fences around the median of a sorted sample, with a mean-deviation
- * fallback when MAD is zero (most values identical) so a lone large value is
- * still flagged.
+ * MAD fences around the median of a sorted sample. Returns null when MAD is
+ * zero (more than half the values identical): without spread information a
+ * modified z-score is undefined, and flagging every deviation would light up
+ * zero-inflated count columns.
  */
 function medianRadius(sorted: number[]): { center: number; radius: number } | null {
   const center = quantile(sorted, 0.5);
@@ -68,19 +70,14 @@ function medianRadius(sorted: number[]): { center: number; radius: number } | nu
   deviations.sort((a, b) => a - b);
 
   const mad = quantile(deviations, 0.5);
-  if (mad > 0) return { center, radius: mad * MAD_RADIUS };
-
-  let sum = 0;
-  for (const deviation of deviations) sum += deviation;
-  const meanDeviation = sum / deviations.length;
-  if (meanDeviation <= 0) return null;
-  return { center, radius: meanDeviation * MEAN_DEVIATION_RADIUS };
+  if (mad <= 0) return null;
+  return { center, radius: mad * MAD_RADIUS };
 }
 
 /**
- * Numeric fences per column. Strictly positive, right-skewed columns (prices,
- * incomes, counts) are fenced in log space so large-but-ordinary values are
- * not all flagged; everything else uses linear fences.
+ * Numeric fences per column. Non-negative right-skewed columns (prices,
+ * payments, counts) are fenced in log1p space so large-but-ordinary values
+ * and zero-inflation are not all flagged; everything else uses linear fences.
  */
 function numericFence(column: ColumnData): ValueFence | null {
   if (column.type !== "integer" && column.type !== "number") return null;
@@ -95,14 +92,14 @@ function numericFence(column: ColumnData): ValueFence | null {
   const iqr = q3 - q1;
   const bowleySkew = iqr > 0 ? (q3 + q1 - 2 * median) / iqr : 0;
 
-  if (sample[0] > 0 && bowleySkew > LOG_SKEW_THRESHOLD) {
-    const logs = sample.map((value) => Math.log(value));
+  if (sample[0] >= 0 && bowleySkew > LOG_SKEW_THRESHOLD) {
+    const logs = sample.map((value) => Math.log1p(value));
     const logStats = medianRadius(logs);
     if (logStats === null) return null;
     return {
-      center: Math.exp(logStats.center),
-      lo: Math.exp(logStats.center - logStats.radius),
-      hi: Math.exp(logStats.center + logStats.radius),
+      center: Math.expm1(logStats.center),
+      lo: Math.expm1(logStats.center - logStats.radius),
+      hi: Math.expm1(logStats.center + logStats.radius),
       log: true,
     };
   }
@@ -158,7 +155,8 @@ export function computeAnomalies(
   const perColumn: ColumnAnomalies[] = [];
 
   for (const column of columns) {
-    const valueFence = numericFence(column);
+    const sparse = rowCount > 0 && column.stats.nulls / rowCount > MAX_NULL_RATIO;
+    const valueFence = sparse ? null : numericFence(column);
     if (valueFence !== null) {
       const numbers = column.numbers();
       for (let row = 0; row < rowCount; row++) {
@@ -169,7 +167,7 @@ export function computeAnomalies(
       }
     }
 
-    const lengthFence = lengthFenceFor(column);
+    const lengthFence = sparse ? null : lengthFenceFor(column);
     if (lengthFence !== null) {
       const raw = column.raw;
       for (let row = 0; row < rowCount; row++) {

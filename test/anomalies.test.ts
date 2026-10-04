@@ -18,11 +18,11 @@ test("leaves a clean numeric column unflagged", () => {
   assert.equal(dataset.stats.valueAnomalyRows, 0);
 });
 
-test("falls back to mean deviation when MAD is zero", () => {
+test("zero-MAD columns get no fence", () => {
   const values = [...Array.from({ length: 19 }, () => "5"), "100"];
   const dataset = buildDataset("t", ["n"], values.map((v) => [v]));
-  assert.equal(dataset.stats.valueAnomalyRows, 1);
-  assert.equal(dataset.valueAnomalyBits.get(19), true);
+  assert.equal(dataset.valueFences[0], null);
+  assert.equal(dataset.stats.valueAnomalyRows, 0);
 });
 
 test("constant numeric columns have no fence", () => {
@@ -68,6 +68,18 @@ test("uniform text lengths have no outliers", () => {
   const dataset = buildDataset("t", ["code"], rows);
   assert.equal(dataset.stats.lengthAnomalyRows, 0);
   assert.equal(dataset.lengthFences[0]?.hi, 9);
+});
+
+test("skips value and length fences on sparse columns", () => {
+  const rows: string[][] = [];
+  for (let i = 0; i < 60; i++) rows.push(["", ""]);
+  for (let i = 0; i < 20; i++) rows.push([String(i + 1), "abc"]);
+  rows.push(["100000", "a".repeat(40)]);
+  const dataset = buildDataset("t", ["n", "code"], rows);
+  assert.equal(dataset.valueFences[0], null);
+  assert.equal(dataset.lengthFences[1], null);
+  assert.equal(dataset.stats.valueAnomalyRows, 0);
+  assert.equal(dataset.stats.lengthAnomalyRows, 0);
 });
 
 test("valueAnomalies special filter narrows to outlier rows", () => {
