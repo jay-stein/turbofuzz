@@ -107,6 +107,7 @@ export class SummaryBand {
       if (entry === undefined) continue;
       const on = this.active.has(kind);
       entry.button.classList.toggle("active", on);
+      entry.button.classList.toggle("ok", this.counts[kind] === 0);
       entry.button.setAttribute("aria-pressed", on ? "true" : "false");
       entry.label.textContent = on
         ? `✓ ${label}: on`
