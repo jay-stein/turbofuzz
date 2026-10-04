@@ -301,7 +301,7 @@ function buildTopValues(topValues: TopValue[]): HTMLElement {
   const wrap = el("div", { class: "top-values" });
   const max = topValues[0]?.count ?? 1;
 
-  for (const entry of topValues.slice(0, 3)) {
+  for (const entry of topValues.slice(0, 5)) {
     const row = el("div", { class: "top-row" });
     const bar = el("span", { class: "top-bar" });
     const fill = el("i");

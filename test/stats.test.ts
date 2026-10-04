@@ -92,7 +92,7 @@ test("histogram is null for non-numeric columns", () => {
   assert.equal(dataset.columns[0].histogram(8), null);
 });
 
-test("stats carry the top three values with exact counts", () => {
+test("stats carry the top values with exact counts", () => {
   const dataset = buildDataset(
     "t",
     ["v"],
@@ -102,6 +102,7 @@ test("stats carry the top three values with exact counts", () => {
     { label: "a", count: 3 },
     { label: "b", count: 2 },
     { label: "c", count: 1 },
+    { label: "d", count: 1 },
   ]);
 });
 

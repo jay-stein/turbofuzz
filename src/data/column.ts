@@ -19,6 +19,8 @@ export interface CategorySet {
   bits: BitSet[];
 }
 
+const TOP_VALUES = 5;
+
 export class ColumnData {
   type: ColumnType;
   dateOrder: DateOrder;
@@ -102,14 +104,14 @@ export class ColumnData {
       stats.avgLength = lengthSum / presentCount;
     }
 
-    // Bounded top-3 selection: no full sort over potentially millions of keys.
+    // Bounded top-N selection: no full sort over potentially millions of keys.
     if (counts !== null) {
       for (const [label, count] of counts) {
-        if (top.length < 3) {
+        if (top.length < TOP_VALUES) {
           top.push({ label, count });
           top.sort((a, b) => b.count - a.count);
-        } else if (count > top[2].count) {
-          top[2] = { label, count };
+        } else if (count > top[TOP_VALUES - 1].count) {
+          top[TOP_VALUES - 1] = { label, count };
           top.sort((a, b) => b.count - a.count);
         }
       }
