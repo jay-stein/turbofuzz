@@ -1,5 +1,6 @@
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
 import { listArchiveEntries, readArchiveEntry, type ArchiveEntry } from "../parse/archive.js";
+import { decompressBzip2 } from "../parse/bz2.js";
 import { decodeText } from "../parse/encoding.js";
 import { detectTable } from "../parse/header-detect.js";
 import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
@@ -18,8 +19,9 @@ import { ResultTable, type HighlightRule } from "./table.js";
 import { SearchWorkerClient } from "./worker-client.js";
 
 const LARGE_PASTE_ROWS = 300_000;
-const DATA_URL_EXTENSIONS = [".csv", ".tsv", ".psv", ".txt", ".xlsx", ".xls", ".zip", ".gz"];
+const DATA_URL_EXTENSIONS = [".csv", ".tsv", ".psv", ".txt", ".xlsx", ".xls", ".zip", ".gz", ".bz2"];
 const WORKBOOK_EXTENSIONS = [".xlsx", ".xls"];
+const UNSUPPORTED_COMPRESSION = [".xz", ".zst", ".7z", ".rar", ".tar", ".lz4"];
 const DEFAULT_SHUFFLE_SAMPLE = 100;
 
 interface PickerItem {
@@ -246,13 +248,15 @@ export class App {
     });
     dropzone.append(
       uploadIcon(),
-      el("span", {}, ["Drop a CSV / TSV / PSV / Excel / ZIP / GZ file here — or click to browse"]),
+      el("span", {}, [
+        "Drop a CSV / TSV / PSV / Excel / ZIP / GZ / BZ2 file here — or click to browse",
+      ]),
     );
     card.append(dropzone);
 
     const fileInput = el("input", {
       type: "file",
-      accept: ".csv,.tsv,.psv,.txt,.xlsx,.xls,.zip,.gz",
+      accept: ".csv,.tsv,.psv,.txt,.xlsx,.xls,.zip,.gz,.bz2",
       class: "hidden",
     }) as HTMLInputElement;
     const openPicker = (): void => fileInput.click();
@@ -317,7 +321,7 @@ export class App {
     urlSection.append(
       urlRow,
       el("p", { class: "url-hint" }, [
-        "Links ending in .csv, .tsv, .psv, .zip or .gz load as data; anything else is scraped for its first table.",
+        "Links ending in .csv, .tsv, .psv, .zip, .gz or .bz2 load as data; anything else is scraped for its first table.",
       ]),
       el("p", { class: "disclaimer" }, [
         "Always scrape responsibly by reviewing and adhering to the website's ",
@@ -512,6 +516,10 @@ export class App {
         await this.openGzip(buffer, nameFromUrl(url));
         return;
       }
+      if (urlExtension === ".bz2") {
+        await this.openBzip2(buffer, nameFromUrl(url));
+        return;
+      }
 
       if (isWorkbookUrl(url) || contentType.includes("spreadsheetml") || contentType.includes("ms-excel")) {
         await this.openWorkbook(buffer, nameFromUrl(url));
@@ -594,12 +602,22 @@ export class App {
   private async loadFile(file: File): Promise<void> {
     try {
       const extension = extensionOf(file.name);
+      if (UNSUPPORTED_COMPRESSION.includes(extension)) {
+        this.setStatusError(
+          `${extension} archives aren't supported — try .zip, .gz or .bz2`,
+        );
+        return;
+      }
       if (extension === ".zip") {
         await this.openArchive(await file.arrayBuffer(), file.name);
         return;
       }
       if (extension === ".gz") {
         await this.openGzip(await file.arrayBuffer(), file.name);
+        return;
+      }
+      if (extension === ".bz2") {
+        await this.openBzip2(await file.arrayBuffer(), file.name);
         return;
       }
       if (WORKBOOK_EXTENSIONS.includes(extension)) {
@@ -684,25 +702,52 @@ export class App {
     try {
       const { gunzipSync } = await import("fflate");
       const inner = gunzipSync(new Uint8Array(buffer));
-      const data = inner.buffer.slice(
-        inner.byteOffset,
-        inner.byteOffset + inner.byteLength,
-      ) as ArrayBuffer;
-      const innerName = fileName.replace(/\.gz$/i, "");
-      const extension = extensionOf(innerName);
-      if (extension === ".zip") {
-        await this.openArchive(data, innerName);
-        return;
-      }
-      if (WORKBOOK_EXTENSIONS.includes(extension)) {
-        await this.openWorkbook(data, innerName);
-        return;
-      }
-      this.statusEl.textContent = "";
-      await this.load({ buffer: data, name: innerName, source: "file" });
+      await this.routeDecompressed(inner, fileName.replace(/\.gz$/i, ""));
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not decompress file");
     }
+  }
+
+  /** Decompresses a .bz2 and routes the inner file. */
+  private async openBzip2(buffer: ArrayBuffer, fileName: string): Promise<void> {
+    this.hideTablePicker();
+    this.statusEl.textContent = "Decompressing bzip2…";
+    this.statusEl.classList.remove("error");
+    try {
+      // Let the status paint before the synchronous decode blocks the thread.
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const inner = await decompressBzip2(buffer);
+      await this.routeDecompressed(inner, fileName.replace(/\.bz2$/i, ""));
+    } catch (error) {
+      this.setStatusError(error instanceof Error ? error.message : "Could not decompress file");
+    }
+  }
+
+  /** Routes a freshly decompressed buffer to the right loader. */
+  private async routeDecompressed(inner: Uint8Array, innerName: string): Promise<void> {
+    const data = inner.buffer.slice(
+      inner.byteOffset,
+      inner.byteOffset + inner.byteLength,
+    ) as ArrayBuffer;
+    const extension = extensionOf(innerName);
+    if (extension === ".zip") {
+      await this.openArchive(data, innerName);
+      return;
+    }
+    if (extension === ".gz") {
+      await this.openGzip(data, innerName);
+      return;
+    }
+    if (extension === ".bz2") {
+      await this.openBzip2(data, innerName);
+      return;
+    }
+    if (WORKBOOK_EXTENSIONS.includes(extension)) {
+      await this.openWorkbook(data, innerName);
+      return;
+    }
+    this.statusEl.textContent = "";
+    await this.load({ buffer: data, name: innerName, source: "file" });
   }
 
   /** Lists worksheets (biggest first) and either loads the only one or shows a picker. */
@@ -833,7 +878,7 @@ export class App {
 
   private handleProgress(progress: ProgressMessage): void {
     if (progress.phase === "parse") {
-      this.statusEl.textContent = "Parsing…";
+      this.statusEl.textContent = progress.detail ?? "Parsing…";
     } else if (progress.phase === "build") {
       this.statusEl.textContent = progress.detail ?? "Building…";
     } else if (progress.phase === "index" && progress.column !== undefined) {

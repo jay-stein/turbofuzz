@@ -46,9 +46,12 @@ function post(message: WorkerResponse, transfer?: Transferable[]): void {
 }
 
 scope.onmessage = (event) => {
-  const message = event.data;
+  void dispatch(event.data);
+};
+
+async function dispatch(message: WorkerRequest): Promise<void> {
   try {
-    handle(message);
+    await handle(message);
   } catch (error) {
     post({
       type: "error",
@@ -56,12 +59,12 @@ scope.onmessage = (event) => {
       message: error instanceof Error ? error.message : String(error),
     });
   }
-};
+}
 
-function handle(message: WorkerRequest): void {
+async function handle(message: WorkerRequest): Promise<void> {
   switch (message.type) {
     case "load":
-      handleLoad(message);
+      await handleLoad(message);
       break;
     case "setFilter":
       handleSetFilter(message);
@@ -215,7 +218,7 @@ function handleShuffle(message: { requestId: number; limit?: number }): void {
   });
 }
 
-function handleLoad(message: LoadRequest): void {
+async function handleLoad(message: LoadRequest): Promise<void> {
   const started = performance.now();
   const { dataset: next, encoding } = ingestDataset({
     name: message.name,

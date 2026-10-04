@@ -28,6 +28,7 @@
     "vite": "^8.3.2"
   },
   "dependencies": {
+    "bz2": "^1.0.1",
     "double-metaphone": "^2.0.1",
     "fflate": "^0.8.3",
     "papaparse": "^5.7.0",
