@@ -32,6 +32,17 @@ test("constant numeric columns have no fence", () => {
   assert.equal(dataset.stats.valueAnomalyRows, 0);
 });
 
+test("right-skewed positive columns use log fences", () => {
+  const values: string[] = [];
+  for (let i = 0; i < 40; i++) values.push(String(100 + (i % 10) * 11));
+  for (let i = 0; i < 20; i++) values.push(String(500 + (i % 10) * 22));
+  values.push("100000");
+  const dataset = buildDataset("t", ["price"], values.map((v) => [v]));
+  assert.equal(dataset.valueFences[0]?.log, true);
+  assert.equal(dataset.stats.valueAnomalyRows, 1);
+  assert.equal(dataset.valueAnomalyBits.get(values.length - 1), true);
+});
+
 test("flags a text length outside the per-column IQR fences", () => {
   const rows: string[][] = [];
   for (let i = 0; i < 10; i++) rows.push(["abc"]);

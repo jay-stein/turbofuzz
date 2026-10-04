@@ -4,7 +4,9 @@ import type { ColumnData } from "./column.js";
 
 export interface ValueFence {
   center: number;
-  radius: number;
+  lo: number;
+  hi: number;
+  log: boolean;
 }
 
 export interface LengthFence {
@@ -29,6 +31,8 @@ const MEAN_DEVIATION_RADIUS = 3.5 / 0.7979;
 const MAX_SAMPLES = 50_000;
 const MIN_SAMPLES = 20;
 const MIN_LENGTH_SAMPLES = 8;
+/** Bowley skewness above which positive columns use multiplicative (log) fences. */
+const LOG_SKEW_THRESHOLD = 0.1;
 
 function quantile(sorted: readonly number[], q: number): number {
   if (sorted.length === 1) return sorted[0];
@@ -51,19 +55,13 @@ function sampleNumbers(numbers: Float64Array): number[] {
 }
 
 /**
- * MAD fences per numeric column. When MAD is zero (most values identical) the
- * mean absolute deviation around the median is used instead, so a lone large
- * value is still flagged.
+ * MAD fences around the median of a sorted sample, with a mean-deviation
+ * fallback when MAD is zero (most values identical) so a lone large value is
+ * still flagged.
  */
-function numericFence(column: ColumnData): ValueFence | null {
-  if (column.type !== "integer" && column.type !== "number") return null;
-  const numbers = column.numbers();
-  const sample = sampleNumbers(numbers);
-  if (sample.length < MIN_SAMPLES) return null;
-
-  sample.sort((a, b) => a - b);
-  const center = quantile(sample, 0.5);
-  const deviations = sample.map((value) => Math.abs(value - center));
+function medianRadius(sorted: number[]): { center: number; radius: number } | null {
+  const center = quantile(sorted, 0.5);
+  const deviations = sorted.map((value) => Math.abs(value - center));
   deviations.sort((a, b) => a - b);
 
   const mad = quantile(deviations, 0.5);
@@ -74,6 +72,46 @@ function numericFence(column: ColumnData): ValueFence | null {
   const meanDeviation = sum / deviations.length;
   if (meanDeviation <= 0) return null;
   return { center, radius: meanDeviation * MEAN_DEVIATION_RADIUS };
+}
+
+/**
+ * Numeric fences per column. Strictly positive, right-skewed columns (prices,
+ * incomes, counts) are fenced in log space so large-but-ordinary values are
+ * not all flagged; everything else uses linear fences.
+ */
+function numericFence(column: ColumnData): ValueFence | null {
+  if (column.type !== "integer" && column.type !== "number") return null;
+  const numbers = column.numbers();
+  const sample = sampleNumbers(numbers);
+  if (sample.length < MIN_SAMPLES) return null;
+
+  sample.sort((a, b) => a - b);
+  const q1 = quantile(sample, 0.25);
+  const q3 = quantile(sample, 0.75);
+  const median = quantile(sample, 0.5);
+  const iqr = q3 - q1;
+  const bowleySkew = iqr > 0 ? (q3 + q1 - 2 * median) / iqr : 0;
+
+  if (sample[0] > 0 && bowleySkew > LOG_SKEW_THRESHOLD) {
+    const logs = sample.map((value) => Math.log(value));
+    const logStats = medianRadius(logs);
+    if (logStats === null) return null;
+    return {
+      center: Math.exp(logStats.center),
+      lo: Math.exp(logStats.center - logStats.radius),
+      hi: Math.exp(logStats.center + logStats.radius),
+      log: true,
+    };
+  }
+
+  const stats = medianRadius(sample);
+  if (stats === null) return null;
+  return {
+    center: stats.center,
+    lo: stats.center - stats.radius,
+    hi: stats.center + stats.radius,
+    log: false,
+  };
 }
 
 /** Per-column Tukey fences (1.5×IQR) on trimmed value lengths. */
@@ -120,10 +158,7 @@ export function computeAnomalies(
       const numbers = column.numbers();
       for (let row = 0; row < rowCount; row++) {
         const value = numbers[row];
-        if (
-          Number.isFinite(value) &&
-          Math.abs(value - valueFence.center) > valueFence.radius
-        ) {
+        if (Number.isFinite(value) && (value < valueFence.lo || value > valueFence.hi)) {
           valueBits.set(row);
         }
       }

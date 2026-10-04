@@ -340,12 +340,15 @@ export class ResultTable {
     const valueFence = meta.valueFence;
     if (valueFence !== null) {
       const parsed = parseNumber(value);
-      if (
-        Number.isFinite(parsed) &&
-        Math.abs(parsed - valueFence.center) > valueFence.radius
-      ) {
+      if (Number.isFinite(parsed) && (parsed < valueFence.lo || parsed > valueFence.hi)) {
         cell.classList.add("anomaly-cell");
-        cell.title = `Value outlier — median ${valueFence.center.toLocaleString()}, outside ±${valueFence.radius.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+        const format = (bound: number): string =>
+          Number.isFinite(bound)
+            ? bound.toLocaleString(undefined, { maximumFractionDigits: 2 })
+            : bound > 0
+              ? "∞"
+              : "-∞";
+        cell.title = `Value outlier — median ${valueFence.center.toLocaleString()}, expected ${format(valueFence.lo)} – ${format(valueFence.hi)}`;
       }
       return;
     }
