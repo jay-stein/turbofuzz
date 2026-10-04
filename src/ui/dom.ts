@@ -16,3 +16,18 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 export function clear(node: HTMLElement): void {
   while (node.firstChild !== null) node.removeChild(node.firstChild);
 }
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+export function svgIcon(paths: string, className: string): SVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", className);
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.innerHTML = paths;
+  return svg;
+}

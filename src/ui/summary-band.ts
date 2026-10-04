@@ -1,4 +1,4 @@
-import { clear, el } from "./dom.js";
+import { clear, el, svgIcon } from "./dom.js";
 import { toDateInputValue } from "../parse/dates.js";
 import type { TopValue } from "../parse/infer.js";
 import { TYPE_LABELS } from "../types.js";
@@ -101,8 +101,9 @@ export class SummaryBand {
       if (button === undefined) continue;
       const on = this.active.has(kind);
       button.classList.toggle("active", on);
+      button.setAttribute("aria-pressed", on ? "true" : "false");
       button.textContent = on
-        ? `${label}: on`
+        ? `✓ ${label}: on`
         : `${label}: ${this.counts[kind].toLocaleString()}`;
     }
   }
@@ -131,8 +132,23 @@ export class SummaryBand {
     }
     const details = el(
       "button",
-      { class: "pill ghost", type: "button", title: "Full per-column statistics" },
-      ["Details"],
+      {
+        class: "pill ghost stats-report",
+        type: "button",
+        title: "Full per-column statistics",
+      },
+      [],
+    );
+    details.append(
+      svgIcon(
+        '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>' +
+          '<path d="M14 3v5h5"/>' +
+          '<path d="M9 17v-4"/>' +
+          '<path d="M12 17v-6"/>' +
+          '<path d="M15 17v-2"/>',
+        "stats-icon",
+      ),
+      el("span", {}, ["Stats Report"]),
     );
     details.addEventListener("click", () => this.callbacks.onOpenStats());
     actions.append(details);

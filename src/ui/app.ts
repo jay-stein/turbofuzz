@@ -7,7 +7,7 @@ import type { ColumnFilter } from "../search/query-engine.js";
 import type { WorkBook } from "xlsx";
 import type { ColumnType } from "../types.js";
 import type { ColumnMeta, LoadedMessage, ProgressMessage, SpecialKind } from "../worker/protocol.js";
-import { clear, el } from "./dom.js";
+import { clear, el, svgIcon } from "./dom.js";
 import { FilterPanel } from "./filters.js";
 import { findDataTables, type TableCandidate } from "./html-table.js";
 import { sampleCsv } from "./sample.js";
@@ -49,21 +49,6 @@ function isDataUrl(raw: string): boolean {
   } catch {
     return false;
   }
-}
-
-const SVG_NS = "http://www.w3.org/2000/svg";
-
-function svgIcon(paths: string, className: string): SVGElement {
-  const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("class", className);
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "1.8");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-  svg.innerHTML = paths;
-  return svg;
 }
 
 function uploadIcon(): SVGElement {
