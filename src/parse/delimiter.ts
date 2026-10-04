@@ -29,8 +29,9 @@ function countOutsideQuotes(line: string, delimiter: string): number {
 }
 
 /**
- * Picks the delimiter whose per-line field count is highest and most
- * consistent across the first lines of the input.
+ * Picks the delimiter with the most consistent per-line field count across
+ * the first lines. Lines without any candidate delimiter (titles, blank
+ * preambles) are ignored, so a junk first row does not veto the real one.
  */
 export function detectDelimiter(text: string): Delimiter {
   const lines = text
@@ -44,10 +45,24 @@ export function detectDelimiter(text: string): Delimiter {
 
   for (const delimiter of DELIMITERS) {
     const counts = lines.map((line) => countOutsideQuotes(line, delimiter));
-    const first = counts[0];
-    if (first === 0) continue;
-    const consistent = counts.filter((c) => c === first).length / counts.length;
-    const score = first * 10 + consistent;
+    const histogram = new Map<number, number>();
+    for (const count of counts) {
+      if (count === 0) continue;
+      histogram.set(count, (histogram.get(count) ?? 0) + 1);
+    }
+    if (histogram.size === 0) continue;
+
+    let mode = 0;
+    let modeFrequency = 0;
+    for (const [count, frequency] of histogram) {
+      if (frequency > modeFrequency || (frequency === modeFrequency && count > mode)) {
+        mode = count;
+        modeFrequency = frequency;
+      }
+    }
+
+    const consistency = modeFrequency / counts.length;
+    const score = mode * 10 + consistency;
     if (score > bestScore) {
       bestScore = score;
       best = delimiter;

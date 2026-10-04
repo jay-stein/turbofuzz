@@ -49,6 +49,29 @@ test("ingestDataset decodes transferred UTF-8 array buffers", () => {
   assert.deepEqual(dataset.columns.map((column) => column.name), ["a", "b"]);
 });
 
+test("ingestDataset skips title rows and keeps the full width", () => {
+  const { dataset } = ingestDataset({
+    name: "loans",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: [
+      "Notes offered by Prospectus (lendingclub.com)",
+      "",
+      "id,loan_amnt,term,grade",
+      "1,5000,36 months,A",
+      "2,10000,60 months,B",
+    ].join("\n"),
+  });
+
+  assert.equal(dataset.rowCount, 2);
+  assert.equal(dataset.columnCount, 4);
+  assert.deepEqual(
+    dataset.columns.map((column) => column.name),
+    ["id", "loan_amnt", "term", "grade"],
+  );
+  assert.equal(dataset.columns[0].raw[0], "1");
+});
+
 test("ingestDataset builds datasets from scraped tables", () => {
   const { dataset, encoding } = ingestDataset({
     name: "scraped",

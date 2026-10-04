@@ -12,6 +12,17 @@ test("detectDelimiter finds common delimiters", () => {
   assert.equal(detectDelimiter("a|b|c\n1|2|3"), "|");
 });
 
+test("detectDelimiter ignores a delimiter-free title row", () => {
+  assert.equal(
+    detectDelimiter("Notes offered by Prospectus\n\nname,age,amount\nAlice,30,100\nBob,40,200"),
+    ",",
+  );
+  assert.equal(
+    detectDelimiter("Annual report 2013\nid;city;value\n1;Perth;10\n2;Sydney;20"),
+    ";",
+  );
+});
+
 test("detectDelimiter ignores delimiters inside quotes", () => {
   assert.equal(detectDelimiter('name,notes\n"Smith, John","a,b"'), ",");
 });
