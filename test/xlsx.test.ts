@@ -46,41 +46,58 @@ function buildWorkbook(sheets: SheetSpec[], shared?: string): ArrayBuffer {
   return zipped.buffer.slice(zipped.byteOffset, zipped.byteOffset + zipped.byteLength) as ArrayBuffer;
 }
 
-test("lists sheets with sizes from the dimension element, biggest first", async () => {
+test("lists sheets in workbook order with actual data extents", async () => {
   const buffer = buildWorkbook([
     {
       name: "Sales",
-      sheetXml: '<dimension ref="A1:C5"/><row r="1"><c r="A1" t="inlineStr"><is><t>H</t></is></c></row>',
+      sheetXml:
+        '<dimension ref="A1:C500"/>' +
+        '<row r="1"><c r="A1" t="inlineStr"><is><t>H</t></is></c><c r="B1" t="inlineStr"><is><t>H2</t></is></c></row>' +
+        '<row r="2"><c r="A2"><v>1</v></c><c r="B2"><v>2</v></c></row>' +
+        '<row r="3"><c r="A3"><v>3</v></c><c r="B3"><v>4</v></c></row>',
     },
+    { name: "Empty", sheetXml: '<dimension ref="A1:Z1000"/>' },
     {
       name: "R&amp;D",
-      sheetXml: '<dimension ref="A1:B2"/>',
+      sheetXml: '<row r="1"><c r="A1"><v>9</v></c></row>',
       absoluteTarget: true,
     },
   ]);
 
-  const sheets = await listWorkbookSheets(buffer);
-  assert.deepEqual(sheets, [
-    { name: "Sales", rows: 5, columns: 3 },
-    { name: "R&D", rows: 2, columns: 2 },
+  const listing = await listWorkbookSheets(buffer, 50);
+  assert.equal(listing.total, 3);
+  assert.deepEqual(listing.sheets, [
+    { name: "Sales", rows: 3, columns: 2 },
+    { name: "R&D", rows: 1, columns: 1 },
   ]);
 });
 
-test("falls back to row/cell counting when dimension is missing", async () => {
+test("ignores formatting-only rows when measuring", async () => {
   const buffer = buildWorkbook([
     {
       name: "Messy",
       sheetXml:
         '<row r="1"><c r="A1"><v>1</v></c><c r="B1"><v>2</v></c></row>' +
         '<row r="2"><c r="A2"><v>3</v></c><c r="B2"><v>4</v></c></row>' +
-        '<row r="3"><c r="A3"><v>5</v></c><c r="B3"><v>6</v></c></row>',
+        '<row r="3"><c r="A3" s="1"/><c r="H3" s="1"/></row>',
     },
   ]);
 
-  const sheets = await listWorkbookSheets(buffer);
-  assert.equal(sheets.length, 1);
-  assert.equal(sheets[0].rows, 3);
-  assert.equal(sheets[0].columns, 2);
+  const listing = await listWorkbookSheets(buffer);
+  assert.deepEqual(listing.sheets, [{ name: "Messy", rows: 2, columns: 2 }]);
+});
+
+test("returns the first sheets in order, up to the limit", async () => {
+  const sheets = Array.from({ length: 55 }, (_, index) => ({
+    name: `S${index + 1}`,
+    sheetXml: '<row r="1"><c r="A1"><v>1</v></c></row>',
+  }));
+
+  const listing = await listWorkbookSheets(buildWorkbook(sheets), 50);
+  assert.equal(listing.total, 55);
+  assert.equal(listing.sheets.length, 50);
+  assert.equal(listing.sheets[0].name, "S1");
+  assert.equal(listing.sheets[49].name, "S50");
 });
 
 test("reads cell values, formulas, booleans and merges", async () => {

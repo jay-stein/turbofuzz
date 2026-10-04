@@ -4,6 +4,11 @@ export interface WorkbookSheet {
   columns: number;
 }
 
+export interface WorkbookListing {
+  sheets: WorkbookSheet[];
+  total: number;
+}
+
 const MAX_ROWS = 1_048_576;
 const MAX_COLUMNS = 16_384;
 
@@ -61,49 +66,60 @@ function columnIndex(letters: string): number {
   return index - 1;
 }
 
-function parseRange(ref: string): { rows: number; columns: number } {
-  const match = ref.match(/^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/i);
-  if (match === null) return { rows: 0, columns: 0 };
-  const startColumn = columnIndex(match[1].toUpperCase());
-  const startRow = Number.parseInt(match[2], 10);
-  const endColumn = match[3] === undefined ? startColumn : columnIndex(match[3].toUpperCase());
-  const endRow = match[4] === undefined ? startRow : Number.parseInt(match[4], 10);
-  return {
-    rows: Math.max(0, Math.min(MAX_ROWS, endRow - startRow + 1)),
-    columns: Math.max(0, Math.min(MAX_COLUMNS, endColumn - startColumn + 1)),
-  };
+function attributeBefore(xml: string, start: number, end: number, name: string): string | null {
+  const key = `${name}="`;
+  let index = xml.indexOf(key, start);
+  while (index !== -1 && index < end) {
+    const valueStart = index + key.length;
+    const valueEnd = xml.indexOf('"', valueStart);
+    if (valueEnd === -1 || valueEnd > end) return null;
+    if (index === start || /[\s<]/.test(xml[index - 1])) {
+      return decodeXmlEntities(xml.slice(valueStart, valueEnd));
+    }
+    index = xml.indexOf(key, index + 1);
+  }
+  return null;
+}
+
+function scanValueCells(
+  xml: string,
+  marker: string,
+  extent: { rows: number; columns: number },
+): void {
+  const CELL_OPEN = "<c ";
+  let position = xml.indexOf(marker);
+  while (position !== -1) {
+    const cell = xml.lastIndexOf(CELL_OPEN, position);
+    if (cell !== -1) {
+      const tagEnd = xml.indexOf(">", cell);
+      if (tagEnd !== -1 && tagEnd < position) {
+        const ref = attributeBefore(xml, cell, tagEnd, "r");
+        if (ref !== null) {
+          const match = ref.match(/^([A-Za-z]+)(\d+)$/);
+          if (match !== null) {
+            const row = Number.parseInt(match[2], 10);
+            if (row > extent.rows) extent.rows = Math.min(row, MAX_ROWS);
+            const column = columnIndex(match[1].toUpperCase()) + 1;
+            if (column > extent.columns) extent.columns = Math.min(column, MAX_COLUMNS);
+          }
+        }
+      }
+    }
+    position = xml.indexOf(marker, position + marker.length);
+  }
 }
 
 /**
- * Fast sheet size. Excel writes a `<dimension ref="A1:F100"/>` element, so
- * most workbooks need no cell parsing at all. When it is missing (some
- * writers omit it), fall back to counting row tags and peeking at the first
- * rows' cell references — approximate is fine for messy files.
+ * Actual data extent: the highest row and column containing a value-bearing
+ * cell. One linear pass over `<v>` (numbers, shared strings, booleans,
+ * cached formulas) and `<is>` (inline strings) markers; formatting-only
+ * cells have neither, so they never count.
  */
-function sheetSize(xml: string): { rows: number; columns: number } {
-  const dimension = xml.match(/<dimension[^>]*ref="([^"]+)"/i);
-  if (dimension !== null) {
-    const size = parseRange(dimension[1]);
-    if (size.rows > 0 || size.columns > 0) return size;
-  }
-
-  let rows = 0;
-  let index = xml.indexOf("<row");
-  while (index !== -1 && rows < MAX_ROWS) {
-    rows++;
-    index = xml.indexOf("<row", index + 4);
-  }
-
-  let columns = 0;
-  const window = xml.slice(0, 200_000);
-  const cellRefs = window.matchAll(/<c[^>]*r="([A-Z]+)\d+"/gi);
-  let checked = 0;
-  for (const match of cellRefs) {
-    columns = Math.max(columns, columnIndex(match[1].toUpperCase()) + 1);
-    if (++checked > 2_000) break;
-  }
-
-  return { rows, columns };
+function dataExtent(xml: string): { rows: number; columns: number } {
+  const extent = { rows: 0, columns: 0 };
+  scanValueCells(xml, "<v>", extent);
+  scanValueCells(xml, "<is>", extent);
+  return extent;
 }
 
 interface SheetEntry {
@@ -147,36 +163,47 @@ function normalizeTarget(target: string): string {
 }
 
 /**
- * Lists worksheets with fast size estimates, biggest first. Unzips only the
- * workbook metadata and worksheet XML (never shared strings or media).
+ * Lists up to `limit` worksheets in workbook order with their actual data
+ * extent. Unzips only the workbook metadata and the selected worksheets
+ * (never shared strings or media), and skips sheets with no values.
  */
-export async function listWorkbookSheets(buffer: ArrayBuffer): Promise<WorkbookSheet[]> {
+export async function listWorkbookSheets(
+  buffer: ArrayBuffer,
+  limit = 50,
+): Promise<WorkbookListing> {
   const data = new Uint8Array(buffer);
-  const files = await unzipFiltered(
+
+  const meta = await unzipFiltered(
     data,
     (name) =>
-      name === "xl/workbook.xml" ||
-      name === "xl/_rels/workbook.xml.rels" ||
-      /^xl\/worksheets\/.+\.xml$/i.test(name),
+      name.toLowerCase() === "xl/workbook.xml" ||
+      name.toLowerCase() === "xl/_rels/workbook.xml.rels",
   );
+  const entries = parseWorkbookSheets(decode(fileOf(meta, "xl/workbook.xml")));
+  const relationships = parseRelationships(decode(fileOf(meta, "xl/_rels/workbook.xml.rels")));
 
-  const entries = parseWorkbookSheets(decode(fileOf(files, "xl/workbook.xml")));
-  const relationships = parseRelationships(decode(fileOf(files, "xl/_rels/workbook.xml.rels")));
+  const resolved = entries.flatMap((entry) => {
+    const relationship = relationships.get(entry.rid);
+    if (relationship === undefined || !relationship.type.includes("worksheet")) return [];
+    return [{ name: entry.name, path: normalizeTarget(relationship.target) }];
+  });
+
+  const selected = resolved.slice(0, Math.max(1, limit));
+  const wanted = new Set(selected.map((sheet) => sheet.path.toLowerCase()));
+  const files = await unzipFiltered(data, (name) => {
+    const lowered = name.toLowerCase();
+    if (lowered === "xl/workbook.xml" || lowered === "xl/_rels/workbook.xml.rels") return true;
+    return lowered.startsWith("xl/worksheets/") && wanted.has(lowered);
+  });
 
   const sheets: WorkbookSheet[] = [];
-  for (const entry of entries) {
-    const relationship = relationships.get(entry.rid);
-    if (relationship === undefined || !relationship.type.includes("worksheet")) continue;
-    const path = normalizeTarget(relationship.target);
-    const size = sheetSize(decode(fileOf(files, path)));
+  for (const sheet of selected) {
+    const size = dataExtent(decode(fileOf(files, sheet.path)));
     if (size.rows === 0 && size.columns === 0) continue;
-    sheets.push({ name: entry.name, rows: size.rows, columns: size.columns });
+    sheets.push({ name: sheet.name, rows: size.rows, columns: size.columns });
   }
 
-  sheets.sort(
-    (a, b) => b.rows * b.columns - a.rows * a.columns || b.rows - a.rows,
-  );
-  return sheets;
+  return { sheets, total: resolved.length };
 }
 
 function parseSharedStrings(xml: string): string[] {

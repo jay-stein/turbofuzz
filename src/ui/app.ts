@@ -564,32 +564,34 @@ export class App {
     this.statusEl.classList.remove("error");
     try {
       let sheets;
+      let total: number;
       if (extensionOf(fileName) === ".xls") {
-        const legacy = await listLegacySheets(buffer);
+        const legacy = await listLegacySheets(buffer, 50);
         this.pendingWorkbook = { kind: "xls", workbook: legacy.workbook };
         sheets = legacy.sheets;
+        total = legacy.total;
       } else {
-        sheets = await listWorkbookSheets(buffer);
+        const listing = await listWorkbookSheets(buffer, 50);
         this.pendingWorkbook = { kind: "xlsx", buffer };
+        sheets = listing.sheets;
+        total = listing.total;
       }
 
-      if (sheets.length === 0) throw new Error("No worksheets found in that file");
+      if (sheets.length === 0) throw new Error("No worksheets with data found in that file");
       if (sheets.length === 1) {
         await this.loadSheet(sheets[0].name, fileName);
         return;
       }
 
-      const top = sheets.slice(0, 10);
       this.statusEl.textContent = "";
       this.showPicker(
-        sheets.length > top.length
-          ? `${sheets.length} worksheets — top ${top.length} by size, pick one`
+        total > sheets.length
+          ? `${total} worksheets — first ${sheets.length} shown, pick one`
           : `${sheets.length} worksheets found — pick one`,
-        top.map((sheet, index) => ({
+        sheets.map((sheet) => ({
           label: sheet.name,
           rows: sheet.rows,
           columns: sheet.columns,
-          best: index === 0,
           onSelect: () => {
             this.hideTablePicker();
             void this.loadSheet(sheet.name, fileName);
