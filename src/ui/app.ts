@@ -1,5 +1,6 @@
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
 import { decodeText } from "../parse/encoding.js";
+import { detectTable } from "../parse/header-detect.js";
 import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
 import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
 import type { ColumnFilter } from "../search/query-engine.js";
@@ -485,7 +486,7 @@ export class App {
       const tables = findDataTables(html, 10);
       if (tables.length === 0) throw new Error("No data tables found on that page");
       if (tables.length === 1) {
-        await this.loadTable(tables[0].grid, this.tableNameFor(tables[0], url));
+        await this.loadGrid(tables[0].grid, this.tableNameFor(tables[0], url));
         return;
       }
       this.statusEl.textContent = "";
@@ -498,7 +499,7 @@ export class App {
           best: index === 0,
           onSelect: () => {
             this.hideTablePicker();
-            void this.loadTable(table.grid, this.tableNameFor(table, url));
+            void this.loadGrid(table.grid, this.tableNameFor(table, url));
           },
         })),
       );
@@ -616,13 +617,44 @@ export class App {
       if (rows.length === 0) throw new Error("That worksheet has no data");
       this.statusEl.textContent = "";
       const base = fileName.replace(/\.[^.]+$/, "");
-      await this.loadTable(rows, `${base} — ${sheetName}`);
+      await this.loadGrid(rows, `${base} — ${sheetName}`);
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not read worksheet");
     }
   }
 
-  private async loadTable(rows: string[][], name: string): Promise<void> {
+  /**
+   * Applies header detection to a raw grid (skipping title rows and merging
+   * multi-level headers) when "first row is header" is enabled.
+   */
+  private async loadGrid(grid: string[][], name: string): Promise<void> {
+    if (!this.headersCheckbox.checked) {
+      await this.loadTable(grid, name, false);
+      return;
+    }
+
+    const detected = detectTable(grid);
+    const combined =
+      detected.headerRows > 0 ? [detected.headers, ...detected.rows] : detected.rows;
+    if (combined.length === 0) throw new Error("That table has no data");
+
+    await this.loadTable(combined, name, detected.headerRows > 0);
+
+    if (detected.skipRows > 0 || detected.headerRows > 1) {
+      const skipped =
+        detected.skipRows > 0
+          ? `skipped ${detected.skipRows} row${detected.skipRows === 1 ? "" : "s"}`
+          : "";
+      const levels = detected.headerRows > 1 ? `${detected.headerRows} header rows` : "";
+      this.setAction([skipped, levels].filter(Boolean).join(" · "));
+    }
+  }
+
+  private async loadTable(
+    rows: string[][],
+    name: string,
+    hasHeadersOverride?: boolean,
+  ): Promise<void> {
     if (this.loading) return;
     this.loading = true;
     this.generation++;
@@ -631,7 +663,7 @@ export class App {
     this.statusEl.classList.remove("error");
 
     try {
-      const hasHeaders = this.headersCheckbox.checked;
+      const hasHeaders = hasHeadersOverride ?? this.headersCheckbox.checked;
       const loaded = await this.client.load({
         name,
         delimiter: "auto",
