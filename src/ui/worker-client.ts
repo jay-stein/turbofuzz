@@ -5,6 +5,7 @@ import type {
   ColumnMetaMessage,
   CsvChunkMessage,
   ExportStartedMessage,
+  HeadersRenamedMessage,
   LoadedMessage,
   ProgressMessage,
   ResultsMessage,
@@ -95,6 +96,10 @@ export class SearchWorkerClient {
 
   getStats(): Promise<StatsMessage> {
     return this.request<StatsMessage>({ type: "getStats" });
+  }
+
+  renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {
+    return this.request<HeadersRenamedMessage>({ type: "renameHeaders", headers });
   }
 
   startExport(): Promise<ExportStartedMessage> {

@@ -36,7 +36,7 @@ export class ColumnData {
   private histCache: { bins: number[]; min: number; max: number } | null = null;
 
   constructor(
-    readonly name: string,
+    public name: string,
     readonly raw: string[],
     type: ColumnType,
     dateOrder: DateOrder,

@@ -85,6 +85,11 @@ export class ResultTable {
     this.invalidateRows();
   }
 
+  /** Re-renders the header after column names are mutated in place. */
+  refreshHeader(): void {
+    this.renderHeader();
+  }
+
   setCount(count: number): void {
     this.count = count;
     this.spacer.style.height = `${count * ROW_HEIGHT}px`;

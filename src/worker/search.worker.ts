@@ -13,6 +13,7 @@ import type {
   GetRowsRequest,
   GetStatsRequest,
   LoadRequest,
+  RenameHeadersRequest,
   SetFilterRequest,
   SetTypeRequest,
   SortRequest,
@@ -89,6 +90,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getStats":
       handleGetStats(message);
+      break;
+    case "renameHeaders":
+      handleRenameHeaders(message);
       break;
     case "startExport":
       exportIds = sortedIds.slice();
@@ -472,6 +476,27 @@ function handleGetStats(message: GetStatsRequest): void {
     columnCount: dataset.columnCount,
     stats: dataset.stats,
     columns: dataset.columns.map(detailsFor),
+  });
+}
+
+/**
+ * Header-only rename: updates column names without touching raw data, indexes
+ * or the query engine. Names do not participate in any bitset, so no
+ * invalidation is required — export and every downstream message read
+ * `column.name`, so this single mutation stays the source of truth.
+ */
+function handleRenameHeaders(message: RenameHeadersRequest): void {
+  const { dataset } = state();
+  const columns = dataset.columns;
+  const count = Math.min(message.headers.length, columns.length);
+  for (let i = 0; i < count; i++) {
+    const next = message.headers[i].trim();
+    if (next !== "") columns[i].name = next;
+  }
+  post({
+    type: "headersRenamed",
+    requestId: message.requestId,
+    headers: columns.map((column) => column.name),
   });
 }
 

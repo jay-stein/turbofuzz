@@ -17,6 +17,8 @@ import { SummaryBand } from "./summary-band.js";
 import { openStatsModal } from "./stats.js";
 import { ResultTable, type HighlightRule } from "./table.js";
 import { SearchWorkerClient } from "./worker-client.js";
+import { openCleanPanel } from "./clean-panel.js";
+import { PipelineStepper, type StageId } from "./stepper.js";
 
 const LARGE_PASTE_ROWS = 300_000;
 const DATA_URL_EXTENSIONS = [".csv", ".tsv", ".psv", ".txt", ".xlsx", ".xls", ".zip", ".gz", ".bz2"];
@@ -177,6 +179,8 @@ export class App {
   private shuffleActive = false;
   private filterHost!: HTMLElement;
   private tableHost!: HTMLElement;
+  private stepperHost!: HTMLElement;
+  private stepper: PipelineStepper | null = null;
 
   constructor(private readonly root: HTMLElement) {
     this.buildShell();
@@ -357,6 +361,11 @@ export class App {
   private buildWorkspace(): HTMLElement {
     const workspace = el("div", { class: "workspace hidden" });
 
+    this.stepperHost = el("div", { class: "stepper-host" });
+    this.stepper = new PipelineStepper(this.stepperHost, {
+      onSelect: (id) => this.selectStage(id),
+    });
+
     const sidebar = el("aside", { class: "sidebar" });
     const sidebarHead = el("div", { class: "sidebar-head" });
     sidebarHead.append(el("span", { class: "sidebar-title" }, ["Filters"]));
@@ -430,7 +439,7 @@ export class App {
 
     this.summaryHost = el("div");
     const body = el("div", { class: "workspace-body" }, [sidebar, results]);
-    workspace.append(this.summaryHost, body);
+    workspace.append(this.stepperHost, this.summaryHost, body);
     return workspace;
   }
 
@@ -892,6 +901,8 @@ export class App {
     this.metas = loaded.columns;
     this.rowCount = loaded.rowCount;
     this.datasetName = loaded.name;
+    this.stepper?.setDone("load", true);
+    this.setStage("view");
     this.filters.clear();
     this.specials.clear();
     this.shuffleActive = false;
@@ -1235,5 +1246,52 @@ export class App {
     this.workspace.classList.add("hidden");
     this.pasteView.classList.remove("hidden");
     this.textarea.focus();
+  }
+
+  private selectStage(id: StageId): void {
+    switch (id) {
+      case "load":
+        this.showPaste();
+        break;
+      case "view":
+        this.setStage("view");
+        break;
+      case "clean":
+        this.openClean();
+        break;
+      case "transform":
+      case "export":
+        break;
+    }
+  }
+
+  private setStage(id: StageId): void {
+    this.stepper?.setActive(id);
+  }
+
+  private openClean(): void {
+    if (this.datasetName === "" || this.loading) return;
+    this.setStage("clean");
+    openCleanPanel(this.metas.map((meta) => meta.name), {
+      onApply: (headers) => this.applyHeaderRename(headers),
+      onClose: () => this.setStage("view"),
+    });
+  }
+
+  private applyHeaderRename(headers: string[]): void {
+    this.queueSend(() =>
+      this.client
+        .renameHeaders(headers)
+        .then((message) => {
+          const count = Math.min(this.metas.length, message.headers.length);
+          for (let i = 0; i < count; i++) this.metas[i].name = message.headers[i];
+          this.filterPanel?.rebuild();
+          this.table?.refreshHeader();
+          this.summaryBand?.updateNames(message.headers);
+          const plural = message.headers.length === 1 ? "" : "s";
+          this.setAction(`Renamed ${message.headers.length} column${plural}`);
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
   }
 }

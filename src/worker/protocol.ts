@@ -117,6 +117,12 @@ export type GetCsvRequest = {
   end: number;
 };
 
+export type RenameHeadersRequest = {
+  type: "renameHeaders";
+  requestId: number;
+  headers: string[];
+};
+
 export type WorkerRequest =
   | LoadRequest
   | SetFilterRequest
@@ -128,7 +134,8 @@ export type WorkerRequest =
   | SetTypeRequest
   | GetStatsRequest
   | StartExportRequest
-  | GetCsvRequest;
+  | GetCsvRequest
+  | RenameHeadersRequest;
 
 export interface LoadedMessage {
   type: "loaded";
@@ -221,6 +228,12 @@ export interface CsvChunkMessage {
   text: string;
 }
 
+export interface HeadersRenamedMessage {
+  type: "headersRenamed";
+  requestId: number;
+  headers: string[];
+}
+
 export interface ErrorMessage {
   type: "error";
   requestId: number;
@@ -238,4 +251,5 @@ export type WorkerResponse =
   | StatsMessage
   | ExportStartedMessage
   | CsvChunkMessage
+  | HeadersRenamedMessage
   | ErrorMessage;

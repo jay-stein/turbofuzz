@@ -101,6 +101,22 @@ export class SummaryBand {
     this.root.classList.add("hidden");
   }
 
+  /** Updates column names in place after a header rename (cards are in column order). */
+  updateNames(names: string[]): void {
+    const cards = this.root.querySelectorAll<HTMLElement>(".stat-card");
+    cards.forEach((card, index) => {
+      const name = names[index];
+      if (name === undefined) return;
+      const nameEl = card.querySelector<HTMLElement>(".stat-name");
+      if (nameEl !== null) {
+        nameEl.textContent = name;
+        nameEl.title = name;
+      }
+      const typeLabel = card.querySelector<HTMLElement>(".stat-type")?.textContent ?? "";
+      card.title = typeLabel === "" ? name : `${name} — ${typeLabel}`;
+    });
+  }
+
   private syncButtons(): void {
     for (const { kind, label } of QA_BUTTONS) {
       const entry = this.buttons.get(kind);
