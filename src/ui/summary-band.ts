@@ -15,22 +15,22 @@ const QA_BUTTONS: { kind: SpecialKind; label: string; title: string }[] = [
     kind: "duplicates",
     label: "Duplicates",
     title:
-      "All rows belonging to a duplicate group — every copy is shown so they can be compared",
+      "Show only rows belonging to a duplicate group — every copy is shown so they can be compared",
   },
   {
     kind: "nulls",
     label: "Nulls",
-    title: "Rows with at least one empty cell",
+    title: "Show only rows with at least one empty cell",
   },
   {
     kind: "valueAnomalies",
     label: "Value outliers",
-    title: "Numbers far from their column's median (modified z-score)",
+    title: "Show only rows with numbers far from their column's median (modified z-score)",
   },
   {
     kind: "lengthAnomalies",
     label: "Length outliers",
-    title: "Text lengths outside each column's 1.5×IQR fences",
+    title: "Show only rows with text lengths outside each column's 1.5×IQR fences",
   },
 ];
 
@@ -133,7 +133,7 @@ export class SummaryBand {
       entry.button.classList.toggle("ok", this.counts[kind] === 0);
       entry.button.setAttribute("aria-pressed", on ? "true" : "false");
       entry.label.textContent = on
-        ? `✓ ${label}: on`
+        ? `Only ${label.toLowerCase()} (${this.counts[kind].toLocaleString()})`
         : `${label}: ${this.counts[kind].toLocaleString()}`;
     }
   }

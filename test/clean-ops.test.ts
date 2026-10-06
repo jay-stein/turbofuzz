@@ -66,9 +66,29 @@ test("does not mutate the input array", () => {
   assert.deepEqual(result, ["x"]);
 });
 
+test("rounds numeric cells to fixed decimal places", () => {
+  assert.deepEqual(
+    applyCleanOps(["1.2345", "2", "1,234.567", "$5.5"], [{ kind: "round", decimals: 2 }]),
+    ["1.23", "2.00", "1234.57", "5.50"],
+  );
+});
+
+test("round to zero decimals drops the fraction", () => {
+  assert.deepEqual(applyCleanOps(["2.5", "-1.4"], [{ kind: "round", decimals: 0 }]), ["3", "-1"]);
+});
+
+test("round leaves non-numeric cells untouched", () => {
+  assert.deepEqual(
+    applyCleanOps(["abc", "N/A", ""], [{ kind: "round", decimals: 1 }]),
+    ["abc", "N/A", ""],
+  );
+});
+
 test("describeCleanOp summarises operations", () => {
   assert.equal(describeCleanOp({ kind: "trim" }), "Trim whitespace");
   assert.equal(describeCleanOp({ kind: "case", style: "upper" }), "UPPERCASE");
+  assert.equal(describeCleanOp({ kind: "round", decimals: 2 }), "Round to 2 decimal places");
+  assert.equal(describeCleanOp({ kind: "round", decimals: 1 }), "Round to 1 decimal place");
   assert.match(
     describeCleanOp({ kind: "replace", find: "a", replacement: "b", ignoreCase: true }),
     /Replace/,
