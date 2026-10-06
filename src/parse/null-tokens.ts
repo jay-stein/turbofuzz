@@ -93,6 +93,43 @@ const ZERO_WIDTH = new Set([0x200b, 0x200c, 0x200d, 0x2060, 0xfeff]);
 const COMPACT_FIRST = new Set([98, 101, 109, 110, 116, 117]);
 
 /**
+ * Per-column override of the global null heuristic. `extra` tokens are treated
+ * as null even if the heuristic would not; `keep` tokens are never treated as
+ * null (e.g. a town literally called "NULL"). Matching is exact on the raw cell
+ * value, so the user un-nulls precisely the tokens they see.
+ */
+export interface NullPolicy {
+  readonly extra: ReadonlySet<string>;
+  readonly keep: ReadonlySet<string>;
+}
+
+export function createNullPolicy(
+  extra: Iterable<string> = [],
+  keep: Iterable<string> = [],
+): NullPolicy {
+  return { extra: new Set(extra), keep: new Set(keep) };
+}
+
+export const EMPTY_NULL_POLICY: NullPolicy = { extra: new Set(), keep: new Set() };
+
+export function isNullWithPolicy(raw: string, policy: NullPolicy): boolean {
+  if (policy.keep.size > 0 && policy.keep.has(raw)) return false;
+  if (policy.extra.size > 0 && policy.extra.has(raw)) return true;
+  return isNullToken(raw);
+}
+
+/** Array-based variant used by the UI with the serialized policy from ColumnMeta. */
+export function isNullWithWire(
+  raw: string,
+  extra: readonly string[],
+  keep: readonly string[],
+): boolean {
+  if (keep.length > 0 && keep.includes(raw)) return false;
+  if (extra.length > 0 && extra.includes(raw)) return true;
+  return isNullToken(raw);
+}
+
+/**
  * True for common missing-value markers. Case, surrounding/inner whitespace,
  * separators, zero-width characters and punctuation variants are all handled.
  *

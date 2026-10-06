@@ -42,11 +42,21 @@ would *hurt* the latency story instead of helping it:
 
 ## 2. Critical review, stage by stage
 
-### Load — done, keep as-is
+### Load — done
 
 Well covered: paste, file, URL, archives (zip/gz/bz2), xlsx/xls, header detection,
-type inference. No changes needed. (Minor: the `300k` paste guardrail and progress
-messages are already good.)
+type inference, plus:
+
+- **Delimited `.txt` / `.dat`** — same auto-delimiter path as CSV.
+- **JSON / JSONL / NDJSON** — array of objects (nested objects flattened to dotted
+  paths), array of arrays, JSONL records and pandas-style column-oriented objects.
+  Pasted JSON is sniffed when the delimiter is auto.
+- **Parquet** — flat primitive columns read via `hyparquet`, decoded lazily inside
+  the worker so the reader is code-split and never touches the core bundle.
+
+Deliberately **not** supported: **HDF5 (`.h5`/`.hdf5`)** — a complex, non-tabular
+container with immature JS tooling; the app rejects it with a clear message and
+suggests exporting to CSV or Parquet first.
 
 ### Clean — detection is done; standardisation is the gap
 
@@ -55,6 +65,13 @@ What already works:
 - `isNullToken()` (`src/parse/null-tokens.ts`) collapses the "string null" problem at
   ingest time — before any index is built. This is the *correct* place for it, because
   it keeps one null semantics everywhere downstream.
+
+**Per-column null review (done):** Clean → Nulls lists the exact distinct values each
+column treats as missing with counts, so false positives (a town called `NULL`, a state
+abbreviated `NA`) can be un-nulled, and custom sentinels (`-999`) can be added. The
+policy is exact-match and per column, threaded through inference, categories, numeric
+stats, anomalies, cell styling and transforms, and lives in the non-destructive clean
+state (rebuild + carry specials), so it composes with value cleans and reverts.
 
 What to add (the actual work):
 

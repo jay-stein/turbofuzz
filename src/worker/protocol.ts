@@ -1,5 +1,6 @@
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
 import type { CleanOp } from "../data/clean-ops.js";
+import type { NullTokenCount } from "../data/column.js";
 import type { DatasetStats } from "../data/stats.js";
 import type { ColumnSchema, TransformOp } from "../data/transform-ops.js";
 import type { Delimiter } from "../parse/delimiter.js";
@@ -21,6 +22,8 @@ export interface ColumnMeta {
   histogram: HistogramMeta | null;
   valueFence: ValueFence | null;
   lengthFence: LengthFence | null;
+  nullPolicy: { extra: string[]; keep: string[] };
+  nullTokens: NullTokenCount[];
 }
 
 export interface HistogramMeta {
@@ -142,6 +145,14 @@ export type TransformRequest = {
   ops: TransformOp[];
 };
 
+export type SetNullPolicyRequest = {
+  type: "setNullPolicy";
+  requestId: number;
+  column: number;
+  extra: string[];
+  keep: string[];
+};
+
 export type WorkerRequest =
   | LoadRequest
   | SetFilterRequest
@@ -156,7 +167,8 @@ export type WorkerRequest =
   | GetCsvRequest
   | RenameHeadersRequest
   | CleanColumnsRequest
-  | TransformRequest;
+  | TransformRequest
+  | SetNullPolicyRequest;
 
 export interface DatasetMessage {
   requestId: number;

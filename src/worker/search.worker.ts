@@ -1,16 +1,22 @@
 import { ColumnData } from "../data/column.js";
 import { computeAnomalies } from "../data/anomalies.js";
-import { rebuildDataset } from "../data/build.js";
+import { buildDataset, rebuildDataset } from "../data/build.js";
 import { applyCleanOps } from "../data/clean-ops.js";
 import type { Dataset } from "../data/dataset.js";
 import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
 import type { FileEncoding } from "../parse/encoding.js";
+import {
+  createNullPolicy,
+  EMPTY_NULL_POLICY,
+  type NullPolicy,
+} from "../parse/null-tokens.js";
+import { isParquetName, readParquetGrid } from "../parse/parquet.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
 import type { BitSet } from "../search/bitset.js";
 import { buildRank, orderIds } from "../search/order.js";
 import { QueryEngine, type ColumnFilter } from "../search/query-engine.js";
 import { buildCsv } from "./csv.js";
-import { ingestDataset } from "./ingest.js";
+import { ingestDataset, type IngestResult } from "./ingest.js";
 import type {
   CleanColumnsRequest,
   ColumnDetail,
@@ -20,6 +26,7 @@ import type {
   LoadRequest,
   RenameHeadersRequest,
   SetFilterRequest,
+  SetNullPolicyRequest,
   SetTypeRequest,
   SortRequest,
   SpecialKind,
@@ -46,6 +53,8 @@ const specials = new Set<SpecialKind>();
 const histogramCache = new HistogramCache();
 // Non-destructive clean state: the untouched source column per cleaned column.
 const cleanSource = new Map<number, ColumnData>();
+// Per-column null overrides, persisted so value cleans and reverts re-apply them.
+const nullPolicies = new Map<number, NullPolicy>();
 // Non-destructive transform state: the base dataset captured before the first
 // transform plus the ordered op list, re-derived from that base on every change.
 let transformSource: Dataset | null = null;
@@ -110,6 +119,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "cleanColumns":
       handleCleanColumns(message);
+      break;
+    case "setNullPolicy":
+      handleSetNullPolicy(message);
       break;
     case "transform":
       handleTransform(message);
@@ -244,17 +256,31 @@ function handleShuffle(message: { requestId: number; limit?: number }): void {
 
 async function handleLoad(message: LoadRequest): Promise<void> {
   const started = performance.now();
-  const { dataset: next, encoding } = ingestDataset({
-    name: message.name,
-    delimiter: message.delimiter,
-    hasHeaders: message.hasHeaders,
-    text: message.text,
-    buffer: message.buffer,
-    table: message.table,
-    onProgress: (progress) =>
-      post({ type: "progress", phase: progress.phase, detail: progress.detail }),
-  });
 
+  // Parquet is decoded lazily inside the worker; every other format goes through
+  // the shared text/table ingest path, which stays synchronous.
+  let ingested: IngestResult;
+  if (message.buffer !== undefined && isParquetName(message.name)) {
+    post({ type: "progress", phase: "parse", detail: "Reading parquet…" });
+    const grid = await readParquetGrid(message.buffer);
+    const dataset = buildDataset(message.name, grid.headers, grid.rows, (detail) =>
+      post({ type: "progress", phase: "build", detail }),
+    );
+    ingested = { dataset, encoding: null };
+  } else {
+    ingested = ingestDataset({
+      name: message.name,
+      delimiter: message.delimiter,
+      hasHeaders: message.hasHeaders,
+      text: message.text,
+      buffer: message.buffer,
+      table: message.table,
+      onProgress: (progress) =>
+        post({ type: "progress", phase: progress.phase, detail: progress.detail }),
+    });
+  }
+
+  const { dataset: next, encoding } = ingested;
   dataset = next;
   engine = new QueryEngine(next);
   filters.clear();
@@ -266,6 +292,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   specials.clear();
   histogramCache.clear();
   cleanSource.clear();
+  nullPolicies.clear();
   transformSource = null;
   transformOps = [];
   datasetSource = message.buffer !== undefined ? "file" : "paste";
@@ -552,14 +579,11 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
       cleanSource.set(column, source);
     }
 
-    if (update.ops.length === 0) {
-      columns[column] = source;
-    } else {
-      const raw = applyCleanOps(source.raw, update.ops);
-      const rebuilt = ColumnData.create(current.columns[column].name, raw);
-      rebuilt.setType(current.columns[column].type);
-      columns[column] = rebuilt;
-    }
+    const policy = nullPolicies.get(column) ?? EMPTY_NULL_POLICY;
+    const raw = update.ops.length === 0 ? source.raw : applyCleanOps(source.raw, update.ops);
+    const rebuilt = ColumnData.create(current.columns[column].name, raw, policy);
+    rebuilt.setType(current.columns[column].type);
+    columns[column] = rebuilt;
 
     filters.delete(column);
     affected.push(column);
@@ -589,6 +613,57 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
       column,
       meta: metaFor(next, next.columns[column], column),
     })),
+    stats: next.stats,
+    count: sortedIds.length,
+    queryMs: performance.now() - started,
+    facets: computeFacets(next, newEngine, bits),
+    histograms: computeHistograms(next, newEngine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+  });
+}
+
+/**
+ * Per-column null policy: rebuilds one column with tokens the user un-nulled
+ * (keep) or added as missing (extra). Shape is unchanged, so this mirrors the
+ * clean path (carry specials, invalidate engine caches, clear that column's
+ * filter).
+ */
+function handleSetNullPolicy(message: SetNullPolicyRequest): void {
+  const { dataset: current } = state();
+  const column = current.columns[message.column];
+  if (column === undefined) throw new Error(`Unknown column ${message.column + 1}`);
+
+  const policy = createNullPolicy(message.extra, message.keep);
+  nullPolicies.set(message.column, policy);
+
+  const columns = current.columns.slice();
+  const rebuilt = ColumnData.create(column.name, column.raw, policy);
+  rebuilt.setType(column.type);
+  columns[message.column] = rebuilt;
+
+  const next = rebuildDataset(current, columns);
+  const newEngine = new QueryEngine(next);
+  for (const kind of specials) newEngine.setSpecial(kind, true);
+  dataset = next;
+  engine = newEngine;
+
+  filters.delete(message.column);
+  rankColumn = -1;
+  rankAsc = null;
+  sortDir = 1;
+  duplicateRank = null;
+  exportIds = null;
+  histogramCache.clear();
+
+  const started = performance.now();
+  const bits = newEngine.evaluateBits(filters);
+  sortedIds = computeSortedIds(bits);
+  post({
+    type: "cleaned",
+    requestId: message.requestId,
+    columns: [{ column: message.column, meta: metaFor(next, rebuilt, message.column) }],
     stats: next.stats,
     count: sortedIds.length,
     queryMs: performance.now() - started,
@@ -680,6 +755,8 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     histogram: column.histogram(),
     valueFence: dataset.valueFences[index] ?? null,
     lengthFence: dataset.lengthFences[index] ?? null,
+    nullPolicy: { extra: [...column.nullPolicy.extra], keep: [...column.nullPolicy.keep] },
+    nullTokens: [...column.nullTokens],
   };
 }
 

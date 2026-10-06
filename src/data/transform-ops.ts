@@ -3,7 +3,6 @@ import { ColumnData } from "./column.js";
 import { formatNumber } from "./format.js";
 import { knnImpute } from "./knn.js";
 import { hashRows, rowsEqual } from "./stats.js";
-import { isNullToken } from "../parse/null-tokens.js";
 import { parseNumber } from "../parse/numbers.js";
 import type { Dataset } from "./dataset.js";
 
@@ -99,7 +98,7 @@ export function applyTransformOps(
 }
 
 function rebuildColumn(column: ColumnData, raw: string[]): ColumnData {
-  const rebuilt = ColumnData.create(column.name, raw);
+  const rebuilt = ColumnData.create(column.name, raw, column.nullPolicy);
   rebuilt.setType(column.type);
   return rebuilt;
 }
@@ -298,7 +297,7 @@ function imputeColumns(
     if (strategy.kind === "forward") {
       let last: string | null = null;
       for (let i = 0; i < raw.length; i++) {
-        if (isNullToken(raw[i])) {
+        if (column.isNull(raw[i])) {
           if (last !== null) raw[i] = last;
         } else {
           last = raw[i];
@@ -307,7 +306,7 @@ function imputeColumns(
     } else {
       let next: string | null = null;
       for (let i = raw.length - 1; i >= 0; i--) {
-        if (isNullToken(raw[i])) {
+        if (column.isNull(raw[i])) {
           if (next !== null) raw[i] = next;
         } else {
           next = raw[i];
@@ -322,7 +321,7 @@ function imputeColumns(
     const fill = computeFill(column, numbers, strategy, null);
     if (fill !== null) {
       for (let i = 0; i < raw.length; i++) {
-        if (isNullToken(raw[i])) raw[i] = fill;
+        if (column.isNull(raw[i])) raw[i] = fill;
       }
     }
   } else {
@@ -343,7 +342,7 @@ function imputeColumns(
         const fill = computeFill(column, numbers, strategy, rows) ?? fallback;
         if (fill === null) continue;
         for (const row of rows) {
-          if (isNullToken(raw[row])) raw[row] = fill;
+          if (column.isNull(raw[row])) raw[row] = fill;
         }
       }
     }
@@ -445,7 +444,7 @@ function computeFill(
       const counts = new Map<string, number>();
       const collect = (row: number): void => {
         const value = column.raw[row];
-        if (!isNullToken(value)) counts.set(value, (counts.get(value) ?? 0) + 1);
+        if (!column.isNull(value)) counts.set(value, (counts.get(value) ?? 0) + 1);
       };
       if (rows === null) {
         for (let i = 0; i < column.raw.length; i++) collect(i);

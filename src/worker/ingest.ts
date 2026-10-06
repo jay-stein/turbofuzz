@@ -2,6 +2,7 @@ import { buildDataset } from "../data/build.js";
 import type { Dataset } from "../data/dataset.js";
 import { decodeText, type FileEncoding } from "../parse/encoding.js";
 import { detectTable } from "../parse/header-detect.js";
+import { isJsonName, parseJsonGrid } from "../parse/json.js";
 import { parseDelimited, structureTable } from "../parse/parse.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { ProgressPhase } from "./protocol.js";
@@ -44,8 +45,24 @@ export function ingestDataset(options: IngestOptions): IngestResult {
     encoding = decoded.encoding;
   }
 
+  const source = text ?? "";
+
+  // JSON is structure-carrying, so it bypasses delimiter/header detection.
+  if (isJsonName(options.name)) {
+    const grid = parseJsonGrid(source, options.hasHeaders);
+    return { dataset: buildFromGrid(options.name, grid.headers, grid.rows, options), encoding };
+  }
+  if (looksLikeJson(source, options.delimiter)) {
+    try {
+      const grid = parseJsonGrid(source, options.hasHeaders);
+      return { dataset: buildFromGrid(options.name, grid.headers, grid.rows, options), encoding };
+    } catch {
+      // Not JSON after all — fall through to delimited parsing.
+    }
+  }
+
   options.onProgress?.({ phase: "parse" });
-  const parsed = parseDelimited(text ?? "", {
+  const parsed = parseDelimited(source, {
     delimiter: options.delimiter,
     hasHeaders: false,
   });
@@ -69,4 +86,22 @@ export function ingestDataset(options: IngestOptions): IngestResult {
   });
 
   return { dataset, encoding };
+}
+
+function buildFromGrid(
+  name: string,
+  headers: string[],
+  rows: string[][],
+  options: IngestOptions,
+): Dataset {
+  return buildDataset(name, headers, rows, (detail) => {
+    options.onProgress?.({ phase: "build", detail });
+  });
+}
+
+/** Sniff pasted text: only when the delimiter is auto and it starts like JSON. */
+function looksLikeJson(text: string, delimiter: Delimiter | "auto"): boolean {
+  if (delimiter !== "auto") return false;
+  const first = text.trimStart().charAt(0);
+  return first === "{" || first === "[";
 }

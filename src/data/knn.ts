@@ -167,7 +167,7 @@ export function knnImpute(
   }
 
   targets.forEach((columnIndex, t) => {
-    const rebuilt = ColumnData.create(columns[columnIndex].name, raw[t]);
+    const rebuilt = ColumnData.create(columns[columnIndex].name, raw[t], columns[columnIndex].nullPolicy);
     rebuilt.setType(columns[columnIndex].type);
     next[columnIndex] = rebuilt;
   });

@@ -16,6 +16,7 @@ export interface CleanPanelCallbacks {
   onApplyHeaders: (headers: string[]) => void;
   onApplyClean: (column: number, ops: CleanOp[]) => void;
   onResetCleans: () => void;
+  onApplyNullPolicy: (column: number, extra: string[], keep: string[]) => void;
   onClose: () => void;
 }
 
@@ -58,20 +59,26 @@ export function openCleanPanel(
   const tabs = el("div", { class: "clean-tabs" });
   const namesButton = el("button", { class: "clean-tab", type: "button" }, ["Column names"]);
   const valuesButton = el("button", { class: "clean-tab", type: "button" }, ["Values"]);
-  tabs.append(namesButton, valuesButton);
+  const nullsButton = el("button", { class: "clean-tab", type: "button" }, ["Nulls"]);
+  tabs.append(namesButton, valuesButton, nullsButton);
 
   const namesTab = buildNamesTab(metas.map((meta) => meta.name), callbacks, close);
   const valuesTab = buildValuesTab(metas, cleaned, callbacks, close);
-  modal.append(tabs, namesTab, valuesTab);
+  const nullsTab = buildNullsTab(metas, callbacks, close);
+  modal.append(tabs, namesTab, valuesTab, nullsTab);
 
-  function selectTab(tab: "names" | "values"): void {
+  type Tab = "names" | "values" | "nulls";
+  function selectTab(tab: Tab): void {
     namesButton.classList.toggle("active", tab === "names");
     valuesButton.classList.toggle("active", tab === "values");
+    nullsButton.classList.toggle("active", tab === "nulls");
     namesTab.classList.toggle("hidden", tab !== "names");
     valuesTab.classList.toggle("hidden", tab !== "values");
+    nullsTab.classList.toggle("hidden", tab !== "nulls");
   }
   namesButton.addEventListener("click", () => selectTab("names"));
   valuesButton.addEventListener("click", () => selectTab("values"));
+  nullsButton.addEventListener("click", () => selectTab("nulls"));
   selectTab("names");
 
   function close(): void {
@@ -355,5 +362,145 @@ function buildToggle(
   input.checked = initial;
   input.addEventListener("change", () => onChange(input.checked));
   wrap.append(input, label);
+  return wrap;
+}
+
+/**
+ * Null review: lists the exact distinct values this column currently treats as
+ * missing so the user can un-null false positives (a town called "NULL", a
+ * state abbreviated "NA") or add custom missing tokens.
+ */
+function buildNullsTab(
+  metas: readonly ColumnMeta[],
+  callbacks: CleanPanelCallbacks,
+  close: () => void,
+): HTMLElement {
+  const wrap = el("div", { class: "clean-values" });
+
+  let column = 0;
+  let extra = new Set<string>();
+  let keep = new Set<string>();
+
+  const colField = el("label", { class: "clean-field" });
+  colField.append(el("span", { class: "clean-label" }, ["Column"]));
+  const colSelect = el("select") as HTMLSelectElement;
+  metas.forEach((meta, index) => {
+    colSelect.append(el("option", { value: String(index) }, [meta.name]) as HTMLOptionElement);
+  });
+  colField.append(colSelect);
+
+  const hint = el("div", { class: "clean-hint" }, [
+    "Values detected as missing are ticked. Untick anything that is a real value.",
+  ]);
+  const list = el("div", { class: "null-list" });
+
+  const extraField = el("div", { class: "clean-field" });
+  extraField.append(el("span", { class: "clean-label" }, ["Also null"]));
+  const extraInput = el("input", {
+    class: "text-input",
+    type: "text",
+    placeholder: "Add a value to treat as null",
+    spellcheck: "false",
+  }) as HTMLInputElement;
+  const addButton = el("button", { class: "ghost small", type: "button" }, ["Add"]);
+  extraField.append(extraInput, addButton);
+  const extraList = el("div", { class: "null-list" });
+  const summary = el("div", { class: "clean-summary" });
+
+  function render(): void {
+    const meta = metas[column];
+    clear(list);
+    clear(extraList);
+
+    if (meta.nullTokens.length === 0) {
+      list.append(el("div", { class: "clean-empty" }, ["No automatic nulls detected."]));
+    } else {
+      for (const token of meta.nullTokens) {
+        const row = el("label", { class: "null-row" });
+        const checkbox = el("input", { type: "checkbox" }) as HTMLInputElement;
+        checkbox.checked = !keep.has(token.label);
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked) keep.delete(token.label);
+          else keep.add(token.label);
+          renderSummary(meta);
+        });
+        row.append(
+          checkbox,
+          el("span", { class: "null-label", title: token.label }, [
+            token.label === "" ? "(blank)" : token.label,
+          ]),
+          el("span", { class: "null-count" }, [token.count.toLocaleString()]),
+        );
+        list.append(row);
+      }
+    }
+
+    for (const token of extra) {
+      const row = el("div", { class: "null-row" });
+      const remove = el("button", { class: "icon-btn", type: "button", title: "Remove" }, ["×"]);
+      remove.addEventListener("click", () => {
+        extra.delete(token);
+        render();
+      });
+      row.append(
+        el("span", { class: "null-label", title: token }, [token]),
+        el("span", { class: "null-count" }, ["→ null"]),
+        remove,
+      );
+      extraList.append(row);
+    }
+
+    renderSummary(meta);
+  }
+
+  function renderSummary(meta: ColumnMeta): void {
+    const nullCells = meta.nullTokens
+      .filter((token) => !keep.has(token.label))
+      .reduce((total, token) => total + token.count, 0);
+    const parts = [`${nullCells.toLocaleString()} cells null`];
+    if (keep.size > 0) parts.push(`${keep.size} kept as values`);
+    if (extra.size > 0) parts.push(`${extra.size} added`);
+    summary.textContent = parts.join(" · ");
+  }
+
+  function addExtra(): void {
+    const value = extraInput.value;
+    if (value === "") return;
+    const meta = metas[column];
+    const alreadyNull =
+      meta.nullTokens.some((token) => token.label === value) && !keep.has(value);
+    if (!alreadyNull) extra.add(value);
+    extraInput.value = "";
+    render();
+  }
+  addButton.addEventListener("click", addExtra);
+  extraInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      addExtra();
+    }
+  });
+
+  function loadColumn(index: number): void {
+    column = index;
+    const meta = metas[index];
+    extra = new Set(meta.nullPolicy.extra);
+    keep = new Set(meta.nullPolicy.keep);
+    render();
+  }
+  colSelect.addEventListener("change", () => loadColumn(Number(colSelect.value)));
+
+  const footer = el("div", { class: "clean-footer" });
+  const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
+  cancel.addEventListener("click", close);
+  const apply = el("button", { class: "primary", type: "button" }, ["Apply nulls"]);
+  apply.addEventListener("click", () => {
+    callbacks.onApplyNullPolicy(column, [...extra], [...keep]);
+    close();
+  });
+  footer.append(cancel, el("span", { class: "grow" }), apply);
+
+  wrap.append(colField, hint, list, extraField, extraList, summary, footer);
+  if (metas.length > 0) loadColumn(0);
   return wrap;
 }

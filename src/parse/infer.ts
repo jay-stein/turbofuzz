@@ -44,10 +44,11 @@ export function inferColumnType(
   sample: readonly string[],
   stats: ColumnStats,
   rowCount: number,
+  isNull: (value: string) => boolean = isNullToken,
 ): InferredType {
   const nonNull: string[] = [];
   for (const value of sample) {
-    if (!isNullToken(value)) nonNull.push(value.trim());
+    if (!isNull(value)) nonNull.push(value.trim());
   }
   if (nonNull.length === 0) return { type: "string" };
 

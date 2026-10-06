@@ -110,6 +110,10 @@ export class SearchWorkerClient {
     return this.request<CleanedMessage>({ type: "cleanColumns", updates });
   }
 
+  setNullPolicy(column: number, extra: string[], keep: string[]): Promise<CleanedMessage> {
+    return this.request<CleanedMessage>({ type: "setNullPolicy", column, extra, keep });
+  }
+
   transform(ops: TransformOp[]): Promise<TransformedMessage> {
     return this.request<TransformedMessage>({ type: "transform", ops });
   }

@@ -8,10 +8,15 @@ import {
   type ColumnStats,
   type InferredType,
 } from "../parse/infer.js";
-import { isNullToken } from "../parse/null-tokens.js";
+import { isNullWithPolicy, EMPTY_NULL_POLICY, type NullPolicy } from "../parse/null-tokens.js";
 import { parseNumber } from "../parse/numbers.js";
 import { valueLength } from "../parse/value-length.js";
 import type { ColumnType } from "../types.js";
+
+export interface NullTokenCount {
+  label: string;
+  count: number;
+}
 
 export interface CategorySet {
   labels: string[];
@@ -42,6 +47,8 @@ export class ColumnData {
     dateOrder: DateOrder,
     stats: ColumnStats,
     nullMask: BitSet,
+    readonly nullPolicy: NullPolicy,
+    readonly nullTokens: readonly NullTokenCount[],
   ) {
     this.type = type;
     this.dateOrder = dateOrder;
@@ -49,7 +56,11 @@ export class ColumnData {
     this.nullMask = nullMask;
   }
 
-  static create(name: string, raw: string[]): ColumnData {
+  static create(
+    name: string,
+    raw: string[],
+    nullPolicy: NullPolicy = EMPTY_NULL_POLICY,
+  ): ColumnData {
     const stats: ColumnStats = {
       nulls: 0,
       distinct: 0,
@@ -69,13 +80,14 @@ export class ColumnData {
     // A cheap sample-only inference decides whether exact counts are needed:
     // numeric/date columns display a histogram, not top values, so a plain
     // distinct Set is enough and saves two hash lookups per cell.
-    const pre = preInfer(sample);
+    const pre = preInfer(sample, nullPolicy);
     const collectCounts =
       pre.type !== "integer" && pre.type !== "number" && pre.type !== "date";
 
     const counts = collectCounts ? new Map<string, number>() : null;
     const distinct = counts === null ? new Set<string>() : null;
     const top: { label: string; count: number }[] = [];
+    const nullCounts = new Map<string, number>();
     let presentCount = 0;
     let lengthSum = 0;
     let minLength = Infinity;
@@ -83,9 +95,10 @@ export class ColumnData {
 
     for (let i = 0; i < raw.length; i++) {
       const value = raw[i];
-      if (isNullToken(value)) {
+      if (isNullWithPolicy(value, nullPolicy)) {
         stats.nulls++;
         nullMask.set(i);
+        nullCounts.set(value, (nullCounts.get(value) ?? 0) + 1);
         continue;
       }
       if (counts !== null) counts.set(value, (counts.get(value) ?? 0) + 1);
@@ -118,7 +131,12 @@ export class ColumnData {
     }
     stats.topValues = top;
 
-    const inferred = inferColumnType(sample, stats, raw.length);
+    const inferred = inferColumnType(sample, stats, raw.length, (value) =>
+      isNullWithPolicy(value, nullPolicy),
+    );
+    const nullTokens = [...nullCounts.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
     return new ColumnData(
       name,
       raw,
@@ -126,7 +144,14 @@ export class ColumnData {
       inferred.dateOrder ?? "dmy",
       stats,
       nullMask,
+      nullPolicy,
+      nullTokens,
     );
+  }
+
+  /** True when this column treats the exact cell value as missing. */
+  isNull(value: string): boolean {
+    return isNullWithPolicy(value, this.nullPolicy);
   }
 
   get fuzzyBuilt(): boolean {
@@ -151,7 +176,7 @@ export class ColumnData {
 
   normalized(): string[] {
     if (this.norm === null) {
-      this.norm = this.raw.map((value) => (isNullToken(value) ? "" : normalize(value)));
+      this.norm = this.raw.map((value) => (this.isNull(value) ? "" : normalize(value)));
     }
     return this.norm;
   }
@@ -168,6 +193,7 @@ export class ColumnData {
   numbers(): Float64Array {
     if (this.nums === null) {
       const isDate = this.type === "date";
+      const checkPolicy = this.nullPolicy.extra.size > 0;
       const out = new Float64Array(this.raw.length);
       let min = Infinity;
       let max = -Infinity;
@@ -177,8 +203,14 @@ export class ColumnData {
 
       for (let i = 0; i < this.raw.length; i++) {
         const value = this.raw[i];
-        // Null markers all parse to NaN, so no separate isNullToken call.
-        const parsed = isDate ? parseDate(value, this.dateOrder) : parseNumber(value);
+        // Null markers parse to NaN; only a custom extra-null token (which may
+        // be numeric, e.g. -999) needs an explicit policy check.
+        const parsed =
+          checkPolicy && this.isNull(value)
+            ? NaN
+            : isDate
+              ? parseDate(value, this.dateOrder)
+              : parseNumber(value);
         out[i] = parsed;
         if (Number.isFinite(parsed)) {
           if (parsed < min) min = parsed;
@@ -292,7 +324,7 @@ export class ColumnData {
 
       for (let i = 0; i < this.raw.length; i++) {
         const value = this.raw[i];
-        const key = isNullToken(value) ? "(empty)" : value.trim();
+        const key = this.isNull(value) ? "(empty)" : value.trim();
         let id = index.get(key);
         if (id === undefined) {
           id = labels.length;
@@ -322,11 +354,11 @@ export class ColumnData {
 }
 
 /** Sample-only guess used to pick the cheaper ingest path. */
-function preInfer(sample: readonly string[]): InferredType {
+function preInfer(sample: readonly string[], policy: NullPolicy): InferredType {
   let nulls = 0;
   const seen = new Set<string>();
   for (const value of sample) {
-    if (isNullToken(value)) {
+    if (isNullWithPolicy(value, policy)) {
       nulls++;
       continue;
     }
@@ -346,5 +378,7 @@ function preInfer(sample: readonly string[]): InferredType {
     maxLength: null,
     avgLength: null,
   };
-  return inferColumnType(sample, sampleStats, sample.length);
+  return inferColumnType(sample, sampleStats, sample.length, (value) =>
+    isNullWithPolicy(value, policy),
+  );
 }

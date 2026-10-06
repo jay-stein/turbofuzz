@@ -1,5 +1,5 @@
 import { clear, el } from "./dom.js";
-import { isNullToken } from "../parse/null-tokens.js";
+import { isNullToken, isNullWithWire } from "../parse/null-tokens.js";
 import { parseNumber } from "../parse/numbers.js";
 import { valueLength } from "../parse/value-length.js";
 import { COLUMN_TYPES, TYPE_LABELS, type ColumnType } from "../types.js";
@@ -340,7 +340,12 @@ export class ResultTable {
   }
 
   private fillCell(cell: HTMLElement, value: string, columnIndex: number): void {
-    if (isNullToken(value)) {
+    const policy = this.columns[columnIndex]?.nullPolicy;
+    const isNull =
+      policy === undefined
+        ? isNullToken(value)
+        : isNullWithWire(value, policy.extra, policy.keep);
+    if (isNull) {
       cell.classList.add("null-cell");
       cell.textContent = value;
       return;

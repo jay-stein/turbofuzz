@@ -31,6 +31,8 @@
     "bz2": "^1.0.1",
     "double-metaphone": "^2.0.1",
     "fflate": "^0.8.3",
+    "hyparquet": "^1.31.2",
+    "hyparquet-compressors": "^1.1.2",
     "papaparse": "^5.7.0",
     "xlsx": "^0.18.5"
   }

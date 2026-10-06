@@ -31,9 +31,32 @@ import { openTransformPanel } from "./transform-panel.js";
 import { PipelineStepper, type StageId } from "./stepper.js";
 
 const LARGE_PASTE_ROWS = 300_000;
-const DATA_URL_EXTENSIONS = [".csv", ".tsv", ".psv", ".txt", ".xlsx", ".xls", ".zip", ".gz", ".bz2"];
+const DATA_URL_EXTENSIONS = [
+  ".csv",
+  ".tsv",
+  ".psv",
+  ".txt",
+  ".dat",
+  ".json",
+  ".jsonl",
+  ".ndjson",
+  ".parquet",
+  ".xlsx",
+  ".xls",
+  ".zip",
+  ".gz",
+  ".bz2",
+];
+const FILE_ACCEPT =
+  ".csv,.tsv,.psv,.txt,.dat,.json,.jsonl,.ndjson,.parquet,.xlsx,.xls,.zip,.gz,.bz2";
 const WORKBOOK_EXTENSIONS = [".xlsx", ".xls"];
 const UNSUPPORTED_COMPRESSION = [".xz", ".zst", ".7z", ".rar", ".tar", ".lz4"];
+const UNSUPPORTED_FORMATS: { extensions: string[]; message: string }[] = [
+  {
+    extensions: [".h5", ".hdf5"],
+    message: "HDF5 (.h5) isn't supported — export to CSV or Parquet first",
+  },
+];
 const DEFAULT_SHUFFLE_SAMPLE = 100;
 
 interface PickerItem {
@@ -261,19 +284,19 @@ export class App {
       class: "dropzone",
       role: "button",
       tabindex: "0",
-      title: "CSV, TSV or PSV",
+      title: "CSV, TSV, PSV, TXT, JSON or Parquet",
     });
     dropzone.append(
       uploadIcon(),
       el("span", {}, [
-        "Drop a CSV / TSV / PSV / Excel / ZIP / GZ / BZ2 file here — or click to browse",
+        "Drop a CSV / TSV / PSV / TXT / JSON / Excel / Parquet / ZIP / GZ / BZ2 file here — or click to browse",
       ]),
     );
     card.append(dropzone);
 
     const fileInput = el("input", {
       type: "file",
-      accept: ".csv,.tsv,.psv,.txt,.xlsx,.xls,.zip,.gz,.bz2",
+      accept: FILE_ACCEPT,
       class: "hidden",
     }) as HTMLInputElement;
     const openPicker = (): void => fileInput.click();
@@ -338,7 +361,7 @@ export class App {
     urlSection.append(
       urlRow,
       el("p", { class: "url-hint" }, [
-        "Links ending in .csv, .tsv, .psv, .zip, .gz or .bz2 load as data; anything else is scraped for its first table.",
+        "Links ending in .csv, .tsv, .psv, .txt, .json, .parquet, .zip, .gz or .bz2 load as data; anything else is scraped for its first table.",
       ]),
       el("p", { class: "disclaimer" }, [
         "Always scrape responsibly by reviewing and adhering to the website's ",
@@ -624,6 +647,13 @@ export class App {
   private async loadFile(file: File): Promise<void> {
     try {
       const extension = extensionOf(file.name);
+      const unsupported = UNSUPPORTED_FORMATS.find((entry) =>
+        entry.extensions.includes(extension),
+      );
+      if (unsupported !== undefined) {
+        this.setStatusError(unsupported.message);
+        return;
+      }
       if (UNSUPPORTED_COMPRESSION.includes(extension)) {
         this.setStatusError(
           `${extension} archives aren't supported — try .zip, .gz or .bz2`,
@@ -1301,6 +1331,7 @@ export class App {
       onApplyClean: (column, ops) => this.applyClean([{ column, ops }]),
       onResetCleans: () =>
         this.applyClean([...this.cleanedColumns.keys()].map((column) => ({ column, ops: [] }))),
+      onApplyNullPolicy: (column, extra, keep) => this.applyNullPolicy(column, extra, keep),
       onClose: () => this.setStage("view"),
     });
   }
@@ -1352,6 +1383,31 @@ export class App {
           const label =
             updates.length === 1 ? name : `${updates.length} columns`;
           this.setAction(reverted ? `Reverted ${label}` : `Cleaned ${label}`);
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
+  }
+
+  private applyNullPolicy(column: number, extra: string[], keep: string[]): void {
+    this.queueSend(() =>
+      this.client
+        .setNullPolicy(column, extra, keep)
+        .then((message) => {
+          this.filters.delete(column);
+          for (const { column: index, meta } of message.columns) {
+            this.metas[index] = meta;
+            this.filterPanel?.updateMeta(index, meta);
+            this.table?.updateColumn(index, meta);
+            this.summaryBand?.updateColumn(index, meta);
+          }
+          this.summaryBand?.setCounts(message.stats);
+          this.table?.setSort(-1, 1);
+          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.updateCount(message.count, message.queryMs);
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          const nulls = message.columns[0]?.meta.stats.nulls ?? 0;
+          this.setAction(`Nulls updated — ${nulls.toLocaleString()} empty`);
         })
         .catch((error: unknown) => this.showError(error)),
     );
