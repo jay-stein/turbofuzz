@@ -114,6 +114,10 @@ export class SearchWorkerClient {
     return this.request<CleanedMessage>({ type: "setNullPolicy", column, extra, keep });
   }
 
+  resolveNullsAll(extra: string[], keep: string[]): Promise<CleanedMessage> {
+    return this.request<CleanedMessage>({ type: "resolveNullsAll", extra, keep });
+  }
+
   transform(ops: TransformOp[]): Promise<TransformedMessage> {
     return this.request<TransformedMessage>({ type: "transform", ops });
   }

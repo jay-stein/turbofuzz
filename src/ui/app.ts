@@ -1332,6 +1332,7 @@ export class App {
       onResetCleans: () =>
         this.applyClean([...this.cleanedColumns.keys()].map((column) => ({ column, ops: [] }))),
       onApplyNullPolicy: (column, extra, keep) => this.applyNullPolicy(column, extra, keep),
+      onApplyNullPolicyAll: (extra, keep) => this.applyNullPolicyAll(extra, keep),
       onClose: () => this.setStage("view"),
     });
   }
@@ -1408,6 +1409,32 @@ export class App {
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
           this.setAction(
             `Nulls resolved — ${(message.columns[0]?.meta.stats.nulls ?? 0).toLocaleString()} blanks in ${message.columns[0]?.meta.name ?? "column"}`,
+          );
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
+  }
+
+  private applyNullPolicyAll(extra: string[], keep: string[]): void {
+    this.queueSend(() =>
+      this.client
+        .resolveNullsAll(extra, keep)
+        .then((message) => {
+          this.filters.clear();
+          for (const { column, meta } of message.columns) this.metas[column] = meta;
+          this.table?.updateColumns(this.metas);
+          for (const { column, meta } of message.columns) {
+            this.summaryBand?.updateColumn(column, meta);
+          }
+          this.summaryBand?.setCounts(message.stats);
+          this.filterPanel?.rebuild();
+          this.table?.setSort(-1, 1);
+          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.updateCount(message.count, message.queryMs);
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.setAction(
+            `Nulls resolved — ${message.stats.totalNullCells.toLocaleString()} blanks`,
           );
         })
         .catch((error: unknown) => this.showError(error)),

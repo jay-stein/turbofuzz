@@ -17,6 +17,7 @@ export interface CleanPanelCallbacks {
   onApplyClean: (column: number, ops: CleanOp[]) => void;
   onResetCleans: () => void;
   onApplyNullPolicy: (column: number, extra: string[], keep: string[]) => void;
+  onApplyNullPolicyAll: (extra: string[], keep: string[]) => void;
   onClose: () => void;
 }
 
@@ -366,9 +367,10 @@ function buildToggle(
 }
 
 /**
- * Null review: lists the exact distinct values this column currently treats as
- * missing so the user can un-null false positives (a town called "NULL", a
- * state abbreviated "NA") or add custom missing tokens.
+ * Null review. Defaults to "All columns": one aggregated list of the values the
+ * heuristic calls missing across the dataset, so the common case is a single
+ * review and apply. A specific column can still be chosen for exceptions (e.g.
+ * a town called "NULL" that is a real value in one column only).
  */
 function buildNullsTab(
   metas: readonly ColumnMeta[],
@@ -377,13 +379,14 @@ function buildNullsTab(
 ): HTMLElement {
   const wrap = el("div", { class: "clean-values" });
 
-  let column = 0;
+  let column: number | null = null;
   let extra = new Set<string>();
   let keep = new Set<string>();
 
   const colField = el("label", { class: "clean-field" });
-  colField.append(el("span", { class: "clean-label" }, ["Column"]));
+  colField.append(el("span", { class: "clean-label" }, ["Columns"]));
   const colSelect = el("select") as HTMLSelectElement;
+  colSelect.append(el("option", { value: "" }, ["All columns"]) as HTMLOptionElement);
   metas.forEach((meta, index) => {
     const option = el("option", { value: String(index) }) as HTMLOptionElement;
     const hasNulls = meta.stats.nulls > 0;
@@ -408,61 +411,72 @@ function buildNullsTab(
   }) as HTMLInputElement;
   const addButton = el("button", { class: "ghost small", type: "button" }, ["Add"]);
   extraField.append(extraInput, addButton);
-  const extraList = el("div", { class: "null-list" });
   const summary = el("div", { class: "clean-summary" });
 
-  function render(): void {
-    const meta = metas[column];
-    clear(list);
-    clear(extraList);
-
-    if (meta.nullTokens.length === 0) {
-      list.append(el("div", { class: "clean-empty" }, ["No automatic nulls detected."]));
-    } else {
+  function currentTokens(): { label: string; count: number }[] {
+    if (column !== null) return metas[column].nullTokens.map((token) => ({ ...token }));
+    const counts = new Map<string, number>();
+    for (const meta of metas) {
       for (const token of meta.nullTokens) {
+        counts.set(token.label, (counts.get(token.label) ?? 0) + token.count);
+      }
+    }
+    return [...counts.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+  }
+
+  function render(): void {
+    const tokens = currentTokens();
+    const detected = new Set(tokens.map((token) => token.label));
+    clear(list);
+
+    const candidates = new Map<string, number>();
+    for (const token of tokens) candidates.set(token.label, token.count);
+    for (const label of keep) if (!candidates.has(label)) candidates.set(label, 0);
+    for (const label of extra) if (!candidates.has(label)) candidates.set(label, 0);
+
+    if (candidates.size === 0) {
+      list.append(el("div", { class: "clean-empty" }, ["No nulls detected."]));
+    } else {
+      const entries = [...candidates.entries()].sort(
+        (a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0),
+      );
+      for (const [label, count] of entries) {
+        const isDetected = detected.has(label);
         const row = el("label", { class: "null-row" });
         const checkbox = el("input", { type: "checkbox" }) as HTMLInputElement;
-        checkbox.checked = !keep.has(token.label);
+        checkbox.checked = extra.has(label) || (isDetected && !keep.has(label));
         checkbox.addEventListener("change", () => {
-          if (checkbox.checked) keep.delete(token.label);
-          else keep.add(token.label);
-          renderSummary(meta);
+          if (checkbox.checked) {
+            keep.delete(label);
+            if (!isDetected) extra.add(label);
+          } else {
+            keep.add(label);
+            extra.delete(label);
+          }
+          renderSummary(tokens);
         });
         row.append(
           checkbox,
-          el("span", { class: "null-label", title: token.label }, [
-            token.label === "" ? "(blank)" : token.label,
+          el("span", { class: "null-label", title: label }, [label === "" ? "(blank)" : label]),
+          el("span", { class: "null-count" }, [
+            isDetected ? count.toLocaleString() : extra.has(label) ? "added" : "kept",
           ]),
-          el("span", { class: "null-count" }, [token.count.toLocaleString()]),
         );
         list.append(row);
       }
     }
-
-    for (const token of extra) {
-      const row = el("div", { class: "null-row" });
-      const remove = el("button", { class: "icon-btn", type: "button", title: "Remove" }, ["×"]);
-      remove.addEventListener("click", () => {
-        extra.delete(token);
-        render();
-      });
-      row.append(
-        el("span", { class: "null-label", title: token }, [token]),
-        el("span", { class: "null-count" }, ["→ null"]),
-        remove,
-      );
-      extraList.append(row);
-    }
-
-    renderSummary(meta);
+    renderSummary(tokens);
   }
 
-  function renderSummary(meta: ColumnMeta): void {
-    const nullCells = meta.nullTokens
-      .filter((token) => !keep.has(token.label))
-      .reduce((total, token) => total + token.count, 0);
+  function renderSummary(tokens: readonly { label: string; count: number }[]): void {
+    let nullCells = 0;
+    for (const token of tokens) {
+      if (!keep.has(token.label)) nullCells += token.count;
+    }
     const parts = [`${nullCells.toLocaleString()} cells to blank`];
-    if (keep.size > 0) parts.push(`${keep.size} kept as values`);
+    if (keep.size > 0) parts.push(`${keep.size} kept`);
     if (extra.size > 0) parts.push(`${extra.size} added`);
     summary.textContent = parts.join(" · ");
   }
@@ -470,9 +484,7 @@ function buildNullsTab(
   function addExtra(): void {
     const value = extraInput.value;
     if (value === "") return;
-    const meta = metas[column];
-    const alreadyNull =
-      meta.nullTokens.some((token) => token.label === value) && !keep.has(value);
+    const alreadyNull = currentTokens().some((token) => token.label === value) && !keep.has(value);
     if (!alreadyNull) extra.add(value);
     extraInput.value = "";
     render();
@@ -485,27 +497,40 @@ function buildNullsTab(
     }
   });
 
-  function loadColumn(index: number): void {
+  function loadColumn(index: number | null): void {
     column = index;
-    const meta = metas[index];
-    extra = new Set(meta.nullPolicy.extra);
-    keep = new Set(meta.nullPolicy.keep);
-    colSelect.classList.toggle("has-nulls", meta.stats.nulls > 0);
+    extra = new Set();
+    keep = new Set();
+    if (index === null) {
+      for (const meta of metas) {
+        for (const token of meta.nullPolicy.extra) extra.add(token);
+        for (const token of meta.nullPolicy.keep) keep.add(token);
+      }
+      colSelect.classList.toggle("has-nulls", metas.some((meta) => meta.stats.nulls > 0));
+    } else {
+      const meta = metas[index];
+      for (const token of meta.nullPolicy.extra) extra.add(token);
+      for (const token of meta.nullPolicy.keep) keep.add(token);
+      colSelect.classList.toggle("has-nulls", meta.stats.nulls > 0);
+    }
     render();
   }
-  colSelect.addEventListener("change", () => loadColumn(Number(colSelect.value)));
+  colSelect.addEventListener("change", () => {
+    loadColumn(colSelect.value === "" ? null : Number(colSelect.value));
+  });
 
   const footer = el("div", { class: "clean-footer" });
   const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
   cancel.addEventListener("click", close);
   const apply = el("button", { class: "primary", type: "button" }, ["Apply nulls"]);
   apply.addEventListener("click", () => {
-    callbacks.onApplyNullPolicy(column, [...extra], [...keep]);
+    if (column === null) callbacks.onApplyNullPolicyAll([...extra], [...keep]);
+    else callbacks.onApplyNullPolicy(column, [...extra], [...keep]);
     close();
   });
   footer.append(cancel, el("span", { class: "grow" }), apply);
 
-  wrap.append(colField, hint, list, extraField, extraList, summary, footer);
-  if (metas.length > 0) loadColumn(0);
+  wrap.append(colField, hint, list, extraField, summary, footer);
+  loadColumn(null);
   return wrap;
 }

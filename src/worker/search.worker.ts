@@ -26,6 +26,7 @@ import type {
   GetStatsRequest,
   LoadRequest,
   RenameHeadersRequest,
+  ResolveNullsAllRequest,
   SetFilterRequest,
   SetNullPolicyRequest,
   SetTypeRequest,
@@ -123,6 +124,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "setNullPolicy":
       handleSetNullPolicy(message);
+      break;
+    case "resolveNullsAll":
+      handleResolveNullsAll(message);
       break;
     case "transform":
       handleTransform(message);
@@ -626,7 +630,29 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
 }
 
 /**
- * Per-column null resolution. Tokens the user left ticked (and any custom
+ * Rebuilds a column under a null policy: every distinct value that the
+ * heuristic calls null (and every custom token) is replaced with an empty cell,
+ * except values the user un-nulled. Kept values stay as real text.
+ */
+function blankAndRebuild(column: ColumnData, policy: NullPolicy): ColumnData {
+  const blank = new Set<string>(policy.extra);
+  const seen = new Set<string>();
+  for (const value of column.raw) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    if (!policy.keep.has(value) && isNullToken(value)) blank.add(value);
+  }
+  const raw =
+    blank.size === 0
+      ? column.raw.slice()
+      : column.raw.map((value) => (blank.has(value) ? "" : value));
+  const rebuilt = ColumnData.create(column.name, raw, policy);
+  rebuilt.setType(column.type);
+  return rebuilt;
+}
+
+/**
+ * Per-column null resolution: tokens the user left ticked (and any custom
  * tokens) are replaced with an empty cell, so nulls become proper blanks rather
  * than sentinel text; tokens the user un-nulled stay as real values. Shape is
  * unchanged, so this mirrors the clean path (carry specials, invalidate caches,
@@ -641,21 +667,8 @@ function handleSetNullPolicy(message: SetNullPolicyRequest): void {
   const policy = createNullPolicy(message.extra, message.keep);
   nullPolicies.set(message.column, policy);
 
-  const blank = new Set<string>(message.extra);
-  const seen = new Set<string>();
-  for (const value of column.raw) {
-    if (seen.has(value)) continue;
-    seen.add(value);
-    if (!policy.keep.has(value) && isNullToken(value)) blank.add(value);
-  }
-  const raw =
-    blank.size === 0
-      ? column.raw.slice()
-      : column.raw.map((value) => (blank.has(value) ? "" : value));
-
   const columns = current.columns.slice();
-  const rebuilt = ColumnData.create(column.name, raw, policy);
-  rebuilt.setType(column.type);
+  const rebuilt = blankAndRebuild(column, policy);
   columns[message.column] = rebuilt;
 
   const next = rebuildDataset(current, columns);
@@ -679,6 +692,54 @@ function handleSetNullPolicy(message: SetNullPolicyRequest): void {
     type: "cleaned",
     requestId: message.requestId,
     columns: [{ column: message.column, meta: metaFor(next, rebuilt, message.column) }],
+    stats: next.stats,
+    count: sortedIds.length,
+    queryMs: performance.now() - started,
+    facets: computeFacets(next, newEngine, bits),
+    histograms: computeHistograms(next, newEngine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+  });
+}
+
+/**
+ * Batch null resolution across every column: blanks the ticked tokens and
+ * applies the same keep/extra policy everywhere in a single rebuild. Filters are
+ * cleared because every column's values may have changed.
+ */
+function handleResolveNullsAll(message: ResolveNullsAllRequest): void {
+  const { dataset: current } = state();
+  const policy = createNullPolicy(message.extra, message.keep);
+  const columns = current.columns.map((column) => blankAndRebuild(column, policy));
+
+  nullPolicies.clear();
+  for (let i = 0; i < columns.length; i++) nullPolicies.set(i, policy);
+
+  const next = rebuildDataset(current, columns);
+  const newEngine = new QueryEngine(next);
+  for (const kind of specials) newEngine.setSpecial(kind, true);
+  dataset = next;
+  engine = newEngine;
+
+  filters.clear();
+  rankColumn = -1;
+  rankAsc = null;
+  sortDir = 1;
+  duplicateRank = null;
+  exportIds = null;
+  histogramCache.clear();
+
+  const started = performance.now();
+  const bits = newEngine.evaluateBits(filters);
+  sortedIds = computeSortedIds(bits);
+  post({
+    type: "cleaned",
+    requestId: message.requestId,
+    columns: columns.map((column, index) => ({
+      column: index,
+      meta: metaFor(next, column, index),
+    })),
     stats: next.stats,
     count: sortedIds.length,
     queryMs: performance.now() - started,

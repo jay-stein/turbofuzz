@@ -153,6 +153,13 @@ export type SetNullPolicyRequest = {
   keep: string[];
 };
 
+export type ResolveNullsAllRequest = {
+  type: "resolveNullsAll";
+  requestId: number;
+  extra: string[];
+  keep: string[];
+};
+
 export type WorkerRequest =
   | LoadRequest
   | SetFilterRequest
@@ -168,7 +175,8 @@ export type WorkerRequest =
   | RenameHeadersRequest
   | CleanColumnsRequest
   | TransformRequest
-  | SetNullPolicyRequest;
+  | SetNullPolicyRequest
+  | ResolveNullsAllRequest;
 
 export interface DatasetMessage {
   requestId: number;

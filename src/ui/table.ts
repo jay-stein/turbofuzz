@@ -85,6 +85,13 @@ export class ResultTable {
     this.invalidateRows();
   }
 
+  /** Replaces every column's metadata (preserving widths) and repaints once. */
+  updateColumns(columns: ColumnMeta[]): void {
+    this.columns = columns;
+    this.renderHeader();
+    this.invalidateRows();
+  }
+
   /** Re-renders the header after column names are mutated in place. */
   refreshHeader(): void {
     this.renderHeader();
