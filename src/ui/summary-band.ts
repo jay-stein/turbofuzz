@@ -3,7 +3,12 @@ import { toDateInputValue } from "../parse/dates.js";
 import type { TopValue } from "../parse/infer.js";
 import { TYPE_LABELS } from "../types.js";
 import type { DatasetStats } from "../data/stats.js";
-import type { ColumnMeta, LoadedMessage, SpecialKind } from "../worker/protocol.js";
+import type {
+  ColumnMeta,
+  LoadedMessage,
+  SpecialKind,
+  TransformedMessage,
+} from "../worker/protocol.js";
 
 const COMPACT = new Intl.NumberFormat(undefined, {
   notation: "compact",
@@ -68,7 +73,7 @@ export class SummaryBand {
     this.root.classList.add("summary-band", "hidden");
   }
 
-  render(loaded: LoadedMessage): void {
+  render(loaded: LoadedMessage | TransformedMessage): void {
     clear(this.root);
     this.buttons.clear();
     this.setCounts(loaded.stats);
@@ -138,7 +143,7 @@ export class SummaryBand {
     }
   }
 
-  private buildQaBlock(loaded: LoadedMessage): HTMLElement {
+  private buildQaBlock(loaded: LoadedMessage | TransformedMessage): HTMLElement {
     const block = el("div", { class: "qa-block" });
 
     const head = el("div", { class: "qa-head" });
@@ -202,7 +207,7 @@ export class SummaryBand {
    * columns) paint the first screen immediately instead of building every
    * card synchronously.
    */
-  private buildColumns(loaded: LoadedMessage, token: number): HTMLElement {
+  private buildColumns(loaded: LoadedMessage | TransformedMessage, token: number): HTMLElement {
     const columns = el("div", { class: "summary-columns" });
     const firstChunk = 36;
     let index = 0;

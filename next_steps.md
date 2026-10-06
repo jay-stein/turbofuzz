@@ -91,8 +91,24 @@ comfortably <100ms at 100k rows):
   standardisation. Implementation: `factor = 10 ** -decimals; Math.round(v / factor) * factor`
   (positive decimals should format via `toFixed` to keep consistent precision); leave
   non-numeric cells untouched.
-- **Melt / pivot** — natively doable, but reshapes rows×cols and invalidates
-  *everything* (filters, QA bits, hashes). Build it last.
+- **Impute missing values** — constant / mean / median / mode / forward / backward,
+  each with an optional group column (e.g. fill missing sales with the median *within
+  each city*). O(n), deterministic, rebuilds the column like any other op. Null
+  detection already comes from `isNullToken`, so the QA null count drops afterwards.
+- **KNN impute** — numeric columns only, standardised, k-d tree over rows complete
+  across the selected columns, nan-euclidean distance, distance-weighted mean, median
+  fallback when donors are scarce or a row has no observed feature. Deterministic and
+  capped at 20k donors by strided sampling.
+- **Not doing: MICE / IterativeImputer** — it is iterative regressions over every
+  feature and needs a linear-algebra stack; slow at 100k rows and against the
+  fast/no-bloat goal. Park it behind the same lazy "Advanced" door as DuckDB-Wasm if
+  it is ever genuinely needed.
+- **Melt (wide → long)** — pandas-compatible params: `id_vars`, `value_vars`
+  (default: every non-id column), `var_name`, `value_name`. The old column names
+  become values in the `var_name` column; row order is variable-major, matching
+  pandas. Capped at 2M output rows so a runaway melt errors instead of freezing.
+- **Pivot (long → wide)** — still deferred; needs distinct-value discovery per key
+  column and collision handling.
 
 What to **defer or make opt-in**:
 
@@ -312,7 +328,7 @@ and Transform, and it reuses the exact patterns the codebase already establishes
 1. **M1 — Stepper shell + header normalisation** (Steps 0–2). Zero risk, ships the
    visual story.
 2. **M2 — Derived-column engine + Clean value ops** (Step 3). The core enabler.
-3. **M3 — Dedupe + group-by + rounding** (Step 4). First real "transform" value.
+3. **M3 — Dedupe + group-by + rounding + imputation + melt** (Step 4). First real "transform" value.
 4. **M4 — Charts + PNG export** (Step 5). High perceived value, low actual cost.
 5. **M5 — Export formats** (Step 6).
 6. **M6 (later) — Melt/pivot, then DuckDB-Wasm "Advanced" mode + Parquet.**

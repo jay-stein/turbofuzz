@@ -15,7 +15,7 @@ export interface PipelineStepperCallbacks {
 export const PIPELINE_STAGES: readonly StepperStage[] = [
   { id: "load", label: "Load" },
   { id: "clean", label: "Clean" },
-  { id: "transform", label: "Transform", soon: true },
+  { id: "transform", label: "Transform" },
   { id: "view", label: "View" },
   { id: "export", label: "Export", soon: true },
 ];

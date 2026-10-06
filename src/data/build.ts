@@ -45,15 +45,16 @@ export function buildDataset(
 }
 
 /**
- * Recomputes dataset-level stats/bitsets after one or more columns changed and
- * returns a fresh Dataset. Column objects that were not affected are reused, so
- * their lazy caches stay warm; only the shared row-level pass is redone.
+ * Builds a Dataset from already-materialised columns. Used by transforms that
+ * change the row count or the column set (dedupe, group-by) and by rebuilds
+ * after a column changed.
  */
-export function rebuildDataset(current: Dataset, columns: ColumnData[]): Dataset {
-  const result = computeDatasetStats(columns, current.rowCount);
+export function datasetFromColumns(name: string, columns: ColumnData[]): Dataset {
+  const rowCount = columns.length > 0 ? columns[0].raw.length : 0;
+  const result = computeDatasetStats(columns, rowCount);
   return new Dataset(
-    current.name,
-    current.rowCount,
+    name,
+    rowCount,
     columns,
     result.stats,
     result.duplicateBits,
@@ -64,4 +65,13 @@ export function rebuildDataset(current: Dataset, columns: ColumnData[]): Dataset
     result.valueFences,
     result.lengthFences,
   );
+}
+
+/**
+ * Recomputes dataset-level stats/bitsets after one or more columns changed and
+ * returns a fresh Dataset. Column objects that were not affected are reused, so
+ * their lazy caches stay warm; only the shared row-level pass is redone.
+ */
+export function rebuildDataset(current: Dataset, columns: ColumnData[]): Dataset {
+  return datasetFromColumns(current.name, columns);
 }

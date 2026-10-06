@@ -1794,3 +1794,55 @@ mark {
   font-size: 12px;
   color: var(--text-dim);
 }
+
+/* ---------- transform panel ---------- */
+
+.transform-builder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.transform-builder .clean-field {
+  margin-bottom: 0;
+}
+
+.transform-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.transform-inputs .decimals-input {
+  width: 80px;
+  flex: none;
+  font-size: 12.5px;
+  padding: 5px 8px;
+}
+
+.transform-inputs select:disabled {
+  opacity: 0.5;
+}
+
+.check-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 4px;
+}
+
+.transform-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.clean-hint {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}

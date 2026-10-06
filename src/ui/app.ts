@@ -7,6 +7,7 @@ import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
 import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { CleanOp } from "../data/clean-ops.js";
+import type { ColumnSchema, TransformOp } from "../data/transform-ops.js";
 import type { WorkBook } from "xlsx";
 import type { ColumnType } from "../types.js";
 import type {
@@ -15,6 +16,7 @@ import type {
   LoadedMessage,
   ProgressMessage,
   SpecialKind,
+  TransformedMessage,
 } from "../worker/protocol.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { FilterPanel } from "./filters.js";
@@ -25,6 +27,7 @@ import { openStatsModal } from "./stats.js";
 import { ResultTable, type HighlightRule } from "./table.js";
 import { SearchWorkerClient } from "./worker-client.js";
 import { openCleanPanel } from "./clean-panel.js";
+import { openTransformPanel } from "./transform-panel.js";
 import { PipelineStepper, type StageId } from "./stepper.js";
 
 const LARGE_PASTE_ROWS = 300_000;
@@ -155,6 +158,8 @@ export class App {
   private pendingSend: { generation: number; send: () => Promise<void> } | null = null;
   private filters = new Map<number, ColumnFilter>();
   private readonly cleanedColumns = new Map<number, CleanOp[]>();
+  private transformOps: TransformOp[] = [];
+  private transformBaseSchema: ColumnSchema[] = [];
   private filterPanel: FilterPanel | null = null;
   private table: ResultTable | null = null;
 
@@ -905,7 +910,7 @@ export class App {
     }
   }
 
-  private openWorkspace(loaded: LoadedMessage): void {
+  private openWorkspace(loaded: LoadedMessage | TransformedMessage): void {
     this.metas = loaded.columns;
     this.rowCount = loaded.rowCount;
     this.datasetName = loaded.name;
@@ -913,6 +918,13 @@ export class App {
     this.setStage("view");
     this.filters.clear();
     this.cleanedColumns.clear();
+    if (loaded.type === "transformed") {
+      this.transformOps = loaded.ops;
+      this.transformBaseSchema = loaded.baseSchema;
+    } else {
+      this.transformOps = [];
+      this.transformBaseSchema = [];
+    }
     this.specials.clear();
     this.shuffleActive = false;
     this.summaryBand = new SummaryBand(this.summaryHost, {
@@ -961,7 +973,7 @@ export class App {
     });
 
     this.updateCount(loaded.rowCount, 0);
-    this.updateGuardrail(loaded, loaded.source === "file");
+    this.updateGuardrail(loaded, loaded.source === "file" || loaded.type === "transformed");
   }
 
   private toggleSpecial(kind: SpecialKind): void {
@@ -1229,7 +1241,7 @@ export class App {
     this.exportButton.disabled = count === 0;
   }
 
-  private updateGuardrail(loaded: LoadedMessage, fromFile: boolean): void {
+  private updateGuardrail(loaded: LoadedMessage | TransformedMessage, fromFile: boolean): void {
     clear(this.bannerEl);
     const largePaste = !fromFile && loaded.rowCount > LARGE_PASTE_ROWS;
     if (!largePaste) {
@@ -1270,6 +1282,8 @@ export class App {
         this.openClean();
         break;
       case "transform":
+        this.openTransform();
+        break;
       case "export":
         break;
     }
@@ -1314,6 +1328,8 @@ export class App {
       this.client
         .cleanColumns(updates)
         .then((message) => {
+          this.transformOps = [];
+          this.transformBaseSchema = [];
           for (const update of updates) {
             this.filters.delete(update.column);
             if (update.ops.length === 0) this.cleanedColumns.delete(update.column);
@@ -1336,6 +1352,37 @@ export class App {
           const label =
             updates.length === 1 ? name : `${updates.length} columns`;
           this.setAction(reverted ? `Reverted ${label}` : `Cleaned ${label}`);
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
+  }
+
+  private openTransform(): void {
+    if (this.datasetName === "" || this.loading) return;
+    this.setStage("transform");
+    const baseSchema =
+      this.transformBaseSchema.length > 0
+        ? this.transformBaseSchema
+        : this.metas.map((meta) => ({
+            name: meta.name,
+            numeric: meta.type === "integer" || meta.type === "number",
+          }));
+    openTransformPanel(this.transformOps, baseSchema, {
+      onApply: (ops) => this.applyTransform(ops),
+      onClose: () => this.setStage("view"),
+    });
+  }
+
+  private applyTransform(ops: TransformOp[]): void {
+    this.queueSend(() =>
+      this.client
+        .transform(ops)
+        .then((message) => {
+          this.openWorkspace(message);
+          const plural = ops.length === 1 ? "" : "s";
+          this.setAction(
+            ops.length === 0 ? "Transforms reset" : `Applied ${ops.length} transform step${plural}`,
+          );
         })
         .catch((error: unknown) => this.showError(error)),
     );

@@ -3,6 +3,8 @@ import { computeAnomalies } from "../data/anomalies.js";
 import { rebuildDataset } from "../data/build.js";
 import { applyCleanOps } from "../data/clean-ops.js";
 import type { Dataset } from "../data/dataset.js";
+import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
+import type { FileEncoding } from "../parse/encoding.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
 import type { BitSet } from "../search/bitset.js";
 import { buildRank, orderIds } from "../search/order.js";
@@ -21,6 +23,7 @@ import type {
   SetTypeRequest,
   SortRequest,
   SpecialKind,
+  TransformRequest,
   WorkerRequest,
   WorkerResponse,
 } from "./protocol.js";
@@ -43,6 +46,12 @@ const specials = new Set<SpecialKind>();
 const histogramCache = new HistogramCache();
 // Non-destructive clean state: the untouched source column per cleaned column.
 const cleanSource = new Map<number, ColumnData>();
+// Non-destructive transform state: the base dataset captured before the first
+// transform plus the ordered op list, re-derived from that base on every change.
+let transformSource: Dataset | null = null;
+let transformOps: TransformOp[] = [];
+let datasetSource: "paste" | "file" = "paste";
+let datasetEncoding: FileEncoding | null = null;
 
 const FIRST_PAGE_ROWS = 40;
 
@@ -101,6 +110,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "cleanColumns":
       handleCleanColumns(message);
+      break;
+    case "transform":
+      handleTransform(message);
       break;
     case "startExport":
       exportIds = sortedIds.slice();
@@ -254,6 +266,10 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   specials.clear();
   histogramCache.clear();
   cleanSource.clear();
+  transformSource = null;
+  transformOps = [];
+  datasetSource = message.buffer !== undefined ? "file" : "paste";
+  datasetEncoding = encoding;
   sortedIds = engine.evaluate(filters);
 
   post({
@@ -266,8 +282,8 @@ async function handleLoad(message: LoadRequest): Promise<void> {
     columns: next.columns.map((column, index) => metaFor(next, column, index)),
     stats: next.stats,
     ingestMs: performance.now() - started,
-    source: message.buffer !== undefined ? "file" : "paste",
-    encoding,
+    source: datasetSource,
+    encoding: datasetEncoding,
   });
 }
 
@@ -519,6 +535,10 @@ function handleRenameHeaders(message: RenameHeadersRequest): void {
  */
 function handleCleanColumns(message: CleanColumnsRequest): void {
   const { dataset: current } = state();
+  // Cleaning after a transform bakes the transforms in: the current (already
+  // transformed) column set becomes the new clean source.
+  transformSource = null;
+  transformOps = [];
   const columns = current.columns.slice();
   const affected: number[] = [];
 
@@ -577,6 +597,69 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+  });
+}
+
+/**
+ * Applies an ordered transform pipeline to the captured base dataset. The op
+ * list is always re-derived from the base, so removing steps is exact and
+ * shape-changing transforms rebuild the whole dataset. Starting or changing a
+ * transform bakes in any pending cleans.
+ */
+function handleTransform(message: TransformRequest): void {
+  const { dataset: current } = state();
+  cleanSource.clear();
+
+  let next: Dataset;
+  let baseColumns: readonly ColumnData[];
+  if (message.ops.length === 0) {
+    if (transformSource === null) {
+      next = current;
+    } else {
+      next = transformSource;
+      transformSource = null;
+    }
+    transformOps = [];
+    baseColumns = next.columns;
+  } else {
+    if (transformSource === null) transformSource = current;
+    baseColumns = transformSource.columns;
+    next = applyTransformOps(transformSource.name, transformSource.columns, message.ops);
+    transformOps = message.ops;
+  }
+
+  const baseSchema = baseColumns.map((column) => ({
+    name: column.name,
+    numeric: column.type === "integer" || column.type === "number",
+  }));
+
+  dataset = next;
+  engine = new QueryEngine(next);
+  filters.clear();
+  rankColumn = -1;
+  rankAsc = null;
+  sortDir = 1;
+  duplicateRank = null;
+  exportIds = null;
+  specials.clear();
+  histogramCache.clear();
+
+  const started = performance.now();
+  sortedIds = engine.evaluate(filters);
+  post({
+    type: "transformed",
+    requestId: message.requestId,
+    name: next.name,
+    headers: next.columns.map((column) => column.name),
+    rowCount: next.rowCount,
+    columnCount: next.columnCount,
+    columns: next.columns.map((column, index) => metaFor(next, column, index)),
+    stats: next.stats,
+    ingestMs: performance.now() - started,
+    source: datasetSource,
+    encoding: datasetEncoding,
+    ops: transformOps,
+    baseSchema,
   });
 }
 

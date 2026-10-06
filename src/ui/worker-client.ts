@@ -1,5 +1,6 @@
 import type { Delimiter } from "../parse/delimiter.js";
 import type { ColumnFilter } from "../search/query-engine.js";
+import type { TransformOp } from "../data/transform-ops.js";
 import type { ColumnType } from "../types.js";
 import type {
   CleanedMessage,
@@ -16,6 +17,7 @@ import type {
   SortedMessage,
   SpecialKind,
   StatsMessage,
+  TransformedMessage,
   WorkerRequest,
   WorkerResponse,
 } from "../worker/protocol.js";
@@ -106,6 +108,10 @@ export class SearchWorkerClient {
 
   cleanColumns(updates: CleanUpdate[]): Promise<CleanedMessage> {
     return this.request<CleanedMessage>({ type: "cleanColumns", updates });
+  }
+
+  transform(ops: TransformOp[]): Promise<TransformedMessage> {
+    return this.request<TransformedMessage>({ type: "transform", ops });
   }
 
   startExport(): Promise<ExportStartedMessage> {

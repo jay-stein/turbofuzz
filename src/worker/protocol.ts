@@ -1,6 +1,7 @@
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
 import type { CleanOp } from "../data/clean-ops.js";
 import type { DatasetStats } from "../data/stats.js";
+import type { ColumnSchema, TransformOp } from "../data/transform-ops.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import type { ColumnStats } from "../parse/infer.js";
@@ -135,6 +136,12 @@ export type CleanColumnsRequest = {
   updates: CleanUpdate[];
 };
 
+export type TransformRequest = {
+  type: "transform";
+  requestId: number;
+  ops: TransformOp[];
+};
+
 export type WorkerRequest =
   | LoadRequest
   | SetFilterRequest
@@ -148,10 +155,10 @@ export type WorkerRequest =
   | StartExportRequest
   | GetCsvRequest
   | RenameHeadersRequest
-  | CleanColumnsRequest;
+  | CleanColumnsRequest
+  | TransformRequest;
 
-export interface LoadedMessage {
-  type: "loaded";
+export interface DatasetMessage {
   requestId: number;
   name: string;
   headers: string[];
@@ -162,6 +169,16 @@ export interface LoadedMessage {
   ingestMs: number;
   source: "paste" | "file";
   encoding: FileEncoding | null;
+}
+
+export interface LoadedMessage extends DatasetMessage {
+  type: "loaded";
+}
+
+export interface TransformedMessage extends DatasetMessage {
+  type: "transformed";
+  ops: TransformOp[];
+  baseSchema: ColumnSchema[];
 }
 
 export interface ResultsMessage {
@@ -270,6 +287,7 @@ export interface ErrorMessage {
 export type WorkerResponse =
   | ProgressMessage
   | LoadedMessage
+  | TransformedMessage
   | ResultsMessage
   | SortedMessage
   | ShuffledMessage
