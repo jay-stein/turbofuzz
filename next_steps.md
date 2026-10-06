@@ -95,10 +95,13 @@ comfortably <100ms at 100k rows):
   each with an optional group column (e.g. fill missing sales with the median *within
   each city*). O(n), deterministic, rebuilds the column like any other op. Null
   detection already comes from `isNullToken`, so the QA null count drops afterwards.
-- **KNN impute** — numeric columns only, standardised, k-d tree over rows complete
-  across the selected columns, nan-euclidean distance, distance-weighted mean, median
-  fallback when donors are scarce or a row has no observed feature. Deterministic and
-  capped at 20k donors by strided sampling.
+- **KNN impute** — numeric columns only. **Fill** columns are the targets; **predictors**
+  are the columns used to measure similarity (not modified), so a single column can be
+  filled from related columns. Donors are rows complete across both sets, distances are
+  standardised, nan-euclidean (scaled by observed dims), and cells take the
+  distance-weighted mean of the k nearest donors, with a median fallback when donors are
+  scarce or a row has no observed predictor. Deterministic and capped at 20k donors by
+  strided sampling.
 - **Not doing: MICE / IterativeImputer** — it is iterative regressions over every
   feature and needs a linear-algebra stack; slow at 100k rows and against the
   fast/no-bloat goal. Park it behind the same lazy "Advanced" door as DuckDB-Wasm if

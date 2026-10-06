@@ -23,7 +23,7 @@ export type TransformOp =
   | { kind: "round"; column: number; decimals: number }
   | { kind: "groupBy"; dimension: number; measure: number | null; aggregate: Aggregate }
   | { kind: "impute"; column: number; strategy: ImputeStrategy; groupColumn: number | null }
-  | { kind: "knn"; columns: number[]; k: number }
+  | { kind: "knn"; fill: number[]; predictors: number[]; k: number }
   | {
       kind: "melt";
       idVars: number[];
@@ -88,7 +88,7 @@ export function applyTransformOps(
         current = imputeColumns(current, op);
         break;
       case "knn":
-        current = knnImpute(current, op.columns, op.k);
+        current = knnImpute(current, op.fill, op.predictors, op.k);
         break;
       case "melt":
         current = meltColumns(current, op);
@@ -507,7 +507,7 @@ export function describeTransformOp(op: TransformOp, headers: readonly string[])
       return `Fill ${name} with ${strategyLabel(op.strategy)}${group}`;
     }
     case "knn": {
-      const count = op.columns.length;
+      const count = op.fill.length;
       return `KNN impute ${count} column${count === 1 ? "" : "s"} (k=${op.k})`;
     }
     case "melt": {

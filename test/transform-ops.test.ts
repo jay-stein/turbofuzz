@@ -181,9 +181,24 @@ test("knn imputes numeric cells from the nearest complete rows", () => {
     ["x", "y"],
     [["0", "0"], ["1", "1"], ["2", "2"], ["10", "10"], ["11", "11"], ["", "11"]],
   );
-  const out = applyTransformOps("t", ds.columns, [{ kind: "knn", columns: [0, 1], k: 2 }]);
+  const out = applyTransformOps("t", ds.columns, [
+    { kind: "knn", fill: [0, 1], predictors: [0, 1], k: 2 },
+  ]);
   assert.equal(out.columns[0].raw[5], "11");
   assert.equal(out.columns[1].raw[5], "11");
+});
+
+test("knn can fill a column using predictors it does not modify", () => {
+  const ds = buildDataset(
+    "t",
+    ["x", "y"],
+    [["0", "0"], ["1", "1"], ["2", "2"], ["10", "10"], ["11", "11"], ["", "11"]],
+  );
+  const out = applyTransformOps("t", ds.columns, [
+    { kind: "knn", fill: [0], predictors: [1], k: 2 },
+  ]);
+  assert.equal(out.columns[0].raw[5], "11");
+  assert.deepEqual(out.columns[1].raw, ["0", "1", "2", "10", "11", "11"]);
 });
 
 test("melt unpivots value columns keeping id columns", () => {
@@ -234,8 +249,8 @@ test("describeTransformOp names columns via the pre-step headers", () => {
     /Fill sales with median by city/,
   );
   assert.match(
-    describeTransformOp({ kind: "knn", columns: [0, 1], k: 5 }, ["a", "b"]),
-    /KNN impute 2 columns/,
+    describeTransformOp({ kind: "knn", fill: [0], predictors: [1], k: 5 }, ["a", "b"]),
+    /KNN impute 1 column/,
   );
   assert.match(
     describeTransformOp(

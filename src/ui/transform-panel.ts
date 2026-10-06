@@ -247,8 +247,8 @@ export function openTransformPanel(
         }
         case "knn": {
           const numeric = schema
-            .map((entry, index) => ({ entry, index }))
-            .filter(({ entry }) => entry.numeric);
+            .map((entry, index) => ({ name: entry.name, index }))
+            .filter(({ index }) => schema[index].numeric);
           if (numeric.length === 0) {
             inputHost.append(
               el("div", { class: "clean-empty" }, ["No numeric columns available."]),
@@ -256,28 +256,27 @@ export function openTransformPanel(
             readOp = () => null;
             break;
           }
-          const checks: { index: number; input: HTMLInputElement }[] = [];
-          const list = el("div", { class: "check-list" });
-          for (const { entry, index } of numeric) {
-            const label = el("label", { class: "control check clean-check" });
-            const input = el("input", { type: "checkbox" }) as HTMLInputElement;
-            input.checked = true;
-            label.append(input, entry.name);
-            list.append(label);
-            checks.push({ index, input });
-          }
+          const fill = checkboxList(numeric);
+          const predictors = checkboxList(numeric);
           const kInput = numberInput("5", "Number of neighbours");
           inputHost.append(
-            el("div", { class: "transform-group" }, [
-              el("div", { class: "clean-label" }, ["Columns"]),
-              list,
-            ]),
+            group("Fill columns", fill.list, "Missing cells in these columns are imputed"),
+            group("Predictors", predictors.list, "Used to measure similarity; not modified"),
             field("Neighbours (k)", kInput),
           );
           readOp = () => {
-            const columns = checks.filter((check) => check.input.checked).map((check) => check.index);
-            if (columns.length === 0) return null;
-            return { kind: "knn", columns, k: Math.max(1, Math.round(Number(kInput.value) || 5)) };
+            const fillColumns = fill.checks
+              .filter((check) => check.input.checked)
+              .map((check) => check.index);
+            if (fillColumns.length === 0) return null;
+            return {
+              kind: "knn",
+              fill: fillColumns,
+              predictors: predictors.checks
+                .filter((check) => check.input.checked)
+                .map((check) => check.index),
+              k: Math.max(1, Math.round(Number(kInput.value) || 5)),
+            };
           };
           break;
         }
@@ -398,6 +397,23 @@ function checkOption(label: string, onChange: (checked: boolean) => void): HTMLE
   input.addEventListener("change", () => onChange(input.checked));
   wrap.append(input, label);
   return wrap;
+}
+
+function checkboxList(entries: readonly { name: string; index: number }[]): {
+  list: HTMLElement;
+  checks: { index: number; input: HTMLInputElement }[];
+} {
+  const list = el("div", { class: "check-list" });
+  const checks: { index: number; input: HTMLInputElement }[] = [];
+  for (const { name, index } of entries) {
+    const label = el("label", { class: "control check clean-check" });
+    const input = el("input", { type: "checkbox" }) as HTMLInputElement;
+    input.checked = true;
+    label.append(input, name);
+    list.append(label);
+    checks.push({ index, input });
+  }
+  return { list, checks };
 }
 
 function selectOf(options: readonly { value: string; label: string }[]): HTMLSelectElement {

@@ -5,34 +5,48 @@ const DEFAULT_MAX_DONORS = 20_000;
 const EPSILON = 1e-9;
 
 /**
- * k-NN imputation over a selected set of numeric columns.
+ * k-NN imputation.
  *
- * Donors are rows complete across the selected columns; distances are computed
- * in standardised space over the dimensions a query row actually has, scaled by
- * dims/present (nan-euclidean). Missing cells are filled with the distance
- * weighted mean of the k nearest donors. When there are too few donors, or a
- * row has no observed feature, cells fall back to the column median.
+ * `fill` columns are the cells to impute; `predictors` are the numeric columns
+ * used to measure similarity (they are not modified). Donors are rows complete
+ * across both sets, so every donor can supply a value for every fill column.
+ * Distances are computed in standardised predictor space over the predictor
+ * dimensions a query row actually has, scaled by dims/present (nan-euclidean).
+ * Missing cells take the distance weighted mean of the k nearest donors, with a
+ * median fallback when donors are scarce or a row has no observed predictor.
  */
 export function knnImpute(
   columns: readonly ColumnData[],
-  selected: readonly number[],
+  fill: readonly number[],
+  predictors: readonly number[],
   k: number,
   maxDonors = DEFAULT_MAX_DONORS,
 ): ColumnData[] {
   const next = columns.slice();
-  const targets = selected.filter(
-    (index, position) => selected.indexOf(index) === position && isNumeric(columns[index]),
-  );
+  const targets = unique(fill).filter((index) => isNumeric(columns[index]));
   if (targets.length === 0) return next;
+  let features = unique(predictors).filter((index) => isNumeric(columns[index]));
+  if (features.length === 0) features = targets.slice();
 
   const rowCount = columns.length > 0 ? columns[0].raw.length : 0;
-  const dims = targets.length;
-  const values = targets.map((index) => columns[index].numbers());
+  const numbers = new Map<number, Float64Array>();
+  const numberFor = (index: number): Float64Array => {
+    let values = numbers.get(index);
+    if (values === undefined) {
+      values = columns[index].numbers();
+      numbers.set(index, values);
+    }
+    return values;
+  };
+
+  const featureValues = features.map(numberFor);
+  const targetValues = targets.map(numberFor);
+  const dims = features.length;
 
   const means = new Float64Array(dims);
   const scales = new Float64Array(dims);
   for (let d = 0; d < dims; d++) {
-    const feature = values[d];
+    const feature = featureValues[d];
     let sum = 0;
     let count = 0;
     for (let i = 0; i < rowCount; i++) {
@@ -50,11 +64,13 @@ export function knnImpute(
     scales[d] = count > 0 ? Math.sqrt(variance / count) || 1 : 1;
   }
 
+  const involved = [...new Set([...features, ...targets])];
+  const involvedValues = involved.map(numberFor);
   const donorPool: number[] = [];
   for (let row = 0; row < rowCount; row++) {
     let complete = true;
-    for (let d = 0; d < dims; d++) {
-      if (!Number.isFinite(values[d][row])) {
+    for (let i = 0; i < involved.length; i++) {
+      if (!Number.isFinite(involvedValues[i][row])) {
         complete = false;
         break;
       }
@@ -64,7 +80,7 @@ export function knnImpute(
 
   let tree: KdTree | null = null;
   let donorRows = new Int32Array(0);
-  if (donorPool.length >= 2) {
+  if (donorPool.length >= 1) {
     const stride = donorPool.length > maxDonors ? donorPool.length / maxDonors : 1;
     const count = stride > 1 ? Math.max(1, Math.floor(donorPool.length / stride)) : donorPool.length;
     const points = new Float64Array(count * dims);
@@ -73,7 +89,7 @@ export function knnImpute(
       const row = donorPool[Math.min(donorPool.length - 1, Math.floor(i * stride))];
       donorRows[i] = row;
       for (let d = 0; d < dims; d++) {
-        points[i * dims + d] = (values[d][row] - means[d]) / scales[d];
+        points[i * dims + d] = (featureValues[d][row] - means[d]) / scales[d];
       }
     }
     tree = new KdTree(points, dims, count);
@@ -85,8 +101,8 @@ export function knnImpute(
 
   for (let row = 0; row < rowCount; row++) {
     let missing = false;
-    for (let d = 0; d < dims; d++) {
-      if (!Number.isFinite(values[d][row])) {
+    for (let t = 0; t < targets.length; t++) {
+      if (!Number.isFinite(targetValues[t][row])) {
         missing = true;
         break;
       }
@@ -97,7 +113,7 @@ export function knnImpute(
     const mask = new Uint8Array(dims);
     let observed = 0;
     for (let d = 0; d < dims; d++) {
-      const value = values[d][row];
+      const value = featureValues[d][row];
       if (Number.isFinite(value)) {
         query[d] = (value - means[d]) / scales[d];
         mask[d] = 1;
@@ -109,53 +125,57 @@ export function knnImpute(
     const neighbours = tree.knn(query, mask, neighbourLimit);
     if (neighbours.size === 0) continue;
 
-    const sums = new Float64Array(dims);
+    const sums = new Float64Array(targets.length);
     let exactCount = 0;
     neighbours.forEach((_index, distance) => {
       if (distance <= EPSILON) exactCount++;
     });
     if (exactCount > 0) {
-      // Rows identical on the observed dimensions win outright.
+      // Rows identical on the observed predictors win outright.
       neighbours.forEach((index, distance) => {
         if (distance > EPSILON) return;
         const donorRow = donorRows[index];
-        for (let d = 0; d < dims; d++) sums[d] += values[d][donorRow];
+        for (let t = 0; t < targets.length; t++) sums[t] += targetValues[t][donorRow];
       });
-      for (let d = 0; d < dims; d++) sums[d] /= exactCount;
+      for (let t = 0; t < targets.length; t++) sums[t] /= exactCount;
     } else {
       let weightSum = 0;
       neighbours.forEach((index, distance) => {
         const weight = 1 / distance;
         weightSum += weight;
         const donorRow = donorRows[index];
-        for (let d = 0; d < dims; d++) sums[d] += weight * values[d][donorRow];
+        for (let t = 0; t < targets.length; t++) sums[t] += weight * targetValues[t][donorRow];
       });
-      for (let d = 0; d < dims; d++) sums[d] /= weightSum;
+      for (let t = 0; t < targets.length; t++) sums[t] /= weightSum;
     }
 
-    for (let d = 0; d < dims; d++) {
-      if (Number.isFinite(values[d][row])) continue;
-      raw[d][row] = formatNumber(sums[d]);
-      filled[d][row] = 1;
+    for (let t = 0; t < targets.length; t++) {
+      if (Number.isFinite(targetValues[t][row])) continue;
+      raw[t][row] = formatNumber(sums[t]);
+      filled[t][row] = 1;
     }
   }
 
   // Anything KNN could not fill falls back to the column median.
-  for (let d = 0; d < dims; d++) {
-    const fallback = median(values[d]);
+  for (let t = 0; t < targets.length; t++) {
+    const fallback = median(targetValues[t]);
     if (fallback === null) continue;
     const formatted = formatNumber(fallback);
     for (let row = 0; row < rowCount; row++) {
-      if (!Number.isFinite(values[d][row]) && filled[d][row] === 0) raw[d][row] = formatted;
+      if (!Number.isFinite(targetValues[t][row]) && filled[t][row] === 0) raw[t][row] = formatted;
     }
   }
 
-  targets.forEach((columnIndex, d) => {
-    const rebuilt = ColumnData.create(columns[columnIndex].name, raw[d]);
+  targets.forEach((columnIndex, t) => {
+    const rebuilt = ColumnData.create(columns[columnIndex].name, raw[t]);
     rebuilt.setType(columns[columnIndex].type);
     next[columnIndex] = rebuilt;
   });
   return next;
+}
+
+function unique(values: readonly number[]): number[] {
+  return [...new Set(values)];
 }
 
 function isNumeric(column: ColumnData | undefined): boolean {
