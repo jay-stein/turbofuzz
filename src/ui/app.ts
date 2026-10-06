@@ -1406,8 +1406,9 @@ export class App {
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
-          const nulls = message.columns[0]?.meta.stats.nulls ?? 0;
-          this.setAction(`Nulls updated — ${nulls.toLocaleString()} empty`);
+          this.setAction(
+            `Nulls resolved — ${(message.columns[0]?.meta.stats.nulls ?? 0).toLocaleString()} blanks in ${message.columns[0]?.meta.name ?? "column"}`,
+          );
         })
         .catch((error: unknown) => this.showError(error)),
     );

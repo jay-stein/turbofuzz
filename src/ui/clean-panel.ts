@@ -385,12 +385,16 @@ function buildNullsTab(
   colField.append(el("span", { class: "clean-label" }, ["Column"]));
   const colSelect = el("select") as HTMLSelectElement;
   metas.forEach((meta, index) => {
-    colSelect.append(el("option", { value: String(index) }, [meta.name]) as HTMLOptionElement);
+    const option = el("option", { value: String(index) }) as HTMLOptionElement;
+    const hasNulls = meta.stats.nulls > 0;
+    option.textContent = hasNulls ? `• ${meta.name}` : meta.name;
+    if (hasNulls) option.style.color = "var(--danger)";
+    colSelect.append(option);
   });
   colField.append(colSelect);
 
   const hint = el("div", { class: "clean-hint" }, [
-    "Values detected as missing are ticked. Untick anything that is a real value.",
+    "Ticked values are replaced with a blank when you apply. Untick anything that is a real value (e.g. a town called NULL).",
   ]);
   const list = el("div", { class: "null-list" });
 
@@ -457,7 +461,7 @@ function buildNullsTab(
     const nullCells = meta.nullTokens
       .filter((token) => !keep.has(token.label))
       .reduce((total, token) => total + token.count, 0);
-    const parts = [`${nullCells.toLocaleString()} cells null`];
+    const parts = [`${nullCells.toLocaleString()} cells to blank`];
     if (keep.size > 0) parts.push(`${keep.size} kept as values`);
     if (extra.size > 0) parts.push(`${extra.size} added`);
     summary.textContent = parts.join(" · ");
@@ -486,6 +490,7 @@ function buildNullsTab(
     const meta = metas[index];
     extra = new Set(meta.nullPolicy.extra);
     keep = new Set(meta.nullPolicy.keep);
+    colSelect.classList.toggle("has-nulls", meta.stats.nulls > 0);
     render();
   }
   colSelect.addEventListener("change", () => loadColumn(Number(colSelect.value)));

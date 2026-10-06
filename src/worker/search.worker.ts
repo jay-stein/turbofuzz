@@ -8,6 +8,7 @@ import type { FileEncoding } from "../parse/encoding.js";
 import {
   createNullPolicy,
   EMPTY_NULL_POLICY,
+  isNullToken,
   type NullPolicy,
 } from "../parse/null-tokens.js";
 import { isParquetName, readParquetGrid } from "../parse/parquet.js";
@@ -625,10 +626,12 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
 }
 
 /**
- * Per-column null policy: rebuilds one column with tokens the user un-nulled
- * (keep) or added as missing (extra). Shape is unchanged, so this mirrors the
- * clean path (carry specials, invalidate engine caches, clear that column's
- * filter).
+ * Per-column null resolution. Tokens the user left ticked (and any custom
+ * tokens) are replaced with an empty cell, so nulls become proper blanks rather
+ * than sentinel text; tokens the user un-nulled stay as real values. Shape is
+ * unchanged, so this mirrors the clean path (carry specials, invalidate caches,
+ * clear that column's filter). Re-applying re-derives from the current raw, so
+ * un-nulling and re-nulling stay consistent.
  */
 function handleSetNullPolicy(message: SetNullPolicyRequest): void {
   const { dataset: current } = state();
@@ -638,8 +641,20 @@ function handleSetNullPolicy(message: SetNullPolicyRequest): void {
   const policy = createNullPolicy(message.extra, message.keep);
   nullPolicies.set(message.column, policy);
 
+  const blank = new Set<string>(message.extra);
+  const seen = new Set<string>();
+  for (const value of column.raw) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    if (!policy.keep.has(value) && isNullToken(value)) blank.add(value);
+  }
+  const raw =
+    blank.size === 0
+      ? column.raw.slice()
+      : column.raw.map((value) => (blank.has(value) ? "" : value));
+
   const columns = current.columns.slice();
-  const rebuilt = ColumnData.create(column.name, column.raw, policy);
+  const rebuilt = ColumnData.create(column.name, raw, policy);
   rebuilt.setType(column.type);
   columns[message.column] = rebuilt;
 

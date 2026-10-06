@@ -1885,3 +1885,8 @@ label.null-row {
   font-size: 11px;
   font-family: var(--mono);
 }
+
+.clean-field select.has-nulls {
+  border-color: var(--danger);
+  color: var(--danger);
+}
