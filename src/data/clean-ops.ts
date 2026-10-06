@@ -1,14 +1,9 @@
-import { parseNumber } from "../parse/numbers.js";
-
 export type CleanCaseStyle = "upper" | "lower" | "title";
 
 export type CleanOp =
   | { kind: "trim" }
   | { kind: "case"; style: CleanCaseStyle }
-  | { kind: "replace"; find: string; replacement: string; ignoreCase: boolean }
-  | { kind: "round"; decimals: number };
-
-const MAX_DECIMALS = 12;
+  | { kind: "replace"; find: string; replacement: string; ignoreCase: boolean };
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -41,14 +36,6 @@ function compileOp(op: CleanOp): (value: string) => string {
       const find = op.find;
       return (value) => value.split(find).join(op.replacement);
     }
-    case "round": {
-      const decimals = Math.max(0, Math.min(MAX_DECIMALS, Math.round(op.decimals)));
-      // Non-numeric cells (including null markers) are left untouched.
-      return (value) => {
-        const parsed = parseNumber(value);
-        return Number.isFinite(parsed) ? parsed.toFixed(decimals) : value;
-      };
-    }
   }
 }
 
@@ -73,7 +60,5 @@ export function describeCleanOp(op: CleanOp): string {
       return op.style === "upper" ? "UPPERCASE" : op.style === "lower" ? "lowercase" : "Title Case";
     case "replace":
       return `Replace “${op.find}” with “${op.replacement}”${op.ignoreCase ? " (ignore case)" : ""}`;
-    case "round":
-      return op.decimals === 1 ? "Round to 1 decimal place" : `Round to ${op.decimals} decimal places`;
   }
 }

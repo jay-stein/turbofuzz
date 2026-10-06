@@ -34,7 +34,6 @@ const OP_TYPES: readonly { value: string; label: string }[] = [
   { value: "lower", label: "lowercase" },
   { value: "title", label: "Title Case" },
   { value: "replace", label: "Find & replace" },
-  { value: "round", label: "Round" },
 ];
 
 /**
@@ -214,34 +213,14 @@ function buildValuesTab(
   ignoreCaseLabel.append(ignoreCaseInput, "Ignore case");
   replaceRow.append(findInput, replacementInput, ignoreCaseLabel);
 
-  const roundRow = el("div", { class: "clean-field round-row hidden" });
-  const decimalsInput = el("input", {
-    class: "text-input decimals-input",
-    type: "number",
-    min: "0",
-    max: "12",
-    step: "1",
-    value: "2",
-    title: "Decimal places to keep",
-    spellcheck: "false",
-  }) as HTMLInputElement;
-  roundRow.append(decimalsInput, el("span", { class: "clean-hint" }, ["decimal places"]));
-
   const syncOpType = (): void => {
     replaceRow.classList.toggle("hidden", opSelect.value !== "replace");
-    roundRow.classList.toggle("hidden", opSelect.value !== "round");
   };
   opSelect.addEventListener("change", syncOpType);
 
   const addButton = el("button", { class: "ghost small", type: "button" }, ["Add operation"]);
   addButton.addEventListener("click", () => {
-    const op = readOp(
-      opSelect.value,
-      findInput.value,
-      replacementInput.value,
-      ignoreCaseInput.checked,
-      Number(decimalsInput.value),
-    );
+    const op = readOp(opSelect.value, findInput.value, replacementInput.value, ignoreCaseInput.checked);
     if (op === null) return;
     pending.push(op);
     renderOps();
@@ -336,7 +315,7 @@ function buildValuesTab(
   });
   footer.append(apply);
 
-  const builder = el("div", { class: "clean-builder" }, [opField, replaceRow, roundRow, addButton]);
+  const builder = el("div", { class: "clean-builder" }, [opField, replaceRow, addButton]);
   wrap.append(colField, builder, opList, previewSummary, preview, footer);
   syncOpType();
   renderOps();
@@ -349,7 +328,6 @@ function readOp(
   find: string,
   replacement: string,
   ignoreCase: boolean,
-  decimals: number,
 ): CleanOp | null {
   switch (type) {
     case "trim":
@@ -362,11 +340,6 @@ function readOp(
       return { kind: "case", style: "title" };
     case "replace":
       return find === "" ? null : { kind: "replace", find, replacement, ignoreCase };
-    case "round":
-      return {
-        kind: "round",
-        decimals: Number.isFinite(decimals) ? Math.max(0, Math.min(12, Math.round(decimals))) : 2,
-      };
     default:
       return null;
   }

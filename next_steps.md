@@ -85,6 +85,12 @@ comfortably <100ms at 100k rows):
 - **Group-by aggregate** — trivial given `ColumnData.numbers()` and
   `categories()`. dimension column + measure column → grouped sum/mean/count/min/max/
   median. This covers 80% of real transform demand.
+- **Round / column maths** — round a column to N decimal places, including negative
+  values: `-1` → nearest 10, `-2` → nearest 100, `-3` → nearest 1000. Lives in
+  **Transform, not Clean**, because it is column maths rather than string
+  standardisation. Implementation: `factor = 10 ** -decimals; Math.round(v / factor) * factor`
+  (positive decimals should format via `toFixed` to keep consistent precision); leave
+  non-numeric cells untouched.
 - **Melt / pivot** — natively doable, but reshapes rows×cols and invalidates
   *everything* (filters, QA bits, hashes). Build it last.
 
@@ -306,7 +312,7 @@ and Transform, and it reuses the exact patterns the codebase already establishes
 1. **M1 — Stepper shell + header normalisation** (Steps 0–2). Zero risk, ships the
    visual story.
 2. **M2 — Derived-column engine + Clean value ops** (Step 3). The core enabler.
-3. **M3 — Dedupe + group-by** (Step 4). First real "transform" value.
+3. **M3 — Dedupe + group-by + rounding** (Step 4). First real "transform" value.
 4. **M4 — Charts + PNG export** (Step 5). High perceived value, low actual cost.
 5. **M5 — Export formats** (Step 6).
 6. **M6 (later) — Melt/pivot, then DuckDB-Wasm "Advanced" mode + Parquet.**
