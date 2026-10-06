@@ -1709,3 +1709,88 @@ mark {
   align-items: center;
   gap: 8px;
 }
+
+.clean-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 14px;
+}
+
+.clean-tab {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.clean-tab:hover {
+  color: var(--text);
+}
+
+.clean-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.clean-builder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.clean-builder .clean-field {
+  margin-bottom: 0;
+}
+
+.replace-row .text-input {
+  width: 140px;
+  flex: none;
+  font-size: 12.5px;
+  padding: 5px 8px;
+}
+
+.clean-op-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+
+.clean-op {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+
+.clean-op-index {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+
+.clean-op-desc {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.clean-empty {
+  padding: 4px 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+}

@@ -1,4 +1,5 @@
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
+import type { CleanOp } from "../data/clean-ops.js";
 import type { DatasetStats } from "../data/stats.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { FileEncoding } from "../parse/encoding.js";
@@ -123,6 +124,17 @@ export type RenameHeadersRequest = {
   headers: string[];
 };
 
+export interface CleanUpdate {
+  column: number;
+  ops: CleanOp[];
+}
+
+export type CleanColumnsRequest = {
+  type: "cleanColumns";
+  requestId: number;
+  updates: CleanUpdate[];
+};
+
 export type WorkerRequest =
   | LoadRequest
   | SetFilterRequest
@@ -135,7 +147,8 @@ export type WorkerRequest =
   | GetStatsRequest
   | StartExportRequest
   | GetCsvRequest
-  | RenameHeadersRequest;
+  | RenameHeadersRequest
+  | CleanColumnsRequest;
 
 export interface LoadedMessage {
   type: "loaded";
@@ -234,6 +247,20 @@ export interface HeadersRenamedMessage {
   headers: string[];
 }
 
+export interface CleanedMessage {
+  type: "cleaned";
+  requestId: number;
+  columns: { column: number; meta: ColumnMeta }[];
+  stats: DatasetStats;
+  count: number;
+  queryMs: number;
+  facets: Record<number, number[]>;
+  histograms: Record<number, number[]>;
+  firstRows: string[][];
+  firstGroups?: boolean[];
+  firstFlags?: Uint8Array;
+}
+
 export interface ErrorMessage {
   type: "error";
   requestId: number;
@@ -252,4 +279,5 @@ export type WorkerResponse =
   | ExportStartedMessage
   | CsvChunkMessage
   | HeadersRenamedMessage
+  | CleanedMessage
   | ErrorMessage;

@@ -6,9 +6,16 @@ import { detectTable } from "../parse/header-detect.js";
 import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
 import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
 import type { ColumnFilter } from "../search/query-engine.js";
+import type { CleanOp } from "../data/clean-ops.js";
 import type { WorkBook } from "xlsx";
 import type { ColumnType } from "../types.js";
-import type { ColumnMeta, LoadedMessage, ProgressMessage, SpecialKind } from "../worker/protocol.js";
+import type {
+  CleanUpdate,
+  ColumnMeta,
+  LoadedMessage,
+  ProgressMessage,
+  SpecialKind,
+} from "../worker/protocol.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { FilterPanel } from "./filters.js";
 import { findDataTables, type TableCandidate } from "./html-table.js";
@@ -147,6 +154,7 @@ export class App {
   private inFlight = false;
   private pendingSend: { generation: number; send: () => Promise<void> } | null = null;
   private filters = new Map<number, ColumnFilter>();
+  private readonly cleanedColumns = new Map<number, CleanOp[]>();
   private filterPanel: FilterPanel | null = null;
   private table: ResultTable | null = null;
 
@@ -904,6 +912,7 @@ export class App {
     this.stepper?.setDone("load", true);
     this.setStage("view");
     this.filters.clear();
+    this.cleanedColumns.clear();
     this.specials.clear();
     this.shuffleActive = false;
     this.summaryBand = new SummaryBand(this.summaryHost, {
@@ -1061,6 +1070,7 @@ export class App {
           this.metas[column] = message.meta;
           this.filters.delete(column);
           this.summaryBand?.setCounts(message.stats);
+          this.summaryBand?.updateColumn(column, message.meta);
           this.filterPanel?.updateMeta(column, message.meta);
           this.table?.updateColumn(column, message.meta);
           this.filterPanel?.applyResults(message.facets, message.histograms);
@@ -1272,8 +1282,11 @@ export class App {
   private openClean(): void {
     if (this.datasetName === "" || this.loading) return;
     this.setStage("clean");
-    openCleanPanel(this.metas.map((meta) => meta.name), {
-      onApply: (headers) => this.applyHeaderRename(headers),
+    openCleanPanel(this.metas, this.cleanedColumns, {
+      onApplyHeaders: (headers) => this.applyHeaderRename(headers),
+      onApplyClean: (column, ops) => this.applyClean([{ column, ops }]),
+      onResetCleans: () =>
+        this.applyClean([...this.cleanedColumns.keys()].map((column) => ({ column, ops: [] }))),
       onClose: () => this.setStage("view"),
     });
   }
@@ -1290,6 +1303,39 @@ export class App {
           this.summaryBand?.updateNames(message.headers);
           const plural = message.headers.length === 1 ? "" : "s";
           this.setAction(`Renamed ${message.headers.length} column${plural}`);
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
+  }
+
+  private applyClean(updates: CleanUpdate[]): void {
+    if (updates.length === 0) return;
+    this.queueSend(() =>
+      this.client
+        .cleanColumns(updates)
+        .then((message) => {
+          for (const update of updates) {
+            this.filters.delete(update.column);
+            if (update.ops.length === 0) this.cleanedColumns.delete(update.column);
+            else this.cleanedColumns.set(update.column, update.ops);
+          }
+          for (const { column, meta } of message.columns) {
+            this.metas[column] = meta;
+            this.filterPanel?.updateMeta(column, meta);
+            this.table?.updateColumn(column, meta);
+            this.summaryBand?.updateColumn(column, meta);
+          }
+          this.summaryBand?.setCounts(message.stats);
+          this.table?.setSort(-1, 1);
+          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.updateCount(message.count, message.queryMs);
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          const reverted = updates.every((update) => update.ops.length === 0);
+          const name = message.columns[0]?.meta.name ?? "";
+          const label =
+            updates.length === 1 ? name : `${updates.length} columns`;
+          this.setAction(reverted ? `Reverted ${label}` : `Cleaned ${label}`);
         })
         .catch((error: unknown) => this.showError(error)),
     );

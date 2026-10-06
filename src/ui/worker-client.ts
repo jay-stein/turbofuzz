@@ -2,6 +2,8 @@ import type { Delimiter } from "../parse/delimiter.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnType } from "../types.js";
 import type {
+  CleanedMessage,
+  CleanUpdate,
   ColumnMetaMessage,
   CsvChunkMessage,
   ExportStartedMessage,
@@ -100,6 +102,10 @@ export class SearchWorkerClient {
 
   renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {
     return this.request<HeadersRenamedMessage>({ type: "renameHeaders", headers });
+  }
+
+  cleanColumns(updates: CleanUpdate[]): Promise<CleanedMessage> {
+    return this.request<CleanedMessage>({ type: "cleanColumns", updates });
   }
 
   startExport(): Promise<ExportStartedMessage> {

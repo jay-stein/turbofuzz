@@ -101,6 +101,13 @@ export class SummaryBand {
     this.root.classList.add("hidden");
   }
 
+  /** Refreshes a single column's card after its data or type changed. */
+  updateColumn(index: number, meta: ColumnMeta): void {
+    const existing = this.root.querySelector<HTMLElement>(`.stat-card[data-column="${index}"]`);
+    if (existing === null) return;
+    existing.replaceWith(this.buildColumnCard(meta, index));
+  }
+
   /** Updates column names in place after a header rename (cards are in column order). */
   updateNames(names: string[]): void {
     const cards = this.root.querySelectorAll<HTMLElement>(".stat-card");

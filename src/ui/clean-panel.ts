@@ -1,13 +1,21 @@
-import { el } from "./dom.js";
+import { clear, el } from "./dom.js";
 import {
   DEFAULT_HEADER_OPTIONS,
   normalizeHeaders,
   type HeaderCaseStyle,
   type HeaderNormalizeOptions,
 } from "../data/headers.js";
+import {
+  applyCleanOps,
+  describeCleanOp,
+  type CleanOp,
+} from "../data/clean-ops.js";
+import type { ColumnMeta } from "../worker/protocol.js";
 
 export interface CleanPanelCallbacks {
-  onApply: (headers: string[]) => void;
+  onApplyHeaders: (headers: string[]) => void;
+  onApplyClean: (column: number, ops: CleanOp[]) => void;
+  onResetCleans: () => void;
   onClose: () => void;
 }
 
@@ -20,25 +28,77 @@ const CASE_STYLES: readonly { value: HeaderCaseStyle; label: string }[] = [
   { value: "upper", label: "UPPER CASE" },
 ];
 
+const OP_TYPES: readonly { value: string; label: string }[] = [
+  { value: "trim", label: "Trim whitespace" },
+  { value: "upper", label: "UPPERCASE" },
+  { value: "lower", label: "lowercase" },
+  { value: "title", label: "Title Case" },
+  { value: "replace", label: "Find & replace" },
+];
+
 /**
- * First Clean panel: column-name normalisation only. A live preview shows the
- * exact before/after mapping before anything is applied. Value-level clean
- * operations will follow the same panel pattern later.
+ * Clean panel: column-name normalisation and non-destructive value cleaning.
+ * Both tabs preview exactly what will change before anything is applied, and
+ * the worker keeps the untouched source so cleans can be reverted.
  */
 export function openCleanPanel(
-  headers: readonly string[],
+  metas: readonly ColumnMeta[],
+  cleaned: ReadonlyMap<number, CleanOp[]>,
   callbacks: CleanPanelCallbacks,
 ): void {
-  const options: HeaderNormalizeOptions = { ...DEFAULT_HEADER_OPTIONS };
-
   const overlay = el("div", { class: "modal-overlay" });
   const modal = el("div", { class: "modal clean-modal" });
 
   const head = el("div", { class: "modal-head" });
-  head.append(el("h2", {}, ["Clean — column names"]));
+  head.append(el("h2", {}, ["Clean"]));
   const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close" }, ["×"]);
   head.append(closeButton);
   modal.append(head);
+
+  const tabs = el("div", { class: "clean-tabs" });
+  const namesButton = el("button", { class: "clean-tab", type: "button" }, ["Column names"]);
+  const valuesButton = el("button", { class: "clean-tab", type: "button" }, ["Values"]);
+  tabs.append(namesButton, valuesButton);
+
+  const namesTab = buildNamesTab(metas.map((meta) => meta.name), callbacks, close);
+  const valuesTab = buildValuesTab(metas, cleaned, callbacks, close);
+  modal.append(tabs, namesTab, valuesTab);
+
+  function selectTab(tab: "names" | "values"): void {
+    namesButton.classList.toggle("active", tab === "names");
+    valuesButton.classList.toggle("active", tab === "values");
+    namesTab.classList.toggle("hidden", tab !== "names");
+    valuesTab.classList.toggle("hidden", tab !== "values");
+  }
+  namesButton.addEventListener("click", () => selectTab("names"));
+  valuesButton.addEventListener("click", () => selectTab("values"));
+  selectTab("names");
+
+  function close(): void {
+    overlay.remove();
+    document.removeEventListener("keydown", onKey);
+    callbacks.onClose();
+  }
+  function onKey(event: KeyboardEvent): void {
+    if (event.key === "Escape") close();
+  }
+  closeButton.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  document.addEventListener("keydown", onKey);
+
+  overlay.append(modal);
+  document.body.append(overlay);
+}
+
+function buildNamesTab(
+  headers: readonly string[],
+  callbacks: CleanPanelCallbacks,
+  close: () => void,
+): HTMLElement {
+  const options: HeaderNormalizeOptions = { ...DEFAULT_HEADER_OPTIONS };
+  const wrap = el("div", { class: "clean-names" });
 
   const caseField = el("label", { class: "clean-field" });
   caseField.append(el("span", { class: "clean-label" }, ["Case"]));
@@ -96,33 +156,193 @@ export function openCleanPanel(
   const footer = el("div", { class: "clean-footer" });
   const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
   cancel.addEventListener("click", close);
-  const apply = el("button", { class: "primary", type: "button" }, ["Apply"]);
+  const apply = el("button", { class: "primary", type: "button" }, ["Apply names"]);
   apply.addEventListener("click", () => {
-    callbacks.onApply(normalizeHeaders(headers, options));
+    callbacks.onApplyHeaders(normalizeHeaders(headers, options));
     close();
   });
   footer.append(cancel, el("span", { class: "grow" }), apply);
 
-  modal.append(caseField, toggles, previewSummary, previewList, footer);
-
-  function close(): void {
-    overlay.remove();
-    document.removeEventListener("keydown", onKey);
-    callbacks.onClose();
-  }
-  const onKey = (event: KeyboardEvent): void => {
-    if (event.key === "Escape") close();
-  };
-  closeButton.addEventListener("click", close);
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) close();
-  });
-  document.addEventListener("keydown", onKey);
-
-  overlay.append(modal);
-  document.body.append(overlay);
-
+  wrap.append(caseField, toggles, previewSummary, previewList, footer);
   renderPreview();
+  return wrap;
+}
+
+function buildValuesTab(
+  metas: readonly ColumnMeta[],
+  cleaned: ReadonlyMap<number, CleanOp[]>,
+  callbacks: CleanPanelCallbacks,
+  close: () => void,
+): HTMLElement {
+  const wrap = el("div", { class: "clean-values" });
+
+  let column = 0;
+  let pending: CleanOp[] = (cleaned.get(column) ?? []).slice();
+
+  const colField = el("label", { class: "clean-field" });
+  colField.append(el("span", { class: "clean-label" }, ["Column"]));
+  const colSelect = el("select") as HTMLSelectElement;
+  metas.forEach((meta, index) => {
+    colSelect.append(el("option", { value: String(index) }, [meta.name]) as HTMLOptionElement);
+  });
+  colField.append(colSelect);
+
+  const opField = el("label", { class: "clean-field" });
+  opField.append(el("span", { class: "clean-label" }, ["Operation"]));
+  const opSelect = el("select") as HTMLSelectElement;
+  for (const { value, label } of OP_TYPES) {
+    opSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+  }
+  opField.append(opSelect);
+
+  const replaceRow = el("div", { class: "clean-field replace-row hidden" });
+  const findInput = el("input", {
+    class: "text-input",
+    type: "text",
+    placeholder: "Find",
+    spellcheck: "false",
+  }) as HTMLInputElement;
+  const replacementInput = el("input", {
+    class: "text-input",
+    type: "text",
+    placeholder: "Replace with",
+    spellcheck: "false",
+  }) as HTMLInputElement;
+  const ignoreCaseLabel = el("label", { class: "control check clean-check" });
+  const ignoreCaseInput = el("input", { type: "checkbox" }) as HTMLInputElement;
+  ignoreCaseLabel.append(ignoreCaseInput, "Ignore case");
+  replaceRow.append(findInput, replacementInput, ignoreCaseLabel);
+
+  const syncOpType = (): void => {
+    replaceRow.classList.toggle("hidden", opSelect.value !== "replace");
+  };
+  opSelect.addEventListener("change", syncOpType);
+
+  const addButton = el("button", { class: "ghost small", type: "button" }, ["Add operation"]);
+  addButton.addEventListener("click", () => {
+    const op = readOp(opSelect.value, findInput.value, replacementInput.value, ignoreCaseInput.checked);
+    if (op === null) return;
+    pending.push(op);
+    renderOps();
+    renderPreview();
+  });
+
+  const opList = el("div", { class: "clean-op-list" });
+  const previewSummary = el("div", { class: "clean-summary" });
+  const preview = el("div", { class: "clean-preview" });
+
+  function sampleValues(): string[] {
+    const meta = metas[column];
+    if (meta === undefined) return [];
+    if (meta.categories !== null && meta.categories.labels.length > 0) {
+      return meta.categories.labels.slice(0, 8);
+    }
+    return meta.stats.samples.slice(0, 8);
+  }
+
+  function renderOps(): void {
+    clear(opList);
+    if (pending.length === 0) {
+      opList.append(el("div", { class: "clean-empty" }, ["No operations — this column is unchanged."]));
+      return;
+    }
+    pending.forEach((op, index) => {
+      const row = el("div", { class: "clean-op" });
+      const remove = el("button", { class: "icon-btn", type: "button", title: "Remove" }, ["×"]);
+      remove.addEventListener("click", () => {
+        pending.splice(index, 1);
+        renderOps();
+        renderPreview();
+      });
+      row.append(
+        el("span", { class: "clean-op-index" }, [String(index + 1)]),
+        el("span", { class: "clean-op-desc" }, [describeCleanOp(op)]),
+        remove,
+      );
+      opList.append(row);
+    });
+  }
+
+  function renderPreview(): void {
+    const samples = sampleValues();
+    const results = applyCleanOps(samples, pending);
+    clear(preview);
+    if (samples.length === 0) {
+      preview.append(el("div", { class: "clean-empty" }, ["No sample values."]));
+    } else {
+      const fragment = document.createDocumentFragment();
+      for (let i = 0; i < samples.length; i++) {
+        const row = el("div", { class: "clean-preview-row" });
+        row.append(
+          el("span", { class: "clean-preview-old", title: samples[i] }, [samples[i]]),
+          el("span", { class: "clean-preview-arrow" }, ["→"]),
+          el("span", { class: "clean-preview-new", title: results[i] }, [results[i]]),
+        );
+        fragment.append(row);
+      }
+      preview.append(fragment);
+      const changed = samples.filter((value, i) => value !== results[i]).length;
+      previewSummary.textContent =
+        pending.length === 0
+          ? `Preview of ${samples.length} sample values`
+          : `Preview of ${samples.length} sample values · ${changed} would change`;
+    }
+  }
+
+  colSelect.addEventListener("change", () => {
+    column = Number(colSelect.value);
+    pending = (cleaned.get(column) ?? []).slice();
+    renderOps();
+    renderPreview();
+  });
+
+  const footer = el("div", { class: "clean-footer" });
+  if (cleaned.size > 0) {
+    const reset = el("button", { class: "ghost", type: "button" }, [
+      `Revert all (${cleaned.size})`,
+    ]);
+    reset.addEventListener("click", () => {
+      callbacks.onResetCleans();
+      close();
+    });
+    footer.append(reset);
+  }
+  footer.append(el("span", { class: "grow" }));
+  const apply = el("button", { class: "primary", type: "button" }, ["Apply to column"]);
+  apply.addEventListener("click", () => {
+    callbacks.onApplyClean(column, pending.slice());
+    close();
+  });
+  footer.append(apply);
+
+  const builder = el("div", { class: "clean-builder" }, [opField, replaceRow, addButton]);
+  wrap.append(colField, builder, opList, previewSummary, preview, footer);
+  syncOpType();
+  renderOps();
+  renderPreview();
+  return wrap;
+}
+
+function readOp(
+  type: string,
+  find: string,
+  replacement: string,
+  ignoreCase: boolean,
+): CleanOp | null {
+  switch (type) {
+    case "trim":
+      return { kind: "trim" };
+    case "upper":
+      return { kind: "case", style: "upper" };
+    case "lower":
+      return { kind: "case", style: "lower" };
+    case "title":
+      return { kind: "case", style: "title" };
+    case "replace":
+      return find === "" ? null : { kind: "replace", find, replacement, ignoreCase };
+    default:
+      return null;
+  }
 }
 
 function buildToggle(

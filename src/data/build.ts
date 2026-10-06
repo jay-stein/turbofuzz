@@ -43,3 +43,25 @@ export function buildDataset(
     lengthFences,
   );
 }
+
+/**
+ * Recomputes dataset-level stats/bitsets after one or more columns changed and
+ * returns a fresh Dataset. Column objects that were not affected are reused, so
+ * their lazy caches stay warm; only the shared row-level pass is redone.
+ */
+export function rebuildDataset(current: Dataset, columns: ColumnData[]): Dataset {
+  const result = computeDatasetStats(columns, current.rowCount);
+  return new Dataset(
+    current.name,
+    current.rowCount,
+    columns,
+    result.stats,
+    result.duplicateBits,
+    result.nullRowBits,
+    result.rowHashes,
+    result.valueAnomalyBits,
+    result.lengthAnomalyBits,
+    result.valueFences,
+    result.lengthFences,
+  );
+}

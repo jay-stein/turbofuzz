@@ -1,5 +1,7 @@
-import type { ColumnData } from "../data/column.js";
+import { ColumnData } from "../data/column.js";
 import { computeAnomalies } from "../data/anomalies.js";
+import { rebuildDataset } from "../data/build.js";
+import { applyCleanOps } from "../data/clean-ops.js";
 import type { Dataset } from "../data/dataset.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
 import type { BitSet } from "../search/bitset.js";
@@ -8,6 +10,7 @@ import { QueryEngine, type ColumnFilter } from "../search/query-engine.js";
 import { buildCsv } from "./csv.js";
 import { ingestDataset } from "./ingest.js";
 import type {
+  CleanColumnsRequest,
   ColumnDetail,
   ColumnMeta,
   GetRowsRequest,
@@ -38,6 +41,8 @@ let exportIds: Uint32Array | null = null;
 let duplicateRank: Uint32Array | null = null;
 const specials = new Set<SpecialKind>();
 const histogramCache = new HistogramCache();
+// Non-destructive clean state: the untouched source column per cleaned column.
+const cleanSource = new Map<number, ColumnData>();
 
 const FIRST_PAGE_ROWS = 40;
 
@@ -93,6 +98,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "renameHeaders":
       handleRenameHeaders(message);
+      break;
+    case "cleanColumns":
+      handleCleanColumns(message);
       break;
     case "startExport":
       exportIds = sortedIds.slice();
@@ -245,6 +253,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   duplicateRank = null;
   specials.clear();
   histogramCache.clear();
+  cleanSource.clear();
   sortedIds = engine.evaluate(filters);
 
   post({
@@ -497,6 +506,77 @@ function handleRenameHeaders(message: RenameHeadersRequest): void {
     type: "headersRenamed",
     requestId: message.requestId,
     headers: columns.map((column) => column.name),
+  });
+}
+
+/**
+ * Applies (or reverts) non-destructive value cleans for one or more columns in
+ * a single rebuild. An empty op list restores that column's untouched source
+ * object; affected columns are recreated from the op list, then the shared
+ * dataset stats/bitsets are recomputed once. This generalises the setType
+ * invalidation pattern to N columns while keeping unaffected columns (and their
+ * lazy caches) alive.
+ */
+function handleCleanColumns(message: CleanColumnsRequest): void {
+  const { dataset: current } = state();
+  const columns = current.columns.slice();
+  const affected: number[] = [];
+
+  for (const update of message.updates) {
+    const column = update.column;
+    if (column < 0 || column >= columns.length) continue;
+
+    let source = cleanSource.get(column);
+    if (source === undefined) {
+      source = current.columns[column];
+      cleanSource.set(column, source);
+    }
+
+    if (update.ops.length === 0) {
+      columns[column] = source;
+    } else {
+      const raw = applyCleanOps(source.raw, update.ops);
+      const rebuilt = ColumnData.create(current.columns[column].name, raw);
+      rebuilt.setType(current.columns[column].type);
+      columns[column] = rebuilt;
+    }
+
+    filters.delete(column);
+    affected.push(column);
+  }
+
+  const next = rebuildDataset(current, columns);
+  const newEngine = new QueryEngine(next);
+  // Special toggles live on the engine, so carry them across the rebuild.
+  for (const kind of specials) newEngine.setSpecial(kind, true);
+  dataset = next;
+  engine = newEngine;
+
+  rankColumn = -1;
+  rankAsc = null;
+  sortDir = 1;
+  duplicateRank = null;
+  exportIds = null;
+  histogramCache.clear();
+
+  const started = performance.now();
+  const bits = newEngine.evaluateBits(filters);
+  sortedIds = computeSortedIds(bits);
+  post({
+    type: "cleaned",
+    requestId: message.requestId,
+    columns: affected.map((column) => ({
+      column,
+      meta: metaFor(next, next.columns[column], column),
+    })),
+    stats: next.stats,
+    count: sortedIds.length,
+    queryMs: performance.now() - started,
+    facets: computeFacets(next, newEngine, bits),
+    histograms: computeHistograms(next, newEngine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
   });
 }
 
