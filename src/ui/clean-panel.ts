@@ -10,6 +10,8 @@ import {
   describeCleanOp,
   type CleanOp,
 } from "../data/clean-ops.js";
+import type { DateOrder } from "../parse/dates.js";
+import type { NumberLocale } from "../parse/numbers.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 
 export interface CleanPanelCallbacks {
@@ -36,6 +38,8 @@ const OP_TYPES: readonly { value: string; label: string }[] = [
   { value: "lower", label: "lowercase" },
   { value: "title", label: "Title Case" },
   { value: "replace", label: "Find & replace" },
+  { value: "toNumber", label: "Convert to number" },
+  { value: "toDate", label: "Convert to date" },
 ];
 
 /**
@@ -221,14 +225,41 @@ function buildValuesTab(
   ignoreCaseLabel.append(ignoreCaseInput, "Ignore case");
   replaceRow.append(findInput, replacementInput, ignoreCaseLabel);
 
+  const localeRow = el("div", { class: "clean-field locale-row hidden" });
+  localeRow.append(el("span", { class: "clean-label" }, ["Number format"]));
+  const localeSelect = el("select") as HTMLSelectElement;
+  localeSelect.append(
+    el("option", { value: "dot" }, ["1,234.56 (1.2)"]),
+    el("option", { value: "comma" }, ["1.234,56 (1,2)"]),
+  );
+  localeRow.append(localeSelect);
+
+  const dateOrderRow = el("div", { class: "clean-field locale-row hidden" });
+  dateOrderRow.append(el("span", { class: "clean-label" }, ["Date order"]));
+  const dateOrderSelect = el("select") as HTMLSelectElement;
+  dateOrderSelect.append(
+    el("option", { value: "dmy" }, ["DD/MM/YYYY"]),
+    el("option", { value: "mdy" }, ["MM/DD/YYYY"]),
+  );
+  dateOrderRow.append(dateOrderSelect);
+
   const syncOpType = (): void => {
     replaceRow.classList.toggle("hidden", opSelect.value !== "replace");
+    localeRow.classList.toggle("hidden", opSelect.value !== "toNumber");
+    dateOrderRow.classList.toggle("hidden", opSelect.value !== "toDate");
   };
   opSelect.addEventListener("change", syncOpType);
 
   const addButton = el("button", { class: "ghost small", type: "button" }, ["Add operation"]);
   addButton.addEventListener("click", () => {
-    const op = readOp(opSelect.value, findInput.value, replacementInput.value, ignoreCaseInput.checked);
+    const op = readOp(
+      opSelect.value,
+      findInput.value,
+      replacementInput.value,
+      ignoreCaseInput.checked,
+      localeSelect.value === "comma" ? "comma" : "dot",
+      dateOrderSelect.value === "mdy" ? "mdy" : "dmy",
+    );
     if (op === null) return;
     pending.push(op);
     renderOps();
@@ -300,9 +331,17 @@ function buildValuesTab(
   colSelect.addEventListener("change", () => {
     column = Number(colSelect.value);
     pending = (cleaned.get(column) ?? []).slice();
+    syncDefaults();
     renderOps();
     renderPreview();
   });
+
+  function syncDefaults(): void {
+    const meta = metas[column];
+    if (meta === undefined) return;
+    localeSelect.value = meta.numberLocale;
+    dateOrderSelect.value = meta.dateOrder;
+  }
 
   const footer = el("div", { class: "clean-footer" });
   if (cleaned.size > 0) {
@@ -323,9 +362,16 @@ function buildValuesTab(
   });
   footer.append(apply);
 
-  const builder = el("div", { class: "clean-builder" }, [opField, replaceRow, addButton]);
+  const builder = el("div", { class: "clean-builder" }, [
+    opField,
+    replaceRow,
+    localeRow,
+    dateOrderRow,
+    addButton,
+  ]);
   wrap.append(colField, builder, opList, previewSummary, preview, footer);
   syncOpType();
+  syncDefaults();
   renderOps();
   renderPreview();
   return wrap;
@@ -336,6 +382,8 @@ function readOp(
   find: string,
   replacement: string,
   ignoreCase: boolean,
+  locale: NumberLocale,
+  dateOrder: DateOrder,
 ): CleanOp | null {
   switch (type) {
     case "trim":
@@ -348,6 +396,10 @@ function readOp(
       return { kind: "case", style: "title" };
     case "replace":
       return find === "" ? null : { kind: "replace", find, replacement, ignoreCase };
+    case "toNumber":
+      return { kind: "toNumber", locale };
+    case "toDate":
+      return { kind: "toDate", order: dateOrder };
     default:
       return null;
   }

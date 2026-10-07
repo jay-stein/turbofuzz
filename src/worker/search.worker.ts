@@ -17,6 +17,7 @@ import { filteredHistogram, filtersSignature, HistogramCache } from "../search/a
 import type { BitSet } from "../search/bitset.js";
 import { buildRank, orderIds } from "../search/order.js";
 import { QueryEngine, type ColumnFilter } from "../search/query-engine.js";
+import type { ColumnType } from "../types.js";
 import { buildCsv } from "./csv.js";
 import { ingestDataset, type IngestResult } from "./ingest.js";
 import type {
@@ -61,6 +62,8 @@ const cleanSource = new Map<number, ColumnData>();
 const nullPolicies = new Map<number, NullPolicy>();
 // Explicit number-locale overrides, re-applied whenever a column is rebuilt.
 const numberLocales = new Map<number, NumberLocale>();
+// Explicit type overrides, so rebuilds keep the user's chosen interpretation.
+const typeOverrides = new Map<number, ColumnType>();
 // Non-destructive transform state: the base dataset captured before the first
 // transform plus the ordered op list, re-derived from that base on every change.
 let transformSource: Dataset | null = null;
@@ -306,6 +309,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   cleanSource.clear();
   nullPolicies.clear();
   numberLocales.clear();
+  typeOverrides.clear();
   transformSource = null;
   transformOps = [];
   datasetSource = message.buffer !== undefined ? "file" : "paste";
@@ -476,6 +480,7 @@ function handleSetType(message: SetTypeRequest): void {
   const { dataset, engine } = state();
   const column = dataset.columns[message.column];
   column.setType(message.columnType);
+  typeOverrides.set(message.column, message.columnType);
   dataset.applyAnomalies(computeAnomalies(dataset.columns, dataset.rowCount));
   filters.delete(message.column);
   engine.invalidate();
@@ -635,7 +640,8 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
     const policy = nullPolicies.get(column) ?? EMPTY_NULL_POLICY;
     const raw = update.ops.length === 0 ? source.raw : applyCleanOps(source.raw, update.ops);
     const rebuilt = ColumnData.create(current.columns[column].name, raw, policy);
-    rebuilt.setType(current.columns[column].type);
+    const typeOverride = typeOverrides.get(column);
+    if (typeOverride !== undefined) rebuilt.setType(typeOverride);
     const locale = numberLocales.get(column);
     if (locale !== undefined) rebuilt.setNumberLocale(locale);
     columns[column] = rebuilt;
@@ -697,7 +703,6 @@ function blankAndRebuild(column: ColumnData, policy: NullPolicy): ColumnData {
       ? column.raw.slice()
       : column.raw.map((value) => (blank.has(value) ? "" : value));
   const rebuilt = ColumnData.create(column.name, raw, policy);
-  rebuilt.setType(column.type);
   return rebuilt;
 }
 
@@ -719,6 +724,8 @@ function handleSetNullPolicy(message: SetNullPolicyRequest): void {
 
   const columns = current.columns.slice();
   const rebuilt = blankAndRebuild(column, policy);
+  const typeOverride = typeOverrides.get(message.column);
+  if (typeOverride !== undefined) rebuilt.setType(typeOverride);
   const locale = numberLocales.get(message.column);
   if (locale !== undefined) rebuilt.setNumberLocale(locale);
   columns[message.column] = rebuilt;
@@ -765,6 +772,8 @@ function handleResolveNullsAll(message: ResolveNullsAllRequest): void {
   const policy = createNullPolicy(message.extra, message.keep);
   const columns = current.columns.map((column, index) => {
     const next = blankAndRebuild(column, policy);
+    const typeOverride = typeOverrides.get(index);
+    if (typeOverride !== undefined) next.setType(typeOverride);
     const locale = numberLocales.get(index);
     if (locale !== undefined) next.setNumberLocale(locale);
     return next;
@@ -818,6 +827,7 @@ function handleTransform(message: TransformRequest): void {
   const { dataset: current } = state();
   cleanSource.clear();
   numberLocales.clear();
+  typeOverrides.clear();
 
   let next: Dataset;
   let baseColumns: readonly ColumnData[];
@@ -885,6 +895,7 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     name: column.name,
     type: column.type,
     numberLocale: column.numberLocale,
+    dateOrder: column.dateOrder,
     stats: column.stats,
     categories,
     histogram: column.histogram(),

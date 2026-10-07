@@ -66,6 +66,28 @@ test("does not mutate the input array", () => {
   assert.deepEqual(result, ["x"]);
 });
 
+test("converts formatted text to numbers", () => {
+  assert.deepEqual(
+    applyCleanOps(["$1,234.56", "44%", " (1,000) ", "n/a"], [
+      { kind: "toNumber", locale: "dot" },
+    ]),
+    ["1234.56", "44", "-1000", "n/a"],
+  );
+  assert.deepEqual(
+    applyCleanOps(["1.234,56", "49 %", "kein Wert"], [{ kind: "toNumber", locale: "comma" }]),
+    ["1234.56", "49", "kein Wert"],
+  );
+});
+
+test("converts mixed date text to ISO dates", () => {
+  assert.deepEqual(
+    applyCleanOps(["05/03/2024", "2024-12-31", "1 Mar 2024", "bogus"], [
+      { kind: "toDate", order: "dmy" },
+    ]),
+    ["2024-03-05", "2024-12-31", "2024-03-01", "bogus"],
+  );
+});
+
 test("describeCleanOp summarises operations", () => {
   assert.equal(describeCleanOp({ kind: "trim" }), "Trim whitespace");
   assert.equal(describeCleanOp({ kind: "case", style: "upper" }), "UPPERCASE");
@@ -73,4 +95,6 @@ test("describeCleanOp summarises operations", () => {
     describeCleanOp({ kind: "replace", find: "a", replacement: "b", ignoreCase: true }),
     /Replace/,
   );
+  assert.match(describeCleanOp({ kind: "toNumber", locale: "comma" }), /1\.234,56/);
+  assert.match(describeCleanOp({ kind: "toDate", order: "dmy" }), /DD\/MM\/YYYY/);
 });

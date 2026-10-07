@@ -3,6 +3,7 @@ import type { CleanOp } from "../data/clean-ops.js";
 import type { NullTokenCount } from "../data/column.js";
 import type { DatasetStats } from "../data/stats.js";
 import type { ColumnSchema, TransformOp } from "../data/transform-ops.js";
+import type { DateOrder } from "../parse/dates.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import type { ColumnStats } from "../parse/infer.js";
@@ -19,6 +20,7 @@ export interface ColumnMeta {
   name: string;
   type: ColumnType;
   numberLocale: NumberLocale;
+  dateOrder: DateOrder;
   stats: ColumnStats;
   categories: CategoryMeta | null;
   histogram: HistogramMeta | null;

@@ -1,9 +1,14 @@
+import { parseDate, toDateInputValue, type DateOrder } from "../parse/dates.js";
+import { parseNumber, type NumberLocale } from "../parse/numbers.js";
+
 export type CleanCaseStyle = "upper" | "lower" | "title";
 
 export type CleanOp =
   | { kind: "trim" }
   | { kind: "case"; style: CleanCaseStyle }
-  | { kind: "replace"; find: string; replacement: string; ignoreCase: boolean };
+  | { kind: "replace"; find: string; replacement: string; ignoreCase: boolean }
+  | { kind: "toNumber"; locale: NumberLocale }
+  | { kind: "toDate"; order: DateOrder };
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -36,6 +41,20 @@ function compileOp(op: CleanOp): (value: string) => string {
       const find = op.find;
       return (value) => value.split(find).join(op.replacement);
     }
+    case "toNumber": {
+      const locale = op.locale;
+      return (value) => {
+        const parsed = parseNumber(value, locale);
+        return Number.isFinite(parsed) ? String(parsed) : value;
+      };
+    }
+    case "toDate": {
+      const order = op.order;
+      return (value) => {
+        const parsed = parseDate(value, order);
+        return Number.isFinite(parsed) ? toDateInputValue(parsed) : value;
+      };
+    }
   }
 }
 
@@ -60,5 +79,9 @@ export function describeCleanOp(op: CleanOp): string {
       return op.style === "upper" ? "UPPERCASE" : op.style === "lower" ? "lowercase" : "Title Case";
     case "replace":
       return `Replace “${op.find}” with “${op.replacement}”${op.ignoreCase ? " (ignore case)" : ""}`;
+    case "toNumber":
+      return `Convert to number (${op.locale === "comma" ? "1.234,56" : "1,234.56"})`;
+    case "toDate":
+      return `Convert to date (${op.order === "dmy" ? "DD/MM/YYYY" : "MM/DD/YYYY"})`;
   }
 }
