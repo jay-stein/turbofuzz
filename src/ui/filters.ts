@@ -25,6 +25,7 @@ export class FilterPanel {
   private statusEls: HTMLElement[] = [];
   private countEls: HTMLElement[][] = [];
   private sliders: (RangeSlider | null)[] = [];
+  private readonly expanded = new Set<number>();
 
   constructor(
     root: HTMLElement,
@@ -60,11 +61,24 @@ export class FilterPanel {
   }
 
   focusColumn(index: number): void {
+    if (!this.expanded.has(index)) {
+      this.expanded.add(index);
+      this.rebuildCard(index);
+    }
     const card = this.cards[index];
     if (card === undefined) return;
     card.scrollIntoView({ behavior: "smooth", block: "center" });
     card.classList.add("flash");
     window.setTimeout(() => card.classList.remove("flash"), 1200);
+  }
+
+  /** Hides cards whose column name does not match the sidebar search. */
+  search(query: string): void {
+    const needle = query.trim().toLowerCase();
+    this.cards.forEach((card, index) => {
+      const name = this.metas[index]?.name.toLowerCase() ?? "";
+      card.classList.toggle("hidden", needle !== "" && !name.includes(needle));
+    });
   }
 
   /**
@@ -108,9 +122,25 @@ export class FilterPanel {
   private buildCard(meta: ColumnMeta, index: number): HTMLElement {
     const card = el("div", { class: "filter-card", "data-column": String(index) });
     if (this.filters.has(index)) card.classList.add("active");
+    if (!this.expanded.has(index)) card.classList.add("collapsed");
 
     const head = el("div", { class: "filter-head" });
-    head.append(el("span", { class: "filter-name", title: meta.name }, [meta.name]));
+    const caret = el(
+      "button",
+      {
+        class: "icon-btn filter-caret",
+        type: "button",
+        title: "Expand or collapse this filter",
+      },
+      [this.expanded.has(index) ? "▾" : "▸"],
+    );
+    caret.addEventListener("click", () => {
+      if (this.expanded.has(index)) this.expanded.delete(index);
+      else this.expanded.add(index);
+      card.classList.toggle("collapsed", !this.expanded.has(index));
+      caret.textContent = this.expanded.has(index) ? "▾" : "▸";
+    });
+    head.append(caret, el("span", { class: "filter-name", title: meta.name }, [meta.name]));
 
     const typeSelect = el("select", {
       class: "type-select",

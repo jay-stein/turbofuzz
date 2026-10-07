@@ -20,22 +20,22 @@ const QA_BUTTONS: { kind: SpecialKind; label: string; title: string }[] = [
     kind: "duplicates",
     label: "Duplicates",
     title:
-      "Show only rows belonging to a duplicate group — every copy is shown so they can be compared",
+      "Rows belonging to a duplicate group — every copy is shown so they can be compared",
   },
   {
     kind: "nulls",
-    label: "Nulls",
-    title: "Show only rows with at least one empty cell",
+    label: "Rows with empties",
+    title: "Rows with at least one empty cell",
   },
   {
     kind: "valueAnomalies",
     label: "Value outliers",
-    title: "Show only rows with numbers far from their column's median (modified z-score)",
+    title: "Rows with numbers far from their column's median (modified z-score > 3.5)",
   },
   {
     kind: "lengthAnomalies",
     label: "Length outliers",
-    title: "Show only rows with text lengths outside each column's 1.5×IQR fences",
+    title: "Rows with text longer than 3× the column's 90th-percentile length",
   },
 ];
 
@@ -64,6 +64,9 @@ export class SummaryBand {
     valueAnomalies: 0,
     lengthAnomalies: 0,
   };
+  private stats: DatasetStats | null = null;
+  private collapsed = false;
+  private collapseSummary: HTMLElement | null = null;
   private renderToken = 0;
 
   constructor(
@@ -82,6 +85,8 @@ export class SummaryBand {
     this.root.append(this.buildQaBlock(loaded), this.buildColumns(loaded, token));
     this.active.clear();
     this.syncButtons();
+    this.updateCollapseSummary();
+    this.applyCollapsed();
     this.root.classList.remove("hidden");
   }
 
@@ -93,6 +98,7 @@ export class SummaryBand {
 
   /** Refreshes the counters (e.g. after a column type change). */
   setCounts(stats: DatasetStats): void {
+    this.stats = stats;
     this.counts = {
       duplicates: stats.rowsInDuplicateGroups,
       nulls: stats.rowsWithNulls,
@@ -100,6 +106,68 @@ export class SummaryBand {
       lengthAnomalies: stats.lengthAnomalyRows,
     };
     this.syncButtons();
+  }
+
+  private toggleCollapsed(): void {
+    this.collapsed = !this.collapsed;
+    this.applyCollapsed();
+  }
+
+  private applyCollapsed(): void {
+    this.root.classList.toggle("qa-collapsed", this.collapsed);
+    const head = this.root.querySelector<HTMLElement>(".qa-head");
+    head?.setAttribute("aria-expanded", this.collapsed ? "false" : "true");
+    const chevron = this.root.querySelector<HTMLElement>(".qa-chevron");
+    if (chevron !== null) chevron.textContent = this.collapsed ? "▸" : "▾";
+  }
+
+  private updateCollapseSummary(): void {
+    if (this.collapseSummary === null) return;
+    const issues: string[] = [];
+    if (this.counts.duplicates > 0) {
+      issues.push(`${this.counts.duplicates.toLocaleString()} duplicate rows`);
+    }
+    if (this.counts.nulls > 0) issues.push(`${this.counts.nulls.toLocaleString()} empty rows`);
+    if (this.counts.valueAnomalies > 0) {
+      issues.push(`${this.counts.valueAnomalies.toLocaleString()} value outliers`);
+    }
+    if (this.counts.lengthAnomalies > 0) {
+      issues.push(`${this.counts.lengthAnomalies.toLocaleString()} length outliers`);
+    }
+    this.collapseSummary.textContent = issues.length === 0 ? "No issues found" : issues.join(" · ");
+  }
+
+  private syncButtons(): void {
+    for (const { kind, label } of QA_BUTTONS) {
+      const entry = this.buttons.get(kind);
+      if (entry === undefined) continue;
+      const on = this.active.has(kind);
+      entry.button.classList.toggle("active", on);
+      entry.button.classList.toggle("warn", this.counts[kind] > 0);
+      entry.button.classList.toggle("ok", this.counts[kind] === 0);
+      entry.button.setAttribute("aria-pressed", on ? "true" : "false");
+      entry.button.title = this.titleFor(kind);
+      entry.label.textContent = on
+        ? `Only ${label.toLowerCase()} (${this.counts[kind].toLocaleString()})`
+        : `${label}: ${this.counts[kind].toLocaleString()}`;
+    }
+    this.updateCollapseSummary();
+  }
+
+  /** Metric definitions with their unit, so the counts are not ambiguous. */
+  private titleFor(kind: SpecialKind): string {
+    const stats = this.stats;
+    if (stats === null) return QA_BUTTONS.find((button) => button.kind === kind)?.title ?? "";
+    switch (kind) {
+      case "duplicates":
+        return `Rows in a duplicate group: ${stats.rowsInDuplicateGroups.toLocaleString()} rows (${stats.duplicateGroups.toLocaleString()} groups, ${stats.duplicateRows.toLocaleString()} redundant rows beyond the first copy) — click to show them`;
+      case "nulls":
+        return `Rows with at least one empty cell: ${stats.rowsWithNulls.toLocaleString()} rows (${stats.totalNullCells.toLocaleString()} empty cells across ${stats.totalCells.toLocaleString()} cells) — click to show them`;
+      case "valueAnomalies":
+        return `Rows with a numeric value outside its column's robust median fence (modified z-score > 3.5): ${stats.valueAnomalyRows.toLocaleString()} rows — click to show them`;
+      case "lengthAnomalies":
+        return `Rows with text longer than 3× the column's 90th-percentile length: ${stats.lengthAnomalyRows.toLocaleString()} rows — click to show them`;
+    }
   }
 
   hide(): void {
@@ -129,30 +197,28 @@ export class SummaryBand {
     });
   }
 
-  private syncButtons(): void {
-    for (const { kind, label } of QA_BUTTONS) {
-      const entry = this.buttons.get(kind);
-      if (entry === undefined) continue;
-      const on = this.active.has(kind);
-      entry.button.classList.toggle("active", on);
-      entry.button.classList.toggle("ok", this.counts[kind] === 0);
-      entry.button.setAttribute("aria-pressed", on ? "true" : "false");
-      entry.label.textContent = on
-        ? `Only ${label.toLowerCase()} (${this.counts[kind].toLocaleString()})`
-        : `${label}: ${this.counts[kind].toLocaleString()}`;
-    }
-  }
-
   private buildQaBlock(loaded: LoadedMessage | TransformedMessage): HTMLElement {
     const block = el("div", { class: "qa-block" });
 
-    const head = el("div", { class: "qa-head" });
+    const head = el(
+      "button",
+      {
+        class: "qa-head",
+        type: "button",
+        "aria-expanded": "true",
+        title: "Collapse or expand the QA summary",
+      },
+    ) as HTMLButtonElement;
     head.append(
       el("span", { class: "qa-title" }, ["Data QA"]),
       el("span", { class: "qa-sub" }, [
         `${loaded.rowCount.toLocaleString()} rows × ${loaded.columnCount.toLocaleString()} cols`,
       ]),
+      el("span", { class: "grow" }),
+      el("span", { class: "qa-chevron" }, ["▾"]),
     );
+    head.addEventListener("click", () => this.toggleCollapsed());
+    this.collapseSummary = el("div", { class: "qa-collapse-summary" });
 
     const actions = el("div", { class: "qa-actions" });
     for (const { kind, label, title } of QA_BUTTONS) {
@@ -198,7 +264,12 @@ export class SummaryBand {
     if (loaded.encoding === "windows-1252") footParts.push("windows-1252");
     footParts.push(`${Math.round(loaded.ingestMs)} ms`);
 
-    block.append(head, actions, el("div", { class: "overview-foot" }, [footParts.join(" · ")]));
+    block.append(
+      head,
+      this.collapseSummary,
+      actions,
+      el("div", { class: "overview-foot" }, [footParts.join(" · ")]),
+    );
     return block;
   }
 

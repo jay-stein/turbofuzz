@@ -487,7 +487,7 @@ function handleGetRows(message: GetRowsRequest): void {
 function handleSetType(message: SetTypeRequest): void {
   const { dataset, engine } = state();
   const column = dataset.columns[message.column];
-  column.setType(message.columnType);
+  column.setType(message.columnType, true);
   typeOverrides.set(message.column, message.columnType);
   dataset.applyAnomalies(computeAnomalies(dataset.columns, dataset.rowCount));
   filters.delete(message.column);
@@ -649,7 +649,7 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
     const raw = update.ops.length === 0 ? source.raw : applyCleanOps(source.raw, update.ops);
     const rebuilt = ColumnData.create(current.columns[column].name, raw, policy);
     const typeOverride = typeOverrides.get(column);
-    if (typeOverride !== undefined) rebuilt.setType(typeOverride);
+    if (typeOverride !== undefined) rebuilt.setType(typeOverride, true);
     const locale = numberLocales.get(column);
     if (locale !== undefined) rebuilt.setNumberLocale(locale);
     columns[column] = rebuilt;
@@ -733,7 +733,7 @@ function handleSetNullPolicy(message: SetNullPolicyRequest): void {
   const columns = current.columns.slice();
   const rebuilt = blankAndRebuild(column, policy);
   const typeOverride = typeOverrides.get(message.column);
-  if (typeOverride !== undefined) rebuilt.setType(typeOverride);
+  if (typeOverride !== undefined) rebuilt.setType(typeOverride, true);
   const locale = numberLocales.get(message.column);
   if (locale !== undefined) rebuilt.setNumberLocale(locale);
   columns[message.column] = rebuilt;
@@ -781,7 +781,7 @@ function handleResolveNullsAll(message: ResolveNullsAllRequest): void {
   const columns = current.columns.map((column, index) => {
     const next = blankAndRebuild(column, policy);
     const typeOverride = typeOverrides.get(index);
-    if (typeOverride !== undefined) next.setType(typeOverride);
+    if (typeOverride !== undefined) next.setType(typeOverride, true);
     const locale = numberLocales.get(index);
     if (locale !== undefined) next.setNumberLocale(locale);
     return next;

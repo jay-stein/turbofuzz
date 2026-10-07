@@ -19,6 +19,10 @@
   --qa-btn-active: color-mix(in srgb, var(--null) 6%, var(--danger));
   --qa-ok: #9fdfab;
   --qa-ok-text: #14532d;
+  --qa-warn: #b45309;
+  --qa-warn-border: #fbbf24;
+  --qa-warn-soft: #fef3c7;
+  --qa-warn-text: #7c4a03;
   --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 8px 24px rgb(16 24 40 / 8%);
   --radius: 10px;
   --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
@@ -39,6 +43,10 @@
     --mark: #7a5d00;
     --qa-btn: color-mix(in srgb, var(--null) 15%, #93261c);
     --qa-btn-active: color-mix(in srgb, var(--null) 5%, #701b13);
+    --qa-warn: #fbbf24;
+    --qa-warn-border: #8a6d1f;
+    --qa-warn-soft: #3b2f0e;
+    --qa-warn-text: #fbbf24;
     --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px rgb(0 0 0 / 35%);
   }
 }
@@ -615,10 +623,10 @@ textarea:focus {
 .qa-block {
   flex: none;
   width: 380px;
-  border: 1px solid var(--qa-border);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 10px 12px;
-  background: linear-gradient(180deg, var(--qa-soft), var(--panel));
+  background: var(--panel);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -627,30 +635,55 @@ textarea:focus {
 .qa-head {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
   gap: 8px;
   margin: -10px -12px 0;
   padding: 9px 12px 8px;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--qa-btn) 86%, #fff),
-    var(--qa-btn)
-  );
+  background: var(--panel-2);
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
   border-radius: 11px 11px 0 0;
+  width: calc(100% + 24px);
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.qa-head:hover {
+  background: color-mix(in srgb, var(--panel-2) 88%, var(--accent) 12%);
 }
 
 .qa-title {
-  font-size: 19px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
-  color: #fff;
 }
 
 .qa-sub {
   font-size: 11px;
   font-family: var(--mono);
-  color: rgb(255 255 255 / 78%);
+  color: var(--text-dim);
+}
+
+.qa-chevron {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.qa-collapse-summary {
+  display: none;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.qa-collapsed .qa-collapse-summary {
+  display: block;
+}
+
+.qa-collapsed .qa-actions,
+.qa-collapsed .overview-foot {
+  display: none;
 }
 
 .qa-actions {
@@ -663,37 +696,25 @@ textarea:focus {
 .qa-button {
   font: inherit;
   font-size: 12.5px;
-  font-weight: 650;
-  padding: 8px 12px;
+  font-weight: 600;
+  padding: 7px 11px;
   border-radius: 9px;
-  border: 1px solid color-mix(in srgb, var(--qa-btn) 70%, #000);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--qa-btn) 82%, #fff),
-    var(--qa-btn)
-  );
-  color: #fff;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
   white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   cursor: pointer;
-  box-shadow: 0 2px 4px rgb(16 24 40 / 22%);
   transition:
-    filter 0.12s ease,
-    box-shadow 0.12s ease,
-    transform 0.06s ease;
+    border-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
 }
 
 .qa-button:hover {
-  filter: brightness(1.08);
-  transform: translateY(-1px);
-  box-shadow: 0 5px 12px rgb(160 50 35 / 35%);
-}
-
-.qa-button:active {
-  transform: translateY(1px);
-  box-shadow: 0 1px 2px rgb(16 24 40 / 20%);
+  border-color: var(--accent);
 }
 
 .qa-button:focus-visible {
@@ -701,35 +722,29 @@ textarea:focus {
   outline-offset: 2px;
 }
 
-.qa-button.active {
-  background: var(--qa-btn-active);
-  box-shadow:
-    inset 0 2px 6px rgb(0 0 0 / 30%),
-    inset 0 0 0 2px rgb(255 255 255 / 75%);
-  filter: none;
+.qa-button.warn {
+  border-color: var(--qa-warn-border);
+  background: var(--qa-warn-soft);
+  color: var(--qa-warn-text);
+}
+
+.qa-button.warn:hover {
+  border-color: var(--qa-warn);
 }
 
 .qa-button.ok {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--qa-ok) 55%, #fff),
-    var(--qa-ok)
-  );
-  border-color: color-mix(in srgb, var(--qa-ok) 65%, #2e7d32);
-  color: var(--qa-ok-text);
+  border-color: var(--border);
+  background: var(--panel);
+  color: var(--text-dim);
 }
 
 .qa-button.ok:hover {
-  filter: brightness(1.06);
-  box-shadow: 0 5px 12px rgb(45 120 65 / 28%);
+  border-color: var(--accent);
 }
 
-.qa-button.ok.active {
-  background: color-mix(in srgb, var(--qa-ok) 70%, #2e7d32);
-  color: #fff;
-  box-shadow:
-    inset 0 2px 6px rgb(0 0 0 / 25%),
-    inset 0 0 0 2px rgb(255 255 255 / 72%);
+.qa-button.active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 .qa-icon {
@@ -969,6 +984,14 @@ textarea:focus {
   font-size: 13px;
 }
 
+.filter-search {
+  flex: none;
+  margin: 8px 10px 0;
+  width: calc(100% - 20px);
+  font-size: 12.5px;
+  padding: 5px 8px;
+}
+
 .filter-host {
   flex: 1;
   overflow-y: auto;
@@ -1000,6 +1023,22 @@ textarea:focus {
   align-items: center;
   gap: 6px;
   margin-bottom: 6px;
+}
+
+.filter-caret {
+  font-size: 10px;
+  padding: 0 2px;
+  min-width: 14px;
+  color: var(--text-dim);
+}
+
+.filter-card.collapsed .filter-body,
+.filter-card.collapsed .filter-stats {
+  display: none;
+}
+
+.filter-card.collapsed .filter-head {
+  margin-bottom: 0;
 }
 
 .filter-name {

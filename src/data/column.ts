@@ -40,6 +40,7 @@ export class ColumnData {
   private medianValue: number | null = null;
   private medianComputed = false;
   private histCache: { bins: number[]; min: number; max: number } | null = null;
+  private typeLocked = false;
 
   constructor(
     public name: string,
@@ -167,8 +168,9 @@ export class ColumnData {
     return this.fuzzy !== null;
   }
 
-  setType(type: ColumnType): void {
+  setType(type: ColumnType, lock = false): void {
     this.type = type;
+    this.typeLocked = lock;
     this.nums = null;
     this.cats = null;
     this.stats.min = null;
@@ -227,6 +229,7 @@ export class ColumnData {
       let sum = 0;
       let sumSquares = 0;
       let finiteCount = 0;
+      let nonInteger = false;
 
       for (let i = 0; i < this.raw.length; i++) {
         const value = this.raw[i];
@@ -245,8 +248,14 @@ export class ColumnData {
           sum += parsed;
           sumSquares += parsed * parsed;
           finiteCount++;
+          // Whole-column check: an "Integer" label is only correct when every
+          // parsed value really is one. User overrides stay locked.
+          if (!nonInteger && !this.typeLocked && this.type === "integer" && !Number.isInteger(parsed)) {
+            nonInteger = true;
+          }
         }
       }
+      if (nonInteger) this.type = "number";
 
       if (finiteCount > 0) {
         const mean = sum / finiteCount;

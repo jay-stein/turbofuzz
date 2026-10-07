@@ -28,10 +28,13 @@ export interface ColumnStats {
   avgLength: number | null;
 }
 
-const TRUE_VALUES = new Set(["true", "yes", "y", "t"]);
-const FALSE_VALUES = new Set(["false", "no", "n", "f"]);
+const TRUE_VALUES = new Set(["true", "yes", "y", "t", "1"]);
+const FALSE_VALUES = new Set(["false", "no", "n", "f", "0"]);
 const INTEGER = /^[+-]?\d{1,15}$/;
 const ALL_DIGITS = /^\d+$/;
+/** Upper bound for "small code" integers that default to a category list. */
+const CATEGORY_CODE_MAX = 12;
+const CATEGORY_CODE_DISTINCT = 12;
 
 export function stratifiedSample(values: readonly string[], max: number): string[] {
   if (values.length <= max) return values.slice();
@@ -115,6 +118,18 @@ export function inferColumnType(
   if (integerOk / total >= 0.95) {
     const allLong = nonNull.every((value) => value.replace(/^[+-]/, "").length >= 7);
     if (allLong && present > 0 && distinct / present > 0.9) return { type: "identifier" };
+    // Small non-negative code columns (Pclass, ratings, weekday numbers) are
+    // far more useful as a value list than as a numeric range.
+    if (
+      distinct <= CATEGORY_CODE_DISTINCT &&
+      present >= distinct * 5 &&
+      nonNull.every((value) => {
+        const numeric = Number(value);
+        return Number.isInteger(numeric) && numeric >= 0 && numeric <= CATEGORY_CODE_MAX;
+      })
+    ) {
+      return { type: "category" };
+    }
     return { type: "integer" };
   }
   if (numberOk / total >= 0.95) {

@@ -16,7 +16,7 @@ import {
 } from "../data/transform-ops.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { WorkBook } from "xlsx";
-import type { ColumnType } from "../types.js";
+import { TYPE_LABELS, type ColumnType } from "../types.js";
 import type {
   CleanUpdate,
   ColumnMeta,
@@ -233,6 +233,7 @@ export class App {
   private shuffleCount!: HTMLInputElement;
   private shuffleActive = false;
   private filterHost!: HTMLElement;
+  private filterSearch!: HTMLInputElement;
   private tableHost!: HTMLElement;
   private stepperHost!: HTMLElement;
   private stepper: PipelineStepper | null = null;
@@ -445,8 +446,18 @@ export class App {
     const clearAll = el("button", { class: "ghost small", type: "button" }, ["Clear all"]);
     clearAll.addEventListener("click", () => this.clearFilters());
     sidebarHead.append(clearAll);
+    this.filterSearch = el("input", {
+      class: "text-input filter-search",
+      type: "search",
+      placeholder: "Find a column…",
+      spellcheck: "false",
+      "aria-label": "Find a column to filter",
+    }) as HTMLInputElement;
+    this.filterSearch.addEventListener("input", () =>
+      this.filterPanel?.search(this.filterSearch.value),
+    );
     this.filterHost = el("div", { class: "filter-host" });
-    sidebar.append(sidebarHead, this.filterHost);
+    sidebar.append(sidebarHead, this.filterSearch, this.filterHost);
 
     const results = el("main", { class: "results" });
     const resultsBar = el("div", { class: "results-bar" });
@@ -1054,6 +1065,7 @@ export class App {
     this.table.setCount(loaded.rowCount);
 
     clear(this.filterHost);
+    this.filterSearch.value = "";
     this.filterPanel = new FilterPanel(this.filterHost, this.metas, this.filters, {
       onFilter: (column, filter, preview) => this.changeFilter(column, filter, preview ?? false),
       onTypeChange: (column, type) => this.changeType(column, type),
@@ -1163,12 +1175,19 @@ export class App {
   }
 
   private changeType(column: number, type: ColumnType): void {
+    const hadFilter = this.filters.has(column);
+    const name = this.metas[column]?.name ?? `Column ${column + 1}`;
     this.queueSend(() =>
       this.client
         .setType(column, type)
         .then((message) => {
           this.metas[column] = message.meta;
           this.filters.delete(column);
+          if (hadFilter) {
+            this.showWarning(
+              `Type changed to ${TYPE_LABELS[type]} — the previous filter on “${name}” was cleared.`,
+            );
+          }
           this.summaryBand?.setCounts(message.stats);
           this.summaryBand?.updateColumn(column, message.meta);
           this.filterPanel?.updateMeta(column, message.meta);
@@ -1377,6 +1396,14 @@ export class App {
   private showError(error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
     this.countEl.textContent = `Error: ${message}`;
+  }
+
+  private showWarning(text: string): void {
+    this.bannerEl.replaceChildren(el("span", { class: "banner-text" }, [text]));
+    const dismiss = el("button", { class: "icon-btn", type: "button", title: "Dismiss" }, ["×"]);
+    dismiss.addEventListener("click", () => this.bannerEl.classList.add("hidden"));
+    this.bannerEl.append(dismiss);
+    this.bannerEl.classList.remove("hidden");
   }
 
   private showPaste(): void {

@@ -9,6 +9,30 @@ function inferType(values: string[]): string {
 test("infers boolean", () => {
   assert.equal(inferType(["Yes", "No", "Yes", "No"]), "boolean");
   assert.equal(inferType(["true", "false", "true"]), "boolean");
+  assert.equal(inferType(["0", "1", "1", "0"]), "boolean");
+});
+
+test("infers category for small non-negative code columns", () => {
+  const codes = Array.from({ length: 120 }, (_, index) => String(index % 3));
+  assert.equal(inferType(codes), "category");
+  const ratings = Array.from({ length: 100 }, (_, index) => String((index % 5) + 1));
+  assert.equal(inferType(ratings), "category");
+});
+
+test("whole-column parse promotes integer to number when decimals appear", () => {
+  const values = Array.from({ length: 100 }, (_, index) => String(index));
+  values[99] = "99.5";
+  const column = ColumnData.create("mixed", values);
+  assert.equal(column.type, "integer");
+  column.numbers();
+  assert.equal(column.type, "number");
+});
+
+test("a manually locked type survives the whole-column check", () => {
+  const column = ColumnData.create("mixed", ["1", "2.5"]);
+  column.setType("integer", true);
+  column.numbers();
+  assert.equal(column.type, "integer");
 });
 
 test("infers integer", () => {
