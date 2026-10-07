@@ -2077,6 +2077,77 @@ mark {
   color: var(--text-dim);
 }
 
+.chart-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.chart-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.chart-number {
+  width: 74px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+select.chart-number {
+  width: auto;
+}
+
+.chart-check {
+  font-size: 11.5px;
+}
+
+.chart-colors {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chart-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.08s ease;
+}
+
+.chart-swatch:hover {
+  transform: scale(1.12);
+}
+
+.chart-swatch.active {
+  border-color: var(--text);
+}
+
+.chart-hex {
+  width: 88px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+
 .export-modal {
   width: min(460px, 100%);
 }

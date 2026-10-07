@@ -1,9 +1,11 @@
 import type { Delimiter } from "../parse/delimiter.js";
 import type { NumberLocale } from "../parse/numbers.js";
+import type { ChartBinOptions } from "../data/chart-bins.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { TransformOp } from "../data/transform-ops.js";
 import type { ColumnType } from "../types.js";
 import type {
+  ChartBinsMessage,
   CleanedMessage,
   CleanPreviewMessage,
   CleanUpdate,
@@ -117,6 +119,10 @@ export class SearchWorkerClient {
 
   getStats(): Promise<StatsMessage> {
     return this.request<StatsMessage>({ type: "getStats" });
+  }
+
+  getChartBins(column: number, options: ChartBinOptions): Promise<ChartBinsMessage> {
+    return this.request<ChartBinsMessage>({ type: "getChartBins", column, options });
   }
 
   renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {

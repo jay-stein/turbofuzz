@@ -166,4 +166,33 @@ test("search worker handles the full request lifecycle", async () => {
     2,
     "omitted scope keeps the filtered behaviour",
   );
+
+  // Custom chart bins follow the current filters (range >= 40 still active).
+  send({
+    type: "getChartBins",
+    requestId: 21,
+    column: 1,
+    options: { min: 0, max: 100, binCount: 5, overflow: false },
+  });
+  const chartBins = find("chartBins", 21) as unknown as {
+    bins: number[];
+    total: number;
+    above: number;
+  };
+  assert.deepEqual(chartBins.bins, [0, 0, 2, 0, 0]);
+  assert.equal(chartBins.total, 2);
+  assert.equal(chartBins.above, 0);
+
+  send({
+    type: "getChartBins",
+    requestId: 22,
+    column: 1,
+    options: { min: 0, max: 40, binCount: 2, overflow: true },
+  });
+  const overflowBins = find("chartBins", 22) as unknown as {
+    bins: number[];
+    overflow: number;
+  };
+  assert.deepEqual(overflowBins.bins, [0, 1], "40 clamps into the last bin");
+  assert.equal(overflowBins.overflow, 1, "50 lands in the > Max bar");
 });

@@ -4,6 +4,7 @@ import { buildDataset, datasetFromColumns, rebuildDataset } from "../data/build.
 import { applyCleanOps } from "../data/clean-ops.js";
 import type { Dataset } from "../data/dataset.js";
 import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
+import { binValues } from "../data/chart-bins.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import {
   createNullPolicy,
@@ -34,6 +35,7 @@ import type {
   DropRowsRequest,
   GetRowsRequest,
   GetStatsRequest,
+  GetChartBinsRequest,
   LoadRequest,
   PreviewCleanRequest,
   PreviewTransformRequest,
@@ -147,6 +149,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getStats":
       handleGetStats(message);
+      break;
+    case "getChartBins":
+      handleGetChartBins(message);
       break;
     case "renameHeaders":
       handleRenameHeaders(message);
@@ -660,6 +665,20 @@ function handleGetStats(message: GetStatsRequest): void {
     columnCount: dataset.columnCount,
     stats: dataset.stats,
     columns: dataset.columns.map(detailsFor),
+  });
+}
+
+/** Custom chart bins over the current result order (chart tab settings). */
+function handleGetChartBins(message: GetChartBinsRequest): void {
+  const { dataset } = state();
+  const column = dataset.columns[message.column];
+  if (column === undefined) throw new Error("Unknown column");
+  const bins = binValues(column.numbers(), sortedIds, message.options);
+  post({
+    type: "chartBins",
+    requestId: message.requestId,
+    column: message.column,
+    ...bins,
   });
 }
 

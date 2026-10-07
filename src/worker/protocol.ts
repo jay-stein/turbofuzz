@@ -1,4 +1,5 @@
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
+import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import type { CleanOp } from "../data/clean-ops.js";
 import type { HistogramData, NullTokenCount } from "../data/column.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
@@ -137,6 +138,19 @@ export type SetNumberLocaleRequest = {
 
 export type GetStatsRequest = { type: "getStats"; requestId: number };
 
+export type GetChartBinsRequest = {
+  type: "getChartBins";
+  requestId: number;
+  column: number;
+  options: ChartBinOptions;
+};
+
+export interface ChartBinsMessage extends ChartBins {
+  type: "chartBins";
+  requestId: number;
+  column: number;
+}
+
 export type ExportScope = "all" | "filtered";
 
 export type StartExportRequest = {
@@ -224,6 +238,7 @@ export type WorkerRequest =
   | SetTypeRequest
   | SetNumberLocaleRequest
   | GetStatsRequest
+  | GetChartBinsRequest
   | StartExportRequest
   | GetCsvRequest
   | RenameHeadersRequest
@@ -388,6 +403,7 @@ export type WorkerResponse =
   | RowsMessage
   | ColumnMetaMessage
   | StatsMessage
+  | ChartBinsMessage
   | ExportStartedMessage
   | CsvChunkMessage
   | HeadersRenamedMessage

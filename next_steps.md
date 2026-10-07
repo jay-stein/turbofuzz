@@ -479,10 +479,13 @@ topic later.
 
 - **Visualisations + PNG export.** Shipped 2026-10-08: a Table/Chart toggle in
   the results bar renders histograms (numeric, signed-log aware), time-series
-  areas (dates) and top-12 category bars from the existing facet/histogram
-  payloads — no chart library — and exports the canvas as PNG. Still open:
-  more chart types (scatter, multi-series), chart annotations/percentiles, and
-  rendering the current table selection.
+  areas (dates) and top-N category bars (with Other aggregation, count + %
+  labels) from the existing facet/histogram payloads — no chart library — and
+  exports the canvas as PNG. Custom bin controls (start/end/count and a “> Max”
+  overflow bar) are computed in the worker against the filtered rows, and a
+  colour picker offers ten presets plus a hex field (per-bar colours for
+  category charts). Still open: scatter and multi-series charts, annotations
+  and percentiles.
 - **Theme switching.** Shipped 2026-10-08: header control cycles Auto / Light /
   Dark, persisted in `localStorage`, with explicit `data-theme` palettes and
   `themechange` repaints for charts. Still open: the **quirky mode (TBD)** —

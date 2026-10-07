@@ -1027,7 +1027,10 @@ export class App {
 
     this.chartPanel?.dispose();
     clear(this.chartHost);
-    this.chartPanel = new ChartPanel(this.chartHost, () => this.datasetName);
+    this.chartPanel = new ChartPanel(this.chartHost, {
+      datasetName: () => this.datasetName,
+      requestBins: (column, options) => this.client.getChartBins(column, options),
+    });
     this.chartPanel.setColumns(loaded.columns);
     this.chartPanel.setRowCount(loaded.rowCount);
     this.setView(this.chartActive ? "chart" : "table");

@@ -163,6 +163,22 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     ],
   },
   {
+    id: "charts",
+    title: "Charts",
+    summary: "Chart the current result set and export it as a PNG.",
+    blocks: [
+      p(
+        "The Chart tab in the results bar draws the rows currently matching your filters: histograms for numeric columns, a time series for dates and bars for categories.",
+      ),
+      list(
+        "Numeric: set Start, End and Bins, and optionally a “> Max” bar that groups everything above the end into one bucket. Bins are recomputed on the filtered rows, so they follow your filters.",
+        "Categories: choose Top 3–15 and optionally group the rest as “Other”; every bar shows its count and share above it.",
+        "Colours: pick one of ten presets or type a hex code. Category bars can colour each bar separately.",
+        "Export PNG downloads the canvas; the chart is rendered with no chart library, so it stays offline and fast.",
+      ),
+    ],
+  },
+  {
     id: "process-log",
     title: "Process Log (undo)",
     summary: "Every applied change, individually reversible, plus a pandas recipe.",
