@@ -14,6 +14,7 @@ import {
   describeTransformOpDetail,
   schemaAfter,
   type ColumnSchema,
+  type DedupeKeep,
   type TransformOp,
 } from "../data/transform-ops.js";
 import type { NumberLocale } from "../parse/numbers.js";
@@ -1065,6 +1066,7 @@ export class App {
       onToggleSpecial: (kind) => this.toggleSpecial(kind),
       onOpenStats: () => this.openStats(),
       onColumnClick: (column) => this.filterPanel?.focusColumn(column),
+      onDropDuplicates: (keep) => this.dropDuplicates(keep),
     });
     this.summaryBand.render(loaded);
 
@@ -2044,7 +2046,7 @@ export class App {
     });
   }
 
-  private applyTransform(ops: TransformOp[]): void {
+  private applyTransform(ops: TransformOp[], action?: string): void {
     this.queueSend(() =>
       this.client
         .transform(ops)
@@ -2052,10 +2054,21 @@ export class App {
           this.openWorkspace(message);
           const plural = ops.length === 1 ? "" : "s";
           this.setAction(
-            ops.length === 0 ? "Transforms reset" : `Applied ${ops.length} transform step${plural}`,
+            action ??
+              (ops.length === 0 ? "Transforms reset" : `Applied ${ops.length} transform step${plural}`),
           );
         })
         .catch((error: unknown) => this.showError(error)),
+    );
+  }
+
+  /** Quick action from the Duplicates QA control: drop duplicate rows. */
+  private dropDuplicates(keep: DedupeKeep): void {
+    const label =
+      keep === "first" ? "kept first copy" : keep === "last" ? "kept last copy" : "removed all copies";
+    this.applyTransform(
+      [...this.transformOps, { kind: "dedupe", keep }],
+      `Removed duplicate rows (${label})`,
     );
   }
 }

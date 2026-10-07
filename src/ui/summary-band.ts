@@ -3,6 +3,7 @@ import { toDateInputValue } from "../parse/dates.js";
 import type { TopValue } from "../parse/infer.js";
 import { TYPE_LABELS } from "../types.js";
 import type { DatasetStats } from "../data/stats.js";
+import type { DedupeKeep } from "../data/transform-ops.js";
 import type {
   ColumnMeta,
   LoadedMessage,
@@ -30,6 +31,7 @@ export interface SummaryBandCallbacks {
   onToggleSpecial: (kind: SpecialKind) => void;
   onOpenStats: () => void;
   onColumnClick: (column: number) => void;
+  onDropDuplicates: (keep: DedupeKeep) => void;
 }
 
 /**
@@ -52,6 +54,7 @@ export class SummaryBand {
   private stats: DatasetStats | null = null;
   private collapsed = false;
   private collapseSummary: HTMLElement | null = null;
+  private dedupeButton: HTMLButtonElement | null = null;
   private renderToken = 0;
 
   constructor(
@@ -136,7 +139,79 @@ export class SummaryBand {
         ? `Only ${label.toLowerCase()} (${this.counts[kind].toLocaleString()})`
         : `${label}: ${this.counts[kind].toLocaleString()}`;
     }
+    if (this.dedupeButton !== null) {
+      const redundant = this.stats?.duplicateRows ?? 0;
+      this.dedupeButton.disabled = redundant === 0;
+      this.dedupeButton.title =
+        redundant === 0
+          ? "No duplicate rows to remove"
+          : `Remove duplicate rows — ${redundant.toLocaleString()} redundant rows. Choose keep first, keep last, or remove all copies.`;
+    }
     this.updateCollapseSummary();
+  }
+
+  /** Quick menu next to the Duplicates toggle that applies a dedupe transform. */
+  private openDedupeMenu(anchor: HTMLElement): void {
+    const stats = this.stats;
+    if (stats === null) return;
+
+    const menu = el("div", { class: "context-menu qa-menu", role: "menu" });
+    const options: { keep: DedupeKeep; label: string; removed: number; hint: string }[] = [
+      {
+        keep: "first",
+        label: "Keep first copy",
+        removed: stats.duplicateRows,
+        hint: "Remove later copies, keeping the earliest row of every duplicate group",
+      },
+      {
+        keep: "last",
+        label: "Keep last copy",
+        removed: stats.duplicateRows,
+        hint: "Remove earlier copies, keeping the latest row of every duplicate group",
+      },
+      {
+        keep: "none",
+        label: "Remove all copies",
+        removed: stats.rowsInDuplicateGroups,
+        hint: "Drop every row that belongs to a duplicate group, including the original",
+      },
+    ];
+
+    let closed = false;
+    const close = (): void => {
+      if (closed) return;
+      closed = true;
+      menu.remove();
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!menu.contains(event.target as Node)) close();
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") close();
+    };
+
+    for (const option of options) {
+      const item = el(
+        "button",
+        { class: "context-item", type: "button", role: "menuitem", title: option.hint },
+        [`${option.label} — ${option.removed.toLocaleString()} rows`],
+      ) as HTMLButtonElement;
+      item.disabled = option.removed === 0;
+      item.addEventListener("click", () => {
+        close();
+        this.callbacks.onDropDuplicates(option.keep);
+      });
+      menu.append(item);
+    }
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    document.body.append(menu);
+    const rect = anchor.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8))}px`;
+    menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8)}px`;
   }
 
   /** Metric definitions with their unit, so the counts are not ambiguous. */
@@ -218,6 +293,23 @@ export class SummaryBand {
       this.buttons.set(kind, { button, label: labelEl });
       actions.append(button);
     }
+
+    const dedupeButton = el(
+      "button",
+      { class: "qa-button qa-dedupe", type: "button" },
+      [],
+    ) as HTMLButtonElement;
+    dedupeButton.append(
+      svgIcon(
+        '<path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="m6 7 1 12h10l1-12"/>' +
+          '<path d="M10 11v5"/><path d="M14 11v5"/>',
+        "qa-icon",
+      ),
+      el("span", { class: "qa-label" }, ["Remove duplicates"]),
+    );
+    dedupeButton.addEventListener("click", () => this.openDedupeMenu(dedupeButton));
+    this.dedupeButton = dedupeButton;
+    actions.append(dedupeButton);
     const details = el(
       "button",
       {
