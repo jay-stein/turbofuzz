@@ -16,7 +16,11 @@ import type { NumberLocale } from "../parse/numbers.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
 import type { BitSet } from "../search/bitset.js";
 import { buildRank, orderIds } from "../search/order.js";
-import { QueryEngine, type ColumnFilter } from "../search/query-engine.js";
+import {
+  QueryEngine,
+  type ColumnFilter,
+  type ColumnSpecialKind,
+} from "../search/query-engine.js";
 import type { ColumnType } from "../types.js";
 import { buildCsv } from "./csv.js";
 import { ingestDataset, type IngestResult } from "./ingest.js";
@@ -57,6 +61,8 @@ let sortDir: 1 | -1 = 1;
 let exportIds: Uint32Array | null = null;
 let duplicateRank: Uint32Array | null = null;
 const specials = new Set<SpecialKind>();
+// Per-column specials (empties/outliers), carried across clean rebuilds too.
+const columnSpecials = new Map<number, Set<ColumnSpecialKind>>();
 const histogramCache = new HistogramCache();
 // Non-destructive clean state: the untouched source column per cleaned column.
 const cleanSource = new Map<number, ColumnData>();
@@ -172,6 +178,14 @@ async function handle(message: WorkerRequest): Promise<void> {
 function state(): { dataset: Dataset; engine: QueryEngine } {
   if (dataset === null || engine === null) throw new Error("No dataset loaded");
   return { dataset, engine };
+}
+
+/** Re-applies active specials (global and per-column) onto a rebuilt engine. */
+function applySpecials(target: QueryEngine): void {
+  for (const kind of specials) target.setSpecial(kind, true);
+  for (const [column, kinds] of columnSpecials) {
+    for (const kind of kinds) target.setColumnSpecial(column, kind, true);
+  }
 }
 
 /**
@@ -313,6 +327,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   exportIds = null;
   duplicateRank = null;
   specials.clear();
+  columnSpecials.clear();
   histogramCache.clear();
   cleanSource.clear();
   nullPolicies.clear();
@@ -396,11 +411,28 @@ function handleSetSpecial(message: {
   requestId: number;
   kind: SpecialKind;
   active: boolean;
+  column?: number;
 }): void {
   const { dataset, engine } = state();
-  engine.setSpecial(message.kind, message.active);
-  if (message.active) specials.add(message.kind);
-  else specials.delete(message.kind);
+  if (message.column !== undefined && message.kind !== "duplicates") {
+    const kind = message.kind as ColumnSpecialKind;
+    engine.setColumnSpecial(message.column, kind, message.active);
+    let kinds = columnSpecials.get(message.column);
+    if (message.active) {
+      if (kinds === undefined) {
+        kinds = new Set();
+        columnSpecials.set(message.column, kinds);
+      }
+      kinds.add(kind);
+    } else if (kinds !== undefined) {
+      kinds.delete(kind);
+      if (kinds.size === 0) columnSpecials.delete(message.column);
+    }
+  } else {
+    engine.setSpecial(message.kind, message.active);
+    if (message.active) specials.add(message.kind);
+    else specials.delete(message.kind);
+  }
 
   // Grouping takes over the ordering; drop any column sort so identical rows
   // are actually adjacent.
@@ -661,7 +693,7 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
   const next = rebuildDataset(current, columns);
   const newEngine = new QueryEngine(next);
   // Special toggles live on the engine, so carry them across the rebuild.
-  for (const kind of specials) newEngine.setSpecial(kind, true);
+  applySpecials(newEngine);
   dataset = next;
   engine = newEngine;
 
@@ -740,7 +772,7 @@ function handleSetNullPolicy(message: SetNullPolicyRequest): void {
 
   const next = rebuildDataset(current, columns);
   const newEngine = new QueryEngine(next);
-  for (const kind of specials) newEngine.setSpecial(kind, true);
+  applySpecials(newEngine);
   dataset = next;
   engine = newEngine;
 
@@ -792,7 +824,7 @@ function handleResolveNullsAll(message: ResolveNullsAllRequest): void {
 
   const next = rebuildDataset(current, columns);
   const newEngine = new QueryEngine(next);
-  for (const kind of specials) newEngine.setSpecial(kind, true);
+  applySpecials(newEngine);
   dataset = next;
   engine = newEngine;
 
@@ -869,6 +901,7 @@ function handleTransform(message: TransformRequest): void {
   duplicateRank = null;
   exportIds = null;
   specials.clear();
+  columnSpecials.clear();
   histogramCache.clear();
 
   const started = performance.now();
@@ -943,6 +976,10 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     numberLocale: column.numberLocale,
     dateOrder: column.dateOrder,
     stats: column.stats,
+    anomalyCounts: {
+      values: dataset.valueColumnBits[index]?.count() ?? 0,
+      lengths: dataset.lengthColumnBits[index]?.count() ?? 0,
+    },
     categories,
     histogram: column.histogram(),
     valueFence: dataset.valueFences[index] ?? null,

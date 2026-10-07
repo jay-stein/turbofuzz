@@ -82,8 +82,8 @@ export class SearchWorkerClient {
     return this.request<ResultsMessage>({ type: "clearFilters" });
   }
 
-  setSpecial(kind: SpecialKind, active: boolean): Promise<ResultsMessage> {
-    return this.request<ResultsMessage>({ type: "setSpecial", kind, active });
+  setSpecial(kind: SpecialKind, active: boolean, column?: number): Promise<ResultsMessage> {
+    return this.request<ResultsMessage>({ type: "setSpecial", kind, active, column });
   }
 
   shuffle(limit?: number): Promise<ShuffledMessage> {

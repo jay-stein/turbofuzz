@@ -32,7 +32,7 @@ import { findDataTables, type TableCandidate } from "./html-table.js";
 import { sampleCsv } from "./sample.js";
 import { SummaryBand } from "./summary-band.js";
 import { openStatsModal } from "./stats.js";
-import { ResultTable, type HighlightRule } from "./table.js";
+import { ResultTable, type ColumnQaKind, type HighlightRule } from "./table.js";
 import { SearchWorkerClient } from "./worker-client.js";
 import { openCleanPanel } from "./clean-panel.js";
 import { openExportPanel } from "./export-panel.js";
@@ -245,6 +245,7 @@ export class App {
   private summaryHost!: HTMLElement;
   private summaryBand: SummaryBand | null = null;
   private readonly specials = new Set<SpecialKind>();
+  private readonly columnSpecials = new Map<number, Set<ColumnQaKind>>();
   private shuffleButton!: HTMLButtonElement;
   private shuffleCount!: HTMLInputElement;
   private shuffleActive = false;
@@ -1038,6 +1039,7 @@ export class App {
       this.transformBaseSchema = [];
     }
     this.specials.clear();
+    this.columnSpecials.clear();
     this.shuffleActive = false;
     this.updateStepsButton();
     this.summaryBand = new SummaryBand(this.summaryHost, {
@@ -1069,6 +1071,7 @@ export class App {
     this.table = new ResultTable(this.tableHost, {
       onSort: (column, dir) => this.changeSort(column, dir),
       onTypeChange: (column, type) => this.changeType(column, type),
+      onColumnSpecial: (column, kind) => this.toggleColumnSpecial(column, kind),
       onRequestRows: (start, end, done) => {
         void this.client
           .getRows(start, end)
@@ -1091,6 +1094,43 @@ export class App {
 
     this.updateCount(loaded.rowCount, 0);
     this.updateGuardrail(loaded, loaded.source === "file" || loaded.type === "transformed");
+  }
+
+  private toggleColumnSpecial(column: number, kind: ColumnQaKind): void {
+    const active = !(this.columnSpecials.get(column)?.has(kind) ?? false);
+    let kinds = this.columnSpecials.get(column);
+    if (active) {
+      if (kinds === undefined) {
+        kinds = new Set();
+        this.columnSpecials.set(column, kinds);
+      }
+      kinds.add(kind);
+    } else if (kinds !== undefined) {
+      kinds.delete(kind);
+      if (kinds.size === 0) this.columnSpecials.delete(column);
+    }
+    this.syncColumnQa();
+
+    this.queueSend(() =>
+      this.client
+        .setSpecial(kind, active, column)
+        .then((message) => {
+          this.updateCount(message.count, message.queryMs);
+          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
+  }
+
+  /** Marks the active per-column QA chips in the header. */
+  private syncColumnQa(): void {
+    const active = new Set<string>();
+    for (const [column, kinds] of this.columnSpecials) {
+      for (const kind of kinds) active.add(`${column}:${kind}`);
+    }
+    this.table?.setColumnQa(active);
   }
 
   private toggleSpecial(kind: SpecialKind): void {
@@ -1293,18 +1333,34 @@ export class App {
   }
 
   private clearFilters(): void {
-    if (this.filters.size === 0 && this.specials.size === 0 && !this.shuffleActive) return;
+    if (
+      this.filters.size === 0 &&
+      this.specials.size === 0 &&
+      this.columnSpecials.size === 0 &&
+      !this.shuffleActive
+    ) {
+      return;
+    }
     const activeSpecials = [...this.specials];
+    const activeColumnSpecials = [...this.columnSpecials.entries()].map(([column, kinds]) => [
+      column,
+      [...kinds],
+    ] as const);
     this.shuffleActive = false;
 
     this.filters.clear();
     this.specials.clear();
+    this.columnSpecials.clear();
+    this.syncColumnQa();
     this.summaryBand?.setSpecials(this.specials);
     this.filterPanel?.rebuild();
     this.table?.setHighlights([]);
 
     this.queueSend(async () => {
       for (const kind of activeSpecials) await this.client.setSpecial(kind, false);
+      for (const [column, kinds] of activeColumnSpecials) {
+        for (const kind of kinds) await this.client.setSpecial(kind, false, column);
+      }
       const message = await this.client.clearFilters();
       this.updateCount(message.count, message.queryMs);
       this.filterPanel?.applyResults(message.facets, message.histograms);

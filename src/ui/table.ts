@@ -19,9 +19,12 @@ export interface HighlightRule {
   mode: "contains" | "exact";
 }
 
+export type ColumnQaKind = "nulls" | "valueAnomalies" | "lengthAnomalies";
+
 export interface ResultTableOptions {
   onSort: (column: number, dir: 1 | -1 | 0) => void;
   onTypeChange: (column: number, type: ColumnType) => void;
+  onColumnSpecial: (column: number, kind: ColumnQaKind) => void;
   onRequestRows: (
     start: number,
     end: number,
@@ -42,6 +45,7 @@ export class ResultTable {
   private sortColumn = -1;
   private sortDir: 1 | -1 = 1;
   private highlights: HighlightRule[] = [];
+  private columnQa = new Set<string>();
   private readonly groupStarts = new Set<number>();
   private readonly rowFlags = new Map<number, number>();
   private readonly cache = new Map<number, string[]>();
@@ -129,6 +133,12 @@ export class ResultTable {
     if (unchanged) return;
     this.highlights = highlights;
     this.invalidateRows();
+  }
+
+  /** Marks which per-column QA chips are currently filtering. */
+  setColumnQa(active: ReadonlySet<string>): void {
+    this.columnQa = new Set(active);
+    this.renderHeader();
   }
 
   invalidateRows(): void {
@@ -223,6 +233,7 @@ export class ResultTable {
     this.columns.forEach((column, index) => {
       const name = column.name;
       const cell = el("div", { class: "th" });
+      const qa = this.buildQaRow(column, index);
       const top = el("div", { class: "th-top" });
       const number = el("span", { class: "th-index", title: `Column ${index + 1}` }, [
         String(index + 1),
@@ -264,9 +275,76 @@ export class ResultTable {
       });
 
       top.append(number, label, grip);
-      cell.append(top, typeSelect);
+      cell.append(qa, top, typeSelect);
       this.header.append(cell);
     });
+  }
+
+  /**
+   * Per-column QA indicators above the column name: emptied cells, value
+   * outliers and overlong values, amber when present and muted when clean.
+   * Clicking one filters the table to that column's flagged rows.
+   */
+  private buildQaRow(column: ColumnMeta, index: number): HTMLElement {
+    const row = el("div", { class: "th-qa" });
+    row.append(
+      this.qaChip(column, index, "nulls", column.stats.nulls, "∅", {
+        plural: "empty cells",
+        empty: "No empty cells",
+        hint: "show rows where this column is empty",
+      }),
+      this.qaChip(column, index, "valueAnomalies", column.anomalyCounts.values, "±", {
+        plural: "value outliers",
+        empty: "No value outliers",
+        hint: "show this column's value outliers",
+      }),
+      this.qaChip(column, index, "lengthAnomalies", column.anomalyCounts.lengths, "…", {
+        plural: "length outliers",
+        empty: "No length outliers",
+        hint: "show this column's overlong values",
+      }),
+    );
+    if (column.stats.distinct === 1) {
+      row.append(
+        el(
+          "span",
+          {
+            class: "th-qa-chip warn flag",
+            title: `Every non-empty row in “${column.name}” has the same value — this column carries little information and may be droppable`,
+          },
+          ["1 value"],
+        ),
+      );
+    }
+    return row;
+  }
+
+  private qaChip(
+    column: ColumnMeta,
+    index: number,
+    kind: ColumnQaKind,
+    count: number,
+    glyph: string,
+    copy: { plural: string; empty: string; hint: string },
+  ): HTMLButtonElement {
+    const active = this.columnQa.has(`${index}:${kind}`);
+    const chip = el(
+      "button",
+      { class: "th-qa-chip", type: "button" },
+      [count > 0 ? `${glyph} ${count.toLocaleString()}` : glyph],
+    ) as HTMLButtonElement;
+    chip.classList.toggle("warn", count > 0);
+    chip.classList.toggle("ok", count === 0);
+    chip.classList.toggle("active", active);
+    chip.disabled = count === 0;
+    chip.title =
+      count > 0
+        ? `${count.toLocaleString()} ${copy.plural} in “${column.name}” — ${
+            active ? "click to clear" : copy.hint
+          }`
+        : `${copy.empty} in “${column.name}”`;
+    chip.addEventListener("click", () => this.options.onColumnSpecial(index, kind));
+    return chip;
   }
 
   private render(): void {

@@ -23,6 +23,7 @@ export interface ColumnMeta {
   numberLocale: NumberLocale;
   dateOrder: DateOrder;
   stats: ColumnStats;
+  anomalyCounts: { values: number; lengths: number };
   categories: CategoryMeta | null;
   histogram: HistogramMeta | null;
   valueFence: ValueFence | null;
@@ -92,6 +93,8 @@ export type SetSpecialRequest = {
   requestId: number;
   kind: SpecialKind;
   active: boolean;
+  /** When set (and kind is not duplicates), scope the special to one column. */
+  column?: number;
 };
 
 export type ShuffleRequest = { type: "shuffle"; requestId: number; limit?: number };

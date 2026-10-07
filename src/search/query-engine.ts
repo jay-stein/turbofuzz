@@ -27,8 +27,12 @@ export type SpecialFilter =
   | "valueAnomalies"
   | "lengthAnomalies";
 
+/** Specials that can be scoped to a single column (duplicates cannot). */
+export type ColumnSpecialKind = "nulls" | "valueAnomalies" | "lengthAnomalies";
+
 export class QueryEngine {
   private readonly special = new Set<SpecialFilter>();
+  private readonly columnSpecials = new Map<number, Set<ColumnSpecialKind>>();
   private cache = new Map<number, { sig: string; bits: BitSet }>();
   private readonly prefixStacks = new Map<number, { query: string; bits: BitSet }[]>();
   private readonly valuesState = new Map<number, { selected: Set<number>; bits: BitSet }>();
@@ -55,6 +59,16 @@ export class QueryEngine {
       else acc.and(bits);
       if (acc.count() === 0) break;
     }
+    for (const [column, kinds] of this.columnSpecials) {
+      if (column === excludeColumn) continue;
+      for (const kind of kinds) {
+        const bits = this.columnSpecialBits(column, kind);
+        if (bits === null) continue;
+        if (acc === null) acc = bits.clone();
+        else acc.and(bits);
+        if (acc.count() === 0) break;
+      }
+    }
     for (const [columnIndex, filter] of filters) {
       if (columnIndex === excludeColumn) continue;
       const bits = this.bitsFor(columnIndex, filter);
@@ -68,6 +82,29 @@ export class QueryEngine {
   setSpecial(kind: SpecialFilter, active: boolean): void {
     if (active) this.special.add(kind);
     else this.special.delete(kind);
+  }
+
+  setColumnSpecial(column: number, kind: ColumnSpecialKind, active: boolean): void {
+    let kinds = this.columnSpecials.get(column);
+    if (kinds === undefined) {
+      if (!active) return;
+      kinds = new Set();
+      this.columnSpecials.set(column, kinds);
+    }
+    if (active) kinds.add(kind);
+    else kinds.delete(kind);
+    if (kinds.size === 0) this.columnSpecials.delete(column);
+  }
+
+  private columnSpecialBits(column: number, kind: ColumnSpecialKind): BitSet | null {
+    switch (kind) {
+      case "nulls":
+        return this.dataset.columns[column]?.nullMask ?? null;
+      case "valueAnomalies":
+        return this.dataset.valueColumnBits[column] ?? null;
+      case "lengthAnomalies":
+        return this.dataset.lengthColumnBits[column] ?? null;
+    }
   }
 
   private specialBits(kind: SpecialFilter): BitSet {

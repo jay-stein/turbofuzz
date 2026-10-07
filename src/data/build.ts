@@ -28,6 +28,8 @@ export function buildDataset(
     rowHashes,
     valueAnomalyBits,
     lengthAnomalyBits,
+    valueColumnBits,
+    lengthColumnBits,
     valueFences,
     lengthFences,
   } = computeDatasetStats(columns, rowCount);
@@ -41,6 +43,8 @@ export function buildDataset(
     rowHashes,
     valueAnomalyBits,
     lengthAnomalyBits,
+    valueColumnBits,
+    lengthColumnBits,
     valueFences,
     lengthFences,
   );
@@ -64,6 +68,8 @@ export function datasetFromColumns(name: string, columns: ColumnData[]): Dataset
     result.rowHashes,
     result.valueAnomalyBits,
     result.lengthAnomalyBits,
+    result.valueColumnBits,
+    result.lengthColumnBits,
     result.valueFences,
     result.lengthFences,
   );

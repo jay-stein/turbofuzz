@@ -22,6 +22,8 @@ export interface IngestStats {
   rowHashes: Uint32Array;
   valueAnomalyBits: BitSet;
   lengthAnomalyBits: BitSet;
+  valueColumnBits: (BitSet | null)[];
+  lengthColumnBits: (BitSet | null)[];
   valueFences: (ValueFence | null)[];
   lengthFences: (LengthFence | null)[];
 }
@@ -144,6 +146,8 @@ export function computeDatasetStats(
     rowHashes: hashes,
     valueAnomalyBits: anomalies.valueBits,
     lengthAnomalyBits: anomalies.lengthBits,
+    valueColumnBits: anomalies.valueColumnBits,
+    lengthColumnBits: anomalies.lengthColumnBits,
     valueFences: anomalies.columns.map((entry) => entry.valueFence),
     lengthFences: anomalies.columns.map((entry) => entry.lengthFence),
   };

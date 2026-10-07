@@ -22,21 +22,6 @@ const QA_BUTTONS: { kind: SpecialKind; label: string; title: string }[] = [
     title:
       "Rows belonging to a duplicate group — every copy is shown so they can be compared",
   },
-  {
-    kind: "nulls",
-    label: "Rows with empties",
-    title: "Rows with at least one empty cell",
-  },
-  {
-    kind: "valueAnomalies",
-    label: "Value outliers",
-    title: "Rows with numbers far from their column's median (modified z-score > 3.5)",
-  },
-  {
-    kind: "lengthAnomalies",
-    label: "Length outliers",
-    title: "Rows with text longer than 3× the column's 90th-percentile length",
-  },
 ];
 
 const FILTER_ICON = '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>';
