@@ -81,3 +81,25 @@ test("messy_values.csv city variants cluster into one merge", () => {
   assert.ok(variants.includes("fremantel"));
   assert.ok(variants.includes("freemantle"));
 });
+
+test("messy_values.csv surfaces sentinel and boolean suggestions", () => {
+  const { dataset } = ingestDataset({
+    name: "messy_values.csv",
+    delimiter: "auto",
+    hasHeaders: true,
+    buffer: fixture("messy_values.csv"),
+  });
+
+  const score = dataset.columns.find((column) => column.name === "score");
+  assert.ok(score !== undefined);
+  assert.ok(
+    score.suggestions.some(
+      (suggestion) => suggestion.kind === "sentinel" && suggestion.value === "-999",
+    ),
+    "expected -999 to be suggested as a missing-value code",
+  );
+
+  const paid = dataset.columns.find((column) => column.name === "paid");
+  assert.ok(paid !== undefined);
+  assert.ok(paid.suggestions.some((suggestion) => suggestion.kind === "boolean"));
+});

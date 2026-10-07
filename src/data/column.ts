@@ -10,6 +10,7 @@ import {
 } from "../parse/infer.js";
 import { isNullWithPolicy, EMPTY_NULL_POLICY, type NullPolicy } from "../parse/null-tokens.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
+import { detectSuggestions, type ColumnSuggestion } from "./suggestions.js";
 import { valueLength } from "../parse/value-length.js";
 import type { ColumnType } from "../types.js";
 
@@ -30,6 +31,7 @@ export class ColumnData {
   type: ColumnType;
   dateOrder: DateOrder;
   numberLocale: NumberLocale;
+  suggestions: ColumnSuggestion[] = [];
   readonly stats: ColumnStats;
   readonly nullMask: BitSet;
 
@@ -146,7 +148,7 @@ export class ColumnData {
     const nullTokens = [...nullCounts.entries()]
       .map(([label, count]) => ({ label, count }))
       .sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
-    return new ColumnData(
+    const column = new ColumnData(
       name,
       raw,
       inferred.type,
@@ -157,6 +159,8 @@ export class ColumnData {
       nullTokens,
       inferred.numberLocale ?? numberPrior,
     );
+    column.suggestions = detectSuggestions(raw, inferred.type, nullPolicy, column.numberLocale);
+    return column;
   }
 
   /** True when this column treats the exact cell value as missing. */

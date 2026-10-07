@@ -8,6 +8,7 @@ import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import { describeCleanOp, type CleanOp } from "../data/clean-ops.js";
 import { pandasRecipe } from "../data/recipe.js";
+import type { ColumnSuggestion } from "../data/suggestions.js";
 import {
   describeTransformOp,
   schemaAfter,
@@ -1077,6 +1078,7 @@ export class App {
       onFilter: (column, filter, preview) => this.changeFilter(column, filter, preview ?? false),
       onTypeChange: (column, type) => this.changeType(column, type),
       onNumberLocale: (column, locale) => this.changeNumberLocale(column, locale),
+      onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
     });
 
     this.updateCount(loaded.rowCount, 0);
@@ -1206,6 +1208,43 @@ export class App {
         })
         .catch((error: unknown) => this.showError(error)),
     );
+  }
+
+  private applySuggestion(column: number, suggestion: ColumnSuggestion): void {
+    const meta = this.metas[column];
+    switch (suggestion.kind) {
+      case "sentinel": {
+        const extra = [...new Set([...(meta?.nullPolicy.extra ?? []), suggestion.value])];
+        this.applyNullPolicy(column, extra, meta?.nullPolicy.keep ?? []);
+        break;
+      }
+      case "boolean": {
+        const ops: CleanOp[] = [];
+        for (const value of suggestion.truthy) {
+          ops.push({ kind: "replace", find: value, replacement: "true", ignoreCase: false });
+        }
+        for (const value of suggestion.falsy) {
+          ops.push({ kind: "replace", find: value, replacement: "false", ignoreCase: false });
+        }
+        const existing = this.cleanedColumns.get(column) ?? [];
+        this.applyClean([{ column, ops: [...existing, ...ops] }]);
+        break;
+      }
+      case "number": {
+        const existing = this.cleanedColumns.get(column) ?? [];
+        this.applyClean([
+          { column, ops: [...existing, { kind: "toNumber", locale: suggestion.locale }] },
+        ]);
+        break;
+      }
+      case "date": {
+        const existing = this.cleanedColumns.get(column) ?? [];
+        this.applyClean([
+          { column, ops: [...existing, { kind: "toDate", order: meta?.dateOrder ?? "dmy" }] },
+        ]);
+        break;
+      }
+    }
   }
 
   private changeNumberLocale(column: number, locale: NumberLocale): void {

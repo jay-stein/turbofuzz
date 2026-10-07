@@ -975,6 +975,31 @@ textarea:focus {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+.suggestion-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0 0 7px;
+}
+
+.suggestion-chip {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--qa-warn-border);
+  background: var(--qa-warn-soft);
+  color: var(--qa-warn-text);
+  cursor: pointer;
+  text-align: left;
+  line-height: 1.5;
+}
+
+.suggestion-chip:hover {
+  border-color: var(--qa-warn);
+}
+
 .sidebar {
   width: 320px;
   flex: none;

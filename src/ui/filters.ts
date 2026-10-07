@@ -3,6 +3,11 @@ import { RangeSlider } from "./range-slider.js";
 import { COLUMN_TYPES, TYPE_LABELS, type ColumnType, type TextMode } from "../types.js";
 import { parseDate, toDateInputValue } from "../parse/dates.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
+import {
+  describeSuggestion,
+  suggestionLabel,
+  type ColumnSuggestion,
+} from "../data/suggestions.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 
@@ -10,6 +15,7 @@ export interface FilterPanelCallbacks {
   onFilter: (column: number, filter: ColumnFilter | null, preview?: boolean) => void;
   onTypeChange: (column: number, type: ColumnType) => void;
   onNumberLocale: (column: number, locale: NumberLocale) => void;
+  onSuggestion: (column: number, suggestion: ColumnSuggestion) => void;
 }
 
 const TEXT_MODES: { value: TextMode; label: string }[] = [
@@ -188,8 +194,30 @@ export class FilterPanel {
     const status = el("span", { class: "filter-status" });
     this.statusEls[index] = status;
 
-    card.append(head, this.buildBody(meta, index), this.buildStats(meta), status);
+    card.append(head);
+    const suggestions = this.buildSuggestions(meta, index);
+    if (suggestions !== null) card.append(suggestions);
+    card.append(this.buildBody(meta, index), this.buildStats(meta), status);
     return card;
+  }
+
+  private buildSuggestions(meta: ColumnMeta, index: number): HTMLElement | null {
+    if (meta.suggestions.length === 0) return null;
+    const row = el("div", { class: "suggestion-row" });
+    for (const suggestion of meta.suggestions) {
+      const chip = el(
+        "button",
+        {
+          class: "suggestion-chip",
+          type: "button",
+          title: describeSuggestion(suggestion),
+        },
+        [suggestionLabel(suggestion)],
+      );
+      chip.addEventListener("click", () => this.callbacks.onSuggestion(index, suggestion));
+      row.append(chip);
+    }
+    return row;
   }
 
   private buildBody(meta: ColumnMeta, index: number): HTMLElement {

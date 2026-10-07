@@ -1,6 +1,7 @@
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
 import type { CleanOp } from "../data/clean-ops.js";
 import type { NullTokenCount } from "../data/column.js";
+import type { ColumnSuggestion } from "../data/suggestions.js";
 import type { DatasetStats } from "../data/stats.js";
 import type { ColumnSchema, TransformOp } from "../data/transform-ops.js";
 import type { DateOrder } from "../parse/dates.js";
@@ -28,6 +29,7 @@ export interface ColumnMeta {
   lengthFence: LengthFence | null;
   nullPolicy: { extra: string[]; keep: string[] };
   nullTokens: NullTokenCount[];
+  suggestions: ColumnSuggestion[];
 }
 
 export interface HistogramMeta {

@@ -949,6 +949,7 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     lengthFence: dataset.lengthFences[index] ?? null,
     nullPolicy: { extra: [...column.nullPolicy.extra], keep: [...column.nullPolicy.keep] },
     nullTokens: [...column.nullTokens],
+    suggestions: column.suggestions,
   };
 }
 
