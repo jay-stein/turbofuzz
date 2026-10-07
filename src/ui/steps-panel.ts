@@ -1,3 +1,4 @@
+import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
 
 export interface StepsPanelEntry {
@@ -132,4 +133,5 @@ export function openStepsPanel(
 
   overlay.append(modal);
   document.body.append(overlay);
+  setupDialog(overlay, "Applied steps");
 }

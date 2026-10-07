@@ -1,3 +1,4 @@
+import { setupDialog } from "./dialog.js";
 import { clear, el } from "./dom.js";
 import {
   AGGREGATES,
@@ -399,7 +400,7 @@ export function openTransformPanel(
 
   overlay.append(modal);
   document.body.append(overlay);
-  render();
+  setupDialog(overlay, "Transform pipeline");
 }
 
 function indexed(schema: readonly ColumnSchema[]): { value: string; label: string }[] {

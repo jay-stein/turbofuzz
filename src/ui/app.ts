@@ -237,6 +237,7 @@ export class App {
   private tableHost!: HTMLElement;
   private stepperHost!: HTMLElement;
   private stepper: PipelineStepper | null = null;
+  private workspaceTitle!: HTMLElement;
 
   constructor(private readonly root: HTMLElement) {
     this.buildShell();
@@ -259,7 +260,9 @@ export class App {
 
     this.pasteView = this.buildPasteView();
     this.workspace = this.buildWorkspace();
-    this.root.append(topbar, this.pasteView, this.workspace);
+    const main = el("main", { class: "app-main" });
+    main.append(this.pasteView, this.workspace);
+    this.root.append(topbar, main);
   }
 
   private buildPasteView(): HTMLElement {
@@ -371,6 +374,7 @@ export class App {
       type: "text",
       placeholder: "https://example.com/data.csv — or a web page with a table",
       spellcheck: "false",
+      "aria-label": "Data file URL or web page to scrape",
     }) as HTMLInputElement;
     urlField.append(this.urlInput);
 
@@ -434,6 +438,8 @@ export class App {
 
   private buildWorkspace(): HTMLElement {
     const workspace = el("div", { class: "workspace hidden" });
+    this.workspaceTitle = el("h1", { class: "sr-only" }, ["TurboFuzz workspace"]);
+    workspace.append(this.workspaceTitle);
 
     this.stepperHost = el("div", { class: "stepper-host" });
     this.stepper = new PipelineStepper(this.stepperHost, {
@@ -1010,6 +1016,7 @@ export class App {
     this.metas = loaded.columns;
     this.rowCount = loaded.rowCount;
     this.datasetName = loaded.name;
+    this.workspaceTitle.textContent = `${loaded.name} — ${loaded.rowCount.toLocaleString()} rows`;
     this.stepper?.setDone("load", true);
     this.setStage("view");
     this.filters.clear();

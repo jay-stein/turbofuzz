@@ -1,3 +1,4 @@
+import { setupDialog } from "./dialog.js";
 import { clear, el } from "./dom.js";
 import {
   DEFAULT_HEADER_OPTIONS,
@@ -109,6 +110,7 @@ export function openCleanPanel(
 
   overlay.append(modal);
   document.body.append(overlay);
+  setupDialog(overlay, "Clean and normalize data");
 }
 
 function buildNamesTab(
@@ -237,12 +239,14 @@ function buildValuesTab(
     type: "text",
     placeholder: "Find",
     spellcheck: "false",
+    "aria-label": "Find text",
   }) as HTMLInputElement;
   const replacementInput = el("input", {
     class: "text-input",
     type: "text",
     placeholder: "Replace with",
     spellcheck: "false",
+    "aria-label": "Replace with",
   }) as HTMLInputElement;
   const ignoreCaseLabel = el("label", { class: "control check clean-check" });
   const ignoreCaseInput = el("input", { type: "checkbox" }) as HTMLInputElement;
@@ -251,7 +255,7 @@ function buildValuesTab(
 
   const localeRow = el("div", { class: "clean-field locale-row hidden" });
   localeRow.append(el("span", { class: "clean-label" }, ["Number format"]));
-  const localeSelect = el("select") as HTMLSelectElement;
+  const localeSelect = el("select", { "aria-label": "Number format" }) as HTMLSelectElement;
   localeSelect.append(
     el("option", { value: "dot" }, ["1,234.56 (1.2)"]),
     el("option", { value: "comma" }, ["1.234,56 (1,2)"]),
@@ -260,7 +264,7 @@ function buildValuesTab(
 
   const dateOrderRow = el("div", { class: "clean-field locale-row hidden" });
   dateOrderRow.append(el("span", { class: "clean-label" }, ["Date order"]));
-  const dateOrderSelect = el("select") as HTMLSelectElement;
+  const dateOrderSelect = el("select", { "aria-label": "Date order" }) as HTMLSelectElement;
   dateOrderSelect.append(
     el("option", { value: "dmy" }, ["DD/MM/YYYY"]),
     el("option", { value: "mdy" }, ["MM/DD/YYYY"]),
@@ -498,6 +502,7 @@ function buildNullsTab(
     type: "text",
     placeholder: "Add a value to treat as null",
     spellcheck: "false",
+    "aria-label": "Add a value to treat as null",
   }) as HTMLInputElement;
   const addButton = el("button", { class: "ghost small", type: "button" }, ["Add"]);
   extraField.append(extraInput, addButton);

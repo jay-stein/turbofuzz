@@ -145,6 +145,7 @@ export class FilterPanel {
     const typeSelect = el("select", {
       class: "type-select",
       title: "Data type — change to re-interpret this column",
+      "aria-label": `Data type for ${meta.name}`,
     }) as HTMLSelectElement;
     for (const type of COLUMN_TYPES) {
       const option = el("option", { value: type }, [TYPE_LABELS[type]]) as HTMLOptionElement;
@@ -211,7 +212,11 @@ export class FilterPanel {
     const state = this.filters.get(index);
     const current = state?.kind === "text" ? state : null;
 
-    const modeSelect = el("select", { class: "mode-select", title: "Match mode" }) as HTMLSelectElement;
+    const modeSelect = el("select", {
+      class: "mode-select",
+      title: "Match mode",
+      "aria-label": `Match mode for ${meta.name}`,
+    }) as HTMLSelectElement;
     const defaultMode: TextMode = meta.type === "identifier" ? "exact" : "contains";
     for (const mode of TEXT_MODES) {
       const option = el("option", { value: mode.value }, [mode.label]) as HTMLOptionElement;
@@ -224,6 +229,7 @@ export class FilterPanel {
       type: "text",
       placeholder: "Filter…",
       spellcheck: "false",
+      "aria-label": `Filter ${meta.name}`,
     }) as HTMLInputElement;
     input.value = current?.query ?? "";
 
@@ -359,6 +365,7 @@ export class FilterPanel {
         type: "text",
         placeholder: "Find value…",
         spellcheck: "false",
+        "aria-label": `Find a value in ${meta.name}`,
       }) as HTMLInputElement;
       search.addEventListener("input", () => {
         const needle = search.value.toLowerCase();

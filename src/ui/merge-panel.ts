@@ -1,3 +1,4 @@
+import { setupDialog } from "./dialog.js";
 import { clear, el } from "./dom.js";
 import type { CleanOp } from "../data/clean-ops.js";
 import { clusterSimilar, type SimilarCluster } from "../search/similar.js";
@@ -200,4 +201,5 @@ export function openMergePanel(
   rebuild();
   overlay.append(modal);
   document.body.append(overlay);
+  setupDialog(overlay, `Merge similar values — ${meta.name}`);
 }
