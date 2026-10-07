@@ -26,6 +26,7 @@ export interface CleanPanelCallbacks {
   onApplyNullPolicy: (column: number, extra: string[], keep: string[]) => void;
   onApplyNullPolicyAll: (extra: string[], keep: string[]) => void;
   onPreviewClean: (column: number, ops: CleanOp[]) => Promise<CleanPreviewCount | null>;
+  onOpenMerge: (column: number) => void;
   onClose: () => void;
 }
 
@@ -205,6 +206,23 @@ function buildValuesTab(
   });
   colField.append(colSelect);
 
+  const mergeButton = el(
+    "button",
+    {
+      class: "ghost small",
+      type: "button",
+      title: "Group near-identical values and pick one spelling to keep",
+    },
+    ["Merge similar…"],
+  );
+  mergeButton.addEventListener("click", () => {
+    const meta = metas[column];
+    if (meta === undefined || meta.categories === null) return;
+    close();
+    callbacks.onOpenMerge(column);
+  });
+  colField.append(mergeButton);
+
   const opField = el("label", { class: "clean-field" });
   opField.append(el("span", { class: "clean-label" }, ["Operation"]));
   const opSelect = el("select") as HTMLSelectElement;
@@ -360,6 +378,7 @@ function buildValuesTab(
     if (meta === undefined) return;
     localeSelect.value = meta.numberLocale;
     dateOrderSelect.value = meta.dateOrder;
+    mergeButton.classList.toggle("hidden", meta.type !== "category");
   }
 
   const footer = el("div", { class: "clean-footer" });

@@ -28,6 +28,7 @@ import { openStatsModal } from "./stats.js";
 import { ResultTable, type HighlightRule } from "./table.js";
 import { SearchWorkerClient } from "./worker-client.js";
 import { openCleanPanel } from "./clean-panel.js";
+import { openMergePanel } from "./merge-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
 import { PipelineStepper, type StageId } from "./stepper.js";
 
@@ -1404,6 +1405,19 @@ export class App {
         this.client
           .previewClean([{ column, ops }])
           .then((message) => message.columns[0] ?? null),
+      onOpenMerge: (column) => this.openMerge(column),
+      onClose: () => this.setStage("view"),
+    });
+  }
+
+  private openMerge(column: number): void {
+    const meta = this.metas[column];
+    if (meta === undefined) return;
+    openMergePanel(meta, column, {
+      onApply: (target, ops) => {
+        const existing = this.cleanedColumns.get(target) ?? [];
+        this.applyClean([{ column: target, ops: [...existing, ...ops] }]);
+      },
       onClose: () => this.setStage("view"),
     });
   }

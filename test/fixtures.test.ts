@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { buildDataset } from "../src/data/build.js";
 import { detectTable } from "../src/parse/header-detect.js";
 import { readWorkbookSheet } from "../src/parse/xlsx.js";
+import { clusterSimilar } from "../src/search/similar.js";
 import { ingestDataset } from "../src/worker/ingest.js";
 
 function fixture(name: string): ArrayBuffer {
@@ -53,4 +54,30 @@ test("messy_report.xlsx dates survive ingest", async () => {
   assert.ok(code !== undefined);
   assert.equal(code.type, "identifier");
   assert.equal(code.raw[0], "00149");
+});
+
+test("messy_values.csv city variants cluster into one merge", () => {
+  const { dataset } = ingestDataset({
+    name: "messy_values.csv",
+    delimiter: "auto",
+    hasHeaders: true,
+    buffer: fixture("messy_values.csv"),
+  });
+
+  const city = dataset.columns.find((column) => column.name === "city");
+  assert.ok(city !== undefined);
+  assert.equal(city.type, "category");
+
+  const categories = city.categories();
+  const clusters = clusterSimilar(
+    categories.labels.map((value, index) => ({ value, count: categories.counts[index] })),
+  );
+  const fremantle = clusters.find((cluster) =>
+    cluster.values.some((entry) => entry.value.toLowerCase().includes("fremantle")),
+  );
+  assert.ok(fremantle !== undefined, "expected a Fremantle cluster");
+  const variants = fremantle.values.map((entry) => entry.value.trim().toLowerCase());
+  assert.ok(variants.includes("fremantle"));
+  assert.ok(variants.includes("fremantel"));
+  assert.ok(variants.includes("freemantle"));
 });
