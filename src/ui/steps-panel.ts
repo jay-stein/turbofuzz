@@ -2,11 +2,11 @@ import { setupDialog } from "./dialog.js";
 import { el, svgIcon } from "./dom.js";
 
 export interface StepsPanelEntry {
-  kind: "clean" | "transform" | "rows";
+  kind: "clean" | "transform" | "rows" | "nulls" | "type";
   label: string;
   /** Technical signature shown under the label (Power BI-style detail). */
   detail?: string;
-  /** Column index for clean steps; -1 for transforms and removed rows. */
+  /** Column index for clean/null/type steps; -1 for transforms and removed rows. */
   column: number;
   opIndex: number;
   /** Number of ops in the same group (used to enable reorder buttons). */
@@ -18,6 +18,8 @@ export interface StepsPanelCallbacks {
   onMoveClean: (column: number, opIndex: number, direction: -1 | 1) => void;
   onRemoveLastTransform: () => void;
   onRestoreRows: () => void;
+  onUndoPolicy: (column: number, opIndex: number) => void;
+  onUndoType: (column: number, opIndex: number) => void;
   onClearAll: () => void;
   onCopyRecipe: () => Promise<boolean>;
   onClose: () => void;
@@ -31,9 +33,9 @@ function undoIcon(): SVGElement {
 }
 
 /**
- * Applied-steps list: every clean and transform currently baked into the
- * dataset, each individually removable, with cleans reorderable within their
- * column and a pandas recipe export of the whole pipeline.
+ * Process Log: every clean, missing-value, type and transform change currently
+ * baked into the dataset, each individually reversible, with cleans
+ * reorderable within their column and a pandas recipe export of the pipeline.
  */
 export function openStepsPanel(
   entries: readonly StepsPanelEntry[],
@@ -43,13 +45,13 @@ export function openStepsPanel(
   const modal = el("div", { class: "modal clean-modal drawer" });
 
   const head = el("div", { class: "modal-head" });
-  head.append(el("h2", {}, [`Applied steps (${entries.length})`]));
+  head.append(el("h2", {}, [`Process Log (${entries.length})`]));
   const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close" }, ["×"]);
   head.append(closeButton);
   modal.append(head);
 
   const hint = el("div", { class: "clean-hint" }, [
-    "Steps apply in order. The undo icon removes a step; clean steps can be reordered within their column. The line under each step is its technical signature.",
+    "Changes apply in order. The undo icon reverses a change; clean operations can be reordered within their column. The line under each entry is its technical signature.",
   ]);
   const list = el("div", { class: "clean-op-list" });
   modal.append(hint, list);
@@ -103,6 +105,16 @@ export function openStepsPanel(
       );
     } else if (entry.kind === "rows") {
       row.append(undo("Undo the row deletions", () => callbacks.onRestoreRows()));
+    } else if (entry.kind === "nulls") {
+      row.append(
+        undo("Undo this missing-value change", () =>
+          callbacks.onUndoPolicy(entry.column, entry.opIndex),
+        ),
+      );
+    } else if (entry.kind === "type") {
+      row.append(
+        undo("Undo this type change", () => callbacks.onUndoType(entry.column, entry.opIndex)),
+      );
     } else {
       row.append(
         undo(
@@ -119,12 +131,12 @@ export function openStepsPanel(
   });
 
   if (entries.length === 0) {
-    list.append(el("div", { class: "clean-empty" }, ["No steps applied yet."]));
+    list.append(el("div", { class: "clean-empty" }, ["No changes logged yet."]));
   }
 
   const footer = el("div", { class: "clean-footer" });
   const undoAll = el("button", { class: "ghost", type: "button" }, ["Undo all"]);
-  undoAll.title = "Undo every applied step and restore the original data";
+  undoAll.title = "Undo every applied change and restore the original data";
   undoAll.disabled = entries.length === 0;
   undoAll.addEventListener("click", () => {
     callbacks.onClearAll();
@@ -159,5 +171,5 @@ export function openStepsPanel(
 
   overlay.append(modal);
   document.body.append(overlay);
-  setupDialog(overlay, "Applied steps");
+  setupDialog(overlay, "Process Log");
 }

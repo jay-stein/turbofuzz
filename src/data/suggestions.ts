@@ -56,6 +56,26 @@ export function suggestionLabel(suggestion: ColumnSuggestion): string {
   }
 }
 
+/** Compact label for the same suggestion rendered as a chip in the table header. */
+export function suggestionShortLabel(suggestion: ColumnSuggestion): string {
+  switch (suggestion.kind) {
+    case "sentinel":
+      return `treat “${suggestion.value}” as missing`;
+    case "boolean":
+      return "normalize yes/no";
+    case "number":
+      return "convert to number";
+    case "date":
+      return "convert to date";
+    case "mixedNumber":
+      return `repair ${suggestion.count.toLocaleString()} mixed decimals`;
+    case "typeConflict":
+      return `${suggestion.count.toLocaleString()} don't parse`;
+    case "formula":
+      return `escape ${suggestion.count.toLocaleString()} formulas`;
+  }
+}
+
 /** Full explanation shown on hover. */
 export function describeSuggestion(suggestion: ColumnSuggestion): string {
   switch (suggestion.kind) {

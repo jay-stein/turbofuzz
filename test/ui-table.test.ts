@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
+import type { ColumnSuggestion } from "../src/data/suggestions.js";
 import { ResultTable, type ColumnQaKind } from "../src/ui/table.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
 
@@ -54,6 +55,7 @@ interface Harness {
   contexts: { column: number; x: number; y: number }[];
   colDeletes: number[];
   rowDeletes: number[];
+  fixes: { column: number; suggestion: ColumnSuggestion }[];
   window: Window;
 }
 
@@ -66,6 +68,7 @@ function buildTable(columns: ColumnMeta[]): Harness {
   const contexts: Harness["contexts"] = [];
   const colDeletes: number[] = [];
   const rowDeletes: number[] = [];
+  const fixes: Harness["fixes"] = [];
   const table = new ResultTable(host, {
     onSort: () => {},
     onTypeChange: () => {},
@@ -74,10 +77,11 @@ function buildTable(columns: ColumnMeta[]): Harness {
     onColumnContext: (column, x, y) => contexts.push({ column, x, y }),
     onToggleColumnDelete: (column) => colDeletes.push(column),
     onToggleRowDelete: (position) => rowDeletes.push(position),
+    onSuggestion: (column, suggestion) => fixes.push({ column, suggestion }),
     onRequestRows: () => {},
   });
   table.setColumns(columns);
-  return { host, table, clicks, merges, contexts, colDeletes, rowDeletes, window };
+  return { host, table, clicks, merges, contexts, colDeletes, rowDeletes, fixes, window };
 }
 
 test("header shows only actionable QA chips", () => {
@@ -102,8 +106,31 @@ test("header shows only actionable QA chips", () => {
   assert.equal(cleanChips.length, 0, "zero-count chips are hidden");
 });
 
-test("marks numeric and boolean cells for alignment", () => {
-  const { host, table } = buildTable([
+test("header shows one-click fix chips for column suggestions", () => {
+  const { host, fixes } = buildTable([
+    meta({
+      name: "Amount",
+      type: "number",
+      suggestions: [
+        { kind: "mixedNumber", locale: "dot", count: 55, ratio: 0.03, sampled: 1951 },
+        { kind: "sentinel", value: "-999", count: 38, ratio: 0.02, sampled: 1951 },
+      ],
+    }),
+  ]);
+
+  const cells = host.querySelectorAll(".th");
+  const chips = cells[1].querySelectorAll(".th-qa-chip.fix");
+  assert.equal(chips.length, 2);
+  assert.equal(chips[0].textContent, "repair 55 mixed decimals");
+  assert.equal(chips[1].textContent, "treat “-999” as missing");
+
+  (chips[0] as unknown as { click(): void }).click();
+  assert.equal(fixes.length, 1);
+  assert.equal(fixes[0].column, 0);
+  assert.equal(fixes[0].suggestion.kind, "mixedNumber");
+});
+
+test("marks numeric and boolean cells for alignment", () => {  const { host, table } = buildTable([
     meta({ name: "amount", type: "number" }),
     meta({ name: "active", type: "boolean" }),
     meta({ name: "name", type: "string" }),

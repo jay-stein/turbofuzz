@@ -411,7 +411,7 @@ the same name). Severity: data loss / security > trust > friction > polish.
 | 8 | **Formula-like cells unflagged (A7)** — `=1+1` (108), `@SUM…` (101) in Email | **Fixed** | "Escape N formula-like cells" chip (clean op prefixes `'`) plus an export-dialog checkbox "Escape formula-like cells" on by default. Plain numbers like `-999` are left alone. |
 | 9 | **Quick visual wins (C1–C4, D1, B2)** — right-align numbers + `tabular-nums`, hide zero-count chips, `#2f6fe0` for primary, label the sample/format inputs, centre the first-screen card | **Fixed** | Empties hatch instead of fill, outliers get an amber border, numeric cells right-align with tabular figures, dark-theme primary buttons use dark text, zero-count chips hidden, shuffle/locale controls labelled, sample data is a button and formats/limits are listed. Card centring was already correct in the current build. |
 | 10 | **Chrome before data (B1/B3/B4)** — profile strip collapsed by default, sidebar only for selected columns, column-based empty headline | **B1/B4 fixed, B3 open** | The QA block and profile cards start collapsed showing a compact issue summary; the headline is now "N of M columns have missing values" with a "Drop N empty columns" quick action. B3 (sidebar shows filters only for selected columns; profile card opens from the header) is folded into item 11's structural work. |
-| 11 | **Steps spine + one commit model + undo toasts (S2/S5)** | Todo | Every change becomes an applied Step with Undo; mark steps replayable vs manual. |
+| 11 | **Steps spine + one commit model + undo toasts (S2/S5)** | **Partly fixed** | Renamed to **Process Log** and extended: missing-value policy changes and column type changes are now logged with per-entry Undo, and fix chips are rendered above column headers. Still open: one commit model everywhere, replayable vs manual marking, undo toasts, full single-spine ordering across transforms. |
 | 12 | **Robust outliers/histogram (B5)** — MAD fences or log scale, clip to p1–p99, show median | **Fixed** | Fixture Amount: flags 2,531 (12%) → 204, and the histogram switches to a signed-log axis (largest bin 20,204 → 3,215). Linear charts clip to p1–p99 with an "N beyond range" note; the slider follows the axis. Median is shown beside mean on profile cards and column stats, and the cell tooltip states the fence method (MAD, log or quantile). |
 | 13 | **Text merge + fuzzy dedupe/join (B6)** | Todo | Blocking on phonetic key/n-gram; counts on Customer Name. |
 | 14 | **Type-conversion guards** — ambiguous dates, locale numbers; leading zeros/17-digit IDs already safe | **Mostly done** | Locale conflicts are detected and repairable (A3), type conflicts surface as a chip (A5), and ambiguous dates use order detection plus an explicit Convert to date. Remaining: per-column exclusion for "Apply to all columns" (D4). |
@@ -453,4 +453,20 @@ Direction:
 Do this together with item 11 and item 10 (chrome reduction); it is mostly the
 same wiring. Priority from the 2026-10-08 discussion: after the current
 data-safety batch.
+
+**Progress (2026-10-08):** the suggestion chips now also render above column
+headers (same actions as the sidebar), and missing-value/type changes are logged
+with undo. The unified Edit surface and direct UPPERCASE/Trim-style operations
+from the ⋯ menu are still open.
+
+---
+
+## Appendix — In-app user guide (shipped 2026-10-08)
+
+A **Help** button in the header opens a searchable, offline guide drawer
+(`src/ui/help-drawer.ts`, content in `src/ui/help-content.ts`) with one topic
+per feature: getting started, import check, Data QA, fix chips, clean,
+transform, search, Process Log, export and privacy. Deep links are supported
+(`openHelpDrawer(sectionId)`), so panel and chip titles can point at the exact
+topic later.
 

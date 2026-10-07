@@ -1,4 +1,9 @@
 import { clear, el, svgIcon } from "./dom.js";
+import {
+  describeSuggestion,
+  suggestionShortLabel,
+  type ColumnSuggestion,
+} from "../data/suggestions.js";
 import { isNullToken, isNullWithWire } from "../parse/null-tokens.js";
 import { parseNumber } from "../parse/numbers.js";
 import { valueLength } from "../parse/value-length.js";
@@ -33,6 +38,8 @@ export interface ResultTableOptions {
   onColumnContext: (column: number, x: number, y: number) => void;
   onToggleColumnDelete: (column: number) => void;
   onToggleRowDelete: (position: number) => void;
+  /** Applies a one-click fix suggested for the column (sentinel, locale, ...). */
+  onSuggestion?: (column: number, suggestion: ColumnSuggestion) => void;
   onRequestRows: (
     start: number,
     end: number,
@@ -337,7 +344,7 @@ export class ResultTable {
         many: "long values",
       }, "click to show this column's overlong values"),
     ].filter((chip): chip is HTMLButtonElement => chip !== null);
-    row.append(...chips);
+    row.append(...chips, ...this.buildFixChips(column, index));
     if (column.similarGroups > 0) {
       const merge = el(
         "button",
@@ -382,6 +389,26 @@ export class ResultTable {
     chip.title = `${text} in “${column.name}” — ${active ? "click to clear" : hint}`;
     chip.addEventListener("click", () => this.options.onColumnSpecial(index, kind));
     return chip;
+  }
+
+  /**
+   * One-click fix chips from the column's suggestions (missing-value tokens,
+   * mixed decimal conventions, type conflicts, formula-like cells). Same
+   * actions as the suggestion chips in the filter sidebar, but on the header
+   * where the problem is visible.
+   */
+  private buildFixChips(column: ColumnMeta, index: number): HTMLButtonElement[] {
+    if (column.suggestions.length === 0 || this.options.onSuggestion === undefined) return [];
+    return column.suggestions.map((suggestion) => {
+      const chip = el(
+        "button",
+        { class: "th-qa-chip fix", type: "button" },
+        [suggestionShortLabel(suggestion)],
+      ) as HTMLButtonElement;
+      chip.title = `${describeSuggestion(suggestion)} — click to fix`;
+      chip.addEventListener("click", () => this.options.onSuggestion?.(index, suggestion));
+      return chip;
+    });
   }
 
   private render(): void {

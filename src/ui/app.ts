@@ -30,6 +30,7 @@ import type {
 } from "../worker/protocol.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { FilterPanel } from "./filters.js";
+import { openHelpDrawer } from "./help-drawer.js";
 import { sampleCsv } from "./sample.js";
 import { SummaryBand } from "./summary-band.js";
 import { openStatsModal } from "./stats.js";
@@ -62,6 +63,31 @@ interface PickerItem {
   columns: number;
   detail?: string;
   onSelect: () => void;
+}
+
+/** Reversible missing-value policy change, logged in the Process Log. */
+interface NullEdit {
+  column: number;
+  label: string;
+  detail: string;
+  previousExtra: string[];
+  previousKeep: string[];
+  /** True for the "apply to all columns" action, where column is -1. */
+  all?: boolean;
+}
+
+/** Reversible column type (interpretation) change, logged in the Process Log. */
+interface TypeEdit {
+  column: number;
+  label: string;
+  detail: string;
+  previous: ColumnType;
+}
+
+function sameTokens(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every((value) => set.has(value));
 }
 
 function formatBytes(size: number): string {
@@ -164,6 +190,8 @@ export class App {
   private pendingSend: { generation: number; send: () => Promise<void> } | null = null;
   private filters = new Map<number, ColumnFilter>();
   private readonly cleanedColumns = new Map<number, CleanOp[]>();
+  private readonly nullEdits: NullEdit[] = [];
+  private readonly typeEdits: TypeEdit[] = [];
   private transformOps: TransformOp[] = [];
   private transformBaseSchema: ColumnSchema[] = [];
   private filterPanel: FilterPanel | null = null;
@@ -225,6 +253,14 @@ export class App {
     topbar.append(el("div", { class: "brand" }, ["TurboFuzz"]));
     this.metaEl = el("div", { class: "meta" });
     topbar.append(this.metaEl);
+
+    const helpButton = el(
+      "button",
+      { class: "ghost small", type: "button", title: "Open the user guide" },
+      ["Help"],
+    );
+    helpButton.addEventListener("click", () => openHelpDrawer());
+    topbar.append(helpButton);
 
     this.newButton = el("button", { class: "ghost", type: "button" }, ["New data"]);
     this.newButton.addEventListener("click", () => this.showPaste());
@@ -412,8 +448,8 @@ export class App {
 
     this.stepsButton = el(
       "button",
-      { class: "ghost small", type: "button", title: "Review, undo or export the applied steps" },
-      ["Steps"],
+      { class: "ghost small", type: "button", title: "Review, undo or export the applied changes" },
+      ["Process Log"],
     ) as HTMLButtonElement;
     this.stepsButton.classList.add("hidden");
     this.stepsButton.addEventListener("click", () => this.openSteps());
@@ -870,6 +906,8 @@ export class App {
     this.setStage("view");
     this.filters.clear();
     this.cleanedColumns.clear();
+    this.nullEdits.length = 0;
+    this.typeEdits.length = 0;
     if (loaded.type === "transformed") {
       this.transformOps = loaded.ops;
       this.transformBaseSchema = loaded.baseSchema;
@@ -920,6 +958,7 @@ export class App {
       onColumnContext: (column, x, y) => this.openColumnMenu(column, x, y),
       onToggleColumnDelete: (column) => this.toggleColumnDelete(column),
       onToggleRowDelete: (position) => this.toggleRowDelete(position),
+      onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
       onRequestRows: (start, end, done) => {
         void this.client
           .getRows(start, end)
@@ -1027,8 +1066,8 @@ export class App {
       title: `Delete ${labels.join(" and ")}?`,
       body:
         positions.length > 0
-          ? "Rows are removed from the working set — counts and exports exclude them, and the deletion is undoable from the Steps list. Columns are removed as tracked transform steps."
-          : "Columns are removed as tracked transform steps, undoable from the Steps list.",
+          ? "Rows are removed from the working set — counts and exports exclude them, and the deletion is undoable from the Process Log. Columns are removed as tracked transform steps."
+          : "Columns are removed as tracked transform steps, undoable from the Process Log.",
       confirmLabel: "Delete",
       danger: true,
     });
@@ -1168,9 +1207,10 @@ export class App {
     );
   }
 
-  private changeType(column: number, type: ColumnType): void {
+  private changeType(column: number, type: ColumnType, record = true): void {
     const hadFilter = this.filters.has(column);
     const name = this.metas[column]?.name ?? `Column ${column + 1}`;
+    const previous = this.metas[column]?.type;
     this.queueSend(() =>
       this.client
         .setType(column, type)
@@ -1181,6 +1221,15 @@ export class App {
             this.showWarning(
               `Type changed to ${TYPE_LABELS[type]} — the previous filter on “${name}” was cleared.`,
             );
+          }
+          if (record && previous !== undefined && previous !== type) {
+            this.typeEdits.push({
+              column,
+              label: `${message.meta.name}: type → ${TYPE_LABELS[type]}`,
+              detail: `type → ${TYPE_LABELS[previous]} → ${TYPE_LABELS[type]}`,
+              previous,
+            });
+            this.updateStepsButton();
           }
           this.summaryBand?.setCounts(message.stats);
           this.summaryBand?.updateColumn(column, message.meta);
@@ -1200,7 +1249,10 @@ export class App {
     switch (suggestion.kind) {
       case "sentinel": {
         const extra = [...new Set([...(meta?.nullPolicy.extra ?? []), suggestion.value])];
-        this.applyNullPolicy(column, extra, meta?.nullPolicy.keep ?? []);
+        const name = meta?.name ?? `Column ${column + 1}`;
+        this.applyNullPolicy(column, extra, meta?.nullPolicy.keep ?? [], {
+          label: `${name}: treat “${suggestion.value}” as missing`,
+        });
         break;
       }
       case "boolean": {
@@ -1690,7 +1742,7 @@ export class App {
     const confirmed = await openConfirm({
       title: `Delete column “${meta.name}”?`,
       body:
-        "The column is removed from the dataset as a tracked transform step — you can undo it from the Steps list.",
+        "The column is removed from the dataset as a tracked transform step — you can undo it from the Process Log.",
       confirmLabel: "Delete column",
       danger: true,
     });
@@ -1701,13 +1753,14 @@ export class App {
   private updateStepsButton(): void {
     let count = this.transformOps.length;
     for (const ops of this.cleanedColumns.values()) count += ops.length;
+    count += this.nullEdits.length + this.typeEdits.length;
     if (this.excludedRowCount > 0) count += 1;
-    this.stepsButton.textContent = count === 0 ? "Steps" : `Steps (${count})`;
+    this.stepsButton.textContent = count === 0 ? "Process Log" : `Process Log (${count})`;
     this.stepsButton.disabled = count === 0;
     this.stepsButton.title =
       count === 0
-        ? "No applied steps yet — clean or transform a column to build the list"
-        : "Review, undo or export the applied steps";
+        ? "No changes yet — clean, fix or transform a column to start the log"
+        : "Review, undo or export the applied changes";
     this.stepsButton.classList.remove("hidden");
   }
 
@@ -1725,6 +1778,28 @@ export class App {
           groupSize: ops.length,
         });
       }
+    }
+    for (let index = 0; index < this.nullEdits.length; index++) {
+      const edit = this.nullEdits[index];
+      entries.push({
+        kind: "nulls",
+        label: edit.label,
+        detail: edit.detail,
+        column: edit.column,
+        opIndex: index,
+        groupSize: this.nullEdits.length,
+      });
+    }
+    for (let index = 0; index < this.typeEdits.length; index++) {
+      const edit = this.typeEdits[index];
+      entries.push({
+        kind: "type",
+        label: edit.label,
+        detail: edit.detail,
+        column: edit.column,
+        opIndex: index,
+        groupSize: this.typeEdits.length,
+      });
     }
     const schema =
       this.transformBaseSchema.length > 0
@@ -1782,6 +1857,23 @@ export class App {
       },
       onRemoveLastTransform: () => this.applyTransform(this.transformOps.slice(0, -1)),
       onRestoreRows: () => void this.restoreExcludedRows(),
+      onUndoPolicy: (column, opIndex) => {
+        const edit = this.nullEdits[opIndex];
+        if (edit === undefined) return;
+        this.nullEdits.splice(opIndex, 1);
+        if (edit.all === true) this.applyNullPolicyAll([], [], { record: false });
+        else {
+          this.applyNullPolicy(column, edit.previousExtra, edit.previousKeep, { record: false });
+        }
+        this.updateStepsButton();
+      },
+      onUndoType: (column, opIndex) => {
+        const edit = this.typeEdits[opIndex];
+        if (edit === undefined) return;
+        this.typeEdits.splice(opIndex, 1);
+        this.changeType(column, edit.previous, false);
+        this.updateStepsButton();
+      },
       onClearAll: () => {
         if (this.transformOps.length > 0) this.applyTransform([]);
         if (this.cleanedColumns.size > 0) {
@@ -1789,6 +1881,17 @@ export class App {
             [...this.cleanedColumns.keys()].map((column) => ({ column, ops: [] })),
           );
         }
+        for (let i = this.nullEdits.length - 1; i >= 0; i--) {
+          const edit = this.nullEdits[i];
+          if (edit.all === true) this.applyNullPolicyAll([], [], { record: false });
+          else this.applyNullPolicy(edit.column, edit.previousExtra, edit.previousKeep, { record: false });
+        }
+        this.nullEdits.length = 0;
+        for (let i = this.typeEdits.length - 1; i >= 0; i--) {
+          this.changeType(this.typeEdits[i].column, this.typeEdits[i].previous, false);
+        }
+        this.typeEdits.length = 0;
+        this.updateStepsButton();
       },
       onCopyRecipe: () => this.copyRecipe(),
       onClose: () => this.setStage("view"),
@@ -1867,7 +1970,17 @@ export class App {
     );
   }
 
-  private applyNullPolicy(column: number, extra: string[], keep: string[]): void {
+  private applyNullPolicy(
+    column: number,
+    extra: string[],
+    keep: string[],
+    options: { record?: boolean; label?: string } = {},
+  ): void {
+    const previous = this.metas[column]?.nullPolicy;
+    const changed =
+      previous === undefined ||
+      !sameTokens(previous.extra, extra) ||
+      !sameTokens(previous.keep, keep);
     this.queueSend(() =>
       this.client
         .setNullPolicy(column, extra, keep)
@@ -1878,6 +1991,17 @@ export class App {
             this.filterPanel?.updateMeta(index, meta);
             this.table?.updateColumn(index, meta);
             this.summaryBand?.updateColumn(index, meta);
+          }
+          if (options.record !== false && changed) {
+            const name = message.columns[0]?.meta.name ?? `Column ${column + 1}`;
+            this.nullEdits.push({
+              column,
+              label: options.label ?? `${name}: missing-value policy updated`,
+              detail: "nulls → exact-match missing tokens",
+              previousExtra: [...(previous?.extra ?? [])],
+              previousKeep: [...(previous?.keep ?? [])],
+            });
+            this.updateStepsButton();
           }
           this.summaryBand?.setCounts(message.stats);
           this.table?.setSort(-1, 1);
@@ -1893,13 +2017,28 @@ export class App {
     );
   }
 
-  private applyNullPolicyAll(extra: string[], keep: string[]): void {
+  private applyNullPolicyAll(
+    extra: string[],
+    keep: string[],
+    options: { record?: boolean } = {},
+  ): void {
     this.queueSend(() =>
       this.client
         .resolveNullsAll(extra, keep)
         .then((message) => {
           this.filters.clear();
           for (const { column, meta } of message.columns) this.metas[column] = meta;
+          if (options.record !== false && (extra.length > 0 || keep.length > 0)) {
+            this.nullEdits.push({
+              column: -1,
+              all: true,
+              label: "All columns: missing-value policy updated",
+              detail: "nulls → exact-match missing tokens (all columns)",
+              previousExtra: [],
+              previousKeep: [],
+            });
+            this.updateStepsButton();
+          }
           this.table?.updateColumns(this.metas);
           for (const { column, meta } of message.columns) {
             this.summaryBand?.updateColumn(column, meta);
