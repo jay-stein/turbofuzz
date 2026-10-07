@@ -401,9 +401,9 @@ the same name). Severity: data loss / security > trust > friction > polish.
 
 | # | Item | Status | Notes |
 |---|---|---|---|
-| 1 | **Silent column drop (A1)** — the fixture has 18 columns; only 17 load | **Validated** | `mergeHeaders` derives width from populated cells, so the blank-header 18th column (all `x`) vanishes. Keep as `Column 18 (unnamed)` or ask. |
-| 2 | **Ragged rows invisible (A2)** — 5 short rows padded, 5 long rows truncated, no notice | **Validated** | `Country` shows exactly 5 empties; the 5× `extra` cells appear nowhere. Needs an import summary with row numbers and *Show rows*. |
-| 3 | **`xlsx` CVEs** — upgrade 0.18.5 → 0.20.3 (CVE-2023-30533, CVE-2024-22363) | Todo | ~15 minutes. |
+| 1 | **Silent column drop (A1)** — the fixture has 18 columns; only 17 load | **Fixed** | Header width now follows the column extent, so the blank-header column loads as `Column 18` (all `x` kept). |
+| 2 | **Ragged rows invisible (A2)** — 5 short rows padded, 5 long rows truncated, no notice | **Fixed** | An import banner reports "5 short rows padded · 5 rows with 10 extra cells beyond 18 columns — trimmed". Row numbers / *Show rows* still to add. |
+| 3 | **`xlsx` CVEs** — upgrade 0.18.5 → 0.20.3 (CVE-2023-30533, CVE-2024-22363) | **Done** | npm's registry copy is stuck at 0.18.5, so 0.20.3 is pinned from the official SheetJS CDN tarball. |
 | 4 | **Export scope trap (S1)** — CSV export is the filtered result set | Todo | State the scope in numbers, default to all rows after steps, banner when filters are active. |
 | 5 | **Decimal comma read as thousands (A3)** — `613,26` → `61326` | **Validated** | Amount locale stays `dot` for UTF-8 CSV, so the value becomes a false outlier. Add per-column format conformance ("653 values look like 1.234,56"). |
 | 6 | **Missing sentinels not suggested (A4)** — `TBC` (206), `00/00/0000` (245), `-999` (435) treated as real values | **Validated** | `Date` stays text; only `n/a` (210) + blanks count as missing. Add "suggested missing tokens" under the Nulls tab. |

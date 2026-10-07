@@ -49,6 +49,16 @@ test("parseDelimited pads and truncates ragged rows", () => {
     ["1", "2", ""],
     ["3", "4", "5"],
   ]);
+  assert.deepEqual(table.ragged, { paddedRows: 1, extraCellRows: 1, extraCells: 1 });
+});
+
+test("parseDelimited can keep raw row lengths for raggedness checks", () => {
+  const table = parseDelimited("a,b,c\n1,2\n3,4,5,6", { normalizeRows: false });
+  assert.deepEqual(table.rows, [
+    ["1", "2"],
+    ["3", "4", "5", "6"],
+  ]);
+  assert.deepEqual(table.ragged, { paddedRows: 1, extraCellRows: 1, extraCells: 1 });
 });
 
 test("parseNumber handles separators, currency and negatives", () => {

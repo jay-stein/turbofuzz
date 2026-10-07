@@ -74,6 +74,7 @@ function loadedMessage(): LoadedMessage {
     ingestMs: 5,
     source: "file",
     encoding: null,
+    ragged: { paddedRows: 0, extraCellRows: 0, extraCells: 0 },
   };
 }
 

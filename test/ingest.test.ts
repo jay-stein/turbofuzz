@@ -96,6 +96,39 @@ test("ingestDataset builds datasets from pre-structured grids", () => {
   assert.deepEqual(dataset.columns[1].raw, ["30", ""]);
 });
 
+test("ingestDataset keeps a blank-header column that data populates", () => {
+  const { dataset, ragged } = ingestDataset({
+    name: "blank-header.csv",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: "id,name,notes,\n1,Alice,,x\n2,Bob,,x\n",
+  });
+
+  assert.deepEqual(
+    dataset.columns.map((column) => column.name),
+    ["id", "name", "notes", "Column 4"],
+  );
+  assert.deepEqual(dataset.columns[3].raw, ["x", "x"]);
+  assert.deepEqual(ragged, { paddedRows: 0, extraCellRows: 0, extraCells: 0 });
+});
+
+test("ingestDataset reports padded and trimmed ragged rows", () => {
+  const lines = ["a,b,c", "1,2", "3,4,5"];
+  for (let i = 0; i < 30; i++) lines.push(`${i},x,y`);
+  lines.push("99,x,y,EXTRA");
+
+  const { dataset, ragged } = ingestDataset({
+    name: "ragged.csv",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: lines.join("\n") + "\n",
+  });
+
+  assert.equal(dataset.columnCount, 3);
+  assert.equal(dataset.rowCount, 33);
+  assert.deepEqual(ragged, { paddedRows: 1, extraCellRows: 1, extraCells: 1 });
+});
+
 test("ingestDataset falls back to windows-1252 for legacy files", () => {
   // quoted: "price\n"\x80343,000"\n" -> price "€343,000" in windows-1252
   const bytes = Uint8Array.from([

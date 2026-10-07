@@ -13,6 +13,7 @@ import {
 } from "../parse/null-tokens.js";
 import { isParquetName, readParquetGrid } from "../parse/parquet.js";
 import type { NumberLocale } from "../parse/numbers.js";
+import { measureRagged, type RaggedInfo } from "../parse/parse.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
 import { BitSet } from "../search/bitset.js";
 import { buildRank, orderIds } from "../search/order.js";
@@ -84,6 +85,7 @@ let transformSource: Dataset | null = null;
 let transformOps: TransformOp[] = [];
 let datasetSource: "paste" | "file" = "paste";
 let datasetEncoding: FileEncoding | null = null;
+let datasetRagged: RaggedInfo = { paddedRows: 0, extraCellRows: 0, extraCells: 0 };
 
 const FIRST_PAGE_ROWS = 40;
 
@@ -316,7 +318,11 @@ async function handleLoad(message: LoadRequest): Promise<void> {
     const dataset = buildDataset(message.name, grid.headers, grid.rows, (detail) =>
       post({ type: "progress", phase: "build", detail }),
     );
-    ingested = { dataset, encoding: null };
+    ingested = {
+      dataset,
+      encoding: null,
+      ragged: measureRagged(grid.rows, grid.headers.length),
+    };
   } else {
     ingested = ingestDataset({
       name: message.name,
@@ -330,7 +336,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
     });
   }
 
-  const { dataset: next, encoding } = ingested;
+  const { dataset: next, encoding, ragged } = ingested;
   dataset = next;
   engine = new QueryEngine(next);
   filters.clear();
@@ -351,6 +357,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   transformOps = [];
   datasetSource = message.buffer !== undefined ? "file" : "paste";
   datasetEncoding = encoding;
+  datasetRagged = ragged;
   sortedIds = engine.evaluate(filters);
 
   post({
@@ -365,6 +372,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
     ingestMs: performance.now() - started,
     source: datasetSource,
     encoding: datasetEncoding,
+    ragged: datasetRagged,
   });
 }
 
@@ -1032,6 +1040,7 @@ function handleTransform(message: TransformRequest): void {
     ingestMs: performance.now() - started,
     source: datasetSource,
     encoding: datasetEncoding,
+    ragged: datasetRagged,
     ops: transformOps,
     baseSchema,
   });

@@ -9,6 +9,7 @@ import type { Delimiter } from "../parse/delimiter.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import type { ColumnStats } from "../parse/infer.js";
 import type { NumberLocale } from "../parse/numbers.js";
+import type { RaggedInfo } from "../parse/parse.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnType } from "../types.js";
 
@@ -239,6 +240,8 @@ export interface DatasetMessage {
   ingestMs: number;
   source: "paste" | "file";
   encoding: FileEncoding | null;
+  /** Ragged rows seen at import time (padded or dropped extra cells). */
+  ragged: RaggedInfo;
 }
 
 export interface LoadedMessage extends DatasetMessage {

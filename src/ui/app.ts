@@ -1450,15 +1450,34 @@ export class App {
 
   private updateGuardrail(loaded: LoadedMessage | TransformedMessage, fromFile: boolean): void {
     clear(this.bannerEl);
-    const largePaste = !fromFile && loaded.rowCount > LARGE_PASTE_ROWS;
-    if (!largePaste) {
+    const parts: string[] = [];
+
+    if (loaded.type === "loaded") {
+      const { paddedRows, extraCellRows, extraCells } = loaded.ragged;
+      if (paddedRows > 0) {
+        parts.push(
+          `${paddedRows.toLocaleString()} short row${paddedRows === 1 ? "" : "s"} padded with empty cells`,
+        );
+      }
+      if (extraCellRows > 0) {
+        parts.push(
+          `${extraCellRows.toLocaleString()} row${extraCellRows === 1 ? "" : "s"} with ${extraCells.toLocaleString()} extra cell${extraCells === 1 ? "" : "s"} beyond ${loaded.columnCount} columns — trimmed`,
+        );
+      }
+    }
+
+    if (!fromFile && loaded.rowCount > LARGE_PASTE_ROWS) {
+      parts.push(
+        `large paste (${loaded.rowCount.toLocaleString()} rows) — "Upload file" is faster and more stable`,
+      );
+    }
+
+    if (parts.length === 0) {
       this.bannerEl.classList.add("hidden");
       return;
     }
     this.bannerEl.append(
-      el("span", { class: "banner-text" }, [
-        `Large paste (${loaded.rowCount.toLocaleString()} rows). For datasets this size, "Upload file" is faster and more stable.`,
-      ]),
+      el("span", { class: "banner-text" }, [`Import check: ${parts.join(" · ")}`]),
     );
     const dismiss = el("button", { class: "icon-btn", type: "button", title: "Dismiss" }, ["×"]);
     dismiss.addEventListener("click", () => this.bannerEl.classList.add("hidden"));
