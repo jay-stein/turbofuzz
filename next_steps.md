@@ -352,3 +352,25 @@ and Transform, and it reuses the exact patterns the codebase already establishes
 4. **M4 — Charts + PNG export** (Step 5). High perceived value, low actual cost.
 5. **M5 — Export formats** (Step 6).
 6. **M6 (later) — Melt/pivot, then DuckDB-Wasm "Advanced" mode + Parquet.**
+
+---
+
+## 8. Follow-ups logged 2026-10-07 (UX backlog session)
+
+- **Per-column QA is now inline** — empties / value outliers / length outliers
+  moved from the Data QA box to clickable chips above each column header
+  (amber when present, muted when clean); a `1 value` flag marks constant
+  columns. Duplicates stays in the Data QA box.
+- **Direct column actions from the header** — quick transforms on a column
+  (including deleting the whole column) without opening Clean/Transform.
+  Deleting must confirm ("Are you sure?") and should be a tracked, undoable
+  step so the steps list can restore it; needs a `drop` transform op.
+- **Export formats beyond CSV** — the export dialog lists Parquet as planned.
+  XLSX write can reuse the existing SheetJS dependency; Parquet needs a lazy
+  writer. TSV / JSON Lines are near-free.
+- **Null-resolution steps in the steps list** — treating tokens like `-999`
+  as missing is applied but is not shown or undoable in the steps drawer yet.
+- **Combine year/month/day columns into a date** — the one review backlog item
+  intentionally left out.
+- **Worksheet picker preview** — still shows dimensions only; a small data
+  preview would help pick the right sheet.
