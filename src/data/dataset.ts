@@ -6,6 +6,8 @@ import type { DatasetStats } from "./stats.js";
 export class Dataset {
   valueAnomalyBits: BitSet;
   lengthAnomalyBits: BitSet;
+  valueColumnBits: (BitSet | null)[];
+  lengthColumnBits: (BitSet | null)[];
   valueFences: (ValueFence | null)[];
   lengthFences: (LengthFence | null)[];
 
@@ -19,11 +21,15 @@ export class Dataset {
     readonly rowHashes: Uint32Array,
     valueAnomalyBits: BitSet,
     lengthAnomalyBits: BitSet,
+    valueColumnBits: (BitSet | null)[],
+    lengthColumnBits: (BitSet | null)[],
     valueFences: (ValueFence | null)[],
     lengthFences: (LengthFence | null)[],
   ) {
     this.valueAnomalyBits = valueAnomalyBits;
     this.lengthAnomalyBits = lengthAnomalyBits;
+    this.valueColumnBits = valueColumnBits;
+    this.lengthColumnBits = lengthColumnBits;
     this.valueFences = valueFences;
     this.lengthFences = lengthFences;
   }
@@ -35,6 +41,8 @@ export class Dataset {
   applyAnomalies(anomalies: Anomalies): void {
     this.valueAnomalyBits = anomalies.valueBits;
     this.lengthAnomalyBits = anomalies.lengthBits;
+    this.valueColumnBits = anomalies.valueColumnBits;
+    this.lengthColumnBits = anomalies.lengthColumnBits;
     this.valueFences = anomalies.columns.map((entry) => entry.valueFence);
     this.lengthFences = anomalies.columns.map((entry) => entry.lengthFence);
     this.stats.valueAnomalyRows = anomalies.valueBits.count();

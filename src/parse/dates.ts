@@ -46,7 +46,11 @@ export function parseDate(raw: string, order: DateOrder = "dmy"): number {
   }
 
   const t = Date.parse(s);
-  return Number.isNaN(t) ? NaN : t;
+  if (Number.isNaN(t)) return NaN;
+  // Date.parse yields local-time midnight for formats without a zone; map the
+  // calendar fields back to UTC so results do not shift by timezone offset.
+  const local = new Date(t);
+  return Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
 }
 
 export function toDateInputValue(epochMs: number): string {

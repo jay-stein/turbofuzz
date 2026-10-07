@@ -22,6 +22,10 @@ export interface ColumnAnomalies {
 export interface Anomalies {
   valueBits: BitSet;
   lengthBits: BitSet;
+  /** Per-column flags for value fences, null where the column has no fence. */
+  valueColumnBits: (BitSet | null)[];
+  /** Per-column flags for length fences, null where the column has no fence. */
+  lengthColumnBits: (BitSet | null)[];
   columns: ColumnAnomalies[];
 }
 
@@ -152,35 +156,45 @@ export function computeAnomalies(
 ): Anomalies {
   const valueBits = new BitSet(rowCount);
   const lengthBits = new BitSet(rowCount);
+  const valueColumnBits: (BitSet | null)[] = [];
+  const lengthColumnBits: (BitSet | null)[] = [];
   const perColumn: ColumnAnomalies[] = [];
 
   for (const column of columns) {
     const sparse = rowCount > 0 && column.stats.nulls / rowCount > MAX_NULL_RATIO;
     const valueFence = sparse ? null : numericFence(column);
+    let columnValueBits: BitSet | null = null;
     if (valueFence !== null) {
+      columnValueBits = new BitSet(rowCount);
       const numbers = column.numbers();
       for (let row = 0; row < rowCount; row++) {
         const value = numbers[row];
         if (Number.isFinite(value) && (value < valueFence.lo || value > valueFence.hi)) {
           valueBits.set(row);
+          columnValueBits.set(row);
         }
       }
     }
 
     const lengthFence = sparse ? null : lengthFenceFor(column);
+    let columnLengthBits: BitSet | null = null;
     if (lengthFence !== null) {
+      columnLengthBits = new BitSet(rowCount);
       const raw = column.raw;
       for (let row = 0; row < rowCount; row++) {
         if (column.nullMask.get(row)) continue;
         const length = valueLength(raw[row]);
         if (length < lengthFence.lo || length > lengthFence.hi) {
           lengthBits.set(row);
+          columnLengthBits.set(row);
         }
       }
     }
 
+    valueColumnBits.push(columnValueBits);
+    lengthColumnBits.push(columnLengthBits);
     perColumn.push({ valueFence, lengthFence });
   }
 
-  return { valueBits, lengthBits, columns: perColumn };
+  return { valueBits, lengthBits, valueColumnBits, lengthColumnBits, columns: perColumn };
 }

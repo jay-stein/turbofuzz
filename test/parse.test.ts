@@ -85,6 +85,11 @@ test("parseDate handles ISO, day-first and month-first", () => {
   assert.ok(Number.isNaN(parseDate("not a date")));
 });
 
+test("parseDate normalises month-name dates to UTC", () => {
+  assert.equal(parseDate("1 Mar 2024", "dmy"), Date.UTC(2024, 2, 1));
+  assert.equal(parseDate("March 1, 2024", "dmy"), Date.UTC(2024, 2, 1));
+});
+
 test("detectDateOrder infers from unambiguous days", () => {
   assert.equal(detectDateOrder(["13/02/2024", "01/02/2024"]), "dmy");
   assert.equal(detectDateOrder(["02/13/2024", "01/02/2024"]), "mdy");

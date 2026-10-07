@@ -1,11 +1,12 @@
 import { detectDateOrder, parseDate, type DateOrder } from "./dates.js";
 import { isNullToken } from "./null-tokens.js";
-import { parseNumber } from "./numbers.js";
+import { parseNumber, type NumberLocale } from "./numbers.js";
 import type { ColumnType } from "../types.js";
 
 export interface InferredType {
   type: ColumnType;
   dateOrder?: DateOrder;
+  numberLocale?: NumberLocale;
 }
 
 export interface TopValue {
@@ -27,10 +28,13 @@ export interface ColumnStats {
   avgLength: number | null;
 }
 
-const TRUE_VALUES = new Set(["true", "yes", "y", "t"]);
-const FALSE_VALUES = new Set(["false", "no", "n", "f"]);
+const TRUE_VALUES = new Set(["true", "yes", "y", "t", "1"]);
+const FALSE_VALUES = new Set(["false", "no", "n", "f", "0"]);
 const INTEGER = /^[+-]?\d{1,15}$/;
 const ALL_DIGITS = /^\d+$/;
+/** Upper bound for "small code" integers that default to a category list. */
+const CATEGORY_CODE_MAX = 12;
+const CATEGORY_CODE_DISTINCT = 12;
 
 export function stratifiedSample(values: readonly string[], max: number): string[] {
   if (values.length <= max) return values.slice();
@@ -40,14 +44,46 @@ export function stratifiedSample(values: readonly string[], max: number): string
   return out;
 }
 
+/**
+ * Votes on the decimal mark for a numeric column. A comma followed by one or
+ * two digits (198,72) or a dot-grouped number ending in a comma (1.234,56)
+ * votes for the European convention; comma thousands grouping (1,234,567) and
+ * a dot with one or two trailing digits that is not pure grouping (1.234)
+ * vote for the English one. A tie falls back to the prior derived from the
+ * file's delimiter/encoding.
+ */
+export function detectNumberLocale(
+  values: readonly string[],
+  prior: NumberLocale = "dot",
+): NumberLocale {
+  let comma = 0;
+  let dot = 0;
+  for (const value of values) {
+    const s = value.replace(/[$€£¥\s%]/g, "");
+    if (/\d,\d{1,2}$/.test(s)) {
+      comma++;
+    } else if (/\d\.\d{3},\d+$/.test(s)) {
+      comma++;
+    } else if (/\d(,\d{3})+$/.test(s)) {
+      dot++;
+    } else if (/\d\.\d{1,2}$/.test(s) && !/^\d{1,3}(\.\d{3})+$/.test(s)) {
+      dot++;
+    }
+  }
+  if (comma === dot) return prior;
+  return comma > dot ? "comma" : "dot";
+}
+
 export function inferColumnType(
   sample: readonly string[],
   stats: ColumnStats,
   rowCount: number,
+  isNull: (value: string) => boolean = isNullToken,
+  numberPrior: NumberLocale = "dot",
 ): InferredType {
   const nonNull: string[] = [];
   for (const value of sample) {
-    if (!isNullToken(value)) nonNull.push(value.trim());
+    if (!isNull(value)) nonNull.push(value.trim());
   }
   if (nonNull.length === 0) return { type: "string" };
 
@@ -82,9 +118,23 @@ export function inferColumnType(
   if (integerOk / total >= 0.95) {
     const allLong = nonNull.every((value) => value.replace(/^[+-]/, "").length >= 7);
     if (allLong && present > 0 && distinct / present > 0.9) return { type: "identifier" };
+    // Small non-negative code columns (Pclass, ratings, weekday numbers) are
+    // far more useful as a value list than as a numeric range.
+    if (
+      distinct <= CATEGORY_CODE_DISTINCT &&
+      present >= distinct * 5 &&
+      nonNull.every((value) => {
+        const numeric = Number(value);
+        return Number.isInteger(numeric) && numeric >= 0 && numeric <= CATEGORY_CODE_MAX;
+      })
+    ) {
+      return { type: "category" };
+    }
     return { type: "integer" };
   }
-  if (numberOk / total >= 0.95) return { type: "number" };
+  if (numberOk / total >= 0.95) {
+    return { type: "number", numberLocale: detectNumberLocale(nonNull, numberPrior) };
+  }
 
   const dateOrder = detectDateOrder(nonNull);
   let dateOk = 0;

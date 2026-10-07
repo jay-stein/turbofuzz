@@ -1,5 +1,5 @@
-import { clear, el } from "./dom.js";
-import { isNullToken } from "../parse/null-tokens.js";
+import { clear, el, svgIcon } from "./dom.js";
+import { isNullToken, isNullWithWire } from "../parse/null-tokens.js";
 import { parseNumber } from "../parse/numbers.js";
 import { valueLength } from "../parse/value-length.js";
 import { COLUMN_TYPES, TYPE_LABELS, type ColumnType } from "../types.js";
@@ -9,9 +9,13 @@ const ROW_HEIGHT = 28;
 const DEFAULT_COL_WIDTH = 180;
 const MIN_COL_WIDTH = 56;
 const MAX_COL_WIDTH = 720;
-const INDEX_WIDTH = 46;
+const INDEX_WIDTH = 64;
 const OVERSCAN = 10;
 const CACHE_LIMIT = 4000;
+
+function crossIcon(): SVGElement {
+  return svgIcon('<path d="M8 8l8 8"/><path d="M16 8l-8 8"/>', "del-icon");
+}
 
 export interface HighlightRule {
   column: number;
@@ -19,9 +23,16 @@ export interface HighlightRule {
   mode: "contains" | "exact";
 }
 
+export type ColumnQaKind = "nulls" | "valueAnomalies" | "lengthAnomalies";
+
 export interface ResultTableOptions {
   onSort: (column: number, dir: 1 | -1 | 0) => void;
   onTypeChange: (column: number, type: ColumnType) => void;
+  onColumnSpecial: (column: number, kind: ColumnQaKind) => void;
+  onMergeSimilar: (column: number) => void;
+  onColumnContext: (column: number, x: number, y: number) => void;
+  onToggleColumnDelete: (column: number) => void;
+  onToggleRowDelete: (position: number) => void;
   onRequestRows: (
     start: number,
     end: number,
@@ -42,6 +53,9 @@ export class ResultTable {
   private sortColumn = -1;
   private sortDir: 1 | -1 = 1;
   private highlights: HighlightRule[] = [];
+  private columnQa = new Set<string>();
+  private pendingRowDeletes = new Set<number>();
+  private pendingColumnDeletes = new Set<number>();
   private readonly groupStarts = new Set<number>();
   private readonly rowFlags = new Map<number, number>();
   private readonly cache = new Map<number, string[]>();
@@ -85,6 +99,18 @@ export class ResultTable {
     this.invalidateRows();
   }
 
+  /** Replaces every column's metadata (preserving widths) and repaints once. */
+  updateColumns(columns: ColumnMeta[]): void {
+    this.columns = columns;
+    this.renderHeader();
+    this.invalidateRows();
+  }
+
+  /** Re-renders the header after column names are mutated in place. */
+  refreshHeader(): void {
+    this.renderHeader();
+  }
+
   setCount(count: number): void {
     this.count = count;
     this.spacer.style.height = `${count * ROW_HEIGHT}px`;
@@ -116,6 +142,20 @@ export class ResultTable {
       });
     if (unchanged) return;
     this.highlights = highlights;
+    this.invalidateRows();
+  }
+
+  /** Marks which per-column QA chips are currently filtering. */
+  setColumnQa(active: ReadonlySet<string>): void {
+    this.columnQa = new Set(active);
+    this.renderHeader();
+  }
+
+  /** Marks rows and columns staged for deletion (red × state). */
+  setPendingDeletes(rows: ReadonlySet<number>, columns: ReadonlySet<number>): void {
+    this.pendingRowDeletes = new Set(rows);
+    this.pendingColumnDeletes = new Set(columns);
+    this.renderHeader();
     this.invalidateRows();
   }
 
@@ -211,6 +251,7 @@ export class ResultTable {
     this.columns.forEach((column, index) => {
       const name = column.name;
       const cell = el("div", { class: "th" });
+      const qa = this.buildQaRow(column, index);
       const top = el("div", { class: "th-top" });
       const number = el("span", { class: "th-index", title: `Column ${index + 1}` }, [
         String(index + 1),
@@ -237,6 +278,19 @@ export class ResultTable {
         this.applyWidths();
       });
 
+      const del = el(
+        "button",
+        { class: "del-btn", type: "button", title: `Delete column “${name}”…` },
+        [],
+      );
+      del.append(crossIcon());
+      del.classList.toggle("active", this.pendingColumnDeletes.has(index));
+      del.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.options.onToggleColumnDelete(index);
+      });
+      cell.classList.toggle("col-pending", this.pendingColumnDeletes.has(index));
+
       const typeSelect = el("select", {
         class: "th-type",
         title: `Column ${index + 1} type — change to re-interpret this column`,
@@ -251,10 +305,89 @@ export class ResultTable {
         this.options.onTypeChange(index, typeSelect.value as ColumnType);
       });
 
-      top.append(number, label, grip);
-      cell.append(top, typeSelect);
+      top.append(number, label, grip, del);
+      cell.append(qa, top, typeSelect);
+      cell.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        this.options.onColumnContext(index, event.clientX, event.clientY);
+      });
       this.header.append(cell);
     });
+  }
+
+  /**
+   * Per-column QA indicators above the column name: empty cells, value
+   * outliers, long values, mergeable near-duplicates and constant-value
+   * flags. Amber when there is something to act on, muted when clean;
+   * clicking a count filters the table to that column's flagged rows.
+   */
+  private buildQaRow(column: ColumnMeta, index: number): HTMLElement {
+    const row = el("div", { class: "th-qa" });
+    row.append(
+      this.qaChip(column, index, "nulls", column.stats.nulls, {
+        one: "empty cell",
+        many: "empty cells",
+      }, "click to show rows where this column is empty"),
+      this.qaChip(column, index, "valueAnomalies", column.anomalyCounts.values, {
+        one: "value outlier",
+        many: "value outliers",
+      }, "click to show this column's value outliers"),
+      this.qaChip(column, index, "lengthAnomalies", column.anomalyCounts.lengths, {
+        one: "long value",
+        many: "long values",
+      }, "click to show this column's overlong values"),
+    );
+    if (column.similarGroups > 0) {
+      const merge = el(
+        "button",
+        { class: "th-qa-chip warn merge", type: "button" },
+        [`${column.similarGroups.toLocaleString()} mergeable`],
+      ) as HTMLButtonElement;
+      merge.title = `${column.similarGroups.toLocaleString()} group${
+        column.similarGroups === 1 ? "" : "s"
+      } of near-identical values in “${column.name}” — click to merge them`;
+      merge.addEventListener("click", () => this.options.onMergeSimilar(index));
+      row.append(merge);
+    }
+    if (column.stats.distinct === 1) {
+      row.append(
+        el(
+          "span",
+          {
+            class: "th-qa-chip warn flag",
+            title: `Every non-empty row in “${column.name}” has the same value — this column carries little information and may be droppable`,
+          },
+          ["constant value"],
+        ),
+      );
+    }
+    return row;
+  }
+
+  private qaChip(
+    column: ColumnMeta,
+    index: number,
+    kind: ColumnQaKind,
+    count: number,
+    noun: { one: string; many: string },
+    hint: string,
+  ): HTMLButtonElement {
+    const active = this.columnQa.has(`${index}:${kind}`);
+    const text =
+      count > 0
+        ? `${count.toLocaleString()} ${count === 1 ? noun.one : noun.many}`
+        : `no ${noun.many}`;
+    const chip = el("button", { class: "th-qa-chip", type: "button" }, [text]) as HTMLButtonElement;
+    chip.classList.toggle("warn", count > 0);
+    chip.classList.toggle("ok", count === 0);
+    chip.classList.toggle("active", active);
+    chip.disabled = count === 0;
+    chip.title =
+      count > 0
+        ? `${text} in “${column.name}” — ${active ? "click to clear" : hint}`
+        : `${text} in “${column.name}”`;
+    chip.addEventListener("click", () => this.options.onColumnSpecial(index, kind));
+    return chip;
   }
 
   private render(): void {
@@ -315,7 +448,23 @@ export class ResultTable {
     if (row === undefined) tr.classList.add("skeleton");
     if (this.groupStarts.has(index)) tr.classList.add("group-start");
     if (((this.rowFlags.get(index) ?? 0) & 1) !== 0) tr.classList.add("dup-row");
-    tr.append(el("div", { class: "td row-index" }, [String(index + 1)]));
+    if (this.pendingRowDeletes.has(index)) tr.classList.add("row-pending");
+
+    const indexCell = el("div", { class: "td row-index" });
+    const del = el(
+      "button",
+      { class: "del-btn", type: "button", title: "Delete this row…" },
+      [],
+    );
+    del.append(crossIcon());
+    del.classList.toggle("active", this.pendingRowDeletes.has(index));
+    del.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.options.onToggleRowDelete(index);
+    });
+    indexCell.append(del, el("span", { class: "row-number" }, [String(index + 1)]));
+    tr.append(indexCell);
+
     for (let c = 0; c < this.columns.length; c++) {
       const cell = el("div", { class: "td" });
       if (row !== undefined) this.fillCell(cell, row[c] ?? "", c);
@@ -335,7 +484,12 @@ export class ResultTable {
   }
 
   private fillCell(cell: HTMLElement, value: string, columnIndex: number): void {
-    if (isNullToken(value)) {
+    const policy = this.columns[columnIndex]?.nullPolicy;
+    const isNull =
+      policy === undefined
+        ? isNullToken(value)
+        : isNullWithWire(value, policy.extra, policy.keep);
+    if (isNull) {
       cell.classList.add("null-cell");
       cell.textContent = value;
       return;

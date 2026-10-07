@@ -1,14 +1,23 @@
 /**
+ * Decimal mark convention for a column. `dot` follows the English format
+ * (1,234.56) and `comma` the continental European format (1.234,56).
+ */
+export type NumberLocale = "dot" | "comma";
+
+/**
  * Parses human-formatted numbers: thousands separators, currency symbols,
  * accounting negatives (1,234), percentages and surrounding whitespace.
  * Returns NaN when the value is not numeric.
  *
  * A fast path handles plain numeric strings (the overwhelming majority in
  * real data) without any regex work; the formatted path below only runs for
- * values that need cleanup.
+ * values that need cleanup. The locale decides whether "," or "." is the
+ * decimal mark, so 198,72 is only 198.72 when the column says so.
  */
-export function parseNumber(raw: string): number {
-  if (raw.length > 0) {
+export function parseNumber(raw: string, locale: NumberLocale = "dot"): number {
+  // The fast path is only safe when the locale cannot reinterpret the value:
+  // with decimal commas, "1.234" means 1234 and must go through the slow path.
+  if (raw.length > 0 && (locale === "dot" || !raw.includes("."))) {
     const first = raw.charCodeAt(0);
     if (
       (first >= 48 && first <= 57) ||
@@ -35,7 +44,11 @@ export function parseNumber(raw: string): number {
 
   s = s.replace(/[$€£¥\s]/g, "");
   s = s.replace(/%$/, "");
-  s = s.replace(/,/g, "");
+  if (locale === "comma") {
+    s = s.replace(/\./g, "").replace(/,/g, ".");
+  } else {
+    s = s.replace(/,/g, "");
+  }
 
   if (!/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(s)) return NaN;
   const n = Number(s);

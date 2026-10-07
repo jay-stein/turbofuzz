@@ -119,3 +119,32 @@ test("ingestDataset falls back to windows-1252 for legacy files", () => {
   assert.equal(dataset.columns[0].type, "number");
   assert.equal(dataset.columns[0].numbers()[0], 343000);
 });
+
+test("ingestDataset parses JSON by file name", () => {
+  const { dataset } = ingestDataset({
+    name: "data.json",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: '[{"city":"Sydney","sales":10},{"city":"Melbourne","sales":20}]',
+  });
+  assert.deepEqual(
+    dataset.columns.map((column) => column.name),
+    ["city", "sales"],
+  );
+  assert.equal(dataset.rowCount, 2);
+  assert.deepEqual(dataset.columns[0].raw, ["Sydney", "Melbourne"]);
+});
+
+test("ingestDataset sniffs pasted JSON", () => {
+  const { dataset } = ingestDataset({
+    name: "Pasted data",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: '[{"a":1},{"a":2}]',
+  });
+  assert.deepEqual(
+    dataset.columns.map((column) => column.name),
+    ["a"],
+  );
+  assert.equal(dataset.rowCount, 2);
+});

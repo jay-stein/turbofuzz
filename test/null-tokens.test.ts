@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildDataset } from "../src/data/build.js";
-import { isNullToken } from "../src/parse/null-tokens.js";
+import { ColumnData } from "../src/data/column.js";
+import {
+  createNullPolicy,
+  isNullToken,
+  isNullWithPolicy,
+  isNullWithWire,
+} from "../src/parse/null-tokens.js";
 
 const NULLISH = [
   "",
@@ -115,4 +121,30 @@ test("null variants are excluded from inference and counted as empty", () => {
   assert.equal(dataset.columns[0].stats.nulls, 4);
   assert.equal(dataset.columns[0].numbers()[0], 1);
   assert.ok(Number.isNaN(dataset.columns[0].numbers()[2]));
+});
+
+test("null policy can add custom tokens and un-null real values", () => {
+  const policy = createNullPolicy(["-999"], ["NULL"]);
+  assert.equal(isNullWithPolicy("N/A", policy), true);
+  assert.equal(isNullWithPolicy("-999", policy), true);
+  assert.equal(isNullWithPolicy("NULL", policy), false);
+  assert.equal(isNullWithPolicy("Sydney", policy), false);
+});
+
+test("isNullWithWire mirrors the set-based policy", () => {
+  assert.equal(isNullWithWire("NULL", [], ["NULL"]), false);
+  assert.equal(isNullWithWire("-999", ["-999"], []), true);
+  assert.equal(isNullWithWire("N/A", [], []), true);
+});
+
+test("a column policy changes null counts, categories and numeric stats", () => {
+  const policy = createNullPolicy(["-999"], ["NULL"]);
+  const column = ColumnData.create("town", ["NULL", "Sydney", "N/A", "-999"], policy);
+  assert.equal(column.stats.nulls, 2); // N/A and -999
+  assert.deepEqual(
+    column.nullTokens.map((token) => token.label).sort(),
+    ["-999", "N/A"],
+  );
+  assert.ok(column.categories().labels.includes("NULL"));
+  assert.ok(Number.isNaN(column.numbers()[3])); // custom null excluded from stats
 });

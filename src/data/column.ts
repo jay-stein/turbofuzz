@@ -8,10 +8,16 @@ import {
   type ColumnStats,
   type InferredType,
 } from "../parse/infer.js";
-import { isNullToken } from "../parse/null-tokens.js";
-import { parseNumber } from "../parse/numbers.js";
+import { isNullWithPolicy, EMPTY_NULL_POLICY, type NullPolicy } from "../parse/null-tokens.js";
+import { parseNumber, type NumberLocale } from "../parse/numbers.js";
+import { detectSuggestions, type ColumnSuggestion } from "./suggestions.js";
 import { valueLength } from "../parse/value-length.js";
 import type { ColumnType } from "../types.js";
+
+export interface NullTokenCount {
+  label: string;
+  count: number;
+}
 
 export interface CategorySet {
   labels: string[];
@@ -24,6 +30,8 @@ const TOP_VALUES = 5;
 export class ColumnData {
   type: ColumnType;
   dateOrder: DateOrder;
+  numberLocale: NumberLocale;
+  suggestions: ColumnSuggestion[] = [];
   readonly stats: ColumnStats;
   readonly nullMask: BitSet;
 
@@ -34,22 +42,32 @@ export class ColumnData {
   private medianValue: number | null = null;
   private medianComputed = false;
   private histCache: { bins: number[]; min: number; max: number } | null = null;
+  private typeLocked = false;
 
   constructor(
-    readonly name: string,
+    public name: string,
     readonly raw: string[],
     type: ColumnType,
     dateOrder: DateOrder,
     stats: ColumnStats,
     nullMask: BitSet,
+    readonly nullPolicy: NullPolicy,
+    readonly nullTokens: readonly NullTokenCount[],
+    numberLocale: NumberLocale = "dot",
   ) {
     this.type = type;
     this.dateOrder = dateOrder;
+    this.numberLocale = numberLocale;
     this.stats = stats;
     this.nullMask = nullMask;
   }
 
-  static create(name: string, raw: string[]): ColumnData {
+  static create(
+    name: string,
+    raw: string[],
+    nullPolicy: NullPolicy = EMPTY_NULL_POLICY,
+    numberPrior: NumberLocale = "dot",
+  ): ColumnData {
     const stats: ColumnStats = {
       nulls: 0,
       distinct: 0,
@@ -69,13 +87,14 @@ export class ColumnData {
     // A cheap sample-only inference decides whether exact counts are needed:
     // numeric/date columns display a histogram, not top values, so a plain
     // distinct Set is enough and saves two hash lookups per cell.
-    const pre = preInfer(sample);
+    const pre = preInfer(sample, nullPolicy, numberPrior);
     const collectCounts =
       pre.type !== "integer" && pre.type !== "number" && pre.type !== "date";
 
     const counts = collectCounts ? new Map<string, number>() : null;
     const distinct = counts === null ? new Set<string>() : null;
     const top: { label: string; count: number }[] = [];
+    const nullCounts = new Map<string, number>();
     let presentCount = 0;
     let lengthSum = 0;
     let minLength = Infinity;
@@ -83,9 +102,10 @@ export class ColumnData {
 
     for (let i = 0; i < raw.length; i++) {
       const value = raw[i];
-      if (isNullToken(value)) {
+      if (isNullWithPolicy(value, nullPolicy)) {
         stats.nulls++;
         nullMask.set(i);
+        nullCounts.set(value, (nullCounts.get(value) ?? 0) + 1);
         continue;
       }
       if (counts !== null) counts.set(value, (counts.get(value) ?? 0) + 1);
@@ -118,23 +138,43 @@ export class ColumnData {
     }
     stats.topValues = top;
 
-    const inferred = inferColumnType(sample, stats, raw.length);
-    return new ColumnData(
+    const inferred = inferColumnType(
+      sample,
+      stats,
+      raw.length,
+      (value) => isNullWithPolicy(value, nullPolicy),
+      numberPrior,
+    );
+    const nullTokens = [...nullCounts.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+    const column = new ColumnData(
       name,
       raw,
       inferred.type,
       inferred.dateOrder ?? "dmy",
       stats,
       nullMask,
+      nullPolicy,
+      nullTokens,
+      inferred.numberLocale ?? numberPrior,
     );
+    column.suggestions = detectSuggestions(raw, inferred.type, nullPolicy, column.numberLocale);
+    return column;
+  }
+
+  /** True when this column treats the exact cell value as missing. */
+  isNull(value: string): boolean {
+    return isNullWithPolicy(value, this.nullPolicy);
   }
 
   get fuzzyBuilt(): boolean {
     return this.fuzzy !== null;
   }
 
-  setType(type: ColumnType): void {
+  setType(type: ColumnType, lock = false): void {
     this.type = type;
+    this.typeLocked = lock;
     this.nums = null;
     this.cats = null;
     this.stats.min = null;
@@ -149,9 +189,27 @@ export class ColumnData {
     }
   }
 
+  /**
+   * Switches the decimal-mark convention used to read this column and drops
+   * every numeric cache, so facets, filters and stats re-derive from the new
+   * interpretation. No-op when the locale is unchanged.
+   */
+  setNumberLocale(locale: NumberLocale): void {
+    if (locale === this.numberLocale) return;
+    this.numberLocale = locale;
+    this.nums = null;
+    this.histCache = null;
+    this.medianValue = null;
+    this.medianComputed = false;
+    this.stats.min = null;
+    this.stats.max = null;
+    this.stats.mean = null;
+    this.stats.stddev = null;
+  }
+
   normalized(): string[] {
     if (this.norm === null) {
-      this.norm = this.raw.map((value) => (isNullToken(value) ? "" : normalize(value)));
+      this.norm = this.raw.map((value) => (this.isNull(value) ? "" : normalize(value)));
     }
     return this.norm;
   }
@@ -168,17 +226,25 @@ export class ColumnData {
   numbers(): Float64Array {
     if (this.nums === null) {
       const isDate = this.type === "date";
+      const checkPolicy = this.nullPolicy.extra.size > 0;
       const out = new Float64Array(this.raw.length);
       let min = Infinity;
       let max = -Infinity;
       let sum = 0;
       let sumSquares = 0;
       let finiteCount = 0;
+      let nonInteger = false;
 
       for (let i = 0; i < this.raw.length; i++) {
         const value = this.raw[i];
-        // Null markers all parse to NaN, so no separate isNullToken call.
-        const parsed = isDate ? parseDate(value, this.dateOrder) : parseNumber(value);
+        // Null markers parse to NaN; only a custom extra-null token (which may
+        // be numeric, e.g. -999) needs an explicit policy check.
+        const parsed =
+          checkPolicy && this.isNull(value)
+            ? NaN
+            : isDate
+              ? parseDate(value, this.dateOrder)
+              : parseNumber(value, this.numberLocale);
         out[i] = parsed;
         if (Number.isFinite(parsed)) {
           if (parsed < min) min = parsed;
@@ -186,8 +252,14 @@ export class ColumnData {
           sum += parsed;
           sumSquares += parsed * parsed;
           finiteCount++;
+          // Whole-column check: an "Integer" label is only correct when every
+          // parsed value really is one. User overrides stay locked.
+          if (!nonInteger && !this.typeLocked && this.type === "integer" && !Number.isInteger(parsed)) {
+            nonInteger = true;
+          }
         }
       }
+      if (nonInteger) this.type = "number";
 
       if (finiteCount > 0) {
         const mean = sum / finiteCount;
@@ -292,7 +364,7 @@ export class ColumnData {
 
       for (let i = 0; i < this.raw.length; i++) {
         const value = this.raw[i];
-        const key = isNullToken(value) ? "(empty)" : value.trim();
+        const key = this.isNull(value) ? "(empty)" : value.trim();
         let id = index.get(key);
         if (id === undefined) {
           id = labels.length;
@@ -322,11 +394,15 @@ export class ColumnData {
 }
 
 /** Sample-only guess used to pick the cheaper ingest path. */
-function preInfer(sample: readonly string[]): InferredType {
+function preInfer(
+  sample: readonly string[],
+  policy: NullPolicy,
+  numberPrior: NumberLocale,
+): InferredType {
   let nulls = 0;
   const seen = new Set<string>();
   for (const value of sample) {
-    if (isNullToken(value)) {
+    if (isNullWithPolicy(value, policy)) {
       nulls++;
       continue;
     }
@@ -346,5 +422,11 @@ function preInfer(sample: readonly string[]): InferredType {
     maxLength: null,
     avgLength: null,
   };
-  return inferColumnType(sample, sampleStats, sample.length);
+  return inferColumnType(
+    sample,
+    sampleStats,
+    sample.length,
+    (value) => isNullWithPolicy(value, policy),
+    numberPrior,
+  );
 }

@@ -22,6 +22,8 @@ export interface IngestStats {
   rowHashes: Uint32Array;
   valueAnomalyBits: BitSet;
   lengthAnomalyBits: BitSet;
+  valueColumnBits: (BitSet | null)[];
+  lengthColumnBits: (BitSet | null)[];
   valueFences: (ValueFence | null)[];
   lengthFences: (LengthFence | null)[];
 }
@@ -30,7 +32,7 @@ export interface IngestStats {
  * Row hashes are accumulated column by column so each column's string array
  * is read sequentially (wide tables otherwise thrash the cache).
  */
-function hashRows(columns: readonly ColumnData[], rowCount: number): Uint32Array {
+export function hashRows(columns: readonly ColumnData[], rowCount: number): Uint32Array {
   const hashes = new Uint32Array(rowCount);
   hashes.fill(0x811c9dc5);
   for (let c = 0; c < columns.length; c++) {
@@ -50,7 +52,7 @@ function hashRows(columns: readonly ColumnData[], rowCount: number): Uint32Array
   return hashes;
 }
 
-function rowsEqual(
+export function rowsEqual(
   columns: readonly ColumnData[],
   a: number,
   b: number,
@@ -144,6 +146,8 @@ export function computeDatasetStats(
     rowHashes: hashes,
     valueAnomalyBits: anomalies.valueBits,
     lengthAnomalyBits: anomalies.lengthBits,
+    valueColumnBits: anomalies.valueColumnBits,
+    lengthColumnBits: anomalies.lengthColumnBits,
     valueFences: anomalies.columns.map((entry) => entry.valueFence),
     lengthFences: anomalies.columns.map((entry) => entry.lengthFence),
   };

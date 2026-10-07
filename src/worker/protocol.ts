@@ -1,8 +1,14 @@
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
+import type { CleanOp } from "../data/clean-ops.js";
+import type { NullTokenCount } from "../data/column.js";
+import type { ColumnSuggestion } from "../data/suggestions.js";
 import type { DatasetStats } from "../data/stats.js";
+import type { ColumnSchema, TransformOp } from "../data/transform-ops.js";
+import type { DateOrder } from "../parse/dates.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import type { ColumnStats } from "../parse/infer.js";
+import type { NumberLocale } from "../parse/numbers.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnType } from "../types.js";
 
@@ -14,11 +20,19 @@ export interface CategoryMeta {
 export interface ColumnMeta {
   name: string;
   type: ColumnType;
+  numberLocale: NumberLocale;
+  dateOrder: DateOrder;
   stats: ColumnStats;
+  anomalyCounts: { values: number; lengths: number };
+  /** Category columns: number of near-duplicate value clusters we can merge. */
+  similarGroups: number;
   categories: CategoryMeta | null;
   histogram: HistogramMeta | null;
   valueFence: ValueFence | null;
   lengthFence: LengthFence | null;
+  nullPolicy: { extra: string[]; keep: string[] };
+  nullTokens: NullTokenCount[];
+  suggestions: ColumnSuggestion[];
 }
 
 export interface HistogramMeta {
@@ -81,7 +95,18 @@ export type SetSpecialRequest = {
   requestId: number;
   kind: SpecialKind;
   active: boolean;
+  /** When set (and kind is not duplicates), scope the special to one column. */
+  column?: number;
 };
+
+export type DropRowsRequest = {
+  type: "dropRows";
+  requestId: number;
+  /** Positions in the current result order to remove from the working set. */
+  positions: number[];
+};
+
+export type ClearExcludedRowsRequest = { type: "clearExcludedRows"; requestId: number };
 
 export type ShuffleRequest = { type: "shuffle"; requestId: number; limit?: number };
 
@@ -106,15 +131,78 @@ export type SetTypeRequest = {
   columnType: ColumnType;
 };
 
+export type SetNumberLocaleRequest = {
+  type: "setNumberLocale";
+  requestId: number;
+  column: number;
+  locale: NumberLocale;
+};
+
 export type GetStatsRequest = { type: "getStats"; requestId: number };
 
 export type StartExportRequest = { type: "startExport"; requestId: number };
+
+export interface ExportOptions {
+  /** Replace null/heuristic-missing cells with an empty string (default true). */
+  nullAsBlank?: boolean;
+}
 
 export type GetCsvRequest = {
   type: "getCsv";
   requestId: number;
   start: number;
   end: number;
+  options?: ExportOptions;
+};
+
+export type RenameHeadersRequest = {
+  type: "renameHeaders";
+  requestId: number;
+  headers: string[];
+};
+
+export interface CleanUpdate {
+  column: number;
+  ops: CleanOp[];
+}
+
+export type CleanColumnsRequest = {
+  type: "cleanColumns";
+  requestId: number;
+  updates: CleanUpdate[];
+};
+
+export type TransformRequest = {
+  type: "transform";
+  requestId: number;
+  ops: TransformOp[];
+};
+
+export type PreviewTransformRequest = {
+  type: "previewTransform";
+  requestId: number;
+  ops: TransformOp[];
+};
+
+export type PreviewCleanRequest = {
+  type: "previewClean";
+  requestId: number;
+  updates: CleanUpdate[];
+};
+
+export type SetNullPolicyRequest = {
+  type: "setNullPolicy";
+  requestId: number;
+  column: number;
+  extra: string[];
+  keep: string[];
+};
+
+export type ResolveNullsAllRequest = {
+  type: "resolveNullsAll";
+  requestId: number;
+  extra: string[];
+  keep: string[];
 };
 
 export type WorkerRequest =
@@ -122,16 +210,25 @@ export type WorkerRequest =
   | SetFilterRequest
   | ClearFiltersRequest
   | SetSpecialRequest
+  | DropRowsRequest
+  | ClearExcludedRowsRequest
   | ShuffleRequest
   | SortRequest
   | GetRowsRequest
   | SetTypeRequest
+  | SetNumberLocaleRequest
   | GetStatsRequest
   | StartExportRequest
-  | GetCsvRequest;
+  | GetCsvRequest
+  | RenameHeadersRequest
+  | CleanColumnsRequest
+  | TransformRequest
+  | PreviewTransformRequest
+  | PreviewCleanRequest
+  | SetNullPolicyRequest
+  | ResolveNullsAllRequest;
 
-export interface LoadedMessage {
-  type: "loaded";
+export interface DatasetMessage {
   requestId: number;
   name: string;
   headers: string[];
@@ -142,6 +239,16 @@ export interface LoadedMessage {
   ingestMs: number;
   source: "paste" | "file";
   encoding: FileEncoding | null;
+}
+
+export interface LoadedMessage extends DatasetMessage {
+  type: "loaded";
+}
+
+export interface TransformedMessage extends DatasetMessage {
+  type: "transformed";
+  ops: TransformOp[];
+  baseSchema: ColumnSchema[];
 }
 
 export interface ResultsMessage {
@@ -221,15 +328,52 @@ export interface CsvChunkMessage {
   text: string;
 }
 
+export interface HeadersRenamedMessage {
+  type: "headersRenamed";
+  requestId: number;
+  headers: string[];
+}
+
+export interface CleanedMessage {
+  type: "cleaned";
+  requestId: number;
+  columns: { column: number; meta: ColumnMeta }[];
+  stats: DatasetStats;
+  count: number;
+  queryMs: number;
+  facets: Record<number, number[]>;
+  histograms: Record<number, number[]>;
+  firstRows: string[][];
+  firstGroups?: boolean[];
+  firstFlags?: Uint8Array;
+}
+
 export interface ErrorMessage {
   type: "error";
   requestId: number;
   message: string;
 }
 
+export interface TransformPreviewMessage {
+  type: "transformPreview";
+  requestId: number;
+  baseRowCount: number;
+  rowCount: number;
+  baseNullCells: number;
+  nullCells: number;
+  columnCount: number;
+}
+
+export interface CleanPreviewMessage {
+  type: "cleanPreview";
+  requestId: number;
+  columns: { column: number; changed: number; total: number }[];
+}
+
 export type WorkerResponse =
   | ProgressMessage
   | LoadedMessage
+  | TransformedMessage
   | ResultsMessage
   | SortedMessage
   | ShuffledMessage
@@ -238,4 +382,8 @@ export type WorkerResponse =
   | StatsMessage
   | ExportStartedMessage
   | CsvChunkMessage
+  | HeadersRenamedMessage
+  | CleanedMessage
+  | TransformPreviewMessage
+  | CleanPreviewMessage
   | ErrorMessage;

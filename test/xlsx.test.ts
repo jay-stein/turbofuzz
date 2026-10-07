@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { strToU8, zipSync } from "fflate";
 import { listWorkbookSheets, readWorkbookSheet } from "../src/parse/xlsx.js";
 
@@ -10,11 +11,18 @@ interface SheetSpec {
   absoluteTarget?: boolean;
 }
 
-function buildWorkbook(sheets: SheetSpec[], shared?: string): ArrayBuffer {
+function buildWorkbook(
+  sheets: SheetSpec[],
+  shared?: string,
+  styles?: string,
+  workbookPr?: string,
+): ArrayBuffer {
   const files: Record<string, Uint8Array> = {};
 
   files["xl/workbook.xml"] = strToU8(
-    '<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' +
+    '<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      (workbookPr ?? "") +
+      "<sheets>" +
       sheets
         .map((sheet, index) => `<sheet name="${sheet.name}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`)
         .join("") +
@@ -41,6 +49,7 @@ function buildWorkbook(sheets: SheetSpec[], shared?: string): ArrayBuffer {
   });
 
   if (shared !== undefined) files["xl/sharedStrings.xml"] = strToU8(shared);
+  if (styles !== undefined) files["xl/styles.xml"] = strToU8(styles);
 
   const zipped = zipSync(files);
   return zipped.buffer.slice(zipped.byteOffset, zipped.byteOffset + zipped.byteLength) as ArrayBuffer;
@@ -133,4 +142,74 @@ test("returns an empty grid for unknown sheet names", async () => {
   ]);
   assert.deepEqual(await readWorkbookSheet(buffer, "Missing"), []);
   assert.deepEqual(await readWorkbookSheet(buffer, "Only"), []);
+});
+
+const DATE_STYLES =
+  "<styleSheet>" +
+  '<numFmts count="2">' +
+  '<numFmt numFmtId="164" formatCode="yyyy-mm-dd"/>' +
+  '<numFmt numFmtId="165" formatCode="0.00&quot;m&quot;"/>' +
+  "</numFmts>" +
+  '<cellXfs count="4">' +
+  '<xf numFmtId="0"/>' +
+  '<xf numFmtId="164"/>' +
+  '<xf numFmtId="14"/>' +
+  '<xf numFmtId="165"/>' +
+  "</cellXfs>" +
+  "</styleSheet>";
+
+test("converts styled Excel date serials to ISO dates", async () => {
+  const buffer = buildWorkbook(
+    [
+      {
+        name: "Dates",
+        sheetXml:
+          '<row r="1">' +
+          "<c r=\"A1\"><v>45474</v></c>" +
+          '<c r="B1" s="1"><v>45474</v></c>' +
+          '<c r="C1" s="2"><v>45474</v></c>' +
+          '<c r="D1" s="1"><v>45474.5</v></c>' +
+          '<c r="E1" s="3"><v>12.5</v></c>' +
+          '<c r="F1" s="1" t="inlineStr"><is><t>text</t></is></c>' +
+          "</row>",
+      },
+    ],
+    undefined,
+    DATE_STYLES,
+  );
+
+  const grid = await readWorkbookSheet(buffer, "Dates");
+  assert.deepEqual(grid, [
+    ["45474", "2024-07-01", "2024-07-01", "2024-07-01 12:00:00", "12.5", "text"],
+  ]);
+});
+
+test("honours the 1904 date system", async () => {
+  const buffer = buildWorkbook(
+    [
+      {
+        name: "Dates",
+        sheetXml: '<row r="1"><c r="A1" s="1"><v>0</v></c><c r="B1" s="1"><v>1</v></c></row>',
+      },
+    ],
+    undefined,
+    DATE_STYLES,
+    '<workbookPr date1904="1"/>',
+  );
+
+  const grid = await readWorkbookSheet(buffer, "Dates");
+  assert.deepEqual(grid, [["1904-01-01", "1904-01-02"]]);
+});
+
+test("reads date serials from the messy_report fixture", async () => {
+  const raw = readFileSync(new URL("./fixtures/messy_report.xlsx", import.meta.url));
+  const buffer = raw.buffer.slice(
+    raw.byteOffset,
+    raw.byteOffset + raw.byteLength,
+  ) as ArrayBuffer;
+
+  const grid = await readWorkbookSheet(buffer, "Q3 Report");
+  assert.equal(grid[6][3], "2024-07-01");
+  assert.equal(grid[45][3], "2024-08-09");
+  assert.equal(grid[6][4], "00149");
 });

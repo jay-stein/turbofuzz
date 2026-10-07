@@ -148,21 +148,32 @@ export function detectTable(grid: readonly string[][]): DetectedTable {
   }
 
   let headerRows = 1;
+  let headerStart = bestIndex;
   const dataFollows = numericDataBelow(grid, bestIndex) > 0.3;
   if (dataFollows) {
+    // Extend upward into merged super-headers (at most two rows). Such rows
+    // are text-only and wider than a title, e.g. "Sales" spanning two columns.
+    while (headerStart > 0 && bestIndex - headerStart < 2) {
+      const profile = profiles[headerStart - 1];
+      if (profile === undefined || profile.populated < 2 || profile.numeric > 0) break;
+      headerStart--;
+    }
+    // Extend downward while rows stay text-only and hold no numeric cells,
+    // which keeps a data row like `1,Ann,…` out of the header block.
     while (bestIndex + headerRows < grid.length && headerRows < 3) {
       const profile = profiles[bestIndex + headerRows];
       if (profile === undefined || profile.populated === 0) break;
-      if (profile.numeric / profile.populated > 0.2) break;
+      if (profile.numeric > 0) break;
       headerRows++;
     }
   }
 
+  const totalHeaderRows = headerRows + (bestIndex - headerStart);
   return {
-    skipRows: bestIndex,
-    headerRows,
-    headers: mergeHeaders(grid, bestIndex, headerRows, width),
+    skipRows: headerStart,
+    headerRows: totalHeaderRows,
+    headers: mergeHeaders(grid, headerStart, totalHeaderRows, width),
     rows: trimTrailingEmptyRows(grid.slice(bestIndex + headerRows)),
-    title: titleFrom(grid, bestIndex, null),
+    title: titleFrom(grid, headerStart, null),
   };
 }

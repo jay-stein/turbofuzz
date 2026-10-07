@@ -2,13 +2,20 @@ import { clear, el } from "./dom.js";
 import { RangeSlider } from "./range-slider.js";
 import { COLUMN_TYPES, TYPE_LABELS, type ColumnType, type TextMode } from "../types.js";
 import { parseDate, toDateInputValue } from "../parse/dates.js";
-import { parseNumber } from "../parse/numbers.js";
+import { parseNumber, type NumberLocale } from "../parse/numbers.js";
+import {
+  describeSuggestion,
+  suggestionLabel,
+  type ColumnSuggestion,
+} from "../data/suggestions.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 
 export interface FilterPanelCallbacks {
   onFilter: (column: number, filter: ColumnFilter | null, preview?: boolean) => void;
   onTypeChange: (column: number, type: ColumnType) => void;
+  onNumberLocale: (column: number, locale: NumberLocale) => void;
+  onSuggestion: (column: number, suggestion: ColumnSuggestion) => void;
 }
 
 const TEXT_MODES: { value: TextMode; label: string }[] = [
@@ -24,6 +31,7 @@ export class FilterPanel {
   private statusEls: HTMLElement[] = [];
   private countEls: HTMLElement[][] = [];
   private sliders: (RangeSlider | null)[] = [];
+  private readonly expanded = new Set<number>();
 
   constructor(
     root: HTMLElement,
@@ -59,11 +67,24 @@ export class FilterPanel {
   }
 
   focusColumn(index: number): void {
+    if (!this.expanded.has(index)) {
+      this.expanded.add(index);
+      this.rebuildCard(index);
+    }
     const card = this.cards[index];
     if (card === undefined) return;
     card.scrollIntoView({ behavior: "smooth", block: "center" });
     card.classList.add("flash");
     window.setTimeout(() => card.classList.remove("flash"), 1200);
+  }
+
+  /** Hides cards whose column name does not match the sidebar search. */
+  search(query: string): void {
+    const needle = query.trim().toLowerCase();
+    this.cards.forEach((card, index) => {
+      const name = this.metas[index]?.name.toLowerCase() ?? "";
+      card.classList.toggle("hidden", needle !== "" && !name.includes(needle));
+    });
   }
 
   /**
@@ -107,13 +128,30 @@ export class FilterPanel {
   private buildCard(meta: ColumnMeta, index: number): HTMLElement {
     const card = el("div", { class: "filter-card", "data-column": String(index) });
     if (this.filters.has(index)) card.classList.add("active");
+    if (!this.expanded.has(index)) card.classList.add("collapsed");
 
     const head = el("div", { class: "filter-head" });
-    head.append(el("span", { class: "filter-name", title: meta.name }, [meta.name]));
+    const caret = el(
+      "button",
+      {
+        class: "icon-btn filter-caret",
+        type: "button",
+        title: "Expand or collapse this filter",
+      },
+      [this.expanded.has(index) ? "▾" : "▸"],
+    );
+    caret.addEventListener("click", () => {
+      if (this.expanded.has(index)) this.expanded.delete(index);
+      else this.expanded.add(index);
+      card.classList.toggle("collapsed", !this.expanded.has(index));
+      caret.textContent = this.expanded.has(index) ? "▾" : "▸";
+    });
+    head.append(caret, el("span", { class: "filter-name", title: meta.name }, [meta.name]));
 
     const typeSelect = el("select", {
       class: "type-select",
       title: "Data type — change to re-interpret this column",
+      "aria-label": `Data type for ${meta.name}`,
     }) as HTMLSelectElement;
     for (const type of COLUMN_TYPES) {
       const option = el("option", { value: type }, [TYPE_LABELS[type]]) as HTMLOptionElement;
@@ -124,6 +162,23 @@ export class FilterPanel {
       this.callbacks.onTypeChange(index, typeSelect.value as ColumnType);
     });
     head.append(typeSelect);
+
+    if (meta.type === "integer" || meta.type === "number") {
+      const nextLocale: NumberLocale = meta.numberLocale === "comma" ? "dot" : "comma";
+      const localeButton = el(
+        "button",
+        {
+          class: "locale-btn",
+          type: "button",
+          title: "Number format — click to switch between 1,234.56 and 1.234,56",
+        },
+        [meta.numberLocale === "comma" ? "1.234,56" : "1,234.56"],
+      );
+      localeButton.addEventListener("click", () => {
+        this.callbacks.onNumberLocale(index, nextLocale);
+      });
+      head.append(localeButton);
+    }
 
     const clearButton = el(
       "button",
@@ -139,8 +194,30 @@ export class FilterPanel {
     const status = el("span", { class: "filter-status" });
     this.statusEls[index] = status;
 
-    card.append(head, this.buildBody(meta, index), this.buildStats(meta), status);
+    card.append(head);
+    const suggestions = this.buildSuggestions(meta, index);
+    if (suggestions !== null) card.append(suggestions);
+    card.append(this.buildBody(meta, index), this.buildStats(meta), status);
     return card;
+  }
+
+  private buildSuggestions(meta: ColumnMeta, index: number): HTMLElement | null {
+    if (meta.suggestions.length === 0) return null;
+    const row = el("div", { class: "suggestion-row" });
+    for (const suggestion of meta.suggestions) {
+      const chip = el(
+        "button",
+        {
+          class: "suggestion-chip",
+          type: "button",
+          title: describeSuggestion(suggestion),
+        },
+        [suggestionLabel(suggestion)],
+      );
+      chip.addEventListener("click", () => this.callbacks.onSuggestion(index, suggestion));
+      row.append(chip);
+    }
+    return row;
   }
 
   private buildBody(meta: ColumnMeta, index: number): HTMLElement {
@@ -163,7 +240,11 @@ export class FilterPanel {
     const state = this.filters.get(index);
     const current = state?.kind === "text" ? state : null;
 
-    const modeSelect = el("select", { class: "mode-select", title: "Match mode" }) as HTMLSelectElement;
+    const modeSelect = el("select", {
+      class: "mode-select",
+      title: "Match mode",
+      "aria-label": `Match mode for ${meta.name}`,
+    }) as HTMLSelectElement;
     const defaultMode: TextMode = meta.type === "identifier" ? "exact" : "contains";
     for (const mode of TEXT_MODES) {
       const option = el("option", { value: mode.value }, [mode.label]) as HTMLOptionElement;
@@ -176,6 +257,7 @@ export class FilterPanel {
       type: "text",
       placeholder: "Filter…",
       spellcheck: "false",
+      "aria-label": `Filter ${meta.name}`,
     }) as HTMLInputElement;
     input.value = current?.query ?? "";
 
@@ -226,8 +308,8 @@ export class FilterPanel {
     }
 
     const emit = (preview: boolean): void => {
-      const min = this.readRangeValue(minInput.value, isDate);
-      const max = this.readRangeValue(maxInput.value, isDate);
+      const min = this.readRangeValue(minInput.value, isDate, meta.numberLocale);
+      const max = this.readRangeValue(maxInput.value, isDate, meta.numberLocale);
       this.callbacks.onFilter(
         index,
         min === null && max === null ? null : { kind: "range", min, max },
@@ -267,8 +349,8 @@ export class FilterPanel {
 
     const syncSlider = (): void => {
       slider?.setRange(
-        this.readRangeValue(minInput.value, isDate),
-        this.readRangeValue(maxInput.value, isDate),
+        this.readRangeValue(minInput.value, isDate, meta.numberLocale),
+        this.readRangeValue(maxInput.value, isDate, meta.numberLocale),
       );
     };
     minInput.addEventListener("input", () => {
@@ -311,6 +393,7 @@ export class FilterPanel {
         type: "text",
         placeholder: "Find value…",
         spellcheck: "false",
+        "aria-label": `Find a value in ${meta.name}`,
       }) as HTMLInputElement;
       search.addEventListener("input", () => {
         const needle = search.value.toLowerCase();
@@ -393,9 +476,13 @@ export class FilterPanel {
     return stats;
   }
 
-  private readRangeValue(value: string, isDate: boolean): number | null {
+  private readRangeValue(
+    value: string,
+    isDate: boolean,
+    locale: NumberLocale = "dot",
+  ): number | null {
     if (value.trim() === "") return null;
-    const parsed = isDate ? parseDate(value) : parseNumber(value);
+    const parsed = isDate ? parseDate(value) : parseNumber(value, locale);
     return Number.isFinite(parsed) ? parsed : null;
   }
 }

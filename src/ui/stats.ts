@@ -1,3 +1,4 @@
+import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
 import { toDateInputValue } from "../parse/dates.js";
 import { TYPE_LABELS } from "../types.js";
@@ -67,6 +68,7 @@ export function openStatsModal(title: string): StatsModal {
 
   overlay.append(modal);
   document.body.append(overlay);
+  setupDialog(overlay, `Per-column statistics — ${title}`);
 
   const fill = (message: StatsMessage): void => {
     const stats = message.stats;

@@ -1,10 +1,17 @@
 import type { Delimiter } from "../parse/delimiter.js";
+import type { NumberLocale } from "../parse/numbers.js";
 import type { ColumnFilter } from "../search/query-engine.js";
+import type { TransformOp } from "../data/transform-ops.js";
 import type { ColumnType } from "../types.js";
 import type {
+  CleanedMessage,
+  CleanPreviewMessage,
+  CleanUpdate,
   ColumnMetaMessage,
   CsvChunkMessage,
+  ExportOptions,
   ExportStartedMessage,
+  HeadersRenamedMessage,
   LoadedMessage,
   ProgressMessage,
   ResultsMessage,
@@ -13,6 +20,8 @@ import type {
   SortedMessage,
   SpecialKind,
   StatsMessage,
+  TransformedMessage,
+  TransformPreviewMessage,
   WorkerRequest,
   WorkerResponse,
 } from "../worker/protocol.js";
@@ -73,8 +82,16 @@ export class SearchWorkerClient {
     return this.request<ResultsMessage>({ type: "clearFilters" });
   }
 
-  setSpecial(kind: SpecialKind, active: boolean): Promise<ResultsMessage> {
-    return this.request<ResultsMessage>({ type: "setSpecial", kind, active });
+  setSpecial(kind: SpecialKind, active: boolean, column?: number): Promise<ResultsMessage> {
+    return this.request<ResultsMessage>({ type: "setSpecial", kind, active, column });
+  }
+
+  dropRows(positions: number[]): Promise<ResultsMessage> {
+    return this.request<ResultsMessage>({ type: "dropRows", positions });
+  }
+
+  clearExcludedRows(): Promise<ResultsMessage> {
+    return this.request<ResultsMessage>({ type: "clearExcludedRows" });
   }
 
   shuffle(limit?: number): Promise<ShuffledMessage> {
@@ -93,16 +110,48 @@ export class SearchWorkerClient {
     return this.request<ColumnMetaMessage>({ type: "setType", column, columnType });
   }
 
+  setNumberLocale(column: number, locale: NumberLocale): Promise<ColumnMetaMessage> {
+    return this.request<ColumnMetaMessage>({ type: "setNumberLocale", column, locale });
+  }
+
   getStats(): Promise<StatsMessage> {
     return this.request<StatsMessage>({ type: "getStats" });
+  }
+
+  renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {
+    return this.request<HeadersRenamedMessage>({ type: "renameHeaders", headers });
+  }
+
+  cleanColumns(updates: CleanUpdate[]): Promise<CleanedMessage> {
+    return this.request<CleanedMessage>({ type: "cleanColumns", updates });
+  }
+
+  setNullPolicy(column: number, extra: string[], keep: string[]): Promise<CleanedMessage> {
+    return this.request<CleanedMessage>({ type: "setNullPolicy", column, extra, keep });
+  }
+
+  resolveNullsAll(extra: string[], keep: string[]): Promise<CleanedMessage> {
+    return this.request<CleanedMessage>({ type: "resolveNullsAll", extra, keep });
+  }
+
+  transform(ops: TransformOp[]): Promise<TransformedMessage> {
+    return this.request<TransformedMessage>({ type: "transform", ops });
+  }
+
+  previewTransform(ops: TransformOp[]): Promise<TransformPreviewMessage> {
+    return this.request<TransformPreviewMessage>({ type: "previewTransform", ops });
+  }
+
+  previewClean(updates: CleanUpdate[]): Promise<CleanPreviewMessage> {
+    return this.request<CleanPreviewMessage>({ type: "previewClean", updates });
   }
 
   startExport(): Promise<ExportStartedMessage> {
     return this.request<ExportStartedMessage>({ type: "startExport" });
   }
 
-  getCsv(start: number, end: number): Promise<CsvChunkMessage> {
-    return this.request<CsvChunkMessage>({ type: "getCsv", start, end });
+  getCsv(start: number, end: number, options?: ExportOptions): Promise<CsvChunkMessage> {
+    return this.request<CsvChunkMessage>({ type: "getCsv", start, end, options });
   }
 
   dispose(): void {
