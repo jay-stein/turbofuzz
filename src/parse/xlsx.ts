@@ -218,7 +218,86 @@ function parseSharedStrings(xml: string): string[] {
   return strings;
 }
 
-function cellValue(inner: string, type: string, shared: string[]): string {
+/** Built-in numFmt ids that are dates or times (ECMA-376 §18.8.30). */
+const BUILTIN_DATE_FORMATS = new Set([
+  14, 15, 16, 17, 18, 19, 20, 21, 22, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 45, 46, 47, 50, 51,
+  52, 53, 54, 55, 56, 57, 58,
+]);
+
+/**
+ * True when a number format code renders dates/times. Quoted literals and
+ * colour/locale sections are stripped first so `0.00"m"` is not mistaken for
+ * a minute, while elapsed-time tokens ([h], [mm], [ss]) still count.
+ */
+function looksLikeDateFormat(code: string): boolean {
+  const cleaned = code
+    .replace(/"[^"]*"/g, "")
+    .replace(/\\./g, "")
+    .replace(/\[(?![hms]+\])[^\]]*\]/gi, "");
+  return /[ymdhs]/i.test(cleaned);
+}
+
+/**
+ * One flag per cellXfs entry: whether that style index renders its numeric
+ * value as a date. Custom numFmts win over the built-in table when present.
+ */
+function parseDateStyleFlags(stylesXml: string): boolean[] {
+  const custom = new Map<number, string>();
+  for (const match of stylesXml.matchAll(/<numFmt\b([^>]*?)\/?>/gi)) {
+    const id = Number.parseInt(attribute(match[1], "numFmtId") ?? "", 10);
+    const code = attribute(match[1], "formatCode");
+    if (Number.isFinite(id) && code !== null) custom.set(id, code);
+  }
+
+  const flags: boolean[] = [];
+  const cellXfs = stylesXml.match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/i);
+  if (cellXfs === null) return flags;
+  for (const xf of cellXfs[1].matchAll(/<xf\b([^>]*?)\/?>/gi)) {
+    const id = Number.parseInt(attribute(xf[1], "numFmtId") ?? "0", 10);
+    const customCode = custom.get(id);
+    flags.push(customCode !== undefined ? looksLikeDateFormat(customCode) : BUILTIN_DATE_FORMATS.has(id));
+  }
+  return flags;
+}
+
+function workbookDate1904(workbookXml: string): boolean {
+  const match = workbookXml.match(/<workbookPr\b([^>]*?)\/?>/i);
+  if (match === null) return false;
+  const value = attribute(match[1], "date1904");
+  return value === "1" || value?.toLowerCase() === "true";
+}
+
+const EXCEL_EPOCH_UTC = Date.UTC(1899, 11, 30);
+
+/**
+ * Converts an Excel serial to an ISO date (with time when the serial has a
+ * fractional part). The 1899-12-30 epoch absorbs the 1900 leap-year bug for
+ * serials ≥ 60; earlier serials use 1899-12-31. The 1904 date system is
+ * shifted by 1462 days first.
+ */
+function excelSerialToIso(serial: number, date1904: boolean): string {
+  if (!Number.isFinite(serial) || serial < 0) return "";
+  const adjusted = date1904 ? serial + 1462 : serial;
+  const epoch = adjusted < 60 ? Date.UTC(1899, 11, 31) : EXCEL_EPOCH_UTC;
+  const ms = Math.round(epoch + adjusted * 86_400_000);
+  const date = new Date(ms);
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
+  const day = `${y}-${m}-${d}`;
+  if (adjusted < 1) return date.toISOString().slice(11, 19);
+  const inDay = ms % 86_400_000;
+  if (inDay === 0) return day;
+  return `${day} ${date.toISOString().slice(11, 19)}`;
+}
+
+function cellValue(
+  inner: string,
+  type: string,
+  shared: string[],
+  styleIsDate: boolean,
+  date1904: boolean,
+): string {
   if (type === "inlineStr") {
     const text = inner.match(/<t\b[^>]*>([\s\S]*?)<\/t>/i);
     return text === null ? "" : decodeXmlEntities(text[1]);
@@ -230,13 +309,19 @@ function cellValue(inner: string, type: string, shared: string[]): string {
     return Number.isFinite(index) && shared[index] !== undefined ? shared[index] : "";
   }
   if (type === "b") return raw === "1" ? "TRUE" : "FALSE";
+  if (type === "n" && styleIsDate && raw !== "") {
+    const serial = Number(raw);
+    const iso = excelSerialToIso(serial, date1904);
+    if (iso !== "") return iso;
+  }
   return raw;
 }
 
 /**
  * Parses one worksheet into a rectangular string grid: shared/inline strings,
- * booleans, cached formula values, and merge expansion. Dates stay as Excel
- * serial numbers — approximate by design for speed.
+ * booleans, cached formula values, merge expansion, and Excel date serials
+ * converted to ISO via each cell's number format. Dates become real date
+ * strings rather than 45,474-style integers.
  */
 export async function readWorkbookSheet(
   buffer: ArrayBuffer,
@@ -249,10 +334,12 @@ export async function readWorkbookSheet(
       name === "xl/workbook.xml" ||
       name === "xl/_rels/workbook.xml.rels" ||
       name === "xl/sharedStrings.xml" ||
+      name === "xl/styles.xml" ||
       /^xl\/worksheets\/.+\.xml$/i.test(name),
   );
 
-  const entries = parseWorkbookSheets(decode(fileOf(files, "xl/workbook.xml")));
+  const workbookXml = decode(fileOf(files, "xl/workbook.xml"));
+  const entries = parseWorkbookSheets(workbookXml);
   const relationships = parseRelationships(decode(fileOf(files, "xl/_rels/workbook.xml.rels")));
   const entry = entries.find((candidate) => candidate.name === sheetName);
   const relationship = entry === undefined ? undefined : relationships.get(entry.rid);
@@ -261,6 +348,8 @@ export async function readWorkbookSheet(
   const sheetXml = decode(fileOf(files, normalizeTarget(relationship.target)));
   if (sheetXml === "") return [];
   const shared = parseSharedStrings(decode(fileOf(files, "xl/sharedStrings.xml")));
+  const dateStyles = parseDateStyleFlags(decode(fileOf(files, "xl/styles.xml")));
+  const date1904 = workbookDate1904(workbookXml);
 
   const rows = new Map<number, string[]>();
   let nextRow = 0;
@@ -277,7 +366,9 @@ export async function readWorkbookSheet(
       const attributes = cellMatch[1];
       const ref = attribute(attributes, "r");
       const type = attribute(attributes, "t") ?? "n";
-      const value = cellValue(cellMatch[2] ?? "", type, shared);
+      const styleIndex = Number.parseInt(attribute(attributes, "s") ?? "", 10);
+      const styleIsDate = Number.isFinite(styleIndex) && dateStyles[styleIndex] === true;
+      const value = cellValue(cellMatch[2] ?? "", type, shared, styleIsDate, date1904);
       const column = ref === null ? cells.length : columnIndex(ref.replace(/\d+$/, "").toUpperCase());
       cells[column] = value;
     }
