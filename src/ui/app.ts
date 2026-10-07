@@ -248,6 +248,11 @@ export class App {
         "Drop a messy CSV or Excel file. Type-aware cleanup, transforms and search — all offline, nothing leaves this tab.",
       ]),
     );
+    card.append(
+      el("p", { class: "sub sub-formats" }, [
+        "CSV · TSV · PSV · JSON · Excel (.xlsx/.xls) · Parquet · ZIP/GZ/BZ2 — limited only by your browser's memory.",
+      ]),
+    );
 
     const dropzone = el("div", {
       class: "dropzone",
@@ -350,7 +355,9 @@ export class App {
     this.statusEl = el("div", { class: "status" });
     card.append(this.statusEl);
 
-    const sampleButton = el("button", { class: "link", type: "button" }, ["Try sample data"]);
+    const sampleButton = el("button", { class: "ghost small", type: "button" }, [
+      "Try sample data",
+    ]);
     sampleButton.addEventListener("click", () => {
       this.textarea.value = sampleCsv();
       this.loadFromTextarea();
@@ -444,7 +451,11 @@ export class App {
     this.shuffleButton.addEventListener("click", () => this.shuffleRows());
     this.updateShuffleLabel();
 
-    shuffleControl.append(this.shuffleButton, this.shuffleCount);
+    shuffleControl.append(
+      this.shuffleButton,
+      this.shuffleCount,
+      el("span", { class: "shuffle-suffix" }, ["rows"]),
+    );
 
     resultsRow.append(
       this.countEl,

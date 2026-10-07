@@ -80,7 +80,7 @@ function buildTable(columns: ColumnMeta[]): Harness {
   return { host, table, clicks, merges, contexts, colDeletes, rowDeletes, window };
 }
 
-test("header shows readable QA chips: amber when flagged, muted when clean", () => {
+test("header shows only actionable QA chips", () => {
   const { host } = buildTable([
     meta({
       name: "city",
@@ -93,16 +93,29 @@ test("header shows readable QA chips: amber when flagged, muted when clean", () 
   const cells = host.querySelectorAll(".th");
   // cells[0] is the row-index header; column cells start at 1.
   const chips = cells[1].querySelectorAll(".th-qa-chip");
-  assert.equal(chips.length, 3);
+  assert.equal(chips.length, 2);
   assert.equal(chips[0].textContent, "3 empty cells");
   assert.ok(chips[0].classList.contains("warn"));
-  assert.equal(chips[1].textContent, "no value outliers");
-  assert.ok(chips[1].classList.contains("ok"));
-  assert.equal(chips[2].textContent, "2 long values");
+  assert.equal(chips[1].textContent, "2 long values");
 
   const cleanChips = cells[2].querySelectorAll(".th-qa-chip");
-  assert.equal(cleanChips[0].textContent, "no empty cells");
-  assert.ok(cleanChips[0].classList.contains("ok"));
+  assert.equal(cleanChips.length, 0, "zero-count chips are hidden");
+});
+
+test("marks numeric and boolean cells for alignment", () => {
+  const { host, table } = buildTable([
+    meta({ name: "amount", type: "number" }),
+    meta({ name: "active", type: "boolean" }),
+    meta({ name: "name", type: "string" }),
+  ]);
+  table.setFirstRows([["12.5", "true", "Ada"]]);
+  table.setCount(1);
+
+  const cells = host.querySelectorAll(".tr .td");
+  // cells[0] is the row-index cell; data cells start at 1.
+  assert.ok(cells[1]?.classList.contains("num-cell"));
+  assert.ok(cells[2]?.classList.contains("bool-cell"));
+  assert.equal(cells[3]?.className, "td");
 });
 
 test("clicking a QA chip reports the column and kind", () => {

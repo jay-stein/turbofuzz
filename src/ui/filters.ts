@@ -171,6 +171,7 @@ export class FilterPanel {
           class: "locale-btn",
           type: "button",
           title: "Number format — click to switch between 1,234.56 and 1.234,56",
+          "aria-label": `Number format for ${meta.name}`,
         },
         [meta.numberLocale === "comma" ? "1.234,56" : "1,234.56"],
       );

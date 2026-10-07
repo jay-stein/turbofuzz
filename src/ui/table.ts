@@ -323,7 +323,7 @@ export class ResultTable {
    */
   private buildQaRow(column: ColumnMeta, index: number): HTMLElement {
     const row = el("div", { class: "th-qa" });
-    row.append(
+    const chips = [
       this.qaChip(column, index, "nulls", column.stats.nulls, {
         one: "empty cell",
         many: "empty cells",
@@ -336,7 +336,8 @@ export class ResultTable {
         one: "long value",
         many: "long values",
       }, "click to show this column's overlong values"),
-    );
+    ].filter((chip): chip is HTMLButtonElement => chip !== null);
+    row.append(...chips);
     if (column.similarGroups > 0) {
       const merge = el(
         "button",
@@ -371,21 +372,14 @@ export class ResultTable {
     count: number,
     noun: { one: string; many: string },
     hint: string,
-  ): HTMLButtonElement {
+  ): HTMLButtonElement | null {
+    // Zero-count chips are noise: only surface what needs attention.
+    if (count === 0) return null;
     const active = this.columnQa.has(`${index}:${kind}`);
-    const text =
-      count > 0
-        ? `${count.toLocaleString()} ${count === 1 ? noun.one : noun.many}`
-        : `no ${noun.many}`;
-    const chip = el("button", { class: "th-qa-chip", type: "button" }, [text]) as HTMLButtonElement;
-    chip.classList.toggle("warn", count > 0);
-    chip.classList.toggle("ok", count === 0);
+    const text = `${count.toLocaleString()} ${count === 1 ? noun.one : noun.many}`;
+    const chip = el("button", { class: "th-qa-chip warn", type: "button" }, [text]) as HTMLButtonElement;
     chip.classList.toggle("active", active);
-    chip.disabled = count === 0;
-    chip.title =
-      count > 0
-        ? `${text} in “${column.name}” — ${active ? "click to clear" : hint}`
-        : `${text} in “${column.name}”`;
+    chip.title = `${text} in “${column.name}” — ${active ? "click to clear" : hint}`;
     chip.addEventListener("click", () => this.options.onColumnSpecial(index, kind));
     return chip;
   }
@@ -466,7 +460,10 @@ export class ResultTable {
     tr.append(indexCell);
 
     for (let c = 0; c < this.columns.length; c++) {
+      const type = this.columns[c]?.type;
       const cell = el("div", { class: "td" });
+      if (type === "integer" || type === "number") cell.classList.add("num-cell");
+      else if (type === "boolean") cell.classList.add("bool-cell");
       if (row !== undefined) this.fillCell(cell, row[c] ?? "", c);
       tr.append(cell);
     }
