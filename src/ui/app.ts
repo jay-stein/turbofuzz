@@ -33,6 +33,13 @@ import { FilterPanel } from "./filters.js";
 import { ChartPanel } from "./chart-panel.js";
 import { openHelpDrawer } from "./help-drawer.js";
 import { sampleCsv } from "./sample.js";
+import {
+  applyThemePreference,
+  nextThemePreference,
+  readThemePreference,
+  themeLabel,
+  type ThemePreference,
+} from "./theme.js";
 import { SummaryBand } from "./summary-band.js";
 import { openStatsModal } from "./stats.js";
 import { ResultTable, type ColumnQaKind, type HighlightRule } from "./table.js";
@@ -242,6 +249,8 @@ export class App {
   private chartActive = false;
   private tableTabButton!: HTMLButtonElement;
   private chartTabButton!: HTMLButtonElement;
+  private themeButton!: HTMLButtonElement;
+  private themePreference: ThemePreference = readThemePreference();
   private stepperHost!: HTMLElement;
   private stepper: PipelineStepper | null = null;
   private workspaceTitle!: HTMLElement;
@@ -266,7 +275,29 @@ export class App {
       ["Help"],
     );
     helpButton.addEventListener("click", () => openHelpDrawer());
-    topbar.append(helpButton);
+
+    this.themeButton = el(
+      "button",
+      {
+        class: "ghost small",
+        type: "button",
+        title: "Cycle Auto → Light → Dark. Auto follows your operating system.",
+      },
+      [`Theme: ${themeLabel(this.themePreference)}`],
+    ) as HTMLButtonElement;
+    this.themeButton.addEventListener("click", () => {
+      this.themePreference = nextThemePreference(this.themePreference);
+      applyThemePreference(this.themePreference);
+      this.themeButton.textContent = `Theme: ${themeLabel(this.themePreference)}`;
+    });
+    if (typeof window.matchMedia === "function") {
+      window
+        .matchMedia("(prefers-color-scheme: dark)")
+        .addEventListener("change", () => {
+          if (this.themePreference === "auto") applyThemePreference("auto");
+        });
+    }
+    topbar.append(this.themeButton, helpButton);
 
     this.newButton = el("button", { class: "ghost", type: "button" }, ["New data"]);
     this.newButton.addEventListener("click", () => this.showPaste());
@@ -1777,6 +1808,12 @@ export class App {
     if (meta.type === "category") {
       addItem("Merge similar values…", () => this.openMerge(column));
     }
+    if (meta.type === "string" || meta.type === "category" || meta.type === "identifier") {
+      addItem("UPPERCASE", () => this.applyQuickClean(column, { kind: "case", style: "upper" }));
+      addItem("lowercase", () => this.applyQuickClean(column, { kind: "case", style: "lower" }));
+      addItem("Title Case", () => this.applyQuickClean(column, { kind: "case", style: "title" }));
+      addItem("Trim whitespace", () => this.applyQuickClean(column, { kind: "trim" }));
+    }
     addItem("Delete column…", () => void this.confirmDeleteColumn(column), { danger: true });
 
     document.addEventListener("pointerdown", onPointerDown, true);
@@ -1784,6 +1821,12 @@ export class App {
     document.body.append(menu);
     menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8))}px`;
     menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8))}px`;
+  }
+
+  /** One-click value op from the column menu: applied and logged immediately. */
+  private applyQuickClean(column: number, op: CleanOp): void {
+    const existing = this.cleanedColumns.get(column) ?? [];
+    this.applyClean([{ column, ops: [...existing, op] }]);
   }
 
   private async confirmDeleteColumn(column: number): Promise<void> {

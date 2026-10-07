@@ -108,10 +108,12 @@ export class ChartPanel {
     this.root.append(this.controls, wrap, this.note);
 
     window.addEventListener("resize", this.onResize);
+    window.addEventListener("themechange", this.onResize);
   }
 
   dispose(): void {
     window.removeEventListener("resize", this.onResize);
+    window.removeEventListener("themechange", this.onResize);
   }
 
   setColumns(columns: ColumnMeta[]): void {

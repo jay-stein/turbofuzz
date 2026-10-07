@@ -43,6 +43,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Click a chip to apply its fix — every fix is reversible from the Process Log.",
         "Click a column name to sort; use the header ⋯ menu (or right-click) for per-column actions.",
         "Use Export… when you are done; the dialog states exactly which rows will be written.",
+        "The header Theme control cycles Auto / Light / Dark — Auto follows your operating system.",
+        "Help (this drawer) is searchable; the Chart tab shows a chart of the current result set and exports it as a PNG.",
       ),
     ],
   },

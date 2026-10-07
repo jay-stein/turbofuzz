@@ -30,7 +30,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #10151c;
     --panel: #161d26;
     --panel-2: #1d2530;
@@ -51,6 +51,29 @@
     --qa-warn-text: #fbbf24;
     --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px rgb(0 0 0 / 35%);
   }
+}
+
+/* Manual theme override. Keep in sync with the dark media block above. */
+:root[data-theme="dark"] {
+  --bg: #10151c;
+  --panel: #161d26;
+  --panel-2: #1d2530;
+  --border: #2c3745;
+  --border-subtle: #222b36;
+  --text: #e7ecf2;
+  --text-dim: #93a1b1;
+  --accent: #60a5fa;
+  --accent-soft: #1e3a5f;
+  --on-accent: #0b1220;
+  --danger: #f97066;
+  --mark: #7a5d00;
+  --qa-btn: color-mix(in srgb, var(--null) 15%, #93261c);
+  --qa-btn-active: color-mix(in srgb, var(--null) 5%, #701b13);
+  --qa-warn: #fbbf24;
+  --qa-warn-border: #8a6d1f;
+  --qa-warn-soft: #3b2f0e;
+  --qa-warn-text: #fbbf24;
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px rgb(0 0 0 / 35%);
 }
 
 * {

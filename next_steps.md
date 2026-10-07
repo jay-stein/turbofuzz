@@ -455,9 +455,10 @@ same wiring. Priority from the 2026-10-08 discussion: after the current
 data-safety batch.
 
 **Progress (2026-10-08):** the suggestion chips now also render above column
-headers (same actions as the sidebar), and missing-value/type changes are logged
-with undo. The unified Edit surface and direct UPPERCASE/Trim-style operations
-from the ⋯ menu are still open.
+headers (same actions as the sidebar), missing-value/type changes are logged
+with undo, and the header ⋯ menu has direct one-click UPPERCASE / lowercase /
+Title Case / Trim ops that apply immediately and land in the Process Log. The
+unified Edit surface is still open.
 
 ---
 
@@ -474,19 +475,17 @@ topic later.
 
 ## Future backlog (logged 2026-10-08)
 
-- **Visualisations + PNG export (TODO).** Already scoped in §2 (View/Visualise)
-  and Step 5: a Chart tab inside View that renders histograms, time-series and
-  bars from the facet/histogram data already computed, deliberately without a
-  charting library. PNG export comes free via an offscreen `<canvas>` +
-  `toBlob("image/png")`. Confirm chart list and priority when View work starts.
-- **Theme switching (TODO).** Manual Dark / Light toggle plus **one quirky
-  mode (TBD)**. Today the palette follows `prefers-color-scheme` only; a manual
-  override needs a `data-theme` attribute on `:root` with both palettes
-  expressed as tokens (the stylesheet already uses CSS variables), plus a
-  persisted preference and a toggle in the header/Help area. Quirky-mode
-  candidates to pick from later: Terminal (green-on-black, monospace), Blueprint
-  (white-on-blue with grid), Newsprint (warm paper, serif headings), Vaporwave
-  (neon pastels). Keep the data readable: same tokens, different palette.
+- **Visualisations + PNG export.** Shipped 2026-10-08: a Table/Chart toggle in
+  the results bar renders histograms (numeric, signed-log aware), time-series
+  areas (dates) and top-12 category bars from the existing facet/histogram
+  payloads — no chart library — and exports the canvas as PNG. Still open:
+  more chart types (scatter, multi-series), chart annotations/percentiles, and
+  rendering the current table selection.
+- **Theme switching.** Shipped 2026-10-08: header control cycles Auto / Light /
+  Dark, persisted in `localStorage`, with explicit `data-theme` palettes and
+  `themechange` repaints for charts. Still open: the **quirky mode (TBD)** —
+  candidates: Terminal (green-on-black, monospace), Blueprint, Newsprint,
+  Vaporwave. Keep the data readable: same tokens, different palette.
 - **KNN imputation quality (TODO).** There is no accuracy signal in-app. A
   quick synthetic evaluation (2,000 rows, 10% masked) shows KNN(k=5) RMSE ~33
   vs ~124 for mean/median when the predictors genuinely relate to the target
