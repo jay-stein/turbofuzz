@@ -1,4 +1,5 @@
 import type { ColumnData } from "../data/column.js";
+import { symlog } from "../data/symlog.js";
 import type { BitSet } from "./bitset.js";
 import type { ColumnFilter } from "./query-engine.js";
 
@@ -31,13 +32,16 @@ export function filteredHistogram(
   const numbers = column.numbers();
   const binCount = base.bins.length;
   const bins = new Array<number>(binCount).fill(0);
-  const scale = base.max > base.min ? binCount / (base.max - base.min) : 0;
+  const tMin = base.symlog ? symlog(base.min) : base.min;
+  const tMax = base.symlog ? symlog(base.max) : base.max;
+  const scale = tMax > tMin ? binCount / (tMax - tMin) : 0;
 
   baseBits.forEachRow((row) => {
     if (row >= rowCount) return;
     const value = numbers[row];
     if (!Number.isFinite(value)) return;
-    let bin = scale > 0 ? Math.floor((value - base.min) * scale) : 0;
+    const position = base.symlog ? symlog(value) : value;
+    let bin = scale > 0 ? Math.floor((position - tMin) * scale) : 0;
     if (bin < 0) bin = 0;
     else if (bin >= binCount) bin = binCount - 1;
     bins[bin]++;

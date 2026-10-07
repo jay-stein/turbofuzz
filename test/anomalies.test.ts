@@ -82,6 +82,20 @@ test("skips value and length fences on sparse columns", () => {
   assert.equal(dataset.stats.lengthAnomalyRows, 0);
 });
 
+test("heavy-tailed columns fall back to bounded quantile fences", () => {
+  const values: string[] = [];
+  for (let i = 0; i < 1000; i++) values.push(String(i));
+  for (let i = 0; i < 50; i++) values.push("1000000000");
+  const dataset = buildDataset("t", ["n"], values.map((v) => [v]));
+  const fence = dataset.valueFences[0];
+  assert.equal(fence?.method, "quantile");
+  assert.equal(fence?.log, false);
+  assert.ok(
+    dataset.stats.valueAnomalyRows / values.length <= 0.03,
+    "flagging stays bounded on pathological tails",
+  );
+});
+
 test("valueAnomalies special filter narrows to outlier rows", () => {
   const dataset = buildDataset("t", ["n"], [...cleanValues, "1000"].map((v) => [v]));
   const engine = new QueryEngine(dataset);

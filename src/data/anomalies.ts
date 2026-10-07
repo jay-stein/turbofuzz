@@ -7,6 +7,8 @@ export interface ValueFence {
   lo: number;
   hi: number;
   log: boolean;
+  /** Fence construction, shown on hover: modified z-score, log or quantile. */
+  method: "mad" | "log" | "quantile";
 }
 
 export interface LengthFence {
@@ -41,6 +43,16 @@ const LENGTH_FACTOR = 3;
 const MAX_NULL_RATIO = 0.5;
 /** Bowley skewness above which positive columns use multiplicative (log) fences. */
 const LOG_SKEW_THRESHOLD = 0.1;
+/**
+ * If the MAD fence would flag more than this share of the sample, the column
+ * is too heavy-tailed for a spread-based rule; fall back to bounded quantile
+ * fences at (1-r)/2 and (1+r)/2 instead of lighting up a large slice of it.
+ */
+const MAX_FLAG_RATIO = 0.02;
+const QUANTILE_TAIL = 0.005;
+/** Below this sample size the fallback is pointless: a few outliers can never
+ *  exceed MAX_FLAG_RATIO of a small sample, and quantile tails get noisy. */
+const FALLBACK_MIN_SAMPLE = 500;
 
 function quantile(sorted: readonly number[], q: number): number {
   if (sorted.length === 1) return sorted[0];
@@ -81,7 +93,9 @@ function medianRadius(sorted: number[]): { center: number; radius: number } | nu
 /**
  * Numeric fences per column. Non-negative right-skewed columns (prices,
  * payments, counts) are fenced in log1p space so large-but-ordinary values
- * and zero-inflation are not all flagged; everything else uses linear fences.
+ * and zero-inflation are not all flagged; everything else uses linear MAD
+ * fences, and columns where even those would flag more than MAX_FLAG_RATIO of
+ * the sample fall back to bounded quantile fences.
  */
 function numericFence(column: ColumnData): ValueFence | null {
   if (column.type !== "integer" && column.type !== "number") return null;
@@ -96,26 +110,60 @@ function numericFence(column: ColumnData): ValueFence | null {
   const iqr = q3 - q1;
   const bowleySkew = iqr > 0 ? (q3 + q1 - 2 * median) / iqr : 0;
 
+  const quantileFence = (): ValueFence => ({
+    center: median,
+    lo: quantile(sample, QUANTILE_TAIL),
+    hi: quantile(sample, 1 - QUANTILE_TAIL),
+    log: false,
+    method: "quantile",
+  });
+
   if (sample[0] >= 0 && bowleySkew > LOG_SKEW_THRESHOLD) {
     const logs = sample.map((value) => Math.log1p(value));
     const logStats = medianRadius(logs);
     if (logStats === null) return null;
+    const hi = Math.expm1(logStats.center + logStats.radius);
+    const lo = Math.expm1(logStats.center - logStats.radius);
+    if (
+      sample.length >= FALLBACK_MIN_SAMPLE &&
+      countOutside(sample, lo, hi) / sample.length > MAX_FLAG_RATIO
+    ) {
+      return quantileFence();
+    }
     return {
       center: Math.expm1(logStats.center),
-      lo: Math.expm1(logStats.center - logStats.radius),
-      hi: Math.expm1(logStats.center + logStats.radius),
+      lo,
+      hi,
       log: true,
+      method: "log",
     };
   }
 
   const stats = medianRadius(sample);
   if (stats === null) return null;
+  const lo = stats.center - stats.radius;
+  const hi = stats.center + stats.radius;
+  if (
+    sample.length >= FALLBACK_MIN_SAMPLE &&
+    countOutside(sample, lo, hi) / sample.length > MAX_FLAG_RATIO
+  ) {
+    return quantileFence();
+  }
   return {
     center: stats.center,
-    lo: stats.center - stats.radius,
-    hi: stats.center + stats.radius,
+    lo,
+    hi,
     log: false,
+    method: "mad",
   };
+}
+
+function countOutside(sample: readonly number[], lo: number, hi: number): number {
+  let count = 0;
+  for (const value of sample) {
+    if (value < lo || value > hi) count++;
+  }
+  return count;
 }
 
 /**

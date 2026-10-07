@@ -322,6 +322,12 @@ textarea:focus {
   font-size: 12px;
 }
 
+.hist-note {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 .paste-card textarea {
   height: 220px;
   resize: vertical;

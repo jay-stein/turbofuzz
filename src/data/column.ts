@@ -11,12 +11,25 @@ import {
 import { isNullWithPolicy, EMPTY_NULL_POLICY, type NullPolicy } from "../parse/null-tokens.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { detectSuggestions, type ColumnSuggestion } from "./suggestions.js";
+import { symlog } from "./symlog.js";
 import { valueLength } from "../parse/value-length.js";
 import type { ColumnType } from "../types.js";
 
 export interface NullTokenCount {
   label: string;
   count: number;
+}
+
+/** Baseline histogram shape sent to the UI (sidebar chart + range slider). */
+export interface HistogramData {
+  bins: number[];
+  min: number;
+  max: number;
+  /** Heavy-tailed columns use a signed-log axis; min/max stay the data range. */
+  symlog: boolean;
+  /** Values outside the linear p1–p99 chart range (0 when symlog). */
+  below: number;
+  above: number;
 }
 
 export interface CategorySet {
@@ -26,6 +39,45 @@ export interface CategorySet {
 }
 
 const TOP_VALUES = 5;
+
+/** Columns larger than this get their chart range/axis decided from a sample. */
+const MIN_CHART_SAMPLE = 100;
+const CHART_SAMPLE_MAX = 50_000;
+/** Span/IQR above this switches the histogram to a signed-log axis. */
+const HEAVY_TAIL_FACTOR = 200;
+
+function sampleNumbers(numbers: Float64Array): number[] {
+  const step = Math.max(1, Math.floor(numbers.length / CHART_SAMPLE_MAX));
+  const sample: number[] = [];
+  for (let i = 0; i < numbers.length; i += step) {
+    const value = numbers[i];
+    if (Number.isFinite(value)) sample.push(value);
+  }
+  return sample;
+}
+
+function sampleQuantile(sorted: readonly number[], q: number): number {
+  if (sorted.length === 1) return sorted[0];
+  const position = (sorted.length - 1) * q;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  if (lower === upper) return sorted[lower];
+  const weight = position - lower;
+  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+}
+
+function clampBin(position: number, binCount: number): number {
+  const bin = Math.floor(position);
+  if (bin < 0) return 0;
+  if (bin >= binCount) return binCount - 1;
+  return bin;
+}
+
+function countFinite(numbers: Float64Array, bins: number[], bin: number): void {
+  for (let i = 0; i < numbers.length; i++) {
+    if (Number.isFinite(numbers[i])) bins[bin]++;
+  }
+}
 
 export class ColumnData {
   type: ColumnType;
@@ -41,7 +93,7 @@ export class ColumnData {
   private cats: CategorySet | null = null;
   private medianValue: number | null = null;
   private medianComputed = false;
-  private histCache: { bins: number[]; min: number; max: number } | null = null;
+  private histCache: HistogramData | null = null;
   private typeLocked = false;
 
   constructor(
@@ -279,38 +331,74 @@ export class ColumnData {
   }
 
   /**
-   * Static full-column histogram for numeric/date columns. One O(rows) scan,
-   * cached; the UI uses it as the baseline distribution behind active range
-   * filters.
+   * Baseline histogram for numeric/date columns. The linear chart range is
+   * clipped to p1–p99 (extreme values are reported via `below`/`above`), and
+   * columns whose span dwarfs their IQR switch to a signed-log axis so the
+   * bulk of the data is not crushed into a single bin.
    */
-  histogram(binCount = 64): { bins: number[]; min: number; max: number } | null {
+  histogram(binCount = 64): HistogramData | null {
     const numeric = this.type === "integer" || this.type === "number" || this.type === "date";
     if (!numeric) return null;
     if (this.histCache !== null && this.histCache.bins.length === binCount) return this.histCache;
 
     const numbers = this.numbers();
-    const min = this.stats.min;
-    const max = this.stats.max;
-    if (min === null || max === null) return null;
+    const dataMin = this.stats.min;
+    const dataMax = this.stats.max;
+    if (dataMin === null || dataMax === null) return null;
 
-    const bins = new Array<number>(binCount).fill(0);
-    if (max > min) {
-      const scale = binCount / (max - min);
-      for (let i = 0; i < numbers.length; i++) {
-        const value = numbers[i];
-        if (!Number.isFinite(value)) continue;
-        let bin = Math.floor((value - min) * scale);
-        if (bin < 0) bin = 0;
-        else if (bin >= binCount) bin = binCount - 1;
-        bins[bin]++;
-      }
-    } else {
-      for (let i = 0; i < numbers.length; i++) {
-        if (Number.isFinite(numbers[i])) bins[0]++;
+    let chartMin = dataMin;
+    let chartMax = dataMax;
+    let below = 0;
+    let above = 0;
+    let useSymlog = false;
+
+    const sample = sampleNumbers(numbers);
+    if (sample.length >= MIN_CHART_SAMPLE) {
+      sample.sort((a, b) => a - b);
+      const q1 = sampleQuantile(sample, 0.25);
+      const q3 = sampleQuantile(sample, 0.75);
+      const iqr = q3 - q1;
+      const span = dataMax - dataMin;
+      if (iqr > 0 && span > HEAVY_TAIL_FACTOR * iqr) {
+        useSymlog = true;
+      } else {
+        const lo = sampleQuantile(sample, 0.01);
+        const hi = sampleQuantile(sample, 0.99);
+        if (hi > lo) {
+          chartMin = lo;
+          chartMax = hi;
+        }
       }
     }
 
-    this.histCache = { bins, min, max };
+    const bins = new Array<number>(binCount).fill(0);
+    if (useSymlog) {
+      const tMin = symlog(dataMin);
+      const tMax = symlog(dataMax);
+      const tSpan = tMax - tMin;
+      if (tSpan > 0) {
+        for (let i = 0; i < numbers.length; i++) {
+          const value = numbers[i];
+          if (!Number.isFinite(value)) continue;
+          bins[clampBin(((symlog(value) - tMin) / tSpan) * binCount, binCount)]++;
+        }
+      } else {
+        countFinite(numbers, bins, 0);
+      }
+    } else if (chartMax > chartMin) {
+      const scale = binCount / (chartMax - chartMin);
+      for (let i = 0; i < numbers.length; i++) {
+        const value = numbers[i];
+        if (!Number.isFinite(value)) continue;
+        if (value < chartMin) below++;
+        else if (value > chartMax) above++;
+        else bins[clampBin((value - chartMin) * scale, binCount)]++;
+      }
+    } else {
+      countFinite(numbers, bins, 0);
+    }
+
+    this.histCache = { bins, min: chartMin, max: chartMax, symlog: useSymlog, below, above };
     return this.histCache;
   }
 

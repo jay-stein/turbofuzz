@@ -87,6 +87,31 @@ test("numeric histogram bins values and clamps the last bin", () => {
   assert.equal(histogram.max, 100);
 });
 
+test("clips the linear chart range to p1–p99 and reports the tail", () => {
+  const rows: string[][] = [];
+  for (let i = 0; i < 200; i++) rows.push([String(i)]);
+  for (let i = 0; i < 2; i++) rows.push(["300"]);
+  const histogram = buildDataset("t", ["n"], rows).columns[0].histogram(16);
+  assert.ok(histogram !== null);
+  assert.equal(histogram.symlog, false);
+  assert.ok(histogram.above >= 2, "tail values are excluded from the chart");
+  assert.ok(histogram.max < 300, "chart range stops at p99");
+});
+
+test("heavy-tailed columns use a symlog histogram instead of one spike", () => {
+  const rows: string[][] = [];
+  for (let i = 0; i < 200; i++) rows.push([String(i)]);
+  rows.push(["1000000000"]);
+  const histogram = buildDataset("t", ["n"], rows).columns[0].histogram(16);
+  assert.ok(histogram !== null);
+  assert.equal(histogram.symlog, true);
+  assert.equal(histogram.below, 0);
+  assert.ok(
+    Math.max(...histogram.bins) < 150,
+    "the bulk spreads across bins instead of a single spike",
+  );
+});
+
 test("histogram is null for non-numeric columns", () => {
   const dataset = buildDataset("t", ["n"], [["alpha"], ["beta"], ["gamma"]]);
   assert.equal(dataset.columns[0].histogram(8), null);

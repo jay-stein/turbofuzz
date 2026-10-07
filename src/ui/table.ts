@@ -536,7 +536,13 @@ export class ResultTable {
             : bound > 0
               ? "∞"
               : "-∞";
-        cell.title = `Value outlier — median ${valueFence.center.toLocaleString()}, expected ${format(valueFence.lo)} – ${format(valueFence.hi)}`;
+        const method =
+          valueFence.method === "quantile"
+            ? "p0.5–p99.5 quantile fence"
+            : valueFence.method === "log"
+              ? "log-scale median fence (MAD)"
+              : "robust median fence (MAD)";
+        cell.title = `Value outlier — median ${valueFence.center.toLocaleString()}, expected ${format(valueFence.lo)} – ${format(valueFence.hi)} (${method})`;
       }
       return;
     }

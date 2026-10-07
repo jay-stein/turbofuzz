@@ -330,6 +330,7 @@ export class FilterPanel {
         binCount: meta.histogram.bins.length,
         integer: meta.type === "integer",
         isDate,
+        symlog: meta.histogram.symlog,
         onInput: (min, max, preview) => {
           syncInputs(min, max);
           this.callbacks.onFilter(
@@ -372,6 +373,22 @@ export class FilterPanel {
     ]);
     body.append(inputs);
     if (slider !== null) body.append(slider.el);
+    if (meta.histogram !== null) {
+      const outside = meta.histogram.below + meta.histogram.above;
+      if (outside > 0) {
+        body.append(
+          el(
+            "div",
+            {
+              class: "hist-note",
+              title:
+                "The chart covers p1–p99 so the shape stays readable; the excluded values are still filterable by typing bounds.",
+            },
+            [`${outside.toLocaleString()} values beyond the p1–p99 chart range`],
+          ),
+        );
+      }
+    }
 
     return body;
   }
@@ -469,6 +486,11 @@ export class FilterPanel {
       const format = (value: number): string =>
         meta.type === "date" ? toDateInputValue(value) : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
       parts.push(`${format(meta.stats.min)} … ${format(meta.stats.max)}`);
+      // The fence centre is the column median: show it beside mean on the
+      // profile card so skewed columns are not read from the mean alone.
+      if (meta.valueFence !== null && meta.type !== "date") {
+        parts.push(`median ${format(meta.valueFence.center)}`);
+      }
     } else if (meta.stats.avgLength !== null) {
       parts.push(`len avg ${meta.stats.avgLength.toFixed(1)}`);
     }

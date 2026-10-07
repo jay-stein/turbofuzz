@@ -224,7 +224,7 @@ export class SummaryBand {
       case "nulls":
         return `Rows with at least one empty cell: ${stats.rowsWithNulls.toLocaleString()} rows (${stats.totalNullCells.toLocaleString()} empty cells across ${stats.totalCells.toLocaleString()} cells) — click to show them`;
       case "valueAnomalies":
-        return `Rows with a numeric value outside its column's robust median fence (modified z-score > 3.5): ${stats.valueAnomalyRows.toLocaleString()} rows — click to show them`;
+        return `Rows with a numeric value outside its column's robust fence (MAD, log-scale or p0.5–p99.5 quantile): ${stats.valueAnomalyRows.toLocaleString()} rows — click to show them`;
       case "lengthAnomalies":
         return `Rows with text longer than 3× the column's 90th-percentile length: ${stats.lengthAnomalyRows.toLocaleString()} rows — click to show them`;
     }
@@ -424,6 +424,11 @@ export class SummaryBand {
     const parts: string[] = [];
     if (numeric) {
       parts.push(`${meta.stats.distinct.toLocaleString()} distinct`);
+      if (meta.valueFence !== null && meta.type !== "date") {
+        parts.push(
+          `median ${meta.valueFence.center.toLocaleString(undefined, { maximumFractionDigits: 1 })}`,
+        );
+      }
       if (meta.stats.mean !== null && meta.type !== "date") {
         parts.push(`mean ${meta.stats.mean.toLocaleString(undefined, { maximumFractionDigits: 1 })}`);
       }

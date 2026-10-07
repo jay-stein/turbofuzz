@@ -1,6 +1,6 @@
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
 import type { CleanOp } from "../data/clean-ops.js";
-import type { NullTokenCount } from "../data/column.js";
+import type { HistogramData, NullTokenCount } from "../data/column.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import type { DatasetStats } from "../data/stats.js";
 import type { ColumnSchema, TransformOp } from "../data/transform-ops.js";
@@ -36,11 +36,7 @@ export interface ColumnMeta {
   suggestions: ColumnSuggestion[];
 }
 
-export interface HistogramMeta {
-  bins: number[];
-  min: number;
-  max: number;
-}
+export type HistogramMeta = HistogramData;
 
 export interface ColumnDetail {
   name: string;
