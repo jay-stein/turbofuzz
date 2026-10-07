@@ -63,4 +63,28 @@ test("convert ops canonicalise values and keep inferred types", async () => {
     ["1234.56", "2024-03-05"],
     ["N/A", "2024-04-13"],
   ]);
+
+  send({
+    type: "previewClean",
+    requestId: 4,
+    updates: [{ column: 0, ops: [{ kind: "toNumber", locale: "comma" }] }],
+  });
+  const cleanPreview = find("cleanPreview", 4) as unknown as {
+    columns: { column: number; changed: number; total: number }[];
+  };
+  assert.deepEqual(cleanPreview.columns[0], { column: 0, changed: 1, total: 2 });
+
+  send({
+    type: "previewTransform",
+    requestId: 5,
+    ops: [{ kind: "dedupe", keep: "first" }],
+  });
+  const transformPreview = find("transformPreview", 5) as unknown as {
+    baseRowCount: number;
+    rowCount: number;
+    columnCount: number;
+  };
+  assert.equal(transformPreview.baseRowCount, 2);
+  assert.equal(transformPreview.rowCount, 2);
+  assert.equal(transformPreview.columnCount, 2);
 });

@@ -1400,6 +1400,10 @@ export class App {
         this.applyClean([...this.cleanedColumns.keys()].map((column) => ({ column, ops: [] }))),
       onApplyNullPolicy: (column, extra, keep) => this.applyNullPolicy(column, extra, keep),
       onApplyNullPolicyAll: (extra, keep) => this.applyNullPolicyAll(extra, keep),
+      onPreviewClean: (column, ops) =>
+        this.client
+          .previewClean([{ column, ops }])
+          .then((message) => message.columns[0] ?? null),
       onClose: () => this.setStage("view"),
     });
   }
@@ -1520,6 +1524,7 @@ export class App {
           }));
     openTransformPanel(this.transformOps, baseSchema, {
       onApply: (ops) => this.applyTransform(ops),
+      onPreview: (ops) => this.client.previewTransform(ops),
       onClose: () => this.setStage("view"),
     });
   }

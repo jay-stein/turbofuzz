@@ -14,12 +14,18 @@ import type { DateOrder } from "../parse/dates.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 
+export interface CleanPreviewCount {
+  changed: number;
+  total: number;
+}
+
 export interface CleanPanelCallbacks {
   onApplyHeaders: (headers: string[]) => void;
   onApplyClean: (column: number, ops: CleanOp[]) => void;
   onResetCleans: () => void;
   onApplyNullPolicy: (column: number, extra: string[], keep: string[]) => void;
   onApplyNullPolicyAll: (extra: string[], keep: string[]) => void;
+  onPreviewClean: (column: number, ops: CleanOp[]) => Promise<CleanPreviewCount | null>;
   onClose: () => void;
 }
 
@@ -52,8 +58,8 @@ export function openCleanPanel(
   cleaned: ReadonlyMap<number, CleanOp[]>,
   callbacks: CleanPanelCallbacks,
 ): void {
-  const overlay = el("div", { class: "modal-overlay" });
-  const modal = el("div", { class: "modal clean-modal" });
+  const overlay = el("div", { class: "modal-overlay drawer-overlay" });
+  const modal = el("div", { class: "modal clean-modal drawer" });
 
   const head = el("div", { class: "modal-head" });
   head.append(el("h2", {}, ["Clean"]));
@@ -302,12 +308,17 @@ function buildValuesTab(
     });
   }
 
+  let previewGeneration = 0;
+
   function renderPreview(): void {
+    const generation = ++previewGeneration;
     const samples = sampleValues();
     const results = applyCleanOps(samples, pending);
     clear(preview);
+    let baseText: string;
     if (samples.length === 0) {
       preview.append(el("div", { class: "clean-empty" }, ["No sample values."]));
+      baseText = "No sample values.";
     } else {
       const fragment = document.createDocumentFragment();
       for (let i = 0; i < samples.length; i++) {
@@ -321,11 +332,19 @@ function buildValuesTab(
       }
       preview.append(fragment);
       const changed = samples.filter((value, i) => value !== results[i]).length;
-      previewSummary.textContent =
+      baseText =
         pending.length === 0
           ? `Preview of ${samples.length} sample values`
           : `Preview of ${samples.length} sample values · ${changed} would change`;
     }
+    previewSummary.textContent = baseText;
+    void callbacks
+      .onPreviewClean(column, pending.slice())
+      .then((count) => {
+        if (generation !== previewGeneration || count === null) return;
+        previewSummary.textContent = `${baseText} · ${count.changed.toLocaleString()} of ${count.total.toLocaleString()} cells change`;
+      })
+      .catch(() => {});
   }
 
   colSelect.addEventListener("change", () => {

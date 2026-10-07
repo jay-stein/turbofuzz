@@ -27,6 +27,8 @@ import type {
   GetRowsRequest,
   GetStatsRequest,
   LoadRequest,
+  PreviewCleanRequest,
+  PreviewTransformRequest,
   RenameHeadersRequest,
   ResolveNullsAllRequest,
   SetFilterRequest,
@@ -140,6 +142,12 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "transform":
       handleTransform(message);
+      break;
+    case "previewTransform":
+      handlePreviewTransform(message);
+      break;
+    case "previewClean":
+      handlePreviewClean(message);
       break;
     case "startExport":
       exportIds = sortedIds.slice();
@@ -880,6 +888,44 @@ function handleTransform(message: TransformRequest): void {
     ops: transformOps,
     baseSchema,
   });
+}
+
+/**
+ * Runs the staged transform pipeline against the base columns without
+ * committing, so the panel can show before/after row and null counts.
+ */
+function handlePreviewTransform(message: PreviewTransformRequest): void {
+  const { dataset: current } = state();
+  const base = transformSource ?? current;
+  const next = message.ops.length === 0 ? base : applyTransformOps(base.name, base.columns, message.ops);
+  post({
+    type: "transformPreview",
+    requestId: message.requestId,
+    baseRowCount: base.rowCount,
+    rowCount: next.rowCount,
+    baseNullCells: base.stats.totalNullCells,
+    nullCells: next.stats.totalNullCells,
+    columnCount: next.columnCount,
+  });
+}
+
+/**
+ * Counts how many cells an op list would change versus the untouched source,
+ * so the clean panel can show an exact impact instead of sample rows.
+ */
+function handlePreviewClean(message: PreviewCleanRequest): void {
+  const { dataset: current } = state();
+  const columns = message.updates.map((update) => {
+    const index = update.column;
+    const column = current.columns[index];
+    if (column === undefined) return { column: index, changed: 0, total: 0 };
+    const source = cleanSource.get(index) ?? column;
+    const raw = update.ops.length === 0 ? source.raw : applyCleanOps(source.raw, update.ops);
+    let changed = 0;
+    for (let i = 0; i < raw.length; i++) if (raw[i] !== source.raw[i]) changed++;
+    return { column: index, changed, total: raw.length };
+  });
+  post({ type: "cleanPreview", requestId: message.requestId, columns });
 }
 
 function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMeta {

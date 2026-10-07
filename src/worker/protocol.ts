@@ -162,6 +162,18 @@ export type TransformRequest = {
   ops: TransformOp[];
 };
 
+export type PreviewTransformRequest = {
+  type: "previewTransform";
+  requestId: number;
+  ops: TransformOp[];
+};
+
+export type PreviewCleanRequest = {
+  type: "previewClean";
+  requestId: number;
+  updates: CleanUpdate[];
+};
+
 export type SetNullPolicyRequest = {
   type: "setNullPolicy";
   requestId: number;
@@ -193,6 +205,8 @@ export type WorkerRequest =
   | RenameHeadersRequest
   | CleanColumnsRequest
   | TransformRequest
+  | PreviewTransformRequest
+  | PreviewCleanRequest
   | SetNullPolicyRequest
   | ResolveNullsAllRequest;
 
@@ -322,6 +336,22 @@ export interface ErrorMessage {
   message: string;
 }
 
+export interface TransformPreviewMessage {
+  type: "transformPreview";
+  requestId: number;
+  baseRowCount: number;
+  rowCount: number;
+  baseNullCells: number;
+  nullCells: number;
+  columnCount: number;
+}
+
+export interface CleanPreviewMessage {
+  type: "cleanPreview";
+  requestId: number;
+  columns: { column: number; changed: number; total: number }[];
+}
+
 export type WorkerResponse =
   | ProgressMessage
   | LoadedMessage
@@ -336,4 +366,6 @@ export type WorkerResponse =
   | CsvChunkMessage
   | HeadersRenamedMessage
   | CleanedMessage
+  | TransformPreviewMessage
+  | CleanPreviewMessage
   | ErrorMessage;

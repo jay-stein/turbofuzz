@@ -5,6 +5,7 @@ import type { TransformOp } from "../data/transform-ops.js";
 import type { ColumnType } from "../types.js";
 import type {
   CleanedMessage,
+  CleanPreviewMessage,
   CleanUpdate,
   ColumnMetaMessage,
   CsvChunkMessage,
@@ -20,6 +21,7 @@ import type {
   SpecialKind,
   StatsMessage,
   TransformedMessage,
+  TransformPreviewMessage,
   WorkerRequest,
   WorkerResponse,
 } from "../worker/protocol.js";
@@ -126,6 +128,14 @@ export class SearchWorkerClient {
 
   transform(ops: TransformOp[]): Promise<TransformedMessage> {
     return this.request<TransformedMessage>({ type: "transform", ops });
+  }
+
+  previewTransform(ops: TransformOp[]): Promise<TransformPreviewMessage> {
+    return this.request<TransformPreviewMessage>({ type: "previewTransform", ops });
+  }
+
+  previewClean(updates: CleanUpdate[]): Promise<CleanPreviewMessage> {
+    return this.request<CleanPreviewMessage>({ type: "previewClean", updates });
   }
 
   startExport(): Promise<ExportStartedMessage> {

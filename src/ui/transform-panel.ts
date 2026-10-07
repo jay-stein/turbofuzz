@@ -11,8 +11,17 @@ import {
   type TransformOp,
 } from "../data/transform-ops.js";
 
+export interface TransformPreview {
+  baseRowCount: number;
+  rowCount: number;
+  baseNullCells: number;
+  nullCells: number;
+  columnCount: number;
+}
+
 export interface TransformPanelCallbacks {
   onApply: (ops: TransformOp[]) => void;
+  onPreview: (ops: TransformOp[]) => Promise<TransformPreview | null>;
   onClose: () => void;
 }
 
@@ -52,8 +61,8 @@ export function openTransformPanel(
   baseSchema: readonly ColumnSchema[],
   callbacks: TransformPanelCallbacks,
 ): void {
-  const overlay = el("div", { class: "modal-overlay" });
-  const modal = el("div", { class: "modal clean-modal" });
+  const overlay = el("div", { class: "modal-overlay drawer-overlay" });
+  const modal = el("div", { class: "modal clean-modal drawer" });
 
   const head = el("div", { class: "modal-head" });
   head.append(el("h2", {}, ["Transform"]));
@@ -89,13 +98,43 @@ export function openTransformPanel(
     return schema;
   }
 
+  let previewGeneration = 0;
+
   function render(): void {
     renderOps();
     renderBuilder();
-    summary.textContent =
+    const baseText =
       pending.length === 0
         ? "No transforms — the data is unchanged."
         : `${pending.length} step${pending.length === 1 ? "" : "s"} ready to apply`;
+    summary.textContent = baseText;
+    if (pending.length === 0) return;
+
+    const generation = ++previewGeneration;
+    void callbacks
+      .onPreview(pending.slice())
+      .then((preview) => {
+        if (generation !== previewGeneration || preview === null) return;
+        const parts: string[] = [];
+        const rowDelta = preview.baseRowCount - preview.rowCount;
+        if (rowDelta > 0) {
+          parts.push(`${preview.rowCount.toLocaleString()} rows (removes ${rowDelta.toLocaleString()})`);
+        } else if (rowDelta < 0) {
+          parts.push(`${preview.rowCount.toLocaleString()} rows (adds ${(-rowDelta).toLocaleString()})`);
+        } else {
+          parts.push(`${preview.rowCount.toLocaleString()} rows`);
+        }
+        if (preview.nullCells < preview.baseNullCells) {
+          parts.push(
+            `${preview.baseNullCells.toLocaleString()} → ${preview.nullCells.toLocaleString()} empty`,
+          );
+        } else if (preview.nullCells > preview.baseNullCells) {
+          parts.push(`${preview.nullCells.toLocaleString()} empty`);
+        }
+        parts.push(`${preview.columnCount} columns`);
+        summary.textContent = `${baseText} · ${parts.join(" · ")}`;
+      })
+      .catch(() => {});
   }
 
   function renderOps(): void {
