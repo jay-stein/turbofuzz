@@ -89,6 +89,7 @@ test("duplicates quick action offers keep-first, keep-last and remove-all", () =
     onOpenStats: () => {},
     onColumnClick: () => {},
     onDropDuplicates: (keep) => calls.push(keep),
+    onDropEmptyColumns: () => {},
   });
   band.render(loadedMessage());
 
@@ -122,6 +123,7 @@ test("the quick action is disabled when there are no duplicates", () => {
     onOpenStats: () => {},
     onColumnClick: () => {},
     onDropDuplicates: () => {},
+    onDropEmptyColumns: () => {},
   });
   band.render(message);
 

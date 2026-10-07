@@ -621,7 +621,8 @@ textarea:focus {
 }
 
 .qa-collapsed .qa-actions,
-.qa-collapsed .overview-foot {
+.qa-collapsed .overview-foot,
+.qa-collapsed .summary-columns {
   display: none;
 }
 

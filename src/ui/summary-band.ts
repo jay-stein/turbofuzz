@@ -32,6 +32,7 @@ export interface SummaryBandCallbacks {
   onOpenStats: () => void;
   onColumnClick: (column: number) => void;
   onDropDuplicates: (keep: DedupeKeep) => void;
+  onDropEmptyColumns: (columns: number[]) => void;
 }
 
 /**
@@ -52,7 +53,7 @@ export class SummaryBand {
     lengthAnomalies: 0,
   };
   private stats: DatasetStats | null = null;
-  private collapsed = false;
+  private collapsed = true;
   private collapseSummary: HTMLElement | null = null;
   private dedupeButton: HTMLButtonElement | null = null;
   private renderToken = 0;
@@ -280,6 +281,12 @@ export class SummaryBand {
     head.addEventListener("click", () => this.toggleCollapsed());
     this.collapseSummary = el("div", { class: "qa-collapse-summary" });
 
+    const emptyColumnIndices = loaded.columns
+      .map((column, index) =>
+        loaded.rowCount > 0 && column.stats.nulls === loaded.rowCount ? index : -1,
+      )
+      .filter((index) => index >= 0);
+
     const actions = el("div", { class: "qa-actions" });
     for (const { kind, label, title } of QA_BUTTONS) {
       const button = el(
@@ -310,6 +317,31 @@ export class SummaryBand {
     dedupeButton.addEventListener("click", () => this.openDedupeMenu(dedupeButton));
     this.dedupeButton = dedupeButton;
     actions.append(dedupeButton);
+
+    if (emptyColumnIndices.length > 0) {
+      const dropEmpty = el(
+        "button",
+        { class: "qa-button", type: "button" },
+        [],
+      ) as HTMLButtonElement;
+      const columnCount = emptyColumnIndices.length;
+      dropEmpty.append(
+        svgIcon(
+          '<path d="M4 7h16"/><path d="m6 7 1 12h10l1-12"/><path d="M10 11v5"/><path d="M14 11v5"/>',
+          "qa-icon",
+        ),
+        el("span", { class: "qa-label" }, [
+          `Drop ${columnCount.toLocaleString()} empty column${columnCount === 1 ? "" : "s"}`,
+        ]),
+      );
+      dropEmpty.title = `Remove ${columnCount.toLocaleString()} column${
+        columnCount === 1 ? "" : "s"
+      } that ${columnCount === 1 ? "is" : "are"} empty in every row — tracked as transform steps`;
+      dropEmpty.addEventListener("click", () =>
+        this.callbacks.onDropEmptyColumns(emptyColumnIndices),
+      );
+      actions.append(dropEmpty);
+    }
     const details = el(
       "button",
       {
@@ -333,11 +365,14 @@ export class SummaryBand {
     details.addEventListener("click", () => this.callbacks.onOpenStats());
     actions.append(details);
 
-    const emptyPct =
-      loaded.stats.totalCells > 0
-        ? (loaded.stats.totalNullCells / loaded.stats.totalCells) * 100
-        : 0;
-    const footParts = [`${emptyPct.toFixed(1)}% empty`];
+    const emptyColumns = emptyColumnIndices.length;
+    const columnsWithNulls = loaded.columns.filter((column) => column.stats.nulls > 0).length;
+    const footParts = [
+      columnsWithNulls === 0
+        ? "no missing values"
+        : `${columnsWithNulls} of ${loaded.columnCount} columns have missing values`,
+    ];
+    if (emptyColumns > 0) footParts.push(`${emptyColumns} entirely empty`);
     if (loaded.encoding === "windows-1252") footParts.push("windows-1252");
     footParts.push(`${Math.round(loaded.ingestMs)} ms`);
 

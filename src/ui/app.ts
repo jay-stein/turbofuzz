@@ -888,6 +888,7 @@ export class App {
       onOpenStats: () => this.openStats(),
       onColumnClick: (column) => this.filterPanel?.focusColumn(column),
       onDropDuplicates: (keep) => this.dropDuplicates(keep),
+      onDropEmptyColumns: (columns) => this.dropEmptyColumns(columns),
     });
     this.summaryBand.render(loaded);
 
@@ -895,10 +896,11 @@ export class App {
     this.workspace.classList.remove("hidden");
     this.newButton.classList.remove("hidden");
 
-    const emptyPct =
-      loaded.stats.totalCells > 0
-        ? (loaded.stats.totalNullCells / loaded.stats.totalCells) * 100
-        : 0;
+    const columnsWithNulls = loaded.columns.filter((column) => column.stats.nulls > 0).length;
+    const emptyText =
+      columnsWithNulls === 0
+        ? "no missing values"
+        : `${columnsWithNulls} of ${loaded.columnCount} columns have missing values`;
     const duplicateText =
       loaded.stats.duplicateGroups > 0
         ? ` · ${loaded.stats.duplicateGroups.toLocaleString()} duplicate groups (${loaded.stats.duplicateRows.toLocaleString()} redundant rows)`
@@ -906,7 +908,7 @@ export class App {
     const encodingText = loaded.encoding === "windows-1252" ? " · windows-1252" : "";
     this.metaEl.textContent =
       `${loaded.rowCount.toLocaleString()} rows × ${loaded.columnCount} columns` +
-      `${duplicateText} · ${emptyPct.toFixed(1)}% empty${encodingText} · ${Math.round(loaded.ingestMs)} ms`;
+      `${duplicateText} · ${emptyText}${encodingText} · ${Math.round(loaded.ingestMs)} ms`;
 
     this.table?.dispose();
     clear(this.tableHost);
@@ -1957,6 +1959,18 @@ export class App {
     this.applyTransform(
       [...this.transformOps, { kind: "dedupe", keep }],
       `Removed duplicate rows (${label})`,
+    );
+  }
+
+  /** Quick action from the QA block: drop columns that are empty in every row. */
+  private dropEmptyColumns(columns: number[]): void {
+    if (columns.length === 0) return;
+    this.applyTransform(
+      [
+        ...this.transformOps,
+        ...columns.map((column) => ({ kind: "drop" as const, column })),
+      ],
+      `Dropped ${columns.length} empty column${columns.length === 1 ? "" : "s"}`,
     );
   }
 }
