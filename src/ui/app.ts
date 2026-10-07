@@ -8,6 +8,7 @@ import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { CleanOp } from "../data/clean-ops.js";
 import type { ColumnSchema, TransformOp } from "../data/transform-ops.js";
+import type { NumberLocale } from "../parse/numbers.js";
 import type { WorkBook } from "xlsx";
 import type { ColumnType } from "../types.js";
 import type {
@@ -1000,6 +1001,7 @@ export class App {
     this.filterPanel = new FilterPanel(this.filterHost, this.metas, this.filters, {
       onFilter: (column, filter, preview) => this.changeFilter(column, filter, preview ?? false),
       onTypeChange: (column, type) => this.changeType(column, type),
+      onNumberLocale: (column, locale) => this.changeNumberLocale(column, locale),
     });
 
     this.updateCount(loaded.rowCount, 0);
@@ -1108,6 +1110,26 @@ export class App {
     this.queueSend(() =>
       this.client
         .setType(column, type)
+        .then((message) => {
+          this.metas[column] = message.meta;
+          this.filters.delete(column);
+          this.summaryBand?.setCounts(message.stats);
+          this.summaryBand?.updateColumn(column, message.meta);
+          this.filterPanel?.updateMeta(column, message.meta);
+          this.table?.updateColumn(column, message.meta);
+          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.updateCount(message.count, message.queryMs);
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
+  }
+
+  private changeNumberLocale(column: number, locale: NumberLocale): void {
+    this.queueSend(() =>
+      this.client
+        .setNumberLocale(column, locale)
         .then((message) => {
           this.metas[column] = message.meta;
           this.filters.delete(column);

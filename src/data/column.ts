@@ -9,7 +9,7 @@ import {
   type InferredType,
 } from "../parse/infer.js";
 import { isNullWithPolicy, EMPTY_NULL_POLICY, type NullPolicy } from "../parse/null-tokens.js";
-import { parseNumber } from "../parse/numbers.js";
+import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { valueLength } from "../parse/value-length.js";
 import type { ColumnType } from "../types.js";
 
@@ -29,6 +29,7 @@ const TOP_VALUES = 5;
 export class ColumnData {
   type: ColumnType;
   dateOrder: DateOrder;
+  numberLocale: NumberLocale;
   readonly stats: ColumnStats;
   readonly nullMask: BitSet;
 
@@ -49,9 +50,11 @@ export class ColumnData {
     nullMask: BitSet,
     readonly nullPolicy: NullPolicy,
     readonly nullTokens: readonly NullTokenCount[],
+    numberLocale: NumberLocale = "dot",
   ) {
     this.type = type;
     this.dateOrder = dateOrder;
+    this.numberLocale = numberLocale;
     this.stats = stats;
     this.nullMask = nullMask;
   }
@@ -60,6 +63,7 @@ export class ColumnData {
     name: string,
     raw: string[],
     nullPolicy: NullPolicy = EMPTY_NULL_POLICY,
+    numberPrior: NumberLocale = "dot",
   ): ColumnData {
     const stats: ColumnStats = {
       nulls: 0,
@@ -80,7 +84,7 @@ export class ColumnData {
     // A cheap sample-only inference decides whether exact counts are needed:
     // numeric/date columns display a histogram, not top values, so a plain
     // distinct Set is enough and saves two hash lookups per cell.
-    const pre = preInfer(sample, nullPolicy);
+    const pre = preInfer(sample, nullPolicy, numberPrior);
     const collectCounts =
       pre.type !== "integer" && pre.type !== "number" && pre.type !== "date";
 
@@ -131,8 +135,12 @@ export class ColumnData {
     }
     stats.topValues = top;
 
-    const inferred = inferColumnType(sample, stats, raw.length, (value) =>
-      isNullWithPolicy(value, nullPolicy),
+    const inferred = inferColumnType(
+      sample,
+      stats,
+      raw.length,
+      (value) => isNullWithPolicy(value, nullPolicy),
+      numberPrior,
     );
     const nullTokens = [...nullCounts.entries()]
       .map(([label, count]) => ({ label, count }))
@@ -146,6 +154,7 @@ export class ColumnData {
       nullMask,
       nullPolicy,
       nullTokens,
+      inferred.numberLocale ?? numberPrior,
     );
   }
 
@@ -172,6 +181,24 @@ export class ColumnData {
     if (type === "date") {
       this.dateOrder = detectDateOrder(stratifiedSample(this.raw, 500));
     }
+  }
+
+  /**
+   * Switches the decimal-mark convention used to read this column and drops
+   * every numeric cache, so facets, filters and stats re-derive from the new
+   * interpretation. No-op when the locale is unchanged.
+   */
+  setNumberLocale(locale: NumberLocale): void {
+    if (locale === this.numberLocale) return;
+    this.numberLocale = locale;
+    this.nums = null;
+    this.histCache = null;
+    this.medianValue = null;
+    this.medianComputed = false;
+    this.stats.min = null;
+    this.stats.max = null;
+    this.stats.mean = null;
+    this.stats.stddev = null;
   }
 
   normalized(): string[] {
@@ -210,7 +237,7 @@ export class ColumnData {
             ? NaN
             : isDate
               ? parseDate(value, this.dateOrder)
-              : parseNumber(value);
+              : parseNumber(value, this.numberLocale);
         out[i] = parsed;
         if (Number.isFinite(parsed)) {
           if (parsed < min) min = parsed;
@@ -354,7 +381,11 @@ export class ColumnData {
 }
 
 /** Sample-only guess used to pick the cheaper ingest path. */
-function preInfer(sample: readonly string[], policy: NullPolicy): InferredType {
+function preInfer(
+  sample: readonly string[],
+  policy: NullPolicy,
+  numberPrior: NumberLocale,
+): InferredType {
   let nulls = 0;
   const seen = new Set<string>();
   for (const value of sample) {
@@ -378,7 +409,11 @@ function preInfer(sample: readonly string[], policy: NullPolicy): InferredType {
     maxLength: null,
     avgLength: null,
   };
-  return inferColumnType(sample, sampleStats, sample.length, (value) =>
-    isNullWithPolicy(value, policy),
+  return inferColumnType(
+    sample,
+    sampleStats,
+    sample.length,
+    (value) => isNullWithPolicy(value, policy),
+    numberPrior,
   );
 }

@@ -12,6 +12,7 @@ import {
   type NullPolicy,
 } from "../parse/null-tokens.js";
 import { isParquetName, readParquetGrid } from "../parse/parquet.js";
+import type { NumberLocale } from "../parse/numbers.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
 import type { BitSet } from "../search/bitset.js";
 import { buildRank, orderIds } from "../search/order.js";
@@ -29,6 +30,7 @@ import type {
   ResolveNullsAllRequest,
   SetFilterRequest,
   SetNullPolicyRequest,
+  SetNumberLocaleRequest,
   SetTypeRequest,
   SortRequest,
   SpecialKind,
@@ -57,6 +59,8 @@ const histogramCache = new HistogramCache();
 const cleanSource = new Map<number, ColumnData>();
 // Per-column null overrides, persisted so value cleans and reverts re-apply them.
 const nullPolicies = new Map<number, NullPolicy>();
+// Explicit number-locale overrides, re-applied whenever a column is rebuilt.
+const numberLocales = new Map<number, NumberLocale>();
 // Non-destructive transform state: the base dataset captured before the first
 // transform plus the ordered op list, re-derived from that base on every change.
 let transformSource: Dataset | null = null;
@@ -112,6 +116,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "setType":
       handleSetType(message);
+      break;
+    case "setNumberLocale":
+      handleSetNumberLocale(message);
       break;
     case "getStats":
       handleGetStats(message);
@@ -298,6 +305,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   histogramCache.clear();
   cleanSource.clear();
   nullPolicies.clear();
+  numberLocales.clear();
   transformSource = null;
   transformOps = [];
   datasetSource = message.buffer !== undefined ? "file" : "paste";
@@ -499,6 +507,46 @@ function handleSetType(message: SetTypeRequest): void {
 }
 
 /**
+ * Switches a column's decimal-mark convention. Numeric values, stats,
+ * histograms and anomalies all change, so the column's own range filter is
+ * cleared and the engine is invalidated, mirroring the type-change path.
+ */
+function handleSetNumberLocale(message: SetNumberLocaleRequest): void {
+  const { dataset, engine } = state();
+  const column = dataset.columns[message.column];
+  column.setNumberLocale(message.locale);
+  numberLocales.set(message.column, message.locale);
+  dataset.applyAnomalies(computeAnomalies(dataset.columns, dataset.rowCount));
+  filters.delete(message.column);
+  engine.invalidate();
+  histogramCache.delete(message.column);
+
+  if (rankColumn === message.column) {
+    rankColumn = -1;
+    rankAsc = null;
+    sortDir = 1;
+  }
+
+  const started = performance.now();
+  const bits = engine.evaluateBits(filters);
+  sortedIds = computeSortedIds(bits);
+  post({
+    type: "columnMeta",
+    requestId: message.requestId,
+    column: message.column,
+    meta: metaFor(dataset, column, message.column),
+    stats: dataset.stats,
+    count: sortedIds.length,
+    queryMs: performance.now() - started,
+    facets: computeFacets(dataset, engine, bits),
+    histograms: computeHistograms(dataset, engine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+  });
+}
+
+/**
  * Per-value counts for category columns under the current filters, excluding
  * each column's own filter so unchecking always remains meaningful.
  */
@@ -588,6 +636,8 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
     const raw = update.ops.length === 0 ? source.raw : applyCleanOps(source.raw, update.ops);
     const rebuilt = ColumnData.create(current.columns[column].name, raw, policy);
     rebuilt.setType(current.columns[column].type);
+    const locale = numberLocales.get(column);
+    if (locale !== undefined) rebuilt.setNumberLocale(locale);
     columns[column] = rebuilt;
 
     filters.delete(column);
@@ -669,6 +719,8 @@ function handleSetNullPolicy(message: SetNullPolicyRequest): void {
 
   const columns = current.columns.slice();
   const rebuilt = blankAndRebuild(column, policy);
+  const locale = numberLocales.get(message.column);
+  if (locale !== undefined) rebuilt.setNumberLocale(locale);
   columns[message.column] = rebuilt;
 
   const next = rebuildDataset(current, columns);
@@ -711,7 +763,12 @@ function handleSetNullPolicy(message: SetNullPolicyRequest): void {
 function handleResolveNullsAll(message: ResolveNullsAllRequest): void {
   const { dataset: current } = state();
   const policy = createNullPolicy(message.extra, message.keep);
-  const columns = current.columns.map((column) => blankAndRebuild(column, policy));
+  const columns = current.columns.map((column, index) => {
+    const next = blankAndRebuild(column, policy);
+    const locale = numberLocales.get(index);
+    if (locale !== undefined) next.setNumberLocale(locale);
+    return next;
+  });
 
   nullPolicies.clear();
   for (let i = 0; i < columns.length; i++) nullPolicies.set(i, policy);
@@ -760,6 +817,7 @@ function handleResolveNullsAll(message: ResolveNullsAllRequest): void {
 function handleTransform(message: TransformRequest): void {
   const { dataset: current } = state();
   cleanSource.clear();
+  numberLocales.clear();
 
   let next: Dataset;
   let baseColumns: readonly ColumnData[];
@@ -826,6 +884,7 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
   return {
     name: column.name,
     type: column.type,
+    numberLocale: column.numberLocale,
     stats: column.stats,
     categories,
     histogram: column.histogram(),

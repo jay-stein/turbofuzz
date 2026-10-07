@@ -1,4 +1,5 @@
 import type { Delimiter } from "../parse/delimiter.js";
+import type { NumberLocale } from "../parse/numbers.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { TransformOp } from "../data/transform-ops.js";
 import type { ColumnType } from "../types.js";
@@ -96,6 +97,10 @@ export class SearchWorkerClient {
 
   setType(column: number, columnType: ColumnType): Promise<ColumnMetaMessage> {
     return this.request<ColumnMetaMessage>({ type: "setType", column, columnType });
+  }
+
+  setNumberLocale(column: number, locale: NumberLocale): Promise<ColumnMetaMessage> {
+    return this.request<ColumnMetaMessage>({ type: "setNumberLocale", column, locale });
   }
 
   getStats(): Promise<StatsMessage> {

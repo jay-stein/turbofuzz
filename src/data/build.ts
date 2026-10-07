@@ -1,12 +1,14 @@
 import { ColumnData } from "./column.js";
 import { Dataset } from "./dataset.js";
 import { computeDatasetStats } from "./stats.js";
+import type { NumberLocale } from "../parse/numbers.js";
 
 export function buildDataset(
   name: string,
   headers: string[],
   rows: string[][],
   onProgress?: (detail: string) => void,
+  numberPrior: NumberLocale = "dot",
 ): Dataset {
   const rowCount = rows.length;
   const columnCount = headers.length;
@@ -16,7 +18,7 @@ export function buildDataset(
     for (let row = 0; row < rowCount; row++) {
       raw[row] = rows[row][columnIndex] ?? "";
     }
-    return ColumnData.create(header, raw);
+    return ColumnData.create(header, raw, undefined, numberPrior);
   });
   onProgress?.("Computing dataset stats…");
   const {

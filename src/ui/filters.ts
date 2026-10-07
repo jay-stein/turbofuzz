@@ -2,13 +2,14 @@ import { clear, el } from "./dom.js";
 import { RangeSlider } from "./range-slider.js";
 import { COLUMN_TYPES, TYPE_LABELS, type ColumnType, type TextMode } from "../types.js";
 import { parseDate, toDateInputValue } from "../parse/dates.js";
-import { parseNumber } from "../parse/numbers.js";
+import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 
 export interface FilterPanelCallbacks {
   onFilter: (column: number, filter: ColumnFilter | null, preview?: boolean) => void;
   onTypeChange: (column: number, type: ColumnType) => void;
+  onNumberLocale: (column: number, locale: NumberLocale) => void;
 }
 
 const TEXT_MODES: { value: TextMode; label: string }[] = [
@@ -125,6 +126,23 @@ export class FilterPanel {
     });
     head.append(typeSelect);
 
+    if (meta.type === "integer" || meta.type === "number") {
+      const nextLocale: NumberLocale = meta.numberLocale === "comma" ? "dot" : "comma";
+      const localeButton = el(
+        "button",
+        {
+          class: "locale-btn",
+          type: "button",
+          title: "Number format — click to switch between 1,234.56 and 1.234,56",
+        },
+        [meta.numberLocale === "comma" ? "1.234,56" : "1,234.56"],
+      );
+      localeButton.addEventListener("click", () => {
+        this.callbacks.onNumberLocale(index, nextLocale);
+      });
+      head.append(localeButton);
+    }
+
     const clearButton = el(
       "button",
       { class: "icon-btn", type: "button", title: "Clear this filter" },
@@ -226,8 +244,8 @@ export class FilterPanel {
     }
 
     const emit = (preview: boolean): void => {
-      const min = this.readRangeValue(minInput.value, isDate);
-      const max = this.readRangeValue(maxInput.value, isDate);
+      const min = this.readRangeValue(minInput.value, isDate, meta.numberLocale);
+      const max = this.readRangeValue(maxInput.value, isDate, meta.numberLocale);
       this.callbacks.onFilter(
         index,
         min === null && max === null ? null : { kind: "range", min, max },
@@ -267,8 +285,8 @@ export class FilterPanel {
 
     const syncSlider = (): void => {
       slider?.setRange(
-        this.readRangeValue(minInput.value, isDate),
-        this.readRangeValue(maxInput.value, isDate),
+        this.readRangeValue(minInput.value, isDate, meta.numberLocale),
+        this.readRangeValue(maxInput.value, isDate, meta.numberLocale),
       );
     };
     minInput.addEventListener("input", () => {
@@ -393,9 +411,13 @@ export class FilterPanel {
     return stats;
   }
 
-  private readRangeValue(value: string, isDate: boolean): number | null {
+  private readRangeValue(
+    value: string,
+    isDate: boolean,
+    locale: NumberLocale = "dot",
+  ): number | null {
     if (value.trim() === "") return null;
-    const parsed = isDate ? parseDate(value) : parseNumber(value);
+    const parsed = isDate ? parseDate(value) : parseNumber(value, locale);
     return Number.isFinite(parsed) ? parsed : null;
   }
 }

@@ -6,6 +6,7 @@ import type { ColumnSchema, TransformOp } from "../data/transform-ops.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import type { ColumnStats } from "../parse/infer.js";
+import type { NumberLocale } from "../parse/numbers.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnType } from "../types.js";
 
@@ -17,6 +18,7 @@ export interface CategoryMeta {
 export interface ColumnMeta {
   name: string;
   type: ColumnType;
+  numberLocale: NumberLocale;
   stats: ColumnStats;
   categories: CategoryMeta | null;
   histogram: HistogramMeta | null;
@@ -111,6 +113,13 @@ export type SetTypeRequest = {
   columnType: ColumnType;
 };
 
+export type SetNumberLocaleRequest = {
+  type: "setNumberLocale";
+  requestId: number;
+  column: number;
+  locale: NumberLocale;
+};
+
 export type GetStatsRequest = { type: "getStats"; requestId: number };
 
 export type StartExportRequest = { type: "startExport"; requestId: number };
@@ -169,6 +178,7 @@ export type WorkerRequest =
   | SortRequest
   | GetRowsRequest
   | SetTypeRequest
+  | SetNumberLocaleRequest
   | GetStatsRequest
   | StartExportRequest
   | GetCsvRequest

@@ -1,11 +1,12 @@
 import { detectDateOrder, parseDate, type DateOrder } from "./dates.js";
 import { isNullToken } from "./null-tokens.js";
-import { parseNumber } from "./numbers.js";
+import { parseNumber, type NumberLocale } from "./numbers.js";
 import type { ColumnType } from "../types.js";
 
 export interface InferredType {
   type: ColumnType;
   dateOrder?: DateOrder;
+  numberLocale?: NumberLocale;
 }
 
 export interface TopValue {
@@ -40,11 +41,42 @@ export function stratifiedSample(values: readonly string[], max: number): string
   return out;
 }
 
+/**
+ * Votes on the decimal mark for a numeric column. A comma followed by one or
+ * two digits (198,72) or a dot-grouped number ending in a comma (1.234,56)
+ * votes for the European convention; comma thousands grouping (1,234,567) and
+ * a dot with one or two trailing digits that is not pure grouping (1.234)
+ * vote for the English one. A tie falls back to the prior derived from the
+ * file's delimiter/encoding.
+ */
+export function detectNumberLocale(
+  values: readonly string[],
+  prior: NumberLocale = "dot",
+): NumberLocale {
+  let comma = 0;
+  let dot = 0;
+  for (const value of values) {
+    const s = value.replace(/[$€£¥\s%]/g, "");
+    if (/\d,\d{1,2}$/.test(s)) {
+      comma++;
+    } else if (/\d\.\d{3},\d+$/.test(s)) {
+      comma++;
+    } else if (/\d(,\d{3})+$/.test(s)) {
+      dot++;
+    } else if (/\d\.\d{1,2}$/.test(s) && !/^\d{1,3}(\.\d{3})+$/.test(s)) {
+      dot++;
+    }
+  }
+  if (comma === dot) return prior;
+  return comma > dot ? "comma" : "dot";
+}
+
 export function inferColumnType(
   sample: readonly string[],
   stats: ColumnStats,
   rowCount: number,
   isNull: (value: string) => boolean = isNullToken,
+  numberPrior: NumberLocale = "dot",
 ): InferredType {
   const nonNull: string[] = [];
   for (const value of sample) {
@@ -85,7 +117,9 @@ export function inferColumnType(
     if (allLong && present > 0 && distinct / present > 0.9) return { type: "identifier" };
     return { type: "integer" };
   }
-  if (numberOk / total >= 0.95) return { type: "number" };
+  if (numberOk / total >= 0.95) {
+    return { type: "number", numberLocale: detectNumberLocale(nonNull, numberPrior) };
+  }
 
   const dateOrder = detectDateOrder(nonNull);
   let dateOk = 0;

@@ -936,6 +936,23 @@ textarea:focus {
   color: var(--text-dim);
 }
 
+.locale-btn {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.locale-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
 .filter-body {
   display: flex;
   align-items: center;

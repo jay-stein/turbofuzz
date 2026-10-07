@@ -29,6 +29,42 @@ test("infers number", () => {
   assert.equal(inferType(["1.5", "2.75", "3.125"]), "number");
 });
 
+test("detects decimal-comma locale from the column sample", () => {
+  const column = ColumnData.create("umsatz", ["198,72", "0,50", "999,99", "12,34"]);
+  assert.equal(column.type, "number");
+  assert.equal(column.numberLocale, "comma");
+  const numbers = column.numbers();
+  assert.equal(numbers[0], 198.72);
+  assert.equal(column.stats.min, 0.5);
+  assert.equal(column.stats.max, 999.99);
+});
+
+test("detects dot locale and ignores ambiguous thousands grouping", () => {
+  const column = ColumnData.create("amount", ["1,234.56", "2,000.00", "3,655.10"]);
+  assert.equal(column.type, "number");
+  assert.equal(column.numberLocale, "dot");
+  assert.equal(column.numbers()[0], 1234.56);
+
+  const grouped = ColumnData.create("mixed", ["1.234", "5.678", "9.012"]);
+  assert.equal(grouped.numberLocale, "dot");
+});
+
+test("locale prior decides on tied evidence", () => {
+  const values = ["198,72", "1.23"];
+  assert.equal(ColumnData.create("x", values, undefined, "comma").numberLocale, "comma");
+  assert.equal(ColumnData.create("x", values, undefined, "dot").numberLocale, "dot");
+});
+
+test("number locale can be overridden after creation", () => {
+  const column = ColumnData.create("umsatz", ["198,72", "12,34"]);
+  assert.equal(column.numberLocale, "comma");
+  column.setNumberLocale("dot");
+  assert.equal(column.numberLocale, "dot");
+  assert.equal(column.numbers()[0], 19872);
+  column.setNumberLocale("comma");
+  assert.equal(column.numbers()[0], 198.72);
+});
+
 test("infers date", () => {
   assert.equal(inferType(["2024-03-05", "2024-04-06", "2024-05-07"]), "date");
   assert.equal(inferType(["05/03/2024", "13/04/2024", "01/05/2024"]), "date");
