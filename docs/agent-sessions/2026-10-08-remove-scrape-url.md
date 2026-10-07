@@ -60,3 +60,5 @@ npx wrangler@4 deploy --dry-run   # assets-only config valid
 - Review fixes are intentionally not implemented here; they are ranked in
   `next_steps.md` §9 (top: A1 column drop, A2 ragged-row summary, xlsx CVE
   upgrade, export scope).
+- `opencode export` without a session ID hung (interactive picker); run
+  `opencode export <sessionID>` from the TUI to export this session.
