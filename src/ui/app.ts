@@ -35,6 +35,7 @@ import { openStatsModal } from "./stats.js";
 import { ResultTable, type HighlightRule } from "./table.js";
 import { SearchWorkerClient } from "./worker-client.js";
 import { openCleanPanel } from "./clean-panel.js";
+import { openExportPanel } from "./export-panel.js";
 import { openMergePanel } from "./merge-panel.js";
 import { openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
@@ -150,6 +151,20 @@ function exportFileName(name: string): string {
   return (base === "" ? "turbofuzz" : base).toLowerCase();
 }
 
+interface WritableLike {
+  write(data: Blob): Promise<void>;
+  close(): Promise<void>;
+}
+
+interface FileHandleLike {
+  createWritable(): Promise<WritableLike>;
+}
+
+type SavePicker = (options: {
+  suggestedName: string;
+  types: { description: string; accept: Record<string, string[]> }[];
+}) => Promise<FileHandleLike>;
+
 function nameFromUrl(raw: string): string {
   try {
     const url = new URL(raw);
@@ -225,7 +240,7 @@ export class App {
   private exportButton!: HTMLButtonElement;
   private newButton!: HTMLButtonElement;
   private stepsButton!: HTMLButtonElement;
-  private exportBlank!: HTMLInputElement;
+  private exportNullAsBlank = true;
   private bannerEl!: HTMLElement;
   private summaryHost!: HTMLElement;
   private summaryBand: SummaryBand | null = null;
@@ -489,18 +504,10 @@ export class App {
 
     this.exportButton = el(
       "button",
-      { class: "ghost small", type: "button", title: "Download cleaned rows as CSV" },
-      ["Export CSV"],
+      { class: "ghost small", type: "button", title: "Choose a file name and format, then export" },
+      ["Export…"],
     ) as HTMLButtonElement;
-    this.exportButton.addEventListener("click", () => void this.exportCsv());
-
-    const blankLabel = el("label", {
-      class: "export-blank",
-      title: "Write null and missing values as empty cells",
-    });
-    this.exportBlank = el("input", { type: "checkbox" }) as HTMLInputElement;
-    this.exportBlank.checked = true;
-    blankLabel.append(this.exportBlank, "Blank nulls");
+    this.exportButton.addEventListener("click", () => this.openExportDialog());
 
     const shuffleControl = el("span", { class: "shuffle-control" });
     this.shuffleCount = el("input", {
@@ -537,7 +544,6 @@ export class App {
       shuffleControl,
       this.stepsButton,
       this.copyButton,
-      blankLabel,
       this.exportButton,
     );
 
@@ -1340,7 +1346,7 @@ export class App {
       const parts: string[] = [];
       for (let start = 0; start < take; start += EXPORT_CHUNK_ROWS) {
         const chunk = await this.client.getCsv(start, Math.min(start + EXPORT_CHUNK_ROWS, take), {
-          nullAsBlank: this.exportBlank.checked,
+          nullAsBlank: this.exportNullAsBlank,
         });
         parts.push(chunk.text);
       }
@@ -1358,35 +1364,78 @@ export class App {
     }
   }
 
-  private async exportCsv(): Promise<void> {
+  private openExportDialog(): void {
+    if (this.datasetName === "" || this.loading) return;
+    openExportPanel(
+      this.defaultExportName(),
+      { nullAsBlank: this.exportNullAsBlank },
+      {
+        onSave: (fileName, settings) => {
+          this.exportNullAsBlank = settings.nullAsBlank;
+          void this.runExport(fileName, settings.nullAsBlank);
+        },
+        onClose: () => {},
+      },
+    );
+  }
+
+  private defaultExportName(): string {
+    const hasCleans = this.cleanedColumns.size > 0 || this.transformOps.length > 0;
+    const hasFilters = this.filters.size > 0 || this.specials.size > 0 || this.shuffleActive;
+    const suffix = hasCleans ? "-cleaned" : hasFilters ? "-filtered" : "";
+    return `${exportFileName(this.datasetName)}${suffix}.csv`;
+  }
+
+  private async runExport(fileName: string, nullAsBlank: boolean): Promise<void> {
     if (this.datasetName === "" || this.loading) return;
     try {
-      const { total } = await this.client.startExport();
-      if (total === 0) return;
+      // Ask for the destination up front, while the click is still a user
+      // gesture; the chunks are streamed into the chosen file afterwards.
+      let handle: FileHandleLike | null = null;
+      const picker = (window as unknown as { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
+      if (typeof picker === "function") {
+        try {
+          handle = await picker.call(window, {
+            suggestedName: fileName,
+            types: [{ description: "CSV file", accept: { "text/csv": [".csv"] } }],
+          });
+        } catch (error) {
+          if ((error as { name?: string }).name === "AbortError") return;
+          handle = null;
+        }
+      }
 
-      const parts: BlobPart[] = ["\uFEFF"];
+      const { total } = await this.client.startExport();
+      if (total === 0) {
+        this.setAction("Nothing to export");
+        return;
+      }
+
+      const parts: string[] = ["\uFEFF"];
       for (let start = 0; start < total; start += EXPORT_CHUNK_ROWS) {
         this.actionEl.textContent = `Exporting… ${Math.round((start / total) * 100)}%`;
         const end = Math.min(start + EXPORT_CHUNK_ROWS, total);
-        const chunk = await this.client.getCsv(start, end, {
-          nullAsBlank: this.exportBlank.checked,
-        });
+        const chunk = await this.client.getCsv(start, end, { nullAsBlank });
         parts.push(chunk.text);
       }
+      const text = parts.join("");
 
-      const blob = new Blob(parts, { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      const hasCleans = this.cleanedColumns.size > 0 || this.transformOps.length > 0;
-      const hasFilters = this.filters.size > 0 || this.specials.size > 0 || this.shuffleActive;
-      const suffix = hasCleans ? "-cleaned" : hasFilters ? "-filtered" : "";
-      anchor.download = `${exportFileName(this.datasetName)}${suffix}.csv`;
-      document.body.append(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      this.setAction(`Exported ${total.toLocaleString()} rows`);
+      if (handle !== null) {
+        const writable = await handle.createWritable();
+        await writable.write(new Blob([text], { type: "text/csv;charset=utf-8" }));
+        await writable.close();
+      } else {
+        const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = fileName;
+        document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+      }
+      this.setAction(`Exported ${total.toLocaleString()} rows to ${fileName}`);
     } catch (error) {
       this.showError(error);
     }
@@ -1474,7 +1523,7 @@ export class App {
         this.openTransform();
         break;
       case "export":
-        void this.exportCsv();
+        this.openExportDialog();
         break;
     }
   }
@@ -1518,7 +1567,12 @@ export class App {
     let count = this.transformOps.length;
     for (const ops of this.cleanedColumns.values()) count += ops.length;
     this.stepsButton.textContent = count === 0 ? "Steps" : `Steps (${count})`;
-    this.stepsButton.classList.toggle("hidden", count === 0);
+    this.stepsButton.disabled = count === 0;
+    this.stepsButton.title =
+      count === 0
+        ? "No applied steps yet — clean or transform a column to build the list"
+        : "Review, undo or export the applied steps";
+    this.stepsButton.classList.remove("hidden");
   }
 
   private stepEntries(): StepsPanelEntry[] {
