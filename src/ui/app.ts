@@ -1215,6 +1215,13 @@ export class App {
         ]);
         break;
       }
+      case "mixedNumber": {
+        const existing = this.cleanedColumns.get(column) ?? [];
+        this.applyClean([
+          { column, ops: [...existing, { kind: "repairDecimal", locale: suggestion.locale }] },
+        ]);
+        break;
+      }
     }
   }
 

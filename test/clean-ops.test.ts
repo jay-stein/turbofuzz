@@ -79,6 +79,19 @@ test("converts formatted text to numbers", () => {
   );
 });
 
+test("repairs values written in the other decimal convention only", () => {
+  assert.deepEqual(
+    applyCleanOps(["613,26", "1,234.56", "42", "1.157e+04", "(4,752.34)"], [
+      { kind: "repairDecimal", locale: "dot" },
+    ]),
+    ["613.26", "1,234.56", "42", "1.157e+04", "(4,752.34)"],
+  );
+  assert.deepEqual(
+    applyCleanOps(["1.23", "1,5", "1234,5"], [{ kind: "repairDecimal", locale: "comma" }]),
+    ["1,23", "1,5", "1234,5"],
+  );
+});
+
 test("converts mixed date text to ISO dates", () => {
   assert.deepEqual(
     applyCleanOps(["05/03/2024", "2024-12-31", "1 Mar 2024", "bogus"], [

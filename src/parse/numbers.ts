@@ -66,3 +66,23 @@ function isBasePrefix(code: number): boolean {
     code === 79 // O
   );
 }
+
+// A decimal mark with 1-2 trailing digits; thousand groups must be 3 digits,
+// so "1,23" is a decimal comma but "1,234" is only a thousands separator.
+const COMMA_STYLE = /^[+-]?\d{1,3}(?:\.\d{3})*,\d{1,2}$/;
+const DOT_STYLE = /^[+-]?\d{1,3}(?:,\d{3})*\.\d{1,2}$/;
+
+/**
+ * Classifies a value's decimal convention by shape alone (currency symbols,
+ * parentheses and percent are ignored). Returns null when the value is not a
+ * formatted number with a decimal mark. Used to spot values written in the
+ * other locale than the column's, e.g. "613,26" inside a dot-decimal column.
+ */
+export function detectDecimalStyle(raw: string): NumberLocale | null {
+  let s = raw.trim();
+  if (s.length > 2 && s.startsWith("(") && s.endsWith(")")) s = s.slice(1, -1).trim();
+  s = s.replace(/[$€£¥%\s]/g, "");
+  if (DOT_STYLE.test(s)) return "dot";
+  if (COMMA_STYLE.test(s)) return "comma";
+  return null;
+}

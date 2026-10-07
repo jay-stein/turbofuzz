@@ -1,5 +1,5 @@
 import { parseDate, toDateInputValue, type DateOrder } from "../parse/dates.js";
-import { parseNumber, type NumberLocale } from "../parse/numbers.js";
+import { detectDecimalStyle, parseNumber, type NumberLocale } from "../parse/numbers.js";
 
 export type CleanCaseStyle = "upper" | "lower" | "title";
 
@@ -8,6 +8,7 @@ export type CleanOp =
   | { kind: "case"; style: CleanCaseStyle }
   | { kind: "replace"; find: string; replacement: string; ignoreCase: boolean }
   | { kind: "toNumber"; locale: NumberLocale }
+  | { kind: "repairDecimal"; locale: NumberLocale }
   | { kind: "toDate"; order: DateOrder };
 
 function escapeRegExp(value: string): string {
@@ -46,6 +47,18 @@ function compileOp(op: CleanOp): (value: string) => string {
       return (value) => {
         const parsed = parseNumber(value, locale);
         return Number.isFinite(parsed) ? String(parsed) : value;
+      };
+    }
+    case "repairDecimal": {
+      // Rewrites only the values written in the *other* decimal convention,
+      // leaving the column's dominant format untouched.
+      const other: NumberLocale = op.locale === "dot" ? "comma" : "dot";
+      return (value) => {
+        if (detectDecimalStyle(value) !== other) return value;
+        const parsed = parseNumber(value, other);
+        if (!Number.isFinite(parsed)) return value;
+        const canonical = String(parsed);
+        return op.locale === "dot" ? canonical : canonical.replace(".", ",");
       };
     }
     case "toDate": {
@@ -87,6 +100,10 @@ export function describeCleanOp(op: CleanOp): string {
       }`;
     case "toNumber":
       return `Convert to number (${op.locale === "comma" ? "decimal comma, 1.234,56" : "decimal point, 1,234.56"})`;
+    case "repairDecimal":
+      return op.locale === "dot"
+        ? "Repair decimal-comma values (613,26 → 613.26)"
+        : "Repair decimal-point values (1.23 → 1,23)";
     case "toDate":
       return `Convert to date (${op.order === "dmy" ? "day first, DD/MM/YYYY" : "month first, MM/DD/YYYY"})`;
   }
@@ -103,6 +120,8 @@ export function describeCleanOpDetail(op: CleanOp): string {
       return `replace(find=${JSON.stringify(op.find)}, with=${JSON.stringify(op.replacement)}, ignoreCase=${op.ignoreCase})`;
     case "toNumber":
       return `toNumber(locale=${op.locale})`;
+    case "repairDecimal":
+      return `repairDecimal(locale=${op.locale})`;
     case "toDate":
       return `toDate(order=${op.order})`;
   }

@@ -40,6 +40,11 @@ function cleanLines(name: string, ops: readonly CleanOp[]): string[] {
           return `${column} = pd.to_numeric(${column}.str.replace(".", "", regex=False).str.replace(",", ".", regex=False).str.replace(r"[^0-9eE+\\-.]", "", regex=True), errors="coerce")`;
         }
         return `${column} = pd.to_numeric(${column}.str.replace(r"[^0-9eE+\\-.]", "", regex=True), errors="coerce")`;
+      case "repairDecimal":
+        if (op.locale === "dot") {
+          return `${column} = ${column}.astype(str).str.replace(r"^([+-]?\\d{1,3}(?:\\.\\d{3})*),(\\d{1,2})$", r"\\1.\\2", regex=True)`;
+        }
+        return `${column} = ${column}.astype(str).str.replace(r"^([+-]?\\d{1,3}(?:,\\d{3})*)\\.(\\d{1,2})$", r"\\1,\\2", regex=True)`;
       case "toDate":
         return `${column} = pd.to_datetime(${column}, dayfirst=${op.order === "dmy" ? "True" : "False"}, errors="coerce")`;
     }
