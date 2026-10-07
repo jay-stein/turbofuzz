@@ -141,7 +141,14 @@ export type SetNumberLocaleRequest = {
 
 export type GetStatsRequest = { type: "getStats"; requestId: number };
 
-export type StartExportRequest = { type: "startExport"; requestId: number };
+export type ExportScope = "all" | "filtered";
+
+export type StartExportRequest = {
+  type: "startExport";
+  requestId: number;
+  /** "all" = every row after steps, ignoring filters (default "filtered"). */
+  scope?: ExportScope;
+};
 
 export interface ExportOptions {
   /** Replace null/heuristic-missing cells with an empty string (default true). */

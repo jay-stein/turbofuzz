@@ -22,6 +22,7 @@ import { TYPE_LABELS, type ColumnType } from "../types.js";
 import type {
   CleanUpdate,
   ColumnMeta,
+  ExportScope,
   LoadedMessage,
   ProgressMessage,
   SpecialKind,
@@ -197,6 +198,7 @@ export class App {
   private readonly pendingRowDeletes = new Set<number>();
   private readonly pendingColumnDeletes = new Set<number>();
   private excludedRowCount = 0;
+  private resultCount = 0;
   private deleteBar!: HTMLElement;
   private deleteBarText!: HTMLElement;
   private shuffleButton!: HTMLButtonElement;
@@ -1345,14 +1347,28 @@ export class App {
     if (this.datasetName === "" || this.loading) return;
     openExportPanel(
       this.defaultExportName(),
-      { nullAsBlank: this.exportNullAsBlank },
+      { nullAsBlank: this.exportNullAsBlank, scope: "all" },
+      {
+        allRows: Math.max(0, this.rowCount - this.excludedRowCount),
+        filteredRows: this.resultCount,
+        filtersActive: this.filtersActive(),
+      },
       {
         onSave: (fileName, settings) => {
           this.exportNullAsBlank = settings.nullAsBlank;
-          void this.runExport(fileName, settings.nullAsBlank);
+          void this.runExport(fileName, settings.nullAsBlank, settings.scope);
         },
         onClose: () => {},
       },
+    );
+  }
+
+  private filtersActive(): boolean {
+    return (
+      this.filters.size > 0 ||
+      this.specials.size > 0 ||
+      this.columnSpecials.size > 0 ||
+      this.shuffleActive
     );
   }
 
@@ -1363,7 +1379,11 @@ export class App {
     return `${exportFileName(this.datasetName)}${suffix}.csv`;
   }
 
-  private async runExport(fileName: string, nullAsBlank: boolean): Promise<void> {
+  private async runExport(
+    fileName: string,
+    nullAsBlank: boolean,
+    scope: ExportScope,
+  ): Promise<void> {
     if (this.datasetName === "" || this.loading) return;
     try {
       // Ask for the destination up front, while the click is still a user
@@ -1382,7 +1402,7 @@ export class App {
         }
       }
 
-      const { total } = await this.client.startExport();
+      const { total } = await this.client.startExport(scope);
       if (total === 0) {
         this.setAction("Nothing to export");
         return;
@@ -1426,6 +1446,7 @@ export class App {
   }
 
   private updateCount(count: number, queryMs: number): void {
+    this.resultCount = count;
     const timeText = queryMs < 1 ? "<1" : String(Math.round(queryMs));
     const total = this.rowCount;
     const parts: string[] = [];

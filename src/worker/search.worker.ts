@@ -170,7 +170,14 @@ async function handle(message: WorkerRequest): Promise<void> {
       handlePreviewClean(message);
       break;
     case "startExport":
-      exportIds = sortedIds.slice();
+      if (message.scope === "all") {
+        const { dataset: current } = state();
+        const all = new BitSet(current.rowCount);
+        all.setAll();
+        exportIds = withoutExcluded(all).toIndices();
+      } else {
+        exportIds = sortedIds.slice();
+      }
       post({ type: "exportStarted", requestId: message.requestId, total: exportIds.length });
       break;
     case "getCsv": {

@@ -10,6 +10,7 @@ import type {
   ColumnMetaMessage,
   CsvChunkMessage,
   ExportOptions,
+  ExportScope,
   ExportStartedMessage,
   HeadersRenamedMessage,
   LoadedMessage,
@@ -146,8 +147,8 @@ export class SearchWorkerClient {
     return this.request<CleanPreviewMessage>({ type: "previewClean", updates });
   }
 
-  startExport(): Promise<ExportStartedMessage> {
-    return this.request<ExportStartedMessage>({ type: "startExport" });
+  startExport(scope: ExportScope = "filtered"): Promise<ExportStartedMessage> {
+    return this.request<ExportStartedMessage>({ type: "startExport", scope });
   }
 
   getCsv(start: number, end: number, options?: ExportOptions): Promise<CsvChunkMessage> {

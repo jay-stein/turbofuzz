@@ -140,4 +140,30 @@ test("search worker handles the full request lifecycle", async () => {
   send({ type: "getCsv", requestId: 12, start: 0, end: 3 });
   const csv = find("csv", 12) as unknown as { text: string };
   assert.equal(csv.text, "name,age\r\nAlice,30\r\nBob,40\r\nCara,50\r\n");
+
+  // Export scope: "all" ignores the active filter, "filtered" (default) keeps it.
+  send({
+    type: "setFilter",
+    requestId: 16,
+    column: 1,
+    filter: { kind: "range", min: 40, max: null },
+  });
+  assert.equal(find("results", 16).count, 2);
+
+  send({ type: "startExport", requestId: 17, scope: "all" });
+  assert.equal((find("exportStarted", 17) as unknown as { total: number }).total, 3);
+  send({ type: "getCsv", requestId: 18, start: 0, end: 3 });
+  assert.equal(
+    (find("csv", 18) as unknown as { text: string }).text,
+    "name,age\r\nAlice,30\r\nBob,40\r\nCara,50\r\n",
+  );
+
+  send({ type: "startExport", requestId: 19, scope: "filtered" });
+  assert.equal((find("exportStarted", 19) as unknown as { total: number }).total, 2);
+  send({ type: "startExport", requestId: 20 });
+  assert.equal(
+    (find("exportStarted", 20) as unknown as { total: number }).total,
+    2,
+    "omitted scope keeps the filtered behaviour",
+  );
 });
