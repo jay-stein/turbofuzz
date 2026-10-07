@@ -4,6 +4,7 @@ import { buildDataset } from "../src/data/build.js";
 import {
   applyTransformOps,
   describeTransformOp,
+  describeTransformOpDetail,
   schemaAfter,
 } from "../src/data/transform-ops.js";
 
@@ -44,7 +45,7 @@ test("drop removes a column and shifts later indexes", () => {
   const out = applyTransformOps("t", ds.columns, [{ kind: "drop", column: 1 }]);
   assert.deepEqual(out.columns.map((column) => column.name), ["a", "c"]);
   assert.deepEqual(out.columns[1].raw, ["3", "6"]);
-  assert.equal(describeTransformOp({ kind: "drop", column: 1 }, ["a", "b", "c"]), "Drop column b");
+  assert.equal(describeTransformOp({ kind: "drop", column: 1 }, ["a", "b", "c"]), "Drop column “b”");
   assert.deepEqual(
     schemaAfter(
       [
@@ -251,34 +252,54 @@ test("melt defaults value columns to every non-id column", () => {
 });
 
 test("describeTransformOp names columns via the pre-step headers", () => {
-  assert.equal(describeTransformOp({ kind: "dedupe", keep: "none" }, ["a"]), "Remove all copies");
+  assert.equal(
+    describeTransformOp({ kind: "dedupe", keep: "none" }, ["a"]),
+    "Remove duplicate rows (remove all copies)",
+  );
   assert.match(
     describeTransformOp({ kind: "round", column: 0, decimals: -1 }, ["amount"]),
-    /amount/,
+    /Round “amount” to -1 decimal places/,
   );
   assert.equal(
     describeTransformOp({ kind: "groupBy", dimension: 0, measure: 1, aggregate: "sum" }, [
       "city",
       "sales",
     ]),
-    "Sum of sales by city",
+    "Sum of “sales” grouped by “city”",
   );
   assert.match(
     describeTransformOp(
       { kind: "impute", column: 1, strategy: { kind: "median" }, groupColumn: 0 },
       ["city", "sales"],
     ),
-    /Fill sales with median by city/,
+    /Fill missing values in “sales” using median, computed within “city”/,
   );
   assert.match(
     describeTransformOp({ kind: "knn", fill: [0], predictors: [1], k: 5 }, ["a", "b"]),
-    /KNN impute 1 column/,
+    /KNN impute 1 column \(k=5\) — fill: “a”/,
   );
   assert.match(
     describeTransformOp(
       { kind: "melt", idVars: [0], valueVars: [1, 2], varName: "month", valueName: "sales" },
       ["id", "jan", "feb"],
     ),
-    /Melt 2 columns/,
+    /Melt to long: 2 value columns \(id: “id”\)/,
+  );
+});
+
+test("describeTransformOpDetail exposes the technical signature", () => {
+  assert.equal(
+    describeTransformOpDetail({ kind: "groupBy", dimension: 0, measure: 1, aggregate: "sum" }, [
+      "city",
+      "sales",
+    ]),
+    'groupBy(dimension="city", measure="sales", aggregate=sum)',
+  );
+  assert.equal(
+    describeTransformOpDetail(
+      { kind: "impute", column: 1, strategy: { kind: "constant", value: "0" }, groupColumn: null },
+      ["city", "sales"],
+    ),
+    'impute(column="sales", strategy=constant("0"), groupColumn=null)',
   );
 });

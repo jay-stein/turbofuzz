@@ -487,42 +487,77 @@ function strategyLabel(strategy: ImputeStrategy): string {
   }
 }
 
+function quoted(name: string): string {
+  return `“${name}”`;
+}
+
 export function describeTransformOp(op: TransformOp, headers: readonly string[]): string {
+  const nameAt = (index: number): string => headers[index] ?? `#${index + 1}`;
   switch (op.kind) {
     case "dedupe":
-      return DEDUPE_LABELS[op.keep];
-    case "drop": {
-      const name = headers[op.column] ?? `#${op.column + 1}`;
-      return `Drop column ${name}`;
-    }
-    case "round": {
-      const name = headers[op.column] ?? `#${op.column + 1}`;
-      return `Round ${name} to ${op.decimals} decimal place${op.decimals === 1 ? "" : "s"}`;
-    }
+      return `Remove duplicate rows (${DEDUPE_LABELS[op.keep].toLowerCase()})`;
+    case "drop":
+      return `Drop column ${quoted(nameAt(op.column))}`;
+    case "round":
+      return `Round ${quoted(nameAt(op.column))} to ${op.decimals} decimal place${op.decimals === 1 ? "" : "s"}`;
     case "groupBy": {
-      const dimension = headers[op.dimension] ?? `#${op.dimension + 1}`;
-      const measure = op.measure === null ? null : headers[op.measure] ?? `#${op.measure + 1}`;
-      const label = AGGREGATE_LABELS[op.aggregate];
-      return measure === null
-        ? `${label} per ${dimension}`
-        : `${label} of ${measure} by ${dimension}`;
+      const dimension = quoted(nameAt(op.dimension));
+      if (op.measure === null) return `Count rows grouped by ${dimension}`;
+      return `${AGGREGATE_LABELS[op.aggregate]} of ${quoted(nameAt(op.measure))} grouped by ${dimension}`;
     }
     case "impute": {
-      const name = headers[op.column] ?? `#${op.column + 1}`;
+      const name = quoted(nameAt(op.column));
       const group =
-        op.groupColumn === null ? "" : ` by ${headers[op.groupColumn] ?? `#${op.groupColumn + 1}`}`;
-      return `Fill ${name} with ${strategyLabel(op.strategy)}${group}`;
+        op.groupColumn === null
+          ? ""
+          : `, computed within ${quoted(nameAt(op.groupColumn))}`;
+      return `Fill missing values in ${name} using ${strategyLabel(op.strategy)}${group}`;
     }
     case "knn": {
       const count = op.fill.length;
-      return `KNN impute ${count} column${count === 1 ? "" : "s"} (k=${op.k})`;
+      const names = op.fill.map((index) => quoted(nameAt(index))).join(", ");
+      return `KNN impute ${count} column${count === 1 ? "" : "s"} (k=${op.k}) — fill: ${names}`;
     }
     case "melt": {
-      const idNames = op.idVars.map((index) => headers[index] ?? `#${index + 1}`);
+      const idNames = op.idVars.map((index) => quoted(nameAt(index)));
       const valueCount =
         op.valueVars.length > 0 ? op.valueVars.length : Math.max(0, headers.length - op.idVars.length);
-      return `Melt ${valueCount} column${valueCount === 1 ? "" : "s"} to long (id: ${idNames.join(", ") || "none"})`;
+      return `Melt to long: ${valueCount} value column${valueCount === 1 ? "" : "s"} (id: ${idNames.join(", ") || "none"})`;
     }
+  }
+}
+
+/** Technical signature shown as the second line of a recorded step. */
+export function describeTransformOpDetail(op: TransformOp, headers: readonly string[]): string {
+  const nameAt = (index: number): string => JSON.stringify(headers[index] ?? `#${index + 1}`);
+  switch (op.kind) {
+    case "dedupe":
+      return `dedupe(keep=${op.keep})`;
+    case "drop":
+      return `drop(column=${nameAt(op.column)})`;
+    case "round":
+      return `round(column=${nameAt(op.column)}, decimals=${op.decimals})`;
+    case "groupBy":
+      return `groupBy(dimension=${nameAt(op.dimension)}, measure=${
+        op.measure === null ? "null" : nameAt(op.measure)
+      }, aggregate=${op.aggregate})`;
+    case "impute": {
+      const strategy =
+        op.strategy.kind === "constant"
+          ? `constant(${JSON.stringify(op.strategy.value)})`
+          : op.strategy.kind;
+      return `impute(column=${nameAt(op.column)}, strategy=${strategy}, groupColumn=${
+        op.groupColumn === null ? "null" : nameAt(op.groupColumn)
+      })`;
+    }
+    case "knn":
+      return `knn(fill=[${op.fill.map(nameAt).join(", ")}], predictors=[${op.predictors
+        .map(nameAt)
+        .join(", ")}], k=${op.k})`;
+    case "melt":
+      return `melt(idVars=[${op.idVars.map(nameAt).join(", ")}], valueVars=[${op.valueVars
+        .map(nameAt)
+        .join(", ")}], varName=${JSON.stringify(op.varName)}, valueName=${JSON.stringify(op.valueName)})`;
   }
 }
 

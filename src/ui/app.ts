@@ -6,11 +6,12 @@ import { detectTable } from "../parse/header-detect.js";
 import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
 import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
 import type { ColumnFilter } from "../search/query-engine.js";
-import { describeCleanOp, type CleanOp } from "../data/clean-ops.js";
+import { describeCleanOp, describeCleanOpDetail, type CleanOp } from "../data/clean-ops.js";
 import { pandasRecipe } from "../data/recipe.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import {
   describeTransformOp,
+  describeTransformOpDetail,
   schemaAfter,
   type ColumnSchema,
   type TransformOp,
@@ -1826,6 +1827,7 @@ export class App {
         entries.push({
           kind: "clean",
           label: `${name}: ${describeCleanOp(ops[index])}`,
+          detail: `clean → ${describeCleanOpDetail(ops[index])}`,
           column,
           opIndex: index,
           groupSize: ops.length,
@@ -1848,6 +1850,10 @@ export class App {
           op,
           running.map((entry) => entry.name),
         ),
+        detail: `transform → ${describeTransformOpDetail(
+          op,
+          running.map((entry) => entry.name),
+        )}`,
         column: -1,
         opIndex: index,
         groupSize: this.transformOps.length,
@@ -1860,6 +1866,7 @@ export class App {
         label: `Removed ${this.excludedRowCount.toLocaleString()} row${
           this.excludedRowCount === 1 ? "" : "s"
         }`,
+        detail: "rows → excluded from the working set; undo to restore",
         column: -1,
         opIndex: 0,
         groupSize: 1,

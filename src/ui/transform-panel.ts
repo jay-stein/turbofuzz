@@ -80,7 +80,8 @@ export function openTransformPanel(
   const builderHost = el("div", { class: "transform-builder" });
 
   const footer = el("div", { class: "clean-footer" });
-  const clearAll = el("button", { class: "ghost", type: "button" }, ["Clear all"]);
+  const clearAll = el("button", { class: "ghost", type: "button" }, ["Reset steps"]);
+  clearAll.title = "Remove every staged and applied step";
   clearAll.addEventListener("click", () => {
     pending = [];
     render();

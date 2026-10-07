@@ -1,9 +1,11 @@
 import { setupDialog } from "./dialog.js";
-import { el } from "./dom.js";
+import { el, svgIcon } from "./dom.js";
 
 export interface StepsPanelEntry {
   kind: "clean" | "transform" | "rows";
   label: string;
+  /** Technical signature shown under the label (Power BI-style detail). */
+  detail?: string;
   /** Column index for clean steps; -1 for transforms and removed rows. */
   column: number;
   opIndex: number;
@@ -19,6 +21,13 @@ export interface StepsPanelCallbacks {
   onClearAll: () => void;
   onCopyRecipe: () => Promise<boolean>;
   onClose: () => void;
+}
+
+const UNDO_ICON =
+  '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>';
+
+function undoIcon(): SVGElement {
+  return svgIcon(UNDO_ICON, "undo-icon");
 }
 
 /**
@@ -40,7 +49,7 @@ export function openStepsPanel(
   modal.append(head);
 
   const hint = el("div", { class: "clean-hint" }, [
-    "Steps apply in order. Undo removes a step; clean steps can be reordered within their column.",
+    "Steps apply in order. The undo icon removes a step; clean steps can be reordered within their column. The line under each step is its technical signature.",
   ]);
   const list = el("div", { class: "clean-op-list" });
   modal.append(hint, list);
@@ -54,8 +63,25 @@ export function openStepsPanel(
 
   entries.forEach((entry, index) => {
     const row = el("div", { class: "clean-op" });
-    row.append(el("span", { class: "clean-op-index" }, [String(index + 1)]));
-    row.append(el("span", { class: "clean-op-desc" }, [entry.label]));
+    const info = el("div", { class: "clean-op-info" });
+    info.append(el("span", { class: "clean-op-desc" }, [entry.label]));
+    if (entry.detail !== undefined) {
+      info.append(el("span", { class: "clean-op-detail" }, [entry.detail]));
+    }
+    const undo = (title: string, action: () => void, disabled = false): HTMLButtonElement => {
+      const button = el("button", { class: "icon-btn undo-btn", type: "button", title }, []);
+      button.append(undoIcon());
+      button.disabled = disabled;
+      if (!disabled) {
+        button.addEventListener("click", () => {
+          action();
+          callbacks.onClose();
+        });
+      }
+      return button;
+    };
+
+    row.append(el("span", { class: "clean-op-index" }, [String(index + 1)]), info);
 
     if (entry.kind === "clean") {
       const up = el("button", { class: "icon-btn", type: "button", title: "Move up" }, ["↑"]);
@@ -70,36 +96,23 @@ export function openStepsPanel(
         callbacks.onMoveClean(entry.column, entry.opIndex, 1);
         callbacks.onClose();
       });
-      const remove = el("button", { class: "icon-btn", type: "button", title: "Undo step" }, ["×"]);
-      remove.addEventListener("click", () => {
-        callbacks.onRemoveClean(entry.column, entry.opIndex);
-        callbacks.onClose();
-      });
-      row.append(up, down, remove);
-    } else if (entry.kind === "rows") {
-      const restore = el(
-        "button",
-        { class: "icon-btn", type: "button", title: "Restore the removed rows" },
-        ["×"],
+      row.append(
+        up,
+        down,
+        undo("Undo this step", () => callbacks.onRemoveClean(entry.column, entry.opIndex)),
       );
-      restore.addEventListener("click", () => {
-        callbacks.onRestoreRows();
-        callbacks.onClose();
-      });
-      row.append(restore);
+    } else if (entry.kind === "rows") {
+      row.append(undo("Undo the row deletions", () => callbacks.onRestoreRows()));
     } else {
-      const remove = el("button", { class: "icon-btn", type: "button" }, ["×"]);
-      if (index === lastTransformIndex) {
-        remove.title = "Undo this step";
-        remove.addEventListener("click", () => {
-          callbacks.onRemoveLastTransform();
-          callbacks.onClose();
-        });
-      } else {
-        remove.title = "Only the last transform step can be undone";
-        remove.disabled = true;
-      }
-      row.append(remove);
+      row.append(
+        undo(
+          index === lastTransformIndex
+            ? "Undo this step"
+            : "Only the last transform step can be undone",
+          () => callbacks.onRemoveLastTransform(),
+          index !== lastTransformIndex,
+        ),
+      );
     }
 
     list.append(row);
@@ -110,9 +123,10 @@ export function openStepsPanel(
   }
 
   const footer = el("div", { class: "clean-footer" });
-  const clearAll = el("button", { class: "ghost", type: "button" }, ["Clear all"]);
-  clearAll.disabled = entries.length === 0;
-  clearAll.addEventListener("click", () => {
+  const undoAll = el("button", { class: "ghost", type: "button" }, ["Undo all"]);
+  undoAll.title = "Undo every applied step and restore the original data";
+  undoAll.disabled = entries.length === 0;
+  undoAll.addEventListener("click", () => {
     callbacks.onClearAll();
     callbacks.onClose();
   });
@@ -126,7 +140,7 @@ export function openStepsPanel(
       }, 2000);
     });
   });
-  footer.append(clearAll, copy, el("span", { class: "grow" }));
+  footer.append(undoAll, copy, el("span", { class: "grow" }));
   modal.append(footer);
 
   function close(): void {

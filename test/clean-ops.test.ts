@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyCleanOps, describeCleanOp } from "../src/data/clean-ops.js";
+import { applyCleanOps, describeCleanOp, describeCleanOpDetail } from "../src/data/clean-ops.js";
 
 test("trims and collapses whitespace", () => {
   assert.deepEqual(applyCleanOps(["  a   b ", " c "], [{ kind: "trim" }]), ["a b", "c"]);
@@ -89,12 +89,21 @@ test("converts mixed date text to ISO dates", () => {
 });
 
 test("describeCleanOp summarises operations", () => {
-  assert.equal(describeCleanOp({ kind: "trim" }), "Trim whitespace");
-  assert.equal(describeCleanOp({ kind: "case", style: "upper" }), "UPPERCASE");
+  assert.equal(describeCleanOp({ kind: "trim" }), "Trim whitespace (strip ends, collapse runs)");
+  assert.equal(describeCleanOp({ kind: "case", style: "upper" }), "Change case to UPPERCASE");
   assert.match(
     describeCleanOp({ kind: "replace", find: "a", replacement: "b", ignoreCase: true }),
-    /Replace/,
+    /Replace text “a” → “b” \(case-insensitive\)/,
   );
   assert.match(describeCleanOp({ kind: "toNumber", locale: "comma" }), /1\.234,56/);
   assert.match(describeCleanOp({ kind: "toDate", order: "dmy" }), /DD\/MM\/YYYY/);
+});
+
+test("describeCleanOpDetail exposes the technical signature", () => {
+  assert.equal(describeCleanOpDetail({ kind: "trim" }), "trim()");
+  assert.equal(
+    describeCleanOpDetail({ kind: "replace", find: "a", replacement: "b", ignoreCase: true }),
+    'replace(find="a", with="b", ignoreCase=true)',
+  );
+  assert.equal(describeCleanOpDetail({ kind: "toDate", order: "dmy" }), "toDate(order=dmy)");
 });

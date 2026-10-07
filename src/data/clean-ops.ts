@@ -74,14 +74,36 @@ export function applyCleanOps(values: readonly string[], ops: readonly CleanOp[]
 export function describeCleanOp(op: CleanOp): string {
   switch (op.kind) {
     case "trim":
-      return "Trim whitespace";
+      return "Trim whitespace (strip ends, collapse runs)";
     case "case":
-      return op.style === "upper" ? "UPPERCASE" : op.style === "lower" ? "lowercase" : "Title Case";
+      return op.style === "upper"
+        ? "Change case to UPPERCASE"
+        : op.style === "lower"
+          ? "Change case to lowercase"
+          : "Change case to Title Case";
     case "replace":
-      return `Replace “${op.find}” with “${op.replacement}”${op.ignoreCase ? " (ignore case)" : ""}`;
+      return `Replace text “${op.find}” → “${op.replacement}”${
+        op.ignoreCase ? " (case-insensitive)" : " (exact match)"
+      }`;
     case "toNumber":
-      return `Convert to number (${op.locale === "comma" ? "1.234,56" : "1,234.56"})`;
+      return `Convert to number (${op.locale === "comma" ? "decimal comma, 1.234,56" : "decimal point, 1,234.56"})`;
     case "toDate":
-      return `Convert to date (${op.order === "dmy" ? "DD/MM/YYYY" : "MM/DD/YYYY"})`;
+      return `Convert to date (${op.order === "dmy" ? "day first, DD/MM/YYYY" : "month first, MM/DD/YYYY"})`;
+  }
+}
+
+/** Technical signature shown as the second line of a recorded step. */
+export function describeCleanOpDetail(op: CleanOp): string {
+  switch (op.kind) {
+    case "trim":
+      return "trim()";
+    case "case":
+      return `case(style=${op.style})`;
+    case "replace":
+      return `replace(find=${JSON.stringify(op.find)}, with=${JSON.stringify(op.replacement)}, ignoreCase=${op.ignoreCase})`;
+    case "toNumber":
+      return `toNumber(locale=${op.locale})`;
+    case "toDate":
+      return `toDate(order=${op.order})`;
   }
 }

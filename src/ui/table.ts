@@ -1,4 +1,4 @@
-import { clear, el } from "./dom.js";
+import { clear, el, svgIcon } from "./dom.js";
 import { isNullToken, isNullWithWire } from "../parse/null-tokens.js";
 import { parseNumber } from "../parse/numbers.js";
 import { valueLength } from "../parse/value-length.js";
@@ -12,6 +12,10 @@ const MAX_COL_WIDTH = 720;
 const INDEX_WIDTH = 64;
 const OVERSCAN = 10;
 const CACHE_LIMIT = 4000;
+
+function crossIcon(): SVGElement {
+  return svgIcon('<path d="M8 8l8 8"/><path d="M16 8l-8 8"/>', "del-icon");
+}
 
 export interface HighlightRule {
   column: number;
@@ -277,8 +281,9 @@ export class ResultTable {
       const del = el(
         "button",
         { class: "del-btn", type: "button", title: `Delete column “${name}”…` },
-        ["×"],
+        [],
       );
+      del.append(crossIcon());
       del.classList.toggle("active", this.pendingColumnDeletes.has(index));
       del.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -449,8 +454,9 @@ export class ResultTable {
     const del = el(
       "button",
       { class: "del-btn", type: "button", title: "Delete this row…" },
-      ["×"],
+      [],
     );
+    del.append(crossIcon());
     del.classList.toggle("active", this.pendingRowDeletes.has(index));
     del.addEventListener("click", (event) => {
       event.stopPropagation();
