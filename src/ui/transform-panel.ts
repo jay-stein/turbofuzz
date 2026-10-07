@@ -401,6 +401,7 @@ export function openTransformPanel(
   overlay.append(modal);
   document.body.append(overlay);
   setupDialog(overlay, "Transform pipeline");
+  render();
 }
 
 function indexed(schema: readonly ColumnSchema[]): { value: string; label: string }[] {
