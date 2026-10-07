@@ -749,6 +749,17 @@ textarea:focus {
   border-color: var(--accent);
 }
 
+.qa-button.qa-dedupe {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: var(--panel-2);
+  color: var(--accent);
+}
+
+.qa-button.qa-dedupe:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .qa-button.active {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
