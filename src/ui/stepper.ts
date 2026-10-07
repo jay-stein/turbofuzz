@@ -17,7 +17,7 @@ export const PIPELINE_STAGES: readonly StepperStage[] = [
   { id: "clean", label: "Clean" },
   { id: "transform", label: "Transform" },
   { id: "view", label: "View" },
-  { id: "export", label: "Export", soon: true },
+  { id: "export", label: "Export" },
 ];
 
 /**

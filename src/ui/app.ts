@@ -112,6 +112,13 @@ function globeIcon(): SVGElement {
   );
 }
 
+function lockIcon(): SVGElement {
+  return svgIcon(
+    '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+    "privacy-icon",
+  );
+}
+
 function diceIcon(): SVGElement {
   return svgIcon(
     '<rect x="3.2" y="3.2" width="17.6" height="17.6" rx="4.2"/>' +
@@ -207,6 +214,7 @@ export class App {
   private actionEl!: HTMLElement;
   private copyButton!: HTMLButtonElement;
   private exportButton!: HTMLButtonElement;
+  private newButton!: HTMLButtonElement;
   private exportBlank!: HTMLInputElement;
   private bannerEl!: HTMLElement;
   private summaryHost!: HTMLElement;
@@ -234,9 +242,10 @@ export class App {
     this.metaEl = el("div", { class: "meta" });
     topbar.append(this.metaEl);
 
-    const newButton = el("button", { class: "ghost", type: "button" }, ["New data"]);
-    newButton.addEventListener("click", () => this.showPaste());
-    topbar.append(newButton);
+    this.newButton = el("button", { class: "ghost", type: "button" }, ["New data"]);
+    this.newButton.addEventListener("click", () => this.showPaste());
+    this.newButton.classList.add("hidden");
+    topbar.append(this.newButton);
 
     this.pasteView = this.buildPasteView();
     this.workspace = this.buildWorkspace();
@@ -247,54 +256,31 @@ export class App {
     const view = el("div", { class: "paste-view" });
     const card = el("div", { class: "paste-card" });
 
-    card.append(el("h1", {}, ["Search tabular data, fast"]));
+    card.append(el("h1", {}, ["Clean and reshape tables in your browser"]));
     card.append(
       el("p", { class: "sub" }, [
-        "Paste rows, drop a file, or point at a URL. Everything runs in your browser — your data never leaves it.",
+        "Drop a messy CSV or Excel file. Type-aware cleanup, transforms and search — nothing leaves this page.",
       ]),
     );
-
-    this.textarea = el("textarea", {
-      placeholder: "Paste your data here (Ctrl+Enter to load)…",
-      spellcheck: "false",
-    }) as HTMLTextAreaElement;
-    card.append(this.textarea);
-
-    const controls = el("div", { class: "paste-controls" });
-
-    const delimiterLabel = el("label", { class: "control" });
-    delimiterLabel.append("Delimiter");
-    this.delimiterSelect = el("select") as HTMLSelectElement;
-    for (const key of ["auto", ",", "\t", ";", "|"]) {
-      this.delimiterSelect.append(
-        el("option", { value: key }, [DELIMITER_LABELS[key]]) as HTMLOptionElement,
-      );
-    }
-    delimiterLabel.append(this.delimiterSelect);
-
-    const headerLabel = el("label", { class: "control check" });
-    this.headersCheckbox = el("input", { type: "checkbox" }) as HTMLInputElement;
-    this.headersCheckbox.checked = true;
-    headerLabel.append(this.headersCheckbox, "First row is header");
-    const loadButton = el("button", { class: "primary", type: "button" }, ["Load pasted data"]);
-    loadButton.addEventListener("click", () => this.loadFromTextarea());
-
-    controls.append(delimiterLabel, headerLabel, el("span", { class: "grow" }), loadButton);
-    card.append(controls);
 
     const dropzone = el("div", {
       class: "dropzone",
       role: "button",
       tabindex: "0",
-      title: "CSV, TSV, PSV, TXT, JSON or Parquet",
+      title: "CSV, TSV, PSV, TXT, JSON, Excel, Parquet, ZIP, GZ or BZ2",
     });
     dropzone.append(
       uploadIcon(),
-      el("span", {}, [
-        "Drop a CSV / TSV / PSV / TXT / JSON / Excel / Parquet / ZIP / GZ / BZ2 file here — or click to browse",
+      el("span", { class: "dropzone-main" }, [
+        "Drop a CSV, Excel, JSON or Parquet file here",
       ]),
+      el("span", { class: "dropzone-sub" }, ["or click to browse"]),
     );
-    card.append(dropzone);
+    const privacy = el("div", { class: "privacy-badge" }, [
+      lockIcon(),
+      el("span", {}, ["0 bytes uploaded — files are parsed in this browser"]),
+    ]);
+    card.append(dropzone, privacy);
 
     const fileInput = el("input", {
       type: "file",
@@ -333,6 +319,39 @@ export class App {
     });
     card.append(fileInput);
 
+    const pasteDetails = el("details", { class: "paste-secondary" });
+    pasteDetails.append(el("summary", {}, ["Paste rows instead"]));
+    this.textarea = el("textarea", {
+      placeholder: "Paste your data here (Ctrl+Enter to load)…",
+      spellcheck: "false",
+    }) as HTMLTextAreaElement;
+    pasteDetails.append(this.textarea);
+
+    const controls = el("div", { class: "paste-controls" });
+
+    const delimiterLabel = el("label", { class: "control" });
+    delimiterLabel.append("Delimiter");
+    this.delimiterSelect = el("select") as HTMLSelectElement;
+    for (const key of ["auto", ",", "\t", ";", "|"]) {
+      this.delimiterSelect.append(
+        el("option", { value: key }, [DELIMITER_LABELS[key]]) as HTMLOptionElement,
+      );
+    }
+    delimiterLabel.append(this.delimiterSelect);
+
+    const headerLabel = el("label", { class: "control check" });
+    this.headersCheckbox = el("input", { type: "checkbox" }) as HTMLInputElement;
+    this.headersCheckbox.checked = true;
+    headerLabel.append(this.headersCheckbox, "First row is header");
+    const loadButton = el("button", { class: "primary", type: "button" }, ["Load pasted data"]);
+    loadButton.addEventListener("click", () => this.loadFromTextarea());
+
+    controls.append(delimiterLabel, headerLabel, el("span", { class: "grow" }), loadButton);
+    pasteDetails.append(controls);
+    card.append(pasteDetails);
+
+    const urlDetails = el("details", { class: "paste-secondary" });
+    urlDetails.append(el("summary", {}, ["Load from a URL or scrape a table"]));
     const urlSection = el("div", { class: "url-section" });
     const urlRow = el("div", { class: "url-controls" });
     const urlField = el("div", { class: "url-field" });
@@ -360,18 +379,25 @@ export class App {
     this.urlInput.addEventListener("input", () => this.updateUrlButton());
     urlRow.append(urlField, this.urlButton);
 
-    urlSection.append(
-      urlRow,
-      el("p", { class: "url-hint" }, [
-        "Links ending in .csv, .tsv, .psv, .txt, .json, .parquet, .zip, .gz or .bz2 load as data; anything else is scraped for its first table.",
-      ]),
+    const legal = el("details", { class: "legal" });
+    legal.append(
+      el("summary", {}, ["Scraping guidelines"]),
       el("p", { class: "disclaimer" }, [
         "Always scrape responsibly by reviewing and adhering to the website's ",
         el("code", {}, ["robots.txt"]),
         " file, Terms of Service, and licensing restrictions. Ensure your request rates respect the server's load limits and comply with relevant data privacy laws.",
       ]),
     );
-    card.append(urlSection);
+
+    urlSection.append(
+      urlRow,
+      el("p", { class: "url-hint" }, [
+        "Links ending in .csv, .tsv, .psv, .txt, .json, .parquet, .zip, .gz or .bz2 load as data; anything else is scraped for its first table.",
+      ]),
+      legal,
+    );
+    urlDetails.append(urlSection);
+    card.append(urlDetails);
 
     const pickerHead = el("div", { class: "table-picker-head" });
     this.tablePickerTitle = el("span", { class: "table-picker-title" });
@@ -977,6 +1003,7 @@ export class App {
 
     this.pasteView.classList.add("hidden");
     this.workspace.classList.remove("hidden");
+    this.newButton.classList.remove("hidden");
 
     const emptyPct =
       loaded.stats.totalCells > 0
@@ -1336,7 +1363,7 @@ export class App {
   private showPaste(): void {
     this.workspace.classList.add("hidden");
     this.pasteView.classList.remove("hidden");
-    this.textarea.focus();
+    this.newButton.classList.add("hidden");
   }
 
   private selectStage(id: StageId): void {
@@ -1354,6 +1381,7 @@ export class App {
         this.openTransform();
         break;
       case "export":
+        void this.exportCsv();
         break;
     }
   }
