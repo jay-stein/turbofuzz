@@ -423,3 +423,34 @@ the same name). Severity: data loss / security > trust > friction > polish.
 and `connect-src 'none'` in `public/_headers` makes "0 network requests"
 browser-enforced. `table_scraper.md` and `html-table.ts` were deleted.
 
+---
+
+## 10. Future: unify Clean + Transform and cut simple-op clicks (logged 2026-10-08)
+
+Problem (observed live): the two panels are one mental job — fixing values and
+reshaping rows/columns. Today they have different vocabularies, different
+commit models, and neither offers a direct action for the most common ops.
+Example: making one column UPPERCASE is
+*Stepper → Clean → pick column → Add operation → choose Case → choose style →
+Preview → Apply to column* (~7 interactions), while the header ⋯ menu and the
+inline chips already overlap in purpose.
+
+Direction:
+
+1. **One Edit surface** (Clean + Transform merged) with a single ordered op
+   list; value ops (trim, case, replace, convert) and structural ops (dedupe,
+   drop, group by, round, impute) interleave. The engine already keeps both
+   pipelines independently (`cleanSource`, `transformSource`); a unified list
+   needs one sequence over both.
+2. **One-click value ops from the header ⋯ menu** — UPPERCASE, lowercase,
+   Title Case, Trim, Convert number/date — applied immediately as a Step with
+   an Undo toast. Preview becomes a hover/before-after on the menu item, not a
+   mode. "Apply to all columns" stays for bulk.
+3. **One commit model** — same change as urgent item 11 (Steps spine): every
+   action from every entry point is an applied Step with Undo, so the menu can
+   be immediate without a confirm dialog.
+
+Do this together with item 11 and item 10 (chrome reduction); it is mostly the
+same wiring. Priority from the 2026-10-08 discussion: after the current
+data-safety batch.
+
