@@ -8,6 +8,7 @@ import type {
   CleanUpdate,
   ColumnMetaMessage,
   CsvChunkMessage,
+  ExportOptions,
   ExportStartedMessage,
   HeadersRenamedMessage,
   LoadedMessage,
@@ -131,8 +132,8 @@ export class SearchWorkerClient {
     return this.request<ExportStartedMessage>({ type: "startExport" });
   }
 
-  getCsv(start: number, end: number): Promise<CsvChunkMessage> {
-    return this.request<CsvChunkMessage>({ type: "getCsv", start, end });
+  getCsv(start: number, end: number, options?: ExportOptions): Promise<CsvChunkMessage> {
+    return this.request<CsvChunkMessage>({ type: "getCsv", start, end, options });
   }
 
   dispose(): void {

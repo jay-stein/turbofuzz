@@ -124,11 +124,17 @@ export type GetStatsRequest = { type: "getStats"; requestId: number };
 
 export type StartExportRequest = { type: "startExport"; requestId: number };
 
+export interface ExportOptions {
+  /** Replace null/heuristic-missing cells with an empty string (default true). */
+  nullAsBlank?: boolean;
+}
+
 export type GetCsvRequest = {
   type: "getCsv";
   requestId: number;
   start: number;
   end: number;
+  options?: ExportOptions;
 };
 
 export type RenameHeadersRequest = {

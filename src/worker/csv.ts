@@ -1,4 +1,7 @@
+import type { ColumnData } from "../data/column.js";
 import type { Dataset } from "../data/dataset.js";
+import { toDateInputValue } from "../parse/dates.js";
+import type { ExportOptions } from "./protocol.js";
 
 export function csvEscape(value: string): string {
   if (
@@ -13,6 +16,25 @@ export function csvEscape(value: string): string {
 }
 
 /**
+ * Export value for one cell. Typed columns emit their parsed value — numbers
+ * lose currency/grouping symbols and dates become ISO — and unparseable cells
+ * export as blank. Text columns keep their raw cell unless nullAsBlank is on.
+ */
+function exportCell(column: ColumnData, row: number, nullAsBlank: boolean): string {
+  if (column.type === "integer" || column.type === "number") {
+    const value = column.numbers()[row];
+    return Number.isFinite(value) ? String(value) : "";
+  }
+  if (column.type === "date") {
+    const value = column.numbers()[row];
+    return Number.isFinite(value) ? toDateInputValue(value) : "";
+  }
+  const raw = column.raw[row];
+  if (nullAsBlank && column.isNull(raw)) return "";
+  return raw;
+}
+
+/**
  * Builds one chunk of a CSV export over the given (already ordered) row ids.
  * Always terminates lines with CRLF and includes a trailing CRLF so chunks
  * can be concatenated safely. Header is included only when start === 0.
@@ -23,8 +45,10 @@ export function buildCsv(
   start: number,
   end: number,
   includeHeader: boolean,
+  options: ExportOptions = {},
 ): string {
   const columns = dataset.columns;
+  const nullAsBlank = options.nullAsBlank ?? true;
   const lines: string[] = [];
 
   if (includeHeader) {
@@ -36,7 +60,9 @@ export function buildCsv(
   for (let i = start; i < end; i++) {
     const row = ids[i];
     const cells: string[] = new Array(columns.length);
-    for (let c = 0; c < columns.length; c++) cells[c] = csvEscape(columns[c].raw[row]);
+    for (let c = 0; c < columns.length; c++) {
+      cells[c] = csvEscape(exportCell(columns[c], row, nullAsBlank));
+    }
     lines.push(cells.join(","));
   }
 

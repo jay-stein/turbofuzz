@@ -151,7 +151,7 @@ async function handle(message: WorkerRequest): Promise<void> {
         type: "csv",
         requestId: message.requestId,
         start,
-        text: buildCsv(dataset, ids, start, end, start === 0),
+        text: buildCsv(dataset, ids, start, end, start === 0, message.options),
       });
       break;
     }

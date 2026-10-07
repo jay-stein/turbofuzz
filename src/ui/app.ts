@@ -207,6 +207,7 @@ export class App {
   private actionEl!: HTMLElement;
   private copyButton!: HTMLButtonElement;
   private exportButton!: HTMLButtonElement;
+  private exportBlank!: HTMLInputElement;
   private bannerEl!: HTMLElement;
   private summaryHost!: HTMLElement;
   private summaryBand: SummaryBand | null = null;
@@ -427,10 +428,18 @@ export class App {
 
     this.exportButton = el(
       "button",
-      { class: "ghost small", type: "button", title: "Download filtered rows as CSV" },
+      { class: "ghost small", type: "button", title: "Download cleaned rows as CSV" },
       ["Export CSV"],
     ) as HTMLButtonElement;
     this.exportButton.addEventListener("click", () => void this.exportCsv());
+
+    const blankLabel = el("label", {
+      class: "export-blank",
+      title: "Write null and missing values as empty cells",
+    });
+    this.exportBlank = el("input", { type: "checkbox" }) as HTMLInputElement;
+    this.exportBlank.checked = true;
+    blankLabel.append(this.exportBlank, "Blank nulls");
 
     const shuffleControl = el("span", { class: "shuffle-control" });
     this.shuffleCount = el("input", {
@@ -466,6 +475,7 @@ export class App {
       this.actionEl,
       shuffleControl,
       this.copyButton,
+      blankLabel,
       this.exportButton,
     );
 
@@ -1216,7 +1226,9 @@ export class App {
       const take = Math.min(total, CLIPBOARD_ROW_LIMIT);
       const parts: string[] = [];
       for (let start = 0; start < take; start += EXPORT_CHUNK_ROWS) {
-        const chunk = await this.client.getCsv(start, Math.min(start + EXPORT_CHUNK_ROWS, take));
+        const chunk = await this.client.getCsv(start, Math.min(start + EXPORT_CHUNK_ROWS, take), {
+          nullAsBlank: this.exportBlank.checked,
+        });
         parts.push(chunk.text);
       }
 
@@ -1243,7 +1255,9 @@ export class App {
       for (let start = 0; start < total; start += EXPORT_CHUNK_ROWS) {
         this.actionEl.textContent = `Exporting… ${Math.round((start / total) * 100)}%`;
         const end = Math.min(start + EXPORT_CHUNK_ROWS, total);
-        const chunk = await this.client.getCsv(start, end);
+        const chunk = await this.client.getCsv(start, end, {
+          nullAsBlank: this.exportBlank.checked,
+        });
         parts.push(chunk.text);
       }
 
@@ -1251,7 +1265,10 @@ export class App {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `${exportFileName(this.datasetName)}-filtered.csv`;
+      const hasCleans = this.cleanedColumns.size > 0 || this.transformOps.length > 0;
+      const hasFilters = this.filters.size > 0 || this.specials.size > 0 || this.shuffleActive;
+      const suffix = hasCleans ? "-cleaned" : hasFilters ? "-filtered" : "";
+      anchor.download = `${exportFileName(this.datasetName)}${suffix}.csv`;
       document.body.append(anchor);
       anchor.click();
       anchor.remove();
