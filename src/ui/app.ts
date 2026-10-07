@@ -701,7 +701,8 @@ export class App {
       }
       option.append(
         el("span", { class: "table-option-size" }, [
-          item.detail ?? `${item.rows.toLocaleString()} rows × ${item.columns} columns`,
+          item.detail ??
+            `${item.rows.toLocaleString()} rows × ${item.columns} column${item.columns === 1 ? "" : "s"}`,
         ]),
       );
       option.addEventListener("click", item.onSelect);
@@ -709,6 +710,7 @@ export class App {
     });
 
     this.tablePickerEl.classList.remove("hidden");
+    this.tablePickerEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
   private updateUrlButton(): void {
@@ -1407,9 +1409,8 @@ export class App {
     } else if (total > 0 && count < total) {
       const shownPct = (count / total) * 100;
       const filtered = total - count;
-      parts.push(`${count.toLocaleString()} of ${total.toLocaleString()} rows`);
-      parts.push(`${shownPct.toFixed(1)}% shown`);
-      parts.push(`${filtered.toLocaleString()} filtered out (${(100 - shownPct).toFixed(1)}%)`);
+      parts.push(`${count.toLocaleString()} of ${total.toLocaleString()} rows (${shownPct.toFixed(1)}%)`);
+      parts.push(`${filtered.toLocaleString()} filtered out`);
     } else {
       parts.push(`${count.toLocaleString()} rows`);
     }

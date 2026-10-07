@@ -174,19 +174,20 @@ button {
   gap: 6px;
   padding: 6px 13px;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
-  background: var(--accent);
-  color: #fff;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
   font-size: 12.5px;
-  font-weight: 650;
-  box-shadow: 0 1px 2px rgb(16 24 40 / 14%);
+  font-weight: 600;
   transition:
-    filter 0.12s ease,
+    background 0.12s ease,
+    border-color 0.12s ease,
     transform 0.06s ease;
 }
 
 .shuffle-button:hover {
-  filter: brightness(1.08);
+  background: var(--panel-2);
+  border-color: var(--accent);
 }
 
 .shuffle-button:active {

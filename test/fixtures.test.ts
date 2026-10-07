@@ -38,6 +38,8 @@ test("euro_win1252.csv reads decimal commas per column", () => {
 test("messy_report.xlsx dates survive ingest", async () => {
   const grid = await readWorkbookSheet(fixture("messy_report.xlsx"), "Q3 Report");
   const detected = detectTable(grid);
+  assert.ok(detected.headers.includes("Sales Actual"));
+  assert.ok(detected.headers.includes("Sales Budget"));
   const headers = detected.headers.map((value, index) =>
     value.trim() === "" ? `Column ${index + 1}` : value,
   );
@@ -54,6 +56,19 @@ test("messy_report.xlsx dates survive ingest", async () => {
   assert.ok(code !== undefined);
   assert.equal(code.type, "identifier");
   assert.equal(code.raw[0], "00149");
+});
+
+test("ragged.csv keeps four rows without header contamination", () => {
+  const { dataset } = ingestDataset({
+    name: "ragged.csv",
+    delimiter: "auto",
+    hasHeaders: true,
+    buffer: fixture("ragged.csv"),
+  });
+  assert.equal(dataset.rowCount, 4);
+  assert.equal(dataset.columns[0].name, "id");
+  assert.equal(dataset.columns[0].raw[0], "1");
+  assert.equal(dataset.columns[0].raw[3], "4");
 });
 
 test("messy_values.csv city variants cluster into one merge", () => {
