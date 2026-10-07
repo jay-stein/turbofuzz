@@ -2,9 +2,9 @@ import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
 
 export interface StepsPanelEntry {
-  kind: "clean" | "transform";
+  kind: "clean" | "transform" | "rows";
   label: string;
-  /** Column index for clean steps; -1 for transforms. */
+  /** Column index for clean steps; -1 for transforms and removed rows. */
   column: number;
   opIndex: number;
   /** Number of ops in the same group (used to enable reorder buttons). */
@@ -15,6 +15,7 @@ export interface StepsPanelCallbacks {
   onRemoveClean: (column: number, opIndex: number) => void;
   onMoveClean: (column: number, opIndex: number, direction: -1 | 1) => void;
   onRemoveLastTransform: () => void;
+  onRestoreRows: () => void;
   onClearAll: () => void;
   onCopyRecipe: () => Promise<boolean>;
   onClose: () => void;
@@ -75,6 +76,17 @@ export function openStepsPanel(
         callbacks.onClose();
       });
       row.append(up, down, remove);
+    } else if (entry.kind === "rows") {
+      const restore = el(
+        "button",
+        { class: "icon-btn", type: "button", title: "Restore the removed rows" },
+        ["×"],
+      );
+      restore.addEventListener("click", () => {
+        callbacks.onRestoreRows();
+        callbacks.onClose();
+      });
+      row.append(restore);
     } else {
       const remove = el("button", { class: "icon-btn", type: "button" }, ["×"]);
       if (index === lastTransformIndex) {

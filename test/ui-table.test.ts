@@ -48,9 +48,12 @@ function meta(overrides: Partial<ColumnMeta> = {}): ColumnMeta {
 
 interface Harness {
   host: HTMLElement;
+  table: ResultTable;
   clicks: { column: number; kind: ColumnQaKind }[];
   merges: number[];
   contexts: { column: number; x: number; y: number }[];
+  colDeletes: number[];
+  rowDeletes: number[];
   window: Window;
 }
 
@@ -61,16 +64,20 @@ function buildTable(columns: ColumnMeta[]): Harness {
   const clicks: Harness["clicks"] = [];
   const merges: number[] = [];
   const contexts: Harness["contexts"] = [];
+  const colDeletes: number[] = [];
+  const rowDeletes: number[] = [];
   const table = new ResultTable(host, {
     onSort: () => {},
     onTypeChange: () => {},
     onColumnSpecial: (column, kind) => clicks.push({ column, kind }),
     onMergeSimilar: (column) => merges.push(column),
     onColumnContext: (column, x, y) => contexts.push({ column, x, y }),
-    onRequestRows: (_start, _end, done) => done(0, []),
+    onToggleColumnDelete: (column) => colDeletes.push(column),
+    onToggleRowDelete: (position) => rowDeletes.push(position),
+    onRequestRows: () => {},
   });
   table.setColumns(columns);
-  return { host, clicks, merges, contexts, window };
+  return { host, table, clicks, merges, contexts, colDeletes, rowDeletes, window };
 }
 
 test("header shows readable QA chips: amber when flagged, muted when clean", () => {
@@ -149,4 +156,31 @@ test("right-clicking a header cell reports the column and position", () => {
   });
   cell.dispatchEvent(event);
   assert.deepEqual(contexts, [{ column: 0, x: 40, y: 60 }]);
+});
+
+test("delete buttons report rows and columns for staging", () => {
+  const { host, table, colDeletes, rowDeletes } = buildTable([
+    meta({ name: "a" }),
+    meta({ name: "b" }),
+  ]);
+  table.setFirstRows([["x", "y"]]);
+  table.setCount(1);
+
+  (host.querySelectorAll(".th")[1].querySelector(".del-btn") as unknown as {
+    click(): void;
+  }).click();
+  (host.querySelector(".tr .del-btn") as unknown as { click(): void }).click();
+  assert.deepEqual(colDeletes, [0]);
+  assert.deepEqual(rowDeletes, [0]);
+});
+
+test("pending deletes mark rows and columns red", () => {
+  const { host, table } = buildTable([meta({ name: "a" }), meta({ name: "b" })]);
+  table.setFirstRows([["x", "y"]]);
+  table.setCount(1);
+  table.setPendingDeletes(new Set([0]), new Set([1]));
+
+  assert.ok(host.querySelector(".tr.row-pending") !== null, "row should be tinted");
+  assert.ok(host.querySelectorAll(".th")[2].classList.contains("col-pending"));
+  assert.ok(host.querySelectorAll(".del-btn.active").length >= 2);
 });

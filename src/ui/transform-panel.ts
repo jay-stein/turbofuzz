@@ -101,10 +101,12 @@ export function openTransformPanel(
   }
 
   let previewGeneration = 0;
+  const appliedSignature = JSON.stringify(applied);
 
   function render(): void {
     renderOps();
     renderBuilder();
+    apply.disabled = JSON.stringify(pending) === appliedSignature;
     const baseText =
       pending.length === 0
         ? "No transforms — the data is unchanged."
@@ -379,7 +381,7 @@ export function openTransformPanel(
     }
     typeSelect.addEventListener("change", buildInputs);
 
-    const addButton = el("button", { class: "ghost small", type: "button" }, ["Add step"]);
+    const addButton = el("button", { class: "primary small", type: "button" }, ["Add step"]);
     addButton.addEventListener("click", () => {
       const op = readOp();
       if (op === null) return;
@@ -387,7 +389,14 @@ export function openTransformPanel(
       render();
     });
 
-    builderHost.append(typeField, inputHost, addButton);
+    builderHost.append(
+      typeField,
+      inputHost,
+      addButton,
+      el("div", { class: "clean-hint" }, [
+        "Add each step to the list below, then click Apply transforms when it is ready.",
+      ]),
+    );
     buildInputs();
   }
 

@@ -367,6 +367,18 @@ and Transform, and it reuses the exact patterns the codebase already establishes
   Delete is a tracked `drop` transform step, undoable from the Steps list.
   Future: more direct ops from here (trim/case/round/convert) without opening
   the Clean or Transform panels.
+- **Row and column delete icons (done 2026-10-07)** — red × on every column
+  header and every row. Clicking stages items for deletion (red highlight),
+  a bar shows "N rows and M columns selected", and one confirm deletes the
+  batch: rows leave the working set (counts/exports exclude them, undo from
+  the Steps list) and columns become `drop` steps. Transforms materialise
+  deleted rows before running.
+- **Clean at scale (done 2026-10-07)** — the Clean → Values tab has an
+  "Apply to all columns" toggle that previews and applies the same operation
+  list across every column in one pass.
+- **Transform affordance (done 2026-10-07)** — "Add step" is now a primary
+  (blue) button with a hint line, and "Apply transforms" stays disabled until
+  the staged list differs from what is applied.
 - **Export formats beyond CSV** — the export dialog lists Parquet as planned.
   XLSX write can reuse the existing SheetJS dependency; Parquet needs a lazy
   writer. TSV / JSON Lines are near-free.

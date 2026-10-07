@@ -27,6 +27,8 @@ export interface ResultTableOptions {
   onColumnSpecial: (column: number, kind: ColumnQaKind) => void;
   onMergeSimilar: (column: number) => void;
   onColumnContext: (column: number, x: number, y: number) => void;
+  onToggleColumnDelete: (column: number) => void;
+  onToggleRowDelete: (position: number) => void;
   onRequestRows: (
     start: number,
     end: number,
@@ -48,6 +50,8 @@ export class ResultTable {
   private sortDir: 1 | -1 = 1;
   private highlights: HighlightRule[] = [];
   private columnQa = new Set<string>();
+  private pendingRowDeletes = new Set<number>();
+  private pendingColumnDeletes = new Set<number>();
   private readonly groupStarts = new Set<number>();
   private readonly rowFlags = new Map<number, number>();
   private readonly cache = new Map<number, string[]>();
@@ -141,6 +145,14 @@ export class ResultTable {
   setColumnQa(active: ReadonlySet<string>): void {
     this.columnQa = new Set(active);
     this.renderHeader();
+  }
+
+  /** Marks rows and columns staged for deletion (red × state). */
+  setPendingDeletes(rows: ReadonlySet<number>, columns: ReadonlySet<number>): void {
+    this.pendingRowDeletes = new Set(rows);
+    this.pendingColumnDeletes = new Set(columns);
+    this.renderHeader();
+    this.invalidateRows();
   }
 
   invalidateRows(): void {
@@ -262,6 +274,18 @@ export class ResultTable {
         this.applyWidths();
       });
 
+      const del = el(
+        "button",
+        { class: "del-btn", type: "button", title: `Delete column “${name}”…` },
+        ["×"],
+      );
+      del.classList.toggle("active", this.pendingColumnDeletes.has(index));
+      del.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.options.onToggleColumnDelete(index);
+      });
+      cell.classList.toggle("col-pending", this.pendingColumnDeletes.has(index));
+
       const typeSelect = el("select", {
         class: "th-type",
         title: `Column ${index + 1} type — change to re-interpret this column`,
@@ -276,7 +300,7 @@ export class ResultTable {
         this.options.onTypeChange(index, typeSelect.value as ColumnType);
       });
 
-      top.append(number, label, grip);
+      top.append(number, label, grip, del);
       cell.append(qa, top, typeSelect);
       cell.addEventListener("contextmenu", (event) => {
         event.preventDefault();
@@ -419,7 +443,22 @@ export class ResultTable {
     if (row === undefined) tr.classList.add("skeleton");
     if (this.groupStarts.has(index)) tr.classList.add("group-start");
     if (((this.rowFlags.get(index) ?? 0) & 1) !== 0) tr.classList.add("dup-row");
-    tr.append(el("div", { class: "td row-index" }, [String(index + 1)]));
+    if (this.pendingRowDeletes.has(index)) tr.classList.add("row-pending");
+
+    const indexCell = el("div", { class: "td row-index" });
+    const del = el(
+      "button",
+      { class: "del-btn", type: "button", title: "Delete this row…" },
+      ["×"],
+    );
+    del.classList.toggle("active", this.pendingRowDeletes.has(index));
+    del.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.options.onToggleRowDelete(index);
+    });
+    indexCell.append(del, el("span", { class: "row-number" }, [String(index + 1)]));
+    tr.append(indexCell);
+
     for (let c = 0; c < this.columns.length; c++) {
       const cell = el("div", { class: "td" });
       if (row !== undefined) this.fillCell(cell, row[c] ?? "", c);

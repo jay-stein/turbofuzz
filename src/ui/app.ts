@@ -247,6 +247,11 @@ export class App {
   private summaryBand: SummaryBand | null = null;
   private readonly specials = new Set<SpecialKind>();
   private readonly columnSpecials = new Map<number, Set<ColumnQaKind>>();
+  private readonly pendingRowDeletes = new Set<number>();
+  private readonly pendingColumnDeletes = new Set<number>();
+  private excludedRowCount = 0;
+  private deleteBar!: HTMLElement;
+  private deleteBarText!: HTMLElement;
   private shuffleButton!: HTMLButtonElement;
   private shuffleCount!: HTMLInputElement;
   private shuffleActive = false;
@@ -549,8 +554,18 @@ export class App {
       this.exportButton,
     );
 
+    this.deleteBar = el("div", { class: "delete-bar hidden" });
+    this.deleteBarText = el("span", { class: "delete-bar-text" });
+    const deleteConfirm = el("button", { class: "ghost small danger", type: "button" }, [
+      "Delete selected",
+    ]);
+    deleteConfirm.addEventListener("click", () => void this.confirmDeletes());
+    const deleteCancel = el("button", { class: "link", type: "button" }, ["Cancel"]);
+    deleteCancel.addEventListener("click", () => this.clearPendingDeletes());
+    this.deleteBar.append(this.deleteBarText, el("span", { class: "grow" }), deleteCancel, deleteConfirm);
+
     this.bannerEl = el("div", { class: "banner hidden" });
-    resultsBar.append(resultsRow, this.bannerEl);
+    resultsBar.append(resultsRow, this.deleteBar, this.bannerEl);
     this.tableHost = el("div", { class: "table-host" });
     results.append(resultsBar, this.tableHost);
 
@@ -1041,6 +1056,8 @@ export class App {
     }
     this.specials.clear();
     this.columnSpecials.clear();
+    this.excludedRowCount = 0;
+    this.clearPendingDeletes();
     this.shuffleActive = false;
     this.updateStepsButton();
     this.summaryBand = new SummaryBand(this.summaryHost, {
@@ -1075,6 +1092,8 @@ export class App {
       onColumnSpecial: (column, kind) => this.toggleColumnSpecial(column, kind),
       onMergeSimilar: (column) => this.openMerge(column),
       onColumnContext: (column, x, y) => this.openColumnMenu(column, x, y),
+      onToggleColumnDelete: (column) => this.toggleColumnDelete(column),
+      onToggleRowDelete: (position) => this.toggleRowDelete(position),
       onRequestRows: (start, end, done) => {
         void this.client
           .getRows(start, end)
@@ -1134,6 +1153,95 @@ export class App {
       for (const kind of kinds) active.add(`${column}:${kind}`);
     }
     this.table?.setColumnQa(active);
+  }
+
+  private toggleRowDelete(position: number): void {
+    if (this.pendingRowDeletes.has(position)) this.pendingRowDeletes.delete(position);
+    else this.pendingRowDeletes.add(position);
+    this.syncPendingDeletes();
+  }
+
+  private toggleColumnDelete(column: number): void {
+    if (this.pendingColumnDeletes.has(column)) this.pendingColumnDeletes.delete(column);
+    else this.pendingColumnDeletes.add(column);
+    this.syncPendingDeletes();
+  }
+
+  private clearPendingDeletes(): void {
+    this.pendingRowDeletes.clear();
+    this.pendingColumnDeletes.clear();
+    this.syncPendingDeletes();
+  }
+
+  private syncPendingDeletes(): void {
+    this.table?.setPendingDeletes(this.pendingRowDeletes, this.pendingColumnDeletes);
+    const labels: string[] = [];
+    const rows = this.pendingRowDeletes.size;
+    const columns = this.pendingColumnDeletes.size;
+    if (rows > 0) labels.push(`${rows.toLocaleString()} row${rows === 1 ? "" : "s"}`);
+    if (columns > 0) labels.push(`${columns.toLocaleString()} column${columns === 1 ? "" : "s"}`);
+    this.deleteBarText.textContent =
+      labels.length === 0 ? "" : `${labels.join(" and ")} selected for deletion`;
+    this.deleteBar.classList.toggle("hidden", labels.length === 0);
+  }
+
+  private async confirmDeletes(): Promise<void> {
+    const positions = [...this.pendingRowDeletes];
+    const columns = [...this.pendingColumnDeletes].sort((a, b) => b - a);
+    if (positions.length === 0 && columns.length === 0) return;
+
+    const labels: string[] = [];
+    if (positions.length > 0) {
+      labels.push(`${positions.length} row${positions.length === 1 ? "" : "s"}`);
+    }
+    if (columns.length > 0) {
+      labels.push(`${columns.length} column${columns.length === 1 ? "" : "s"}`);
+    }
+    const confirmed = await openConfirm({
+      title: `Delete ${labels.join(" and ")}?`,
+      body:
+        positions.length > 0
+          ? "Rows are removed from the working set — counts and exports exclude them, and the deletion is undoable from the Steps list. Columns are removed as tracked transform steps."
+          : "Columns are removed as tracked transform steps, undoable from the Steps list.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!confirmed) return;
+    this.clearPendingDeletes();
+
+    if (positions.length > 0) {
+      try {
+        const message = await this.client.dropRows(positions);
+        this.excludedRowCount += positions.length;
+        this.updateCount(message.count, message.queryMs);
+        this.filterPanel?.applyResults(message.facets, message.histograms);
+        this.table?.setCount(message.count);
+        this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+        this.updateStepsButton();
+      } catch (error) {
+        this.showError(error);
+      }
+    }
+    if (columns.length > 0) {
+      this.applyTransform([
+        ...this.transformOps,
+        ...columns.map((column) => ({ kind: "drop" as const, column })),
+      ]);
+    }
+  }
+
+  private async restoreExcludedRows(): Promise<void> {
+    try {
+      const message = await this.client.clearExcludedRows();
+      this.excludedRowCount = 0;
+      this.updateCount(message.count, message.queryMs);
+      this.filterPanel?.applyResults(message.facets, message.histograms);
+      this.table?.setCount(message.count);
+      this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+      this.updateStepsButton();
+    } catch (error) {
+      this.showError(error);
+    }
   }
 
   private toggleSpecial(kind: SpecialKind): void {
@@ -1596,15 +1704,21 @@ export class App {
     this.setStage("clean");
     openCleanPanel(this.metas, this.cleanedColumns, {
       onApplyHeaders: (headers) => this.applyHeaderRename(headers),
-      onApplyClean: (column, ops) => this.applyClean([{ column, ops }]),
+      onApplyClean: (updates) => this.applyClean(updates),
       onResetCleans: () =>
         this.applyClean([...this.cleanedColumns.keys()].map((column) => ({ column, ops: [] }))),
       onApplyNullPolicy: (column, extra, keep) => this.applyNullPolicy(column, extra, keep),
       onApplyNullPolicyAll: (extra, keep) => this.applyNullPolicyAll(extra, keep),
-      onPreviewClean: (column, ops) =>
-        this.client
-          .previewClean([{ column, ops }])
-          .then((message) => message.columns[0] ?? null),
+      onPreviewClean: (updates) =>
+        this.client.previewClean(updates).then((message) => {
+          let changed = 0;
+          let total = 0;
+          for (const entry of message.columns) {
+            changed += entry.changed;
+            total += entry.total;
+          }
+          return { changed, total };
+        }),
       onOpenMerge: (column) => this.openMerge(column),
       onClose: () => this.setStage("view"),
     });
@@ -1694,6 +1808,7 @@ export class App {
   private updateStepsButton(): void {
     let count = this.transformOps.length;
     for (const ops of this.cleanedColumns.values()) count += ops.length;
+    if (this.excludedRowCount > 0) count += 1;
     this.stepsButton.textContent = count === 0 ? "Steps" : `Steps (${count})`;
     this.stepsButton.disabled = count === 0;
     this.stepsButton.title =
@@ -1739,6 +1854,17 @@ export class App {
       });
       running = schemaAfter(running, op);
     }
+    if (this.excludedRowCount > 0) {
+      entries.push({
+        kind: "rows",
+        label: `Removed ${this.excludedRowCount.toLocaleString()} row${
+          this.excludedRowCount === 1 ? "" : "s"
+        }`,
+        column: -1,
+        opIndex: 0,
+        groupSize: 1,
+      });
+    }
     return entries;
   }
 
@@ -1756,6 +1882,7 @@ export class App {
         this.applyClean([{ column, ops }]);
       },
       onRemoveLastTransform: () => this.applyTransform(this.transformOps.slice(0, -1)),
+      onRestoreRows: () => void this.restoreExcludedRows(),
       onClearAll: () => {
         if (this.transformOps.length > 0) this.applyTransform([]);
         if (this.cleanedColumns.size > 0) {

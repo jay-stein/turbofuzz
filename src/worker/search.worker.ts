@@ -1,6 +1,6 @@
 import { ColumnData } from "../data/column.js";
 import { computeAnomalies } from "../data/anomalies.js";
-import { buildDataset, rebuildDataset } from "../data/build.js";
+import { buildDataset, datasetFromColumns, rebuildDataset } from "../data/build.js";
 import { applyCleanOps } from "../data/clean-ops.js";
 import type { Dataset } from "../data/dataset.js";
 import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
@@ -14,7 +14,7 @@ import {
 import { isParquetName, readParquetGrid } from "../parse/parquet.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
-import type { BitSet } from "../search/bitset.js";
+import { BitSet } from "../search/bitset.js";
 import { buildRank, orderIds } from "../search/order.js";
 import { clusterSimilar } from "../search/similar.js";
 import {
@@ -27,8 +27,10 @@ import { buildCsv } from "./csv.js";
 import { ingestDataset, type IngestResult } from "./ingest.js";
 import type {
   CleanColumnsRequest,
+  ClearExcludedRowsRequest,
   ColumnDetail,
   ColumnMeta,
+  DropRowsRequest,
   GetRowsRequest,
   GetStatsRequest,
   LoadRequest,
@@ -64,6 +66,9 @@ let duplicateRank: Uint32Array | null = null;
 const specials = new Set<SpecialKind>();
 // Per-column specials (empties/outliers), carried across clean rebuilds too.
 const columnSpecials = new Map<number, Set<ColumnSpecialKind>>();
+// Rows removed via the delete actions, by original dataset row id.
+const excludedIds = new Set<number>();
+let excludedBits: BitSet | null = null;
 const histogramCache = new HistogramCache();
 // Non-destructive clean state: the untouched source column per cleaned column.
 const cleanSource = new Map<number, ColumnData>();
@@ -116,6 +121,12 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "setSpecial":
       handleSetSpecial(message);
+      break;
+    case "dropRows":
+      handleDropRows(message);
+      break;
+    case "clearExcludedRows":
+      handleClearExcludedRows(message);
       break;
     case "shuffle":
       handleShuffle(message);
@@ -194,8 +205,9 @@ function applySpecials(target: QueryEngine): void {
  * active, rows are ordered by content hash so identical rows sit together.
  */
 function computeSortedIds(bits: BitSet): Uint32Array {
-  if (specials.has("duplicates") && rankAsc === null) return orderByDuplicates(bits);
-  return orderIds(bits, rankAsc, sortDir);
+  const usable = withoutExcluded(bits);
+  if (specials.has("duplicates") && rankAsc === null) return orderByDuplicates(usable);
+  return orderIds(usable, rankAsc, sortDir);
 }
 
 function orderByDuplicates(bits: BitSet): Uint32Array {
@@ -329,6 +341,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   duplicateRank = null;
   specials.clear();
   columnSpecials.clear();
+  clearExclusions();
   histogramCache.clear();
   cleanSource.clear();
   nullPolicies.clear();
@@ -606,9 +619,14 @@ function computeFacets(
     const column = dataset.columns[columnIndex];
     if (column.type !== "category" && column.type !== "boolean") continue;
     const categories = column.categories();
-    const base = filters.has(columnIndex)
+    let base = filters.has(columnIndex)
       ? engine.evaluateBits(filters, columnIndex)
       : resultBits;
+    const excluded = excludedRowBits();
+    if (excluded !== null) {
+      base = base.clone();
+      base.andNot(excluded);
+    }
     const counts = new Array<number>(categories.bits.length);
     for (let value = 0; value < categories.bits.length; value++) {
       counts[value] = base.andCount(categories.bits[value]);
@@ -858,11 +876,100 @@ function handleResolveNullsAll(message: ResolveNullsAllRequest): void {
   });
 }
 
+/** Bitmask of deleted rows for the current dataset, built on demand. */
+function excludedRowBits(): BitSet | null {
+  if (excludedIds.size === 0) return null;
+  if (excludedBits === null) {
+    const { dataset: current } = state();
+    excludedBits = new BitSet(current.rowCount);
+    for (const id of excludedIds) excludedBits.set(id);
+  }
+  return excludedBits;
+}
+
+function clearExclusions(): void {
+  excludedIds.clear();
+  excludedBits = null;
+}
+
+/** Result bits with deleted rows removed; never mutates the input. */
+function withoutExcluded(bits: BitSet): BitSet {
+  const excluded = excludedRowBits();
+  if (excluded === null) return bits;
+  const out = bits.clone();
+  out.andNot(excluded);
+  return out;
+}
+
+/** A copy of the dataset with deleted rows physically removed. */
+function datasetWithoutExcluded(current: Dataset): Dataset {
+  const keep: number[] = [];
+  for (let row = 0; row < current.rowCount; row++) {
+    if (!excludedIds.has(row)) keep.push(row);
+  }
+  const columns = current.columns.map((column) => {
+    const raw = keep.map((row) => column.raw[row]);
+    return ColumnData.create(column.name, raw, column.nullPolicy);
+  });
+  return datasetFromColumns(current.name, columns);
+}
+
+/** Deleted rows become permanent when a transform pipeline is first applied. */
+function materializeExcluded(current: Dataset): Dataset {
+  if (excludedIds.size === 0) return current;
+  const next = datasetWithoutExcluded(current);
+  clearExclusions();
+  return next;
+}
+
+function handleDropRows(message: DropRowsRequest): void {
+  const { dataset, engine } = state();
+  for (const position of message.positions) {
+    if (position >= 0 && position < sortedIds.length) excludedIds.add(sortedIds[position]);
+  }
+  excludedBits = null;
+
+  const started = performance.now();
+  const bits = engine.evaluateBits(filters);
+  sortedIds = computeSortedIds(bits);
+  post({
+    type: "results",
+    requestId: message.requestId,
+    count: sortedIds.length,
+    queryMs: performance.now() - started,
+    facets: computeFacets(dataset, engine, bits),
+    histograms: computeHistograms(dataset, engine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+  });
+}
+
+function handleClearExcludedRows(message: ClearExcludedRowsRequest): void {
+  const { dataset, engine } = state();
+  clearExclusions();
+
+  const started = performance.now();
+  const bits = engine.evaluateBits(filters);
+  sortedIds = computeSortedIds(bits);
+  post({
+    type: "results",
+    requestId: message.requestId,
+    count: sortedIds.length,
+    queryMs: performance.now() - started,
+    facets: computeFacets(dataset, engine, bits),
+    histograms: computeHistograms(dataset, engine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+  });
+}
+
 /**
  * Applies an ordered transform pipeline to the captured base dataset. The op
  * list is always re-derived from the base, so removing steps is exact and
  * shape-changing transforms rebuild the whole dataset. Starting or changing a
- * transform bakes in any pending cleans.
+ * transform bakes in any pending cleans and deleted rows.
  */
 function handleTransform(message: TransformRequest): void {
   const { dataset: current } = state();
@@ -878,11 +985,17 @@ function handleTransform(message: TransformRequest): void {
     } else {
       next = transformSource;
       transformSource = null;
+      clearExclusions();
     }
     transformOps = [];
     baseColumns = next.columns;
   } else {
-    if (transformSource === null) transformSource = current;
+    if (transformSource === null) {
+      // First transform: deleted rows become permanent before the pipeline runs.
+      transformSource = materializeExcluded(current);
+    } else {
+      clearExclusions();
+    }
     baseColumns = transformSource.columns;
     next = applyTransformOps(transformSource.name, transformSource.columns, message.ops);
     transformOps = message.ops;
@@ -930,7 +1043,8 @@ function handleTransform(message: TransformRequest): void {
  */
 function handlePreviewTransform(message: PreviewTransformRequest): void {
   const { dataset: current } = state();
-  const base = transformSource ?? current;
+  const base =
+    transformSource ?? (excludedIds.size > 0 ? datasetWithoutExcluded(current) : current);
   const next = message.ops.length === 0 ? base : applyTransformOps(base.name, base.columns, message.ops);
   post({
     type: "transformPreview",
@@ -1015,7 +1129,7 @@ function computeHistograms(dataset: Dataset, engine: QueryEngine): Record<number
       continue;
     }
 
-    const baseBits = engine.evaluateBits(filters, columnIndex);
+    const baseBits = withoutExcluded(engine.evaluateBits(filters, columnIndex));
     const bins = filteredHistogram(dataset.columns[columnIndex], baseBits, dataset.rowCount);
     if (bins === null) continue;
     histogramCache.set(columnIndex, signature, bins);

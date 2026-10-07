@@ -20,13 +20,18 @@ export interface CleanPreviewCount {
   total: number;
 }
 
+export interface CleanUpdateRequest {
+  column: number;
+  ops: CleanOp[];
+}
+
 export interface CleanPanelCallbacks {
   onApplyHeaders: (headers: string[]) => void;
-  onApplyClean: (column: number, ops: CleanOp[]) => void;
+  onApplyClean: (updates: CleanUpdateRequest[]) => void;
   onResetCleans: () => void;
   onApplyNullPolicy: (column: number, extra: string[], keep: string[]) => void;
   onApplyNullPolicyAll: (extra: string[], keep: string[]) => void;
-  onPreviewClean: (column: number, ops: CleanOp[]) => Promise<CleanPreviewCount | null>;
+  onPreviewClean: (updates: CleanUpdateRequest[]) => Promise<CleanPreviewCount | null>;
   onOpenMerge: (column: number) => void;
   onClose: () => void;
 }
@@ -225,6 +230,15 @@ function buildValuesTab(
   });
   colField.append(mergeButton);
 
+  const allField = el("label", { class: "control check clean-check" });
+  allField.title = "Apply the same operations to every column";
+  const allColumnsInput = el("input", { type: "checkbox" }) as HTMLInputElement;
+  allField.append(allColumnsInput, "Apply to all columns");
+  allColumnsInput.addEventListener("change", () => {
+    apply.textContent = allColumnsInput.checked ? "Apply to all columns" : "Apply to column";
+    renderPreview();
+  });
+
   const opField = el("label", { class: "clean-field" });
   opField.append(el("span", { class: "clean-label" }, ["Operation"]));
   const opSelect = el("select") as HTMLSelectElement;
@@ -332,6 +346,13 @@ function buildValuesTab(
 
   let previewGeneration = 0;
 
+  function targetUpdates(): CleanUpdateRequest[] {
+    const ops = pending.slice();
+    return allColumnsInput.checked
+      ? metas.map((_, index) => ({ column: index, ops }))
+      : [{ column, ops }];
+  }
+
   function renderPreview(): void {
     const generation = ++previewGeneration;
     const samples = sampleValues();
@@ -361,10 +382,11 @@ function buildValuesTab(
     }
     previewSummary.textContent = baseText;
     void callbacks
-      .onPreviewClean(column, pending.slice())
+      .onPreviewClean(targetUpdates())
       .then((count) => {
         if (generation !== previewGeneration || count === null) return;
-        previewSummary.textContent = `${baseText} · ${count.changed.toLocaleString()} of ${count.total.toLocaleString()} cells change`;
+        const scope = allColumnsInput.checked ? ` across ${metas.length} columns` : "";
+        previewSummary.textContent = `${baseText} · ${count.changed.toLocaleString()} of ${count.total.toLocaleString()} cells change${scope}`;
       })
       .catch(() => {});
   }
@@ -399,7 +421,7 @@ function buildValuesTab(
   footer.append(el("span", { class: "grow" }));
   const apply = el("button", { class: "primary", type: "button" }, ["Apply to column"]);
   apply.addEventListener("click", () => {
-    callbacks.onApplyClean(column, pending.slice());
+    callbacks.onApplyClean(targetUpdates());
     close();
   });
   footer.append(apply);
@@ -411,7 +433,7 @@ function buildValuesTab(
     dateOrderRow,
     addButton,
   ]);
-  wrap.append(colField, builder, opList, previewSummary, preview, footer);
+  wrap.append(colField, allField, builder, opList, previewSummary, preview, footer);
   syncOpType();
   syncDefaults();
   renderOps();

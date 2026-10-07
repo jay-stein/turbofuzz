@@ -51,6 +51,17 @@ test("worker applies per-column specials and reports anomaly counts", async () =
 
   send({ type: "setSpecial", requestId: 4, kind: "nulls", active: true, column: 1 });
   assert.equal((find("results", 4) as unknown as { count: number }).count, 1);
+  send({ type: "setSpecial", requestId: 5, kind: "nulls", active: false, column: 1 });
+
+  // Deleting rows removes them from the working set; clearing restores them.
+  send({ type: "dropRows", requestId: 6, positions: [0, 1] });
+  assert.equal((find("results", 6) as unknown as { count: number }).count, 4);
+  send({ type: "getRows", requestId: 7, start: 0, end: 1 });
+  const afterDrop = find("rows", 7) as unknown as { rows: string[][] };
+  assert.deepEqual(afterDrop.rows[0]?.[0], "3");
+
+  send({ type: "clearExcludedRows", requestId: 8 });
+  assert.equal((find("results", 8) as unknown as { count: number }).count, 6);
 
   // A fresh load exposes per-column anomaly counts in the column metadata.
   const rows: string[][] = [];
@@ -58,13 +69,13 @@ test("worker applies per-column specials and reports anomaly counts", async () =
   rows[39][1] = "1000000";
   send({
     type: "load",
-    requestId: 5,
+    requestId: 9,
     name: "t2",
     delimiter: "auto",
     hasHeaders: true,
     text: ["a,b", ...rows.map((row) => row.join(","))].join("\n"),
   });
-  const loaded = find("loaded", 5) as unknown as {
+  const loaded = find("loaded", 9) as unknown as {
     columns: { anomalyCounts: { values: number; lengths: number } }[];
   };
   assert.equal(loaded.columns[0].anomalyCounts.values, 0);

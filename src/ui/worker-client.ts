@@ -86,6 +86,14 @@ export class SearchWorkerClient {
     return this.request<ResultsMessage>({ type: "setSpecial", kind, active, column });
   }
 
+  dropRows(positions: number[]): Promise<ResultsMessage> {
+    return this.request<ResultsMessage>({ type: "dropRows", positions });
+  }
+
+  clearExcludedRows(): Promise<ResultsMessage> {
+    return this.request<ResultsMessage>({ type: "clearExcludedRows" });
+  }
+
   shuffle(limit?: number): Promise<ShuffledMessage> {
     return this.request<ShuffledMessage>({ type: "shuffle", limit });
   }

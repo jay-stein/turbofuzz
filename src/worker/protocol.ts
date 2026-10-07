@@ -99,6 +99,15 @@ export type SetSpecialRequest = {
   column?: number;
 };
 
+export type DropRowsRequest = {
+  type: "dropRows";
+  requestId: number;
+  /** Positions in the current result order to remove from the working set. */
+  positions: number[];
+};
+
+export type ClearExcludedRowsRequest = { type: "clearExcludedRows"; requestId: number };
+
 export type ShuffleRequest = { type: "shuffle"; requestId: number; limit?: number };
 
 export type SortRequest = {
@@ -201,6 +210,8 @@ export type WorkerRequest =
   | SetFilterRequest
   | ClearFiltersRequest
   | SetSpecialRequest
+  | DropRowsRequest
+  | ClearExcludedRowsRequest
   | ShuffleRequest
   | SortRequest
   | GetRowsRequest
