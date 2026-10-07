@@ -9,7 +9,7 @@ const ROW_HEIGHT = 28;
 const DEFAULT_COL_WIDTH = 180;
 const MIN_COL_WIDTH = 56;
 const MAX_COL_WIDTH = 720;
-const INDEX_WIDTH = 46;
+const INDEX_WIDTH = 64;
 const OVERSCAN = 10;
 const CACHE_LIMIT = 4000;
 

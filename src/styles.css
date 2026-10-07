@@ -1454,7 +1454,7 @@ button:disabled {
   left: 0;
   z-index: 3;
   justify-content: flex-end;
-  padding: 0 8px 0 4px;
+  padding: 0 6px 0 4px;
 }
 
 .th-type {
@@ -1589,48 +1589,51 @@ button:disabled {
   align-items: center;
   justify-content: flex-end;
   gap: 5px;
-  padding: 0 8px 0 3px;
+  padding: 0 6px 0 4px;
   color: var(--text-dim);
   background: var(--panel);
 }
 
 .row-number {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
   font-family: var(--mono);
   font-size: 10.5px;
-  flex: none;
+  overflow: hidden;
 }
 
 .del-btn {
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 700;
   line-height: 1;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-dim);
+  border: 1px solid color-mix(in srgb, var(--danger) 55%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, var(--panel));
+  color: var(--danger);
   cursor: pointer;
-  opacity: 0.35;
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 1px 1px rgb(16 24 40 / 8%);
 }
 
 .del-btn:hover {
-  opacity: 1;
-  color: var(--danger);
+  background: var(--danger);
+  color: #fff;
   border-color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
 .del-btn.active {
-  opacity: 1;
-  color: #fff;
   background: var(--danger);
+  color: #fff;
   border-color: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 30%, transparent);
 }
 
 .tr.row-pending .td {
