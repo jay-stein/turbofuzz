@@ -16,6 +16,7 @@ import type { NumberLocale } from "../parse/numbers.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
 import type { BitSet } from "../search/bitset.js";
 import { buildRank, orderIds } from "../search/order.js";
+import { clusterSimilar } from "../search/similar.js";
 import {
   QueryEngine,
   type ColumnFilter,
@@ -966,9 +967,15 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     column.numbers();
   }
   let categories: ColumnMeta["categories"] = null;
+  let similarGroups = 0;
   if (column.type === "category" || column.type === "boolean") {
     const built = column.categories();
     categories = { labels: built.labels, counts: built.counts };
+    if (column.type === "category") {
+      similarGroups = clusterSimilar(
+        built.labels.map((label, i) => ({ value: label, count: built.counts[i] })),
+      ).length;
+    }
   }
   return {
     name: column.name,
@@ -980,6 +987,7 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
       values: dataset.valueColumnBits[index]?.count() ?? 0,
       lengths: dataset.lengthColumnBits[index]?.count() ?? 0,
     },
+    similarGroups,
     categories,
     histogram: column.histogram(),
     valueFence: dataset.valueFences[index] ?? null,

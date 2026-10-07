@@ -60,6 +60,9 @@ function transformLines(
         lines.push(`df = df.drop_duplicates(keep=${keep})`);
         break;
       }
+      case "drop":
+        lines.push(`df = df.drop(columns=[${py(names[op.column])}])`);
+        break;
       case "round":
         lines.push(`${target(names[op.column])} = ${target(names[op.column])}.round(${op.decimals})`);
         break;

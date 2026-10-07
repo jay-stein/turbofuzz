@@ -35,6 +35,7 @@ import { openStatsModal } from "./stats.js";
 import { ResultTable, type ColumnQaKind, type HighlightRule } from "./table.js";
 import { SearchWorkerClient } from "./worker-client.js";
 import { openCleanPanel } from "./clean-panel.js";
+import { openConfirm } from "./dialog.js";
 import { openExportPanel } from "./export-panel.js";
 import { openMergePanel } from "./merge-panel.js";
 import { openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
@@ -1072,6 +1073,8 @@ export class App {
       onSort: (column, dir) => this.changeSort(column, dir),
       onTypeChange: (column, type) => this.changeType(column, type),
       onColumnSpecial: (column, kind) => this.toggleColumnSpecial(column, kind),
+      onMergeSimilar: (column) => this.openMerge(column),
+      onColumnContext: (column, x, y) => this.openColumnMenu(column, x, y),
       onRequestRows: (start, end, done) => {
         void this.client
           .getRows(start, end)
@@ -1617,6 +1620,75 @@ export class App {
       },
       onClose: () => this.setStage("view"),
     });
+  }
+
+  /** Right-click column menu: quick actions without leaving the table. */
+  private openColumnMenu(column: number, x: number, y: number): void {
+    const meta = this.metas[column];
+    if (meta === undefined) return;
+
+    const menu = el("div", { class: "context-menu", role: "menu" });
+    let closed = false;
+    const close = (): void => {
+      if (closed) return;
+      closed = true;
+      menu.remove();
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!menu.contains(event.target as Node)) close();
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") close();
+    };
+
+    const addItem = (
+      label: string,
+      action: () => void,
+      options: { danger?: boolean } = {},
+    ): void => {
+      const item = el(
+        "button",
+        {
+          class: `context-item${options.danger === true ? " danger" : ""}`,
+          type: "button",
+          role: "menuitem",
+        },
+        [label],
+      ) as HTMLButtonElement;
+      item.addEventListener("click", () => {
+        close();
+        action();
+      });
+      menu.append(item);
+    };
+
+    addItem("Filter this column", () => this.filterPanel?.focusColumn(column));
+    if (meta.type === "category") {
+      addItem("Merge similar values…", () => this.openMerge(column));
+    }
+    addItem("Delete column…", () => void this.confirmDeleteColumn(column), { danger: true });
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    document.body.append(menu);
+    menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8))}px`;
+  }
+
+  private async confirmDeleteColumn(column: number): Promise<void> {
+    const meta = this.metas[column];
+    if (meta === undefined) return;
+    const confirmed = await openConfirm({
+      title: `Delete column “${meta.name}”?`,
+      body:
+        "The column is removed from the dataset as a tracked transform step — you can undo it from the Steps list.",
+      confirmLabel: "Delete column",
+      danger: true,
+    });
+    if (!confirmed) return;
+    this.applyTransform([...this.transformOps, { kind: "drop", column }]);
   }
 
   private updateStepsButton(): void {

@@ -1385,6 +1385,63 @@ button:disabled {
   min-width: 0;
 }
 
+.th-qa {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 5px 6px 2px;
+  min-height: 20px;
+}
+
+.th-qa-chip {
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 1.4;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  opacity: 0.75;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.th-qa-chip.warn {
+  color: var(--qa-warn-text);
+  background: var(--qa-warn-soft);
+  border-color: var(--qa-warn-border);
+  opacity: 1;
+}
+
+.th-qa-chip.warn:hover {
+  border-color: var(--qa-warn);
+}
+
+.th-qa-chip.merge {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.th-qa-chip.ok,
+.th-qa-chip:disabled {
+  cursor: default;
+}
+
+.th-qa-chip.active {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  opacity: 1;
+}
+
+.th-qa-chip.flag {
+  cursor: default;
+}
+
 .th.row-index-head {
   flex-direction: row;
   align-items: center;
@@ -1806,6 +1863,63 @@ mark {
 
 .export-modal {
   width: min(460px, 100%);
+}
+
+.confirm-modal {
+  width: min(420px, 100%);
+}
+
+.confirm-body {
+  margin: 0 0 14px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.primary.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.primary.danger:hover {
+  filter: brightness(1.08);
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 190px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+}
+
+.context-item {
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.context-item:hover {
+  background: var(--panel-2);
+}
+
+.context-item.danger {
+  color: var(--danger);
+}
+
+.context-item.danger:hover {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
 .merge-list {

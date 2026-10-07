@@ -19,6 +19,7 @@ export type ImputeStrategy =
 
 export type TransformOp =
   | { kind: "dedupe"; keep: DedupeKeep }
+  | { kind: "drop"; column: number }
   | { kind: "round"; column: number; decimals: number }
   | { kind: "groupBy"; dimension: number; measure: number | null; aggregate: Aggregate }
   | { kind: "impute"; column: number; strategy: ImputeStrategy; groupColumn: number | null }
@@ -76,6 +77,9 @@ export function applyTransformOps(
     switch (op.kind) {
       case "dedupe":
         current = dedupeColumns(current, op.keep);
+        break;
+      case "drop":
+        current = current.filter((_, index) => index !== op.column);
         break;
       case "round":
         current = roundColumn(current, op);
@@ -487,6 +491,10 @@ export function describeTransformOp(op: TransformOp, headers: readonly string[])
   switch (op.kind) {
     case "dedupe":
       return DEDUPE_LABELS[op.keep];
+    case "drop": {
+      const name = headers[op.column] ?? `#${op.column + 1}`;
+      return `Drop column ${name}`;
+    }
     case "round": {
       const name = headers[op.column] ?? `#${op.column + 1}`;
       return `Round ${name} to ${op.decimals} decimal place${op.decimals === 1 ? "" : "s"}`;
@@ -522,6 +530,9 @@ export function describeTransformOp(op: TransformOp, headers: readonly string[])
 export function schemaAfter(schema: readonly ColumnSchema[], op: TransformOp): ColumnSchema[] {
   switch (op.kind) {
     case "dedupe":
+      return schema.slice();
+    case "drop":
+      return schema.filter((_, index) => index !== op.column);
     case "round":
     case "impute":
     case "knn":

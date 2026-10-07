@@ -44,6 +44,19 @@ test("generates pandas lines for transforms with schema tracking", () => {
   assert.match(recipe, /value_vars=\["Sum\(sales\)"\]/);
 });
 
+test("generates a pandas drop line for dropped columns", () => {
+  const recipe = pandasRecipe({
+    cleans: [],
+    transforms: [{ kind: "drop", column: 1 }],
+    schema: [
+      { name: "region", numeric: false },
+      { name: "sales", numeric: true },
+      { name: "note", numeric: false },
+    ],
+  });
+  assert.match(recipe, /df = df\.drop\(columns=\["sales"\]\)/);
+});
+
 test("emits a comment for knn imputation", () => {
   const recipe = pandasRecipe({
     cleans: [],

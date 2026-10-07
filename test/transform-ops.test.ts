@@ -36,6 +36,28 @@ test("dedupe removes every copy of a duplicated row", () => {
   assert.deepEqual(out.columns[0].raw, ["b", "c"]);
 });
 
+test("drop removes a column and shifts later indexes", () => {
+  const ds = buildDataset("t", ["a", "b", "c"], [
+    ["1", "2", "3"],
+    ["4", "5", "6"],
+  ]);
+  const out = applyTransformOps("t", ds.columns, [{ kind: "drop", column: 1 }]);
+  assert.deepEqual(out.columns.map((column) => column.name), ["a", "c"]);
+  assert.deepEqual(out.columns[1].raw, ["3", "6"]);
+  assert.equal(describeTransformOp({ kind: "drop", column: 1 }, ["a", "b", "c"]), "Drop column b");
+  assert.deepEqual(
+    schemaAfter(
+      [
+        { name: "a", numeric: false },
+        { name: "b", numeric: true },
+        { name: "c", numeric: true },
+      ],
+      { kind: "drop", column: 0 },
+    ).map((entry) => entry.name),
+    ["b", "c"],
+  );
+});
+
 test("round with positive decimals keeps fixed precision and leaves text alone", () => {
   const ds = buildDataset("t", ["v"], [["1.2345"], ["2"], ["abc"]]);
   const out = applyTransformOps("t", ds.columns, [{ kind: "round", column: 0, decimals: 2 }]);

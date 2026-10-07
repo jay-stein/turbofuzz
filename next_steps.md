@@ -358,13 +358,15 @@ and Transform, and it reuses the exact patterns the codebase already establishes
 ## 8. Follow-ups logged 2026-10-07 (UX backlog session)
 
 - **Per-column QA is now inline** — empties / value outliers / length outliers
-  moved from the Data QA box to clickable chips above each column header
-  (amber when present, muted when clean); a `1 value` flag marks constant
-  columns. Duplicates stays in the Data QA box.
-- **Direct column actions from the header** — quick transforms on a column
-  (including deleting the whole column) without opening Clean/Transform.
-  Deleting must confirm ("Are you sure?") and should be a tracked, undoable
-  step so the steps list can restore it; needs a `drop` transform op.
+  moved from the Data QA box to clickable text chips above each column header
+  (amber when present, muted when clean, click filters that column's rows);
+  a `constant value` flag marks single-value columns, and a `N mergeable` chip
+  opens the fuzzy merge panel. Duplicates stays in the Data QA box.
+- **Header right-click menu (done 2026-10-07)** — filter this column, merge
+  similar values (categories), delete column with an "Are you sure?" confirm.
+  Delete is a tracked `drop` transform step, undoable from the Steps list.
+  Future: more direct ops from here (trim/case/round/convert) without opening
+  the Clean or Transform panels.
 - **Export formats beyond CSV** — the export dialog lists Parquet as planned.
   XLSX write can reuse the existing SheetJS dependency; Parquet needs a lazy
   writer. TSV / JSON Lines are near-free.

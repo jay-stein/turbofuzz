@@ -24,6 +24,8 @@ export interface ColumnMeta {
   dateOrder: DateOrder;
   stats: ColumnStats;
   anomalyCounts: { values: number; lengths: number };
+  /** Category columns: number of near-duplicate value clusters we can merge. */
+  similarGroups: number;
   categories: CategoryMeta | null;
   histogram: HistogramMeta | null;
   valueFence: ValueFence | null;

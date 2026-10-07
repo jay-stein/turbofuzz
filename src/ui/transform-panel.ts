@@ -28,6 +28,7 @@ export interface TransformPanelCallbacks {
 
 const TRANSFORM_TYPES: readonly { value: string; label: string }[] = [
   { value: "dedupe", label: "Remove duplicate rows" },
+  { value: "drop", label: "Drop a column" },
   { value: "round", label: "Round a column" },
   { value: "groupBy", label: "Group by & aggregate" },
   { value: "impute", label: "Fill missing values" },
@@ -195,6 +196,12 @@ export function openTransformPanel(
           const keepSelect = selectOf(DEDUPE_KEEPS);
           inputHost.append(field("Keep", keepSelect));
           readOp = () => ({ kind: "dedupe", keep: keepSelect.value as DedupeKeep });
+          break;
+        }
+        case "drop": {
+          const columnSelect = selectOf(indexed(schema));
+          inputHost.append(field("Column", columnSelect));
+          readOp = () => ({ kind: "drop", column: Number(columnSelect.value) });
           break;
         }
         case "round": {

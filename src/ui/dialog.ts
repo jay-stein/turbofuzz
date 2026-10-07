@@ -1,3 +1,5 @@
+import { el } from "./dom.js";
+
 /**
  * Minimal modal semantics for the drawer panels: dialog role, accessible
  * name, initial focus, a Tab focus trap and focus restoration on close.
@@ -46,4 +48,60 @@ export function setupDialog(overlay: HTMLElement, label: string): void {
     previous?.focus();
   });
   observer.observe(document.body, { childList: true });
+}
+
+export interface ConfirmOptions {
+  title: string;
+  body: string;
+  confirmLabel?: string;
+  danger?: boolean;
+}
+
+/** Small yes/no dialog; resolves true only when the action is confirmed. */
+export function openConfirm(options: ConfirmOptions): Promise<boolean> {
+  return new Promise((resolve) => {
+    const overlay = el("div", { class: "modal-overlay" });
+    const modal = el("div", { class: "modal confirm-modal" });
+
+    const head = el("div", { class: "modal-head" });
+    head.append(el("h2", {}, [options.title]));
+    const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close" }, ["×"]);
+    head.append(closeButton);
+    modal.append(head);
+
+    modal.append(el("p", { class: "confirm-body" }, [options.body]));
+
+    const footer = el("div", { class: "clean-footer" });
+    const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
+    const confirm = el(
+      "button",
+      { class: `primary${options.danger === true ? " danger" : ""}`, type: "button" },
+      [options.confirmLabel ?? "Confirm"],
+    );
+    footer.append(cancel, el("span", { class: "grow" }), confirm);
+    modal.append(footer);
+
+    let settled = false;
+    const finish = (value: boolean): void => {
+      if (settled) return;
+      settled = true;
+      overlay.remove();
+      document.removeEventListener("keydown", onKey);
+      resolve(value);
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") finish(false);
+    };
+    closeButton.addEventListener("click", () => finish(false));
+    cancel.addEventListener("click", () => finish(false));
+    confirm.addEventListener("click", () => finish(true));
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) finish(false);
+    });
+    document.addEventListener("keydown", onKey);
+
+    overlay.append(modal);
+    document.body.append(overlay);
+    setupDialog(overlay, options.title);
+  });
 }

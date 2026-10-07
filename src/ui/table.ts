@@ -25,6 +25,8 @@ export interface ResultTableOptions {
   onSort: (column: number, dir: 1 | -1 | 0) => void;
   onTypeChange: (column: number, type: ColumnType) => void;
   onColumnSpecial: (column: number, kind: ColumnQaKind) => void;
+  onMergeSimilar: (column: number) => void;
+  onColumnContext: (column: number, x: number, y: number) => void;
   onRequestRows: (
     start: number,
     end: number,
@@ -276,34 +278,48 @@ export class ResultTable {
 
       top.append(number, label, grip);
       cell.append(qa, top, typeSelect);
+      cell.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        this.options.onColumnContext(index, event.clientX, event.clientY);
+      });
       this.header.append(cell);
     });
   }
 
   /**
-   * Per-column QA indicators above the column name: emptied cells, value
-   * outliers and overlong values, amber when present and muted when clean.
-   * Clicking one filters the table to that column's flagged rows.
+   * Per-column QA indicators above the column name: empty cells, value
+   * outliers, long values, mergeable near-duplicates and constant-value
+   * flags. Amber when there is something to act on, muted when clean;
+   * clicking a count filters the table to that column's flagged rows.
    */
   private buildQaRow(column: ColumnMeta, index: number): HTMLElement {
     const row = el("div", { class: "th-qa" });
     row.append(
-      this.qaChip(column, index, "nulls", column.stats.nulls, "∅", {
-        plural: "empty cells",
-        empty: "No empty cells",
-        hint: "show rows where this column is empty",
-      }),
-      this.qaChip(column, index, "valueAnomalies", column.anomalyCounts.values, "±", {
-        plural: "value outliers",
-        empty: "No value outliers",
-        hint: "show this column's value outliers",
-      }),
-      this.qaChip(column, index, "lengthAnomalies", column.anomalyCounts.lengths, "…", {
-        plural: "length outliers",
-        empty: "No length outliers",
-        hint: "show this column's overlong values",
-      }),
+      this.qaChip(column, index, "nulls", column.stats.nulls, {
+        one: "empty cell",
+        many: "empty cells",
+      }, "click to show rows where this column is empty"),
+      this.qaChip(column, index, "valueAnomalies", column.anomalyCounts.values, {
+        one: "value outlier",
+        many: "value outliers",
+      }, "click to show this column's value outliers"),
+      this.qaChip(column, index, "lengthAnomalies", column.anomalyCounts.lengths, {
+        one: "long value",
+        many: "long values",
+      }, "click to show this column's overlong values"),
     );
+    if (column.similarGroups > 0) {
+      const merge = el(
+        "button",
+        { class: "th-qa-chip warn merge", type: "button" },
+        [`${column.similarGroups.toLocaleString()} mergeable`],
+      ) as HTMLButtonElement;
+      merge.title = `${column.similarGroups.toLocaleString()} group${
+        column.similarGroups === 1 ? "" : "s"
+      } of near-identical values in “${column.name}” — click to merge them`;
+      merge.addEventListener("click", () => this.options.onMergeSimilar(index));
+      row.append(merge);
+    }
     if (column.stats.distinct === 1) {
       row.append(
         el(
@@ -312,7 +328,7 @@ export class ResultTable {
             class: "th-qa-chip warn flag",
             title: `Every non-empty row in “${column.name}” has the same value — this column carries little information and may be droppable`,
           },
-          ["1 value"],
+          ["constant value"],
         ),
       );
     }
@@ -324,25 +340,23 @@ export class ResultTable {
     index: number,
     kind: ColumnQaKind,
     count: number,
-    glyph: string,
-    copy: { plural: string; empty: string; hint: string },
+    noun: { one: string; many: string },
+    hint: string,
   ): HTMLButtonElement {
     const active = this.columnQa.has(`${index}:${kind}`);
-    const chip = el(
-      "button",
-      { class: "th-qa-chip", type: "button" },
-      [count > 0 ? `${glyph} ${count.toLocaleString()}` : glyph],
-    ) as HTMLButtonElement;
+    const text =
+      count > 0
+        ? `${count.toLocaleString()} ${count === 1 ? noun.one : noun.many}`
+        : `no ${noun.many}`;
+    const chip = el("button", { class: "th-qa-chip", type: "button" }, [text]) as HTMLButtonElement;
     chip.classList.toggle("warn", count > 0);
     chip.classList.toggle("ok", count === 0);
     chip.classList.toggle("active", active);
     chip.disabled = count === 0;
     chip.title =
       count > 0
-        ? `${count.toLocaleString()} ${copy.plural} in “${column.name}” — ${
-            active ? "click to clear" : copy.hint
-          }`
-        : `${copy.empty} in “${column.name}”`;
+        ? `${text} in “${column.name}” — ${active ? "click to clear" : hint}`
+        : `${text} in “${column.name}”`;
     chip.addEventListener("click", () => this.options.onColumnSpecial(index, kind));
     return chip;
   }
