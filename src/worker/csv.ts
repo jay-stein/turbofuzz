@@ -1,5 +1,6 @@
 import type { ColumnData } from "../data/column.js";
 import type { Dataset } from "../data/dataset.js";
+import { escapeFormula } from "../data/formula.js";
 import { toDateInputValue } from "../parse/dates.js";
 import type { ExportOptions } from "./protocol.js";
 
@@ -49,6 +50,7 @@ export function buildCsv(
 ): string {
   const columns = dataset.columns;
   const nullAsBlank = options.nullAsBlank ?? true;
+  const escapeFormulas = options.escapeFormulas ?? false;
   const lines: string[] = [];
 
   if (includeHeader) {
@@ -61,7 +63,8 @@ export function buildCsv(
     const row = ids[i];
     const cells: string[] = new Array(columns.length);
     for (let c = 0; c < columns.length; c++) {
-      cells[c] = csvEscape(exportCell(columns[c], row, nullAsBlank));
+      const value = exportCell(columns[c], row, nullAsBlank);
+      cells[c] = csvEscape(escapeFormulas ? escapeFormula(value) : value);
     }
     lines.push(cells.join(","));
   }

@@ -45,6 +45,8 @@ function cleanLines(name: string, ops: readonly CleanOp[]): string[] {
           return `${column} = ${column}.astype(str).str.replace(r"^([+-]?\\d{1,3}(?:\\.\\d{3})*),(\\d{1,2})$", r"\\1.\\2", regex=True)`;
         }
         return `${column} = ${column}.astype(str).str.replace(r"^([+-]?\\d{1,3}(?:,\\d{3})*)\\.(\\d{1,2})$", r"\\1,\\2", regex=True)`;
+      case "escapeFormulas":
+        return `# escape leading =, @, + or - so spreadsheet apps treat the cell as text`;
       case "toDate":
         return `${column} = pd.to_datetime(${column}, dayfirst=${op.order === "dmy" ? "True" : "False"}, errors="coerce")`;
     }

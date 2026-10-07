@@ -1,4 +1,5 @@
 import { detectDateOrder, parseDate } from "../parse/dates.js";
+import { looksLikeFormula } from "./formula.js";
 import { stratifiedSample } from "../parse/infer.js";
 import { detectDecimalStyle, parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { isNullWithPolicy, EMPTY_NULL_POLICY, type NullPolicy } from "../parse/null-tokens.js";
@@ -8,7 +9,9 @@ export type ColumnSuggestion =
   | { kind: "boolean"; truthy: string[]; falsy: string[] }
   | { kind: "number"; locale: NumberLocale; ratio: number; hasSymbol: boolean }
   | { kind: "date"; ratio: number; sampled: number }
-  | { kind: "mixedNumber"; locale: NumberLocale; count: number; ratio: number; sampled: number };
+  | { kind: "mixedNumber"; locale: NumberLocale; count: number; ratio: number; sampled: number }
+  | { kind: "typeConflict"; count: number; sampled: number; example: string; columnType: string }
+  | { kind: "formula"; count: number; ratio: number; sampled: number; example: string };
 
 const TRUTHY = new Set(["y", "yes", "t", "true"]);
 const FALSY = new Set(["n", "no", "f", "false"]);
@@ -20,6 +23,10 @@ const NUMBER_MIN_RATIO = 0.8;
 const DATE_MIN_RATIO = 0.8;
 const MIXED_MIN_COUNT = 5;
 const MIXED_MIN_RATIO = 0.005;
+const TYPE_CONFLICT_MIN_COUNT = 5;
+const TYPE_CONFLICT_MIN_RATIO = 0.01;
+const FORMULA_MIN_COUNT = 5;
+const FORMULA_MIN_RATIO = 0.01;
 const SYMBOL = /[$€£¥%]/;
 // Known placeholder words and all-zero date shapes that are not in the global
 // null-token list, so they arrive as suggestions instead of silent nulls.
@@ -42,6 +49,10 @@ export function suggestionLabel(suggestion: ColumnSuggestion): string {
       return `Repair ${suggestion.count.toLocaleString()} ${
         suggestion.locale === "dot" ? "decimal-comma" : "decimal-point"
       } values`;
+    case "typeConflict":
+      return `Treat as text (${suggestion.count.toLocaleString()} don't parse)`;
+    case "formula":
+      return `Escape ${suggestion.count.toLocaleString()} formula-like cells`;
   }
 }
 
@@ -60,6 +71,10 @@ export function describeSuggestion(suggestion: ColumnSuggestion): string {
       return suggestion.locale === "dot"
         ? `${suggestion.count.toLocaleString()} of ${suggestion.sampled.toLocaleString()} sampled values look like decimal comma (e.g. 613,26) while this column reads 1,234.56 — they are currently parsed as thousands. Click to rewrite just those values.`
         : `${suggestion.count.toLocaleString()} of ${suggestion.sampled.toLocaleString()} sampled values look like decimal point (e.g. 613.26) while this column reads 1.234,56 — they are currently parsed as thousands. Click to rewrite just those values.`;
+    case "typeConflict":
+      return `${suggestion.count.toLocaleString()} of ${suggestion.sampled.toLocaleString()} sampled cells don't parse as ${suggestion.columnType} (e.g. “${suggestion.example}”). Values are kept visible; click to treat the column as text instead of coercing.`;
+    case "formula":
+      return `${suggestion.count.toLocaleString()} of ${suggestion.sampled.toLocaleString()} sampled cells start like a spreadsheet formula (e.g. “${suggestion.example}”). Click to prefix them with ' so Excel and Sheets import them as text. Exports can also escape them on the fly.`;
   }
 }
 
@@ -162,17 +177,61 @@ export function detectSuggestions(
   // 1,234.56 column). Those values currently parse as thousands.
   if (type === "integer" || type === "number") {
     const other: NumberLocale = locale === "dot" ? "comma" : "dot";
-    let count = 0;
+    let otherStyle = 0;
+    let unparsed = 0;
+    let example = "";
     for (const value of nonNull) {
-      if (detectDecimalStyle(value) === other) count++;
+      if (detectDecimalStyle(value) === other) otherStyle++;
+      if (!Number.isFinite(parseNumber(value, locale))) {
+        unparsed++;
+        if (example === "") example = value;
+      }
     }
-    if (count >= MIXED_MIN_COUNT && count / nonNull.length >= MIXED_MIN_RATIO) {
+    if (otherStyle >= MIXED_MIN_COUNT && otherStyle / nonNull.length >= MIXED_MIN_RATIO) {
       suggestions.push({
         kind: "mixedNumber",
         locale,
-        count,
-        ratio: count / nonNull.length,
+        count: otherStyle,
+        ratio: otherStyle / nonNull.length,
         sampled: nonNull.length,
+      });
+    }
+    // Type conflict: repeated values that do not parse as the column's type
+    // (e.g. "high" inside an integer column). Never silently coerced; the
+    // click switches the column to text so every value stays visible.
+    if (
+      unparsed >= TYPE_CONFLICT_MIN_COUNT &&
+      unparsed / nonNull.length >= TYPE_CONFLICT_MIN_RATIO
+    ) {
+      suggestions.push({
+        kind: "typeConflict",
+        count: unparsed,
+        sampled: nonNull.length,
+        example,
+        columnType: type,
+      });
+    }
+  }
+
+  // Formula-like cells: only text-ish columns export raw values, so a cell
+  // starting with = or @ (or a signed expression) can execute on paste/import
+  // into Excel or Sheets.
+  if (type === "string" || type === "category") {
+    let formulas = 0;
+    let example = "";
+    for (const value of nonNull) {
+      if (looksLikeFormula(value)) {
+        formulas++;
+        if (example === "") example = value;
+      }
+    }
+    if (formulas >= FORMULA_MIN_COUNT && formulas / nonNull.length >= FORMULA_MIN_RATIO) {
+      suggestions.push({
+        kind: "formula",
+        count: formulas,
+        ratio: formulas / nonNull.length,
+        sampled: nonNull.length,
+        example,
       });
     }
   }

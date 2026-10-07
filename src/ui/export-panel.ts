@@ -4,6 +4,7 @@ import { el } from "./dom.js";
 
 export interface ExportSettings {
   nullAsBlank: boolean;
+  escapeFormulas: boolean;
   scope: ExportScope;
 }
 
@@ -125,6 +126,13 @@ export function openExportPanel(
   nullInput.checked = settings.nullAsBlank;
   optionsRow.append(nullInput, "Blank null values");
 
+  const formulaRow = el("label", { class: "control check clean-check" });
+  const formulaInput = el("input", { type: "checkbox" }) as HTMLInputElement;
+  formulaInput.checked = settings.escapeFormulas;
+  formulaInput.title =
+    "Prefix =, @ and signed expressions with ' so Excel and Sheets import them as text";
+  formulaRow.append(formulaInput, "Escape formula-like cells (safe for Excel)");
+
   const hint = el("div", { class: "clean-hint" }, [
     "The file is built in this browser. When your browser supports it, you choose the folder and name in the system save dialog.",
   ]);
@@ -135,12 +143,16 @@ export function openExportPanel(
   const save = el("button", { class: "primary", type: "button" }, ["Save file"]);
   save.addEventListener("click", () => {
     const fileName = ensureCsvExtension(nameInput.value, defaultName);
-    callbacks.onSave(fileName, { nullAsBlank: nullInput.checked, scope });
+    callbacks.onSave(fileName, {
+      nullAsBlank: nullInput.checked,
+      escapeFormulas: formulaInput.checked,
+      scope,
+    });
     close();
   });
   footer.append(cancel, el("span", { class: "grow" }), save);
 
-  modal.append(formatField, scopeField, nameField, optionsRow, hint, footer);
+  modal.append(formatField, scopeField, nameField, optionsRow, formulaRow, hint, footer);
 
   function close(): void {
     overlay.remove();

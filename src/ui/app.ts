@@ -190,6 +190,7 @@ export class App {
   private newButton!: HTMLButtonElement;
   private stepsButton!: HTMLButtonElement;
   private exportNullAsBlank = true;
+  private exportEscapeFormulas = true;
   private bannerEl!: HTMLElement;
   private summaryHost!: HTMLElement;
   private summaryBand: SummaryBand | null = null;
@@ -1222,6 +1223,17 @@ export class App {
         ]);
         break;
       }
+      case "typeConflict": {
+        this.changeType(column, "string");
+        break;
+      }
+      case "formula": {
+        const existing = this.cleanedColumns.get(column) ?? [];
+        this.applyClean([
+          { column, ops: [...existing, { kind: "escapeFormulas" }] },
+        ]);
+        break;
+      }
     }
   }
 
@@ -1354,7 +1366,11 @@ export class App {
     if (this.datasetName === "" || this.loading) return;
     openExportPanel(
       this.defaultExportName(),
-      { nullAsBlank: this.exportNullAsBlank, scope: "all" },
+      {
+        nullAsBlank: this.exportNullAsBlank,
+        escapeFormulas: this.exportEscapeFormulas,
+        scope: "all",
+      },
       {
         allRows: Math.max(0, this.rowCount - this.excludedRowCount),
         filteredRows: this.resultCount,
@@ -1363,7 +1379,13 @@ export class App {
       {
         onSave: (fileName, settings) => {
           this.exportNullAsBlank = settings.nullAsBlank;
-          void this.runExport(fileName, settings.nullAsBlank, settings.scope);
+          this.exportEscapeFormulas = settings.escapeFormulas;
+          void this.runExport(
+            fileName,
+            settings.nullAsBlank,
+            settings.escapeFormulas,
+            settings.scope,
+          );
         },
         onClose: () => {},
       },
@@ -1389,6 +1411,7 @@ export class App {
   private async runExport(
     fileName: string,
     nullAsBlank: boolean,
+    escapeFormulas: boolean,
     scope: ExportScope,
   ): Promise<void> {
     if (this.datasetName === "" || this.loading) return;
@@ -1419,7 +1442,7 @@ export class App {
       for (let start = 0; start < total; start += EXPORT_CHUNK_ROWS) {
         this.actionEl.textContent = `Exporting… ${Math.round((start / total) * 100)}%`;
         const end = Math.min(start + EXPORT_CHUNK_ROWS, total);
-        const chunk = await this.client.getCsv(start, end, { nullAsBlank });
+        const chunk = await this.client.getCsv(start, end, { nullAsBlank, escapeFormulas });
         parts.push(chunk.text);
       }
       const text = parts.join("");

@@ -25,7 +25,7 @@ test("export panel asks for a name and options before saving", () => {
   let saved: { name: string; nullAsBlank: boolean; scope: string } | null = null;
   openExportPanel(
     "euro-cleaned.csv",
-    { nullAsBlank: true, scope: "all" },
+    { nullAsBlank: true, escapeFormulas: true, scope: "all" },
     { allRows: 100, filteredRows: 100, filtersActive: false },
     {
       onSave: (name, settings) => {
@@ -59,7 +59,7 @@ test("export panel defaults to all rows and states the filtered count", () => {
   let saved: { scope: string } | null = null;
   openExportPanel(
     "data.csv",
-    { nullAsBlank: true, scope: "all" },
+    { nullAsBlank: true, escapeFormulas: true, scope: "all" },
     { allRows: 21000, filteredRows: 237, filtersActive: true },
     {
       onSave: (_name, settings) => {
@@ -89,7 +89,7 @@ test("export panel hides the scope choice when no filters are active", () => {
   setupDom();
   openExportPanel(
     "data.csv",
-    { nullAsBlank: true, scope: "all" },
+    { nullAsBlank: true, escapeFormulas: true, scope: "all" },
     { allRows: 500, filteredRows: 500, filtersActive: false },
     { onSave: () => {}, onClose: () => {} },
   );
@@ -103,7 +103,7 @@ test("export panel lists CSV now and marks other formats as planned", () => {
   setupDom();
   openExportPanel(
     "data.csv",
-    { nullAsBlank: true, scope: "all" },
+    { nullAsBlank: true, escapeFormulas: true, scope: "all" },
     { allRows: 10, filteredRows: 10, filtersActive: false },
     { onSave: () => {}, onClose: () => {} },
   );
@@ -113,4 +113,32 @@ test("export panel lists CSV now and marks other formats as planned", () => {
   assert.equal(options.length, 2);
   assert.equal(options[0].textContent, "CSV (.csv)");
   assert.match(options[1].textContent ?? "", /planned/);
+});
+
+test("export panel offers the Excel formula escape on by default", () => {
+  setupDom();
+  let saved: { escapeFormulas: boolean } | null = null;
+  openExportPanel(
+    "data.csv",
+    { nullAsBlank: true, escapeFormulas: true, scope: "all" },
+    { allRows: 10, filteredRows: 10, filtersActive: false },
+    {
+      onSave: (_name, settings) => {
+        saved = { escapeFormulas: settings.escapeFormulas };
+      },
+      onClose: () => {},
+    },
+  );
+
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const checkboxes = document.querySelectorAll(
+    ".export-modal input[type='checkbox']",
+  ) as unknown as { checked: boolean }[];
+  assert.equal(checkboxes.length, 2);
+  assert.equal(checkboxes[0].checked, true, "nullAsBlank keeps its default");
+  assert.equal(checkboxes[1].checked, true, "formula escape is on by default");
+  checkboxes[1].checked = false;
+
+  (document.querySelector(".export-modal .primary") as unknown as { click(): void }).click();
+  assert.deepEqual(saved, { escapeFormulas: false });
 });

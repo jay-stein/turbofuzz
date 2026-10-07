@@ -1,4 +1,5 @@
 import { parseDate, toDateInputValue, type DateOrder } from "../parse/dates.js";
+import { escapeFormula } from "./formula.js";
 import { detectDecimalStyle, parseNumber, type NumberLocale } from "../parse/numbers.js";
 
 export type CleanCaseStyle = "upper" | "lower" | "title";
@@ -9,6 +10,7 @@ export type CleanOp =
   | { kind: "replace"; find: string; replacement: string; ignoreCase: boolean }
   | { kind: "toNumber"; locale: NumberLocale }
   | { kind: "repairDecimal"; locale: NumberLocale }
+  | { kind: "escapeFormulas" }
   | { kind: "toDate"; order: DateOrder };
 
 function escapeRegExp(value: string): string {
@@ -68,6 +70,8 @@ function compileOp(op: CleanOp): (value: string) => string {
         return Number.isFinite(parsed) ? toDateInputValue(parsed) : value;
       };
     }
+    case "escapeFormulas":
+      return (value) => escapeFormula(value);
   }
 }
 
@@ -104,6 +108,8 @@ export function describeCleanOp(op: CleanOp): string {
       return op.locale === "dot"
         ? "Repair decimal-comma values (613,26 → 613.26)"
         : "Repair decimal-point values (1.23 → 1,23)";
+    case "escapeFormulas":
+      return "Escape formula-like cells (=1+1 → '=1+1)";
     case "toDate":
       return `Convert to date (${op.order === "dmy" ? "day first, DD/MM/YYYY" : "month first, MM/DD/YYYY"})`;
   }
@@ -122,6 +128,8 @@ export function describeCleanOpDetail(op: CleanOp): string {
       return `toNumber(locale=${op.locale})`;
     case "repairDecimal":
       return `repairDecimal(locale=${op.locale})`;
+    case "escapeFormulas":
+      return "escapeFormulas()";
     case "toDate":
       return `toDate(order=${op.order})`;
   }

@@ -92,6 +92,15 @@ test("repairs values written in the other decimal convention only", () => {
   );
 });
 
+test("escapes formula-like cells only", () => {
+  assert.deepEqual(
+    applyCleanOps(["=1+1", "@SUM(1,1)", "-999", "-2+3", "plain"], [
+      { kind: "escapeFormulas" },
+    ]),
+    ["'=1+1", "'@SUM(1,1)", "-999", "'-2+3", "plain"],
+  );
+});
+
 test("converts mixed date text to ISO dates", () => {
   assert.deepEqual(
     applyCleanOps(["05/03/2024", "2024-12-31", "1 Mar 2024", "bogus"], [

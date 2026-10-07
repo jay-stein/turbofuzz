@@ -153,6 +153,8 @@ export type StartExportRequest = {
 export interface ExportOptions {
   /** Replace null/heuristic-missing cells with an empty string (default true). */
   nullAsBlank?: boolean;
+  /** Prefix formula-like cells with ' so spreadsheets import them as text. */
+  escapeFormulas?: boolean;
 }
 
 export type GetCsvRequest = {
