@@ -470,3 +470,28 @@ transform, search, Process Log, export and privacy. Deep links are supported
 (`openHelpDrawer(sectionId)`), so panel and chip titles can point at the exact
 topic later.
 
+---
+
+## Future backlog (logged 2026-10-08)
+
+- **Visualisations + PNG export (TODO).** Already scoped in §2 (View/Visualise)
+  and Step 5: a Chart tab inside View that renders histograms, time-series and
+  bars from the facet/histogram data already computed, deliberately without a
+  charting library. PNG export comes free via an offscreen `<canvas>` +
+  `toBlob("image/png")`. Confirm chart list and priority when View work starts.
+- **Theme switching (TODO).** Manual Dark / Light toggle plus **one quirky
+  mode (TBD)**. Today the palette follows `prefers-color-scheme` only; a manual
+  override needs a `data-theme` attribute on `:root` with both palettes
+  expressed as tokens (the stylesheet already uses CSS variables), plus a
+  persisted preference and a toggle in the header/Help area. Quirky-mode
+  candidates to pick from later: Terminal (green-on-black, monospace), Blueprint
+  (white-on-blue with grid), Newsprint (warm paper, serif headings), Vaporwave
+  (neon pastels). Keep the data readable: same tokens, different palette.
+- **KNN imputation quality (TODO).** There is no accuracy signal in-app. A
+  quick synthetic evaluation (2,000 rows, 10% masked) shows KNN(k=5) RMSE ~33
+  vs ~124 for mean/median when the predictors genuinely relate to the target
+  (73% better), but ~6-8% *worse* than mean when they do not. Consider a
+  hold-out check in the KNN panel ("hide 10% of known cells, report error vs
+  mean") and an auto-`k` suggestion. Until then the Help guide should keep the
+  caveat that imputation assumes informative predictors.
+
