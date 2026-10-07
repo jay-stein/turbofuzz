@@ -30,6 +30,7 @@ import type {
 } from "../worker/protocol.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { FilterPanel } from "./filters.js";
+import { ChartPanel } from "./chart-panel.js";
 import { openHelpDrawer } from "./help-drawer.js";
 import { sampleCsv } from "./sample.js";
 import { SummaryBand } from "./summary-band.js";
@@ -236,6 +237,11 @@ export class App {
   private filterHost!: HTMLElement;
   private filterSearch!: HTMLInputElement;
   private tableHost!: HTMLElement;
+  private chartHost!: HTMLElement;
+  private chartPanel: ChartPanel | null = null;
+  private chartActive = false;
+  private tableTabButton!: HTMLButtonElement;
+  private chartTabButton!: HTMLButtonElement;
   private stepperHost!: HTMLElement;
   private stepper: PipelineStepper | null = null;
   private workspaceTitle!: HTMLElement;
@@ -436,6 +442,22 @@ export class App {
     const results = el("main", { class: "results" });
     const resultsBar = el("div", { class: "results-bar" });
     const resultsRow = el("div", { class: "results-row" });
+
+    const viewTabs = el("span", { class: "view-tabs" });
+    this.tableTabButton = el(
+      "button",
+      { class: "ghost small active", type: "button", title: "Show the row table" },
+      ["Table"],
+    ) as HTMLButtonElement;
+    this.chartTabButton = el(
+      "button",
+      { class: "ghost small", type: "button", title: "Show a chart of the current result set" },
+      ["Chart"],
+    ) as HTMLButtonElement;
+    this.tableTabButton.addEventListener("click", () => this.setView("table"));
+    this.chartTabButton.addEventListener("click", () => this.setView("chart"));
+    viewTabs.append(this.tableTabButton, this.chartTabButton);
+
     this.countEl = el("span", { class: "count" });
     this.actionEl = el("span", { class: "action-status" });
 
@@ -494,6 +516,7 @@ export class App {
     );
 
     resultsRow.append(
+      viewTabs,
       this.countEl,
       el("span", { class: "grow" }),
       this.actionEl,
@@ -516,7 +539,8 @@ export class App {
     this.bannerEl = el("div", { class: "banner hidden" });
     resultsBar.append(resultsRow, this.deleteBar, this.bannerEl);
     this.tableHost = el("div", { class: "table-host" });
-    results.append(resultsBar, this.tableHost);
+    this.chartHost = el("div", { class: "chart-host hidden" });
+    results.append(resultsBar, this.tableHost, this.chartHost);
 
     this.summaryHost = el("div");
     const body = el("div", { class: "workspace-body" }, [sidebar, results]);
@@ -970,6 +994,13 @@ export class App {
     this.table.setSort(-1, 1);
     this.table.setCount(loaded.rowCount);
 
+    this.chartPanel?.dispose();
+    clear(this.chartHost);
+    this.chartPanel = new ChartPanel(this.chartHost, () => this.datasetName);
+    this.chartPanel.setColumns(loaded.columns);
+    this.chartPanel.setRowCount(loaded.rowCount);
+    this.setView(this.chartActive ? "chart" : "table");
+
     clear(this.filterHost);
     this.filterSearch.value = "";
     this.filterPanel = new FilterPanel(this.filterHost, this.metas, this.filters, {
@@ -1003,7 +1034,7 @@ export class App {
         .setSpecial(kind, active, column)
         .then((message) => {
           this.updateCount(message.count, message.queryMs);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.applyFacets(message.facets, message.histograms);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
         })
@@ -1079,7 +1110,7 @@ export class App {
         const message = await this.client.dropRows(positions);
         this.excludedRowCount += positions.length;
         this.updateCount(message.count, message.queryMs);
-        this.filterPanel?.applyResults(message.facets, message.histograms);
+        this.applyFacets(message.facets, message.histograms);
         this.table?.setCount(message.count);
         this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
         this.updateStepsButton();
@@ -1100,7 +1131,7 @@ export class App {
       const message = await this.client.clearExcludedRows();
       this.excludedRowCount = 0;
       this.updateCount(message.count, message.queryMs);
-      this.filterPanel?.applyResults(message.facets, message.histograms);
+      this.applyFacets(message.facets, message.histograms);
       this.table?.setCount(message.count);
       this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
       this.updateStepsButton();
@@ -1124,7 +1155,7 @@ export class App {
         .setSpecial(kind, active)
         .then((message) => {
           this.updateCount(message.count, message.queryMs);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.applyFacets(message.facets, message.histograms);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
         })
@@ -1199,7 +1230,7 @@ export class App {
         .setFilter(column, filter, preview)
         .then((message) => {
           this.updateCount(message.count, message.queryMs);
-          if (!preview) this.filterPanel?.applyResults(message.facets, message.histograms);
+          if (!preview) this.applyFacets(message.facets, message.histograms);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
         })
@@ -1235,7 +1266,7 @@ export class App {
           this.summaryBand?.updateColumn(column, message.meta);
           this.filterPanel?.updateMeta(column, message.meta);
           this.table?.updateColumn(column, message.meta);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
@@ -1313,7 +1344,7 @@ export class App {
           this.summaryBand?.updateColumn(column, message.meta);
           this.filterPanel?.updateMeta(column, message.meta);
           this.table?.updateColumn(column, message.meta);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
@@ -1370,7 +1401,7 @@ export class App {
       }
       const message = await this.client.clearFilters();
       this.updateCount(message.count, message.queryMs);
-      this.filterPanel?.applyResults(message.facets, message.histograms);
+      this.applyFacets(message.facets, message.histograms);
       this.table?.setCount(message.count);
       this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
     });
@@ -1540,8 +1571,27 @@ export class App {
     }, 4000);
   }
 
+  private setView(view: "table" | "chart"): void {
+    this.chartActive = view === "chart";
+    this.tableHost.classList.toggle("hidden", this.chartActive);
+    this.chartHost.classList.toggle("hidden", !this.chartActive);
+    this.tableTabButton.classList.toggle("active", !this.chartActive);
+    this.chartTabButton.classList.toggle("active", this.chartActive);
+    if (this.chartActive) this.chartPanel?.refresh();
+  }
+
+  /** Pushes fresh facet/histogram payloads to the sidebar filters and charts. */
+  private applyFacets(
+    facets: Record<number, number[]>,
+    histograms: Record<number, number[]>,
+  ): void {
+    this.filterPanel?.applyResults(facets, histograms);
+    this.chartPanel?.setFiltered(facets, histograms);
+  }
+
   private updateCount(count: number, queryMs: number): void {
     this.resultCount = count;
+    this.chartPanel?.setRowCount(count);
     const timeText = queryMs < 1 ? "<1" : String(Math.round(queryMs));
     const total = this.rowCount;
     const parts: string[] = [];
@@ -1955,7 +2005,7 @@ export class App {
           }
           this.summaryBand?.setCounts(message.stats);
           this.table?.setSort(-1, 1);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
@@ -2005,7 +2055,7 @@ export class App {
           }
           this.summaryBand?.setCounts(message.stats);
           this.table?.setSort(-1, 1);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
@@ -2046,7 +2096,7 @@ export class App {
           this.summaryBand?.setCounts(message.stats);
           this.filterPanel?.rebuild();
           this.table?.setSort(-1, 1);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
