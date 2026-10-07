@@ -1,7 +1,6 @@
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
 import { listArchiveEntries, readArchiveEntry, type ArchiveEntry } from "../parse/archive.js";
 import { decompressBzip2 } from "../parse/bz2.js";
-import { decodeText } from "../parse/encoding.js";
 import { detectTable } from "../parse/header-detect.js";
 import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
 import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
@@ -30,7 +29,6 @@ import type {
 } from "../worker/protocol.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { FilterPanel } from "./filters.js";
-import { findDataTables, type TableCandidate } from "./html-table.js";
 import { sampleCsv } from "./sample.js";
 import { SummaryBand } from "./summary-band.js";
 import { openStatsModal } from "./stats.js";
@@ -45,22 +43,6 @@ import { openTransformPanel } from "./transform-panel.js";
 import { PipelineStepper, type StageId } from "./stepper.js";
 
 const LARGE_PASTE_ROWS = 300_000;
-const DATA_URL_EXTENSIONS = [
-  ".csv",
-  ".tsv",
-  ".psv",
-  ".txt",
-  ".dat",
-  ".json",
-  ".jsonl",
-  ".ndjson",
-  ".parquet",
-  ".xlsx",
-  ".xls",
-  ".zip",
-  ".gz",
-  ".bz2",
-];
 const FILE_ACCEPT =
   ".csv,.tsv,.psv,.txt,.dat,.json,.jsonl,.ndjson,.parquet,.xlsx,.xls,.zip,.gz,.bz2";
 const WORKBOOK_EXTENSIONS = [".xlsx", ".xls"];
@@ -77,7 +59,6 @@ interface PickerItem {
   label: string;
   rows: number;
   columns: number;
-  best?: boolean;
   detail?: string;
   onSelect: () => void;
 }
@@ -94,34 +75,10 @@ function extensionOf(name: string): string {
   return dot === -1 ? "" : lower.slice(dot);
 }
 
-function isWorkbookUrl(raw: string): boolean {
-  try {
-    return WORKBOOK_EXTENSIONS.includes(extensionOf(new URL(raw).pathname));
-  } catch {
-    return false;
-  }
-}
-
-function isDataUrl(raw: string): boolean {
-  try {
-    const pathname = new URL(raw).pathname.toLowerCase();
-    return DATA_URL_EXTENSIONS.some((extension) => pathname.endsWith(extension));
-  } catch {
-    return false;
-  }
-}
-
 function uploadIcon(): SVGElement {
   return svgIcon(
     '<path d="M12 15V4"/><path d="m7 9 5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
     "dropzone-icon",
-  );
-}
-
-function globeIcon(): SVGElement {
-  return svgIcon(
-    '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.4 2.6 3.6 5.6 3.6 9s-1.2 6.4-3.6 9c-2.4-2.6-3.6-5.6-3.6-9S9.6 5.6 12 3z"/>',
-    "field-icon",
   );
 }
 
@@ -167,16 +124,6 @@ type SavePicker = (options: {
   suggestedName: string;
   types: { description: string; accept: Record<string, string[]> }[];
 }) => Promise<FileHandleLike>;
-
-function nameFromUrl(raw: string): string {
-  try {
-    const url = new URL(raw);
-    const last = url.pathname.split("/").filter(Boolean).pop();
-    return last === undefined ? url.hostname : last;
-  } catch {
-    return "remote-data";
-  }
-}
 
 async function copyText(text: string): Promise<boolean> {
   if (navigator.clipboard?.writeText !== undefined) {
@@ -224,8 +171,6 @@ export class App {
   private pasteView!: HTMLElement;
   private workspace!: HTMLElement;
   private textarea!: HTMLTextAreaElement;
-  private urlInput!: HTMLInputElement;
-  private urlButton!: HTMLButtonElement;
   private pendingWorkbook:
     | { kind: "xlsx"; buffer: ArrayBuffer }
     | { kind: "xls"; workbook: WorkBook }
@@ -297,7 +242,7 @@ export class App {
     card.append(el("h1", {}, ["Clean and reshape tables in your browser"]));
     card.append(
       el("p", { class: "sub" }, [
-        "Drop a messy CSV or Excel file. Type-aware cleanup, transforms and search — nothing leaves this page.",
+        "Drop a messy CSV or Excel file. Type-aware cleanup, transforms and search — all offline, nothing leaves this tab.",
       ]),
     );
 
@@ -316,7 +261,9 @@ export class App {
     );
     const privacy = el("div", { class: "privacy-badge" }, [
       lockIcon(),
-      el("span", {}, ["0 bytes uploaded — files are parsed in this browser"]),
+      el("span", {}, [
+        "0 bytes uploaded · 0 network requests — files are parsed in this browser",
+      ]),
     ]);
     card.append(dropzone, privacy);
 
@@ -387,56 +334,6 @@ export class App {
     controls.append(delimiterLabel, headerLabel, el("span", { class: "grow" }), loadButton);
     pasteDetails.append(controls);
     card.append(pasteDetails);
-
-    const urlDetails = el("details", { class: "paste-secondary" });
-    urlDetails.append(el("summary", {}, ["Load from a URL or scrape a table"]));
-    const urlSection = el("div", { class: "url-section" });
-    const urlRow = el("div", { class: "url-controls" });
-    const urlField = el("div", { class: "url-field" });
-    urlField.append(globeIcon());
-    this.urlInput = el("input", {
-      class: "text-input url-input",
-      type: "text",
-      placeholder: "https://example.com/data.csv — or a web page with a table",
-      spellcheck: "false",
-      "aria-label": "Data file URL or web page to scrape",
-    }) as HTMLInputElement;
-    urlField.append(this.urlInput);
-
-    this.urlButton = el(
-      "button",
-      { class: "primary", type: "button" },
-      ["Load / scrape"],
-    ) as HTMLButtonElement;
-    this.urlButton.addEventListener("click", () => void this.loadFromUrl());
-    this.urlInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        void this.loadFromUrl();
-      }
-    });
-    this.urlInput.addEventListener("input", () => this.updateUrlButton());
-    urlRow.append(urlField, this.urlButton);
-
-    const legal = el("details", { class: "legal" });
-    legal.append(
-      el("summary", {}, ["Scraping guidelines"]),
-      el("p", { class: "disclaimer" }, [
-        "Always scrape responsibly by reviewing and adhering to the website's ",
-        el("code", {}, ["robots.txt"]),
-        " file, Terms of Service, and licensing restrictions. Ensure your request rates respect the server's load limits and comply with relevant data privacy laws.",
-      ]),
-    );
-
-    urlSection.append(
-      urlRow,
-      el("p", { class: "url-hint" }, [
-        "Links ending in .csv, .tsv, .psv, .txt, .json, .parquet, .zip, .gz or .bz2 load as data; anything else is scraped for its first table.",
-      ]),
-      legal,
-    );
-    urlDetails.append(urlSection);
-    card.append(urlDetails);
 
     const pickerHead = el("div", { class: "table-picker-head" });
     this.tablePickerTitle = el("span", { class: "table-picker-title" });
@@ -629,87 +526,6 @@ export class App {
     }
   }
 
-  /**
-   * One URL field, two behaviours: data links (CSV/TSV/PSV by extension or
-   * content type) load as a table, anything else is scraped for its first
-   * table.
-   */
-  private async loadFromUrl(): Promise<void> {
-    const url = this.urlInput.value.trim();
-    if (url === "") {
-      this.setStatusError("Enter a URL first.");
-      return;
-    }
-    this.hideTablePicker();
-    try {
-      this.statusEl.textContent = "Downloading…";
-      this.statusEl.classList.remove("error");
-      const response = await fetch(`/api/fetch?url=${encodeURIComponent(url)}`);
-      if (!response.ok) throw new Error(`Download failed (${response.status})`);
-
-      const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
-      const buffer = await response.arrayBuffer();
-
-      const urlExtension = extensionOf(new URL(url).pathname);
-      if (urlExtension === ".zip") {
-        await this.openArchive(buffer, nameFromUrl(url));
-        return;
-      }
-      if (urlExtension === ".gz") {
-        await this.openGzip(buffer, nameFromUrl(url));
-        return;
-      }
-      if (urlExtension === ".bz2") {
-        await this.openBzip2(buffer, nameFromUrl(url));
-        return;
-      }
-
-      if (isWorkbookUrl(url) || contentType.includes("spreadsheetml") || contentType.includes("ms-excel")) {
-        await this.openWorkbook(buffer, nameFromUrl(url));
-        return;
-      }
-
-      const looksHtml = contentType.includes("html");
-      const looksData =
-        contentType.includes("csv") ||
-        contentType.includes("tab-separated") ||
-        contentType.includes("comma-separated");
-
-      if (looksData || (!looksHtml && isDataUrl(url))) {
-        await this.load({ buffer, name: nameFromUrl(url), source: "file" });
-        return;
-      }
-
-      const html = decodeText(buffer).text;
-      const tables = findDataTables(html, 10);
-      if (tables.length === 0) throw new Error("No data tables found on that page");
-      if (tables.length === 1) {
-        await this.loadGrid(tables[0].grid, this.tableNameFor(tables[0], url));
-        return;
-      }
-      this.statusEl.textContent = "";
-      this.showPicker(
-        `${tables.length} tables found — pick one`,
-        tables.map((table, index) => ({
-          label: table.label,
-          rows: table.rows,
-          columns: table.columns,
-          best: index === 0,
-          onSelect: () => {
-            this.hideTablePicker();
-            void this.loadGrid(table.grid, this.tableNameFor(table, url));
-          },
-        })),
-      );
-    } catch (error) {
-      this.setStatusError(error instanceof Error ? error.message : "Download failed");
-    }
-  }
-
-  private tableNameFor(table: TableCandidate, url: string): string {
-    return table.label.startsWith("Table ") ? nameFromUrl(url) : table.label;
-  }
-
   private hideTablePicker(): void {
     this.tablePickerEl.classList.add("hidden");
   }
@@ -718,12 +534,9 @@ export class App {
     clear(this.tablePickerList);
     this.tablePickerTitle.textContent = title;
 
-    items.forEach((item, index) => {
+    items.forEach((item) => {
       const option = el("button", { class: "table-option", type: "button" });
       option.append(el("span", { class: "table-option-name" }, [item.label]));
-      if (item.best === true) {
-        option.append(el("span", { class: "table-option-best" }, ["best match"]));
-      }
       option.append(
         el("span", { class: "table-option-size" }, [
           item.detail ??
@@ -736,12 +549,6 @@ export class App {
 
     this.tablePickerEl.classList.remove("hidden");
     this.tablePickerEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }
-
-  private updateUrlButton(): void {
-    this.urlButton.textContent = isDataUrl(this.urlInput.value.trim())
-      ? "Load file"
-      : "Scrape table";
   }
 
   private async loadFile(file: File): Promise<void> {

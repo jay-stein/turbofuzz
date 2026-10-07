@@ -44,7 +44,7 @@ would *hurt* the latency story instead of helping it:
 
 ### Load — done
 
-Well covered: paste, file, URL, archives (zip/gz/bz2), xlsx/xls, header detection,
+Well covered: paste, file, archives (zip/gz/bz2), xlsx/xls, header detection,
 type inference, plus:
 
 - **Delimited `.txt` / `.dat`** — same auto-delimiter path as CSV.
@@ -202,7 +202,7 @@ build one giant string in memory.
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │  LOAD                                                       │
-│  paste · file · URL · archive · workbook                    │
+│  paste · file · archive · workbook                          │
 └──────────────────────────┬──────────────────────────────────┘
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -388,3 +388,38 @@ and Transform, and it reuses the exact patterns the codebase already establishes
   intentionally left out.
 - **Worksheet picker preview** — still shows dimensions only; a small data
   preview would help pick the right sheet.
+
+---
+
+## 9. Urgent items from the 2026-10-08 reviews (next todo)
+
+Validated on 2026-10-08 against `review_claude_20261008/torture_utf8_bom.csv`
+through the real ingest pipeline. Source reviews:
+`turbofuzz_ux_review_20261008.md` and
+`turbofuzz_ux_screenshot_review_20261008.md` (both in the repo root folder of
+the same name). Severity: data loss / security > trust > friction > polish.
+
+| # | Item | Status | Notes |
+|---|---|---|---|
+| 1 | **Silent column drop (A1)** — the fixture has 18 columns; only 17 load | **Validated** | `mergeHeaders` derives width from populated cells, so the blank-header 18th column (all `x`) vanishes. Keep as `Column 18 (unnamed)` or ask. |
+| 2 | **Ragged rows invisible (A2)** — 5 short rows padded, 5 long rows truncated, no notice | **Validated** | `Country` shows exactly 5 empties; the 5× `extra` cells appear nowhere. Needs an import summary with row numbers and *Show rows*. |
+| 3 | **`xlsx` CVEs** — upgrade 0.18.5 → 0.20.3 (CVE-2023-30533, CVE-2024-22363) | Todo | ~15 minutes. |
+| 4 | **Export scope trap (S1)** — CSV export is the filtered result set | Todo | State the scope in numbers, default to all rows after steps, banner when filters are active. |
+| 5 | **Decimal comma read as thousands (A3)** — `613,26` → `61326` | **Validated** | Amount locale stays `dot` for UTF-8 CSV, so the value becomes a false outlier. Add per-column format conformance ("653 values look like 1.234,56"). |
+| 6 | **Missing sentinels not suggested (A4)** — `TBC` (206), `00/00/0000` (245), `-999` (435) treated as real values | **Validated** | `Date` stays text; only `n/a` (210) + blanks count as missing. Add "suggested missing tokens" under the Nulls tab. |
+| 7 | **Type-conflict chip (A5)** — `Score` typed integer while 339 cells say `high` | **Validated** | Add "N don't parse as <type>" and keep unparseable values visible. |
+| 8 | **Formula-like cells unflagged (A7)** — `=1+1` (108), `@SUM…` (101) in Email | **Validated** | Add a chip + an export option (escape or keep). Risk only on Excel re-import. |
+| 9 | **Quick visual wins (C1–C4, D1, B2)** — right-align numbers + `tabular-nums`, hide zero-count chips, `#2f6fe0` for primary, label the sample/format inputs, centre the first-screen card | Todo | ~half a day; large visible polish. |
+| 10 | **Chrome before data (B1/B3/B4)** — profile strip collapsed by default, sidebar only for selected columns, column-based empty headline | Todo | Data-first layout. |
+| 11 | **Steps spine + one commit model + undo toasts (S2/S5)** | Todo | Every change becomes an applied Step with Undo; mark steps replayable vs manual. |
+| 12 | **Robust outliers/histogram (B5)** — MAD fences or log scale, clip to p1–p99, show median | Todo | Amount currently flags 2,531 (12%) as outliers on a −52k…19.8M range. |
+| 13 | **Text merge + fuzzy dedupe/join (B6)** | Todo | Blocking on phonetic key/n-gram; counts on Customer Name. |
+| 14 | **Type-conversion guards** — ambiguous dates, locale numbers; leading zeros/17-digit IDs already safe | Todo | Per-column scope for "Apply to all". |
+| 15 | **Positioning/trust** — README, GitHub About, `package.json` copy | Todo | |
+| 16 | **Fixture checklist** — checks 1, 2, 8, 15 and the 300k scale run still untested | Todo | |
+
+**Done with the scraping removal (2026-10-08):** URL/scrape loading and the
+`/api/fetch` proxy are gone (A6 no longer applies), the deploy is assets-only,
+and `connect-src 'none'` in `public/_headers` makes "0 network requests"
+browser-enforced. `table_scraper.md` and `html-table.ts` were deleted.
+

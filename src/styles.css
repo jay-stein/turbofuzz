@@ -419,81 +419,6 @@ textarea:focus {
   margin-top: 8px;
 }
 
-.legal {
-  font-size: 11px;
-}
-
-.legal > summary {
-  cursor: pointer;
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
-.legal > summary:hover {
-  color: var(--text);
-}
-
-.url-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.url-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.url-field {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-
-.url-field .field-icon {
-  position: absolute;
-  left: 9px;
-  width: 15px;
-  height: 15px;
-  color: var(--text-dim);
-  pointer-events: none;
-}
-
-.url-field .url-input {
-  width: 100%;
-  padding-left: 30px;
-}
-
-.url-input {
-  flex: 1;
-  min-width: 0;
-  font-size: 12.5px;
-}
-
-.url-hint {
-  margin: 0;
-  font-size: 11.5px;
-  color: var(--text-dim);
-}
-
-.disclaimer {
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.5;
-  color: color-mix(in srgb, var(--text-dim) 72%, var(--text));
-}
-
-.disclaimer code {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  background: var(--panel-2);
-  border-radius: 3px;
-  padding: 0 3px;
-}
-
 .control {
   display: inline-flex;
   align-items: center;
@@ -569,17 +494,6 @@ textarea:focus {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.table-option-best {
-  flex: none;
-  font-size: 9.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--accent);
-  border: 1px solid currentColor;
-  border-radius: 999px;
-  padding: 0 6px;
 }
 
 .table-option-size {

@@ -72,9 +72,9 @@ test("ingestDataset skips title rows and keeps the full width", () => {
   assert.equal(dataset.columns[0].raw[0], "1");
 });
 
-test("ingestDataset builds datasets from scraped tables", () => {
+test("ingestDataset builds datasets from pre-structured grids", () => {
   const { dataset, encoding } = ingestDataset({
-    name: "scraped",
+    name: "worksheet",
     delimiter: "auto",
     hasHeaders: true,
     table: {

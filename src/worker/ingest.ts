@@ -73,8 +73,8 @@ export function ingestDataset(options: IngestOptions): IngestResult {
   const numberPrior: NumberLocale =
     parsed.delimiter === ";" || encoding === "windows-1252" ? "comma" : "dot";
 
-  // Same smart header detection as worksheets/scraped tables: skip title
-  // rows and merge multi-level headers instead of blindly taking row 1.
+  // Same smart header detection as worksheets: skip title rows and merge
+  // multi-level headers instead of blindly taking row 1.
   let headers = parsed.headers;
   let rows = parsed.rows;
   if (options.hasHeaders) {
