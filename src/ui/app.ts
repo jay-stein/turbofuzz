@@ -1725,29 +1725,34 @@ export class App {
     this.stepper?.setActive(id);
   }
 
-  private openClean(): void {
+  private openClean(column?: number, tab: "values" | "nulls" = "values"): void {
     if (this.datasetName === "" || this.loading) return;
     this.setStage("clean");
-    openCleanPanel(this.metas, this.cleanedColumns, {
-      onApplyHeaders: (headers) => this.applyHeaderRename(headers),
-      onApplyClean: (updates) => this.applyClean(updates),
-      onResetCleans: () =>
-        this.applyClean([...this.cleanedColumns.keys()].map((column) => ({ column, ops: [] }))),
-      onApplyNullPolicy: (column, extra, keep) => this.applyNullPolicy(column, extra, keep),
-      onApplyNullPolicyAll: (extra, keep) => this.applyNullPolicyAll(extra, keep),
-      onPreviewClean: (updates) =>
-        this.client.previewClean(updates).then((message) => {
-          let changed = 0;
-          let total = 0;
-          for (const entry of message.columns) {
-            changed += entry.changed;
-            total += entry.total;
-          }
-          return { changed, total };
-        }),
-      onOpenMerge: (column) => this.openMerge(column),
-      onClose: () => this.setStage("view"),
-    });
+    openCleanPanel(
+      this.metas,
+      this.cleanedColumns,
+      {
+        onApplyHeaders: (headers) => this.applyHeaderRename(headers),
+        onApplyClean: (updates) => this.applyClean(updates),
+        onResetCleans: () =>
+          this.applyClean([...this.cleanedColumns.keys()].map((column) => ({ column, ops: [] }))),
+        onApplyNullPolicy: (column, extra, keep) => this.applyNullPolicy(column, extra, keep),
+        onApplyNullPolicyAll: (extra, keep) => this.applyNullPolicyAll(extra, keep),
+        onPreviewClean: (updates) =>
+          this.client.previewClean(updates).then((message) => {
+            let changed = 0;
+            let total = 0;
+            for (const entry of message.columns) {
+              changed += entry.changed;
+              total += entry.total;
+            }
+            return { changed, total };
+          }),
+        onOpenMerge: (column) => this.openMerge(column),
+        onClose: () => this.setStage("view"),
+      },
+      { column, tab: column === undefined ? "names" : tab },
+    );
   }
 
   private openMerge(column: number): void {
@@ -1805,6 +1810,8 @@ export class App {
     };
 
     addItem("Filter this column", () => this.filterPanel?.focusColumn(column));
+    addItem("Clean values…", () => this.openClean(column, "values"));
+    addItem("Missing values…", () => this.openClean(column, "nulls"));
     if (meta.type === "category") {
       addItem("Merge similar values…", () => this.openMerge(column));
     }
@@ -1814,6 +1821,7 @@ export class App {
       addItem("Title Case", () => this.applyQuickClean(column, { kind: "case", style: "title" }));
       addItem("Trim whitespace", () => this.applyQuickClean(column, { kind: "trim" }));
     }
+    addItem("Transform dataset…", () => this.openTransform());
     addItem("Delete column…", () => void this.confirmDeleteColumn(column), { danger: true });
 
     document.addEventListener("pointerdown", onPointerDown, true);

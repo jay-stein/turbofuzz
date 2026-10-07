@@ -55,6 +55,13 @@ const OP_TYPES: readonly { value: string; label: string }[] = [
   { value: "toDate", label: "Convert to date" },
 ];
 
+export interface CleanPanelOptions {
+  /** Preselect this column in the Values and Nulls tabs. */
+  column?: number;
+  /** First tab to show; defaults to "values" when a column is given. */
+  tab?: "names" | "values" | "nulls";
+}
+
 /**
  * Clean panel: column-name normalisation and non-destructive value cleaning.
  * Both tabs preview exactly what will change before anything is applied, and
@@ -64,6 +71,7 @@ export function openCleanPanel(
   metas: readonly ColumnMeta[],
   cleaned: ReadonlyMap<number, CleanOp[]>,
   callbacks: CleanPanelCallbacks,
+  options: CleanPanelOptions = {},
 ): void {
   const overlay = el("div", { class: "modal-overlay drawer-overlay" });
   const modal = el("div", { class: "modal clean-modal drawer" });
@@ -81,8 +89,8 @@ export function openCleanPanel(
   tabs.append(namesButton, valuesButton, nullsButton);
 
   const namesTab = buildNamesTab(metas.map((meta) => meta.name), callbacks, close);
-  const valuesTab = buildValuesTab(metas, cleaned, callbacks, close);
-  const nullsTab = buildNullsTab(metas, callbacks, close);
+  const valuesTab = buildValuesTab(metas, cleaned, callbacks, close, options.column);
+  const nullsTab = buildNullsTab(metas, callbacks, close, options.column);
   modal.append(tabs, namesTab, valuesTab, nullsTab);
 
   type Tab = "names" | "values" | "nulls";
@@ -97,7 +105,7 @@ export function openCleanPanel(
   namesButton.addEventListener("click", () => selectTab("names"));
   valuesButton.addEventListener("click", () => selectTab("values"));
   nullsButton.addEventListener("click", () => selectTab("nulls"));
-  selectTab("names");
+  selectTab(options.tab ?? (options.column === undefined ? "names" : "values"));
 
   function close(): void {
     overlay.remove();
@@ -199,10 +207,11 @@ function buildValuesTab(
   cleaned: ReadonlyMap<number, CleanOp[]>,
   callbacks: CleanPanelCallbacks,
   close: () => void,
+  initialColumn: number | undefined,
 ): HTMLElement {
   const wrap = el("div", { class: "clean-values" });
 
-  let column = 0;
+  let column = initialColumn ?? 0;
   let pending: CleanOp[] = (cleaned.get(column) ?? []).slice();
 
   const colField = el("label", { class: "clean-field" });
@@ -211,6 +220,7 @@ function buildValuesTab(
   metas.forEach((meta, index) => {
     colSelect.append(el("option", { value: String(index) }, [meta.name]) as HTMLOptionElement);
   });
+  colSelect.value = String(column);
   colField.append(colSelect);
 
   const mergeButton = el(
@@ -492,10 +502,11 @@ function buildNullsTab(
   metas: readonly ColumnMeta[],
   callbacks: CleanPanelCallbacks,
   close: () => void,
+  initialColumn: number | undefined,
 ): HTMLElement {
   const wrap = el("div", { class: "clean-values" });
 
-  let column: number | null = null;
+  let column: number | null = initialColumn ?? null;
   let extra = new Set<string>();
   let keep = new Set<string>();
 
@@ -648,6 +659,7 @@ function buildNullsTab(
   footer.append(cancel, el("span", { class: "grow" }), apply);
 
   wrap.append(colField, hint, list, extraField, summary, footer);
-  loadColumn(null);
+  if (initialColumn !== undefined) colSelect.value = String(initialColumn);
+  loadColumn(initialColumn ?? null);
   return wrap;
 }

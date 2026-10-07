@@ -458,7 +458,9 @@ data-safety batch.
 headers (same actions as the sidebar), missing-value/type changes are logged
 with undo, and the header ⋯ menu has direct one-click UPPERCASE / lowercase /
 Title Case / Trim ops that apply immediately and land in the Process Log. The
-unified Edit surface is still open.
+column menu also opens **Clean values…**, **Missing values…** (Clean panel
+pre-selected on that column/tab) and **Transform dataset…**. The unified Edit
+surface itself is still open.
 
 ---
 

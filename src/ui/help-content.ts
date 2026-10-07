@@ -110,6 +110,9 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       p(
         "Open Clean and pick a column. Operations are queued with a live preview of the first cells and a “how many cells change” count, then applied together. Nothing is applied until you press the button, and every applied operation is reversible from the Process Log.",
       ),
+      p(
+        "Clean can also be opened from a column: right-click a header and choose Clean values… or Missing values… — the panel opens on that column and tab.",
+      ),
       list(
         "Trim whitespace, change case (upper/lower/title), find and replace.",
         "Convert to number (choose the decimal convention) or to date (choose day-first or month-first).",
@@ -128,7 +131,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     summary: "Dedupe, drop, round, group by, impute and reshape.",
     blocks: [
       p(
-        "Transforms change the shape of the working set. They run against the base data captured before the first transform, so the pipeline is re-derived from scratch on every change — the Process Log shows the ordered list.",
+        "Transforms change the shape of the working set. They run against the base data captured before the first transform, so the pipeline is re-derived from scratch on every change — the Process Log shows the ordered list. Right-click any column header and choose Transform dataset… to jump straight in.",
       ),
       list(
         "Remove duplicate rows — keep first, keep last, or remove all copies.",
