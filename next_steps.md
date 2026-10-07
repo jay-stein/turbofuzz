@@ -416,7 +416,7 @@ the same name). Severity: data loss / security > trust > friction > polish.
 | 13 | **Text merge + fuzzy dedupe/join (B6)** | Todo | Blocking on phonetic key/n-gram; counts on Customer Name. |
 | 14 | **Type-conversion guards** — ambiguous dates, locale numbers; leading zeros/17-digit IDs already safe | **Mostly done** | Locale conflicts are detected and repairable (A3), type conflicts surface as a chip (A5), and ambiguous dates use order detection plus an explicit Convert to date. Remaining: per-column exclusion for "Apply to all columns" (D4). |
 | 15 | **Positioning/trust** — README, GitHub About, `package.json` copy | **Mostly done** | README added (privacy, features, dev/deploy), `package.json` description updated. GitHub About still to set in the repo settings. |
-| 16 | **Fixture checklist** — checks 1, 2, 8, 15 and the 300k scale run still untested | **Mostly done** | Verified on the torture fixture: BOM, long IDs, postcodes, headers (blank-header column now kept), ragged rows, Amount locale/sentinels, dates, duplicates (599/599), fuzzy merge, formula export, 21k load. Remaining: checks 1/2/8/15 and the 300k run. |
+| 16 | **Fixture checklist** — checks 1, 2, 8, 15 still untested | **Mostly done** | Verified on the torture fixture: BOM, long IDs, postcodes, headers (blank-header column now kept), ragged rows, Amount locale/sentinels, dates, duplicates (599/599), fuzzy merge, formula export, 21k load; 300k × 12 synthetic loads in ~1.25 s with full stats (first contains-filter 155 ms). Remaining: checks 1/2/8/15. |
 
 **Done with the scraping removal (2026-10-08):** URL/scrape loading and the
 `/api/fetch` proxy are gone (A6 no longer applies), the deploy is assets-only,
