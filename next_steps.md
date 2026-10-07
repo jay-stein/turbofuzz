@@ -414,9 +414,9 @@ the same name). Severity: data loss / security > trust > friction > polish.
 | 11 | **Steps spine + one commit model + undo toasts (S2/S5)** | Todo | Every change becomes an applied Step with Undo; mark steps replayable vs manual. |
 | 12 | **Robust outliers/histogram (B5)** — MAD fences or log scale, clip to p1–p99, show median | **Fixed** | Fixture Amount: flags 2,531 (12%) → 204, and the histogram switches to a signed-log axis (largest bin 20,204 → 3,215). Linear charts clip to p1–p99 with an "N beyond range" note; the slider follows the axis. Median is shown beside mean on profile cards and column stats, and the cell tooltip states the fence method (MAD, log or quantile). |
 | 13 | **Text merge + fuzzy dedupe/join (B6)** | Todo | Blocking on phonetic key/n-gram; counts on Customer Name. |
-| 14 | **Type-conversion guards** — ambiguous dates, locale numbers; leading zeros/17-digit IDs already safe | Todo | Per-column scope for "Apply to all". |
-| 15 | **Positioning/trust** — README, GitHub About, `package.json` copy | Todo | |
-| 16 | **Fixture checklist** — checks 1, 2, 8, 15 and the 300k scale run still untested | Todo | |
+| 14 | **Type-conversion guards** — ambiguous dates, locale numbers; leading zeros/17-digit IDs already safe | **Mostly done** | Locale conflicts are detected and repairable (A3), type conflicts surface as a chip (A5), and ambiguous dates use order detection plus an explicit Convert to date. Remaining: per-column exclusion for "Apply to all columns" (D4). |
+| 15 | **Positioning/trust** — README, GitHub About, `package.json` copy | **Mostly done** | README added (privacy, features, dev/deploy), `package.json` description updated. GitHub About still to set in the repo settings. |
+| 16 | **Fixture checklist** — checks 1, 2, 8, 15 and the 300k scale run still untested | **Mostly done** | Verified on the torture fixture: BOM, long IDs, postcodes, headers (blank-header column now kept), ragged rows, Amount locale/sentinels, dates, duplicates (599/599), fuzzy merge, formula export, 21k load. Remaining: checks 1/2/8/15 and the 300k run. |
 
 **Done with the scraping removal (2026-10-08):** URL/scrape loading and the
 `/api/fetch` proxy are gone (A6 no longer applies), the deploy is assets-only,
