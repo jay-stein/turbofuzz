@@ -6,8 +6,14 @@ import { detectTable } from "../parse/header-detect.js";
 import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
 import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
 import type { ColumnFilter } from "../search/query-engine.js";
-import type { CleanOp } from "../data/clean-ops.js";
-import type { ColumnSchema, TransformOp } from "../data/transform-ops.js";
+import { describeCleanOp, type CleanOp } from "../data/clean-ops.js";
+import { pandasRecipe } from "../data/recipe.js";
+import {
+  describeTransformOp,
+  schemaAfter,
+  type ColumnSchema,
+  type TransformOp,
+} from "../data/transform-ops.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { WorkBook } from "xlsx";
 import type { ColumnType } from "../types.js";
@@ -29,6 +35,7 @@ import { ResultTable, type HighlightRule } from "./table.js";
 import { SearchWorkerClient } from "./worker-client.js";
 import { openCleanPanel } from "./clean-panel.js";
 import { openMergePanel } from "./merge-panel.js";
+import { openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
 import { PipelineStepper, type StageId } from "./stepper.js";
 
@@ -216,6 +223,7 @@ export class App {
   private copyButton!: HTMLButtonElement;
   private exportButton!: HTMLButtonElement;
   private newButton!: HTMLButtonElement;
+  private stepsButton!: HTMLButtonElement;
   private exportBlank!: HTMLInputElement;
   private bannerEl!: HTMLElement;
   private summaryHost!: HTMLElement;
@@ -453,6 +461,14 @@ export class App {
     ) as HTMLButtonElement;
     this.copyButton.addEventListener("click", () => void this.copyResults());
 
+    this.stepsButton = el(
+      "button",
+      { class: "ghost small", type: "button", title: "Review, undo or export the applied steps" },
+      ["Steps"],
+    ) as HTMLButtonElement;
+    this.stepsButton.classList.add("hidden");
+    this.stepsButton.addEventListener("click", () => this.openSteps());
+
     this.exportButton = el(
       "button",
       { class: "ghost small", type: "button", title: "Download cleaned rows as CSV" },
@@ -501,6 +517,7 @@ export class App {
       el("span", { class: "grow" }),
       this.actionEl,
       shuffleControl,
+      this.stepsButton,
       this.copyButton,
       blankLabel,
       this.exportButton,
@@ -995,6 +1012,7 @@ export class App {
     }
     this.specials.clear();
     this.shuffleActive = false;
+    this.updateStepsButton();
     this.summaryBand = new SummaryBand(this.summaryHost, {
       onToggleSpecial: (kind) => this.toggleSpecial(kind),
       onOpenStats: () => this.openStats(),
@@ -1422,6 +1440,98 @@ export class App {
     });
   }
 
+  private updateStepsButton(): void {
+    let count = this.transformOps.length;
+    for (const ops of this.cleanedColumns.values()) count += ops.length;
+    this.stepsButton.textContent = count === 0 ? "Steps" : `Steps (${count})`;
+    this.stepsButton.classList.toggle("hidden", count === 0);
+  }
+
+  private stepEntries(): StepsPanelEntry[] {
+    const entries: StepsPanelEntry[] = [];
+    for (const [column, ops] of this.cleanedColumns) {
+      const name = this.metas[column]?.name ?? `Column ${column + 1}`;
+      for (let index = 0; index < ops.length; index++) {
+        entries.push({
+          kind: "clean",
+          label: `${name}: ${describeCleanOp(ops[index])}`,
+          column,
+          opIndex: index,
+          groupSize: ops.length,
+        });
+      }
+    }
+    const schema =
+      this.transformBaseSchema.length > 0
+        ? this.transformBaseSchema
+        : this.metas.map((meta) => ({
+            name: meta.name,
+            numeric: meta.type === "integer" || meta.type === "number",
+          }));
+    let running = schema;
+    for (let index = 0; index < this.transformOps.length; index++) {
+      const op = this.transformOps[index];
+      entries.push({
+        kind: "transform",
+        label: describeTransformOp(
+          op,
+          running.map((entry) => entry.name),
+        ),
+        column: -1,
+        opIndex: index,
+        groupSize: this.transformOps.length,
+      });
+      running = schemaAfter(running, op);
+    }
+    return entries;
+  }
+
+  private openSteps(): void {
+    openStepsPanel(this.stepEntries(), {
+      onRemoveClean: (column, opIndex) => {
+        const ops = this.cleanedColumns.get(column) ?? [];
+        this.applyClean([{ column, ops: ops.filter((_, index) => index !== opIndex) }]);
+      },
+      onMoveClean: (column, opIndex, direction) => {
+        const ops = (this.cleanedColumns.get(column) ?? []).slice();
+        const target = opIndex + direction;
+        if (target < 0 || target >= ops.length) return;
+        [ops[opIndex], ops[target]] = [ops[target], ops[opIndex]];
+        this.applyClean([{ column, ops }]);
+      },
+      onRemoveLastTransform: () => this.applyTransform(this.transformOps.slice(0, -1)),
+      onClearAll: () => {
+        if (this.transformOps.length > 0) this.applyTransform([]);
+        if (this.cleanedColumns.size > 0) {
+          this.applyClean(
+            [...this.cleanedColumns.keys()].map((column) => ({ column, ops: [] })),
+          );
+        }
+      },
+      onCopyRecipe: () => this.copyRecipe(),
+      onClose: () => this.setStage("view"),
+    });
+  }
+
+  private async copyRecipe(): Promise<boolean> {
+    const schema =
+      this.transformBaseSchema.length > 0
+        ? this.transformBaseSchema
+        : this.metas.map((meta) => ({
+            name: meta.name,
+            numeric: meta.type === "integer" || meta.type === "number",
+          }));
+    const recipe = pandasRecipe({
+      cleans: [...this.cleanedColumns.entries()].map(([column, ops]) => ({
+        name: this.metas[column]?.name ?? `Column ${column + 1}`,
+        ops,
+      })),
+      transforms: this.transformOps,
+      schema,
+    });
+    return copyText(recipe);
+  }
+
   private applyHeaderRename(headers: string[]): void {
     this.queueSend(() =>
       this.client
@@ -1469,6 +1579,7 @@ export class App {
           const label =
             updates.length === 1 ? name : `${updates.length} columns`;
           this.setAction(reverted ? `Reverted ${label}` : `Cleaned ${label}`);
+          this.updateStepsButton();
         })
         .catch((error: unknown) => this.showError(error)),
     );
