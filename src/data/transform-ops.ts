@@ -1,5 +1,6 @@
 import { datasetFromColumns } from "./build.js";
 import { ColumnData } from "./column.js";
+import { applyCombineDate, type CombineDateOp } from "./date-combine.js";
 import { formatNumber } from "./format.js";
 import { knnImpute } from "./knn.js";
 import { hashRows, rowsEqual } from "./stats.js";
@@ -30,7 +31,8 @@ export type TransformOp =
       valueVars: number[];
       varName: string;
       valueName: string;
-    };
+    }
+  | CombineDateOp;
 
 export interface ColumnSchema {
   name: string;
@@ -95,6 +97,9 @@ export function applyTransformOps(
         break;
       case "melt":
         current = meltColumns(current, op);
+        break;
+      case "combineDate":
+        current = applyCombineDate(current, op);
         break;
     }
   }
@@ -524,6 +529,13 @@ export function describeTransformOp(op: TransformOp, headers: readonly string[])
         op.valueVars.length > 0 ? op.valueVars.length : Math.max(0, headers.length - op.idVars.length);
       return `Melt to long: ${valueCount} value column${valueCount === 1 ? "" : "s"} (id: ${idNames.join(", ") || "none"})`;
     }
+    case "combineDate": {
+      const count = op.parts.length;
+      const zone = op.timeZone.trim() === "" ? "naive" : op.timeZone.trim();
+      return `Combine ${count} column${count === 1 ? "" : "s"} into ${op.output} ${quoted(
+        op.outputName.trim() || op.output,
+      )} (${zone}${op.dropParts ? ", drop sources" : ""})`;
+    }
   }
 }
 
@@ -558,6 +570,12 @@ export function describeTransformOpDetail(op: TransformOp, headers: readonly str
       return `melt(idVars=[${op.idVars.map(nameAt).join(", ")}], valueVars=[${op.valueVars
         .map(nameAt)
         .join(", ")}], varName=${JSON.stringify(op.varName)}, valueName=${JSON.stringify(op.valueName)})`;
+    case "combineDate":
+      return `combineDate(parts=[${op.parts
+        .map((part) => `${nameAt(part.column)}=${part.role}`)
+        .join(", ")}], output=${op.output}, order=${op.order}, timeZone=${JSON.stringify(
+        op.timeZone,
+      )}, dropParts=${op.dropParts})`;
   }
 }
 
@@ -600,6 +618,16 @@ export function schemaAfter(schema: readonly ColumnSchema[], op: TransformOp): C
         { name: op.varName.trim() || "variable", numeric: false },
         { name: op.valueName.trim() || "value", numeric },
       ];
+    }
+    case "combineDate": {
+      const dropped = new Set(op.dropParts ? op.parts.map((part) => part.column) : []);
+      const kept = schema.filter((_, index) => !dropped.has(index));
+      const base = op.outputName.trim() || (op.output === "date" ? "date" : "datetime");
+      const taken = new Set(kept.map((entry) => entry.name));
+      let name = base;
+      let suffix = 2;
+      while (taken.has(name)) name = `${base} (${suffix++})`;
+      return [...kept, { name, numeric: false }];
     }
   }
 }

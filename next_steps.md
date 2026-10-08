@@ -384,8 +384,18 @@ and Transform, and it reuses the exact patterns the codebase already establishes
   writer. TSV / JSON Lines are near-free.
 - **Null-resolution steps in the steps list** — treating tokens like `-999`
   as missing is applied but is not shown or undoable in the steps drawer yet.
-- **Combine year/month/day columns into a date** — the one review backlog item
-  intentionally left out.
+- **Combine date/time columns into a date or datetime (done 2026-10-08).** A
+  `combineDate` transform takes any set of columns, each with a role (auto,
+  full date, full datetime, time, year, month, day, hour, minute, second,
+  millisecond, AM/PM, UTC offset, epoch) and emits a canonical ISO date or
+  datetime column. Auto roles read the column name and values; ambiguous
+  numeric dates use per-column US vs day-first detection (or an explicit
+  override); 12-hour clocks, compact `1430` times, month names, ordinals and
+  embedded offsets are understood. Timezones resolve through `Intl` (UTC,
+  local, any IANA zone, fixed ±HH:MM, or naive) with offsets found in the
+  data taking priority; DST offsets are computed per instant with caching.
+  Source columns can optionally be dropped, and the pandas recipe emits
+  `pd.to_datetime(dict(...))` plus `tz_localize`.
 - **Worksheet picker preview** — still shows dimensions only; a small data
   preview would help pick the right sheet.
 

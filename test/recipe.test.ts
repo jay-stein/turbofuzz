@@ -68,3 +68,37 @@ test("emits a comment for knn imputation", () => {
   });
   assert.match(recipe, /KNN impute a from b \(k=5\)/);
 });
+
+test("emits pandas lines for combining date/time columns", () => {
+  const recipe = pandasRecipe({
+    cleans: [],
+    transforms: [
+      {
+        kind: "combineDate",
+        parts: [
+          { column: 0, role: "year" },
+          { column: 1, role: "month" },
+          { column: 2, role: "day" },
+          { column: 3, role: "hour" },
+        ],
+        output: "datetime",
+        outputName: "placed_at",
+        order: "auto",
+        timeZone: "Australia/Sydney",
+        dropParts: false,
+      },
+    ],
+    schema: [
+      { name: "year", numeric: true },
+      { name: "month", numeric: true },
+      { name: "day", numeric: true },
+      { name: "hour", numeric: true },
+    ],
+  });
+  assert.match(
+    recipe,
+    /df\["placed_at"\] = pd\.to_datetime\(dict\(year=df\["year"\], month=df\["month"\], day=df\["day"\], hour=df\["hour"\]\), errors="coerce"\)/,
+  );
+  assert.match(recipe, /tz_localize\("Australia\/Sydney"/);
+});
+

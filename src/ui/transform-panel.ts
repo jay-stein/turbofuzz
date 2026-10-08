@@ -1,5 +1,7 @@
 import { setupDialog } from "./dialog.js";
 import { clear, el } from "./dom.js";
+import { COMMON_TIME_ZONES } from "../data/timezone.js";
+import type { DatePartRole } from "../parse/date-parts.js";
 import {
   AGGREGATES,
   AGGREGATE_LABELS,
@@ -34,6 +36,24 @@ const TRANSFORM_TYPES: readonly { value: string; label: string }[] = [
   { value: "impute", label: "Fill missing values" },
   { value: "knn", label: "KNN impute (numeric)" },
   { value: "melt", label: "Melt (wide → long)" },
+  { value: "combineDate", label: "Combine date/time columns" },
+];
+
+const DATE_PART_ROLES: readonly { value: DatePartRole; label: string }[] = [
+  { value: "auto", label: "Auto-detect" },
+  { value: "date", label: "Full date" },
+  { value: "datetime", label: "Date + time" },
+  { value: "time", label: "Time only" },
+  { value: "year", label: "Year" },
+  { value: "month", label: "Month" },
+  { value: "day", label: "Day" },
+  { value: "hour", label: "Hour" },
+  { value: "minute", label: "Minute" },
+  { value: "second", label: "Second" },
+  { value: "millisecond", label: "Millisecond" },
+  { value: "meridiem", label: "AM/PM" },
+  { value: "offset", label: "UTC offset" },
+  { value: "epoch", label: "Epoch (unix)" },
 ];
 
 const DEDUPE_KEEPS: readonly { value: DedupeKeep; label: string }[] = [
@@ -376,6 +396,97 @@ export function openTransformPanel(
             varName: varNameInput.value,
             valueName: valueNameInput.value,
           });
+          break;
+        }
+        case "combineDate": {
+          const rows: { index: number; check: HTMLInputElement; role: HTMLSelectElement }[] = [];
+          const partsList = el("div", { class: "date-parts-list" });
+          schema.forEach((entry, index) => {
+            const row = el("div", { class: "date-part-row" });
+            const check = el("input", { type: "checkbox" }) as HTMLInputElement;
+            const role = selectOf(DATE_PART_ROLES);
+            role.disabled = true;
+            role.title = "How this column contributes to the combined value";
+            check.addEventListener("change", () => {
+              role.disabled = !check.checked;
+            });
+            row.append(check, el("span", { class: "date-part-name" }, [entry.name]), role);
+            partsList.append(row);
+            rows.push({ index, check, role });
+          });
+
+          const outputSelect = selectOf([
+            { value: "datetime", label: "Datetime (ISO with time)" },
+            { value: "date", label: "Date (YYYY-MM-DD)" },
+          ]);
+          const orderSelect = selectOf([
+            { value: "auto", label: "Auto-detect (US vs day-first)" },
+            { value: "mdy", label: "Month first (MM/DD/YYYY)" },
+            { value: "dmy", label: "Day first (DD/MM/YYYY)" },
+          ]);
+          const nameInput = el("input", {
+            class: "text-input",
+            type: "text",
+            value: "datetime",
+            spellcheck: "false",
+          }) as HTMLInputElement;
+          outputSelect.addEventListener("change", () => {
+            if (nameInput.value === "datetime" || nameInput.value === "date") {
+              nameInput.value = outputSelect.value;
+            }
+          });
+
+          const tzInput = el("input", {
+            class: "text-input",
+            type: "text",
+            value: "UTC",
+            list: "tz-zones",
+            spellcheck: "false",
+          }) as HTMLInputElement;
+          const tzList = el("datalist", { id: "tz-zones" });
+          for (const zone of ["naive", "local", ...COMMON_TIME_ZONES]) {
+            tzList.append(el("option", { value: zone }));
+          }
+          const tzNote = el("div", { class: "clean-hint" }, [
+            "UTC, local, naive (as written), any IANA zone, or ±HH:MM. Offsets found in the data win.",
+          ]);
+
+          const dropCheck = el("input", { type: "checkbox" }) as HTMLInputElement;
+          const dropField = el("label", { class: "control check clean-check" });
+          dropField.append(dropCheck, "Remove the source columns after combining");
+
+          const partsGroup = group(
+            "Columns to combine",
+            partsList,
+            "Tick each column and pick its role — Auto detects it from the column name and values (year/month/day, date + time, 12-hour clocks, offsets, epochs).",
+          );
+          partsGroup.classList.add("date-parts-group");
+          inputHost.append(
+            partsGroup,
+            field("Output", outputSelect),
+            field("Date order", orderSelect),
+            field("Timezone", tzInput),
+            tzNote,
+            tzList,
+            field("Column name", nameInput),
+            dropField,
+          );
+
+          readOp = () => {
+            const parts = rows
+              .filter((row) => row.check.checked)
+              .map((row) => ({ column: row.index, role: row.role.value as DatePartRole }));
+            if (parts.length === 0) return null;
+            return {
+              kind: "combineDate",
+              parts,
+              output: outputSelect.value === "date" ? "date" : "datetime",
+              outputName: nameInput.value,
+              order: orderSelect.value === "auto" ? "auto" : orderSelect.value === "mdy" ? "mdy" : "dmy",
+              timeZone: tzInput.value,
+              dropParts: dropCheck.checked,
+            };
+          };
           break;
         }
       }

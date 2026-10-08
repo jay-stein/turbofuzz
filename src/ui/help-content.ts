@@ -128,17 +128,18 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
   {
     id: "transform",
     title: "Transform the table",
-    summary: "Dedupe, drop, round, group by, impute and reshape.",
+    summary: "Dedupe, drop, round, group by, impute, combine dates and reshape.",
     blocks: [
       p(
         "Transforms change the shape of the working set. They run against the base data captured before the first transform, so the pipeline is re-derived from scratch on every change — the Process Log shows the ordered list. Right-click any column header and choose Transform dataset… to jump straight in.",
       ),
       list(
-        "Remove duplicate rows — keep first, keep last, or remove all copies.",
+        "Remove duplicate rows - keep first, keep last, or remove all copies.",
         "Drop or round columns.",
         "Group by a column with count/sum/min/max/mean/median measures.",
-        "Fill missing values — constant, mean, median, mode, forward/backward within a group, or KNN from numeric predictors.",
+        "Fill missing values - constant, mean, median, mode, forward/backward within a group, or KNN from numeric predictors.",
         "Melt wide columns into variable/value pairs.",
+        "Combine date/time columns - tick any set of columns (year, month, day, hour, minute, second, AM/PM, UTC offset, full date, full datetime, time, unix epoch) and give each a role. Auto-detect reads the column name and values, including US (MM/DD) vs day-first dates, 12-hour clocks, compact 1430 times, month names and embedded offsets. Choose date or datetime output and a timezone (UTC, your local zone, any IANA zone, ±HH:MM, or naive); offsets found in the data always win, and the result is a sortable ISO column.",
       ),
       note(
         "KNN imputation works best when the predictor columns genuinely relate to the column being filled — with useful predictors a hold-out test showed roughly a 70% error reduction versus mean/median filling, but with unrelated predictors it can be slightly worse than the mean. Applying a transform bakes the changes made so far into the base data; later undos rebuild from there.",
