@@ -86,3 +86,12 @@ Focused runs while iterating: `npx tsx --test test/chart-series.test.ts`,
 ## Blockers
 
 None. Changes on `agent/chart-cards` are ready for review/commit.
+
+## Deploy (same session)
+
+- `npm run build && npx wrangler deploy` on branch `agent/chart-cards`
+  (Cloudflare account `mrjaystein@gmail.com`).
+- Live: https://turbofuzz.mrjaystein.workers.dev
+- Version ID: `0229713b-5098-4fc0-9ed4-e75fd8f1ae9d` (5 assets uploaded).
+- Verified `200` and that the served `index.html` references the new bundle
+  (`index-rsIkisUl.js`).
