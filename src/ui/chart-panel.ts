@@ -82,11 +82,21 @@ export const CHART_COLORS: readonly string[] = [
 
 const PAD_LEFT = 46;
 const PAD_RIGHT = 14;
-const PAD_TOP = 30;
-const PAD_BOTTOM = 34;
-const TOP_N_OPTIONS = [3, 5, 8, 10, 12, 15] as const;
+const PAD_TOP = 56;
+const PAD_BOTTOM = 36;
+/** Standard 16:9 chart area, clamped so it stays usable in small windows. */
+const ASPECT = 9 / 16;
+const HEIGHT_MIN = 300;
+const HEIGHT_MAX = 640;
 const DEFAULT_BIN_COUNT = 32;
 const HEX = /^#?[0-9a-f]{6}$/i;
+
+/** Default chart title: data source plus column, editable by the user. */
+export function defaultChartTitle(datasetName: string, columnName: string): string {
+  const base = datasetName.replace(/\.[^.]+$/, "").trim();
+  const source = base === "" ? "Data" : base;
+  return columnName === "" ? source : `${source} — ${columnName}`;
+}
 
 export interface ChartPanelOptions {
   datasetName: () => string;
@@ -117,6 +127,33 @@ function safeFileName(name: string): string {
   );
 }
 
+/** Truncates text with an ellipsis so it fits the given width. */
+function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let cut = text;
+  while (cut.length > 2 && ctx.measureText(`${cut}…`).width > maxWidth) cut = cut.slice(0, -1);
+  return `${cut}…`;
+}
+
+/** Bar with rounded top corners (falls back to a plain rect). */
+function fillTopRounded(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius: number,
+): void {
+  const r = Math.max(0, Math.min(radius, w / 2, h));
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, w, h, [r, r, 0, 0]);
+  } else {
+    ctx.rect(x, y, w, h);
+  }
+  ctx.fill();
+}
+
 /**
  * Chart tab inside View: histogram (numeric, custom bins), time series (date)
  * or category bars (top N + Other) rendered on a canvas from the same
@@ -126,13 +163,14 @@ function safeFileName(name: string): string {
 export class ChartPanel {
   private readonly picker: HTMLSelectElement;
   private readonly controls: HTMLElement;
+  private readonly titleInput: HTMLInputElement;
   private readonly numericControls: HTMLElement;
   private readonly barControls: HTMLElement;
   private readonly minInput: HTMLInputElement;
   private readonly maxInput: HTMLInputElement;
   private readonly binsInput: HTMLInputElement;
   private readonly overflowInput: HTMLInputElement;
-  private readonly topSelect: HTMLSelectElement;
+  private readonly topInput: HTMLInputElement;
   private readonly otherInput: HTMLInputElement;
   private readonly multiInput: HTMLInputElement;
   private readonly swatches: HTMLButtonElement[] = [];
@@ -151,6 +189,7 @@ export class ChartPanel {
   private multiColor = true;
   private topN = 5;
   private groupOther = true;
+  private title = "";
   private binOptions: ChartBinOptions | null = null;
   private binResult: ChartBins | null = null;
   private binGeneration = 0;
@@ -181,7 +220,19 @@ export class ChartPanel {
     );
     png.addEventListener("click", () => this.exportPng());
 
-    this.controls = el("div", { class: "chart-controls" }, [this.picker, png]);
+    this.titleInput = el("input", {
+      class: "text-input chart-title",
+      type: "text",
+      placeholder: "Chart title",
+      spellcheck: "false",
+      "aria-label": "Chart title",
+    }) as HTMLInputElement;
+    this.titleInput.addEventListener("input", () => {
+      this.title = this.titleInput.value;
+      this.render();
+    });
+
+    this.controls = el("div", { class: "chart-controls" }, [this.titleInput, this.picker, png]);
 
     // Histogram range controls.
     const field = (label: string, input: HTMLElement): HTMLElement => {
@@ -206,11 +257,18 @@ export class ChartPanel {
     const overflowField = el("label", { class: "control check clean-check chart-check" });
     overflowField.title = "Aggregate everything above the last bin into one bar";
     overflowField.append(this.overflowInput, "“> Max” bar");
+    const fullRange = el(
+      "button",
+      { class: "ghost small", type: "button", title: "Reset Start/End to the data's full range" },
+      ["Full range"],
+    );
+    fullRange.addEventListener("click", () => this.resetBinRange());
     this.numericControls = el("div", { class: "chart-settings" }, [
       field("Start", this.minInput),
       field("End", this.maxInput),
       field("Bins", this.binsInput),
       overflowField,
+      fullRange,
     ]);
     const onBinChange = (): void => this.commitBinOptions();
     this.minInput.addEventListener("change", onBinChange);
@@ -219,13 +277,21 @@ export class ChartPanel {
     this.overflowInput.addEventListener("change", () => this.commitBinOptions());
 
     // Category bar controls.
-    this.topSelect = el("select", { class: "chart-number" }) as HTMLSelectElement;
-    for (const option of TOP_N_OPTIONS) {
-      this.topSelect.append(el("option", { value: String(option) }, [`Top ${option}`]) as HTMLOptionElement);
-    }
-    this.topSelect.value = String(this.topN);
-    this.topSelect.addEventListener("change", () => {
-      this.topN = Number(this.topSelect.value);
+    this.topInput = el("input", {
+      class: "chart-number",
+      type: "number",
+      min: "1",
+      max: "50",
+      step: "1",
+      value: String(this.topN),
+      title: "How many bars before the rest is grouped as Other",
+      spellcheck: "false",
+      "aria-label": "Number of category bars",
+    }) as HTMLInputElement;
+    this.topInput.addEventListener("change", () => {
+      const value = Math.floor(Number(this.topInput.value));
+      this.topN = Number.isFinite(value) ? Math.max(1, Math.min(50, value)) : 5;
+      this.topInput.value = String(this.topN);
       this.render();
     });
     this.otherInput = el("input", { type: "checkbox" }) as HTMLInputElement;
@@ -246,7 +312,7 @@ export class ChartPanel {
       this.render();
     });
     this.barControls = el("div", { class: "chart-settings" }, [
-      el("span", { class: "chart-field" }, [this.topSelect]),
+      field("Top bars", this.topInput),
       otherField,
       multiField,
     ]);
@@ -324,7 +390,9 @@ export class ChartPanel {
 
   setColumns(columns: ColumnMeta[]): void {
     this.columns = columns;
+    this.binOptions = null;
     this.syncPicker();
+    this.syncTitle();
     this.refreshBins();
     this.render();
   }
@@ -378,20 +446,44 @@ export class ChartPanel {
     this.renderControls();
   }
 
-  /** Resets bin settings to the column's readable default range. */
+  /** Resets bin settings to the column's full data range. */
   private applyColumnDefaults(): void {
     const meta = this.columns[this.selected];
     if (meta === undefined) return;
-    if (this.binOptions === null || chartKindFor(meta.type) !== "histogram") {
-      const histogram = meta.histogram;
-      this.binOptions = {
-        min: histogram?.min ?? meta.stats.min ?? 0,
-        max: histogram?.max ?? meta.stats.max ?? 1,
-        binCount: DEFAULT_BIN_COUNT,
-        overflow: false,
-      };
-    }
+    this.binOptions = this.fullRangeOptions(meta);
     this.binResult = null;
+    this.syncTitle();
+  }
+
+  private fullRangeOptions(meta: ColumnMeta): ChartBinOptions {
+    const histogram = meta.histogram;
+    let min = meta.stats.min ?? histogram?.min ?? 0;
+    let max = meta.stats.max ?? histogram?.max ?? 1;
+    if (!(max > min)) {
+      // Constant (or unknown) range: pad so there is a real bin to draw.
+      min -= 1;
+      max += 1;
+    }
+    return { min, max, binCount: DEFAULT_BIN_COUNT, overflow: false };
+  }
+
+  private resetBinRange(): void {
+    const meta = this.columns[this.selected];
+    if (meta === undefined) return;
+    this.binOptions = this.fullRangeOptions(meta);
+    this.renderControls();
+    this.refreshBins();
+    this.render();
+  }
+
+  private syncTitle(): void {
+    this.title = this.defaultTitleFor();
+    this.titleInput.value = this.title;
+  }
+
+  private defaultTitleFor(): string {
+    const meta = this.columns[this.selected];
+    return defaultChartTitle(this.options.datasetName(), meta?.name ?? "");
   }
 
   private commitBinOptions(): void {
@@ -492,7 +584,9 @@ export class ChartPanel {
     }
 
     const width = Math.max(320, this.canvas.parentElement?.clientWidth ?? 640);
-    const height = Math.round(Math.min(400, Math.max(240, width * 0.45)));
+    const height = Math.round(
+      Math.min(HEIGHT_MAX, Math.max(HEIGHT_MIN, width * ASPECT)),
+    );
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = Math.round(width * dpr);
     this.canvas.height = Math.round(height * dpr);
@@ -511,15 +605,16 @@ export class ChartPanel {
     const dim = cssVar("--text-dim", "#59636e");
     const border = cssVar("--border", "#d8dee4");
 
-    ctx.font = "600 13px system-ui, sans-serif";
+    const title = this.title.trim() === "" ? this.defaultTitleFor() : this.title.trim();
+    ctx.font = "600 15px system-ui, sans-serif";
     ctx.fillStyle = text;
-    ctx.fillText(`${meta.name} · ${TYPE_LABELS[meta.type]}`, PAD_LEFT, 18);
+    ctx.fillText(fitText(ctx, title, width - PAD_LEFT - PAD_RIGHT), PAD_LEFT, 22);
     ctx.font = "11px system-ui, sans-serif";
     ctx.fillStyle = dim;
     ctx.fillText(
-      `${this.rowCount.toLocaleString()} rows shown`,
-      PAD_LEFT + ctx.measureText(`${meta.name} · ${TYPE_LABELS[meta.type]}`).width + 24,
-      18,
+      `${TYPE_LABELS[meta.type]} · ${this.rowCount.toLocaleString()} rows shown · ${meta.stats.distinct.toLocaleString()} distinct`,
+      PAD_LEFT,
+      40,
     );
 
     const plotW = width - PAD_LEFT - PAD_RIGHT;
@@ -567,10 +662,18 @@ export class ChartPanel {
     ctx.moveTo(PAD_LEFT, PAD_TOP + plotH + 0.5);
     ctx.lineTo(PAD_LEFT + plotW, PAD_TOP + plotH + 0.5);
     ctx.stroke();
+    const halfY = PAD_TOP + plotH / 2;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(PAD_LEFT, halfY + 0.5);
+    ctx.lineTo(PAD_LEFT + plotW, halfY + 0.5);
+    ctx.stroke();
+    ctx.setLineDash([]);
     ctx.fillStyle = dim;
     ctx.font = "10px system-ui, sans-serif";
     ctx.textAlign = "right";
     ctx.fillText(maxCount.toLocaleString(), PAD_LEFT - 6, PAD_TOP + 8);
+    ctx.fillText(Math.round(maxCount / 2).toLocaleString(), PAD_LEFT - 6, halfY + 3);
     ctx.fillText("0", PAD_LEFT - 6, PAD_TOP + plotH + 3);
     ctx.textAlign = "left";
 
@@ -580,13 +683,13 @@ export class ChartPanel {
         if (h <= 0) continue;
         ctx.globalAlpha = 0.85;
         ctx.fillStyle = this.color;
-        ctx.fillRect(PAD_LEFT + i * slotW, PAD_TOP + plotH - h, barW, h);
+        fillTopRounded(ctx, PAD_LEFT + i * slotW, PAD_TOP + plotH - h, barW, h, 3);
       }
       if (hasOverflow) {
         const h = (overflowCount / maxCount) * plotH;
         const x = PAD_LEFT + bins.length * slotW + 2;
         ctx.globalAlpha = 0.55;
-        ctx.fillRect(x, PAD_TOP + plotH - h, slotW - 3, h);
+        fillTopRounded(ctx, x, PAD_TOP + plotH - h, slotW - 3, h, 3);
       }
       ctx.globalAlpha = 1;
     } else {
@@ -671,6 +774,20 @@ export class ChartPanel {
     ctx.moveTo(PAD_LEFT, PAD_TOP + plotH + 0.5);
     ctx.lineTo(PAD_LEFT + plotW, PAD_TOP + plotH + 0.5);
     ctx.stroke();
+    const halfY = PAD_TOP + plotH / 2;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(PAD_LEFT, halfY + 0.5);
+    ctx.lineTo(PAD_LEFT + plotW, halfY + 0.5);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = dim;
+    ctx.font = "10px system-ui, sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillText(maxCount.toLocaleString(), PAD_LEFT - 6, PAD_TOP + 8);
+    ctx.fillText(Math.round(maxCount / 2).toLocaleString(), PAD_LEFT - 6, halfY + 3);
+    ctx.fillText("0", PAD_LEFT - 6, PAD_TOP + plotH + 3);
+    ctx.textAlign = "left";
 
     ctx.font = "10px system-ui, sans-serif";
     bars.forEach((bar, index) => {
@@ -679,7 +796,7 @@ export class ChartPanel {
       ctx.fillStyle =
         bar.other === true ? cssVar("--text-dim", "#59636e") : this.multiColor ? CHART_COLORS[index % CHART_COLORS.length] : this.color;
       ctx.globalAlpha = bar.other === true ? 0.5 : 0.9;
-      ctx.fillRect(x, PAD_TOP + plotH - h, barW, h);
+      fillTopRounded(ctx, x, PAD_TOP + plotH - h, barW, h, 4);
       ctx.globalAlpha = 1;
 
       // Count + percent above each bar, wrapped onto two short lines.

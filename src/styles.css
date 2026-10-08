@@ -2055,6 +2055,13 @@ mark {
   gap: 8px;
 }
 
+.chart-title {
+  flex: 1;
+  min-width: 200px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .chart-picker {
   max-width: 340px;
   font-size: 12.5px;

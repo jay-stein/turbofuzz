@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { binValues } from "../src/data/chart-bins.js";
-import { categorySeries, chartKindFor } from "../src/ui/chart-panel.js";
+import { categorySeries, chartKindFor, defaultChartTitle } from "../src/ui/chart-panel.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
 
 function meta(overrides: Partial<ColumnMeta>): ColumnMeta {
@@ -77,6 +77,13 @@ test("binValues respects the row subset (current filters)", () => {
   const out = binValues(values, ids, { min: 1, max: 4, binCount: 3, overflow: false });
   assert.equal(out.total, 2);
   assert.deepEqual(out.bins, [0, 1, 1]);
+});
+
+test("chart titles reference the data source and column", () => {
+  assert.equal(defaultChartTitle("torture_utf8_bom.csv", "Amount"), "torture_utf8_bom — Amount");
+  assert.equal(defaultChartTitle("Pasted data", "Score"), "Pasted data — Score");
+  assert.equal(defaultChartTitle("", "Amount"), "Data — Amount");
+  assert.equal(defaultChartTitle("data.csv", ""), "data");
 });
 
 test("category series takes the top N and aggregates the rest as Other", () => {
