@@ -499,3 +499,87 @@ topic later.
   mean") and an auto-`k` suggestion. Until then the Help guide should keep the
   caveat that imputation assumes informative predictors.
 
+---
+
+## Multi-variable chart options (investigation, 2026-10-08)
+
+Today's charts are single-variable (histogram, time series, category bars) fed
+by facets/histograms + `getChartBins`. The ask is charts that show interaction
+between variables (scatter, clusters, density, correlations) while keeping the
+lightning-fast, no-libraries, offline principles.
+
+### Data-flow options (the speed decision)
+
+| Option | How | Payload / cost | Verdict |
+|---|---|---|---|
+| **A. Worker aggregates/samples** | New requests beside `getChartBins`: `getSample`, `getGrid` (2D buckets), `getGroupStats`, `getCorrelation`; compute over `sortedIds` | 10k points ≈ 160 KB transferable; 128×96 grid ≈ 50 KB; 2–5 ms per scan | Recommended baseline |
+| **B. SharedArrayBuffer mirror** | Worker mirrors numeric columns into SAB; main thread samples/zooms/brushes with no round-trips; filter commits sync a shared bitmap | 300k × 4 cols ≈ 4.8 MB | Phase-4 turbo; **already possible** — COOP/COEP are live so `crossOriginIsolated` is true |
+| **C. OffscreenCanvas/WebGL worker** | Render million-point scatter off-thread, transfer `ImageBitmap` | Large lift | Only if A+B benchmarks demand |
+| **D. Signature caches** | Key chart results by data generation + filter signature (like `HistogramCache`) | — | Do from day one inside A |
+
+### Chart families
+
+| Chart | Shows | Worker computation | Effort |
+|---|---|---|---|
+| Scatter (x, y; colour/size by a third) | Relationship between two numerics | Pixel-stratified/reservoir sample ≤ ~20k points | M |
+| Density / hexbin | Mass where points are too many | Exact 2D histogram; optionally precompute 512×512 and slice for instant zoom | S–M |
+| Bubble | Scatter + size encoding | Scatter + radius scale | S |
+| Multi-series line | Time × measure split by category | Per-bucket aggregates, top-N series + Other, pixel-column min/max | M |
+| Box / violin per category | Distribution differences | Five-number summary + small histogram per group (tiny, exact) | S |
+| Heatmap (2 categories) | Cross-tab of two categoricals | Hash group-by pair, capped K×K + Other | S |
+| Correlation matrix | Which numerics move together | Pearson one pass; Spearman via ranks (approximate on 1M+) | S–M |
+| Small multiples | Single-var chart split by category | Reuse histograms/facets per group | S |
+| Parallel coordinates | Many variables at once | Sampled lines or binned bands | M–L |
+| Trend overlays | Direction + spread | Per-x-bin mean/median + IQR band, optional OLS | S |
+| K-means clusters | Natural groupings, filterable/exportable | Implement as a **transform op** (cluster-id column, KNN precedent) | M–L |
+| PCA projection | 2-D view of many numerics | Covariance + power iteration | L |
+
+### Interaction models
+
+- **Hover** — screen-space bucket grid over the sample (O(1)); density cells
+  show count + bounds.
+- **Zoom/pan** — view transform in the chart; scatter re-renders the sample,
+  density slices a precomputed fine grid (instant, no worker traffic).
+- **Click-to-filter** — point/cluster/heatmap cell maps to existing filter
+  kinds; no engine work.
+- **Brush (rectangle/lasso)** — the one engine addition: a selection filter
+  kind (ids/bitmask to the worker). Unlocks cross-filtering and linked brushing.
+- **Linked highlight** — shared client-side highlight state over sampled ids.
+- **Export** — PNG as today plus "download chart data (CSV)"; text summaries
+  for accessibility.
+
+### Performance guardrails
+
+- Raw points only to ~20k on screen; above that auto-switch to density with a
+  "showing N of M rows · Density" label and an override.
+- Grid payloads capped at 256×256; sample size selectable (5k / 20k / density /
+  all).
+- Line charts use min/max per pixel column decimation (exact shape, bounded).
+- All worker responses use transferable typed arrays; show chart query + draw
+  ms in the note line.
+- Canvas 2D to ~100k points; `ImageData` for 1-px density; WebGL only if
+  million-point interaction is ever required.
+
+### Phased roadmap
+
+| Phase | Contents | Effort |
+|---|---|---|
+| 1 | Chart-type gallery + scatter (x/y/colour/size) + density; worker `getSample`/`getGrid`; auto-threshold; PNG | 2–4 days |
+| 2 | Box plots, correlation matrix, 2-category heatmap, small multiples (exact aggregates, tiny payloads) | 2–3 days |
+| 3 | Hover, zoom/pan, click-to-filter, rectangle brush + selection filter, linked highlight | 3–5 days |
+| 4 | K-means transform column, trend bands, SAB mirror for instant brushing, WebGL if benchmarks demand | 1–2 weeks |
+
+### Risks / open questions
+
+- Selection filter must serialize, undo and appear sanely in the Process Log
+  (likely a manual, non-replayable entry).
+- Spearman on million-row columns: approximate with binned ranks if needed.
+- Sampling-bias perception: always show "N of M rows" and offer density.
+- Need ≥8 distinguishable category colours; consider a colourblind-safe palette.
+- No chart libraries: we own axes, legends and labels — keep one shared
+  draw-helpers module (the current `chart-panel.ts` helpers are the seed).
+
+**Recommended first step:** Phase 1 — scatter + density covers the
+"interaction between variables" ask, adds one worker request pair, and its
+benchmarks decide whether Phase 4 (SAB/WebGL) is ever needed.
+
