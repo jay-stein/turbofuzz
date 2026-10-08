@@ -473,7 +473,10 @@ pre-selected on that column/tab) and **Transform dataset…**. The unified Edit
 surface itself is still open. Since then the Process Log also **condenses
 batches**: transforms applied in one commit, and the same clean op applied to
 3+ columns, collapse into one row with a + toggle for the sub-steps, and the
-button badge counts actions rather than raw substeps.
+button badge counts actions rather than raw substeps. Parameter-free cleans
+(trim, case, convert number/date, formula escaping) now apply instantly from
+the column menu with an Undo toast, while configurable operations keep the
+panel flow with the column and operation preselected.
 
 ---
 

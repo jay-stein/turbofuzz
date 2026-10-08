@@ -1786,17 +1786,22 @@ export class App {
     const addItem = (
       label: string,
       action: () => void,
-      options: { danger?: boolean } = {},
+      options: { danger?: boolean; instant?: boolean } = {},
     ): void => {
       const item = el(
         "button",
         {
-          class: `context-item${options.danger === true ? " danger" : ""}`,
+          class: `context-item${options.danger === true ? " danger" : ""}${
+            options.instant === true ? " instant" : ""
+          }`,
           type: "button",
           role: "menuitem",
         },
         [label],
       ) as HTMLButtonElement;
+      if (options.instant === true) {
+        item.title = "Applies immediately — Undo is offered in the toast";
+      }
       item.addEventListener("click", () => {
         close();
         action();
@@ -1818,10 +1823,41 @@ export class App {
     addItem("Delete column…", () => void this.confirmDeleteColumn(column), { danger: true });
 
     addHeader("Clean");
-    addItem("Trim whitespace", () => this.openClean(column, "values", { kind: "trim" }));
-    addItem("UPPERCASE", () => this.openClean(column, "values", { kind: "case", style: "upper" }));
-    addItem("lowercase", () => this.openClean(column, "values", { kind: "case", style: "lower" }));
-    addItem("Title Case", () => this.openClean(column, "values", { kind: "case", style: "title" }));
+    addItem(
+      "Trim whitespace",
+      () => this.applyQuickClean(column, { kind: "trim" }),
+      { instant: true },
+    );
+    addItem(
+      "UPPERCASE",
+      () => this.applyQuickClean(column, { kind: "case", style: "upper" }),
+      { instant: true },
+    );
+    addItem(
+      "lowercase",
+      () => this.applyQuickClean(column, { kind: "case", style: "lower" }),
+      { instant: true },
+    );
+    addItem(
+      "Title Case",
+      () => this.applyQuickClean(column, { kind: "case", style: "title" }),
+      { instant: true },
+    );
+    addItem(
+      "Convert to number",
+      () => this.applyQuickClean(column, { kind: "toNumber", locale: meta.numberLocale }),
+      { instant: true },
+    );
+    addItem(
+      "Convert to date",
+      () => this.applyQuickClean(column, { kind: "toDate", order: meta.dateOrder }),
+      { instant: true },
+    );
+    addItem(
+      "Escape formula-like cells",
+      () => this.applyQuickClean(column, { kind: "escapeFormulas" }),
+      { instant: true },
+    );
     addItem("Find & replace…", () =>
       this.openClean(column, "values", {
         kind: "replace",
@@ -1829,12 +1865,6 @@ export class App {
         replacement: "",
         ignoreCase: false,
       }),
-    );
-    addItem("Convert to number…", () =>
-      this.openClean(column, "values", { kind: "toNumber", locale: meta.numberLocale }),
-    );
-    addItem("Convert to date…", () =>
-      this.openClean(column, "values", { kind: "toDate", order: meta.dateOrder }),
     );
     addItem("Clean values…", () => this.openClean(column, "values"));
     addItem("Missing values…", () => this.openClean(column, "nulls"));
@@ -1876,6 +1906,55 @@ export class App {
     const headers = this.metas.map((entry) => entry.name);
     headers[column] = name;
     this.applyHeaderRename(headers);
+  }
+
+  /** Applies a parameter-free clean straight from the menu, with an undo toast. */
+  private applyQuickClean(column: number, op: CleanOp): void {
+    const existing = this.cleanedColumns.get(column) ?? [];
+    this.applyClean([{ column, ops: [...existing, op] }]);
+    const name = this.metas[column]?.name ?? `Column ${column + 1}`;
+    this.showToast(`${describeCleanOp(op)} applied to “${name}”`, () => {
+      const current = this.cleanedColumns.get(column) ?? [];
+      const key = JSON.stringify(op);
+      let index = -1;
+      for (let i = current.length - 1; i >= 0; i--) {
+        if (JSON.stringify(current[i]) === key) {
+          index = i;
+          break;
+        }
+      }
+      if (index < 0) return;
+      this.applyClean([{ column, ops: current.filter((_, i) => i !== index) }]);
+    });
+  }
+
+  /** One transient toast at a time, with an optional Undo action. */
+  private showToast(message: string, onUndo?: () => void): void {
+    for (const existing of document.querySelectorAll(".toast")) existing.remove();
+    const toast = el("div", { class: "toast", role: "status" });
+    toast.append(el("span", { class: "toast-text" }, [message]));
+    const timer = window.setTimeout(() => toast.remove(), 6000);
+    if (onUndo !== undefined) {
+      const undo = el("button", { class: "toast-undo", type: "button" }, ["Undo"]);
+      undo.title = "Reverse this action";
+      undo.addEventListener("click", () => {
+        window.clearTimeout(timer);
+        toast.remove();
+        onUndo();
+      });
+      toast.append(undo);
+    }
+    const dismiss = el(
+      "button",
+      { class: "toast-close icon-btn", type: "button", title: "Dismiss" },
+      ["×"],
+    );
+    dismiss.addEventListener("click", () => {
+      window.clearTimeout(timer);
+      toast.remove();
+    });
+    toast.append(dismiss);
+    document.body.append(toast);
   }
 
   private async confirmDeleteColumn(column: number): Promise<void> {

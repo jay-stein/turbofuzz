@@ -41,7 +41,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       ),
       list(
         "Click a chip to apply its fix — every fix is reversible from the Process Log.",
-        "Click a column name to sort; right-click a header for grouped Column / Clean / Transform actions. Choosing a clean or transform function opens its panel with that column (and operation) already selected. Drag the divider on a header's right edge to resize it (double-click the divider to reset).",
+        "Click a column name to sort; right-click a header for grouped Column / Clean / Transform actions. Parameter-free cleans (Trim, UPPERCASE, lowercase, Title Case, Convert to number/date, formula escaping) apply instantly with an Undo toast; configurable operations open their panel with that column (and operation) already selected. Drag the divider on a header's right edge to resize it (double-click the divider to reset).",
         "Use Export… when you are done; the dialog states exactly which rows will be written, with an optional first-N subset.",
         "The header Theme control cycles Auto / Light / Dark — Auto follows your operating system.",
         "Help (this drawer) is searchable; the Chart tab shows a chart of the current result set and exports it as a PNG.",
@@ -111,7 +111,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Open Clean and pick a column. Operations are queued with a live preview of the first cells and a “how many cells change” count, then applied together. Nothing is applied until you press the button, and every applied operation is reversible from the Process Log.",
       ),
       p(
-        "Clean can also be opened from a column: right-click a header and choose Clean values… or Missing values… — the panel opens on that column and tab.",
+        "Clean can also be opened from a column: right-click a header and choose Clean values… or Missing values… — the panel opens on that column and tab. Simple cleans (Trim, case, convert number/date, formula escaping) skip the panel and apply from the same menu with an Undo toast.",
       ),
       list(
         "Trim whitespace, change case (upper/lower/title), find and replace.",
