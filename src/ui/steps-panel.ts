@@ -11,6 +11,15 @@ export interface StepsPanelEntry {
   opIndex: number;
   /** Number of ops in the same group (used to enable reorder buttons). */
   groupSize: number;
+  /** Optional batch membership; consecutive entries with the same id collapse. */
+  group?: { id: string; label: string; detail?: string };
+}
+
+export interface StepsGroup {
+  id: string;
+  label: string;
+  detail?: string;
+  entries: StepsPanelEntry[];
 }
 
 export interface StepsPanelCallbacks {
@@ -32,26 +41,115 @@ function undoIcon(): SVGElement {
   return svgIcon(UNDO_ICON, "undo-icon");
 }
 
+function cleanDescription(label: string): string {
+  const separator = label.indexOf(": ");
+  return separator < 0 ? label : label.slice(separator + 2);
+}
+
+/**
+ * Condenses the flat step list into display groups. Explicit batches (for
+ * example the ops applied by one Transform commit) collapse by their group id;
+ * consecutive identical clean operations across three or more columns are
+ * recognised as a single "apply to all columns" action; everything else stays
+ * a single row.
+ */
+export function groupSteps(entries: readonly StepsPanelEntry[]): StepsGroup[] {
+  const groups: StepsGroup[] = [];
+  let index = 0;
+  while (index < entries.length) {
+    const entry = entries[index];
+    if (entry.group !== undefined) {
+      const id = entry.group.id;
+      const members: StepsPanelEntry[] = [];
+      while (index < entries.length && entries[index].group?.id === id) {
+        members.push(entries[index++]);
+      }
+      groups.push({ id, label: entry.group.label, detail: entry.group.detail, entries: members });
+      continue;
+    }
+
+    if (entry.kind === "clean") {
+      const blockStart = index;
+      const perColumn = entry.groupSize;
+      const detailKey = JSON.stringify(
+        entries.slice(index, index + perColumn).map((member) => member.detail ?? ""),
+      );
+      const columns = new Set<number>();
+      let cursor = index;
+      while (cursor + perColumn <= entries.length) {
+        const current = entries[cursor];
+        if (
+          current.kind !== "clean" ||
+          current.group !== undefined ||
+          current.groupSize !== perColumn
+        ) {
+          break;
+        }
+        const blockKey = JSON.stringify(
+          entries.slice(cursor, cursor + perColumn).map((member) => member.detail ?? ""),
+        );
+        if (blockKey !== detailKey) break;
+        let distinct = true;
+        for (let offset = 0; offset < perColumn; offset++) {
+          if (columns.has(entries[cursor + offset].column)) {
+            distinct = false;
+            break;
+          }
+        }
+        if (!distinct) break;
+        for (let offset = 0; offset < perColumn; offset++) {
+          columns.add(entries[cursor + offset].column);
+        }
+        cursor += perColumn;
+      }
+
+      if (columns.size >= 3) {
+        const descriptions: string[] = [];
+        for (let offset = 0; offset < perColumn; offset++) {
+          descriptions.push(cleanDescription(entries[blockStart + offset].label));
+        }
+        groups.push({
+          id: `clean-batch-${blockStart}`,
+          label:
+            perColumn === 1
+              ? `${descriptions[0]} · ${columns.size} columns`
+              : `${perColumn} operations · ${columns.size} columns`,
+          detail: descriptions.join(" → "),
+          entries: entries.slice(blockStart, cursor),
+        });
+        index = cursor;
+        continue;
+      }
+    }
+
+    groups.push({ id: `single-${index}`, label: entry.label, entries: [entry] });
+    index++;
+  }
+  return groups;
+}
+
 /**
  * Process Log: every clean, missing-value, type and transform change currently
  * baked into the dataset, each individually reversible, with cleans
  * reorderable within their column and a pandas recipe export of the pipeline.
+ * Batches from a single action are condensed under a + toggle.
  */
 export function openStepsPanel(
   entries: readonly StepsPanelEntry[],
   callbacks: StepsPanelCallbacks,
 ): void {
+  const groups = groupSteps(entries);
   const overlay = el("div", { class: "modal-overlay drawer-overlay" });
   const modal = el("div", { class: "modal clean-modal drawer" });
 
   const head = el("div", { class: "modal-head" });
-  head.append(el("h2", {}, [`Process Log (${entries.length})`]));
+  head.append(el("h2", {}, [`Process Log (${groups.length})`]));
   const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close" }, ["×"]);
   head.append(closeButton);
   modal.append(head);
 
   const hint = el("div", { class: "clean-hint" }, [
-    "Changes apply in order. The undo icon reverses a change; clean operations can be reordered within their column. The line under each entry is its technical signature.",
+    "Changes apply in order. Batches from one action are condensed — click + to show their sub-steps. The undo icon reverses a change; clean operations can be reordered within their column.",
   ]);
   const list = el("div", { class: "clean-op-list" });
   modal.append(hint, list);
@@ -62,28 +160,30 @@ export function openStepsPanel(
     }
     return -1;
   })();
+  const indexOf = new Map<StepsPanelEntry, number>();
+  entries.forEach((entry, index) => indexOf.set(entry, index));
 
-  entries.forEach((entry, index) => {
-    const row = el("div", { class: "clean-op" });
+  const undo = (title: string, action: () => void, disabled = false): HTMLButtonElement => {
+    const button = el("button", { class: "icon-btn undo-btn", type: "button", title }, []);
+    button.append(undoIcon());
+    button.disabled = disabled;
+    if (!disabled) {
+      button.addEventListener("click", () => {
+        action();
+        callbacks.onClose();
+      });
+    }
+    return button;
+  };
+
+  const renderRow = (entry: StepsPanelEntry, numberText: string, substep: boolean): HTMLElement => {
+    const row = el("div", { class: `clean-op${substep ? " step-substep" : ""}` });
     const info = el("div", { class: "clean-op-info" });
     info.append(el("span", { class: "clean-op-desc" }, [entry.label]));
     if (entry.detail !== undefined) {
       info.append(el("span", { class: "clean-op-detail" }, [entry.detail]));
     }
-    const undo = (title: string, action: () => void, disabled = false): HTMLButtonElement => {
-      const button = el("button", { class: "icon-btn undo-btn", type: "button", title }, []);
-      button.append(undoIcon());
-      button.disabled = disabled;
-      if (!disabled) {
-        button.addEventListener("click", () => {
-          action();
-          callbacks.onClose();
-        });
-      }
-      return button;
-    };
-
-    row.append(el("span", { class: "clean-op-index" }, [String(index + 1)]), info);
+    row.append(el("span", { class: "clean-op-index" }, [numberText]), info);
 
     if (entry.kind === "clean") {
       const up = el("button", { class: "icon-btn", type: "button", title: "Move up" }, ["↑"]);
@@ -116,6 +216,7 @@ export function openStepsPanel(
         undo("Undo this type change", () => callbacks.onUndoType(entry.column, entry.opIndex)),
       );
     } else {
+      const index = indexOf.get(entry) ?? -1;
       row.append(
         undo(
           index === lastTransformIndex
@@ -126,9 +227,47 @@ export function openStepsPanel(
         ),
       );
     }
+    return row;
+  };
 
-    list.append(row);
-  });
+  let display = 0;
+  for (const group of groups) {
+    if (group.entries.length === 1) {
+      display++;
+      list.append(renderRow(group.entries[0], String(display), false));
+      continue;
+    }
+
+    display++;
+    const wrapper = el("div", { class: "clean-op step-group" });
+    const toggle = el(
+      "button",
+      { class: "icon-btn step-toggle", type: "button", title: "Show sub-steps" },
+      ["+"],
+    ) as HTMLButtonElement;
+    const info = el("div", { class: "clean-op-info" });
+    info.append(el("span", { class: "clean-op-desc" }, [group.label]));
+    info.append(
+      el("span", { class: "clean-op-detail" }, [group.detail ?? `${group.entries.length} steps`]),
+    );
+    wrapper.append(
+      el("span", { class: "clean-op-index" }, [String(display)]),
+      info,
+      el("span", { class: "step-count" }, [`${group.entries.length} steps`]),
+      toggle,
+    );
+    const children = el("div", { class: "step-group-children hidden" });
+    group.entries.forEach((entry, sub) => {
+      children.append(renderRow(entry, `${display}.${sub + 1}`, true));
+    });
+    wrapper.append(children);
+    toggle.addEventListener("click", () => {
+      const hidden = children.classList.toggle("hidden");
+      toggle.textContent = hidden ? "+" : "−";
+      toggle.title = hidden ? "Show sub-steps" : "Hide sub-steps";
+    });
+    list.append(wrapper);
+  }
 
   if (entries.length === 0) {
     list.append(el("div", { class: "clean-empty" }, ["No changes logged yet."]));

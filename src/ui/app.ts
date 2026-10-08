@@ -48,7 +48,7 @@ import { openCleanPanel } from "./clean-panel.js";
 import { openConfirm, openPrompt } from "./dialog.js";
 import { openExportPanel } from "./export-panel.js";
 import { openMergePanel } from "./merge-panel.js";
-import { openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
+import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
 import { PipelineStepper, type StageId } from "./stepper.js";
 
@@ -201,6 +201,8 @@ export class App {
   private readonly typeEdits: TypeEdit[] = [];
   private transformOps: TransformOp[] = [];
   private transformBaseSchema: ColumnSchema[] = [];
+  /** Sizes of the transform commits, in op order, for Process Log batches. */
+  private transformCommitSizes: number[] = [];
   private filterPanel: FilterPanel | null = null;
   private table: ResultTable | null = null;
 
@@ -948,9 +950,11 @@ export class App {
     if (loaded.type === "transformed") {
       this.transformOps = loaded.ops;
       this.transformBaseSchema = loaded.baseSchema;
+      this.syncTransformBatches();
     } else {
       this.transformOps = [];
       this.transformBaseSchema = [];
+      this.transformCommitSizes = [];
     }
     this.specials.clear();
     this.columnSpecials.clear();
@@ -1857,11 +1861,35 @@ export class App {
     this.applyTransform([...this.transformOps, { kind: "drop", column }]);
   }
 
+  /** Keeps the per-commit sizes in step with the current transform op list. */
+  private syncTransformBatches(): void {
+    const total = this.transformOps.length;
+    if (total === 0) {
+      this.transformCommitSizes = [];
+      return;
+    }
+    let covered = 0;
+    for (const size of this.transformCommitSizes) covered += size;
+    if (total > covered) {
+      this.transformCommitSizes.push(total - covered);
+      return;
+    }
+    const kept: number[] = [];
+    let used = 0;
+    for (const size of this.transformCommitSizes) {
+      if (used + size <= total) {
+        kept.push(size);
+        used += size;
+      } else {
+        break;
+      }
+    }
+    if (used < total) kept.push(total - used);
+    this.transformCommitSizes = kept;
+  }
+
   private updateStepsButton(): void {
-    let count = this.transformOps.length;
-    for (const ops of this.cleanedColumns.values()) count += ops.length;
-    count += this.nullEdits.length + this.typeEdits.length;
-    if (this.excludedRowCount > 0) count += 1;
+    const count = groupSteps(this.stepEntries()).length;
     this.stepsButton.textContent = count === 0 ? "Process Log" : `Process Log (${count})`;
     this.stepsButton.disabled = count === 0;
     this.stepsButton.title =
@@ -1916,8 +1944,17 @@ export class App {
             numeric: meta.type === "integer" || meta.type === "number",
           }));
     let running = schema;
+    const batchOf = new Array<number>(this.transformOps.length).fill(-1);
+    let batchCursor = 0;
+    this.transformCommitSizes.forEach((size, batchIndex) => {
+      for (let step = 0; step < size && batchCursor < batchOf.length; step++) {
+        batchOf[batchCursor++] = batchIndex;
+      }
+    });
     for (let index = 0; index < this.transformOps.length; index++) {
       const op = this.transformOps[index];
+      const batch = batchOf[index];
+      const batchSize = batch >= 0 ? this.transformCommitSizes[batch] : 1;
       entries.push({
         kind: "transform",
         label: describeTransformOp(
@@ -1931,6 +1968,10 @@ export class App {
         column: -1,
         opIndex: index,
         groupSize: this.transformOps.length,
+        group:
+          batchSize > 1
+            ? { id: `transform-batch-${batch}`, label: `Transform batch (${batchSize} steps)` }
+            : undefined,
       });
       running = schemaAfter(running, op);
     }
@@ -2050,6 +2091,7 @@ export class App {
         .then((message) => {
           this.transformOps = [];
           this.transformBaseSchema = [];
+          this.transformCommitSizes = [];
           for (const update of updates) {
             this.filters.delete(update.column);
             if (update.ops.length === 0) this.cleanedColumns.delete(update.column);

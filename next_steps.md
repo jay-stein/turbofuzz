@@ -470,7 +470,10 @@ with undo, and the header ⋯ menu has direct one-click UPPERCASE / lowercase /
 Title Case / Trim ops that apply immediately and land in the Process Log. The
 column menu also opens **Clean values…**, **Missing values…** (Clean panel
 pre-selected on that column/tab) and **Transform dataset…**. The unified Edit
-surface itself is still open.
+surface itself is still open. Since then the Process Log also **condenses
+batches**: transforms applied in one commit, and the same clean op applied to
+3+ columns, collapse into one row with a + toggle for the sub-steps, and the
+button badge counts actions rather than raw substeps.
 
 ---
 

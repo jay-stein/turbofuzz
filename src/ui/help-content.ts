@@ -194,9 +194,10 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     summary: "Every applied change, individually reversible, plus a pandas recipe.",
     blocks: [
       p(
-        "Process Log lists the changes currently applied to the working set: clean operations, missing-value rules, column type changes, deleted rows and transform steps. The number next to the button is how many entries are active.",
+        "Process Log lists the changes currently applied to the working set: clean operations, missing-value rules, column type changes, deleted rows and transform steps. The number next to the button counts actions, with batches collapsed.",
       ),
       list(
+        "Batches from one action are condensed — for example a clean applied to 20 columns, or the steps from one Transform commit. Click + on a batch to expand its sub-steps.",
         "The undo icon reverses one entry; clean operations can be reordered within their column.",
         "Undo all restores the original data (except the loaded file itself).",
         "Copy pandas recipe exports the clean and transform steps as a best-effort Python script for reproducibility.",
