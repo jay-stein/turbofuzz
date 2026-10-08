@@ -2301,6 +2301,18 @@ select.chart-number {
   flex-wrap: wrap;
 }
 
+.chart-multiselect {
+  min-width: 180px;
+  max-width: 280px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
 .chart-card .chart-title {
   flex: 1 1 180px;
   max-width: none;

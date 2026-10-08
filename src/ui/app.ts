@@ -1031,6 +1031,9 @@ export class App {
       datasetName: () => this.datasetName,
       requestBins: (column, options) => this.client.getChartBins(column, options),
       requestSeries: (input) => this.client.getChartSeries(input),
+      requestBoxStats: (input) => this.client.getBoxStats(input),
+      requestCrosstab: (input) => this.client.getCrosstab(input),
+      requestCorrelation: (columns) => this.client.getCorrelation(columns),
     });
     this.chartsPanel.setColumns(loaded.columns);
     this.chartsPanel.setRowCount(loaded.rowCount);

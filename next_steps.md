@@ -497,6 +497,15 @@ topic later.
   show the worker query ms in the note. Still open from the roadmap: box
   plots, correlation matrix, heatmap and small multiples (Phase 2), then
   hover, zoom, brushing and linked highlighting (Phase 3).
+- **Phase 2 chart types (shipped 2026-10-08, same session as the grid).**
+  Box plots (numeric value × category, Tukey 1.5×IQR whiskers, sampled
+  outlier dots, top-N + Other), category×category heatmaps and Pearson
+  correlation matrices (pairwise-complete observations, up to 12 columns,
+  diverging blue–red cells, undefined cells greyed) are now card types with
+  their own worker requests (`getBoxStats`, `getCrosstab`, `getCorrelation`).
+  “+ Add chart” cycles scatter → correlation → box → heatmap before falling
+  back to repeated defaults. Still open: small multiples and trend overlays
+  (Phase 2 remainder), hover/zoom/brush (Phase 3), K-means/SAB (Phase 4).
 - **Theme switching.** Shipped 2026-10-08: header control cycles Auto / Light /
   Dark, persisted in `localStorage`, with explicit `data-theme` palettes and
   `themechange` repaints for charts. Still open: the **quirky mode (TBD)** —
@@ -601,8 +610,13 @@ settings and PNG export. Scatter (x/y, optional colour by numeric ramp or
 category palette, optional numeric size) and density (exact 128×72 grid) are
 served by a single `getChartSeries` request that walks the filtered result
 order and transfers typed arrays; auto mode switches to density above 20,000
-matching pairs, and the note shows shown/total/outside plus worker ms. Still
-to do from this section: box plots, correlation matrix, two-category heatmap
-and small multiples (Phase 2); hover, zoom, click-to-filter, brush and linked
-highlight (Phase 3); K-means/trend bands/SAB (Phase 4).
+matching pairs, and the note shows shown/total/outside plus worker ms.
+
+**Phase 2 progress (2026-10-08):** box plots (value × category, 1.5×IQR
+whiskers, sampled outliers, top-N + Other), category×category heatmaps and
+Pearson correlation matrices are shipped as card types behind `getBoxStats`,
+`getCrosstab` and `getCorrelation` (tiny, exact payloads). Still to do from
+this section: small multiples and trend overlays (Phase 2 remainder); hover,
+zoom, click-to-filter, brush and linked highlight (Phase 3); K-means/trend
+bands/SAB (Phase 4).
 

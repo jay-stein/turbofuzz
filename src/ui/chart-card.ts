@@ -1,19 +1,28 @@
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import type { SeriesGrid, SeriesMode, SeriesPoints } from "../data/chart-series.js";
+import type { BoxStatsResult, CrossTabResult } from "../data/chart-stats.js";
 import { TYPE_LABELS } from "../types.js";
-import type { ChartSeriesMessage, ColumnMeta } from "../worker/protocol.js";
+import type {
+  BoxStatsMessage,
+  ChartSeriesMessage,
+  ColumnMeta,
+  CorrelationMessage,
+  CrosstabMessage,
+} from "../worker/protocol.js";
 import {
   axisKindFor,
   categorySeries,
   CHART_COLORS,
   CHART_KIND_LABELS,
   type ChartCardKind,
+  correlationCell,
   defaultChartTitle,
   formatChartNumber,
   formatTick,
   hexToRgb,
   isCategoryType,
   isNumericType,
+  isPairKind,
   niceTicks,
   parseChartNumber,
   rampColor,
@@ -35,6 +44,20 @@ export interface ChartCardOptions {
   datasetName(): string;
   requestBins(column: number, options: ChartBinOptions): Promise<ChartBins>;
   requestSeries(input: SeriesRequestInput): Promise<ChartSeriesMessage>;
+  requestBoxStats(input: {
+    valueColumn: number;
+    categoryColumn: number;
+    topN: number;
+    groupOther: boolean;
+  }): Promise<BoxStatsMessage>;
+  requestCrosstab(input: {
+    xColumn: number;
+    yColumn: number;
+    topX: number;
+    topY: number;
+    groupOther: boolean;
+  }): Promise<CrosstabMessage>;
+  requestCorrelation(columns: number[]): Promise<CorrelationMessage>;
   onRemove(card: ChartCard): void;
   onDuplicate(card: ChartCard): void;
   onExport(card: ChartCard): void;
@@ -55,6 +78,7 @@ export interface ChartCardConfig {
   binOptions: ChartBinOptions | null;
   binClipped: boolean;
   title: string;
+  correlationColumns: number[];
 }
 
 interface Frame {
@@ -95,6 +119,7 @@ function defaultConfig(): ChartCardConfig {
     binOptions: null,
     binClipped: false,
     title: "",
+    correlationColumns: [],
   };
 }
 
@@ -121,6 +146,14 @@ export class ChartCard {
   private seriesResult: SeriesPoints | SeriesGrid | null = null;
   private seriesLabels: string[] | null = null;
   private seriesMs = 0;
+  private boxResult: BoxStatsResult | null = null;
+  private crossResult: CrossTabResult | null = null;
+  private correlationResult: {
+    labels: string[];
+    values: Float64Array;
+    counts: Uint32Array;
+  } | null = null;
+  private statsMs = 0;
 
   private readonly kindSelect: HTMLSelectElement;
   private readonly primarySelect: HTMLSelectElement;
@@ -129,14 +162,20 @@ export class ChartCard {
   private readonly colorSelect: HTMLSelectElement;
   private readonly sizeSelect: HTMLSelectElement;
   private readonly modeSelect: HTMLSelectElement;
+  private readonly correlationSelect: HTMLSelectElement;
   private readonly primaryWrap: HTMLElement;
   private readonly xWrap: HTMLElement;
   private readonly yWrap: HTMLElement;
   private readonly colorWrap: HTMLElement;
   private readonly sizeWrap: HTMLElement;
   private readonly modeWrap: HTMLElement;
+  private readonly xTagLabel: HTMLElement;
+  private readonly yTagLabel: HTMLElement;
+  private readonly colorGroup: HTMLElement;
   private readonly histogramSettings: HTMLElement;
   private readonly barSettings: HTMLElement;
+  private readonly correlationSettings: HTMLElement;
+  private readonly topLabel: HTMLElement;
   private readonly minInput: HTMLInputElement;
   private readonly maxInput: HTMLInputElement;
   private readonly binsInput: HTMLInputElement;
@@ -186,18 +225,26 @@ export class ChartCard {
       this.config.x = Number(this.xSelect.value);
       this.generation++;
       this.refreshSeries();
+      this.refreshBox();
+      this.refreshCrosstab();
       this.render();
     });
-    this.xWrap = this.tagged("X", this.xSelect);
+    const xTag = this.tagged("X", this.xSelect);
+    this.xWrap = xTag.wrap;
+    this.xTagLabel = xTag.label;
 
     this.ySelect = this.buildSelect("chart-picker", "Y column");
     this.ySelect.addEventListener("change", () => {
       this.config.y = Number(this.ySelect.value);
       this.generation++;
       this.refreshSeries();
+      this.refreshBox();
+      this.refreshCrosstab();
       this.render();
     });
-    this.yWrap = this.tagged("Y", this.ySelect);
+    const yTag = this.tagged("Y", this.ySelect);
+    this.yWrap = yTag.wrap;
+    this.yTagLabel = yTag.label;
 
     this.colorSelect = this.buildSelect("chart-picker chart-picker-small", "Colour column");
     this.colorSelect.addEventListener("change", () => {
@@ -206,7 +253,7 @@ export class ChartCard {
       this.refreshSeries();
       this.render();
     });
-    this.colorWrap = this.tagged("Colour", this.colorSelect);
+    this.colorWrap = this.tagged("Colour", this.colorSelect).wrap;
 
     this.sizeSelect = this.buildSelect("chart-picker chart-picker-small", "Size column");
     this.sizeSelect.addEventListener("change", () => {
@@ -215,7 +262,7 @@ export class ChartCard {
       this.refreshSeries();
       this.render();
     });
-    this.sizeWrap = this.tagged("Size", this.sizeSelect);
+    this.sizeWrap = this.tagged("Size", this.sizeSelect).wrap;
 
     this.modeSelect = this.buildSelect("chart-picker chart-picker-small", "Render mode");
     ([
@@ -231,7 +278,7 @@ export class ChartCard {
       this.refreshSeries();
       this.render();
     });
-    this.modeWrap = this.tagged("Render", this.modeSelect);
+    this.modeWrap = this.tagged("Render", this.modeSelect).wrap;
 
     const duplicate = el(
       "button",
@@ -330,6 +377,9 @@ export class ChartCard {
       const value = Math.floor(Number(this.topInput.value));
       this.config.topN = Number.isFinite(value) ? Math.max(1, Math.min(50, value)) : 5;
       this.topInput.value = String(this.config.topN);
+      this.generation++;
+      this.refreshBox();
+      this.refreshCrosstab();
       this.render();
     });
     this.otherInput = el("input", { type: "checkbox" }) as HTMLInputElement;
@@ -338,6 +388,9 @@ export class ChartCard {
     otherField.append(this.otherInput, "Group rest as Other");
     this.otherInput.addEventListener("change", () => {
       this.config.groupOther = this.otherInput.checked;
+      this.generation++;
+      this.refreshBox();
+      this.refreshCrosstab();
       this.render();
     });
     this.multiInput = el("input", { type: "checkbox" }) as HTMLInputElement;
@@ -349,13 +402,32 @@ export class ChartCard {
       this.config.multiColor = this.multiInput.checked;
       this.render();
     });
-    this.barSettings = el("div", { class: "chart-settings" }, [
-      field("Top bars", this.topInput),
-      otherField,
-      multiField,
+    const topField = el("label", { class: "chart-field" });
+    this.topLabel = el("span", { class: "chart-field-label" }, ["Top bars"]);
+    topField.append(this.topLabel, this.topInput);
+    this.barSettings = el("div", { class: "chart-settings" }, [topField, otherField, multiField]);
+
+    this.correlationSelect = el("select", {
+      class: "chart-multiselect",
+      multiple: "multiple",
+      size: "5",
+      "aria-label": "Correlation columns",
+      title: "Numeric columns included in the matrix",
+    }) as HTMLSelectElement;
+    this.correlationSelect.addEventListener("change", () => {
+      this.config.correlationColumns = [...this.correlationSelect.options]
+        .filter((option) => option.selected)
+        .map((option) => Number(option.value));
+      this.generation++;
+      this.refreshCorrelation();
+      this.render();
+    });
+    this.correlationSettings = el("div", { class: "chart-settings" }, [
+      el("span", { class: "chart-field-label" }, ["Columns"]),
+      this.correlationSelect,
     ]);
 
-    const colorGroup = el("div", { class: "chart-colors" });
+    this.colorGroup = el("div", { class: "chart-colors" });
     CHART_COLORS.forEach((color) => {
       const swatch = el("button", {
         class: "chart-swatch",
@@ -371,7 +443,7 @@ export class ChartCard {
         this.render();
       });
       this.swatches.push(swatch);
-      colorGroup.append(swatch);
+      this.colorGroup.append(swatch);
     });
     this.hexInput = el("input", {
       class: "chart-hex",
@@ -399,7 +471,7 @@ export class ChartCard {
         applyHex();
       }
     });
-    colorGroup.append(this.hexInput);
+    this.colorGroup.append(this.hexInput);
 
     this.titleInput = el("input", {
       class: "text-input chart-title",
@@ -412,14 +484,22 @@ export class ChartCard {
       this.config.title = this.titleInput.value;
       this.render();
     });
-    const lookRow = el("div", { class: "chart-card-look" }, [colorGroup, this.titleInput]);
+    const lookRow = el("div", { class: "chart-card-look" }, [this.colorGroup, this.titleInput]);
 
     const canvasWrap = el("div", { class: "chart-canvas-wrap" });
     this.canvas = el("canvas", { class: "chart-canvas" }) as HTMLCanvasElement;
     canvasWrap.append(this.canvas);
     this.noteEl = el("div", { class: "chart-note" });
 
-    this.root.append(head, this.histogramSettings, this.barSettings, lookRow, canvasWrap, this.noteEl);
+    this.root.append(
+      head,
+      this.histogramSettings,
+      this.barSettings,
+      this.correlationSettings,
+      lookRow,
+      canvasWrap,
+      this.noteEl,
+    );
 
     this.syncSwatches();
     this.syncOptions();
@@ -445,6 +525,9 @@ export class ChartCard {
     this.renderControls();
     this.refreshBins();
     this.refreshSeries();
+    this.refreshBox();
+    this.refreshCrosstab();
+    this.refreshCorrelation();
     this.render();
   }
 
@@ -457,6 +540,9 @@ export class ChartCard {
     this.generation++;
     this.refreshBins();
     this.refreshSeries();
+    this.refreshBox();
+    this.refreshCrosstab();
+    this.refreshCorrelation();
     this.render();
   }
 
@@ -469,19 +555,26 @@ export class ChartCard {
     this.generation++;
     this.refreshBins();
     this.refreshSeries();
+    this.refreshBox();
+    this.refreshCrosstab();
+    this.refreshCorrelation();
     this.render();
   }
 
   getConfig(): ChartCardConfig {
-    return { ...this.config, binOptions: this.config.binOptions === null ? null : { ...this.config.binOptions } };
+    return {
+      ...this.config,
+      binOptions:
+        this.config.binOptions === null ? null : { ...this.config.binOptions },
+      correlationColumns: [...this.config.correlationColumns],
+    };
   }
 
   /** Column indexes this card currently charts, used to pick fresh defaults. */
   usedColumns(): number[] {
     const out = [this.config.column];
-    if (this.config.kind === "scatter" || this.config.kind === "density") {
-      out.push(this.config.x, this.config.y);
-    }
+    if (isPairKind(this.config.kind)) out.push(this.config.x, this.config.y);
+    if (this.config.kind === "correlation") out.push(...this.config.correlationColumns);
     return out.filter((index) => index >= 0);
   }
 
@@ -511,10 +604,11 @@ export class ChartCard {
     return el("select", { class: className, "aria-label": label }) as HTMLSelectElement;
   }
 
-  private tagged(tag: string, select: HTMLSelectElement): HTMLElement {
+  private tagged(tag: string, select: HTMLSelectElement): { wrap: HTMLElement; label: HTMLElement } {
     const wrap = el("label", { class: "chart-tag" });
-    wrap.append(el("span", { class: "chart-tag-label" }, [tag]), select);
-    return wrap;
+    const label = el("span", { class: "chart-tag-label" }, [tag]);
+    wrap.append(label, select);
+    return { wrap, label };
   }
 
   private meta(index: number): ColumnMeta | undefined {
@@ -538,6 +632,31 @@ export class ChartCard {
     return isNumericType(meta.type) || meta.type === "date";
   }
 
+  private allowsX(meta: ColumnMeta): boolean {
+    switch (this.config.kind) {
+      case "box":
+        return isNumericType(meta.type);
+      case "heatmap":
+        return isCategoryType(meta.type);
+      case "correlation":
+        return false;
+      default:
+        return this.allowsAxis(meta);
+    }
+  }
+
+  private allowsY(meta: ColumnMeta): boolean {
+    switch (this.config.kind) {
+      case "box":
+      case "heatmap":
+        return isCategoryType(meta.type);
+      case "correlation":
+        return false;
+      default:
+        return this.allowsAxis(meta);
+    }
+  }
+
   private allowedIndexes(allow: (meta: ColumnMeta) => boolean): number[] {
     const out: number[] = [];
     this.columns.forEach((meta, index) => {
@@ -546,14 +665,27 @@ export class ChartCard {
     return out;
   }
 
+  private defaultCorrelationColumns(): number[] {
+    return this.allowedIndexes((meta) => isNumericType(meta.type)).slice(0, 8);
+  }
+
   private setKind(kind: ChartCardKind): void {
     if (kind === this.config.kind) return;
     this.config.kind = kind;
-    const axis = this.allowedIndexes((meta) => this.allowsAxis(meta));
-    if (kind === "scatter" || kind === "density") {
-      if (!axis.includes(this.config.x)) this.config.x = axis[0] ?? -1;
-      if (!axis.includes(this.config.y) || this.config.y === this.config.x) {
-        this.config.y = axis.find((index) => index !== this.config.x) ?? this.config.x;
+    if (isPairKind(kind)) {
+      const xAllowed = this.allowedIndexes((meta) => this.allowsX(meta));
+      const yAllowed = this.allowedIndexes((meta) => this.allowsY(meta));
+      if (!xAllowed.includes(this.config.x)) this.config.x = xAllowed[0] ?? -1;
+      if (!yAllowed.includes(this.config.y) || (this.config.y === this.config.x && yAllowed.length > 1)) {
+        this.config.y = yAllowed.find((index) => index !== this.config.x) ?? yAllowed[0] ?? -1;
+      }
+    } else if (kind === "correlation") {
+      const numeric = this.defaultCorrelationColumns();
+      this.config.correlationColumns = this.config.correlationColumns.filter((index) =>
+        numeric.includes(index),
+      );
+      if (this.config.correlationColumns.length < 2) {
+        this.config.correlationColumns = numeric.slice(0, 6);
       }
     } else {
       const primary = this.allowedIndexes((meta) => this.allowsPrimary(meta));
@@ -567,6 +699,9 @@ export class ChartCard {
     this.renderControls();
     this.refreshBins();
     this.refreshSeries();
+    this.refreshBox();
+    this.refreshCrosstab();
+    this.refreshCorrelation();
     this.render();
   }
 
@@ -615,17 +750,18 @@ export class ChartCard {
     });
     if (this.config.column >= 0) this.primarySelect.value = String(this.config.column);
 
-    const axis = this.allowedIndexes((meta) => this.allowsAxis(meta));
-    if (!axis.includes(this.config.x)) this.config.x = axis[0] ?? -1;
-    if (!axis.includes(this.config.y) || this.config.y < 0) {
-      this.config.y = axis.find((index) => index !== this.config.x) ?? this.config.x;
+    const xAllowed = this.allowedIndexes((meta) => this.allowsX(meta));
+    const yAllowed = this.allowedIndexes((meta) => this.allowsY(meta));
+    if (!xAllowed.includes(this.config.x)) this.config.x = xAllowed[0] ?? -1;
+    if (!yAllowed.includes(this.config.y) || (this.config.y === this.config.x && yAllowed.length > 1)) {
+      this.config.y = yAllowed.find((index) => index !== this.config.x) ?? yAllowed[0] ?? -1;
     }
-    for (const [select, selected] of [
-      [this.xSelect, this.config.x],
-      [this.ySelect, this.config.y],
+    for (const [select, allowed, selected] of [
+      [this.xSelect, xAllowed, this.config.x],
+      [this.ySelect, yAllowed, this.config.y],
     ] as const) {
       select.replaceChildren();
-      axis.forEach((index) => {
+      allowed.forEach((index) => {
         const meta = this.columns[index];
         select.append(this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`));
       });
@@ -649,6 +785,18 @@ export class ChartCard {
     this.colorSelect.value = String(this.config.colorColumn);
     this.sizeSelect.value = String(this.config.sizeColumn);
     this.modeSelect.value = this.config.mode;
+
+    const numeric = this.allowedIndexes((meta) => isNumericType(meta.type));
+    this.config.correlationColumns = this.config.correlationColumns.filter((index) =>
+      numeric.includes(index),
+    );
+    this.correlationSelect.replaceChildren();
+    numeric.forEach((index) => {
+      const meta = this.columns[index];
+      const option = this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`);
+      option.selected = this.config.correlationColumns.includes(index);
+      this.correlationSelect.append(option);
+    });
   }
 
   private option(value: string, label: string): HTMLOptionElement {
@@ -657,14 +805,33 @@ export class ChartCard {
 
   private renderControls(): void {
     const kind = this.config.kind;
-    const scatterLike = kind === "scatter" || kind === "density";
-    this.primaryWrap.classList.toggle("hidden", scatterLike);
-    for (const wrap of [this.xWrap, this.yWrap, this.colorWrap, this.sizeWrap]) {
-      wrap.classList.toggle("hidden", !scatterLike);
-    }
+    const pair = isPairKind(kind);
+    this.primaryWrap.classList.toggle("hidden", pair || kind === "correlation");
+    this.xWrap.classList.toggle("hidden", !pair);
+    this.yWrap.classList.toggle("hidden", !pair);
+    const seriesKind = kind === "scatter" || kind === "density";
+    this.colorWrap.classList.toggle("hidden", !seriesKind);
+    this.sizeWrap.classList.toggle("hidden", !seriesKind);
     this.modeWrap.classList.toggle("hidden", kind !== "scatter");
+    this.colorGroup.classList.toggle("hidden", kind === "correlation");
     this.histogramSettings.classList.toggle("hidden", kind !== "histogram");
-    this.barSettings.classList.toggle("hidden", kind !== "bar");
+    this.barSettings.classList.toggle(
+      "hidden",
+      kind !== "bar" && kind !== "box" && kind !== "heatmap",
+    );
+    this.correlationSettings.classList.toggle("hidden", kind !== "correlation");
+    this.topLabel.textContent =
+      kind === "bar" ? "Top bars" : kind === "box" ? "Top groups" : "Top per axis";
+    if (seriesKind) {
+      this.xTagLabel.textContent = "X";
+      this.yTagLabel.textContent = "Y";
+    } else if (kind === "box") {
+      this.xTagLabel.textContent = "Value";
+      this.yTagLabel.textContent = "Groups";
+    } else if (kind === "heatmap") {
+      this.xTagLabel.textContent = "Columns";
+      this.yTagLabel.textContent = "Rows";
+    }
 
     if (kind === "histogram") {
       const meta = this.meta(this.config.column);
@@ -703,22 +870,30 @@ export class ChartCard {
     this.titleInput.placeholder = this.defaultTitle();
   }
 
+  private pairLabel(separator: string): string {
+    const x = this.meta(this.config.x)?.name ?? "";
+    const y = this.meta(this.config.y)?.name ?? "";
+    if (x === "" || y === "") return CHART_KIND_LABELS[this.config.kind];
+    return `${x} ${separator} ${y}`;
+  }
+
   private defaultTitle(): string {
-    if (this.config.kind === "scatter" || this.config.kind === "density") {
-      const x = this.meta(this.config.x)?.name ?? "";
-      const y = this.meta(this.config.y)?.name ?? "";
-      const label = x === "" || y === "" ? "Scatter" : `${x} vs ${y}`;
-      return defaultChartTitle(this.options.datasetName(), label);
+    if (isPairKind(this.config.kind)) {
+      return defaultChartTitle(this.options.datasetName(), this.pairLabel("vs"));
+    }
+    if (this.config.kind === "correlation") {
+      return defaultChartTitle(this.options.datasetName(), "Correlation");
     }
     return defaultChartTitle(this.options.datasetName(), this.meta(this.config.column)?.name ?? "");
   }
 
   private chartName(): string {
-    if (this.config.kind === "scatter" || this.config.kind === "density") {
+    if (isPairKind(this.config.kind)) {
       const x = this.meta(this.config.x)?.name ?? "x";
       const y = this.meta(this.config.y)?.name ?? "y";
       return `${x}-vs-${y}`;
     }
+    if (this.config.kind === "correlation") return "correlation";
     return this.meta(this.config.column)?.name ?? this.config.kind;
   }
 
@@ -818,6 +993,108 @@ export class ChartCard {
       });
   }
 
+  private refreshBox(): void {
+    if (this.config.kind !== "box") {
+      this.boxResult = null;
+      return;
+    }
+    const value = this.meta(this.config.x);
+    const category = this.meta(this.config.y);
+    if (
+      value === undefined ||
+      category === undefined ||
+      !isNumericType(value.type) ||
+      !isCategoryType(category.type)
+    ) {
+      this.boxResult = null;
+      return;
+    }
+    const generation = ++this.generation;
+    void this.options
+      .requestBoxStats({
+        valueColumn: this.config.x,
+        categoryColumn: this.config.y,
+        topN: this.config.topN,
+        groupOther: this.config.groupOther,
+      })
+      .then((message) => {
+        if (generation !== this.generation || this.disposed) return;
+        this.boxResult = message.result;
+        this.statsMs = message.ms;
+        this.render();
+      })
+      .catch(() => {
+        // Keep the last payload as the fallback.
+      });
+  }
+
+  private refreshCrosstab(): void {
+    if (this.config.kind !== "heatmap") {
+      this.crossResult = null;
+      return;
+    }
+    const x = this.meta(this.config.x);
+    const y = this.meta(this.config.y);
+    if (
+      x === undefined ||
+      y === undefined ||
+      !isCategoryType(x.type) ||
+      !isCategoryType(y.type)
+    ) {
+      this.crossResult = null;
+      return;
+    }
+    const generation = ++this.generation;
+    void this.options
+      .requestCrosstab({
+        xColumn: this.config.x,
+        yColumn: this.config.y,
+        topX: this.config.topN,
+        topY: this.config.topN,
+        groupOther: this.config.groupOther,
+      })
+      .then((message) => {
+        if (generation !== this.generation || this.disposed) return;
+        this.crossResult = message.result;
+        this.statsMs = message.ms;
+        this.render();
+      })
+      .catch(() => {
+        // Keep the last payload as the fallback.
+      });
+  }
+
+  private refreshCorrelation(): void {
+    if (this.config.kind !== "correlation") {
+      this.correlationResult = null;
+      return;
+    }
+    const columns = this.config.correlationColumns.filter((index) => {
+      const meta = this.meta(index);
+      return meta !== undefined && isNumericType(meta.type);
+    });
+    if (columns.length < 2) {
+      this.correlationResult = null;
+      return;
+    }
+    const generation = ++this.generation;
+    void this.options
+      .requestCorrelation(columns)
+      .then((message) => {
+        if (generation !== this.generation || this.disposed) return;
+        this.correlationResult = {
+          labels: message.labels,
+          values: message.result.values,
+          counts: message.result.counts,
+        };
+        this.statsMs = message.ms;
+        this.render();
+      })
+      .catch(() => {
+        // Keep the last payload as the fallback.
+      });
+  }
+
   private render(): void {
     const wrap = this.canvas.parentElement;
     let cssWidth = 640;
@@ -893,14 +1170,28 @@ export class ChartCard {
   }
 
   private subtitle(): string {
+    const rows = `${this.rowCount.toLocaleString()} rows shown`;
     if (this.config.kind === "scatter" || this.config.kind === "density") {
       const x = this.meta(this.config.x)?.name ?? "X";
       const y = this.meta(this.config.y)?.name ?? "Y";
-      return `${x} vs ${y} · ${this.rowCount.toLocaleString()} rows shown`;
+      return `${x} vs ${y} · ${rows}`;
+    }
+    if (this.config.kind === "box") {
+      const value = this.meta(this.config.x)?.name ?? "Value";
+      const group = this.meta(this.config.y)?.name ?? "groups";
+      return `${value} by ${group} · ${rows}`;
+    }
+    if (this.config.kind === "heatmap") {
+      const x = this.meta(this.config.x)?.name ?? "X";
+      const y = this.meta(this.config.y)?.name ?? "Y";
+      return `${x} × ${y} · ${rows}`;
+    }
+    if (this.config.kind === "correlation") {
+      return `Pearson r · ${rows}`;
     }
     const meta = this.meta(this.config.column);
-    if (meta === undefined) return `${this.rowCount.toLocaleString()} rows shown`;
-    return `${TYPE_LABELS[meta.type]} · ${this.rowCount.toLocaleString()} rows shown · ${meta.stats.distinct.toLocaleString()} distinct`;
+    if (meta === undefined) return rows;
+    return `${TYPE_LABELS[meta.type]} · ${rows} · ${meta.stats.distinct.toLocaleString()} distinct`;
   }
 
   private drawChart(ctx: CanvasRenderingContext2D, width: number, height: number): void {
@@ -929,6 +1220,15 @@ export class ChartCard {
       case "scatter":
       case "density":
         this.drawScatterLike(ctx, frame);
+        break;
+      case "box":
+        this.drawBox(ctx, frame);
+        break;
+      case "heatmap":
+        this.drawHeatmap(ctx, frame);
+        break;
+      case "correlation":
+        this.drawCorrelation(ctx, frame);
         break;
       default:
         this.drawSeries(ctx, frame, this.config.kind);
@@ -1386,6 +1686,263 @@ export class ChartCard {
     ];
     if (result.outside > 0) notes.push(`${result.outside.toLocaleString()} outside p1–p99`);
     if (this.seriesMs > 0) notes.push(`${Math.round(this.seriesMs)} ms`);
+    this.noteEl.textContent = notes.join(" · ");
+  }
+
+  private drawBox(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    const result = this.boxResult;
+    if (result === null || result.groups.length === 0) {
+      this.noteEl.textContent =
+        this.columns.length === 0
+          ? "Load data to see charts."
+          : "Box plots need a numeric Value column and a category Groups column — pick them above.";
+      return;
+    }
+    const ui = frame.ui;
+    const groups = result.groups;
+    let yMin = Infinity;
+    let yMax = -Infinity;
+    for (const group of groups) {
+      if (group.min < yMin) yMin = group.min;
+      if (group.max > yMax) yMax = group.max;
+    }
+    if (!(yMax > yMin)) {
+      yMin -= 1;
+      yMax += 1;
+    }
+    const yOf = (value: number): number =>
+      frame.top + frame.plotH - ((value - yMin) / (yMax - yMin)) * frame.plotH;
+
+    const ticks = niceTicks(yMin, yMax, 5);
+    ctx.strokeStyle = frame.border;
+    ctx.lineWidth = 1;
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
+    ctx.textAlign = "right";
+    for (const value of ticks) {
+      const y = yOf(value);
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(frame.left, y + 0.5);
+      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText(formatTick(value, "histogram"), frame.left - 6 * ui, y + 3 * ui);
+    }
+    ctx.textAlign = "left";
+    ctx.beginPath();
+    ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
+    ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
+    ctx.stroke();
+
+    const slot = frame.plotW / groups.length;
+    const boxW = Math.min(slot * 0.55, 54 * ui);
+    const cap = Math.max(3 * ui, boxW * 0.25);
+    groups.forEach((group, index) => {
+      const cx = frame.left + (index + 0.5) * slot;
+      const yQ1 = yOf(group.q1);
+      const yQ3 = yOf(group.q3);
+      const top = Math.min(yQ1, yQ3);
+      const height = Math.max(1.5, Math.abs(yQ1 - yQ3));
+
+      ctx.globalAlpha = group.other ? 0.2 : 0.32;
+      ctx.fillStyle = this.config.color;
+      ctx.fillRect(cx - boxW / 2, top, boxW, height);
+      ctx.globalAlpha = group.other ? 0.5 : 0.9;
+      ctx.strokeStyle = this.config.color;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(cx - boxW / 2, top, boxW, height);
+
+      const yMedian = yOf(group.median);
+      ctx.beginPath();
+      ctx.moveTo(cx - boxW / 2, yMedian);
+      ctx.lineTo(cx + boxW / 2, yMedian);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(cx, top);
+      ctx.lineTo(cx, yOf(group.whiskerHigh));
+      ctx.moveTo(cx, top + height);
+      ctx.lineTo(cx, yOf(group.whiskerLow));
+      ctx.stroke();
+      for (const value of [group.whiskerHigh, group.whiskerLow]) {
+        const y = yOf(value);
+        ctx.beginPath();
+        ctx.moveTo(cx - cap, y);
+        ctx.lineTo(cx + cap, y);
+        ctx.stroke();
+      }
+
+      ctx.globalAlpha = 0.65;
+      ctx.fillStyle = this.config.color;
+      const r = 1.6 * ui;
+      for (const value of group.outliers) {
+        const y = yOf(value);
+        ctx.fillRect(cx - r, y - r, r * 2, r * 2);
+      }
+      ctx.globalAlpha = 1;
+
+      ctx.textAlign = "center";
+      ctx.fillStyle = frame.dim;
+      this.font(ctx, ui, 10);
+      const maxWidth = Math.max(10, slot - 6 * ui);
+      const label = group.label === "" ? "(blank)" : group.label;
+      ctx.fillText(this.fit(ctx, label, maxWidth), cx, frame.top + frame.plotH + 16 * ui);
+      if (group.other) ctx.fillText("rest", cx, frame.top + frame.plotH + 28 * ui);
+    });
+    ctx.textAlign = "left";
+
+    let outliers = 0;
+    for (const group of groups) outliers += group.outliers.length;
+    const notes = [
+      `${groups.length} groups`,
+      `${result.total.toLocaleString()} values`,
+      `${outliers.toLocaleString()} outliers`,
+    ];
+    if (result.missing > 0) notes.push(`${result.missing.toLocaleString()} missing values`);
+    if (this.statsMs > 0) notes.push(`${Math.round(this.statsMs)} ms`);
+    this.noteEl.textContent = notes.join(" · ");
+  }
+
+  private drawHeatmap(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    const result = this.crossResult;
+    if (result === null || result.xLabels.length === 0 || result.yLabels.length === 0) {
+      this.noteEl.textContent =
+        this.columns.length === 0
+          ? "Load data to see charts."
+          : "Heatmaps need two category columns — pick them above.";
+      return;
+    }
+    const ui = frame.ui;
+    const xCount = result.xLabels.length;
+    const yCount = result.yLabels.length;
+    const cellW = frame.plotW / xCount;
+    const cellH = frame.plotH / yCount;
+    let max = 0;
+    for (const count of result.counts) if (count > max) max = count;
+    const [r, g, b] = hexToRgb(this.config.color);
+    const showText = cellW >= 26 * ui && cellH >= 15 * ui;
+
+    this.font(ctx, ui, 10);
+    for (let y = 0; y < yCount; y++) {
+      for (let x = 0; x < xCount; x++) {
+        const count = result.counts[y * xCount + x];
+        const t = max > 0 ? count / max : 0;
+        const alpha = count === 0 ? 0.06 : 0.1 + 0.8 * Math.sqrt(t);
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
+        ctx.fillRect(
+          frame.left + x * cellW + 0.5,
+          frame.top + y * cellH + 0.5,
+          Math.max(1, cellW - 1),
+          Math.max(1, cellH - 1),
+        );
+        if (showText && count > 0) {
+          ctx.fillStyle = t > 0.6 ? "#ffffff" : frame.text;
+          ctx.textAlign = "center";
+          ctx.fillText(
+            count.toLocaleString(),
+            frame.left + (x + 0.5) * cellW,
+            frame.top + (y + 0.5) * cellH + 3.5 * ui,
+          );
+        }
+      }
+    }
+    ctx.textAlign = "center";
+    result.xLabels.forEach((label, x) => {
+      ctx.fillText(
+        this.fit(ctx, label, Math.max(8, cellW - 4 * ui)),
+        frame.left + (x + 0.5) * cellW,
+        frame.top + frame.plotH + 16 * ui,
+      );
+    });
+    ctx.textAlign = "right";
+    result.yLabels.forEach((label, y) => {
+      ctx.fillText(
+        this.fit(ctx, label, Math.max(8, frame.left - 8 * ui)),
+        frame.left - 4 * ui,
+        frame.top + (y + 0.5) * cellH + 3.5 * ui,
+      );
+    });
+    ctx.textAlign = "left";
+
+    const notes = [
+      `${xCount}×${yCount} cells`,
+      `${result.total.toLocaleString()} rows`,
+      `peak ${max.toLocaleString()}`,
+    ];
+    if (result.xLabels.includes("Other") || result.yLabels.includes("Other")) {
+      notes.push("rest grouped as Other");
+    }
+    if (this.statsMs > 0) notes.push(`${Math.round(this.statsMs)} ms`);
+    this.noteEl.textContent = notes.join(" · ");
+  }
+
+  private drawCorrelation(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    const result = this.correlationResult;
+    if (result === null || result.labels.length < 2) {
+      this.noteEl.textContent =
+        this.columns.length === 0
+          ? "Load data to see charts."
+          : "Correlation needs at least two numeric columns — select them above.";
+      return;
+    }
+    const ui = frame.ui;
+    const n = result.labels.length;
+    const size = Math.min(frame.plotW / n, frame.plotH / n);
+    const gridW = size * n;
+    const gridH = size * n;
+    const left = frame.left + (frame.plotW - gridW) / 2;
+    const top = frame.top + (frame.plotH - gridH) / 2;
+    const zeroColor = cssVar("--border-subtle", "#eaeef2");
+    const showText = size >= 30 * ui;
+    let minCount = Infinity;
+
+    this.font(ctx, ui, showText ? 10 : 9);
+    for (let row = 0; row < n; row++) {
+      for (let column = 0; column < n; column++) {
+        const index = row * n + column;
+        const r = result.values[index];
+        const cell = correlationCell(r, zeroColor);
+        ctx.fillStyle = cell.bg;
+        ctx.fillRect(left + column * size, top + row * size, size, size);
+        if (showText) {
+          ctx.fillStyle = cell.fg;
+          ctx.textAlign = "center";
+          const text = Number.isFinite(r) ? r.toFixed(2) : "—";
+          ctx.fillText(text, left + (column + 0.5) * size, top + (row + 0.5) * size + 3.5 * ui);
+        }
+        if (index !== row * n + row) {
+          const count = result.counts[index];
+          if (count > 0 && count < minCount) minCount = count;
+        }
+      }
+    }
+    ctx.textAlign = "center";
+    result.labels.forEach((label, column) => {
+      ctx.fillStyle = frame.dim;
+      ctx.fillText(
+        this.fit(ctx, label, Math.max(8, size - 2 * ui)),
+        left + (column + 0.5) * size,
+        top + gridH + 14 * ui,
+      );
+    });
+    ctx.textAlign = "right";
+    result.labels.forEach((label, row) => {
+      ctx.fillStyle = frame.dim;
+      ctx.fillText(
+        this.fit(ctx, label, Math.max(8, left - frame.left - 6 * ui)),
+        left - 4 * ui,
+        top + (row + 0.5) * size + 3.5 * ui,
+      );
+    });
+    ctx.textAlign = "left";
+    ctx.strokeStyle = frame.border;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(left + 0.5, top + 0.5, gridW - 1, gridH - 1);
+
+    const notes = [`${n} columns`];
+    if (Number.isFinite(minCount)) notes.push(`${minCount.toLocaleString()} min pairwise observations`);
+    if (this.statsMs > 0) notes.push(`${Math.round(this.statsMs)} ms`);
     this.noteEl.textContent = notes.join(" · ");
   }
 }

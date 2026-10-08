@@ -4,7 +4,15 @@ import type { ColumnType } from "../types.js";
 
 export type ChartKind = "histogram" | "line" | "bar" | null;
 
-export type ChartCardKind = "histogram" | "line" | "bar" | "scatter" | "density";
+export type ChartCardKind =
+  | "histogram"
+  | "line"
+  | "bar"
+  | "scatter"
+  | "density"
+  | "box"
+  | "heatmap"
+  | "correlation";
 
 export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   histogram: "Histogram",
@@ -12,7 +20,16 @@ export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   bar: "Bars",
   scatter: "Scatter",
   density: "Density",
+  box: "Box plot",
+  heatmap: "Heatmap",
+  correlation: "Correlation",
 };
+
+export const PAIR_KINDS: readonly ChartCardKind[] = ["scatter", "density", "box", "heatmap"];
+
+export function isPairKind(kind: ChartCardKind): boolean {
+  return PAIR_KINDS.includes(kind);
+}
 
 /** Chart type implied by the column's type (null = not chartable). */
 export function chartKindFor(type: ColumnMeta["type"]): ChartKind {
@@ -130,7 +147,12 @@ export function rampColor(t: number): string {
 }
 
 export function hexToRgb(hex: string): [number, number, number] {
-  const value = hex.replace("#", "");
+  const trimmed = hex.trim();
+  const rgbMatch = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(trimmed);
+  if (rgbMatch !== null) {
+    return [Number(rgbMatch[1]), Number(rgbMatch[2]), Number(rgbMatch[3])];
+  }
+  const value = trimmed.replace("#", "");
   const full =
     value.length === 3
       ? value
@@ -141,6 +163,29 @@ export function hexToRgb(hex: string): [number, number, number] {
   const parsed = Number.parseInt(full, 16);
   if (!Number.isFinite(parsed) || full.length !== 6) return [37, 99, 235];
   return [(parsed >> 16) & 255, (parsed >> 8) & 255, parsed & 255];
+}
+
+/** Diverging heat colours for a correlation coefficient (-1 red, 0 neutral, +1 blue). */
+export function correlationCell(
+  r: number,
+  zeroColor: string,
+): { bg: string; fg: string } {
+  const zero = hexToRgb(zeroColor);
+  const finite = Number.isFinite(r);
+  const target: [number, number, number] = !finite
+    ? [148, 163, 184]
+    : r < 0
+      ? [239, 68, 68]
+      : [37, 99, 235];
+  const strength = finite ? Math.min(1, Math.abs(r)) : 0;
+  const t = finite ? (strength === 0 ? 0 : 0.12 + 0.88 * strength) : 0.15;
+  const mix = (index: number): number => Math.round(zero[index] + (target[index] - zero[index]) * t);
+  const rgb: [number, number, number] = [mix(0), mix(1), mix(2)];
+  const luminance = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
+  return {
+    bg: `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`,
+    fg: luminance < 0.55 ? "#ffffff" : "#1f2328",
+  };
 }
 
 /** Evenly spaced nice tick values inside [min, max]. */

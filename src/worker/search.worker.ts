@@ -6,6 +6,7 @@ import type { Dataset } from "../data/dataset.js";
 import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
 import { binValues } from "../data/chart-bins.js";
 import { categoryCodes, computeSeries } from "../data/chart-series.js";
+import { computeBoxStats, computeCorrelation, computeCrossTab } from "../data/chart-stats.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import {
   createNullPolicy,
@@ -38,6 +39,9 @@ import type {
   GetStatsRequest,
   GetChartBinsRequest,
   GetChartSeriesRequest,
+  GetBoxStatsRequest,
+  GetCrosstabRequest,
+  GetCorrelationRequest,
   LoadRequest,
   PreviewCleanRequest,
   PreviewTransformRequest,
@@ -157,6 +161,15 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getChartSeries":
       handleGetChartSeries(message);
+      break;
+    case "getBoxStats":
+      handleGetBoxStats(message);
+      break;
+    case "getCrosstab":
+      handleGetCrosstab(message);
+      break;
+    case "getCorrelation":
+      handleGetCorrelation(message);
       break;
     case "renameHeaders":
       handleRenameHeaders(message);
@@ -759,6 +772,93 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
       result,
     },
     transfer,
+  );
+}
+
+/** Tukey box summaries per category of a numeric column (filtered rows). */
+function handleGetBoxStats(message: GetBoxStatsRequest): void {
+  const { dataset } = state();
+  const valueColumn = dataset.columns[message.valueColumn];
+  const categoryColumn = dataset.columns[message.categoryColumn];
+  if (valueColumn === undefined || categoryColumn === undefined) throw new Error("Unknown column");
+  const categories = categoryColumn.categories();
+  const codes = categoryCodes(categories.bits, dataset.rowCount);
+  const started = performance.now();
+  const result = computeBoxStats(valueColumn.numbers(), codes, categories.labels, sortedIds, {
+    topN: message.topN,
+    groupOther: message.groupOther,
+  });
+  const transfer: Transferable[] = [];
+  for (const group of result.groups) transfer.push(group.outliers.buffer);
+  post(
+    {
+      type: "boxStats",
+      requestId: message.requestId,
+      valueColumn: message.valueColumn,
+      categoryColumn: message.categoryColumn,
+      ms: performance.now() - started,
+      result,
+    },
+    transfer,
+  );
+}
+
+/** Category × category counts for the heatmap card (filtered rows). */
+function handleGetCrosstab(message: GetCrosstabRequest): void {
+  const { dataset } = state();
+  const xColumn = dataset.columns[message.xColumn];
+  const yColumn = dataset.columns[message.yColumn];
+  if (xColumn === undefined || yColumn === undefined) throw new Error("Unknown column");
+  const xCategories = xColumn.categories();
+  const yCategories = yColumn.categories();
+  const started = performance.now();
+  const result = computeCrossTab(
+    categoryCodes(xCategories.bits, dataset.rowCount),
+    categoryCodes(yCategories.bits, dataset.rowCount),
+    xCategories.labels,
+    yCategories.labels,
+    sortedIds,
+    { topX: message.topX, topY: message.topY, groupOther: message.groupOther },
+  );
+  post(
+    {
+      type: "crosstab",
+      requestId: message.requestId,
+      xColumn: message.xColumn,
+      yColumn: message.yColumn,
+      ms: performance.now() - started,
+      result,
+    },
+    [result.counts.buffer],
+  );
+}
+
+/** Pearson correlation matrix for up to 12 numeric columns (filtered rows). */
+function handleGetCorrelation(message: GetCorrelationRequest): void {
+  const { dataset } = state();
+  const seen = new Set<number>();
+  const indexes: number[] = [];
+  for (const index of message.columns) {
+    if (index < 0 || index >= dataset.columnCount || seen.has(index)) continue;
+    seen.add(index);
+    indexes.push(index);
+    if (indexes.length >= 12) break;
+  }
+  const started = performance.now();
+  const result = computeCorrelation(
+    indexes.map((index) => dataset.columns[index].numbers()),
+    sortedIds,
+  );
+  post(
+    {
+      type: "correlation",
+      requestId: message.requestId,
+      columns: indexes,
+      labels: indexes.map((index) => dataset.columns[index].name),
+      ms: performance.now() - started,
+      result,
+    },
+    [result.values.buffer, result.counts.buffer],
   );
 }
 

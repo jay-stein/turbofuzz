@@ -2,8 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { ChartBins } from "../src/data/chart-bins.js";
-import { ChartsPanel } from "../src/ui/chart-panel.js";
-import type { ChartSeriesMessage, ColumnMeta } from "../src/worker/protocol.js";
+import { ChartsPanel, type ChartsPanelOptions } from "../src/ui/chart-panel.js";
+import type {
+  BoxStatsMessage,
+  ChartSeriesMessage,
+  ColumnMeta,
+  CorrelationMessage,
+  CrosstabMessage,
+} from "../src/worker/protocol.js";
 
 function setupDom(): Window {
   const window = new Window();
@@ -80,6 +86,87 @@ function series(): ChartSeriesMessage {
 
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
+function boxStats(): BoxStatsMessage {
+  return {
+    type: "boxStats",
+    requestId: 1,
+    valueColumn: 0,
+    categoryColumn: 2,
+    ms: 1,
+    result: {
+      groups: [
+        {
+          label: "a",
+          count: 3,
+          min: 1,
+          q1: 1.5,
+          median: 2,
+          q3: 2.5,
+          max: 3,
+          whiskerLow: 1,
+          whiskerHigh: 3,
+          outliers: new Float64Array(0),
+          other: false,
+        },
+        {
+          label: "b",
+          count: 2,
+          min: 4,
+          q1: 4.25,
+          median: 4.5,
+          q3: 4.75,
+          max: 5,
+          whiskerLow: 4,
+          whiskerHigh: 5,
+          outliers: new Float64Array([9]),
+          other: false,
+        },
+      ],
+      total: 5,
+      missing: 0,
+    },
+  };
+}
+
+function crosstab(): CrosstabMessage {
+  return {
+    type: "crosstab",
+    requestId: 1,
+    xColumn: 2,
+    yColumn: 2,
+    ms: 1,
+    result: {
+      xLabels: ["a", "b"],
+      yLabels: ["a", "b"],
+      counts: Uint32Array.from([3, 1, 0, 1]),
+      total: 5,
+    },
+  };
+}
+
+function correlation(): CorrelationMessage {
+  return {
+    type: "correlation",
+    requestId: 1,
+    columns: [0, 1],
+    labels: ["age", "score"],
+    ms: 1,
+    result: {
+      values: Float64Array.from([1, 0.5, 0.5, 1]),
+      counts: Uint32Array.from([5, 5, 5, 5]),
+    },
+  };
+}
+
+const stubOptions = (): ChartsPanelOptions => ({
+  datasetName: () => "test.csv",
+  requestBins: () => Promise.resolve(bins),
+  requestSeries: () => Promise.resolve(series()),
+  requestBoxStats: () => Promise.resolve(boxStats()),
+  requestCrosstab: () => Promise.resolve(crosstab()),
+  requestCorrelation: () => Promise.resolve(correlation()),
+});
+
 test("chart cards draw scatter points and density grids", async () => {
   const window = setupDom();
   const counts = { fillRect: 0, putImageData: 0, fillText: 0 };
@@ -131,8 +218,7 @@ test("chart cards draw scatter points and density grids", async () => {
 
   const host = document.createElement("div");
   const panel = new ChartsPanel(host, {
-    datasetName: () => "test.csv",
-    requestBins: () => Promise.resolve(bins),
+    ...stubOptions(),
     requestSeries: (input) =>
       Promise.resolve(
         input.mode === "density"
@@ -158,6 +244,7 @@ test("chart cards draw scatter points and density grids", async () => {
   panel.setColumns([
     meta({ name: "age", type: "integer" }),
     meta({ name: "score", type: "number" }),
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [3, 2] } }),
   ]);
   panel.setFiltered({}, {});
   panel.setRowCount(10);
@@ -181,17 +268,23 @@ test("chart cards draw scatter points and density grids", async () => {
   await tick();
   assert.ok(counts.putImageData > 0, "density grid was drawn");
 
+  for (const next of ["box", "heatmap", "correlation"] as const) {
+    kind.value = next;
+    (kind as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(
+      new window.Event("change"),
+    );
+    await tick();
+  }
+  assert.equal(kind.value, "correlation");
+  assert.ok(counts.fillText > 0, "correlation labels were drawn");
+
   panel.dispose();
 });
 
 test("charts panel adds, duplicates and removes independent cards", async () => {
   const window = setupDom();
   const host = document.createElement("div");
-  const panel = new ChartsPanel(host, {
-    datasetName: () => "test.csv",
-    requestBins: () => Promise.resolve(bins),
-    requestSeries: () => Promise.resolve(series()),
-  });
+  const panel = new ChartsPanel(host, stubOptions());
   panel.setColumns([
     meta({ name: "age", type: "integer", histogram: { bins: [1], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 } }),
     meta({ name: "score", type: "number", histogram: { bins: [1], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 } }),

@@ -1,9 +1,16 @@
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
-import type { ChartSeriesMessage, ColumnMeta } from "../worker/protocol.js";
+import type {
+  BoxStatsMessage,
+  ChartSeriesMessage,
+  ColumnMeta,
+  CorrelationMessage,
+  CrosstabMessage,
+} from "../worker/protocol.js";
 import { ChartCard, type ChartCardConfig, type SeriesRequestInput } from "./chart-card.js";
 import {
   DEFAULT_EXPORT_SIZE,
   EXPORT_SIZES,
+  type ChartCardKind,
   defaultCardKind,
   isCategoryType,
   isNumericType,
@@ -14,30 +21,65 @@ export interface ChartsPanelOptions {
   datasetName(): string;
   requestBins(column: number, options: ChartBinOptions): Promise<ChartBins>;
   requestSeries(input: SeriesRequestInput): Promise<ChartSeriesMessage>;
+  requestBoxStats(input: {
+    valueColumn: number;
+    categoryColumn: number;
+    topN: number;
+    groupOther: boolean;
+  }): Promise<BoxStatsMessage>;
+  requestCrosstab(input: {
+    xColumn: number;
+    yColumn: number;
+    topX: number;
+    topY: number;
+    groupOther: boolean;
+  }): Promise<CrosstabMessage>;
+  requestCorrelation(columns: number[]): Promise<CorrelationMessage>;
 }
 
 const LAYOUT_KEY = "turbofuzz.charts.columns";
 const DEFAULT_LAYOUT = 2;
 
-function axisColumns(columns: ColumnMeta[], used: Set<number>): number[] {
+function indexesWhere(columns: ColumnMeta[], allow: (meta: ColumnMeta) => boolean): number[] {
   const out: number[] = [];
   columns.forEach((meta, index) => {
-    if (isNumericType(meta.type) || meta.type === "date") out.push(index);
+    if (allow(meta)) out.push(index);
   });
-  return out.filter((index) => !used.has(index));
+  return out;
 }
 
 /** Fresh card defaults, preferring columns no other card is using yet. */
-function presetFor(columns: ColumnMeta[], used: Set<number>): Partial<ChartCardConfig> {
-  const axisAll: number[] = [];
-  columns.forEach((meta, index) => {
-    if (isNumericType(meta.type) || meta.type === "date") axisAll.push(index);
-  });
-  if (used.size > 0 && axisAll.length >= 2) {
-    const unused = axisColumns(columns, used);
-    const x = unused[0] ?? axisAll[0];
-    const y = axisAll.find((index) => index !== x) ?? x;
-    return { kind: "scatter", x, y };
+function presetFor(
+  columns: ColumnMeta[],
+  used: Set<number>,
+  kinds: Set<ChartCardKind>,
+): Partial<ChartCardConfig> {
+  if (used.size > 0) {
+    const axisAll = indexesWhere(
+      columns,
+      (meta) => isNumericType(meta.type) || meta.type === "date",
+    );
+    const numeric = indexesWhere(columns, (meta) => isNumericType(meta.type));
+    const categories = indexesWhere(columns, (meta) => isCategoryType(meta.type));
+    if (!kinds.has("scatter") && axisAll.length >= 2) {
+      const unused = axisAll.filter((index) => !used.has(index));
+      const x = unused[0] ?? axisAll[0];
+      const y = axisAll.find((index) => index !== x) ?? x;
+      return { kind: "scatter", x, y };
+    }
+    if (!kinds.has("correlation") && numeric.length >= 3) {
+      return { kind: "correlation", correlationColumns: numeric.slice(0, 8) };
+    }
+    if (!kinds.has("box") && numeric.length >= 1 && categories.length >= 1) {
+      const x = numeric.find((index) => !used.has(index)) ?? numeric[0];
+      const y = categories.find((index) => !used.has(index)) ?? categories[0];
+      return { kind: "box", x, y };
+    }
+    if (!kinds.has("heatmap") && categories.length >= 2) {
+      const x = categories[0];
+      const y = categories.find((index) => index !== x) ?? x;
+      return { kind: "heatmap", x, y };
+    }
   }
   const kind = defaultCardKind(columns);
   const allow =
@@ -46,10 +88,7 @@ function presetFor(columns: ColumnMeta[], used: Set<number>): Partial<ChartCardC
       : kind === "line"
         ? (meta: ColumnMeta): boolean => meta.type === "date"
         : (meta: ColumnMeta): boolean => isCategoryType(meta.type);
-  const allowed: number[] = [];
-  columns.forEach((meta, index) => {
-    if (allow(meta)) allowed.push(index);
-  });
+  const allowed = indexesWhere(columns, allow);
   const pool = allowed.filter((index) => !used.has(index));
   return { kind, column: pool[0] ?? allowed[0] ?? -1 };
 }
@@ -145,8 +184,10 @@ export class ChartsPanel {
 
   addCard(preset?: Partial<ChartCardConfig>): ChartCard {
     const used = new Set<number>();
+    const kinds = new Set<ChartCardKind>();
     for (const existing of this.cards) {
       for (const index of existing.usedColumns()) used.add(index);
+      kinds.add(existing.getConfig().kind);
     }
     const section = el("section", { class: "chart-card" });
     const card = new ChartCard(
@@ -155,6 +196,9 @@ export class ChartsPanel {
         datasetName: this.options.datasetName,
         requestBins: this.options.requestBins,
         requestSeries: this.options.requestSeries,
+        requestBoxStats: this.options.requestBoxStats,
+        requestCrosstab: this.options.requestCrosstab,
+        requestCorrelation: this.options.requestCorrelation,
         onRemove: (target) => this.removeCard(target),
         onDuplicate: (target) => this.duplicateCard(target),
         onExport: (target) => {
@@ -162,7 +206,7 @@ export class ChartsPanel {
           target.exportPng(size.width, size.height);
         },
       },
-      preset ?? presetFor(this.columns, used),
+      preset ?? presetFor(this.columns, used, kinds),
     );
     this.cards.push(card);
     this.grid.append(section);

@@ -6,8 +6,11 @@ import type { ColumnFilter } from "../search/query-engine.js";
 import type { TransformOp } from "../data/transform-ops.js";
 import type { ColumnType } from "../types.js";
 import type {
+  BoxStatsMessage,
   ChartBinsMessage,
   ChartSeriesMessage,
+  CorrelationMessage,
+  CrosstabMessage,
   CleanedMessage,
   CleanPreviewMessage,
   CleanUpdate,
@@ -136,6 +139,29 @@ export class SearchWorkerClient {
     limit?: number;
   }): Promise<ChartSeriesMessage> {
     return this.request<ChartSeriesMessage>({ type: "getChartSeries", ...input });
+  }
+
+  getBoxStats(input: {
+    valueColumn: number;
+    categoryColumn: number;
+    topN: number;
+    groupOther: boolean;
+  }): Promise<BoxStatsMessage> {
+    return this.request<BoxStatsMessage>({ type: "getBoxStats", ...input });
+  }
+
+  getCrosstab(input: {
+    xColumn: number;
+    yColumn: number;
+    topX: number;
+    topY: number;
+    groupOther: boolean;
+  }): Promise<CrosstabMessage> {
+    return this.request<CrosstabMessage>({ type: "getCrosstab", ...input });
+  }
+
+  getCorrelation(columns: number[]): Promise<CorrelationMessage> {
+    return this.request<CorrelationMessage>({ type: "getCorrelation", columns });
   }
 
   renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {

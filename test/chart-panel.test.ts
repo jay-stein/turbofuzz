@@ -4,6 +4,7 @@ import { binValues } from "../src/data/chart-bins.js";
 import {
   categorySeries,
   chartKindFor,
+  correlationCell,
   defaultCardKind,
   defaultChartTitle,
   formatChartNumber,
@@ -80,6 +81,18 @@ test("colour ramp interpolates between stops", () => {
   assert.equal(rampColor(1), "rgb(239, 68, 68)");
   assert.match(rampColor(0.5), /^rgb\(\d+, \d+, \d+\)$/);
   assert.equal(rampColor(-5), "rgb(37, 99, 235)");
+});
+
+test("correlation cells diverge around the neutral colour", () => {
+  const neutral = correlationCell(0, "#eaeef2");
+  assert.equal(neutral.bg, "rgb(234, 238, 242)");
+  const positive = correlationCell(1, "#eaeef2");
+  assert.match(positive.bg, /^rgb\(/);
+  assert.equal(positive.fg, "#ffffff");
+  const negative = correlationCell(-1, "#eaeef2");
+  assert.notEqual(negative.bg, positive.bg);
+  const undefinedCell = correlationCell(Number.NaN, "#eaeef2");
+  assert.match(undefinedCell.bg, /^rgb\(/);
 });
 
 test("binValues splits the range and aggregates overflow", () => {

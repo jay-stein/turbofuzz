@@ -1,6 +1,7 @@
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import type { SeriesMode, SeriesResult } from "../data/chart-series.js";
+import type { BoxStatsResult, CorrelationResult, CrossTabResult } from "../data/chart-stats.js";
 import type { CleanOp } from "../data/clean-ops.js";
 import type { HistogramData, NullTokenCount } from "../data/column.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
@@ -177,6 +178,59 @@ export interface ChartSeriesMessage {
   result: SeriesResult;
 }
 
+export type GetBoxStatsRequest = {
+  type: "getBoxStats";
+  requestId: number;
+  valueColumn: number;
+  categoryColumn: number;
+  topN: number;
+  groupOther: boolean;
+};
+
+export interface BoxStatsMessage {
+  type: "boxStats";
+  requestId: number;
+  valueColumn: number;
+  categoryColumn: number;
+  ms: number;
+  result: BoxStatsResult;
+}
+
+export type GetCrosstabRequest = {
+  type: "getCrosstab";
+  requestId: number;
+  xColumn: number;
+  yColumn: number;
+  topX: number;
+  topY: number;
+  groupOther: boolean;
+};
+
+export interface CrosstabMessage {
+  type: "crosstab";
+  requestId: number;
+  xColumn: number;
+  yColumn: number;
+  ms: number;
+  result: CrossTabResult;
+}
+
+export type GetCorrelationRequest = {
+  type: "getCorrelation";
+  requestId: number;
+  columns: number[];
+};
+
+export interface CorrelationMessage {
+  type: "correlation";
+  requestId: number;
+  /** Dataset column indexes, aligned with the matrix rows/columns. */
+  columns: number[];
+  labels: string[];
+  ms: number;
+  result: CorrelationResult;
+}
+
 export type ExportScope = "all" | "filtered";
 
 export type StartExportRequest = {
@@ -266,6 +320,9 @@ export type WorkerRequest =
   | GetStatsRequest
   | GetChartBinsRequest
   | GetChartSeriesRequest
+  | GetBoxStatsRequest
+  | GetCrosstabRequest
+  | GetCorrelationRequest
   | StartExportRequest
   | GetCsvRequest
   | RenameHeadersRequest
@@ -432,6 +489,9 @@ export type WorkerResponse =
   | StatsMessage
   | ChartBinsMessage
   | ChartSeriesMessage
+  | BoxStatsMessage
+  | CrosstabMessage
+  | CorrelationMessage
   | ExportStartedMessage
   | CsvChunkMessage
   | HeadersRenamedMessage
