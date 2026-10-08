@@ -25,7 +25,7 @@ test("export panel asks for a name and options before saving", () => {
   let saved: { name: string; nullAsBlank: boolean; scope: string } | null = null;
   openExportPanel(
     "euro-cleaned.csv",
-    { nullAsBlank: true, escapeFormulas: true, scope: "all" },
+    { nullAsBlank: true, escapeFormulas: true, scope: "all", limit: null },
     { allRows: 100, filteredRows: 100, filtersActive: false },
     {
       onSave: (name, settings) => {
@@ -59,7 +59,7 @@ test("export panel defaults to all rows and states the filtered count", () => {
   let saved: { scope: string } | null = null;
   openExportPanel(
     "data.csv",
-    { nullAsBlank: true, escapeFormulas: true, scope: "all" },
+    { nullAsBlank: true, escapeFormulas: true, scope: "all", limit: null },
     { allRows: 21000, filteredRows: 237, filtersActive: true },
     {
       onSave: (_name, settings) => {
@@ -71,7 +71,7 @@ test("export panel defaults to all rows and states the filtered count", () => {
 
   const document = (globalThis as Record<string, unknown>).document as Window["document"];
   const radios = document.querySelectorAll(
-    ".export-modal input[type='radio']",
+    ".export-modal input[name='export-scope']",
   ) as unknown as { checked: boolean; click(): void }[];
   assert.equal(radios.length, 2);
   assert.equal(radios[0].checked, true, "all rows is the default");
@@ -89,21 +89,57 @@ test("export panel hides the scope choice when no filters are active", () => {
   setupDom();
   openExportPanel(
     "data.csv",
-    { nullAsBlank: true, escapeFormulas: true, scope: "all" },
+    { nullAsBlank: true, escapeFormulas: true, scope: "all", limit: null },
     { allRows: 500, filteredRows: 500, filtersActive: false },
     { onSave: () => {}, onClose: () => {} },
   );
 
   const document = (globalThis as Record<string, unknown>).document as Window["document"];
-  assert.equal(document.querySelectorAll(".export-modal input[type='radio']").length, 0);
+  assert.equal(document.querySelectorAll(".export-modal input[name='export-scope']").length, 0);
+  assert.equal(document.querySelectorAll(".export-modal input[name='export-limit']").length, 2);
   assert.match(document.querySelector(".scope-static")?.textContent ?? "", /All 500 rows/);
+});
+
+test("export panel offers a first-N subset defaulting to all rows", () => {
+  setupDom();
+  let saved: { limit: number | null } | null = null;
+  openExportPanel(
+    "data.csv",
+    { nullAsBlank: true, escapeFormulas: true, scope: "all", limit: null },
+    { allRows: 5000, filteredRows: 5000, filtersActive: false },
+    {
+      onSave: (_name, settings) => {
+        saved = { limit: settings.limit };
+      },
+      onClose: () => {},
+    },
+  );
+
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const limitRadios = document.querySelectorAll(
+    ".export-modal input[name='export-limit']",
+  ) as unknown as { checked: boolean; click(): void }[];
+  assert.equal(limitRadios.length, 2);
+  assert.equal(limitRadios[0].checked, true, "all rows is the default");
+  const count = document.querySelector(".export-limit-input") as unknown as {
+    value: string;
+    disabled: boolean;
+  };
+  assert.equal(count.value, "1000");
+  assert.equal(count.disabled, true);
+
+  limitRadios[1].click();
+  assert.equal(count.disabled, false);
+  count.value = "250";
+  (document.querySelector(".export-modal .primary") as unknown as { click(): void }).click();
+  assert.deepEqual(saved, { limit: 250 });
 });
 
 test("export panel lists CSV now and marks other formats as planned", () => {
   setupDom();
   openExportPanel(
     "data.csv",
-    { nullAsBlank: true, escapeFormulas: true, scope: "all" },
+    { nullAsBlank: true, escapeFormulas: true, scope: "all", limit: null },
     { allRows: 10, filteredRows: 10, filtersActive: false },
     { onSave: () => {}, onClose: () => {} },
   );
@@ -120,7 +156,7 @@ test("export panel offers the Excel formula escape on by default", () => {
   let saved: { escapeFormulas: boolean } | null = null;
   openExportPanel(
     "data.csv",
-    { nullAsBlank: true, escapeFormulas: true, scope: "all" },
+    { nullAsBlank: true, escapeFormulas: true, scope: "all", limit: null },
     { allRows: 10, filteredRows: 10, filtersActive: false },
     {
       onSave: (_name, settings) => {

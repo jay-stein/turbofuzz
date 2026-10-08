@@ -27,6 +27,16 @@ const QA_BUTTONS: { kind: SpecialKind; label: string; title: string }[] = [
 
 const FILTER_ICON = '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>';
 
+const SUMMARY_EXPANDED_KEY = "turbofuzz.summary.expanded";
+
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SUMMARY_EXPANDED_KEY) === "false";
+  } catch {
+    return false;
+  }
+}
+
 export interface SummaryBandCallbacks {
   onToggleSpecial: (kind: SpecialKind) => void;
   onOpenStats: () => void;
@@ -53,7 +63,7 @@ export class SummaryBand {
     lengthAnomalies: 0,
   };
   private stats: DatasetStats | null = null;
-  private collapsed = true;
+  private collapsed = readCollapsed();
   private collapseSummary: HTMLElement | null = null;
   private dedupeButton: HTMLButtonElement | null = null;
   private renderToken = 0;
@@ -99,6 +109,11 @@ export class SummaryBand {
 
   private toggleCollapsed(): void {
     this.collapsed = !this.collapsed;
+    try {
+      localStorage.setItem(SUMMARY_EXPANDED_KEY, String(!this.collapsed));
+    } catch {
+      // Persisting the preference is best-effort.
+    }
     this.applyCollapsed();
   }
 

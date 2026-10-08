@@ -28,13 +28,17 @@ API, no network requests — everything is parsed and processed on your device.
   decimals, treat tokens as missing (per column, reversible), merge similar
   values, escape formula-like cells for Excel.
 - **Transform:** dedupe, drop/round columns, group-by aggregates, impute
-  (mean/median/mode/forward/backward/KNN), melt. Every step is tracked and
-  reversible from the Steps list.
+  (mean/median/mode/forward/backward/KNN), melt, combine date/time columns
+  (timezone-aware) and split a column into new columns on a delimiter or
+  regex. Every step is tracked and reversible from the Steps list.
 - **Search:** text (contains/exact/fuzzy/phonetic), value sets, numeric and
   date ranges, live facet counts and filtered histograms.
-- **Export:** CSV with scope choice (all rows after steps vs. filtered), a BOM
-  for Excel, optional formula escaping, plus clipboard copy and a pandas recipe
-  of the applied steps.
+- **Visualise:** a grid of independent chart cards — histogram, time series,
+  bars, scatter, density/contours, box plots, heatmap and correlation — with
+  PNG export.
+- **Export:** CSV with scope choice (all rows after steps vs. filtered) and an
+  optional first-N subset, a BOM for Excel, optional formula escaping, plus
+  clipboard copy and a pandas recipe of the applied steps.
 
 ## Development
 

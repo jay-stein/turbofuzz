@@ -20,6 +20,7 @@ export interface TransformPreview {
   baseNullCells: number;
   nullCells: number;
   columnCount: number;
+  columnNames: string[];
 }
 
 export interface TransformPanelCallbacks {
@@ -37,6 +38,7 @@ const TRANSFORM_TYPES: readonly { value: string; label: string }[] = [
   { value: "knn", label: "KNN impute (numeric)" },
   { value: "melt", label: "Melt (wide → long)" },
   { value: "combineDate", label: "Combine date/time columns" },
+  { value: "splitColumn", label: "Split a column into new columns" },
 ];
 
 const DATE_PART_ROLES: readonly { value: DatePartRole; label: string }[] = [
@@ -116,12 +118,17 @@ export function openTransformPanel(
   modal.append(summary, opList, builderHost, footer);
 
   function runningSchema(): ColumnSchema[] {
+    if (previewNames !== null && pending.some((op) => op.kind === "splitColumn")) {
+      return previewNames.map((name) => ({ name, numeric: false }));
+    }
     let schema = base.slice();
     for (const op of pending) schema = schemaAfter(schema, op);
     return schema;
   }
 
   let previewGeneration = 0;
+  let previewNames: string[] | null = null;
+  let previewNamesKey = "";
   const appliedSignature = JSON.stringify(applied);
 
   function render(): void {
@@ -133,13 +140,24 @@ export function openTransformPanel(
         ? "No transforms — the data is unchanged."
         : `${pending.length} step${pending.length === 1 ? "" : "s"} ready to apply`;
     summary.textContent = baseText;
-    if (pending.length === 0) return;
+    if (pending.length === 0) {
+      previewNames = null;
+      previewNamesKey = "";
+      return;
+    }
 
     const generation = ++previewGeneration;
     void callbacks
       .onPreview(pending.slice())
       .then((preview) => {
         if (generation !== previewGeneration || preview === null) return;
+        const names = preview.columnNames;
+        const key = names.join("\u0000");
+        if (key !== previewNamesKey) {
+          previewNamesKey = key;
+          previewNames = names;
+          renderBuilder();
+        }
         const parts: string[] = [];
         const rowDelta = preview.baseRowCount - preview.rowCount;
         if (rowDelta > 0) {
@@ -485,6 +503,62 @@ export function openTransformPanel(
               order: orderSelect.value === "auto" ? "auto" : orderSelect.value === "mdy" ? "mdy" : "dmy",
               timeZone: tzInput.value,
               dropParts: dropCheck.checked,
+            };
+          };
+          break;
+        }
+        case "splitColumn": {
+          const columnSelect = selectOf(indexed(schema));
+          const patternInput = el("input", {
+            class: "text-input",
+            type: "text",
+            placeholder: ",",
+            spellcheck: "false",
+            "aria-label": "Delimiter or regular expression",
+          }) as HTMLInputElement;
+          const regexCheck = el("input", { type: "checkbox" }) as HTMLInputElement;
+          const regexField = el("label", { class: "control check clean-check" });
+          regexField.title =
+            "Treat the pattern as a regular expression; capture groups become the new columns";
+          regexField.append(regexCheck, "Regular expression");
+          const dropEmptyCheck = el("input", { type: "checkbox" }) as HTMLInputElement;
+          dropEmptyCheck.checked = true;
+          const dropEmptyField = el("label", { class: "control check clean-check" });
+          dropEmptyField.append(dropEmptyCheck, "Drop empty parts");
+          const dropOriginalCheck = el("input", { type: "checkbox" }) as HTMLInputElement;
+          const dropOriginalField = el("label", { class: "control check clean-check" });
+          dropOriginalField.append(dropOriginalCheck, "Remove the original column");
+          const prefixInput = el("input", {
+            class: "text-input",
+            type: "text",
+            placeholder: "column name",
+            spellcheck: "false",
+            "aria-label": "Prefix for the new columns",
+          }) as HTMLInputElement;
+
+          inputHost.append(
+            field("Column", columnSelect),
+            field("Split on", patternInput),
+            regexField,
+            dropEmptyField,
+            dropOriginalField,
+            field("New column prefix", prefixInput),
+            el("div", { class: "clean-hint" }, [
+              "Works like pandas str.split(expand=True): new columns are prefix_1, prefix_2 … up to the largest part count (limit 50). Regex mode uses the pattern's capture groups; without groups it splits on every match.",
+            ]),
+          );
+
+          readOp = () => {
+            const pattern = patternInput.value;
+            if (pattern === "") return null;
+            return {
+              kind: "splitColumn",
+              column: Number(columnSelect.value),
+              pattern,
+              regex: regexCheck.checked,
+              dropEmpty: dropEmptyCheck.checked,
+              dropOriginal: dropOriginalCheck.checked,
+              prefix: prefixInput.value,
             };
           };
           break;

@@ -41,8 +41,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       ),
       list(
         "Click a chip to apply its fix — every fix is reversible from the Process Log.",
-        "Click a column name to sort; use the header ⋯ menu (or right-click) for per-column actions.",
-        "Use Export… when you are done; the dialog states exactly which rows will be written.",
+        "Click a column name to sort; use the header ⋯ menu (or right-click) for per-column actions, including Rename column. Drag the divider on a header's right edge to resize it (double-click the divider to reset).",
+        "Use Export… when you are done; the dialog states exactly which rows will be written, with an optional first-N subset.",
         "The header Theme control cycles Auto / Light / Dark — Auto follows your operating system.",
         "Help (this drawer) is searchable; the Chart tab shows a chart of the current result set and exports it as a PNG.",
       ),
@@ -70,7 +70,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     summary: "Empties, outliers, duplicates, mergeable values and the profile cards.",
     blocks: [
       p(
-        "The Data QA strip starts collapsed; expand it for the full controls and one profile card per column (histogram for numbers, top values for categories, length stats for text).",
+        "The Data QA strip starts expanded (it remembers if you collapse it) with the full controls and one profile card per column (histogram for numbers, top values for categories, length stats for text).",
       ),
       list(
         "N empty cells — click to show rows where that column is blank.",
@@ -140,6 +140,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Fill missing values - constant, mean, median, mode, forward/backward within a group, or KNN from numeric predictors.",
         "Melt wide columns into variable/value pairs.",
         "Combine date/time columns - tick any set of columns (year, month, day, hour, minute, second, AM/PM, UTC offset, full date, full datetime, time, unix epoch) and give each a role. Auto-detect reads the column name and values, including US (MM/DD) vs day-first dates, 12-hour clocks, compact 1430 times, month names and embedded offsets. Choose date or datetime output and a timezone (UTC, your local zone, any IANA zone, ±HH:MM, or naive); offsets found in the data always win, and the result is a sortable ISO column.",
+        "Split a column - pandas-style str.split(expand=True): split one column into new columns (prefix_1, prefix_2, …) on a text delimiter (comma, semicolon, pipe, any characters) or a simple regular expression. Regex mode uses the pattern's capture groups; without groups it splits on every match. Parts are trimmed, empty parts are dropped by default, the original can be removed, and the number of new columns follows the largest cell (limit 50).",
       ),
       note(
         "KNN imputation works best when the predictor columns genuinely relate to the column being filled — with useful predictors a hold-out test showed roughly a 70% error reduction versus mean/median filling, but with unrelated predictors it can be slightly worse than the mean. Applying a transform bakes the changes made so far into the base data; later undos rebuild from there.",
@@ -158,7 +159,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Contains / Exact / Fuzzy / Phonetic — exact for IDs, fuzzy for typos (Smith vs Smyth), phonetic for sound-alikes.",
         "Pick values — checkbox lists for categories with counts.",
         "Ranges — drag the histogram or type exact bounds; works for numbers and dates.",
-        "Shuffle — show a random sample of N rows; clear the number to shuffle all.",
+        "Shuffle — show every row in a random order (no sampling).",
       ),
       p("Clicking highlighted text or using a chip filters instantly. “Clear all” resets every filter."),
     ],
@@ -214,6 +215,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Export… writes a CSV built in your browser. The dialog always states the scope in numbers: all rows after the step pipeline, or only the rows matching the current filters. When filters are active it defaults to all rows so a filtered view cannot ship by accident.",
       ),
       list(
+        "Rows to include — all rows (default) or a first-N subset (default 1,000) taken in the current display order.",
         "Blank null values — treat recognised missing markers as empty cells.",
         "Escape formula-like cells — prefix =, @ and signed expressions so Excel and Sheets import them as text (on by default).",
         "A UTF-8 BOM is included so Excel opens accented text correctly.",

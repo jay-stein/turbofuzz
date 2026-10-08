@@ -528,6 +528,15 @@ topic later.
   hold-out check in the KNN panel ("hide 10% of known cells, report error vs
   mean") and an auto-`k` suggestion. Until then the Help guide should keep the
   caveat that imputation assumes informative predictors.
+- **Slick Tables view (idea 2026-10-08).** Add a third result view beside
+  Table and Chart, inspired by Python's **great_tables** package: a rendered,
+  publication-style summary table — title/subtitle, grouped header spans,
+  formatted numbers, colour scales and bars inline in cells, footnotes and
+  source notes — generated from the current filtered result set (or from a
+  grouped aggregate) and exportable as PNG/HTML. Keep it a render-only view
+  (no new data model): it can reuse the existing ColumnMeta stats, facets and
+  `getStats` aggregates. Proposed tab label: "Slick Tables" (Table / Chart /
+  Slick Tables).
 
 ---
 

@@ -1275,6 +1275,7 @@ function handlePreviewTransform(message: PreviewTransformRequest): void {
     baseNullCells: base.stats.totalNullCells,
     nullCells: next.stats.totalNullCells,
     columnCount: next.columnCount,
+    columnNames: next.columns.map((column) => column.name),
   });
 }
 

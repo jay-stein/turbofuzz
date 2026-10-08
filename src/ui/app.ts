@@ -45,7 +45,7 @@ import { openStatsModal } from "./stats.js";
 import { ResultTable, type ColumnQaKind, type HighlightRule } from "./table.js";
 import { SearchWorkerClient } from "./worker-client.js";
 import { openCleanPanel } from "./clean-panel.js";
-import { openConfirm } from "./dialog.js";
+import { openConfirm, openPrompt } from "./dialog.js";
 import { openExportPanel } from "./export-panel.js";
 import { openMergePanel } from "./merge-panel.js";
 import { openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
@@ -63,7 +63,6 @@ const UNSUPPORTED_FORMATS: { extensions: string[]; message: string }[] = [
     message: "HDF5 (.h5) isn't supported — export to CSV or Parquet first",
   },
 ];
-const DEFAULT_SHUFFLE_SAMPLE = 100;
 
 interface PickerItem {
   label: string;
@@ -227,6 +226,7 @@ export class App {
   private stepsButton!: HTMLButtonElement;
   private exportNullAsBlank = true;
   private exportEscapeFormulas = true;
+  private exportLimit: number | null = null;
   private bannerEl!: HTMLElement;
   private summaryHost!: HTMLElement;
   private summaryBand: SummaryBand | null = null;
@@ -239,7 +239,6 @@ export class App {
   private deleteBar!: HTMLElement;
   private deleteBarText!: HTMLElement;
   private shuffleButton!: HTMLButtonElement;
-  private shuffleCount!: HTMLInputElement;
   private shuffleActive = false;
   private filterHost!: HTMLElement;
   private filterSearch!: HTMLInputElement;
@@ -515,36 +514,19 @@ export class App {
     this.exportButton.addEventListener("click", () => this.openExportDialog());
 
     const shuffleControl = el("span", { class: "shuffle-control" });
-    this.shuffleCount = el("input", {
-      class: "shuffle-count",
-      type: "number",
-      min: "1",
-      step: "1",
-      value: String(DEFAULT_SHUFFLE_SAMPLE),
-      title: "Rows to sample at random — clear or 0 to shuffle all",
-      "aria-label": "Number of rows to sample",
-      spellcheck: "false",
-    }) as HTMLInputElement;
-    this.shuffleCount.addEventListener("input", () => this.updateShuffleLabel());
-
     this.shuffleButton = el(
       "button",
       {
         class: "shuffle-button",
         type: "button",
-        title: "Show a random sample of rows",
+        title: "Show every row in a random order",
       },
       [],
     ) as HTMLButtonElement;
-    this.shuffleButton.append(diceIcon(), el("span", { class: "shuffle-label" }, []));
+    this.shuffleButton.append(diceIcon(), el("span", { class: "shuffle-label" }, ["Shuffle all"]));
     this.shuffleButton.addEventListener("click", () => this.shuffleRows());
-    this.updateShuffleLabel();
 
-    shuffleControl.append(
-      this.shuffleButton,
-      this.shuffleCount,
-      el("span", { class: "shuffle-suffix" }, ["rows"]),
-    );
+    shuffleControl.append(this.shuffleButton);
 
     resultsRow.append(
       viewTabs,
@@ -1201,30 +1183,14 @@ export class App {
     );
   }
 
-  private shuffleLimit(): number | null {
-    const raw = this.shuffleCount.value.trim();
-    if (raw === "") return null;
-    const value = Number.parseInt(raw, 10);
-    return Number.isFinite(value) && value > 0 ? value : null;
-  }
-
-  private updateShuffleLabel(): void {
-    const limit = this.shuffleLimit();
-    const label = this.shuffleButton.querySelector(".shuffle-label");
-    if (label !== null) {
-      label.textContent = limit === null ? "Shuffle all" : `Shuffle ${limit.toLocaleString()}`;
-    }
-  }
-
   private shuffleRows(): void {
     if (this.datasetName === "" || this.loading) return;
-    const limit = this.shuffleLimit();
     this.queueSend(() =>
       this.client
-        .shuffle(limit ?? undefined)
+        .shuffle()
         .then((message) => {
           this.table?.setSort(-1, 1);
-          this.shuffleActive = message.count < this.rowCount;
+          this.shuffleActive = false;
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, undefined, message.firstFlags);
           this.table?.scrollToTop();
@@ -1506,6 +1472,7 @@ export class App {
         nullAsBlank: this.exportNullAsBlank,
         escapeFormulas: this.exportEscapeFormulas,
         scope: "all",
+        limit: this.exportLimit,
       },
       {
         allRows: Math.max(0, this.rowCount - this.excludedRowCount),
@@ -1516,11 +1483,13 @@ export class App {
         onSave: (fileName, settings) => {
           this.exportNullAsBlank = settings.nullAsBlank;
           this.exportEscapeFormulas = settings.escapeFormulas;
+          this.exportLimit = settings.limit;
           void this.runExport(
             fileName,
             settings.nullAsBlank,
             settings.escapeFormulas,
             settings.scope,
+            settings.limit,
           );
         },
         onClose: () => {},
@@ -1549,6 +1518,7 @@ export class App {
     nullAsBlank: boolean,
     escapeFormulas: boolean,
     scope: ExportScope,
+    limit: number | null,
   ): Promise<void> {
     if (this.datasetName === "" || this.loading) return;
     try {
@@ -1573,11 +1543,12 @@ export class App {
         this.setAction("Nothing to export");
         return;
       }
+      const take = limit === null ? total : Math.min(total, Math.max(1, Math.floor(limit)));
 
       const parts: string[] = ["\uFEFF"];
-      for (let start = 0; start < total; start += EXPORT_CHUNK_ROWS) {
-        this.actionEl.textContent = `Exporting… ${Math.round((start / total) * 100)}%`;
-        const end = Math.min(start + EXPORT_CHUNK_ROWS, total);
+      for (let start = 0; start < take; start += EXPORT_CHUNK_ROWS) {
+        this.actionEl.textContent = `Exporting… ${Math.round((start / take) * 100)}%`;
+        const end = Math.min(start + EXPORT_CHUNK_ROWS, take);
         const chunk = await this.client.getCsv(start, end, { nullAsBlank, escapeFormulas });
         parts.push(chunk.text);
       }
@@ -1598,7 +1569,8 @@ export class App {
         anchor.remove();
         URL.revokeObjectURL(url);
       }
-      this.setAction(`Exported ${total.toLocaleString()} rows to ${fileName}`);
+      const subset = take < total ? ` (first ${take.toLocaleString()} of ${total.toLocaleString()})` : "";
+      this.setAction(`Exported ${take.toLocaleString()} rows${subset} to ${fileName}`);
     } catch (error) {
       this.showError(error);
     }
@@ -1825,6 +1797,7 @@ export class App {
     };
 
     addItem("Filter this column", () => this.filterPanel?.focusColumn(column));
+    addItem("Rename column…", () => void this.renameColumn(column));
     addItem("Clean values…", () => this.openClean(column, "values"));
     addItem("Missing values…", () => this.openClean(column, "nulls"));
     if (meta.type === "category") {
@@ -1844,6 +1817,24 @@ export class App {
     document.body.append(menu);
     menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8))}px`;
     menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8))}px`;
+  }
+
+  /** Right-click rename: prompts for a new header name and applies it. */
+  private async renameColumn(column: number): Promise<void> {
+    const meta = this.metas[column];
+    if (meta === undefined) return;
+    const next = await openPrompt({
+      title: "Rename column",
+      label: "Column name",
+      value: meta.name,
+      confirmLabel: "Rename",
+    });
+    if (next === null) return;
+    const name = next.trim();
+    if (name === "" || name === meta.name) return;
+    const headers = this.metas.map((entry) => entry.name);
+    headers[column] = name;
+    this.applyHeaderRename(headers);
   }
 
   /** One-click value op from the column menu: applied and logged immediately. */

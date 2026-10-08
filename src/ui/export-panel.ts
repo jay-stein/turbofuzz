@@ -6,6 +6,8 @@ export interface ExportSettings {
   nullAsBlank: boolean;
   escapeFormulas: boolean;
   scope: ExportScope;
+  /** null = every row in the selected scope; otherwise the first N. */
+  limit: number | null;
 }
 
 export interface ExportScopeInfo {
@@ -110,6 +112,50 @@ export function openExportPanel(
   updateWarning();
   scopeField.append(scopeOptions, warning);
 
+  const limitField = el("div", { class: "clean-field scope-field" });
+  limitField.append(el("span", { class: "clean-label" }, ["Rows to include"]));
+  const limitOptions = el("div", { class: "scope-options" });
+  const countInput = el("input", {
+    class: "text-input export-limit-input",
+    type: "number",
+    min: "1",
+    step: "1",
+    value: String(settings.limit ?? 1000),
+    "aria-label": "Number of rows to export",
+    spellcheck: "false",
+  }) as HTMLInputElement;
+  countInput.disabled = settings.limit === null;
+  let limit: number | null = settings.limit;
+
+  const allOption = el("label", { class: "control check clean-check" });
+  const allInput = el("input", { type: "radio", name: "export-limit" }) as HTMLInputElement;
+  allInput.checked = settings.limit === null;
+  allOption.append(allInput, "All rows");
+
+  const subsetOption = el("label", { class: "control check clean-check" });
+  const subsetInput = el("input", { type: "radio", name: "export-limit" }) as HTMLInputElement;
+  subsetInput.checked = settings.limit !== null;
+  subsetOption.append(subsetInput, "First");
+  subsetOption.append(countInput);
+  subsetOption.append("rows");
+
+  const syncLimit = (): void => {
+    countInput.disabled = !subsetInput.checked;
+    limit = subsetInput.checked
+      ? Math.max(1, Math.floor(Number(countInput.value) || 1000))
+      : null;
+  };
+  allInput.addEventListener("change", syncLimit);
+  subsetInput.addEventListener("change", syncLimit);
+  countInput.addEventListener("input", () => {
+    if (subsetInput.checked) syncLimit();
+  });
+  limitOptions.append(allOption, subsetOption);
+  const limitHint = el("div", { class: "clean-hint" }, [
+    "The subset takes the first N rows of the selected scope, in the current display order.",
+  ]);
+  limitField.append(limitOptions, limitHint);
+
   const nameField = el("label", { class: "clean-field" });
   nameField.append(el("span", { class: "clean-label" }, ["File name"]));
   const nameInput = el("input", {
@@ -143,16 +189,18 @@ export function openExportPanel(
   const save = el("button", { class: "primary", type: "button" }, ["Save file"]);
   save.addEventListener("click", () => {
     const fileName = ensureCsvExtension(nameInput.value, defaultName);
+    syncLimit();
     callbacks.onSave(fileName, {
       nullAsBlank: nullInput.checked,
       escapeFormulas: formulaInput.checked,
       scope,
+      limit,
     });
     close();
   });
   footer.append(cancel, el("span", { class: "grow" }), save);
 
-  modal.append(formatField, scopeField, nameField, optionsRow, formulaRow, hint, footer);
+  modal.append(formatField, scopeField, limitField, nameField, optionsRow, formulaRow, hint, footer);
 
   function close(): void {
     overlay.remove();

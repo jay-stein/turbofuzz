@@ -473,6 +473,8 @@ export interface TransformPreviewMessage {
   baseNullCells: number;
   nullCells: number;
   columnCount: number;
+  /** Column names after the staged ops (needed when a split changes the count). */
+  columnNames: string[];
 }
 
 export interface CleanPreviewMessage {

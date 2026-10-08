@@ -230,24 +230,6 @@ button {
   gap: 6px;
 }
 
-.shuffle-count {
-  width: 62px;
-  padding: 5px 4px 5px 8px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--text);
-  font: inherit;
-  font-size: 12.5px;
-  font-family: var(--mono);
-  text-align: center;
-}
-
-.shuffle-count:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
 .shuffle-icon {
   width: 16px;
   height: 16px;
@@ -338,11 +320,6 @@ textarea:focus {
 .paste-card .sub-formats {
   font-size: 12px;
   color: color-mix(in srgb, var(--text-dim) 80%, transparent);
-}
-
-.shuffle-suffix {
-  color: var(--text-dim);
-  font-size: 12px;
 }
 
 .hist-note {
@@ -1517,9 +1494,21 @@ button:disabled {
 
 .col-resize {
   flex: none;
-  width: 7px;
+  width: 9px;
   cursor: col-resize;
   background: transparent;
+  touch-action: none;
+  position: relative;
+}
+
+.col-resize::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 4px;
+  width: 1px;
+  background: var(--border);
 }
 
 .col-resize:hover,
@@ -2885,8 +2874,7 @@ label.null-row {
   .mode-select,
   .filter-search,
   .text-input,
-  .range-input,
-  .shuffle-count {
+  .range-input {
     min-height: 40px;
   }
 

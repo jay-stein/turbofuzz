@@ -221,6 +221,23 @@ function transformLines(
         }
         break;
       }
+      case "splitColumn": {
+        const sourceName = names[op.column];
+        const source = target(sourceName);
+        const prefix = op.prefix.trim() === "" ? sourceName : op.prefix.trim();
+        if (op.regex) {
+          lines.push(`# capture groups of ${py(op.pattern)} become columns`);
+          lines.push(`_split = ${source}.str.extract(${py(op.pattern)})`);
+        } else {
+          lines.push(`_split = ${source}.str.split(${py(op.pattern)}, expand=True)`);
+        }
+        lines.push(`_split.columns = [f${py(`${prefix}_{i + 1}`)} for i in range(_split.shape[1])]`);
+        lines.push(`df = pd.concat([df, _split], axis=1)`);
+        if (op.dropOriginal) {
+          lines.push(`df = df.drop(columns=[${py(sourceName)}])`);
+        }
+        break;
+      }
     }
     current = schemaAfter(current, op);
   }

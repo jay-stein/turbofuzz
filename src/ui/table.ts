@@ -93,8 +93,13 @@ export class ResultTable {
   }
 
   setColumns(columns: ColumnMeta[]): void {
+    const previous = new Map<string, number>();
+    this.columns.forEach((column, index) => {
+      const width = this.widths[index];
+      if (width !== undefined) previous.set(column.name, width);
+    });
     this.columns = columns;
-    this.widths = columns.map(() => DEFAULT_COL_WIDTH);
+    this.widths = columns.map((column) => previous.get(column.name) ?? DEFAULT_COL_WIDTH);
     this.renderHeader();
     this.invalidateRows();
   }

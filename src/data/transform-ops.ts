@@ -3,6 +3,7 @@ import { ColumnData } from "./column.js";
 import { applyCombineDate, type CombineDateOp } from "./date-combine.js";
 import { formatNumber } from "./format.js";
 import { knnImpute } from "./knn.js";
+import { applySplitColumn, type SplitColumnOp } from "./split-column.js";
 import { hashRows, rowsEqual } from "./stats.js";
 import { parseNumber } from "../parse/numbers.js";
 import type { Dataset } from "./dataset.js";
@@ -32,7 +33,8 @@ export type TransformOp =
       varName: string;
       valueName: string;
     }
-  | CombineDateOp;
+  | CombineDateOp
+  | SplitColumnOp;
 
 export interface ColumnSchema {
   name: string;
@@ -100,6 +102,9 @@ export function applyTransformOps(
         break;
       case "combineDate":
         current = applyCombineDate(current, op);
+        break;
+      case "splitColumn":
+        current = applySplitColumn(current, op);
         break;
     }
   }
@@ -536,6 +541,12 @@ export function describeTransformOp(op: TransformOp, headers: readonly string[])
         op.outputName.trim() || op.output,
       )} (${zone}${op.dropParts ? ", drop sources" : ""})`;
     }
+    case "splitColumn": {
+      const mode = op.regex ? "regex" : "delimiter";
+      return `Split ${quoted(nameAt(op.column))} on ${mode} ${quoted(op.pattern)} into new columns${
+        op.dropOriginal ? " (drop original)" : ""
+      }`;
+    }
   }
 }
 
@@ -576,6 +587,8 @@ export function describeTransformOpDetail(op: TransformOp, headers: readonly str
         .join(", ")}], output=${op.output}, order=${op.order}, timeZone=${JSON.stringify(
         op.timeZone,
       )}, dropParts=${op.dropParts})`;
+    case "splitColumn":
+      return `splitColumn(column=${nameAt(op.column)}, pattern=${JSON.stringify(op.pattern)}, regex=${op.regex}, dropEmpty=${op.dropEmpty}, dropOriginal=${op.dropOriginal}, prefix=${JSON.stringify(op.prefix)})`;
   }
 }
 
@@ -628,6 +641,13 @@ export function schemaAfter(schema: readonly ColumnSchema[], op: TransformOp): C
       let suffix = 2;
       while (taken.has(name)) name = `${base} (${suffix++})`;
       return [...kept, { name, numeric: false }];
+    }
+    case "splitColumn": {
+      // The number of new columns depends on the data, so schema tracking keeps
+      // only the source column (or removes it); the panel refreshes pickers
+      // from the transform preview's actual column names.
+      if (!op.dropOriginal) return schema.slice();
+      return schema.filter((_, index) => index !== op.column);
     }
   }
 }
