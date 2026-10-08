@@ -84,6 +84,7 @@ export function openTransformPanel(
   applied: readonly TransformOp[],
   baseSchema: readonly ColumnSchema[],
   callbacks: TransformPanelCallbacks,
+  preset?: { type: string; column?: number },
 ): void {
   const overlay = el("div", { class: "modal-overlay drawer-overlay" });
   const modal = el("div", { class: "modal clean-modal drawer" });
@@ -225,7 +226,16 @@ export function openTransformPanel(
     for (const { value, label } of TRANSFORM_TYPES) {
       typeSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
     }
+    if (preset?.type !== undefined && TRANSFORM_TYPES.some((entry) => entry.value === preset.type)) {
+      typeSelect.value = preset.type;
+    }
     typeField.append(typeSelect);
+
+    const preselect = (select: HTMLSelectElement): void => {
+      if (preset?.column !== undefined && preset.column >= 0 && preset.column < schema.length) {
+        select.value = String(preset.column);
+      }
+    };
 
     const inputHost = el("div", { class: "transform-inputs" });
     let readOp: () => TransformOp | null = () => null;
@@ -241,12 +251,14 @@ export function openTransformPanel(
         }
         case "drop": {
           const columnSelect = selectOf(indexed(schema));
+          preselect(columnSelect);
           inputHost.append(field("Column", columnSelect));
           readOp = () => ({ kind: "drop", column: Number(columnSelect.value) });
           break;
         }
         case "round": {
           const columnSelect = selectOf(indexed(schema));
+          preselect(columnSelect);
           const decimalsInput = numberInput("0", "Decimal places — negative rounds left (-1 = nearest 10)");
           inputHost.append(field("Column", columnSelect), field("Decimals", decimalsInput));
           readOp = () => ({
@@ -258,6 +270,7 @@ export function openTransformPanel(
         }
         case "groupBy": {
           const dimensionSelect = selectOf(indexed(schema));
+          preselect(dimensionSelect);
           const measureSelect = selectOf(indexed(schema));
           const aggregateSelect = selectOf(
             AGGREGATES.map((value) => ({ value, label: AGGREGATE_LABELS[value] })),
@@ -282,6 +295,7 @@ export function openTransformPanel(
         }
         case "impute": {
           const columnSelect = selectOf(indexed(schema));
+          preselect(columnSelect);
           const strategySelect = selectOf(IMPUTE_STRATEGIES);
           const constantInput = el("input", {
             class: "text-input",
@@ -346,6 +360,11 @@ export function openTransformPanel(
           }
           const fill = checkboxList(numeric);
           const predictors = checkboxList(numeric);
+          if (preset?.column !== undefined && preset.column >= 0 && preset.column < schema.length) {
+            fill.checks.forEach((check) => {
+              check.input.checked = check.index === preset.column;
+            });
+          }
           const kInput = numberInput("5", "Number of neighbours");
           inputHost.append(
             group("Fill columns", fill.list, "Missing cells in these columns are imputed"),
@@ -432,6 +451,11 @@ export function openTransformPanel(
             partsList.append(row);
             rows.push({ index, check, role });
           });
+          if (preset?.column !== undefined && rows[preset.column] !== undefined) {
+            const row = rows[preset.column];
+            row.check.checked = true;
+            row.role.disabled = false;
+          }
 
           const outputSelect = selectOf([
             { value: "datetime", label: "Datetime (ISO with time)" },
@@ -509,6 +533,7 @@ export function openTransformPanel(
         }
         case "splitColumn": {
           const columnSelect = selectOf(indexed(schema));
+          preselect(columnSelect);
           const patternInput = el("input", {
             class: "text-input",
             type: "text",

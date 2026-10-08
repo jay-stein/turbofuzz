@@ -41,7 +41,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       ),
       list(
         "Click a chip to apply its fix — every fix is reversible from the Process Log.",
-        "Click a column name to sort; use the header ⋯ menu (or right-click) for per-column actions, including Rename column. Drag the divider on a header's right edge to resize it (double-click the divider to reset).",
+        "Click a column name to sort; right-click a header for grouped Column / Clean / Transform actions. Choosing a clean or transform function opens its panel with that column (and operation) already selected. Drag the divider on a header's right edge to resize it (double-click the divider to reset).",
         "Use Export… when you are done; the dialog states exactly which rows will be written, with an optional first-N subset.",
         "The header Theme control cycles Auto / Light / Dark — Auto follows your operating system.",
         "Help (this drawer) is searchable; the Chart tab shows a chart of the current result set and exports it as a PNG.",
@@ -197,7 +197,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Process Log lists the changes currently applied to the working set: clean operations, missing-value rules, column type changes, deleted rows and transform steps. The number next to the button counts actions, with batches collapsed.",
       ),
       list(
-        "Batches from one action are condensed — for example a clean applied to 20 columns, or the steps from one Transform commit. Click + on a batch to expand its sub-steps.",
+        "Batches from one action are condensed — for example a clean applied to 20 columns, or the steps from one Transform commit. Click + on a batch to expand its sub-steps, or use the batch's undo icon to reverse the whole batch in one click.",
         "The undo icon reverses one entry; clean operations can be reordered within their column.",
         "Undo all restores the original data (except the loaded file itself).",
         "Copy pandas recipe exports the clean and transform steps as a best-effort Python script for reproducibility.",

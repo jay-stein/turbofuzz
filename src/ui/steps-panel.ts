@@ -29,6 +29,8 @@ export interface StepsPanelCallbacks {
   onRestoreRows: () => void;
   onUndoPolicy: (column: number, opIndex: number) => void;
   onUndoType: (column: number, opIndex: number) => void;
+  /** Reverses every sub-step of a condensed batch in one action. */
+  onUndoBatch: (entries: readonly StepsPanelEntry[]) => void;
   onClearAll: () => void;
   onCopyRecipe: () => Promise<boolean>;
   onClose: () => void;
@@ -254,6 +256,7 @@ export function openStepsPanel(
       el("span", { class: "clean-op-index" }, [String(display)]),
       info,
       el("span", { class: "step-count" }, [`${group.entries.length} steps`]),
+      undo("Undo this whole batch", () => callbacks.onUndoBatch(group.entries)),
       toggle,
     );
     const children = el("div", { class: "step-group-children hidden" });

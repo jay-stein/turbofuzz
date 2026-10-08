@@ -1716,7 +1716,11 @@ export class App {
     this.stepper?.setActive(id);
   }
 
-  private openClean(column?: number, tab: "values" | "nulls" = "values"): void {
+  private openClean(
+    column?: number,
+    tab: "values" | "nulls" = "values",
+    op?: CleanOp,
+  ): void {
     if (this.datasetName === "" || this.loading) return;
     this.setStage("clean");
     openCleanPanel(
@@ -1742,7 +1746,7 @@ export class App {
         onOpenMerge: (column) => this.openMerge(column),
         onClose: () => this.setStage("view"),
       },
-      { column, tab: column === undefined ? "names" : tab },
+      { column, tab: column === undefined ? "names" : tab, op },
     );
   }
 
@@ -1800,27 +1804,60 @@ export class App {
       menu.append(item);
     };
 
+    const addHeader = (label: string): void => {
+      menu.append(el("div", { class: "context-header" }, [label]));
+    };
+
     addItem("Filter this column", () => this.filterPanel?.focusColumn(column));
+
+    addHeader("Column");
     addItem("Rename column…", () => void this.renameColumn(column));
-    addItem("Clean values…", () => this.openClean(column, "values"));
-    addItem("Missing values…", () => this.openClean(column, "nulls"));
     if (meta.type === "category") {
       addItem("Merge similar values…", () => this.openMerge(column));
     }
-    if (meta.type === "string" || meta.type === "category" || meta.type === "identifier") {
-      addItem("UPPERCASE", () => this.applyQuickClean(column, { kind: "case", style: "upper" }));
-      addItem("lowercase", () => this.applyQuickClean(column, { kind: "case", style: "lower" }));
-      addItem("Title Case", () => this.applyQuickClean(column, { kind: "case", style: "title" }));
-      addItem("Trim whitespace", () => this.applyQuickClean(column, { kind: "trim" }));
-    }
-    addItem("Transform dataset…", () => this.openTransform());
     addItem("Delete column…", () => void this.confirmDeleteColumn(column), { danger: true });
+
+    addHeader("Clean");
+    addItem("Trim whitespace", () => this.openClean(column, "values", { kind: "trim" }));
+    addItem("UPPERCASE", () => this.openClean(column, "values", { kind: "case", style: "upper" }));
+    addItem("lowercase", () => this.openClean(column, "values", { kind: "case", style: "lower" }));
+    addItem("Title Case", () => this.openClean(column, "values", { kind: "case", style: "title" }));
+    addItem("Find & replace…", () =>
+      this.openClean(column, "values", {
+        kind: "replace",
+        find: "",
+        replacement: "",
+        ignoreCase: false,
+      }),
+    );
+    addItem("Convert to number…", () =>
+      this.openClean(column, "values", { kind: "toNumber", locale: meta.numberLocale }),
+    );
+    addItem("Convert to date…", () =>
+      this.openClean(column, "values", { kind: "toDate", order: meta.dateOrder }),
+    );
+    addItem("Clean values…", () => this.openClean(column, "values"));
+    addItem("Missing values…", () => this.openClean(column, "nulls"));
+
+    addHeader("Transform");
+    addItem("Remove duplicate rows", () => this.openTransform({ type: "dedupe" }));
+    addItem("Round…", () => this.openTransform({ type: "round", column }));
+    addItem("Group by & aggregate…", () => this.openTransform({ type: "groupBy", column }));
+    addItem("Fill missing values…", () => this.openTransform({ type: "impute", column }));
+    addItem("KNN impute…", () => this.openTransform({ type: "knn", column }));
+    addItem("Melt (wide → long)…", () => this.openTransform({ type: "melt", column }));
+    addItem("Combine date/time columns…", () =>
+      this.openTransform({ type: "combineDate", column }),
+    );
+    addItem("Split a column…", () => this.openTransform({ type: "splitColumn", column }));
+    addItem("Transform dataset…", () => this.openTransform());
 
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKey);
     document.body.append(menu);
     menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8))}px`;
     menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8))}px`;
+    menu.scrollTop = 0;
   }
 
   /** Right-click rename: prompts for a new header name and applies it. */
@@ -1839,12 +1876,6 @@ export class App {
     const headers = this.metas.map((entry) => entry.name);
     headers[column] = name;
     this.applyHeaderRename(headers);
-  }
-
-  /** One-click value op from the column menu: applied and logged immediately. */
-  private applyQuickClean(column: number, op: CleanOp): void {
-    const existing = this.cleanedColumns.get(column) ?? [];
-    this.applyClean([{ column, ops: [...existing, op] }]);
   }
 
   private async confirmDeleteColumn(column: number): Promise<void> {
@@ -2022,6 +2053,7 @@ export class App {
         this.changeType(column, edit.previous, false);
         this.updateStepsButton();
       },
+      onUndoBatch: (batch) => this.undoBatch(batch),
       onClearAll: () => {
         if (this.transformOps.length > 0) this.applyTransform([]);
         if (this.cleanedColumns.size > 0) {
@@ -2044,6 +2076,32 @@ export class App {
       onCopyRecipe: () => this.copyRecipe(),
       onClose: () => this.setStage("view"),
     });
+  }
+
+  /** Reverses every sub-step of a condensed batch in a single action. */
+  private undoBatch(batch: readonly StepsPanelEntry[]): void {
+    if (batch.length === 0) return;
+    if (batch[0].kind === "clean") {
+      const perColumn = new Map<number, Set<number>>();
+      for (const entry of batch) {
+        let indexes = perColumn.get(entry.column);
+        if (indexes === undefined) {
+          indexes = new Set();
+          perColumn.set(entry.column, indexes);
+        }
+        indexes.add(entry.opIndex);
+      }
+      const updates = [...perColumn.entries()].map(([column, indexes]) => ({
+        column,
+        ops: (this.cleanedColumns.get(column) ?? []).filter((_, index) => !indexes.has(index)),
+      }));
+      this.applyClean(updates);
+      return;
+    }
+    if (batch[0].kind === "transform") {
+      const indexes = new Set(batch.map((entry) => entry.opIndex));
+      this.applyTransform(this.transformOps.filter((_, index) => !indexes.has(index)));
+    }
   }
 
   private async copyRecipe(): Promise<boolean> {
@@ -2211,7 +2269,7 @@ export class App {
     );
   }
 
-  private openTransform(): void {
+  private openTransform(preset?: { type: string; column?: number }): void {
     if (this.datasetName === "" || this.loading) return;
     this.setStage("transform");
     const baseSchema =
@@ -2221,11 +2279,16 @@ export class App {
             name: meta.name,
             numeric: meta.type === "integer" || meta.type === "number",
           }));
-    openTransformPanel(this.transformOps, baseSchema, {
-      onApply: (ops) => this.applyTransform(ops),
-      onPreview: (ops) => this.client.previewTransform(ops),
-      onClose: () => this.setStage("view"),
-    });
+    openTransformPanel(
+      this.transformOps,
+      baseSchema,
+      {
+        onApply: (ops) => this.applyTransform(ops),
+        onPreview: (ops) => this.client.previewTransform(ops),
+        onClose: () => this.setStage("view"),
+      },
+      preset,
+    );
   }
 
   private applyTransform(ops: TransformOp[], action?: string): void {

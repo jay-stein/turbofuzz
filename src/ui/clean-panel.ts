@@ -60,6 +60,8 @@ export interface CleanPanelOptions {
   column?: number;
   /** First tab to show; defaults to "values" when a column is given. */
   tab?: "names" | "values" | "nulls";
+  /** Preselect an operation in the Values tab builder (e.g. from the column menu). */
+  op?: CleanOp;
 }
 
 /**
@@ -89,7 +91,7 @@ export function openCleanPanel(
   tabs.append(namesButton, valuesButton, nullsButton);
 
   const namesTab = buildNamesTab(metas.map((meta) => meta.name), callbacks, close);
-  const valuesTab = buildValuesTab(metas, cleaned, callbacks, close, options.column);
+  const valuesTab = buildValuesTab(metas, cleaned, callbacks, close, options.column, options.op);
   const nullsTab = buildNullsTab(metas, callbacks, close, options.column);
   modal.append(tabs, namesTab, valuesTab, nullsTab);
 
@@ -208,6 +210,7 @@ function buildValuesTab(
   callbacks: CleanPanelCallbacks,
   close: () => void,
   initialColumn: number | undefined,
+  initialOp: CleanOp | undefined,
 ): HTMLElement {
   const wrap = el("div", { class: "clean-values" });
 
@@ -301,6 +304,34 @@ function buildValuesTab(
     dateOrderRow.classList.toggle("hidden", opSelect.value !== "toDate");
   };
   opSelect.addEventListener("change", syncOpType);
+
+  if (initialOp !== undefined) {
+    switch (initialOp.kind) {
+      case "trim":
+        opSelect.value = "trim";
+        break;
+      case "case":
+        opSelect.value = initialOp.style;
+        break;
+      case "replace":
+        opSelect.value = "replace";
+        findInput.value = initialOp.find;
+        replacementInput.value = initialOp.replacement;
+        ignoreCaseInput.checked = initialOp.ignoreCase;
+        break;
+      case "toNumber":
+        opSelect.value = "toNumber";
+        localeSelect.value = initialOp.locale;
+        break;
+      case "toDate":
+        opSelect.value = "toDate";
+        dateOrderSelect.value = initialOp.order;
+        break;
+      default:
+        break;
+    }
+    syncOpType();
+  }
 
   const addButton = el("button", { class: "ghost small", type: "button" }, ["Add operation"]);
   addButton.addEventListener("click", () => {
