@@ -108,7 +108,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     summary: "Trim, case, replace, convert, repair and missing-value rules.",
     blocks: [
       p(
-        "Open Clean and pick a column. Operations are queued with a live preview of the first cells and a “how many cells change” count, then applied together. Nothing is applied until you press the button, and every applied operation is reversible from the Process Log.",
+        "Open Clean and pick a column. The Apply button always states what one click will commit — “Apply Trim whitespace” or “Apply 3 operations” — and the configured operation is included even if you never staged it. Use “Add another” to stage a multi-step list first. The preview shows the first cells and a “how many cells change” count, and every applied operation is reversible from the Process Log.",
       ),
       p(
         "Clean can also be opened from a column: right-click a header and choose Clean values… or Missing values… — the panel opens on that column and tab. Simple cleans (Trim, case, convert number/date, formula escaping) skip the panel and apply from the same menu with an Undo toast.",
@@ -131,7 +131,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     summary: "Dedupe, drop, round, group by, impute, combine dates and reshape.",
     blocks: [
       p(
-        "Transforms change the shape of the working set. They run against the base data captured before the first transform, so the pipeline is re-derived from scratch on every change — the Process Log shows the ordered list. Right-click any column header and choose Transform dataset… to jump straight in.",
+        "Transforms change the shape of the working set. They run against the base data captured before the first transform, so the pipeline is re-derived from scratch on every change - the Process Log shows the ordered list. Right-click any column header and choose Transform dataset. to jump straight in. The Apply button commits the step configured in the builder together with the list, so you rarely need to stage first; “Add another” stages a longer pipeline.",
       ),
       list(
         "Remove duplicate rows - keep first, keep last, or remove all copies.",

@@ -97,6 +97,11 @@ export function openTransformPanel(
 
   const base = baseSchema.slice();
   let pending: TransformOp[] = applied.slice();
+  // The configured builder step is committed together with the list, but only
+  // once the user touched the builder (so Apply never adds a default step).
+  let builderTouched = false;
+  let builderType = TRANSFORM_TYPES[0]?.value ?? "dedupe";
+  let readOp: () => TransformOp | null = () => null;
 
   const summary = el("div", { class: "clean-summary" });
   const opList = el("div", { class: "clean-op-list" });
@@ -111,12 +116,32 @@ export function openTransformPanel(
   });
   const apply = el("button", { class: "primary", type: "button" }, ["Apply transforms"]);
   apply.addEventListener("click", () => {
-    callbacks.onApply(pending.slice());
+    callbacks.onApply(nextOps());
     close();
   });
   footer.append(clearAll, el("span", { class: "grow" }), apply);
 
   modal.append(summary, opList, builderHost, footer);
+
+  /** Pending steps plus the configured builder step, when touched. */
+  function nextOps(): TransformOp[] {
+    if (!builderTouched) return pending.slice();
+    const builder = readOp();
+    return builder === null ? pending.slice() : [...pending, builder];
+  }
+
+  /** The apply button always states exactly what one click will commit. */
+  function updateApply(): void {
+    const ops = nextOps();
+    apply.disabled = ops.length === 0 || JSON.stringify(ops) === appliedSignature;
+    const builderOnly = builderTouched && ops.length === pending.length + 1;
+    const label = TRANSFORM_TYPES.find((entry) => entry.value === builderType)?.label ?? "step";
+    apply.textContent = builderOnly
+      ? `Apply “${label}”`
+      : ops.length === 0
+        ? "Apply transforms"
+        : `Apply ${ops.length} step${ops.length === 1 ? "" : "s"}`;
+  }
 
   function runningSchema(): ColumnSchema[] {
     if (previewNames !== null && pending.some((op) => op.kind === "splitColumn")) {
@@ -135,13 +160,14 @@ export function openTransformPanel(
   function render(): void {
     renderOps();
     renderBuilder();
-    apply.disabled = JSON.stringify(pending) === appliedSignature;
+    updateApply();
+    const ops = nextOps();
     const baseText =
-      pending.length === 0
+      ops.length === 0
         ? "No transforms — the data is unchanged."
-        : `${pending.length} step${pending.length === 1 ? "" : "s"} ready to apply`;
+        : `${ops.length} step${ops.length === 1 ? "" : "s"} ready to apply`;
     summary.textContent = baseText;
-    if (pending.length === 0) {
+    if (ops.length === 0) {
       previewNames = null;
       previewNamesKey = "";
       return;
@@ -149,7 +175,7 @@ export function openTransformPanel(
 
     const generation = ++previewGeneration;
     void callbacks
-      .onPreview(pending.slice())
+      .onPreview(ops)
       .then((preview) => {
         if (generation !== previewGeneration || preview === null) return;
         const names = preview.columnNames;
@@ -218,6 +244,7 @@ export function openTransformPanel(
 
   function renderBuilder(): void {
     clear(builderHost);
+    builderTouched = false;
     const schema = runningSchema();
 
     const typeField = el("label", { class: "clean-field" });
@@ -229,6 +256,10 @@ export function openTransformPanel(
     if (preset?.type !== undefined && TRANSFORM_TYPES.some((entry) => entry.value === preset.type)) {
       typeSelect.value = preset.type;
     }
+    builderType = typeSelect.value;
+    if (preset?.type !== undefined && TRANSFORM_TYPES.some((entry) => entry.value === preset.type)) {
+      builderTouched = true;
+    }
     typeField.append(typeSelect);
 
     const preselect = (select: HTMLSelectElement): void => {
@@ -238,7 +269,6 @@ export function openTransformPanel(
     };
 
     const inputHost = el("div", { class: "transform-inputs" });
-    let readOp: () => TransformOp | null = () => null;
 
     function buildInputs(): void {
       clear(inputHost);
@@ -590,9 +620,23 @@ export function openTransformPanel(
         }
       }
     }
-    typeSelect.addEventListener("change", buildInputs);
+    typeSelect.addEventListener("change", () => {
+      builderTouched = true;
+      builderType = typeSelect.value;
+      buildInputs();
+      updateApply();
+    });
+    inputHost.addEventListener("input", () => {
+      builderTouched = true;
+      updateApply();
+    });
+    inputHost.addEventListener("change", () => {
+      builderTouched = true;
+      updateApply();
+    });
 
-    const addButton = el("button", { class: "primary small", type: "button" }, ["Add step"]);
+    const addButton = el("button", { class: "ghost small", type: "button" }, ["Add another"]);
+    addButton.title = "Stage this step in the list and configure the next one";
     addButton.addEventListener("click", () => {
       const op = readOp();
       if (op === null) return;
@@ -605,7 +649,7 @@ export function openTransformPanel(
       inputHost,
       addButton,
       el("div", { class: "clean-hint" }, [
-        "Add each step to the list below, then click Apply transforms when it is ready.",
+        "“Apply” commits the configured step together with the list; use “Add another” to stage a multi-step pipeline first.",
       ]),
     );
     buildInputs();

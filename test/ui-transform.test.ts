@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
+import type { TransformOp } from "../src/data/transform-ops.js";
 import { openTransformPanel } from "../src/ui/transform-panel.js";
 
 function setupDom(): Window {
@@ -37,7 +38,50 @@ test("transform panel renders the stage builder and staged steps on open", () =>
   assert.match(summary, /1 step ready to apply/);
 
   const addButton = document.querySelector(".transform-builder button");
-  assert.equal(addButton?.textContent, "Add step");
+  assert.equal(addButton?.textContent, "Add another");
+});
+
+test("transform panel applies the configured step without staging it first", () => {
+  setupDom();
+  let applied: TransformOp[] | null = null;
+  openTransformPanel(
+    [],
+    [{ name: "amount", numeric: true }],
+    {
+      onApply: (ops) => {
+        applied = ops;
+      },
+      onPreview: async () => null,
+      onClose: () => {},
+    },
+    { type: "round", column: 0 },
+  );
+
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const apply = document.querySelector(".clean-footer .primary") as unknown as {
+    textContent: string;
+    disabled: boolean;
+    click(): void;
+  };
+  assert.equal(apply.disabled, false);
+  assert.match(apply.textContent ?? "", /Apply “Round a column”/);
+  apply.click();
+  assert.deepEqual(applied, [{ kind: "round", column: 0, decimals: 0 }]);
+});
+
+test("transform panel disables apply until the builder is touched", () => {
+  setupDom();
+  openTransformPanel([], [{ name: "amount", numeric: true }], {
+    onApply: () => {},
+    onPreview: async () => null,
+    onClose: () => {},
+  });
+
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const apply = document.querySelector(".clean-footer .primary") as unknown as {
+    disabled: boolean;
+  };
+  assert.equal(apply.disabled, true);
 });
 
 test("transform panel starts empty with a working builder when nothing is applied", () => {

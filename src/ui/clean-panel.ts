@@ -303,7 +303,40 @@ function buildValuesTab(
     localeRow.classList.toggle("hidden", opSelect.value !== "toNumber");
     dateOrderRow.classList.toggle("hidden", opSelect.value !== "toDate");
   };
-  opSelect.addEventListener("change", syncOpType);
+
+  const currentBuilderOp = (): CleanOp | null =>
+    readOp(
+      opSelect.value,
+      findInput.value,
+      replacementInput.value,
+      ignoreCaseInput.checked,
+      localeSelect.value === "comma" ? "comma" : "dot",
+      dateOrderSelect.value === "mdy" ? "mdy" : "dmy",
+    );
+
+  // The configured operation is only included when the user actually touched
+  // the builder, so opening the panel and clicking Apply cannot apply a
+  // default operation by surprise.
+  let builderTouched = false;
+  let previewTimer: number | undefined;
+  const onBuilderChange = (): void => {
+    builderTouched = true;
+    if (previewTimer !== undefined) window.clearTimeout(previewTimer);
+    previewTimer = window.setTimeout(() => {
+      previewTimer = undefined;
+      renderPreview();
+    }, 250);
+  };
+  opSelect.addEventListener("change", () => {
+    builderTouched = true;
+    syncOpType();
+    renderPreview();
+  });
+  findInput.addEventListener("input", onBuilderChange);
+  replacementInput.addEventListener("input", onBuilderChange);
+  ignoreCaseInput.addEventListener("change", onBuilderChange);
+  localeSelect.addEventListener("change", onBuilderChange);
+  dateOrderSelect.addEventListener("change", onBuilderChange);
 
   if (initialOp !== undefined) {
     switch (initialOp.kind) {
@@ -330,21 +363,17 @@ function buildValuesTab(
       default:
         break;
     }
+    builderTouched = true;
     syncOpType();
   }
 
-  const addButton = el("button", { class: "ghost small", type: "button" }, ["Add operation"]);
+  const addButton = el("button", { class: "ghost small", type: "button" }, ["Add another"]);
+  addButton.title = "Stage this operation in the list and configure the next one";
   addButton.addEventListener("click", () => {
-    const op = readOp(
-      opSelect.value,
-      findInput.value,
-      replacementInput.value,
-      ignoreCaseInput.checked,
-      localeSelect.value === "comma" ? "comma" : "dot",
-      dateOrderSelect.value === "mdy" ? "mdy" : "dmy",
-    );
+    const op = currentBuilderOp();
     if (op === null) return;
     pending.push(op);
+    builderTouched = false;
     renderOps();
     renderPreview();
   });
@@ -387,8 +416,15 @@ function buildValuesTab(
 
   let previewGeneration = 0;
 
+  /** Pending operations plus the builder op, when the builder was touched. */
+  function nextOps(): CleanOp[] {
+    if (!builderTouched) return pending.slice();
+    const builder = currentBuilderOp();
+    return builder === null ? pending.slice() : [...pending, builder];
+  }
+
   function targetUpdates(): CleanUpdateRequest[] {
-    const ops = pending.slice();
+    const ops = nextOps();
     return allColumnsInput.checked
       ? metas.map((_, index) => ({ column: index, ops }))
       : [{ column, ops }];
@@ -396,8 +432,9 @@ function buildValuesTab(
 
   function renderPreview(): void {
     const generation = ++previewGeneration;
+    const ops = nextOps();
     const samples = sampleValues();
-    const results = applyCleanOps(samples, pending);
+    const results = applyCleanOps(samples, ops);
     clear(preview);
     let baseText: string;
     if (samples.length === 0) {
@@ -417,11 +454,12 @@ function buildValuesTab(
       preview.append(fragment);
       const changed = samples.filter((value, i) => value !== results[i]).length;
       baseText =
-        pending.length === 0
+        ops.length === 0
           ? `Preview of ${samples.length} sample values`
           : `Preview of ${samples.length} sample values · ${changed} would change`;
     }
     previewSummary.textContent = baseText;
+    updateApply();
     void callbacks
       .onPreviewClean(targetUpdates())
       .then((count) => {
@@ -466,6 +504,23 @@ function buildValuesTab(
     close();
   });
   footer.append(apply);
+
+  /** The apply button always states exactly what one click will commit. */
+  function updateApply(): void {
+    const builder = builderTouched ? currentBuilderOp() : null;
+    const total = pending.length + (builder === null ? 0 : 1);
+    const scope = allColumnsInput.checked ? " to all columns" : "";
+    if (total === 0) {
+      apply.textContent = "Apply to column";
+      apply.disabled = true;
+      return;
+    }
+    apply.disabled = false;
+    apply.textContent =
+      builder !== null && pending.length === 0
+        ? `Apply “${describeCleanOp(builder)}”${scope}`
+        : `Apply ${total} operation${total === 1 ? "" : "s"}${scope}`;
+  }
 
   const builder = el("div", { class: "clean-builder" }, [
     opField,
