@@ -1,10 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { binValues } from "../src/data/chart-bins.js";
-import { categorySeries, chartKindFor, defaultChartTitle } from "../src/ui/chart-panel.js";
+import {
+  categorySeries,
+  chartKindFor,
+  defaultChartTitle,
+  formatChartNumber,
+  parseChartNumber,
+  suggestedBinRange,
+} from "../src/ui/chart-panel.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
 
-function meta(overrides: Partial<ColumnMeta>): ColumnMeta {
+function meta(overrides: Partial<ColumnMeta> = {}): ColumnMeta {
   return {
     name: "col",
     type: "string",
@@ -84,6 +91,56 @@ test("chart titles reference the data source and column", () => {
   assert.equal(defaultChartTitle("Pasted data", "Score"), "Pasted data — Score");
   assert.equal(defaultChartTitle("", "Amount"), "Data — Amount");
   assert.equal(defaultChartTitle("data.csv", ""), "data");
+});
+
+test("bin bounds round-trip through comma-formatted inputs", () => {
+  const formatted = formatChartNumber(19818400000);
+  assert.ok(formatted.includes(","), `expected thousands separators in ${formatted}`);
+  assert.equal(parseChartNumber(formatted), 19818400000);
+  assert.equal(parseChartNumber(" 1 234.5 "), 1234.5);
+  assert.equal(parseChartNumber(""), null);
+  assert.equal(parseChartNumber("abc"), null);
+});
+
+test("suggested bin range clips extreme tails to p95 with overflow on", () => {
+  const histogram = {
+    bins: [1],
+    min: 0,
+    max: 100,
+    symlog: false,
+    below: 0,
+    above: 0,
+    p05: 5,
+    p95: 5000,
+  };
+  const clipped = suggestedBinRange(
+    meta({
+      type: "number",
+      stats: { ...meta().stats, min: 0, max: 19_818_400_000 },
+      histogram,
+    }),
+  );
+  assert.equal(clipped.max, 5000);
+  assert.equal(clipped.overflow, true);
+  assert.equal(clipped.clipped, true);
+
+  const normal = suggestedBinRange(
+    meta({
+      type: "number",
+      stats: { ...meta().stats, min: 0, max: 100 },
+      histogram,
+    }),
+  );
+  assert.equal(normal.max, 100);
+  assert.equal(normal.overflow, false);
+  assert.equal(normal.clipped, false);
+});
+
+test("constant columns get a padded bin range", () => {
+  const range = suggestedBinRange(
+    meta({ type: "number", stats: { ...meta().stats, min: 5, max: 5 }, histogram: null }),
+  );
+  assert.deepEqual(range, { min: 4, max: 6, overflow: false, clipped: false });
 });
 
 test("category series takes the top N and aggregates the rest as Other", () => {

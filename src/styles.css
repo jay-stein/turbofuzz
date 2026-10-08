@@ -2055,11 +2055,61 @@ mark {
   gap: 8px;
 }
 
-.chart-title {
-  flex: 1;
-  min-width: 200px;
-  font-size: 13px;
+.chart-picker {
+  min-width: 220px;
+  max-width: 420px;
+  padding: 6px 10px;
+  font-size: 14px;
   font-weight: 600;
+}
+
+.chart-size {
+  font-size: 12px;
+}
+
+.chart-title {
+  flex: none;
+  max-width: 460px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.chart-number-wide {
+  width: 136px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-number.clipped {
+  border-color: var(--qa-warn-border);
+  background: var(--qa-warn-soft);
+}
+
+/* Chart mode: one scroll for the whole chart pane, sticky toolbar, pinned sidebar. */
+.workspace.chart-mode .workspace-body {
+  overflow-y: auto;
+}
+
+.workspace.chart-mode .sidebar {
+  position: sticky;
+  top: 0;
+}
+
+.workspace.chart-mode .results {
+  overflow: visible;
+}
+
+.workspace.chart-mode .chart-host {
+  flex: none;
+  overflow: visible;
+}
+
+.workspace.chart-mode .results-bar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--panel);
 }
 
 .chart-picker {

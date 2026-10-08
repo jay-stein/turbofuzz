@@ -171,11 +171,11 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "The Chart tab in the results bar draws the rows currently matching your filters: histograms for numeric columns, a time series for dates and bars for categories.",
       ),
       list(
-        "Numeric: Start/End default to the column's full data range (use Full range to reset) with a Bins count, and optionally a “> Max” bar that groups everything above the end into one bucket. Bins are recomputed on the filtered rows.",
+        "Numeric: Start/End default to the column's full range, but when a few extreme values dwarf the rest the End is clipped to the 95th percentile with the “> Max” bar switched on (Full range restores everything). Bounds accept thousands commas and the Bins count is free.",
         "Categories: set any number of top bars (default 5) and optionally group the rest as “Other”; every bar shows its count and share above it.",
         "Colours: pick one of ten presets or type a hex code. Category bars can colour each bar separately.",
         "Title: defaults to “source — column” with the type, rows shown and distinct count underneath; type your own title to override it.",
-        "Export PNG downloads the canvas at a standard 16:9 size; the chart is rendered with no chart library, so it stays offline and fast.",
+        "Export PNG at 1280×720, 1920×1080 (default) or 2560×1440; the chart is drawn in logical coordinates so every size keeps the same 16:9 layout.",
       ),
     ],
   },

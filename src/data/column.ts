@@ -30,6 +30,9 @@ export interface HistogramData {
   /** Values outside the linear p1–p99 chart range (0 when symlog). */
   below: number;
   above: number;
+  /** Data percentiles, used for sensible defaults (e.g. chart bin ranges). */
+  p05: number;
+  p95: number;
 }
 
 export interface CategorySet {
@@ -351,10 +354,14 @@ export class ColumnData {
     let below = 0;
     let above = 0;
     let useSymlog = false;
+    let p05 = dataMin;
+    let p95 = dataMax;
 
     const sample = sampleNumbers(numbers);
     if (sample.length >= MIN_CHART_SAMPLE) {
       sample.sort((a, b) => a - b);
+      p05 = sampleQuantile(sample, 0.05);
+      p95 = sampleQuantile(sample, 0.95);
       const q1 = sampleQuantile(sample, 0.25);
       const q3 = sampleQuantile(sample, 0.75);
       const iqr = q3 - q1;
@@ -398,7 +405,16 @@ export class ColumnData {
       countFinite(numbers, bins, 0);
     }
 
-    this.histCache = { bins, min: chartMin, max: chartMax, symlog: useSymlog, below, above };
+    this.histCache = {
+      bins,
+      min: chartMin,
+      max: chartMax,
+      symlog: useSymlog,
+      below,
+      above,
+      p05,
+      p95,
+    };
     return this.histCache;
   }
 

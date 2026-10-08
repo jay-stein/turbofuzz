@@ -1607,6 +1607,7 @@ export class App {
 
   private setView(view: "table" | "chart"): void {
     this.chartActive = view === "chart";
+    this.workspace.classList.toggle("chart-mode", this.chartActive);
     this.tableHost.classList.toggle("hidden", this.chartActive);
     this.chartHost.classList.toggle("hidden", !this.chartActive);
     this.tableTabButton.classList.toggle("active", !this.chartActive);
