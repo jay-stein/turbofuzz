@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import type { ChartBins } from "../src/data/chart-bins.js";
 import { ChartsPanel, type ChartsPanelOptions } from "../src/ui/chart-panel.js";
 import type {
   BoxStatsMessage,
+  ChartBinsMessage,
   ChartSeriesMessage,
   ColumnMeta,
   CorrelationMessage,
@@ -53,7 +53,17 @@ function meta(overrides: Partial<ColumnMeta> = {}): ColumnMeta {
   };
 }
 
-const bins: ChartBins = { bins: [1, 2, 1], overflow: 0, above: 0, below: 0, total: 4 };
+const bins: ChartBinsMessage = {
+  type: "chartBins",
+  requestId: 1,
+  column: 0,
+  median: 5,
+  bins: [1, 2, 1],
+  overflow: 0,
+  above: 0,
+  below: 0,
+  total: 4,
+};
 
 function series(): ChartSeriesMessage {
   return {
@@ -65,6 +75,7 @@ function series(): ChartSeriesMessage {
     sizeColumn: -1,
     colorLabels: null,
     ms: 1,
+    correlation: 0.5,
     result: {
       mode: "points",
       x: Float64Array.from([1, 2]),
@@ -190,6 +201,9 @@ test("chart cards draw scatter points and density grids", async () => {
     fill(): void {}
     setLineDash(): void {}
     roundRect(): void {}
+    strokeRect(): void {
+      counts.fillRect++;
+    }
     drawImage(): void {}
     fillText(): void {
       counts.fillText++;
@@ -267,6 +281,17 @@ test("chart cards draw scatter points and density grids", async () => {
   );
   await tick();
   assert.ok(counts.putImageData > 0, "density grid was drawn");
+
+  const style = host.querySelector<HTMLSelectElement>('select[aria-label="Density style"]');
+  assert.ok(style !== null);
+  for (const value of ["contours", "heat", "both"]) {
+    style.value = value;
+    (style as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(
+      new window.Event("change"),
+    );
+    await tick();
+  }
+  assert.equal(style.value, "both");
 
   for (const next of ["box", "heatmap", "correlation"] as const) {
     kind.value = next;

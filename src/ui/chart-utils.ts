@@ -266,10 +266,19 @@ export function suggestedBinRange(meta: ColumnMeta): SuggestedRange {
 export function formatTick(value: number, kind: "histogram" | "line" | null): string {
   if (kind === "line") return toDateInputValue(value);
   const abs = Math.abs(value);
-  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  const compact = (scaled: number): string => {
+    const text = scaled >= 100 ? scaled.toFixed(0) : scaled.toFixed(1);
+    return text.endsWith(".0") ? text.slice(0, -2) : text;
+  };
+  if (abs >= 1_000_000) return `${compact(value / 1_000_000)}M`;
+  if (abs >= 1_000) return `${compact(value / 1_000)}k`;
   if (abs > 0 && abs < 1) return value.toFixed(2);
-  return value.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+/** Whole-number tick label for count axes, e.g. 50,000. */
+export function formatCount(value: number): string {
+  return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
 export function safeFileName(name: string): string {

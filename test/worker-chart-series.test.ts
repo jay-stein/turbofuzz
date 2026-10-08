@@ -56,6 +56,7 @@ test("worker serves scatter points and density grids for chart cards", async () 
   });
   const points = find("chartSeries", 2) as unknown as {
     colorLabels: string[] | null;
+    correlation: number;
     result: {
       mode: string;
       shown: number;
@@ -70,9 +71,20 @@ test("worker serves scatter points and density grids for chart cards", async () 
   assert.equal(points.result.total, 4);
   assert.deepEqual([...points.result.x], [1, 2, 3, 4]);
   assert.deepEqual([...points.result.y], [2, 4, 6, 8]);
+  assert.equal(points.correlation, 1);
   assert.deepEqual(points.colorLabels, ["a", "b"]);
   assert.ok(points.result.colorCodes !== null);
   assert.deepEqual([...points.result.colorCodes], [0, 1, 0, 0]);
+
+  send({
+    type: "getChartBins",
+    requestId: 6,
+    column: 0,
+    options: { min: 0, max: 5, binCount: 5, overflow: false },
+  });
+  const bins = find("chartBins", 6) as unknown as { median: number | null; bins: number[] };
+  assert.equal(bins.median, 2.5);
+  assert.deepEqual(bins.bins, [0, 1, 1, 1, 1]);
 
   send({
     type: "getChartSeries",

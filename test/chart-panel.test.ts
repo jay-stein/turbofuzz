@@ -8,6 +8,8 @@ import {
   defaultCardKind,
   defaultChartTitle,
   formatChartNumber,
+  formatCount,
+  formatTick,
   niceTicks,
   parseChartNumber,
   rampColor,
@@ -81,6 +83,14 @@ test("colour ramp interpolates between stops", () => {
   assert.equal(rampColor(1), "rgb(239, 68, 68)");
   assert.match(rampColor(0.5), /^rgb\(\d+, \d+, \d+\)$/);
   assert.equal(rampColor(-5), "rgb(37, 99, 235)");
+});
+
+test("axis labels drop insignificant digits", () => {
+  assert.equal(formatTick(50_000, "histogram"), "50k");
+  assert.equal(formatTick(12_800, "histogram"), "12.8k");
+  assert.equal(formatTick(1_500_000, "histogram"), "1.5M");
+  assert.equal(formatCount(50_000), "50,000");
+  assert.equal(formatCount(48780), "48,780");
 });
 
 test("correlation cells diverge around the neutral colour", () => {

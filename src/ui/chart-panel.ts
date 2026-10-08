@@ -1,6 +1,7 @@
-import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
+import type { ChartBinOptions } from "../data/chart-bins.js";
 import type {
   BoxStatsMessage,
+  ChartBinsMessage,
   ChartSeriesMessage,
   ColumnMeta,
   CorrelationMessage,
@@ -19,7 +20,7 @@ import { el } from "./dom.js";
 
 export interface ChartsPanelOptions {
   datasetName(): string;
-  requestBins(column: number, options: ChartBinOptions): Promise<ChartBins>;
+  requestBins(column: number, options: ChartBinOptions): Promise<ChartBinsMessage>;
   requestSeries(input: SeriesRequestInput): Promise<ChartSeriesMessage>;
   requestBoxStats(input: {
     valueColumn: number;

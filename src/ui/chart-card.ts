@@ -1,9 +1,11 @@
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import type { SeriesGrid, SeriesMode, SeriesPoints } from "../data/chart-series.js";
 import type { BoxStatsResult, CrossTabResult } from "../data/chart-stats.js";
+import { contourLevels, marchingSquares, smoothGrid, smoothSeries } from "../data/kde.js";
 import { TYPE_LABELS } from "../types.js";
 import type {
   BoxStatsMessage,
+  ChartBinsMessage,
   ChartSeriesMessage,
   ColumnMeta,
   CorrelationMessage,
@@ -18,6 +20,7 @@ import {
   correlationCell,
   defaultChartTitle,
   formatChartNumber,
+  formatCount,
   formatTick,
   hexToRgb,
   isCategoryType,
@@ -31,6 +34,8 @@ import {
 } from "./chart-utils.js";
 import { el } from "./dom.js";
 
+export type DensityStyle = "heat" | "contours" | "both";
+
 export interface SeriesRequestInput {
   xColumn: number;
   yColumn: number;
@@ -42,7 +47,7 @@ export interface SeriesRequestInput {
 
 export interface ChartCardOptions {
   datasetName(): string;
-  requestBins(column: number, options: ChartBinOptions): Promise<ChartBins>;
+  requestBins(column: number, options: ChartBinOptions): Promise<ChartBinsMessage>;
   requestSeries(input: SeriesRequestInput): Promise<ChartSeriesMessage>;
   requestBoxStats(input: {
     valueColumn: number;
@@ -71,6 +76,8 @@ export interface ChartCardConfig {
   colorColumn: number;
   sizeColumn: number;
   mode: SeriesMode;
+  densityStyle: DensityStyle;
+  kde: boolean;
   color: string;
   multiColor: boolean;
   topN: number;
@@ -112,6 +119,8 @@ function defaultConfig(): ChartCardConfig {
     colorColumn: -1,
     sizeColumn: -1,
     mode: "auto",
+    densityStyle: "both",
+    kde: true,
     color: CHART_COLORS[0],
     multiColor: true,
     topN: 5,
@@ -143,9 +152,11 @@ export class ChartCard {
 
   private pickerSignature = "";
   private binResult: ChartBins | null = null;
+  private binMedian: number | null = null;
   private seriesResult: SeriesPoints | SeriesGrid | null = null;
   private seriesLabels: string[] | null = null;
   private seriesMs = 0;
+  private seriesCorrelation = Number.NaN;
   private boxResult: BoxStatsResult | null = null;
   private crossResult: CrossTabResult | null = null;
   private correlationResult: {
@@ -162,6 +173,8 @@ export class ChartCard {
   private readonly colorSelect: HTMLSelectElement;
   private readonly sizeSelect: HTMLSelectElement;
   private readonly modeSelect: HTMLSelectElement;
+  private readonly densityStyleSelect: HTMLSelectElement;
+  private readonly kdeInput: HTMLInputElement;
   private readonly correlationSelect: HTMLSelectElement;
   private readonly primaryWrap: HTMLElement;
   private readonly xWrap: HTMLElement;
@@ -169,6 +182,7 @@ export class ChartCard {
   private readonly colorWrap: HTMLElement;
   private readonly sizeWrap: HTMLElement;
   private readonly modeWrap: HTMLElement;
+  private readonly densityStyleWrap: HTMLElement;
   private readonly xTagLabel: HTMLElement;
   private readonly yTagLabel: HTMLElement;
   private readonly colorGroup: HTMLElement;
@@ -280,6 +294,22 @@ export class ChartCard {
     });
     this.modeWrap = this.tagged("Render", this.modeSelect).wrap;
 
+    this.densityStyleSelect = this.buildSelect("chart-picker chart-picker-small", "Density style");
+    (
+      [
+        ["heat", "Heat"],
+        ["contours", "Contours"],
+        ["both", "Heat + lines"],
+      ] as const
+    ).forEach(([value, label]) => {
+      this.densityStyleSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+    });
+    this.densityStyleSelect.addEventListener("change", () => {
+      this.config.densityStyle = this.densityStyleSelect.value as DensityStyle;
+      this.render();
+    });
+    this.densityStyleWrap = this.tagged("Style", this.densityStyleSelect).wrap;
+
     const duplicate = el(
       "button",
       { class: "ghost small", type: "button", title: "Duplicate this chart" },
@@ -307,6 +337,7 @@ export class ChartCard {
       this.colorWrap,
       this.sizeWrap,
       this.modeWrap,
+      this.densityStyleWrap,
       el("span", { class: "grow" }),
       duplicate,
       png,
@@ -349,11 +380,21 @@ export class ChartCard {
       ["Full range"],
     );
     fullRange.addEventListener("click", () => this.resetBinRange());
+    this.kdeInput = el("input", { type: "checkbox" }) as HTMLInputElement;
+    this.kdeInput.checked = this.config.kde;
+    const kdeField = el("label", { class: "control check clean-check chart-check" });
+    kdeField.title = "Overlay a smooth kernel density curve on the histogram";
+    kdeField.append(this.kdeInput, "KDE curve");
+    this.kdeInput.addEventListener("change", () => {
+      this.config.kde = this.kdeInput.checked;
+      this.render();
+    });
     this.histogramSettings = el("div", { class: "chart-settings" }, [
       field("Start", this.minInput),
       field("End", this.maxInput),
       field("Bins", this.binsInput),
       overflowField,
+      kdeField,
       fullRange,
     ]);
     const onBinChange = (): void => this.commitBinOptions();
@@ -785,6 +826,7 @@ export class ChartCard {
     this.colorSelect.value = String(this.config.colorColumn);
     this.sizeSelect.value = String(this.config.sizeColumn);
     this.modeSelect.value = this.config.mode;
+    this.densityStyleSelect.value = this.config.densityStyle;
 
     const numeric = this.allowedIndexes((meta) => isNumericType(meta.type));
     this.config.correlationColumns = this.config.correlationColumns.filter((index) =>
@@ -813,6 +855,7 @@ export class ChartCard {
     this.colorWrap.classList.toggle("hidden", !seriesKind);
     this.sizeWrap.classList.toggle("hidden", !seriesKind);
     this.modeWrap.classList.toggle("hidden", kind !== "scatter");
+    this.densityStyleWrap.classList.toggle("hidden", !seriesKind);
     this.colorGroup.classList.toggle("hidden", kind === "correlation");
     this.histogramSettings.classList.toggle("hidden", kind !== "histogram");
     this.barSettings.classList.toggle(
@@ -844,6 +887,7 @@ export class ChartCard {
         this.binsInput.value = String(this.config.binOptions.binCount);
         this.overflowInput.checked = this.config.binOptions.overflow;
       }
+      this.kdeInput.checked = this.config.kde;
       const p95Text =
         histogram !== undefined &&
         histogram !== null &&
@@ -952,6 +996,7 @@ export class ChartCard {
       .then((bins) => {
         if (generation !== this.generation || this.disposed) return;
         this.binResult = bins;
+        this.binMedian = bins.median;
         this.render();
       })
       .catch(() => {
@@ -986,6 +1031,7 @@ export class ChartCard {
         this.seriesResult = message.result;
         this.seriesLabels = message.colorLabels;
         this.seriesMs = message.ms;
+        this.seriesCorrelation = message.correlation;
         this.render();
       })
       .catch(() => {
@@ -1262,26 +1308,27 @@ export class ChartCard {
     const slotW = frame.plotW / slots;
     const barW = Math.max(1, slotW - 1);
 
+    const yTicks = niceTicks(0, maxCount, 4);
     ctx.strokeStyle = frame.border;
     ctx.lineWidth = 1;
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
+    ctx.textAlign = "right";
+    for (const value of yTicks) {
+      const y = frame.top + frame.plotH - (value / maxCount) * frame.plotH;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(frame.left, y + 0.5);
+      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText(formatCount(value), frame.left - 6 * ui, y + 3 * ui);
+    }
+    ctx.textAlign = "left";
     ctx.beginPath();
     ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
     ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
     ctx.stroke();
-    const halfY = frame.top + frame.plotH / 2;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(frame.left, halfY + 0.5);
-    ctx.lineTo(frame.left + frame.plotW, halfY + 0.5);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
-    ctx.textAlign = "right";
-    ctx.fillText(maxCount.toLocaleString(), frame.left - 6 * ui, frame.top + 8 * ui);
-    ctx.fillText(Math.round(maxCount / 2).toLocaleString(), frame.left - 6 * ui, halfY + 3 * ui);
-    ctx.fillText("0", frame.left - 6 * ui, frame.top + frame.plotH + 3 * ui);
-    ctx.textAlign = "left";
 
     if (kind === "histogram") {
       for (let i = 0; i < bins.length; i++) {
@@ -1318,10 +1365,63 @@ export class ChartCard {
       ctx.globalAlpha = 1;
     }
 
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
     const min = this.config.binOptions?.min ?? automatic.min;
     const max = this.config.binOptions?.max ?? automatic.max;
+
+    if (kind === "histogram" && this.config.kde && bins.length >= 4) {
+      const smooth = smoothSeries(bins, 1.4);
+      ctx.beginPath();
+      for (let i = 0; i < smooth.length; i++) {
+        const x = frame.left + (i + 0.5) * slotW;
+        const y = frame.top + frame.plotH - (smooth[i] / maxCount) * frame.plotH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = frame.text;
+      ctx.globalAlpha = 0.7;
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH);
+      ctx.lineTo(frame.left, frame.top + frame.plotH);
+      ctx.closePath();
+      ctx.globalAlpha = 0.08;
+      ctx.fillStyle = this.config.color;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    if (
+      kind === "histogram" &&
+      custom !== null &&
+      this.binMedian !== null &&
+      max > min &&
+      !automatic.symlog
+    ) {
+      const ratio = (this.binMedian - min) / (max - min);
+      if (ratio >= 0 && ratio <= 1) {
+        const x = frame.left + ratio * frame.plotW;
+        ctx.strokeStyle = frame.text;
+        ctx.globalAlpha = 0.7;
+        ctx.setLineDash([5, 3]);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, frame.top);
+        ctx.lineTo(x, frame.top + frame.plotH);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        const label = `median ${formatChartNumber(this.binMedian)}`;
+        this.font(ctx, ui, 10);
+        const width = ctx.measureText(label).width;
+        ctx.fillStyle = frame.text;
+        const labelX =
+          x + 4 * ui + width > frame.left + frame.plotW ? x - 4 * ui - width : x + 4 * ui;
+        ctx.fillText(label, labelX, frame.top + 12 * ui);
+      }
+    }
+
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
     const mid = (min + max) / 2;
     ctx.fillText(formatTick(min, kind), frame.left, frame.top + frame.plotH + 16 * ui);
     const midLabel = formatTick(mid, kind);
@@ -1378,26 +1478,27 @@ export class ChartCard {
     const slotW = frame.plotW / bars.length;
     const barW = Math.max(4, slotW - Math.min(18 * ui, slotW * 0.25));
 
+    const yTicks = niceTicks(0, maxCount, 4);
     ctx.strokeStyle = frame.border;
     ctx.lineWidth = 1;
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
+    ctx.textAlign = "right";
+    for (const value of yTicks) {
+      const y = frame.top + frame.plotH - (value / maxCount) * frame.plotH;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(frame.left, y + 0.5);
+      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText(formatCount(value), frame.left - 6 * ui, y + 3 * ui);
+    }
+    ctx.textAlign = "left";
     ctx.beginPath();
     ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
     ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
     ctx.stroke();
-    const halfY = frame.top + frame.plotH / 2;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(frame.left, halfY + 0.5);
-    ctx.lineTo(frame.left + frame.plotW, halfY + 0.5);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
-    ctx.textAlign = "right";
-    ctx.fillText(maxCount.toLocaleString(), frame.left - 6 * ui, frame.top + 8 * ui);
-    ctx.fillText(Math.round(maxCount / 2).toLocaleString(), frame.left - 6 * ui, halfY + 3 * ui);
-    ctx.fillText("0", frame.left - 6 * ui, frame.top + frame.plotH + 3 * ui);
-    ctx.textAlign = "left";
 
     this.font(ctx, ui, 10);
     bars.forEach((bar, index) => {
@@ -1623,6 +1724,8 @@ export class ChartCard {
     }
     ctx.globalAlpha = 1;
 
+    this.drawCorrelationNote(ctx, frame);
+
     const notes: string[] = [`${result.shown.toLocaleString()} points`];
     if (result.sampled) notes.push(`sampled from ${result.total.toLocaleString()}`);
     if (result.outside > 0) notes.push(`${result.outside.toLocaleString()} outside p1–p99`);
@@ -1645,28 +1748,21 @@ export class ChartCard {
       this.noteEl.textContent = "No matching X/Y value pairs in the current rows.";
       return;
     }
-    const [r, g, b] = hexToRgb(this.config.color);
-    const off = document.createElement("canvas");
-    off.width = result.cols;
-    off.height = result.rows;
-    const offCtx = off.getContext("2d");
-    if (offCtx === null) return;
-    const image = offCtx.createImageData(result.cols, result.rows);
-    for (let cy = 0; cy < result.rows; cy++) {
-      for (let cx = 0; cx < result.cols; cx++) {
-        const count = result.counts[cy * result.cols + cx];
-        const offset = ((result.rows - 1 - cy) * result.cols + cx) * 4;
-        if (count === 0) continue;
-        const t = count / result.max;
-        image.data[offset] = r;
-        image.data[offset + 1] = g;
-        image.data[offset + 2] = b;
-        image.data[offset + 3] = Math.round((0.12 + 0.88 * Math.sqrt(t)) * 255);
-      }
+    const style = this.config.densityStyle;
+    let smooth: Float64Array | null = null;
+    let smoothMax = 0;
+    if (style !== "heat") {
+      smooth = smoothGrid(result.counts, result.cols, result.rows, 1.6);
+      for (const value of smooth) if (value > smoothMax) smoothMax = value;
     }
-    offCtx.putImageData(image, 0, 0);
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(off, frame.left, frame.top, frame.plotW, frame.plotH);
+
+    if (style !== "contours") {
+      this.paintDensityHeat(ctx, frame, result, style === "both" ? 0.45 : 1);
+    }
+    if (smooth !== null && smoothMax > 0) {
+      if (style === "contours") this.paintDensityBands(ctx, frame, result, smooth, smoothMax);
+      this.paintContourLines(ctx, frame, result, smooth, smoothMax);
+    }
 
     this.drawAxes(
       ctx,
@@ -1678,15 +1774,124 @@ export class ChartCard {
       axisKindFor(xMeta.type) ?? "histogram",
       axisKindFor(yMeta.type) ?? "histogram",
     );
+    this.drawCorrelationNote(ctx, frame);
 
     const notes = [
       `${result.total.toLocaleString()} rows`,
       `${result.cols}×${result.rows} density grid`,
       `peak ${result.max.toLocaleString()}`,
     ];
+    notes.push(
+      style === "heat" ? "heat" : style === "contours" ? "5 contour levels" : "heat + contour lines",
+    );
     if (result.outside > 0) notes.push(`${result.outside.toLocaleString()} outside p1–p99`);
     if (this.seriesMs > 0) notes.push(`${Math.round(this.seriesMs)} ms`);
     this.noteEl.textContent = notes.join(" · ");
+  }
+
+  private paintDensityHeat(
+    ctx: CanvasRenderingContext2D,
+    frame: Frame,
+    result: SeriesGrid,
+    alphaScale: number,
+  ): void {
+    const [r, g, b] = hexToRgb(this.config.color);
+    const off = document.createElement("canvas");
+    off.width = result.cols;
+    off.height = result.rows;
+    const offCtx = off.getContext("2d");
+    if (offCtx === null) return;
+    const image = offCtx.createImageData(result.cols, result.rows);
+    for (let cy = 0; cy < result.rows; cy++) {
+      for (let cx = 0; cx < result.cols; cx++) {
+        const count = result.counts[cy * result.cols + cx];
+        if (count === 0) continue;
+        const offset = ((result.rows - 1 - cy) * result.cols + cx) * 4;
+        const t = count / result.max;
+        image.data[offset] = r;
+        image.data[offset + 1] = g;
+        image.data[offset + 2] = b;
+        image.data[offset + 3] = Math.round((0.12 + 0.88 * Math.sqrt(t)) * 255 * alphaScale);
+      }
+    }
+    offCtx.putImageData(image, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(off, frame.left, frame.top, frame.plotW, frame.plotH);
+  }
+
+  private paintDensityBands(
+    ctx: CanvasRenderingContext2D,
+    frame: Frame,
+    result: SeriesGrid,
+    smooth: Float64Array,
+    smoothMax: number,
+  ): void {
+    const levels = contourLevels(smoothMax, 5);
+    const colors = levels.map((_, index) => hexToRgb(rampColor((index + 1) / levels.length)));
+    const off = document.createElement("canvas");
+    off.width = result.cols;
+    off.height = result.rows;
+    const offCtx = off.getContext("2d");
+    if (offCtx === null) return;
+    const image = offCtx.createImageData(result.cols, result.rows);
+    for (let cy = 0; cy < result.rows; cy++) {
+      for (let cx = 0; cx < result.cols; cx++) {
+        const value = smooth[cy * result.cols + cx];
+        let band = 0;
+        while (band < levels.length && value >= levels[band]) band++;
+        if (band === 0) continue;
+        const [r, g, b] = colors[band - 1];
+        const offset = ((result.rows - 1 - cy) * result.cols + cx) * 4;
+        image.data[offset] = r;
+        image.data[offset + 1] = g;
+        image.data[offset + 2] = b;
+        image.data[offset + 3] = 205;
+      }
+    }
+    offCtx.putImageData(image, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(off, frame.left, frame.top, frame.plotW, frame.plotH);
+  }
+
+  private paintContourLines(
+    ctx: CanvasRenderingContext2D,
+    frame: Frame,
+    result: SeriesGrid,
+    smooth: Float64Array,
+    smoothMax: number,
+  ): void {
+    const levels = contourLevels(smoothMax, 5);
+    levels.forEach((level, index) => {
+      const segments = marchingSquares(smooth, result.cols, result.rows, level);
+      if (segments.length === 0) return;
+      ctx.strokeStyle = rampColor((index + 1) / levels.length);
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      for (let i = 0; i < segments.length; i += 4) {
+        const x1 = frame.left + (segments[i] / result.cols) * frame.plotW;
+        const y1 = frame.top + (1 - segments[i + 1] / result.rows) * frame.plotH;
+        const x2 = frame.left + (segments[i + 2] / result.cols) * frame.plotW;
+        const y2 = frame.top + (1 - segments[i + 3] / result.rows) * frame.plotH;
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+      }
+      ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  private drawCorrelationNote(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    if (!Number.isFinite(this.seriesCorrelation)) return;
+    this.font(ctx, frame.ui, 11, "600");
+    ctx.fillStyle = frame.dim;
+    ctx.textAlign = "right";
+    ctx.fillText(
+      `r = ${this.seriesCorrelation.toFixed(2)}`,
+      frame.left + frame.plotW - 6 * frame.ui,
+      frame.top + 14 * frame.ui,
+    );
+    ctx.textAlign = "left";
   }
 
   private drawBox(ctx: CanvasRenderingContext2D, frame: Frame): void {
@@ -1783,12 +1988,20 @@ export class ChartCard {
       ctx.globalAlpha = 1;
 
       ctx.textAlign = "center";
+      ctx.fillStyle = frame.text;
+      this.font(ctx, ui, 9.5, "600");
+      const medianLabel = formatChartNumber(group.median);
+      const medianY = Math.max(frame.top + 9 * ui, top - 4 * ui);
+      ctx.fillText(this.fit(ctx, medianLabel, Math.max(10, slot - 4 * ui)), cx, medianY);
+
       ctx.fillStyle = frame.dim;
       this.font(ctx, ui, 10);
       const maxWidth = Math.max(10, slot - 6 * ui);
       const label = group.label === "" ? "(blank)" : group.label;
       ctx.fillText(this.fit(ctx, label, maxWidth), cx, frame.top + frame.plotH + 16 * ui);
-      if (group.other) ctx.fillText("rest", cx, frame.top + frame.plotH + 28 * ui);
+      this.font(ctx, ui, 9);
+      ctx.fillText(formatCount(group.count), cx, frame.top + frame.plotH + 27 * ui);
+      if (group.other) ctx.fillText("rest", cx, frame.top + frame.plotH + 38 * ui);
     });
     ctx.textAlign = "left";
 

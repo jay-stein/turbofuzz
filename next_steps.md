@@ -620,3 +620,12 @@ this section: small multiples and trend overlays (Phase 2 remainder); hover,
 zoom, click-to-filter, brush and linked highlight (Phase 3); K-means/trend
 bands/SAB (Phase 4).
 
+**Axis, annotation and KDE polish (2026-10-08):** count axes now use nice
+round ticks (0, 20k, 40k …) and compact value labels (50k, 1.5M); histograms
+can overlay a 1D KDE curve and mark the median with a dashed line; box plots
+label the median and group size; scatter/density annotate Pearson r in the
+corner. Density cards gained a **Style** control — Heat (exact), Contours
+(Gaussian-smoothed field drawn as filled ramp bands plus marching-squares
+iso-lines) and Heat + lines — all computed on the main thread from the
+existing grid payload (`src/data/kde.ts`).
+

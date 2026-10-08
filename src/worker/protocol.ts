@@ -151,6 +151,8 @@ export interface ChartBinsMessage extends ChartBins {
   type: "chartBins";
   requestId: number;
   column: number;
+  /** Sampled column median, drawn as an annotation (null when undefined). */
+  median: number | null;
 }
 
 export type GetChartSeriesRequest = {
@@ -175,6 +177,8 @@ export interface ChartSeriesMessage {
   colorLabels: string[] | null;
   /** Worker compute time for this payload. */
   ms: number;
+  /** Pearson r of the two plotted columns over the filtered pairs (NaN if undefined). */
+  correlation: number;
   result: SeriesResult;
 }
 

@@ -692,10 +692,12 @@ function handleGetChartBins(message: GetChartBinsRequest): void {
   const column = dataset.columns[message.column];
   if (column === undefined) throw new Error("Unknown column");
   const bins = binValues(column.numbers(), sortedIds, message.options);
+  const numeric = column.type === "integer" || column.type === "number" || column.type === "date";
   post({
     type: "chartBins",
     requestId: message.requestId,
     column: message.column,
+    median: numeric ? column.medianSampled() : null,
     ...bins,
   });
 }
@@ -734,9 +736,11 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
   }
 
   const started = performance.now();
+  const xNumbers = xColumn.numbers();
+  const yNumbers = yColumn.numbers();
   const result = computeSeries(
-    xColumn.numbers(),
-    yColumn.numbers(),
+    xNumbers,
+    yNumbers,
     sortedIds,
     colorValues,
     colorCodes,
@@ -748,6 +752,7 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
       gridRows: 72,
     },
   );
+  const correlation = computeCorrelation([xNumbers, yNumbers], sortedIds).values[1] ?? Number.NaN;
 
   const transfer: Transferable[] = [];
   if (result.mode === "density") {
@@ -769,6 +774,7 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
       sizeColumn: sizeIndex,
       colorLabels,
       ms: performance.now() - started,
+      correlation,
       result,
     },
     transfer,
