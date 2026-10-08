@@ -165,17 +165,20 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
   {
     id: "charts",
     title: "Charts",
-    summary: "Chart the current result set and export it as a PNG.",
+    summary: "Plot the current result set as one or more charts and export PNGs.",
     blocks: [
       p(
-        "The Chart tab in the results bar draws the rows currently matching your filters: histograms for numeric columns, a time series for dates and bars for categories.",
+        "The Chart tab in the results bar plots the rows currently matching your filters: histograms for numeric columns, a time series for dates, bars for categories, and scatter/density for two numeric or date columns.",
       ),
       list(
+        "Multiple charts: “+ Add chart” adds independent cards, each with its own type, columns and settings; the layout picker fits 1–4 per row and is remembered between sessions.",
+        "Scatter: pick X and Y (numeric or date) and optionally a Colour column (numeric ramp or category palette) and a Size column (numeric). Above 20,000 matching pairs the card switches to a density grid automatically; “Render: Points / Density” overrides that choice.",
+        "Density: an exact 2D histogram of every matching row drawn as a heat grid; both axes follow the same p1–p99 clipping as the other charts.",
         "Numeric: Start/End default to the column's full range, but when a few extreme values dwarf the rest the End is clipped to the 95th percentile with the “> Max” bar switched on (Full range restores everything). Bounds accept thousands commas and the Bins count is free.",
         "Categories: set any number of top bars (default 5) and optionally group the rest as “Other”; every bar shows its count and share above it.",
-        "Colours: pick one of ten presets or type a hex code. Category bars can colour each bar separately.",
+        "Colours: pick one of ten presets or type a hex code. Category bars can colour each bar separately, and the colour is the fallback for scatter points without a Colour column.",
         "Title: defaults to “source — column” with the type, rows shown and distinct count underneath; type your own title to override it.",
-        "Export PNG at 1280×720, 1920×1080 (default) or 2560×1440; the chart is drawn in logical coordinates so every size keeps the same 16:9 layout.",
+        "Export PNG per card at 1280×720, 1920×1080 (default) or 2560×1440; charts are drawn in logical coordinates so every size keeps the same 16:9 layout.",
       ),
     ],
   },

@@ -1,5 +1,6 @@
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
+import type { SeriesMode, SeriesResult } from "../data/chart-series.js";
 import type { CleanOp } from "../data/clean-ops.js";
 import type { HistogramData, NullTokenCount } from "../data/column.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
@@ -151,6 +152,31 @@ export interface ChartBinsMessage extends ChartBins {
   column: number;
 }
 
+export type GetChartSeriesRequest = {
+  type: "getChartSeries";
+  requestId: number;
+  xColumn: number;
+  yColumn: number;
+  /** -1 (or omitted) draws every point in the chart colour. */
+  colorColumn?: number;
+  sizeColumn?: number;
+  mode: SeriesMode;
+  limit?: number;
+};
+
+export interface ChartSeriesMessage {
+  type: "chartSeries";
+  requestId: number;
+  xColumn: number;
+  yColumn: number;
+  colorColumn: number;
+  sizeColumn: number;
+  colorLabels: string[] | null;
+  /** Worker compute time for this payload. */
+  ms: number;
+  result: SeriesResult;
+}
+
 export type ExportScope = "all" | "filtered";
 
 export type StartExportRequest = {
@@ -239,6 +265,7 @@ export type WorkerRequest =
   | SetNumberLocaleRequest
   | GetStatsRequest
   | GetChartBinsRequest
+  | GetChartSeriesRequest
   | StartExportRequest
   | GetCsvRequest
   | RenameHeadersRequest
@@ -404,6 +431,7 @@ export type WorkerResponse =
   | ColumnMetaMessage
   | StatsMessage
   | ChartBinsMessage
+  | ChartSeriesMessage
   | ExportStartedMessage
   | CsvChunkMessage
   | HeadersRenamedMessage

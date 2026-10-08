@@ -5,6 +5,7 @@ import { applyCleanOps } from "../data/clean-ops.js";
 import type { Dataset } from "../data/dataset.js";
 import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
 import { binValues } from "../data/chart-bins.js";
+import { categoryCodes, computeSeries } from "../data/chart-series.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import {
   createNullPolicy,
@@ -36,6 +37,7 @@ import type {
   GetRowsRequest,
   GetStatsRequest,
   GetChartBinsRequest,
+  GetChartSeriesRequest,
   LoadRequest,
   PreviewCleanRequest,
   PreviewTransformRequest,
@@ -152,6 +154,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getChartBins":
       handleGetChartBins(message);
+      break;
+    case "getChartSeries":
+      handleGetChartSeries(message);
       break;
     case "renameHeaders":
       handleRenameHeaders(message);
@@ -680,6 +685,81 @@ function handleGetChartBins(message: GetChartBinsRequest): void {
     column: message.column,
     ...bins,
   });
+}
+
+/**
+ * Scatter sample (<= limit points) or exact density grid for two numeric
+ * columns over the current result order, with optional colour and size
+ * encodings. Numeric arrays are computed fresh inside `computeSeries`, so the
+ * column caches are never transferred (which would detach them).
+ */
+function handleGetChartSeries(message: GetChartSeriesRequest): void {
+  const { dataset } = state();
+  const xColumn = dataset.columns[message.xColumn];
+  const yColumn = dataset.columns[message.yColumn];
+  if (xColumn === undefined || yColumn === undefined) throw new Error("Unknown column");
+
+  let colorValues: Float64Array | null = null;
+  let colorCodes: Uint16Array | null = null;
+  let colorLabels: string[] | null = null;
+  const colorIndex = message.colorColumn ?? -1;
+  if (colorIndex >= 0 && colorIndex < dataset.columnCount) {
+    const column = dataset.columns[colorIndex];
+    if (column.type === "category" || column.type === "boolean") {
+      const categories = column.categories();
+      colorCodes = categoryCodes(categories.bits, dataset.rowCount);
+      colorLabels = categories.labels;
+    } else {
+      colorValues = column.numbers();
+    }
+  }
+
+  let size: Float64Array | null = null;
+  const sizeIndex = message.sizeColumn ?? -1;
+  if (sizeIndex >= 0 && sizeIndex < dataset.columnCount) {
+    size = dataset.columns[sizeIndex].numbers();
+  }
+
+  const started = performance.now();
+  const result = computeSeries(
+    xColumn.numbers(),
+    yColumn.numbers(),
+    sortedIds,
+    colorValues,
+    colorCodes,
+    size,
+    {
+      mode: message.mode,
+      limit: message.limit ?? 20_000,
+      gridCols: 128,
+      gridRows: 72,
+    },
+  );
+
+  const transfer: Transferable[] = [];
+  if (result.mode === "density") {
+    transfer.push(result.counts.buffer);
+  } else {
+    transfer.push(result.x.buffer, result.y.buffer);
+    if (result.colorValues !== null) transfer.push(result.colorValues.buffer);
+    if (result.colorCodes !== null) transfer.push(result.colorCodes.buffer);
+    if (result.size !== null) transfer.push(result.size.buffer);
+  }
+
+  post(
+    {
+      type: "chartSeries",
+      requestId: message.requestId,
+      xColumn: message.xColumn,
+      yColumn: message.yColumn,
+      colorColumn: colorIndex,
+      sizeColumn: sizeIndex,
+      colorLabels,
+      ms: performance.now() - started,
+      result,
+    },
+    transfer,
+  );
 }
 
 /**

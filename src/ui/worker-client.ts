@@ -1,11 +1,13 @@
 import type { Delimiter } from "../parse/delimiter.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { ChartBinOptions } from "../data/chart-bins.js";
+import type { SeriesMode } from "../data/chart-series.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { TransformOp } from "../data/transform-ops.js";
 import type { ColumnType } from "../types.js";
 import type {
   ChartBinsMessage,
+  ChartSeriesMessage,
   CleanedMessage,
   CleanPreviewMessage,
   CleanUpdate,
@@ -123,6 +125,17 @@ export class SearchWorkerClient {
 
   getChartBins(column: number, options: ChartBinOptions): Promise<ChartBinsMessage> {
     return this.request<ChartBinsMessage>({ type: "getChartBins", column, options });
+  }
+
+  getChartSeries(input: {
+    xColumn: number;
+    yColumn: number;
+    colorColumn?: number;
+    sizeColumn?: number;
+    mode: SeriesMode;
+    limit?: number;
+  }): Promise<ChartSeriesMessage> {
+    return this.request<ChartSeriesMessage>({ type: "getChartSeries", ...input });
   }
 
   renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {

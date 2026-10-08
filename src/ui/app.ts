@@ -30,7 +30,7 @@ import type {
 } from "../worker/protocol.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { FilterPanel } from "./filters.js";
-import { ChartPanel } from "./chart-panel.js";
+import { ChartsPanel } from "./chart-panel.js";
 import { openHelpDrawer } from "./help-drawer.js";
 import { sampleCsv } from "./sample.js";
 import {
@@ -245,7 +245,7 @@ export class App {
   private filterSearch!: HTMLInputElement;
   private tableHost!: HTMLElement;
   private chartHost!: HTMLElement;
-  private chartPanel: ChartPanel | null = null;
+  private chartsPanel: ChartsPanel | null = null;
   private chartActive = false;
   private tableTabButton!: HTMLButtonElement;
   private chartTabButton!: HTMLButtonElement;
@@ -1025,14 +1025,15 @@ export class App {
     this.table.setSort(-1, 1);
     this.table.setCount(loaded.rowCount);
 
-    this.chartPanel?.dispose();
+    this.chartsPanel?.dispose();
     clear(this.chartHost);
-    this.chartPanel = new ChartPanel(this.chartHost, {
+    this.chartsPanel = new ChartsPanel(this.chartHost, {
       datasetName: () => this.datasetName,
       requestBins: (column, options) => this.client.getChartBins(column, options),
+      requestSeries: (input) => this.client.getChartSeries(input),
     });
-    this.chartPanel.setColumns(loaded.columns);
-    this.chartPanel.setRowCount(loaded.rowCount);
+    this.chartsPanel.setColumns(loaded.columns);
+    this.chartsPanel.setRowCount(loaded.rowCount);
     this.setView(this.chartActive ? "chart" : "table");
 
     clear(this.filterHost);
@@ -1282,6 +1283,7 @@ export class App {
         .then((message) => {
           this.metas[column] = message.meta;
           this.filters.delete(column);
+          this.refreshCharts();
           if (hadFilter) {
             this.showWarning(
               `Type changed to ${TYPE_LABELS[type]} — the previous filter on “${name}” was cleared.`,
@@ -1374,6 +1376,7 @@ export class App {
         .then((message) => {
           this.metas[column] = message.meta;
           this.filters.delete(column);
+          this.refreshCharts();
           this.summaryBand?.setCounts(message.stats);
           this.summaryBand?.updateColumn(column, message.meta);
           this.filterPanel?.updateMeta(column, message.meta);
@@ -1612,7 +1615,7 @@ export class App {
     this.chartHost.classList.toggle("hidden", !this.chartActive);
     this.tableTabButton.classList.toggle("active", !this.chartActive);
     this.chartTabButton.classList.toggle("active", this.chartActive);
-    if (this.chartActive) this.chartPanel?.refresh();
+    if (this.chartActive) this.chartsPanel?.refresh();
   }
 
   /** Pushes fresh facet/histogram payloads to the sidebar filters and charts. */
@@ -1621,12 +1624,17 @@ export class App {
     histograms: Record<number, number[]>,
   ): void {
     this.filterPanel?.applyResults(facets, histograms);
-    this.chartPanel?.setFiltered(facets, histograms);
+    this.chartsPanel?.setFiltered(facets, histograms);
+  }
+
+  /** Column metas changed (type/clean/rename) — rebuild chart pickers too. */
+  private refreshCharts(): void {
+    this.chartsPanel?.setColumns(this.metas);
   }
 
   private updateCount(count: number, queryMs: number): void {
     this.resultCount = count;
-    this.chartPanel?.setRowCount(count);
+    this.chartsPanel?.setRowCount(count);
     const timeText = queryMs < 1 ? "<1" : String(Math.round(queryMs));
     const total = this.rowCount;
     const parts: string[] = [];
@@ -2029,6 +2037,7 @@ export class App {
         .then((message) => {
           const count = Math.min(this.metas.length, message.headers.length);
           for (let i = 0; i < count; i++) this.metas[i].name = message.headers[i];
+          this.refreshCharts();
           this.filterPanel?.rebuild();
           this.table?.refreshHeader();
           this.summaryBand?.updateNames(message.headers);
@@ -2058,6 +2067,7 @@ export class App {
             this.table?.updateColumn(column, meta);
             this.summaryBand?.updateColumn(column, meta);
           }
+          this.refreshCharts();
           this.summaryBand?.setCounts(message.stats);
           this.table?.setSort(-1, 1);
           this.applyFacets(message.facets, message.histograms);
@@ -2108,6 +2118,7 @@ export class App {
             });
             this.updateStepsButton();
           }
+          this.refreshCharts();
           this.summaryBand?.setCounts(message.stats);
           this.table?.setSort(-1, 1);
           this.applyFacets(message.facets, message.histograms);
@@ -2133,6 +2144,7 @@ export class App {
         .then((message) => {
           this.filters.clear();
           for (const { column, meta } of message.columns) this.metas[column] = meta;
+          this.refreshCharts();
           if (options.record !== false && (extra.length > 0 || keep.length > 0)) {
             this.nullEdits.push({
               column: -1,

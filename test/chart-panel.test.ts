@@ -4,11 +4,14 @@ import { binValues } from "../src/data/chart-bins.js";
 import {
   categorySeries,
   chartKindFor,
+  defaultCardKind,
   defaultChartTitle,
   formatChartNumber,
+  niceTicks,
   parseChartNumber,
+  rampColor,
   suggestedBinRange,
-} from "../src/ui/chart-panel.js";
+} from "../src/ui/chart-utils.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
 
 function meta(overrides: Partial<ColumnMeta> = {}): ColumnMeta {
@@ -51,6 +54,32 @@ test("chart kind follows the column type", () => {
   assert.equal(chartKindFor("boolean"), "bar");
   assert.equal(chartKindFor("string"), null);
   assert.equal(chartKindFor("identifier"), null);
+});
+
+test("new card kind prefers numeric, then dates, then categories", () => {
+  assert.equal(defaultCardKind([meta({ type: "string" })]), "histogram");
+  assert.equal(defaultCardKind([meta({ type: "date" })]), "line");
+  assert.equal(defaultCardKind([meta({ type: "category" })]), "bar");
+  assert.equal(
+    defaultCardKind([meta({ type: "string" }), meta({ type: "number" }), meta({ type: "date" })]),
+    "histogram",
+  );
+});
+
+test("nice ticks cover the range with round steps", () => {
+  assert.deepEqual(niceTicks(0, 100, 5), [0, 20, 40, 60, 80, 100]);
+  assert.deepEqual(niceTicks(3, 97, 4), [20, 40, 60, 80]);
+  const ticks = niceTicks(-12, 12, 6);
+  assert.ok(ticks.length >= 4);
+  assert.ok(ticks[0] >= -12 && ticks[ticks.length - 1] <= 12);
+  assert.deepEqual(niceTicks(5, 5), [5]);
+});
+
+test("colour ramp interpolates between stops", () => {
+  assert.equal(rampColor(0), "rgb(37, 99, 235)");
+  assert.equal(rampColor(1), "rgb(239, 68, 68)");
+  assert.match(rampColor(0.5), /^rgb\(\d+, \d+, \d+\)$/);
+  assert.equal(rampColor(-5), "rgb(37, 99, 235)");
 });
 
 test("binValues splits the range and aggregates overflow", () => {

@@ -484,8 +484,19 @@ topic later.
   exports the canvas as PNG. Custom bin controls (start/end/count and a “> Max”
   overflow bar) are computed in the worker against the filtered rows, and a
   colour picker offers ten presets plus a hex field (per-bar colours for
-  category charts). Still open: scatter and multi-series charts, annotations
-  and percentiles.
+  category charts). Still open: multi-series charts, annotations and
+  percentiles.
+- **Multi-plot chart grid + scatter/density (Phase 1, shipped 2026-10-08).**
+  The Chart view is now a grid of independent cards (add, duplicate, remove,
+  1–4 per row, layout remembered) with a per-card type gallery: histogram,
+  time series, bars, scatter and density. Scatter supports x/y plus optional
+  numeric/category colour and numeric size; the new `getChartSeries` worker
+  request returns either ≤20k sampled points or an exact 128×72 density grid
+  over the filtered result order (typed arrays, transferred), auto-switching
+  above the point cap. Both modes clip to p1–p99 with an outside count and
+  show the worker query ms in the note. Still open from the roadmap: box
+  plots, correlation matrix, heatmap and small multiples (Phase 2), then
+  hover, zoom, brushing and linked highlighting (Phase 3).
 - **Theme switching.** Shipped 2026-10-08: header control cycles Auto / Light /
   Dark, persisted in `localStorage`, with explicit `data-theme` palettes and
   `themechange` repaints for charts. Still open: the **quirky mode (TBD)** —
@@ -582,4 +593,16 @@ lightning-fast, no-libraries, offline principles.
 **Recommended first step:** Phase 1 — scatter + density covers the
 "interaction between variables" ask, adds one worker request pair, and its
 benchmarks decide whether Phase 4 (SAB/WebGL) is ever needed.
+
+**Progress (2026-10-08):** the point layer and the multi-plot shell are in.
+The View stage holds independent chart cards (`+ Add chart`, duplicate, remove,
+1–4 per row with the layout persisted); each card owns its type, columns,
+settings and PNG export. Scatter (x/y, optional colour by numeric ramp or
+category palette, optional numeric size) and density (exact 128×72 grid) are
+served by a single `getChartSeries` request that walks the filtered result
+order and transfers typed arrays; auto mode switches to density above 20,000
+matching pairs, and the note shows shown/total/outside plus worker ms. Still
+to do from this section: box plots, correlation matrix, two-category heatmap
+and small multiples (Phase 2); hover, zoom, click-to-filter, brush and linked
+highlight (Phase 3); K-means/trend bands/SAB (Phase 4).
 
