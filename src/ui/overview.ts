@@ -309,8 +309,14 @@ export class Overview {
   }
 
   private buildHealthTiles(columns: readonly ColumnMeta[], stats: DatasetStats): HTMLElement {
+    const tiles = healthTiles(columns, stats);
+    if (tiles.every((tile) => !tile.warn)) {
+      return el("div", { class: "overview-clear" }, [
+        "✓ No duplicates, no empty cells, no outliers",
+      ]);
+    }
     const wrap = el("div", { class: "health-tiles" });
-    for (const tile of healthTiles(columns, stats)) {
+    for (const tile of tiles) {
       const node = el("div", {
         class: `health-tile${tile.warn ? " warn" : ""}`,
         "data-kind": tile.id,

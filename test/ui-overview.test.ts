@@ -218,3 +218,33 @@ test("overview renders dataset line, tiles, next steps and every column", () => 
     /renamed/,
   );
 });
+
+test("a healthy dataset collapses the health block to one line", () => {
+  setupDom();
+  const host = document.createElement("div");
+  const overview = new Overview(host, {
+    onOpenTable: () => {},
+    onOpenChart: () => {},
+    onFilterColumn: () => {},
+    onCleanColumn: () => {},
+    onOpenCleanNulls: () => {},
+    onDedupe: () => {},
+    onOpenMerge: () => {},
+    onReviewColumn: () => {},
+    onDropColumn: () => {},
+    onOpenStats: () => {},
+  });
+  overview.render({
+    type: "loaded",
+    name: "clean.csv",
+    rowCount: 10,
+    columnCount: 1,
+    columns: [meta({ name: "amount", type: "number" })],
+    stats: stats({ totalCells: 10 }),
+    encoding: null,
+    ingestMs: 3,
+  } as unknown as LoadedMessage);
+
+  assert.equal(host.querySelectorAll(".health-tile").length, 0);
+  assert.match(host.querySelector(".overview-clear")?.textContent ?? "", /No duplicates/);
+});
