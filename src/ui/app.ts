@@ -58,6 +58,7 @@ import { ViewTabs, type ViewId } from "./view-tabs.js";
 import { suggestCharts } from "./chart-utils.js";
 
 const LARGE_PASTE_ROWS = 300_000;
+const SIDEBAR_COLLAPSED_KEY = "turbofuzz.filters.collapsed";
 const FILE_ACCEPT =
   ".csv,.tsv,.psv,.txt,.dat,.json,.jsonl,.ndjson,.parquet,.xlsx,.xls,.zip,.gz,.bz2";
 const WORKBOOK_EXTENSIONS = [".xlsx", ".xls"];
@@ -253,6 +254,10 @@ export class App {
   private overview: Overview | null = null;
   private latestStats: DatasetStats | null = null;
   private sidebarEl!: HTMLElement;
+  private sidebarToggle!: HTMLButtonElement;
+  private sidebarCollapsed = false;
+  private filterChipsEl!: HTMLElement;
+  private addFilterButton!: HTMLButtonElement;
   private latestFacets: Record<number, number[]> = {};
   private latestHistograms: Record<number, number[]> = {};
   private themeButton!: HTMLButtonElement;
@@ -463,7 +468,18 @@ export class App {
     const sidebar = el("aside", { class: "sidebar hidden" });
     this.sidebarEl = sidebar;
     const sidebarHead = el("div", { class: "sidebar-head" });
-    sidebarHead.append(el("span", { class: "sidebar-title" }, ["Filters"]));
+    this.sidebarToggle = el(
+      "button",
+      { class: "icon-btn sidebar-toggle", type: "button", title: "Collapse filters" },
+      ["«"],
+    ) as HTMLButtonElement;
+    this.sidebarToggle.addEventListener("click", () =>
+      this.setSidebarCollapsed(!this.sidebarCollapsed),
+    );
+    sidebarHead.append(
+      this.sidebarToggle,
+      el("span", { class: "sidebar-title" }, ["Filters"]),
+    );
     const clearAll = el("button", { class: "ghost small", type: "button" }, ["Clear all"]);
     clearAll.addEventListener("click", () => this.clearFilters());
     sidebarHead.append(clearAll);
@@ -525,6 +541,17 @@ export class App {
     this.shuffleButton.addEventListener("click", () => this.shuffleRows());
 
     this.healthHost = el("span", { class: "health-host hidden" });
+    this.filterChipsEl = el("span", { class: "filter-chips hidden" });
+    this.addFilterButton = el(
+      "button",
+      {
+        class: "ghost small add-filter",
+        type: "button",
+        title: "Search for a column to filter",
+      },
+      ["+ Add filter"],
+    ) as HTMLButtonElement;
+    this.addFilterButton.addEventListener("click", () => this.openAddFilter(this.addFilterButton));
     this.moreButton = el(
       "button",
       {
@@ -539,6 +566,8 @@ export class App {
 
     resultsRow.append(
       this.countEl,
+      this.filterChipsEl,
+      this.addFilterButton,
       this.healthHost,
       el("span", { class: "grow" }),
       this.actionEl,
@@ -569,10 +598,7 @@ export class App {
     this.overview = new Overview(this.overviewHost, {
       onOpenTable: () => this.setView("table"),
       onOpenChart: () => this.setView("chart"),
-      onFilterColumn: (column) => {
-        this.setView("table");
-        this.filterPanel?.focusColumn(column);
-      },
+      onFilterColumn: (column) => this.focusFilterColumn(column),
       onCleanColumn: (column) => this.openClean(column, "values"),
       onOpenCleanNulls: () => this.openClean(undefined, "nulls"),
       onDedupe: (anchor) => {
@@ -580,10 +606,7 @@ export class App {
         if (stats !== null) openDedupeMenu(anchor, stats, (keep) => this.dropDuplicates(keep));
       },
       onOpenMerge: (column) => this.openMerge(column),
-      onReviewColumn: (column) => {
-        this.setView("table");
-        this.filterPanel?.focusColumn(column);
-      },
+      onReviewColumn: (column) => this.focusFilterColumn(column),
       onDropColumn: (column) => this.dropEmptyColumns([column]),
       onOpenStats: () => this.openStats(),
     });
@@ -1000,6 +1023,7 @@ export class App {
     this.workspaceTitle.textContent = `${loaded.name} — ${loaded.rowCount.toLocaleString()} rows`;
     this.stepper?.setDone("load", true);
     this.filters.clear();
+    this.renderFilterChips();
     this.cleanedColumns.clear();
     this.nullEdits.length = 0;
     this.typeEdits.length = 0;
@@ -1067,7 +1091,11 @@ export class App {
         } column was deleted.`,
       );
     }
-    if (loaded.type === "loaded") this.view = readDefaultView();
+    if (loaded.type === "loaded") {
+      this.view = readDefaultView();
+      const sidebarPreference = this.readSidebarCollapsed();
+      this.setSidebarCollapsed(sidebarPreference ?? loaded.columnCount > 8);
+    }
     this.updateChartBadge();
     this.setView(this.view);
   }
@@ -1323,6 +1351,7 @@ export class App {
     this.shuffleActive = false;
     if (filter === null) this.filters.delete(column);
     else this.filters.set(column, filter);
+    this.renderFilterChips();
 
     this.table?.setHighlights(this.highlightRules());
 
@@ -1349,6 +1378,7 @@ export class App {
         .then((message) => {
           this.metas[column] = message.meta;
           this.filters.delete(column);
+          this.renderFilterChips();
           this.refreshCharts();
           if (hadFilter) {
             this.showWarning(
@@ -1441,6 +1471,7 @@ export class App {
         .then((message) => {
           this.metas[column] = message.meta;
           this.filters.delete(column);
+          this.renderFilterChips();
           this.refreshCharts();
           this.overview?.updateColumn(column, message.meta);
           this.filterPanel?.updateMeta(column, message.meta);
@@ -1492,6 +1523,7 @@ export class App {
     this.columnSpecials.clear();
     this.syncColumnQa();
     this.syncHealthChips();
+    this.renderFilterChips();
     this.filterPanel?.rebuild();
     this.table?.setHighlights([]);
 
@@ -1696,6 +1728,7 @@ export class App {
     this.chartHost.classList.toggle("hidden", view !== "chart");
     this.healthHost.classList.toggle("hidden", view === "overview" || this.healthChipCount === 0);
     this.moreButton.classList.toggle("hidden", view === "overview");
+    this.addFilterButton.classList.toggle("hidden", view === "overview");
     this.syncTabs();
   }
 
@@ -1800,6 +1833,133 @@ export class App {
         action: () => this.openStats(),
       },
     ]);
+  }
+
+  private setSidebarCollapsed(collapsed: boolean): void {
+    this.sidebarCollapsed = collapsed;
+    this.sidebarEl.classList.toggle("collapsed", collapsed);
+    this.sidebarToggle.textContent = collapsed ? "»" : "«";
+    this.sidebarToggle.title = collapsed ? "Show filters" : "Collapse filters";
+    try {
+      sessionStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
+    } catch {
+      // Persisting the preference is best-effort.
+    }
+  }
+
+  private readSidebarCollapsed(): boolean | null {
+    try {
+      const raw = sessionStorage.getItem(SIDEBAR_COLLAPSED_KEY);
+      return raw === null ? null : raw === "true";
+    } catch {
+      return null;
+    }
+  }
+
+  private filterChipLabel(filter: ColumnFilter): string {
+    switch (filter.kind) {
+      case "text":
+        return filter.query === "" ? "…" : `“${filter.query}”`;
+      case "range":
+        return `${filter.min === null ? "−∞" : filter.min.toLocaleString()} – ${
+          filter.max === null ? "∞" : filter.max.toLocaleString()
+        }`;
+      case "values":
+        return `${filter.selected.length} value${filter.selected.length === 1 ? "" : "s"}`;
+    }
+  }
+
+  /** Active filters as removable chips in the results bar. */
+  private renderFilterChips(): void {
+    this.filterChipsEl.replaceChildren();
+    if (this.filters.size === 0) {
+      this.filterChipsEl.classList.add("hidden");
+      return;
+    }
+    for (const [column, filter] of this.filters) {
+      const name = this.metas[column]?.name ?? `Column ${column + 1}`;
+      const chip = el("span", { class: "filter-chip" });
+      chip.append(
+        el("span", { class: "filter-chip-label" }, [`${name} · ${this.filterChipLabel(filter)}`]),
+      );
+      const remove = el(
+        "button",
+        {
+          class: "filter-chip-remove",
+          type: "button",
+          "aria-label": `Remove the ${name} filter`,
+          title: `Remove the ${name} filter`,
+        },
+        ["×"],
+      ) as HTMLButtonElement;
+      remove.addEventListener("click", () => this.changeFilter(column, null));
+      chip.append(remove);
+      this.filterChipsEl.append(chip);
+    }
+    this.filterChipsEl.classList.remove("hidden");
+  }
+
+  private focusFilterColumn(column: number): void {
+    this.setView("table");
+    this.ensureFilters();
+    this.setSidebarCollapsed(false);
+    this.filterPanel?.focusColumn(column);
+  }
+
+  /** `+ Add filter`: a searchable column list that opens that column's card. */
+  private openAddFilter(anchor: HTMLElement): void {
+    const menu = el("div", { class: "context-menu filter-menu", role: "menu" });
+    const input = el("input", {
+      class: "text-input filter-menu-search",
+      type: "search",
+      placeholder: "Find a column…",
+      spellcheck: "false",
+      "aria-label": "Find a column to filter",
+    }) as HTMLInputElement;
+    const list = el("div", { class: "filter-menu-list" });
+    let closed = false;
+    const close = (): void => {
+      if (closed) return;
+      closed = true;
+      menu.remove();
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!menu.contains(event.target as Node)) close();
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") close();
+    };
+
+    const renderList = (): void => {
+      list.replaceChildren();
+      const needle = input.value.trim().toLowerCase();
+      this.metas.forEach((meta, index) => {
+        if (needle !== "" && !meta.name.toLowerCase().includes(needle)) return;
+        const item = el(
+          "button",
+          { class: "context-item", type: "button", role: "menuitem" },
+          [meta.name],
+        ) as HTMLButtonElement;
+        item.addEventListener("click", () => {
+          close();
+          this.focusFilterColumn(index);
+        });
+        list.append(item);
+      });
+    };
+    input.addEventListener("input", renderList);
+
+    menu.append(input, list);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    document.body.append(menu);
+    const rect = anchor.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8))}px`;
+    menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8)}px`;
+    renderList();
+    input.focus();
   }
 
   /** Pushes fresh facet/histogram payloads to the sidebar filters and charts. */
@@ -2017,7 +2177,7 @@ export class App {
       menu.append(el("div", { class: "context-header" }, [label]));
     };
 
-    addItem("Filter this column", () => this.filterPanel?.focusColumn(column));
+    addItem("Filter this column", () => this.focusFilterColumn(column));
 
     addHeader("Column");
     addItem("Rename column…", () => void this.renameColumn(column));
@@ -2447,6 +2607,7 @@ export class App {
             if (update.ops.length === 0) this.cleanedColumns.delete(update.column);
             else this.cleanedColumns.set(update.column, update.ops);
           }
+          this.renderFilterChips();
           for (const { column, meta } of message.columns) {
             this.metas[column] = meta;
             this.filterPanel?.updateMeta(column, meta);
@@ -2487,6 +2648,7 @@ export class App {
         .setNullPolicy(column, extra, keep)
         .then((message) => {
           this.filters.delete(column);
+          this.renderFilterChips();
           for (const { column: index, meta } of message.columns) {
             this.metas[index] = meta;
             this.filterPanel?.updateMeta(index, meta);
