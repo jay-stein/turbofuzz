@@ -287,9 +287,6 @@ export class SummaryBand {
     ) as HTMLButtonElement;
     head.append(
       el("span", { class: "qa-title" }, ["Data QA"]),
-      el("span", { class: "qa-sub" }, [
-        `${loaded.rowCount.toLocaleString()} rows × ${loaded.columnCount.toLocaleString()} cols`,
-      ]),
       el("span", { class: "grow" }),
       el("span", { class: "qa-chevron" }, ["▾"]),
     );
@@ -380,23 +377,7 @@ export class SummaryBand {
     details.addEventListener("click", () => this.callbacks.onOpenStats());
     actions.append(details);
 
-    const emptyColumns = emptyColumnIndices.length;
-    const columnsWithNulls = loaded.columns.filter((column) => column.stats.nulls > 0).length;
-    const footParts = [
-      columnsWithNulls === 0
-        ? "no missing values"
-        : `${columnsWithNulls} of ${loaded.columnCount} columns have missing values`,
-    ];
-    if (emptyColumns > 0) footParts.push(`${emptyColumns} entirely empty`);
-    if (loaded.encoding === "windows-1252") footParts.push("windows-1252");
-    footParts.push(`${Math.round(loaded.ingestMs)} ms`);
-
-    block.append(
-      head,
-      this.collapseSummary,
-      actions,
-      el("div", { class: "overview-foot" }, [footParts.join(" · ")]),
-    );
+    block.append(head, this.collapseSummary, actions);
     return block;
   }
 

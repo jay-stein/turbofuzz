@@ -986,7 +986,9 @@ export class App {
         : "";
     const encodingText = loaded.encoding === "windows-1252" ? " · windows-1252" : "";
     this.metaEl.textContent =
-      `${loaded.rowCount.toLocaleString()} rows × ${loaded.columnCount} columns` +
+      `${loaded.name} · ${loaded.rowCount.toLocaleString()} × ${loaded.columnCount.toLocaleString()}`;
+    this.metaEl.title =
+      `${loaded.rowCount.toLocaleString()} rows × ${loaded.columnCount.toLocaleString()} columns` +
       `${duplicateText} · ${emptyText}${encodingText} · ${Math.round(loaded.ingestMs)} ms`;
 
     this.table?.dispose();
