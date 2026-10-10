@@ -7,6 +7,7 @@ import type {
   ColumnMeta,
   CorrelationMessage,
   CrosstabMessage,
+  GroupedBinsMessage,
 } from "../worker/protocol.js";
 import { ChartCard, type ChartCardConfig, type SeriesRequestInput } from "./chart-card.js";
 import {
@@ -39,6 +40,13 @@ export interface ChartsPanelOptions {
     groupOther: boolean;
   }): Promise<CrosstabMessage>;
   requestCorrelation(columns: number[]): Promise<CorrelationMessage>;
+  /** Bins split by a category column, for grouped time series. */
+  requestGroupedBins?(input: {
+    column: number;
+    groupColumn: number;
+    options: ChartBinOptions;
+    topN: number;
+  }): Promise<GroupedBinsMessage>;
   /** Applies a filter from a click on a chart region (bars, bins, cells). */
   onFilter?(column: number, filter: ColumnFilter | null, preview?: boolean): void;
   /** Reads the app's current filter for a column, so clicks can toggle. */
@@ -52,13 +60,14 @@ const DEFAULT_LAYOUT = 2;
 export interface NamedChartCardConfig
   extends Omit<
     ChartCardConfig,
-    "column" | "x" | "y" | "colorColumn" | "sizeColumn" | "correlationColumns"
+    "column" | "x" | "y" | "colorColumn" | "sizeColumn" | "groupColumn" | "correlationColumns"
   > {
   column: string | null;
   x: string | null;
   y: string | null;
   colorColumn: string | null;
   sizeColumn: string | null;
+  groupColumn: string | null;
   correlationColumns: string[];
 }
 
@@ -75,6 +84,7 @@ export function configToNames(
     y: nameOf(config.y),
     colorColumn: nameOf(config.colorColumn),
     sizeColumn: nameOf(config.sizeColumn),
+    groupColumn: nameOf(config.groupColumn),
     correlationColumns: config.correlationColumns
       .map((index) => columns[index]?.name)
       .filter((name): name is string => name !== undefined),
@@ -132,6 +142,8 @@ export function remapChartConfigs(
       colorColumn:
         named.colorColumn === null ? -1 : (indexOfName.get(named.colorColumn) ?? -1),
       sizeColumn: named.sizeColumn === null ? -1 : (indexOfName.get(named.sizeColumn) ?? -1),
+      groupColumn:
+        named.groupColumn === null ? -1 : (indexOfName.get(named.groupColumn) ?? -1),
       correlationColumns,
     });
   }
@@ -304,6 +316,7 @@ export class ChartsPanel {
         requestBoxStats: this.options.requestBoxStats,
         requestCrosstab: this.options.requestCrosstab,
         requestCorrelation: this.options.requestCorrelation,
+        requestGroupedBins: this.options.requestGroupedBins,
         onFilter: this.options.onFilter,
         currentFilter: this.options.currentFilter,
         onRemove: (target) => this.removeCard(target),

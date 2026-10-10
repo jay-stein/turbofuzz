@@ -11,6 +11,7 @@ import type {
   ColumnMeta,
   CorrelationMessage,
   CrosstabMessage,
+  GroupedBinsMessage,
 } from "../worker/protocol.js";
 import {
   axisKindFor,
@@ -65,6 +66,13 @@ export interface ChartCardOptions {
     groupOther: boolean;
   }): Promise<CrosstabMessage>;
   requestCorrelation(columns: number[]): Promise<CorrelationMessage>;
+  /** Bins split by a category column, for grouped time series. */
+  requestGroupedBins?(input: {
+    column: number;
+    groupColumn: number;
+    options: ChartBinOptions;
+    topN: number;
+  }): Promise<GroupedBinsMessage>;
   /** Applies a filter from a click on a chart region (bars, bins, cells). */
   onFilter?(column: number, filter: ColumnFilter | null, preview?: boolean): void;
   /** Reads the app's current filter for a column, so clicks can toggle. */
@@ -91,6 +99,8 @@ export interface ChartCardConfig {
   binOptions: ChartBinOptions | null;
   binClipped: boolean;
   title: string;
+  /** Category column splitting a time series into one line per value (-1 = off). */
+  groupColumn: number;
   /** "Suggested: …" reason shown in the note for rule-picked default cards. */
   suggested: string;
   correlationColumns: number[];
@@ -111,6 +121,8 @@ interface Frame {
 
 const DEFAULT_BIN_COUNT = 32;
 const POINT_LIMIT = 20_000;
+/** Grouped time series: distinct lines before the rest folds into Other. */
+const GROUP_LINE_LIMIT = 8;
 const HEX = /^#?[0-9a-f]{6}$/i;
 
 /** Plot-area rectangle in canvas CSS pixels, shared by hit-region builders. */
@@ -197,6 +209,47 @@ export function seriesHitRegions(geom: PlotGeometry, input: SeriesHitInput): Hit
       h: geom.plotH,
       lines: [`> ${format(max)}`, `${formatCount(overflow)} rows`],
       actions: [{ kind: "range", column, min: max, max: null }],
+    });
+  }
+  return regions;
+}
+
+export interface GroupedSeriesHitInput {
+  column: number;
+  /** Visible series, in draw order, each with its per-bin counts. */
+  groups: { label: string; bins: readonly number[] }[];
+  min: number;
+  max: number;
+}
+
+/**
+ * Time-series slots for a grouped line chart: the tooltip lists the date range
+ * and each visible group's count; clicking filters the date range as before.
+ */
+export function groupedSeriesHitRegions(
+  geom: PlotGeometry,
+  input: GroupedSeriesHitInput,
+): HitRegion[] {
+  const binCount = input.groups[0]?.bins.length ?? 0;
+  if (binCount === 0 || input.groups.length === 0) return [];
+  const slotW = geom.plotW / binCount;
+  const step = (input.max - input.min) / binCount;
+  const regions: HitRegion[] = [];
+  for (let index = 0; index < binCount; index++) {
+    const lo = input.min + index * step;
+    const hi = index === binCount - 1 ? input.max : input.min + (index + 1) * step;
+    const lines = [`${formatTick(lo, "line")} – ${formatTick(hi, "line")}`];
+    for (const group of input.groups) {
+      const count = group.bins[index] ?? 0;
+      if (count > 0) lines.push(`${group.label}: ${formatCount(count)}`);
+    }
+    regions.push({
+      x: geom.left + index * slotW,
+      y: geom.top,
+      w: slotW,
+      h: geom.plotH,
+      lines,
+      actions: [{ kind: "range", column: input.column, min: lo, max: hi }],
     });
   }
   return regions;
@@ -360,6 +413,7 @@ function defaultConfig(): ChartCardConfig {
     binOptions: null,
     binClipped: false,
     title: "",
+    groupColumn: -1,
     suggested: "",
     correlationColumns: [],
   };
@@ -397,10 +451,14 @@ export class ChartCard {
     values: Float64Array;
     counts: Uint32Array;
   } | null = null;
+  private groupResult: GroupedBinsMessage | null = null;
+  private readonly hiddenGroups = new Set<number>();
   private statsMs = 0;
 
   private readonly kindSelect: HTMLSelectElement;
   private readonly primarySelect: HTMLSelectElement;
+  private readonly groupSelect: HTMLSelectElement;
+  private readonly groupWrap: HTMLElement;
   private readonly xSelect: HTMLSelectElement;
   private readonly ySelect: HTMLSelectElement;
   private readonly colorSelect: HTMLSelectElement;
@@ -435,6 +493,7 @@ export class ChartCard {
   private readonly titleInput: HTMLInputElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly noteEl: HTMLElement;
+  private readonly legendEl: HTMLElement;
   private readonly tooltipEl: HTMLElement;
   private readonly settingsBody: HTMLElement;
   private hitRegions: HitRegion[] = [];
@@ -473,6 +532,19 @@ export class ChartCard {
       this.setPrimaryColumn(Number(this.primarySelect.value)),
     );
     this.primaryWrap = this.primarySelect;
+
+    this.groupSelect = this.buildSelect(
+      "chart-picker chart-picker-small",
+      "Group by",
+    );
+    this.groupSelect.addEventListener("change", () => {
+      this.config.groupColumn = Number(this.groupSelect.value);
+      this.hiddenGroups.clear();
+      this.generation++;
+      this.refreshGroupedBins();
+      this.render();
+    });
+    this.groupWrap = this.tagged("Group", this.groupSelect).wrap;
 
     this.xSelect = this.buildSelect("chart-picker", "X column");
     this.xSelect.addEventListener("change", () => {
@@ -572,6 +644,7 @@ export class ChartCard {
     head.append(
       this.kindSelect,
       this.primaryWrap,
+      this.groupWrap,
       this.xWrap,
       this.yWrap,
       el("span", { class: "grow" }),
@@ -789,6 +862,7 @@ export class ChartCard {
     }) as HTMLCanvasElement;
     canvasWrap.append(this.canvas);
     this.noteEl = el("div", { class: "chart-note" });
+    this.legendEl = el("div", { class: "chart-legend hidden" });
     this.tooltipEl = el("div", { class: "chart-tooltip hidden", role: "tooltip" });
     this.canvas.addEventListener("pointermove", (event) =>
       this.queuePointer(event as PointerEvent),
@@ -800,7 +874,7 @@ export class ChartCard {
       this.resizeObserver.observe(canvasWrap);
     }
 
-    this.root.append(head, canvasWrap, this.noteEl, this.tooltipEl);
+    this.root.append(head, canvasWrap, this.legendEl, this.noteEl, this.tooltipEl);
 
     this.syncSwatches();
     this.syncOptions();
@@ -839,6 +913,7 @@ export class ChartCard {
     this.refreshBox();
     this.refreshCrosstab();
     this.refreshCorrelation();
+    this.refreshGroupedBins();
     this.render();
   }
 
@@ -854,6 +929,7 @@ export class ChartCard {
     this.refreshBox();
     this.refreshCrosstab();
     this.refreshCorrelation();
+    this.refreshGroupedBins();
     this.render();
   }
 
@@ -869,6 +945,7 @@ export class ChartCard {
     this.refreshBox();
     this.refreshCrosstab();
     this.refreshCorrelation();
+    this.refreshGroupedBins();
     this.render();
   }
 
@@ -886,6 +963,9 @@ export class ChartCard {
     const out = [this.config.column];
     if (isPairKind(this.config.kind)) out.push(this.config.x, this.config.y);
     if (this.config.kind === "correlation") out.push(...this.config.correlationColumns);
+    if (this.config.kind === "line" && this.config.groupColumn >= 0) {
+      out.push(this.config.groupColumn);
+    }
     return out.filter((index) => index >= 0);
   }
 
@@ -1013,6 +1093,7 @@ export class ChartCard {
     this.refreshBox();
     this.refreshCrosstab();
     this.refreshCorrelation();
+    this.refreshGroupedBins();
     this.render();
   }
 
@@ -1024,6 +1105,7 @@ export class ChartCard {
     this.syncPlaceholder();
     this.renderControls();
     this.refreshBins();
+    this.refreshGroupedBins();
     this.render();
   }
 
@@ -1063,6 +1145,17 @@ export class ChartCard {
       this.primarySelect.append(this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`));
     });
     if (this.config.column >= 0) this.primarySelect.value = String(this.config.column);
+
+    const groupable = this.allowedIndexes((meta) => isCategoryType(meta.type));
+    if (!groupable.includes(this.config.groupColumn)) this.config.groupColumn = -1;
+    this.groupSelect.replaceChildren(this.option("-1", "None"));
+    groupable.forEach((index) => {
+      const meta = this.columns[index];
+      this.groupSelect.append(
+        this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`),
+      );
+    });
+    this.groupSelect.value = String(this.config.groupColumn);
 
     const xAllowed = this.allowedIndexes((meta) => this.allowsX(meta));
     const yAllowed = this.allowedIndexes((meta) => this.allowsY(meta));
@@ -1125,6 +1218,8 @@ export class ChartCard {
     const kind = this.config.kind;
     const pair = isPairKind(kind);
     this.primaryWrap.classList.toggle("hidden", pair || kind === "correlation");
+    const groupable = this.columns.some((meta) => isCategoryType(meta.type));
+    this.groupWrap.classList.toggle("hidden", kind !== "line" || !groupable);
     this.xWrap.classList.toggle("hidden", !pair);
     this.yWrap.classList.toggle("hidden", !pair);
     const seriesKind = kind === "scatter" || kind === "density";
@@ -1420,6 +1515,53 @@ export class ChartCard {
       });
   }
 
+  /**
+   * Bins per category for a grouped time series. Uses the column's automatic
+   * range so the grouped and ungrouped axes line up.
+   */
+  private refreshGroupedBins(): void {
+    if (this.config.kind !== "line" || this.config.groupColumn < 0) {
+      this.groupResult = null;
+      return;
+    }
+    const request = this.options.requestGroupedBins;
+    if (request === undefined) {
+      this.groupResult = null;
+      return;
+    }
+    const meta = this.meta(this.config.column);
+    const groupMeta = this.meta(this.config.groupColumn);
+    if (
+      meta === undefined ||
+      meta.type !== "date" ||
+      meta.histogram === null ||
+      groupMeta === undefined ||
+      !isCategoryType(groupMeta.type)
+    ) {
+      this.groupResult = null;
+      return;
+    }
+    const histogram = meta.histogram;
+    const options: ChartBinOptions = {
+      min: histogram.min,
+      max: histogram.max,
+      binCount: histogram.bins.length === 0 ? DEFAULT_BIN_COUNT : histogram.bins.length,
+      overflow: false,
+    };
+    const generation = ++this.generation;
+    const column = this.config.column;
+    const groupColumn = this.config.groupColumn;
+    void request({ column, groupColumn, options, topN: GROUP_LINE_LIMIT })
+      .then((message) => {
+        if (generation !== this.generation || this.disposed) return;
+        this.groupResult = message;
+        this.render();
+      })
+      .catch(() => {
+        // Keep the automatic single line as the fallback.
+      });
+  }
+
   /** Coalesces resize-driven redraws into one animation frame. */
   private scheduleRender(): void {
     if (this.renderQueued || this.disposed) return;
@@ -1461,6 +1603,7 @@ export class ChartCard {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.drawChart(ctx, cssWidth, cssHeight);
+    this.syncLegend();
   }
 
   /** Generated text alternative for the canvas, updated on every redraw. */
@@ -1468,8 +1611,12 @@ export class ChartCard {
     const rows = this.rowCount.toLocaleString();
     const name = (index: number): string => this.meta(index)?.name ?? "";
     switch (this.config.kind) {
-      case "line":
-        return `Time series of ${name(this.config.column)}, ${rows} rows shown`;
+      case "line": {
+        const group = this.meta(this.config.groupColumn);
+        return group === undefined
+          ? `Time series of ${name(this.config.column)}, ${rows} rows shown`
+          : `Time series of ${name(this.config.column)} by ${group.name}, ${rows} rows shown`;
+      }
       case "bar":
         return `Bar chart of ${name(this.config.column)}, ${rows} rows shown`;
       case "scatter":
@@ -1873,6 +2020,10 @@ export class ChartCard {
       this.drawPlotMessage(ctx, frame, message);
       return;
     }
+    if (kind === "line" && this.groupResult !== null) {
+      this.drawGroupedLines(ctx, frame);
+      return;
+    }
     const automatic = meta.histogram;
     const custom = kind === "histogram" ? this.binResult : null;
     const bins =
@@ -1904,27 +2055,7 @@ export class ChartCard {
       },
     );
 
-    const yTicks = niceTicks(0, maxCount, 4);
-    ctx.strokeStyle = frame.border;
-    ctx.lineWidth = 1;
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
-    ctx.textAlign = "right";
-    for (const value of yTicks) {
-      const y = frame.top + frame.plotH - (value / maxCount) * frame.plotH;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(frame.left, y + 0.5);
-      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillText(formatCount(value), frame.left - 6 * ui, y + 3 * ui);
-    }
-    ctx.textAlign = "left";
-    ctx.beginPath();
-    ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
-    ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
-    ctx.stroke();
+    this.drawCountAxis(ctx, frame, maxCount);
 
     if (kind === "histogram") {
       for (let i = 0; i < bins.length; i++) {
@@ -2053,6 +2184,159 @@ export class ChartCard {
       if (outside > 0) notes.push(`${outside.toLocaleString()} values beyond the p1–p99 chart range`);
     }
     this.noteEl.textContent = notes.join(" · ");
+  }
+
+  /** Shared count-axis grid and baseline for histogram and line kinds. */
+  private drawCountAxis(
+    ctx: CanvasRenderingContext2D,
+    frame: Frame,
+    maxCount: number,
+  ): void {
+    const ui = frame.ui;
+    const yTicks = niceTicks(0, maxCount, 4);
+    ctx.strokeStyle = frame.border;
+    ctx.lineWidth = 1;
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
+    ctx.textAlign = "right";
+    for (const value of yTicks) {
+      const y = frame.top + frame.plotH - (value / maxCount) * frame.plotH;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(frame.left, y + 0.5);
+      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText(formatCount(value), frame.left - 6 * ui, y + 3 * ui);
+    }
+    ctx.textAlign = "left";
+    ctx.beginPath();
+    ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
+    ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
+    ctx.stroke();
+  }
+
+  /**
+   * Time series split by a category: one line per visible group over the same
+   * automatic date range, a clickable legend and per-group tooltip counts.
+   */
+  private drawGroupedLines(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    const result = this.groupResult;
+    const histogram = this.meta(this.config.column)?.histogram ?? null;
+    if (result === null || histogram === null || result.bins === 0) {
+      const message = "This column has no histogram data yet.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const binCount = result.bins;
+    const min = histogram.min;
+    const max = histogram.max;
+    const ui = frame.ui;
+    const slotW = frame.plotW / binCount;
+    const visible = result.groups
+      .map((bins, index) => ({ bins, index }))
+      .filter((entry) => !this.hiddenGroups.has(result.codes[entry.index]));
+    let maxCount = 1;
+    for (const entry of visible) {
+      for (const value of entry.bins) if (value > maxCount) maxCount = value;
+    }
+
+    this.drawCountAxis(ctx, frame, maxCount);
+
+    for (const entry of visible) {
+      ctx.beginPath();
+      for (let i = 0; i < binCount; i++) {
+        const x = frame.left + (i + 0.5) * slotW;
+        const y = frame.top + frame.plotH - (entry.bins[i] / maxCount) * frame.plotH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = this.groupColor(entry.index);
+      ctx.lineWidth = Math.max(1.5, 1.6 * ui);
+      ctx.globalAlpha = 0.9;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
+    const mid = (min + max) / 2;
+    ctx.fillText(formatTick(min, "line"), frame.left, frame.top + frame.plotH + 16 * ui);
+    const midLabel = formatTick(mid, "line");
+    ctx.fillText(
+      midLabel,
+      frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
+      frame.top + frame.plotH + 16 * ui,
+    );
+    const maxLabel = formatTick(max, "line");
+    ctx.fillText(
+      maxLabel,
+      frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
+      frame.top + frame.plotH + 16 * ui,
+    );
+
+    this.hitRegions = groupedSeriesHitRegions(
+      { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
+      {
+        column: this.config.column,
+        groups: visible.map((entry) => ({
+          label: result.labels[entry.index],
+          bins: entry.bins,
+        })),
+        min,
+        max,
+      },
+    );
+
+    const groupName = this.meta(this.config.groupColumn)?.name ?? "group";
+    const total = result.groups.length;
+    const notes = [
+      this.hiddenGroups.size === 0
+        ? `${total} lines by ${groupName}`
+        : `${visible.length} of ${total} lines by ${groupName}`,
+    ];
+    if (result.otherIndex >= 0) notes.push(`top ${GROUP_LINE_LIMIT} + Other`);
+    notes.push(`${result.total.toLocaleString()} rows`);
+    if (result.ms > 0) notes.push(`${Math.round(result.ms)} ms`);
+    this.noteEl.textContent = notes.join(" · ");
+  }
+
+  private groupColor(index: number): string {
+    return CHART_COLORS[index % CHART_COLORS.length];
+  }
+
+  /** Clickable legend under grouped time series; entries toggle line visibility. */
+  private syncLegend(): void {
+    const result = this.groupResult;
+    const grouped = this.config.kind === "line" && result !== null;
+    this.legendEl.classList.toggle("hidden", !grouped);
+    this.legendEl.replaceChildren();
+    if (!grouped || result === null) return;
+    result.labels.forEach((label, index) => {
+      const code = result.codes[index];
+      const off = this.hiddenGroups.has(code);
+      const item = el(
+        "button",
+        {
+          class: "chart-legend-item",
+          type: "button",
+          "aria-pressed": off ? "false" : "true",
+          title: off ? `Show the ${label} line` : `Hide the ${label} line`,
+        },
+        [label],
+      ) as HTMLButtonElement;
+      const swatch = el("span", { class: "chart-legend-swatch" });
+      swatch.style.background = this.groupColor(index);
+      item.prepend(swatch);
+      item.classList.toggle("off", off);
+      item.addEventListener("click", () => {
+        if (this.hiddenGroups.has(code)) this.hiddenGroups.delete(code);
+        else this.hiddenGroups.add(code);
+        this.render();
+      });
+      this.legendEl.append(item);
+    });
   }
 
   private drawBars(ctx: CanvasRenderingContext2D, frame: Frame): void {

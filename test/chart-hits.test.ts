@@ -4,6 +4,7 @@ import {
   barHitRegions,
   boxHitRegions,
   correlationHitRegions,
+  groupedSeriesHitRegions,
   heatmapHitRegions,
   hitTest,
   seriesHitRegions,
@@ -71,6 +72,30 @@ test("time series slots label dates and filter a date range", () => {
   assert.deepEqual(regions[0].lines, ["2024-01-01 – 2024-02-15", "5 rows"]);
   assert.deepEqual(regions[1].lines, ["2024-02-15 – 2024-04-01", "6 rows"]);
   assert.equal(regions[0].actions[0].kind, "range");
+});
+
+test("grouped time-series slots list each visible group's count", () => {
+  const start = Date.UTC(2024, 0, 1);
+  const end = Date.UTC(2024, 3, 1);
+  const regions = groupedSeriesHitRegions(geom, {
+    column: 1,
+    groups: [
+      { label: "Perth", bins: [3, 0] },
+      { label: "Sydney", bins: [1, 2] },
+    ],
+    min: start,
+    max: end,
+  });
+  assert.equal(regions.length, 2);
+  assert.deepEqual(regions[0].lines, [
+    "2024-01-01 – 2024-02-15",
+    "Perth: 3",
+    "Sydney: 1",
+  ]);
+  assert.deepEqual(regions[1].lines, ["2024-02-15 – 2024-04-01", "Sydney: 2"]);
+  assert.deepEqual(regions[0].actions, [
+    { kind: "range", column: 1, min: start, max: Date.UTC(2024, 1, 15, 12) },
+  ]);
 });
 
 test("bar regions toggle their category and Other is hover-only", () => {

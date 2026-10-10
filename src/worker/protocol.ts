@@ -155,6 +155,38 @@ export interface ChartBinsMessage extends ChartBins {
   median: number | null;
 }
 
+export type GetGroupedBinsRequest = {
+  type: "getGroupedBins";
+  requestId: number;
+  column: number;
+  groupColumn: number;
+  options: ChartBinOptions;
+  topN: number;
+};
+
+export interface GroupedBinsMessage {
+  type: "groupedBins";
+  requestId: number;
+  column: number;
+  groupColumn: number;
+  /** Aligned with codes, groups and totals. */
+  labels: string[];
+  /** Category code per series; -1 marks the Other bucket. */
+  codes: number[];
+  /** Bin counts per series (length = bins). */
+  groups: number[][];
+  totals: number[];
+  /** Index of the Other series, or -1. */
+  otherIndex: number;
+  bins: number;
+  overflow: number;
+  above: number;
+  below: number;
+  total: number;
+  /** Worker compute time for this payload. */
+  ms: number;
+}
+
 export type GetChartSeriesRequest = {
   type: "getChartSeries";
   requestId: number;
@@ -323,6 +355,7 @@ export type WorkerRequest =
   | SetNumberLocaleRequest
   | GetStatsRequest
   | GetChartBinsRequest
+  | GetGroupedBinsRequest
   | GetChartSeriesRequest
   | GetBoxStatsRequest
   | GetCrosstabRequest
@@ -494,6 +527,7 @@ export type WorkerResponse =
   | ColumnMetaMessage
   | StatsMessage
   | ChartBinsMessage
+  | GroupedBinsMessage
   | ChartSeriesMessage
   | BoxStatsMessage
   | CrosstabMessage

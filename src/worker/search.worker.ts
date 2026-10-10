@@ -4,7 +4,7 @@ import { buildDataset, datasetFromColumns, rebuildDataset } from "../data/build.
 import { applyCleanOps } from "../data/clean-ops.js";
 import type { Dataset } from "../data/dataset.js";
 import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
-import { binValues } from "../data/chart-bins.js";
+import { binValues, groupedBinValues } from "../data/chart-bins.js";
 import { categoryCodes, computeSeries } from "../data/chart-series.js";
 import { computeBoxStats, computeCorrelation, computeCrossTab } from "../data/chart-stats.js";
 import type { FileEncoding } from "../parse/encoding.js";
@@ -38,6 +38,7 @@ import type {
   GetRowsRequest,
   GetStatsRequest,
   GetChartBinsRequest,
+  GetGroupedBinsRequest,
   GetChartSeriesRequest,
   GetBoxStatsRequest,
   GetCrosstabRequest,
@@ -158,6 +159,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getChartBins":
       handleGetChartBins(message);
+      break;
+    case "getGroupedBins":
+      handleGetGroupedBins(message);
       break;
     case "getChartSeries":
       handleGetChartSeries(message);
@@ -699,6 +703,64 @@ function handleGetChartBins(message: GetChartBinsRequest): void {
     column: message.column,
     median: numeric ? column.medianSampled() : null,
     ...bins,
+  });
+}
+
+/**
+ * Bins of one column split by a category column, for grouped time series.
+ * The top N groups by filtered volume get their own series; the rest fold into
+ * an Other bucket, so a high-cardinality grouping cannot explode the legend.
+ */
+function handleGetGroupedBins(message: GetGroupedBinsRequest): void {
+  const { dataset } = state();
+  const column = dataset.columns[message.column];
+  const groupColumn = dataset.columns[message.groupColumn];
+  if (column === undefined || groupColumn === undefined) throw new Error("Unknown column");
+  const categories = groupColumn.categories();
+  const codes = categoryCodes(categories.bits, dataset.rowCount);
+  const started = performance.now();
+  const result = groupedBinValues(
+    column.numbers(),
+    codes,
+    categories.labels.length,
+    sortedIds,
+    message.options,
+    message.topN,
+  );
+  const labels: string[] = [];
+  const seriesCodes: number[] = [];
+  const groups: number[][] = [];
+  const totals: number[] = [];
+  for (const series of result.groups) {
+    labels.push(categories.labels[series.code] ?? "(blank)");
+    seriesCodes.push(series.code);
+    groups.push(series.bins);
+    totals.push(series.total);
+  }
+  let otherIndex = -1;
+  if (result.other !== null) {
+    otherIndex = groups.length;
+    labels.push("Other");
+    seriesCodes.push(-1);
+    groups.push(result.other.bins);
+    totals.push(result.other.total);
+  }
+  post({
+    type: "groupedBins",
+    requestId: message.requestId,
+    column: message.column,
+    groupColumn: message.groupColumn,
+    labels,
+    codes: seriesCodes,
+    groups,
+    totals,
+    otherIndex,
+    bins: groups[0]?.length ?? 0,
+    overflow: result.overflow,
+    above: result.above,
+    below: result.below,
+    total: result.total,
+    ms: performance.now() - started,
   });
 }
 

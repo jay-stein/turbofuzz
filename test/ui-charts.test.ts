@@ -703,3 +703,84 @@ test("an emptied chart grid stays empty through column changes", async () => {
   assert.equal(host.querySelectorAll(".chart-card").length, 0, "no default card comes back");
   panel.dispose();
 });
+
+test("group by draws one line per category with a toggleable legend", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestGroupedBins: () =>
+        Promise.resolve({
+          type: "groupedBins",
+          requestId: 1,
+          column: 0,
+          groupColumn: 1,
+          labels: ["Perth", "Sydney"],
+          codes: [0, 1],
+          groups: [
+            [2, 3, 1, 0],
+            [0, 1, 2, 2],
+          ],
+          totals: [6, 5],
+          otherIndex: -1,
+          bins: 4,
+          overflow: 0,
+          above: 0,
+          below: 0,
+          total: 11,
+          ms: 1,
+        }),
+    },
+    { kind: "line", column: 0, groupColumn: 1 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({
+      name: "order_date",
+      type: "date",
+      histogram: {
+        bins: [1, 1, 1, 1],
+        min: 0,
+        max: 4,
+        symlog: false,
+        below: 0,
+        above: 0,
+        p05: 0,
+        p95: 4,
+      },
+    }),
+    meta({
+      name: "region",
+      type: "category",
+      categories: { labels: ["Perth", "Sydney"], counts: [6, 5] },
+    }),
+  ]);
+  await tick();
+  const legend = host.querySelector(".chart-legend") as HTMLElement;
+  assert.equal(legend.classList.contains("hidden"), false);
+  const labels = [...legend.querySelectorAll("button")].map((button) => button.textContent);
+  assert.deepEqual(labels, ["Perth", "Sydney"]);
+  const canvas = host.querySelector("canvas") as HTMLCanvasElement;
+  assert.match(canvas.getAttribute("aria-label") ?? "", /Time series of order_date by region/);
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /2 lines by region/);
+
+  (canvas as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(
+    new window.MouseEvent("pointermove", { clientX: 200, clientY: 200 }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const tooltip = host.querySelector("[role=tooltip]") as HTMLElement;
+  assert.match(tooltip.textContent ?? "", /Perth: 2/);
+
+  const items = [...legend.querySelectorAll("button")];
+  (items[1] as unknown as { click(): void }).click();
+  await tick();
+  const refreshed = [...legend.querySelectorAll("button")];
+  assert.equal(refreshed[1].classList.contains("off"), true);
+  assert.equal(refreshed[1].getAttribute("aria-pressed"), "false");
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /1 of 2 lines by region/);
+  card.dispose();
+});

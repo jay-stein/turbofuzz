@@ -341,6 +341,7 @@ function fullConfig(overrides: Partial<ChartCardConfig> = {}): ChartCardConfig {
     binOptions: null,
     binClipped: false,
     title: "",
+    groupColumn: -1,
     suggested: "",
     correlationColumns: [],
     ...overrides,
@@ -355,6 +356,7 @@ function named(overrides: Partial<NamedChartCardConfig> = {}): NamedChartCardCon
     y: null,
     colorColumn: null,
     sizeColumn: null,
+    groupColumn: null,
     correlationColumns: [],
     ...overrides,
   };

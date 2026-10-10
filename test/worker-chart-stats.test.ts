@@ -103,4 +103,34 @@ test("worker serves box, crosstab and correlation stats for chart cards", async 
   send({ type: "getCorrelation", requestId: 5, columns: [0, 99, 0] });
   const sanitized = find("correlation", 5) as unknown as { columns: number[] };
   assert.deepEqual(sanitized.columns, [0]);
+
+  send({
+    type: "getGroupedBins",
+    requestId: 6,
+    column: 0,
+    groupColumn: 2,
+    options: { min: 1, max: 4, binCount: 3, overflow: false },
+    topN: 5,
+  });
+  const grouped = find("groupedBins", 6) as unknown as {
+    labels: string[];
+    codes: number[];
+    groups: number[][];
+    totals: number[];
+    otherIndex: number;
+    bins: number;
+    total: number;
+    ms: number;
+  };
+  assert.deepEqual(grouped.labels, ["a", "b"]);
+  assert.deepEqual(grouped.codes, [0, 1]);
+  assert.deepEqual(grouped.groups, [
+    [1, 0, 2],
+    [0, 1, 0],
+  ]);
+  assert.deepEqual(grouped.totals, [3, 1]);
+  assert.equal(grouped.otherIndex, -1);
+  assert.equal(grouped.bins, 3);
+  assert.equal(grouped.total, 4);
+  assert.ok(grouped.ms >= 0);
 });

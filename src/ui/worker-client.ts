@@ -19,6 +19,7 @@ import type {
   ExportOptions,
   ExportScope,
   ExportStartedMessage,
+  GroupedBinsMessage,
   HeadersRenamedMessage,
   LoadedMessage,
   ProgressMessage,
@@ -128,6 +129,15 @@ export class SearchWorkerClient {
 
   getChartBins(column: number, options: ChartBinOptions): Promise<ChartBinsMessage> {
     return this.request<ChartBinsMessage>({ type: "getChartBins", column, options });
+  }
+
+  getGroupedBins(input: {
+    column: number;
+    groupColumn: number;
+    options: ChartBinOptions;
+    topN: number;
+  }): Promise<GroupedBinsMessage> {
+    return this.request<GroupedBinsMessage>({ type: "getGroupedBins", ...input });
   }
 
   getChartSeries(input: {

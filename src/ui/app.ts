@@ -1161,6 +1161,7 @@ export class App {
       requestBoxStats: (input) => this.client.getBoxStats(input),
       requestCrosstab: (input) => this.client.getCrosstab(input),
       requestCorrelation: (columns) => this.client.getCorrelation(columns),
+      requestGroupedBins: (input) => this.client.getGroupedBins(input),
       onFilter: (column, filter, preview) =>
         this.changeFilter(column, filter, preview ?? false),
       currentFilter: (column) => this.filters.get(column) ?? null,
