@@ -12,10 +12,11 @@ import {
   DEFAULT_EXPORT_SIZE,
   EXPORT_SIZES,
   type ChartCardKind,
-  defaultCardKind,
   isCategoryType,
   isNumericType,
   isPairKind,
+  pickDefaultCard,
+  suggestCharts,
 } from "./chart-utils.js";
 import { el } from "./dom.js";
 
@@ -145,6 +146,7 @@ function presetFor(
   columns: ColumnMeta[],
   used: Set<number>,
   kinds: Set<ChartCardKind>,
+  rowCount: number,
 ): Partial<ChartCardConfig> {
   if (used.size > 0) {
     const axisAll = indexesWhere(
@@ -154,10 +156,20 @@ function presetFor(
     const numeric = indexesWhere(columns, (meta) => isNumericType(meta.type));
     const categories = indexesWhere(columns, (meta) => isCategoryType(meta.type));
     if (!kinds.has("scatter") && axisAll.length >= 2) {
-      const unused = axisAll.filter((index) => !used.has(index));
-      const x = unused[0] ?? axisAll[0];
-      const y = axisAll.find((index) => index !== x) ?? x;
-      return { kind: "scatter", x, y };
+      const pool = axisAll.filter((index) => !used.has(index));
+      const source = pool.length >= 2 ? pool : axisAll;
+      let pair: { x: number; y: number } | null = null;
+      for (const x of source) {
+        for (const y of source) {
+          if (x === y) continue;
+          // Never pair two date columns; a date against a date says nothing.
+          if (columns[x].type === "date" && columns[y].type === "date") continue;
+          pair = { x, y };
+          break;
+        }
+        if (pair !== null) break;
+      }
+      if (pair !== null) return { kind: "scatter", x: pair.x, y: pair.y };
     }
     if (!kinds.has("correlation") && numeric.length >= 3) {
       return { kind: "correlation", correlationColumns: numeric.slice(0, 8) };
@@ -173,16 +185,8 @@ function presetFor(
       return { kind: "heatmap", x, y };
     }
   }
-  const kind = defaultCardKind(columns);
-  const allow =
-    kind === "histogram"
-      ? (meta: ColumnMeta): boolean => isNumericType(meta.type)
-      : kind === "line"
-        ? (meta: ColumnMeta): boolean => meta.type === "date"
-        : (meta: ColumnMeta): boolean => isCategoryType(meta.type);
-  const allowed = indexesWhere(columns, allow);
-  const pool = allowed.filter((index) => !used.has(index));
-  return { kind, column: pool[0] ?? allowed[0] ?? -1 };
+  const pick = pickDefaultCard(columns, rowCount);
+  return { kind: pick.kind, column: pick.column, suggested: pick.reason };
 }
 
 function readLayout(): number {
@@ -204,6 +208,7 @@ function readLayout(): number {
 export class ChartsPanel {
   private readonly grid: HTMLElement;
   private readonly empty: HTMLElement;
+  private readonly suggestions: HTMLElement;
   private readonly layoutSelect: HTMLSelectElement;
   private readonly sizeSelect: HTMLSelectElement;
   private cards: ChartCard[] = [];
@@ -269,7 +274,8 @@ export class ChartsPanel {
     this.empty = el("div", { class: "charts-empty" }, [
       "No charts yet — use “+ Add chart” to plot the current result set.",
     ]);
-    this.root.append(toolbar, this.grid, this.empty);
+    this.suggestions = el("div", { class: "chart-suggestions hidden" });
+    this.root.append(toolbar, this.suggestions, this.grid, this.empty);
     this.syncLayout();
     this.syncEmpty();
   }
@@ -298,7 +304,7 @@ export class ChartsPanel {
           target.exportPng(size.width, size.height);
         },
       },
-      preset ?? presetFor(this.columns, used, kinds),
+      preset ?? presetFor(this.columns, used, kinds, this.rowCount),
     );
     this.cards.push(card);
     this.grid.append(section);
@@ -306,6 +312,7 @@ export class ChartsPanel {
     card.setFiltered(this.facets, this.histograms);
     card.setRowCount(this.rowCount);
     this.syncEmpty();
+    this.syncSuggestions();
     return card;
   }
 
@@ -316,6 +323,7 @@ export class ChartsPanel {
     card.dispose();
     card.root.remove();
     this.syncEmpty();
+    this.syncSuggestions();
   }
 
   duplicateCard(card: ChartCard): void {
@@ -329,6 +337,7 @@ export class ChartsPanel {
       return;
     }
     for (const card of this.cards) card.setColumns(columns);
+    this.syncSuggestions();
   }
 
   /** Snapshots every card with its columns stored by name. */
@@ -344,6 +353,7 @@ export class ChartsPanel {
   restore(configs: readonly Partial<ChartCardConfig>[], columns: ColumnMeta[]): void {
     this.columns = columns;
     for (const config of configs) this.addCard(config);
+    this.syncSuggestions();
   }
 
   setFiltered(
@@ -358,6 +368,7 @@ export class ChartsPanel {
   setRowCount(count: number): void {
     this.rowCount = count;
     for (const card of this.cards) card.setRowCount(count);
+    this.syncSuggestions();
   }
 
   refresh(): void {
@@ -382,5 +393,33 @@ export class ChartsPanel {
     const isEmpty = this.cards.length === 0;
     this.empty.classList.toggle("hidden", !isEmpty);
     this.grid.classList.toggle("hidden", isEmpty);
+  }
+
+  /** Up to three ready-made charts while the grid holds exactly one card. */
+  private syncSuggestions(): void {
+    this.suggestions.replaceChildren();
+    if (this.cards.length !== 1) {
+      this.suggestions.classList.add("hidden");
+      return;
+    }
+    const ideas = suggestCharts(this.columns, this.rowCount);
+    if (ideas.length === 0) {
+      this.suggestions.classList.add("hidden");
+      return;
+    }
+    for (const idea of ideas) {
+      const chip = el(
+        "button",
+        {
+          class: "ghost small chart-suggestion",
+          type: "button",
+          title: "Add this suggested chart",
+        },
+        [idea.label],
+      ) as HTMLButtonElement;
+      chip.addEventListener("click", () => this.addCard(idea.preset));
+      this.suggestions.append(chip);
+    }
+    this.suggestions.classList.remove("hidden");
   }
 }

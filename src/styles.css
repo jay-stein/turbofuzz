@@ -2019,6 +2019,10 @@ mark {
 }
 
 .view-tabs button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   border: none;
   border-radius: 0;
   padding: 4px 10px;
@@ -2028,6 +2032,24 @@ mark {
 .view-tabs button.active {
   background: var(--accent);
   color: var(--on-accent);
+}
+
+.view-tab-badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1.5;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  white-space: nowrap;
+}
+
+.view-tabs button.active .view-tab-badge {
+  background: var(--on-accent);
+  color: var(--accent);
+  border-color: transparent;
 }
 
 .chart-host {
@@ -2206,6 +2228,59 @@ select.chart-number {
 .chart-toolbar-label {
   font-size: 11.5px;
   color: var(--text-dim);
+}
+
+.chart-suggestions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chart-suggestion {
+  border-radius: 999px;
+}
+
+.chart-settings-disclosure {
+  position: relative;
+  flex: none;
+}
+
+.chart-settings-disclosure > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  user-select: none;
+}
+
+.chart-settings-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.chart-settings-disclosure > summary:hover,
+.chart-settings-disclosure[open] > summary {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.chart-settings-body {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: min(300px, 80vw);
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
 }
 
 .charts-grid {

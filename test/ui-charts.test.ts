@@ -491,7 +491,7 @@ test("charts panel adds, duplicates and removes independent cards", async () => 
   const cards = host.querySelectorAll(".chart-card");
   assert.equal(cards.length, 2);
   const kinds = host.querySelectorAll<HTMLSelectElement>(".chart-kind");
-  assert.equal(kinds[0].value, "histogram");
+  assert.equal(kinds[0].value, "bar", "city is the best default category");
   assert.equal(kinds[1].value, "scatter", "second card defaults to scatter over two numerics");
 
   const duplicate = [...cards[1].querySelectorAll("button")].find(

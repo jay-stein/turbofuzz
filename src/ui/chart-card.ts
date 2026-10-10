@@ -85,6 +85,8 @@ export interface ChartCardConfig {
   binOptions: ChartBinOptions | null;
   binClipped: boolean;
   title: string;
+  /** "Suggested: …" reason shown in the note for rule-picked default cards. */
+  suggested: string;
   correlationColumns: number[];
 }
 
@@ -128,6 +130,7 @@ function defaultConfig(): ChartCardConfig {
     binOptions: null,
     binClipped: false,
     title: "",
+    suggested: "",
     correlationColumns: [],
   };
 }
@@ -336,10 +339,6 @@ export class ChartCard {
       this.primaryWrap,
       this.xWrap,
       this.yWrap,
-      this.colorWrap,
-      this.sizeWrap,
-      this.modeWrap,
-      this.densityStyleWrap,
       el("span", { class: "grow" }),
       duplicate,
       png,
@@ -530,6 +529,22 @@ export class ChartCard {
     });
     const lookRow = el("div", { class: "chart-card-look" }, [this.colorGroup, this.titleInput]);
 
+    const settingsBody = el("div", { class: "chart-settings-body" }, [
+      this.colorWrap,
+      this.sizeWrap,
+      this.modeWrap,
+      this.densityStyleWrap,
+      this.histogramSettings,
+      this.barSettings,
+      this.correlationSettings,
+      lookRow,
+    ]);
+    const settings = el("details", { class: "chart-settings-disclosure" }, [
+      el("summary", { title: "Colours, ranges, titles and other settings" }, ["Settings"]),
+      settingsBody,
+    ]);
+    head.insertBefore(settings, remove);
+
     const canvasWrap = el("div", { class: "chart-canvas-wrap" });
     this.canvas = el("canvas", { class: "chart-canvas" }) as HTMLCanvasElement;
     canvasWrap.append(this.canvas);
@@ -539,15 +554,7 @@ export class ChartCard {
       this.resizeObserver.observe(canvasWrap);
     }
 
-    this.root.append(
-      head,
-      this.histogramSettings,
-      this.barSettings,
-      this.correlationSettings,
-      lookRow,
-      canvasWrap,
-      this.noteEl,
-    );
+    this.root.append(head, canvasWrap, this.noteEl);
 
     this.syncSwatches();
     this.syncOptions();
@@ -773,6 +780,8 @@ export class ChartCard {
       this.config.binOptions = null;
       return;
     }
+    // A KDE curve adds noise on low-cardinality columns.
+    this.config.kde = meta.stats.distinct >= 30;
     const suggested = suggestedBinRange(meta);
     this.config.binOptions = {
       min: suggested.min,
@@ -1378,6 +1387,14 @@ export class ChartCard {
       default:
         this.drawSeries(ctx, frame, this.config.kind);
         break;
+    }
+
+    if (this.config.suggested !== "") {
+      const existing = this.noteEl.textContent ?? "";
+      this.noteEl.textContent =
+        existing === ""
+          ? `Suggested: ${this.config.suggested}`
+          : `${existing} · Suggested: ${this.config.suggested}`;
     }
   }
 

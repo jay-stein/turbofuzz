@@ -63,6 +63,165 @@ export function isCategoryType(type: ColumnType): boolean {
   return type === "category" || type === "boolean";
 }
 
+/**
+ * ID-like columns make poor chart axes: identifiers, or string/integer columns
+ * where every row is distinct (the row id in a big file).
+ */
+export function isIdLikeColumn(meta: ColumnMeta, rowCount: number): boolean {
+  if (meta.type === "identifier") return true;
+  if (rowCount <= 12) return false;
+  if (!(meta.type === "string" || meta.type === "integer" || meta.type === "number")) {
+    return false;
+  }
+  return meta.stats.distinct === rowCount;
+}
+
+/** A numeric column with few distinct values charts better as categories. */
+export function isChartCategory(meta: ColumnMeta): boolean {
+  if (isCategoryType(meta.type)) return true;
+  return isNumericType(meta.type) && meta.stats.distinct > 0 && meta.stats.distinct <= 12;
+}
+
+export interface DefaultCardPick {
+  kind: ChartCardKind;
+  column: number;
+  /** Plain-language reason, shown as "Suggested: …" in the card note. */
+  reason: string;
+}
+
+/**
+ * The first card should answer the most useful question the file can answer:
+ * a date over time, otherwise rows by category, otherwise a numeric
+ * distribution. ID-like columns are never charted by default.
+ */
+export function pickDefaultCard(columns: readonly ColumnMeta[], rowCount = 0): DefaultCardPick {
+  const entries = columns.map((meta, index) => ({ meta, index }));
+
+  const dates = entries.filter(
+    (entry) =>
+      entry.meta.type === "date" &&
+      entry.meta.stats.distinct >= 8 &&
+      !isIdLikeColumn(entry.meta, rowCount),
+  );
+  if (dates.length > 0) {
+    const best = dates.reduce((a, b) =>
+      b.meta.stats.distinct > a.meta.stats.distinct ? b : a,
+    );
+    return { kind: "line", column: best.index, reason: `rows over time by ${best.meta.name}` };
+  }
+
+  const categories = entries.filter(
+    (entry) =>
+      isChartCategory(entry.meta) &&
+      entry.meta.stats.distinct >= 2 &&
+      entry.meta.stats.distinct <= 12 &&
+      !isIdLikeColumn(entry.meta, rowCount),
+  );
+  if (categories.length > 0) {
+    const best = categories.reduce((a, b) =>
+      b.meta.stats.distinct >= a.meta.stats.distinct ? b : a,
+    );
+    return { kind: "bar", column: best.index, reason: `rows by ${best.meta.name}` };
+  }
+
+  const numerics = entries.filter(
+    (entry) =>
+      isNumericType(entry.meta.type) &&
+      entry.meta.stats.distinct >= 13 &&
+      !isIdLikeColumn(entry.meta, rowCount),
+  );
+  if (numerics.length > 0) {
+    return {
+      kind: "histogram",
+      column: numerics[0].index,
+      reason: `distribution of ${numerics[0].meta.name}`,
+    };
+  }
+
+  const kind = defaultCardKind(columns as ColumnMeta[]);
+  const allow =
+    kind === "histogram"
+      ? (meta: ColumnMeta): boolean => isNumericType(meta.type)
+      : kind === "line"
+        ? (meta: ColumnMeta): boolean => meta.type === "date"
+        : (meta: ColumnMeta): boolean => isCategoryType(meta.type);
+  const allowed = entries.filter(
+    (entry) => allow(entry.meta) && !isIdLikeColumn(entry.meta, rowCount),
+  );
+  return { kind, column: allowed[0]?.index ?? -1, reason: "" };
+}
+
+export interface ChartIdea {
+  label: string;
+  preset: Partial<{
+    kind: ChartCardKind;
+    column: number;
+    x: number;
+    y: number;
+  }>;
+}
+
+/**
+ * Up to three ready-made charts for the toolbar strip while the grid holds a
+ * single card: time series, bars, distribution, scatter, heatmap in that order.
+ */
+export function suggestCharts(columns: readonly ColumnMeta[], rowCount = 0): ChartIdea[] {
+  const entries = columns.map((meta, index) => ({ meta, index }));
+  const ideas: ChartIdea[] = [];
+
+  const dates = entries.filter(
+    (entry) => entry.meta.type === "date" && entry.meta.stats.distinct >= 8,
+  );
+  if (dates.length > 0) {
+    ideas.push({ label: "Rows over time", preset: { kind: "line", column: dates[0].index } });
+  }
+
+  const categories = entries.filter(
+    (entry) =>
+      isChartCategory(entry.meta) &&
+      entry.meta.stats.distinct >= 2 &&
+      entry.meta.stats.distinct <= 12 &&
+      !isIdLikeColumn(entry.meta, rowCount),
+  );
+  if (categories.length > 0) {
+    const best = categories.reduce((a, b) =>
+      b.meta.stats.distinct >= a.meta.stats.distinct ? b : a,
+    );
+    ideas.push({ label: `Rows by ${best.meta.name}`, preset: { kind: "bar", column: best.index } });
+  }
+
+  const numerics = entries.filter(
+    (entry) =>
+      isNumericType(entry.meta.type) &&
+      entry.meta.stats.distinct >= 13 &&
+      !isIdLikeColumn(entry.meta, rowCount),
+  );
+  if (numerics.length > 0) {
+    ideas.push({
+      label: `Distribution of ${numerics[0].meta.name}`,
+      preset: { kind: "histogram", column: numerics[0].index },
+    });
+  }
+  if (numerics.length >= 2) {
+    ideas.push({
+      label: `${numerics[0].meta.name} vs ${numerics[1].meta.name}`,
+      preset: { kind: "scatter", x: numerics[0].index, y: numerics[1].index },
+    });
+  }
+
+  const categoryPool = entries.filter(
+    (entry) => isChartCategory(entry.meta) && !isIdLikeColumn(entry.meta, rowCount),
+  );
+  if (categoryPool.length >= 2) {
+    ideas.push({
+      label: `${categoryPool[0].meta.name} × ${categoryPool[1].meta.name}`,
+      preset: { kind: "heatmap", x: categoryPool[0].index, y: categoryPool[1].index },
+    });
+  }
+
+  return ideas.slice(0, 3);
+}
+
 /** Axis formatting kind: dates get date ticks, everything else numbers. */
 export function axisKindFor(type: ColumnType): "line" | null {
   return type === "date" ? "line" : null;

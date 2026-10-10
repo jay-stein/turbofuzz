@@ -55,6 +55,7 @@ import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.
 import { openTransformPanel } from "./transform-panel.js";
 import { PipelineStepper, type StageId } from "./stepper.js";
 import { ViewTabs, type ViewId } from "./view-tabs.js";
+import { suggestCharts } from "./chart-utils.js";
 
 const LARGE_PASTE_ROWS = 300_000;
 const FILE_ACCEPT =
@@ -244,6 +245,7 @@ export class App {
   private chartActive = false;
   private chartRestore: NamedChartCardConfig[] | null = null;
   private chartRemoved = 0;
+  private chartOpened = false;
   private view: ViewId = "overview";
   private lastLens: "table" | "chart" = "table";
   private tabs: ViewTabs | null = null;
@@ -1066,6 +1068,7 @@ export class App {
       );
     }
     if (loaded.type === "loaded") this.view = readDefaultView();
+    this.updateChartBadge();
     this.setView(this.view);
   }
 
@@ -1096,6 +1099,8 @@ export class App {
 
   private ensureCharts(): void {
     if (this.chartsPanel !== null) return;
+    this.chartOpened = true;
+    this.updateChartBadge();
     this.chartsPanel = new ChartsPanel(this.chartHost, {
       datasetName: () => this.datasetName,
       requestBins: (column, options) => this.client.getChartBins(column, options),
@@ -1696,6 +1701,12 @@ export class App {
 
   private syncTabs(): void {
     this.tabs?.setSelected(this.view);
+  }
+
+  /** "3 ideas" badge until the Chart lens has been opened once. */
+  private updateChartBadge(): void {
+    const ideas = this.chartOpened ? 0 : suggestCharts(this.metas, this.rowCount).length;
+    this.tabs?.setBadge("chart", ideas > 0 ? `${ideas} ideas` : null);
   }
 
   /** Refreshes the health group and dataset stats after a worker update. */

@@ -72,6 +72,20 @@ export class ViewTabs {
     this.sync();
   }
 
+  /** Small count badge (e.g. "3 ideas") or null to clear it. */
+  setBadge(view: ViewId, label: string | null): void {
+    const button = this.buttons.get(view);
+    if (button === undefined) return;
+    const existing = button.querySelector<HTMLElement>(".view-tab-badge");
+    if (label === null) {
+      existing?.remove();
+      return;
+    }
+    const badge = existing ?? el("span", { class: "view-tab-badge" });
+    badge.textContent = label;
+    if (existing === null) button.append(badge);
+  }
+
   /** Arrow-key navigation with roving tabindex, per the ARIA tabs pattern. */
   private onKeydown(event: KeyboardEvent): void {
     if (

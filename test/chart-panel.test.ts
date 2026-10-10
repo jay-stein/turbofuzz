@@ -12,7 +12,9 @@ import {
   formatTick,
   niceTicks,
   parseChartNumber,
+  pickDefaultCard,
   rampColor,
+  suggestCharts,
   suggestedBinRange,
 } from "../src/ui/chart-utils.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
@@ -65,7 +67,7 @@ test("chart kind follows the column type", () => {
   assert.equal(chartKindFor("identifier"), null);
 });
 
-test("new card kind prefers numeric, then dates, then categories", () => {
+test("defaultCardKind prefers numeric, then dates, then categories", () => {
   assert.equal(defaultCardKind([meta({ type: "string" })]), "histogram");
   assert.equal(defaultCardKind([meta({ type: "date" })]), "line");
   assert.equal(defaultCardKind([meta({ type: "category" })]), "bar");
@@ -73,6 +75,95 @@ test("new card kind prefers numeric, then dates, then categories", () => {
     defaultCardKind([meta({ type: "string" }), meta({ type: "number" }), meta({ type: "date" })]),
     "histogram",
   );
+});
+
+function typed(
+  name: string,
+  type: ColumnMeta["type"],
+  distinct: number,
+  extra: Partial<ColumnMeta> = {},
+): ColumnMeta {
+  return meta({ name, type, stats: { ...meta().stats, distinct }, ...extra });
+}
+
+test("pickDefaultCard follows the sales file's date and categories", () => {
+  const sales = [
+    typed("order_id", "string", 6015),
+    typed("order_date", "date", 400),
+    typed("region", "category", 6),
+    typed("product", "category", 6),
+    typed("category", "category", 3),
+    typed("quantity", "category", 12),
+    typed("unit_price", "number", 6),
+    typed("discount_pct", "integer", 4),
+    typed("revenue", "number", 4200),
+    typed("customer_email", "string", 1800),
+    typed("shipped", "boolean", 2),
+    typed("notes", "category", 6),
+  ];
+  const pick = pickDefaultCard(sales, 6015);
+  assert.equal(pick.kind, "line");
+  assert.equal(pick.column, 1);
+  assert.equal(pick.reason, "rows over time by order_date");
+
+  const ideas = suggestCharts(sales, 6015);
+  assert.equal(ideas.length, 3);
+  assert.equal(ideas[0].label, "Rows over time");
+  assert.deepEqual(ideas[0].preset, { kind: "line", column: 1 });
+  assert.match(ideas[1].label, /^Rows by /);
+  assert.match(ideas[2].label, /^Distribution of revenue$/);
+});
+
+test("pickDefaultCard falls back through category, numeric and nothing", () => {
+  const noDate = [
+    typed("name", "string", 120),
+    typed("region", "category", 6),
+    typed("amount", "number", 500),
+  ];
+  const category = pickDefaultCard(noDate, 6015);
+  assert.deepEqual(
+    { kind: category.kind, column: category.column },
+    { kind: "bar", column: 1 },
+  );
+
+  const numericOnly = [typed("name", "string", 120), typed("amount", "number", 500)];
+  assert.equal(pickDefaultCard(numericOnly, 6015).kind, "histogram");
+  assert.equal(pickDefaultCard(numericOnly, 6015).column, 1);
+
+  const textOnly = [typed("name", "string", 120), typed("email", "string", 480)];
+  const pick = pickDefaultCard(textOnly, 480);
+  assert.equal(pick.column, -1);
+  assert.equal(pick.reason, "");
+});
+
+test("pickDefaultCard skips the row id in an ID-first file", () => {
+  const big = [
+    typed("id", "integer", 300_000, { stats: { ...meta().stats, distinct: 300_000, nulls: 0 } }),
+    typed("ts", "date", 299_000),
+    typed("region", "category", 6, {
+      categories: { labels: ["a", "b"], counts: [1, 1] },
+    }),
+    typed("amount", "number", 299_000),
+  ];
+  const pick = pickDefaultCard(big, 300_000);
+  assert.equal(pick.kind, "line");
+  assert.equal(pick.column, 1, "the unique id is not charted");
+
+  const noDate = [big[0], big[3]];
+  const numeric = pickDefaultCard(noDate, 300_000);
+  assert.equal(numeric.kind, "histogram");
+  assert.equal(numeric.column, 1);
+});
+
+test("pickDefaultCard handles a one-row file", () => {
+  const oneRow = [
+    typed("a", "integer", 1),
+    typed("b", "number", 1),
+    typed("c", "category", 1),
+  ];
+  const pick = pickDefaultCard(oneRow, 1);
+  assert.equal(pick.kind, "histogram");
+  assert.equal(pick.column, 0);
 });
 
 test("nice ticks cover the range with round steps", () => {
@@ -250,6 +341,7 @@ function fullConfig(overrides: Partial<ChartCardConfig> = {}): ChartCardConfig {
     binOptions: null,
     binClipped: false,
     title: "",
+    suggested: "",
     correlationColumns: [],
     ...overrides,
   };
