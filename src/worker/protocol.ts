@@ -381,6 +381,8 @@ export interface DatasetMessage {
   ingestMs: number;
   source: "paste" | "file";
   encoding: FileEncoding | null;
+  /** Auto-detected delimiter for delimited files (null for JSON, Excel, data grids). */
+  delimiter: Delimiter | null;
   /** Ragged rows seen at import time (padded or dropped extra cells). */
   ragged: RaggedInfo;
 }

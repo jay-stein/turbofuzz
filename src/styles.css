@@ -3109,6 +3109,12 @@ label.null-row {
   padding: 1px 7px;
 }
 
+.overview-types {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
 .health-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

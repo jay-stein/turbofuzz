@@ -31,7 +31,7 @@ import type {
 import { clear, el, svgIcon } from "./dom.js";
 import { openDedupeMenu } from "./dedupe-menu.js";
 import { openMenu } from "./menu.js";
-import { Overview, readDefaultView } from "./overview.js";
+import { Overview, delimiterLabel, readDefaultView } from "./overview.js";
 import type { DatasetStats } from "../data/stats.js";
 import { FilterPanel } from "./filters.js";
 import { ChartsPanel, remapChartConfigs, type NamedChartCardConfig } from "./chart-panel.js";
@@ -254,6 +254,8 @@ export class App {
   private overviewHost!: HTMLElement;
   private overview: Overview | null = null;
   private latestStats: DatasetStats | null = null;
+  /** Input size in bytes for the dataset line (file or pasted text). */
+  private sourceBytes: number | null = null;
   private sidebarEl!: HTMLElement;
   private sidebarToggle!: HTMLButtonElement;
   private sidebarCollapsed = false;
@@ -689,6 +691,10 @@ export class App {
     this.hideTablePicker();
     this.statusEl.textContent = "Parsing…";
     this.statusEl.classList.remove("error");
+    this.sourceBytes =
+      options.text !== undefined
+        ? new TextEncoder().encode(options.text).byteLength
+        : (options.buffer?.byteLength ?? null);
 
     try {
       const loaded = await this.client.load({
@@ -897,6 +903,7 @@ export class App {
     this.hideTablePicker();
     this.statusEl.textContent = "Reading workbook…";
     this.statusEl.classList.remove("error");
+    this.sourceBytes = buffer.byteLength;
     try {
       let sheets;
       let total: number;
@@ -1081,12 +1088,18 @@ export class App {
       loaded.stats.duplicateGroups > 0
         ? ` · ${loaded.stats.duplicateGroups.toLocaleString()} duplicate groups (${loaded.stats.duplicateRows.toLocaleString()} redundant rows)`
         : "";
-    const encodingText = loaded.encoding === "windows-1252" ? " · windows-1252" : "";
+    const encodingText =
+      loaded.encoding === null
+        ? ""
+        : ` · ${loaded.encoding === "utf-8" ? "UTF-8" : loaded.encoding}`;
+    const delimiter = delimiterLabel(loaded.delimiter);
+    const delimiterText = delimiter === null ? "" : ` · ${delimiter}-separated`;
+    const sizeText = this.sourceBytes === null ? "" : ` · ${formatBytes(this.sourceBytes)}`;
     this.metaEl.textContent =
       `${loaded.name} · ${loaded.rowCount.toLocaleString()} × ${loaded.columnCount.toLocaleString()}`;
     this.metaEl.title =
       `${loaded.rowCount.toLocaleString()} rows × ${loaded.columnCount.toLocaleString()} columns` +
-      `${duplicateText} · ${emptyText}${encodingText} · ${Math.round(loaded.ingestMs)} ms`;
+      `${sizeText}${delimiterText}${encodingText}${duplicateText} · ${emptyText} · ${Math.round(loaded.ingestMs)} ms`;
 
     this.table?.dispose();
     this.table = null;
@@ -1104,7 +1117,9 @@ export class App {
     this.latestHistograms = {};
 
     this.latestStats = loaded.stats;
-    this.overview?.render(loaded);
+    this.overview?.render(loaded, {
+      sizeLabel: this.sourceBytes === null ? null : formatBytes(this.sourceBytes),
+    });
     this.renderHealthGroup();
     this.updateCount(loaded.rowCount, 0);
     this.updateGuardrail(loaded, loaded.source === "file" || loaded.type === "transformed");

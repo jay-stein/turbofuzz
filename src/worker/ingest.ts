@@ -31,6 +31,8 @@ export interface IngestOptions {
 export interface IngestResult {
   dataset: Dataset;
   encoding: FileEncoding | null;
+  /** Auto-detected delimiter for delimited text; null for JSON, tables, grids. */
+  delimiter: Delimiter | null;
   /** Rows that were padded or truncated to match the final column set. */
   ragged: RaggedInfo;
 }
@@ -44,7 +46,7 @@ export function ingestDataset(options: IngestOptions): IngestResult {
     const dataset = buildDataset(options.name, headers, rows, (detail) => {
       options.onProgress?.({ phase: "build", detail });
     });
-    return { dataset, encoding: null, ragged };
+    return { dataset, encoding: null, delimiter: null, ragged };
   }
 
   let text = options.text;
@@ -64,6 +66,7 @@ export function ingestDataset(options: IngestOptions): IngestResult {
     return {
       dataset: buildFromGrid(options.name, grid.headers, grid.rows, options),
       encoding,
+      delimiter: null,
       ragged: measureRagged(grid.rows, grid.headers.length),
     };
   }
@@ -73,6 +76,7 @@ export function ingestDataset(options: IngestOptions): IngestResult {
       return {
         dataset: buildFromGrid(options.name, grid.headers, grid.rows, options),
         encoding,
+        delimiter: null,
         ragged: measureRagged(grid.rows, grid.headers.length),
       };
     } catch {
@@ -120,7 +124,7 @@ export function ingestDataset(options: IngestOptions): IngestResult {
     numberPrior,
   );
 
-  return { dataset, encoding, ragged };
+  return { dataset, encoding, delimiter: parsed.delimiter, ragged };
 }
 
 function buildFromGrid(

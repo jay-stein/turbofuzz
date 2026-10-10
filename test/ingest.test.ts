@@ -37,7 +37,7 @@ test("ingestDataset decodes transferred UTF-8 array buffers", () => {
     encoded.byteOffset + encoded.byteLength,
   ) as ArrayBuffer;
 
-  const { dataset, encoding } = ingestDataset({
+  const { dataset, encoding, delimiter } = ingestDataset({
     name: "buffer",
     delimiter: "auto",
     hasHeaders: true,
@@ -46,7 +46,26 @@ test("ingestDataset decodes transferred UTF-8 array buffers", () => {
 
   assert.equal(dataset.rowCount, 2);
   assert.equal(encoding, "utf-8");
+  assert.equal(delimiter, ",");
   assert.deepEqual(dataset.columns.map((column) => column.name), ["a", "b"]);
+});
+
+test("ingestDataset reports the detected delimiter for semicolon files", () => {
+  const { delimiter } = ingestDataset({
+    name: "euro.csv",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: "name;qty;price\nx;1;1,50\ny;2;2,25",
+  });
+  assert.equal(delimiter, ";");
+
+  const json = ingestDataset({
+    name: "rows.json",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: '[{"a": 1, "b": 2}]',
+  });
+  assert.equal(json.delimiter, null);
 });
 
 test("ingestDataset skips title rows and keeps the full width", () => {

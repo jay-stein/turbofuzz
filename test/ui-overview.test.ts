@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { DatasetStats } from "../src/data/stats.js";
-import { Overview, chartStep, healthTiles, pickNextSteps } from "../src/ui/overview.js";
+import { Overview, chartStep, delimiterLabel, formatLabelFor, healthTiles, pickNextSteps, typeMix } from "../src/ui/overview.js";
 import type { ColumnMeta, LoadedMessage } from "../src/worker/protocol.js";
 
 function setupDom(): Window {
@@ -247,4 +247,80 @@ test("a healthy dataset collapses the health block to one line", () => {
 
   assert.equal(host.querySelectorAll(".health-tile").length, 0);
   assert.match(host.querySelector(".overview-clear")?.textContent ?? "", /No duplicates/);
+});
+
+test("formatLabelFor and delimiterLabel name the file facts", () => {
+  assert.equal(formatLabelFor("a.CSV"), "CSV");
+  assert.equal(formatLabelFor("dir/b.tsv"), "TSV");
+  assert.equal(formatLabelFor("rows.jsonl"), "JSON");
+  assert.equal(formatLabelFor("book.xls"), "Excel 97–2003");
+  assert.equal(formatLabelFor("data.parquet"), "Parquet");
+  assert.equal(formatLabelFor("unknown"), null);
+  assert.equal(delimiterLabel(","), "comma");
+  assert.equal(delimiterLabel("\t"), "tab");
+  assert.equal(delimiterLabel(null), null);
+  assert.equal(delimiterLabel(undefined), null);
+});
+
+test("typeMix counts numeric, date, category, text and boolean columns", () => {
+  const columns = [
+    meta({ name: "a", type: "integer" }),
+    meta({ name: "b", type: "number" }),
+    meta({ name: "c", type: "date" }),
+    meta({ name: "d", type: "string" }),
+    meta({ name: "e", type: "category" }),
+    meta({ name: "f", type: "boolean" }),
+    meta({ name: "g", type: "identifier" }),
+  ];
+  assert.equal(typeMix(columns), "2 numeric · 1 date · 1 category · 1 text · 1 boolean · 1 ID");
+  assert.equal(typeMix([]), "");
+});
+
+test("the dataset line shows format, delimiter, encoding, size and type mix", () => {
+  setupDom();
+  const host = document.createElement("div");
+  const overview = new Overview(host, {
+    onOpenTable: () => {},
+    onOpenChart: () => {},
+    onFilterColumn: () => {},
+    onCleanColumn: () => {},
+    onOpenCleanNulls: () => {},
+    onDedupe: () => {},
+    onOpenMerge: () => {},
+    onReviewColumn: () => {},
+    onDropColumn: () => {},
+    onOpenStats: () => {},
+  });
+  overview.render(
+    {
+      type: "loaded",
+      name: "euro.csv",
+      rowCount: 100,
+      columnCount: 4,
+      columns: [
+        meta({ name: "when", type: "date" }),
+        meta({ name: "amount", type: "number" }),
+        meta({ name: "tax", type: "number" }),
+        meta({ name: "city", type: "category" }),
+      ],
+      stats: stats({ totalCells: 400 }),
+      encoding: "utf-8",
+      delimiter: ";",
+      ingestMs: 12,
+    } as unknown as LoadedMessage,
+    { sizeLabel: "529 KB" },
+  );
+
+  const facts = host.querySelector(".overview-facts")?.textContent ?? "";
+  assert.match(facts, /euro\.csv/);
+  assert.match(facts, /529 KB/);
+  assert.match(facts, /12 ms/);
+  const badges = [...host.querySelectorAll(".overview-badge")].map(
+    (badge) => badge.textContent,
+  );
+  assert.deepEqual(badges, ["CSV", "semicolon", "UTF-8"]);
+  assert.equal(
+    host.querySelector(".overview-types")?.textContent,
+    "2 numeric · 1 date · 1 category",
+  );
 });

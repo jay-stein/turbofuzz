@@ -8,6 +8,7 @@ import { binValues, groupedBinValues } from "../data/chart-bins.js";
 import { categoryCodes, computeSeries } from "../data/chart-series.js";
 import { computeBoxStats, computeCorrelation, computeCrossTab } from "../data/chart-stats.js";
 import type { FileEncoding } from "../parse/encoding.js";
+import type { Delimiter } from "../parse/delimiter.js";
 import {
   createNullPolicy,
   EMPTY_NULL_POLICY,
@@ -94,6 +95,7 @@ let transformSource: Dataset | null = null;
 let transformOps: TransformOp[] = [];
 let datasetSource: "paste" | "file" = "paste";
 let datasetEncoding: FileEncoding | null = null;
+let datasetDelimiter: Delimiter | null = null;
 let datasetRagged: RaggedInfo = { paddedRows: 0, extraCellRows: 0, extraCells: 0 };
 
 const FIRST_PAGE_ROWS = 40;
@@ -355,6 +357,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
     ingested = {
       dataset,
       encoding: null,
+      delimiter: null,
       ragged: measureRagged(grid.rows, grid.headers.length),
     };
   } else {
@@ -370,7 +373,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
     });
   }
 
-  const { dataset: next, encoding, ragged } = ingested;
+  const { dataset: next, encoding, ragged, delimiter } = ingested;
   dataset = next;
   engine = new QueryEngine(next);
   filters.clear();
@@ -391,6 +394,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   transformOps = [];
   datasetSource = message.buffer !== undefined ? "file" : "paste";
   datasetEncoding = encoding;
+  datasetDelimiter = delimiter;
   datasetRagged = ragged;
   sortedIds = engine.evaluate(filters);
 
@@ -406,6 +410,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
     ingestMs: performance.now() - started,
     source: datasetSource,
     encoding: datasetEncoding,
+    delimiter: datasetDelimiter,
     ragged: datasetRagged,
   });
 }
@@ -1314,6 +1319,7 @@ function handleTransform(message: TransformRequest): void {
     ingestMs: performance.now() - started,
     source: datasetSource,
     encoding: datasetEncoding,
+    delimiter: datasetDelimiter,
     ragged: datasetRagged,
     ops: transformOps,
     baseSchema,

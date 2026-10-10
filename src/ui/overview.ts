@@ -42,6 +42,12 @@ export interface HealthTile {
   warn: boolean;
 }
 
+/** Facts the UI already knows from the load path (not part of the worker message). */
+export interface DatasetSourceInfo {
+  /** Preformatted input size, e.g. "529 KB". */
+  sizeLabel: string | null;
+}
+
 const VIEW_DEFAULT_KEY = "turbofuzz.view.default";
 
 export function readDefaultView(): "overview" | "table" {
@@ -63,6 +69,73 @@ function writeDefaultView(view: "overview" | "table"): void {
 
 function plural(count: number, singular: string, plural = `${singular}s`): string {
   return count === 1 ? singular : plural;
+}
+
+/** Short format label from the file extension, for the dataset badges. */
+export function formatLabelFor(name: string): string | null {
+  const lower = name.toLowerCase();
+  const dot = lower.lastIndexOf(".");
+  const extension = dot === -1 ? "" : lower.slice(dot);
+  switch (extension) {
+    case ".csv":
+      return "CSV";
+    case ".tsv":
+      return "TSV";
+    case ".psv":
+      return "PSV";
+    case ".txt":
+    case ".dat":
+      return "Text";
+    case ".json":
+    case ".jsonl":
+    case ".ndjson":
+      return "JSON";
+    case ".parquet":
+      return "Parquet";
+    case ".xlsx":
+      return "Excel";
+    case ".xls":
+      return "Excel 97–2003";
+    default:
+      return null;
+  }
+}
+
+/** “4 numeric · 3 date · 5 text” — the column type mix at a glance. */
+export function typeMix(columns: readonly ColumnMeta[]): string {
+  const counts = new Map<string, number>();
+  for (const column of columns) {
+    const key =
+      column.type === "integer" || column.type === "number"
+        ? "numeric"
+        : column.type === "string"
+          ? "text"
+          : column.type === "identifier"
+            ? "ID"
+            : column.type;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const order = ["numeric", "date", "category", "text", "boolean", "ID"];
+  return order
+    .filter((key) => (counts.get(key) ?? 0) > 0)
+    .map((key) => `${(counts.get(key) ?? 0).toLocaleString()} ${key}`)
+    .join(" · ");
+}
+
+/** Short delimiter name for badges and tooltips. */
+export function delimiterLabel(delimiter: string | null | undefined): string | null {
+  switch (delimiter) {
+    case ",":
+      return "comma";
+    case "\t":
+      return "tab";
+    case ";":
+      return "semicolon";
+    case "|":
+      return "pipe";
+    default:
+      return null;
+  }
 }
 
 /** Four tiles at most: complete %, duplicates, columns with empties, outliers. */
@@ -249,13 +322,13 @@ export class Overview {
     this.root.classList.add("overview");
   }
 
-  render(loaded: LoadedMessage | TransformedMessage): void {
+  render(loaded: LoadedMessage | TransformedMessage, source?: DatasetSourceInfo): void {
     this.columns = loaded.columns;
     this.rowCount = loaded.rowCount;
     clear(this.root);
 
     this.root.append(
-      this.buildDatasetLine(loaded),
+      this.buildDatasetLine(loaded, source),
       this.buildHealthTiles(loaded.columns, loaded.stats),
       this.buildNextSteps(loaded),
       this.buildColumns(loaded),
@@ -296,14 +369,35 @@ export class Overview {
     tiles.replaceWith(this.buildHealthTiles(columns, stats));
   }
 
-  private buildDatasetLine(loaded: LoadedMessage | TransformedMessage): HTMLElement {
+  private buildDatasetLine(
+    loaded: LoadedMessage | TransformedMessage,
+    source?: DatasetSourceInfo,
+  ): HTMLElement {
     const line = el("div", { class: "overview-dataset" });
-    const facts = el("span", { class: "overview-facts" }, [
-      `${loaded.name} · ${loaded.rowCount.toLocaleString()} rows × ${loaded.columnCount.toLocaleString()} columns · ${Math.round(loaded.ingestMs)} ms`,
-    ]);
-    line.append(facts);
-    if (loaded.encoding === "windows-1252") {
+    const facts = [
+      loaded.name,
+      `${loaded.rowCount.toLocaleString()} rows × ${loaded.columnCount.toLocaleString()} columns`,
+    ];
+    if (source !== undefined && source.sizeLabel !== null) facts.push(source.sizeLabel);
+    facts.push(`${Math.round(loaded.ingestMs)} ms`);
+    line.append(el("span", { class: "overview-facts" }, [facts.join(" · ")]));
+
+    const format = formatLabelFor(loaded.name);
+    if (format !== null) {
+      line.append(el("span", { class: "overview-badge" }, [format]));
+    }
+    const delimiter = delimiterLabel(loaded.delimiter);
+    if (delimiter !== null) {
+      line.append(el("span", { class: "overview-badge" }, [delimiter]));
+    }
+    if (loaded.encoding === "utf-8") {
+      line.append(el("span", { class: "overview-badge" }, ["UTF-8"]));
+    } else if (loaded.encoding === "windows-1252") {
       line.append(el("span", { class: "overview-badge" }, ["windows-1252"]));
+    }
+    const types = typeMix(loaded.columns);
+    if (types !== "") {
+      line.append(el("div", { class: "overview-types" }, [types]));
     }
     return line;
   }
