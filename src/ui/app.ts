@@ -123,17 +123,6 @@ function lockIcon(): SVGElement {
   );
 }
 
-function diceIcon(): SVGElement {
-  return svgIcon(
-    '<rect x="3.2" y="3.2" width="17.6" height="17.6" rx="4.2"/>' +
-      '<circle cx="8.4" cy="8.4" r="1.2" fill="currentColor" stroke="none"/>' +
-      '<circle cx="15.6" cy="8.4" r="1.2" fill="currentColor" stroke="none"/>' +
-      '<circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/>' +
-      '<circle cx="8.4" cy="15.6" r="1.2" fill="currentColor" stroke="none"/>' +
-      '<circle cx="15.6" cy="15.6" r="1.2" fill="currentColor" stroke="none"/>',
-    "shuffle-icon",
-  );
-}
 const CLIPBOARD_ROW_LIMIT = 100_000;
 const EXPORT_CHUNK_ROWS = 20_000;
 
@@ -510,32 +499,32 @@ export class App {
 
     this.exportButton = el(
       "button",
-      { class: "ghost small", type: "button", title: "Choose a file name and format, then export" },
+      {
+        class: "primary small",
+        type: "button",
+        title: "Choose a file name and format, then export",
+      },
       ["Export…"],
     ) as HTMLButtonElement;
     this.exportButton.addEventListener("click", () => this.openExportDialog());
 
-    const shuffleControl = el("span", { class: "shuffle-control" });
     this.shuffleButton = el(
       "button",
       {
-        class: "shuffle-button",
+        class: "ghost small",
         type: "button",
         title: "Show every row in a random order",
       },
-      [],
+      ["Shuffle all"],
     ) as HTMLButtonElement;
-    this.shuffleButton.append(diceIcon(), el("span", { class: "shuffle-label" }, ["Shuffle all"]));
     this.shuffleButton.addEventListener("click", () => this.shuffleRows());
-
-    shuffleControl.append(this.shuffleButton);
 
     resultsRow.append(
       viewTabs,
       this.countEl,
       el("span", { class: "grow" }),
       this.actionEl,
-      shuffleControl,
+      this.shuffleButton,
       this.stepsButton,
       this.copyButton,
       this.exportButton,
@@ -2008,7 +1997,7 @@ export class App {
       count === 0
         ? "No changes yet — clean, fix or transform a column to start the log"
         : "Review, undo or export the applied changes";
-    this.stepsButton.classList.remove("hidden");
+    this.stepsButton.classList.toggle("hidden", count === 0);
   }
 
   private stepEntries(): StepsPanelEntry[] {

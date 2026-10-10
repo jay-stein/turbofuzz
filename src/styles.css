@@ -198,44 +198,6 @@ button {
   font-size: 12.5px;
 }
 
-.shuffle-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 13px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text);
-  font-size: 12.5px;
-  font-weight: 600;
-  transition:
-    background 0.12s ease,
-    border-color 0.12s ease,
-    transform 0.06s ease;
-}
-
-.shuffle-button:hover {
-  background: var(--panel-2);
-  border-color: var(--accent);
-}
-
-.shuffle-button:active {
-  transform: translateY(1px);
-}
-
-.shuffle-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.shuffle-icon {
-  width: 16px;
-  height: 16px;
-  flex: none;
-}
-
 .icon-btn {
   background: transparent;
   border: none;
