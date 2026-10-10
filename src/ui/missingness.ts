@@ -8,7 +8,6 @@ const MATRIX_MAX_HEIGHT = 320;
 const BUCKET_HEIGHT = 1.4;
 const LABEL_HEIGHT = 14;
 const SPARK_GAP = 8;
-const SPARK_LABEL_WIDTH = 42;
 const MIN_SPARK_BARS = 26;
 const MISSING_RGB: readonly [number, number, number] = [63, 70, 80];
 const MISSING_RGB_CSS = `rgb(${MISSING_RGB[0]}, ${MISSING_RGB[1]}, ${MISSING_RGB[2]})`;
@@ -176,7 +175,7 @@ export class MissingnessChart {
     // cannot affect anything else.
     if (wrap === null || wrapWidth <= 0) return;
     const width = Math.max(1, Math.round(wrapWidth));
-    const gutter = Math.round(Math.min(132, Math.max(72, width * 0.16)));
+    const gutter = Math.round(Math.min(96, Math.max(56, width * 0.12)));
     const matrixW = Math.max(40, width - gutter);
     const buckets = message.buckets;
     const matrixHeight = Math.min(
@@ -236,8 +235,9 @@ export class MissingnessChart {
   }
 
   /**
-   * Nullity bars in the right gutter (longer = more missing), with the
-   * max/min blocks dotted and labelled, mirroring missingno's sparkline.
+   * Nullity bars in the right gutter (longer = more missing), with one filled
+   * accent marker on the worst run of rows. No axis text — the caption and
+   * aria label carry the numbers.
    */
   private drawSparkline(
     ctx: CanvasRenderingContext2D,
@@ -248,11 +248,10 @@ export class MissingnessChart {
   ): void {
     const profile = nullityProfile(message.cells, message.buckets, message.columns);
     if (profile.maxRatio <= 0) return;
-    const barsW = Math.max(MIN_SPARK_BARS, gutter - SPARK_GAP - SPARK_LABEL_WIDTH);
     const barsX = matrixW + SPARK_GAP;
+    const barsW = Math.max(MIN_SPARK_BARS, gutter - SPARK_GAP * 2);
     const cellH = matrixHeight / message.buckets;
     const span = profile.maxRatio - profile.minRatio;
-    const barTop = (bucket: number): number => bucket * cellH + cellH / 2;
     const barLength = (ratio: number): number =>
       barsW * (span > 0 ? (ratio - profile.minRatio) / span : 0);
 
@@ -266,28 +265,12 @@ export class MissingnessChart {
     }
     ctx.globalAlpha = 1;
 
-    const dot = (x: number, y: number, color: string): void => {
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(x, y, 2.4, 0, Math.PI * 2);
-      ctx.fill();
-    };
-    const accent = cssVar("--accent", "#2563eb");
-    const labelX = matrixW + gutter;
-    ctx.font = "10px system-ui, sans-serif";
-    ctx.textAlign = "right";
-    dot(barsX + barsW, barTop(profile.maxBucket), accent);
-    ctx.fillStyle = accent;
-    ctx.fillText(`${Math.round(profile.maxRatio * 100)}%`, labelX, barTop(profile.maxBucket) + 3.5);
-    if (profile.minRatio < profile.maxRatio) {
-      dot(barsX + barLength(profile.minRatio), barTop(profile.minBucket), MISSING_RGB_CSS);
-      ctx.fillStyle = cssVar("--text-dim", "#62707f");
-      ctx.fillText(
-        `${Math.round(profile.minRatio * 100)}%`,
-        labelX,
-        barTop(profile.minBucket) + 3.5,
-      );
-    }
-    ctx.textAlign = "left";
+    // One filled marker: the row block with the most missing values.
+    const markerY = profile.maxBucket * cellH + cellH / 2;
+    const markerX = barsX + barLength(profile.maxRatio);
+    ctx.fillStyle = cssVar("--accent", "#2563eb");
+    ctx.beginPath();
+    ctx.arc(markerX, markerY, Math.max(2.6, cellH * 0.9), 0, Math.PI * 2);
+    ctx.fill();
   }
 }
