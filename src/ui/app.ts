@@ -36,6 +36,7 @@ import type { DatasetStats } from "../data/stats.js";
 import { FilterPanel } from "./filters.js";
 import { ChartsPanel, remapChartConfigs, type NamedChartCardConfig } from "./chart-panel.js";
 import { openHelpDrawer } from "./help-drawer.js";
+import { Hints } from "./hints.js";
 import { sampleCsv } from "./sample.js";
 import {
   applyThemePreference,
@@ -265,11 +266,34 @@ export class App {
   private stepperHost!: HTMLElement;
   private stepper: PipelineStepper | null = null;
   private workspaceTitle!: HTMLElement;
+  private tabHost!: HTMLElement;
+  private hints: Hints | null = null;
 
   constructor(private readonly root: HTMLElement) {
     this.buildShell();
     this.bindEvents();
     this.client.onProgress((progress) => this.handleProgress(progress));
+    this.hints = new Hints([
+      {
+        id: "tabs",
+        text: "Overview, Table and Chart are lenses — switch anytime with 1, 2, 3.",
+        target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
+      },
+      {
+        id: "column-menu",
+        text: "Right-click a column header for Column, Clean and Transform actions.",
+        target: () =>
+          this.tableHost.classList.contains("hidden")
+            ? null
+            : this.tableHost.querySelector<HTMLElement>(".th"),
+      },
+      {
+        id: "process-log",
+        text: "Every clean and transform lands in the Process Log, where you can undo it.",
+        target: () =>
+          this.stepsButton.classList.contains("hidden") ? null : this.stepsButton,
+      },
+    ]);
   }
 
   private buildShell(): void {
@@ -458,6 +482,7 @@ export class App {
     workspace.append(this.workspaceTitle);
 
     const tabHost = el("div");
+    this.tabHost = tabHost;
     this.tabs = new ViewTabs(tabHost, { onChange: (view) => this.setView(view) });
     this.stepperHost = el("div", { class: "stepper-host" });
     this.stepper = new PipelineStepper(this.stepperHost, {
@@ -1136,6 +1161,9 @@ export class App {
       requestBoxStats: (input) => this.client.getBoxStats(input),
       requestCrosstab: (input) => this.client.getCrosstab(input),
       requestCorrelation: (columns) => this.client.getCorrelation(columns),
+      onFilter: (column, filter, preview) =>
+        this.changeFilter(column, filter, preview ?? false),
+      currentFilter: (column) => this.filters.get(column) ?? null,
     });
     if (this.chartRestore !== null) {
       const remapped = remapChartConfigs(this.chartRestore, this.metas);
@@ -1730,6 +1758,7 @@ export class App {
     this.moreButton.classList.toggle("hidden", view === "overview");
     this.addFilterButton.classList.toggle("hidden", view === "overview");
     this.syncTabs();
+    this.hints?.refresh();
   }
 
   private syncTabs(): void {
@@ -2082,7 +2111,7 @@ export class App {
 
   private openClean(
     column?: number,
-    tab: "values" | "nulls" = "values",
+    tab?: "values" | "nulls",
     op?: CleanOp,
   ): void {
     if (this.datasetName === "" || this.loading) return;
@@ -2110,7 +2139,7 @@ export class App {
         onOpenMerge: (column) => this.openMerge(column),
         onClose: () => this.setStage(null),
       },
-      { column, tab: column === undefined ? "names" : tab, op },
+      { column, tab, op },
     );
   }
 
@@ -2122,7 +2151,10 @@ export class App {
         const existing = this.cleanedColumns.get(target) ?? [];
         this.applyClean([{ column: target, ops: [...existing, ...ops] }]);
       },
-      onClose: () => this.setStage(null),
+      onClose: () => {
+        this.table?.refreshHeader();
+        this.setStage(null);
+      },
     });
   }
 
@@ -2380,6 +2412,7 @@ export class App {
         ? "No changes yet — clean, fix or transform a column to start the log"
         : "Review, undo or export the applied changes";
     this.stepsButton.classList.toggle("hidden", count === 0);
+    this.hints?.refresh();
   }
 
   private stepEntries(): StepsPanelEntry[] {

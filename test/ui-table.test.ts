@@ -179,8 +179,14 @@ test("mergeable categories surface a chip that opens the merge panel", () => {
     click(): void;
     textContent: string | null;
   };
-  assert.equal(chip.textContent, "2 mergeable");
+  assert.equal(chip.textContent, "2 similar pairs");
   chip.click();
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const action = [...document.querySelectorAll(".context-menu .context-item")].find(
+    (button) => button.textContent === "Merge values…",
+  ) as unknown as { click(): void } | undefined;
+  assert.ok(action !== undefined, "the popover offers the Merge panel");
+  action.click();
   assert.deepEqual(merges, [0]);
 });
 

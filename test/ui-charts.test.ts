@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
+import type { ColumnFilter } from "../src/search/query-engine.js";
 import { ChartsPanel, type ChartsPanelOptions } from "../src/ui/chart-panel.js";
 import { ChartCard, type ChartCardOptions } from "../src/ui/chart-card.js";
 import type {
@@ -537,5 +538,168 @@ test("charts panel adds, duplicates and removes independent cards", async () => 
   );
   await tick();
 
+  panel.dispose();
+});
+
+function captureMockContext(window: Window, drawn: string[]): void {
+  class MockContext {
+    font = "";
+    fillStyle = "";
+    strokeStyle = "";
+    lineWidth = 0;
+    globalAlpha = 1;
+    textAlign = "left";
+    textBaseline = "alphabetic";
+    imageSmoothingEnabled = true;
+    clearRect(): void {}
+    setTransform(): void {}
+    scale(): void {}
+    beginPath(): void {}
+    closePath(): void {}
+    moveTo(): void {}
+    lineTo(): void {}
+    stroke(): void {}
+    fill(): void {}
+    setLineDash(): void {}
+    roundRect(): void {}
+    strokeRect(): void {}
+    fillRect(): void {}
+    drawImage(): void {}
+    measureText(text: string): { width: number } {
+      return { width: String(text).length * 6 };
+    }
+    fillText(text: string): void {
+      drawn.push(String(text));
+    }
+    createImageData(width: number, height: number): {
+      data: Uint8ClampedArray;
+      width: number;
+      height: number;
+    } {
+      return { data: new Uint8ClampedArray(width * height * 4), width, height };
+    }
+    putImageData(): void {}
+  }
+  const proto = window.HTMLCanvasElement.prototype as unknown as { getContext(): unknown };
+  proto.getContext = (): unknown => new MockContext();
+}
+
+test("chart canvas carries a generated role=img label", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({ name: "region", type: "category", categories: { labels: ["Perth", "Sydney"], counts: [10, 5] } }),
+  ]);
+  await tick();
+  const canvas = host.querySelector("canvas") as HTMLCanvasElement;
+  assert.equal(canvas.getAttribute("role"), "img");
+  assert.match(canvas.getAttribute("aria-label") ?? "", /Bar chart of region/);
+  card.dispose();
+});
+
+test("bar clicks toggle their category through onFilter", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const applied: [number, ColumnFilter | null][] = [];
+  let current: ColumnFilter | null = null;
+  const host = document.createElement("div");
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      onFilter: (column, filter) => {
+        applied.push([column, filter]);
+        current = filter;
+      },
+      currentFilter: () => current,
+    },
+    { kind: "bar", column: 0 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({ name: "region", type: "category", categories: { labels: ["Perth", "Sydney"], counts: [10, 5] } }),
+  ]);
+  await tick();
+  const canvas = host.querySelector("canvas") as HTMLCanvasElement;
+  const click = (): void => {
+    (canvas as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(
+      new window.MouseEvent("click", { clientX: 200, clientY: 200 }),
+    );
+  };
+  click();
+  assert.deepEqual(applied, [[0, { kind: "values", selected: [0] }]]);
+  click();
+  assert.deepEqual(applied[1], [0, null], "clicking the only selected value clears it");
+  card.dispose();
+});
+
+test("hovering a chart fills the role=tooltip element", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({ name: "region", type: "category", categories: { labels: ["Perth", "Sydney"], counts: [10, 5] } }),
+  ]);
+  await tick();
+  const canvas = host.querySelector("canvas") as HTMLCanvasElement;
+  const tooltip = host.querySelector("[role=tooltip]") as HTMLElement;
+  assert.ok(tooltip !== null);
+  assert.equal(tooltip.classList.contains("hidden"), true, "hidden until hovered");
+  (canvas as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(
+    new window.MouseEvent("pointermove", { clientX: 200, clientY: 200 }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(tooltip.classList.contains("hidden"), false);
+  assert.match(tooltip.textContent ?? "", /Perth|Sydney/);
+  card.dispose();
+});
+
+test("a card with nothing to draw explains itself inside the plot", async () => {
+  setupDom();
+  const window = (globalThis as Record<string, unknown>).window as Window;
+  const drawn: string[] = [];
+  captureMockContext(window, drawn);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "histogram", column: -1 });
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([meta({ name: "note", type: "string" })]);
+  await tick();
+  const text = drawn.join(" ");
+  assert.match(text, /no numeric, date or category columns/);
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /no numeric, date or category/);
+  assert.equal(
+    host.querySelector(".chart-settings-body")?.classList.contains("hidden"),
+    true,
+    "settings that cannot apply are hidden",
+  );
+  card.dispose();
+});
+
+test("an emptied chart grid stays empty through column changes", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  const city = (): ColumnMeta =>
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } });
+  panel.setColumns([city(), meta({ name: "amount", type: "integer" })]);
+  await tick();
+  assert.equal(host.querySelectorAll(".chart-card").length, 1);
+  const remove = [...host.querySelectorAll("button")].find((button) => button.textContent === "×");
+  assert.ok(remove !== undefined);
+  (remove as unknown as { click(): void }).click();
+  assert.equal(host.querySelectorAll(".chart-card").length, 0);
+  panel.setColumns([city(), meta({ name: "amount", type: "number" })]);
+  await tick();
+  assert.equal(host.querySelectorAll(".chart-card").length, 0, "no default card comes back");
   panel.dispose();
 });

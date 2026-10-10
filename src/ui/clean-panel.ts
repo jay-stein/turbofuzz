@@ -65,6 +65,21 @@ export interface CleanPanelOptions {
 }
 
 /**
+ * Where the Clean drawer opens: the Nulls tab when any column has empty
+ * cells, otherwise Values when there are one-click suggestions, otherwise
+ * Column names. A preselected column always opens the Values tab.
+ */
+export function initialCleanTab(
+  metas: readonly ColumnMeta[],
+  column?: number,
+): "names" | "values" | "nulls" {
+  if (column !== undefined) return "values";
+  if (metas.some((meta) => meta.stats.nulls > 0)) return "nulls";
+  if (metas.some((meta) => meta.suggestions.length > 0)) return "values";
+  return "names";
+}
+
+/**
  * Clean panel: column-name normalisation and non-destructive value cleaning.
  * Both tabs preview exactly what will change before anything is applied, and
  * the worker keeps the untouched source so cleans can be reverted.
@@ -107,7 +122,7 @@ export function openCleanPanel(
   namesButton.addEventListener("click", () => selectTab("names"));
   valuesButton.addEventListener("click", () => selectTab("values"));
   nullsButton.addEventListener("click", () => selectTab("nulls"));
-  selectTab(options.tab ?? (options.column === undefined ? "names" : "values"));
+  selectTab(options.tab ?? initialCleanTab(metas, options.column));
 
   function close(): void {
     overlay.remove();
@@ -187,6 +202,7 @@ function buildNamesTab(
     previewList.replaceChildren(fragment);
     previewSummary.textContent =
       changed === 0 ? "No changes." : `${changed} of ${headers.length} columns will be renamed`;
+    apply.disabled = changed === 0;
   }
 
   const footer = el("div", { class: "clean-footer" });

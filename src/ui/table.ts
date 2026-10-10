@@ -1,9 +1,12 @@
 import { clear, el, svgIcon } from "./dom.js";
+import { openMenu, type MenuItem } from "./menu.js";
 import {
   describeSuggestion,
   suggestionShortLabel,
   type ColumnSuggestion,
 } from "../data/suggestions.js";
+import { clusterSimilar, type SimilarCluster } from "../search/similar.js";
+import { dismissedClusterCount, isClusterDismissed } from "./similar-dismissals.js";
 import { isNullToken, isNullWithWire } from "../parse/null-tokens.js";
 import { parseNumber } from "../parse/numbers.js";
 import { valueLength } from "../parse/value-length.js";
@@ -350,16 +353,17 @@ export class ResultTable {
       }, "click to show this column's overlong values"),
     ].filter((chip): chip is HTMLButtonElement => chip !== null);
     row.append(...chips, ...this.buildFixChips(column, index));
-    if (column.similarGroups > 0) {
+    const similarPairs = column.similarGroups - dismissedClusterCount(column.name);
+    if (similarPairs > 0 && column.categories !== null) {
       const merge = el(
         "button",
         { class: "th-qa-chip warn merge", type: "button" },
-        [`${column.similarGroups.toLocaleString()} mergeable`],
+        [`${similarPairs.toLocaleString()} similar ${similarPairs === 1 ? "pair" : "pairs"}`],
       ) as HTMLButtonElement;
-      merge.title = `${column.similarGroups.toLocaleString()} group${
-        column.similarGroups === 1 ? "" : "s"
-      } of near-identical values in “${column.name}” — click to merge them`;
-      merge.addEventListener("click", () => this.options.onMergeSimilar(index));
+      merge.title = `${similarPairs.toLocaleString()} ${
+        similarPairs === 1 ? "pair" : "pairs"
+      } of near-identical values in “${column.name}” — click to review`;
+      merge.addEventListener("click", () => this.openSimilarPairs(column, index, merge));
       row.append(merge);
     }
     if (column.stats.distinct === 1) {
@@ -377,6 +381,43 @@ export class ResultTable {
     return row;
   }
 
+  /**
+   * Popover for the "N similar pairs" chip: up to three pairs with counts,
+   * then the Merge panel for the full review.
+   */
+  private openSimilarPairs(column: ColumnMeta, index: number, anchor: HTMLElement): void {
+    const labels = column.categories?.labels ?? [];
+    const counts = column.categories?.counts ?? [];
+    const clusters = clusterSimilar(
+      labels.map((value, memberIndex) => ({ value, count: counts[memberIndex] })),
+    )
+      .filter((cluster) => !isClusterDismissed(column.name, cluster))
+      .slice(0, 3);
+    const items: MenuItem[] = clusters.map((cluster) => ({
+      label: this.pairLabel(cluster),
+      title: cluster.values
+        .map((entry) => `${entry.value} (${entry.count.toLocaleString()})`)
+        .join(" / "),
+      disabled: true,
+      action: () => {},
+    }));
+    items.push({
+      label: "Merge values…",
+      title: "Review and merge these values",
+      action: () => this.options.onMergeSimilar(index),
+    });
+    openMenu(anchor, items);
+  }
+
+  /** “Widget A (42) / Widget B (3)” for one similar cluster. */
+  private pairLabel(cluster: SimilarCluster): string {
+    const suggested =
+      cluster.values.find((entry) => entry.value === cluster.suggested) ?? cluster.values[0];
+    const other = cluster.values.find((entry) => entry.value !== cluster.suggested);
+    if (other === undefined) return `${suggested.value} (${suggested.count.toLocaleString()})`;
+    return `${suggested.value} (${suggested.count.toLocaleString()}) / ${other.value} (${other.count.toLocaleString()})`;
+  }
+
   private qaChip(
     column: ColumnMeta,
     index: number,
@@ -391,6 +432,7 @@ export class ResultTable {
     const text = `${count.toLocaleString()} ${count === 1 ? noun.one : noun.many}`;
     const chip = el("button", { class: "th-qa-chip warn", type: "button" }, [text]) as HTMLButtonElement;
     chip.classList.toggle("active", active);
+    chip.setAttribute("aria-pressed", active ? "true" : "false");
     chip.title = `${text} in “${column.name}” — ${active ? "click to clear" : hint}`;
     chip.addEventListener("click", () => this.options.onColumnSpecial(index, kind));
     return chip;

@@ -1,7 +1,8 @@
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import type { SeriesGrid, SeriesMode, SeriesPoints } from "../data/chart-series.js";
-import type { BoxStatsResult, CrossTabResult } from "../data/chart-stats.js";
+import type { BoxGroupStats, BoxStatsResult, CrossTabResult } from "../data/chart-stats.js";
 import { contourLevels, marchingSquares, smoothGrid, smoothSeries } from "../data/kde.js";
+import type { ColumnFilter } from "../search/query-engine.js";
 import { TYPE_LABELS } from "../types.js";
 import type {
   BoxStatsMessage,
@@ -14,6 +15,7 @@ import type {
 import {
   axisKindFor,
   categorySeries,
+  type CategoryBar,
   CHART_COLORS,
   CHART_KIND_LABELS,
   type ChartCardKind,
@@ -63,6 +65,10 @@ export interface ChartCardOptions {
     groupOther: boolean;
   }): Promise<CrosstabMessage>;
   requestCorrelation(columns: number[]): Promise<CorrelationMessage>;
+  /** Applies a filter from a click on a chart region (bars, bins, cells). */
+  onFilter?(column: number, filter: ColumnFilter | null, preview?: boolean): void;
+  /** Reads the app's current filter for a column, so clicks can toggle. */
+  currentFilter?(column: number): ColumnFilter | null;
   onRemove(card: ChartCard): void;
   onDuplicate(card: ChartCard): void;
   onExport(card: ChartCard): void;
@@ -106,6 +112,230 @@ interface Frame {
 const DEFAULT_BIN_COUNT = 32;
 const POINT_LIMIT = 20_000;
 const HEX = /^#?[0-9a-f]{6}$/i;
+
+/** Plot-area rectangle in canvas CSS pixels, shared by hit-region builders. */
+export interface PlotGeometry {
+  left: number;
+  top: number;
+  plotW: number;
+  plotH: number;
+}
+
+/** A click on a region toggles a category value or sets a range filter. */
+export type HitAction =
+  | { kind: "values"; column: number; code: number }
+  | { kind: "range"; column: number; min: number | null; max: number | null };
+
+export interface HitRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Tooltip lines, drawn in order. */
+  lines: string[];
+  /** Empty when the region is hover-only. */
+  actions: HitAction[];
+}
+
+/** Topmost region containing the point, or null. Regions are drawn in order. */
+export function hitTest(
+  regions: readonly HitRegion[],
+  x: number,
+  y: number,
+): HitRegion | null {
+  for (let index = regions.length - 1; index >= 0; index--) {
+    const region = regions[index];
+    if (
+      x >= region.x &&
+      x <= region.x + region.w &&
+      y >= region.y &&
+      y <= region.y + region.h
+    ) {
+      return region;
+    }
+  }
+  return null;
+}
+
+export interface SeriesHitInput {
+  column: number;
+  bins: readonly number[];
+  /** Count drawn in the extra "> max" slot (0 = no overflow slot). */
+  overflow: number;
+  min: number;
+  max: number;
+  dateAxis: boolean;
+}
+
+/** One hoverable slot per histogram bin (and the overflow bar). */
+export function seriesHitRegions(geom: PlotGeometry, input: SeriesHitInput): HitRegion[] {
+  const { bins, overflow, min, max, column, dateAxis } = input;
+  const slots = bins.length + (overflow > 0 ? 1 : 0);
+  if (slots === 0) return [];
+  const slotW = geom.plotW / slots;
+  const step = bins.length === 0 ? 0 : (max - min) / bins.length;
+  const format = (value: number): string =>
+    formatTick(value, dateAxis ? "line" : "histogram");
+  const regions: HitRegion[] = [];
+  for (let index = 0; index < bins.length; index++) {
+    const lo = min + index * step;
+    const hi = index === bins.length - 1 ? max : min + (index + 1) * step;
+    regions.push({
+      x: geom.left + index * slotW,
+      y: geom.top,
+      w: slotW,
+      h: geom.plotH,
+      lines: [`${format(lo)} – ${format(hi)}`, `${formatCount(bins[index])} rows`],
+      actions: [{ kind: "range", column, min: lo, max: hi }],
+    });
+  }
+  if (overflow > 0) {
+    regions.push({
+      x: geom.left + bins.length * slotW,
+      y: geom.top,
+      w: slotW,
+      h: geom.plotH,
+      lines: [`> ${format(max)}`, `${formatCount(overflow)} rows`],
+      actions: [{ kind: "range", column, min: max, max: null }],
+    });
+  }
+  return regions;
+}
+
+/** One hoverable slot per bar; "Other" bars are hover-only. */
+export function barHitRegions(
+  geom: PlotGeometry,
+  bars: readonly CategoryBar[],
+  codes: readonly number[],
+  column: number,
+): HitRegion[] {
+  if (bars.length === 0) return [];
+  const slotW = geom.plotW / bars.length;
+  return bars.map((bar, index) => {
+    const code = codes[index] ?? -1;
+    return {
+      x: geom.left + index * slotW,
+      y: geom.top,
+      w: slotW,
+      h: geom.plotH,
+      lines: [
+        bar.label === "" ? "(blank)" : bar.label,
+        `${formatCount(bar.count)} rows · ${bar.pct.toFixed(1)}%`,
+      ],
+      actions: bar.other === true || code < 0 ? [] : [{ kind: "values", column, code }],
+    };
+  });
+}
+
+export interface HeatmapHitInput {
+  xLabels: readonly string[];
+  yLabels: readonly string[];
+  counts: ArrayLike<number>;
+  total: number;
+  xColumn: number;
+  yColumn: number;
+  /** Category code for a label, or -1 when it is the grouped "Other" bucket. */
+  codeOfX: (label: string) => number;
+  codeOfY: (label: string) => number;
+}
+
+/** One hoverable cell per heatmap cell; both categories toggle on click. */
+export function heatmapHitRegions(geom: PlotGeometry, input: HeatmapHitInput): HitRegion[] {
+  const xCount = input.xLabels.length;
+  const yCount = input.yLabels.length;
+  if (xCount === 0 || yCount === 0) return [];
+  const cellW = geom.plotW / xCount;
+  const cellH = geom.plotH / yCount;
+  const regions: HitRegion[] = [];
+  for (let row = 0; row < yCount; row++) {
+    for (let column = 0; column < xCount; column++) {
+      const count = input.counts[row * xCount + column] ?? 0;
+      const pct = input.total > 0 ? (count / input.total) * 100 : 0;
+      const xLabel = input.xLabels[column];
+      const yLabel = input.yLabels[row];
+      const actions: HitAction[] = [];
+      const xCode = input.codeOfX(xLabel);
+      const yCode = input.codeOfY(yLabel);
+      if (xCode >= 0) actions.push({ kind: "values", column: input.xColumn, code: xCode });
+      if (yCode >= 0) actions.push({ kind: "values", column: input.yColumn, code: yCode });
+      regions.push({
+        x: geom.left + column * cellW,
+        y: geom.top + row * cellH,
+        w: cellW,
+        h: cellH,
+        lines: [`${xLabel} × ${yLabel}`, `${formatCount(count)} rows · ${pct.toFixed(1)}%`],
+        actions,
+      });
+    }
+  }
+  return regions;
+}
+
+/** Five-number summaries; hover-only. */
+export function boxHitRegions(
+  geom: PlotGeometry,
+  groups: readonly BoxGroupStats[],
+): HitRegion[] {
+  if (groups.length === 0) return [];
+  const slot = geom.plotW / groups.length;
+  return groups.map((group, index) => ({
+    x: geom.left + index * slot,
+    y: geom.top,
+    w: slot,
+    h: geom.plotH,
+    lines: [
+      group.label === "" ? "(blank)" : group.label,
+      `min ${formatChartNumber(group.min)}`,
+      `q1 ${formatChartNumber(group.q1)}`,
+      `median ${formatChartNumber(group.median)}`,
+      `q3 ${formatChartNumber(group.q3)}`,
+      `max ${formatChartNumber(group.max)}`,
+      `${formatCount(group.count)} values`,
+    ],
+    actions: [],
+  }));
+}
+
+export interface CorrelationHitInput {
+  labels: readonly string[];
+  values: ArrayLike<number>;
+  counts: ArrayLike<number>;
+}
+
+/** One hoverable cell per correlation pair; hover-only. */
+export function correlationHitRegions(
+  geom: PlotGeometry,
+  input: CorrelationHitInput,
+): HitRegion[] {
+  const n = input.labels.length;
+  if (n === 0) return [];
+  const size = Math.min(geom.plotW / n, geom.plotH / n);
+  const gridW = size * n;
+  const gridH = size * n;
+  const left = geom.left + (geom.plotW - gridW) / 2;
+  const top = geom.top + (geom.plotH - gridH) / 2;
+  const regions: HitRegion[] = [];
+  for (let row = 0; row < n; row++) {
+    for (let column = 0; column < n; column++) {
+      const index = row * n + column;
+      const r = input.values[index];
+      regions.push({
+        x: left + column * size,
+        y: top + row * size,
+        w: size,
+        h: size,
+        lines: [
+          `${input.labels[row]} × ${input.labels[column]}`,
+          Number.isFinite(r) ? `r = ${r.toFixed(2)}` : "r = —",
+          `n = ${formatCount(input.counts[index] ?? 0)}`,
+        ],
+        actions: [],
+      });
+    }
+  }
+  return regions;
+}
+
 
 function cssVar(name: string, fallback: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -205,6 +435,11 @@ export class ChartCard {
   private readonly titleInput: HTMLInputElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly noteEl: HTMLElement;
+  private readonly tooltipEl: HTMLElement;
+  private readonly settingsBody: HTMLElement;
+  private hitRegions: HitRegion[] = [];
+  private pointerAt: { x: number; y: number; clientX: number; clientY: number } | null = null;
+  private pointerFrame: number | null = null;
 
   private readonly onResize = (): void => this.scheduleRender();
   private renderQueued = false;
@@ -539,6 +774,7 @@ export class ChartCard {
       this.correlationSettings,
       lookRow,
     ]);
+    this.settingsBody = settingsBody;
     const settings = el("details", { class: "chart-settings-disclosure" }, [
       el("summary", { title: "Colours, ranges, titles and other settings" }, ["Settings"]),
       settingsBody,
@@ -546,15 +782,25 @@ export class ChartCard {
     head.insertBefore(settings, remove);
 
     const canvasWrap = el("div", { class: "chart-canvas-wrap" });
-    this.canvas = el("canvas", { class: "chart-canvas" }) as HTMLCanvasElement;
+    this.canvas = el("canvas", {
+      class: "chart-canvas",
+      role: "img",
+      "aria-label": "Chart",
+    }) as HTMLCanvasElement;
     canvasWrap.append(this.canvas);
     this.noteEl = el("div", { class: "chart-note" });
+    this.tooltipEl = el("div", { class: "chart-tooltip hidden", role: "tooltip" });
+    this.canvas.addEventListener("pointermove", (event) =>
+      this.queuePointer(event as PointerEvent),
+    );
+    this.canvas.addEventListener("pointerleave", () => this.hideTooltip());
+    this.canvas.addEventListener("click", (event) => this.handleCanvasClick(event));
     if (typeof ResizeObserver !== "undefined") {
       this.resizeObserver = new ResizeObserver(() => this.scheduleRender());
       this.resizeObserver.observe(canvasWrap);
     }
 
-    this.root.append(head, canvasWrap, this.noteEl);
+    this.root.append(head, canvasWrap, this.noteEl, this.tooltipEl);
 
     this.syncSwatches();
     this.syncOptions();
@@ -567,6 +813,14 @@ export class ChartCard {
   dispose(): void {
     this.disposed = true;
     this.generation++;
+    if (this.pointerFrame !== null) {
+      if (typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(this.pointerFrame);
+      } else {
+        window.clearTimeout(this.pointerFrame);
+      }
+      this.pointerFrame = null;
+    }
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     window.removeEventListener("resize", this.onResize);
@@ -923,6 +1177,9 @@ export class ChartCard {
         : `Last bin ends here — data range ${formatChartNumber(dataMin)} – ${formatChartNumber(dataMax)}${p95Text}`;
       this.maxInput.classList.toggle("clipped", this.config.binClipped);
     }
+
+    // Settings that cannot apply while nothing can be drawn are hidden.
+    this.settingsBody.classList.toggle("hidden", !this.canDraw());
   }
 
   private syncSwatches(): void {
@@ -1179,6 +1436,7 @@ export class ChartCard {
   }
 
   private render(): void {
+    this.canvas.setAttribute("aria-label", this.canvasLabel());
     const wrap = this.canvas.parentElement;
     let cssWidth = 640;
     if (wrap !== null) {
@@ -1203,6 +1461,209 @@ export class ChartCard {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.drawChart(ctx, cssWidth, cssHeight);
+  }
+
+  /** Generated text alternative for the canvas, updated on every redraw. */
+  private canvasLabel(): string {
+    const rows = this.rowCount.toLocaleString();
+    const name = (index: number): string => this.meta(index)?.name ?? "";
+    switch (this.config.kind) {
+      case "line":
+        return `Time series of ${name(this.config.column)}, ${rows} rows shown`;
+      case "bar":
+        return `Bar chart of ${name(this.config.column)}, ${rows} rows shown`;
+      case "scatter":
+        return `Scatter of ${name(this.config.x)} vs ${name(this.config.y)}, ${rows} rows shown`;
+      case "density":
+        return `Density plot of ${name(this.config.x)} vs ${name(this.config.y)}, ${rows} rows shown`;
+      case "box":
+        return `Box plot of ${name(this.config.x)} by ${name(this.config.y)}, ${rows} rows shown`;
+      case "heatmap":
+        return `Heatmap of ${name(this.config.x)} × ${name(this.config.y)}, ${rows} rows shown`;
+      case "correlation":
+        return `Correlation matrix of ${this.config.correlationColumns.length} columns, ${rows} rows shown`;
+      default: {
+        const column = name(this.config.column);
+        return column === ""
+          ? `Histogram, ${rows} rows shown`
+          : `Histogram of ${column}, ${rows} rows shown`;
+      }
+    }
+  }
+
+  /** Coalesces pointer moves into one tooltip update per animation frame. */
+  private queuePointer(event: PointerEvent): void {
+    const rect = this.canvas.getBoundingClientRect();
+    this.pointerAt = {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    };
+    if (this.pointerFrame !== null) return;
+    const run = (): void => {
+      this.pointerFrame = null;
+      if (!this.disposed) this.showTooltipAtPointer();
+    };
+    if (typeof window.requestAnimationFrame === "function") {
+      this.pointerFrame = window.requestAnimationFrame(run);
+    } else {
+      this.pointerFrame = window.setTimeout(run, 16);
+    }
+  }
+
+  private showTooltipAtPointer(): void {
+    const at = this.pointerAt;
+    if (at === null) return;
+    const region = hitTest(this.hitRegions, at.x, at.y);
+    if (region === null) {
+      this.hideTooltip();
+      return;
+    }
+    this.tooltipEl.textContent = region.lines.join("\n");
+    this.tooltipEl.classList.remove("hidden");
+    const cardRect = this.root.getBoundingClientRect();
+    const left = Math.max(
+      4,
+      Math.min(at.clientX - cardRect.left + 14, Math.max(4, cardRect.width - 160)),
+    );
+    const top = Math.max(4, at.clientY - cardRect.top + 16);
+    this.tooltipEl.style.left = `${left}px`;
+    this.tooltipEl.style.top = `${top}px`;
+    this.canvas.classList.toggle("chart-clickable", region.actions.length > 0);
+  }
+
+  private hideTooltip(): void {
+    this.tooltipEl.classList.add("hidden");
+    this.canvas.classList.remove("chart-clickable");
+  }
+
+  private handleCanvasClick(event: MouseEvent): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const region = hitTest(
+      this.hitRegions,
+      event.clientX - rect.left,
+      event.clientY - rect.top,
+    );
+    if (region === null) return;
+    for (const action of region.actions) this.applyHitAction(action);
+  }
+
+  /** Toggles a category value or sets a range filter through the app hook. */
+  private applyHitAction(action: HitAction): void {
+    const onFilter = this.options.onFilter;
+    if (onFilter === undefined) return;
+    const current = this.options.currentFilter?.(action.column) ?? null;
+    if (action.kind === "range") {
+      const same =
+        current?.kind === "range" &&
+        current.min === action.min &&
+        current.max === action.max;
+      if (same) onFilter(action.column, null);
+      else onFilter(action.column, { kind: "range", min: action.min, max: action.max });
+      return;
+    }
+    const total = this.meta(action.column)?.categories?.labels.length ?? 0;
+    let selected: number[];
+    if (current?.kind === "values") {
+      selected = current.selected.filter((code) => code !== action.code);
+      if (selected.length === current.selected.length) selected.push(action.code);
+    } else {
+      selected = [action.code];
+    }
+    if (selected.length === 0 || (total > 0 && selected.length === total)) {
+      onFilter(action.column, null);
+    } else {
+      onFilter(action.column, { kind: "values", selected });
+    }
+  }
+
+  /** Wrapped message drawn inside the empty plot area. */
+  private drawPlotMessage(
+    ctx: CanvasRenderingContext2D,
+    frame: Frame,
+    message: string,
+  ): void {
+    this.font(ctx, frame.ui, 12);
+    ctx.fillStyle = frame.dim;
+    ctx.textAlign = "center";
+    const maxWidth = Math.max(40, frame.plotW - 24 * frame.ui);
+    const lines: string[] = [];
+    let line = "";
+    for (const word of message.split(" ")) {
+      const candidate = line === "" ? word : `${line} ${word}`;
+      if (line !== "" && ctx.measureText(candidate).width > maxWidth) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = candidate;
+      }
+    }
+    if (line !== "") lines.push(line);
+    const lineHeight = 16 * frame.ui;
+    const startY = frame.top + frame.plotH / 2 - ((lines.length - 1) * lineHeight) / 2;
+    lines.forEach((text, index) => {
+      ctx.fillText(
+        text,
+        frame.left + frame.plotW / 2,
+        startY + index * lineHeight + 4 * frame.ui,
+      );
+    });
+    ctx.textAlign = "left";
+  }
+
+  /** False while the card has nothing its kind can plot. */
+  private canDraw(): boolean {
+    if (this.columns.length === 0) return false;
+    const count = (allow: (meta: ColumnMeta) => boolean): number =>
+      this.columns.filter(allow).length;
+    switch (this.config.kind) {
+      case "histogram": {
+        const meta = this.meta(this.config.column);
+        return meta !== undefined && isNumericType(meta.type);
+      }
+      case "line":
+        return count((meta) => meta.type === "date") > 0;
+      case "bar": {
+        const meta = this.meta(this.config.column);
+        return meta !== undefined && isCategoryType(meta.type);
+      }
+      case "scatter":
+      case "density": {
+        const x = this.meta(this.config.x);
+        const y = this.meta(this.config.y);
+        return (
+          x !== undefined &&
+          y !== undefined &&
+          this.allowsAxis(x) &&
+          this.allowsAxis(y)
+        );
+      }
+      case "box":
+        return count((meta) => isNumericType(meta.type)) > 0 &&
+          count((meta) => isCategoryType(meta.type)) > 0;
+      case "heatmap":
+        return count((meta) => isCategoryType(meta.type)) >= 2;
+      case "correlation":
+        return count((meta) => isNumericType(meta.type)) >= 2;
+    }
+  }
+
+  /** Honest reason a series-style card has nothing to plot. */
+  private emptySeriesMessage(kind: "histogram" | "line" | "bar"): string {
+    if (kind === "line" && !this.columns.some((meta) => meta.type === "date")) {
+      return "No date column in this file.";
+    }
+    const chartable = this.columns.some(
+      (meta) =>
+        isNumericType(meta.type) ||
+        meta.type === "date" ||
+        isCategoryType(meta.type),
+    );
+    if (!chartable) {
+      return "This file has no numeric, date or category columns. Change a column's type in the filter list.";
+    }
+    return "Pick a column to chart.";
   }
 
   /**
@@ -1351,11 +1812,13 @@ export class ChartCard {
     ctx.clearRect(0, 0, width, height);
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
+    this.hitRegions = [];
     const ui = this.textScale(height, forExport);
     const frame = this.frame(ctx, width, height, forExport, this.widestYLabel(ctx, ui));
 
     if (this.columns.length === 0) {
       this.noteEl.textContent = "Load data to see charts.";
+      this.drawPlotMessage(ctx, frame, "Load data to see charts.");
       return;
     }
 
@@ -1405,7 +1868,9 @@ export class ChartCard {
   ): void {
     const meta = this.meta(this.config.column);
     if (meta === undefined) {
-      this.noteEl.textContent = "Pick a column to chart.";
+      const message = this.emptySeriesMessage(kind);
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
       return;
     }
     const automatic = meta.histogram;
@@ -1413,7 +1878,9 @@ export class ChartCard {
     const bins =
       custom !== null ? custom.bins : (this.histograms[this.config.column] ?? automatic?.bins ?? []);
     if (bins.length === 0 || automatic === null) {
-      this.noteEl.textContent = "This column has no histogram data yet.";
+      const message = "This column has no histogram data yet.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
       return;
     }
     const ui = frame.ui;
@@ -1423,6 +1890,19 @@ export class ChartCard {
     const slots = bins.length + (hasOverflow ? 1 : 0);
     const slotW = frame.plotW / slots;
     const barW = Math.max(1, slotW - 1);
+    const min = this.config.binOptions?.min ?? automatic.min;
+    const max = this.config.binOptions?.max ?? automatic.max;
+    this.hitRegions = seriesHitRegions(
+      { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
+      {
+        column: this.config.column,
+        bins,
+        overflow: hasOverflow ? overflowCount : 0,
+        min,
+        max,
+        dateAxis: kind === "line",
+      },
+    );
 
     const yTicks = niceTicks(0, maxCount, 4);
     ctx.strokeStyle = frame.border;
@@ -1480,9 +1960,6 @@ export class ChartCard {
       ctx.fill();
       ctx.globalAlpha = 1;
     }
-
-    const min = this.config.binOptions?.min ?? automatic.min;
-    const max = this.config.binOptions?.max ?? automatic.max;
 
     if (kind === "histogram" && this.config.kde && bins.length >= 4) {
       const smooth = smoothSeries(bins, 1.4);
@@ -1581,18 +2058,32 @@ export class ChartCard {
   private drawBars(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const meta = this.meta(this.config.column);
     if (meta === undefined) {
-      this.noteEl.textContent = "Pick a column to chart.";
+      const message = this.emptySeriesMessage("bar");
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
       return;
     }
     const bars = categorySeries(meta, this.facets[this.config.column], this.config.topN, this.config.groupOther);
     if (bars.length === 0) {
-      this.noteEl.textContent = "This column has no category data yet.";
+      const message = "This column has no category data yet.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
       return;
     }
     const ui = frame.ui;
     const maxCount = Math.max(1, ...bars.map((bar) => bar.count));
     const slotW = frame.plotW / bars.length;
     const barW = Math.max(4, slotW - Math.min(18 * ui, slotW * 0.25));
+    const labels = meta.categories?.labels ?? [];
+    const codes = bars.map((bar) =>
+      bar.other === true ? -1 : labels.indexOf(bar.label),
+    );
+    this.hitRegions = barHitRegions(
+      { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
+      bars,
+      codes,
+      this.config.column,
+    );
 
     const yTicks = niceTicks(0, maxCount, 4);
     ctx.strokeStyle = frame.border;
@@ -1667,10 +2158,12 @@ export class ChartCard {
     const xMeta = this.meta(this.config.x);
     const yMeta = this.meta(this.config.y);
     if (result === null || xMeta === undefined || yMeta === undefined) {
-      this.noteEl.textContent =
+      const message =
         this.columns.length === 0
           ? "Load data to see charts."
           : "Scatter and density need two numeric or date columns — pick X and Y above.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
       return;
     }
     if (result.mode === "density") this.drawDensity(ctx, frame, result, xMeta, yMeta);
@@ -1799,7 +2292,9 @@ export class ChartCard {
     yMeta: ColumnMeta,
   ): void {
     if (result.shown === 0) {
-      this.noteEl.textContent = "No matching X/Y value pairs in the current rows.";
+      const message = "No matching X/Y value pairs in the current rows.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
       return;
     }
     this.drawAxes(
@@ -1861,7 +2356,9 @@ export class ChartCard {
     yMeta: ColumnMeta,
   ): void {
     if (result.max === 0) {
-      this.noteEl.textContent = "No matching X/Y value pairs in the current rows.";
+      const message = "No matching X/Y value pairs in the current rows.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
       return;
     }
     const style = this.config.densityStyle;
@@ -2013,14 +2510,20 @@ export class ChartCard {
   private drawBox(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const result = this.boxResult;
     if (result === null || result.groups.length === 0) {
-      this.noteEl.textContent =
+      const message =
         this.columns.length === 0
           ? "Load data to see charts."
           : "Box plots need a numeric Value column and a category Groups column — pick them above.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
       return;
     }
     const ui = frame.ui;
     const groups = result.groups;
+    this.hitRegions = boxHitRegions(
+      { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
+      groups,
+    );
     let yMin = Infinity;
     let yMax = -Infinity;
     for (const group of groups) {
@@ -2136,13 +2639,32 @@ export class ChartCard {
   private drawHeatmap(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const result = this.crossResult;
     if (result === null || result.xLabels.length === 0 || result.yLabels.length === 0) {
-      this.noteEl.textContent =
+      const message =
         this.columns.length === 0
           ? "Load data to see charts."
           : "Heatmaps need two category columns — pick them above.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
       return;
     }
     const ui = frame.ui;
+    const xMeta = this.meta(this.config.x);
+    const yMeta = this.meta(this.config.y);
+    const codeOf = (meta: ColumnMeta | undefined, label: string): number =>
+      meta?.categories?.labels.indexOf(label) ?? -1;
+    this.hitRegions = heatmapHitRegions(
+      { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
+      {
+        xLabels: result.xLabels,
+        yLabels: result.yLabels,
+        counts: result.counts,
+        total: result.total,
+        xColumn: this.config.x,
+        yColumn: this.config.y,
+        codeOfX: (label) => codeOf(xMeta, label),
+        codeOfY: (label) => codeOf(yMeta, label),
+      },
+    );
     const xCount = result.xLabels.length;
     const yCount = result.yLabels.length;
     const cellW = frame.plotW / xCount;
@@ -2209,14 +2731,23 @@ export class ChartCard {
   private drawCorrelation(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const result = this.correlationResult;
     if (result === null || result.labels.length < 2) {
-      this.noteEl.textContent =
-        this.columns.length === 0
-          ? "Load data to see charts."
-          : "Correlation needs at least two numeric columns — select them above.";
+      let message: string;
+      if (this.columns.length === 0) {
+        message = "Load data to see charts.";
+      } else {
+        const numeric = this.columns.filter((meta) => isNumericType(meta.type)).length;
+        message = `Correlation needs at least two numeric columns; this file has ${numeric}.`;
+      }
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
       return;
     }
     const ui = frame.ui;
     const n = result.labels.length;
+    this.hitRegions = correlationHitRegions(
+      { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
+      { labels: result.labels, values: result.values, counts: result.counts },
+    );
     const size = Math.min(frame.plotW / n, frame.plotH / n);
     const gridW = size * n;
     const gridH = size * n;

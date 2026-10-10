@@ -1,4 +1,5 @@
 import type { ChartBinOptions } from "../data/chart-bins.js";
+import type { ColumnFilter } from "../search/query-engine.js";
 import type {
   BoxStatsMessage,
   ChartBinsMessage,
@@ -38,6 +39,10 @@ export interface ChartsPanelOptions {
     groupOther: boolean;
   }): Promise<CrosstabMessage>;
   requestCorrelation(columns: number[]): Promise<CorrelationMessage>;
+  /** Applies a filter from a click on a chart region (bars, bins, cells). */
+  onFilter?(column: number, filter: ColumnFilter | null, preview?: boolean): void;
+  /** Reads the app's current filter for a column, so clicks can toggle. */
+  currentFilter?(column: number): ColumnFilter | null;
 }
 
 const LAYOUT_KEY = "turbofuzz.charts.columns";
@@ -218,6 +223,8 @@ export class ChartsPanel {
   private rowCount = 0;
   private exportSizeIndex = DEFAULT_EXPORT_SIZE;
   private layoutCols = readLayout();
+  /** True once a dataset's columns have been seen; a cleared grid stays clear. */
+  private initialised = false;
 
   constructor(
     private readonly root: HTMLElement,
@@ -297,6 +304,8 @@ export class ChartsPanel {
         requestBoxStats: this.options.requestBoxStats,
         requestCrosstab: this.options.requestCrosstab,
         requestCorrelation: this.options.requestCorrelation,
+        onFilter: this.options.onFilter,
+        currentFilter: this.options.currentFilter,
         onRemove: (target) => this.removeCard(target),
         onDuplicate: (target) => this.duplicateCard(target),
         onExport: (target) => {
@@ -332,9 +341,12 @@ export class ChartsPanel {
 
   setColumns(columns: ColumnMeta[]): void {
     this.columns = columns;
-    if (columns.length > 0 && this.cards.length === 0) {
-      this.addCard();
-      return;
+    if (!this.initialised) {
+      this.initialised = true;
+      if (columns.length > 0 && this.cards.length === 0) {
+        this.addCard();
+        return;
+      }
     }
     for (const card of this.cards) card.setColumns(columns);
     this.syncSuggestions();
@@ -352,6 +364,7 @@ export class ChartsPanel {
    */
   restore(configs: readonly Partial<ChartCardConfig>[], columns: ColumnMeta[]): void {
     this.columns = columns;
+    this.initialised = true;
     for (const config of configs) this.addCard(config);
     this.syncSuggestions();
   }

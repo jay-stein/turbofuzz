@@ -2224,6 +2224,26 @@ mark {
   display: block;
 }
 
+.chart-canvas.chart-clickable {
+  cursor: pointer;
+}
+
+.chart-tooltip {
+  position: absolute;
+  z-index: 40;
+  max-width: 240px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-line;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 18%);
+  pointer-events: none;
+}
+
 .chart-note {
   font-size: 11.5px;
   color: var(--text-dim);
@@ -2389,6 +2409,7 @@ select.chart-number {
 }
 
 .chart-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -3280,4 +3301,50 @@ label.null-row {
 
 .context-item.instant {
   font-weight: 600;
+}
+
+/* ---------- first-run hints ---------- */
+
+.hint-callout {
+  position: fixed;
+  z-index: 90;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 320px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 12.5px;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.hint-callout-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.hint-callout-close {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.hint-callout-close:hover {
+  background: var(--panel-2);
+  color: var(--text);
 }
