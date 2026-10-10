@@ -1,4 +1,5 @@
 import { clear, el, svgIcon } from "./dom.js";
+import { openDedupeMenu } from "./dedupe-menu.js";
 import { toDateInputValue } from "../parse/dates.js";
 import type { TopValue } from "../parse/infer.js";
 import { TYPE_LABELS } from "../types.js";
@@ -170,64 +171,7 @@ export class SummaryBand {
   private openDedupeMenu(anchor: HTMLElement): void {
     const stats = this.stats;
     if (stats === null) return;
-
-    const menu = el("div", { class: "context-menu qa-menu", role: "menu" });
-    const options: { keep: DedupeKeep; label: string; removed: number; hint: string }[] = [
-      {
-        keep: "first",
-        label: "Keep first copy",
-        removed: stats.duplicateRows,
-        hint: "Remove later copies, keeping the earliest row of every duplicate group",
-      },
-      {
-        keep: "last",
-        label: "Keep last copy",
-        removed: stats.duplicateRows,
-        hint: "Remove earlier copies, keeping the latest row of every duplicate group",
-      },
-      {
-        keep: "none",
-        label: "Remove all copies",
-        removed: stats.rowsInDuplicateGroups,
-        hint: "Drop every row that belongs to a duplicate group, including the original",
-      },
-    ];
-
-    let closed = false;
-    const close = (): void => {
-      if (closed) return;
-      closed = true;
-      menu.remove();
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKey);
-    };
-    const onPointerDown = (event: PointerEvent): void => {
-      if (!menu.contains(event.target as Node)) close();
-    };
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") close();
-    };
-
-    for (const option of options) {
-      const item = el(
-        "button",
-        { class: "context-item", type: "button", role: "menuitem", title: option.hint },
-        [`${option.label} — ${option.removed.toLocaleString()} rows`],
-      ) as HTMLButtonElement;
-      item.disabled = option.removed === 0;
-      item.addEventListener("click", () => {
-        close();
-        this.callbacks.onDropDuplicates(option.keep);
-      });
-      menu.append(item);
-    }
-
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKey);
-    document.body.append(menu);
-    const rect = anchor.getBoundingClientRect();
-    menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8))}px`;
-    menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8)}px`;
+    openDedupeMenu(anchor, stats, (keep) => this.callbacks.onDropDuplicates(keep));
   }
 
   /** Metric definitions with their unit, so the counts are not ambiguous. */
@@ -407,70 +351,79 @@ export class SummaryBand {
   }
 
   private buildColumnCard(meta: ColumnMeta, index: number): HTMLElement {
-    const card = el(
-      "button",
-      {
-        class: "stat-card",
-        type: "button",
-        "data-column": String(index),
-        title: `${meta.name} — ${TYPE_LABELS[meta.type]}`,
-      },
-    ) as HTMLButtonElement;
-    card.addEventListener("click", () => this.callbacks.onColumnClick(index));
+    return buildColumnCard(meta, index, this.callbacks.onColumnClick);
+  }
+}
 
-    const head = el("div", { class: "stat-card-head" });
-    head.append(
-      el("span", { class: "stat-name", title: meta.name }, [meta.name]),
-      el("span", { class: "stat-type" }, [TYPE_LABELS[meta.type]]),
-    );
-    card.append(head);
+/** One compact column card: sparkline/top values, range/length and empties. */
+export function buildColumnCard(
+  meta: ColumnMeta,
+  index: number,
+  onColumnClick: (index: number) => void,
+): HTMLElement {
+  const card = el(
+    "button",
+    {
+      class: "stat-card",
+      type: "button",
+      "data-column": String(index),
+      title: `${meta.name} — ${TYPE_LABELS[meta.type]}`,
+    },
+  ) as HTMLButtonElement;
+  card.addEventListener("click", () => onColumnClick(index));
 
-    const numeric =
-      meta.type === "integer" || meta.type === "number" || meta.type === "date";
+  const head = el("div", { class: "stat-card-head" });
+  head.append(
+    el("span", { class: "stat-name", title: meta.name }, [meta.name]),
+    el("span", { class: "stat-type" }, [TYPE_LABELS[meta.type]]),
+  );
+  card.append(head);
 
-    if (numeric && meta.histogram !== null && meta.histogram.max > meta.histogram.min) {
-      card.append(buildMiniHistogram(meta.histogram.bins));
-    }
+  const numeric =
+    meta.type === "integer" || meta.type === "number" || meta.type === "date";
 
-    if (numeric) {
-      const main = el("div", { class: "stat-card-main" });
-      if (meta.stats.min !== null && meta.stats.max !== null) {
-        const format = (value: number): string =>
-          meta.type === "date"
-            ? toDateInputValue(value)
-            : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
-        main.textContent = `${format(meta.stats.min)} – ${format(meta.stats.max)}`;
-      } else {
-        main.textContent = "—";
-      }
-      card.append(main);
-    } else if (meta.stats.topValues.length > 0) {
-      card.append(buildTopValues(meta.stats.topValues));
+  if (numeric && meta.histogram !== null && meta.histogram.max > meta.histogram.min) {
+    card.append(buildMiniHistogram(meta.histogram.bins));
+  }
+
+  if (numeric) {
+    const main = el("div", { class: "stat-card-main" });
+    if (meta.stats.min !== null && meta.stats.max !== null) {
+      const format = (value: number): string =>
+        meta.type === "date"
+          ? toDateInputValue(value)
+          : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      main.textContent = `${format(meta.stats.min)} – ${format(meta.stats.max)}`;
     } else {
-      card.append(
-        el("div", { class: "stat-card-main" }, [`${meta.stats.distinct.toLocaleString()} distinct`]),
+      main.textContent = "—";
+    }
+    card.append(main);
+  } else if (meta.stats.topValues.length > 0) {
+    card.append(buildTopValues(meta.stats.topValues));
+  } else {
+    card.append(
+      el("div", { class: "stat-card-main" }, [`${meta.stats.distinct.toLocaleString()} distinct`]),
+    );
+  }
+
+  const parts: string[] = [];
+  if (numeric) {
+    parts.push(`${meta.stats.distinct.toLocaleString()} distinct`);
+    if (meta.valueFence !== null && meta.type !== "date") {
+      parts.push(
+        `median ${meta.valueFence.center.toLocaleString(undefined, { maximumFractionDigits: 1 })}`,
       );
     }
-
-    const parts: string[] = [];
-    if (numeric) {
-      parts.push(`${meta.stats.distinct.toLocaleString()} distinct`);
-      if (meta.valueFence !== null && meta.type !== "date") {
-        parts.push(
-          `median ${meta.valueFence.center.toLocaleString(undefined, { maximumFractionDigits: 1 })}`,
-        );
-      }
-      if (meta.stats.mean !== null && meta.type !== "date") {
-        parts.push(`mean ${meta.stats.mean.toLocaleString(undefined, { maximumFractionDigits: 1 })}`);
-      }
-    } else if (meta.stats.avgLength !== null) {
-      parts.push(`len avg ${meta.stats.avgLength.toFixed(1)}`);
+    if (meta.stats.mean !== null && meta.type !== "date") {
+      parts.push(`mean ${meta.stats.mean.toLocaleString(undefined, { maximumFractionDigits: 1 })}`);
     }
-    parts.push(meta.stats.nulls > 0 ? `${meta.stats.nulls.toLocaleString()} empty` : "no empties");
-    card.append(el("div", { class: "stat-card-foot" }, [parts.join(" · ")]));
-
-    return card;
+  } else if (meta.stats.avgLength !== null) {
+    parts.push(`len avg ${meta.stats.avgLength.toFixed(1)}`);
   }
+  parts.push(meta.stats.nulls > 0 ? `${meta.stats.nulls.toLocaleString()} empty` : "no empties");
+  card.append(el("div", { class: "stat-card-foot" }, [parts.join(" · ")]));
+
+  return card;
 }
 
 const MINI_BARS = 32;

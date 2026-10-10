@@ -2843,6 +2843,134 @@ label.null-row {
   color: var(--danger);
 }
 
+/* ---------- overview ---------- */
+
+.overview-host {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px 18px;
+}
+
+.overview {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.overview-dataset {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.overview-facts {
+  font-weight: 650;
+}
+
+.overview-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.health-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.health-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 9px 12px;
+}
+
+.health-tile.warn {
+  border-color: var(--qa-warn-border);
+  background: var(--qa-warn-soft);
+}
+
+.health-value {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: var(--mono);
+}
+
+.health-label {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.overview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.overview-heading {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.next-step-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 8px;
+}
+
+.next-step-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 10px 12px;
+}
+
+.next-step-text {
+  font-size: 13px;
+}
+
+.overview-column-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
+  gap: 8px;
+}
+
+.overview-column-grid .stat-card {
+  width: auto;
+  height: 100%;
+  min-height: 142px;
+}
+
+.overview-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.stats-link {
+  font-size: 12.5px;
+}
+
 /* ---------- responsive ---------- */
 
 @media (max-width: 900px) {

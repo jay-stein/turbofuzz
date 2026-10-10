@@ -29,6 +29,9 @@ import type {
   TransformedMessage,
 } from "../worker/protocol.js";
 import { clear, el, svgIcon } from "./dom.js";
+import { openDedupeMenu } from "./dedupe-menu.js";
+import { Overview, readDefaultView } from "./overview.js";
+import type { DatasetStats } from "../data/stats.js";
 import { FilterPanel } from "./filters.js";
 import { ChartsPanel } from "./chart-panel.js";
 import { openHelpDrawer } from "./help-drawer.js";
@@ -242,6 +245,8 @@ export class App {
   private lastLens: "table" | "chart" = "table";
   private tabs: ViewTabs | null = null;
   private overviewHost!: HTMLElement;
+  private overview: Overview | null = null;
+  private latestStats: DatasetStats | null = null;
   private sidebarEl!: HTMLElement;
   private latestFacets: Record<number, number[]> = {};
   private latestHistograms: Record<number, number[]> = {};
@@ -542,6 +547,26 @@ export class App {
 
     this.summaryHost = el("div");
     this.overviewHost = el("div", { class: "overview-host hidden" });
+    this.overview = new Overview(this.overviewHost, {
+      onOpenTable: () => this.setView("table"),
+      onOpenChart: () => this.setView("chart"),
+      onFilterColumn: (column) => {
+        this.setView("table");
+        this.filterPanel?.focusColumn(column);
+      },
+      onCleanColumn: (column) => this.openClean(column, "values"),
+      onOpenCleanNulls: () => this.openClean(undefined, "nulls"),
+      onDedupe: (anchor) => {
+        const stats = this.latestStats;
+        if (stats !== null) openDedupeMenu(anchor, stats, (keep) => this.dropDuplicates(keep));
+      },
+      onOpenMerge: (column) => this.openMerge(column),
+      onReviewColumn: (column) => {
+        this.setView("table");
+        this.filterPanel?.focusColumn(column);
+      },
+      onOpenStats: () => this.openStats(),
+    });
     const body = el("div", { class: "workspace-body" }, [sidebar, results]);
     workspace.append(navRow, this.overviewHost, this.summaryHost, body);
     return workspace;
@@ -1006,9 +1031,11 @@ export class App {
     this.latestFacets = {};
     this.latestHistograms = {};
 
+    this.latestStats = loaded.stats;
+    this.overview?.render(loaded);
     this.updateCount(loaded.rowCount, 0);
     this.updateGuardrail(loaded, loaded.source === "file" || loaded.type === "transformed");
-    this.view = this.chartActive ? "chart" : "table";
+    if (loaded.type === "loaded") this.view = readDefaultView();
     this.setView(this.view);
   }
 
@@ -1298,6 +1325,7 @@ export class App {
           }
           this.summaryBand?.setCounts(message.stats);
           this.summaryBand?.updateColumn(column, message.meta);
+          this.overview?.updateColumn(column, message.meta);
           this.filterPanel?.updateMeta(column, message.meta);
           this.table?.updateColumn(column, message.meta);
           this.applyFacets(message.facets, message.histograms);
@@ -1377,6 +1405,7 @@ export class App {
           this.refreshCharts();
           this.summaryBand?.setCounts(message.stats);
           this.summaryBand?.updateColumn(column, message.meta);
+          this.overview?.updateColumn(column, message.meta);
           this.filterPanel?.updateMeta(column, message.meta);
           this.table?.updateColumn(column, message.meta);
           this.applyFacets(message.facets, message.histograms);
@@ -1626,6 +1655,7 @@ export class App {
     this.chartActive = chart;
     this.workspace.classList.toggle("chart-mode", chart);
     this.overviewHost.classList.toggle("hidden", view !== "overview");
+    this.summaryHost.classList.toggle("hidden", view === "overview");
     this.tableHost.classList.toggle("hidden", view !== "table");
     this.chartHost.classList.toggle("hidden", view !== "chart");
     this.syncTabs();
@@ -2285,6 +2315,7 @@ export class App {
             this.filterPanel?.updateMeta(column, meta);
             this.table?.updateColumn(column, meta);
             this.summaryBand?.updateColumn(column, meta);
+            this.overview?.updateColumn(column, meta);
           }
           this.refreshCharts();
           this.summaryBand?.setCounts(message.stats);
@@ -2325,6 +2356,7 @@ export class App {
             this.filterPanel?.updateMeta(index, meta);
             this.table?.updateColumn(index, meta);
             this.summaryBand?.updateColumn(index, meta);
+            this.overview?.updateColumn(index, meta);
           }
           if (options.record !== false && changed) {
             const name = message.columns[0]?.meta.name ?? `Column ${column + 1}`;
@@ -2378,6 +2410,7 @@ export class App {
           this.table?.updateColumns(this.metas);
           for (const { column, meta } of message.columns) {
             this.summaryBand?.updateColumn(column, meta);
+            this.overview?.updateColumn(column, meta);
           }
           this.summaryBand?.setCounts(message.stats);
           this.filterPanel?.rebuild();
