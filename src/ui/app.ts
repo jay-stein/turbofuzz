@@ -51,6 +51,7 @@ import { openMergePanel } from "./merge-panel.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
 import { PipelineStepper, type StageId } from "./stepper.js";
+import { ViewTabs, type ViewId } from "./view-tabs.js";
 
 const LARGE_PASTE_ROWS = 300_000;
 const FILE_ACCEPT =
@@ -237,8 +238,13 @@ export class App {
   private chartHost!: HTMLElement;
   private chartsPanel: ChartsPanel | null = null;
   private chartActive = false;
-  private tableTabButton!: HTMLButtonElement;
-  private chartTabButton!: HTMLButtonElement;
+  private view: ViewId = "overview";
+  private lastLens: "table" | "chart" = "table";
+  private tabs: ViewTabs | null = null;
+  private overviewHost!: HTMLElement;
+  private sidebarEl!: HTMLElement;
+  private latestFacets: Record<number, number[]> = {};
+  private latestHistograms: Record<number, number[]> = {};
   private themeButton!: HTMLButtonElement;
   private themePreference: ThemePreference = readThemePreference();
   private stepperHost!: HTMLElement;
@@ -436,12 +442,16 @@ export class App {
     this.workspaceTitle = el("h1", { class: "sr-only" }, ["TurboFuzz workspace"]);
     workspace.append(this.workspaceTitle);
 
+    const tabHost = el("div");
+    this.tabs = new ViewTabs(tabHost, { onChange: (view) => this.setView(view) });
     this.stepperHost = el("div", { class: "stepper-host" });
     this.stepper = new PipelineStepper(this.stepperHost, {
       onSelect: (id) => this.selectStage(id),
     });
+    const navRow = el("div", { class: "nav-row" }, [tabHost, this.stepperHost]);
 
-    const sidebar = el("aside", { class: "sidebar" });
+    const sidebar = el("aside", { class: "sidebar hidden" });
+    this.sidebarEl = sidebar;
     const sidebarHead = el("div", { class: "sidebar-head" });
     sidebarHead.append(el("span", { class: "sidebar-title" }, ["Filters"]));
     const clearAll = el("button", { class: "ghost small", type: "button" }, ["Clear all"]);
@@ -463,21 +473,6 @@ export class App {
     const results = el("main", { class: "results" });
     const resultsBar = el("div", { class: "results-bar" });
     const resultsRow = el("div", { class: "results-row" });
-
-    const viewTabs = el("span", { class: "view-tabs" });
-    this.tableTabButton = el(
-      "button",
-      { class: "ghost small active", type: "button", title: "Show the row table" },
-      ["Table"],
-    ) as HTMLButtonElement;
-    this.chartTabButton = el(
-      "button",
-      { class: "ghost small", type: "button", title: "Show a chart of the current result set" },
-      ["Chart"],
-    ) as HTMLButtonElement;
-    this.tableTabButton.addEventListener("click", () => this.setView("table"));
-    this.chartTabButton.addEventListener("click", () => this.setView("chart"));
-    viewTabs.append(this.tableTabButton, this.chartTabButton);
 
     this.countEl = el("span", { class: "count" });
     this.actionEl = el("span", { class: "action-status" });
@@ -520,7 +515,6 @@ export class App {
     this.shuffleButton.addEventListener("click", () => this.shuffleRows());
 
     resultsRow.append(
-      viewTabs,
       this.countEl,
       el("span", { class: "grow" }),
       this.actionEl,
@@ -547,8 +541,9 @@ export class App {
     results.append(resultsBar, this.tableHost, this.chartHost);
 
     this.summaryHost = el("div");
+    this.overviewHost = el("div", { class: "overview-host hidden" });
     const body = el("div", { class: "workspace-body" }, [sidebar, results]);
-    workspace.append(this.stepperHost, this.summaryHost, body);
+    workspace.append(navRow, this.overviewHost, this.summaryHost, body);
     return workspace;
   }
 
@@ -558,6 +553,23 @@ export class App {
         event.preventDefault();
         this.loadFromTextarea();
       }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (this.workspace.classList.contains("hidden")) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target !== null &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (event.key === "1") this.setView("overview");
+      else if (event.key === "2") this.setView("table");
+      else if (event.key === "3") this.setView("chart");
     });
   }
 
@@ -931,7 +943,6 @@ export class App {
     this.datasetName = loaded.name;
     this.workspaceTitle.textContent = `${loaded.name} — ${loaded.rowCount.toLocaleString()} rows`;
     this.stepper?.setDone("load", true);
-    this.setStage("view");
     this.filters.clear();
     this.cleanedColumns.clear();
     this.nullEdits.length = 0;
@@ -981,7 +992,28 @@ export class App {
       `${duplicateText} · ${emptyText}${encodingText} · ${Math.round(loaded.ingestMs)} ms`;
 
     this.table?.dispose();
+    this.table = null;
     clear(this.tableHost);
+
+    this.chartsPanel?.dispose();
+    this.chartsPanel = null;
+    clear(this.chartHost);
+
+    clear(this.filterHost);
+    this.filterSearch.value = "";
+    this.filterPanel = null;
+    this.sidebarEl.classList.add("hidden");
+    this.latestFacets = {};
+    this.latestHistograms = {};
+
+    this.updateCount(loaded.rowCount, 0);
+    this.updateGuardrail(loaded, loaded.source === "file" || loaded.type === "transformed");
+    this.view = this.chartActive ? "chart" : "table";
+    this.setView(this.view);
+  }
+
+  private ensureTable(): void {
+    if (this.table !== null) return;
     this.table = new ResultTable(this.tableHost, {
       onSort: (column, dir) => this.changeSort(column, dir),
       onTypeChange: (column, type) => this.changeType(column, type),
@@ -998,12 +1030,15 @@ export class App {
           .catch(() => done(start, []));
       },
     });
-    this.table.setColumns(loaded.columns);
+    this.table.setColumns(this.metas);
     this.table.setSort(-1, 1);
-    this.table.setCount(loaded.rowCount);
+    this.table.setCount(this.resultCount);
+    this.syncColumnQa();
+    this.syncPendingDeletes();
+  }
 
-    this.chartsPanel?.dispose();
-    clear(this.chartHost);
+  private ensureCharts(): void {
+    if (this.chartsPanel !== null) return;
     this.chartsPanel = new ChartsPanel(this.chartHost, {
       datasetName: () => this.datasetName,
       requestBins: (column, options) => this.client.getChartBins(column, options),
@@ -1012,21 +1047,20 @@ export class App {
       requestCrosstab: (input) => this.client.getCrosstab(input),
       requestCorrelation: (columns) => this.client.getCorrelation(columns),
     });
-    this.chartsPanel.setColumns(loaded.columns);
-    this.chartsPanel.setRowCount(loaded.rowCount);
-    this.setView(this.chartActive ? "chart" : "table");
+    this.chartsPanel.setColumns(this.metas);
+    this.chartsPanel.setFiltered(this.latestFacets, this.latestHistograms);
+    this.chartsPanel.setRowCount(this.resultCount);
+  }
 
-    clear(this.filterHost);
-    this.filterSearch.value = "";
+  private ensureFilters(): void {
+    if (this.filterPanel !== null) return;
     this.filterPanel = new FilterPanel(this.filterHost, this.metas, this.filters, {
       onFilter: (column, filter, preview) => this.changeFilter(column, filter, preview ?? false),
       onTypeChange: (column, type) => this.changeType(column, type),
       onNumberLocale: (column, locale) => this.changeNumberLocale(column, locale),
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
     });
-
-    this.updateCount(loaded.rowCount, 0);
-    this.updateGuardrail(loaded, loaded.source === "file" || loaded.type === "transformed");
+    this.sidebarEl.classList.remove("hidden");
   }
 
   private toggleColumnSpecial(column: number, kind: ColumnQaKind): void {
@@ -1461,6 +1495,7 @@ export class App {
 
   private openExportDialog(): void {
     if (this.datasetName === "" || this.loading) return;
+    this.setStage("export");
     openExportPanel(
       this.defaultExportName(),
       {
@@ -1487,7 +1522,7 @@ export class App {
             settings.limit,
           );
         },
-        onClose: () => {},
+        onClose: () => this.setStage(null),
       },
     );
   }
@@ -1578,14 +1613,26 @@ export class App {
     }, 4000);
   }
 
-  private setView(view: "table" | "chart"): void {
-    this.chartActive = view === "chart";
-    this.workspace.classList.toggle("chart-mode", this.chartActive);
-    this.tableHost.classList.toggle("hidden", this.chartActive);
-    this.chartHost.classList.toggle("hidden", !this.chartActive);
-    this.tableTabButton.classList.toggle("active", !this.chartActive);
-    this.chartTabButton.classList.toggle("active", this.chartActive);
-    if (this.chartActive) this.chartsPanel?.refresh();
+  private setView(view: ViewId): void {
+    this.view = view;
+    if (view === "table" || view === "chart") this.ensureFilters();
+    if (view === "table") this.ensureTable();
+    if (view === "chart") {
+      this.ensureCharts();
+      this.chartsPanel?.refresh();
+    }
+    if (view !== "overview") this.lastLens = view;
+    const chart = view === "chart";
+    this.chartActive = chart;
+    this.workspace.classList.toggle("chart-mode", chart);
+    this.overviewHost.classList.toggle("hidden", view !== "overview");
+    this.tableHost.classList.toggle("hidden", view !== "table");
+    this.chartHost.classList.toggle("hidden", view !== "chart");
+    this.syncTabs();
+  }
+
+  private syncTabs(): void {
+    this.tabs?.setSelected(this.view);
   }
 
   /** Pushes fresh facet/histogram payloads to the sidebar filters and charts. */
@@ -1593,6 +1640,8 @@ export class App {
     facets: Record<number, number[]>,
     histograms: Record<number, number[]>,
   ): void {
+    this.latestFacets = facets;
+    this.latestHistograms = histograms;
     this.filterPanel?.applyResults(facets, histograms);
     this.chartsPanel?.setFiltered(facets, histograms);
   }
@@ -1688,9 +1737,6 @@ export class App {
       case "load":
         this.showPaste();
         break;
-      case "view":
-        this.setStage("view");
-        break;
       case "clean":
         this.openClean();
         break;
@@ -1703,7 +1749,7 @@ export class App {
     }
   }
 
-  private setStage(id: StageId): void {
+  private setStage(id: StageId | null): void {
     this.stepper?.setActive(id);
   }
 
@@ -1735,7 +1781,7 @@ export class App {
             return { changed, total };
           }),
         onOpenMerge: (column) => this.openMerge(column),
-        onClose: () => this.setStage("view"),
+        onClose: () => this.setStage(null),
       },
       { column, tab: column === undefined ? "names" : tab, op },
     );
@@ -1749,7 +1795,7 @@ export class App {
         const existing = this.cleanedColumns.get(target) ?? [];
         this.applyClean([{ column: target, ops: [...existing, ...ops] }]);
       },
-      onClose: () => this.setStage("view"),
+      onClose: () => this.setStage(null),
     });
   }
 
@@ -1990,7 +2036,16 @@ export class App {
   }
 
   private updateStepsButton(): void {
-    const count = groupSteps(this.stepEntries()).length;
+    const groups = groupSteps(this.stepEntries());
+    let cleanCount = 0;
+    let transformCount = 0;
+    for (const group of groups) {
+      if (group.entries.some((entry) => entry.kind === "transform")) transformCount++;
+      else cleanCount++;
+    }
+    this.stepper?.setCount("clean", cleanCount);
+    this.stepper?.setCount("transform", transformCount);
+    const count = groups.length;
     this.stepsButton.textContent = count === 0 ? "Process Log" : `Process Log (${count})`;
     this.stepsButton.disabled = count === 0;
     this.stepsButton.title =
@@ -2144,7 +2199,7 @@ export class App {
         this.updateStepsButton();
       },
       onCopyRecipe: () => this.copyRecipe(),
-      onClose: () => this.setStage("view"),
+      onClose: () => this.setStage(null),
     });
   }
 
@@ -2355,7 +2410,7 @@ export class App {
       {
         onApply: (ops) => this.applyTransform(ops),
         onPreview: (ops) => this.client.previewTransform(ops),
-        onClose: () => this.setStage("view"),
+        onClose: () => this.setStage(null),
       },
       preset,
     );

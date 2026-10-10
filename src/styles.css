@@ -1773,6 +1773,22 @@ mark {
 
 /* ---------- pipeline stepper ---------- */
 
+.nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 14px 0;
+  background: var(--bg);
+  flex: none;
+}
+
+.nav-row .stepper-host {
+  padding: 0;
+  background: transparent;
+}
+
 .stepper-host {
   flex: none;
   padding: 8px 14px 0;
@@ -1867,6 +1883,17 @@ mark {
 .stepper-item.done .stepper-number {
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+.stepper-hint {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 6px;
+  font-weight: 600;
 }
 
 .stepper-soon {
@@ -2821,6 +2848,12 @@ label.null-row {
 @media (max-width: 900px) {
   .sidebar {
     width: 268px;
+  }
+
+  .nav-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
   }
 }
 
