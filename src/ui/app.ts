@@ -215,6 +215,10 @@ export class App {
   private delimiterSelect!: HTMLSelectElement;
   private headersCheckbox!: HTMLInputElement;
   private statusEl!: HTMLElement;
+  private loadPanel!: HTMLElement;
+  private loadTitle!: HTMLElement;
+  private loadDetail!: HTMLElement;
+  private loadBar!: HTMLElement;
   private metaEl!: HTMLElement;
   private countEl!: HTMLElement;
   private actionEl!: HTMLElement;
@@ -384,6 +388,25 @@ export class App {
       ]),
     ]);
     card.append(dropzone, privacy);
+
+    this.loadPanel = el("div", {
+      class: "load-progress hidden",
+      role: "status",
+      "aria-live": "polite",
+    });
+    this.loadTitle = el("span", { class: "load-progress-title" });
+    this.loadDetail = el("span", { class: "load-progress-detail" });
+    const loadHead = el("div", { class: "load-progress-head" });
+    loadHead.append(
+      el("span", { class: "load-spinner", "aria-hidden": "true" }),
+      this.loadTitle,
+      this.loadDetail,
+    );
+    const loadTrack = el("div", { class: "load-progress-track" });
+    this.loadBar = el("div", { class: "load-progress-bar indeterminate" });
+    loadTrack.append(this.loadBar);
+    this.loadPanel.append(loadHead, loadTrack);
+    card.append(this.loadPanel);
 
     const fileInput = el("input", {
       type: "file",
@@ -675,6 +698,7 @@ export class App {
       this.statusEl.classList.add("error");
       return;
     }
+    this.showLoadProgress("Pasted data", new TextEncoder().encode(text).byteLength);
     void this.load({ text, name: "Pasted data", source: "paste" });
   }
 
@@ -689,8 +713,7 @@ export class App {
     this.generation++;
     this.pendingSend = null;
     this.hideTablePicker();
-    this.statusEl.textContent = "Parsing…";
-    this.statusEl.classList.remove("error");
+    this.setLoadingText("Parsing…");
     this.sourceBytes =
       options.text !== undefined
         ? new TextEncoder().encode(options.text).byteLength
@@ -705,6 +728,7 @@ export class App {
         buffer: options.buffer,
       });
       this.statusEl.textContent = "";
+      this.hideLoadProgress();
       this.openWorkspace(loaded);
     } catch (error) {
       this.statusEl.textContent =
@@ -720,6 +744,7 @@ export class App {
   }
 
   private showPicker(title: string, items: PickerItem[]): void {
+    this.hideLoadProgress();
     clear(this.tablePickerList);
     this.tablePickerTitle.textContent = title;
 
@@ -742,6 +767,7 @@ export class App {
 
   private async loadFile(file: File): Promise<void> {
     try {
+      this.showLoadProgress(file.name, file.size);
       const extension = extensionOf(file.name);
       const unsupported = UNSUPPORTED_FORMATS.find((entry) =>
         entry.extensions.includes(extension),
@@ -783,8 +809,7 @@ export class App {
   /** Lists data files inside a ZIP and loads the only one or shows a picker. */
   private async openArchive(buffer: ArrayBuffer, fileName: string): Promise<void> {
     this.hideTablePicker();
-    this.statusEl.textContent = "Reading archive…";
-    this.statusEl.classList.remove("error");
+    this.setLoadingText("Reading archive…");
     try {
       const entries = await listArchiveEntries(buffer);
       if (entries.length === 0) {
@@ -795,7 +820,7 @@ export class App {
         return;
       }
 
-      this.statusEl.textContent = "";
+      this.setLoadingText("");
       this.showPicker(
         `${entries.length} files in ${fileName} — pick one`,
         entries.map((entry) => ({
@@ -819,8 +844,7 @@ export class App {
     fileName: string,
     archive: ArrayBuffer,
   ): Promise<void> {
-    this.statusEl.textContent = `Extracting “${entry.name}”…`;
-    this.statusEl.classList.remove("error");
+    this.setLoadingText(`Extracting “${entry.name}”…`);
     try {
       const bytes = await readArchiveEntry(archive, entry.path);
       const data = bytes.buffer.slice(
@@ -831,7 +855,7 @@ export class App {
         await this.openWorkbook(data, entry.name);
         return;
       }
-      this.statusEl.textContent = "";
+      this.setLoadingText("");
       await this.load({
         buffer: data,
         name: `${fileName.replace(/\.zip$/i, "")}/${entry.path}`,
@@ -845,8 +869,7 @@ export class App {
   /** Decompresses a .gz and routes the inner file (data, workbook or zip). */
   private async openGzip(buffer: ArrayBuffer, fileName: string): Promise<void> {
     this.hideTablePicker();
-    this.statusEl.textContent = "Decompressing…";
-    this.statusEl.classList.remove("error");
+    this.setLoadingText("Decompressing…");
     try {
       const { gunzipSync } = await import("fflate");
       const inner = gunzipSync(new Uint8Array(buffer));
@@ -859,8 +882,7 @@ export class App {
   /** Decompresses a .bz2 and routes the inner file. */
   private async openBzip2(buffer: ArrayBuffer, fileName: string): Promise<void> {
     this.hideTablePicker();
-    this.statusEl.textContent = "Decompressing bzip2…";
-    this.statusEl.classList.remove("error");
+    this.setLoadingText("Decompressing bzip2…");
     try {
       // Let the status paint before the synchronous decode blocks the thread.
       await new Promise((resolve) => setTimeout(resolve, 30));
@@ -894,15 +916,14 @@ export class App {
       await this.openWorkbook(data, innerName);
       return;
     }
-    this.statusEl.textContent = "";
+    this.setLoadingText("");
     await this.load({ buffer: data, name: innerName, source: "file" });
   }
 
   /** Lists worksheets (biggest first) and either loads the only one or shows a picker. */
   private async openWorkbook(buffer: ArrayBuffer, fileName: string): Promise<void> {
     this.hideTablePicker();
-    this.statusEl.textContent = "Reading workbook…";
-    this.statusEl.classList.remove("error");
+    this.setLoadingText("Reading workbook…");
     this.sourceBytes = buffer.byteLength;
     try {
       let sheets;
@@ -925,7 +946,7 @@ export class App {
         return;
       }
 
-      this.statusEl.textContent = "";
+      this.setLoadingText("");
       this.showPicker(
         total > sheets.length
           ? `${total} worksheets — first ${sheets.length} shown, pick one`
@@ -948,15 +969,14 @@ export class App {
   private async loadSheet(sheetName: string, fileName: string): Promise<void> {
     const pending = this.pendingWorkbook;
     if (pending === null) return;
-    this.statusEl.textContent = `Reading “${sheetName}”…`;
-    this.statusEl.classList.remove("error");
+    this.setLoadingText(`Reading “${sheetName}”…`);
     try {
       const rows =
         pending.kind === "xlsx"
           ? await readWorkbookSheet(pending.buffer, sheetName)
           : await readLegacySheet(pending.workbook, sheetName);
       if (rows.length === 0) throw new Error("That worksheet has no data");
-      this.statusEl.textContent = "";
+      this.setLoadingText("");
       const base = fileName.replace(/\.[^.]+$/, "");
       await this.loadGrid(rows, `${base} — ${sheetName}`);
     } catch (error) {
@@ -1000,8 +1020,7 @@ export class App {
     this.loading = true;
     this.generation++;
     this.pendingSend = null;
-    this.statusEl.textContent = "Building table…";
-    this.statusEl.classList.remove("error");
+    this.setLoadingText("Building table…");
 
     try {
       const hasHeaders = hasHeadersOverride ?? this.headersCheckbox.checked;
@@ -1012,6 +1031,7 @@ export class App {
         table: { rows, hasHeaders },
       });
       this.statusEl.textContent = "";
+      this.hideLoadProgress();
       this.openWorkspace(loaded);
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Failed to build table");
@@ -1021,15 +1041,60 @@ export class App {
   }
 
   private setStatusError(message: string): void {
+    this.hideLoadProgress();
     this.statusEl.textContent = message;
     this.statusEl.classList.add("error");
   }
 
+  /** Prominent feedback from the moment a file is picked. */
+  private showLoadProgress(name: string, bytes: number | null): void {
+    this.loadTitle.textContent = `Processing ${name}${
+      bytes === null ? "" : ` · ${formatBytes(bytes)}`
+    }`;
+    this.setLoadDetail("Reading file…", null, null);
+    this.statusEl.textContent = "";
+    this.statusEl.classList.remove("error");
+    this.loadPanel.classList.remove("hidden");
+  }
+
+  private hideLoadProgress(): void {
+    this.loadPanel.classList.add("hidden");
+  }
+
+  private setLoadDetail(text: string, current: number | null, total: number | null): void {
+    this.loadDetail.textContent = text;
+    const determinate = current !== null && total !== null && total > 0;
+    this.loadBar.classList.toggle("indeterminate", !determinate);
+    this.loadBar.style.width = determinate
+      ? `${Math.round((current / total) * 100)}%`
+      : "";
+  }
+
+  /** Routes load-flow text to the panel while it is visible, else the status line. */
+  private setLoadingText(text: string): void {
+    if (this.loadPanel.classList.contains("hidden")) {
+      this.statusEl.textContent = text;
+      this.statusEl.classList.remove("error");
+      return;
+    }
+    this.setLoadDetail(text, null, null);
+  }
+
+  private setLoadingProgress(text: string, current?: number, total?: number): void {
+    if (this.loadPanel.classList.contains("hidden")) return;
+    this.setLoadDetail(text, current ?? null, total ?? null);
+  }
+
   private handleProgress(progress: ProgressMessage): void {
     if (progress.phase === "parse") {
-      this.statusEl.textContent = progress.detail ?? "Parsing…";
-    } else if (progress.phase === "build") {
-      this.statusEl.textContent = progress.detail ?? "Building…";
+      this.setLoadingProgress(progress.detail ?? "Parsing…", progress.current, progress.total);
+    } else if (progress.phase === "build" || progress.phase === "stats") {
+      const fallback = progress.phase === "stats" ? "Computing statistics…" : "Building…";
+      this.setLoadingProgress(
+        progress.detail ?? fallback,
+        progress.current,
+        progress.total,
+      );
     } else if (progress.phase === "index" && progress.column !== undefined) {
       this.filterPanel?.setStatus(progress.column, progress.active === true ? "Building index…" : "");
     } else if (progress.phase === "sort") {
@@ -1768,6 +1833,7 @@ export class App {
     const chart = view === "chart";
     this.chartActive = chart;
     this.workspace.classList.toggle("chart-mode", chart);
+    this.workspace.classList.toggle("overview-mode", view === "overview");
     this.overviewHost.classList.toggle("hidden", view !== "overview");
     this.tableHost.classList.toggle("hidden", view !== "table");
     this.chartHost.classList.toggle("hidden", view !== "chart");

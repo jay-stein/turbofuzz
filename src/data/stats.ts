@@ -28,14 +28,22 @@ export interface IngestStats {
   lengthFences: (LengthFence | null)[];
 }
 
+/** Row hash progress: called once per column with 1-based progress. */
+export type ColumnProgress = (phase: string, current: number, total: number) => void;
+
 /**
  * Row hashes are accumulated column by column so each column's string array
  * is read sequentially (wide tables otherwise thrash the cache).
  */
-export function hashRows(columns: readonly ColumnData[], rowCount: number): Uint32Array {
+export function hashRows(
+  columns: readonly ColumnData[],
+  rowCount: number,
+  onColumn?: ColumnProgress,
+): Uint32Array {
   const hashes = new Uint32Array(rowCount);
   hashes.fill(0x811c9dc5);
   for (let c = 0; c < columns.length; c++) {
+    onColumn?.("Hashing rows", c + 1, columns.length);
     const raw = columns[c].raw;
     for (let row = 0; row < rowCount; row++) {
       let hash = hashes[row];
@@ -73,13 +81,14 @@ export function rowsEqual(
 export function computeDatasetStats(
   columns: readonly ColumnData[],
   rowCount: number,
+  onProgress?: ColumnProgress,
 ): IngestStats {
   const started = performance.now();
   const columnCount = columns.length;
   const buckets = new Map<number, number[]>();
   const duplicateBuckets = new Set<number>();
   const duplicateBits = new BitSet(rowCount);
-  const hashes = hashRows(columns, rowCount);
+  const hashes = hashRows(columns, rowCount, onProgress);
   let duplicateRows = 0;
 
   for (let row = 0; row < rowCount; row++) {
@@ -126,7 +135,7 @@ export function computeDatasetStats(
   let totalNullCells = 0;
   for (const column of columns) totalNullCells += column.stats.nulls;
 
-  const anomalies = computeAnomalies(columns, rowCount);
+  const anomalies = computeAnomalies(columns, rowCount, onProgress);
 
   return {
     stats: {

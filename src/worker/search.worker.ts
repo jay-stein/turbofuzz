@@ -356,8 +356,14 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   if (message.buffer !== undefined && isParquetName(message.name)) {
     post({ type: "progress", phase: "parse", detail: "Reading parquet…" });
     const grid = await readParquetGrid(message.buffer);
-    const dataset = buildDataset(message.name, grid.headers, grid.rows, (detail) =>
-      post({ type: "progress", phase: "build", detail }),
+    const dataset = buildDataset(message.name, grid.headers, grid.rows, (progress) =>
+      post({
+        type: "progress",
+        phase: progress.phase ?? "build",
+        detail: progress.detail,
+        current: progress.current,
+        total: progress.total,
+      }),
     );
     ingested = {
       dataset,

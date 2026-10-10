@@ -5,6 +5,7 @@ import { ingestDataset } from "../src/worker/ingest.js";
 test("ingestDataset parses text and reports progress", () => {
   const phases: string[] = [];
   const details: string[] = [];
+  const steps: { phase: string; detail?: string; current?: number; total?: number }[] = [];
   const { dataset, encoding } = ingestDataset({
     name: "test",
     delimiter: "auto",
@@ -13,6 +14,7 @@ test("ingestDataset parses text and reports progress", () => {
     onProgress: (progress) => {
       phases.push(progress.phase);
       if (progress.detail !== undefined) details.push(progress.detail);
+      if (progress.current !== undefined) steps.push(progress);
     },
   });
 
@@ -28,6 +30,18 @@ test("ingestDataset parses text and reports progress", () => {
   assert.ok(phases.includes("build"));
   assert.ok(details.some((detail) => detail.includes("Building columns")));
   assert.ok(details.includes("Computing dataset stats…"));
+  const build = steps.filter((step) => step.phase === "build");
+  assert.deepEqual(
+    build.map((step) => [step.current, step.total]),
+    [
+      [1, 2],
+      [2, 2],
+    ],
+  );
+  const stats = steps.filter((step) => step.phase === "stats");
+  assert.ok(stats.some((step) => step.detail?.includes("Hashing rows")));
+  assert.ok(stats.some((step) => step.detail?.includes("Checking outliers")));
+  assert.ok(stats.every((step) => step.total === 2));
 });
 
 test("ingestDataset decodes transferred UTF-8 array buffers", () => {

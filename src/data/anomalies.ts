@@ -201,6 +201,7 @@ function lengthFenceFor(column: ColumnData): LengthFence | null {
 export function computeAnomalies(
   columns: readonly ColumnData[],
   rowCount: number,
+  onProgress?: (phase: string, current: number, total: number) => void,
 ): Anomalies {
   const valueBits = new BitSet(rowCount);
   const lengthBits = new BitSet(rowCount);
@@ -208,7 +209,9 @@ export function computeAnomalies(
   const lengthColumnBits: (BitSet | null)[] = [];
   const perColumn: ColumnAnomalies[] = [];
 
-  for (const column of columns) {
+  for (let index = 0; index < columns.length; index++) {
+    onProgress?.("Checking outliers", index + 1, columns.length);
+    const column = columns[index];
     const sparse = rowCount > 0 && column.stats.nulls / rowCount > MAX_NULL_RATIO;
     const valueFence = sparse ? null : numericFence(column);
     let columnValueBits: BitSet | null = null;

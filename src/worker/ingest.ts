@@ -16,6 +16,8 @@ import type { ProgressPhase } from "./protocol.js";
 export interface IngestProgress {
   phase: ProgressPhase;
   detail?: string;
+  current?: number;
+  total?: number;
 }
 
 export interface IngestOptions {
@@ -43,8 +45,13 @@ export function ingestDataset(options: IngestOptions): IngestResult {
       options.table.rows,
       options.table.hasHeaders,
     );
-    const dataset = buildDataset(options.name, headers, rows, (detail) => {
-      options.onProgress?.({ phase: "build", detail });
+    const dataset = buildDataset(options.name, headers, rows, (progress) => {
+      options.onProgress?.({
+        phase: progress.phase ?? "build",
+        detail: progress.detail,
+        current: progress.current,
+        total: progress.total,
+      });
     });
     return { dataset, encoding: null, delimiter: null, ragged };
   }
@@ -118,8 +125,13 @@ export function ingestDataset(options: IngestOptions): IngestResult {
     options.name,
     headers,
     rows,
-    (detail) => {
-      options.onProgress?.({ phase: "build", detail });
+    (progress) => {
+      options.onProgress?.({
+        phase: progress.phase ?? "build",
+        detail: progress.detail,
+        current: progress.current,
+        total: progress.total,
+      });
     },
     numberPrior,
   );
@@ -133,8 +145,13 @@ function buildFromGrid(
   rows: string[][],
   options: IngestOptions,
 ): Dataset {
-  return buildDataset(name, headers, rows, (detail) => {
-    options.onProgress?.({ phase: "build", detail });
+  return buildDataset(name, headers, rows, (progress) => {
+    options.onProgress?.({
+      phase: progress.phase ?? "build",
+      detail: progress.detail,
+      current: progress.current,
+      total: progress.total,
+    });
   });
 }
 

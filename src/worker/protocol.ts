@@ -63,6 +63,9 @@ export interface ProgressMessage {
   type: "progress";
   phase: ProgressPhase;
   detail?: string;
+  /** Steps done within the phase, for a determinate progress bar. */
+  current?: number;
+  total?: number;
   column?: number;
   active?: boolean;
 }
