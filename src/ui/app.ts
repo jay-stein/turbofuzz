@@ -34,7 +34,7 @@ import { openMenu } from "./menu.js";
 import { Overview, readDefaultView } from "./overview.js";
 import type { DatasetStats } from "../data/stats.js";
 import { FilterPanel } from "./filters.js";
-import { ChartsPanel } from "./chart-panel.js";
+import { ChartsPanel, remapChartConfigs, type NamedChartCardConfig } from "./chart-panel.js";
 import { openHelpDrawer } from "./help-drawer.js";
 import { sampleCsv } from "./sample.js";
 import {
@@ -242,6 +242,8 @@ export class App {
   private chartHost!: HTMLElement;
   private chartsPanel: ChartsPanel | null = null;
   private chartActive = false;
+  private chartRestore: NamedChartCardConfig[] | null = null;
+  private chartRemoved = 0;
   private view: ViewId = "overview";
   private lastLens: "table" | "chart" = "table";
   private tabs: ViewTabs | null = null;
@@ -979,6 +981,17 @@ export class App {
   }
 
   private openWorkspace(loaded: LoadedMessage | TransformedMessage): void {
+    if (loaded.type === "transformed") {
+      const captured = this.chartsPanel?.captureConfigs() ?? this.chartRestore;
+      if (captured !== null) {
+        const remapped = remapChartConfigs(captured, loaded.columns);
+        this.chartRestore = remapped.kept;
+        this.chartRemoved = remapped.removed;
+      }
+    } else {
+      this.chartRestore = null;
+      this.chartRemoved = 0;
+    }
     this.metas = loaded.columns;
     this.rowCount = loaded.rowCount;
     this.datasetName = loaded.name;
@@ -1044,6 +1057,14 @@ export class App {
     this.renderHealthGroup();
     this.updateCount(loaded.rowCount, 0);
     this.updateGuardrail(loaded, loaded.source === "file" || loaded.type === "transformed");
+    if (loaded.type === "transformed" && this.chartRemoved > 0) {
+      const count = this.chartRemoved;
+      this.showWarning(
+        `${count} chart${count === 1 ? "" : "s"} removed because ${
+          count === 1 ? "its" : "their"
+        } column was deleted.`,
+      );
+    }
     if (loaded.type === "loaded") this.view = readDefaultView();
     this.setView(this.view);
   }
@@ -1083,7 +1104,13 @@ export class App {
       requestCrosstab: (input) => this.client.getCrosstab(input),
       requestCorrelation: (columns) => this.client.getCorrelation(columns),
     });
-    this.chartsPanel.setColumns(this.metas);
+    if (this.chartRestore !== null) {
+      const remapped = remapChartConfigs(this.chartRestore, this.metas);
+      this.chartsPanel.restore(remapped.configs, this.metas);
+      this.chartRestore = null;
+    } else {
+      this.chartsPanel.setColumns(this.metas);
+    }
     this.chartsPanel.setFiltered(this.latestFacets, this.latestHistograms);
     this.chartsPanel.setRowCount(this.resultCount);
   }

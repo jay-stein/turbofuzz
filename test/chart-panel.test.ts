@@ -16,6 +16,12 @@ import {
   suggestedBinRange,
 } from "../src/ui/chart-utils.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
+import {
+  configToNames,
+  remapChartConfigs,
+  type NamedChartCardConfig,
+} from "../src/ui/chart-panel.js";
+import type { ChartCardConfig } from "../src/ui/chart-card.js";
 
 function meta(overrides: Partial<ColumnMeta> = {}): ColumnMeta {
   return {
@@ -224,4 +230,105 @@ test("category series uses filtered facet counts", () => {
   assert.equal(filtered[0].label, "b");
   assert.equal(filtered[0].count, 60);
   assert.ok(Math.abs(filtered[0].pct - 100) < 1e-9);
+});
+
+function fullConfig(overrides: Partial<ChartCardConfig> = {}): ChartCardConfig {
+  return {
+    kind: "histogram",
+    column: -1,
+    x: -1,
+    y: -1,
+    colorColumn: -1,
+    sizeColumn: -1,
+    mode: "auto",
+    densityStyle: "both",
+    kde: true,
+    color: "#2563eb",
+    multiColor: true,
+    topN: 5,
+    groupOther: true,
+    binOptions: null,
+    binClipped: false,
+    title: "",
+    correlationColumns: [],
+    ...overrides,
+  };
+}
+
+function named(overrides: Partial<NamedChartCardConfig> = {}): NamedChartCardConfig {
+  return {
+    ...fullConfig(),
+    column: null,
+    x: null,
+    y: null,
+    colorColumn: null,
+    sizeColumn: null,
+    correlationColumns: [],
+    ...overrides,
+  };
+}
+
+const byName = (names: string[]): ColumnMeta[] =>
+  names.map((name) => meta({ name, type: "number" }));
+
+test("configToNames stores column references by name", () => {
+  const columns = [
+    meta({ name: "a", type: "number" }),
+    meta({ name: "b", type: "number" }),
+    meta({ name: "c", type: "category" }),
+  ];
+  const config = fullConfig({
+    column: 1,
+    x: 0,
+    y: 2,
+    colorColumn: 0,
+    sizeColumn: 1,
+    correlationColumns: [0, 1],
+  });
+  const namedConfig = configToNames(config, columns);
+  assert.equal(namedConfig.column, "b");
+  assert.equal(namedConfig.x, "a");
+  assert.equal(namedConfig.y, "c");
+  assert.equal(namedConfig.colorColumn, "a");
+  assert.equal(namedConfig.sizeColumn, "b");
+  assert.deepEqual(namedConfig.correlationColumns, ["a", "b"]);
+});
+
+test("remapChartConfigs follows reorder, delete and rename", () => {
+  const cards = [
+    named({ column: "amount", title: "A" }),
+    named({ kind: "scatter", x: "amount", y: "when", title: "B" }),
+    named({ kind: "correlation", correlationColumns: ["a", "b", "c"], title: "C" }),
+  ];
+
+  const reordered = remapChartConfigs(cards, byName(["when", "amount", "c", "b", "a"]));
+  assert.equal(reordered.removed, 0);
+  assert.equal(reordered.kept.length, 3);
+  assert.deepEqual(
+    reordered.configs.map((config) => config.column),
+    [1, -1, -1],
+  );
+  assert.equal(reordered.configs[1].x, 1);
+  assert.equal(reordered.configs[1].y, 0);
+  assert.deepEqual(reordered.configs[2].correlationColumns, [4, 3, 2]);
+
+  const deleted = remapChartConfigs(cards, byName(["amount", "c", "b"]));
+  assert.equal(deleted.removed, 1, "the scatter loses its Y column");
+  assert.deepEqual(deleted.kept.map((config) => config.title), ["A", "C"]);
+
+  const renamed = remapChartConfigs(
+    cards,
+    byName(["amount_v2", "when", "a", "b", "c"]),
+  );
+  assert.equal(renamed.removed, 2, "renamed columns are treated as deleted");
+  assert.deepEqual(renamed.kept.map((config) => config.title), ["C"]);
+});
+
+test("remapChartConfigs drops a correlation with fewer than two columns left", () => {
+  const thin = remapChartConfigs(
+    [named({ kind: "correlation", correlationColumns: ["a", "b"] })],
+    byName(["a"]),
+  );
+  assert.equal(thin.removed, 1);
+  assert.equal(thin.configs.length, 0);
 });

@@ -15,6 +15,7 @@ import {
   defaultCardKind,
   isCategoryType,
   isNumericType,
+  isPairKind,
 } from "./chart-utils.js";
 import { el } from "./dom.js";
 
@@ -40,6 +41,96 @@ export interface ChartsPanelOptions {
 
 const LAYOUT_KEY = "turbofuzz.charts.columns";
 const DEFAULT_LAYOUT = 2;
+
+/** A card config with column references stored by name, for transform safety. */
+export interface NamedChartCardConfig
+  extends Omit<
+    ChartCardConfig,
+    "column" | "x" | "y" | "colorColumn" | "sizeColumn" | "correlationColumns"
+  > {
+  column: string | null;
+  x: string | null;
+  y: string | null;
+  colorColumn: string | null;
+  sizeColumn: string | null;
+  correlationColumns: string[];
+}
+
+export function configToNames(
+  config: ChartCardConfig,
+  columns: readonly ColumnMeta[],
+): NamedChartCardConfig {
+  const nameOf = (index: number): string | null =>
+    index >= 0 && index < columns.length ? columns[index].name : null;
+  return {
+    ...config,
+    column: nameOf(config.column),
+    x: nameOf(config.x),
+    y: nameOf(config.y),
+    colorColumn: nameOf(config.colorColumn),
+    sizeColumn: nameOf(config.sizeColumn),
+    correlationColumns: config.correlationColumns
+      .map((index) => columns[index]?.name)
+      .filter((name): name is string => name !== undefined),
+  };
+}
+
+/**
+ * Maps saved card configs onto new column indexes by name. Cards whose
+ * required columns are gone (deleted or renamed) are dropped and counted;
+ * a correlation card survives while at least two of its columns remain.
+ */
+export function remapChartConfigs(
+  configs: readonly NamedChartCardConfig[],
+  columns: readonly ColumnMeta[],
+): {
+  configs: Partial<ChartCardConfig>[];
+  kept: NamedChartCardConfig[];
+  removed: number;
+} {
+  const indexOfName = new Map<string, number>();
+  columns.forEach((meta, index) => indexOfName.set(meta.name, index));
+  const out: Partial<ChartCardConfig>[] = [];
+  const kept: NamedChartCardConfig[] = [];
+  let removed = 0;
+
+  for (const named of configs) {
+    const column = named.column === null ? -1 : indexOfName.get(named.column);
+    const x = named.x === null ? -1 : indexOfName.get(named.x);
+    const y = named.y === null ? -1 : indexOfName.get(named.y);
+    const needsPrimary = !isPairKind(named.kind) && named.kind !== "correlation";
+    if (needsPrimary && named.column !== null && column === undefined) {
+      removed++;
+      continue;
+    }
+    if (
+      isPairKind(named.kind) &&
+      ((named.x !== null && x === undefined) || (named.y !== null && y === undefined))
+    ) {
+      removed++;
+      continue;
+    }
+    const correlationColumns = named.correlationColumns
+      .map((name) => indexOfName.get(name))
+      .filter((index): index is number => index !== undefined);
+    if (named.kind === "correlation" && correlationColumns.length < 2) {
+      removed++;
+      continue;
+    }
+    kept.push(named);
+    out.push({
+      ...named,
+      column: column ?? -1,
+      x: x ?? -1,
+      y: y ?? -1,
+      colorColumn:
+        named.colorColumn === null ? -1 : (indexOfName.get(named.colorColumn) ?? -1),
+      sizeColumn: named.sizeColumn === null ? -1 : (indexOfName.get(named.sizeColumn) ?? -1),
+      correlationColumns,
+    });
+  }
+  return { configs: out, kept, removed };
+}
 
 function indexesWhere(columns: ColumnMeta[], allow: (meta: ColumnMeta) => boolean): number[] {
   const out: number[] = [];
@@ -238,6 +329,21 @@ export class ChartsPanel {
       return;
     }
     for (const card of this.cards) card.setColumns(columns);
+  }
+
+  /** Snapshots every card with its columns stored by name. */
+  captureConfigs(): NamedChartCardConfig[] {
+    return this.cards.map((card) => configToNames(card.getConfig(), this.columns));
+  }
+
+  /**
+   * Rebuilds the grid from saved configs (already remapped to indexes). Unlike
+   * setColumns this never adds a default card, so a grid the user emptied
+   * stays empty.
+   */
+  restore(configs: readonly Partial<ChartCardConfig>[], columns: ColumnMeta[]): void {
+    this.columns = columns;
+    for (const config of configs) this.addCard(config);
   }
 
   setFiltered(
