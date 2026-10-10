@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import { ChartsPanel, type ChartsPanelOptions } from "../src/ui/chart-panel.js";
+import { ChartCard, type ChartCardOptions } from "../src/ui/chart-card.js";
 import type {
   BoxStatsMessage,
   ChartBinsMessage,
@@ -176,6 +177,118 @@ const stubOptions = (): ChartsPanelOptions => ({
   requestBoxStats: () => Promise.resolve(boxStats()),
   requestCrosstab: () => Promise.resolve(crosstab()),
   requestCorrelation: () => Promise.resolve(correlation()),
+});
+
+const stubCardOptions = (): ChartCardOptions => ({
+  ...stubOptions(),
+  onRemove: () => {},
+  onDuplicate: () => {},
+  onExport: () => {},
+});
+
+test("chart text stays legible and date labels fit the left margin", () => {
+  const window = setupDom();
+  const captured: { text: string; x: number; width: number; align: string; font: string }[] = [];
+  class MockContext {
+    font = "";
+    fillStyle = "";
+    strokeStyle = "";
+    lineWidth = 0;
+    globalAlpha = 1;
+    textAlign = "left";
+    textBaseline = "alphabetic";
+    imageSmoothingEnabled = true;
+    clearRect(): void {}
+    setTransform(): void {}
+    scale(): void {}
+    beginPath(): void {}
+    closePath(): void {}
+    moveTo(): void {}
+    lineTo(): void {}
+    stroke(): void {}
+    fill(): void {}
+    setLineDash(): void {}
+    roundRect(): void {}
+    strokeRect(): void {}
+    fillRect(): void {}
+    drawImage(): void {}
+    measureText(text: string): { width: number } {
+      return { width: String(text).length * 8 };
+    }
+    fillText(text: string, x: number): void {
+      const width = this.measureText(text).width;
+      captured.push({
+        text: String(text),
+        x,
+        width,
+        align: this.textAlign,
+        font: this.font,
+      });
+    }
+    createImageData(width: number, height: number): {
+      data: Uint8ClampedArray;
+      width: number;
+      height: number;
+    } {
+      return { data: new Uint8ClampedArray(width * height * 4), width, height };
+    }
+    putImageData(): void {}
+  }
+  const proto = window.HTMLCanvasElement.prototype as unknown as {
+    getContext(): unknown;
+  };
+  proto.getContext = (): unknown => new MockContext();
+
+  const columns = [
+    meta({ name: "when", type: "date" }),
+    meta({
+      name: "amount",
+      type: "number",
+      stats: { ...meta().stats, min: 0, max: 100 },
+    }),
+  ];
+  const renderCard = (presetX: number, presetY: number): typeof captured => {
+    const host = document.createElement("div");
+    const card = new ChartCard(host, stubCardOptions(), {
+      kind: "scatter",
+      x: presetX,
+      y: presetY,
+      title: "T",
+    });
+    const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+    Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+    captured.length = 0;
+    card.setColumns(columns);
+    const result = captured.slice();
+    card.dispose();
+    return result;
+  };
+
+  const numericY = renderCard(0, 1);
+  const dateY = renderCard(1, 0);
+
+  const titleX = (entries: typeof captured): number =>
+    entries.find((entry) => entry.text === "T")?.x ?? -1;
+  assert.ok(
+    titleX(dateY) > titleX(numericY),
+    `date labels should widen the left margin (got ${titleX(dateY)} vs ${titleX(numericY)})`,
+  );
+
+  for (const entry of dateY) {
+    const left =
+      entry.align === "right"
+        ? entry.x - entry.width
+        : entry.align === "center"
+          ? entry.x - entry.width / 2
+          : entry.x;
+    assert.ok(left >= -0.5, `label ${JSON.stringify(entry.text)} starts at ${left}`);
+  }
+
+  const sizes = dateY
+    .map((entry) => Number(/([0-9.]+)px/.exec(entry.font)?.[1] ?? 0))
+    .filter((size) => size > 0);
+  assert.ok(sizes.length > 0);
+  assert.ok(Math.min(...sizes) >= 11, `smallest on-screen text was ${Math.min(...sizes)}px`);
 });
 
 test("chart cards draw scatter points and density grids", async () => {

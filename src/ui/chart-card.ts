@@ -203,7 +203,9 @@ export class ChartCard {
   private readonly canvas: HTMLCanvasElement;
   private readonly noteEl: HTMLElement;
 
-  private readonly onResize = (): void => this.render();
+  private readonly onResize = (): void => this.scheduleRender();
+  private renderQueued = false;
+  private resizeObserver: ResizeObserver | null = null;
 
   constructor(
     root: HTMLElement,
@@ -532,6 +534,10 @@ export class ChartCard {
     this.canvas = el("canvas", { class: "chart-canvas" }) as HTMLCanvasElement;
     canvasWrap.append(this.canvas);
     this.noteEl = el("div", { class: "chart-note" });
+    if (typeof ResizeObserver !== "undefined") {
+      this.resizeObserver = new ResizeObserver(() => this.scheduleRender());
+      this.resizeObserver.observe(canvasWrap);
+    }
 
     this.root.append(
       head,
@@ -554,6 +560,8 @@ export class ChartCard {
   dispose(): void {
     this.disposed = true;
     this.generation++;
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     window.removeEventListener("resize", this.onResize);
     window.removeEventListener("themechange", this.onResize);
   }
@@ -626,7 +634,7 @@ export class ChartCard {
     canvas.height = height;
     const ctx = canvas.getContext("2d");
     if (ctx === null) return;
-    this.drawChart(ctx, width, height);
+    this.drawChart(ctx, width, height, true);
     if (typeof canvas.toBlob !== "function") return;
     const name = `${safeFileName(this.options.datasetName())}-${safeFileName(
       this.chartName(),
@@ -1146,6 +1154,21 @@ export class ChartCard {
       });
   }
 
+  /** Coalesces resize-driven redraws into one animation frame. */
+  private scheduleRender(): void {
+    if (this.renderQueued || this.disposed) return;
+    this.renderQueued = true;
+    const run = (): void => {
+      this.renderQueued = false;
+      if (!this.disposed) this.render();
+    };
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(run);
+    } else {
+      window.setTimeout(run, 16);
+    }
+  }
+
   private render(): void {
     const wrap = this.canvas.parentElement;
     let cssWidth = 640;
@@ -1155,7 +1178,9 @@ export class ChartCard {
         (Number.parseFloat(style.paddingLeft) || 0) + (Number.parseFloat(style.paddingRight) || 0);
       cssWidth = wrap.clientWidth - padding;
     }
-    cssWidth = Math.max(300, Math.round(cssWidth));
+    // The canvas follows the card at any width; text has a legibility floor
+    // instead of the old 300px minimum that overflowed narrow cards.
+    cssWidth = Math.max(1, Math.round(cssWidth));
     const cssHeight = Math.round((cssWidth * 9) / 16);
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = Math.round(cssWidth * dpr);
@@ -1171,9 +1196,27 @@ export class ChartCard {
     this.drawChart(ctx, cssWidth, cssHeight);
   }
 
-  private frame(ctx: CanvasRenderingContext2D, width: number, height: number): Frame {
-    const ui = Math.max(0.7, Math.min(2.6, height / 540));
-    const left = 56 * ui;
+  /**
+   * Text scale: on screen the smallest 9px label must stay at least 11px, so
+   * ui never drops below 1.25; exports keep the reference height/540 scale.
+   */
+  private textScale(height: number, forExport: boolean): number {
+    const scale = height / 540;
+    return forExport ? Math.max(0.7, Math.min(2.6, scale)) : Math.max(1.25, scale);
+  }
+
+  private frame(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    forExport: boolean,
+    widestTick = "",
+  ): Frame {
+    const ui = this.textScale(height, forExport);
+    this.font(ctx, ui, 10);
+    const baseLeft = 56 * ui;
+    const left =
+      widestTick === "" ? baseLeft : Math.max(baseLeft, ctx.measureText(widestTick).width + 8);
     const right = 18 * ui;
     const top = 58 * ui;
     const bottom = 40 * ui;
@@ -1189,6 +1232,51 @@ export class ChartCard {
       dim: cssVar("--text-dim", "#59636e"),
       border: cssVar("--border", "#d8dee4"),
     };
+  }
+
+  /** Widest expected Y tick label for the current kind, for the left margin. */
+  private widestYLabel(ctx: CanvasRenderingContext2D, ui: number): string {
+    this.font(ctx, ui, 10);
+    const widest = (labels: readonly string[]): string => {
+      let best = "";
+      let bestWidth = -1;
+      for (const label of labels) {
+        const width = ctx.measureText(label).width;
+        if (width > bestWidth) {
+          bestWidth = width;
+          best = label;
+        }
+      }
+      return best;
+    };
+    switch (this.config.kind) {
+      case "scatter":
+      case "density": {
+        const result = this.seriesResult;
+        const yMin = result === null ? 0 : result.yMin;
+        const yMax = result === null ? 1 : result.yMax;
+        const meta = this.meta(this.config.y);
+        const dateAxis = meta !== undefined && axisKindFor(meta.type) === "line";
+        return widest(
+          niceTicks(yMin, yMax, 4).map((value) => formatTick(value, dateAxis ? "line" : null)),
+        );
+      }
+      case "box": {
+        let max = 1;
+        for (const group of this.boxResult?.groups ?? []) {
+          if (group.max > max) max = group.max;
+        }
+        return widest(niceTicks(0, max, 5).map((value) => formatTick(value, "histogram")));
+      }
+      case "histogram":
+      case "line":
+      case "bar":
+        // The Y axis is a count axis on these kinds.
+        return formatCount(this.rowCount);
+      default:
+        // Heatmap and correlation fit their labels to the margin already.
+        return "";
+    }
   }
 
   private font(ctx: CanvasRenderingContext2D, ui: number, size: number, weight = ""): void {
@@ -1245,11 +1333,17 @@ export class ChartCard {
     return `${TYPE_LABELS[meta.type]} · ${rows} · ${meta.stats.distinct.toLocaleString()} distinct`;
   }
 
-  private drawChart(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  private drawChart(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    forExport = false,
+  ): void {
     ctx.clearRect(0, 0, width, height);
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-    const frame = this.frame(ctx, width, height);
+    const ui = this.textScale(height, forExport);
+    const frame = this.frame(ctx, width, height, forExport, this.widestYLabel(ctx, ui));
 
     if (this.columns.length === 0) {
       this.noteEl.textContent = "Load data to see charts.";
@@ -1894,7 +1988,7 @@ export class ChartCard {
     ctx.fillText(
       `r = ${this.seriesCorrelation.toFixed(2)}`,
       frame.left + frame.plotW - 6 * frame.ui,
-      frame.top + 14 * frame.ui,
+      frame.top - 8 * frame.ui,
     );
     ctx.textAlign = "left";
   }
