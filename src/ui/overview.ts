@@ -1,8 +1,14 @@
 import type { DatasetStats } from "../data/stats.js";
-import type { ColumnMeta, LoadedMessage, TransformedMessage } from "../worker/protocol.js";
+import type {
+  ColumnMeta,
+  LoadedMessage,
+  MissingnessMessage,
+  TransformedMessage,
+} from "../worker/protocol.js";
 import { isCategoryType, isNumericType } from "./chart-utils.js";
 import { clear, el } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
+import { MissingnessChart } from "./missingness.js";
 import { buildColumnCard } from "./summary-band.js";
 
 export interface OverviewCallbacks {
@@ -314,6 +320,8 @@ export function chartStep(columns: readonly ColumnMeta[]): NextStep {
 export class Overview {
   private columns: readonly ColumnMeta[] = [];
   private rowCount = 0;
+  private missingnessChart: MissingnessChart | null = null;
+  private missingnessData: MissingnessMessage | null = null;
 
   constructor(
     private readonly root: HTMLElement,
@@ -325,15 +333,24 @@ export class Overview {
   render(loaded: LoadedMessage | TransformedMessage, source?: DatasetSourceInfo): void {
     this.columns = loaded.columns;
     this.rowCount = loaded.rowCount;
+    this.missingnessChart?.dispose();
+    this.missingnessChart = null;
     clear(this.root);
 
     this.root.append(
       this.buildDatasetLine(loaded, source),
       this.buildHealthTiles(loaded.columns, loaded.stats),
+      this.buildMissingness(),
       this.buildNextSteps(loaded),
       this.buildColumns(loaded),
       this.buildActions(),
     );
+  }
+
+  /** Fills in the Missing values map once the worker payload arrives. */
+  setMissingness(message: MissingnessMessage): void {
+    this.missingnessData = message;
+    this.missingnessChart?.setData(message);
   }
 
   /** Refreshes one column card in place after its data changed. */
@@ -400,6 +417,14 @@ export class Overview {
       line.append(el("div", { class: "overview-types" }, [types]));
     }
     return line;
+  }
+
+  /** Zoomed-out missingness map; populated by `setMissingness` after the fetch. */
+  private buildMissingness(): HTMLElement {
+    const section = el("section", { class: "overview-section" });
+    this.missingnessChart = new MissingnessChart(section);
+    if (this.missingnessData !== null) this.missingnessChart.setData(this.missingnessData);
+    return section;
   }
 
   private buildHealthTiles(columns: readonly ColumnMeta[], stats: DatasetStats): HTMLElement {

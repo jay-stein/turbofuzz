@@ -1120,6 +1120,7 @@ export class App {
     this.overview?.render(loaded, {
       sizeLabel: this.sourceBytes === null ? null : formatBytes(this.sourceBytes),
     });
+    this.refreshMissingness();
     this.renderHealthGroup();
     this.updateCount(loaded.rowCount, 0);
     this.updateGuardrail(loaded, loaded.source === "file" || loaded.type === "transformed");
@@ -1792,6 +1793,18 @@ export class App {
     this.latestStats = stats;
     this.renderHealthGroup();
     this.overview?.updateHealth(this.metas, stats);
+    this.refreshMissingness();
+  }
+
+  /** Rebuilds the Overview's zoomed-out missingness map. */
+  private refreshMissingness(): void {
+    if (this.datasetName === "") return;
+    void this.client
+      .getMissingness(240)
+      .then((message) => this.overview?.setMissingness(message))
+      .catch(() => {
+        // The map is supplementary; the rest of the Overview still stands.
+      });
   }
 
   /** Compact Table/Chart replacement for the old summary band. */

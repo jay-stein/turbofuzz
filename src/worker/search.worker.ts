@@ -5,6 +5,7 @@ import { applyCleanOps } from "../data/clean-ops.js";
 import type { Dataset } from "../data/dataset.js";
 import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
 import { binValues, groupedBinValues } from "../data/chart-bins.js";
+import { missingnessGrid } from "../data/missingness.js";
 import { categoryCodes, computeSeries } from "../data/chart-series.js";
 import { computeBoxStats, computeCorrelation, computeCrossTab } from "../data/chart-stats.js";
 import type { FileEncoding } from "../parse/encoding.js";
@@ -40,6 +41,7 @@ import type {
   GetStatsRequest,
   GetChartBinsRequest,
   GetGroupedBinsRequest,
+  GetMissingnessRequest,
   GetChartSeriesRequest,
   GetBoxStatsRequest,
   GetCrosstabRequest,
@@ -164,6 +166,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getGroupedBins":
       handleGetGroupedBins(message);
+      break;
+    case "getMissingness":
+      handleGetMissingness(message);
       break;
     case "getChartSeries":
       handleGetChartSeries(message);
@@ -709,6 +714,26 @@ function handleGetChartBins(message: GetChartBinsRequest): void {
     median: numeric ? column.medianSampled() : null,
     ...bins,
   });
+}
+
+/** Downsampled null map of the working table for the Overview heatmap. */
+function handleGetMissingness(message: GetMissingnessRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const grid = missingnessGrid(dataset.columns, dataset.rowCount, message.buckets);
+  post(
+    {
+      type: "missingness",
+      requestId: message.requestId,
+      buckets: grid.buckets,
+      columns: dataset.columnCount,
+      cells: grid.cells,
+      totalRows: dataset.rowCount,
+      columnNames: dataset.columns.map((column) => column.name),
+      ms: performance.now() - started,
+    },
+    [grid.cells.buffer],
+  );
 }
 
 /**

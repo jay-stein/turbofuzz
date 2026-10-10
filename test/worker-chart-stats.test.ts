@@ -133,4 +133,19 @@ test("worker serves box, crosstab and correlation stats for chart cards", async 
   assert.equal(grouped.bins, 3);
   assert.equal(grouped.total, 4);
   assert.ok(grouped.ms >= 0);
+
+  send({ type: "getMissingness", requestId: 7, buckets: 2 });
+  const missingness = find("missingness", 7) as unknown as {
+    buckets: number;
+    columns: number;
+    cells: Uint8Array;
+    totalRows: number;
+    columnNames: string[];
+  };
+  assert.equal(missingness.buckets, 2);
+  assert.equal(missingness.columns, 4);
+  assert.equal(missingness.totalRows, 4);
+  assert.equal(missingness.cells.length, 8);
+  assert.deepEqual(missingness.columnNames, ["x", "y", "c", "g"]);
+  assert.deepEqual([...missingness.cells], new Array(8).fill(0));
 });

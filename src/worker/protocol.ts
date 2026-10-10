@@ -187,6 +187,27 @@ export interface GroupedBinsMessage {
   ms: number;
 }
 
+export type GetMissingnessRequest = {
+  type: "getMissingness";
+  requestId: number;
+  /** Maximum row buckets for the missingness map (capped at 1024). */
+  buckets: number;
+};
+
+export interface MissingnessMessage {
+  type: "missingness";
+  requestId: number;
+  /** Row buckets actually used (top bucket = first rows). */
+  buckets: number;
+  columns: number;
+  /** Row-major missing ratios: 0 = all present, 255 = all missing. */
+  cells: Uint8Array;
+  totalRows: number;
+  columnNames: string[];
+  /** Worker compute time for this payload. */
+  ms: number;
+}
+
 export type GetChartSeriesRequest = {
   type: "getChartSeries";
   requestId: number;
@@ -356,6 +377,7 @@ export type WorkerRequest =
   | GetStatsRequest
   | GetChartBinsRequest
   | GetGroupedBinsRequest
+  | GetMissingnessRequest
   | GetChartSeriesRequest
   | GetBoxStatsRequest
   | GetCrosstabRequest
@@ -530,6 +552,7 @@ export type WorkerResponse =
   | StatsMessage
   | ChartBinsMessage
   | GroupedBinsMessage
+  | MissingnessMessage
   | ChartSeriesMessage
   | BoxStatsMessage
   | CrosstabMessage

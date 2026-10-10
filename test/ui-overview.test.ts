@@ -324,3 +324,51 @@ test("the dataset line shows format, delimiter, encoding, size and type mix", ()
     "2 numeric · 1 date · 1 category",
   );
 });
+
+test("the missing values map reports columns, rows and affected columns", () => {
+  setupDom();
+  const host = document.createElement("div");
+  const overview = new Overview(host, {
+    onOpenTable: () => {},
+    onOpenChart: () => {},
+    onFilterColumn: () => {},
+    onCleanColumn: () => {},
+    onOpenCleanNulls: () => {},
+    onDedupe: () => {},
+    onOpenMerge: () => {},
+    onReviewColumn: () => {},
+    onDropColumn: () => {},
+    onOpenStats: () => {},
+  });
+  overview.render({
+    type: "loaded",
+    name: "gap.csv",
+    rowCount: 10,
+    columnCount: 2,
+    columns: [meta({ name: "a" }), meta({ name: "b" })],
+    stats: stats({ totalCells: 20 }),
+    encoding: "utf-8",
+    delimiter: ",",
+    ingestMs: 2,
+  } as unknown as LoadedMessage);
+
+  assert.ok(host.querySelector(".missingness-section") !== null);
+  overview.setMissingness({
+    type: "missingness",
+    requestId: 1,
+    buckets: 2,
+    columns: 2,
+    cells: Uint8Array.from([0, 128, 0, 0]),
+    totalRows: 10,
+    columnNames: ["a", "b"],
+    ms: 1,
+  });
+  const caption = host.querySelector(".missingness-caption")?.textContent ?? "";
+  assert.match(caption, /2 columns × 10 rows/);
+  assert.match(caption, /blue = data/);
+  assert.match(caption, /1 column affected/);
+  assert.match(
+    host.querySelector(".missingness-canvas")?.getAttribute("aria-label") ?? "",
+    /1 column has missing values/,
+  );
+});

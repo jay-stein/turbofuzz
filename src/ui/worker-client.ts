@@ -22,6 +22,7 @@ import type {
   GroupedBinsMessage,
   HeadersRenamedMessage,
   LoadedMessage,
+  MissingnessMessage,
   ProgressMessage,
   ResultsMessage,
   RowsMessage,
@@ -138,6 +139,10 @@ export class SearchWorkerClient {
     topN: number;
   }): Promise<GroupedBinsMessage> {
     return this.request<GroupedBinsMessage>({ type: "getGroupedBins", ...input });
+  }
+
+  getMissingness(buckets: number): Promise<MissingnessMessage> {
+    return this.request<MissingnessMessage>({ type: "getMissingness", buckets });
   }
 
   getChartSeries(input: {
