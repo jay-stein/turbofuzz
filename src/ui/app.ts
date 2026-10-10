@@ -30,6 +30,7 @@ import type {
 } from "../worker/protocol.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openDedupeMenu } from "./dedupe-menu.js";
+import { openMenu } from "./menu.js";
 import { Overview, readDefaultView } from "./overview.js";
 import type { DatasetStats } from "../data/stats.js";
 import { FilterPanel } from "./filters.js";
@@ -43,9 +44,8 @@ import {
   themeLabel,
   type ThemePreference,
 } from "./theme.js";
-import { SummaryBand } from "./summary-band.js";
-import { openStatsModal } from "./stats.js";
 import { ResultTable, type ColumnQaKind, type HighlightRule } from "./table.js";
+import { openStatsModal } from "./stats.js";
 import { SearchWorkerClient } from "./worker-client.js";
 import { openCleanPanel } from "./clean-panel.js";
 import { openConfirm, openPrompt } from "./dialog.js";
@@ -223,8 +223,9 @@ export class App {
   private exportEscapeFormulas = true;
   private exportLimit: number | null = null;
   private bannerEl!: HTMLElement;
-  private summaryHost!: HTMLElement;
-  private summaryBand: SummaryBand | null = null;
+  private healthHost!: HTMLElement;
+  private healthChipCount = 0;
+  private moreButton!: HTMLButtonElement;
   private readonly specials = new Set<SpecialKind>();
   private readonly columnSpecials = new Map<number, Set<ColumnQaKind>>();
   private readonly pendingRowDeletes = new Set<number>();
@@ -519,14 +520,29 @@ export class App {
     ) as HTMLButtonElement;
     this.shuffleButton.addEventListener("click", () => this.shuffleRows());
 
+    this.healthHost = el("span", { class: "health-host hidden" });
+    this.moreButton = el(
+      "button",
+      {
+        class: "icon-btn",
+        type: "button",
+        title: "More actions",
+        "aria-label": "More actions",
+      },
+      ["⋯"],
+    ) as HTMLButtonElement;
+    this.moreButton.addEventListener("click", () => this.openMoreMenu(this.moreButton));
+
     resultsRow.append(
       this.countEl,
+      this.healthHost,
       el("span", { class: "grow" }),
       this.actionEl,
       this.shuffleButton,
       this.stepsButton,
       this.copyButton,
       this.exportButton,
+      this.moreButton,
     );
 
     this.deleteBar = el("div", { class: "delete-bar hidden" });
@@ -545,7 +561,6 @@ export class App {
     this.chartHost = el("div", { class: "chart-host hidden" });
     results.append(resultsBar, this.tableHost, this.chartHost);
 
-    this.summaryHost = el("div");
     this.overviewHost = el("div", { class: "overview-host hidden" });
     this.overview = new Overview(this.overviewHost, {
       onOpenTable: () => this.setView("table"),
@@ -565,10 +580,11 @@ export class App {
         this.setView("table");
         this.filterPanel?.focusColumn(column);
       },
+      onDropColumn: (column) => this.dropEmptyColumns([column]),
       onOpenStats: () => this.openStats(),
     });
     const body = el("div", { class: "workspace-body" }, [sidebar, results]);
-    workspace.append(navRow, this.overviewHost, this.summaryHost, body);
+    workspace.append(navRow, this.overviewHost, body);
     return workspace;
   }
 
@@ -987,14 +1003,6 @@ export class App {
     this.clearPendingDeletes();
     this.shuffleActive = false;
     this.updateStepsButton();
-    this.summaryBand = new SummaryBand(this.summaryHost, {
-      onToggleSpecial: (kind) => this.toggleSpecial(kind),
-      onOpenStats: () => this.openStats(),
-      onColumnClick: (column) => this.filterPanel?.focusColumn(column),
-      onDropDuplicates: (keep) => this.dropDuplicates(keep),
-      onDropEmptyColumns: (columns) => this.dropEmptyColumns(columns),
-    });
-    this.summaryBand.render(loaded);
 
     this.pasteView.classList.add("hidden");
     this.workspace.classList.remove("hidden");
@@ -1033,6 +1041,7 @@ export class App {
 
     this.latestStats = loaded.stats;
     this.overview?.render(loaded);
+    this.renderHealthGroup();
     this.updateCount(loaded.rowCount, 0);
     this.updateGuardrail(loaded, loaded.source === "file" || loaded.type === "transformed");
     if (loaded.type === "loaded") this.view = readDefaultView();
@@ -1221,7 +1230,7 @@ export class App {
     const active = !this.specials.has(kind);
     if (active) this.specials.add(kind);
     else this.specials.delete(kind);
-    this.summaryBand?.setSpecials(this.specials);
+    this.syncHealthChips();
 
     // Grouping takes over ordering in the worker, so clear the sort indicator.
     if (kind === "duplicates" && active) this.table?.setSort(-1, 1);
@@ -1323,8 +1332,6 @@ export class App {
             });
             this.updateStepsButton();
           }
-          this.summaryBand?.setCounts(message.stats);
-          this.summaryBand?.updateColumn(column, message.meta);
           this.overview?.updateColumn(column, message.meta);
           this.filterPanel?.updateMeta(column, message.meta);
           this.table?.updateColumn(column, message.meta);
@@ -1403,8 +1410,6 @@ export class App {
           this.metas[column] = message.meta;
           this.filters.delete(column);
           this.refreshCharts();
-          this.summaryBand?.setCounts(message.stats);
-          this.summaryBand?.updateColumn(column, message.meta);
           this.overview?.updateColumn(column, message.meta);
           this.filterPanel?.updateMeta(column, message.meta);
           this.table?.updateColumn(column, message.meta);
@@ -1454,7 +1459,7 @@ export class App {
     this.specials.clear();
     this.columnSpecials.clear();
     this.syncColumnQa();
-    this.summaryBand?.setSpecials(this.specials);
+    this.syncHealthChips();
     this.filterPanel?.rebuild();
     this.table?.setHighlights([]);
 
@@ -1655,14 +1660,108 @@ export class App {
     this.chartActive = chart;
     this.workspace.classList.toggle("chart-mode", chart);
     this.overviewHost.classList.toggle("hidden", view !== "overview");
-    this.summaryHost.classList.toggle("hidden", view === "overview");
     this.tableHost.classList.toggle("hidden", view !== "table");
     this.chartHost.classList.toggle("hidden", view !== "chart");
+    this.healthHost.classList.toggle("hidden", view === "overview" || this.healthChipCount === 0);
+    this.moreButton.classList.toggle("hidden", view === "overview");
     this.syncTabs();
   }
 
   private syncTabs(): void {
     this.tabs?.setSelected(this.view);
+  }
+
+  /** Refreshes the health group and dataset stats after a worker update. */
+  private applyDatasetStats(stats: DatasetStats): void {
+    this.latestStats = stats;
+    this.renderHealthGroup();
+    this.overview?.updateHealth(this.metas, stats);
+  }
+
+  /** Compact Table/Chart replacement for the old summary band. */
+  private renderHealthGroup(): void {
+    clear(this.healthHost);
+    const stats = this.latestStats;
+    if (stats === null) {
+      this.healthChipCount = 0;
+      return;
+    }
+    let count = 0;
+    const addChip = (kind: SpecialKind, label: string, title: string): void => {
+      const chip = el(
+        "button",
+        {
+          class: "ghost small health-chip",
+          type: "button",
+          title,
+          "aria-pressed": this.specials.has(kind) ? "true" : "false",
+        },
+        [label],
+      ) as HTMLButtonElement;
+      chip.dataset.kind = kind;
+      chip.addEventListener("click", () => this.toggleSpecial(kind));
+      this.healthHost.append(chip);
+      count++;
+    };
+    if (stats.duplicateRows > 0) {
+      addChip(
+        "duplicates",
+        `Duplicates ${stats.duplicateRows.toLocaleString()}`,
+        "Show rows that belong to a duplicate group",
+      );
+      const remove = el(
+        "button",
+        {
+          class: "ghost small",
+          type: "button",
+          title: `Remove duplicate rows — ${stats.duplicateRows.toLocaleString()} redundant rows`,
+        },
+        ["Remove duplicates"],
+      ) as HTMLButtonElement;
+      remove.addEventListener("click", () =>
+        openDedupeMenu(remove, stats, (keep) => this.dropDuplicates(keep)),
+      );
+      this.healthHost.append(remove);
+    }
+    const columnsWithNulls = this.metas.filter((meta) => meta.stats.nulls > 0).length;
+    if (columnsWithNulls > 0) {
+      addChip(
+        "nulls",
+        `Empty cells · ${columnsWithNulls.toLocaleString()} ${
+          columnsWithNulls === 1 ? "col" : "cols"
+        }`,
+        "Show rows with at least one empty cell",
+      );
+    }
+    if (stats.valueAnomalyRows > 0) {
+      addChip(
+        "valueAnomalies",
+        `Outliers ${stats.valueAnomalyRows.toLocaleString()}`,
+        "Show rows with a value outside the column fence",
+      );
+    }
+    this.healthChipCount = count;
+    this.healthHost.classList.toggle("hidden", this.view === "overview" || count === 0);
+  }
+
+  private syncHealthChips(): void {
+    for (const chip of this.healthHost.querySelectorAll<HTMLElement>(".health-chip")) {
+      const kind = chip.dataset.kind as SpecialKind | undefined;
+      const on = kind !== undefined && this.specials.has(kind);
+      chip.classList.toggle("active", on);
+      chip.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  }
+
+  /** `⋯` menu on the Table and Chart lenses: Stats Report and friends. */
+  private openMoreMenu(anchor: HTMLElement): void {
+    openMenu(anchor, [
+      {
+        label: "Stats Report",
+        title: "Full per-column statistics",
+        action: () => this.openStats(),
+      },
+    ]);
   }
 
   /** Pushes fresh facet/histogram payloads to the sidebar filters and charts. */
@@ -2288,7 +2387,7 @@ export class App {
           this.refreshCharts();
           this.filterPanel?.rebuild();
           this.table?.refreshHeader();
-          this.summaryBand?.updateNames(message.headers);
+          this.overview?.updateNames(message.headers);
           const plural = message.headers.length === 1 ? "" : "s";
           this.setAction(`Renamed ${message.headers.length} column${plural}`);
         })
@@ -2314,11 +2413,10 @@ export class App {
             this.metas[column] = meta;
             this.filterPanel?.updateMeta(column, meta);
             this.table?.updateColumn(column, meta);
-            this.summaryBand?.updateColumn(column, meta);
             this.overview?.updateColumn(column, meta);
           }
           this.refreshCharts();
-          this.summaryBand?.setCounts(message.stats);
+          this.applyDatasetStats(message.stats);
           this.table?.setSort(-1, 1);
           this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
@@ -2355,7 +2453,6 @@ export class App {
             this.metas[index] = meta;
             this.filterPanel?.updateMeta(index, meta);
             this.table?.updateColumn(index, meta);
-            this.summaryBand?.updateColumn(index, meta);
             this.overview?.updateColumn(index, meta);
           }
           if (options.record !== false && changed) {
@@ -2370,14 +2467,14 @@ export class App {
             this.updateStepsButton();
           }
           this.refreshCharts();
-          this.summaryBand?.setCounts(message.stats);
+          this.applyDatasetStats(message.stats);
           this.table?.setSort(-1, 1);
           this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
           this.setAction(
-            `Nulls resolved — ${(message.columns[0]?.meta.stats.nulls ?? 0).toLocaleString()} blanks in ${message.columns[0]?.meta.name ?? "column"}`,
+            `Nulls resolved - ${(message.columns[0]?.meta.stats.nulls ?? 0).toLocaleString()} blanks in ${message.columns[0]?.meta.name ?? "column"}`,
           );
         })
         .catch((error: unknown) => this.showError(error)),
@@ -2409,10 +2506,9 @@ export class App {
           }
           this.table?.updateColumns(this.metas);
           for (const { column, meta } of message.columns) {
-            this.summaryBand?.updateColumn(column, meta);
             this.overview?.updateColumn(column, meta);
           }
-          this.summaryBand?.setCounts(message.stats);
+          this.applyDatasetStats(message.stats);
           this.filterPanel?.rebuild();
           this.table?.setSort(-1, 1);
           this.applyFacets(message.facets, message.histograms);

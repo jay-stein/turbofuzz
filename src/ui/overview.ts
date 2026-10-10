@@ -2,6 +2,7 @@ import type { DatasetStats } from "../data/stats.js";
 import type { ColumnMeta, LoadedMessage, TransformedMessage } from "../worker/protocol.js";
 import { isCategoryType, isNumericType } from "./chart-utils.js";
 import { clear, el } from "./dom.js";
+import { openMenu, type MenuItem } from "./menu.js";
 import { buildColumnCard } from "./summary-band.js";
 
 export interface OverviewCallbacks {
@@ -13,6 +14,7 @@ export interface OverviewCallbacks {
   onDedupe(anchor: HTMLElement): void;
   onOpenMerge(column: number): void;
   onReviewColumn(column: number): void;
+  onDropColumn(column: number): void;
   onOpenStats(): void;
 }
 
@@ -237,6 +239,9 @@ export function chartStep(columns: readonly ColumnMeta[]): NextStep {
  * so the Overview needs no worker round trip.
  */
 export class Overview {
+  private columns: readonly ColumnMeta[] = [];
+  private rowCount = 0;
+
   constructor(
     private readonly root: HTMLElement,
     private readonly callbacks: OverviewCallbacks,
@@ -245,11 +250,13 @@ export class Overview {
   }
 
   render(loaded: LoadedMessage | TransformedMessage): void {
+    this.columns = loaded.columns;
+    this.rowCount = loaded.rowCount;
     clear(this.root);
 
     this.root.append(
       this.buildDatasetLine(loaded),
-      this.buildHealthTiles(loaded),
+      this.buildHealthTiles(loaded.columns, loaded.stats),
       this.buildNextSteps(loaded),
       this.buildColumns(loaded),
       this.buildActions(),
@@ -267,6 +274,28 @@ export class Overview {
     existing.replaceWith(card);
   }
 
+  /** Refreshes column names in place after a header rename. */
+  updateNames(names: readonly string[]): void {
+    const cards = this.root.querySelectorAll<HTMLElement>(".overview-column-grid .stat-card");
+    cards.forEach((card, index) => {
+      const name = names[index];
+      if (name === undefined) return;
+      const nameEl = card.querySelector<HTMLElement>(".stat-name");
+      if (nameEl !== null) {
+        nameEl.textContent = name;
+        nameEl.title = name;
+      }
+    });
+  }
+
+  /** Refreshes the health tiles after a worker reported new dataset stats. */
+  updateHealth(columns: readonly ColumnMeta[], stats: DatasetStats): void {
+    const tiles = this.root.querySelector<HTMLElement>(".health-tiles");
+    if (tiles === null) return;
+    this.columns = columns;
+    tiles.replaceWith(this.buildHealthTiles(columns, stats));
+  }
+
   private buildDatasetLine(loaded: LoadedMessage | TransformedMessage): HTMLElement {
     const line = el("div", { class: "overview-dataset" });
     const facts = el("span", { class: "overview-facts" }, [
@@ -279,9 +308,9 @@ export class Overview {
     return line;
   }
 
-  private buildHealthTiles(loaded: LoadedMessage | TransformedMessage): HTMLElement {
+  private buildHealthTiles(columns: readonly ColumnMeta[], stats: DatasetStats): HTMLElement {
     const wrap = el("div", { class: "health-tiles" });
-    for (const tile of healthTiles(loaded.columns, loaded.stats)) {
+    for (const tile of healthTiles(columns, stats)) {
       const node = el("div", {
         class: `health-tile${tile.warn ? " warn" : ""}`,
         "data-kind": tile.id,
@@ -379,45 +408,21 @@ export class Overview {
     }
   }
 
-  /** Small per-column menu: Filter · Chart · Clean. */
+  /** Small per-column menu: Filter · Chart · Clean (plus Drop for empty columns). */
   private openColumnMenu(column: number, anchor: HTMLElement): void {
-    const menu = el("div", { class: "context-menu", role: "menu" });
-    let closed = false;
-    const close = (): void => {
-      if (closed) return;
-      closed = true;
-      menu.remove();
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKey);
-    };
-    const onPointerDown = (event: PointerEvent): void => {
-      if (!menu.contains(event.target as Node)) close();
-    };
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") close();
-    };
-
-    const addItem = (label: string, action: () => void): void => {
-      const item = el(
-        "button",
-        { class: "context-item", type: "button", role: "menuitem" },
-        [label],
-      ) as HTMLButtonElement;
-      item.addEventListener("click", () => {
-        close();
-        action();
+    const meta = this.columns[column];
+    const items: MenuItem[] = [
+      { label: "Filter", action: () => this.callbacks.onFilterColumn(column) },
+      { label: "Chart", action: () => this.callbacks.onOpenChart(column) },
+      { label: "Clean", action: () => this.callbacks.onCleanColumn(column) },
+    ];
+    if (meta !== undefined && this.rowCount > 0 && meta.stats.nulls === this.rowCount) {
+      items.push({
+        label: "Drop empty column",
+        title: "Remove this column — it is empty in every row, tracked as a transform step",
+        action: () => this.callbacks.onDropColumn(column),
       });
-      menu.append(item);
-    };
-    addItem("Filter", () => this.callbacks.onFilterColumn(column));
-    addItem("Chart", () => this.callbacks.onOpenChart(column));
-    addItem("Clean", () => this.callbacks.onCleanColumn(column));
-
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKey);
-    document.body.append(menu);
-    const rect = anchor.getBoundingClientRect();
-    menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8))}px`;
-    menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8)}px`;
+    }
+    openMenu(anchor, items);
   }
 }

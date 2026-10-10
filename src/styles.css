@@ -1254,6 +1254,19 @@ textarea:focus {
   color: var(--text-dim);
 }
 
+.health-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.health-chip.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: default;

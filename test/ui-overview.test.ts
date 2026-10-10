@@ -177,6 +177,7 @@ test("overview renders dataset line, tiles, next steps and every column", () => 
     onDedupe: () => {},
     onOpenMerge: () => {},
     onReviewColumn: () => {},
+    onDropColumn: () => {},
     onOpenStats: () => {},
   });
 
