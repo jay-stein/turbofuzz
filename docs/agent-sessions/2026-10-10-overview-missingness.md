@@ -73,3 +73,29 @@ python check_missingness.py http://localhost:4174/ sales_demo.csv
 
 Optional: deploy (`agent/overview-missingness` also contains the dataset
 facts work from `agent/dataset-file-facts`).
+
+## Revision (same day): faithful missingno shape
+
+After re-reading `missingno.matrix` (the source uses `imshow` over every row,
+white `axvline` separators and a right-hand completeness sparkline with
+max/min dots and counts), the map was revised:
+
+- **Proportional height**: the matrix grows with the row-block count
+  (`round(buckets * 1.4)`, clamped to 96–320px) instead of a fixed strip, so
+  a tall table reads as a tall matrix.
+- **Column separators**: 1px panel-coloured lines between column bands when
+  the bands are wide enough (missingno's white grid lines).
+- **Sparkline**: a right gutter with a per-block nullity profile (grey bars
+  normalised to the min–max range like missingno's `xlim [min-2, max+2]`),
+  accent dot + percentage at the worst block and dim dot + percentage at the
+  best, so "the middle of the table has issues" is visible at a glance.
+  Caption gained `≈ N rows per block` when the grid downsamples, and the
+  aria label names the worst run (`…; worst run of rows is 7% missing`).
+- **Hidden-view guard**: the canvas skips drawing while its wrapper has zero
+  width (Overview hidden). Without it, switching to the Chart tab triggered a
+  10px off-screen render that broke budget C1; caught by the harness and
+  fixed.
+
+Re-verified: 380 tests, 21/21 budgets (`check_missingness.py` now asserts
+height ≥ 300 for the 240-block sales grid, sparkline pixels in the right
+gutter, the "rows per block" caption and the worst-run aria label).
