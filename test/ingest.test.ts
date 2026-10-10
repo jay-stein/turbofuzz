@@ -153,6 +153,22 @@ test("ingestDataset falls back to windows-1252 for legacy files", () => {
   assert.equal(dataset.columns[0].numbers()[0], 343000);
 });
 
+test("ingestDataset keeps prefixed ID columns out of Date", () => {
+  const rows = Array.from(
+    { length: 20 },
+    (_, i) => `ORD-${String(i + 1).padStart(5, "0")},15 Mar 2024`,
+  );
+  const { dataset } = ingestDataset({
+    name: "orders.csv",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: `order_id,order_date\n${rows.join("\n")}\n`,
+  });
+
+  assert.equal(dataset.columns[0].type, "string");
+  assert.equal(dataset.columns[1].type, "date");
+});
+
 test("ingestDataset parses JSON by file name", () => {
   const { dataset } = ingestDataset({
     name: "data.json",
