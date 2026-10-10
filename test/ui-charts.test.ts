@@ -306,6 +306,54 @@ test("chart cards draw scatter points and density grids", async () => {
   panel.dispose();
 });
 
+test("preset settings survive construction and column wiring", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  panel.setColumns([
+    meta({ name: "age", type: "integer" }),
+    meta({ name: "score", type: "number" }),
+    meta({ name: "price", type: "number" }),
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [3, 2] } }),
+  ]);
+  await tick();
+
+  const scatter = panel.addCard({ kind: "scatter", x: 2, y: 0, title: "Price vs age" });
+  const scatterConfig = scatter.getConfig();
+  assert.equal(scatterConfig.x, 2, "preset X survives construction");
+  assert.equal(scatterConfig.y, 0, "preset Y survives construction");
+  assert.equal(scatterConfig.title, "Price vs age");
+  assert.equal(
+    scatter.root.querySelector<HTMLInputElement>(".chart-title")?.value,
+    "Price vs age",
+    "title input is initialised from the preset",
+  );
+
+  const correlation = panel.addCard({
+    kind: "correlation",
+    correlationColumns: [1, 2],
+    title: "Numeric",
+  });
+  assert.deepEqual(correlation.getConfig().correlationColumns, [1, 2]);
+
+  const filled = panel.addCard({ kind: "correlation" });
+  assert.ok(
+    filled.getConfig().correlationColumns.length >= 2,
+    "an empty correlation card selects numeric columns by default",
+  );
+
+  const duplicated = panel.addCard(filled.getConfig());
+  assert.equal(duplicated.getConfig().kind, "correlation");
+  assert.deepEqual(duplicated.getConfig().correlationColumns, filled.getConfig().correlationColumns);
+
+  const source = panel.addCard({ kind: "histogram", column: 2, title: "Revenue spread" });
+  const copy = panel.addCard(source.getConfig());
+  assert.equal(copy.getConfig().column, 2, "duplicate keeps its column");
+  assert.equal(copy.getConfig().title, "Revenue spread", "duplicate keeps its title");
+
+  panel.dispose();
+});
+
 test("charts panel adds, duplicates and removes independent cards", async () => {
   const window = setupDom();
   const host = document.createElement("div");

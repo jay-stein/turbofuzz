@@ -521,6 +521,7 @@ export class ChartCard {
       spellcheck: "false",
       "aria-label": "Chart title",
     }) as HTMLInputElement;
+    this.titleInput.value = this.config.title;
     this.titleInput.addEventListener("input", () => {
       this.config.title = this.titleInput.value;
       this.render();
@@ -775,6 +776,7 @@ export class ChartCard {
   }
 
   private syncOptions(): void {
+    if (this.columns.length === 0) return;
     const signature = `${this.config.kind}|${this.columns
       .map((meta, index) => `${index}:${meta.type}:${meta.name}`)
       .join("|")}`;
@@ -832,6 +834,9 @@ export class ChartCard {
     this.config.correlationColumns = this.config.correlationColumns.filter((index) =>
       numeric.includes(index),
     );
+    if (this.config.kind === "correlation" && this.config.correlationColumns.length < 2) {
+      this.config.correlationColumns = numeric.slice(0, 6);
+    }
     this.correlationSelect.replaceChildren();
     numeric.forEach((index) => {
       const meta = this.columns[index];
