@@ -235,9 +235,9 @@ export class MissingnessChart {
   }
 
   /**
-   * Nullity bars in the right gutter (longer = more missing), with one filled
-   * accent marker on the worst run of rows. No axis text — the caption and
-   * aria label carry the numbers.
+   * Sparkline: the per-block nullity profile drawn as a line chart in the
+   * right gutter, with one filled accent marker on the worst run of rows.
+   * No axis text — the caption and aria label carry the numbers.
    */
   private drawSparkline(
     ctx: CanvasRenderingContext2D,
@@ -252,25 +252,28 @@ export class MissingnessChart {
     const barsW = Math.max(MIN_SPARK_BARS, gutter - SPARK_GAP * 2);
     const cellH = matrixHeight / message.buckets;
     const span = profile.maxRatio - profile.minRatio;
-    const barLength = (ratio: number): number =>
-      barsW * (span > 0 ? (ratio - profile.minRatio) / span : 0);
+    const xOf = (ratio: number): number =>
+      barsX + barsW * (span > 0 ? (ratio - profile.minRatio) / span : 0);
 
-    ctx.fillStyle = MISSING_RGB_CSS;
-    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
     for (let bucket = 0; bucket < message.buckets; bucket++) {
-      const ratio = profile.ratios[bucket];
-      if (ratio <= 0) continue;
-      const height = Math.max(0.75, cellH + 0.5);
-      ctx.fillRect(barsX, bucket * cellH, Math.max(0.75, barLength(ratio)), height);
+      const x = xOf(profile.ratios[bucket]);
+      const y = bucket * cellH + cellH / 2;
+      if (bucket === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     }
+    ctx.strokeStyle = MISSING_RGB_CSS;
+    ctx.globalAlpha = 0.75;
+    ctx.lineWidth = 1.2;
+    ctx.lineJoin = "round";
+    ctx.stroke();
     ctx.globalAlpha = 1;
 
     // One filled marker: the row block with the most missing values.
     const markerY = profile.maxBucket * cellH + cellH / 2;
-    const markerX = barsX + barLength(profile.maxRatio);
     ctx.fillStyle = cssVar("--accent", "#2563eb");
     ctx.beginPath();
-    ctx.arc(markerX, markerY, Math.max(2.6, cellH * 0.9), 0, Math.PI * 2);
+    ctx.arc(xOf(profile.maxRatio), markerY, Math.max(2.6, cellH * 0.9), 0, Math.PI * 2);
     ctx.fill();
   }
 }
