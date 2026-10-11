@@ -28,6 +28,8 @@ function fit(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): str
 export interface NullityProfile {
   /** Missing share per row block, 0–1. */
   ratios: Float64Array;
+  /** Columns with at least one missing value per row block. */
+  affected: Uint16Array;
   /** Block with the most missing values. */
   maxBucket: number;
   maxRatio: number;
@@ -43,15 +45,20 @@ export function nullityProfile(
   columns: number,
 ): NullityProfile {
   const ratios = new Float64Array(buckets);
+  const affected = new Uint16Array(buckets);
   let maxBucket = 0;
   let maxRatio = -1;
   let minBucket = 0;
   let minRatio = 2;
   for (let bucket = 0; bucket < buckets; bucket++) {
     let sum = 0;
+    let count = 0;
     for (let column = 0; column < columns; column++) {
-      sum += cells[bucket * columns + column] ?? 0;
+      const value = cells[bucket * columns + column] ?? 0;
+      sum += value;
+      if (value > 0) count++;
     }
+    affected[bucket] = count;
     const ratio = columns === 0 ? 0 : sum / (columns * 255);
     ratios[bucket] = ratio;
     if (ratio > maxRatio) {
@@ -63,7 +70,35 @@ export function nullityProfile(
       minBucket = bucket;
     }
   }
-  return { ratios, maxBucket, minRatio: Math.max(0, minRatio), minBucket, maxRatio };
+  return { ratios, affected, maxBucket, minRatio: Math.max(0, minRatio), minBucket, maxRatio };
+}
+
+/**
+ * Hover text for one row block of the sparkline, e.g.
+ * "Rows 2,101–2,125 · 2 of 23 columns have missing values · 91.3% available".
+ */
+export function bucketTooltip(
+  cells: ArrayLike<number>,
+  columns: number,
+  buckets: number,
+  totalRows: number,
+  bucket: number,
+): string {
+  let missingColumns = 0;
+  for (let column = 0; column < columns; column++) {
+    if ((cells[bucket * columns + column] ?? 0) > 0) missingColumns++;
+  }
+  const start = Math.floor((bucket * totalRows) / buckets);
+  const end = Math.max(start + 1, Math.floor(((bucket + 1) * totalRows) / buckets));
+  const rows =
+    start + 1 === end
+      ? `Row ${(start + 1).toLocaleString()}`
+      : `Rows ${(start + 1).toLocaleString()}–${end.toLocaleString()}`;
+  const available = columns === 0 ? 100 : ((columns - missingColumns) / columns) * 100;
+  const availableText = available >= 100 ? "100%" : `${available.toFixed(1)}%`;
+  return `${rows} · ${missingColumns.toLocaleString()} of ${columns.toLocaleString()} columns ${
+    missingColumns === 1 ? "has" : "have"
+  } missing values · ${availableText} available`;
 }
 
 /**
@@ -75,7 +110,11 @@ export function nullityProfile(
 export class MissingnessChart {
   private readonly canvas: HTMLCanvasElement;
   private readonly caption: HTMLElement;
+  private readonly tooltip: HTMLElement;
   private message: MissingnessMessage | null = null;
+  private profile: NullityProfile | null = null;
+  private geometry: { matrixW: number; matrixHeight: number } | null = null;
+  private hoverBucket: number | null = null;
   private observer: ResizeObserver | null = null;
   private queued = false;
   private disposed = false;
@@ -89,7 +128,15 @@ export class MissingnessChart {
       role: "img",
       "aria-label": "Missing values map",
     }) as HTMLCanvasElement;
-    wrap.append(this.canvas);
+    this.tooltip = el("div", {
+      class: "missingness-tooltip hidden",
+      role: "tooltip",
+    });
+    this.canvas.addEventListener("pointermove", (event) =>
+      this.onPointerMove(event as PointerEvent),
+    );
+    this.canvas.addEventListener("pointerleave", () => this.clearHover());
+    wrap.append(this.canvas, this.tooltip);
     this.caption = el("div", { class: "missingness-caption" }, [""]);
     root.append(wrap, this.caption);
     if (typeof ResizeObserver !== "undefined") {
@@ -100,6 +147,9 @@ export class MissingnessChart {
 
   setData(message: MissingnessMessage): void {
     this.message = message;
+    this.profile = nullityProfile(message.cells, message.buckets, message.columns);
+    this.hoverBucket = null;
+    this.tooltip.classList.add("hidden");
     const affected = this.affectedColumns(message);
     const profile = nullityProfile(message.cells, message.buckets, message.columns);
     const parts = [
@@ -192,6 +242,7 @@ export class MissingnessChart {
     const ctx = this.canvas.getContext("2d");
     if (ctx === null) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.geometry = { matrixW, matrixHeight };
 
     const data = hexToRgb(cssVar("--accent", "#2563eb"));
     const cellW = matrixW / message.columns;
@@ -236,8 +287,9 @@ export class MissingnessChart {
 
   /**
    * Sparkline: the per-block nullity profile drawn as a line chart in the
-   * right gutter, with one filled accent marker on the worst run of rows.
-   * No axis text — the caption and aria label carry the numbers.
+   * right gutter, with one filled accent marker on the worst run of rows and
+   * a ringed marker wherever the pointer is. No axis text — the tooltip,
+   * caption and aria label carry the numbers.
    */
   private drawSparkline(
     ctx: CanvasRenderingContext2D,
@@ -246,7 +298,8 @@ export class MissingnessChart {
     gutter: number,
     matrixHeight: number,
   ): void {
-    const profile = nullityProfile(message.cells, message.buckets, message.columns);
+    const profile =
+      this.profile ?? nullityProfile(message.cells, message.buckets, message.columns);
     if (profile.maxRatio <= 0) return;
     const barsX = matrixW + SPARK_GAP;
     const barsW = Math.max(MIN_SPARK_BARS, gutter - SPARK_GAP * 2);
@@ -254,11 +307,12 @@ export class MissingnessChart {
     const span = profile.maxRatio - profile.minRatio;
     const xOf = (ratio: number): number =>
       barsX + barsW * (span > 0 ? (ratio - profile.minRatio) / span : 0);
+    const yOf = (bucket: number): number => bucket * cellH + cellH / 2;
 
     ctx.beginPath();
     for (let bucket = 0; bucket < message.buckets; bucket++) {
       const x = xOf(profile.ratios[bucket]);
-      const y = bucket * cellH + cellH / 2;
+      const y = yOf(bucket);
       if (bucket === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -270,10 +324,83 @@ export class MissingnessChart {
     ctx.globalAlpha = 1;
 
     // One filled marker: the row block with the most missing values.
-    const markerY = profile.maxBucket * cellH + cellH / 2;
     ctx.fillStyle = cssVar("--accent", "#2563eb");
     ctx.beginPath();
-    ctx.arc(xOf(profile.maxRatio), markerY, Math.max(2.6, cellH * 0.9), 0, Math.PI * 2);
+    ctx.arc(xOf(profile.maxRatio), yOf(profile.maxBucket), Math.max(2.6, cellH * 0.9), 0, Math.PI * 2);
     ctx.fill();
+
+    // Hover marker: a ringed dot at the block under the pointer.
+    if (this.hoverBucket !== null && this.hoverBucket < message.buckets) {
+      ctx.beginPath();
+      ctx.arc(
+        xOf(profile.ratios[this.hoverBucket]),
+        yOf(this.hoverBucket),
+        Math.max(3.2, cellH * 1.2),
+        0,
+        Math.PI * 2,
+      );
+      ctx.fillStyle = cssVar("--accent", "#2563eb");
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = cssVar("--panel", "#ffffff");
+      ctx.stroke();
+    }
+  }
+
+  /** Row-block hover in the sparkline gutter: tooltip plus a ringed marker. */
+  private onPointerMove(event: PointerEvent): void {
+    const message = this.message;
+    const geometry = this.geometry;
+    if (message === null || geometry === null) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    if (
+      x < geometry.matrixW ||
+      y < 0 ||
+      y > geometry.matrixHeight ||
+      message.buckets === 0
+    ) {
+      this.clearHover();
+      return;
+    }
+    const bucket = Math.max(
+      0,
+      Math.min(message.buckets - 1, Math.floor((y / geometry.matrixHeight) * message.buckets)),
+    );
+    this.tooltip.textContent = bucketTooltip(
+      message.cells,
+      message.columns,
+      message.buckets,
+      message.totalRows,
+      bucket,
+    );
+    this.tooltip.classList.remove("hidden");
+    this.positionTooltip(event);
+    if (this.hoverBucket !== bucket) {
+      this.hoverBucket = bucket;
+      this.schedule();
+    }
+  }
+
+  private clearHover(): void {
+    if (this.hoverBucket === null && this.tooltip.classList.contains("hidden")) return;
+    this.hoverBucket = null;
+    this.tooltip.classList.add("hidden");
+    this.schedule();
+  }
+
+  private positionTooltip(event: PointerEvent): void {
+    const wrap = this.canvas.parentElement;
+    if (wrap === null) return;
+    const rect = wrap.getBoundingClientRect();
+    const width = this.tooltip.offsetWidth;
+    const left = Math.min(
+      Math.max(4, event.clientX - rect.left + 12),
+      Math.max(4, wrap.clientWidth - width - 4),
+    );
+    const top = Math.max(4, event.clientY - rect.top + 14);
+    this.tooltip.style.left = `${left}px`;
+    this.tooltip.style.top = `${top}px`;
   }
 }
