@@ -661,6 +661,7 @@ export class App {
       onOpenStats: () => this.openStats(),
       onCombineDate: (op) =>
         this.applyTransform([...this.transformOps, op], "Combined the date columns"),
+      onBlankTokens: (tokens) => this.applyNullPolicyAll(tokens, []),
     });
     const body = el("div", { class: "workspace-body" }, [sidebar, results]);
     workspace.append(navRow, this.overviewHost, body);

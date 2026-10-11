@@ -1801,6 +1801,13 @@ button:disabled {
   color: var(--null-text);
 }
 
+/* Placeholder tokens read as missing ("NA", "TBD") stay legible in bold red
+   on top of the null hatching, so the raw value is never hidden. */
+.tr .td.null-token-cell {
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .tr .td.anomaly-cell {
   background: transparent;
   box-shadow: inset 3px 0 0 #e3a008;

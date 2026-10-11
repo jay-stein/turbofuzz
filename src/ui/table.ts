@@ -563,6 +563,12 @@ export class ResultTable {
     if (isNull) {
       cell.classList.add("null-cell");
       cell.textContent = value;
+      if (value !== "") {
+        // Placeholder tokens ("NA", "TBD") keep a bold red value so the raw
+        // text stays readable through the hatching and looks clickable.
+        cell.classList.add("null-token-cell");
+        cell.title = `“${value}” is read as a missing value — convert placeholder tokens from the Overview or Clean → Nulls`;
+      }
       return;
     }
     this.applyAnomaly(cell, value, columnIndex);

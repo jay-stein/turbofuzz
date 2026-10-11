@@ -230,3 +230,23 @@ test("pending deletes mark rows and columns red", () => {
   assert.ok(host.querySelectorAll(".th")[2].classList.contains("col-pending"));
   assert.ok(host.querySelectorAll(".del-btn.active").length >= 2);
 });
+
+test("placeholder null tokens keep a bold red cell marker", () => {
+  const { host, table } = buildTable([meta({ name: "amount" })]);
+  table.setFirstRows([["NA"], [""], ["12"]]);
+  table.setCount(3);
+
+  const rows = host.querySelectorAll(".tr");
+  const cellOf = (index: number): HTMLElement =>
+    rows[index].querySelectorAll(".td")[1] as unknown as HTMLElement;
+  const tokenCell = cellOf(0);
+  const blankCell = cellOf(1);
+  const valueCell = cellOf(2);
+
+  assert.ok(tokenCell.classList.contains("null-cell"));
+  assert.ok(tokenCell.classList.contains("null-token-cell"));
+  assert.match(tokenCell.getAttribute("title") ?? "", /read as a missing value/);
+  assert.ok(blankCell.classList.contains("null-cell"));
+  assert.equal(blankCell.classList.contains("null-token-cell"), false);
+  assert.equal(valueCell.classList.contains("null-cell"), false);
+});

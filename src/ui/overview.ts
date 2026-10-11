@@ -25,6 +25,8 @@ export interface OverviewCallbacks {
   onOpenStats(): void;
   /** Applies the detected Year/Month/Day combine in one click. */
   onCombineDate?(op: CombineDateOp): void;
+  /** Blanks placeholder tokens ("NA", "TBD") that are read as missing. */
+  onBlankTokens?(tokens: string[]): void;
 }
 
 export type NextStepAction =
@@ -34,11 +36,13 @@ export type NextStepAction =
   | { kind: "merge"; column: number }
   | { kind: "review"; column: number }
   | { kind: "chart"; column: number | null }
-  | { kind: "combineDate"; op: CombineDateOp };
+  | { kind: "combineDate"; op: CombineDateOp }
+  | { kind: "blankTokens"; tokens: string[] };
 
 export interface NextStep {
   id:
     | "empties"
+    | "nullTokens"
     | "duplicates"
     | "fixes"
     | "nearDuplicates"
@@ -203,16 +207,45 @@ export function pickNextSteps(
 
   const withNulls = columns.filter((column) => column.stats.nulls > 0);
   if (withNulls.length > 0) {
-    const count = withNulls.length;
-    rules.push({
-      id: "empties",
-      text: `${count} ${plural(count, "column")} ${
-        count === 1 ? "has" : "have"
-      } empty cells`,
-      button: "Open Clean",
-      score: stats.rowsWithNulls,
-      action: { kind: "cleanNulls" },
-    });
+    // Placeholder tokens ("NA", "TBD") get a one-click convert action; plain
+    // empty cells keep the review-first rule.
+    const placeholderTotals = new Map<string, number>();
+    for (const column of withNulls) {
+      for (const token of column.nullTokens) {
+        if (token.label !== "" && token.count > 0) {
+          placeholderTotals.set(
+            token.label,
+            (placeholderTotals.get(token.label) ?? 0) + token.count,
+          );
+        }
+      }
+    }
+    const ranked = [...placeholderTotals.entries()].sort((a, b) => b[1] - a[1]);
+    if (ranked.length > 0) {
+      const cells = ranked.reduce((sum, [, count]) => sum + count, 0);
+      const examples = ranked
+        .slice(0, 2)
+        .map(([label]) => `“${label}”`)
+        .join(", ");
+      rules.push({
+        id: "nullTokens",
+        text: `${cells.toLocaleString()} cells hold placeholder text like ${examples}`,
+        button: "Convert to nulls",
+        score: stats.rowsWithNulls,
+        action: { kind: "blankTokens", tokens: ranked.map(([label]) => label) },
+      });
+    } else {
+      const count = withNulls.length;
+      rules.push({
+        id: "empties",
+        text: `${count} ${plural(count, "column")} ${
+          count === 1 ? "has" : "have"
+        } empty cells`,
+        button: "Open Clean",
+        score: stats.rowsWithNulls,
+        action: { kind: "cleanNulls" },
+      });
+    }
   }
 
   if (stats.duplicateRows > 0) {
@@ -569,6 +602,9 @@ export class Overview {
         break;
       case "combineDate":
         this.callbacks.onCombineDate?.(step.action.op);
+        break;
+      case "blankTokens":
+        this.callbacks.onBlankTokens?.(step.action.tokens);
         break;
     }
   }

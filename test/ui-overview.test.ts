@@ -393,3 +393,41 @@ test("the missing values map reports columns, rows and affected columns", () => 
     /1 column has missing values/,
   );
 });
+
+test("placeholder null tokens surface a one-click convert step", () => {
+  const columns = [
+    meta({
+      name: "amount",
+      stats: { ...meta().stats, nulls: 40 },
+      nullTokens: [
+        { label: "NA", count: 30 },
+        { label: "", count: 10 },
+      ],
+    }),
+    meta({
+      name: "notes",
+      stats: { ...meta().stats, nulls: 5 },
+      nullTokens: [{ label: "TBD", count: 5 }],
+    }),
+  ];
+  const steps = pickNextSteps(columns, stats({ rowsWithNulls: 45 }), 100);
+  const convert = steps.find((step) => step.id === "nullTokens");
+  assert.ok(convert !== undefined);
+  assert.equal(convert.text, "35 cells hold placeholder text like “NA”, “TBD”");
+  assert.equal(convert.button, "Convert to nulls");
+  assert.deepEqual(convert.action, { kind: "blankTokens", tokens: ["NA", "TBD"] });
+  assert.ok(!steps.some((step) => step.id === "empties"), "the review card is replaced");
+});
+
+test("columns with only blank cells keep the review-first empties step", () => {
+  const columns = [
+    meta({
+      name: "amount",
+      stats: { ...meta().stats, nulls: 4 },
+      nullTokens: [{ label: "", count: 4 }],
+    }),
+  ];
+  const steps = pickNextSteps(columns, stats({ rowsWithNulls: 4 }), 100);
+  assert.ok(steps.some((step) => step.id === "empties"));
+  assert.ok(!steps.some((step) => step.id === "nullTokens"));
+});
