@@ -1439,6 +1439,54 @@ textarea:focus {
   color: var(--accent);
 }
 
+.tiles-toggle.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Column summary tiles above the table (toggled from the results bar). */
+.column-strip {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--panel);
+  scrollbar-width: thin;
+}
+
+/* Shuffle: a dice icon that reveals its label on hover/focus. */
+.shuffle-button {
+  display: inline-flex;
+  align-items: center;
+}
+
+.shuffle-icon {
+  width: 19px;
+  height: 19px;
+  flex: none;
+}
+
+.shuffle-label {
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  transition:
+    max-width 0.18s ease,
+    opacity 0.18s ease,
+    margin-left 0.18s ease;
+}
+
+.shuffle-button:hover .shuffle-label,
+.shuffle-button:focus-visible .shuffle-label {
+  max-width: 110px;
+  opacity: 1;
+  margin-left: 6px;
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: default;

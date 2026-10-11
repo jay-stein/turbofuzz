@@ -31,6 +31,7 @@ import type {
 import { clear, el, svgIcon } from "./dom.js";
 import { openDedupeMenu } from "./dedupe-menu.js";
 import { openMenu } from "./menu.js";
+import { buildColumnCard } from "./summary-band.js";
 import { Overview, delimiterLabel, readDefaultView } from "./overview.js";
 import type { DatasetStats } from "../data/stats.js";
 import { FilterPanel } from "./filters.js";
@@ -60,6 +61,15 @@ import { suggestCharts } from "./chart-utils.js";
 
 const LARGE_PASTE_ROWS = 300_000;
 const SIDEBAR_COLLAPSED_KEY = "turbofuzz.filters.collapsed";
+const COLUMN_TILES_KEY = "turbofuzz.table.tiles";
+
+function readColumnTilesPreference(): boolean {
+  try {
+    return sessionStorage.getItem(COLUMN_TILES_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 const FILE_ACCEPT =
   ".csv,.tsv,.psv,.txt,.dat,.json,.jsonl,.ndjson,.parquet,.xlsx,.xls,.zip,.gz,.bz2";
 const WORKBOOK_EXTENSIONS = [".xlsx", ".xls"];
@@ -127,6 +137,17 @@ function lockIcon(): SVGElement {
   return svgIcon(
     '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
     "privacy-icon",
+  );
+}
+
+/** Dice icon for the shuffle control: a die with pips. */
+function diceIcon(): SVGElement {
+  return svgIcon(
+    '<rect x="3.5" y="3.5" width="17" height="17" rx="4"/>' +
+      '<circle cx="8.4" cy="8.4" r="1.25" fill="currentColor" stroke="none"/>' +
+      '<circle cx="15.6" cy="15.6" r="1.25" fill="currentColor" stroke="none"/>' +
+      '<circle cx="12" cy="12" r="1.25" fill="currentColor" stroke="none"/>',
+    "shuffle-icon",
   );
 }
 
@@ -243,6 +264,9 @@ export class App {
   private deleteBarText!: HTMLElement;
   private shuffleButton!: HTMLButtonElement;
   private shuffleActive = false;
+  private tilesButton!: HTMLButtonElement;
+  private columnsStrip!: HTMLElement;
+  private tilesOn = readColumnTilesPreference();
   private filterHost!: HTMLElement;
   private filterSearch!: HTMLInputElement;
   private tableHost!: HTMLElement;
@@ -582,15 +606,32 @@ export class App {
     this.shuffleButton = el(
       "button",
       {
-        class: "ghost small",
+        class: "ghost small shuffle-button",
         type: "button",
         title: "Show every row in a random order",
+        "aria-label": "Shuffle data",
       },
-      ["Shuffle all"],
+      [],
     ) as HTMLButtonElement;
+    this.shuffleButton.append(
+      diceIcon(),
+      el("span", { class: "shuffle-label" }, ["Shuffle data"]),
+    );
     this.shuffleButton.addEventListener("click", () => this.shuffleRows());
 
     this.healthHost = el("span", { class: "health-host hidden" });
+    this.tilesButton = el(
+      "button",
+      {
+        class: "ghost small tiles-toggle",
+        type: "button",
+        title: "Show the column summary tiles above the table",
+        "aria-pressed": "false",
+      },
+      ["Column tiles"],
+    ) as HTMLButtonElement;
+    this.tilesButton.classList.add("hidden");
+    this.tilesButton.addEventListener("click", () => this.toggleColumnTiles());
     this.filterChipsEl = el("span", { class: "filter-chips hidden" });
     this.addFilterButton = el(
       "button",
@@ -619,6 +660,7 @@ export class App {
       this.filterChipsEl,
       this.addFilterButton,
       this.healthHost,
+      this.tilesButton,
       el("span", { class: "grow" }),
       this.actionEl,
       this.shuffleButton,
@@ -642,7 +684,8 @@ export class App {
     resultsBar.append(resultsRow, this.deleteBar, this.bannerEl);
     this.tableHost = el("div", { class: "table-host" });
     this.chartHost = el("div", { class: "chart-host hidden" });
-    results.append(resultsBar, this.tableHost, this.chartHost);
+    this.columnsStrip = el("div", { class: "column-strip hidden" });
+    results.append(resultsBar, this.columnsStrip, this.tableHost, this.chartHost);
 
     this.overviewHost = el("div", { class: "overview-host hidden" });
     this.overview = new Overview(this.overviewHost, {
@@ -1844,6 +1887,7 @@ export class App {
     this.moreButton.classList.toggle("hidden", view === "overview");
     this.addFilterButton.classList.toggle("hidden", view === "overview");
     this.syncTabs();
+    this.syncColumnTiles();
     this.hints?.refresh();
   }
 
@@ -1863,6 +1907,7 @@ export class App {
     this.renderHealthGroup();
     this.overview?.updateHealth(this.metas, stats);
     this.refreshMissingness();
+    this.syncColumnTiles();
   }
 
   /** Rebuilds the Overview's zoomed-out missingness map. */
@@ -1981,6 +2026,53 @@ export class App {
     } catch {
       return null;
     }
+  }
+
+  private toggleColumnTiles(): void {
+    this.tilesOn = !this.tilesOn;
+    try {
+      sessionStorage.setItem(COLUMN_TILES_KEY, String(this.tilesOn));
+    } catch {
+      // Persisting the preference is best-effort.
+    }
+    this.syncColumnTiles();
+  }
+
+  /** Shows/hides the column tile strip for the current view and refreshes it. */
+  private syncColumnTiles(): void {
+    this.tilesButton.classList.toggle("hidden", this.view !== "table");
+    this.tilesButton.classList.toggle("active", this.tilesOn);
+    this.tilesButton.setAttribute("aria-pressed", this.tilesOn ? "true" : "false");
+    const visible = this.tilesOn && this.view === "table";
+    this.columnsStrip.classList.toggle("hidden", !visible);
+    if (visible) this.renderColumnStrip();
+  }
+
+  private renderColumnStrip(): void {
+    clear(this.columnsStrip);
+    this.metas.forEach((meta, index) => {
+      let card: HTMLElement;
+      card = buildColumnCard(meta, index, () => this.openStripMenu(index, card));
+      this.columnsStrip.append(card);
+    });
+  }
+
+  /** Column tile menu: Filter · Chart · Clean (plus Drop for empty columns). */
+  private openStripMenu(column: number, anchor: HTMLElement): void {
+    const meta = this.metas[column];
+    const items: { label: string; title?: string; action: () => void }[] = [
+      { label: "Filter", action: () => this.focusFilterColumn(column) },
+      { label: "Chart", action: () => this.setView("chart") },
+      { label: "Clean", action: () => this.openClean(column, "values") },
+    ];
+    if (meta !== undefined && this.rowCount > 0 && meta.stats.nulls === this.rowCount) {
+      items.push({
+        label: "Drop empty column",
+        title: "Remove this column — it is empty in every row, tracked as a transform step",
+        action: () => this.dropEmptyColumns([column]),
+      });
+    }
+    openMenu(anchor, items);
   }
 
   private filterChipLabel(filter: ColumnFilter): string {
@@ -2717,6 +2809,7 @@ export class App {
           this.filterPanel?.rebuild();
           this.table?.refreshHeader();
           this.overview?.updateNames(message.headers);
+          this.syncColumnTiles();
           const plural = message.headers.length === 1 ? "" : "s";
           this.setAction(`Renamed ${message.headers.length} column${plural}`);
         })
