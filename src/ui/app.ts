@@ -151,6 +151,22 @@ function diceIcon(): SVGElement {
   );
 }
 
+/** 2×2 grid icon for the column-tiles toggle. */
+function tilesIcon(): SVGElement {
+  return svgIcon(
+    '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/>' +
+      '<rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/>' +
+      '<rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/>' +
+      '<rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>',
+    "tiles-icon",
+  );
+}
+
+/** Check mark shown in place of the grid while the tiles strip is on. */
+function checkIcon(): SVGElement {
+  return svgIcon('<path d="m5 12.5 4.5 4.5L19 7"/>', "tiles-check");
+}
+
 const CLIPBOARD_ROW_LIMIT = 100_000;
 const EXPORT_CHUNK_ROWS = 20_000;
 
@@ -322,6 +338,14 @@ export class App {
         text: "Every clean and transform lands in the Process Log, where you can undo it.",
         target: () =>
           this.stepsButton.classList.contains("hidden") ? null : this.stepsButton,
+      },
+      {
+        id: "column-tiles",
+        text: "Miss the column summary? “Tiles” shows it above the table while you work.",
+        target: () =>
+          this.view === "table" && !this.tilesButton.classList.contains("hidden")
+            ? this.tilesButton
+            : null,
       },
     ]);
   }
@@ -625,12 +649,17 @@ export class App {
       {
         class: "ghost small tiles-toggle",
         type: "button",
-        title: "Show the column summary tiles above the table",
+        title: "Show a column summary strip above the table while you work (T)",
         "aria-pressed": "false",
       },
-      ["Column tiles"],
+      [],
     ) as HTMLButtonElement;
     this.tilesButton.classList.add("hidden");
+    this.tilesButton.append(
+      tilesIcon(),
+      checkIcon(),
+      el("span", { class: "tiles-label" }, ["Tiles"]),
+    );
     this.tilesButton.addEventListener("click", () => this.toggleColumnTiles());
     this.filterChipsEl = el("span", { class: "filter-chips hidden" });
     this.addFilterButton = el(
@@ -734,6 +763,12 @@ export class App {
       if (event.key === "1") this.setView("overview");
       else if (event.key === "2") this.setView("table");
       else if (event.key === "3") this.setView("chart");
+      else if (
+        (event.key === "t" || event.key === "T") &&
+        this.view === "table"
+      ) {
+        this.toggleColumnTiles();
+      }
     });
   }
 

@@ -1445,6 +1445,31 @@ textarea:focus {
   color: var(--accent);
 }
 
+.tiles-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tiles-toggle .tiles-icon,
+.tiles-toggle .tiles-check {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.tiles-toggle .tiles-check {
+  display: none;
+}
+
+.tiles-toggle.active .tiles-icon {
+  display: none;
+}
+
+.tiles-toggle.active .tiles-check {
+  display: block;
+}
+
 /* Column summary tiles above the table (toggled from the results bar). */
 .column-strip {
   flex: none;
