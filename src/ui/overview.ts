@@ -1,4 +1,5 @@
 import type { DatasetStats } from "../data/stats.js";
+import { autoCombineParts, type CombineDateOp } from "../data/date-combine.js";
 import type {
   ColumnMeta,
   LoadedMessage,
@@ -22,6 +23,8 @@ export interface OverviewCallbacks {
   onReviewColumn(column: number): void;
   onDropColumn(column: number): void;
   onOpenStats(): void;
+  /** Applies the detected Year/Month/Day combine in one click. */
+  onCombineDate?(op: CombineDateOp): void;
 }
 
 export type NextStepAction =
@@ -30,10 +33,18 @@ export type NextStepAction =
   | { kind: "tableFixes" }
   | { kind: "merge"; column: number }
   | { kind: "review"; column: number }
-  | { kind: "chart"; column: number | null };
+  | { kind: "chart"; column: number | null }
+  | { kind: "combineDate"; op: CombineDateOp };
 
 export interface NextStep {
-  id: "empties" | "duplicates" | "fixes" | "nearDuplicates" | "constant" | "chart";
+  id:
+    | "empties"
+    | "duplicates"
+    | "fixes"
+    | "nearDuplicates"
+    | "constant"
+    | "combineDate"
+    | "chart";
   text: string;
   button: string;
   /** Higher first. The chart slot is appended after ranking. */
@@ -260,6 +271,32 @@ export function pickNextSteps(
       button: "Review",
       score: count,
       action: { kind: "review", column: constants[0].index },
+    });
+  }
+
+  // Split date parts are a shape problem, so the fix ranks with the row count.
+  const combine = autoCombineParts(columns);
+  if (combine !== null) {
+    const names = combine.parts
+      .map((part) => columns[part.column]?.name)
+      .filter((name): name is string => name !== undefined);
+    rules.push({
+      id: "combineDate",
+      text: `Combine ${names.join(", ")} into a ${combine.outputName}`,
+      button: "Combine",
+      score: rowCount,
+      action: {
+        kind: "combineDate",
+        op: {
+          kind: "combineDate",
+          parts: combine.parts,
+          output: combine.output,
+          outputName: combine.outputName,
+          order: "auto",
+          timeZone: "naive",
+          dropParts: false,
+        },
+      },
     });
   }
 
@@ -529,6 +566,9 @@ export class Overview {
         break;
       case "chart":
         this.callbacks.onOpenChart(step.action.column);
+        break;
+      case "combineDate":
+        this.callbacks.onCombineDate?.(step.action.op);
         break;
     }
   }

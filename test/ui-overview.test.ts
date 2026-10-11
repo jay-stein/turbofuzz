@@ -112,6 +112,27 @@ test("next steps show only the top two rules when more than three fire", () => {
   );
 });
 
+test("split date parts surface a one-click combine step", () => {
+  const columns = [
+    meta({ name: "Year", type: "integer" }),
+    meta({ name: "Month", type: "integer" }),
+    meta({ name: "Day", type: "integer" }),
+  ];
+  const steps = pickNextSteps(columns, stats(), 300);
+  const combine = steps.find((step) => step.id === "combineDate");
+  assert.ok(combine !== undefined);
+  assert.equal(combine.text, "Combine Year, Month, Day into a date");
+  assert.equal(combine.button, "Combine");
+  assert.equal(combine.action.kind, "combineDate");
+  if (combine.action.kind === "combineDate") {
+    assert.deepEqual(
+      combine.action.op.parts.map((part) => part.role),
+      ["year", "month", "day"],
+    );
+    assert.equal(combine.action.op.timeZone, "naive");
+  }
+});
+
 test("next steps fire one-click fixes, near duplicates and constants", () => {
   const columns = [
     meta({ name: "a", suggestions: [{ kind: "toDate" } as never] }),

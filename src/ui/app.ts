@@ -659,6 +659,8 @@ export class App {
       onReviewColumn: (column) => this.focusFilterColumn(column),
       onDropColumn: (column) => this.dropEmptyColumns([column]),
       onOpenStats: () => this.openStats(),
+      onCombineDate: (op) =>
+        this.applyTransform([...this.transformOps, op], "Combined the date columns"),
     });
     const body = el("div", { class: "workspace-body" }, [sidebar, results]);
     workspace.append(navRow, this.overviewHost, body);

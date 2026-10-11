@@ -31,6 +31,64 @@ export interface CombineDateOp {
 
 const DATE_ROLES = new Set<DatePartRole>(["date", "datetime", "epoch"]);
 
+const AUTO_PART_NAMES: readonly (readonly [string, DatePartRole])[] = [
+  ["year", "year"],
+  ["month", "month"],
+  ["day", "day"],
+  ["hour", "hour"],
+  ["minute", "minute"],
+  ["second", "second"],
+];
+
+/** Case/punctuation-insensitive name key: "Order Year" → "orderyear". */
+function nameKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+export interface CombineAutoPick {
+  parts: CombineDatePart[];
+  output: CombineOutput;
+  outputName: string;
+}
+
+/**
+ * One-click detection for split date columns: Year + Month (plus Day when
+ * present) named exactly like their part combine to a date; Hour + Minute
+ * together make it a datetime. Returns null when the file does not look like
+ * split date parts, so the combine step stays opt-in everywhere else.
+ */
+export function autoCombineParts(
+  columns: readonly { name: string }[],
+): CombineAutoPick | null {
+  const found = new Map<DatePartRole, number>();
+  columns.forEach((column, index) => {
+    const key = nameKey(column.name);
+    for (const [name, role] of AUTO_PART_NAMES) {
+      if (key === name && !found.has(role)) {
+        found.set(role, index);
+        return;
+      }
+    }
+  });
+  const year = found.get("year");
+  const month = found.get("month");
+  if (year === undefined || month === undefined) return null;
+  const time = found.has("hour") && found.has("minute");
+  const roles: DatePartRole[] = time
+    ? ["year", "month", "day", "hour", "minute", "second"]
+    : ["year", "month", "day"];
+  const parts: CombineDatePart[] = [];
+  for (const role of roles) {
+    const index = found.get(role);
+    if (index !== undefined) parts.push({ column: index, role });
+  }
+  return {
+    parts,
+    output: time ? "datetime" : "date",
+    outputName: time ? "datetime" : "date",
+  };
+}
+
 function sampleValues(column: ColumnData, limit = 200): string[] {
   const out: string[] = [];
   for (let i = 0; i < column.raw.length && out.length < limit; i++) {

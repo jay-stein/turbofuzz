@@ -98,3 +98,57 @@ test("transform panel starts empty with a working builder when nothing is applie
   const empty = document.querySelector(".clean-empty")?.textContent ?? "";
   assert.match(empty, /No steps yet/);
 });
+
+test("the transform panel pre-selects split date parts for one-click combining", () => {
+  setupDom();
+  const applied: TransformOp[][] = [];
+  openTransformPanel(
+    [],
+    [
+      { name: "Year", numeric: true },
+      { name: "Month", numeric: true },
+      { name: "Day", numeric: true },
+    ],
+    {
+      onApply: (ops) => {
+        applied.push(ops);
+      },
+      onPreview: async () => null,
+      onClose: () => {},
+    },
+  );
+
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const type = document.querySelector(".transform-builder select") as unknown as {
+    value: string;
+  };
+  assert.equal(type.value, "combineDate");
+  const tz = document.querySelector('input[list="tz-zones"]');
+  assert.equal(tz, null, "the timezone field is gone");
+
+  const apply = document.querySelector(".clean-footer .primary") as unknown as {
+    textContent: string;
+    disabled: boolean;
+    click(): void;
+  };
+  assert.match(apply.textContent, /Combine date\/time columns/);
+  assert.equal(apply.disabled, false);
+  apply.click();
+
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].length, 1);
+  const op = applied[0][0];
+  assert.equal(op.kind, "combineDate");
+  if (op.kind === "combineDate") {
+    assert.deepEqual(
+      op.parts.map((part) => [part.column, part.role]),
+      [
+        [0, "year"],
+        [1, "month"],
+        [2, "day"],
+      ],
+    );
+    assert.equal(op.output, "date");
+    assert.equal(op.timeZone, "naive");
+  }
+});

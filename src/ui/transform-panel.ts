@@ -1,6 +1,6 @@
 import { setupDialog } from "./dialog.js";
 import { clear, el } from "./dom.js";
-import { COMMON_TIME_ZONES } from "../data/timezone.js";
+import { autoCombineParts } from "../data/date-combine.js";
 import type { DatePartRole } from "../parse/date-parts.js";
 import {
   AGGREGATES,
@@ -253,11 +253,21 @@ export function openTransformPanel(
     for (const { value, label } of TRANSFORM_TYPES) {
       typeSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
     }
+    // Split date parts (Year + Month + Day) make the combine step the default
+    // and pre-tick their columns, so it is effectively one click.
+    const detected = autoCombineParts(schema);
+    const auto =
+      detected !== null && !pending.some((op) => op.kind === "combineDate") ? detected : null;
     if (preset?.type !== undefined && TRANSFORM_TYPES.some((entry) => entry.value === preset.type)) {
       typeSelect.value = preset.type;
+    } else if (auto !== null) {
+      typeSelect.value = "combineDate";
     }
     builderType = typeSelect.value;
-    if (preset?.type !== undefined && TRANSFORM_TYPES.some((entry) => entry.value === preset.type)) {
+    if (
+      (preset?.type !== undefined && TRANSFORM_TYPES.some((entry) => entry.value === preset.type)) ||
+      auto !== null
+    ) {
       builderTouched = true;
     }
     typeField.append(typeSelect);
@@ -487,6 +497,18 @@ export function openTransformPanel(
             row.role.disabled = false;
           }
 
+          // Auto-detected Year/Month/Day (+Hour/Minute) columns arrive ticked.
+          const detected = autoCombineParts(schema);
+          if (detected !== null) {
+            for (const part of detected.parts) {
+              const row = rows[part.column];
+              if (row === undefined) continue;
+              row.check.checked = true;
+              row.role.disabled = false;
+              row.role.value = part.role;
+            }
+          }
+
           const outputSelect = selectOf([
             { value: "datetime", label: "Datetime (ISO with time)" },
             { value: "date", label: "Date (YYYY-MM-DD)" },
@@ -499,29 +521,15 @@ export function openTransformPanel(
           const nameInput = el("input", {
             class: "text-input",
             type: "text",
-            value: "datetime",
+            value: detected?.outputName ?? "date",
             spellcheck: "false",
           }) as HTMLInputElement;
+          if (detected !== null) outputSelect.value = detected.output;
           outputSelect.addEventListener("change", () => {
             if (nameInput.value === "datetime" || nameInput.value === "date") {
               nameInput.value = outputSelect.value;
             }
           });
-
-          const tzInput = el("input", {
-            class: "text-input",
-            type: "text",
-            value: "UTC",
-            list: "tz-zones",
-            spellcheck: "false",
-          }) as HTMLInputElement;
-          const tzList = el("datalist", { id: "tz-zones" });
-          for (const zone of ["naive", "local", ...COMMON_TIME_ZONES]) {
-            tzList.append(el("option", { value: zone }));
-          }
-          const tzNote = el("div", { class: "clean-hint" }, [
-            "UTC, local, naive (as written), any IANA zone, or ±HH:MM. Offsets found in the data win.",
-          ]);
 
           const dropCheck = el("input", { type: "checkbox" }) as HTMLInputElement;
           const dropField = el("label", { class: "control check clean-check" });
@@ -530,16 +538,13 @@ export function openTransformPanel(
           const partsGroup = group(
             "Columns to combine",
             partsList,
-            "Tick each column and pick its role — Auto detects it from the column name and values (year/month/day, date + time, 12-hour clocks, offsets, epochs).",
+            "Tick each column and pick its role — Auto detects it from the column name and values (year/month/day, date + time, 12-hour clocks, offsets, epochs). Year/Month/Day columns with matching names are ticked for you.",
           );
           partsGroup.classList.add("date-parts-group");
           inputHost.append(
             partsGroup,
             field("Output", outputSelect),
             field("Date order", orderSelect),
-            field("Timezone", tzInput),
-            tzNote,
-            tzList,
             field("Column name", nameInput),
             dropField,
           );
@@ -555,7 +560,7 @@ export function openTransformPanel(
               output: outputSelect.value === "date" ? "date" : "datetime",
               outputName: nameInput.value,
               order: orderSelect.value === "auto" ? "auto" : orderSelect.value === "mdy" ? "mdy" : "dmy",
-              timeZone: tzInput.value,
+              timeZone: "naive",
               dropParts: dropCheck.checked,
             };
           };

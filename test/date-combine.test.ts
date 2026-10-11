@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ColumnData } from "../src/data/column.js";
-import { applyCombineDate, type CombineDateOp } from "../src/data/date-combine.js";
+import { applyCombineDate, autoCombineParts, type CombineDateOp } from "../src/data/date-combine.js";
 
 function column(name: string, values: string[]): ColumnData {
   return ColumnData.create(name, values);
@@ -135,4 +135,52 @@ test("combining drops meridian conversion into the hour", () => {
     "2024-03-04T01:00:00Z",
     "2024-03-04T13:00:00Z",
   ]);
+});
+
+test("autoCombineParts detects Year + Month + Day in any case", () => {
+  const pick = autoCombineParts([
+    { name: "YEAR" },
+    { name: "Month" },
+    { name: "day" },
+    { name: "region" },
+  ]);
+  assert.deepEqual(pick, {
+    parts: [
+      { column: 0, role: "year" },
+      { column: 1, role: "month" },
+      { column: 2, role: "day" },
+    ],
+    output: "date",
+    outputName: "date",
+  });
+});
+
+test("autoCombineParts adds the clock only when hour and minute both exist", () => {
+  const withClock = autoCombineParts([
+    { name: "Year" },
+    { name: "Month" },
+    { name: "Day" },
+    { name: "Hour" },
+    { name: "Minute" },
+    { name: "Second" },
+  ]);
+  assert.equal(withClock?.output, "datetime");
+  assert.equal(withClock?.outputName, "datetime");
+  assert.deepEqual(
+    withClock?.parts.map((part) => part.role),
+    ["year", "month", "day", "hour", "minute", "second"],
+  );
+
+  const hourOnly = autoCombineParts([{ name: "Year" }, { name: "Month" }, { name: "Hour" }]);
+  assert.equal(hourOnly?.output, "date");
+  assert.deepEqual(
+    hourOnly?.parts.map((part) => part.role),
+    ["year", "month"],
+  );
+});
+
+test("autoCombineParts needs a year and a month", () => {
+  assert.equal(autoCombineParts([{ name: "Month" }, { name: "Day" }]), null);
+  assert.equal(autoCombineParts([{ name: "timestamp" }]), null);
+  assert.equal(autoCombineParts([]), null);
 });
