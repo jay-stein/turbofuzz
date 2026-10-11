@@ -203,8 +203,8 @@ export interface MissingnessMessage {
   /** Row buckets actually used (top bucket = first rows). */
   buckets: number;
   columns: number;
-  /** Row-major missing ratios: 0 = all present, 255 = all missing. */
-  cells: Uint8Array;
+  /** Row-major missing-cell counts per bucket × column (exact). */
+  cells: Uint16Array;
   totalRows: number;
   columnNames: string[];
   /** Worker compute time for this payload. */

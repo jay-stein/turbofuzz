@@ -379,7 +379,7 @@ test("the missing values map reports columns, rows and affected columns", () => 
     requestId: 1,
     buckets: 2,
     columns: 2,
-    cells: Uint8Array.from([0, 128, 0, 0]),
+    cells: Uint16Array.from([0, 3, 0, 0]),
     totalRows: 10,
     columnNames: ["a", "b"],
     ms: 1,

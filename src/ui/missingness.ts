@@ -38,11 +38,19 @@ export interface NullityProfile {
   minRatio: number;
 }
 
+/** Number of rows covered by one sparkline row block (mirrors the worker). */
+export function blockRows(totalRows: number, buckets: number, bucket: number): number {
+  const start = Math.floor((bucket * totalRows) / buckets);
+  const end = Math.max(start + 1, Math.floor(((bucket + 1) * totalRows) / buckets));
+  return end - start;
+}
+
 /** Row-wise nullity from the binned grid — the sparkline's shape. */
 export function nullityProfile(
-  cells: Uint8Array,
+  cells: ArrayLike<number>,
   buckets: number,
   columns: number,
+  totalRows: number,
 ): NullityProfile {
   const ratios = new Float64Array(buckets);
   const affected = new Uint16Array(buckets);
@@ -59,7 +67,8 @@ export function nullityProfile(
       if (value > 0) count++;
     }
     affected[bucket] = count;
-    const ratio = columns === 0 ? 0 : sum / (columns * 255);
+    const cellsInBlock = blockRows(totalRows, buckets, bucket) * columns;
+    const ratio = cellsInBlock === 0 ? 0 : Math.min(1, sum / cellsInBlock);
     ratios[bucket] = ratio;
     if (ratio > maxRatio) {
       maxRatio = ratio;
@@ -75,7 +84,9 @@ export function nullityProfile(
 
 /**
  * Hover text for one row block of the sparkline, e.g.
- * "Rows 2,101–2,125 · 2 of 23 columns have missing values · 91.3% available".
+ * "Rows 2,101–2,125 · 12 missing cells of 300 · 96.0% available". Every number
+ * comes from the hovered rows: exact missing cells, the block's cell count and
+ * its cell-level availability.
  */
 export function bucketTooltip(
   cells: ArrayLike<number>,
@@ -84,9 +95,9 @@ export function bucketTooltip(
   totalRows: number,
   bucket: number,
 ): string {
-  let missingColumns = 0;
+  let missingCells = 0;
   for (let column = 0; column < columns; column++) {
-    if ((cells[bucket * columns + column] ?? 0) > 0) missingColumns++;
+    missingCells += cells[bucket * columns + column] ?? 0;
   }
   const start = Math.floor((bucket * totalRows) / buckets);
   const end = Math.max(start + 1, Math.floor(((bucket + 1) * totalRows) / buckets));
@@ -94,11 +105,12 @@ export function bucketTooltip(
     start + 1 === end
       ? `Row ${(start + 1).toLocaleString()}`
       : `Rows ${(start + 1).toLocaleString()}–${end.toLocaleString()}`;
-  const available = columns === 0 ? 100 : ((columns - missingColumns) / columns) * 100;
-  const availableText = available >= 100 ? "100%" : `${available.toFixed(1)}%`;
-  return `${rows} · ${missingColumns.toLocaleString()} of ${columns.toLocaleString()} columns ${
-    missingColumns === 1 ? "has" : "have"
-  } missing values · ${availableText} available`;
+  const totalCells = (end - start) * columns;
+  const available = totalCells === 0 ? 100 : (1 - missingCells / totalCells) * 100;
+  const availableText = available >= 99.95 ? "100%" : `${available.toFixed(1)}%`;
+  return `${rows} · ${missingCells.toLocaleString()} missing ${
+    missingCells === 1 ? "cell" : "cells"
+  } of ${totalCells.toLocaleString()} · ${availableText} available`;
 }
 
 /**
@@ -147,11 +159,16 @@ export class MissingnessChart {
 
   setData(message: MissingnessMessage): void {
     this.message = message;
-    this.profile = nullityProfile(message.cells, message.buckets, message.columns);
+    const profile = nullityProfile(
+      message.cells,
+      message.buckets,
+      message.columns,
+      message.totalRows,
+    );
+    this.profile = profile;
     this.hoverBucket = null;
     this.tooltip.classList.add("hidden");
     const affected = this.affectedColumns(message);
-    const profile = nullityProfile(message.cells, message.buckets, message.columns);
     const parts = [
       `${message.columns.toLocaleString()} columns × ${message.totalRows.toLocaleString()} rows`,
     ];
@@ -250,8 +267,12 @@ export class MissingnessChart {
 
     for (let bucket = 0; bucket < buckets; bucket++) {
       const y = bucket * cellH;
+      const rowsInBucket = Math.max(1, blockRows(message.totalRows, buckets, bucket));
       for (let column = 0; column < message.columns; column++) {
-        const ratio = (message.cells[bucket * message.columns + column] ?? 0) / 255;
+        const ratio = Math.min(
+          1,
+          (message.cells[bucket * message.columns + column] ?? 0) / rowsInBucket,
+        );
         const channel = (index: number): number =>
           Math.round(data[index] + (MISSING_RGB[index] - data[index]) * ratio);
         ctx.fillStyle = `rgb(${channel(0)}, ${channel(1)}, ${channel(2)})`;
@@ -299,7 +320,8 @@ export class MissingnessChart {
     matrixHeight: number,
   ): void {
     const profile =
-      this.profile ?? nullityProfile(message.cells, message.buckets, message.columns);
+      this.profile ??
+      nullityProfile(message.cells, message.buckets, message.columns, message.totalRows);
     if (profile.maxRatio <= 0) return;
     const barsX = matrixW + SPARK_GAP;
     const barsW = Math.max(MIN_SPARK_BARS, gutter - SPARK_GAP * 2);

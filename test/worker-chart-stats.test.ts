@@ -138,7 +138,7 @@ test("worker serves box, crosstab and correlation stats for chart cards", async 
   const missingness = find("missingness", 7) as unknown as {
     buckets: number;
     columns: number;
-    cells: Uint8Array;
+    cells: Uint16Array;
     totalRows: number;
     columnNames: string[];
   };

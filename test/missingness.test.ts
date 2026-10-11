@@ -4,13 +4,13 @@ import { missingnessGrid } from "../src/data/missingness.js";
 import { bucketTooltip, nullityProfile } from "../src/ui/missingness.js";
 import { BitSet } from "../src/search/bitset.js";
 
-test("missingnessGrid buckets missing shares per column", () => {
+test("missingnessGrid buckets exact missing counts per column", () => {
   const present = new BitSet(10);
   const half = new BitSet(10);
   for (let row = 0; row < 5; row++) half.set(row);
   const grid = missingnessGrid([{ nullMask: present }, { nullMask: half }], 10, 2);
   assert.equal(grid.buckets, 2);
-  assert.deepEqual([...grid.cells], [0, 255, 0, 0]);
+  assert.deepEqual([...grid.cells], [0, 5, 0, 0]);
 });
 
 test("missingnessGrid keeps one bucket per row when the table is small", () => {
@@ -18,7 +18,7 @@ test("missingnessGrid keeps one bucket per row when the table is small", () => {
   mask.set(1);
   const grid = missingnessGrid([{ nullMask: mask }], 3, 240);
   assert.equal(grid.buckets, 3);
-  assert.deepEqual([...grid.cells], [0, 255, 0]);
+  assert.deepEqual([...grid.cells], [0, 1, 0]);
 });
 
 test("missingnessGrid downsamples more rows than buckets", () => {
@@ -26,7 +26,7 @@ test("missingnessGrid downsamples more rows than buckets", () => {
   for (let row = 0; row < 25; row++) mask.set(row);
   const grid = missingnessGrid([{ nullMask: mask }], 100, 4);
   assert.equal(grid.buckets, 4);
-  assert.deepEqual([...grid.cells], [255, 0, 0, 0]);
+  assert.deepEqual([...grid.cells], [25, 0, 0, 0]);
 });
 
 test("missingnessGrid handles an empty dataset", () => {
@@ -36,9 +36,10 @@ test("missingnessGrid handles an empty dataset", () => {
 });
 
 test("nullityProfile finds the most and least complete row blocks", () => {
-  // 3 blocks × 2 columns: block 1 is fully missing, block 0 half, block 2 clean.
-  const cells = Uint8Array.from([0, 255, 255, 255, 0, 0]);
-  const profile = nullityProfile(cells, 3, 2);
+  // 10 rows in 3 blocks (3/3/4 rows) × 2 columns.
+  // Block 0 half missing, block 1 fully missing, block 2 clean.
+  const cells = Uint16Array.from([0, 3, 3, 3, 0, 0]);
+  const profile = nullityProfile(cells, 3, 2, 10);
   assert.equal(profile.maxBucket, 1);
   assert.equal(profile.maxRatio, 1);
   assert.equal(profile.minBucket, 2);
@@ -48,9 +49,9 @@ test("nullityProfile finds the most and least complete row blocks", () => {
   assert.deepEqual([...profile.ratios].map((r) => Math.round(r * 100)), [50, 100, 0]);
 });
 
-test("bucketTooltip reports the row range, affected columns and availability", () => {
-  // 4 blocks of 10 rows, 3 columns; block 0 has one column with missing cells.
-  const cells = Uint8Array.from([
+test("bucketTooltip reports the row range, missing cells and availability", () => {
+  // 4 blocks of 10 rows, 3 columns = 30 cells per block.
+  const cells = Uint16Array.from([
     0, 5, 0,
     0, 0, 0,
     1, 2, 3,
@@ -58,22 +59,35 @@ test("bucketTooltip reports the row range, affected columns and availability", (
   ]);
   assert.equal(
     bucketTooltip(cells, 3, 4, 40, 0),
-    "Rows 1–10 · 1 of 3 columns has missing values · 66.7% available",
+    "Rows 1–10 · 5 missing cells of 30 · 83.3% available",
   );
   assert.equal(
     bucketTooltip(cells, 3, 4, 40, 1),
-    "Rows 11–20 · 0 of 3 columns have missing values · 100% available",
+    "Rows 11–20 · 0 missing cells of 30 · 100% available",
   );
   assert.equal(
     bucketTooltip(cells, 3, 4, 40, 2),
-    "Rows 21–30 · 3 of 3 columns have missing values · 0.0% available",
+    "Rows 21–30 · 6 missing cells of 30 · 80.0% available",
   );
 });
 
+test("bucketTooltip availability moves with the block's missing density", () => {
+  const cells = Uint16Array.from([
+    0, 0,
+    5, 5,
+    10, 10,
+  ]);
+  const texts = [0, 1, 2].map((bucket) => bucketTooltip(cells, 2, 3, 30, bucket));
+  assert.match(texts[0], /100% available$/);
+  assert.match(texts[1], /50\.0% available$/);
+  assert.match(texts[2], /0\.0% available$/);
+  assert.equal(texts[1], "Rows 11–20 · 10 missing cells of 20 · 50.0% available");
+});
+
 test("bucketTooltip collapses single-row blocks", () => {
-  const cells = Uint8Array.from([0, 0, 0]);
+  const cells = Uint16Array.from([0, 0, 0]);
   assert.equal(
     bucketTooltip(cells, 1, 3, 3, 1),
-    "Row 2 · 0 of 1 columns have missing values · 100% available",
+    "Row 2 · 0 missing cells of 1 · 100% available",
   );
 });
