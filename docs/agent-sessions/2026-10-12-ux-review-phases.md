@@ -128,6 +128,17 @@ cells with the numbers in the note, and allowed imports stream one file at a
 time (no retained tables, no header re-detection, no array copies). Commit
 `e6ea5f7`, deployed `56093abc-8b12-4172-8447-c1c5f041f6f8`.
 
+## Chart feedback round (same day)
+
+| Commit | Fix |
+|---|---|
+| `fce2a73` | Pastel1 now applies immediately: single-series charts draw the palette's first colour until the user picks a swatch/hex, and palette changes re-colour them live (hand-picked colours survive). Histograms gain the Group control — one smoothed share-per-bin curve per category with the shared legend. The Source selector reads “Table” when no filter/special is active (and refreshes as filters change). Axis controls sit in their own bordered “Axes” group (Column for single-axis kinds, X/Y for pairs). |
+
+513 tests; deployed `9af793b4-f6d2-4d6f-a4b8-1f5e61563b0e` (verified the
+grouped histogram, pastel colours, Table label and Axes panel with headless
+Chrome).
+
+
 
 
 Drawers kept intentionally: the inspector and command bar cover the common
