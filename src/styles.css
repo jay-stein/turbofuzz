@@ -45,6 +45,7 @@
     --on-accent: #0b1220;
     --danger: #f97066;
     --mark: #7a5d00;
+    --null-text: #ffc4b5;
     --qa-btn: color-mix(in srgb, var(--null) 15%, #93261c);
     --qa-btn-active: color-mix(in srgb, var(--null) 5%, #701b13);
     --qa-warn: #fbbf24;
@@ -71,6 +72,7 @@
   --on-accent: #0b1220;
   --danger: #f97066;
   --mark: #7a5d00;
+  --null-text: #ffc4b5;
   --qa-btn: color-mix(in srgb, var(--null) 15%, #93261c);
   --qa-btn-active: color-mix(in srgb, var(--null) 5%, #701b13);
   --qa-warn: #fbbf24;
@@ -287,7 +289,7 @@ textarea:focus {
 
 .paste-card .sub-formats {
   font-size: 12px;
-  color: color-mix(in srgb, var(--text-dim) 80%, transparent);
+  color: var(--text-dim);
 }
 
 .hist-note {
@@ -4498,10 +4500,12 @@ label.null-row {
 .hint-callout {
   position: fixed;
   z-index: 90;
+  left: 16px;
+  bottom: 16px;
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  max-width: 320px;
+  max-width: min(320px, calc(100vw - 32px));
   padding: 8px 8px 8px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);

@@ -47,40 +47,33 @@ function isVisible(target: HTMLElement): boolean {
 export class Hints {
   private current: HTMLElement | null = null;
   private currentId: string | null = null;
-  private anchor: HTMLElement | null = null;
   private readonly seen: Set<string>;
 
   constructor(private readonly specs: readonly HintSpec[]) {
     this.seen = readSeenHints();
-    window.addEventListener("resize", this.reposition);
     document.addEventListener("keydown", this.onKey);
   }
 
   dispose(): void {
-    window.removeEventListener("resize", this.reposition);
     document.removeEventListener("keydown", this.onKey);
     this.current?.remove();
     this.current = null;
     this.currentId = null;
-    this.anchor = null;
   }
 
   /** Shows the first unseen hint whose anchor is visible, one at a time. */
   refresh(): void {
-    if (this.current !== null) {
-      this.position();
-      return;
-    }
+    if (this.current !== null) return;
     for (const spec of this.specs) {
       if (this.seen.has(spec.id)) continue;
       const target = spec.target();
       if (target === null || !isVisible(target)) continue;
-      this.show(spec, target);
+      this.show(spec);
       return;
     }
   }
 
-  private show(spec: HintSpec, target: HTMLElement): void {
+  private show(spec: HintSpec): void {
     const callout = el("div", { class: "hint-callout", role: "note" });
     callout.append(el("span", { class: "hint-callout-text" }, [spec.text]));
     const close = el(
@@ -93,8 +86,6 @@ export class Hints {
     document.body.append(callout);
     this.current = callout;
     this.currentId = spec.id;
-    this.anchor = target;
-    this.position();
   }
 
   private dismiss(): void {
@@ -105,27 +96,10 @@ export class Hints {
     this.current?.remove();
     this.current = null;
     this.currentId = null;
-    this.anchor = null;
     this.refresh();
   }
 
   private readonly onKey = (event: KeyboardEvent): void => {
     if (event.key === "Escape" && this.current !== null) this.dismiss();
   };
-
-  private readonly reposition = (): void => this.position();
-
-  private position(): void {
-    if (this.current === null || this.anchor === null) return;
-    const rect = this.anchor.getBoundingClientRect();
-    const callout = this.current.getBoundingClientRect();
-    const below = rect.bottom + 8;
-    const top =
-      below + callout.height <= window.innerHeight - 8
-        ? below
-        : Math.max(8, rect.top - callout.height - 8);
-    const left = Math.max(8, Math.min(rect.left, window.innerWidth - callout.width - 8));
-    this.current.style.top = `${top}px`;
-    this.current.style.left = `${left}px`;
-  }
 }
