@@ -138,6 +138,26 @@ time (no retained tables, no header re-detection, no array copies). Commit
 grouped histogram, pastel colours, Table label and Axes panel with headless
 Chrome).
 
+## Bubble charts and animation (same day)
+
+Commit `d8ef27d`, deployed `4ff820cc-3772-4843-a02d-5d227494668c`. 520 tests.
+
+- **Bubble (count)** chart: `getGridCounts` bins two numeric columns into an
+  N×N grid worker-side (default 40, adjustable 4–120) and rows per cell drive
+  the circle area — the Citi Bike lat/lon-by-trip-count case. Joins the
+  gallery under “How are two things related?”.
+- **Animation**: bar and bubble charts can step through a date column.
+  `getAnimation` returns one aggregate per time bucket in a single pass (top-N
+  category counts, or per-frame grids); frame length defaults from the data
+  span (hour/day/week/month) and is selectable. A playback bar under the chart
+  offers play/pause (2 fps), scrubbing, frame label and looping;
+  **Export video** records exactly one loop via `canvas.captureStream` +
+  `MediaRecorder` into a dependency-free `.webm` download.
+- Aggregation in plots answer: measures (sum/mean/…) per group already exist
+  through Views; “Chart this” or the card Source selector binds a card to any
+  saved view’s aggregate. Bubble adds the built-in aggregated scatter.
+
+
 
 
 
