@@ -157,6 +157,19 @@ Commit `d8ef27d`, deployed `4ff820cc-3772-4843-a02d-5d227494668c`. 520 tests.
   through Views; “Chart this” or the card Source selector binds a card to any
   saved view’s aggregate. Bubble adds the built-in aggregated scatter.
 
+## GIF export fix (same day)
+
+Commit `edc8e6f`, deployed `eddd8156-cd94-4d77-a9ab-63e58d85277b`. 523 tests.
+The WebM export recorded the live canvas through MediaRecorder/captureStream
+in real time and sampled the same frame, producing a static video. Export now
+draws every frame to an offscreen canvas (2× the card size) and encodes a
+looping GIF89a directly with `gifenc` — no real-time capture. Verified in
+headless Chrome: a 9-frame animation downloads a 46 KB GIF with 0.5 s frame
+delays, the loop extension, and nine distinct frame data blocks; the encoding
+is covered by structural tests (`test/gif.test.ts`) and a UI test that
+captures the blob.
+
+
 
 
 
