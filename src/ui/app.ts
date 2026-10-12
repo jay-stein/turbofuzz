@@ -1,8 +1,8 @@
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
 import {
   listArchiveEntries,
-  readArchiveEntries,
   readArchiveEntry,
+  readArchivePrefixes,
   type ArchiveEntry,
 } from "../parse/archive.js";
 import { decompressBzip2 } from "../parse/bz2.js";
@@ -90,6 +90,10 @@ import type { Finding } from "../data/findings.js";
 import { suggestCharts } from "./chart-utils.js";
 
 const LARGE_PASTE_ROWS = 300_000;
+/** Bytes read from each archive entry for the Import-all header check. */
+const HEADER_PREFIX_BYTES = 131_072;
+/** Estimated cells (rows x columns) above which Import all is refused. */
+const MAX_APPEND_CELLS = 20_000_000;
 const SIDEBAR_COLLAPSED_KEY = "turbofuzz.filters.collapsed";
 const COLUMN_TILES_KEY = "turbofuzz.table.tiles";
 
@@ -151,6 +155,13 @@ function sameTokens(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false;
   const set = new Set(a);
   return b.every((value) => set.has(value));
+}
+
+/** Compact row estimate for the Import-all label: 3.7M, 480k, 950. */
+function formatApproxRows(rows: number): string {
+  if (rows >= 1_000_000) return `${(rows / 1_000_000).toFixed(1)}M`;
+  if (rows >= 1_000) return `${Math.round(rows / 1_000)}k`;
+  return String(Math.max(0, Math.round(rows)));
 }
 
 function formatBytes(size: number): string {
@@ -1060,28 +1071,42 @@ export class App {
         (entry) => !WORKBOOK_EXTENSIONS.includes(extensionOf(entry.name)),
       );
       if (allDelimited) {
-        const check = await this.checkArchiveTables(entries, buffer);
+        const check = await this.checkArchiveHeaders(entries, buffer);
         this.setLoadingText("");
+        if (check.ok) {
+          const estimatedCells = check.estimatedRows * check.headers.length;
+          const tooBig = estimatedCells > MAX_APPEND_CELLS;
+          const sizeNote = `~${formatApproxRows(check.estimatedRows)} rows × ${check.headers.length.toLocaleString()} columns`;
+          this.showPicker(
+            `${entries.length} files in ${fileName} — pick one, or append them all`,
+            pickItems,
+            {
+              label: `Import all ${entries.length} files (append rows)`,
+              title: tooBig
+                ? `${sizeNote} — over the in-browser append limit; load one file at a time instead`
+                : "The first row matches in every file — concatenate them into one table",
+              note: tooBig
+                ? `${sizeNote} — too large to append in the browser; pick one file instead`
+                : `${sizeNote} · first row identical in all ${entries.length} files`,
+              disabled: tooBig,
+              onSelect: () => {
+                this.hideTablePicker();
+                void this.importArchiveTables(entries, buffer, fileName, check.headers);
+              },
+            },
+          );
+          return;
+        }
         this.showPicker(
           `${entries.length} files in ${fileName} — pick one, or append them all`,
           pickItems,
-          check.ok
-            ? {
-                label: `Import all ${entries.length} files (append rows)`,
-                title: "The first row matches in every file — concatenate them into one table",
-                note: `${check.totalRows.toLocaleString()} data rows · ${check.headers.length} columns · first row identical in all ${entries.length} files`,
-                onSelect: () => {
-                  this.hideTablePicker();
-                  void this.importArchiveTables(check.tables, fileName);
-                },
-              }
-            : {
-                label: `Import all ${entries.length} files (append rows)`,
-                title: check.reason,
-                note: check.reason,
-                disabled: true,
-                onSelect: () => undefined,
-              },
+          {
+            label: `Import all ${entries.length} files (append rows)`,
+            title: check.reason,
+            note: check.reason,
+            disabled: true,
+            onSelect: () => undefined,
+          },
         );
         return;
       }
@@ -1119,61 +1144,61 @@ export class App {
   }
 
   /**
-   * Reads and parses every delimited archive entry once to test whether their
-   * first rows match. Returns the parsed tables so "Import all" reuses them.
+   * Tests whether every delimited archive entry's first row matches, reading
+   * only a prefix of each entry so huge ZIPs stay fast and memory-bounded.
+   * The estimated row count guards Import all against the browser's limits.
    */
-  private async checkArchiveTables(
+  private async checkArchiveHeaders(
     entries: readonly ArchiveEntry[],
     archive: ArrayBuffer,
   ): Promise<
-    | {
-        ok: true;
-        headers: string[];
-        totalRows: number;
-        tables: { headers: string[]; rows: string[][] }[];
-      }
-    | { ok: false; reason: string }
+    { ok: true; headers: string[]; estimatedRows: number } | { ok: false; reason: string }
   > {
     try {
-      this.setLoadingText(`Checking ${entries.length} files…`);
-      const files = await readArchiveEntries(
+      this.setLoadingText(`Checking headers… 0/${entries.length}`);
+      const prefixes = await readArchivePrefixes(
         archive,
         entries.map((entry) => entry.path),
+        HEADER_PREFIX_BYTES,
+        {
+          onProgress: (done, total) => this.setLoadingText(`Checking headers… ${done}/${total}`),
+        },
       );
-      const tables: { headers: string[]; rows: string[][] }[] = [];
       let headers: string[] | null = null;
-      let totalRows = 0;
+      let bytesPerRow = 0;
       for (let index = 0; index < entries.length; index++) {
         const entry = entries[index];
         if (entry === undefined) continue;
-        const bytes = files.get(entry.path);
-        if (bytes === undefined) {
+        const prefix = prefixes.get(entry.path);
+        if (prefix === undefined) {
           return { ok: false, reason: `“${entry.name}” could not be read` };
         }
-        const data = bytes.buffer.slice(
-          bytes.byteOffset,
-          bytes.byteOffset + bytes.byteLength,
+        const data = prefix.buffer.slice(
+          prefix.byteOffset,
+          prefix.byteOffset + prefix.byteLength,
         ) as ArrayBuffer;
-        const parsed = parseDelimited(decodeText(data).text, { hasHeaders: true });
+        const parsed = parseDelimited(decodeText(data).text, {
+          hasHeaders: true,
+          normalizeRows: false,
+        });
         if (parsed.headers.length === 0) {
           return { ok: false, reason: `“${entry.name}” has no first row to compare` };
         }
-        if (headers === null) headers = parsed.headers;
-        else if (!sameHeaderRow(headers, parsed.headers)) {
+        if (headers === null) {
+          headers = parsed.headers;
+          const lines = parsed.rows.length + 1;
+          bytesPerRow = Math.max(1, prefix.byteLength / Math.max(1, lines));
+        } else if (!sameHeaderRow(headers, parsed.headers)) {
           return {
             ok: false,
             reason: `“${entry.name}” has different columns — pick a single file instead`,
           };
         }
-        tables.push({ headers: parsed.headers, rows: parsed.rows });
-        totalRows += parsed.rows.length;
-        this.setLoadingText(`Checking ${entry.name}… (${index + 1}/${entries.length})`);
-        if (index % 8 === 7) await new Promise((resolve) => setTimeout(resolve, 0));
+        this.setLoadingText(`Checking headers… ${index + 1}/${entries.length}`);
       }
-      if (headers === null || tables.length === 0) {
-        return { ok: false, reason: "No readable files found" };
-      }
-      return { ok: true, headers, totalRows, tables };
+      if (headers === null) return { ok: false, reason: "No readable files found" };
+      const totalBytes = entries.reduce((sum, entry) => sum + entry.size, 0);
+      return { ok: true, headers, estimatedRows: Math.round(totalBytes / bytesPerRow) };
     } catch (error) {
       return {
         ok: false,
@@ -1182,22 +1207,40 @@ export class App {
     }
   }
 
-  /** Vertically concatenates the checked archive tables into one dataset. */
+  /**
+   * Vertically concatenates the checked archive entries into one dataset.
+   * Each file is parsed and appended in turn so only one file plus the final
+   * grid live in memory; header detection is skipped because the first row
+   * was already verified identical in every file.
+   */
   private async importArchiveTables(
-    tables: readonly { headers: string[]; rows: string[][] }[],
+    entries: readonly ArchiveEntry[],
+    archive: ArrayBuffer,
     fileName: string,
+    headers: readonly string[],
   ): Promise<void> {
     try {
-      const grid: string[][] = [];
-      for (const table of tables) {
-        grid.push([...table.headers]);
-        for (const row of table.rows) grid.push([...row]);
+      const hasHeaders = this.headersCheckbox.checked;
+      const grid: string[][] = hasHeaders ? [[...headers]] : [];
+      for (let index = 0; index < entries.length; index++) {
+        const entry = entries[index];
+        if (entry === undefined) continue;
+        this.setLoadingText(`Appending “${entry.name}”… (${index + 1}/${entries.length})`);
+        const bytes = await readArchiveEntry(archive, entry.path);
+        const data = bytes.buffer.slice(
+          bytes.byteOffset,
+          bytes.byteOffset + bytes.byteLength,
+        ) as ArrayBuffer;
+        const parsed = parseDelimited(decodeText(data).text, { hasHeaders: true });
+        if (!hasHeaders) grid.push([...parsed.headers]);
+        for (const row of parsed.rows) grid.push(row);
+        if (index % 4 === 3) await new Promise((resolve) => setTimeout(resolve, 0));
       }
-      const total = grid.length;
       this.setLoadingText("");
-      await this.loadGrid(grid, `${fileName.replace(/\.zip$/i, "")} — ${tables.length} files`);
+      const base = fileName.replace(/\.zip$/i, "");
+      await this.loadTable(grid, `${base} — ${entries.length} files`, hasHeaders);
       this.setAction(
-        `Imported ${tables.length} files · ${total.toLocaleString()} rows before header detection`,
+        `Imported ${entries.length} files · ${(hasHeaders ? grid.length - 1 : grid.length).toLocaleString()} rows`,
       );
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not import the files");
