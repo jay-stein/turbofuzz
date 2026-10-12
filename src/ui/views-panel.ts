@@ -1,4 +1,5 @@
 import type { ColumnMeta, AggregateMessage } from "../worker/protocol.js";
+import type { ArchetypeId } from "../data/archetype.js";
 import {
   type Aggregate,
   type DatePart,
@@ -14,6 +15,8 @@ import { openMenu, type MenuItem } from "./menu.js";
 
 export interface ViewsPanelOptions {
   requestAggregate(view: ViewDef): Promise<AggregateMessage>;
+  /** Detected table archetype, used to pick smarter starter views. */
+  archetype?(): ArchetypeId;
   /** Clicking a group row: value dimensions pass the label, time dims the bucket. */
   onDrill(column: number, timeStart: number | null, timeEnd: number | null, label: string): void;
   onChart(view: ViewDef): void;
@@ -98,7 +101,10 @@ function formatMeasure(value: number, measure: MeasureSpec): string {
 }
 
 /** Up to three one-click starter views derived from column types. */
-export function starterViews(columns: readonly ColumnMeta[]): ViewDef[] {
+export function starterViews(
+  columns: readonly ColumnMeta[],
+  archetype: ArchetypeId = "general",
+): ViewDef[] {
   const date = columns.findIndex(
     (meta) => meta.type === "date" && meta.stats.distinct >= 2,
   );
@@ -124,6 +130,8 @@ export function starterViews(columns: readonly ColumnMeta[]): ViewDef[] {
     respectFilters: true,
   });
 
+  // Event logs change too fast for months; day resolution is the useful grain.
+  const grain: TimeGrain = archetype === "eventLog" ? "day" : "month";
   if (numeric >= 0 && category >= 0) {
     const view = base(`Sum of ${columns[numeric].name} by ${columns[category].name}`);
     view.dimensions = [{ column: category, by: "value" }];
@@ -131,8 +139,8 @@ export function starterViews(columns: readonly ColumnMeta[]): ViewDef[] {
     views.push(view);
   }
   if (date >= 0) {
-    const view = base(`Rows by ${columns[date].name} month`);
-    view.dimensions = [{ column: date, by: { time: "month" } }];
+    const view = base(`Rows by ${columns[date].name} ${grain}`);
+    view.dimensions = [{ column: date, by: { time: grain } }];
     view.measures = [{ column: null, agg: "count" }];
     view.fill = "zero";
     view.sort = { key: "dim0", dir: "asc" };
@@ -185,7 +193,7 @@ export class ViewsPanel {
     this.rowCount = rowCount;
     if (!this.started && metas.length > 0) {
       this.started = true;
-      const starters = starterViews(metas);
+      const starters = starterViews(metas, this.options.archetype?.() ?? "general");
       this.views = starters.map((def) => ({
         def,
         result: null,

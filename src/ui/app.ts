@@ -5,6 +5,10 @@ import { detectTable } from "../parse/header-detect.js";
 import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
 import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
 import type { ColumnFilter } from "../search/query-engine.js";
+import {
+  detectArchetypes,
+  type ArchetypeId,
+} from "../data/archetype.js";
 import type { ViewDef } from "../data/aggregate.js";
 import { describeCleanOp, describeCleanOpDetail, type CleanOp } from "../data/clean-ops.js";
 import { pandasRecipe, viewToPandas } from "../data/recipe.js";
@@ -324,6 +328,8 @@ export class App {
   private themePreference: ThemePreference = readThemePreference();
   private viewsHost!: HTMLElement;
   private viewsPanel: ViewsPanel | null = null;
+  private archetypeOverride: ArchetypeId | null = null;
+  private lastLoaded: LoadedMessage | TransformedMessage | null = null;
   private workspaceTitle!: HTMLElement;
   private tabHost!: HTMLElement;
   private hints: Hints | null = null;
@@ -754,6 +760,10 @@ export class App {
       onCombineDate: (op) =>
         this.applyTransform([...this.transformOps, op], "Combined the date columns"),
       onBlankTokens: (tokens) => this.applyNullPolicyAll(tokens, []),
+      onArchetypeChange: (id) => {
+        this.archetypeOverride = id;
+        this.rerenderOverview();
+      },
     });
     const body = el("div", { class: "workspace-body" }, [sidebar, results]);
     workspace.append(navRow, this.overviewHost, body);
@@ -1218,6 +1228,8 @@ export class App {
     }
     this.metas = loaded.columns;
     this.rowCount = loaded.rowCount;
+    this.lastLoaded = loaded;
+    if (loaded.type === "loaded") this.archetypeOverride = null;
     // Views are definitions over column indexes; a load or transform can change
     // the schema, so start fresh rather than risk stale references.
     this.resetViews();
@@ -1286,9 +1298,13 @@ export class App {
     this.latestHistograms = {};
 
     this.latestStats = loaded.stats;
-    this.overview?.render(loaded, {
-      sizeLabel: this.sourceBytes === null ? null : formatBytes(this.sourceBytes),
-    });
+    this.overview?.render(
+      loaded,
+      {
+        sizeLabel: this.sourceBytes === null ? null : formatBytes(this.sourceBytes),
+      },
+      this.archetypeOverride,
+    );
     this.refreshMissingness();
     this.renderHealthGroup();
     this.updateCount(loaded.rowCount, 0);
@@ -1969,6 +1985,7 @@ export class App {
     }
     this.viewsPanel = new ViewsPanel(this.viewsHost, {
       requestAggregate: (view) => this.client.getAggregate(view),
+      archetype: () => this.effectiveArchetype(),
       onDrill: (column, timeStart, timeEnd, label) => {
         if (timeStart !== null) {
           this.changeFilter(column, { kind: "range", min: timeStart, max: timeEnd });
@@ -1993,6 +2010,24 @@ export class App {
   private resetViews(): void {
     this.viewsPanel = null;
     clear(this.viewsHost);
+  }
+
+  /** Detected table archetype, unless the user overrode it. */
+  private effectiveArchetype(): ArchetypeId {
+    if (this.archetypeOverride !== null) return this.archetypeOverride;
+    if (this.latestStats === null || this.metas.length === 0) return "general";
+    return detectArchetypes(this.metas, this.latestStats, this.rowCount)[0]?.id ?? "general";
+  }
+
+  private rerenderOverview(): void {
+    if (this.lastLoaded === null) return;
+    this.overview?.render(
+      this.lastLoaded,
+      {
+        sizeLabel: this.sourceBytes === null ? null : formatBytes(this.sourceBytes),
+      },
+      this.archetypeOverride,
+    );
   }
 
   private applyViewAsDataset(view: ViewDef): void {
