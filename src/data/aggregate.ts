@@ -292,22 +292,50 @@ export function timeBucket(ms: number, grain: TimeGrain, weekStart: 0 | 1 = 1): 
       return (day - diff) * DAY;
     }
     case "month": {
-      const date = new Date(ms);
-      return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+      const [year, month] = civilFromDays(Math.floor(ms / DAY));
+      return daysFromCivil(year, month, 1) * DAY;
     }
     case "quarter": {
-      const date = new Date(ms);
-      return Date.UTC(date.getUTCFullYear(), Math.floor(date.getUTCMonth() / 3) * 3, 1);
+      const [year, month] = civilFromDays(Math.floor(ms / DAY));
+      return daysFromCivil(year, month - ((month - 1) % 3), 1) * DAY;
     }
     case "year": {
-      const date = new Date(ms);
-      return Date.UTC(date.getUTCFullYear(), 0, 1);
+      const [year] = civilFromDays(Math.floor(ms / DAY));
+      return daysFromCivil(year, 1, 1) * DAY;
     }
   }
 }
 
 function pad(value: number, width: number): string {
   return String(value).padStart(width, "0");
+}
+
+/**
+ * Civil date from a day number (Howard Hinnant's algorithm), so time bucketing
+ * never allocates a Date per row.
+ */
+function civilFromDays(z: number): [year: number, month: number, day: number] {
+  z += 719_468;
+  const era = Math.floor(z / 146_097);
+  const doe = z - era * 146_097;
+  const yoe = Math.floor(
+    (doe - Math.floor(doe / 1460) + Math.floor(doe / 36_524) - Math.floor(doe / 146_096)) / 365,
+  );
+  const y = yoe + era * 400;
+  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
+  const mp = Math.floor((5 * doy + 2) / 153);
+  const day = doy - Math.floor((153 * mp + 2) / 5) + 1;
+  const month = mp < 10 ? mp + 3 : mp - 9;
+  return [month <= 2 ? y + 1 : y, month, day];
+}
+
+function daysFromCivil(year: number, month: number, day: number): number {
+  const y = month <= 2 ? year - 1 : year;
+  const era = Math.floor(y / 400);
+  const yoe = y - era * 400;
+  const doy = Math.floor((153 * (month + (month > 2 ? -3 : 9)) + 2) / 5) + day - 1;
+  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+  return era * 146_097 + doe - 719_468;
 }
 
 export function timeLabel(ms: number, grain: TimeGrain): string {
@@ -347,16 +375,20 @@ export function isoWeek(ms: number): number {
 }
 
 export function datePartLabel(ms: number, part: DatePart): string {
-  const date = new Date(ms);
+  const day = Math.floor(ms / DAY);
   switch (part) {
     case "dow":
-      return DOW_LABELS[(date.getUTCDay() + 6) % 7] ?? "?";
+      return DOW_LABELS[(((day + 3) % 7) + 7) % 7] ?? "?";
     case "hour":
-      return pad(date.getUTCHours(), 2);
-    case "month":
-      return MONTH_LABELS[date.getUTCMonth()] ?? "?";
-    case "dom":
-      return pad(date.getUTCDate(), 2);
+      return pad(Math.floor((ms - day * DAY) / HOUR), 2);
+    case "month": {
+      const [, month] = civilFromDays(day);
+      return MONTH_LABELS[month - 1] ?? "?";
+    }
+    case "dom": {
+      const [, , dom] = civilFromDays(day);
+      return pad(dom, 2);
+    }
     case "week":
       return `W${pad(isoWeek(ms), 2)}`;
   }
@@ -400,7 +432,7 @@ function accFor(agg: Aggregate): MeasureAcc {
   return acc;
 }
 
-function accumulate(acc: MeasureAcc, agg: Aggregate, value: number): void {
+function accumulateInto(acc: MeasureAcc, value: number): void {
   acc.count++;
   acc.sum += value;
   if (value < acc.min) acc.min = value;
@@ -413,37 +445,20 @@ function accumulate(acc: MeasureAcc, agg: Aggregate, value: number): void {
   if (acc.samples !== null) acc.samples.push(value);
 }
 
-/** One row into one accumulator slot; handles count, distinct, mode and maths. */
-function accumulateSlot(
-  acc: MeasureAcc,
+/** Slot kind: 0 rows-count, 1 col-count, 2 distinct, 3 mode, 4 numeric, 5 noop. */
+function kindOf(
   agg: Aggregate,
-  column: ColumnData | null,
-  row: number,
-): void {
+  column: number | null,
+  data: ColumnData | null,
+): 0 | 1 | 2 | 3 | 4 | 5 {
   if (agg === "count") {
-    if (column === null) {
-      acc.count++;
-      return;
-    }
-    const raw = column.raw[row];
-    if (column.nullMask.get(row) || raw === undefined) return;
-    acc.count++;
-    return;
+    if (column === null) return 0;
+    return data === null ? 5 : 1;
   }
-  if (column === null) return;
-  const raw = column.raw[row];
-  const missing = column.nullMask.get(row) || raw === undefined;
-  if (agg === "distinct") {
-    if (!missing) acc.distinct?.add(raw);
-    return;
-  }
-  if (agg === "mode") {
-    if (!missing) acc.modes?.set(raw, (acc.modes?.get(raw) ?? 0) + 1);
-    return;
-  }
-  const value = column.numbers()[row];
-  if (!Number.isFinite(value)) return;
-  accumulate(acc, agg, value);
+  if (data === null) return 5;
+  if (agg === "distinct") return 2;
+  if (agg === "mode") return 3;
+  return 4;
 }
 
 function finalise(acc: MeasureAcc, agg: Aggregate): number {
@@ -580,41 +595,79 @@ function applyPost(values: Float64Array, post: readonly PostOp[], all: Float64Ar
   return out;
 }
 
-/** The dimension label, time bucket and natural sort rank for one row. */
-function dimensionInfo(
+/**
+ * Writes the dimension key, deferred label and natural sort rank for one row
+ * into the scratch arrays (no per-row allocation).
+ */
+function dimensionInto(
   column: ColumnData,
   spec: DimensionSpec,
   row: number,
-): { label: string; ms: number | null; rank: number | null } {
+  keys: string[],
+  labels: string[],
+  ranks: number[],
+  times: number[],
+): void {
   const raw = column.raw[row];
   const missing = column.nullMask.get(row) || raw === undefined || raw === "";
   const by = spec.by;
   if (by === "value") {
-    return { label: missing ? "(missing)" : raw, ms: null, rank: null };
+    const text = missing ? "(missing)" : raw;
+    keys.push(text);
+    labels.push(text);
+    ranks.push(Number.NaN);
+    times.push(Number.NaN);
+    return;
   }
   if (typeof by === "object" && "time" in by) {
     const value = column.numbers()[row];
-    if (!Number.isFinite(value)) return { label: "(missing)", ms: null, rank: null };
+    if (!Number.isFinite(value)) {
+      keys.push("(missing)");
+      labels.push("(missing)");
+      ranks.push(Number.NaN);
+      times.push(Number.NaN);
+      return;
+    }
     const bucket = timeBucket(value, by.time, by.weekStart ?? 1);
-    return { label: timeLabel(bucket, by.time), ms: bucket, rank: bucket };
+    // Labels are formatted only when a new group appears, not per row.
+    keys.push(String(bucket));
+    labels.push("");
+    ranks.push(bucket);
+    times.push(bucket);
+    return;
   }
   if (typeof by === "object" && "datePart" in by) {
     const value = column.numbers()[row];
-    if (!Number.isFinite(value)) return { label: "(missing)", ms: null, rank: null };
-    const date = new Date(value);
+    if (!Number.isFinite(value)) {
+      keys.push("(missing)");
+      labels.push("(missing)");
+      ranks.push(Number.NaN);
+      times.push(Number.NaN);
+      return;
+    }
+    const day = Math.floor(value / DAY);
     const rank =
       by.datePart === "dow"
-        ? (date.getUTCDay() + 6) % 7
+        ? (((day + 3) % 7) + 7) % 7
         : by.datePart === "hour"
-          ? date.getUTCHours()
+          ? Math.floor((value - day * DAY) / HOUR)
           : by.datePart === "month"
-            ? date.getUTCMonth()
+            ? civilFromDays(day)[1] - 1
             : by.datePart === "dom"
-              ? date.getUTCDate()
+              ? civilFromDays(day)[2]
               : isoWeek(value);
-    return { label: datePartLabel(value, by.datePart), ms: null, rank };
+    const label = datePartLabel(value, by.datePart);
+    keys.push(label);
+    labels.push(label);
+    ranks.push(rank);
+    times.push(Number.NaN);
+    return;
   }
-  return { label: missing ? "(missing)" : raw, ms: null, rank: null };
+  const text = missing ? "(missing)" : raw;
+  keys.push(text);
+  labels.push(text);
+  ranks.push(Number.NaN);
+  times.push(Number.NaN);
 }
 
 /** Iterates the regular calendar step of a time grain after `ms`. */
@@ -643,6 +696,48 @@ function nextBucket(ms: number, grain: TimeGrain): number {
   }
 }
 
+/** Partially sorts `order`, keeping only the best `limit` by `compare`. */
+function selectTopIndices(
+  order: readonly number[],
+  compare: (a: number, b: number) => number,
+  limit: number,
+): number[] {
+  const heap: number[] = [];
+  const siftUp = (start: number): void => {
+    let index = start;
+    while (index > 0) {
+      const parent = (index - 1) >> 1;
+      if (compare(heap[index] ?? 0, heap[parent] ?? 0) <= 0) break;
+      [heap[index], heap[parent]] = [heap[parent] ?? 0, heap[index] ?? 0];
+      index = parent;
+    }
+  };
+  const siftDown = (): void => {
+    let index = 0;
+    const size = heap.length;
+    for (;;) {
+      const left = index * 2 + 1;
+      const right = left + 1;
+      let largest = index;
+      if (left < size && compare(heap[left] ?? 0, heap[largest] ?? 0) > 0) largest = left;
+      if (right < size && compare(heap[right] ?? 0, heap[largest] ?? 0) > 0) largest = right;
+      if (largest === index) break;
+      [heap[index], heap[largest]] = [heap[largest] ?? 0, heap[index] ?? 0];
+      index = largest;
+    }
+  };
+  for (const item of order) {
+    if (heap.length < limit) {
+      heap.push(item);
+      siftUp(heap.length - 1);
+    } else if (compare(item, heap[0] ?? 0) < 0) {
+      heap[0] = item;
+      siftDown();
+    }
+  }
+  return heap.sort(compare);
+}
+
 /**
  * Aggregate rows into a view result. One pass builds group accumulators; a
  * second pass fills calendar gaps, finalises measures, sorts the ordered
@@ -664,6 +759,9 @@ export function computeAggregate(
     "time" in dimensions[0].by
       ? dimensions[0].by.time
       : null;
+  const dimGrains: (TimeGrain | null)[] = dimensions.map((spec) =>
+    typeof spec.by === "object" && "time" in spec.by ? spec.by.time : null,
+  );
 
   const groupIndex = new Map<string, number>();
   const dimValues: string[][] = dimensions.map(() => []);
@@ -673,12 +771,31 @@ export function computeAggregate(
   const accs: MeasureAcc[][] = [];
 
   // One accumulator slot per aggregate term; expression measures get one slot
-  // per term and are evaluated from the term values after the row loop.
+  // per term and are evaluated from the term values after the row loop. Slots
+  // are pre-resolved (kind, column arrays, mask) so the row loop stays flat.
+  type SlotKind = 0 | 1 | 2 | 3 | 4 | 5; // rows-count, col-count, distinct, mode, numeric, noop
   interface Slot {
     agg: Aggregate;
     column: number | null;
+    kind: SlotKind;
+    numbers: Float64Array | null;
+    raw: readonly string[] | null;
+    mask: ColumnData["nullMask"] | null;
   }
   const slots: Slot[] = [];
+  const pushSlot = (agg: Aggregate, column: number | null, exists: boolean): void => {
+    const data = column === null || !exists ? null : (columns[column] ?? null);
+    const kind: SlotKind =
+      kindOf(agg, column, data);
+    slots.push({
+      agg,
+      column,
+      kind,
+      numbers: kind === 4 ? data?.numbers() ?? null : null,
+      raw: data?.raw ?? null,
+      mask: data?.nullMask ?? null,
+    });
+  };
   const measureSlotOffset: number[] = [];
   const measureTerms: ExprTerm[][] = [];
   const measureCompiled: (CompiledExpression | null)[] = [];
@@ -691,7 +808,7 @@ export function computeAggregate(
         measureCompiled.push(compiled.compiled);
         measureTerms.push(compiled.compiled.terms);
         for (const term of compiled.compiled.terms) {
-          slots.push({ agg: term.agg, column: term.column });
+          pushSlot(term.agg, term.column, term.column === null || columns[term.column] !== undefined);
         }
       } else {
         measureCompiled.push(null);
@@ -700,34 +817,51 @@ export function computeAggregate(
     } else {
       measureCompiled.push(null);
       measureTerms.push([{ agg: measure.agg, column: measure.column, text: "" }]);
-      slots.push({ agg: measure.agg, column: measure.column });
+      pushSlot(measure.agg, measure.column, measure.column === null || columns[measure.column] !== undefined);
     }
   }
   const newSlotAccs = (): MeasureAcc[] => slots.map((slot) => accFor(slot.agg));
   const totalAccs = newSlotAccs();
 
+  // Scratch arrays reused across rows: the row loop allocates nothing.
+  const keys: string[] = [];
+  const labels: string[] = [];
+  const ranks: number[] = [];
+  const times: number[] = [];
+
   for (let position = 0; position < ids.length; position++) {
     const row = ids[position];
     if (row >= rowCount) continue;
-    const labels: string[] = [];
-    const ranks: number[] = [];
-    const times: number[] = [];
+    keys.length = 0;
+    labels.length = 0;
+    ranks.length = 0;
+    times.length = 0;
     let bucket: number | null = null;
     for (let d = 0; d < dimensions.length; d++) {
-      const info = dimensionInfo(columns[dimensions[d].column], dimensions[d], row);
-      labels.push(info.label);
-      ranks.push(info.rank ?? Number.NaN);
-      times.push(info.ms ?? Number.NaN);
-      if (d === 0 && info.ms !== null) bucket = info.ms;
+      dimensionInto(columns[dimensions[d].column], dimensions[d], row, keys, labels, ranks, times);
+      if (d === 0) {
+        const ms = times[0] ?? Number.NaN;
+        if (Number.isFinite(ms)) bucket = ms;
+      }
     }
-    const key = labels.join("\u0000");
+    const key = dimensions.length === 1 ? (keys[0] ?? "") : keys.join("\u0000");
     let index = groupIndex.get(key);
     if (index === undefined) {
       index = dimValues[0]?.length ?? groupIndex.size;
       groupIndex.set(key, index);
-      labels.forEach((label, d) => dimValues[d].push(label));
-      ranks.forEach((rank, d) => dimRanks[d].push(rank));
-      times.forEach((time, d) => dimTimes[d].push(time));
+      for (let d = 0; d < dimensions.length; d++) {
+        const grain = dimGrains[d];
+        const label = labels[d] ?? "";
+        dimValues[d].push(
+          label !== ""
+            ? label
+            : grain !== null
+              ? timeLabel(times[d] ?? Number.NaN, grain)
+              : "(missing)",
+        );
+        dimRanks[d].push(ranks[d] ?? Number.NaN);
+        dimTimes[d].push(times[d] ?? Number.NaN);
+      }
       groupTimes.push(bucket ?? Number.NaN);
       accs.push(newSlotAccs());
     }
@@ -735,9 +869,43 @@ export function computeAggregate(
 
     for (let s = 0; s < slots.length; s++) {
       const slot = slots[s];
-      const column = slot.column === null ? null : (columns[slot.column] ?? null);
-      accumulateSlot(groups[s], slot.agg, column, row);
-      accumulateSlot(totalAccs[s], slot.agg, column, row);
+      const acc = groups[s];
+      const total = totalAccs[s];
+      switch (slot.kind) {
+        case 0:
+          acc.count++;
+          total.count++;
+          break;
+        case 5:
+          break;
+        case 1: {
+          if (slot.mask?.get(row) === true || slot.raw?.[row] === undefined) break;
+          acc.count++;
+          total.count++;
+          break;
+        }
+        case 2: {
+          if (slot.mask?.get(row) === true || slot.raw?.[row] === undefined) break;
+          const value = slot.raw[row];
+          acc.distinct?.add(value);
+          total.distinct?.add(value);
+          break;
+        }
+        case 3: {
+          if (slot.mask?.get(row) === true || slot.raw?.[row] === undefined) break;
+          const value = slot.raw[row];
+          acc.modes?.set(value, (acc.modes?.get(value) ?? 0) + 1);
+          total.modes?.set(value, (total.modes?.get(value) ?? 0) + 1);
+          break;
+        }
+        default: {
+          const value = slot.numbers?.[row] ?? Number.NaN;
+          if (!Number.isFinite(value)) break;
+          accumulateInto(acc, value);
+          accumulateInto(total, value);
+          break;
+        }
+      }
     }
   }
 
@@ -803,28 +971,41 @@ export function computeAggregate(
   const sortKey = view.sort.key;
   const dimIndex = /^dim(\d+)$/.exec(sortKey);
   const measureIndex = /^m(\d+)$/.exec(sortKey);
-  order.sort((a, b) => {
+  const direction = view.sort.dir === "asc" ? 1 : -1;
+  // Decorate the sort key once so each comparison is plain arithmetic.
+  let measureRanks: Float64Array | null = null;
+  let dimensionRanks: Float64Array | null = null;
+  if (measureIndex !== null) {
+    const values = finalMeasures[Number(measureIndex[1])];
+    if (values !== undefined) {
+      measureRanks = new Float64Array(values.length);
+      const missing = direction === 1 ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+      for (let i = 0; i < values.length; i++) {
+        measureRanks[i] = Number.isFinite(values[i]) ? values[i] : missing;
+      }
+    }
+  } else if (dimIndex !== null) {
+    const ranks = dimRanks[Number(dimIndex[1])];
+    if (ranks !== undefined && ranks.every((rank) => Number.isFinite(rank))) {
+      dimensionRanks = Float64Array.from(ranks);
+    }
+  }
+  const compare = (a: number, b: number): number => {
+    if (measureRanks !== null) return (measureRanks[a] - measureRanks[b]) * direction;
+    if (dimensionRanks !== null) return (dimensionRanks[a] - dimensionRanks[b]) * direction;
     let comparison = 0;
     if (dimIndex !== null) {
       const d = Number(dimIndex[1]);
-      const ra = dimRanks[d]?.[a] ?? Number.NaN;
-      const rb = dimRanks[d]?.[b] ?? Number.NaN;
-      comparison =
-        Number.isFinite(ra) && Number.isFinite(rb)
-          ? ra - rb
-          : (dimValues[d]?.[a] ?? "").localeCompare(dimValues[d]?.[b] ?? "");
-    } else if (measureIndex !== null) {
-      const m = Number(measureIndex[1]);
-      const va = finalMeasures[m]?.[a] ?? NaN;
-      const vb = finalMeasures[m]?.[b] ?? NaN;
-      comparison = (Number.isFinite(va) ? va : -Infinity) - (Number.isFinite(vb) ? vb : -Infinity);
+      comparison = (dimValues[d]?.[a] ?? "").localeCompare(dimValues[d]?.[b] ?? "");
     }
-    return view.sort.dir === "asc" ? comparison : -comparison;
-  });
+    return comparison * direction;
+  };
 
   const limit = Math.max(1, Math.floor(view.limit) || 500);
   const truncated = order.length > limit;
-  const shown = truncated ? order.slice(0, limit) : order;
+  // Above the limit only the top N are needed: a bounded heap beats a full
+  // sort of every group (matters at 100k+ high-cardinality dimensions).
+  const shown = truncated ? selectTopIndices(order, compare, limit) : order.sort(compare);
   const limited = finalMeasures.map((values) => {
     const out = new Float64Array(shown.length);
     for (let i = 0; i < shown.length; i++) out[i] = values[shown[i]];
