@@ -28,6 +28,7 @@ import type {
   AggregateMessage,
   CleanUpdate,
   ColumnMeta,
+  CorrelationMessage,
   ExportScope,
   LoadedMessage,
   ProgressMessage,
@@ -65,6 +66,8 @@ import { ViewTabs, type ViewId } from "./view-tabs.js";
 import { ViewsPanel } from "./views-panel.js";
 import { openCommandBar, type ParsedCommand } from "./command-bar.js";
 import { openTriagePanel } from "./triage-panel.js";
+import { ReportsPanel } from "./reports-panel.js";
+import type { Finding } from "../data/findings.js";
 import { suggestCharts } from "./chart-utils.js";
 
 const LARGE_PASTE_ROWS = 300_000;
@@ -315,7 +318,7 @@ export class App {
   private chartRemoved = 0;
   private chartOpened = false;
   private view: ViewId = "overview";
-  private lastLens: "table" | "views" | "chart" = "table";
+  private lastLens: ViewId = "table";
   private tabs: ViewTabs | null = null;
   private overviewHost!: HTMLElement;
   private overview: Overview | null = null;
@@ -333,6 +336,8 @@ export class App {
   private themePreference: ThemePreference = readThemePreference();
   private viewsHost!: HTMLElement;
   private viewsPanel: ViewsPanel | null = null;
+  private reportsHost!: HTMLElement;
+  private reportsPanel: ReportsPanel | null = null;
   private archetypeOverride: ArchetypeId | null = null;
   private lastLoaded: LoadedMessage | TransformedMessage | null = null;
   private workspaceTitle!: HTMLElement;
@@ -346,7 +351,7 @@ export class App {
     this.hints = new Hints([
       {
         id: "tabs",
-        text: "Overview, Table, Views and Chart are lenses — switch anytime with 1–4.",
+        text: "Overview, Table, Views, Chart and Reports are lenses — switch anytime with 1–5.",
         target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
       },
       {
@@ -765,8 +770,16 @@ export class App {
     this.tableHost = el("div", { class: "table-host" });
     this.chartHost = el("div", { class: "chart-host hidden" });
     this.viewsHost = el("div", { class: "views-host hidden" });
+    this.reportsHost = el("div", { class: "reports-host hidden" });
     this.columnsStrip = el("div", { class: "column-strip hidden" });
-    results.append(resultsBar, this.columnsStrip, this.tableHost, this.chartHost, this.viewsHost);
+    results.append(
+      resultsBar,
+      this.columnsStrip,
+      this.tableHost,
+      this.chartHost,
+      this.viewsHost,
+      this.reportsHost,
+    );
 
     this.overviewHost = el("div", { class: "overview-host hidden" });
     this.overview = new Overview(this.overviewHost, {
@@ -830,6 +843,7 @@ export class App {
       else if (event.key === "2") this.setView("table");
       else if (event.key === "3") this.setView("views");
       else if (event.key === "4") this.setView("chart");
+      else if (event.key === "5") this.setView("reports");
       else if (
         (event.key === "t" || event.key === "T") &&
         this.view === "table"
@@ -2068,6 +2082,7 @@ export class App {
       this.chartsPanel?.refresh();
     }
     if (view === "views") this.ensureViews();
+    if (view === "reports") this.ensureReports();
     if (view !== "overview") this.lastLens = view;
     const chart = view === "chart";
     this.chartActive = chart;
@@ -2077,6 +2092,7 @@ export class App {
     this.tableHost.classList.toggle("hidden", view !== "table");
     this.chartHost.classList.toggle("hidden", view !== "chart");
     this.viewsHost.classList.toggle("hidden", view !== "views");
+    this.reportsHost.classList.toggle("hidden", view !== "reports");
     this.healthHost.classList.toggle("hidden", view === "overview" || this.healthChipCount === 0);
     this.moreButton.classList.toggle("hidden", view === "overview");
     this.addFilterButton.classList.toggle("hidden", view === "overview");
@@ -2147,6 +2163,69 @@ export class App {
   private resetViews(): void {
     this.viewsPanel = null;
     clear(this.viewsHost);
+    this.reportsPanel = null;
+    clear(this.reportsHost);
+  }
+
+  private ensureReports(): void {
+    const stats = this.latestStats ?? this.lastLoaded?.stats;
+    if (stats === undefined) return;
+    if (this.reportsPanel !== null) {
+      this.reportsPanel.setData(this.metas, stats);
+      return;
+    }
+    this.reportsPanel = new ReportsPanel(this.reportsHost, {
+      requestCorrelation: () => this.requestReportCorrelation(),
+      onAction: (finding) => this.runFinding(finding),
+    });
+    this.reportsPanel.setData(this.metas, stats);
+  }
+
+  private requestReportCorrelation(): Promise<CorrelationMessage | null> {
+    const numeric: number[] = [];
+    this.metas.forEach((meta, index) => {
+      if ((meta.type === "integer" || meta.type === "number") && numeric.length < 12) {
+        numeric.push(index);
+      }
+    });
+    if (numeric.length < 2) return Promise.resolve(null);
+    return this.client.getCorrelation(numeric).catch(() => null);
+  }
+
+  /** Runs a report finding's action. */
+  private runFinding(finding: Finding): void {
+    const action = finding.action;
+    if (action === undefined) return;
+    switch (action.kind) {
+      case "suggestion":
+        this.applySuggestion(action.column, action.suggestion);
+        break;
+      case "filterSpecial": {
+        const active = this.columnSpecials.get(action.column)?.has(action.special) ?? false;
+        if (!active) this.toggleColumnSpecial(action.column, action.special);
+        this.setView("table");
+        break;
+      }
+      case "filterDuplicates": {
+        if (!this.specials.has("duplicates")) this.toggleSpecial("duplicates");
+        this.setView("table");
+        break;
+      }
+      case "filterRange":
+        this.changeFilter(action.column, { kind: "range", min: action.min, max: action.max });
+        this.setView("table");
+        break;
+      case "filterText":
+        this.changeFilter(action.column, { kind: "text", mode: "exact", query: action.query });
+        this.setView("table");
+        break;
+      case "cleanNulls":
+        this.openClean(action.column, "nulls");
+        break;
+      case "merge":
+        this.openMerge(action.column);
+        break;
+    }
   }
 
   /** Detected table archetype, unless the user overrode it. */
@@ -2219,6 +2298,8 @@ export class App {
     this.overview?.updateHealth(this.metas, stats);
     this.refreshMissingness();
     this.syncColumnTiles();
+    this.reportsPanel?.setData(this.metas, stats);
+    this.reportsPanel?.invalidate();
   }
 
   /** Rebuilds the Overview's zoomed-out missingness map. */

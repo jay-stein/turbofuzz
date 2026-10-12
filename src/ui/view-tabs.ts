@@ -1,8 +1,14 @@
 import { el } from "./dom.js";
 
-export type ViewId = "overview" | "table" | "views" | "chart";
+export type ViewId = "overview" | "table" | "views" | "chart" | "reports";
 
-export const VIEW_ORDER: readonly ViewId[] = ["overview", "table", "views", "chart"];
+export const VIEW_ORDER: readonly ViewId[] = [
+  "overview",
+  "table",
+  "views",
+  "chart",
+  "reports",
+];
 
 const LABELS: Record<ViewId, { label: string; title: string }> = {
   overview: {
@@ -15,6 +21,10 @@ const LABELS: Record<ViewId, { label: string; title: string }> = {
     title: "Saved aggregate views — group the filtered rows without changing them",
   },
   chart: { label: "Chart", title: "Show a chart of the current result set" },
+  reports: {
+    label: "Reports",
+    title: "Quality, relationships and anomalies — every finding explains itself",
+  },
 };
 
 export interface ViewTabsCallbacks {
