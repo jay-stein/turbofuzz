@@ -276,3 +276,14 @@ file was fine. Bubble charts can now size by Count (rows) or sum/mean/min/max
 of any numeric column, aggregated per grid cell worker-side (and per frame
 for animated bubbles), with area/radius/log scale modes and an exact note
 ("size: mean(Annual Usage) per cell (log scale)"). Play speed gains 1.25x.
+
+## Bubble controls visibility fix (same day)
+
+Commit `229be57`, deployed `67346b4e-c594-4a28-9882-d6c90c326524`. 531 tests.
+The bubble Size-by and Scale selects were inside the collapsed Settings panel,
+and choosing a Size column while the measure stayed Count had no visible
+effect. The Grid/Size-by/Scale controls now sit in their own dashed "Bubbles"
+row directly under the toolbar whenever the chart is a bubble, and picking a
+Size column switches the measure to Sum automatically. Verified visually:
+the row appears with Grid 40, Size by Count (rows), Scale Area proportional to
+value.
