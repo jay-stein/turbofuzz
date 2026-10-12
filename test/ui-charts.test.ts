@@ -962,3 +962,130 @@ test("the colour map defaults to Pastel1 and can be changed", async () => {
   assert.equal(host.querySelectorAll(".chart-palette-dot").length, 10);
   card.dispose();
 });
+
+test("single-series colour follows the palette until the user picks one", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), {
+    kind: "histogram",
+    column: 0,
+  });
+  card.setColumns([
+    meta({
+      name: "amount",
+      type: "number",
+      histogram: { bins: [1, 2], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 },
+    }),
+  ]);
+  await tick();
+  const hex = host.querySelector(".chart-hex") as HTMLInputElement;
+  assert.equal(hex.value, "#fbb4ae", "Pastel1's first colour shows straight away");
+  const palette = host.querySelector(".chart-palette-select") as HTMLSelectElement;
+  palette.value = "Set2";
+  palette.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(hex.value, "#66c2a5", "the single-series colour follows the new palette");
+  (host.querySelector('.chart-swatch[title="#2563eb"]') as unknown as { click(): void }).click();
+  await tick();
+  assert.equal(card.getConfig().colorCustom, true);
+  palette.value = "Set3";
+  palette.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(hex.value, "#2563eb", "a hand-picked colour survives palette changes");
+  card.dispose();
+});
+
+test("a grouped histogram draws one share curve per category with a legend", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestGroupedBins: () =>
+        Promise.resolve({
+          type: "groupedBins",
+          requestId: 1,
+          column: 0,
+          groupColumn: 1,
+          labels: ["Female", "Male"],
+          codes: [0, 1],
+          groups: [
+            [4, 2, 1, 0],
+            [1, 3, 3, 1],
+          ],
+          totals: [7, 8],
+          otherIndex: -1,
+          bins: 4,
+          overflow: 0,
+          above: 0,
+          below: 0,
+          total: 15,
+          ms: 1,
+        }),
+    },
+    { kind: "histogram", column: 0, groupColumn: 1 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({
+      name: "trip_duration",
+      type: "number",
+      histogram: { bins: [1, 1, 1, 1], min: 0, max: 40, symlog: false, below: 0, above: 0, p05: 1, p95: 39 },
+    }),
+    meta({
+      name: "gender",
+      type: "category",
+      categories: { labels: ["Female", "Male"], counts: [7, 8] },
+    }),
+  ]);
+  await tick();
+  const legend = host.querySelectorAll(".chart-legend-item");
+  assert.equal(legend.length, 2, "one legend entry per gender");
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /2 curves by gender/);
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /share of each group per bin/);
+  card.dispose();
+});
+
+test("the source label says Table when no filters apply", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, { ...stubCardOptions(), tableSourceLabel: () => "Table" }, {
+    kind: "bar",
+    column: 0,
+  });
+  card.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+  ]);
+  await tick();
+  const option = host.querySelector(".chart-source option") as HTMLOptionElement;
+  assert.equal(option.textContent, "Table");
+  card.dispose();
+});
+
+test("axis controls sit in their own bordered group", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+  ]);
+  await tick();
+  const axes = host.querySelector(".chart-axes") as HTMLElement;
+  assert.ok(axes !== null, "the axes group renders");
+  assert.equal(axes.classList.contains("hidden"), false);
+  assert.match(axes.textContent ?? "", /Axes/);
+  assert.ok(axes.querySelector('[aria-label="Chart column"]') !== null);
+  const kindSelect = host.querySelector(".chart-kind") as HTMLSelectElement;
+  kindSelect.value = "scatter";
+  kindSelect.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.ok(axes.querySelector('[aria-label="X column"]') !== null);
+  assert.ok(axes.querySelector('[aria-label="Y column"]') !== null);
+  card.dispose();
+});

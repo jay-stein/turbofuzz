@@ -56,6 +56,8 @@ export interface ChartsPanelOptions {
   requestAggregate(view: ViewDef): Promise<AggregateMessage>;
   /** Token frequencies for the top-terms chart. */
   requestTextProfile(column: number): Promise<TextProfileMessage>;
+  /** Label for the filtered-table source: "Table" when no filters apply. */
+  tableSourceLabel?(): string;
   /** Applies a filter from a click on a chart region (bars, bins, cells). */
   onFilter?(column: number, filter: ColumnFilter | null, preview?: boolean): void;
   /** Reads the app's current filter for a column, so clicks can toggle. */
@@ -334,6 +336,7 @@ export class ChartsPanel {
         requestViewAggregate: this.options.requestViewAggregate,
         requestAggregate: this.options.requestAggregate,
         requestTextProfile: this.options.requestTextProfile,
+        tableSourceLabel: this.options.tableSourceLabel,
         onFilter: this.options.onFilter,
         currentFilter: this.options.currentFilter,
         onRemove: (target) => this.removeCard(target),

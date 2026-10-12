@@ -97,6 +97,8 @@ export interface ChartCardOptions {
   requestAggregate(view: ViewDef): Promise<AggregateMessage>;
   /** Token frequencies and shapes for the top-terms chart. */
   requestTextProfile(column: number): Promise<TextProfileMessage>;
+  /** Label for the filtered-table source: "Table" when no filters apply. */
+  tableSourceLabel?(): string;
   /** Applies a filter from a click on a chart region (bars, bins, cells). */
   onFilter?(column: number, filter: ColumnFilter | null, preview?: boolean): void;
   /** Reads the app's current filter for a column, so clicks can toggle. */
@@ -119,6 +121,8 @@ export interface ChartCardConfig {
   densityStyle: DensityStyle;
   kde: boolean;
   color: string;
+  /** True when the user picked a specific colour; palette changes leave it. */
+  colorCustom?: boolean;
   multiColor: boolean;
   /** Colour map name (PALETTES) or CUSTOM_PALETTE with paletteCustom stops. */
   palette?: string;
@@ -508,6 +512,7 @@ export class ChartCard {
   private readonly kdeInput: HTMLInputElement;
   private readonly correlationSelect: HTMLSelectElement;
   private readonly primaryWrap: HTMLElement;
+  private readonly axesPanel: HTMLElement;
   private readonly xWrap: HTMLElement;
   private readonly yWrap: HTMLElement;
   private readonly colorWrap: HTMLElement;
@@ -606,7 +611,7 @@ export class ChartCard {
     this.primarySelect.addEventListener("change", () =>
       this.setPrimaryColumn(Number(this.primarySelect.value)),
     );
-    this.primaryWrap = this.primarySelect;
+    this.primaryWrap = this.tagged("Column", this.primarySelect).wrap;
 
     this.groupSelect = this.buildSelect(
       "chart-picker chart-picker-small",
@@ -710,13 +715,19 @@ export class ChartCard {
     ) as HTMLButtonElement;
     more.addEventListener("click", () => this.openCardMenu(more));
 
+    // Axis controls live in their own bordered group so they read as "what is
+    // plotted" rather than another settings row.
+    this.axesPanel = el("div", { class: "chart-axes" }, [
+      el("span", { class: "chart-axes-label" }, ["Axes"]),
+      this.primaryWrap,
+      this.xWrap,
+      this.yWrap,
+    ]);
     head.append(
       this.sourceWrap,
       this.kindSelect,
-      this.primaryWrap,
       this.groupWrap,
-      this.xWrap,
-      this.yWrap,
+      this.axesPanel,
       el("span", { class: "grow" }),
       more,
     );
@@ -856,7 +867,8 @@ export class ChartCard {
       swatch.style.background = color;
       swatch.addEventListener("click", () => {
         this.config.color = color;
-        this.hexInput.value = color;
+        this.config.colorCustom = true;
+        this.hexInput.value = this.primaryColor();
         this.syncSwatches();
         this.render();
       });
@@ -870,15 +882,16 @@ export class ChartCard {
       spellcheck: "false",
       "aria-label": "Custom colour as a hex code",
     }) as HTMLInputElement;
-    this.hexInput.value = this.config.color;
+    this.hexInput.value = this.primaryColor();
     const applyHex = (): void => {
       const value = this.hexInput.value.trim();
       if (!HEX.test(value)) {
-        this.hexInput.value = this.config.color;
+        this.hexInput.value = this.primaryColor();
         return;
       }
       this.config.color = value.startsWith("#") ? value.toLowerCase() : `#${value.toLowerCase()}`;
-      this.hexInput.value = this.config.color;
+      this.config.colorCustom = true;
+      this.hexInput.value = this.primaryColor();
       this.syncSwatches();
       this.render();
     };
@@ -1041,7 +1054,7 @@ export class ChartCard {
     const current = this.config.source;
     this.sourceSelect.replaceChildren();
     this.sourceSelect.append(
-      el("option", { value: "" }, ["Table (filtered)"]) as HTMLOptionElement,
+      el("option", { value: "" }, [this.options.tableSourceLabel?.() ?? "Table (filtered)"]) as HTMLOptionElement,
     );
     for (const source of this.sources) {
       this.sourceSelect.append(
@@ -1062,6 +1075,7 @@ export class ChartCard {
     this.groupWrap.classList.toggle("hidden", bound);
     this.xWrap.classList.toggle("hidden", bound);
     this.yWrap.classList.toggle("hidden", bound);
+    this.axesPanel.classList.toggle("hidden", bound);
     this.settingsBody.classList.toggle("hidden", bound ? false : !this.canDraw());
   }
 
@@ -1093,6 +1107,8 @@ export class ChartCard {
     this.facets = facets;
     this.histograms = histograms;
     this.generation++;
+    this.renderSourceOptions();
+    this.syncSourceControls();
     if (this.config.source !== "") this.refreshView();
     this.refreshBins();
     this.refreshSeries();
@@ -1408,8 +1424,15 @@ export class ChartCard {
     const kind = this.config.kind;
     const pair = isPairKind(kind);
     this.primaryWrap.classList.toggle("hidden", pair || kind === "correlation");
+    this.axesPanel.classList.toggle(
+      "hidden",
+      this.config.source !== "" || kind === "correlation",
+    );
     const groupable = this.columns.some((meta) => isCategoryType(meta.type));
-    this.groupWrap.classList.toggle("hidden", kind !== "line" || !groupable);
+    this.groupWrap.classList.toggle(
+      "hidden",
+      (kind !== "line" && kind !== "histogram") || !groupable,
+    );
     this.xWrap.classList.toggle("hidden", !pair);
     this.yWrap.classList.toggle("hidden", !pair);
     const seriesKind = kind === "scatter" || kind === "density";
@@ -1476,7 +1499,7 @@ export class ChartCard {
 
   private syncSwatches(): void {
     for (const swatch of this.swatches) {
-      const active = swatch.title.toLowerCase() === this.config.color.toLowerCase();
+      const active = swatch.title.toLowerCase() === this.primaryColor().toLowerCase();
       swatch.classList.toggle("active", active);
     }
   }
@@ -1490,9 +1513,18 @@ export class ChartCard {
     );
   }
 
+  /**
+   * The single-series colour: the palette's first colour unless the user
+   * picked one, so choosing a palette applies to every chart immediately.
+   */
+  private primaryColor(): string {
+    if (this.config.colorCustom === true) return this.config.color;
+    return this.paletteColor(0, 1) || this.config.color;
+  }
+
   private paletteColor(index: number, count = 12): string {
     const colors = this.paletteColors(count);
-    return colors[index % colors.length] ?? this.config.color;
+    return colors[index % colors.length] ?? this.primaryColor();
   }
 
   private syncPalette(): void {
@@ -1529,6 +1561,8 @@ export class ChartCard {
     } else {
       this.config.palette = value;
     }
+    this.hexInput.value = this.primaryColor();
+    this.syncSwatches();
     this.syncPalette();
     this.render();
   }
@@ -1825,7 +1859,7 @@ export class ChartCard {
       if (this.config.multiColor) {
         ctx.fillStyle = this.paletteColor(index);
       } else {
-        ctx.fillStyle = this.config.color;
+        ctx.fillStyle = this.primaryColor();
         ctx.globalAlpha = Math.max(0.35, 0.9 - index * 0.06);
       }
       ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
@@ -1959,7 +1993,7 @@ export class ChartCard {
         y + rowH * 0.68,
       );
       const width = Math.max(2, (entry.count / max) * barTrackW);
-      ctx.fillStyle = this.config.color;
+      ctx.fillStyle = this.primaryColor();
       ctx.globalAlpha = Math.max(0.25, 0.85 - index * 0.05);
       ctx.fillRect(frame.left + labelW, y + rowH * 0.24, width, rowH * 0.5);
       ctx.globalAlpha = 1;
@@ -2090,7 +2124,8 @@ export class ChartCard {
    * range so the grouped and ungrouped axes line up.
    */
   private refreshGroupedBins(): void {
-    if (this.config.kind !== "line" || this.config.groupColumn < 0) {
+    const groupedKind = this.config.kind === "line" || this.config.kind === "histogram";
+    if (!groupedKind || this.config.groupColumn < 0) {
       this.groupResult = null;
       return;
     }
@@ -2101,9 +2136,12 @@ export class ChartCard {
     }
     const meta = this.meta(this.config.column);
     const groupMeta = this.meta(this.config.groupColumn);
+    const numericAxis =
+      meta !== undefined &&
+      (meta.type === "date" || meta.type === "integer" || meta.type === "number");
     if (
       meta === undefined ||
-      meta.type !== "date" ||
+      !numericAxis ||
       meta.histogram === null ||
       groupMeta === undefined ||
       !isCategoryType(groupMeta.type)
@@ -2681,8 +2719,8 @@ export class ChartCard {
 
     const slot = frame.plotW / Math.max(1, n);
     const isTime = result.dimensionIsTime[0] === true;
-    ctx.strokeStyle = this.config.color;
-    ctx.fillStyle = this.config.color;
+    ctx.strokeStyle = this.primaryColor();
+    ctx.fillStyle = this.primaryColor();
     if (isTime) {
       ctx.beginPath();
       for (let i = 0; i < n; i++) {
@@ -2779,6 +2817,10 @@ export class ChartCard {
       this.drawGroupedLines(ctx, frame);
       return;
     }
+    if (kind === "histogram" && this.groupResult !== null) {
+      this.drawGroupedHistogram(ctx, frame);
+      return;
+    }
     const automatic = meta.histogram;
     const custom = kind === "histogram" ? this.binResult : null;
     const bins =
@@ -2826,7 +2868,7 @@ export class ChartCard {
         const h = (bins[i] / maxCount) * frame.plotH;
         if (h <= 0) continue;
         ctx.globalAlpha = 0.85;
-        ctx.fillStyle = this.config.color;
+        ctx.fillStyle = this.primaryColor();
         this.fillTopRounded(ctx, frame.left + i * slotW, frame.top + frame.plotH - h, barW, h, 3 * ui);
       }
       if (hasOverflow) {
@@ -2844,14 +2886,14 @@ export class ChartCard {
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
-      ctx.strokeStyle = this.config.color;
+      ctx.strokeStyle = this.primaryColor();
       ctx.lineWidth = 2;
       ctx.stroke();
       ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH);
       ctx.lineTo(frame.left, frame.top + frame.plotH);
       ctx.closePath();
       ctx.globalAlpha = 0.18;
-      ctx.fillStyle = this.config.color;
+      ctx.fillStyle = this.primaryColor();
       ctx.fill();
       ctx.globalAlpha = 1;
     }
@@ -2873,7 +2915,7 @@ export class ChartCard {
       ctx.lineTo(frame.left, frame.top + frame.plotH);
       ctx.closePath();
       ctx.globalAlpha = 0.08;
-      ctx.fillStyle = this.config.color;
+      ctx.fillStyle = this.primaryColor();
       ctx.fill();
       ctx.globalAlpha = 1;
     }
@@ -3005,6 +3047,126 @@ export class ChartCard {
    * Time series split by a category: one line per visible group over the same
    * automatic date range, a clickable legend and per-group tooltip counts.
    */
+  /**
+   * Overlaid histograms for a grouped histogram: one outline per category,
+   * drawn as the share of that group's rows per bin so curves compare shapes
+   * even when the groups have very different sizes.
+   */
+  private drawGroupedHistogram(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    const result = this.groupResult;
+    const meta = this.meta(this.config.column);
+    if (result === null || meta === undefined || meta.histogram === null) {
+      const message = "This column has no histogram data yet.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const automatic = meta.histogram;
+    const min = this.config.binOptions?.min ?? automatic.min;
+    const max = this.config.binOptions?.max ?? automatic.max;
+    const bins = Math.max(1, result.bins > 0 ? result.bins : automatic.bins.length);
+    const ui = frame.ui;
+
+    const groups = result.labels
+      .map((label, index) => ({
+        label,
+        code: result.codes[index] ?? index,
+        index,
+        counts: result.groups[index] ?? [],
+        total: result.totals[index] ?? 0,
+      }))
+      .filter((entry) => !this.hiddenGroups.has(entry.code) && entry.total > 0);
+    if (groups.length === 0) {
+      const message = "Every group is hidden in the legend.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+
+    const shares = groups.map((group) =>
+      Array.from(group.counts, (count) => {
+        const share = count / group.total;
+        return Number.isFinite(share) ? share : 0;
+      }),
+    );
+    // Smooth the outlines when bins are numerous so overlaid curves read as
+    // curves rather than spikes.
+    const smooth = bins >= 8 ? shares.map((share) => smoothSeries(share, 1.2)) : shares;
+    let maxShare = 0.0001;
+    for (const share of smooth) {
+      for (const value of share) {
+        if (value > maxShare) maxShare = value;
+      }
+    }
+
+    // Y axis in percent of the group (share), not counts.
+    const yTicks = niceTicks(0, maxShare, 4);
+    ctx.strokeStyle = frame.border;
+    ctx.lineWidth = 1;
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
+    ctx.textAlign = "right";
+    for (const value of yTicks) {
+      const y = frame.top + frame.plotH - (value / maxShare) * frame.plotH;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(frame.left, y + 0.5);
+      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText(`${Math.round(value * 100)}%`, frame.left - 6 * ui, y + 3 * ui);
+    }
+    ctx.textAlign = "left";
+    ctx.beginPath();
+    ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
+    ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
+    ctx.stroke();
+
+    const slot = frame.plotW / bins;
+    groups.forEach((group, groupIndex) => {
+      const share = smooth[groupIndex] ?? [];
+      const color = this.groupColor(group.index);
+      ctx.beginPath();
+      share.forEach((value, bin) => {
+        const x = frame.left + (bin + 0.5) * slot;
+        const y = frame.top + frame.plotH - (value / maxShare) * frame.plotH;
+        if (bin === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH);
+      ctx.lineTo(frame.left, frame.top + frame.plotH);
+      ctx.closePath();
+      ctx.globalAlpha = 0.12;
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
+    ctx.fillText("share of each group per bin", frame.left, frame.top - 6 * ui);
+    const mid = (min + max) / 2;
+    ctx.fillText(formatTick(min, "histogram"), frame.left, frame.top + frame.plotH + 16 * ui);
+    const midLabel = formatTick(mid, "histogram");
+    ctx.fillText(
+      midLabel,
+      frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
+      frame.top + frame.plotH + 16 * ui,
+    );
+    const maxLabel = formatTick(max, "histogram");
+    ctx.fillText(
+      maxLabel,
+      frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
+      frame.top + frame.plotH + 16 * ui,
+    );
+
+    const groupName = this.meta(this.config.groupColumn)?.name ?? "group";
+    this.noteEl.textContent = `${groups.length} curves by ${groupName} · share of each group per bin · ${result.total.toLocaleString()} rows`;
+  }
+
   private drawGroupedLines(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const result = this.groupResult;
     const histogram = this.meta(this.config.column)?.histogram ?? null;
@@ -3094,7 +3256,8 @@ export class ChartCard {
   /** Clickable legend under grouped time series; entries toggle line visibility. */
   private syncLegend(): void {
     const result = this.groupResult;
-    const grouped = this.config.kind === "line" && result !== null;
+    const grouped =
+      (this.config.kind === "line" || this.config.kind === "histogram") && result !== null;
     this.legendEl.classList.toggle("hidden", !grouped);
     this.legendEl.replaceChildren();
     if (!grouped || result === null) return;
@@ -3185,7 +3348,7 @@ export class ChartCard {
           ? frame.dim
           : this.config.multiColor
             ? this.paletteColor(index)
-            : this.config.color;
+            : this.primaryColor();
       ctx.globalAlpha = bar.other === true ? 0.5 : 0.9;
       this.fillTopRounded(ctx, x, frame.top + frame.plotH - h, barW, h, 4 * ui);
       ctx.globalAlpha = 1;
@@ -3326,7 +3489,7 @@ export class ChartCard {
         ramp === null
           ? Array.from({ length: 16 }, (_, index) => rampColor(index / 15))
           : Array.from({ length: 16 }, (_, index) => rampAt(ramp, index / 15));
-      colors.push(this.config.color);
+      colors.push(this.primaryColor());
       for (let i = 0; i < n; i++) {
         const value = result.colorValues[i];
         if (!Number.isFinite(value)) continue;
@@ -3400,7 +3563,7 @@ export class ChartCard {
 
     ctx.globalAlpha = 0.55;
     if (buckets === null) {
-      ctx.fillStyle = this.config.color;
+      ctx.fillStyle = this.primaryColor();
       for (let i = 0; i < result.shown; i++) drawAt(i);
     } else {
       for (let bucket = 0; bucket < buckets.colors.length; bucket++) {
@@ -3485,7 +3648,7 @@ export class ChartCard {
     result: SeriesGrid,
     alphaScale: number,
   ): void {
-    const [r, g, b] = hexToRgb(this.config.color);
+    const [r, g, b] = hexToRgb(this.primaryColor());
     const off = document.createElement("canvas");
     off.width = result.cols;
     off.height = result.rows;
@@ -3664,10 +3827,10 @@ export class ChartCard {
       const height = Math.max(1.5, Math.abs(yQ1 - yQ3));
 
       ctx.globalAlpha = group.other ? 0.2 : 0.32;
-      ctx.fillStyle = this.config.color;
+      ctx.fillStyle = this.primaryColor();
       ctx.fillRect(cx - boxW / 2, top, boxW, height);
       ctx.globalAlpha = group.other ? 0.5 : 0.9;
-      ctx.strokeStyle = this.config.color;
+      ctx.strokeStyle = this.primaryColor();
       ctx.lineWidth = 1.5;
       ctx.strokeRect(cx - boxW / 2, top, boxW, height);
 
@@ -3692,7 +3855,7 @@ export class ChartCard {
       }
 
       ctx.globalAlpha = 0.65;
-      ctx.fillStyle = this.config.color;
+      ctx.fillStyle = this.primaryColor();
       const r = 1.6 * ui;
       for (const value of group.outliers) {
         const y = yOf(value);
@@ -3800,7 +3963,7 @@ export class ChartCard {
     const cellH = frame.plotH / yCount;
     let max = 0;
     for (const count of result.counts) if (count > max) max = count;
-    const [r, g, b] = hexToRgb(this.config.color);
+    const [r, g, b] = hexToRgb(this.primaryColor());
     const showText = cellW >= 26 * ui && cellH >= 15 * ui;
 
     this.font(ctx, ui, 10);

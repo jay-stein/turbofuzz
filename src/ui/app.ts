@@ -1646,6 +1646,12 @@ export class App {
       requestViewAggregate: (source) => this.aggregateForSource(source),
       requestAggregate: (view) => this.client.getAggregate(view),
       requestTextProfile: (column) => this.client.getTextProfile(column),
+      tableSourceLabel: () =>
+        this.filters.size === 0 &&
+        this.specials.size === 0 &&
+        this.columnSpecials.size === 0
+          ? "Table"
+          : "Table (filtered)",
       onFilter: (column, filter, preview) =>
         this.changeFilter(column, filter, preview ?? false),
       currentFilter: (column) => this.filters.get(column) ?? null,
