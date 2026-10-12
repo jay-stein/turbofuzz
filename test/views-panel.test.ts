@@ -162,3 +162,43 @@ test("views panel switches views and marks the active one stale", async () => {
     "filters recompute the active view only",
   );
 });
+
+test("adding a measure chooses the aggregate before adding", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const requests: ViewDef[] = [];
+  const panel = new ViewsPanel(host as unknown as HTMLElement, {
+    requestAggregate: async (view) => {
+      requests.push(view);
+      return aggregateFor(view);
+    },
+    onDrill: () => {},
+    onChart: () => {},
+    onUseAsDataset: () => {},
+    onCopyPandas: async () => {},
+  });
+  panel.setColumns(metas, 100);
+  await tick();
+  requests.length = 0;
+
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const addMeasure = [...host.querySelectorAll(".views-pill.add")].find(
+    (button) => button.textContent === "+ Measure",
+  );
+  assert.ok(addMeasure !== undefined);
+  (addMeasure as unknown as { click(): void }).click();
+  const columnItem = [...doc.querySelectorAll(".context-menu .context-item")].find(
+    (item) => item.textContent === "amount …",
+  );
+  assert.ok(columnItem !== undefined, "the column list offers a submenu step");
+  (columnItem as unknown as { click(): void }).click();
+  const meanItem = [...doc.querySelectorAll(".context-menu .context-item")].find(
+    (item) => item.textContent === "Mean",
+  );
+  assert.ok(meanItem !== undefined, "the aggregate menu lists every option");
+  (meanItem as unknown as { click(): void }).click();
+  await tick();
+
+  const view = requests[requests.length - 1];
+  assert.deepEqual(view.measures[view.measures.length - 1], { column: 0, agg: "mean" });
+});

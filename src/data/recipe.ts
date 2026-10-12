@@ -1,5 +1,5 @@
 import type { CleanOp } from "./clean-ops.js";
-import type { DimensionSpec, MeasureSpec, ViewDef } from "./aggregate.js";
+import { compileExpression, type ExprTerm, type DimensionSpec, type MeasureSpec, type ViewDef } from "./aggregate.js";
 import { schemaAfter, type ColumnSchema, type TransformOp } from "./transform-ops.js";
 
 export interface RecipeInput {
@@ -55,8 +55,57 @@ function pandasMeasure(measure: MeasureSpec, names: readonly string[]): string {
 }
 
 function measureName(measure: MeasureSpec, names: readonly string[]): string {
+  if (measure.agg === "expr") return measure.expr ?? "expr";
   const source = measure.column === null ? "rows" : names[measure.column] ?? "?";
   return measure.column === null ? "count(*)" : `${measure.agg}(${source})`;
+}
+
+/** The named-aggregation tuple for one expression term. */
+function pandasTermTuple(term: ExprTerm, names: readonly string[]): string {
+  const source = term.column === null ? names[0] ?? "value" : names[term.column] ?? "value";
+  if (term.column === null) return `(${py(source)}, "size")`;
+  if (term.agg === "mode") {
+    return `(${py(source)}, lambda s: s.mode().iloc[0] if not s.mode().empty else None)`;
+  }
+  const percentile = /^p(\d+(?:\.\d+)?)$/.exec(term.agg);
+  if (percentile !== null) {
+    return `(${py(source)}, lambda s: s.quantile(${Number(percentile[1]) / 100}))`;
+  }
+  const method = PANDAS_AGG[term.agg];
+  return method === undefined ? `(${py(source)}, ${py(term.agg)})` : `(${py(source)}, "${method}")`;
+}
+
+function termName(term: ExprTerm, names: readonly string[]): string {
+  return term.column === null ? "count(*)" : `${term.agg}(${names[term.column] ?? "?"})`;
+}
+
+/** Rewrites `sum(amount)` inside an expression to the generated column name. */
+function translateExpression(
+  expr: string,
+  names: readonly string[],
+): string | null {
+  let failed = false;
+  const translated = expr.replace(
+    /(p\d+(?:\.\d+)?|[a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*([^)]*?)\s*\)/g,
+    (match, fn: string, arg: string) => {
+      const name = fn.toLowerCase();
+      const known =
+        ["count", "distinct", "sum", "mean", "min", "max", "median", "stddev", "first", "last", "mode"].includes(name) ||
+        /^p\d+(?:\.\d+)?$/.test(name);
+      if (!known) {
+        failed = true;
+        return match;
+      }
+      if (arg === "*" || arg === "") return `${target("count(*)")}`;
+      const column = names.indexOf(arg);
+      if (column < 0) {
+        failed = true;
+        return match;
+      }
+      return target(`${name}(${names[column]})`);
+    },
+  );
+  return failed ? null : translated;
 }
 
 /**
@@ -99,11 +148,47 @@ export function viewPandasLines(
     return py(name);
   });
 
+  const helperNames: string[] = [];
+  const simpleNames = new Set(
+    measures.filter((measure) => measure.agg !== "expr").map((measure) => measureName(measure, names)),
+  );
+  const emitted = new Set<string>();
   lines.push(`df = df.groupby([${groupExprs.join(", ")}], as_index=False).agg(**{`);
   for (const measure of measures) {
-    lines.push(`    ${py(measureName(measure, names))}: ${pandasMeasure(measure, names)},`);
+    if (measure.agg === "expr" && measure.expr !== undefined) {
+      const compiled = compileExpression(measure.expr, names);
+      if (compiled.ok) {
+        for (const term of compiled.compiled.terms) {
+          const key = termName(term, names);
+          helperNames.push(key);
+          if (emitted.has(key)) continue;
+          emitted.add(key);
+          lines.push(`    ${py(key)}: ${pandasTermTuple(term, names)},`);
+        }
+      } else {
+        lines.push(`    # expression could not be translated: ${measure.expr}`);
+      }
+    } else {
+      const key = measureName(measure, names);
+      if (emitted.has(key)) continue;
+      emitted.add(key);
+      lines.push(`    ${py(key)}: ${pandasMeasure(measure, names)},`);
+    }
   }
   lines.push("})");
+
+  // Expression measures: compute the arithmetic from the named term columns.
+  for (const measure of measures) {
+    if (measure.agg !== "expr" || measure.expr === undefined) continue;
+    const translated = translateExpression(measure.expr, names);
+    if (translated !== null) {
+      lines.push(`df[${py(measure.expr)}] = ${translated}`);
+    }
+  }
+  const dropped = [...new Set(helperNames)].filter((name) => !simpleNames.has(name));
+  if (dropped.length > 0) {
+    lines.push(`df = df.drop(columns=[${dropped.map((name) => py(name)).join(", ")}])`);
+  }
 
   measures.forEach((measure) => {
     for (const post of measure.post ?? []) {

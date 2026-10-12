@@ -2,6 +2,7 @@ import type { ColumnMeta, AggregateMessage } from "../worker/protocol.js";
 import type { ArchetypeId } from "../data/archetype.js";
 import {
   type Aggregate,
+  compileExpression,
   type DatePart,
   type DimensionSpec,
   isCompleteView,
@@ -10,6 +11,7 @@ import {
   type TimeGrain,
   type ViewDef,
 } from "../data/aggregate.js";
+import { openPrompt } from "./dialog.js";
 import { clear, el } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
 
@@ -88,9 +90,20 @@ const AGG_SYMBOLS: Record<string, string> = {
 };
 
 export function measureSymbol(measure: MeasureSpec): string {
+  if (measure.agg === "expr") return "ƒ";
   if (measure.column === null) return "#";
   if (measure.agg === "count") return "#";
   return AGG_SYMBOLS[measure.agg] ?? measure.agg;
+}
+
+/** Name shown on the measure pill (expressions abbreviated). */
+function measureDisplay(measure: MeasureSpec, metas: readonly ColumnMeta[]): string {
+  if (measure.agg === "expr") {
+    const expr = measure.expr ?? "expr";
+    return expr.length > 26 ? `${expr.slice(0, 25)}…` : expr;
+  }
+  if (measure.column === null) return "rows";
+  return metas[measure.column]?.name ?? "?";
 }
 
 export function formatMeasure(value: number, measure: MeasureSpec): string {
@@ -173,6 +186,7 @@ export class ViewsPanel {
   private metas: ColumnMeta[] = [];
   private rowCount = 0;
   private started = false;
+  private transientNote: string | null = null;
 
   constructor(
     private readonly root: HTMLElement,
@@ -298,6 +312,7 @@ export class ViewsPanel {
   private update(mutate: (view: ViewDef) => void): void {
     const entry = this.views[this.active];
     if (entry === undefined) return;
+    this.transientNote = null;
     mutate(entry.def);
     entry.stale = true;
     this.refresh();
@@ -520,8 +535,7 @@ export class ViewsPanel {
   }
 
   private measurePill(def: ViewDef, measure: MeasureSpec, index: number): HTMLElement {
-    const meta = measure.column === null ? null : this.metas[measure.column];
-    const name = measure.column === null ? "rows" : (meta?.name ?? "?");
+    const name = measureDisplay(measure, this.metas);
     const post = measure.post ?? [];
     const postText = post.length > 0 ? ` ${post.map((op) => `→${op.op}`).join("")}` : "";
     const pill = el("span", { class: "views-pill" });
@@ -530,9 +544,9 @@ export class ViewsPanel {
       {
         class: "views-pill-label",
         type: "button",
-        title: "Change the aggregate or add a post step",
+        title: "Change the aggregate, edit the expression or add a post step",
       },
-      [`${measureSymbol(measure)} ${name}${postText}`],
+      [`${measureSymbol(measure)} ${name}${postText} ▾`],
     ) as HTMLButtonElement;
     label.addEventListener("click", () => this.openMeasureEditor(label, def, measure, index));
     const remove = el(
@@ -596,6 +610,7 @@ export class ViewsPanel {
     openMenu(anchor, items);
   }
 
+  /** Step one of adding a measure: pick the column (or rows/expression). */
   private openMeasureMenu(anchor: HTMLElement, def: ViewDef): void {
     const items: MenuItem[] = [
       {
@@ -608,21 +623,69 @@ export class ViewsPanel {
       },
     ];
     this.metas.forEach((meta, index) => {
-      const numeric = meta.type === "integer" || meta.type === "number" || meta.type === "date";
       items.push({
-        label: `${numeric ? "Σ" : "#"} ${meta.name}`,
-        title: numeric ? `Sum of ${meta.name} by group` : `Count of ${meta.name} values by group`,
-        action: () =>
-          this.update((view) => {
-            view.measures.push(
-              numeric
-                ? { column: index, agg: "sum" }
-                : { column: index, agg: "count" },
-            );
-          }),
+        label: `${meta.name} …`,
+        title: `${meta.name} — choose an aggregate`,
+        action: () => this.openAggregateMenu(anchor, index),
       });
     });
+    items.push({
+      label: "Custom expression…",
+      title: "Arithmetic over aggregates, e.g. sum(revenue) / count(*)",
+      action: () => void this.promptExpression(anchor),
+    });
     openMenu(anchor, items);
+  }
+
+  /** Step two: every aggregate for the chosen column. */
+  private openAggregateMenu(anchor: HTMLElement, column: number): void {
+    const meta = this.metas[column];
+    if (meta === undefined) return;
+    const numeric = meta.type === "integer" || meta.type === "number" || meta.type === "date";
+    const items: MenuItem[] = AGG_OPTIONS.filter(
+      (option) =>
+        numeric || option.value === "count" || option.value === "distinct" || option.value === "mode",
+    ).map((option) => ({
+      label: option.label,
+      title: `${option.label} of ${meta.name} per group`,
+      action: () =>
+        this.update((view) => {
+          view.measures.push({ column, agg: option.value });
+        }),
+    }));
+    items.push({
+      label: "Custom expression…",
+      title: `Arithmetic over aggregates of ${meta.name} and other columns`,
+      action: () => void this.promptExpression(anchor),
+    });
+    openMenu(anchor, items);
+  }
+
+  /** Custom expression dialog; validates before adding or replacing a measure. */
+  private async promptExpression(anchor: HTMLElement, replaceIndex?: number): Promise<void> {
+    const current =
+      replaceIndex === undefined ? "" : (this.views[this.active]?.def.measures[replaceIndex]?.expr ?? "");
+    const value = await openPrompt({
+      title: replaceIndex === undefined ? "Custom expression" : "Edit expression",
+      label: "Expression — + − × ÷ over count(*) / sum(col) / mean(col) / p90(col) …",
+      value: current,
+      placeholder: "sum(revenue) / count(*)",
+      confirmLabel: replaceIndex === undefined ? "Add measure" : "Save",
+    });
+    if (value === null || value.trim() === "") return;
+    const expr = value.trim();
+    const compiled = compileExpression(expr, this.metas.map((meta) => meta.name));
+    if (!compiled.ok) {
+      this.transientNote = compiled.error;
+      this.render();
+      return;
+    }
+    this.update((view) => {
+      const measure: MeasureSpec = { column: null, agg: "expr", expr };
+      if (replaceIndex === undefined) view.measures.push(measure);
+      else view.measures[replaceIndex] = { ...measure, post: view.measures[replaceIndex]?.post };
+    });
+    void anchor;
   }
 
   private openMeasureEditor(
@@ -634,7 +697,13 @@ export class ViewsPanel {
     const meta = measure.column === null ? null : this.metas[measure.column];
     const numeric = meta === null || meta.type === "integer" || meta.type === "number" || meta.type === "date";
     const items: MenuItem[] = [];
-    if (measure.column !== null) {
+    if (measure.agg === "expr") {
+      items.push({
+        label: `fx  ${measure.expr ?? "expr"} — edit…`,
+        title: "Edit the custom expression",
+        action: () => void this.promptExpression(anchor, index),
+      });
+    } else if (measure.column !== null) {
       for (const option of AGG_OPTIONS) {
         if (!numeric && option.value !== "count" && option.value !== "distinct" && option.value !== "mode") {
           continue;
@@ -650,6 +719,11 @@ export class ViewsPanel {
     } else {
       items.push({ label: "● Count of rows", action: () => {} });
     }
+    items.push({
+      label: "Custom expression…",
+      title: "Replace this measure with arithmetic over aggregates",
+      action: () => void this.promptExpression(anchor, index),
+    });
     const postOptions: readonly { op: PostOp["op"]; label: string; window?: number }[] = [
       { op: "rolling", label: "Rolling mean (7)", window: 7 },
       { op: "cumulative", label: "Cumulative sum" },
@@ -675,7 +749,7 @@ export class ViewsPanel {
               );
             }
             view.measures[index] = post.length === 0
-              ? { column: current.column, agg: current.agg }
+              ? { column: current.column, agg: current.agg, expr: current.expr }
               : { ...current, post };
           }),
       });
@@ -684,6 +758,10 @@ export class ViewsPanel {
   }
 
   private renderNote(entry: ViewEntry): void {
+    if (this.transientNote !== null) {
+      this.noteEl.textContent = this.transientNote;
+      return;
+    }
     if (entry.error !== null) {
       this.noteEl.textContent = entry.error;
       return;
@@ -787,12 +865,10 @@ export class ViewsPanel {
   }
 
   private prettyMeasure(result: AggregateMessage, index: number): string {
-    const name = result.measureNames[index] ?? "measure";
     const measure = this.views[this.active]?.def.measures[index];
-    if (measure === undefined) return name;
+    if (measure === undefined) return result.measureNames[index] ?? "measure";
     const symbol = measureSymbol(measure);
-    const column =
-      measure.column === null ? "rows" : (this.metas[measure.column]?.name ?? "?");
+    const column = measureDisplay(measure, this.metas);
     const post = (measure.post ?? []).map((op) => op.op).join(" → ");
     return post === ""
       ? `${symbol} ${column}`

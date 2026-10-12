@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildDataset } from "../src/data/build.js";
 import {
+  compileExpression,
   computeAggregate,
   datePartLabel,
   isoWeek,
@@ -196,4 +197,45 @@ test("time helpers handle weeks and labels", () => {
   assert.equal(datePartLabel(Date.UTC(2024, 0, 1), "month"), "Jan");
   assert.equal(isoWeek(Date.UTC(2024, 0, 1)), 1);
   assert.equal(timeLabel(Date.UTC(2024, 4, 15, 13, 30), "hour"), "2024-05-15 13:00");
+});
+
+test("expression measures combine aggregates into ratios", () => {
+  const result = computeAggregate(
+    view({
+      measures: [
+        { column: null, agg: "expr", expr: "sum(amount) / count(*)" },
+        { column: null, agg: "expr", expr: "sum(amount) / distinct(region)" },
+        { column: null, agg: "expr", expr: "p90(amount)" },
+      ],
+    }),
+    SALES.columns,
+    SALES.rowCount,
+    allIds(SALES.rowCount),
+  );
+  assert.deepEqual(result.labels, ["East", "North", "South"]);
+  assert.equal(result.measures[0][0], 20);
+  assert.ok(Math.abs(result.measures[0][1] - 40 / 3) < 1e-9);
+  assert.equal(result.measures[0][2], 5);
+  assert.ok(Math.abs(result.totals[0] - 70 / 6) < 1e-9);
+  // distinct(region) is 1 within a group, 3 overall.
+  assert.equal(result.measures[1][1], 40);
+  assert.ok(Math.abs(result.totals[1] - 70 / 3) < 1e-9);
+  assert.equal(result.totals[2], 26, "p90 of 5,5,10,20,30 is 26");
+});
+
+test("compileExpression validates functions, columns and syntax", () => {
+  const names = ["amount", "cost", "customer name"];
+  const ok = compileExpression("(sum(amount) - sum(cost)) / sum(amount)", names);
+  assert.equal(ok.ok, true);
+  const folded = compileExpression("mean(customer NAME)", names);
+  assert.equal(folded.ok, true);
+  assert.equal(compileExpression("sum(missing)", names).ok, false);
+  assert.equal(compileExpression("frobnicate(amount)", names).ok, false);
+  assert.equal(compileExpression("sum(amount", names).ok, false);
+  assert.equal(compileExpression("sum(*)", names).ok, false);
+  assert.equal(compileExpression("", names).ok, false);
+  assert.equal(compileExpression("1 + 2", names).ok, false, "needs at least one aggregate");
+  const countAll = compileExpression("count(*)", names);
+  assert.equal(countAll.ok, true);
+  if (countAll.ok) assert.deepEqual(countAll.compiled.terms, [{ agg: "count", column: null, text: "count(*)" }]);
 });

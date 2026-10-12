@@ -387,3 +387,31 @@ test("viewToPandas emits a named group-by recipe", () => {
   assert.match(recipe, /"sum\(amount\)": \("amount", "sum"\),/);
   assert.match(recipe, /"count\(\*\)": \("when", "size"\),/);
 });
+
+test("viewToPandas computes expression measures from named terms", () => {
+  const recipe = viewToPandas(
+    {
+      id: "v2",
+      name: "Revenue per order",
+      dimensions: [{ column: 0, by: "value" }],
+      measures: [
+        { column: null, agg: "expr", expr: "sum(amount) / count(*)" },
+        { column: 1, agg: "sum" },
+      ],
+      fill: "none",
+      sort: { key: "m0", dir: "desc" },
+      limit: 500,
+      respectFilters: true,
+    },
+    ["region", "amount"],
+  );
+  assert.match(recipe, /"sum\(amount\)": \("amount", "sum"\),/);
+  assert.match(recipe, /"count\(\*\)": \("region", "size"\),/);
+  assert.match(
+    recipe,
+    /df\["sum\(amount\) \/ count\(\*\)"\] = df\["sum\(amount\)"\] \/ df\["count\(\*\)"\]/,
+  );
+  // sum(amount) is also a standalone measure, so only the count helper drops.
+  assert.match(recipe, /df = df\.drop\(columns=\["count\(\*\)"\]\)/);
+  assert.equal(recipe.match(/"sum\(amount\)":/g)?.length, 1, "no duplicate named-agg keys");
+});

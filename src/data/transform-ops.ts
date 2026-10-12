@@ -331,6 +331,7 @@ export function measureHeader(
   measure: MeasureSpec,
   schema: readonly { name: string }[],
 ): string {
+  if (measure.agg === "expr") return measure.expr ?? "expr";
   const name =
     measure.column === null ? "rows" : schema[measure.column]?.name ?? `Column ${measure.column + 1}`;
   return `${measure.agg}(${name})`;
@@ -630,9 +631,11 @@ export function describeTransformOp(op: TransformOp, headers: readonly string[])
       });
       const measures = op.measures
         .map((measure) =>
-          `${measure.agg} of ${
-            measure.column === null ? "rows" : quoted(nameAt(measure.column))
-          }`,
+          measure.agg === "expr"
+            ? `“${measure.expr ?? "expr"}”`
+            : `${measure.agg} of ${
+                measure.column === null ? "rows" : quoted(nameAt(measure.column))
+              }`,
         )
         .join(", ");
       return `Aggregate: ${measures} grouped by ${dims.join(", ")}`;
@@ -683,9 +686,10 @@ export function describeTransformOpDetail(op: TransformOp, headers: readonly str
       return `aggregate(dimensions=[${op.dimensions
         .map((spec) => nameAt(spec.column))
         .join(", ")}], measures=[${op.measures
-        .map(
-          (measure) =>
-            `${measure.agg}(${measure.column === null ? "*" : nameAt(measure.column)})`,
+        .map((measure) =>
+          measure.agg === "expr"
+            ? `expr(${JSON.stringify(measure.expr ?? "")})`
+            : `${measure.agg}(${measure.column === null ? "*" : nameAt(measure.column)})`,
         )
         .join(", ")}], fill=${op.fill ?? "none"})`;
   }

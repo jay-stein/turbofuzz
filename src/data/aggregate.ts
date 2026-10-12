@@ -9,7 +9,7 @@ export type DimensionSpec =
   | { column: number; by: { time: TimeGrain; weekStart?: 0 | 1 } }
   | { column: number; by: { datePart: DatePart } };
 
-/** Basic aggregates plus `pN` percentiles and `distinct` value counts. */
+/** Basic aggregates plus `pN` percentiles, `distinct` counts and `expr`. */
 export type Aggregate =
   | "count"
   | "distinct"
@@ -22,6 +22,7 @@ export type Aggregate =
   | "first"
   | "last"
   | "mode"
+  | "expr"
   | `p${number}`;
 
 export type PostOp =
@@ -36,6 +37,12 @@ export interface MeasureSpec {
   /** null = COUNT(*) over rows; otherwise the column to aggregate. */
   column: number | null;
   agg: Aggregate;
+  /**
+   * For agg === "expr": a small arithmetic expression over aggregates, e.g.
+   * `sum(revenue) / count(*)` or `sum(weight * x)` is not supported — use
+   * `sum(weight) / count(*)` style terms. Operators: + - * / ( ).
+   */
+  expr?: string;
   post?: PostOp[];
 }
 
@@ -96,6 +103,178 @@ export function percentileOf(agg: string): number | null {
   if (match === null) return null;
   const value = Number(match[1]);
   return Number.isFinite(value) && value >= 0 && value <= 100 ? value / 100 : null;
+}
+
+const EXPR_FUNCS = new Set([
+  "count",
+  "distinct",
+  "sum",
+  "mean",
+  "min",
+  "max",
+  "median",
+  "stddev",
+  "first",
+  "last",
+  "mode",
+]);
+
+export interface ExprTerm {
+  agg: Aggregate;
+  column: number | null;
+  /** Printed form as written, e.g. "sum(amount)". */
+  text: string;
+}
+
+export interface CompiledExpression {
+  terms: ExprTerm[];
+  evaluate(values: readonly number[]): number;
+}
+
+export type CompileResult =
+  | { ok: true; compiled: CompiledExpression }
+  | { ok: false; error: string };
+
+type Evaluator = (values: readonly number[]) => number;
+
+/**
+ * Compiles a small arithmetic expression over aggregate terms, e.g.
+ * `sum(revenue) / count(*)` or `(sum(amount) - sum(cost)) / sum(amount)`.
+ * Supported: + - * / and parentheses; functions count(*) / count(col) /
+ * sum / mean / min / max / median / stddev / first / last / mode / distinct /
+ * pN (percentile). Column names are matched exactly first, then folded.
+ */
+export function compileExpression(
+  expr: string,
+  columnNames: readonly string[],
+): CompileResult {
+  const text = expr.trim();
+  if (text === "") return { ok: false, error: "The expression is empty." };
+  if (text.length > 240) return { ok: false, error: "Keep the expression under 240 characters." };
+
+  const terms: ExprTerm[] = [];
+  const folded = new Map(columnNames.map((name, index) => [name.trim().toLowerCase(), index]));
+  let pos = 0;
+
+  function fail(message: string): never {
+    throw new Error(message);
+  }
+  const skipSpace = (): void => {
+    while (pos < text.length && /\s/.test(text[pos] ?? "")) pos++;
+  };
+  const expect = (char: string): void => {
+    skipSpace();
+    if (text[pos] !== char) fail(`Expected “${char}”${text[pos] === undefined ? "" : ` before “${text[pos]}”`}.`);
+    pos++;
+  };
+
+  const parsePrimary = (): Evaluator => {
+    skipSpace();
+    const char = text[pos];
+    if (char === undefined) fail("The expression ends early.");
+    if (char === "(") {
+      pos++;
+      const inner = parseSum();
+      expect(")");
+      return inner;
+    }
+    if (char === "-") {
+      pos++;
+      const operand = parsePrimary();
+      return (values) => -operand(values);
+    }
+    if (/\d|\./.test(char)) {
+      const match = /^\d*\.?\d+/.exec(text.slice(pos));
+      if (match === null) fail("Invalid number.");
+      pos += match[0].length;
+      const value = Number(match[0]);
+      return () => value;
+    }
+    if (/[a-zA-Z_]/.test(char)) {
+      const nameMatch = /^[a-zA-Z_][a-zA-Z0-9_]*/.exec(text.slice(pos));
+      if (nameMatch === null) fail("Invalid function name.");
+      const name = nameMatch[0].toLowerCase();
+      pos += nameMatch[0].length;
+      skipSpace();
+      if (text[pos] !== "(") fail(`“${name}” must be called with a column, e.g. ${name}(amount).`);
+      pos++;
+      const end = text.indexOf(")", pos);
+      if (end < 0) fail(`Missing “)” after ${name}(.`);
+      const arg = text.slice(pos, end).trim();
+      pos = end + 1;
+
+      const percentile = /^p(\d+(?:\.\d+)?)$/.exec(name);
+      let agg: Aggregate;
+      if (percentile !== null) {
+        const pct = Number(percentile[1]);
+        if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+          fail(`Percentile ${name} must be between p0 and p100.`);
+        }
+        agg = `p${pct}` as Aggregate;
+      } else if (EXPR_FUNCS.has(name)) {
+        agg = name as Aggregate;
+      } else {
+        fail(`Unknown function “${name}”. Try sum, mean, median, count, distinct or p90.`);
+      }
+
+      if (arg === "*" || arg === "") {
+        if (agg !== "count") fail(`Only count(*) may omit the column.`);
+        terms.push({ agg: "count", column: null, text: "count(*)" });
+      } else {
+        const index = columnNames.indexOf(arg);
+        const resolved =
+          index >= 0 ? index : (folded.get(arg.trim().toLowerCase()) ?? -1);
+        if (resolved < 0) fail(`Unknown column “${arg}” in ${name}(…).`);
+        terms.push({ agg, column: resolved, text: `${name}(${arg})` });
+      }
+      const termIndex = terms.length - 1;
+      return (values) => values[termIndex] ?? Number.NaN;
+    }
+    fail(`Unexpected “${char}”.`);
+  };
+
+  const parseProduct = (): Evaluator => {
+    let left = parsePrimary();
+    for (;;) {
+      skipSpace();
+      const op = text[pos];
+      if (op !== "*" && op !== "/") return left;
+      pos++;
+      const right = parsePrimary();
+      const previous = left;
+      left =
+        op === "*"
+          ? (values) => previous(values) * right(values)
+          : (values) => previous(values) / right(values);
+    }
+  };
+
+  const parseSum = (): Evaluator => {
+    let left = parseProduct();
+    for (;;) {
+      skipSpace();
+      const op = text[pos];
+      if (op !== "+" && op !== "-") return left;
+      pos++;
+      const right = parseProduct();
+      const previous = left;
+      left =
+        op === "+"
+          ? (values) => previous(values) + right(values)
+          : (values) => previous(values) - right(values);
+    }
+  };
+
+  try {
+    const evaluate = parseSum();
+    skipSpace();
+    if (pos < text.length) fail(`Unexpected “${text.slice(pos, pos + 8)}”.`);
+    if (terms.length === 0) fail("Add at least one aggregate, e.g. sum(amount).");
+    if (terms.length > 8) fail("Use at most 8 aggregates per expression.");
+    return { ok: true, compiled: { terms, evaluate } };
+  } catch (thrown) {
+    return { ok: false, error: thrown instanceof Error ? thrown.message : String(thrown) };
+  }
 }
 
 export function timeBucket(ms: number, grain: TimeGrain, weekStart: 0 | 1 = 1): number {
@@ -232,6 +411,39 @@ function accumulate(acc: MeasureAcc, agg: Aggregate, value: number): void {
   if (Number.isNaN(acc.first)) acc.first = value;
   acc.last = value;
   if (acc.samples !== null) acc.samples.push(value);
+}
+
+/** One row into one accumulator slot; handles count, distinct, mode and maths. */
+function accumulateSlot(
+  acc: MeasureAcc,
+  agg: Aggregate,
+  column: ColumnData | null,
+  row: number,
+): void {
+  if (agg === "count") {
+    if (column === null) {
+      acc.count++;
+      return;
+    }
+    const raw = column.raw[row];
+    if (column.nullMask.get(row) || raw === undefined) return;
+    acc.count++;
+    return;
+  }
+  if (column === null) return;
+  const raw = column.raw[row];
+  const missing = column.nullMask.get(row) || raw === undefined;
+  if (agg === "distinct") {
+    if (!missing) acc.distinct?.add(raw);
+    return;
+  }
+  if (agg === "mode") {
+    if (!missing) acc.modes?.set(raw, (acc.modes?.get(raw) ?? 0) + 1);
+    return;
+  }
+  const value = column.numbers()[row];
+  if (!Number.isFinite(value)) return;
+  accumulate(acc, agg, value);
 }
 
 function finalise(acc: MeasureAcc, agg: Aggregate): number {
@@ -460,13 +672,39 @@ export function computeAggregate(
   const groupTimes: number[] = [];
   const accs: MeasureAcc[][] = [];
 
-  const totalAccs = measures.map((measure) => accFor(measure.agg));
-  const totalModes: (Map<string, number> | null)[] = measures.map((measure) =>
-    measure.agg === "mode" ? new Map() : null,
-  );
-  const totalDistinct: (Set<string> | null)[] = measures.map((measure) =>
-    measure.agg === "distinct" ? new Set() : null,
-  );
+  // One accumulator slot per aggregate term; expression measures get one slot
+  // per term and are evaluated from the term values after the row loop.
+  interface Slot {
+    agg: Aggregate;
+    column: number | null;
+  }
+  const slots: Slot[] = [];
+  const measureSlotOffset: number[] = [];
+  const measureTerms: ExprTerm[][] = [];
+  const measureCompiled: (CompiledExpression | null)[] = [];
+  const columnNames = columns.map((column) => column.name);
+  for (const measure of measures) {
+    measureSlotOffset.push(slots.length);
+    if (measure.agg === "expr") {
+      const compiled = compileExpression(measure.expr ?? "", columnNames);
+      if (compiled.ok) {
+        measureCompiled.push(compiled.compiled);
+        measureTerms.push(compiled.compiled.terms);
+        for (const term of compiled.compiled.terms) {
+          slots.push({ agg: term.agg, column: term.column });
+        }
+      } else {
+        measureCompiled.push(null);
+        measureTerms.push([]);
+      }
+    } else {
+      measureCompiled.push(null);
+      measureTerms.push([{ agg: measure.agg, column: measure.column, text: "" }]);
+      slots.push({ agg: measure.agg, column: measure.column });
+    }
+  }
+  const newSlotAccs = (): MeasureAcc[] => slots.map((slot) => accFor(slot.agg));
+  const totalAccs = newSlotAccs();
 
   for (let position = 0; position < ids.length; position++) {
     const row = ids[position];
@@ -491,48 +729,15 @@ export function computeAggregate(
       ranks.forEach((rank, d) => dimRanks[d].push(rank));
       times.forEach((time, d) => dimTimes[d].push(time));
       groupTimes.push(bucket ?? Number.NaN);
-      accs.push(measures.map((measure) => accFor(measure.agg)));
+      accs.push(newSlotAccs());
     }
     const groups = accs[index];
 
-    for (let m = 0; m < measures.length; m++) {
-      const measure = measures[m];
-      const column = measure.column === null ? null : columns[measure.column];
-      if (measure.column !== null && column === undefined) continue;
-      if (measure.agg === "count" && measure.column === null) {
-        groups[m].count++;
-        totalAccs[m].count++;
-        continue;
-      }
-      if (column === null) continue;
-      const raw = column.raw[row];
-      const missing = column.nullMask.get(row) || raw === undefined;
-      const agg = measure.agg;
-      if (agg === "count") {
-        if (!missing) {
-          groups[m].count++;
-          totalAccs[m].count++;
-        }
-        continue;
-      }
-      if (agg === "distinct") {
-        if (!missing) {
-          groups[m].distinct?.add(raw);
-          totalDistinct[m]?.add(raw);
-        }
-        continue;
-      }
-      if (agg === "mode") {
-        if (!missing) {
-          groups[m].modes?.set(raw, (groups[m].modes?.get(raw) ?? 0) + 1);
-          totalModes[m]?.set(raw, (totalModes[m]?.get(raw) ?? 0) + 1);
-        }
-        continue;
-      }
-      const value = column.numbers()[row];
-      if (!Number.isFinite(value)) continue;
-      accumulate(groups[m], agg, value);
-      accumulate(totalAccs[m], agg, value);
+    for (let s = 0; s < slots.length; s++) {
+      const slot = slots[s];
+      const column = slot.column === null ? null : (columns[slot.column] ?? null);
+      accumulateSlot(groups[s], slot.agg, column, row);
+      accumulateSlot(totalAccs[s], slot.agg, column, row);
     }
   }
 
@@ -555,34 +760,43 @@ export function computeAggregate(
       dimRanks[0].push(time);
       dimTimes[0].push(time);
       groupTimes.push(time);
-      accs.push(measures.map((measure) => accFor(measure.agg)));
+      accs.push(newSlotAccs());
       if (accs.length >= 50_000) break;
     }
   }
 
-  const finalMeasures: Float64Array[] = measures.map((measure, m) =>
-    Float64Array.from(accs, (groups) => finalise(groups[m], measure.agg)),
-  );
+  const finalMeasures: Float64Array[] = measures.map((measure, m) => {
+    const offset = measureSlotOffset[m];
+    const terms = measureTerms[m];
+    const compiled = measureCompiled[m];
+    if (measure.agg === "expr") {
+      if (compiled === null) return new Float64Array(accs.length).fill(Number.NaN);
+      return Float64Array.from(accs, (group) => {
+        const values = new Array<number>(terms.length);
+        for (let i = 0; i < terms.length; i++) {
+          values[i] = finalise(group[offset + i], terms[i].agg);
+        }
+        const value = compiled.evaluate(values);
+        return Number.isFinite(value) ? value : Number.NaN;
+      });
+    }
+    return Float64Array.from(accs, (group) => finalise(group[offset], measure.agg));
+  });
 
   const totals = Float64Array.from(measures, (measure, m) => {
-    if (measure.agg === "mode") {
-      const modes = totalModes[m];
-      if (modes === null || modes.size === 0) return NaN;
-      let best = "";
-      let bestCount = -1;
-      for (const [label, count] of modes) {
-        if (count > bestCount || (count === bestCount && label < best)) {
-          best = label;
-          bestCount = count;
-        }
+    const offset = measureSlotOffset[m];
+    if (measure.agg === "expr") {
+      const terms = measureTerms[m];
+      const compiled = measureCompiled[m];
+      if (compiled === null) return Number.NaN;
+      const values = new Array<number>(terms.length);
+      for (let i = 0; i < terms.length; i++) {
+        values[i] = finalise(totalAccs[offset + i], terms[i].agg);
       }
-      const parsed = Number(best);
-      return Number.isFinite(parsed) && best.trim() !== "" ? parsed : NaN;
+      const value = compiled.evaluate(values);
+      return Number.isFinite(value) ? value : Number.NaN;
     }
-    if (measure.agg === "distinct") {
-      return totalDistinct[m]?.size ?? 0;
-    }
-    return finalise(totalAccs[m], measure.agg);
+    return finalise(totalAccs[offset], measure.agg);
   });
 
   const order = Array.from(dimValues[0]?.keys() ?? []);
@@ -635,11 +849,12 @@ export function computeAggregate(
     ),
     dimensionTimes: dimTimes.map((values) => Float64Array.from(shown, (i) => values[i])),
     measures: measuresOut,
-    measureNames: measures.map((measure) =>
-      measure.column === null
+    measureNames: measures.map((measure) => {
+      if (measure.agg === "expr") return measure.expr ?? "expr";
+      return measure.column === null
         ? "count(*)"
-        : `${measure.agg}(${columns[measure.column]?.name ?? "?"})`,
-    ),
+        : `${measure.agg}(${columns[measure.column]?.name ?? "?"})`;
+    }),
     totals,
     groupCount: shown.length,
     totalGroups: order.length,
