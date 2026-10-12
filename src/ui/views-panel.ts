@@ -22,6 +22,8 @@ export interface ViewsPanelOptions {
   onChart(view: ViewDef): void;
   onUseAsDataset(view: ViewDef): void;
   onCopyPandas(view: ViewDef): Promise<void>;
+  /** Publication-style rendering of the current result (PNG/HTML export). */
+  onSlickTable?(view: ViewDef, result: AggregateMessage): void;
   /** The view list changed (added/removed): refresh chart source selectors. */
   onViewsChanged?(): void;
 }
@@ -85,13 +87,13 @@ const AGG_SYMBOLS: Record<string, string> = {
   p90: "p90",
 };
 
-function measureSymbol(measure: MeasureSpec): string {
+export function measureSymbol(measure: MeasureSpec): string {
   if (measure.column === null) return "#";
   if (measure.agg === "count") return "#";
   return AGG_SYMBOLS[measure.agg] ?? measure.agg;
 }
 
-function formatMeasure(value: number, measure: MeasureSpec): string {
+export function formatMeasure(value: number, measure: MeasureSpec): string {
   if (!Number.isFinite(value)) return "—";
   const last = measure.post?.[measure.post.length - 1];
   if (last !== undefined && (last.op === "pctChange" || last.op === "pctTotal")) {
@@ -426,11 +428,28 @@ export class ViewsPanel {
       if (entry !== undefined) this.options.onUseAsDataset(entry.def);
     });
 
+    const slick = el(
+      "button",
+      {
+        class: "ghost small",
+        type: "button",
+        title: "Render this view as a publication-style table (PNG or HTML)",
+      },
+      ["Slick table"],
+    ) as HTMLButtonElement;
+    slick.disabled = entry === undefined || entry.result === null;
+    slick.addEventListener("click", () => {
+      if (entry !== undefined && entry.result !== null) {
+        this.options.onSlickTable?.(entry.def, entry.result);
+      }
+    });
+
     this.actionsEl.append(
       respect,
       el("span", { class: "grow" }),
       limitLabel,
       chart,
+      slick,
       pandas,
       dataset,
     );

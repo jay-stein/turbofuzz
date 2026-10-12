@@ -45,6 +45,8 @@ test("Recipe labels the panel and undoes missing-value and type entries", () => 
       onUndoBatch: () => {},
       onClearAll: () => {},
       onCopyRecipe: async () => true,
+      onSaveRecipe: () => {},
+      onReplayRecipe: () => {},
       onClose: () => {},
     },
   );
@@ -74,6 +76,8 @@ test("Recipe shows the empty state and disables bulk actions", () => {
     onUndoBatch: () => {},
     onClearAll: () => {},
     onCopyRecipe: async () => true,
+    onSaveRecipe: () => {},
+    onReplayRecipe: () => {},
     onClose: () => {},
   });
 
@@ -81,8 +85,11 @@ test("Recipe shows the empty state and disables bulk actions", () => {
   assert.match(document.querySelector(".modal-head h2")?.textContent ?? "", /Recipe \(0\)/);
   assert.equal(document.querySelectorAll(".clean-op").length, 0);
   const buttons = document.querySelectorAll(".clean-footer button");
+  // Undo all, Replay recipe…, Save recipe…, Copy pandas recipe
   assert.equal((buttons[0] as unknown as { disabled: boolean }).disabled, true);
-  assert.equal((buttons[1] as unknown as { disabled: boolean }).disabled, true);
+  assert.equal((buttons[1] as unknown as { disabled: boolean }).disabled, false, "replay works on an empty log");
+  assert.equal((buttons[2] as unknown as { disabled: boolean }).disabled, true);
+  assert.equal((buttons[3] as unknown as { disabled: boolean }).disabled, true);
 });
 
 test("Recipe condenses batches and undoes them as one action", () => {
@@ -128,6 +135,8 @@ test("Recipe condenses batches and undoes them as one action", () => {
     onUndoBatch: (members) => batches.push(members.length),
     onClearAll: () => {},
     onCopyRecipe: async () => true,
+    onSaveRecipe: () => {},
+    onReplayRecipe: () => {},
     onClose: () => {},
   });
 

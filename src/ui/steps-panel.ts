@@ -33,6 +33,10 @@ export interface StepsPanelCallbacks {
   onUndoBatch: (entries: readonly StepsPanelEntry[]) => void;
   onClearAll: () => void;
   onCopyRecipe: () => Promise<boolean>;
+  /** Download the recipe as a local JSON file for replay next month. */
+  onSaveRecipe: () => void;
+  /** Pick a saved recipe file and replay it against the current data. */
+  onReplayRecipe: () => void;
   onClose: () => void;
 }
 
@@ -294,7 +298,14 @@ export function openStepsPanel(
       }, 2000);
     });
   });
-  footer.append(undoAll, copy, el("span", { class: "grow" }));
+  const save = el("button", { class: "ghost", type: "button" }, ["Save recipe…"]);
+  save.title = "Download this pipeline as a local JSON file and replay it on next month's export";
+  save.disabled = entries.length === 0;
+  save.addEventListener("click", () => callbacks.onSaveRecipe());
+  const replay = el("button", { class: "ghost", type: "button" }, ["Replay recipe…"]);
+  replay.title = "Load a saved recipe file and re-apply its steps by column name";
+  replay.addEventListener("click", () => callbacks.onReplayRecipe());
+  footer.append(undoAll, replay, save, copy, el("span", { class: "grow" }));
   modal.append(footer);
 
   function close(): void {

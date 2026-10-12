@@ -12,6 +12,12 @@ import {
 import type { ViewDef } from "../data/aggregate.js";
 import { describeCleanOp, describeCleanOpDetail, type CleanOp } from "../data/clean-ops.js";
 import { pandasRecipe, viewToPandas } from "../data/recipe.js";
+import {
+  parseRecipeFile,
+  planReplay,
+  type RecipeFile,
+  type RecipeFileType,
+} from "../data/recipe-file.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import {
   describeTransformOp,
@@ -66,6 +72,7 @@ import { ViewTabs, type ViewId } from "./view-tabs.js";
 import { ViewsPanel } from "./views-panel.js";
 import { openCommandBar, type ParsedCommand } from "./command-bar.js";
 import { openTriagePanel } from "./triage-panel.js";
+import { openSlickTable } from "./slick-table.js";
 import { ReportsPanel } from "./reports-panel.js";
 import type { Finding } from "../data/findings.js";
 import { suggestCharts } from "./chart-utils.js";
@@ -2154,6 +2161,13 @@ export class App {
       },
       onUseAsDataset: (view) => this.applyViewAsDataset(view),
       onCopyPandas: (view) => this.copyViewRecipe(view),
+      onSlickTable: (view, result) =>
+        openSlickTable({
+          datasetName: this.datasetName,
+          sourceRows: this.resultCount,
+          view,
+          result,
+        }),
       onViewsChanged: () => this.chartsPanel?.setSources(this.viewSources()),
     });
     this.viewsPanel.setColumns(this.metas, this.resultCount);
@@ -3146,6 +3160,8 @@ export class App {
         this.updateStepsButton();
       },
       onCopyRecipe: () => this.copyRecipe(),
+      onSaveRecipe: () => this.saveRecipe(),
+      onReplayRecipe: () => this.pickRecipeFile(),
       onClose: () => undefined,
     });
   }
@@ -3193,6 +3209,165 @@ export class App {
       schema,
     });
     return copyText(recipe);
+  }
+
+  /** Builds the replayable pipeline file for the current dataset. */
+  private buildRecipeFile(): RecipeFile {
+    const baseSchema =
+      this.transformBaseSchema.length > 0
+        ? this.transformBaseSchema
+        : this.metas.map((meta) => ({
+            name: meta.name,
+            numeric: meta.type === "integer" || meta.type === "number",
+          }));
+    return {
+      kind: "turbofuzz-recipe",
+      version: 1,
+      name: this.datasetName,
+      savedAt: new Date().toISOString(),
+      columns: this.metas.map((meta) => meta.name),
+      cleans: [...this.cleanedColumns.entries()].map(([column, ops]) => ({
+        name: this.metas[column]?.name ?? `Column ${column + 1}`,
+        ops,
+      })),
+      nulls: this.metas
+        .map((meta) => ({
+          name: meta.name,
+          extra: [...meta.nullPolicy.extra],
+          keep: [...meta.nullPolicy.keep],
+        }))
+        .filter((entry) => entry.extra.length > 0 || entry.keep.length > 0),
+      types: this.typeEdits
+        .map((edit) => ({
+          name: this.metas[edit.column]?.name ?? `Column ${edit.column + 1}`,
+          type: this.metas[edit.column]?.type ?? "string",
+        }))
+        .filter((entry): entry is RecipeFileType => entry.type !== undefined),
+      baseSchema,
+      transforms: JSON.parse(JSON.stringify(this.transformOps)) as TransformOp[],
+    };
+  }
+
+  private saveRecipe(): void {
+    const file = this.buildRecipeFile();
+    const blob = new Blob([JSON.stringify(file, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const base = this.datasetName.replace(/\.[^.]+$/, "") || "turbofuzz";
+    anchor.href = url;
+    anchor.download = `${base}-recipe.json`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    this.setAction(`Saved the recipe (${file.cleans.length + file.transforms.length} steps)`);
+  }
+
+  private pickRecipeFile(): void {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (file !== undefined) void this.replayRecipe(file);
+    });
+    input.click();
+  }
+
+  private async replayRecipe(file: File): Promise<void> {
+    let parsed: RecipeFile;
+    try {
+      parsed = parseRecipeFile(await file.text());
+    } catch (error) {
+      this.showWarning(error instanceof Error ? error.message : "Could not read the recipe.");
+      return;
+    }
+    const plan = planReplay(parsed, this.metas.map((meta) => meta.name));
+    if (
+      plan.cleans.length === 0 &&
+      plan.nulls.length === 0 &&
+      plan.types.length === 0 &&
+      plan.transforms.length === 0
+    ) {
+      this.showWarning(
+        `Nothing could be replayed — no saved column matched. Skipped: ${plan.skipped.join(", ") || "all steps"}.`,
+      );
+      return;
+    }
+
+    try {
+      for (const change of plan.types) {
+        const previous = this.metas[change.column]?.type ?? "string";
+        const message = await this.client.setType(change.column, change.type);
+        this.metas[change.column] = message.meta;
+        this.table?.updateColumn(change.column, message.meta);
+        this.overview?.updateColumn(change.column, message.meta);
+        this.typeEdits.push({
+          column: change.column,
+          label: `${message.meta.name}: type → ${message.meta.type} (replayed)`,
+          detail: `type → ${change.type} (replayed)`,
+          previous,
+        });
+      }
+      for (const entry of plan.nulls) {
+        const message = await this.client.setNullPolicy(entry.column, entry.extra, entry.keep);
+        for (const { column, meta } of message.columns) {
+          this.metas[column] = meta;
+          this.table?.updateColumn(column, meta);
+          this.overview?.updateColumn(column, meta);
+        }
+        this.filterPanel?.updateMeta(entry.column, this.metas[entry.column]);
+      }
+      if (plan.cleans.length > 0) {
+        const message = await this.client.cleanColumns(plan.cleans);
+        for (const update of plan.cleans) {
+          this.filters.delete(update.column);
+          this.cleanedColumns.set(update.column, update.ops);
+        }
+        for (const { column, meta } of message.columns) {
+          this.metas[column] = meta;
+          this.table?.updateColumn(column, meta);
+          this.overview?.updateColumn(column, meta);
+        }
+        this.latestFacets = message.facets;
+        this.latestHistograms = message.histograms;
+        this.applyDatasetStats(message.stats);
+        this.updateCount(message.count, message.queryMs);
+        this.table?.setCount(message.count);
+        this.table?.setFirstRows(
+          message.firstRows,
+          message.firstGroups,
+          message.firstFlags,
+          message.firstChanged,
+        );
+        this.noteChangedCells(message.changedTotal);
+      }
+      this.updateStepsButton();
+
+      if (plan.transforms.length > 0) {
+        const message = await this.client.transform(plan.transforms);
+        this.openWorkspace(message);
+      } else if (plan.transformsSkipped) {
+        this.showWarning(
+          `Steps replayed, but the transforms were skipped — the saved base columns ${
+            plan.skipped.join(", ") || "do not"
+          } did not match this file.`,
+        );
+      }
+      const parts = [
+        plan.types.length > 0 ? `${plan.types.length} type` : "",
+        plan.nulls.length > 0 ? `${plan.nulls.length} missing-value` : "",
+        plan.cleans.length > 0 ? `${plan.cleans.length} clean` : "",
+        plan.transforms.length > 0 ? `${plan.transforms.length} transform` : "",
+      ].filter((part) => part !== "");
+      this.setAction(
+        `Replayed ${parts.join(", ")} step${parts.length === 1 ? "" : "s"}${
+          plan.skipped.length > 0 ? ` · skipped ${plan.skipped.join(", ")}` : ""
+        }`,
+      );
+    } catch (error) {
+      this.showError(error);
+    }
   }
 
   private applyHeaderRename(headers: string[]): void {

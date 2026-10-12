@@ -2638,6 +2638,80 @@ mark {
   font-size: 13px;
 }
 
+/* ---------- slick table ---------- */
+
+.slick-overlay {
+  align-items: flex-start;
+}
+
+.slick-modal {
+  width: min(1000px, 100%);
+}
+
+.slick-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  margin-top: 8px;
+}
+
+.slick-table th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 10px;
+}
+
+.slick-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.slick-table th.slick-num,
+.slick-table td.slick-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.slick-table td.slick-num {
+  position: relative;
+}
+
+.slick-bar {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 2px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.slick-bar-fill {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.slick-value {
+  position: relative;
+}
+
+.slick-total td {
+  font-weight: 700;
+  border-top: 2px solid var(--border);
+}
+
+.slick-note {
+  margin: 10px 0;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
 /* ---------- clean panel ---------- */
 
 .clean-modal {
