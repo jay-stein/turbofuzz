@@ -26,6 +26,8 @@ export interface RecipeFile {
   /** Transforms run against the pre-transform schema captured here. */
   baseSchema: ColumnSchema[];
   transforms: TransformOp[];
+  /** Archetype override chosen at save time, restored on replay. */
+  archetype?: string;
 }
 
 export interface ReplayPlan {
@@ -115,9 +117,14 @@ function remapTransform(
 /**
  * Builds a replay plan against the current column names. Cleans, null policies
  * and type changes match by name; transforms replay only when the saved base
- * schema maps name-for-name, and any op that cannot be remapped is skipped.
+ * schema maps name-for-name (or the caller supplies explicit mappings), and
+ * any op that cannot be remapped is skipped.
  */
-export function planReplay(file: RecipeFile, currentColumns: readonly string[]): ReplayPlan {
+export function planReplay(
+  file: RecipeFile,
+  currentColumns: readonly string[],
+  overrides?: ReadonlyMap<string, number | null>,
+): ReplayPlan {
   const plan: ReplayPlan = {
     cleans: [],
     nulls: [],
@@ -145,7 +152,13 @@ export function planReplay(file: RecipeFile, currentColumns: readonly string[]):
 
   if (file.transforms.length > 0) {
     const baseNames = file.baseSchema.map((entry) => entry.name);
-    const mapped = matchColumns(baseNames, currentColumns);
+    const mapped = matchColumns(baseNames, currentColumns).map((value, index) => {
+      const name = baseNames[index];
+      if (name !== undefined && overrides?.has(name) === true) {
+        return overrides.get(name) ?? null;
+      }
+      return value;
+    });
     const missing = baseNames.filter((_, index) => mapped[index] === null);
     if (missing.length > 0) {
       plan.transformsSkipped = true;

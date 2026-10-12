@@ -13,10 +13,12 @@ import type { ViewDef } from "../data/aggregate.js";
 import { describeCleanOp, describeCleanOpDetail, type CleanOp } from "../data/clean-ops.js";
 import { pandasRecipe, viewToPandas } from "../data/recipe.js";
 import {
+  matchColumns,
   parseRecipeFile,
   planReplay,
   type RecipeFile,
   type RecipeFileType,
+  type ReplayPlan,
 } from "../data/recipe-file.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import {
@@ -64,6 +66,7 @@ import { openStatsModal } from "./stats.js";
 import { SearchWorkerClient } from "./worker-client.js";
 import { openCleanPanel } from "./clean-panel.js";
 import { openConfirm, openPrompt } from "./dialog.js";
+import { openRecipeMapping } from "./recipe-mapping.js";
 import { openExportPanel } from "./export-panel.js";
 import { openMergePanel } from "./merge-panel.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
@@ -271,6 +274,7 @@ export class App {
   private table: ResultTable | null = null;
 
   private pasteView!: HTMLElement;
+  private pasteCancel!: HTMLButtonElement;
   private workspace!: HTMLElement;
   private textarea!: HTMLTextAreaElement;
   private pendingWorkbook:
@@ -456,7 +460,19 @@ export class App {
     const view = el("div", { class: "paste-view" });
     const card = el("div", { class: "paste-card" });
 
-    card.append(el("h1", {}, ["Clean and reshape tables in your browser"]));
+    this.pasteCancel = el(
+      "button",
+      { class: "icon-btn", type: "button", title: "Back to the table" },
+      ["×"],
+    );
+    this.pasteCancel.classList.add("hidden");
+    this.pasteCancel.addEventListener("click", () => this.hidePaste());
+    card.append(
+      el("div", { class: "paste-head" }, [
+        el("h1", {}, ["Clean and reshape tables in your browser"]),
+        this.pasteCancel,
+      ]),
+    );
     card.append(
       el("p", { class: "sub" }, [
         "Drop a messy CSV or Excel file. Type-aware cleanup, transforms and search — all offline, nothing leaves this tab.",
@@ -2753,9 +2769,18 @@ export class App {
   }
 
   private showPaste(): void {
-    this.workspace.classList.add("hidden");
+    const hasData = this.lastLoaded !== null;
     this.pasteView.classList.remove("hidden");
+    this.pasteCancel.classList.toggle("hidden", !hasData);
+    this.workspace.classList.toggle("hidden", !hasData);
     this.newButton.classList.add("hidden");
+  }
+
+  private hidePaste(): void {
+    if (this.lastLoaded === null) return;
+    this.pasteView.classList.add("hidden");
+    this.workspace.classList.remove("hidden");
+    this.newButton.classList.remove("hidden");
   }
 
   private openClean(
@@ -3349,6 +3374,7 @@ export class App {
         .filter((entry): entry is RecipeFileType => entry.type !== undefined),
       baseSchema,
       transforms: JSON.parse(JSON.stringify(this.transformOps)) as TransformOp[],
+      archetype: this.archetypeOverride ?? undefined,
     };
   }
 
@@ -3386,7 +3412,8 @@ export class App {
       this.showWarning(error instanceof Error ? error.message : "Could not read the recipe.");
       return;
     }
-    const plan = planReplay(parsed, this.metas.map((meta) => meta.name));
+    const names = this.metas.map((meta) => meta.name);
+    let plan = planReplay(parsed, names);
     if (
       plan.cleans.length === 0 &&
       plan.nulls.length === 0 &&
@@ -3399,6 +3426,27 @@ export class App {
       return;
     }
 
+    // Saved base columns that do not match this file: offer a mapping step
+    // instead of silently skipping the transforms.
+    if (plan.transformsSkipped && parsed.transforms.length > 0) {
+      const missing = parsed.baseSchema
+        .map((entry) => entry.name)
+        .filter((name) => matchColumns([name], names)[0] === null);
+      if (missing.length > 0) {
+        const mapping = await openRecipeMapping({ names: missing, columns: names });
+        if (mapping !== null && [...mapping.values()].some((value) => value !== null)) {
+          plan = planReplay(parsed, names, mapping);
+        }
+      }
+    }
+    await this.applyReplayPlan(parsed, plan);
+  }
+
+  private async applyReplayPlan(parsed: RecipeFile, plan: ReplayPlan): Promise<void> {
+    if (parsed.archetype !== undefined) {
+      this.archetypeOverride = parsed.archetype as ArchetypeId;
+      this.rerenderOverview();
+    }
     try {
       for (const change of plan.types) {
         const previous = this.metas[change.column]?.type ?? "string";

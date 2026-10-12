@@ -62,3 +62,24 @@ test("parseRecipeFile validates the file kind", () => {
   assert.throws(() => parseRecipeFile("{"), /not valid JSON/);
   assert.throws(() => parseRecipeFile('{"kind":"something-else"}'), /not a TurboFuzz recipe/);
 });
+
+test("planReplay accepts explicit mappings for unmatched base columns", () => {
+  const file = recipe();
+  const columns = ["region", "total", "when"];
+  const skippedPlan = planReplay(file, columns);
+  assert.equal(skippedPlan.transformsSkipped, true, "Amount has no match by name");
+
+  const mapping = new Map<string, number | null>([[" Amount ", 1]]);
+  const mappedPlan = planReplay(file, columns, mapping);
+  assert.equal(mappedPlan.transformsSkipped, false);
+  assert.deepEqual(mappedPlan.transforms, [{ kind: "round", column: 1, decimals: 2 }]);
+
+  const skippedByUser = planReplay(file, columns, new Map([[" Amount ", null]]));
+  assert.equal(skippedByUser.transformsSkipped, true);
+});
+
+test("the archetype override survives a recipe round trip", () => {
+  const file = recipe({ archetype: "eventLog" });
+  const parsed = parseRecipeFile(JSON.stringify(file));
+  assert.equal(parsed.archetype, "eventLog");
+});

@@ -256,12 +256,23 @@ textarea:focus {
 /* ---------- paste view ---------- */
 
 .paste-view {
-  flex: 1;
+  position: fixed;
+  inset: 0;
+  z-index: 45;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: 6vh 20px 20px;
   overflow: auto;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+.paste-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .paste-card {
@@ -2434,6 +2445,37 @@ mark {
   margin-top: 6px;
   font-size: 12px;
   color: var(--text-dim);
+}
+
+/* ---------- recipe mapping ---------- */
+
+.recipe-mapping-modal {
+  width: min(560px, 100%);
+}
+
+.recipe-map-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 46vh;
+  overflow: auto;
+  padding: 2px;
+}
+
+.recipe-map-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.recipe-map-name {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .views-empty {
