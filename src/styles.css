@@ -3338,6 +3338,50 @@ mark {
   font-variant-numeric: tabular-nums;
 }
 
+/* Prominent animate control and its visible setup row. */
+.chart-animate-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chart-animate-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.chart-movie-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.chart-animate-setup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  border: 1px dashed var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.chart-animate-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.chart-animate-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 .chart-legend {
   display: flex;
   align-items: center;

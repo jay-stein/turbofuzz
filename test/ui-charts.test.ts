@@ -1284,3 +1284,49 @@ test("Export GIF encodes the animation frames and downloads a blob", async () =>
     URL.revokeObjectURL = originalRevoke;
   }
 });
+
+test("the Animate button sits in the toolbar and reveals the setup row", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({ name: "status", type: "category", categories: { labels: ["open"], counts: [1] } }),
+    meta({
+      name: "when",
+      type: "date",
+      stats: { ...meta().stats, min: Date.UTC(2024, 0, 1), max: Date.UTC(2024, 2, 1), distinct: 60 },
+    }),
+  ]);
+  await tick();
+  const button = host.querySelector(".chart-animate-btn") as HTMLButtonElement;
+  assert.ok(button !== null, "the Animate button is in the toolbar");
+  assert.equal(button.disabled, false);
+  const setup = host.querySelector(".chart-animate-setup") as HTMLElement;
+  assert.equal(setup.classList.contains("hidden"), true, "setup starts collapsed");
+  assert.ok(setup.querySelector('select[aria-label="Animate over time"]') !== null);
+  assert.match(setup.textContent ?? "", /Animate/);
+  button.click();
+  await tick();
+  assert.equal(setup.classList.contains("hidden"), false, "clicking reveals the setup row");
+  assert.ok(button.classList.contains("active"));
+  button.click();
+  await tick();
+  assert.equal(setup.classList.contains("hidden"), true);
+  card.dispose();
+});
+
+test("the Animate button is disabled when the file has no date column", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({ name: "status", type: "category", categories: { labels: ["open"], counts: [1] } }),
+  ]);
+  await tick();
+  const button = host.querySelector(".chart-animate-btn") as HTMLButtonElement;
+  assert.equal(button.disabled, true);
+  assert.match(button.title, /needs a date column/);
+  card.dispose();
+});

@@ -60,7 +60,7 @@ import {
   safeFileName,
   suggestedBinRange,
 } from "./chart-utils.js";
-import { clear, el } from "./dom.js";
+import { clear, el, svgIcon } from "./dom.js";
 import { openConfirm, openPrompt } from "./dialog.js";
 import { openMenu } from "./menu.js";
 
@@ -454,6 +454,14 @@ function cssVar(name: string, fallback: string): string {
   return value === "" ? fallback : value;
 }
 
+/** Movie-camera glyph for the Animate button and the GIF export. */
+function movieIcon(): SVGElement {
+  return svgIcon(
+    '<rect x="2.5" y="6.5" width="12.5" height="11" rx="2.5"/><path d="m15 10.5 6.5-4v11l-6.5-4z"/>',
+    "chart-movie-icon",
+  );
+}
+
 function defaultConfig(): ChartCardConfig {
   return {
     kind: "histogram",
@@ -526,8 +534,10 @@ export class ChartCard {
   private animationFrame = 0;
   private animationPlaying = false;
   private animationTimer: number | null = null;
+  private animationSetupOpen = false;
   private readonly bubbleBinsInput: HTMLInputElement;
-  private readonly animationSettings: HTMLElement;
+  private readonly animateButton: HTMLButtonElement;
+  private readonly animationSetup: HTMLElement;
   private readonly animationTimeSelect: HTMLSelectElement;
   private readonly animationGrainSelect: HTMLSelectElement;
   private readonly animationBar: HTMLElement;
@@ -771,12 +781,25 @@ export class ChartCard {
       this.xWrap,
       this.yWrap,
     ]);
+    this.animateButton = el(
+      "button",
+      {
+        class: "ghost small chart-animate-btn",
+        type: "button",
+        title: "Step this chart through time",
+      },
+      [],
+    ) as HTMLButtonElement;
+    this.animateButton.append(movieIcon(), el("span", {}, ["Animate"]));
+    this.animateButton.addEventListener("click", () => this.toggleAnimationSetup());
+
     head.append(
       this.sourceWrap,
       this.kindSelect,
       this.groupWrap,
       this.axesPanel,
       el("span", { class: "grow" }),
+      this.animateButton,
       more,
     );
 
@@ -1080,10 +1103,17 @@ export class ChartCard {
       this.refreshAnimation();
       this.render();
     });
-    this.animationSettings = el("div", { class: "chart-settings" }, [
-      el("span", { class: "chart-field-label" }, ["Animate over"]),
+    // Animation setup lives in its own visible row (not in Settings): the
+    // Animate button in the toolbar expands it.
+    this.animationSetup = el("div", { class: "chart-animate-setup hidden" }, [
+      el("span", { class: "chart-animate-title" }, [movieIcon(), "Animate"]),
+      el("span", { class: "chart-field-label" }, ["over"]),
       this.animationTimeSelect,
+      el("span", { class: "chart-field-label" }, ["every"]),
       this.animationGrainSelect,
+      el("span", { class: "chart-animate-hint" }, [
+        "Playback appears under the chart; export one loop as a GIF.",
+      ]),
     ]);
 
     const settingsBody = el("div", { class: "chart-settings-body" }, [
@@ -1094,7 +1124,6 @@ export class ChartCard {
       this.histogramSettings,
       this.barSettings,
       this.correlationSettings,
-      this.animationSettings,
       lookRow,
     ]);
     this.settingsBody = settingsBody;
@@ -1155,8 +1184,9 @@ export class ChartCard {
     this.animationExportButton = el(
       "button",
       { class: "ghost small", type: "button", title: "Encode one loop as an animated GIF" },
-      ["Export GIF"],
+      [],
     ) as HTMLButtonElement;
+    this.animationExportButton.append(movieIcon(), el("span", {}, ["Export GIF"]));
     this.animationExportButton.addEventListener("click", () => this.exportAnimationGif());
     this.animationBar = el(
       "div",
@@ -1170,7 +1200,15 @@ export class ChartCard {
       ],
     );
 
-    this.root.append(head, canvasWrap, this.animationBar, this.legendEl, this.noteEl, this.tooltipEl);
+    this.root.append(
+      head,
+      this.animationSetup,
+      canvasWrap,
+      this.animationBar,
+      this.legendEl,
+      this.noteEl,
+      this.tooltipEl,
+    );
 
     this.syncSwatches();
     this.syncOptions();
@@ -1665,9 +1703,16 @@ export class ChartCard {
         kind !== "bubble",
     );
     const animatable = kind === "bar" || kind === "bubble";
-    this.animationSettings.classList.toggle(
+    const hasDates = this.columns.some((meta) => meta.type === "date");
+    this.animateButton.classList.toggle("hidden", !animatable);
+    this.animateButton.disabled = !hasDates;
+    this.animateButton.title = hasDates
+      ? "Step this chart through time"
+      : "Animating needs a date column in the file";
+    this.animateButton.classList.toggle("active", this.animationSetupOpen && hasDates);
+    this.animationSetup.classList.toggle(
       "hidden",
-      !animatable || !this.columns.some((meta) => meta.type === "date"),
+      !(animatable && hasDates && this.animationSetupOpen),
     );
     this.bubbleBinsInput.parentElement?.classList.toggle("hidden", kind !== "bubble");
     this.topLabel.parentElement?.classList.toggle("hidden", kind === "bubble");
@@ -2414,6 +2459,15 @@ export class ChartCard {
       });
   }
 
+  private toggleAnimationSetup(): void {
+    if (!this.columns.some((meta) => meta.type === "date")) {
+      this.noteEl.textContent = "Animating needs a date column in the file.";
+      return;
+    }
+    this.animationSetupOpen = !this.animationSetupOpen;
+    this.renderControls();
+  }
+
   private toggleAnimation(): void {
     if (this.animationPlaying) this.stopAnimation();
     else this.playAnimation();
@@ -2507,6 +2561,12 @@ export class ChartCard {
         this.animationFrame = index;
         ctx.setTransform(scale, 0, 0, scale, 0, 0);
         this.drawChart(ctx, cssWidth, cssHeight, true);
+        // Opaque background: paint behind the chart (drawChart clears first),
+        // because a transparent GIF decodes as black in many viewers.
+        ctx.globalCompositeOperation = "destination-over";
+        ctx.fillStyle = cssVar("--panel", "#ffffff");
+        ctx.fillRect(0, 0, cssWidth, cssHeight);
+        ctx.globalCompositeOperation = "source-over";
         const image = ctx.getImageData(0, 0, offscreen.width, offscreen.height);
         frames.push({ data: image.data, width: offscreen.width, height: offscreen.height });
       }
@@ -3154,7 +3214,7 @@ export class ChartCard {
     }
     const top = Math.max(1, max);
 
-    const yTicks = niceTicks(0, top, 4);
+    const yTicks = niceTicks(0, top, 4).filter((value, index, all) => index === 0 || formatChartNumber(value) !== formatChartNumber(all[index - 1]));
     ctx.strokeStyle = frame.border;
     ctx.lineWidth = 1;
     ctx.fillStyle = frame.dim;
@@ -3458,7 +3518,7 @@ export class ChartCard {
     maxCount: number,
   ): void {
     const ui = frame.ui;
-    const yTicks = niceTicks(0, maxCount, 4).filter((value, index, all) => index === 0 || value !== all[index - 1]);
+    const yTicks = niceTicks(0, maxCount, 4).filter((value, index, all) => index === 0 || formatCount(value) !== formatCount(all[index - 1]));
     ctx.strokeStyle = frame.border;
     ctx.lineWidth = 1;
     ctx.fillStyle = frame.dim;
@@ -3559,7 +3619,7 @@ export class ChartCard {
     }
 
     // Y axis in percent of the group (share), not counts.
-    const yTicks = niceTicks(0, maxShare, 4).filter((value, index, all) => index === 0 || value !== all[index - 1]);
+    const yTicks = niceTicks(0, maxShare, 4).filter((value, index, all) => index === 0 || `${Math.round(value * 100)}%` !== `${Math.round(all[index - 1] * 100)}%`);
     ctx.strokeStyle = frame.border;
     ctx.lineWidth = 1;
     ctx.fillStyle = frame.dim;
@@ -3768,7 +3828,7 @@ export class ChartCard {
     const slotW = frame.plotW / width;
     const barW = Math.max(4, slotW - Math.min(18 * ui, slotW * 0.25));
 
-    const yTicks = niceTicks(0, maxCount, 4).filter((value, index, all) => index === 0 || value !== all[index - 1]);
+    const yTicks = niceTicks(0, maxCount, 4).filter((value, index, all) => index === 0 || formatCount(value) !== formatCount(all[index - 1]));
     ctx.strokeStyle = frame.border;
     ctx.lineWidth = 1;
     ctx.fillStyle = frame.dim;
@@ -3894,7 +3954,7 @@ export class ChartCard {
     const maxCount = Math.max(1, input.maxCount);
 
     const xTicks = niceTicks(xMin, xMax, 4);
-    const yTicks = niceTicks(yMin, yMax, 4).filter((value, index, all) => index === 0 || value !== all[index - 1]);
+    const yTicks = niceTicks(yMin, yMax, 4).filter((value, index, all) => index === 0 || formatChartNumber(value) !== formatChartNumber(all[index - 1]));
     ctx.lineWidth = 1;
     ctx.fillStyle = frame.dim;
     this.font(ctx, ui, 10);
@@ -3992,7 +4052,7 @@ export class ChartCard {
       this.config.column,
     );
 
-    const yTicks = niceTicks(0, maxCount, 4).filter((value, index, all) => index === 0 || value !== all[index - 1]);
+    const yTicks = niceTicks(0, maxCount, 4).filter((value, index, all) => index === 0 || formatCount(value) !== formatCount(all[index - 1]));
     ctx.strokeStyle = frame.border;
     ctx.lineWidth = 1;
     ctx.fillStyle = frame.dim;
@@ -4089,7 +4149,7 @@ export class ChartCard {
   ): void {
     const ui = frame.ui;
     const xTicks = niceTicks(xMin, xMax, 5);
-    const yTicks = niceTicks(yMin, yMax, 4).filter((value, index, all) => index === 0 || value !== all[index - 1]);
+    const yTicks = niceTicks(yMin, yMax, 4).filter((value, index, all) => index === 0 || formatChartNumber(value) !== formatChartNumber(all[index - 1]));
     ctx.strokeStyle = frame.border;
     ctx.lineWidth = 1;
     ctx.fillStyle = frame.dim;
