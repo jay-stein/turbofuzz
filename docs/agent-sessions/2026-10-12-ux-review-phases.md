@@ -223,3 +223,19 @@ git checkout -b agent/ux-review-20261012
 npm run typecheck / npm test / npm run build   # after every phase
 git add -A && git commit -m "<conventional message>"   # once per phase
 ```
+
+## Anthropic feedback: GIF quality and Animate prominence (same day)
+
+Commit `640072c`, deployed `647ecb29-04af-4bd1-b12b-f1e45070381b`. 525 tests.
+The GIF *was* animating (frames differ frame-to-frame) but looked static and
+poor because: frames were captured on a transparent canvas (many viewers show
+that as black), the demo data had identical bar heights per frame, and small
+range y-axes repeated formatted ticks (`1,1,1,0,0,0`). Fixes: paint the panel
+colour with `destination-over` after drawing each frame; dedupe tick labels
+after formatting for counts, shares and numeric axes; verified by decoding an
+exported GIF frame-by-frame (panel background, unique ticks, different bars
+per month). The Animate control now lives in the chart toolbar with a movie
+camera icon and expands a visible setup row (outside Settings), disabled with
+a reason when the file has no date column; the GIF export button shares the
+icon. GIF remains the default (universal in chat/docs/readmes); APNG or
+WebCodecs WebM are documented options if full-colour quality is needed.
