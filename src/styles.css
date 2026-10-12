@@ -1452,14 +1452,27 @@ textarea:focus {
 }
 
 .tiles-toggle .tiles-icon,
+.tiles-toggle .tiles-chart,
 .tiles-toggle .tiles-check {
   width: 15px;
   height: 15px;
   flex: none;
 }
 
+.tiles-toggle .tiles-chart,
 .tiles-toggle .tiles-check {
   display: none;
+}
+
+/* Hovering previews the mini chart the strip is made of; the active check
+   mark always wins so the pressed state stays readable. */
+.tiles-toggle:not(.active):hover .tiles-icon {
+  display: none;
+}
+
+.tiles-toggle:not(.active):hover .tiles-chart {
+  display: block;
+  animation: tiles-rise 0.22s ease-out;
 }
 
 .tiles-toggle.active .tiles-icon {
@@ -1468,6 +1481,22 @@ textarea:focus {
 
 .tiles-toggle.active .tiles-check {
   display: block;
+}
+
+@keyframes tiles-rise {
+  from {
+    transform: scaleY(0.35);
+    opacity: 0.4;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.tiles-chart {
+  transform-box: fill-box;
+  transform-origin: bottom;
 }
 
 /* Column summary tiles above the table (toggled from the results bar). */

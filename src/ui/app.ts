@@ -167,6 +167,17 @@ function checkIcon(): SVGElement {
   return svgIcon('<path d="m5 12.5 4.5 4.5L19 7"/>', "tiles-check");
 }
 
+/** Mini bar chart shown while hovering the Info Tiles toggle. */
+function tilesChartIcon(): SVGElement {
+  return svgIcon(
+    '<path d="M4 19.5h16"/>' +
+      '<rect x="5" y="11" width="3.4" height="8.5" rx="1"/>' +
+      '<rect x="10.3" y="6.5" width="3.4" height="13" rx="1"/>' +
+      '<rect x="15.6" y="13.5" width="3.4" height="6" rx="1"/>',
+    "tiles-chart",
+  );
+}
+
 const CLIPBOARD_ROW_LIMIT = 100_000;
 const EXPORT_CHUNK_ROWS = 20_000;
 
@@ -341,7 +352,7 @@ export class App {
       },
       {
         id: "column-tiles",
-        text: "Miss the column summary? “Tiles” shows it above the table while you work.",
+        text: "Miss the column summary? “Info Tiles” shows it above the table while you work.",
         target: () =>
           this.view === "table" && !this.tilesButton.classList.contains("hidden")
             ? this.tilesButton
@@ -657,8 +668,9 @@ export class App {
     this.tilesButton.classList.add("hidden");
     this.tilesButton.append(
       tilesIcon(),
+      tilesChartIcon(),
       checkIcon(),
-      el("span", { class: "tiles-label" }, ["Tiles"]),
+      el("span", { class: "tiles-label" }, ["Info Tiles"]),
     );
     this.tilesButton.addEventListener("click", () => this.toggleColumnTiles());
     this.filterChipsEl = el("span", { class: "filter-chips hidden" });
