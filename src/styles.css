@@ -1445,6 +1445,17 @@ textarea:focus {
   color: var(--accent);
 }
 
+/* Placeholder text action reads as a fix, not a filter toggle. */
+.placeholder-action {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  font-weight: 600;
+}
+
+.placeholder-action:hover {
+  background: var(--accent-soft);
+}
+
 .tiles-toggle {
   display: inline-flex;
   align-items: center;

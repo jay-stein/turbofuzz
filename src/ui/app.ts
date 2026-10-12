@@ -358,6 +358,12 @@ export class App {
             ? this.tilesButton
             : null,
       },
+      {
+        id: "placeholder-action",
+        text: "Placeholder text like “N/A” is counted as missing — “Convert to nulls” blanks those cells for real.",
+        target: () =>
+          this.healthHost.querySelector<HTMLElement>(".placeholder-action"),
+      },
     ]);
   }
 
@@ -2054,7 +2060,7 @@ export class App {
           type: "button",
           title: `Blank ${total.toLocaleString()} placeholder cells (${examples}) across all columns — undo in the Process Log`,
         },
-        [`Placeholders ${total.toLocaleString()}`],
+        [`Convert to nulls (${total.toLocaleString()})`],
       ) as HTMLButtonElement;
       convert.addEventListener("click", () => this.applyNullPolicyAll(ranked, []));
       this.healthHost.append(convert);
