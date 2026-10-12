@@ -1269,10 +1269,25 @@ test("Export GIF encodes the animation frames and downloads a blob", async () =>
     ]);
     await tick();
     const button = [...host.querySelectorAll(".chart-animation button")].find((entry) =>
-      (entry.textContent ?? "").includes("Export GIF"),
+      (entry.textContent ?? "").includes("Export"),
     );
-    assert.ok(button !== undefined, "the GIF export button exists");
+    assert.ok(button !== undefined, "the export button exists");
+    // Choosing 2x halve the per-frame duration before exporting.
+    const speed = host.querySelector(
+      'select[aria-label="Play speed"]',
+    ) as HTMLSelectElement;
+    assert.ok(speed !== null, "the speed control renders");
+    speed.value = "2";
+    speed.dispatchEvent(new window.Event("change") as unknown as Event);
+    assert.equal(card.getConfig().animationSpeed, 2);
     (button as unknown as { click(): void }).click();
+    const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+    const gif = [...doc.querySelectorAll(".context-menu .context-item")].find(
+      (entry) => entry.textContent === "Animated GIF (.gif)",
+    );
+    assert.ok(gif !== undefined, "the export menu offers GIF");
+    (gif as unknown as { click(): void }).click();
+    for (let attempt = 0; attempt < 20 && blobs.length === 0; attempt++) await tick();
     assert.equal(blobs.length, 1, "a GIF blob was created");
     const bytes = new Uint8Array(await blobs[0].arrayBuffer());
     assert.ok(bytes.length > 40);
@@ -1283,6 +1298,61 @@ test("Export GIF encodes the animation frames and downloads a blob", async () =>
     URL.createObjectURL = originalCreate;
     URL.revokeObjectURL = originalRevoke;
   }
+});
+
+test("video export explains itself when WebCodecs is unavailable", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestAnimation: async () => ({
+        type: "animation",
+        requestId: 1,
+        result: {
+          frames: [
+            { time: Date.UTC(2024, 0, 1), label: "2024-01" },
+            { time: Date.UTC(2024, 1, 1), label: "2024-02" },
+          ],
+          maxCount: 1,
+          total: 2,
+          missing: 0,
+          bar: { labels: ["open"], counts: Uint32Array.from([1, 1]) },
+        },
+        ms: 1,
+      }),
+    },
+    { kind: "bar", column: 0, animationTimeColumn: 1, animationGrain: "month" },
+  );
+  await tick();
+  card.setColumns([
+    meta({ name: "status", type: "category", categories: { labels: ["open"], counts: [1] } }),
+    meta({
+      name: "when",
+      type: "date",
+      stats: { ...meta().stats, min: Date.UTC(2024, 0, 1), max: Date.UTC(2024, 2, 1), distinct: 60 },
+    }),
+  ]);
+  await tick();
+  const exportButton = [...host.querySelectorAll(".chart-animation button")].find((entry) =>
+    (entry.textContent ?? "").includes("Export"),
+  );
+  assert.ok(exportButton !== undefined);
+  (exportButton as unknown as { click(): void }).click();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const video = [...doc.querySelectorAll(".context-menu .context-item")].find(
+    (entry) => entry.textContent === "Video (.mp4)",
+  );
+  assert.ok(video !== undefined, "the export menu offers MP4");
+  (video as unknown as { click(): void }).click();
+  await tick();
+  assert.match(
+    host.querySelector(".chart-note")?.textContent ?? "",
+    /WebCodecs|Could not encode the video/,
+  );
+  card.dispose();
 });
 
 test("the Animate button sits in the toolbar and reveals the setup row", async () => {

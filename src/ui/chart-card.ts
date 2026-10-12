@@ -161,6 +161,8 @@ export interface ChartCardConfig {
   /** Time column for frame animation (-1 = off). */
   animationTimeColumn?: number;
   animationGrain?: TimeGrain;
+  /** Playback/export speed multiplier (0.5, 1, 2, 4). */
+  animationSpeed?: number;
   /** "Suggested: …" reason shown in the note for rule-picked default cards. */
   suggested: string;
   correlationColumns: number[];
@@ -487,6 +489,7 @@ function defaultConfig(): ChartCardConfig {
     bubbleBins: 40,
     animationTimeColumn: -1,
     animationGrain: "day",
+    animationSpeed: 1,
     suggested: "",
     correlationColumns: [],
   };
@@ -543,6 +546,7 @@ export class ChartCard {
   private readonly animationBar: HTMLElement;
   private readonly animationPlayButton: HTMLButtonElement;
   private readonly animationSlider: HTMLInputElement;
+  private readonly animationSpeedSelect: HTMLSelectElement;
   private readonly animationFrameLabel: HTMLElement;
   private readonly animationLoopInput: HTMLInputElement;
   private readonly animationExportButton: HTMLButtonElement;
@@ -1176,6 +1180,25 @@ export class ChartCard {
       this.render();
     });
     this.animationFrameLabel = el("span", { class: "chart-animation-label" });
+    this.animationSpeedSelect = el("select", {
+      class: "chart-picker chart-picker-small",
+      "aria-label": "Play speed",
+      title: "Playback speed; also sets the exported frame rate",
+    }) as HTMLSelectElement;
+    for (const speed of [0.5, 1, 2, 4]) {
+      this.animationSpeedSelect.append(
+        el("option", { value: String(speed) }, [`${speed}×`]) as HTMLOptionElement,
+      );
+    }
+    this.animationSpeedSelect.value = String(this.config.animationSpeed ?? 1);
+    this.animationSpeedSelect.addEventListener("change", () => {
+      const speed = Number(this.animationSpeedSelect.value);
+      this.config.animationSpeed = Number.isFinite(speed) && speed > 0 ? speed : 1;
+      if (this.animationPlaying) {
+        this.stopAnimation();
+        this.playAnimation();
+      }
+    });
     this.animationLoopInput = el("input", { type: "checkbox" }) as HTMLInputElement;
     this.animationLoopInput.checked = true;
     const loopField = el("label", { class: "control check clean-check chart-check" });
@@ -1183,11 +1206,13 @@ export class ChartCard {
     loopField.append(this.animationLoopInput, "Loop");
     this.animationExportButton = el(
       "button",
-      { class: "ghost small", type: "button", title: "Encode one loop as an animated GIF" },
+      { class: "ghost small", type: "button", title: "Export one loop as an animated GIF or a video" },
       [],
     ) as HTMLButtonElement;
-    this.animationExportButton.append(movieIcon(), el("span", {}, ["Export GIF"]));
-    this.animationExportButton.addEventListener("click", () => this.exportAnimationGif());
+    this.animationExportButton.append(movieIcon(), el("span", {}, ["Export"]));
+    this.animationExportButton.addEventListener("click", () =>
+      this.openExportMenu(this.animationExportButton),
+    );
     this.animationBar = el(
       "div",
       { class: "chart-animation hidden" },
@@ -1195,6 +1220,7 @@ export class ChartCard {
         this.animationPlayButton,
         this.animationSlider,
         this.animationFrameLabel,
+        this.animationSpeedSelect,
         loopField,
         this.animationExportButton,
       ],
@@ -2473,6 +2499,13 @@ export class ChartCard {
     else this.playAnimation();
   }
 
+  /** Milliseconds per frame: 0.5 s at 1×, faster at higher speeds. */
+  private frameIntervalMs(): number {
+    const speed = this.config.animationSpeed ?? 1;
+    const safe = Number.isFinite(speed) && speed > 0 ? speed : 1;
+    return Math.max(60, Math.round(500 / safe));
+  }
+
   private playAnimation(): void {
     const result = this.animationResult;
     if (result === null || result.frames.length === 0) return;
@@ -2495,7 +2528,7 @@ export class ChartCard {
         this.animationFrame++;
       }
       this.render();
-    }, 500);
+    }, this.frameIntervalMs());
     this.syncAnimationBar();
   }
 
@@ -2517,23 +2550,41 @@ export class ChartCard {
     this.animationPlayButton.textContent = this.animationPlaying ? "❚❚ Pause" : "▶ Play";
     this.animationSlider.max = String(result.frames.length - 1);
     this.animationSlider.value = String(this.animationFrame);
+    this.animationSpeedSelect.value = String(this.config.animationSpeed ?? 1);
     const frame = result.frames[this.animationFrame];
     this.animationFrameLabel.textContent = `${frame?.label ?? ""} (${
       this.animationFrame + 1
     }/${result.frames.length})`;
   }
 
+  private openExportMenu(anchor: HTMLElement): void {
+    openMenu(anchor, [
+      {
+        label: "Animated GIF (.gif)",
+        title: "Loops anywhere, but some desktop viewers (e.g. Windows Photos) show only the first frame",
+        action: () => void this.exportAnimationGif(),
+      },
+      {
+        label: "Video (.mp4)",
+        title: "H.264 video that plays in every desktop player and presentation tool",
+        action: () => void this.exportAnimationVideo(),
+      },
+    ]);
+  }
+
   /**
-   * Encodes exactly one loop of the animation as an animated GIF. Every frame
-   * is drawn to an offscreen canvas and packed directly (2x the card's CSS
-   * size), so the export is deterministic — no real-time canvas capture.
+   * Draws every animation frame to an offscreen canvas (2× the card size)
+   * with an opaque panel background. Shared by the GIF and MP4 encoders so
+   * both formats show exactly the same pixels.
    */
-  private exportAnimationGif(): void {
+  private async renderAnimationFrames(): Promise<
+    { frames: GifFrameInput[]; width: number; height: number } | null
+  > {
     const result = this.animationResult;
     if (result === null || result.frames.length < 2) {
       this.noteEl.textContent =
         "Set up an animation first — pick a time column and frame length above.";
-      return;
+      return null;
     }
     this.stopAnimation();
     const cssWidth = Math.max(
@@ -2551,49 +2602,184 @@ export class ChartCard {
     const ctx = offscreen.getContext("2d");
     if (ctx === null) {
       this.noteEl.textContent = "Canvas rendering is not available in this browser.";
-      return;
+      return null;
     }
     const previous = this.animationFrame;
-    let message = "Could not encode the GIF in this browser.";
+    const frames: GifFrameInput[] = [];
     try {
-      const frames: GifFrameInput[] = [];
       for (let index = 0; index < result.frames.length; index++) {
         this.animationFrame = index;
         ctx.setTransform(scale, 0, 0, scale, 0, 0);
         this.drawChart(ctx, cssWidth, cssHeight, true);
         // Opaque background: paint behind the chart (drawChart clears first),
-        // because a transparent GIF decodes as black in many viewers.
+        // because a transparent frame reads as black in many viewers.
         ctx.globalCompositeOperation = "destination-over";
         ctx.fillStyle = cssVar("--panel", "#ffffff");
         ctx.fillRect(0, 0, cssWidth, cssHeight);
         ctx.globalCompositeOperation = "source-over";
         const image = ctx.getImageData(0, 0, offscreen.width, offscreen.height);
         frames.push({ data: image.data, width: offscreen.width, height: offscreen.height });
+        if (index % 4 === 3) {
+          this.noteEl.textContent = `Rendering frame ${index + 1} of ${result.frames.length}…`;
+          await new Promise((resolve) => window.setTimeout(resolve, 0));
+        }
       }
-      const bytes = encodeGif(frames, 500);
-      if (bytes.length > 0 && typeof URL.createObjectURL === "function") {
-        const blob = new Blob([bytes as BlobPart], { type: "image/gif" });
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = `${safeFileName(this.options.datasetName())}-${safeFileName(
-          this.chartName(),
-        )}-animation.gif`;
-        document.body.append(anchor);
-        anchor.click();
-        anchor.remove();
-        URL.revokeObjectURL(url);
-        message = `Exported ${result.frames.length} frames as a GIF · 0.5 s per frame · ${(
-          bytes.length / 1024
-        ).toFixed(0)} KB`;
-      }
-    } catch {
-      // Keep the fallback message.
     } finally {
       this.animationFrame = previous;
       this.render();
     }
-    this.noteEl.textContent = message;
+    return { frames, width: offscreen.width, height: offscreen.height };
+  }
+
+  private downloadBlob(blob: Blob, extension: string): void {
+    if (typeof URL.createObjectURL !== "function") return;
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${safeFileName(this.options.datasetName())}-${safeFileName(
+      this.chartName(),
+    )}-animation.${extension}`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  /** Encodes the rendered frames as an animated GIF at the chosen speed. */
+  private async exportAnimationGif(): Promise<void> {
+    const rendered = await this.renderAnimationFrames();
+    if (rendered === null) return;
+    try {
+      const bytes = encodeGif(rendered.frames, this.frameIntervalMs());
+      if (bytes.length === 0) {
+        this.noteEl.textContent = "Could not encode the GIF in this browser.";
+        return;
+      }
+      this.downloadBlob(new Blob([bytes as BlobPart], { type: "image/gif" }), "gif");
+      const seconds = ((rendered.frames.length * this.frameIntervalMs()) / 1000).toFixed(1);
+      this.noteEl.textContent = `Exported ${rendered.frames.length} frames as a GIF · ${seconds} s per loop · ${(
+        bytes.length / 1024
+      ).toFixed(0)} KB · some desktop viewers show only the first frame, use Video (.mp4) if so`;
+    } catch {
+      this.noteEl.textContent = "Could not encode the GIF in this browser.";
+    }
+  }
+
+  /**
+   * Encodes the rendered frames as an H.264 MP4 with WebCodecs. Videos play
+   * in every desktop player, unlike animated GIFs in some viewers.
+   */
+  private async exportAnimationVideo(): Promise<void> {
+    const encoderCtor = (
+      globalThis as {
+        VideoEncoder?: {
+          new (init: {
+            output: (chunk: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata) => void;
+            error: (error: Error) => void;
+          }): VideoEncoder;
+          isConfigSupported(config: VideoEncoderConfig): Promise<VideoEncoderSupport>;
+        };
+      }
+    ).VideoEncoder;
+    if (typeof encoderCtor !== "function") {
+      this.noteEl.textContent =
+        "Video export needs WebCodecs (Chrome, Edge or Safari 16.4+). Try the GIF format instead.";
+      return;
+    }
+    const rendered = await this.renderAnimationFrames();
+    if (rendered === null) return;
+    const { frames, width, height } = rendered;
+    // H.264 needs even dimensions.
+    const codedWidth = width % 2 === 0 ? width : width + 1;
+    const codedHeight = height % 2 === 0 ? height : height + 1;
+    const fps = Math.max(1, Math.round(1000 / this.frameIntervalMs()));
+    try {
+      const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
+      // Prefer H.264 (plays everywhere); fall back to VP9-in-MP4 where the
+      // platform exposes no H.264 encoder.
+      const candidates: {
+        codec: string;
+        muxerCodec: "avc" | "vp9";
+      }[] = [
+        { codec: "avc1.42001f", muxerCodec: "avc" },
+        { codec: "avc1.4d002a", muxerCodec: "avc" },
+        { codec: "vp09.00.10.08", muxerCodec: "vp9" },
+      ];
+      let chosen: (typeof candidates)[number] | null = null;
+      for (const candidate of candidates) {
+        try {
+          const support = await encoderCtor.isConfigSupported({
+            codec: candidate.codec,
+            width: codedWidth,
+            height: codedHeight,
+            bitrate: 4_000_000,
+            framerate: fps,
+          });
+          if (support.supported === true) {
+            chosen = candidate;
+            break;
+          }
+        } catch {
+          // Try the next codec.
+        }
+      }
+      if (chosen === null) {
+        this.noteEl.textContent =
+          "This browser cannot encode video (no H.264 or VP9 encoder). Use the GIF format instead.";
+        return;
+      }
+      const muxer = new Muxer({
+        target: new ArrayBufferTarget(),
+        video: { codec: chosen.muxerCodec, width: codedWidth, height: codedHeight },
+        fastStart: "in-memory",
+      });
+      let encodeError: Error | null = null;
+      const encoder = new encoderCtor({
+        output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+        error: (error) => {
+          encodeError = error;
+        },
+      });
+      encoder.configure({
+        codec: chosen.codec,
+        width: codedWidth,
+        height: codedHeight,
+        bitrate: 4_000_000,
+        framerate: fps,
+      });
+      const durationUs = (this.frameIntervalMs() * 1000) / 1;
+      for (let index = 0; index < frames.length; index++) {
+        const frame = frames[index];
+        if (frame === undefined) continue;
+        const videoFrame = new VideoFrame(frame.data, {
+          format: "RGBA",
+          codedWidth,
+          codedHeight,
+          timestamp: Math.round(index * durationUs),
+          duration: Math.round(durationUs),
+        });
+        encoder.encode(videoFrame, { keyFrame: index === 0 || index % 30 === 0 });
+        videoFrame.close();
+        if (encoder.encodeQueueSize > 8) {
+          await new Promise((resolve) => window.setTimeout(resolve, 0));
+        }
+      }
+      await encoder.flush();
+      encoder.close();
+      if (encodeError !== null) throw encodeError;
+      muxer.finalize();
+      const buffer = muxer.target.buffer;
+      this.downloadBlob(new Blob([buffer], { type: "video/mp4" }), "mp4");
+      const seconds = (frames.length / fps).toFixed(1);
+      this.noteEl.textContent = `Exported ${frames.length} frames as an MP4 · ${seconds} s per loop · ${(
+        buffer.byteLength / 1024
+      ).toFixed(0)} KB`;
+    } catch (error) {
+      this.noteEl.textContent =
+        error instanceof Error && error.message !== ""
+          ? `Could not encode the video: ${error.message}`
+          : "Could not encode the video in this browser.";
+    }
   }
 
   private refreshCorrelation(): void {
@@ -3882,9 +4068,21 @@ export class ChartCard {
     ctx.textAlign = "left";
 
     const time = result.frames[frameIndex]?.label ?? "";
+    const counter = `${frameIndex + 1}/${result.frames.length}`;
     this.font(ctx, ui, 12, "600");
+    const counterWidth = ctx.measureText(counter).width;
+    ctx.fillStyle = frame.dim;
+    ctx.fillText(
+      counter,
+      frame.left + frame.plotW - counterWidth,
+      frame.top - 8 * ui,
+    );
     ctx.fillStyle = frame.text;
-    ctx.fillText(time, frame.left + frame.plotW - ctx.measureText(time).width, frame.top - 8 * ui);
+    ctx.fillText(
+      time,
+      frame.left + frame.plotW - counterWidth - ctx.measureText(time).width - 8 * ui,
+      frame.top - 8 * ui,
+    );
     this.noteEl.textContent = `${time} · frame ${frameIndex + 1} of ${
       result.frames.length
     } · ${result.total.toLocaleString()} rows · play or scrub below`;
@@ -4005,10 +4203,17 @@ export class ChartCard {
     }
     if (input.caption !== "") {
       this.font(ctx, ui, 12, "600");
+      const counter = `${this.animationFrame + 1}/${this.animationResult?.frames.length ?? 1}`;
+      ctx.fillStyle = frame.dim;
+      ctx.fillText(
+        counter,
+        frame.left + frame.plotW - ctx.measureText(counter).width,
+        frame.top - 8 * ui,
+      );
       ctx.fillStyle = frame.text;
       ctx.fillText(
         input.caption,
-        frame.left + frame.plotW - ctx.measureText(input.caption).width,
+        frame.left + frame.plotW - ctx.measureText(counter).width - ctx.measureText(input.caption).width - 8 * ui,
         frame.top - 8 * ui,
       );
     }

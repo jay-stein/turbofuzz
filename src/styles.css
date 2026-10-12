@@ -3331,6 +3331,11 @@ mark {
   accent-color: var(--accent);
 }
 
+.chart-animation .ghost {
+  flex: none;
+  white-space: nowrap;
+}
+
 .chart-animation-label {
   font-size: 11.5px;
   color: var(--text-dim);
