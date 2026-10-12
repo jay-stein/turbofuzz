@@ -5,8 +5,9 @@ import { detectTable } from "../parse/header-detect.js";
 import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
 import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
 import type { ColumnFilter } from "../search/query-engine.js";
+import type { ViewDef } from "../data/aggregate.js";
 import { describeCleanOp, describeCleanOpDetail, type CleanOp } from "../data/clean-ops.js";
-import { pandasRecipe } from "../data/recipe.js";
+import { pandasRecipe, viewToPandas } from "../data/recipe.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import {
   describeTransformOp,
@@ -20,6 +21,7 @@ import type { NumberLocale } from "../parse/numbers.js";
 import type { WorkBook } from "xlsx";
 import { TYPE_LABELS, type ColumnType } from "../types.js";
 import type {
+  AggregateMessage,
   CleanUpdate,
   ColumnMeta,
   ExportScope,
@@ -56,6 +58,7 @@ import { openMergePanel } from "./merge-panel.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
 import { ViewTabs, type ViewId } from "./view-tabs.js";
+import { ViewsPanel } from "./views-panel.js";
 import { suggestCharts } from "./chart-utils.js";
 
 const LARGE_PASTE_ROWS = 300_000;
@@ -303,7 +306,7 @@ export class App {
   private chartRemoved = 0;
   private chartOpened = false;
   private view: ViewId = "overview";
-  private lastLens: "table" | "chart" = "table";
+  private lastLens: "table" | "views" | "chart" = "table";
   private tabs: ViewTabs | null = null;
   private overviewHost!: HTMLElement;
   private overview: Overview | null = null;
@@ -319,6 +322,8 @@ export class App {
   private latestHistograms: Record<number, number[]> = {};
   private themeButton!: HTMLButtonElement;
   private themePreference: ThemePreference = readThemePreference();
+  private viewsHost!: HTMLElement;
+  private viewsPanel: ViewsPanel | null = null;
   private workspaceTitle!: HTMLElement;
   private tabHost!: HTMLElement;
   private hints: Hints | null = null;
@@ -330,7 +335,7 @@ export class App {
     this.hints = new Hints([
       {
         id: "tabs",
-        text: "Overview, Table and Chart are lenses — switch anytime with 1, 2, 3.",
+        text: "Overview, Table, Views and Chart are lenses — switch anytime with 1–4.",
         target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
       },
       {
@@ -727,8 +732,9 @@ export class App {
     resultsBar.append(resultsRow, this.deleteBar, this.bannerEl);
     this.tableHost = el("div", { class: "table-host" });
     this.chartHost = el("div", { class: "chart-host hidden" });
+    this.viewsHost = el("div", { class: "views-host hidden" });
     this.columnsStrip = el("div", { class: "column-strip hidden" });
-    results.append(resultsBar, this.columnsStrip, this.tableHost, this.chartHost);
+    results.append(resultsBar, this.columnsStrip, this.tableHost, this.chartHost, this.viewsHost);
 
     this.overviewHost = el("div", { class: "overview-host hidden" });
     this.overview = new Overview(this.overviewHost, {
@@ -776,7 +782,8 @@ export class App {
       }
       if (event.key === "1") this.setView("overview");
       else if (event.key === "2") this.setView("table");
-      else if (event.key === "3") this.setView("chart");
+      else if (event.key === "3") this.setView("views");
+      else if (event.key === "4") this.setView("chart");
       else if (
         (event.key === "t" || event.key === "T") &&
         this.view === "table"
@@ -1211,6 +1218,9 @@ export class App {
     }
     this.metas = loaded.columns;
     this.rowCount = loaded.rowCount;
+    // Views are definitions over column indexes; a load or transform can change
+    // the schema, so start fresh rather than risk stale references.
+    this.resetViews();
     this.datasetName = loaded.name;
     this.workspaceTitle.textContent = `${loaded.name} — ${loaded.rowCount.toLocaleString()} rows`;
     this.filters.clear();
@@ -1338,6 +1348,7 @@ export class App {
       requestCrosstab: (input) => this.client.getCrosstab(input),
       requestCorrelation: (columns) => this.client.getCorrelation(columns),
       requestGroupedBins: (input) => this.client.getGroupedBins(input),
+      requestViewAggregate: (source) => this.aggregateForSource(source),
       onFilter: (column, filter, preview) =>
         this.changeFilter(column, filter, preview ?? false),
       currentFilter: (column) => this.filters.get(column) ?? null,
@@ -1349,8 +1360,20 @@ export class App {
     } else {
       this.chartsPanel.setColumns(this.metas);
     }
+    this.chartsPanel.setSources(this.viewSources());
     this.chartsPanel.setFiltered(this.latestFacets, this.latestHistograms);
     this.chartsPanel.setRowCount(this.resultCount);
+  }
+
+  /** The view list every Source selector offers, alongside the table. */
+  private viewSources(): { id: string; name: string }[] {
+    return this.viewsPanel?.sources() ?? [];
+  }
+
+  private aggregateForSource(source: string): Promise<AggregateMessage | null> {
+    const def = this.viewsPanel?.viewDef(source);
+    if (def === undefined) return Promise.resolve(null);
+    return this.client.getAggregate(def);
   }
 
   private ensureFilters(): void {
@@ -1915,12 +1938,13 @@ export class App {
 
   private setView(view: ViewId): void {
     this.view = view;
-    if (view === "table" || view === "chart") this.ensureFilters();
+    if (view === "table" || view === "chart" || view === "views") this.ensureFilters();
     if (view === "table") this.ensureTable();
     if (view === "chart") {
       this.ensureCharts();
       this.chartsPanel?.refresh();
     }
+    if (view === "views") this.ensureViews();
     if (view !== "overview") this.lastLens = view;
     const chart = view === "chart";
     this.chartActive = chart;
@@ -1929,12 +1953,69 @@ export class App {
     this.overviewHost.classList.toggle("hidden", view !== "overview");
     this.tableHost.classList.toggle("hidden", view !== "table");
     this.chartHost.classList.toggle("hidden", view !== "chart");
+    this.viewsHost.classList.toggle("hidden", view !== "views");
     this.healthHost.classList.toggle("hidden", view === "overview" || this.healthChipCount === 0);
     this.moreButton.classList.toggle("hidden", view === "overview");
     this.addFilterButton.classList.toggle("hidden", view === "overview");
     this.syncTabs();
     this.syncColumnTiles();
     this.hints?.refresh();
+  }
+
+  private ensureViews(): void {
+    if (this.viewsPanel !== null) {
+      this.viewsPanel.setColumns(this.metas, this.resultCount);
+      return;
+    }
+    this.viewsPanel = new ViewsPanel(this.viewsHost, {
+      requestAggregate: (view) => this.client.getAggregate(view),
+      onDrill: (column, timeStart, timeEnd, label) => {
+        if (timeStart !== null) {
+          this.changeFilter(column, { kind: "range", min: timeStart, max: timeEnd });
+        } else if (label !== "(missing)") {
+          this.changeFilter(column, { kind: "text", mode: "exact", query: label });
+        }
+        this.setView("table");
+      },
+      onChart: (view) => {
+        this.ensureCharts();
+        this.chartsPanel?.addViewChart(view);
+        this.setView("chart");
+      },
+      onUseAsDataset: (view) => this.applyViewAsDataset(view),
+      onCopyPandas: (view) => this.copyViewRecipe(view),
+      onViewsChanged: () => this.chartsPanel?.setSources(this.viewSources()),
+    });
+    this.viewsPanel.setColumns(this.metas, this.resultCount);
+  }
+
+  /** Views hold column indexes, so a new schema starts with fresh definitions. */
+  private resetViews(): void {
+    this.viewsPanel = null;
+    clear(this.viewsHost);
+  }
+
+  private applyViewAsDataset(view: ViewDef): void {
+    this.applyTransform(
+      [
+        ...this.transformOps,
+        {
+          kind: "aggregate",
+          dimensions: view.dimensions,
+          measures: view.measures,
+          fill: view.fill,
+        },
+      ],
+      `Aggregated rows into a dataset (${view.name})`,
+    );
+  }
+
+  private async copyViewRecipe(view: ViewDef): Promise<void> {
+    const recipe = viewToPandas(view, this.metas.map((meta) => meta.name));
+    const copied = await copyText(recipe);
+    this.setAction(
+      copied ? `Copied the pandas recipe for “${view.name}”` : "Copy failed — clipboard unavailable",
+    );
   }
 
   private syncTabs(): void {
@@ -2265,6 +2346,7 @@ export class App {
     this.latestHistograms = histograms;
     this.filterPanel?.applyResults(facets, histograms);
     this.chartsPanel?.setFiltered(facets, histograms);
+    if (this.view === "views") this.viewsPanel?.markStale();
   }
 
   /** Column metas changed (type/clean/rename) — rebuild chart pickers too. */

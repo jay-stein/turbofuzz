@@ -1,4 +1,5 @@
 import { ColumnData } from "../data/column.js";
+import { computeAggregate } from "../data/aggregate.js";
 import { computeAnomalies } from "../data/anomalies.js";
 import { buildDataset, datasetFromColumns, rebuildDataset } from "../data/build.js";
 import { applyCleanOps } from "../data/clean-ops.js";
@@ -46,6 +47,7 @@ import type {
   GetBoxStatsRequest,
   GetCrosstabRequest,
   GetCorrelationRequest,
+  GetAggregateRequest,
   LoadRequest,
   PreviewCleanRequest,
   PreviewTransformRequest,
@@ -181,6 +183,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getCorrelation":
       handleGetCorrelation(message);
+      break;
+    case "getAggregate":
+      handleGetAggregate(message);
       break;
     case "renameHeaders":
       handleRenameHeaders(message);
@@ -934,6 +939,42 @@ function handleGetCrosstab(message: GetCrosstabRequest): void {
       result,
     },
     [result.counts.buffer],
+  );
+}
+
+/** Aggregate view over the filtered rows (or every row after steps). */
+function handleGetAggregate(message: GetAggregateRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  let ids = sortedIds;
+  if (!message.view.respectFilters) {
+    const all = new BitSet(dataset.rowCount);
+    all.setAll();
+    ids = withoutExcluded(all).toIndices();
+  }
+  const result = computeAggregate(message.view, dataset.columns, dataset.rowCount, ids);
+  const transfer: Transferable[] = [result.totals.buffer];
+  for (const values of result.measures) transfer.push(values.buffer);
+  for (const values of result.dimensionTimes) transfer.push(values.buffer);
+  post(
+    {
+      type: "aggregate",
+      requestId: message.requestId,
+      viewId: message.view.id,
+      labels: result.labels,
+      dimensions: result.dimensions,
+      dimensionNames: result.dimensionNames,
+      dimensionIsTime: result.dimensionIsTime,
+      dimensionTimes: result.dimensionTimes,
+      measures: result.measures,
+      measureNames: result.measureNames,
+      totals: result.totals,
+      groupCount: result.groupCount,
+      totalGroups: result.totalGroups,
+      truncated: result.truncated,
+      ms: performance.now() - started,
+    },
+    transfer,
   );
 }
 

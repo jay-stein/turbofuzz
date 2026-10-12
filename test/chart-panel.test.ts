@@ -325,7 +325,7 @@ test("category series uses filtered facet counts", () => {
 function fullConfig(overrides: Partial<ChartCardConfig> = {}): ChartCardConfig {
   return {
     kind: "histogram",
-    source: -1,
+    source: "",
     column: -1,
     x: -1,
     y: -1,

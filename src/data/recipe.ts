@@ -1,4 +1,5 @@
 import type { CleanOp } from "./clean-ops.js";
+import type { DimensionSpec, MeasureSpec, ViewDef } from "./aggregate.js";
 import { schemaAfter, type ColumnSchema, type TransformOp } from "./transform-ops.js";
 
 export interface RecipeInput {
@@ -18,6 +19,127 @@ function target(name: string): string {
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const PERIOD: Record<string, string> = {
+  minute: "min",
+  hour: "h",
+  day: "D",
+  week: "W",
+  month: "M",
+  quarter: "Q",
+  year: "Y",
+};
+
+const PANDAS_AGG: Record<string, string> = {
+  sum: "sum",
+  mean: "mean",
+  min: "min",
+  max: "max",
+  median: "median",
+  stddev: "std",
+  first: "first",
+  last: "last",
+  count: "count",
+  distinct: "nunique",
+};
+
+function pandasMeasure(measure: MeasureSpec, names: readonly string[]): string {
+  const source = measure.column === null ? names[0] ?? "value" : names[measure.column] ?? "value";
+  if (measure.column === null) return `(${py(source)}, "size")`;
+  if (measure.agg === "mode") return `(${py(source)}, lambda s: s.mode().iloc[0] if not s.mode().empty else None)`;
+  const percentile = /^p(\d+(?:\.\d+)?)$/.exec(measure.agg);
+  if (percentile !== null) return `(${py(source)}, lambda s: s.quantile(${Number(percentile[1]) / 100}))`;
+  const method = PANDAS_AGG[measure.agg];
+  return method === undefined ? `(${py(source)}, ${py(measure.agg)})` : `(${py(source)}, "${method}")`;
+}
+
+function measureName(measure: MeasureSpec, names: readonly string[]): string {
+  const source = measure.column === null ? "rows" : names[measure.column] ?? "?";
+  return measure.column === null ? "count(*)" : `${measure.agg}(${source})`;
+}
+
+/**
+ * pandas lines for a group-by definition: one temp column per time/date-part
+ * dimension, then a named aggregation. Post-aggregation ops are emitted as
+ * comments because their window semantics are best applied to the sorted
+ * result.
+ */
+export function viewPandasLines(
+  dimensions: readonly DimensionSpec[],
+  measures: readonly MeasureSpec[],
+  names: readonly string[],
+): string[] {
+  const lines: string[] = [];
+  const groupExprs = dimensions.map((spec, index) => {
+    const name = names[spec.column] ?? `Column ${spec.column + 1}`;
+    const by = spec.by;
+    if (typeof by === "object" && "time" in by) {
+      const temp = `_group${index}`;
+      lines.push(
+        `${temp} = pd.to_datetime(df[${py(name)}]).dt.to_period(${py(PERIOD[by.time] ?? "D")}).dt.to_timestamp()`,
+      );
+      return temp;
+    }
+    if (typeof by === "object" && "datePart" in by) {
+      const temp = `_group${index}`;
+      const accessor =
+        by.datePart === "dow"
+          ? "dayofweek"
+          : by.datePart === "hour"
+            ? "hour"
+            : by.datePart === "month"
+              ? "month"
+              : by.datePart === "dom"
+                ? "day"
+                : "isocalendar().week";
+      lines.push(`${temp} = pd.to_datetime(df[${py(name)}]).dt.${accessor}`);
+      return temp;
+    }
+    return py(name);
+  });
+
+  lines.push(`df = df.groupby([${groupExprs.join(", ")}], as_index=False).agg(**{`);
+  for (const measure of measures) {
+    lines.push(`    ${py(measureName(measure, names))}: ${pandasMeasure(measure, names)},`);
+  }
+  lines.push("})");
+
+  measures.forEach((measure) => {
+    for (const post of measure.post ?? []) {
+      const column = target(measureName(measure, names));
+      switch (post.op) {
+        case "cumulative":
+          lines.push(`# post-aggregation: ${column} = ${column}.cumsum()`);
+          break;
+        case "rolling":
+          lines.push(`# post-aggregation: ${column} = ${column}.rolling(${post.window}).mean()`);
+          break;
+        case "diff":
+          lines.push(`# post-aggregation: ${column} = ${column}.diff()`);
+          break;
+        case "pctChange":
+          lines.push(`# post-aggregation: ${column} = ${column}.pct_change()`);
+          break;
+        case "pctTotal":
+          lines.push(`# post-aggregation: ${column} = ${column} / ${column}.sum()`);
+          break;
+        case "rank":
+          lines.push(`# post-aggregation: ${column} = ${column}.rank(ascending=False)`);
+          break;
+      }
+    }
+  });
+  return lines;
+}
+
+/** The pandas recipe for one saved view (Copy as pandas in the Views lens). */
+export function viewToPandas(view: ViewDef, columnNames: readonly string[]): string {
+  const lines = [
+    `# View: ${view.name}`,
+    ...viewPandasLines(view.dimensions, view.measures, columnNames),
+  ];
+  return lines.join("\n");
 }
 
 function cleanLines(name: string, ops: readonly CleanOp[]): string[] {
@@ -144,6 +266,10 @@ function transformLines(
         lines.push(
           `df = df.melt(id_vars=[${idVars}], value_vars=[${valueVars}], var_name=${varName}, value_name=${valueName})`,
         );
+        break;
+      }
+      case "aggregate": {
+        lines.push(...viewPandasLines(op.dimensions, op.measures, names));
         break;
       }
       case "combineDate": {

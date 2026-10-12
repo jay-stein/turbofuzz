@@ -5,6 +5,7 @@ import { contourLevels, marchingSquares, smoothGrid, smoothSeries } from "../dat
 import type { ColumnFilter } from "../search/query-engine.js";
 import { TYPE_LABELS } from "../types.js";
 import type {
+  AggregateMessage,
   BoxStatsMessage,
   ChartBinsMessage,
   ChartSeriesMessage,
@@ -76,6 +77,8 @@ export interface ChartCardOptions {
     options: ChartBinOptions;
     topN: number;
   }): Promise<GroupedBinsMessage>;
+  /** Aggregate result for a view-bound card (null when the view is gone). */
+  requestViewAggregate?(source: string): Promise<AggregateMessage | null>;
   /** Applies a filter from a click on a chart region (bars, bins, cells). */
   onFilter?(column: number, filter: ColumnFilter | null, preview?: boolean): void;
   /** Reads the app's current filter for a column, so clicks can toggle. */
@@ -87,8 +90,8 @@ export interface ChartCardOptions {
 
 export interface ChartCardConfig {
   kind: ChartCardKind;
-  /** Data source: -1 = the filtered table, otherwise a saved view id. */
-  source: number;
+  /** Data source: "" = the filtered table, otherwise a saved view id. */
+  source: string;
   column: number;
   x: number;
   y: number;
@@ -401,7 +404,7 @@ function cssVar(name: string, fallback: string): string {
 function defaultConfig(): ChartCardConfig {
   return {
     kind: "histogram",
-    source: -1,
+    source: "",
     column: -1,
     x: -1,
     y: -1,
@@ -460,6 +463,10 @@ export class ChartCard {
   private statsMs = 0;
 
   private readonly kindSelect: HTMLSelectElement;
+  private readonly sourceSelect: HTMLSelectElement;
+  private readonly sourceWrap: HTMLElement;
+  private sources: { id: string; name: string }[] = [];
+  private viewResult: AggregateMessage | null = null;
   private readonly primarySelect: HTMLSelectElement;
   private readonly groupSelect: HTMLSelectElement;
   private readonly groupWrap: HTMLElement;
@@ -518,15 +525,22 @@ export class ChartCard {
     this.config = { ...defaultConfig(), ...preset };
 
     const head = el("div", { class: "chart-card-head" });
-    // Source selector: every chart reads the filtered table today; aggregate
-    // views are added here as they ship, and no card ever reads raw rows.
+    // Source selector: the filtered table or a saved aggregate view. A card
+    // bound to a view reads that view's result; there is no raw-row path.
     const sourceWrap = el("label", { class: "chart-field chart-source-field" });
     sourceWrap.append(el("span", { class: "chart-field-label" }, ["Source"]));
-    const sourceSelect = this.buildSelect("chart-picker chart-picker-small chart-source", "Data source");
-    sourceSelect.append(el("option", { value: "-1" }, ["Table (filtered)"]) as HTMLOptionElement);
-    sourceSelect.value = String(this.config.source);
-    sourceSelect.title = "Charts read the filtered table; aggregate views arrive next";
-    sourceWrap.append(sourceSelect);
+    this.sourceSelect = this.buildSelect("chart-picker chart-picker-small chart-source", "Data source");
+    this.renderSourceOptions();
+    this.sourceSelect.addEventListener("change", () => {
+      this.config.source = this.sourceSelect.value;
+      this.generation++;
+      this.viewResult = null;
+      this.syncSourceControls();
+      if (this.config.source !== "") this.refreshView();
+      this.render();
+    });
+    sourceWrap.append(this.sourceSelect);
+    this.sourceWrap = sourceWrap;
 
     this.kindSelect = el("select", {
       class: "chart-kind",
@@ -649,7 +663,7 @@ export class ChartCard {
     more.addEventListener("click", () => this.openCardMenu(more));
 
     head.append(
-      sourceWrap,
+      this.sourceWrap,
       this.kindSelect,
       this.primaryWrap,
       this.groupWrap,
@@ -913,6 +927,7 @@ export class ChartCard {
     this.pickerSignature = "";
     this.syncOptions();
     this.syncPlaceholder();
+    this.syncSourceControls();
     this.renderControls();
     this.refreshBins();
     this.refreshSeries();
@@ -923,6 +938,62 @@ export class ChartCard {
     this.render();
   }
 
+  /** The sources a card can bind to (the table plus each saved view). */
+  setSources(sources: { id: string; name: string }[]): void {
+    this.sources = sources;
+    this.renderSourceOptions();
+    this.syncSourceControls();
+  }
+
+  private renderSourceOptions(): void {
+    const current = this.config.source;
+    this.sourceSelect.replaceChildren();
+    this.sourceSelect.append(
+      el("option", { value: "" }, ["Table (filtered)"]) as HTMLOptionElement,
+    );
+    for (const source of this.sources) {
+      this.sourceSelect.append(
+        el("option", { value: source.id }, [source.name]) as HTMLOptionElement,
+      );
+    }
+    if (current !== "" && !this.sources.some((source) => source.id === current)) {
+      this.config.source = "";
+    }
+    this.sourceSelect.value = this.config.source;
+  }
+
+  /** A view-bound card hides the raw-column pickers; its type comes from the view. */
+  private syncSourceControls(): void {
+    const bound = this.config.source !== "";
+    this.kindSelect.classList.toggle("hidden", bound);
+    this.primaryWrap.classList.toggle("hidden", bound);
+    this.groupWrap.classList.toggle("hidden", bound);
+    this.xWrap.classList.toggle("hidden", bound);
+    this.yWrap.classList.toggle("hidden", bound);
+    this.settingsBody.classList.toggle("hidden", bound ? false : !this.canDraw());
+  }
+
+  /** Fetches the bound view's aggregate result (generation-guarded). */
+  refreshView(): void {
+    if (this.config.source === "" || this.options.requestViewAggregate === undefined) {
+      this.viewResult = null;
+      this.render();
+      return;
+    }
+    const source = this.config.source;
+    const generation = ++this.generation;
+    void this.options
+      .requestViewAggregate(source)
+      .then((message) => {
+        if (generation !== this.generation || this.config.source !== source) return;
+        this.viewResult = message;
+        this.render();
+      })
+      .catch(() => {
+        // Keep the last result as the fallback.
+      });
+  }
+
   setFiltered(
     facets: Record<number, number[]>,
     histograms: Record<number, number[]>,
@@ -930,6 +1001,7 @@ export class ChartCard {
     this.facets = facets;
     this.histograms = histograms;
     this.generation++;
+    if (this.config.source !== "") this.refreshView();
     this.refreshBins();
     this.refreshSeries();
     this.refreshBox();
@@ -1307,6 +1379,7 @@ export class ChartCard {
   }
 
   private defaultTitle(): string {
+    if (this.config.source !== "") return "Aggregate";
     if (isPairKind(this.config.kind)) {
       return defaultChartTitle(this.pairLabel("vs"));
     }
@@ -1967,6 +2040,13 @@ export class ChartCard {
 
   private subtitle(): string {
     const rows = `${this.rowCount.toLocaleString()} rows shown`;
+    if (this.config.source !== "") {
+      const result = this.viewResult;
+      if (result === null) return "Aggregate view · waiting for the first result";
+      return `${result.measureNames[0] ?? "measure"} by ${
+        result.dimensionNames[0] ?? "group"
+      } · ${result.groupCount.toLocaleString()} groups`;
+    }
     if (this.config.kind === "scatter" || this.config.kind === "density") {
       const x = this.meta(this.config.x)?.name ?? "X";
       const y = this.meta(this.config.y)?.name ?? "Y";
@@ -2023,6 +2103,11 @@ export class ChartCard {
     ctx.fillStyle = frame.dim;
     ctx.fillText(this.fit(ctx, this.subtitle(), width - frame.left - frame.right), frame.left, 40 * frame.ui);
 
+    if (this.config.source !== "") {
+      this.drawViewAggregate(ctx, frame);
+      return;
+    }
+
     switch (this.config.kind) {
       case "bar":
         this.drawBars(ctx, frame);
@@ -2052,6 +2137,108 @@ export class ChartCard {
           ? `Suggested: ${this.config.suggested}`
           : `${existing} · Suggested: ${this.config.suggested}`;
     }
+  }
+
+  /**
+   * A card bound to a saved view draws that view's aggregate result: a line
+   * when the first dimension is a time bucket, bars otherwise.
+   */
+  private drawViewAggregate(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    const result = this.viewResult;
+    if (result === null || result.groupCount === 0) {
+      const message = "The bound view has no groups to draw yet.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const values = result.measures[0];
+    if (values === undefined) {
+      const message = "The bound view has no measures.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const ui = frame.ui;
+    const n = result.groupCount;
+    let max = 0;
+    for (const value of values) {
+      if (Number.isFinite(value)) max = Math.max(max, value);
+    }
+    const top = Math.max(1, max);
+
+    const yTicks = niceTicks(0, top, 4);
+    ctx.strokeStyle = frame.border;
+    ctx.lineWidth = 1;
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
+    ctx.textAlign = "right";
+    for (const value of yTicks) {
+      const y = frame.top + frame.plotH - (value / top) * frame.plotH;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(frame.left, y + 0.5);
+      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText(formatChartNumber(value), frame.left - 6 * ui, y + 3 * ui);
+    }
+    ctx.textAlign = "left";
+    ctx.beginPath();
+    ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
+    ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
+    ctx.stroke();
+
+    const slot = frame.plotW / Math.max(1, n);
+    const isTime = result.dimensionIsTime[0] === true;
+    ctx.strokeStyle = this.config.color;
+    ctx.fillStyle = this.config.color;
+    if (isTime) {
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const x = frame.left + (i + 0.5) * slot;
+        const y = frame.top + frame.plotH - ((values[i] || 0) / top) * frame.plotH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH);
+      ctx.lineTo(frame.left, frame.top + frame.plotH);
+      ctx.closePath();
+      ctx.globalAlpha = 0.18;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    } else {
+      const barW = Math.max(1, slot - 1);
+      for (let i = 0; i < n; i++) {
+        const height = ((values[i] || 0) / top) * frame.plotH;
+        if (height <= 0) continue;
+        ctx.globalAlpha = 0.85;
+        this.fillTopRounded(ctx, frame.left + i * slot, frame.top + frame.plotH - height, barW, height, 3 * ui);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
+    ctx.textAlign = "center";
+    const step = Math.max(1, Math.ceil(n / 8));
+    for (let i = 0; i < n; i += step) {
+      const label = result.labels[i] ?? "";
+      ctx.fillText(
+        this.fit(ctx, label, Math.max(16, slot * step - 4 * ui)),
+        frame.left + (i + 0.5) * slot,
+        frame.top + frame.plotH + 14 * ui,
+      );
+    }
+    ctx.textAlign = "left";
+    const measure = result.measureNames[0] ?? "value";
+    ctx.fillText(measure, frame.left, frame.top - 6 * ui);
+
+    const ms = result.ms < 1 ? "<1" : String(Math.round(result.ms));
+    this.noteEl.textContent = `${n.toLocaleString()} groups · ${measure} by ${
+      result.dimensionNames[0] ?? "group"
+    } · ${ms} ms`;
   }
 
   private drawSeries(

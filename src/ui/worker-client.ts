@@ -1,11 +1,13 @@
 import type { Delimiter } from "../parse/delimiter.js";
 import type { NumberLocale } from "../parse/numbers.js";
+import type { ViewDef } from "../data/aggregate.js";
 import type { ChartBinOptions } from "../data/chart-bins.js";
 import type { SeriesMode } from "../data/chart-series.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { TransformOp } from "../data/transform-ops.js";
 import type { ColumnType } from "../types.js";
 import type {
+  AggregateMessage,
   BoxStatsMessage,
   ChartBinsMessage,
   ChartSeriesMessage,
@@ -177,6 +179,10 @@ export class SearchWorkerClient {
 
   getCorrelation(columns: number[]): Promise<CorrelationMessage> {
     return this.request<CorrelationMessage>({ type: "getCorrelation", columns });
+  }
+
+  getAggregate(view: ViewDef): Promise<AggregateMessage> {
+    return this.request<AggregateMessage>({ type: "getAggregate", view });
   }
 
   renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {

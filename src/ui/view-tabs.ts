@@ -1,8 +1,8 @@
 import { el } from "./dom.js";
 
-export type ViewId = "overview" | "table" | "chart";
+export type ViewId = "overview" | "table" | "views" | "chart";
 
-export const VIEW_ORDER: readonly ViewId[] = ["overview", "table", "chart"];
+export const VIEW_ORDER: readonly ViewId[] = ["overview", "table", "views", "chart"];
 
 const LABELS: Record<ViewId, { label: string; title: string }> = {
   overview: {
@@ -10,6 +10,10 @@ const LABELS: Record<ViewId, { label: string; title: string }> = {
     title: "What this file is and what to do next",
   },
   table: { label: "Table", title: "Show the row table" },
+  views: {
+    label: "Views",
+    title: "Saved aggregate views — group the filtered rows without changing them",
+  },
   chart: { label: "Chart", title: "Show a chart of the current result set" },
 };
 

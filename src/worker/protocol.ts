@@ -1,4 +1,5 @@
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
+import type { ViewDef } from "../data/aggregate.js";
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import type { SeriesMode, SeriesResult } from "../data/chart-series.js";
 import type { BoxStatsResult, CorrelationResult, CrossTabResult } from "../data/chart-stats.js";
@@ -358,6 +359,32 @@ export type SetNullPolicyRequest = {
   keep: string[];
 };
 
+export type GetAggregateRequest = {
+  type: "getAggregate";
+  requestId: number;
+  /** The saved view definition (dimensions, measures, sort, limit). */
+  view: ViewDef;
+};
+
+export interface AggregateMessage {
+  type: "aggregate";
+  requestId: number;
+  viewId: string;
+  labels: string[];
+  dimensions: string[][];
+  dimensionNames: string[];
+  dimensionIsTime: boolean[];
+  dimensionTimes: Float64Array[];
+  measures: Float64Array[];
+  measureNames: string[];
+  totals: Float64Array;
+  groupCount: number;
+  totalGroups: number;
+  truncated: boolean;
+  /** Worker compute time for this payload. */
+  ms: number;
+}
+
 export type ResolveNullsAllRequest = {
   type: "resolveNullsAll";
   requestId: number;
@@ -393,7 +420,8 @@ export type WorkerRequest =
   | PreviewTransformRequest
   | PreviewCleanRequest
   | SetNullPolicyRequest
-  | ResolveNullsAllRequest;
+  | ResolveNullsAllRequest
+  | GetAggregateRequest;
 
 export interface DatasetMessage {
   requestId: number;
@@ -560,6 +588,7 @@ export type WorkerResponse =
   | BoxStatsMessage
   | CrosstabMessage
   | CorrelationMessage
+  | AggregateMessage
   | ExportStartedMessage
   | CsvChunkMessage
   | HeadersRenamedMessage

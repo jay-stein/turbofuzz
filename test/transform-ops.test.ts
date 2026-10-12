@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildDataset } from "../src/data/build.js";
+import { viewToPandas } from "../src/data/recipe.js";
 import {
   applyTransformOps,
   describeTransformOp,
@@ -302,4 +303,87 @@ test("describeTransformOpDetail exposes the technical signature", () => {
     ),
     'impute(column="sales", strategy=constant("0"), groupColumn=null)',
   );
+});
+
+test("aggregate groups multiple dimensions and measures", () => {
+  const ds = buildDataset("t", ["region", "month", "amount", "qty"], [
+    ["North", "2024-01-05", "10", "2"],
+    ["North", "2024-01-20", "5", "1"],
+    ["North", "2024-02-01", "7", "3"],
+    ["South", "2024-01-03", "4", "1"],
+  ]);
+  const out = applyTransformOps("t", ds.columns, [
+    {
+      kind: "aggregate",
+      dimensions: [{ column: 0, by: "value" }, { column: 1, by: { time: "month" } }],
+      measures: [
+        { column: 2, agg: "sum" },
+        { column: 3, agg: "mean" },
+      ],
+      fill: "zero",
+    },
+  ]);
+  assert.equal(out.rowCount, 3);
+  assert.deepEqual(out.columns.map((column) => column.name), [
+    "region",
+    "month (month)",
+    "sum(amount)",
+    "mean(qty)",
+  ]);
+  assert.deepEqual(out.columns[0].raw, ["North", "North", "South"]);
+  assert.deepEqual(out.columns[1].raw, ["2024-01", "2024-02", "2024-01"]);
+  assert.deepEqual(out.columns[2].raw, ["15", "7", "4"]);
+  assert.deepEqual(out.columns[3].raw, ["1.5", "3", "1"]);
+  assert.equal(out.columns[2].type, "number");
+  assert.equal(out.columns[3].type, "number");
+  assert.equal(
+    describeTransformOp(
+      { kind: "aggregate", dimensions: [{ column: 0, by: "value" }], measures: [{ column: 1, agg: "sum" }] },
+      ["region", "amount"],
+    ),
+    "Aggregate: sum of “amount” grouped by “region”",
+  );
+  assert.deepEqual(
+    schemaAfter(
+      [
+        { name: "region", numeric: false },
+        { name: "month", numeric: false },
+        { name: "amount", numeric: true },
+      ],
+      {
+        kind: "aggregate",
+        dimensions: [{ column: 0, by: "value" }, { column: 1, by: { time: "month" } }],
+        measures: [{ column: 2, agg: "sum" }],
+      },
+    ),
+    [
+      { name: "region", numeric: false },
+      { name: "month (month)", numeric: false },
+      { name: "sum(amount)", numeric: true },
+    ],
+  );
+});
+
+test("viewToPandas emits a named group-by recipe", () => {
+  const recipe = viewToPandas(
+    {
+      id: "v1",
+      name: "Monthly sales",
+      dimensions: [{ column: 0, by: { time: "month" } }],
+      measures: [
+        { column: 1, agg: "sum" },
+        { column: null, agg: "count" },
+      ],
+      fill: "zero",
+      sort: { key: "dim0", dir: "asc" },
+      limit: 500,
+      respectFilters: true,
+    },
+    ["when", "amount"],
+  );
+  assert.match(recipe, /# View: Monthly sales/);
+  assert.match(recipe, /_group0 = pd\.to_datetime\(df\["when"\]\)\.dt\.to_period\("M"\)\.dt\.to_timestamp\(\)/);
+  assert.match(recipe, /df = df\.groupby\(\[_group0\], as_index=False\)\.agg\(\*\*\{/);
+  assert.match(recipe, /"sum\(amount\)": \("amount", "sum"\),/);
+  assert.match(recipe, /"count\(\*\)": \("when", "size"\),/);
 });

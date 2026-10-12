@@ -1,5 +1,11 @@
 import { datasetFromColumns } from "./build.js";
 import { ColumnData } from "./column.js";
+import {
+  computeAggregate,
+  type DimensionSpec,
+  type MeasureSpec,
+  type ViewDef,
+} from "./aggregate.js";
 import { applyCombineDate, type CombineDateOp } from "./date-combine.js";
 import { formatNumber } from "./format.js";
 import { knnImpute } from "./knn.js";
@@ -32,6 +38,13 @@ export type TransformOp =
       valueVars: number[];
       varName: string;
       valueName: string;
+    }
+  | {
+      /** Multi-dimension, multi-measure group-by (the Views "Use as dataset"). */
+      kind: "aggregate";
+      dimensions: DimensionSpec[];
+      measures: MeasureSpec[];
+      fill?: "none" | "zero";
     }
   | CombineDateOp
   | SplitColumnOp;
@@ -99,6 +112,9 @@ export function applyTransformOps(
         break;
       case "melt":
         current = meltColumns(current, op);
+        break;
+      case "aggregate":
+        current = aggregateColumns(current, op);
         break;
       case "combineDate":
         current = applyCombineDate(current, op);
@@ -296,6 +312,63 @@ function aggregateValue(aggregate: Aggregate, acc: GroupAccumulator): string {
 function aggregateHeader(aggregate: Aggregate, measureName: string | null): string {
   if (measureName === null) return AGGREGATE_LABELS[aggregate];
   return `${AGGREGATE_LABELS[aggregate]}(${measureName})`;
+}
+
+/** Header a dimension produces in an aggregate transform. */
+export function dimensionHeader(
+  spec: DimensionSpec,
+  schema: readonly { name: string }[],
+): string {
+  const base = schema[spec.column]?.name ?? `Column ${spec.column + 1}`;
+  const by = spec.by;
+  if (typeof by === "object" && "time" in by) return `${base} (${by.time})`;
+  if (typeof by === "object" && "datePart" in by) return `${base} (${by.datePart})`;
+  return base;
+}
+
+/** Header a measure produces in an aggregate transform. */
+export function measureHeader(
+  measure: MeasureSpec,
+  schema: readonly { name: string }[],
+): string {
+  const name =
+    measure.column === null ? "rows" : schema[measure.column]?.name ?? `Column ${measure.column + 1}`;
+  return `${measure.agg}(${name})`;
+}
+
+/** The multi-dimension, multi-measure group-by used by "Use as dataset". */
+function aggregateColumns(
+  columns: readonly ColumnData[],
+  op: TransformOp & { kind: "aggregate" },
+): ColumnData[] {
+  const rowCount = columns[0]?.raw.length ?? 0;
+  const ids = Uint32Array.from({ length: rowCount }, (_, index) => index);
+  const view: ViewDef = {
+    id: "transform",
+    name: "Aggregate",
+    dimensions: op.dimensions,
+    measures: op.measures,
+    fill: op.fill ?? "none",
+    sort: { key: "dim0", dir: "asc" },
+    limit: 1_000_000,
+    respectFilters: false,
+  };
+  const result = computeAggregate(view, columns, rowCount, ids);
+  const out: ColumnData[] = [];
+  result.dimensionNames.forEach((name, d) => {
+    out.push(ColumnData.create(name, result.dimensions[d].slice()));
+  });
+  result.measureNames.forEach((name, m) => {
+    const values = result.measures[m];
+    const raw = new Array<string>(values.length);
+    for (let i = 0; i < values.length; i++) {
+      raw[i] = Number.isFinite(values[i]) ? formatNumber(values[i]) : "";
+    }
+    const column = ColumnData.create(name, raw);
+    column.setType("number");
+    out.push(column);
+  });
+  return out;
 }
 
 function imputeColumns(
@@ -547,6 +620,23 @@ export function describeTransformOp(op: TransformOp, headers: readonly string[])
         op.dropOriginal ? " (drop original)" : ""
       }`;
     }
+    case "aggregate": {
+      const dims = op.dimensions.map((spec) => {
+        const name = quoted(nameAt(spec.column));
+        const by = spec.by;
+        if (typeof by === "object" && "time" in by) return `${name} by ${by.time}`;
+        if (typeof by === "object" && "datePart" in by) return `${name} by ${by.datePart}`;
+        return name;
+      });
+      const measures = op.measures
+        .map((measure) =>
+          `${measure.agg} of ${
+            measure.column === null ? "rows" : quoted(nameAt(measure.column))
+          }`,
+        )
+        .join(", ");
+      return `Aggregate: ${measures} grouped by ${dims.join(", ")}`;
+    }
   }
 }
 
@@ -589,6 +679,15 @@ export function describeTransformOpDetail(op: TransformOp, headers: readonly str
       )}, dropParts=${op.dropParts})`;
     case "splitColumn":
       return `splitColumn(column=${nameAt(op.column)}, pattern=${JSON.stringify(op.pattern)}, regex=${op.regex}, dropEmpty=${op.dropEmpty}, dropOriginal=${op.dropOriginal}, prefix=${JSON.stringify(op.prefix)})`;
+    case "aggregate":
+      return `aggregate(dimensions=[${op.dimensions
+        .map((spec) => nameAt(spec.column))
+        .join(", ")}], measures=[${op.measures
+        .map(
+          (measure) =>
+            `${measure.agg}(${measure.column === null ? "*" : nameAt(measure.column)})`,
+        )
+        .join(", ")}], fill=${op.fill ?? "none"})`;
   }
 }
 
@@ -648,6 +747,16 @@ export function schemaAfter(schema: readonly ColumnSchema[], op: TransformOp): C
       // from the transform preview's actual column names.
       if (!op.dropOriginal) return schema.slice();
       return schema.filter((_, index) => index !== op.column);
+    }
+    case "aggregate": {
+      const dims = op.dimensions
+        .filter((spec) => schema[spec.column] !== undefined)
+        .map((spec) => ({ name: dimensionHeader(spec, schema), numeric: false }));
+      const measures = op.measures.map((measure) => ({
+        name: measureHeader(measure, schema),
+        numeric: true,
+      }));
+      return [...dims, ...measures];
     }
   }
 }

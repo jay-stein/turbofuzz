@@ -1,6 +1,8 @@
 import type { ChartBinOptions } from "../data/chart-bins.js";
+import type { ViewDef } from "../data/aggregate.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type {
+  AggregateMessage,
   BoxStatsMessage,
   ChartBinsMessage,
   ChartSeriesMessage,
@@ -47,6 +49,8 @@ export interface ChartsPanelOptions {
     options: ChartBinOptions;
     topN: number;
   }): Promise<GroupedBinsMessage>;
+  /** Aggregate result for a view-bound card (null when the view is gone). */
+  requestViewAggregate?(source: string): Promise<AggregateMessage | null>;
   /** Applies a filter from a click on a chart region (bars, bins, cells). */
   onFilter?(column: number, filter: ColumnFilter | null, preview?: boolean): void;
   /** Reads the app's current filter for a column, so clicks can toggle. */
@@ -229,6 +233,7 @@ export class ChartsPanel {
   private readonly sizeSelect: HTMLSelectElement;
   private cards: ChartCard[] = [];
   private columns: ColumnMeta[] = [];
+  private sources: { id: string; name: string }[] = [];
   private facets: Record<number, number[]> = {};
   private histograms: Record<number, number[]> = {};
   private rowCount = 0;
@@ -321,6 +326,7 @@ export class ChartsPanel {
         requestCrosstab: this.options.requestCrosstab,
         requestCorrelation: this.options.requestCorrelation,
         requestGroupedBins: this.options.requestGroupedBins,
+        requestViewAggregate: this.options.requestViewAggregate,
         onFilter: this.options.onFilter,
         currentFilter: this.options.currentFilter,
         onRemove: (target) => this.removeCard(target),
@@ -335,10 +341,23 @@ export class ChartsPanel {
     this.cards.push(card);
     this.grid.append(section);
     card.setColumns(this.columns);
+    card.setSources(this.sources);
     card.setFiltered(this.facets, this.histograms);
     card.setRowCount(this.rowCount);
+    if (card.getConfig().source !== "") card.refreshView();
     this.syncEmpty();
     return card;
+  }
+
+  /** Sources every card can bind to: the filtered table plus each saved view. */
+  setSources(sources: { id: string; name: string }[]): void {
+    this.sources = sources;
+    for (const card of this.cards) card.setSources(sources);
+  }
+
+  /** "Chart this" from the Views lens: a card bound to the view's result. */
+  addViewChart(view: ViewDef): void {
+    this.addCard({ kind: "bar", source: view.id, title: view.name });
   }
 
   removeCard(card: ChartCard): void {
