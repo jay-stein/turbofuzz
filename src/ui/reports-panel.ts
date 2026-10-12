@@ -1,12 +1,13 @@
 import type { DatasetStats } from "../data/stats.js";
 import {
   anomalyFindings,
+  coMissingnessFindings,
   explainColumn,
   qualityFindings,
   relationshipFindings,
   type Finding,
 } from "../data/findings.js";
-import type { CorrelationMessage, ColumnMeta } from "../worker/protocol.js";
+import type { CoMissingnessMessage, CorrelationMessage, ColumnMeta } from "../worker/protocol.js";
 import { clear, el } from "./dom.js";
 
 export type ReportTab = "quality" | "relationships" | "anomalies";
@@ -20,6 +21,8 @@ const TABS: readonly { id: ReportTab; label: string; title: string }[] = [
 export interface ReportsPanelOptions {
   /** Correlation over the current numeric columns (cached by the app). */
   requestCorrelation(): Promise<CorrelationMessage | null>;
+  /** Pairwise co-missingness over the filtered rows. */
+  requestCoMissingness(): Promise<CoMissingnessMessage | null>;
   /** Runs a finding's action (filters, suggestion chips, merge, clean). */
   onAction(finding: Finding): void;
 }
@@ -40,6 +43,9 @@ export class ReportsPanel {
   private correlation: CorrelationMessage | null = null;
   private correlationLoading = false;
   private correlationRequested = false;
+  private coMissingness: CoMissingnessMessage | null = null;
+  private coMissingnessLoading = false;
+  private coMissingnessRequested = false;
   private explainLabel: string | null = null;
 
   constructor(
@@ -57,12 +63,28 @@ export class ReportsPanel {
     this.metas = metas;
     this.stats = stats;
     this.rowCount = rowCount;
+    if (this.active === "quality") void this.loadCoMissingness();
     this.render();
   }
 
   show(tab: ReportTab = this.active): void {
     this.active = tab;
     if (tab === "relationships") void this.loadCorrelation();
+    if (tab === "quality") void this.loadCoMissingness();
+    this.render();
+  }
+
+  private async loadCoMissingness(): Promise<void> {
+    if (this.coMissingnessRequested) return;
+    this.coMissingnessRequested = true;
+    this.coMissingnessLoading = true;
+    this.render();
+    try {
+      this.coMissingness = await this.options.requestCoMissingness();
+    } catch {
+      this.coMissingness = null;
+    }
+    this.coMissingnessLoading = false;
     this.render();
   }
 
@@ -80,11 +102,14 @@ export class ReportsPanel {
     this.render();
   }
 
-  /** Column metadata changed: correlation must be refetched. */
+  /** Column metadata changed: cached worker payloads must be refetched. */
   invalidate(): void {
     this.correlation = null;
     this.correlationRequested = false;
+    this.coMissingness = null;
+    this.coMissingnessRequested = false;
     if (this.active === "relationships") void this.loadCorrelation();
+    if (this.active === "quality") void this.loadCoMissingness();
   }
 
   refresh(): void {
@@ -93,7 +118,25 @@ export class ReportsPanel {
 
   private findings(): Finding[] {
     if (this.stats === null) return [];
-    if (this.active === "quality") return qualityFindings(this.metas, this.stats, this.rowCount);
+    if (this.active === "quality") {
+      const quality = qualityFindings(this.metas, this.stats, this.rowCount);
+      if (this.coMissingness !== null) {
+        quality.push(
+          ...coMissingnessFindings(
+            this.coMissingness.columns,
+            this.coMissingness.labels,
+            this.coMissingness.nullCells,
+            this.coMissingness.pairs,
+          ),
+        );
+        quality.sort(
+          (a, b) =>
+            (b.severity === "fix" ? 1 : 0) - (a.severity === "fix" ? 1 : 0) ||
+            b.impact.rows - a.impact.rows,
+        );
+      }
+      return quality;
+    }
     if (this.active === "anomalies") return anomalyFindings(this.metas);
     if (this.correlation === null) return [];
     if (this.explainLabel !== null) {
@@ -132,10 +175,15 @@ export class ReportsPanel {
     const findings = this.findings();
     const fixes = findings.filter((finding) => finding.severity === "fix").length;
     const reviews = findings.filter((finding) => finding.severity === "review").length;
+    const loadingNote = this.correlationLoading
+      ? " · computing relationships…"
+      : this.coMissingnessLoading
+        ? " · checking missing-together…"
+        : "";
     this.metaEl.textContent =
       this.stats === null
         ? ""
-        : `${findings.length.toLocaleString()} finding${findings.length === 1 ? "" : "s"} · ${fixes} fix · ${reviews} review${this.correlationLoading ? " · computing relationships…" : ""}`;
+        : `${findings.length.toLocaleString()} finding${findings.length === 1 ? "" : "s"} · ${fixes} fix · ${reviews} review${loadingNote}`;
 
     clear(this.listEl);
     if (this.stats === null) {

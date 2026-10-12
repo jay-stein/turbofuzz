@@ -1,5 +1,6 @@
 import { ColumnData } from "../data/column.js";
 import { computeAggregate } from "../data/aggregate.js";
+import { coMissingness } from "../data/comissingness.js";
 import { computeAnomalies } from "../data/anomalies.js";
 import { buildDataset, datasetFromColumns, rebuildDataset } from "../data/build.js";
 import { applyCleanOps } from "../data/clean-ops.js";
@@ -48,6 +49,7 @@ import type {
   GetCrosstabRequest,
   GetCorrelationRequest,
   GetAggregateRequest,
+  GetCoMissingnessRequest,
   LoadRequest,
   PreviewCleanRequest,
   PreviewTransformRequest,
@@ -240,6 +242,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getAggregate":
       handleGetAggregate(message);
+      break;
+    case "getCoMissingness":
+      handleGetCoMissingness(message);
       break;
     case "renameHeaders":
       handleRenameHeaders(message);
@@ -1039,6 +1044,30 @@ function handleGetAggregate(message: GetAggregateRequest): void {
     },
     transfer,
   );
+}
+
+/** Pairwise co-missingness across the filtered rows (Reports → Quality). */
+function handleGetCoMissingness(message: GetCoMissingnessRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const candidates: number[] = [];
+  dataset.columns.forEach((column, index) => {
+    if (candidates.length < 20 && column.stats.nulls > 0) candidates.push(index);
+  });
+  const result = coMissingness(
+    candidates.map((index) => dataset.columns[index].nullMask),
+    dataset.rowCount,
+    sortedIds,
+  );
+  post({
+    type: "coMissingness",
+    requestId: message.requestId,
+    columns: candidates,
+    labels: candidates.map((index) => dataset.columns[index].name),
+    nullCells: result.nullCells,
+    pairs: result.pairs,
+    ms: performance.now() - started,
+  });
 }
 
 /** Pearson correlation matrix for up to 12 numeric columns (filtered rows). */

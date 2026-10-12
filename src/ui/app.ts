@@ -2197,6 +2197,7 @@ export class App {
     }
     this.reportsPanel = new ReportsPanel(this.reportsHost, {
       requestCorrelation: () => this.requestReportCorrelation(),
+      requestCoMissingness: () => this.client.getCoMissingness().catch(() => null),
       onAction: (finding) => this.runFinding(finding),
     });
     this.reportsPanel.setData(this.metas, stats, this.rowCount);

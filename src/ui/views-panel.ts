@@ -511,7 +511,13 @@ export class ViewsPanel {
           ? ` · ${GRAIN_LABELS[by.time]}`
           : typeof by === "object" && "datePart" in by
             ? ` · ${DATE_PARTS.find((part) => part.value === by.datePart)?.label ?? by.datePart}`
-            : "";
+            : typeof by === "object" && "bin" in by
+              ? "width" in by.bin
+                ? ` · bins of ${by.bin.width}`
+                : "n" in by.bin
+                  ? ` · ${by.bin.n} bins`
+                  : ` · ${by.bin.edges.length - 1} bins`
+              : "";
     const pill = el("span", { class: "views-pill" });
     const label = el(
       "button",
@@ -546,7 +552,7 @@ export class ViewsPanel {
         type: "button",
         title: "Change the aggregate, edit the expression or add a post step",
       },
-      [`${measureSymbol(measure)} ${name}${postText} ▾`],
+      [`${measureSymbol(measure)} ${name}${measure.weight !== undefined ? " ⚖" : ""}${postText} ▾`],
     ) as HTMLButtonElement;
     label.addEventListener("click", () => this.openMeasureEditor(label, def, measure, index));
     const remove = el(
@@ -570,9 +576,11 @@ export class ViewsPanel {
     const setBy = (by: DimensionSpec["by"]): void => {
       this.update((view) => {
         view.dimensions[index] = { column: spec.column, by };
-        if (typeof by === "object" && "time" in by) {
-          view.fill = "zero";
-          if (view.sort.key === `dim${index}`) view.sort = { key: `dim${index}`, dir: "asc" };
+        const ordered =
+          typeof by === "object" && ("time" in by || "bin" in by);
+        if (typeof by === "object" && "time" in by) view.fill = "zero";
+        if (ordered && view.sort.key === `dim${index}`) {
+          view.sort = { key: `dim${index}`, dir: "asc" };
         }
       });
     };
@@ -587,6 +595,41 @@ export class ViewsPanel {
       for (const part of DATE_PARTS) {
         items.push({ label: `Part · ${part.label}`, action: () => setBy({ datePart: part.value }) });
       }
+    } else if (meta.type === "integer" || meta.type === "number") {
+      items.push({
+        label: "Bin width…",
+        title: "Group numeric ranges into equal-width bins",
+        action: () => {
+          void (async () => {
+            const value = await openPrompt({
+              title: `Bin “${meta.name}” by width`,
+              label: "Bin width (e.g. 10, 0.5, 100)",
+              placeholder: "10",
+              confirmLabel: "Group",
+            });
+            if (value === null) return;
+            const width = Number(value.trim());
+            if (Number.isFinite(width) && width > 0) setBy({ bin: { width } });
+          })();
+        },
+      });
+      items.push({
+        label: "N equal groups…",
+        action: () => {
+          void (async () => {
+            const value = await openPrompt({
+              title: `Group “${meta.name}” into N equal-sized groups`,
+              label: "Number of groups (quantiles, 2–100)",
+              value: "10",
+              confirmLabel: "Group",
+            });
+            if (value === null) return;
+            const n = Math.floor(Number(value.trim()));
+            if (Number.isFinite(n) && n >= 2 && n <= 100) setBy({ bin: { n } });
+          })();
+        },
+      });
+      items.push({ label: "Deciles (10 groups)", action: () => setBy({ bin: { n: 10 } }) });
     }
     openMenu(anchor, items);
   }
@@ -688,6 +731,32 @@ export class ViewsPanel {
     void anchor;
   }
 
+  /** Weight column picker for weighted mean/sum measures. */
+  private openWeightMenu(anchor: HTMLElement, measure: MeasureSpec, index: number): void {
+    const items: MenuItem[] = [
+      {
+        label: `${measure.weight === undefined ? "● " : ""}None (unweighted)`,
+        action: () =>
+          this.update((view) => {
+            const { weight: _omit, ...rest } = measure;
+            view.measures[index] = rest;
+          }),
+      },
+    ];
+    this.metas.forEach((meta, column) => {
+      if (meta.type !== "integer" && meta.type !== "number") return;
+      items.push({
+        label: `${measure.weight === column ? "● " : ""}${meta.name}`,
+        title: `Weight by ${meta.name}`,
+        action: () =>
+          this.update((view) => {
+            view.measures[index] = { ...measure, weight: column };
+          }),
+      });
+    });
+    openMenu(anchor, items);
+  }
+
   private openMeasureEditor(
     anchor: HTMLElement,
     def: ViewDef,
@@ -718,6 +787,13 @@ export class ViewsPanel {
       }
     } else {
       items.push({ label: "● Count of rows", action: () => {} });
+    }
+    if (measure.column !== null && (measure.agg === "sum" || measure.agg === "mean")) {
+      items.push({
+        label: measure.weight === undefined ? "Weight by…" : "Weight by… (change)",
+        title: "Weighted mean/sum: Σ(value × weight) / Σweight",
+        action: () => this.openWeightMenu(anchor, measure, index),
+      });
     }
     items.push({
       label: "Custom expression…",
@@ -820,14 +896,20 @@ export class ViewsPanel {
       return max;
     });
     for (let row = 0; row < result.groupCount; row++) {
-      const tr = el("tr", { class: "views-row", title: "Click to filter the table to this group" });
-      const times = result.dimensionTimes[0];
-      const timeStart = times !== undefined && Number.isFinite(times[row]) ? times[row] : null;
-      tr.addEventListener("click", () => {
-        const dim = entry.def.dimensions[0];
-        if (dim === undefined) return;
-        this.options.onDrill(dim.column, timeStart, null, result.dimensions[0][row]);
-      });
+      const tr = el("tr", { class: "views-row" });
+      const firstDim = entry.def.dimensions[0];
+      const drillable =
+        firstDim !== undefined &&
+        !(typeof firstDim.by === "object" && "bin" in firstDim.by);
+      if (drillable) {
+        tr.title = "Click to filter the table to this group";
+        const times = result.dimensionTimes[0];
+        const timeStart = times !== undefined && Number.isFinite(times[row]) ? times[row] : null;
+        tr.addEventListener("click", () => {
+          if (firstDim === undefined) return;
+          this.options.onDrill(firstDim.column, timeStart, null, result.dimensions[0][row]);
+        });
+      }
       result.dimensionNames.forEach((_, d) => {
         tr.append(el("td", { class: "views-dim" }, [result.dimensions[d][row]]));
       });

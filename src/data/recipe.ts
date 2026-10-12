@@ -145,14 +145,53 @@ export function viewPandasLines(
       lines.push(`${temp} = pd.to_datetime(df[${py(name)}]).dt.${accessor}`);
       return temp;
     }
+    if (typeof by === "object" && "bin" in by) {
+      const temp = `_group${index}`;
+      const source = `df[${py(name)}]`;
+      if ("edges" in by.bin) {
+        lines.push(`${temp} = pd.cut(${source}, bins=[${by.bin.edges.join(", ")}])`);
+      } else if ("width" in by.bin) {
+        lines.push(`# equal-width bins of ${by.bin.width} from the data minimum`);
+        lines.push(
+          `${temp} = pd.cut(${source}, bins=max(1, int((${source}.max() - ${source}.min()) / ${by.bin.width}) + 1))`,
+        );
+      } else {
+        lines.push(`${temp} = pd.qcut(${source}, q=${by.bin.n}, duplicates="drop")`);
+      }
+      return temp;
+    }
     return py(name);
   });
 
   const helperNames: string[] = [];
+  const weightedHelpers: string[] = [];
+  const weightedPost: string[] = [];
   const simpleNames = new Set(
     measures.filter((measure) => measure.agg !== "expr").map((measure) => measureName(measure, names)),
   );
   const emitted = new Set<string>();
+  const emittedCheck = (set: Set<string>, key: string): boolean => {
+    if (set.has(key)) return true;
+    set.add(key);
+    return false;
+  };
+
+  // Weighted measures: pre-multiply value × weight so the groupby stays a
+  // plain named aggregation; the ratio (mean) is computed afterwards.
+  measures.forEach((measure, index) => {
+    const weighted =
+      measure.weight !== undefined &&
+      measure.column !== null &&
+      (measure.agg === "sum" || measure.agg === "mean");
+    if (!weighted) return;
+    const x = names[measure.column ?? -1];
+    const weight = names[measure.weight ?? -1];
+    if (x === undefined || weight === undefined) return;
+    lines.push(
+      `df["_wx_${index}"] = pd.to_numeric(df[${py(x)}], errors="coerce") * pd.to_numeric(df[${py(weight)}], errors="coerce")`,
+    );
+  });
+
   lines.push(`df = df.groupby([${groupExprs.join(", ")}], as_index=False).agg(**{`);
   for (const measure of measures) {
     if (measure.agg === "expr" && measure.expr !== undefined) {
@@ -161,19 +200,41 @@ export function viewPandasLines(
         for (const term of compiled.compiled.terms) {
           const key = termName(term, names);
           helperNames.push(key);
-          if (emitted.has(key)) continue;
-          emitted.add(key);
+          if (emittedCheck(emitted, key)) continue;
           lines.push(`    ${py(key)}: ${pandasTermTuple(term, names)},`);
         }
       } else {
         lines.push(`    # expression could not be translated: ${measure.expr}`);
       }
-    } else {
-      const key = measureName(measure, names);
-      if (emitted.has(key)) continue;
-      emitted.add(key);
-      lines.push(`    ${py(key)}: ${pandasMeasure(measure, names)},`);
+      continue;
     }
+    const index = measures.indexOf(measure);
+    const key = measureName(measure, names);
+    const weighted =
+      measure.weight !== undefined &&
+      measure.column !== null &&
+      (measure.agg === "sum" || measure.agg === "mean") &&
+      names[measure.weight ?? -1] !== undefined;
+    if (weighted) {
+      const helper = `_agg_${index}`;
+      const weightHelper = `_aggw_${index}`;
+      weightedHelpers.push(helper, `_wx_${index}`);
+      emittedCheck(emitted, helper);
+      lines.push(`    ${py(helper)}: ("_wx_${index}", "sum"),`);
+      if (measure.agg === "mean") {
+        emittedCheck(emitted, weightHelper);
+        lines.push(`    ${py(weightHelper)}: (${py(names[measure.weight ?? -1] ?? "?")}, "sum"),`);
+        weightedHelpers.push(weightHelper);
+        weightedPost.push(
+          `df[${py(key)}] = df[${py(helper)}] / df[${py(weightHelper)}]`,
+        );
+      } else {
+        weightedPost.push(`df[${py(key)}] = df[${py(helper)}]`);
+      }
+      continue;
+    }
+    if (emittedCheck(emitted, key)) continue;
+    lines.push(`    ${py(key)}: ${pandasMeasure(measure, names)},`);
   }
   lines.push("})");
 
@@ -185,9 +246,17 @@ export function viewPandasLines(
       lines.push(`df[${py(measure.expr)}] = ${translated}`);
     }
   }
-  const dropped = [...new Set(helperNames)].filter((name) => !simpleNames.has(name));
+  lines.push(...weightedPost);
+  const dropped = [
+    ...new Set([...helperNames, ...weightedHelpers]),
+  ].filter((name) => !simpleNames.has(name) && !weightedHelpers.includes(name));
   if (dropped.length > 0) {
     lines.push(`df = df.drop(columns=[${dropped.map((name) => py(name)).join(", ")}])`);
+  }
+  if (weightedHelpers.length > 0) {
+    lines.push(
+      `df = df.drop(columns=[${[...new Set(weightedHelpers)].map((name) => py(name)).join(", ")}])`,
+    );
   }
 
   measures.forEach((measure) => {

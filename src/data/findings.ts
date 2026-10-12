@@ -315,6 +315,50 @@ function unitSplit(
 }
 
 /**
+ * "Missing together": column pairs whose nulls land on the same rows, from the
+ * worker's pairwise co-missingness counts (the Citi Bike birth-year/gender case).
+ */
+export function coMissingnessFindings(
+  columns: readonly number[],
+  labels: readonly string[],
+  nullCells: readonly number[],
+  pairs: readonly number[],
+  minCount = 50,
+  minShare = 0.8,
+  limit = 5,
+): Finding[] {
+  const k = labels.length;
+  const findings: Finding[] = [];
+  for (let i = 0; i < k; i++) {
+    for (let j = i + 1; j < k; j++) {
+      const together = pairs[i * k + j] ?? 0;
+      const base = Math.min(nullCells[i] ?? 0, nullCells[j] ?? 0);
+      if (together < minCount || base === 0) continue;
+      const share = together / base;
+      if (share < minShare) continue;
+      const title =
+        share >= 0.99
+          ? `“${labels[i]}” and “${labels[j]}” are missing on the same ${together.toLocaleString()} rows`
+          : `“${labels[i]}” and “${labels[j]}” are usually missing together (${percent(share)} of the smaller gap)`;
+      findings.push({
+        id: `comissing.${i}.${j}`,
+        report: "quality.missingness",
+        severity: "review",
+        title,
+        evidence: [
+          { metric: "rows missing both", value: together.toLocaleString(), n: together },
+          { metric: `“${labels[i]}” empties`, value: (nullCells[i] ?? 0).toLocaleString(), n: nullCells[i] ?? 0 },
+          { metric: `“${labels[j]}” empties`, value: (nullCells[j] ?? 0).toLocaleString(), n: nullCells[j] ?? 0 },
+          { metric: "method", value: "pairwise co-missingness over filtered rows", n: 1 },
+        ],
+        impact: { rows: together, columns: [columns[i] ?? -1, columns[j] ?? -1] },
+      });
+    }
+  }
+  return findings.sort((a, b) => b.impact.rows - a.impact.rows).slice(0, limit);
+}
+
+/**
  * "Explain [column]": associations involving one column, ranked, with a
  * plain-language sentence. Wording stays at "associated with".
  */

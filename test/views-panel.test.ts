@@ -202,3 +202,43 @@ test("adding a measure chooses the aggregate before adding", async () => {
   const view = requests[requests.length - 1];
   assert.deepEqual(view.measures[view.measures.length - 1], { column: 0, agg: "mean" });
 });
+
+test("a measure can be weighted by a numeric column", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const requests: ViewDef[] = [];
+  const panel = new ViewsPanel(host as unknown as HTMLElement, {
+    requestAggregate: async (view) => {
+      requests.push(view);
+      return aggregateFor(view);
+    },
+    onDrill: () => {},
+    onChart: () => {},
+    onUseAsDataset: () => {},
+    onCopyPandas: async () => {},
+  });
+  panel.setColumns(metas, 100);
+  await tick();
+  requests.length = 0;
+
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const measureZone = host.querySelectorAll(".views-zone")[1];
+  assert.ok(measureZone !== undefined, "the measures zone exists");
+  (
+    measureZone.querySelector(".views-pill .views-pill-label") as unknown as { click(): void }
+  ).click();
+  const weightItem = [...doc.querySelectorAll(".context-menu .context-item")].find(
+    (item) => item.textContent === "Weight by…",
+  );
+  assert.ok(weightItem !== undefined, "the editor offers Weight by…");
+  (weightItem as unknown as { click(): void }).click();
+  const amountItem = [...doc.querySelectorAll(".context-menu .context-item")].find(
+    (item) => item.textContent === "amount",
+  );
+  assert.ok(amountItem !== undefined, "the weight menu lists numeric columns");
+  (amountItem as unknown as { click(): void }).click();
+  await tick();
+
+  const view = requests[requests.length - 1];
+  assert.equal(view.measures[0]?.weight, 0);
+});

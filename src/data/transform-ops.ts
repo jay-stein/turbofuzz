@@ -323,6 +323,11 @@ export function dimensionHeader(
   const by = spec.by;
   if (typeof by === "object" && "time" in by) return `${base} (${by.time})`;
   if (typeof by === "object" && "datePart" in by) return `${base} (${by.datePart})`;
+  if (typeof by === "object" && "bin" in by) {
+    const suffix =
+      "width" in by.bin ? `bin ${by.bin.width}` : "n" in by.bin ? `${by.bin.n} bins` : "bins";
+    return `${base} (${suffix})`;
+  }
   return base;
 }
 

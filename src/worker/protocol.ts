@@ -392,6 +392,24 @@ export type ResolveNullsAllRequest = {
   keep: string[];
 };
 
+export type GetCoMissingnessRequest = {
+  type: "getCoMissingness";
+  requestId: number;
+};
+
+export interface CoMissingnessMessage {
+  type: "coMissingness";
+  requestId: number;
+  /** Dataset column indexes included (capped, only columns with nulls). */
+  columns: number[];
+  labels: string[];
+  /** Missing cells per column. */
+  nullCells: number[];
+  /** Row-major K×K counts of rows missing in both columns. */
+  pairs: number[];
+  ms: number;
+}
+
 export type WorkerRequest =
   | LoadRequest
   | SetFilterRequest
@@ -421,7 +439,8 @@ export type WorkerRequest =
   | PreviewCleanRequest
   | SetNullPolicyRequest
   | ResolveNullsAllRequest
-  | GetAggregateRequest;
+  | GetAggregateRequest
+  | GetCoMissingnessRequest;
 
 export interface DatasetMessage {
   requestId: number;
@@ -598,6 +617,7 @@ export type WorkerResponse =
   | CrosstabMessage
   | CorrelationMessage
   | AggregateMessage
+  | CoMissingnessMessage
   | ExportStartedMessage
   | CsvChunkMessage
   | HeadersRenamedMessage

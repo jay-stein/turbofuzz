@@ -239,3 +239,75 @@ test("compileExpression validates functions, columns and syntax", () => {
   assert.equal(countAll.ok, true);
   if (countAll.ok) assert.deepEqual(countAll.compiled.terms, [{ agg: "count", column: null, text: "count(*)" }]);
 });
+
+test("numeric bins group by width, quantiles and explicit edges", () => {
+  const ds = buildDataset("t", ["value"], [["5"], ["15"], ["25"], ["35"], ["45"]]);
+  const count = [{ column: null, agg: "count" as const }];
+  const width = computeAggregate(
+    view({
+      dimensions: [{ column: 0, by: { bin: { width: 20 } } }],
+      measures: count,
+      sort: { key: "dim0", dir: "asc" },
+    }),
+    ds.columns,
+    ds.rowCount,
+    allIds(5),
+  );
+  assert.deepEqual(width.labels, ["0 – 20", "20 – 40", "40 – 60"]);
+  assert.deepEqual([...width.measures[0]], [2, 2, 1]);
+
+  const edges = computeAggregate(
+    view({
+      dimensions: [{ column: 0, by: { bin: { edges: [0, 10, 30, 50] } } }],
+      measures: count,
+      sort: { key: "dim0", dir: "asc" },
+    }),
+    ds.columns,
+    ds.rowCount,
+    allIds(5),
+  );
+  assert.deepEqual(edges.labels, ["0 – 10", "10 – 30", "30 – 50"]);
+  assert.deepEqual([...edges.measures[0]], [1, 2, 2]);
+
+  const quantiles = computeAggregate(
+    view({
+      dimensions: [{ column: 0, by: { bin: { n: 2 } } }],
+      measures: count,
+      sort: { key: "dim0", dir: "asc" },
+    }),
+    ds.columns,
+    ds.rowCount,
+    allIds(5),
+  );
+  assert.deepEqual(quantiles.labels, ["5 – 25", "25 – 45"]);
+  assert.deepEqual([...quantiles.measures[0]], [2, 3]);
+});
+
+test("weighted mean and sum use the weight column per row", () => {
+  const ds = buildDataset("t", ["g", "value", "w"], [
+    ["a", "10", "1"],
+    ["a", "20", "3"],
+    ["b", "5", "2"],
+  ]);
+  const result = computeAggregate(
+    view({
+      dimensions: [{ column: 0, by: "value" }],
+      measures: [
+        { column: 1, agg: "mean", weight: 2 },
+        { column: 1, agg: "sum", weight: 2 },
+      ],
+      sort: { key: "dim0", dir: "asc" },
+    }),
+    ds.columns,
+    ds.rowCount,
+    allIds(3),
+  );
+  assert.deepEqual(result.labels, ["a", "b"]);
+  // a: (10·1 + 20·3) / (1+3) = 17.5; b: 5.
+  assert.deepEqual([...result.measures[0]], [17.5, 5]);
+  assert.deepEqual([...result.measures[1]], [70, 10]);
+  // Totals come from rows: (10+60+10) / 6 = 13.333…
+  assert.ok(Math.abs(result.totals[0] - 80 / 6) < 1e-9);
+  assert.equal(result.totals[1], 80);
+  assert.match(result.measureNames[0], /weighted by w/);
+});

@@ -16,6 +16,7 @@ import type {
   CleanedMessage,
   CleanPreviewMessage,
   CleanUpdate,
+  CoMissingnessMessage,
   ColumnMetaMessage,
   CsvChunkMessage,
   ExportOptions,
@@ -183,6 +184,10 @@ export class SearchWorkerClient {
 
   getAggregate(view: ViewDef): Promise<AggregateMessage> {
     return this.request<AggregateMessage>({ type: "getAggregate", view });
+  }
+
+  getCoMissingness(): Promise<CoMissingnessMessage> {
+    return this.request<CoMissingnessMessage>({ type: "getCoMissingness" });
   }
 
   renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {

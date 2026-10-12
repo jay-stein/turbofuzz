@@ -415,3 +415,27 @@ test("viewToPandas computes expression measures from named terms", () => {
   assert.match(recipe, /df = df\.drop\(columns=\["count\(\*\)"\]\)/);
   assert.equal(recipe.match(/"sum\(amount\)":/g)?.length, 1, "no duplicate named-agg keys");
 });
+
+test("viewToPandas computes weighted means from helper columns", () => {
+  const recipe = viewToPandas(
+    {
+      id: "v3",
+      name: "Weighted price",
+      dimensions: [{ column: 0, by: "value" }],
+      measures: [{ column: 1, agg: "mean", weight: 2 }],
+      fill: "none",
+      sort: { key: "m0", dir: "desc" },
+      limit: 500,
+      respectFilters: true,
+    },
+    ["region", "amount", "w"],
+  );
+  assert.match(
+    recipe,
+    /df\["_wx_0"\] = pd\.to_numeric\(df\["amount"\], errors="coerce"\) \* pd\.to_numeric\(df\["w"\], errors="coerce"\)/,
+  );
+  assert.match(recipe, /"_agg_0": \("_wx_0", "sum"\),/);
+  assert.match(recipe, /"_aggw_0": \("w", "sum"\),/);
+  assert.match(recipe, /df\["mean\(amount\)"\] = df\["_agg_0"\] \/ df\["_aggw_0"\]/);
+  assert.match(recipe, /df = df\.drop\(columns=\["_agg_0", "_wx_0", "_aggw_0"\]\)/);
+});

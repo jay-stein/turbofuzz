@@ -4,10 +4,17 @@ import type { ColumnData } from "./column.js";
 export type TimeGrain = "minute" | "hour" | "day" | "week" | "month" | "quarter" | "year";
 export type DatePart = "dow" | "hour" | "month" | "dom" | "week";
 
+/** Numeric binning: equal width, N quantile groups, or explicit edges. */
+export type BinSpec =
+  | { width: number }
+  | { n: number }
+  | { edges: number[] };
+
 export type DimensionSpec =
   | { column: number; by: "value" }
   | { column: number; by: { time: TimeGrain; weekStart?: 0 | 1 } }
-  | { column: number; by: { datePart: DatePart } };
+  | { column: number; by: { datePart: DatePart } }
+  | { column: number; by: { bin: BinSpec } };
 
 /** Basic aggregates plus `pN` percentiles, `distinct` counts and `expr`. */
 export type Aggregate =
@@ -43,6 +50,8 @@ export interface MeasureSpec {
    * `sum(weight) / count(*)` style terms. Operators: + - * / ( ).
    */
   expr?: string;
+  /** Optional weight column: mean becomes Σ(v·w)/Σw, sum becomes Σ(v·w). */
+  weight?: number;
   post?: PostOp[];
 }
 
@@ -403,6 +412,8 @@ interface MeasureAcc {
   m2: number;
   first: number;
   last: number;
+  /** Sum of weights for weighted mean/sum slots. */
+  weight: number;
   distinct: Set<string> | null;
   samples: number[] | null;
   modes: Map<string, number> | null;
@@ -418,6 +429,7 @@ function newAcc(): MeasureAcc {
     m2: 0,
     first: NaN,
     last: NaN,
+    weight: 0,
     distinct: null,
     samples: null,
     modes: null,
@@ -461,7 +473,11 @@ function kindOf(
   return 4;
 }
 
-function finalise(acc: MeasureAcc, agg: Aggregate): number {
+function finalise(acc: MeasureAcc, agg: Aggregate, weighted = false): number {
+  if (weighted) {
+    if (agg === "mean") return acc.weight > 0 ? acc.sum / acc.weight : Number.NaN;
+    if (agg === "sum") return acc.sum;
+  }
   switch (agg) {
     case "count":
       return acc.count;
@@ -595,6 +611,91 @@ function applyPost(values: Float64Array, post: readonly PostOp[], all: Float64Ar
   return out;
 }
 
+/** Edges (n+1) for a bin dimension over the current filtered values. */
+function computeBinEdges(
+  spec: BinSpec,
+  column: ColumnData,
+  ids: Uint32Array,
+  rowCount: number,
+): number[] | null {
+  if ("edges" in spec) {
+    const edges = spec.edges
+      .filter((value) => Number.isFinite(value))
+      .slice()
+      .sort((a, b) => a - b);
+    return edges.length >= 2 ? edges : null;
+  }
+  const numbers = column.numbers();
+  if ("width" in spec) {
+    const width = Math.abs(spec.width);
+    if (!(width > 0)) return null;
+    let min = Infinity;
+    let max = -Infinity;
+    for (let position = 0; position < ids.length; position++) {
+      const row = ids[position];
+      if (row >= rowCount) continue;
+      const value = numbers[row];
+      if (!Number.isFinite(value)) continue;
+      if (value < min) min = value;
+      if (value > max) max = value;
+    }
+    if (!Number.isFinite(min)) return null;
+    const lo = Math.floor(min / width) * width;
+    const edges: number[] = [];
+    for (let index = 0; index < 1024; index++) {
+      const value = lo + index * width;
+      if (value > max + width) break;
+      edges.push(value);
+    }
+    return edges.length >= 2 ? edges : null;
+  }
+  // Quantile bins over the filtered values.
+  const values: number[] = [];
+  for (let position = 0; position < ids.length; position++) {
+    const row = ids[position];
+    if (row >= rowCount) continue;
+    const value = numbers[row];
+    if (Number.isFinite(value)) values.push(value);
+  }
+  if (values.length === 0) return null;
+  values.sort((a, b) => a - b);
+  const n = Math.max(2, Math.min(100, Math.floor(spec.n) || 10));
+  const edges: number[] = [];
+  for (let i = 0; i <= n; i++) {
+    const position = ((values.length - 1) * i) / n;
+    const lower = Math.floor(position);
+    const upper = Math.ceil(position);
+    const weight = position - lower;
+    edges.push(values[lower] * (1 - weight) + values[upper] * weight);
+  }
+  return edges;
+}
+
+/** Bin index for a value under ascending edges (clamped to the outer bins). */
+function binIndex(edges: readonly number[], value: number): number {
+  const last = edges.length - 2;
+  if (last < 0) return 0;
+  if (value < (edges[0] ?? 0)) return 0;
+  if (value >= (edges[edges.length - 1] ?? 0)) return last;
+  let lo = 0;
+  let hi = edges.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if ((edges[mid] ?? 0) <= value) lo = mid;
+    else hi = mid;
+  }
+  return Math.max(0, Math.min(last, lo));
+}
+
+/** "10 – 20" style label for one bin. */
+function binLabel(edges: readonly number[], index: number): string {
+  const format = (value: number): string =>
+    Number.isInteger(value)
+      ? value.toLocaleString()
+      : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return `${format(edges[index] ?? Number.NaN)} – ${format(edges[index + 1] ?? Number.NaN)}`;
+}
+
 /**
  * Writes the dimension key, deferred label and natural sort rank for one row
  * into the scratch arrays (no per-row allocation).
@@ -607,6 +708,7 @@ function dimensionInto(
   labels: string[],
   ranks: number[],
   times: number[],
+  binEdges: readonly number[] | null,
 ): void {
   const raw = column.raw[row];
   const missing = column.nullMask.get(row) || raw === undefined || raw === "";
@@ -661,6 +763,24 @@ function dimensionInto(
     labels.push(label);
     ranks.push(rank);
     times.push(Number.NaN);
+    return;
+  }
+  if (typeof by === "object" && "bin" in by) {
+    const value = column.numbers()[row];
+    if (!Number.isFinite(value) || binEdges === null || binEdges.length < 2) {
+      keys.push("(missing)");
+      labels.push("(missing)");
+      ranks.push(Number.NaN);
+      times.push(Number.NaN);
+      return;
+    }
+    const index = binIndex(binEdges, value);
+    const lo = binEdges[index] ?? Number.NaN;
+    // Labels are formatted only when a new group appears.
+    keys.push(String(index));
+    labels.push("");
+    ranks.push(lo);
+    times.push(lo);
     return;
   }
   const text = missing ? "(missing)" : raw;
@@ -762,6 +882,11 @@ export function computeAggregate(
   const dimGrains: (TimeGrain | null)[] = dimensions.map((spec) =>
     typeof spec.by === "object" && "time" in spec.by ? spec.by.time : null,
   );
+  const dimBinEdges: (number[] | null)[] = dimensions.map((spec) =>
+    typeof spec.by === "object" && "bin" in spec.by
+      ? computeBinEdges(spec.by.bin, columns[spec.column], ids, rowCount)
+      : null,
+  );
 
   const groupIndex = new Map<string, number>();
   const dimValues: string[][] = dimensions.map(() => []);
@@ -781,12 +906,24 @@ export function computeAggregate(
     numbers: Float64Array | null;
     raw: readonly string[] | null;
     mask: ColumnData["nullMask"] | null;
+    /** Weighted mean/sum: the weight column's values. */
+    weighted: boolean;
+    weights: Float64Array | null;
   }
   const slots: Slot[] = [];
-  const pushSlot = (agg: Aggregate, column: number | null, exists: boolean): void => {
+  const pushSlot = (
+    agg: Aggregate,
+    column: number | null,
+    exists: boolean,
+    weightColumn: number | null = null,
+  ): void => {
     const data = column === null || !exists ? null : (columns[column] ?? null);
-    const kind: SlotKind =
-      kindOf(agg, column, data);
+    const kind: SlotKind = kindOf(agg, column, data);
+    const weighted =
+      weightColumn !== null &&
+      columns[weightColumn] !== undefined &&
+      (agg === "sum" || agg === "mean");
+    const weights = weighted ? columns[weightColumn]?.numbers() ?? null : null;
     slots.push({
       agg,
       column,
@@ -794,6 +931,8 @@ export function computeAggregate(
       numbers: kind === 4 ? data?.numbers() ?? null : null,
       raw: data?.raw ?? null,
       mask: data?.nullMask ?? null,
+      weighted: weighted && weights !== null,
+      weights: weighted && weights !== null ? weights : null,
     });
   };
   const measureSlotOffset: number[] = [];
@@ -817,7 +956,12 @@ export function computeAggregate(
     } else {
       measureCompiled.push(null);
       measureTerms.push([{ agg: measure.agg, column: measure.column, text: "" }]);
-      pushSlot(measure.agg, measure.column, measure.column === null || columns[measure.column] !== undefined);
+      pushSlot(
+        measure.agg,
+        measure.column,
+        measure.column === null || columns[measure.column] !== undefined,
+        measure.weight ?? null,
+      );
     }
   }
   const newSlotAccs = (): MeasureAcc[] => slots.map((slot) => accFor(slot.agg));
@@ -838,7 +982,16 @@ export function computeAggregate(
     times.length = 0;
     let bucket: number | null = null;
     for (let d = 0; d < dimensions.length; d++) {
-      dimensionInto(columns[dimensions[d].column], dimensions[d], row, keys, labels, ranks, times);
+      dimensionInto(
+        columns[dimensions[d].column],
+        dimensions[d],
+        row,
+        keys,
+        labels,
+        ranks,
+        times,
+        dimBinEdges[d],
+      );
       if (d === 0) {
         const ms = times[0] ?? Number.NaN;
         if (Number.isFinite(ms)) bucket = ms;
@@ -851,13 +1004,16 @@ export function computeAggregate(
       groupIndex.set(key, index);
       for (let d = 0; d < dimensions.length; d++) {
         const grain = dimGrains[d];
+        const edges = dimBinEdges[d];
         const label = labels[d] ?? "";
         dimValues[d].push(
           label !== ""
             ? label
             : grain !== null
               ? timeLabel(times[d] ?? Number.NaN, grain)
-              : "(missing)",
+              : edges !== null
+                ? binLabel(edges, Number(keys[d] ?? "0"))
+                : "(missing)",
         );
         dimRanks[d].push(ranks[d] ?? Number.NaN);
         dimTimes[d].push(times[d] ?? Number.NaN);
@@ -901,6 +1057,17 @@ export function computeAggregate(
         default: {
           const value = slot.numbers?.[row] ?? Number.NaN;
           if (!Number.isFinite(value)) break;
+          if (slot.weighted && slot.weights !== null) {
+            const weight = slot.weights[row];
+            if (!Number.isFinite(weight)) break;
+            acc.sum += value * weight;
+            acc.weight += weight;
+            acc.count++;
+            total.sum += value * weight;
+            total.weight += weight;
+            total.count++;
+            break;
+          }
           accumulateInto(acc, value);
           accumulateInto(total, value);
           break;
@@ -948,7 +1115,9 @@ export function computeAggregate(
         return Number.isFinite(value) ? value : Number.NaN;
       });
     }
-    return Float64Array.from(accs, (group) => finalise(group[offset], measure.agg));
+    return Float64Array.from(accs, (group) =>
+      finalise(group[offset], measure.agg, slots[offset]?.weighted ?? false),
+    );
   });
 
   const totals = Float64Array.from(measures, (measure, m) => {
@@ -964,7 +1133,7 @@ export function computeAggregate(
       const value = compiled.evaluate(values);
       return Number.isFinite(value) ? value : Number.NaN;
     }
-    return finalise(totalAccs[offset], measure.agg);
+    return finalise(totalAccs[offset], measure.agg, slots[offset]?.weighted ?? false);
   });
 
   const order = Array.from(dimValues[0]?.keys() ?? []);
@@ -1023,6 +1192,12 @@ export function computeAggregate(
       const by = spec.by;
       if (typeof by === "object" && "time" in by) return `${base} (${by.time})`;
       if (typeof by === "object" && "datePart" in by) return `${base} (${by.datePart})`;
+      if (typeof by === "object" && "bin" in by) {
+        const bin = by.bin;
+        const suffix =
+          "width" in bin ? `bin ${bin.width}` : "n" in bin ? `${bin.n} bins` : "bins";
+        return `${base} (${suffix})`;
+      }
       return base;
     }),
     dimensionIsTime: dimensions.map(
@@ -1032,9 +1207,13 @@ export function computeAggregate(
     measures: measuresOut,
     measureNames: measures.map((measure) => {
       if (measure.agg === "expr") return measure.expr ?? "expr";
-      return measure.column === null
-        ? "count(*)"
-        : `${measure.agg}(${columns[measure.column]?.name ?? "?"})`;
+      const base =
+        measure.column === null
+          ? "count(*)"
+          : `${measure.agg}(${columns[measure.column]?.name ?? "?"})`;
+      const weightName =
+        measure.weight === undefined ? undefined : columns[measure.weight]?.name;
+      return weightName === undefined ? base : `${base} · weighted by ${weightName}`;
     }),
     totals,
     groupCount: shown.length,
