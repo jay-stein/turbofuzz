@@ -83,6 +83,7 @@ function aggregateFor(view: ViewDef): AggregateMessage {
     groupCount: 2,
     totalGroups: 2,
     truncated: false,
+    partials: null,
     ms: 2,
   };
 }

@@ -190,8 +190,11 @@ test("two dimensions join their labels and truncation is reported", () => {
 
 test("time helpers handle weeks and labels", () => {
   const monday = Date.UTC(2024, 0, 1);
-  assert.equal(timeBucket(monday, "week", 1), monday);
-  assert.equal(timeLabel(timeBucket(Date.UTC(2024, 0, 3), "week", 1), "week"), "2024-01-01");
+  assert.equal(timeBucket(monday, "week", { weekStart: 1 }), monday);
+  assert.equal(
+    timeLabel(timeBucket(Date.UTC(2024, 0, 3), "week", { weekStart: 1 }), "week"),
+    "2024-01-01",
+  );
   assert.equal(datePartLabel(Date.UTC(2024, 0, 1), "dow"), "Mon");
   assert.equal(datePartLabel(Date.UTC(2024, 0, 1), "dom"), "01");
   assert.equal(datePartLabel(Date.UTC(2024, 0, 1), "month"), "Jan");

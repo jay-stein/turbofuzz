@@ -1,4 +1,5 @@
 import type { ColumnData } from "./column.js";
+import { resolveZoneSpec, zoneOffsetMinutes } from "./timezone.js";
 
 /** Dimension transform: raw value, a time bucket, a date part or a numeric bin. */
 export type TimeGrain = "minute" | "hour" | "day" | "week" | "month" | "quarter" | "year";
@@ -10,11 +11,33 @@ export type BinSpec =
   | { n: number }
   | { edges: number[] };
 
+export interface TimeOptions {
+  time: TimeGrain;
+  /** Week starts Sunday (0) or Monday (1, default). */
+  weekStart?: 0 | 1;
+  /** 1–12: fiscal year starts this month; affects year/quarter buckets and labels. */
+  fiscalStartMonth?: number;
+  /** Zone to bucket in: "UTC", "local", "±HH:MM" or an IANA name. */
+  tz?: string;
+}
+
+/** First-period cohort of an entity: retention analysis over time. */
+export interface CohortSpec {
+  /** Column holding the entity whose first period defines the cohort. */
+  entity: number;
+  grain: TimeGrain;
+  weekStart?: 0 | 1;
+  fiscalStartMonth?: number;
+  tz?: string;
+}
+
 export type DimensionSpec =
   | { column: number; by: "value" }
-  | { column: number; by: { time: TimeGrain; weekStart?: 0 | 1 } }
+  | { column: number; by: TimeOptions }
   | { column: number; by: { datePart: DatePart } }
-  | { column: number; by: { bin: BinSpec } };
+  | { column: number; by: { bin: BinSpec } }
+  | { column: number; by: { cohort: CohortSpec } }
+  | { column: number; by: { since: CohortSpec } };
 
 /** Basic aggregates plus `pN` percentiles, `distinct` counts and `expr`. */
 export type Aggregate =
@@ -41,6 +64,18 @@ export type PostOp =
   | { op: "rank" }
   | { op: "yoy" };
 
+/** Rows counted by a measure: value list, numeric range or missing-test. */
+export interface MeasureCondition {
+  column: number;
+  /** Raw (trimmed) value match — usually a category multi-select. */
+  values?: string[];
+  /** Inclusive numeric bounds. */
+  min?: number;
+  max?: number;
+  /** Only count blank cells. */
+  isNull?: boolean;
+}
+
 export interface MeasureSpec {
   /** null = COUNT(*) over rows; otherwise the column to aggregate. */
   column: number | null;
@@ -53,6 +88,8 @@ export interface MeasureSpec {
   expr?: string;
   /** Optional weight column: mean becomes Σ(v·w)/Σw, sum becomes Σ(v·w). */
   weight?: number;
+  /** Restricts the measure to rows matching the condition. */
+  where?: MeasureCondition;
   post?: PostOp[];
 }
 
@@ -67,6 +104,10 @@ export interface ViewDef {
   sort: { key: string; dir: "asc" | "desc" };
   limit: number;
   respectFilters: boolean;
+  /** Incomplete first/last periods: shown (hatched) or excluded. */
+  partial?: "show" | "exclude";
+  /** Dimension index spread across columns when rendered as a matrix. */
+  pivot?: number;
 }
 
 export interface AggregateResult {
@@ -84,6 +125,8 @@ export interface AggregateResult {
   groupCount: number;
   totalGroups: number;
   truncated: boolean;
+  /** Per shown group: its period is incomplete at a data edge. */
+  partials: boolean[] | null;
 }
 
 const DAY = 86_400_000;
@@ -287,7 +330,48 @@ export function compileExpression(
   }
 }
 
-export function timeBucket(ms: number, grain: TimeGrain, weekStart: 0 | 1 = 1): number {
+export interface BucketOptions {
+  weekStart?: 0 | 1;
+  fiscalStartMonth?: number;
+}
+
+/**
+ * Zone bucketing for time dimensions: shifts an instant by the zone offset so
+ * civil-date math sees wall-clock time. Returns null when no shift is needed.
+ */
+export function zoneShift(tz: string | undefined): ((ms: number) => number) | null {
+  if (tz === undefined || tz.trim() === "") return null;
+  const spec = resolveZoneSpec(tz);
+  switch (spec.kind) {
+    case "naive":
+    case "utc":
+      return null;
+    case "fixed":
+      return (ms) => ms + spec.offsetMinutes * 60_000;
+    case "local":
+      return (ms) => ms - new Date(ms).getTimezoneOffset() * 60_000;
+    case "iana":
+      return (ms) => ms + zoneOffsetMinutes(ms, spec.zone) * 60_000;
+  }
+}
+
+function addMonths(year: number, month: number, add: number): [number, number] {
+  const total = year * 12 + (month - 1) + add;
+  return [Math.floor(total / 12), ((total % 12) + 12) % 12 + 1];
+}
+
+/** Start year of the fiscal year containing a civil month. */
+function fiscalYearOf(year: number, month: number, fiscalStartMonth: number): number {
+  return month >= fiscalStartMonth ? year : year - 1;
+}
+
+export function timeBucket(ms: number, grain: TimeGrain, options: BucketOptions = {}): number {
+  const fiscalStartMonth =
+    options.fiscalStartMonth !== undefined &&
+    options.fiscalStartMonth >= 1 &&
+    options.fiscalStartMonth <= 12
+      ? options.fiscalStartMonth
+      : 1;
   switch (grain) {
     case "minute":
       return Math.floor(ms / MINUTE) * MINUTE;
@@ -296,6 +380,7 @@ export function timeBucket(ms: number, grain: TimeGrain, weekStart: 0 | 1 = 1): 
     case "day":
       return Math.floor(ms / DAY) * DAY;
     case "week": {
+      const weekStart = options.weekStart ?? 1;
       const day = Math.floor(ms / DAY);
       const dow = (((day + 4) % 7) + 7) % 7; // 0 = Sunday, 1 = Monday
       const diff = (dow - weekStart + 7) % 7;
@@ -307,10 +392,19 @@ export function timeBucket(ms: number, grain: TimeGrain, weekStart: 0 | 1 = 1): 
     }
     case "quarter": {
       const [year, month] = civilFromDays(Math.floor(ms / DAY));
+      if (fiscalStartMonth !== 1) {
+        const startYear = fiscalYearOf(year, month, fiscalStartMonth);
+        const monthsIn = (month - fiscalStartMonth + 12) % 12;
+        const [qy, qm] = addMonths(startYear, fiscalStartMonth, Math.floor(monthsIn / 3) * 3);
+        return daysFromCivil(qy, qm, 1) * DAY;
+      }
       return daysFromCivil(year, month - ((month - 1) % 3), 1) * DAY;
     }
     case "year": {
-      const [year] = civilFromDays(Math.floor(ms / DAY));
+      const [year, month] = civilFromDays(Math.floor(ms / DAY));
+      if (fiscalStartMonth !== 1) {
+        return daysFromCivil(fiscalYearOf(year, month, fiscalStartMonth), fiscalStartMonth, 1) * DAY;
+      }
       return daysFromCivil(year, 1, 1) * DAY;
     }
   }
@@ -348,13 +442,19 @@ function daysFromCivil(year: number, month: number, day: number): number {
   return era * 146_097 + doe - 719_468;
 }
 
-export function timeLabel(ms: number, grain: TimeGrain): string {
+export function timeLabel(ms: number, grain: TimeGrain, options: BucketOptions = {}): string {
   const date = new Date(ms);
   const year = date.getUTCFullYear();
   const month = pad(date.getUTCMonth() + 1, 2);
   const day = pad(date.getUTCDate(), 2);
   const hour = pad(date.getUTCHours(), 2);
   const minute = pad(date.getUTCMinutes(), 2);
+  const fiscalStartMonth =
+    options.fiscalStartMonth !== undefined &&
+    options.fiscalStartMonth >= 1 &&
+    options.fiscalStartMonth <= 12
+      ? options.fiscalStartMonth
+      : 1;
   switch (grain) {
     case "minute":
       return `${year}-${month}-${day} ${hour}:${minute}`;
@@ -365,10 +465,25 @@ export function timeLabel(ms: number, grain: TimeGrain): string {
       return `${year}-${month}-${day}`;
     case "month":
       return `${year}-${month}`;
-    case "quarter":
+    case "quarter": {
+      if (fiscalStartMonth !== 1) {
+        const monthsIn =
+          (date.getUTCMonth() + 1 - fiscalStartMonth + 12) % 12;
+        const startYear = fiscalYearOf(
+          date.getUTCFullYear(),
+          date.getUTCMonth() + 1,
+          fiscalStartMonth,
+        );
+        return `FY${startYear} Q${Math.floor(monthsIn / 3) + 1}`;
+      }
       return `${year} Q${Math.floor(date.getUTCMonth() / 3) + 1}`;
-    case "year":
+    }
+    case "year": {
+      if (fiscalStartMonth !== 1) {
+        return `FY${fiscalYearOf(date.getUTCFullYear(), date.getUTCMonth() + 1, fiscalStartMonth)}`;
+      }
       return String(year);
+    }
   }
 }
 
@@ -739,6 +854,16 @@ function binLabel(edges: readonly number[], index: number): string {
   return `${format(edges[index] ?? Number.NaN)} – ${format(edges[index + 1] ?? Number.NaN)}`;
 }
 
+/** Pre-resolved per-dimension state (zone shift, fiscal week, cohort map). */
+interface DimRuntime {
+  shift: ((ms: number) => number) | null;
+  weekStart: 0 | 1;
+  fiscalStartMonth: number | undefined;
+  cohort: Map<string, number> | null;
+  entityRaw: readonly string[] | null;
+  entityMask: ColumnData["nullMask"] | null;
+}
+
 /**
  * Writes the dimension key, deferred label and natural sort rank for one row
  * into the scratch arrays (no per-row allocation).
@@ -752,6 +877,7 @@ function dimensionInto(
   ranks: number[],
   times: number[],
   binEdges: readonly number[] | null,
+  runtime: DimRuntime,
 ): void {
   const raw = column.raw[row];
   const missing = column.nullMask.get(row) || raw === undefined || raw === "";
@@ -773,12 +899,58 @@ function dimensionInto(
       times.push(Number.NaN);
       return;
     }
-    const bucket = timeBucket(value, by.time, by.weekStart ?? 1);
+    const shifted = runtime.shift === null ? value : runtime.shift(value);
+    const bucket = timeBucket(shifted, by.time, {
+      weekStart: by.weekStart,
+      fiscalStartMonth: by.fiscalStartMonth,
+    });
     // Labels are formatted only when a new group appears, not per row.
     keys.push(String(bucket));
     labels.push("");
     ranks.push(bucket);
     times.push(bucket);
+    return;
+  }
+  if (typeof by === "object" && ("cohort" in by || "since" in by)) {
+    const cohortSpec = "cohort" in by ? by.cohort : by.since;
+    const entity = runtime.entityRaw;
+    const entityKey =
+      entity === null || runtime.entityMask?.get(row) === true || entity[row] === undefined
+        ? "(missing)"
+        : entity[row].trim();
+    const cohortBucket = runtime.cohort?.get(entityKey);
+    if (cohortBucket === undefined) {
+      keys.push("(missing)");
+      labels.push("(missing)");
+      ranks.push(Number.NaN);
+      times.push(Number.NaN);
+      return;
+    }
+    if ("cohort" in by) {
+      keys.push(String(cohortBucket));
+      labels.push("");
+      ranks.push(cohortBucket);
+      times.push(cohortBucket);
+      return;
+    }
+    const value = column.numbers()[row];
+    if (!Number.isFinite(value)) {
+      keys.push("(missing)");
+      labels.push("(missing)");
+      ranks.push(Number.NaN);
+      times.push(Number.NaN);
+      return;
+    }
+    const shifted = runtime.shift === null ? value : runtime.shift(value);
+    const bucket = timeBucket(shifted, cohortSpec.grain, {
+      weekStart: cohortSpec.weekStart,
+      fiscalStartMonth: cohortSpec.fiscalStartMonth,
+    });
+    const index = periodIndex(cohortBucket, bucket, cohortSpec.grain);
+    keys.push(String(index));
+    labels.push(`P${index}`);
+    ranks.push(index);
+    times.push(Number.NaN);
     return;
   }
   if (typeof by === "object" && "datePart" in by) {
@@ -834,7 +1006,7 @@ function dimensionInto(
 }
 
 /** Iterates the regular calendar step of a time grain after `ms`. */
-function nextBucket(ms: number, grain: TimeGrain): number {
+function nextBucket(ms: number, grain: TimeGrain, options: BucketOptions = {}): number {
   switch (grain) {
     case "minute":
       return ms + MINUTE;
@@ -854,7 +1026,29 @@ function nextBucket(ms: number, grain: TimeGrain): number {
     }
     case "year": {
       const date = new Date(ms);
-      return Date.UTC(date.getUTCFullYear() + 1, 0, 1);
+      return Date.UTC(date.getUTCFullYear() + 1, date.getUTCMonth(), 1);
+    }
+  }
+}
+
+/** Periods between two bucket starts at the same grain (0 when equal). */
+export function periodIndex(from: number, to: number, grain: TimeGrain): number {
+  switch (grain) {
+    case "minute":
+      return Math.round((to - from) / MINUTE);
+    case "hour":
+      return Math.round((to - from) / HOUR);
+    case "day":
+      return Math.round((to - from) / DAY);
+    case "week":
+      return Math.round((to - from) / (7 * DAY));
+    default: {
+      const [y1, m1] = civilFromDays(Math.floor(from / DAY));
+      const [y2, m2] = civilFromDays(Math.floor(to / DAY));
+      const months = (y2 - y1) * 12 + (m2 - m1);
+      if (grain === "month") return months;
+      if (grain === "quarter") return Math.round(months / 3);
+      return Math.round(months / 12);
     }
   }
 }
@@ -922,14 +1116,83 @@ export function computeAggregate(
     "time" in dimensions[0].by
       ? dimensions[0].by.time
       : null;
-  const dimGrains: (TimeGrain | null)[] = dimensions.map((spec) =>
-    typeof spec.by === "object" && "time" in spec.by ? spec.by.time : null,
-  );
+  const dimGrains: (TimeGrain | null)[] = dimensions.map((spec) => {
+    const by = spec.by;
+    if (typeof by !== "object") return null;
+    if ("time" in by) return by.time;
+    if ("cohort" in by) return by.cohort.grain;
+    return null;
+  });
   const dimBinEdges: (number[] | null)[] = dimensions.map((spec) =>
     typeof spec.by === "object" && "bin" in spec.by
       ? computeBinEdges(spec.by.bin, columns[spec.column], ids, rowCount)
       : null,
   );
+  // Per-dimension runtime: zone shift + fiscal/week options, and the
+  // entity -> first-period map cohort dimensions need (built once).
+  const dimRuntime: DimRuntime[] = dimensions.map((spec) => {
+    const by = spec.by;
+    const entity: DimRuntime["entityRaw"] =
+      typeof by === "object" && ("cohort" in by || "since" in by)
+        ? columns[("cohort" in by ? by.cohort : by.since).entity]?.raw ?? null
+        : null;
+    const entityMask: DimRuntime["entityMask"] =
+      typeof by === "object" && ("cohort" in by || "since" in by)
+        ? columns[("cohort" in by ? by.cohort : by.since).entity]?.nullMask ?? null
+        : null;
+    return {
+      shift:
+        typeof by === "object" && "time" in by
+          ? zoneShift(by.tz)
+          : typeof by === "object" && ("cohort" in by || "since" in by)
+            ? zoneShift(("cohort" in by ? by.cohort : by.since).tz)
+            : null,
+      weekStart:
+        (typeof by === "object" && "time" in by ? by.weekStart : undefined) ??
+        (typeof by === "object" && ("cohort" in by || "since" in by)
+          ? ("cohort" in by ? by.cohort : by.since).weekStart
+          : undefined) ??
+        1,
+      fiscalStartMonth:
+        (typeof by === "object" && "time" in by ? by.fiscalStartMonth : undefined) ??
+        (typeof by === "object" && ("cohort" in by || "since" in by)
+          ? ("cohort" in by ? by.cohort : by.since).fiscalStartMonth
+          : undefined),
+      cohort: null,
+      entityRaw: entity,
+      entityMask,
+    };
+  });
+  for (let d = 0; d < dimensions.length; d++) {
+    const spec = dimensions[d];
+    if (typeof spec.by !== "object" || !("cohort" in spec.by || "since" in spec.by)) continue;
+    const cohortSpec = "cohort" in spec.by ? spec.by.cohort : spec.by.since;
+    const runtime = dimRuntime[d];
+    if (runtime.cohort !== null || runtime.entityRaw === null) continue;
+    const dateColumn = columns[spec.column];
+    const dates = dateColumn?.numbers() ?? null;
+    const map = new Map<string, number>();
+    if (dates !== null) {
+      for (let position = 0; position < ids.length; position++) {
+        const row = ids[position];
+        if (row >= rowCount) continue;
+        if (runtime.entityMask?.get(row) === true) continue;
+        const entity = runtime.entityRaw[row];
+        if (entity === undefined) continue;
+        const value = dates[row];
+        if (!Number.isFinite(value)) continue;
+        const shifted = runtime.shift === null ? value : runtime.shift(value);
+        const bucket = timeBucket(shifted, cohortSpec.grain, {
+          weekStart: cohortSpec.weekStart,
+          fiscalStartMonth: cohortSpec.fiscalStartMonth,
+        });
+        const key = entity.trim();
+        const existing = map.get(key);
+        if (existing === undefined || bucket < existing) map.set(key, bucket);
+      }
+    }
+    runtime.cohort = map;
+  }
 
   const groupIndex = new Map<string, number>();
   const dimValues: string[][] = dimensions.map(() => []);
@@ -954,6 +1217,8 @@ export function computeAggregate(
     /** Weighted mean/sum: the weight column's values. */
     weighted: boolean;
     weights: Float64Array | null;
+    /** Rows counted by this measure (null = every row). */
+    condition: Uint8Array | null;
   }
   const slots: Slot[] = [];
   const pushSlot = (
@@ -961,6 +1226,7 @@ export function computeAggregate(
     column: number | null,
     exists: boolean,
     weightColumn: number | null = null,
+    condition: Uint8Array | null = null,
   ): void => {
     const data = column === null || !exists ? null : (columns[column] ?? null);
     const kind: SlotKind = kindOf(agg, column, data);
@@ -978,7 +1244,38 @@ export function computeAggregate(
       mask: data?.nullMask ?? null,
       weighted: weighted && weights !== null,
       weights: weighted && weights !== null ? weights : null,
+      condition,
     });
+  };
+  const compileCondition = (where: MeasureCondition | undefined): Uint8Array | null => {
+    if (where === undefined) return null;
+    const column = columns[where.column];
+    if (column === undefined) return null;
+    const mask = new Uint8Array(rowCount);
+    if (where.isNull === true) {
+      for (let row = 0; row < rowCount; row++) {
+        if (column.nullMask.get(row)) mask[row] = 1;
+      }
+      return mask;
+    }
+    if (where.values !== undefined) {
+      const wanted = new Set(where.values.map((value) => value.trim()));
+      for (let row = 0; row < rowCount; row++) {
+        if (column.nullMask.get(row)) continue;
+        const value = column.raw[row];
+        if (value !== undefined && wanted.has(value.trim())) mask[row] = 1;
+      }
+      return mask;
+    }
+    const numbers = column.numbers();
+    for (let row = 0; row < rowCount; row++) {
+      const value = numbers[row];
+      if (!Number.isFinite(value)) continue;
+      if (where.min !== undefined && value < where.min) continue;
+      if (where.max !== undefined && value > where.max) continue;
+      mask[row] = 1;
+    }
+    return mask;
   };
   const measureSlotOffset: number[] = [];
   const measureTerms: ExprTerm[][] = [];
@@ -986,13 +1283,20 @@ export function computeAggregate(
   const columnNames = columns.map((column) => column.name);
   for (const measure of measures) {
     measureSlotOffset.push(slots.length);
+    const condition = compileCondition(measure.where);
     if (measure.agg === "expr") {
       const compiled = compileExpression(measure.expr ?? "", columnNames);
       if (compiled.ok) {
         measureCompiled.push(compiled.compiled);
         measureTerms.push(compiled.compiled.terms);
         for (const term of compiled.compiled.terms) {
-          pushSlot(term.agg, term.column, term.column === null || columns[term.column] !== undefined);
+          pushSlot(
+            term.agg,
+            term.column,
+            term.column === null || columns[term.column] !== undefined,
+            null,
+            condition,
+          );
         }
       } else {
         measureCompiled.push(null);
@@ -1006,6 +1310,7 @@ export function computeAggregate(
         measure.column,
         measure.column === null || columns[measure.column] !== undefined,
         measure.weight ?? null,
+        condition,
       );
     }
   }
@@ -1036,6 +1341,7 @@ export function computeAggregate(
         ranks,
         times,
         dimBinEdges[d],
+        dimRuntime[d],
       );
       if (d === 0) {
         const ms = times[0] ?? Number.NaN;
@@ -1055,7 +1361,9 @@ export function computeAggregate(
           label !== ""
             ? label
             : grain !== null
-              ? timeLabel(times[d] ?? Number.NaN, grain)
+              ? timeLabel(times[d] ?? Number.NaN, grain, {
+                  fiscalStartMonth: dimRuntime[d]?.fiscalStartMonth,
+                })
               : edges !== null
                 ? binLabel(edges, Number(keys[d] ?? "0"))
                 : "(missing)",
@@ -1071,6 +1379,7 @@ export function computeAggregate(
 
     for (let s = 0; s < slots.length; s++) {
       const slot = slots[s];
+      if (slot.condition !== null && slot.condition[row] !== 1) continue;
       const acc = groups[s];
       const total = totalAccs[s];
       switch (slot.kind) {
@@ -1142,7 +1451,9 @@ export function computeAggregate(
     for (let time = min; time <= max; time = nextBucket(time, timeGrain)) {
       if (seen.has(time)) continue;
       seen.add(time);
-      dimValues[0].push(timeLabel(time, timeGrain));
+      dimValues[0].push(
+        timeLabel(time, timeGrain, { fiscalStartMonth: dimRuntime[0]?.fiscalStartMonth }),
+      );
       dimRanks[0].push(time);
       dimTimes[0].push(time);
       groupTimes.push(time);
@@ -1227,18 +1538,66 @@ export function computeAggregate(
   // Above the limit only the top N are needed: a bounded heap beats a full
   // sort of every group (matters at 100k+ high-cardinality dimensions).
   const shown = truncated ? selectTopIndices(order, compare, limit) : order.sort(compare);
+  // Incomplete edge periods: the first bucket is partial when the data starts
+  // after the period did; the last when the period has not ended yet.
+  const bucketOptions: BucketOptions = {
+    weekStart: dimRuntime[0]?.weekStart,
+    fiscalStartMonth: dimRuntime[0]?.fiscalStartMonth,
+  };
+  let finalShown = shown;
+  let partials: boolean[] | null = null;
+  if (timeGrain !== null && shown.length > 0) {
+    // Edge partiality is judged from the raw timestamps, not the bucket starts.
+    const numbers = columns[dimensions[0].column]?.numbers() ?? null;
+    const shift = dimRuntime[0]?.shift ?? null;
+    let rawMin = Infinity;
+    let rawMax = -Infinity;
+    if (numbers !== null) {
+      for (let position = 0; position < ids.length; position++) {
+        const row = ids[position];
+        const value = numbers[row];
+        if (!Number.isFinite(value)) continue;
+        const shifted = shift === null ? value : shift(value);
+        if (shifted < rawMin) rawMin = shifted;
+        if (shifted > rawMax) rawMax = shifted;
+      }
+    }
+    const firstBucket = Number.isFinite(rawMin)
+      ? timeBucket(rawMin, timeGrain, bucketOptions)
+      : Number.NaN;
+    const lastBucket = Number.isFinite(rawMax)
+      ? timeBucket(rawMax, timeGrain, bucketOptions)
+      : Number.NaN;
+    const lastEnd = nextBucket(lastBucket, timeGrain);
+    const firstPartial = Number.isFinite(rawMin) && rawMin > firstBucket;
+    const now = Date.now();
+    const flagsFor = (indexes: readonly number[]): boolean[] =>
+      indexes.map((index) => {
+        const time = groupTimes[index] ?? Number.NaN;
+        if (!Number.isFinite(time)) return false;
+        if (firstPartial && time === firstBucket) return true;
+        if (time === lastBucket && now < lastEnd) return true;
+        return false;
+      });
+    partials = flagsFor(shown);
+    if (view.partial === "exclude" && partials.some(Boolean)) {
+      finalShown = shown.filter((_, position) => partials?.[position] !== true);
+      partials = flagsFor(finalShown);
+    }
+  }
   const limited = finalMeasures.map((values) => {
-    const out = new Float64Array(shown.length);
-    for (let i = 0; i < shown.length; i++) out[i] = values[shown[i]];
+    const out = new Float64Array(finalShown.length);
+    for (let i = 0; i < finalShown.length; i++) out[i] = values[finalShown[i]];
     return out;
   });
-  const shownTimes = timeGrain !== null ? shown.map((i) => groupTimes[i] ?? Number.NaN) : null;
+  const shownTimes =
+    timeGrain !== null ? finalShown.map((i) => groupTimes[i] ?? Number.NaN) : null;
   // Carry fill: inserted (empty) periods repeat the previous period's value.
   if (view.fill === "carry" && timeGrain !== null) {
     for (const values of limited) {
       let carried = Number.NaN;
       for (let i = 0; i < values.length; i++) {
-        if (filled[shown[i] ?? 0] === true) {
+        if (filled[finalShown[i] ?? 0] === true) {
           if (Number.isFinite(carried)) values[i] = carried;
         } else {
           carried = values[i];
@@ -1251,12 +1610,23 @@ export function computeAggregate(
   );
 
   return {
-    labels: shown.map((i) => dimensions.map((_, d) => dimValues[d][i]).join(" · ")),
-    dimensions: dimensions.map((_, d) => shown.map((i) => dimValues[d][i])),
+    labels: finalShown.map((i) => dimensions.map((_, d) => dimValues[d][i]).join(" · ")),
+    dimensions: dimensions.map((_, d) => finalShown.map((i) => dimValues[d][i])),
     dimensionNames: dimensions.map((spec) => {
       const base = columns[spec.column].name;
       const by = spec.by;
-      if (typeof by === "object" && "time" in by) return `${base} (${by.time})`;
+      if (typeof by === "object" && "time" in by) {
+        const extras = [
+          by.weekStart === 0 ? "Sun" : undefined,
+          by.fiscalStartMonth !== undefined && by.fiscalStartMonth !== 1
+            ? `FY from ${MONTH_LABELS[by.fiscalStartMonth - 1] ?? by.fiscalStartMonth}`
+            : undefined,
+          by.tz !== undefined && by.tz.trim() !== "" ? by.tz : undefined,
+        ].filter((part): part is string => part !== undefined);
+        return extras.length === 0
+          ? `${base} (${by.time})`
+          : `${base} (${by.time}, ${extras.join(", ")})`;
+      }
       if (typeof by === "object" && "datePart" in by) return `${base} (${by.datePart})`;
       if (typeof by === "object" && "bin" in by) {
         const bin = by.bin;
@@ -1264,27 +1634,55 @@ export function computeAggregate(
           "width" in bin ? `bin ${bin.width}` : "n" in bin ? `${bin.n} bins` : "bins";
         return `${base} (${suffix})`;
       }
+      if (typeof by === "object" && "cohort" in by) {
+        const entity = columns[by.cohort.entity]?.name ?? "?";
+        return `${base} · cohort by ${entity} (${by.cohort.grain})`;
+      }
+      if (typeof by === "object" && "since" in by) {
+        const entity = columns[by.since.entity]?.name ?? "?";
+        return `periods since first ${entity} (${by.since.grain})`;
+      }
       return base;
     }),
     dimensionIsTime: dimensions.map(
       (spec) => typeof spec.by === "object" && "time" in spec.by,
     ),
-    dimensionTimes: dimTimes.map((values) => Float64Array.from(shown, (i) => values[i])),
+    dimensionTimes: dimTimes.map((values) =>
+      Float64Array.from(finalShown, (i) => values[i]),
+    ),
     measures: measuresOut,
     measureNames: measures.map((measure) => {
-      if (measure.agg === "expr") return measure.expr ?? "expr";
       const base =
-        measure.column === null
-          ? "count(*)"
-          : `${measure.agg}(${columns[measure.column]?.name ?? "?"})`;
+        measure.agg === "expr"
+          ? measure.expr ?? "expr"
+          : measure.column === null
+            ? "count(*)"
+            : `${measure.agg}(${columns[measure.column]?.name ?? "?"})`;
       const weightName =
         measure.weight === undefined ? undefined : columns[measure.weight]?.name;
-      return weightName === undefined ? base : `${base} · weighted by ${weightName}`;
+      const withWeight = weightName === undefined ? base : `${base} · weighted by ${weightName}`;
+      const where = measure.where;
+      if (where === undefined) return withWeight;
+      const whereColumn = columns[where.column]?.name ?? "?";
+      if (where.isNull === true) return `${withWeight} · where ${whereColumn} is empty`;
+      if (where.values !== undefined) {
+        const preview = where.values.slice(0, 3).join(", ");
+        const suffix = where.values.length > 3 ? ` +${where.values.length - 3}` : "";
+        return `${withWeight} · where ${whereColumn} in (${preview}${suffix})`;
+      }
+      const bounds = [
+        where.min !== undefined ? `≥ ${where.min}` : undefined,
+        where.max !== undefined ? `≤ ${where.max}` : undefined,
+      ]
+        .filter((part): part is string => part !== undefined)
+        .join(" and ");
+      return `${withWeight} · where ${whereColumn} ${bounds}`;
     }),
     totals,
-    groupCount: shown.length,
+    groupCount: finalShown.length,
     totalGroups: order.length,
     truncated,
+    partials,
   };
 }
 

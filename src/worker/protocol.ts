@@ -391,6 +391,8 @@ export interface AggregateMessage {
   groupCount: number;
   totalGroups: number;
   truncated: boolean;
+  /** Per shown group: the period is incomplete at a data edge. */
+  partials: boolean[] | null;
   /** Worker compute time for this payload. */
   ms: number;
 }

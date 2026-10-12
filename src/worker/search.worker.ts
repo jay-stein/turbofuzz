@@ -1065,6 +1065,7 @@ function handleGetAggregate(message: GetAggregateRequest): void {
       groupCount: result.groupCount,
       totalGroups: result.totalGroups,
       truncated: result.truncated,
+      partials: result.partials,
       ms: performance.now() - started,
     },
     transfer,

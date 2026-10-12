@@ -194,6 +194,7 @@ const stubOptions = (): ChartsPanelOptions => ({
       groupCount: 2,
       totalGroups: 2,
       truncated: false,
+      partials: null,
       ms: 1,
     }),
   requestTextProfile: () =>
