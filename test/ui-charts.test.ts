@@ -178,6 +178,44 @@ const stubOptions = (): ChartsPanelOptions => ({
   requestBoxStats: () => Promise.resolve(boxStats()),
   requestCrosstab: () => Promise.resolve(crosstab()),
   requestCorrelation: () => Promise.resolve(correlation()),
+  requestAggregate: () =>
+    Promise.resolve({
+      type: "aggregate",
+      requestId: 1,
+      viewId: "chart-treemap",
+      labels: ["a", "b"],
+      dimensions: [["a", "b"]],
+      dimensionNames: ["city"],
+      dimensionIsTime: [false],
+      dimensionTimes: [Float64Array.from([Number.NaN, Number.NaN])],
+      measures: [Float64Array.from([30, 10])],
+      measureNames: ["sum(amount)"],
+      totals: Float64Array.from([40]),
+      groupCount: 2,
+      totalGroups: 2,
+      truncated: false,
+      ms: 1,
+    }),
+  requestTextProfile: () =>
+    Promise.resolve({
+      type: "textProfile",
+      requestId: 1,
+      column: 0,
+      label: "notes",
+      profile: {
+        rows: 40,
+        characters: 400,
+        avgLength: 10,
+        totalTokens: 80,
+        distinctTerms: 25,
+        topTerms: [
+          { term: "delivery", count: 12 },
+          { term: "late", count: 8 },
+        ],
+        shapes: { email: 2, url: 1, phone: 0, numeric: 0, dateLike: 0, uppercase: 3, hasDigits: 5 },
+      },
+      ms: 1,
+    }),
 });
 
 const stubCardOptions = (): ChartCardOptions => ({
@@ -800,5 +838,65 @@ test("group by draws one line per category with a toggleable legend", async () =
   assert.equal(refreshed[1].classList.contains("off"), true);
   assert.equal(refreshed[1].getAttribute("aria-pressed"), "false");
   assert.match(host.querySelector(".chart-note")?.textContent ?? "", /1 of 2 lines by region/);
+  card.dispose();
+});
+
+test("treemap tiles draw and filter their category", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const applied: [number, ColumnFilter | null][] = [];
+  const host = document.createElement("div");
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      onFilter: (column, filter) => applied.push([column, filter]),
+      currentFilter: () => null,
+    },
+    { kind: "treemap", column: 0 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({
+      name: "region",
+      type: "category",
+      categories: { labels: ["Perth", "Sydney"], counts: [10, 5] },
+    }),
+  ]);
+  await tick();
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /2 tiles/);
+  const canvas = host.querySelector("canvas") as HTMLCanvasElement;
+  (canvas as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(
+    new window.MouseEvent("click", { clientX: 120, clientY: 120 }),
+  );
+  assert.deepEqual(applied, [[0, { kind: "values", selected: [0] }]]);
+  card.dispose();
+});
+
+test("top-terms bars draw and filter rows by term", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const applied: [number, ColumnFilter | null][] = [];
+  const host = document.createElement("div");
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      onFilter: (column, filter) => applied.push([column, filter]),
+      currentFilter: () => null,
+    },
+    { kind: "terms", column: 0 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([meta({ name: "notes", type: "string" })]);
+  await tick();
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /2 terms/);
+  const canvas = host.querySelector("canvas") as HTMLCanvasElement;
+  (canvas as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(
+    new window.MouseEvent("click", { clientX: 120, clientY: 90 }),
+  );
+  assert.deepEqual(applied, [[0, { kind: "text", mode: "contains", query: "delivery" }]]);
   card.dispose();
 });

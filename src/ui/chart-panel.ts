@@ -10,6 +10,7 @@ import type {
   CorrelationMessage,
   CrosstabMessage,
   GroupedBinsMessage,
+  TextProfileMessage,
 } from "../worker/protocol.js";
 import { ChartCard, type ChartCardConfig, type SeriesRequestInput } from "./chart-card.js";
 import { openChartGallery } from "./chart-gallery.js";
@@ -51,6 +52,10 @@ export interface ChartsPanelOptions {
   }): Promise<GroupedBinsMessage>;
   /** Aggregate result for a view-bound card (null when the view is gone). */
   requestViewAggregate?(source: string): Promise<AggregateMessage | null>;
+  /** Ad-hoc aggregation for the treemap measure. */
+  requestAggregate(view: ViewDef): Promise<AggregateMessage>;
+  /** Token frequencies for the top-terms chart. */
+  requestTextProfile(column: number): Promise<TextProfileMessage>;
   /** Applies a filter from a click on a chart region (bars, bins, cells). */
   onFilter?(column: number, filter: ColumnFilter | null, preview?: boolean): void;
   /** Reads the app's current filter for a column, so clicks can toggle. */
@@ -327,6 +332,8 @@ export class ChartsPanel {
         requestCorrelation: this.options.requestCorrelation,
         requestGroupedBins: this.options.requestGroupedBins,
         requestViewAggregate: this.options.requestViewAggregate,
+        requestAggregate: this.options.requestAggregate,
+        requestTextProfile: this.options.requestTextProfile,
         onFilter: this.options.onFilter,
         currentFilter: this.options.currentFilter,
         onRemove: (target) => this.removeCard(target),

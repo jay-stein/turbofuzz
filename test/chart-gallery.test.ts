@@ -81,6 +81,17 @@ test("the gallery groups every chart type by the question it answers", () => {
   const kinds = QUESTION_GROUPS.flatMap((group) => group.kinds);
   assert.deepEqual(
     [...kinds].sort(),
-    ["bar", "box", "correlation", "density", "heatmap", "histogram", "line", "scatter"],
+    [
+      "bar",
+      "box",
+      "correlation",
+      "density",
+      "heatmap",
+      "histogram",
+      "line",
+      "scatter",
+      "terms",
+      "treemap",
+    ],
   );
 });

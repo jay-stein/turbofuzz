@@ -8,6 +8,7 @@ import {
   qualityFindings,
   relationshipDataFindings,
   relationshipFindings,
+  textProfileFindings,
   type Finding,
 } from "../data/findings.js";
 import type {
@@ -17,6 +18,7 @@ import type {
   DependenciesMessage,
   GroupAnomaliesMessage,
   RelationshipsMessage,
+  TextProfileMessage,
 } from "../worker/protocol.js";
 import { clear, el } from "./dom.js";
 
@@ -39,6 +41,8 @@ export interface ReportsPanelOptions {
   requestDependencies(): Promise<DependenciesMessage | null>;
   /** Ranked associations: Pearson, Spearman, Cramér's V and η². */
   requestRelationships(): Promise<RelationshipsMessage | null>;
+  /** Token profiles for text columns (up to three are read). */
+  requestTextProfile(column: number): Promise<TextProfileMessage | null>;
   /** Runs a finding's action (filters, suggestion chips, merge, clean). */
   onAction(finding: Finding): void;
 }
@@ -71,6 +75,9 @@ export class ReportsPanel {
   private relationships: RelationshipsMessage | null = null;
   private relationshipsLoading = false;
   private relationshipsRequested = false;
+  private textProfiles: TextProfileMessage[] = [];
+  private textLoading = false;
+  private textRequested = false;
   private explainLabel: string | null = null;
 
   constructor(
@@ -95,6 +102,7 @@ export class ReportsPanel {
     if (this.active === "quality") {
       void this.loadCoMissingness();
       void this.loadDependencies();
+      void this.loadTextProfiles();
     }
     if (this.active === "anomalies") void this.loadGroupAnomalies();
     this.render();
@@ -109,6 +117,7 @@ export class ReportsPanel {
     if (tab === "quality") {
       void this.loadCoMissingness();
       void this.loadDependencies();
+      void this.loadTextProfiles();
     }
     if (tab === "anomalies") void this.loadGroupAnomalies();
     this.render();
@@ -139,6 +148,33 @@ export class ReportsPanel {
       this.dependencies = null;
     }
     this.dependenciesLoading = false;
+    this.render();
+  }
+
+  private async loadTextProfiles(): Promise<void> {
+    if (this.textRequested) return;
+    this.textRequested = true;
+    const columns = this.metas
+      .map((meta, index) => ({ meta, index }))
+      .filter((entry) => entry.meta.type === "string")
+      .slice(0, 3);
+    if (columns.length === 0) {
+      this.render();
+      return;
+    }
+    this.textLoading = true;
+    this.render();
+    try {
+      const profiles = await Promise.all(
+        columns.map((entry) => this.options.requestTextProfile(entry.index)),
+      );
+      this.textProfiles = profiles.filter(
+        (profile): profile is TextProfileMessage => profile !== null,
+      );
+    } catch {
+      this.textProfiles = [];
+    }
+    this.textLoading = false;
     this.render();
   }
 
@@ -196,6 +232,8 @@ export class ReportsPanel {
     this.dependenciesRequested = false;
     this.relationships = null;
     this.relationshipsRequested = false;
+    this.textProfiles = [];
+    this.textRequested = false;
     if (this.active === "relationships") {
       void this.loadCorrelation();
       void this.loadRelationships();
@@ -203,6 +241,7 @@ export class ReportsPanel {
     if (this.active === "quality") {
       void this.loadCoMissingness();
       void this.loadDependencies();
+      void this.loadTextProfiles();
     }
     if (this.active === "anomalies") void this.loadGroupAnomalies();
   }
@@ -215,6 +254,17 @@ export class ReportsPanel {
     if (this.stats === null) return [];
     if (this.active === "quality") {
       const quality = qualityFindings(this.metas, this.stats, this.rowCount);
+      if (this.textProfiles.length > 0) {
+        quality.push(
+          ...textProfileFindings(
+            this.textProfiles.map((profile) => ({
+              column: profile.column,
+              label: profile.label,
+              profile: profile.profile,
+            })),
+          ),
+        );
+      }
       if (this.dependencies !== null && this.dependencies.pairs.length > 0) {
         quality.push(...dependencyFindings(this.dependencies.pairs));
       }
@@ -297,7 +347,9 @@ export class ReportsPanel {
             ? " · checking within-group outliers…"
             : this.dependenciesLoading
               ? " · checking key relationships…"
-              : "";
+              : this.textLoading
+                ? " · reading text columns…"
+                : "";
     this.metaEl.textContent =
       this.stats === null
         ? ""

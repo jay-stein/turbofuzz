@@ -36,6 +36,7 @@ import type {
   SortedMessage,
   SpecialKind,
   StatsMessage,
+  TextProfileMessage,
   TransformedMessage,
   TransformPreviewMessage,
   WorkerRequest,
@@ -203,6 +204,10 @@ export class SearchWorkerClient {
 
   getRelationships(): Promise<RelationshipsMessage> {
     return this.request<RelationshipsMessage>({ type: "getRelationships" });
+  }
+
+  getTextProfile(column: number, limit?: number): Promise<TextProfileMessage> {
+    return this.request<TextProfileMessage>({ type: "getTextProfile", column, limit });
   }
 
   renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {

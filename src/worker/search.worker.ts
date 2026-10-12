@@ -4,6 +4,7 @@ import { coMissingness } from "../data/comissingness.js";
 import { computeDependencies } from "../data/dependencies.js";
 import { computeGroupAnomalies } from "../data/group-anomalies.js";
 import { computeRelationships } from "../data/relationships.js";
+import { textProfile } from "../data/text-profile.js";
 import { computeAnomalies } from "../data/anomalies.js";
 import { buildDataset, datasetFromColumns, rebuildDataset } from "../data/build.js";
 import { applyCleanOps } from "../data/clean-ops.js";
@@ -56,6 +57,7 @@ import type {
   GetGroupAnomaliesRequest,
   GetDependenciesRequest,
   GetRelationshipsRequest,
+  GetTextProfileRequest,
   LoadRequest,
   PreviewCleanRequest,
   PreviewTransformRequest,
@@ -260,6 +262,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getRelationships":
       handleGetRelationships(message);
+      break;
+    case "getTextProfile":
+      handleGetTextProfile(message);
       break;
     case "renameHeaders":
       handleRenameHeaders(message);
@@ -1122,6 +1127,23 @@ function handleGetRelationships(message: GetRelationshipsRequest): void {
     type: "relationships",
     requestId: message.requestId,
     relationships,
+    ms: performance.now() - started,
+  });
+}
+
+/** Token frequencies and value shapes for one text column. */
+function handleGetTextProfile(message: GetTextProfileRequest): void {
+  const { dataset } = state();
+  const column = dataset.columns[message.column];
+  if (column === undefined) throw new Error("Unknown column");
+  const started = performance.now();
+  const profile = textProfile(column.raw, column.nullMask, message.limit ?? 30);
+  post({
+    type: "textProfile",
+    requestId: message.requestId,
+    column: message.column,
+    label: column.name,
+    profile,
     ms: performance.now() - started,
   });
 }

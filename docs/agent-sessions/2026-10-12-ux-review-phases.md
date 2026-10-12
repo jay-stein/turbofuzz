@@ -61,7 +61,13 @@ uploaded 5 assets to the `turbofuzz` Worker, version
   detector, `groupAnomalies` column filter) and functional-dependency discovery
   (candidate keys → determined columns, conflicts with examples).
 - Relationship discovery: Pearson + Spearman + Cramér's V + η² ranked by effect
-  size in the Relationships tab (lazy, 62 ms at 100k rows; bench case added).
+  size in the Relationships tab (lazy, 46 ms at 100k rows; bench case added).
+- Treemap chart cards (squarified layout, count or Σ measure via the aggregate
+  engine, click-to-filter tiles) and **top-terms cards** for text mining
+  (`getTextProfile`: stopword-filtered token frequencies plus email/URL/phone/
+  number/date shape detection; clicking a term filters rows containing it).
+  Reports Quality adds text findings per text column (top term, term variety,
+  shaped-value mix). Bench: text profile 90 ms at 100k rows.
 
 Drawers kept intentionally: the inspector and command bar cover the common
 verbs, but melt, KNN, combine-date roles and regex split still need the

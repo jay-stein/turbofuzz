@@ -5,6 +5,7 @@ import { buildDataset, rebuildDataset } from "../src/data/build.js";
 import { applyCleanOps } from "../src/data/clean-ops.js";
 import { ColumnData } from "../src/data/column.js";
 import { computeRelationships } from "../src/data/relationships.js";
+import { textProfile } from "../src/data/text-profile.js";
 import { QueryEngine } from "../src/search/query-engine.js";
 import { generateDataset } from "./data.js";
 import { count, measure, memMB, ms, type Timing } from "./bench-utils.js";
@@ -140,6 +141,14 @@ function casesFor(size: number): { cases: BenchCase[]; buildMs: number; rssMB: n
         budgetMs: 750,
         run: () => {
           computeRelationships(dataset.columns, dataset.rowCount, allIds);
+        },
+      },
+      {
+        label: "Text mining: token profile of a text column (lazy)",
+        budgetMs: 500,
+        run: () => {
+          const column = dataset.columns[indexOf("customer_name")];
+          if (column !== undefined) textProfile(column.raw, column.nullMask, 30);
         },
       },
       {

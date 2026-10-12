@@ -11,6 +11,8 @@ export type ChartCardKind =
   | "scatter"
   | "density"
   | "box"
+  | "treemap"
+  | "terms"
   | "heatmap"
   | "correlation";
 
@@ -21,6 +23,8 @@ export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   scatter: "Scatter",
   density: "Density",
   box: "Box plot",
+  treemap: "Treemap",
+  terms: "Top terms",
   heatmap: "Heatmap",
   correlation: "Correlation",
 };

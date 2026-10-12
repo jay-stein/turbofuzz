@@ -3,6 +3,7 @@ import type { ViewDef } from "../data/aggregate.js";
 import type { DependencyPair } from "../data/dependencies.js";
 import type { GroupAnomalyPair } from "../data/group-anomalies.js";
 import type { RelationshipData } from "../data/relationships.js";
+import type { TextProfile } from "../data/text-profile.js";
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import type { SeriesMode, SeriesResult } from "../data/chart-series.js";
 import type { BoxStatsResult, CorrelationResult, CrossTabResult } from "../data/chart-stats.js";
@@ -458,6 +459,23 @@ export interface RelationshipsMessage {
   ms: number;
 }
 
+export type GetTextProfileRequest = {
+  type: "getTextProfile";
+  requestId: number;
+  column: number;
+  /** Maximum ranked terms returned (default 30). */
+  limit?: number;
+};
+
+export interface TextProfileMessage {
+  type: "textProfile";
+  requestId: number;
+  column: number;
+  label: string;
+  profile: TextProfile;
+  ms: number;
+}
+
 export type WorkerRequest =
   | LoadRequest
   | SetFilterRequest
@@ -491,7 +509,8 @@ export type WorkerRequest =
   | GetCoMissingnessRequest
   | GetGroupAnomaliesRequest
   | GetDependenciesRequest
-  | GetRelationshipsRequest;
+  | GetRelationshipsRequest
+  | GetTextProfileRequest;
 
 export interface DatasetMessage {
   requestId: number;
@@ -672,6 +691,7 @@ export type WorkerResponse =
   | GroupAnomaliesMessage
   | DependenciesMessage
   | RelationshipsMessage
+  | TextProfileMessage
   | ExportStartedMessage
   | CsvChunkMessage
   | HeadersRenamedMessage

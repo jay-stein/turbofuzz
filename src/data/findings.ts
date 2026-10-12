@@ -2,6 +2,7 @@ import type { DatasetStats } from "./stats.js";
 import type { DependencyPair } from "./dependencies.js";
 import type { GroupAnomalyPair } from "./group-anomalies.js";
 import type { RelationshipData } from "./relationships.js";
+import type { TextProfile } from "./text-profile.js";
 import type { ColumnSuggestion } from "./suggestions.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 
@@ -495,6 +496,66 @@ export function relationshipDataFindings(
       impact: { rows: entry.n, columns: [entry.aColumn, entry.bColumn] },
     } satisfies Finding;
   });
+}
+
+export interface TextProfileInput {
+  column: number;
+  label: string;
+  profile: TextProfile;
+}
+
+/**
+ * Text mining findings: what a free-text column is about (top terms, term
+ * variety) and whether it mixes shaped values (email/URL/phone) with prose.
+ */
+export function textProfileFindings(profiles: readonly TextProfileInput[]): Finding[] {
+  return profiles
+    .filter((entry) => entry.profile.rows >= 20 && entry.profile.totalTokens >= 20)
+    .map((entry) => {
+      const profile = entry.profile;
+      const shaped = profile.shapes.email + profile.shapes.url + profile.shapes.phone;
+      const shapedShare = profile.rows > 0 ? shaped / profile.rows : 0;
+      const mixed = shapedShare >= 0.1 && shapedShare < 0.9 && shaped >= 5;
+      const top = profile.topTerms[0];
+      const finding: Finding = {
+        id: `text.${entry.column}`,
+        report: "quality.textMining",
+        severity: mixed ? "review" : "info",
+        title: mixed
+          ? `“${entry.label}” mixes ${Math.round(shapedShare * 100)}% shaped values (email/URL/phone) with free text`
+          : `“${entry.label}” is free text — ${profile.distinctTerms.toLocaleString()} distinct terms in ${profile.rows.toLocaleString()} values`,
+        evidence: [
+          { metric: "values", value: profile.rows.toLocaleString(), n: profile.rows },
+          { metric: "avg length", value: profile.avgLength.toFixed(1), n: 1 },
+          {
+            metric: "distinct terms",
+            value: profile.distinctTerms.toLocaleString(),
+            n: profile.distinctTerms,
+          },
+          ...(top === undefined
+            ? []
+            : [
+                {
+                  metric: "top term",
+                  value: `“${top.term}” (${top.count.toLocaleString()})`,
+                  n: top.count,
+                },
+              ]),
+          ...(shaped > 0
+            ? [
+                {
+                  metric: "shaped values",
+                  value: `${profile.shapes.email.toLocaleString()} email · ${profile.shapes.url.toLocaleString()} URL · ${profile.shapes.phone.toLocaleString()} phone`,
+                  n: shaped,
+                },
+              ]
+            : []),
+          { metric: "method", value: "token frequency with stopword filtering", n: 1 },
+        ],
+        impact: { rows: profile.rows, columns: [entry.column] },
+      };
+      return finding;
+    });
 }
 
 /**

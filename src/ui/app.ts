@@ -1437,6 +1437,8 @@ export class App {
       requestCorrelation: (columns) => this.client.getCorrelation(columns),
       requestGroupedBins: (input) => this.client.getGroupedBins(input),
       requestViewAggregate: (source) => this.aggregateForSource(source),
+      requestAggregate: (view) => this.client.getAggregate(view),
+      requestTextProfile: (column) => this.client.getTextProfile(column),
       onFilter: (column, filter, preview) =>
         this.changeFilter(column, filter, preview ?? false),
       currentFilter: (column) => this.filters.get(column) ?? null,
@@ -2202,6 +2204,7 @@ export class App {
       requestGroupAnomalies: () => this.client.getGroupAnomalies().catch(() => null),
       requestDependencies: () => this.client.getDependencies().catch(() => null),
       requestRelationships: () => this.client.getRelationships().catch(() => null),
+      requestTextProfile: (column) => this.client.getTextProfile(column).catch(() => null),
       onAction: (finding) => this.runFinding(finding),
     });
     this.reportsPanel.setData(this.metas, stats, this.rowCount);

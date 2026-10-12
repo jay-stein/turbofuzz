@@ -2,6 +2,8 @@ import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import type { SeriesGrid, SeriesMode, SeriesPoints } from "../data/chart-series.js";
 import type { BoxGroupStats, BoxStatsResult, CrossTabResult } from "../data/chart-stats.js";
 import { contourLevels, marchingSquares, smoothGrid, smoothSeries } from "../data/kde.js";
+import { squarifyLayout } from "../data/treemap.js";
+import type { ViewDef } from "../data/aggregate.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import { TYPE_LABELS } from "../types.js";
 import type {
@@ -13,6 +15,7 @@ import type {
   CorrelationMessage,
   CrosstabMessage,
   GroupedBinsMessage,
+  TextProfileMessage,
 } from "../worker/protocol.js";
 import {
   axisKindFor,
@@ -79,6 +82,10 @@ export interface ChartCardOptions {
   }): Promise<GroupedBinsMessage>;
   /** Aggregate result for a view-bound card (null when the view is gone). */
   requestViewAggregate?(source: string): Promise<AggregateMessage | null>;
+  /** Ad-hoc aggregation for the treemap measure (sum of a numeric column). */
+  requestAggregate(view: ViewDef): Promise<AggregateMessage>;
+  /** Token frequencies and shapes for the top-terms chart. */
+  requestTextProfile(column: number): Promise<TextProfileMessage>;
   /** Applies a filter from a click on a chart region (bars, bins, cells). */
   onFilter?(column: number, filter: ColumnFilter | null, preview?: boolean): void;
   /** Reads the app's current filter for a column, so clicks can toggle. */
@@ -141,10 +148,11 @@ export interface PlotGeometry {
   plotH: number;
 }
 
-/** A click on a region toggles a category value or sets a range filter. */
+/** A click on a region toggles a category value, sets a range or text filter. */
 export type HitAction =
   | { kind: "values"; column: number; code: number }
-  | { kind: "range"; column: number; min: number | null; max: number | null };
+  | { kind: "range"; column: number; min: number | null; max: number | null }
+  | { kind: "text"; column: number; query: string };
 
 export interface HitRegion {
   x: number;
@@ -448,6 +456,10 @@ export class ChartCard {
   private binResult: ChartBins | null = null;
   private binMedian: number | null = null;
   private seriesResult: SeriesPoints | SeriesGrid | null = null;
+  /** Treemap tiles: label + value pairs (counts come from facets directly). */
+  private treemapResult: { labels: string[]; values: number[] } | null = null;
+  /** Top-terms payload: token frequencies plus shape detection. */
+  private textResult: TextProfileMessage | null = null;
   private seriesLabels: string[] | null = null;
   private seriesMs = 0;
   private seriesCorrelation = Number.NaN;
@@ -614,6 +626,7 @@ export class ChartCard {
       this.config.sizeColumn = Number(this.sizeSelect.value);
       this.generation++;
       this.refreshSeries();
+      this.refreshTreemap();
       this.render();
     });
     this.sizeWrap = this.tagged("Size", this.sizeSelect).wrap;
@@ -931,6 +944,8 @@ export class ChartCard {
     this.renderControls();
     this.refreshBins();
     this.refreshSeries();
+    this.refreshTreemap();
+    this.refreshText();
     this.refreshBox();
     this.refreshCrosstab();
     this.refreshCorrelation();
@@ -1004,6 +1019,8 @@ export class ChartCard {
     if (this.config.source !== "") this.refreshView();
     this.refreshBins();
     this.refreshSeries();
+    this.refreshTreemap();
+    this.refreshText();
     this.refreshBox();
     this.refreshCrosstab();
     this.refreshCorrelation();
@@ -1020,6 +1037,8 @@ export class ChartCard {
     this.generation++;
     this.refreshBins();
     this.refreshSeries();
+    this.refreshTreemap();
+    this.refreshText();
     this.refreshBox();
     this.refreshCrosstab();
     this.refreshCorrelation();
@@ -1091,7 +1110,10 @@ export class ChartCard {
       case "line":
         return meta.type === "date";
       case "bar":
+      case "treemap":
         return isCategoryType(meta.type);
+      case "terms":
+        return meta.type === "string";
       default:
         return false;
     }
@@ -1173,6 +1195,8 @@ export class ChartCard {
     this.renderControls();
     this.refreshBins();
     this.refreshSeries();
+    this.refreshTreemap();
+    this.refreshText();
     this.refreshBox();
     this.refreshCrosstab();
     this.refreshCorrelation();
@@ -1189,6 +1213,8 @@ export class ChartCard {
     this.renderControls();
     this.refreshBins();
     this.refreshGroupedBins();
+    this.refreshTreemap();
+    this.refreshText();
     this.render();
   }
 
@@ -1274,6 +1300,10 @@ export class ChartCard {
     }
     this.colorSelect.value = String(this.config.colorColumn);
     this.sizeSelect.value = String(this.config.sizeColumn);
+    const sizeNone = this.sizeSelect.options[0];
+    if (sizeNone !== undefined) {
+      sizeNone.textContent = this.config.kind === "treemap" ? "Count (rows)" : "None";
+    }
     this.modeSelect.value = this.config.mode;
     this.densityStyleSelect.value = this.config.densityStyle;
 
@@ -1307,18 +1337,24 @@ export class ChartCard {
     this.yWrap.classList.toggle("hidden", !pair);
     const seriesKind = kind === "scatter" || kind === "density";
     this.colorWrap.classList.toggle("hidden", !seriesKind);
-    this.sizeWrap.classList.toggle("hidden", !seriesKind);
+    this.sizeWrap.classList.toggle("hidden", !seriesKind && kind !== "treemap");
     this.modeWrap.classList.toggle("hidden", kind !== "scatter");
     this.densityStyleWrap.classList.toggle("hidden", !seriesKind);
     this.colorGroup.classList.toggle("hidden", kind === "correlation");
     this.histogramSettings.classList.toggle("hidden", kind !== "histogram");
     this.barSettings.classList.toggle(
       "hidden",
-      kind !== "bar" && kind !== "box" && kind !== "heatmap",
+      kind !== "bar" && kind !== "box" && kind !== "heatmap" && kind !== "treemap",
     );
     this.correlationSettings.classList.toggle("hidden", kind !== "correlation");
     this.topLabel.textContent =
-      kind === "bar" ? "Top bars" : kind === "box" ? "Top groups" : "Top per axis";
+      kind === "bar"
+        ? "Top bars"
+        : kind === "box"
+          ? "Top groups"
+          : kind === "treemap"
+            ? "Top tiles"
+            : "Top per axis";
     if (seriesKind) {
       this.xTagLabel.textContent = "X";
       this.yTagLabel.textContent = "Y";
@@ -1520,6 +1556,289 @@ export class ChartCard {
       .catch(() => {
         // Keep the last payload as the fallback.
       });
+  }
+
+  /**
+   * Treemap data: counts come from the facets already on the client; a chosen
+   * measure asks the aggregation engine for a sum per category.
+   */
+  private refreshTreemap(): void {
+    if (this.config.kind !== "treemap" || this.config.sizeColumn < 0) {
+      this.treemapResult = null;
+      return;
+    }
+    const meta = this.meta(this.config.column);
+    if (meta === undefined || !isCategoryType(meta.type)) {
+      this.treemapResult = null;
+      return;
+    }
+    const generation = ++this.generation;
+    const view: ViewDef = {
+      id: "chart-treemap",
+      name: "Treemap",
+      dimensions: [{ column: this.config.column, by: "value" }],
+      measures: [{ column: this.config.sizeColumn, agg: "sum" }],
+      fill: "none",
+      sort: { key: "m0", dir: "desc" },
+      limit: 64,
+      respectFilters: true,
+    };
+    void this.options
+      .requestAggregate(view)
+      .then((message) => {
+        if (generation !== this.generation || this.disposed) return;
+        this.treemapResult = {
+          labels: message.labels,
+          values: [...(message.measures[0] ?? new Float64Array(0))],
+        };
+        this.render();
+      })
+      .catch(() => {
+        // Keep the last payload as the fallback.
+      });
+  }
+
+  private drawTreemap(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    const meta = this.meta(this.config.column);
+    if (meta === undefined || !isCategoryType(meta.type)) {
+      const message = "Treemaps need a category column — pick one above.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+
+    let entries: { label: string; value: number; code: number }[];
+    const measured = this.config.sizeColumn >= 0;
+    if (measured) {
+      const result = this.treemapResult;
+      if (result === null) {
+        const message = "Summing the measure…";
+        this.noteEl.textContent = message;
+        this.drawPlotMessage(ctx, frame, message);
+        return;
+      }
+      entries = result.labels
+        .map((label, index) => ({
+          label,
+          value: result.values[index] ?? 0,
+          code: meta.categories?.labels.indexOf(label) ?? -1,
+        }))
+        .filter((entry) => entry.value > 0);
+    } else {
+      const counts = this.facets[this.config.column] ?? meta.categories?.counts ?? [];
+      entries = (meta.categories?.labels ?? [])
+        .map((label, code) => ({ label, value: counts[code] ?? 0, code }))
+        .filter((entry) => entry.value > 0);
+    }
+    if (entries.length === 0) {
+      const message = "No values to plot for this column.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+
+    entries.sort((a, b) => b.value - a.value);
+    const cap = Math.max(6, this.config.topN);
+    const shown = entries.slice(0, cap);
+    const rest = entries.slice(cap);
+    if (rest.length > 0) {
+      const value = rest.reduce((sum, entry) => sum + entry.value, 0);
+      shown.push({ label: `Other (${rest.length})`, value, code: -1 });
+    }
+    const total = shown.reduce((sum, entry) => sum + entry.value, 0);
+    const rects = squarifyLayout(
+      shown.map((entry) => entry.value),
+      frame.left,
+      frame.top,
+      frame.plotW,
+      frame.plotH,
+    );
+    const ui = frame.ui;
+
+    this.hitRegions = rects.map((rect, index) => {
+      const entry = shown[index] ?? { label: "", value: 0, code: -1 };
+      const share = total > 0 ? (entry.value / total) * 100 : 0;
+      return {
+        x: rect.x,
+        y: rect.y,
+        w: rect.w,
+        h: rect.h,
+        lines: [
+          entry.label === "" ? "(blank)" : entry.label,
+          measured
+            ? `sum ${formatChartNumber(entry.value)} · ${share.toFixed(1)}%`
+            : `${formatCount(entry.value)} rows · ${share.toFixed(1)}%`,
+        ],
+        actions:
+          entry.code >= 0
+            ? [{ kind: "values" as const, column: this.config.column, code: entry.code }]
+            : [],
+      };
+    });
+
+    rects.forEach((rect, index) => {
+      const entry = shown[index];
+      if (entry === undefined || rect.w <= 0 || rect.h <= 0) return;
+      ctx.globalAlpha = 0.85;
+      if (this.config.multiColor) {
+        ctx.fillStyle = CHART_COLORS[index % CHART_COLORS.length] ?? this.config.color;
+      } else {
+        ctx.fillStyle = this.config.color;
+        ctx.globalAlpha = Math.max(0.35, 0.9 - index * 0.06);
+      }
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = cssVar("--panel", "#ffffff");
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
+
+      if (rect.w < 42 * ui || rect.h < 18 * ui) return;
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#ffffff";
+      this.font(ctx, ui, 11, "600");
+      ctx.fillText(
+        this.fit(ctx, entry.label === "" ? "(blank)" : entry.label, rect.w - 10 * ui),
+        rect.x + 5 * ui,
+        rect.y + 14 * ui,
+      );
+      if (rect.h >= 32 * ui) {
+        const share = total > 0 ? (entry.value / total) * 100 : 0;
+        this.font(ctx, ui, 10);
+        ctx.globalAlpha = 0.85;
+        ctx.fillText(
+          this.fit(
+            ctx,
+            measured
+              ? `${formatChartNumber(entry.value)} · ${share.toFixed(1)}%`
+              : `${formatCount(entry.value)} · ${share.toFixed(1)}%`,
+            rect.w - 10 * ui,
+          ),
+          rect.x + 5 * ui,
+          rect.y + 27 * ui,
+        );
+        ctx.globalAlpha = 1;
+      }
+    });
+    ctx.textAlign = "left";
+
+    const notes = [`${shown.length} tiles`];
+    notes.push(
+      measured
+        ? `Σ ${formatChartNumber(total)}`
+        : `${formatCount(total)} rows`,
+    );
+    if (rest.length > 0) notes.push(`${rest.length} rest as Other`);
+    if (this.statsMs > 0) notes.push(`${Math.round(this.statsMs)} ms`);
+    this.noteEl.textContent = notes.join(" · ");
+  }
+
+  /**
+   * Top-terms data: token frequencies with stopword filtering and the share of
+   * shaped values (email/URL/phone/number/date) for the selected text column.
+   */
+  private refreshText(): void {
+    if (this.config.kind !== "terms") {
+      this.textResult = null;
+      return;
+    }
+    const meta = this.meta(this.config.column);
+    if (meta === undefined || meta.type !== "string") {
+      this.textResult = null;
+      return;
+    }
+    const generation = ++this.generation;
+    const column = this.config.column;
+    void this.options
+      .requestTextProfile(column)
+      .then((message) => {
+        if (generation !== this.generation || this.disposed) return;
+        this.textResult = message;
+        this.render();
+      })
+      .catch(() => {
+        // Keep the last payload as the fallback.
+      });
+  }
+
+  /** Horizontal bars of the most frequent terms; clicking filters by term. */
+  private drawTerms(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    const meta = this.meta(this.config.column);
+    if (meta === undefined || meta.type !== "string") {
+      const message = "Top terms need a text column — pick one above.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const result = this.textResult;
+    if (result === null) {
+      const message = "Reading the text…";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const profile = result.profile;
+    const terms = profile.topTerms.slice(0, Math.max(8, this.config.topN));
+    if (terms.length === 0) {
+      const message =
+        "No terms found — the column may be mostly numbers, single letters or stopwords.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const ui = frame.ui;
+    const max = terms[0]?.count ?? 1;
+    const rowH = Math.min(30 * ui, frame.plotH / terms.length);
+    const labelW = Math.min(150 * ui, frame.plotW * 0.4);
+    const barTrackW = Math.max(20 * ui, frame.plotW - labelW - 56 * ui);
+
+    this.hitRegions = terms.map((entry, index) => ({
+      x: frame.left,
+      y: frame.top + index * rowH,
+      w: frame.plotW,
+      h: rowH,
+      lines: [
+        `“${entry.term}”`,
+        `${formatCount(entry.count)} tokens · ${(
+          profile.totalTokens > 0 ? (entry.count / profile.totalTokens) * 100 : 0
+        ).toFixed(1)}%`,
+        "click to filter rows containing this term",
+      ],
+      actions: [{ kind: "text" as const, column: this.config.column, query: entry.term }],
+    }));
+
+    terms.forEach((entry, index) => {
+      const y = frame.top + index * rowH;
+      ctx.textAlign = "left";
+      ctx.fillStyle = frame.text;
+      this.font(ctx, ui, 11, "600");
+      ctx.fillText(
+        this.fit(ctx, entry.term, labelW - 6 * ui),
+        frame.left,
+        y + rowH * 0.68,
+      );
+      const width = Math.max(2, (entry.count / max) * barTrackW);
+      ctx.fillStyle = this.config.color;
+      ctx.globalAlpha = Math.max(0.25, 0.85 - index * 0.05);
+      ctx.fillRect(frame.left + labelW, y + rowH * 0.24, width, rowH * 0.5);
+      ctx.globalAlpha = 1;
+      const share = profile.totalTokens > 0 ? (entry.count / profile.totalTokens) * 100 : 0;
+      ctx.fillStyle = frame.dim;
+      this.font(ctx, ui, 10);
+      ctx.fillText(
+        `${formatCount(entry.count)} · ${share.toFixed(1)}%`,
+        frame.left + labelW + width + 6 * ui,
+        y + rowH * 0.68,
+      );
+    });
+    ctx.textAlign = "left";
+
+    const notes = [
+      `${terms.length} terms`,
+      `${formatCount(profile.totalTokens)} tokens`,
+      `${formatCount(profile.distinctTerms)} distinct`,
+    ];
+    if (result.ms > 0) notes.push(`${Math.round(result.ms)} ms`);
+    this.noteEl.textContent = notes.join(" · ");
   }
 
   private refreshBox(): void {
@@ -1734,6 +2053,10 @@ export class ChartCard {
         return `Density plot of ${name(this.config.x)} vs ${name(this.config.y)}, ${rows} rows shown`;
       case "box":
         return `Box plot of ${name(this.config.x)} by ${name(this.config.y)}, ${rows} rows shown`;
+      case "treemap":
+        return `Treemap of ${name(this.config.column)}, ${rows} rows shown`;
+      case "terms":
+        return `Top terms in ${name(this.config.column)}, ${rows} rows shown`;
       case "heatmap":
         return `Heatmap of ${name(this.config.x)} × ${name(this.config.y)}, ${rows} rows shown`;
       case "correlation":
@@ -1805,11 +2128,22 @@ export class ChartCard {
     for (const action of region.actions) this.applyHitAction(action);
   }
 
-  /** Toggles a category value or sets a range filter through the app hook. */
+  /** Toggles a category value or sets a range/text filter through the app hook. */
   private applyHitAction(action: HitAction): void {
     const onFilter = this.options.onFilter;
     if (onFilter === undefined) return;
     const current = this.options.currentFilter?.(action.column) ?? null;
+    if (action.kind === "text") {
+      const same =
+        current?.kind === "text" &&
+        current.mode === "contains" &&
+        current.query === action.query;
+      onFilter(
+        action.column,
+        same ? null : { kind: "text", mode: "contains", query: action.query },
+      );
+      return;
+    }
     if (action.kind === "range") {
       const same =
         current?.kind === "range" &&
@@ -1880,9 +2214,14 @@ export class ChartCard {
       }
       case "line":
         return count((meta) => meta.type === "date") > 0;
-      case "bar": {
+      case "bar":
+      case "treemap": {
         const meta = this.meta(this.config.column);
         return meta !== undefined && isCategoryType(meta.type);
+      }
+      case "terms": {
+        const meta = this.meta(this.config.column);
+        return meta !== undefined && meta.type === "string";
       }
       case "scatter":
       case "density": {
@@ -1898,6 +2237,10 @@ export class ChartCard {
       case "box":
         return count((meta) => isNumericType(meta.type)) > 0 &&
           count((meta) => isCategoryType(meta.type)) > 0;
+      case "treemap": {
+        const meta = this.meta(this.config.column);
+        return meta !== undefined && isCategoryType(meta.type);
+      }
       case "heatmap":
         return count((meta) => isCategoryType(meta.type)) >= 2;
       case "correlation":
@@ -2118,6 +2461,12 @@ export class ChartCard {
         break;
       case "box":
         this.drawBox(ctx, frame);
+        break;
+      case "treemap":
+        this.drawTreemap(ctx, frame);
+        break;
+      case "terms":
+        this.drawTerms(ctx, frame);
         break;
       case "heatmap":
         this.drawHeatmap(ctx, frame);
