@@ -2,10 +2,12 @@ import type { ColumnMeta, AggregateMessage } from "../worker/protocol.js";
 import type { ArchetypeId } from "../data/archetype.js";
 import {
   type Aggregate,
+  type CohortSpec,
   compileExpression,
   type DatePart,
   type DimensionSpec,
   isCompleteView,
+  type MeasureCondition,
   type MeasureSpec,
   type PostOp,
   type TimeGrain,
@@ -74,6 +76,21 @@ const GRAIN_LABELS: Record<TimeGrain, string> = {
   year: "Year",
 };
 
+const MONTH_OPTIONS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+] as const;
+
 const AGG_SYMBOLS: Record<string, string> = {
   count: "#",
   distinct: "n",
@@ -94,6 +111,13 @@ export function measureSymbol(measure: MeasureSpec): string {
   if (measure.column === null) return "#";
   if (measure.agg === "count") return "#";
   return AGG_SYMBOLS[measure.agg] ?? measure.agg;
+}
+
+/** Measures that can be totalled from other groups (no averaging involved). */
+export function isSummable(measure: MeasureSpec): boolean {
+  if ((measure.post ?? []).length > 0) return false;
+  if (measure.agg === "count" && measure.column === null) return true;
+  return measure.agg === "sum" && measure.column !== null;
 }
 
 /** Name shown on the measure pill (expressions abbreviated). */
@@ -412,7 +436,57 @@ export class ViewsPanel {
       ) as HTMLButtonElement;
       add.addEventListener("click", () => this.addView());
       this.tabsEl.append(add);
+      if (this.cohortColumns() !== null) {
+        const cohort = el(
+          "button",
+          {
+            class: "views-tab views-tab-add",
+            type: "button",
+            title: "Retention matrix: group entities by their first period, then count them per period since",
+          },
+          ["+ Cohort"],
+        ) as HTMLButtonElement;
+        cohort.addEventListener("click", () => this.addCohortView());
+        this.tabsEl.append(cohort);
+      }
     }
+  }
+
+  /** Entity + date columns for a retention cohort view, when available. */
+  private cohortColumns(): { entity: number; date: number } | null {
+    const date = this.metas.findIndex((meta) => meta.type === "date" && meta.stats.distinct >= 2);
+    if (date < 0) return null;
+    const entity = this.metas.findIndex(
+      (meta, index) =>
+        index !== date &&
+        (meta.type === "category" || meta.type === "string") &&
+        meta.stats.distinct >= 2 &&
+        meta.stats.distinct <= 100_000 &&
+        meta.stats.nulls < this.rowCount,
+    );
+    if (entity < 0) return null;
+    return { entity, date };
+  }
+
+  private addCohortView(): void {
+    if (this.views.length >= MAX_VIEWS) return;
+    const columns = this.cohortColumns();
+    if (columns === null) return;
+    const grain: TimeGrain = "month";
+    const entry = this.blankView();
+    entry.def.id = `view-${this.views.length + 1}-${Date.now().toString(36)}`;
+    entry.def.name = `Retention: ${this.metas[columns.entity]?.name ?? "entity"} by first ${grain}`;
+    entry.def.dimensions = [
+      { column: columns.date, by: { cohort: { entity: columns.entity, grain } } },
+      { column: columns.date, by: { since: { entity: columns.entity, grain } } },
+    ];
+    entry.def.measures = [{ column: columns.entity, agg: "distinct" }];
+    entry.def.sort = { key: "dim1", dir: "asc" };
+    entry.def.pivot = 1;
+    this.views.push(entry);
+    this.active = this.views.length - 1;
+    this.options.onViewsChanged?.();
+    this.refresh();
   }
 
   private renderActions(): void {
@@ -527,6 +601,55 @@ export class ViewsPanel {
       );
       fillLabel.append("Empty periods", fillSelect);
       this.actionsEl.append(fillLabel);
+
+      const partialLabel = el("label", { class: "views-limit" });
+      partialLabel.title = "First/last periods do not span the whole period; exclude them or keep them flagged";
+      const partialSelect = el("select", {
+        class: "chart-picker chart-picker-small",
+        "aria-label": "Incomplete periods",
+      }) as HTMLSelectElement;
+      for (const [value, label] of [
+        ["show", "Keep (flagged)"],
+        ["exclude", "Exclude"],
+      ] as const) {
+        const option = el("option", { value }, [label]) as HTMLOptionElement;
+        if ((entry.def.partial ?? "show") === value) option.selected = true;
+        partialSelect.append(option);
+      }
+      partialSelect.addEventListener("change", () =>
+        this.update((view) => {
+          view.partial = partialSelect.value === "exclude" ? "exclude" : "show";
+        }),
+      );
+      partialLabel.append("Partial periods", partialSelect);
+      this.actionsEl.append(partialLabel);
+    }
+    if (entry !== undefined && entry.def.dimensions.length >= 2) {
+      const pivotLabel = el("label", { class: "views-limit" });
+      pivotLabel.title = "Spread one dimension across columns as a matrix";
+      const pivotSelect = el("select", {
+        class: "chart-picker chart-picker-small",
+        "aria-label": "Pivot dimension",
+      }) as HTMLSelectElement;
+      const none = el("option", { value: "" }, ["None"]) as HTMLOptionElement;
+      if (entry.def.pivot === undefined) none.selected = true;
+      pivotSelect.append(none);
+      entry.def.dimensions.forEach((spec, index) => {
+        if (index === 0) return;
+        const option = el("option", { value: String(index) }, [
+          this.metas[spec.column]?.name ?? `dim ${index + 1}`,
+        ]) as HTMLOptionElement;
+        if (entry.def.pivot === index) option.selected = true;
+        pivotSelect.append(option);
+      });
+      pivotSelect.addEventListener("change", () =>
+        this.update((view) => {
+          const value = Number(pivotSelect.value);
+          view.pivot = pivotSelect.value === "" || !Number.isFinite(value) ? undefined : value;
+        }),
+      );
+      pivotLabel.append("Spread", pivotSelect);
+      this.actionsEl.append(pivotLabel);
     }
     this.actionsEl.append(limitLabel, chart, slick, pandas, dataset);
   }
@@ -613,7 +736,7 @@ export class ViewsPanel {
         type: "button",
         title: "Change the aggregate, edit the expression or add a post step",
       },
-      [`${measureSymbol(measure)} ${name}${measure.weight !== undefined ? " ⚖" : ""}${postText} ▾`],
+      [`${measureSymbol(measure)} ${name}${measure.weight !== undefined ? " ⚖" : ""}${measure.where !== undefined ? " ⧙" : ""}${postText} ▾`],
     ) as HTMLButtonElement;
     label.addEventListener("click", () => this.openMeasureEditor(label, def, measure, index));
     const remove = el(
@@ -655,6 +778,57 @@ export class ViewsPanel {
       }
       for (const part of DATE_PARTS) {
         items.push({ label: `Part · ${part.label}`, action: () => setBy({ datePart: part.value }) });
+      }
+      if (typeof spec.by === "object" && "time" in spec.by) {
+        const time = spec.by;
+        items.push({
+          label: `Week starts ${time.weekStart === 0 ? "Sunday" : "Monday"} — switch`,
+          title: "Change which day starts a week",
+          action: () =>
+            setBy({ ...time, weekStart: (time.weekStart ?? 1) === 1 ? 0 : 1 }),
+        });
+        items.push({
+          label:
+            time.fiscalStartMonth !== undefined && time.fiscalStartMonth !== 1
+              ? `Fiscal year starts ${MONTH_OPTIONS[time.fiscalStartMonth - 1] ?? "?"}…`
+              : "Fiscal year starts…",
+          title: "Label year/quarter buckets from a fiscal year start month",
+          action: () => {
+            void (async () => {
+              const value = await openPrompt({
+                title: "Fiscal year start month",
+                label: "1–12 (blank for January)",
+                value: time.fiscalStartMonth === undefined ? "" : String(time.fiscalStartMonth),
+                confirmLabel: "Apply",
+              });
+              if (value === null) return;
+              const month = Math.round(Number(value.trim()));
+              setBy(
+                value.trim() === "" || !Number.isFinite(month) || month < 1 || month > 12
+                  ? { ...time, fiscalStartMonth: undefined }
+                  : { ...time, fiscalStartMonth: month },
+              );
+            })();
+          },
+        });
+        items.push({
+          label: time.tz !== undefined && time.tz !== "" ? `Time zone: ${time.tz}…` : "Time zone…",
+          title: "Bucket in a fixed offset, local time or an IANA zone (e.g. +10:00, Australia/Sydney)",
+          action: () => {
+            void (async () => {
+              const value = await openPrompt({
+                title: "Time zone for this dimension",
+                label: "±HH:MM, \"local\", or an IANA name (blank to keep as written)",
+                value: time.tz ?? "",
+                placeholder: "Australia/Sydney",
+                confirmLabel: "Apply",
+              });
+              if (value === null) return;
+              const tz = value.trim();
+              setBy(tz === "" ? { ...time, tz: undefined } : { ...time, tz });
+            })();
+          },
+        });
       }
     } else if (meta.type === "integer" || meta.type === "number") {
       items.push({
@@ -861,6 +1035,21 @@ export class ViewsPanel {
       title: "Replace this measure with arithmetic over aggregates",
       action: () => void this.promptExpression(anchor, index),
     });
+    items.push({
+      label: measure.where === undefined ? "Only where…" : "Only where… (change)",
+      title: "Restrict this measure to rows matching a condition, e.g. Count where Status = Closed",
+      action: () => this.openConditionMenu(anchor, measure, index),
+    });
+    if (measure.where !== undefined) {
+      items.push({
+        label: "Clear “only where”",
+        action: () =>
+          this.update((view) => {
+            const { where: _omit, ...rest } = measure;
+            view.measures[index] = rest;
+          }),
+      });
+    }
     const postOptions: readonly { op: PostOp["op"]; label: string; window?: number }[] = [
       { op: "rolling", label: "Rolling mean (7)", window: 7 },
       { op: "cumulative", label: "Cumulative sum" },
@@ -895,6 +1084,113 @@ export class ViewsPanel {
     openMenu(anchor, items);
   }
 
+  /** Condition step one: which column restricts the measure. */
+  private openConditionMenu(anchor: HTMLElement, measure: MeasureSpec, index: number): void {
+    const items: MenuItem[] = this.metas.map((meta, column) => ({
+      label: meta.name,
+      title: `Restrict the measure to rows where ${meta.name} matches`,
+      action: () => this.openConditionEditor(anchor, measure, index, column),
+    }));
+    openMenu(anchor, items);
+  }
+
+  /** Condition step two: value list, numeric bounds or is-empty. */
+  private openConditionEditor(
+    anchor: HTMLElement,
+    measure: MeasureSpec,
+    index: number,
+    column: number,
+  ): void {
+    const meta = this.metas[column];
+    if (meta === undefined) return;
+    const apply = (where: MeasureCondition): void =>
+      this.update((view) => {
+        view.measures[index] = { ...measure, where };
+      });
+    const items: MenuItem[] = [];
+    if (meta.type === "integer" || meta.type === "number" || meta.type === "date") {
+      items.push({
+        label: "Between min and max…",
+        action: () => {
+          void (async () => {
+            const value = await openPrompt({
+              title: `Keep rows where ${meta.name} is between…`,
+              label: "Min, max (leave either blank for open-ended)",
+              placeholder: "10, 100",
+              confirmLabel: "Apply",
+            });
+            if (value === null) return;
+            const [minText, maxText] = value.split(",").map((part) => part.trim());
+            const min = minText === "" || minText === undefined ? undefined : Number(minText);
+            const max = maxText === "" || maxText === undefined ? undefined : Number(maxText);
+            const where: MeasureCondition = { column };
+            if (min !== undefined && Number.isFinite(min)) where.min = min;
+            if (max !== undefined && Number.isFinite(max)) where.max = max;
+            apply(where);
+          })();
+        },
+      });
+      items.push({
+        label: "At least…",
+        action: () => {
+          void (async () => {
+            const value = await openPrompt({
+              title: `Keep rows where ${meta.name} is at least…`,
+              label: "Minimum value",
+              confirmLabel: "Apply",
+            });
+            if (value === null || value.trim() === "") return;
+            const min = Number(value.trim());
+            if (Number.isFinite(min)) apply({ column, min });
+          })();
+        },
+      });
+      items.push({
+        label: "At most…",
+        action: () => {
+          void (async () => {
+            const value = await openPrompt({
+              title: `Keep rows where ${meta.name} is at most…`,
+              label: "Maximum value",
+              confirmLabel: "Apply",
+            });
+            if (value === null || value.trim() === "") return;
+            const max = Number(value.trim());
+            if (Number.isFinite(max)) apply({ column, max });
+          })();
+        },
+      });
+    }
+    if (meta.type !== "integer" && meta.type !== "number" && meta.type !== "date") {
+      items.push({
+        label: "Value is one of…",
+        title: "Comma-separated values; exact match after trimming",
+        action: () => {
+          void (async () => {
+            const values = await openPrompt({
+              title: `Keep rows where ${meta.name} is one of…`,
+              label: "Values separated by commas",
+              placeholder: "Closed, Cancelled",
+              confirmLabel: "Apply",
+            });
+            if (values === null) return;
+            const list = values
+              .split(",")
+              .map((part) => part.trim())
+              .filter((part) => part !== "");
+            if (list.length > 0) apply({ column, values: list });
+          })();
+        },
+      });
+    }
+    items.push({
+      label: "Is empty",
+      title: `Count only rows where ${meta.name} is blank`,
+      action: () => apply({ column, isNull: true }),
+    });
+    openMenu(anchor, items);
+  }
+
   private renderNote(entry: ViewEntry): void {
     if (this.transientNote !== null) {
       this.noteEl.textContent = this.transientNote;
@@ -923,6 +1219,10 @@ export class ViewsPanel {
         `top ${result.groupCount.toLocaleString()} of ${result.totalGroups.toLocaleString()} groups`,
       );
     }
+    const partialCount = result.partials?.filter(Boolean).length ?? 0;
+    if (partialCount > 0) {
+      parts.push(`${partialCount} incomplete ${partialCount === 1 ? "period" : "periods"} ◔`);
+    }
     parts.push(result.ms < 1 ? "<1 ms" : `${Math.round(result.ms)} ms`);
     if (entry.stale) parts.push("updating…");
     this.noteEl.textContent = parts.join(" · ");
@@ -935,6 +1235,16 @@ export class ViewsPanel {
       if (isCompleteView(entry.def) && !entry.loading) {
         this.tableEl.append(el("div", { class: "views-empty" }, ["No groups match."]));
       }
+      return;
+    }
+    const pivotIndex = entry.def.pivot;
+    if (
+      pivotIndex !== undefined &&
+      pivotIndex > 0 &&
+      result.dimensions[pivotIndex] !== undefined &&
+      result.dimensionNames.length >= 2
+    ) {
+      this.renderPivot(entry, pivotIndex);
       return;
     }
     const table = el("table", { class: "views-table" });
@@ -973,7 +1283,12 @@ export class ViewsPanel {
         });
       }
       result.dimensionNames.forEach((_, d) => {
-        tr.append(el("td", { class: "views-dim" }, [result.dimensions[d][row]]));
+        const cell = el("td", { class: "views-dim" }, [result.dimensions[d][row]]);
+        if (result.partials?.[row] === true && result.dimensionIsTime[d] === true) {
+          const marker = el("span", { class: "views-partial", title: "Incomplete period — the data starts or ends inside it" }, [" ◔"]);
+          cell.append(marker);
+        }
+        tr.append(cell);
       });
       result.measures.forEach((values, m) => {
         const value = values[row];
@@ -992,6 +1307,48 @@ export class ViewsPanel {
       body.append(tr);
     }
 
+    // Summable measures can fold the hidden groups into an Other row.
+    if (result.truncated) {
+      const summable = entry.def.measures.map(isSummable);
+      if (summable.some(Boolean)) {
+        const otherRow = el("tr", { class: "views-other" });
+        const hidden = Math.max(0, result.totalGroups - result.groupCount);
+        result.dimensionNames.forEach((_, d) => {
+          otherRow.append(
+            el("td", { class: "views-dim" }, [
+              d === 0 ? `Other (${hidden.toLocaleString()} groups)` : "",
+            ]),
+          );
+        });
+        result.measures.forEach((values, m) => {
+          const td = el("td", { class: "views-num" });
+          if (summable[m] === true) {
+            let shown = 0;
+            for (const value of values) {
+              if (Number.isFinite(value)) shown += value;
+            }
+            const value = result.totals[m];
+            td.append(
+              el(
+                "span",
+                { class: "views-value" },
+                [
+                  formatMeasure(
+                    Number.isFinite(value) ? value - shown : Number.NaN,
+                    entry.def.measures[m] ?? { column: null, agg: "count" },
+                  ),
+                ],
+              ),
+            );
+          } else {
+            td.append(el("span", { class: "views-value" }, ["—"]));
+          }
+          otherRow.append(td);
+        });
+        body.append(otherRow);
+      }
+    }
+
     const totalRow = el("tr", { class: "views-total" });
     result.dimensionNames.forEach((_, d) => {
       totalRow.append(
@@ -1006,6 +1363,77 @@ export class ViewsPanel {
     body.append(totalRow);
     table.append(body);
     this.tableEl.append(table);
+  }
+
+  /** Two-dimension matrix: dim0 down the rows, the pivot dimension across. */
+  private renderPivot(entry: ViewEntry, pivotIndex: number): void {
+    const result = entry.result;
+    if (result === null) return;
+    const measure = result.measures[0];
+    const rowValues = result.dimensions[0] ?? [];
+    const colValues = result.dimensions[pivotIndex] ?? [];
+    if (measure === undefined || rowValues.length === 0) return;
+    const rowLabels: string[] = [];
+    const colLabels: string[] = [];
+    const rowIndex = new Map<string, number>();
+    const colIndex = new Map<string, number>();
+    for (let group = 0; group < result.groupCount; group++) {
+      const rowLabel = rowValues[group] ?? "";
+      const colLabel = colValues[group] ?? "";
+      if (!rowIndex.has(rowLabel)) {
+        rowIndex.set(rowLabel, rowLabels.length);
+        rowLabels.push(rowLabel);
+      }
+      if (!colIndex.has(colLabel)) {
+        colIndex.set(colLabel, colLabels.length);
+        colLabels.push(colLabel);
+      }
+    }
+    const cells = new Float64Array(rowLabels.length * colLabels.length).fill(Number.NaN);
+    for (let group = 0; group < result.groupCount; group++) {
+      const r = rowIndex.get(rowValues[group] ?? "") ?? 0;
+      const c = colIndex.get(colValues[group] ?? "") ?? 0;
+      cells[r * colLabels.length + c] = measure[group] ?? Number.NaN;
+    }
+    let max = 0;
+    for (const value of cells) {
+      if (Number.isFinite(value)) max = Math.max(max, Math.abs(value));
+    }
+    const measureSpec = entry.def.measures[0] ?? { column: null, agg: "count" as const };
+    const table = el("table", { class: "views-table views-pivot" });
+    const head = el("thead");
+    const headRow = el("tr");
+    headRow.append(el("th", { class: "views-dim-head" }, [result.dimensionNames[0] ?? "group"]));
+    for (const label of colLabels) {
+      headRow.append(el("th", { class: "views-num-head" }, [label]));
+    }
+    head.append(headRow);
+    table.append(head);
+    const body = el("tbody");
+    rowLabels.forEach((label, r) => {
+      const tr = el("tr", { class: "views-row" });
+      tr.append(el("td", { class: "views-dim" }, [label]));
+      colLabels.forEach((_, c) => {
+        const value = cells[r * colLabels.length + c] ?? Number.NaN;
+        const td = el("td", { class: "views-num" });
+        if (Number.isFinite(value) && max > 0) {
+          const strength = Math.max(0.05, Math.min(1, Math.abs(value) / max));
+          td.style.background = `color-mix(in srgb, var(--accent) ${Math.round(
+            strength * 48,
+          )}%, transparent)`;
+        }
+        td.append(el("span", { class: "views-value" }, [formatMeasure(value, measureSpec)]));
+        tr.append(td);
+      });
+      body.append(tr);
+    });
+    table.append(body);
+    this.tableEl.append(table);
+    this.tableEl.append(
+      el("div", { class: "views-pivot-note" }, [
+        `Spreading “${result.dimensionNames[pivotIndex] ?? "?"}” across columns · ${result.measureNames[0] ?? "measure 1"} · blank cells have no rows.`,
+      ]),
+    );
   }
 
   private prettyMeasure(result: AggregateMessage, index: number): string {

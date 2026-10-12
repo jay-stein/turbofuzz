@@ -131,9 +131,43 @@ export function viewPandasLines(
     const by = spec.by;
     if (typeof by === "object" && "time" in by) {
       const temp = `_group${index}`;
+      if (by.fiscalStartMonth !== undefined && by.fiscalStartMonth !== 1) {
+        lines.push(
+          `# fiscal year starts in month ${by.fiscalStartMonth}: re-label Y/Q buckets after the groupby`,
+        );
+      }
+      if (by.tz !== undefined && by.tz.trim() !== "") {
+        lines.push(
+          `# timezone ${by.tz}: convert timestamps before resampling, e.g. ${target(name)}.dt.tz_convert(${py(by.tz)})`,
+        );
+      }
+      const weekArg = by.time === "week" && by.weekStart === 0 ? '  # weeks start Sunday' : "";
       lines.push(
-        `${temp} = pd.to_datetime(df[${py(name)}]).dt.to_period(${py(PERIOD[by.time] ?? "D")}).dt.to_timestamp()`,
+        `${temp} = pd.to_datetime(df[${py(name)}]).dt.to_period(${py(PERIOD[by.time] ?? "D")}).dt.to_timestamp()${weekArg}`,
       );
+      return temp;
+    }
+    if (typeof by === "object" && ("cohort" in by || "since" in by)) {
+      const cohortSpec = "cohort" in by ? by.cohort : by.since;
+      const entity = names[cohortSpec.entity] ?? `Column ${cohortSpec.entity + 1}`;
+      const temp = `_group${index}`;
+      const first = `_first${index}`;
+      const period = py(PERIOD[cohortSpec.grain] ?? "M");
+      lines.push(`${first} = pd.to_datetime(df[${py(name)}]).groupby(df[${py(entity)}]).transform("min")`);
+      if ("cohort" in by) {
+        lines.push(`${temp} = ${first}.dt.to_period(${period}).dt.to_timestamp()`);
+        return temp;
+      }
+      if (cohortSpec.grain === "month") {
+        lines.push(
+          `${temp} = (pd.to_datetime(df[${py(name)}]).dt.year - ${first}.dt.year) * 12 + (pd.to_datetime(df[${py(name)}]).dt.month - ${first}.dt.month)`,
+        );
+      } else {
+        lines.push(
+          `# periods since first ${entity} at ${cohortSpec.grain} grain: subtract the period indices of ${name} and ${first}`,
+        );
+        lines.push(`${temp} = pd.to_datetime(df[${py(name)}]).dt.to_period(${period})`);
+      }
       return temp;
     }
     if (typeof by === "object" && "datePart" in by) {
@@ -181,6 +215,42 @@ export function viewPandasLines(
     set.add(key);
     return false;
   };
+
+  // Conditional measures: build a mask column, then aggregate a masked copy
+  // (sum/mean ignore NaN; count only counts present values).
+  const conditionHelpers = new Map<number, string>();
+  measures.forEach((measure, index) => {
+    const where = measure.where;
+    if (where === undefined) return;
+    const name = names[where.column] ?? `Column ${where.column + 1}`;
+    const mask = `_mask_${index}`;
+    if (where.isNull === true) {
+      lines.push(`${mask} = df[${py(name)}].isna()`);
+    } else if (where.values !== undefined) {
+      lines.push(
+        `${mask} = df[${py(name)}].isin([${where.values.map((value) => py(value)).join(", ")}])`,
+      );
+    } else {
+      const numeric = `pd.to_numeric(df[${py(name)}], errors="coerce")`;
+      const parts: string[] = [];
+      if (where.min !== undefined) parts.push(`${numeric} >= ${where.min}`);
+      if (where.max !== undefined) parts.push(`${numeric} <= ${where.max}`);
+      lines.push(`${mask} = ${parts.length === 0 ? "True" : parts.join(" & ")}`);
+    }
+    if (measure.agg === "count" && measure.column === null) {
+      conditionHelpers.set(index, `_cond_${index}`);
+      lines.push(`df["_cond_${index}"] = df[${py(name)}].where(${mask})`);
+      return;
+    }
+    if ((measure.agg === "sum" || measure.agg === "mean") && measure.column !== null) {
+      conditionHelpers.set(index, `_cond_${index}`);
+      lines.push(
+        `df["_cond_${index}"] = pd.to_numeric(df[${py(names[measure.column] ?? "value")}], errors="coerce").where(${mask})`,
+      );
+      return;
+    }
+    lines.push(`# “only where” for this measure is not translated: ${measureName(measure, names)}`);
+  });
 
   // Weighted measures: pre-multiply value × weight so the groupby stays a
   // plain named aggregation; the ratio (mean) is computed afterwards.
@@ -240,6 +310,16 @@ export function viewPandasLines(
       continue;
     }
     if (emittedCheck(emitted, key)) continue;
+    const conditionHelper = conditionHelpers.get(index);
+    if (conditionHelper !== undefined) {
+      const helper = `_agg_${index}`;
+      const method =
+        measure.agg === "mean" ? "mean" : measure.agg === "sum" ? "sum" : "count";
+      lines.push(`    ${py(helper)}: (${py(conditionHelper)}, "${method}"),`);
+      weightedHelpers.push(helper);
+      weightedPost.push(`df[${py(key)}] = df[${py(helper)}]`);
+      continue;
+    }
     lines.push(`    ${py(key)}: ${pandasMeasure(measure, names)},`);
   }
   lines.push("})");
@@ -304,6 +384,32 @@ export function viewToPandas(view: ViewDef, columnNames: readonly string[]): str
     `# View: ${view.name}`,
     ...viewPandasLines(view.dimensions, view.measures, columnNames, view.fill),
   ];
+  const pivot = view.pivot;
+  const measure = view.measures[0];
+  if (pivot !== undefined && pivot > 0 && view.dimensions.length >= 2 && measure !== undefined) {
+    const dimRef = (index: number): string => {
+      const spec = view.dimensions[index];
+      if (spec === undefined) return "?";
+      return spec.by === "value"
+        ? columnNames[spec.column] ?? `Column ${spec.column + 1}`
+        : `_group${index}`;
+    };
+    if (
+      (measure.agg === "sum" && measure.column !== null) ||
+      (measure.agg === "count" && measure.column === null)
+    ) {
+      lines.push(
+        `df = df.pivot(index=${py(dimRef(0))}, columns=${py(dimRef(pivot))}, values=${py(measureName(measure, columnNames))}).fillna(0)`,
+      );
+    } else {
+      lines.push(
+        `# pivot rendering: df.pivot_table(index=..., columns=..., values=..., aggfunc=...)`,
+      );
+    }
+  }
+  if (view.partial === "exclude") {
+    lines.push("# incomplete first/last periods were excluded in the app; trim the same edges here");
+  }
   return lines.join("\n");
 }
 

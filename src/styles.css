@@ -2406,6 +2406,36 @@ mark {
   border-top: 2px solid var(--border);
 }
 
+.views-other .views-dim,
+.views-other .views-num {
+  color: var(--text-dim);
+  font-style: italic;
+  border-top: 1px dashed var(--border);
+}
+
+.views-partial {
+  color: var(--qa-warn);
+  font-size: 11px;
+}
+
+.views-pivot .views-dim {
+  position: sticky;
+  left: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+
+.views-pivot .views-num {
+  text-align: right;
+  border-radius: 4px;
+}
+
+.views-pivot-note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 .views-empty {
   padding: 18px 4px;
   color: var(--text-dim);
