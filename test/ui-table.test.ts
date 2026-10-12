@@ -57,6 +57,7 @@ interface Harness {
   rowDeletes: number[];
   fixes: { column: number; suggestion: ColumnSuggestion }[];
   converts: { column: number; tokens: string[] }[];
+  inspects: number[];
   window: Window;
 }
 
@@ -71,8 +72,10 @@ function buildTable(columns: ColumnMeta[]): Harness {
   const rowDeletes: number[] = [];
   const fixes: Harness["fixes"] = [];
   const converts: Harness["converts"] = [];
+  const inspects: number[] = [];
   const table = new ResultTable(host, {
     onSort: () => {},
+    onColumnInspect: (column) => inspects.push(column),
     onTypeChange: () => {},
     onColumnSpecial: (column, kind) => clicks.push({ column, kind }),
     onMergeSimilar: (column) => merges.push(column),
@@ -94,6 +97,7 @@ function buildTable(columns: ColumnMeta[]): Harness {
     rowDeletes,
     fixes,
     converts,
+    inspects,
     window,
   };
 }
@@ -324,4 +328,22 @@ test("changed cells carry a marker and the show-changes toggle", () => {
   assert.ok(host.querySelector(".table-scroller")?.classList.contains("show-changes"));
   table.setShowChanges(false);
   assert.equal(host.querySelector(".table-scroller")?.classList.contains("show-changes"), false);
+});
+
+test("clicking a column name opens the inspector", () => {
+  const { host, inspects } = buildTable([meta({ name: "city" })]);
+  const label = host
+    .querySelectorAll(".th")[1]
+    .querySelector(".th-label") as unknown as { click(): void };
+  label.click();
+  assert.deepEqual(inspects, [0]);
+});
+
+test("per-column display format renders fixed decimals without touching raw data", () => {
+  const { host, table } = buildTable([meta({ name: "amount", type: "number" })]);
+  table.setFormats(new Map([[0, 2]]));
+  table.setFirstRows([["40.7262807"]]);
+  table.setCount(1);
+  const cell = host.querySelectorAll(".tr .td")[1];
+  assert.equal(cell?.textContent, "40.73");
 });

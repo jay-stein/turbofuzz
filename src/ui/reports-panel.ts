@@ -1,6 +1,7 @@
 import type { DatasetStats } from "../data/stats.js";
 import {
   anomalyFindings,
+  explainColumn,
   qualityFindings,
   relationshipFindings,
   type Finding,
@@ -34,10 +35,12 @@ export class ReportsPanel {
   private readonly listEl: HTMLElement;
   private metas: readonly ColumnMeta[] = [];
   private stats: DatasetStats | null = null;
+  private rowCount = 0;
   private active: ReportTab = "quality";
   private correlation: CorrelationMessage | null = null;
   private correlationLoading = false;
   private correlationRequested = false;
+  private explainLabel: string | null = null;
 
   constructor(
     private readonly root: HTMLElement,
@@ -50,9 +53,10 @@ export class ReportsPanel {
     this.root.append(this.tabsEl, this.metaEl, this.listEl);
   }
 
-  setData(metas: readonly ColumnMeta[], stats: DatasetStats): void {
+  setData(metas: readonly ColumnMeta[], stats: DatasetStats, rowCount = 0): void {
     this.metas = metas;
     this.stats = stats;
+    this.rowCount = rowCount;
     this.render();
   }
 
@@ -89,9 +93,18 @@ export class ReportsPanel {
 
   private findings(): Finding[] {
     if (this.stats === null) return [];
-    if (this.active === "quality") return qualityFindings(this.metas, this.stats);
+    if (this.active === "quality") return qualityFindings(this.metas, this.stats, this.rowCount);
     if (this.active === "anomalies") return anomalyFindings(this.metas);
     if (this.correlation === null) return [];
+    if (this.explainLabel !== null) {
+      return explainColumn(
+        this.correlation.labels,
+        this.correlation.columns,
+        this.correlation.result.values,
+        this.correlation.result.counts,
+        this.explainLabel,
+      ).findings;
+    }
     return relationshipFindings(
       this.correlation.labels,
       this.correlation.columns,
@@ -129,6 +142,9 @@ export class ReportsPanel {
       this.listEl.append(el("div", { class: "reports-empty" }, ["Load data to run reports."]));
       return;
     }
+    if (this.active === "relationships" && this.correlation !== null) {
+      this.renderRelationshipControls(this.correlation);
+    }
     if (this.active === "relationships" && this.correlationLoading) {
       this.listEl.append(el("div", { class: "reports-empty" }, ["Computing correlations…"]));
       return;
@@ -147,6 +163,43 @@ export class ReportsPanel {
     }
     for (const finding of findings) {
       this.listEl.append(this.renderFinding(finding));
+    }
+  }
+
+  /** "Explain [column]" selector plus the generated sentence. */
+  private renderRelationshipControls(correlation: CorrelationMessage): void {
+    const controls = el("div", { class: "reports-controls" });
+    const label = el("span", { class: "reports-control-label" }, ["Explain"]);
+    const select = el("select", {
+      class: "reports-explain",
+      "aria-label": "Explain a column",
+    }) as HTMLSelectElement;
+    select.append(el("option", { value: "" }, ["All pairs"]) as HTMLOptionElement);
+    for (const name of correlation.labels) {
+      select.append(el("option", { value: name }, [name]) as HTMLOptionElement);
+    }
+    select.value = this.explainLabel ?? "";
+    select.addEventListener("change", () => {
+      this.explainLabel = select.value === "" ? null : select.value;
+      this.render();
+    });
+    controls.append(
+      label,
+      select,
+      el("span", { class: "reports-control-hint" }, [
+        "Pearson over pairwise-complete rows · associated with, not causes",
+      ]),
+    );
+    this.listEl.append(controls);
+    if (this.explainLabel !== null) {
+      const { sentence } = explainColumn(
+        correlation.labels,
+        correlation.columns,
+        correlation.result.values,
+        correlation.result.counts,
+        this.explainLabel,
+      );
+      this.listEl.append(el("div", { class: "reports-sentence" }, [sentence]));
     }
   }
 

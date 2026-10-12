@@ -29,6 +29,7 @@ export interface Finding {
 }
 
 const NON_NEGATIVE_NAME = /(qty|quantity|count|stock|units|amount|price|cost|age|duration|distance|weight)/i;
+const MEASUREMENT_NAME = /(length|weight|height|width|distance|duration|size|amount|price|rate|ratio|share|percent)/i;
 
 function percent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
@@ -38,6 +39,7 @@ function percent(value: number): string {
 export function qualityFindings(
   columns: readonly ColumnMeta[],
   stats: DatasetStats,
+  rowCount = 0,
 ): Finding[] {
   const findings: Finding[] = [];
 
@@ -210,6 +212,63 @@ export function qualityFindings(
         action: { kind: "filterRange", column, min: null, max: -Number.EPSILON },
       });
     }
+
+    // Unit inconsistency: mass both below and above 1.0 in a measurement-like
+    // column (0.15 vs 15 style mixes).
+    if (MEASUREMENT_NAME.test(meta.name)) {
+      const split = unitSplit(meta);
+      if (split !== null) {
+        findings.push({
+          id: `units.${column}`,
+          report: "quality.unitInconsistency",
+          severity: "review",
+          title: `“${meta.name}” may mix units — ${percent(split.belowOne)} of values are ≤ 1 and ${percent(split.aboveOne)} are above`,
+          evidence: [
+            { metric: "values ≤ 1", value: percent(split.belowOne), n: split.belowCount },
+            { metric: "values > 1", value: percent(split.aboveOne), n: split.aboveCount },
+            { metric: "method", value: "histogram mass either side of 1.0", n: 1 },
+          ],
+          impact: { rows: split.belowCount, columns: [column] },
+          fixLabel: "Show ≤ 1",
+          action: { kind: "filterRange", column, min: null, max: 1 },
+        });
+      }
+    }
+
+    // Join readiness: a unique key candidate (and its hygiene).
+    if (rowCount > 20 && meta.stats.distinct === rowCount) {
+      const keyLike =
+        meta.type === "identifier" || meta.type === "string" || meta.type === "integer";
+      if (keyLike) {
+        if (meta.stats.nulls > 0) {
+          findings.push({
+            id: `key.${column}`,
+            report: "quality.joinReadiness",
+            severity: "review",
+            title: `“${meta.name}” looks like a key but ${meta.stats.nulls.toLocaleString()} cells are empty`,
+            evidence: [
+              { metric: "distinct", value: meta.stats.distinct.toLocaleString(), n: meta.stats.distinct },
+              { metric: "empty cells", value: meta.stats.nulls.toLocaleString(), n: meta.stats.nulls },
+            ],
+            impact: { rows: meta.stats.nulls, columns: [column] },
+            fixLabel: "Review",
+            action: { kind: "cleanNulls", column },
+          });
+        } else {
+          findings.push({
+            id: `key.${column}`,
+            report: "quality.joinReadiness",
+            severity: "info",
+            title: `“${meta.name}” is a usable key (unique across ${rowCount.toLocaleString()} rows)`,
+            evidence: [
+              { metric: "distinct", value: meta.stats.distinct.toLocaleString(), n: meta.stats.distinct },
+              { metric: "empty cells", value: "0", n: 0 },
+            ],
+            impact: { rows: 0, columns: [column] },
+          });
+        }
+      }
+    }
   });
 
   if (stats.duplicateRows > 0) {
@@ -229,6 +288,89 @@ export function qualityFindings(
   }
 
   return findings.sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || b.impact.rows - a.impact.rows);
+}
+
+/** Histogram mass either side of 1.0, for the unit-inconsistency heuristic. */
+function unitSplit(
+  meta: ColumnMeta,
+): { belowOne: number; aboveOne: number; belowCount: number; aboveCount: number } | null {
+  const histogram = meta.histogram;
+  if (histogram === null || histogram.bins.length === 0 || histogram.symlog) return null;
+  const span = histogram.max - histogram.min;
+  if (!(span > 0) || histogram.max <= 1) return null;
+  const width = span / histogram.bins.length;
+  let below = 0;
+  let above = 0;
+  histogram.bins.forEach((count, index) => {
+    const upper = histogram.min + (index + 1) * width;
+    if (upper <= 1.0000001) below += count;
+    else above += count;
+  });
+  const total = below + above;
+  if (total < 50) return null;
+  const belowOne = below / total;
+  const aboveOne = above / total;
+  if (belowOne < 0.05 || aboveOne < 0.05) return null;
+  return { belowOne, aboveOne, belowCount: below, aboveCount: above };
+}
+
+/**
+ * "Explain [column]": associations involving one column, ranked, with a
+ * plain-language sentence. Wording stays at "associated with".
+ */
+export function explainColumn(
+  labels: readonly string[],
+  columns: readonly number[],
+  values: Float64Array,
+  counts: Uint32Array,
+  label: string,
+  minStrength = 0.1,
+): { sentence: string; findings: Finding[] } {
+  const index = labels.indexOf(label);
+  if (index < 0) return { sentence: `“${label}” is not part of the correlation set.`, findings: [] };
+  const n = labels.length;
+  const findings: Finding[] = [];
+  for (let other = 0; other < n; other++) {
+    if (other === index) continue;
+    const pairIndex = Math.min(index, other) * n + Math.max(index, other);
+    const r = values[pairIndex];
+    const pairs = counts[pairIndex] ?? 0;
+    if (!Number.isFinite(r) || Math.abs(r) < minStrength || pairs < 20) continue;
+    const row = Math.min(index, other);
+    const col = Math.max(index, other);
+    findings.push({
+      id: `explain.${row}.${col}`,
+      report: "relationships.explain",
+      severity: Math.abs(r) >= 0.95 ? "review" : "info",
+      title: `“${labels[row]}” is associated with “${labels[col]}” (ρ = ${r.toFixed(2)})`,
+      evidence: [
+        { metric: "Pearson r", value: r.toFixed(2), n: pairs },
+        { metric: "pairwise observations", value: pairs.toLocaleString(), n: pairs },
+        { metric: "direction", value: r > 0 ? "same direction" : "opposite direction", n: 1 },
+      ],
+      impact: { rows: pairs, columns: [columns[row] ?? -1, columns[col] ?? -1] },
+    });
+  }
+  findings.sort(
+    (a, b) =>
+      Math.abs(Number.parseFloat(b.evidence[0]?.value ?? "0")) -
+      Math.abs(Number.parseFloat(a.evidence[0]?.value ?? "0")),
+  );
+  const top = findings[0];
+  const second = findings[1];
+  if (top === undefined) {
+    return {
+      sentence: `No associations above ρ = ${minStrength.toFixed(2)} involve “${label}”.`,
+      findings,
+    };
+  }
+  const other = (finding: Finding): string =>
+    finding.title.split(" is associated with “")[1]?.split("”")[0] ?? "?";
+  const sentence =
+    second === undefined
+      ? `“${label}” is most strongly associated with “${other(top)}” (ρ = ${top.evidence[0].value}).`
+      : `“${label}” is more strongly associated with “${other(top)}” (ρ = ${top.evidence[0].value}) than with “${other(second)}” (ρ = ${second.evidence[0].value}).`;
+  return { sentence, findings: findings.slice(0, 10) };
 }
 
 /** Univariate anomaly findings with their detection method stated. */

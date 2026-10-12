@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   anomalyFindings,
+  explainColumn,
   qualityFindings,
   relationshipFindings,
 } from "../src/data/findings.js";
@@ -131,4 +132,84 @@ test("anomaly findings carry the method and a filter action", () => {
     column: 0,
     special: "valueAnomalies",
   });
+});
+
+test("unit inconsistency flags measurements mixing ≤ 1 and > 1 values", () => {
+  const histogram = {
+    bins: [...Array(10).fill(5), ...Array(10).fill(5)],
+    min: 0,
+    max: 2,
+    symlog: false,
+    below: 0,
+    above: 0,
+    p05: 0,
+    p95: 2,
+  };
+  const columns = [
+    meta({
+      name: "trip length",
+      type: "number",
+      histogram,
+      stats: { ...meta().stats, min: 0, max: 2 },
+    }),
+    // A count-like column never triggers even when bimodal.
+    meta({
+      name: "order count",
+      type: "number",
+      histogram,
+      stats: { ...meta().stats, min: 0, max: 2 },
+    }),
+  ];
+  const findings = qualityFindings(columns, stats(), 100);
+  const units = findings.find((finding) => finding.id === "units.0");
+  assert.ok(units !== undefined);
+  assert.equal(units.severity, "review");
+  assert.match(units.title, /mix units/);
+  assert.deepEqual(units.action, { kind: "filterRange", column: 0, min: null, max: 1 });
+  assert.equal(findings.some((finding) => finding.id === "units.1"), false);
+});
+
+test("join readiness reports usable keys and hygienic problems", () => {
+  const columns = [
+    meta({ name: "order id", type: "identifier", stats: { ...meta().stats, distinct: 500 } }),
+    meta({
+      name: "email",
+      type: "string",
+      stats: { ...meta().stats, distinct: 500, nulls: 7 },
+    }),
+  ];
+  const findings = qualityFindings(columns, stats(), 500);
+  const usable = findings.find((finding) => finding.id === "key.0");
+  assert.ok(usable !== undefined);
+  assert.equal(usable.severity, "info");
+  assert.match(usable.title, /usable key/);
+  const dirty = findings.find((finding) => finding.id === "key.1");
+  assert.ok(dirty !== undefined);
+  assert.equal(dirty.severity, "review");
+  assert.match(dirty.title, /7 cells are empty/);
+  // Short files do not produce key findings.
+  assert.equal(qualityFindings(columns, stats(), 10).some((f) => f.id.startsWith("key.")), false);
+});
+
+test("explainColumn writes a careful sentence and ranks the associations", () => {
+  const labels = ["delivery time", "order size", "distance"];
+  const values = Float64Array.from([
+    1, 0.71, 0.18,
+    0.71, 1, 0.05,
+    0.18, 0.05, 1,
+  ]);
+  const counts = Uint32Array.from([100, 100, 100, 100, 100, 100, 100, 100, 100]);
+  const { sentence, findings } = explainColumn(
+    labels,
+    [0, 1, 2],
+    values,
+    counts,
+    "delivery time",
+  );
+  assert.match(sentence, /“delivery time” is more strongly associated with “order size”/);
+  assert.match(sentence, /ρ = 0.71/);
+  assert.match(sentence, /than with “distance”/);
+  assert.doesNotMatch(sentence, /causes/);
+  assert.equal(findings.length, 2);
+  assert.equal(findings[0].report, "relationships.explain");
 });

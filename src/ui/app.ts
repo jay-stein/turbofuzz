@@ -72,7 +72,9 @@ import { ViewTabs, type ViewId } from "./view-tabs.js";
 import { ViewsPanel } from "./views-panel.js";
 import { openCommandBar, type ParsedCommand } from "./command-bar.js";
 import { openTriagePanel } from "./triage-panel.js";
+import { openColumnInspector } from "./column-inspector.js";
 import { openSlickTable } from "./slick-table.js";
+import { chartKindFor } from "./chart-utils.js";
 import { ReportsPanel } from "./reports-panel.js";
 import type { Finding } from "../data/findings.js";
 import { suggestCharts } from "./chart-utils.js";
@@ -313,6 +315,8 @@ export class App {
   private changesButton!: HTMLButtonElement;
   private changesTotal = 0;
   private showChanges = false;
+  /** Display-only fixed decimals per column (not part of the data/Recipe). */
+  private displayFormats = new Map<number, number>();
   private columnsStrip!: HTMLElement;
   private tilesOn = readColumnTilesPreference();
   private filterHost!: HTMLElement;
@@ -368,7 +372,7 @@ export class App {
       },
       {
         id: "column-menu",
-        text: "Right-click a column header for Column, Clean and Transform actions.",
+        text: "Click a column name to inspect it — profile, issues and one-click fixes. Right-click for the full menu.",
         target: () =>
           this.tableHost.classList.contains("hidden")
             ? null
@@ -1287,9 +1291,10 @@ export class App {
     this.rowCount = loaded.rowCount;
     this.lastLoaded = loaded;
     if (loaded.type === "loaded") this.archetypeOverride = null;
-    // A new dataset starts with a fresh change history.
+    // A new dataset starts with a fresh change history and display formats.
     this.changesTotal = 0;
     this.showChanges = false;
+    this.displayFormats.clear();
     this.syncChangesButton();
     // Views are definitions over column indexes; a load or transform can change
     // the schema, so start fresh rather than risk stale references.
@@ -1391,6 +1396,7 @@ export class App {
     if (this.table !== null) return;
     this.table = new ResultTable(this.tableHost, {
       onSort: (column, dir) => this.changeSort(column, dir),
+      onColumnInspect: (column, anchor) => this.openColumnInspector(column, anchor),
       onTypeChange: (column, type) => this.changeType(column, type),
       onColumnSpecial: (column, kind) => this.toggleColumnSpecial(column, kind),
       onMergeSimilar: (column) => this.openMerge(column),
@@ -1411,6 +1417,7 @@ export class App {
     this.table.setColumns(this.metas);
     this.table.setSort(-1, 1);
     this.table.setCount(this.resultCount);
+    this.table.setFormats(this.displayFormats);
     this.table.setShowChanges(this.showChanges);
     this.syncColumnQa();
     this.syncPendingDeletes();
@@ -2185,14 +2192,14 @@ export class App {
     const stats = this.latestStats ?? this.lastLoaded?.stats;
     if (stats === undefined) return;
     if (this.reportsPanel !== null) {
-      this.reportsPanel.setData(this.metas, stats);
+      this.reportsPanel.setData(this.metas, stats, this.rowCount);
       return;
     }
     this.reportsPanel = new ReportsPanel(this.reportsHost, {
       requestCorrelation: () => this.requestReportCorrelation(),
       onAction: (finding) => this.runFinding(finding),
     });
-    this.reportsPanel.setData(this.metas, stats);
+    this.reportsPanel.setData(this.metas, stats, this.rowCount);
   }
 
   private requestReportCorrelation(): Promise<CorrelationMessage | null> {
@@ -2312,7 +2319,7 @@ export class App {
     this.overview?.updateHealth(this.metas, stats);
     this.refreshMissingness();
     this.syncColumnTiles();
-    this.reportsPanel?.setData(this.metas, stats);
+    this.reportsPanel?.setData(this.metas, stats, this.rowCount);
     this.reportsPanel?.invalidate();
   }
 
@@ -2757,6 +2764,39 @@ export class App {
       },
       onClose: () => {
         this.table?.refreshHeader();
+      },
+    });
+  }
+
+  /** Header click: profile, issues and the verbs for one column. */
+  private openColumnInspector(column: number, anchor: HTMLElement): void {
+    const meta = this.metas[column];
+    if (meta === undefined) return;
+    openColumnInspector(anchor, meta, column, {
+      displayFormat: this.displayFormats.get(column) ?? null,
+      onSort: (dir) => this.changeSort(column, dir),
+      onFilter: () => this.focusFilterColumn(column),
+      onChart: () => {
+        this.ensureCharts();
+        this.chartsPanel?.addCard({ kind: chartKindFor(meta.type) ?? "histogram", column });
+        this.setView("chart");
+      },
+      onQuickClean: (op) => this.applyQuickClean(column, op),
+      onOpenClean: (tab) => this.openClean(column, tab),
+      onOpenTransform: (preset) => this.openTransform(preset),
+      onSuggestion: (suggestion) => this.applySuggestion(column, suggestion),
+      onMerge: () => this.openMerge(column),
+      onRename: () => void this.renameColumn(column),
+      onDelete: () => void this.confirmDeleteColumn(column),
+      onDisplayFormat: (decimals) => {
+        if (decimals === null) this.displayFormats.delete(column);
+        else this.displayFormats.set(column, decimals);
+        this.table?.setFormats(this.displayFormats);
+        this.setAction(
+          decimals === null
+            ? `“${meta.name}”: automatic display`
+            : `“${meta.name}”: ${decimals} decimal place${decimals === 1 ? "" : "s"}`,
+        );
       },
     });
   }

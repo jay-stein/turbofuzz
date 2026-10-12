@@ -35,6 +35,8 @@ export type ColumnQaKind = "nulls" | "valueAnomalies" | "lengthAnomalies";
 
 export interface ResultTableOptions {
   onSort: (column: number, dir: 1 | -1 | 0) => void;
+  /** Clicking a column name opens the inspector anchored to it. */
+  onColumnInspect: (column: number, anchor: HTMLElement) => void;
   onTypeChange: (column: number, type: ColumnType) => void;
   onColumnSpecial: (column: number, kind: ColumnQaKind) => void;
   onMergeSimilar: (column: number) => void;
@@ -71,6 +73,8 @@ export class ResultTable {
   private sortColumn = -1;
   private sortDir: 1 | -1 = 1;
   private highlights: HighlightRule[] = [];
+  /** Per-column fixed decimal display formats (display only, not the data). */
+  private formats = new Map<number, number>();
   private columnQa = new Set<string>();
   private pendingRowDeletes = new Set<number>();
   private pendingColumnDeletes = new Set<number>();
@@ -223,12 +227,10 @@ export class ResultTable {
     this.render();
   }
 
-  private toggleSort(column: number): void {
-    let dir: 1 | -1 | 0;
-    if (this.sortColumn !== column) dir = 1;
-    else if (this.sortDir === 1) dir = -1;
-    else dir = 0;
-    this.options.onSort(column, dir);
+  /** Fixed-decimal display for numeric columns (null entries follow "Auto"). */
+  setFormats(formats: ReadonlyMap<number, number>): void {
+    this.formats = new Map(formats);
+    this.invalidateRows();
   }
 
   private gridTemplate(): string {
@@ -298,13 +300,13 @@ export class ResultTable {
       ]);
       const label = el(
         "button",
-        { class: "th-label", type: "button", title: `Sort by ${name}` },
+        { class: "th-label", type: "button", title: `Inspect “${name}”` },
         [name],
       );
       if (index === this.sortColumn) {
         label.classList.add(this.sortDir === 1 ? "sort-asc" : "sort-desc");
       }
-      label.addEventListener("click", () => this.toggleSort(index));
+      label.addEventListener("click", () => this.options.onColumnInspect(index, label));
 
       const grip = el("div", {
         class: "col-resize",
@@ -728,30 +730,47 @@ export class ResultTable {
     }
     this.applyAnomaly(cell, value, columnIndex);
 
+    // Per-column display format: fixed decimals for reading (data unchanged).
+    const decimals = this.formats.get(columnIndex);
+    const numericType = this.columns[columnIndex]?.type;
+    let display = value;
+    if (
+      decimals !== undefined &&
+      (numericType === "integer" || numericType === "number")
+    ) {
+      const parsed = parseNumber(value);
+      if (Number.isFinite(parsed)) {
+        display = parsed.toLocaleString(undefined, {
+          minimumFractionDigits: decimals,
+          maximumFractionDigits: decimals,
+        });
+      }
+    }
+
     const rule = this.highlights.find((candidate) => candidate.column === columnIndex);
     if (rule === undefined || rule.query.trim() === "") {
-      cell.textContent = value;
+      cell.textContent = display;
       return;
     }
 
-    const lower = value.toLowerCase();
+    const lower = display.toLowerCase();
     const needle = rule.query.trim().toLowerCase();
 
     if (rule.mode === "exact") {
-      if (lower === needle) cell.append(el("mark", {}, [value]));
-      else cell.textContent = value;
+      if (lower === needle) cell.append(el("mark", {}, [display]));
+      else cell.textContent = display;
       return;
     }
 
     const index = lower.indexOf(needle);
     if (index < 0) {
-      cell.textContent = value;
+      cell.textContent = display;
       return;
     }
     cell.append(
-      document.createTextNode(value.slice(0, index)),
-      el("mark", {}, [value.slice(index, index + needle.length)]),
-      document.createTextNode(value.slice(index + needle.length)),
+      document.createTextNode(display.slice(0, index)),
+      el("mark", {}, [display.slice(index, index + needle.length)]),
+      document.createTextNode(display.slice(index + needle.length)),
     );
   }
 
