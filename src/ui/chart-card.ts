@@ -3,6 +3,16 @@ import type { SeriesGrid, SeriesMode, SeriesPoints } from "../data/chart-series.
 import type { BoxGroupStats, BoxStatsResult, CrossTabResult } from "../data/chart-stats.js";
 import { contourLevels, marchingSquares, smoothGrid, smoothSeries } from "../data/kde.js";
 import { squarifyLayout } from "../data/treemap.js";
+import {
+  CUSTOM_PALETTE,
+  DEFAULT_PALETTE,
+  isRampPalette,
+  PALETTES,
+  paletteStops,
+  parseCustomColors,
+  rampAt,
+  samplePalette,
+} from "../data/palettes.js";
 import type { ViewDef } from "../data/aggregate.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import { TYPE_LABELS } from "../types.js";
@@ -41,7 +51,8 @@ import {
   safeFileName,
   suggestedBinRange,
 } from "./chart-utils.js";
-import { el } from "./dom.js";
+import { clear, el } from "./dom.js";
+import { openConfirm, openPrompt } from "./dialog.js";
 import { openMenu } from "./menu.js";
 
 export type DensityStyle = "heat" | "contours" | "both";
@@ -109,6 +120,10 @@ export interface ChartCardConfig {
   kde: boolean;
   color: string;
   multiColor: boolean;
+  /** Colour map name (PALETTES) or CUSTOM_PALETTE with paletteCustom stops. */
+  palette?: string;
+  /** Comma/space separated hex stops used when palette is "custom". */
+  paletteCustom?: string;
   topN: number;
   groupOther: boolean;
   binOptions: ChartBinOptions | null;
@@ -423,6 +438,8 @@ function defaultConfig(): ChartCardConfig {
     kde: true,
     color: CHART_COLORS[0],
     multiColor: true,
+    palette: DEFAULT_PALETTE,
+    paletteCustom: "",
     topN: 5,
     groupOther: true,
     binOptions: null,
@@ -500,6 +517,9 @@ export class ChartCard {
   private readonly xTagLabel: HTMLElement;
   private readonly yTagLabel: HTMLElement;
   private readonly colorGroup: HTMLElement;
+  private readonly paletteGroup: HTMLElement;
+  private readonly paletteSelect: HTMLSelectElement;
+  private readonly palettePreview: HTMLElement;
   private readonly histogramSettings: HTMLElement;
   private readonly barSettings: HTMLElement;
   private readonly correlationSettings: HTMLElement;
@@ -537,6 +557,21 @@ export class ChartCard {
     this.config = { ...defaultConfig(), ...preset };
 
     const head = el("div", { class: "chart-card-head" });
+    const removeButton = el(
+      "button",
+      {
+        class: "chart-remove",
+        type: "button",
+        title: "Remove this chart…",
+        "aria-label": "Remove this chart",
+      },
+      ["×"],
+    ) as HTMLButtonElement;
+    removeButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.confirmRemove();
+    });
+    head.append(removeButton);
     // Source selector: the filtered table or a saved aggregate view. A card
     // bound to a view reads that view's result; there is no raw-row path.
     const sourceWrap = el("label", { class: "chart-field chart-source-field" });
@@ -856,6 +891,44 @@ export class ChartCard {
     });
     this.colorGroup.append(this.hexInput);
 
+    this.paletteSelect = el("select", {
+      class: "chart-picker chart-picker-small chart-palette-select",
+      "aria-label": "Colour map",
+      title: "Colour map for multi-series and multi-category charts",
+    }) as HTMLSelectElement;
+    const addPaletteOptions = (
+      label: string,
+      kind: "qualitative" | "sequential" | "diverging",
+    ): void => {
+      const entries = PALETTES.filter((palette) => palette.kind === kind);
+      if (entries.length === 0) return;
+      const group = el("optgroup", { label }) as HTMLOptGroupElement;
+      for (const palette of entries) {
+        group.append(
+          el("option", { value: palette.name }, [palette.name]) as HTMLOptionElement,
+        );
+      }
+      this.paletteSelect.append(group);
+    };
+    addPaletteOptions("Qualitative", "qualitative");
+    addPaletteOptions("Sequential", "sequential");
+    addPaletteOptions("Diverging", "diverging");
+    this.paletteSelect.append(
+      el("option", { value: CUSTOM_PALETTE }, ["Custom…"]) as HTMLOptionElement,
+    );
+    this.paletteSelect.value = this.config.palette ?? DEFAULT_PALETTE;
+    this.paletteSelect.addEventListener("change", () => {
+      void this.applyPalette(this.paletteSelect.value);
+    });
+
+    this.palettePreview = el("div", { class: "chart-palette-preview" });
+    this.paletteGroup = el(
+      "div",
+      { class: "chart-palette" },
+      [this.paletteSelect, this.palettePreview],
+    );
+    this.syncPalette();
+
     this.titleInput = el("input", {
       class: "text-input chart-title",
       type: "text",
@@ -868,7 +941,11 @@ export class ChartCard {
       this.config.title = this.titleInput.value;
       this.render();
     });
-    const lookRow = el("div", { class: "chart-card-look" }, [this.colorGroup, this.titleInput]);
+    const lookRow = el("div", { class: "chart-card-look" }, [
+      this.colorGroup,
+      this.paletteGroup,
+      this.titleInput,
+    ]);
 
     const settingsBody = el("div", { class: "chart-settings-body" }, [
       this.colorWrap,
@@ -1341,6 +1418,7 @@ export class ChartCard {
     this.modeWrap.classList.toggle("hidden", kind !== "scatter");
     this.densityStyleWrap.classList.toggle("hidden", !seriesKind);
     this.colorGroup.classList.toggle("hidden", kind === "correlation");
+    this.paletteGroup.classList.toggle("hidden", kind === "correlation");
     this.histogramSettings.classList.toggle("hidden", kind !== "histogram");
     this.barSettings.classList.toggle(
       "hidden",
@@ -1403,6 +1481,70 @@ export class ChartCard {
     }
   }
 
+  /** Colours sampled from the card's palette for `count` series/buckets. */
+  private paletteColors(count: number): string[] {
+    return samplePalette(
+      this.config.palette ?? DEFAULT_PALETTE,
+      count,
+      parseCustomColors(this.config.paletteCustom ?? ""),
+    );
+  }
+
+  private paletteColor(index: number, count = 12): string {
+    const colors = this.paletteColors(count);
+    return colors[index % colors.length] ?? this.config.color;
+  }
+
+  private syncPalette(): void {
+    this.paletteSelect.value = this.config.palette ?? DEFAULT_PALETTE;
+    clear(this.palettePreview);
+    for (const color of this.paletteColors(10)) {
+      const dot = el("span", { class: "chart-palette-dot" });
+      dot.style.background = color;
+      this.palettePreview.append(dot);
+    }
+  }
+
+  /** Picking Custom… asks for hex stops; invalid input keeps the old palette. */
+  private async applyPalette(value: string): Promise<void> {
+    if (value === CUSTOM_PALETTE) {
+      const entered = await openPrompt({
+        title: "Custom colour map",
+        label: "Hex colours separated by commas (2 or more), e.g. #2563eb, #10b981, #f97316",
+        value: this.config.paletteCustom ?? "",
+        placeholder: "#2563eb, #f97316",
+        confirmLabel: "Use colours",
+      });
+      if (entered === null) {
+        this.syncPalette();
+        return;
+      }
+      const parsed = parseCustomColors(entered);
+      if (parsed.length < 2) {
+        this.syncPalette();
+        return;
+      }
+      this.config.palette = CUSTOM_PALETTE;
+      this.config.paletteCustom = parsed.join(", ");
+    } else {
+      this.config.palette = value;
+    }
+    this.syncPalette();
+    this.render();
+  }
+
+  /** Removing a chart asks first: the action is not part of the Recipe. */
+  private confirmRemove(): void {
+    void openConfirm({
+      title: "Remove this chart?",
+      body: `“${this.chartName()}” will be removed from the grid. Chart settings are not part of the Recipe, so this cannot be undone with Undo.`,
+      confirmLabel: "Remove",
+      danger: true,
+    }).then((confirmed) => {
+      if (confirmed) this.options.onRemove(this);
+    });
+  }
+
   private syncPlaceholder(): void {
     this.titleInput.placeholder = this.defaultTitle();
   }
@@ -1425,7 +1567,7 @@ export class ChartCard {
     return defaultChartTitle(this.meta(this.config.column)?.name ?? "");
   }
 
-  /** Duplicate, PNG and remove live behind one ⋯ menu; no red × in the row. */
+  /** Duplicate, PNG and remove live behind one ⋯ menu, plus the red ×. */
   private openCardMenu(anchor: HTMLElement): void {
     openMenu(
       anchor,
@@ -1442,8 +1584,8 @@ export class ChartCard {
         },
         {
           label: "Remove chart",
-          title: "Remove this chart",
-          action: () => this.options.onRemove(this),
+          title: "Remove this chart…",
+          action: () => this.confirmRemove(),
         },
       ],
       "context-menu chart-card-menu",
@@ -1681,7 +1823,7 @@ export class ChartCard {
       if (entry === undefined || rect.w <= 0 || rect.h <= 0) return;
       ctx.globalAlpha = 0.85;
       if (this.config.multiColor) {
-        ctx.fillStyle = CHART_COLORS[index % CHART_COLORS.length] ?? this.config.color;
+        ctx.fillStyle = this.paletteColor(index);
       } else {
         ctx.fillStyle = this.config.color;
         ctx.globalAlpha = Math.max(0.35, 0.9 - index * 0.06);
@@ -2946,7 +3088,7 @@ export class ChartCard {
   }
 
   private groupColor(index: number): string {
-    return CHART_COLORS[index % CHART_COLORS.length];
+    return this.paletteColor(index);
   }
 
   /** Clickable legend under grouped time series; entries toggle line visibility. */
@@ -3042,7 +3184,7 @@ export class ChartCard {
         bar.other === true
           ? frame.dim
           : this.config.multiColor
-            ? CHART_COLORS[index % CHART_COLORS.length]
+            ? this.paletteColor(index)
             : this.config.color;
       ctx.globalAlpha = bar.other === true ? 0.5 : 0.9;
       this.fillTopRounded(ctx, x, frame.top + frame.plotH - h, barW, h, 4 * ui);
@@ -3160,9 +3302,10 @@ export class ChartCard {
   private colorBuckets(result: SeriesPoints): { buckets: Uint8Array; colors: string[] } | null {
     const n = result.shown;
     if (result.colorCodes !== null) {
+      const colors = this.paletteColors(12);
       const buckets = new Uint8Array(n);
-      for (let i = 0; i < n; i++) buckets[i] = result.colorCodes[i] % CHART_COLORS.length;
-      return { buckets, colors: [...CHART_COLORS] };
+      for (let i = 0; i < n; i++) buckets[i] = result.colorCodes[i] % colors.length;
+      return { buckets, colors };
     }
     if (result.colorValues !== null && this.config.colorColumn >= 0) {
       let min = Infinity;
@@ -3175,7 +3318,14 @@ export class ChartCard {
       }
       if (min === Infinity) return null;
       const buckets = new Uint8Array(n).fill(16);
-      const colors = Array.from({ length: 16 }, (_, index) => rampColor(index / 15));
+      const paletteName = this.config.palette ?? DEFAULT_PALETTE;
+      const ramp = isRampPalette(paletteName)
+        ? paletteStops(paletteName, parseCustomColors(this.config.paletteCustom ?? ""))
+        : null;
+      const colors =
+        ramp === null
+          ? Array.from({ length: 16 }, (_, index) => rampColor(index / 15))
+          : Array.from({ length: 16 }, (_, index) => rampAt(ramp, index / 15));
       colors.push(this.config.color);
       for (let i = 0; i < n; i++) {
         const value = result.colorValues[i];

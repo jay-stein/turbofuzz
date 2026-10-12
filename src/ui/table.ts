@@ -88,6 +88,9 @@ export class ResultTable {
   private pendingEnd = -1;
   private lastStart = -1;
   private lastEnd = -1;
+  /** Column briefly highlighted after a Reports jump; cleared by a timer. */
+  private flashIndex: number | null = null;
+  private flashTimer: number | null = null;
 
   constructor(
     root: HTMLElement,
@@ -105,6 +108,7 @@ export class ResultTable {
 
   dispose(): void {
     window.removeEventListener("resize", this.onResize);
+    if (this.flashTimer !== null) window.clearTimeout(this.flashTimer);
     this.count = 0;
     this.cache.clear();
     this.rowFlags.clear();
@@ -139,6 +143,29 @@ export class ResultTable {
   /** Re-renders the header after column names are mutated in place. */
   refreshHeader(): void {
     this.renderHeader();
+  }
+
+  /**
+   * Briefly highlights a column (header and visible cells) and scrolls it into
+   * view — used after a Reports action jumps to the table.
+   */
+  flashColumn(column: number): void {
+    if (column < 0 || column >= this.columns.length) return;
+    const offset =
+      INDEX_WIDTH + this.widths.slice(0, column).reduce((sum, width) => sum + width, 0);
+    if (typeof this.scroller.scrollTo === "function") {
+      this.scroller.scrollTo({ left: Math.max(0, offset - 120), behavior: "smooth" });
+    }
+    this.flashIndex = column;
+    this.renderHeader();
+    this.render();
+    if (this.flashTimer !== null) window.clearTimeout(this.flashTimer);
+    this.flashTimer = window.setTimeout(() => {
+      this.flashTimer = null;
+      this.flashIndex = null;
+      this.renderHeader();
+      this.render();
+    }, 1700);
   }
 
   setCount(count: number): void {
@@ -290,6 +317,7 @@ export class ResultTable {
     this.columns.forEach((column, index) => {
       const name = column.name;
       const cell = el("div", { class: "th" });
+      if (this.flashIndex === index) cell.classList.add("flash-column");
       if (column.type === "integer" || column.type === "number") {
         cell.classList.add("num-head");
       }
@@ -683,6 +711,7 @@ export class ResultTable {
     for (let c = 0; c < this.columns.length; c++) {
       const type = this.columns[c]?.type;
       const cell = el("div", { class: "td" });
+      if (this.flashIndex === c) cell.classList.add("flash-column");
       if (type === "integer" || type === "number") cell.classList.add("num-cell");
       else if (type === "boolean") cell.classList.add("bool-cell");
       if (row !== undefined) this.fillCell(cell, row[c] ?? "", c);

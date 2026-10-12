@@ -2447,6 +2447,32 @@ mark {
   color: var(--text-dim);
 }
 
+.views-show-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.views-show-all-count {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+@keyframes flash-column {
+  0% {
+    background: color-mix(in srgb, var(--accent) 32%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+.th.flash-column,
+.td.flash-column {
+  animation: flash-column 1.6s ease-out;
+}
+
 /* ---------- recipe mapping ---------- */
 
 .recipe-mapping-modal {
@@ -3382,6 +3408,67 @@ select.chart-number {
   font: inherit;
   font-size: 12px;
   font-family: var(--mono);
+}
+
+.chart-palette {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chart-palette-select {
+  max-width: 150px;
+}
+
+.chart-palette-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.chart-palette-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  border: 1px solid var(--border-subtle);
+}
+
+.chart-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chart-remove:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+.chart-card-head {
+  padding-right: 24px;
+}
+
+.charts-toolbar {
+  position: sticky;
+  top: 45px;
+  z-index: 2;
+  padding: 6px 0;
+  margin: -6px 0;
+  background: var(--bg);
 }
 
 .charts-toolbar {

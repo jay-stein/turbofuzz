@@ -38,10 +38,13 @@ interface ViewEntry {
   loading: boolean;
   stale: boolean;
   error: string | null;
+  /** Reads beyond the first VISIBLE_ROWS rows of the table. */
+  expanded: boolean;
 }
 
 const MAX_VIEWS = 5;
 const DEFAULT_LIMIT = 500;
+const VISIBLE_ROWS = 20;
 
 const AGG_OPTIONS: readonly { value: Aggregate; label: string }[] = [
   { value: "sum", label: "Sum" },
@@ -211,6 +214,8 @@ export class ViewsPanel {
   private rowCount = 0;
   private started = false;
   private transientNote: string | null = null;
+  /** Index of a just-added view whose tab should open in rename mode. */
+  private pendingRename: number | null = null;
 
   constructor(
     private readonly root: HTMLElement,
@@ -240,6 +245,7 @@ export class ViewsPanel {
         loading: false,
         stale: true,
         error: null,
+        expanded: false,
       }));
       if (this.views.length === 0) this.views = [this.blankView()];
       this.active = 0;
@@ -312,15 +318,22 @@ export class ViewsPanel {
       limit: DEFAULT_LIMIT,
       respectFilters: true,
     };
-    return { def, result: null, loading: false, stale: true, error: null };
+    return { def, result: null, loading: false, stale: true, error: null, expanded: false };
   }
 
   private addView(): void {
     if (this.views.length >= MAX_VIEWS) return;
     const entry = this.blankView();
     entry.def.id = `view-${this.views.length + 1}-${Date.now().toString(36)}`;
+    const taken = new Set(this.views.map((view) => view.def.name));
+    let counter = this.views.length + 1;
+    let name = `View_${counter}`;
+    while (taken.has(name)) name = `View_${++counter}`;
+    entry.def.name = name;
     this.views.push(entry);
     this.active = this.views.length - 1;
+    // A fresh view starts in rename mode so naming it is the obvious next step.
+    this.pendingRename = this.active;
     this.options.onViewsChanged?.();
     this.refresh();
   }
@@ -400,7 +413,7 @@ export class ViewsPanel {
         {
           class: `views-tab${index === this.active ? " active" : ""}`,
           type: "button",
-          title: entry.def.name,
+          title: `${entry.def.name} — double-click to rename`,
         },
         [entry.def.name],
       ) as HTMLButtonElement;
@@ -427,6 +440,10 @@ export class ViewsPanel {
         tab.append(remove);
       }
       this.tabsEl.append(tab);
+      if (this.pendingRename === index) {
+        this.pendingRename = null;
+        this.beginRename(index, tab);
+      }
     });
     if (this.views.length < MAX_VIEWS) {
       const add = el(
@@ -1267,7 +1284,11 @@ export class ViewsPanel {
       }
       return max;
     });
-    for (let row = 0; row < result.groupCount; row++) {
+    // Long results squish to VISIBLE_ROWS until the user asks for all rows.
+    const total = result.groupCount;
+    const collapsed = !entry.expanded && total > VISIBLE_ROWS;
+    const rowLimit = collapsed ? VISIBLE_ROWS : total;
+    for (let row = 0; row < rowLimit; row++) {
       const tr = el("tr", { class: "views-row" });
       const firstDim = entry.def.dimensions[0];
       const drillable =
@@ -1308,7 +1329,7 @@ export class ViewsPanel {
     }
 
     // Summable measures can fold the hidden groups into an Other row.
-    if (result.truncated) {
+    if (result.truncated && !collapsed) {
       const summable = entry.def.measures.map(isSummable);
       if (summable.some(Boolean)) {
         const otherRow = el("tr", { class: "views-other" });
@@ -1363,6 +1384,27 @@ export class ViewsPanel {
     body.append(totalRow);
     table.append(body);
     this.tableEl.append(table);
+    if (total > VISIBLE_ROWS) {
+      const wrap = el("div", { class: "views-show-all" });
+      const toggle = el(
+        "button",
+        { class: "ghost small", type: "button" },
+        [entry.expanded ? `Show first ${VISIBLE_ROWS}` : `Show all ${total.toLocaleString()} rows`],
+      ) as HTMLButtonElement;
+      toggle.addEventListener("click", () => {
+        entry.expanded = !entry.expanded;
+        this.render();
+      });
+      wrap.append(toggle);
+      if (!entry.expanded) {
+        wrap.append(
+          el("span", { class: "views-show-all-count" }, [
+            `${VISIBLE_ROWS} of ${total.toLocaleString()} shown`,
+          ]),
+        );
+      }
+      this.tableEl.append(wrap);
+    }
   }
 
   /** Two-dimension matrix: dim0 down the rows, the pivot dimension across. */

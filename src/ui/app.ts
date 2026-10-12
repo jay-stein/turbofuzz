@@ -2252,6 +2252,7 @@ export class App {
         if (!active) this.toggleColumnSpecial(action.column, action.special);
         this.setAction(finding.title);
         this.setView("table");
+        this.table?.flashColumn(action.column);
         break;
       }
       case "filterDuplicates": {
@@ -2262,10 +2263,12 @@ export class App {
       case "filterRange":
         this.changeFilter(action.column, { kind: "range", min: action.min, max: action.max });
         this.setView("table");
+        this.table?.flashColumn(action.column);
         break;
       case "filterText":
         this.changeFilter(action.column, { kind: "text", mode: "exact", query: action.query });
         this.setView("table");
+        this.table?.flashColumn(action.column);
         break;
       case "cleanNulls":
         this.openClean(action.column, "nulls");

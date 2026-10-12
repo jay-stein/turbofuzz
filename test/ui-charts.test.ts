@@ -19,6 +19,7 @@ function setupDom(): Window {
   globals.window = window;
   globals.document = window.document;
   globals.HTMLElement = window.HTMLElement;
+  globals.MutationObserver = window.MutationObserver;
   globals.getComputedStyle = window.getComputedStyle.bind(window);
   return window;
 }
@@ -561,6 +562,12 @@ test("charts panel adds, duplicates and removes independent cards", async () => 
 
   openCardMenu(cards[0]);
   menuItem("Remove chart").click();
+  const confirmRemove = [...doc.querySelectorAll(".modal .primary")].pop() as unknown as {
+    click(): void;
+  };
+  assert.ok(confirmRemove !== undefined, "removal asks for confirmation");
+  confirmRemove.click();
+  await tick();
   assert.equal(host.querySelectorAll(".chart-card").length, 2);
 
   const layout = host.querySelector<HTMLSelectElement>('select[aria-label="Charts per row"]');
@@ -754,6 +761,12 @@ test("an emptied chart grid stays empty through column changes", async () => {
   ) as unknown as { click(): void } | undefined;
   assert.ok(remove !== undefined);
   remove.click();
+  const confirmRemove = [...doc.querySelectorAll(".modal .primary")].pop() as unknown as {
+    click(): void;
+  };
+  assert.ok(confirmRemove !== undefined);
+  confirmRemove.click();
+  await tick();
   assert.equal(host.querySelectorAll(".chart-card").length, 0);
   panel.setColumns([city(), meta({ name: "amount", type: "number" })]);
   await tick();
@@ -899,5 +912,53 @@ test("top-terms bars draw and filter rows by term", async () => {
     new window.MouseEvent("click", { clientX: 120, clientY: 90 }),
   );
   assert.deepEqual(applied, [[0, { kind: "text", mode: "contains", query: "delivery" }]]);
+  card.dispose();
+});
+
+test("the red x removes a chart only after confirmation", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  panel.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+  ]);
+  await tick();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  (host.querySelector(".chart-remove") as unknown as { click(): void }).click();
+  const cancel = [...doc.querySelectorAll(".modal .ghost")].find((button) =>
+    (button.textContent ?? "").includes("Cancel"),
+  );
+  assert.ok(cancel !== undefined, "removal asks for confirmation");
+  (cancel as unknown as { click(): void }).click();
+  assert.equal(host.querySelectorAll(".chart-card").length, 1, "cancel keeps the chart");
+  (host.querySelector(".chart-remove") as unknown as { click(): void }).click();
+  const confirm = [...doc.querySelectorAll(".modal .primary")].pop() as unknown as {
+    click(): void;
+  };
+  confirm.click();
+  await tick();
+  assert.equal(host.querySelectorAll(".chart-card").length, 0, "confirm removes the chart");
+  panel.dispose();
+});
+
+test("the colour map defaults to Pastel1 and can be changed", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+  ]);
+  await tick();
+  assert.equal(card.getConfig().palette, "Pastel1");
+  const select = host.querySelector(".chart-palette-select") as HTMLSelectElement;
+  assert.ok(select !== null, "the palette picker renders");
+  assert.equal(select.value, "Pastel1");
+  select.value = "Set2";
+  select.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(card.getConfig().palette, "Set2");
+  assert.equal(host.querySelectorAll(".chart-palette-dot").length, 10);
   card.dispose();
 });
