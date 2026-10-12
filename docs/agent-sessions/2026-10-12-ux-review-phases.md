@@ -267,3 +267,12 @@ histogram-frame mode, animated treemap tiles from frame counts, and density
 reusing the bubble grids through the normal density renderer. Play speed
 presets are 0.5/0.75/1/1.5/2x plus Custom (0.05-20x), driving live playback
 and export frame delay. Frame counters were removed; the date is the label.
+
+## Bubble measures and speed presets (same day)
+
+Commit `d981292`, deployed `63b5b10e-6faa-4750-ae7f-017cfd0d5b30`. 530 tests.
+The "static GIF" turned out to be VLC not animating it - a false alarm; the
+file was fine. Bubble charts can now size by Count (rows) or sum/mean/min/max
+of any numeric column, aggregated per grid cell worker-side (and per frame
+for animated bubbles), with area/radius/log scale modes and an exact note
+("size: mean(Annual Usage) per cell (log scale)"). Play speed gains 1.25x.
