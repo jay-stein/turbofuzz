@@ -40,6 +40,13 @@ function cleanLines(name: string, ops: readonly CleanOp[]): string[] {
           return `${column} = pd.to_numeric(${column}.str.replace(".", "", regex=False).str.replace(",", ".", regex=False).str.replace(r"[^0-9eE+\\-.]", "", regex=True), errors="coerce")`;
         }
         return `${column} = pd.to_numeric(${column}.str.replace(r"[^0-9eE+\\-.]", "", regex=True), errors="coerce")`;
+      case "repairDecimal":
+        if (op.locale === "dot") {
+          return `${column} = ${column}.astype(str).str.replace(r"^([+-]?\\d{1,3}(?:\\.\\d{3})*),(\\d{1,2})$", r"\\1.\\2", regex=True)`;
+        }
+        return `${column} = ${column}.astype(str).str.replace(r"^([+-]?\\d{1,3}(?:,\\d{3})*)\\.(\\d{1,2})$", r"\\1,\\2", regex=True)`;
+      case "escapeFormulas":
+        return `# escape leading =, @, + or - so spreadsheet apps treat the cell as text`;
       case "toDate":
         return `${column} = pd.to_datetime(${column}, dayfirst=${op.order === "dmy" ? "True" : "False"}, errors="coerce")`;
     }
@@ -137,6 +144,98 @@ function transformLines(
         lines.push(
           `df = df.melt(id_vars=[${idVars}], value_vars=[${valueVars}], var_name=${varName}, value_name=${valueName})`,
         );
+        break;
+      }
+      case "combineDate": {
+        const fields = new Map<string, string>();
+        const prep: string[] = [];
+        let temp = 0;
+        const dayfirst = op.order === "dmy" ? "True" : "False";
+        op.parts.forEach((part) => {
+          if (part.role === "auto") {
+            prep.push(`# ${names[part.column]}: role auto-detected by TurboFuzz`);
+            return;
+          }
+          const source = target(names[part.column]);
+          switch (part.role) {
+            case "year":
+            case "month":
+            case "day":
+            case "hour":
+            case "minute":
+            case "second":
+              fields.set(part.role, source);
+              break;
+            case "millisecond":
+              fields.set("microsecond", `${source}.astype(float).fillna(0) * 1000`);
+              break;
+            case "meridiem":
+              prep.push(`# ${names[part.column]}: AM/PM column — merge into the hour before combining`);
+              break;
+            case "offset":
+              prep.push(`# ${names[part.column]}: UTC offset column — use dt.tz_localize after combining`);
+              break;
+            case "epoch": {
+              const name = `_part${temp++}`;
+              prep.push(`${name} = pd.to_datetime(${source}, unit="s", errors="coerce")`);
+              fields.set("year", `${name}.dt.year`);
+              fields.set("month", `${name}.dt.month`);
+              fields.set("day", `${name}.dt.day`);
+              fields.set("hour", `${name}.dt.hour`);
+              fields.set("minute", `${name}.dt.minute`);
+              fields.set("second", `${name}.dt.second`);
+              break;
+            }
+            default: {
+              const name = `_part${temp++}`;
+              prep.push(
+                `${name} = pd.to_datetime(${source}, errors="coerce", format="mixed", dayfirst=${dayfirst})`,
+              );
+              if (part.role === "datetime" || part.role === "date") {
+                fields.set("year", `${name}.dt.year`);
+                fields.set("month", `${name}.dt.month`);
+                fields.set("day", `${name}.dt.day`);
+              }
+              if (part.role === "datetime" || part.role === "time") {
+                fields.set("hour", `${name}.dt.hour`);
+                fields.set("minute", `${name}.dt.minute`);
+                fields.set("second", `${name}.dt.second`);
+              }
+              break;
+            }
+          }
+        });
+        lines.push(...prep);
+        const output = target(op.outputName.trim() || (op.output === "date" ? "date" : "datetime"));
+        const dict = [...fields].map(([key, value]) => `${key}=${value}`).join(", ");
+        lines.push(`${output} = pd.to_datetime(dict(${dict}), errors="coerce")`);
+        if (op.output === "date") {
+          lines.push(`${output} = ${output}.dt.date`);
+        } else if (op.timeZone.trim() !== "" && op.timeZone.trim().toLowerCase() !== "naive") {
+          lines.push(
+            `# timezone: offsets found in the data win; otherwise localize the naive values`,
+          );
+          lines.push(
+            `${output} = ${output}.dt.tz_localize(${py(op.timeZone.trim())}, nonexistent="shift_forward", ambiguous="Naive")`,
+          );
+        }
+        break;
+      }
+      case "splitColumn": {
+        const sourceName = names[op.column];
+        const source = target(sourceName);
+        const prefix = op.prefix.trim() === "" ? sourceName : op.prefix.trim();
+        if (op.regex) {
+          lines.push(`# capture groups of ${py(op.pattern)} become columns`);
+          lines.push(`_split = ${source}.str.extract(${py(op.pattern)})`);
+        } else {
+          lines.push(`_split = ${source}.str.split(${py(op.pattern)}, expand=True)`);
+        }
+        lines.push(`_split.columns = [f${py(`${prefix}_{i + 1}`)} for i in range(_split.shape[1])]`);
+        lines.push(`df = pd.concat([df, _split], axis=1)`);
+        if (op.dropOriginal) {
+          lines.push(`df = df.drop(columns=[${py(sourceName)}])`);
+        }
         break;
       }
     }

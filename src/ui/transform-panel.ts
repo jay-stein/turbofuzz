@@ -1,5 +1,7 @@
 import { setupDialog } from "./dialog.js";
 import { clear, el } from "./dom.js";
+import { autoCombineParts } from "../data/date-combine.js";
+import type { DatePartRole } from "../parse/date-parts.js";
 import {
   AGGREGATES,
   AGGREGATE_LABELS,
@@ -18,6 +20,7 @@ export interface TransformPreview {
   baseNullCells: number;
   nullCells: number;
   columnCount: number;
+  columnNames: string[];
 }
 
 export interface TransformPanelCallbacks {
@@ -34,6 +37,25 @@ const TRANSFORM_TYPES: readonly { value: string; label: string }[] = [
   { value: "impute", label: "Fill missing values" },
   { value: "knn", label: "KNN impute (numeric)" },
   { value: "melt", label: "Melt (wide → long)" },
+  { value: "combineDate", label: "Combine date/time columns" },
+  { value: "splitColumn", label: "Split a column into new columns" },
+];
+
+const DATE_PART_ROLES: readonly { value: DatePartRole; label: string }[] = [
+  { value: "auto", label: "Auto-detect" },
+  { value: "date", label: "Full date" },
+  { value: "datetime", label: "Date + time" },
+  { value: "time", label: "Time only" },
+  { value: "year", label: "Year" },
+  { value: "month", label: "Month" },
+  { value: "day", label: "Day" },
+  { value: "hour", label: "Hour" },
+  { value: "minute", label: "Minute" },
+  { value: "second", label: "Second" },
+  { value: "millisecond", label: "Millisecond" },
+  { value: "meridiem", label: "AM/PM" },
+  { value: "offset", label: "UTC offset" },
+  { value: "epoch", label: "Epoch (unix)" },
 ];
 
 const DEDUPE_KEEPS: readonly { value: DedupeKeep; label: string }[] = [
@@ -62,6 +84,7 @@ export function openTransformPanel(
   applied: readonly TransformOp[],
   baseSchema: readonly ColumnSchema[],
   callbacks: TransformPanelCallbacks,
+  preset?: { type: string; column?: number },
 ): void {
   const overlay = el("div", { class: "modal-overlay drawer-overlay" });
   const modal = el("div", { class: "modal clean-modal drawer" });
@@ -74,6 +97,11 @@ export function openTransformPanel(
 
   const base = baseSchema.slice();
   let pending: TransformOp[] = applied.slice();
+  // The configured builder step is committed together with the list, but only
+  // once the user touched the builder (so Apply never adds a default step).
+  let builderTouched = false;
+  let builderType = TRANSFORM_TYPES[0]?.value ?? "dedupe";
+  let readOp: () => TransformOp | null = () => null;
 
   const summary = el("div", { class: "clean-summary" });
   const opList = el("div", { class: "clean-op-list" });
@@ -88,38 +116,75 @@ export function openTransformPanel(
   });
   const apply = el("button", { class: "primary", type: "button" }, ["Apply transforms"]);
   apply.addEventListener("click", () => {
-    callbacks.onApply(pending.slice());
+    callbacks.onApply(nextOps());
     close();
   });
   footer.append(clearAll, el("span", { class: "grow" }), apply);
 
   modal.append(summary, opList, builderHost, footer);
 
+  /** Pending steps plus the configured builder step, when touched. */
+  function nextOps(): TransformOp[] {
+    if (!builderTouched) return pending.slice();
+    const builder = readOp();
+    return builder === null ? pending.slice() : [...pending, builder];
+  }
+
+  /** The apply button always states exactly what one click will commit. */
+  function updateApply(): void {
+    const ops = nextOps();
+    apply.disabled = ops.length === 0 || JSON.stringify(ops) === appliedSignature;
+    const builderOnly = builderTouched && ops.length === pending.length + 1;
+    const label = TRANSFORM_TYPES.find((entry) => entry.value === builderType)?.label ?? "step";
+    apply.textContent = builderOnly
+      ? `Apply “${label}”`
+      : ops.length === 0
+        ? "Apply transforms"
+        : `Apply ${ops.length} step${ops.length === 1 ? "" : "s"}`;
+  }
+
   function runningSchema(): ColumnSchema[] {
+    if (previewNames !== null && pending.some((op) => op.kind === "splitColumn")) {
+      return previewNames.map((name) => ({ name, numeric: false }));
+    }
     let schema = base.slice();
     for (const op of pending) schema = schemaAfter(schema, op);
     return schema;
   }
 
   let previewGeneration = 0;
+  let previewNames: string[] | null = null;
+  let previewNamesKey = "";
   const appliedSignature = JSON.stringify(applied);
 
   function render(): void {
     renderOps();
     renderBuilder();
-    apply.disabled = JSON.stringify(pending) === appliedSignature;
+    updateApply();
+    const ops = nextOps();
     const baseText =
-      pending.length === 0
+      ops.length === 0
         ? "No transforms — the data is unchanged."
-        : `${pending.length} step${pending.length === 1 ? "" : "s"} ready to apply`;
+        : `${ops.length} step${ops.length === 1 ? "" : "s"} ready to apply`;
     summary.textContent = baseText;
-    if (pending.length === 0) return;
+    if (ops.length === 0) {
+      previewNames = null;
+      previewNamesKey = "";
+      return;
+    }
 
     const generation = ++previewGeneration;
     void callbacks
-      .onPreview(pending.slice())
+      .onPreview(ops)
       .then((preview) => {
         if (generation !== previewGeneration || preview === null) return;
+        const names = preview.columnNames;
+        const key = names.join("\u0000");
+        if (key !== previewNamesKey) {
+          previewNamesKey = key;
+          previewNames = names;
+          renderBuilder();
+        }
         const parts: string[] = [];
         const rowDelta = preview.baseRowCount - preview.rowCount;
         if (rowDelta > 0) {
@@ -179,6 +244,7 @@ export function openTransformPanel(
 
   function renderBuilder(): void {
     clear(builderHost);
+    builderTouched = false;
     const schema = runningSchema();
 
     const typeField = el("label", { class: "clean-field" });
@@ -187,10 +253,32 @@ export function openTransformPanel(
     for (const { value, label } of TRANSFORM_TYPES) {
       typeSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
     }
+    // Split date parts (Year + Month + Day) make the combine step the default
+    // and pre-tick their columns, so it is effectively one click.
+    const detected = autoCombineParts(schema);
+    const auto =
+      detected !== null && !pending.some((op) => op.kind === "combineDate") ? detected : null;
+    if (preset?.type !== undefined && TRANSFORM_TYPES.some((entry) => entry.value === preset.type)) {
+      typeSelect.value = preset.type;
+    } else if (auto !== null) {
+      typeSelect.value = "combineDate";
+    }
+    builderType = typeSelect.value;
+    if (
+      (preset?.type !== undefined && TRANSFORM_TYPES.some((entry) => entry.value === preset.type)) ||
+      auto !== null
+    ) {
+      builderTouched = true;
+    }
     typeField.append(typeSelect);
 
+    const preselect = (select: HTMLSelectElement): void => {
+      if (preset?.column !== undefined && preset.column >= 0 && preset.column < schema.length) {
+        select.value = String(preset.column);
+      }
+    };
+
     const inputHost = el("div", { class: "transform-inputs" });
-    let readOp: () => TransformOp | null = () => null;
 
     function buildInputs(): void {
       clear(inputHost);
@@ -203,12 +291,14 @@ export function openTransformPanel(
         }
         case "drop": {
           const columnSelect = selectOf(indexed(schema));
+          preselect(columnSelect);
           inputHost.append(field("Column", columnSelect));
           readOp = () => ({ kind: "drop", column: Number(columnSelect.value) });
           break;
         }
         case "round": {
           const columnSelect = selectOf(indexed(schema));
+          preselect(columnSelect);
           const decimalsInput = numberInput("0", "Decimal places — negative rounds left (-1 = nearest 10)");
           inputHost.append(field("Column", columnSelect), field("Decimals", decimalsInput));
           readOp = () => ({
@@ -220,6 +310,7 @@ export function openTransformPanel(
         }
         case "groupBy": {
           const dimensionSelect = selectOf(indexed(schema));
+          preselect(dimensionSelect);
           const measureSelect = selectOf(indexed(schema));
           const aggregateSelect = selectOf(
             AGGREGATES.map((value) => ({ value, label: AGGREGATE_LABELS[value] })),
@@ -244,6 +335,7 @@ export function openTransformPanel(
         }
         case "impute": {
           const columnSelect = selectOf(indexed(schema));
+          preselect(columnSelect);
           const strategySelect = selectOf(IMPUTE_STRATEGIES);
           const constantInput = el("input", {
             class: "text-input",
@@ -308,6 +400,11 @@ export function openTransformPanel(
           }
           const fill = checkboxList(numeric);
           const predictors = checkboxList(numeric);
+          if (preset?.column !== undefined && preset.column >= 0 && preset.column < schema.length) {
+            fill.checks.forEach((check) => {
+              check.input.checked = check.index === preset.column;
+            });
+          }
           const kInput = numberInput("5", "Number of neighbours");
           inputHost.append(
             group("Fill columns", fill.list, "Missing cells in these columns are imputed"),
@@ -378,11 +475,173 @@ export function openTransformPanel(
           });
           break;
         }
+        case "combineDate": {
+          const rows: { index: number; check: HTMLInputElement; role: HTMLSelectElement }[] = [];
+          const partsList = el("div", { class: "date-parts-list" });
+          schema.forEach((entry, index) => {
+            const row = el("div", { class: "date-part-row" });
+            const check = el("input", { type: "checkbox" }) as HTMLInputElement;
+            const role = selectOf(DATE_PART_ROLES);
+            role.disabled = true;
+            role.title = "How this column contributes to the combined value";
+            check.addEventListener("change", () => {
+              role.disabled = !check.checked;
+            });
+            row.append(check, el("span", { class: "date-part-name" }, [entry.name]), role);
+            partsList.append(row);
+            rows.push({ index, check, role });
+          });
+          if (preset?.column !== undefined && rows[preset.column] !== undefined) {
+            const row = rows[preset.column];
+            row.check.checked = true;
+            row.role.disabled = false;
+          }
+
+          // Auto-detected Year/Month/Day (+Hour/Minute) columns arrive ticked.
+          const detected = autoCombineParts(schema);
+          if (detected !== null) {
+            for (const part of detected.parts) {
+              const row = rows[part.column];
+              if (row === undefined) continue;
+              row.check.checked = true;
+              row.role.disabled = false;
+              row.role.value = part.role;
+            }
+          }
+
+          const outputSelect = selectOf([
+            { value: "datetime", label: "Datetime (ISO with time)" },
+            { value: "date", label: "Date (YYYY-MM-DD)" },
+          ]);
+          const orderSelect = selectOf([
+            { value: "auto", label: "Auto-detect (US vs day-first)" },
+            { value: "mdy", label: "Month first (MM/DD/YYYY)" },
+            { value: "dmy", label: "Day first (DD/MM/YYYY)" },
+          ]);
+          const nameInput = el("input", {
+            class: "text-input",
+            type: "text",
+            value: detected?.outputName ?? "date",
+            spellcheck: "false",
+          }) as HTMLInputElement;
+          if (detected !== null) outputSelect.value = detected.output;
+          outputSelect.addEventListener("change", () => {
+            if (nameInput.value === "datetime" || nameInput.value === "date") {
+              nameInput.value = outputSelect.value;
+            }
+          });
+
+          const dropCheck = el("input", { type: "checkbox" }) as HTMLInputElement;
+          const dropField = el("label", { class: "control check clean-check" });
+          dropField.append(dropCheck, "Remove the source columns after combining");
+
+          const partsGroup = group(
+            "Columns to combine",
+            partsList,
+            "Tick each column and pick its role — Auto detects it from the column name and values (year/month/day, date + time, 12-hour clocks, offsets, epochs). Year/Month/Day columns with matching names are ticked for you.",
+          );
+          partsGroup.classList.add("date-parts-group");
+          inputHost.append(
+            partsGroup,
+            field("Output", outputSelect),
+            field("Date order", orderSelect),
+            field("Column name", nameInput),
+            dropField,
+          );
+
+          readOp = () => {
+            const parts = rows
+              .filter((row) => row.check.checked)
+              .map((row) => ({ column: row.index, role: row.role.value as DatePartRole }));
+            if (parts.length === 0) return null;
+            return {
+              kind: "combineDate",
+              parts,
+              output: outputSelect.value === "date" ? "date" : "datetime",
+              outputName: nameInput.value,
+              order: orderSelect.value === "auto" ? "auto" : orderSelect.value === "mdy" ? "mdy" : "dmy",
+              timeZone: "naive",
+              dropParts: dropCheck.checked,
+            };
+          };
+          break;
+        }
+        case "splitColumn": {
+          const columnSelect = selectOf(indexed(schema));
+          preselect(columnSelect);
+          const patternInput = el("input", {
+            class: "text-input",
+            type: "text",
+            placeholder: ",",
+            spellcheck: "false",
+            "aria-label": "Delimiter or regular expression",
+          }) as HTMLInputElement;
+          const regexCheck = el("input", { type: "checkbox" }) as HTMLInputElement;
+          const regexField = el("label", { class: "control check clean-check" });
+          regexField.title =
+            "Treat the pattern as a regular expression; capture groups become the new columns";
+          regexField.append(regexCheck, "Regular expression");
+          const dropEmptyCheck = el("input", { type: "checkbox" }) as HTMLInputElement;
+          dropEmptyCheck.checked = true;
+          const dropEmptyField = el("label", { class: "control check clean-check" });
+          dropEmptyField.append(dropEmptyCheck, "Drop empty parts");
+          const dropOriginalCheck = el("input", { type: "checkbox" }) as HTMLInputElement;
+          const dropOriginalField = el("label", { class: "control check clean-check" });
+          dropOriginalField.append(dropOriginalCheck, "Remove the original column");
+          const prefixInput = el("input", {
+            class: "text-input",
+            type: "text",
+            placeholder: "column name",
+            spellcheck: "false",
+            "aria-label": "Prefix for the new columns",
+          }) as HTMLInputElement;
+
+          inputHost.append(
+            field("Column", columnSelect),
+            field("Split on", patternInput),
+            regexField,
+            dropEmptyField,
+            dropOriginalField,
+            field("New column prefix", prefixInput),
+            el("div", { class: "clean-hint" }, [
+              "Works like pandas str.split(expand=True): new columns are prefix_1, prefix_2 … up to the largest part count (limit 50). Regex mode uses the pattern's capture groups; without groups it splits on every match.",
+            ]),
+          );
+
+          readOp = () => {
+            const pattern = patternInput.value;
+            if (pattern === "") return null;
+            return {
+              kind: "splitColumn",
+              column: Number(columnSelect.value),
+              pattern,
+              regex: regexCheck.checked,
+              dropEmpty: dropEmptyCheck.checked,
+              dropOriginal: dropOriginalCheck.checked,
+              prefix: prefixInput.value,
+            };
+          };
+          break;
+        }
       }
     }
-    typeSelect.addEventListener("change", buildInputs);
+    typeSelect.addEventListener("change", () => {
+      builderTouched = true;
+      builderType = typeSelect.value;
+      buildInputs();
+      updateApply();
+    });
+    inputHost.addEventListener("input", () => {
+      builderTouched = true;
+      updateApply();
+    });
+    inputHost.addEventListener("change", () => {
+      builderTouched = true;
+      updateApply();
+    });
 
-    const addButton = el("button", { class: "primary small", type: "button" }, ["Add step"]);
+    const addButton = el("button", { class: "ghost small", type: "button" }, ["Add another"]);
+    addButton.title = "Stage this step in the list and configure the next one";
     addButton.addEventListener("click", () => {
       const op = readOp();
       if (op === null) return;
@@ -395,7 +654,7 @@ export function openTransformPanel(
       inputHost,
       addButton,
       el("div", { class: "clean-hint" }, [
-        "Add each step to the list below, then click Apply transforms when it is ready.",
+        "“Apply” commits the configured step together with the list; use “Add another” to stage a multi-step pipeline first.",
       ]),
     );
     buildInputs();

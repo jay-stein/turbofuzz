@@ -1,7 +1,6 @@
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
 import { listArchiveEntries, readArchiveEntry, type ArchiveEntry } from "../parse/archive.js";
 import { decompressBzip2 } from "../parse/bz2.js";
-import { decodeText } from "../parse/encoding.js";
 import { detectTable } from "../parse/header-detect.js";
 import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
 import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
@@ -23,44 +22,54 @@ import { TYPE_LABELS, type ColumnType } from "../types.js";
 import type {
   CleanUpdate,
   ColumnMeta,
+  ExportScope,
   LoadedMessage,
   ProgressMessage,
   SpecialKind,
   TransformedMessage,
 } from "../worker/protocol.js";
 import { clear, el, svgIcon } from "./dom.js";
+import { openDedupeMenu } from "./dedupe-menu.js";
+import { openMenu } from "./menu.js";
+import { buildColumnCard } from "./summary-band.js";
+import { Overview, delimiterLabel, readDefaultView } from "./overview.js";
+import type { DatasetStats } from "../data/stats.js";
 import { FilterPanel } from "./filters.js";
-import { findDataTables, type TableCandidate } from "./html-table.js";
+import { ChartsPanel, remapChartConfigs, type NamedChartCardConfig } from "./chart-panel.js";
+import { openHelpDrawer } from "./help-drawer.js";
+import { Hints } from "./hints.js";
 import { sampleCsv } from "./sample.js";
-import { SummaryBand } from "./summary-band.js";
-import { openStatsModal } from "./stats.js";
+import {
+  applyThemePreference,
+  nextThemePreference,
+  readThemePreference,
+  themeLabel,
+  type ThemePreference,
+} from "./theme.js";
 import { ResultTable, type ColumnQaKind, type HighlightRule } from "./table.js";
+import { openStatsModal } from "./stats.js";
 import { SearchWorkerClient } from "./worker-client.js";
 import { openCleanPanel } from "./clean-panel.js";
-import { openConfirm } from "./dialog.js";
+import { openConfirm, openPrompt } from "./dialog.js";
 import { openExportPanel } from "./export-panel.js";
 import { openMergePanel } from "./merge-panel.js";
-import { openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
+import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
 import { PipelineStepper, type StageId } from "./stepper.js";
+import { ViewTabs, type ViewId } from "./view-tabs.js";
+import { suggestCharts } from "./chart-utils.js";
 
 const LARGE_PASTE_ROWS = 300_000;
-const DATA_URL_EXTENSIONS = [
-  ".csv",
-  ".tsv",
-  ".psv",
-  ".txt",
-  ".dat",
-  ".json",
-  ".jsonl",
-  ".ndjson",
-  ".parquet",
-  ".xlsx",
-  ".xls",
-  ".zip",
-  ".gz",
-  ".bz2",
-];
+const SIDEBAR_COLLAPSED_KEY = "turbofuzz.filters.collapsed";
+const COLUMN_TILES_KEY = "turbofuzz.table.tiles";
+
+function readColumnTilesPreference(): boolean {
+  try {
+    return sessionStorage.getItem(COLUMN_TILES_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 const FILE_ACCEPT =
   ".csv,.tsv,.psv,.txt,.dat,.json,.jsonl,.ndjson,.parquet,.xlsx,.xls,.zip,.gz,.bz2";
 const WORKBOOK_EXTENSIONS = [".xlsx", ".xls"];
@@ -71,15 +80,38 @@ const UNSUPPORTED_FORMATS: { extensions: string[]; message: string }[] = [
     message: "HDF5 (.h5) isn't supported — export to CSV or Parquet first",
   },
 ];
-const DEFAULT_SHUFFLE_SAMPLE = 100;
 
 interface PickerItem {
   label: string;
   rows: number;
   columns: number;
-  best?: boolean;
   detail?: string;
   onSelect: () => void;
+}
+
+/** Reversible missing-value policy change, logged in the Process Log. */
+interface NullEdit {
+  column: number;
+  label: string;
+  detail: string;
+  previousExtra: string[];
+  previousKeep: string[];
+  /** True for the "apply to all columns" action, where column is -1. */
+  all?: boolean;
+}
+
+/** Reversible column type (interpretation) change, logged in the Process Log. */
+interface TypeEdit {
+  column: number;
+  label: string;
+  detail: string;
+  previous: ColumnType;
+}
+
+function sameTokens(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every((value) => set.has(value));
 }
 
 function formatBytes(size: number): string {
@@ -94,34 +126,10 @@ function extensionOf(name: string): string {
   return dot === -1 ? "" : lower.slice(dot);
 }
 
-function isWorkbookUrl(raw: string): boolean {
-  try {
-    return WORKBOOK_EXTENSIONS.includes(extensionOf(new URL(raw).pathname));
-  } catch {
-    return false;
-  }
-}
-
-function isDataUrl(raw: string): boolean {
-  try {
-    const pathname = new URL(raw).pathname.toLowerCase();
-    return DATA_URL_EXTENSIONS.some((extension) => pathname.endsWith(extension));
-  } catch {
-    return false;
-  }
-}
-
 function uploadIcon(): SVGElement {
   return svgIcon(
     '<path d="M12 15V4"/><path d="m7 9 5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
     "dropzone-icon",
-  );
-}
-
-function globeIcon(): SVGElement {
-  return svgIcon(
-    '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.4 2.6 3.6 5.6 3.6 9s-1.2 6.4-3.6 9c-2.4-2.6-3.6-5.6-3.6-9S9.6 5.6 12 3z"/>',
-    "field-icon",
   );
 }
 
@@ -132,17 +140,44 @@ function lockIcon(): SVGElement {
   );
 }
 
+/** Dice icon for the shuffle control: a die with pips. */
 function diceIcon(): SVGElement {
   return svgIcon(
-    '<rect x="3.2" y="3.2" width="17.6" height="17.6" rx="4.2"/>' +
-      '<circle cx="8.4" cy="8.4" r="1.2" fill="currentColor" stroke="none"/>' +
-      '<circle cx="15.6" cy="8.4" r="1.2" fill="currentColor" stroke="none"/>' +
-      '<circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/>' +
-      '<circle cx="8.4" cy="15.6" r="1.2" fill="currentColor" stroke="none"/>' +
-      '<circle cx="15.6" cy="15.6" r="1.2" fill="currentColor" stroke="none"/>',
+    '<rect x="3.5" y="3.5" width="17" height="17" rx="4"/>' +
+      '<circle cx="8.4" cy="8.4" r="1.25" fill="currentColor" stroke="none"/>' +
+      '<circle cx="15.6" cy="15.6" r="1.25" fill="currentColor" stroke="none"/>' +
+      '<circle cx="12" cy="12" r="1.25" fill="currentColor" stroke="none"/>',
     "shuffle-icon",
   );
 }
+
+/** 2×2 grid icon for the column-tiles toggle. */
+function tilesIcon(): SVGElement {
+  return svgIcon(
+    '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/>' +
+      '<rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/>' +
+      '<rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/>' +
+      '<rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>',
+    "tiles-icon",
+  );
+}
+
+/** Check mark shown in place of the grid while the tiles strip is on. */
+function checkIcon(): SVGElement {
+  return svgIcon('<path d="m5 12.5 4.5 4.5L19 7"/>', "tiles-check");
+}
+
+/** Mini bar chart shown while hovering the Info Tiles toggle. */
+function tilesChartIcon(): SVGElement {
+  return svgIcon(
+    '<path d="M4 19.5h16"/>' +
+      '<rect x="5" y="11" width="3.4" height="8.5" rx="1"/>' +
+      '<rect x="10.3" y="6.5" width="3.4" height="13" rx="1"/>' +
+      '<rect x="15.6" y="13.5" width="3.4" height="6" rx="1"/>',
+    "tiles-chart",
+  );
+}
+
 const CLIPBOARD_ROW_LIMIT = 100_000;
 const EXPORT_CHUNK_ROWS = 20_000;
 
@@ -167,16 +202,6 @@ type SavePicker = (options: {
   suggestedName: string;
   types: { description: string; accept: Record<string, string[]> }[];
 }) => Promise<FileHandleLike>;
-
-function nameFromUrl(raw: string): string {
-  try {
-    const url = new URL(raw);
-    const last = url.pathname.split("/").filter(Boolean).pop();
-    return last === undefined ? url.hostname : last;
-  } catch {
-    return "remote-data";
-  }
-}
 
 async function copyText(text: string): Promise<boolean> {
   if (navigator.clipboard?.writeText !== undefined) {
@@ -216,16 +241,18 @@ export class App {
   private pendingSend: { generation: number; send: () => Promise<void> } | null = null;
   private filters = new Map<number, ColumnFilter>();
   private readonly cleanedColumns = new Map<number, CleanOp[]>();
+  private readonly nullEdits: NullEdit[] = [];
+  private readonly typeEdits: TypeEdit[] = [];
   private transformOps: TransformOp[] = [];
   private transformBaseSchema: ColumnSchema[] = [];
+  /** Sizes of the transform commits, in op order, for Process Log batches. */
+  private transformCommitSizes: number[] = [];
   private filterPanel: FilterPanel | null = null;
   private table: ResultTable | null = null;
 
   private pasteView!: HTMLElement;
   private workspace!: HTMLElement;
   private textarea!: HTMLTextAreaElement;
-  private urlInput!: HTMLInputElement;
-  private urlButton!: HTMLButtonElement;
   private pendingWorkbook:
     | { kind: "xlsx"; buffer: ArrayBuffer }
     | { kind: "xls"; workbook: WorkBook }
@@ -236,6 +263,10 @@ export class App {
   private delimiterSelect!: HTMLSelectElement;
   private headersCheckbox!: HTMLInputElement;
   private statusEl!: HTMLElement;
+  private loadPanel!: HTMLElement;
+  private loadTitle!: HTMLElement;
+  private loadDetail!: HTMLElement;
+  private loadBar!: HTMLElement;
   private metaEl!: HTMLElement;
   private countEl!: HTMLElement;
   private actionEl!: HTMLElement;
@@ -244,30 +275,90 @@ export class App {
   private newButton!: HTMLButtonElement;
   private stepsButton!: HTMLButtonElement;
   private exportNullAsBlank = true;
+  private exportEscapeFormulas = true;
+  private exportLimit: number | null = null;
   private bannerEl!: HTMLElement;
-  private summaryHost!: HTMLElement;
-  private summaryBand: SummaryBand | null = null;
+  private healthHost!: HTMLElement;
+  private healthChipCount = 0;
+  private moreButton!: HTMLButtonElement;
   private readonly specials = new Set<SpecialKind>();
   private readonly columnSpecials = new Map<number, Set<ColumnQaKind>>();
   private readonly pendingRowDeletes = new Set<number>();
   private readonly pendingColumnDeletes = new Set<number>();
   private excludedRowCount = 0;
+  private resultCount = 0;
   private deleteBar!: HTMLElement;
   private deleteBarText!: HTMLElement;
   private shuffleButton!: HTMLButtonElement;
-  private shuffleCount!: HTMLInputElement;
   private shuffleActive = false;
+  private tilesButton!: HTMLButtonElement;
+  private columnsStrip!: HTMLElement;
+  private tilesOn = readColumnTilesPreference();
   private filterHost!: HTMLElement;
   private filterSearch!: HTMLInputElement;
   private tableHost!: HTMLElement;
+  private chartHost!: HTMLElement;
+  private chartsPanel: ChartsPanel | null = null;
+  private chartActive = false;
+  private chartRestore: NamedChartCardConfig[] | null = null;
+  private chartRemoved = 0;
+  private chartOpened = false;
+  private view: ViewId = "overview";
+  private lastLens: "table" | "chart" = "table";
+  private tabs: ViewTabs | null = null;
+  private overviewHost!: HTMLElement;
+  private overview: Overview | null = null;
+  private latestStats: DatasetStats | null = null;
+  /** Input size in bytes for the dataset line (file or pasted text). */
+  private sourceBytes: number | null = null;
+  private sidebarEl!: HTMLElement;
+  private sidebarToggle!: HTMLButtonElement;
+  private sidebarCollapsed = false;
+  private filterChipsEl!: HTMLElement;
+  private addFilterButton!: HTMLButtonElement;
+  private latestFacets: Record<number, number[]> = {};
+  private latestHistograms: Record<number, number[]> = {};
+  private themeButton!: HTMLButtonElement;
+  private themePreference: ThemePreference = readThemePreference();
   private stepperHost!: HTMLElement;
   private stepper: PipelineStepper | null = null;
   private workspaceTitle!: HTMLElement;
+  private tabHost!: HTMLElement;
+  private hints: Hints | null = null;
 
   constructor(private readonly root: HTMLElement) {
     this.buildShell();
     this.bindEvents();
     this.client.onProgress((progress) => this.handleProgress(progress));
+    this.hints = new Hints([
+      {
+        id: "tabs",
+        text: "Overview, Table and Chart are lenses — switch anytime with 1, 2, 3.",
+        target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
+      },
+      {
+        id: "column-menu",
+        text: "Right-click a column header for Column, Clean and Transform actions.",
+        target: () =>
+          this.tableHost.classList.contains("hidden")
+            ? null
+            : this.tableHost.querySelector<HTMLElement>(".th"),
+      },
+      {
+        id: "process-log",
+        text: "Every clean and transform lands in the Process Log, where you can undo it.",
+        target: () =>
+          this.stepsButton.classList.contains("hidden") ? null : this.stepsButton,
+      },
+      {
+        id: "column-tiles",
+        text: "Miss the column summary? “Info Tiles” shows it above the table while you work.",
+        target: () =>
+          this.view === "table" && !this.tilesButton.classList.contains("hidden")
+            ? this.tilesButton
+            : null,
+      },
+    ]);
   }
 
   private buildShell(): void {
@@ -277,6 +368,36 @@ export class App {
     topbar.append(el("div", { class: "brand" }, ["TurboFuzz"]));
     this.metaEl = el("div", { class: "meta" });
     topbar.append(this.metaEl);
+
+    const helpButton = el(
+      "button",
+      { class: "ghost small", type: "button", title: "Open the user guide" },
+      ["Help"],
+    );
+    helpButton.addEventListener("click", () => openHelpDrawer());
+
+    this.themeButton = el(
+      "button",
+      {
+        class: "ghost small",
+        type: "button",
+        title: "Cycle Auto → Light → Dark. Auto follows your operating system.",
+      },
+      [`Theme: ${themeLabel(this.themePreference)}`],
+    ) as HTMLButtonElement;
+    this.themeButton.addEventListener("click", () => {
+      this.themePreference = nextThemePreference(this.themePreference);
+      applyThemePreference(this.themePreference);
+      this.themeButton.textContent = `Theme: ${themeLabel(this.themePreference)}`;
+    });
+    if (typeof window.matchMedia === "function") {
+      window
+        .matchMedia("(prefers-color-scheme: dark)")
+        .addEventListener("change", () => {
+          if (this.themePreference === "auto") applyThemePreference("auto");
+        });
+    }
+    topbar.append(this.themeButton, helpButton);
 
     this.newButton = el("button", { class: "ghost", type: "button" }, ["New data"]);
     this.newButton.addEventListener("click", () => this.showPaste());
@@ -297,7 +418,12 @@ export class App {
     card.append(el("h1", {}, ["Clean and reshape tables in your browser"]));
     card.append(
       el("p", { class: "sub" }, [
-        "Drop a messy CSV or Excel file. Type-aware cleanup, transforms and search — nothing leaves this page.",
+        "Drop a messy CSV or Excel file. Type-aware cleanup, transforms and search — all offline, nothing leaves this tab.",
+      ]),
+    );
+    card.append(
+      el("p", { class: "sub sub-formats" }, [
+        "CSV · TSV · PSV · JSON · Excel (.xlsx/.xls) · Parquet · ZIP/GZ/BZ2 — limited only by your browser's memory.",
       ]),
     );
 
@@ -316,9 +442,30 @@ export class App {
     );
     const privacy = el("div", { class: "privacy-badge" }, [
       lockIcon(),
-      el("span", {}, ["0 bytes uploaded — files are parsed in this browser"]),
+      el("span", {}, [
+        "0 bytes uploaded · 0 network requests — files are parsed in this browser",
+      ]),
     ]);
     card.append(dropzone, privacy);
+
+    this.loadPanel = el("div", {
+      class: "load-progress hidden",
+      role: "status",
+      "aria-live": "polite",
+    });
+    this.loadTitle = el("span", { class: "load-progress-title" });
+    this.loadDetail = el("span", { class: "load-progress-detail" });
+    const loadHead = el("div", { class: "load-progress-head" });
+    loadHead.append(
+      el("span", { class: "load-spinner", "aria-hidden": "true" }),
+      this.loadTitle,
+      this.loadDetail,
+    );
+    const loadTrack = el("div", { class: "load-progress-track" });
+    this.loadBar = el("div", { class: "load-progress-bar indeterminate" });
+    loadTrack.append(this.loadBar);
+    this.loadPanel.append(loadHead, loadTrack);
+    card.append(this.loadPanel);
 
     const fileInput = el("input", {
       type: "file",
@@ -388,56 +535,6 @@ export class App {
     pasteDetails.append(controls);
     card.append(pasteDetails);
 
-    const urlDetails = el("details", { class: "paste-secondary" });
-    urlDetails.append(el("summary", {}, ["Load from a URL or scrape a table"]));
-    const urlSection = el("div", { class: "url-section" });
-    const urlRow = el("div", { class: "url-controls" });
-    const urlField = el("div", { class: "url-field" });
-    urlField.append(globeIcon());
-    this.urlInput = el("input", {
-      class: "text-input url-input",
-      type: "text",
-      placeholder: "https://example.com/data.csv — or a web page with a table",
-      spellcheck: "false",
-      "aria-label": "Data file URL or web page to scrape",
-    }) as HTMLInputElement;
-    urlField.append(this.urlInput);
-
-    this.urlButton = el(
-      "button",
-      { class: "primary", type: "button" },
-      ["Load / scrape"],
-    ) as HTMLButtonElement;
-    this.urlButton.addEventListener("click", () => void this.loadFromUrl());
-    this.urlInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        void this.loadFromUrl();
-      }
-    });
-    this.urlInput.addEventListener("input", () => this.updateUrlButton());
-    urlRow.append(urlField, this.urlButton);
-
-    const legal = el("details", { class: "legal" });
-    legal.append(
-      el("summary", {}, ["Scraping guidelines"]),
-      el("p", { class: "disclaimer" }, [
-        "Always scrape responsibly by reviewing and adhering to the website's ",
-        el("code", {}, ["robots.txt"]),
-        " file, Terms of Service, and licensing restrictions. Ensure your request rates respect the server's load limits and comply with relevant data privacy laws.",
-      ]),
-    );
-
-    urlSection.append(
-      urlRow,
-      el("p", { class: "url-hint" }, [
-        "Links ending in .csv, .tsv, .psv, .txt, .json, .parquet, .zip, .gz or .bz2 load as data; anything else is scraped for its first table.",
-      ]),
-      legal,
-    );
-    urlDetails.append(urlSection);
-    card.append(urlDetails);
-
     const pickerHead = el("div", { class: "table-picker-head" });
     this.tablePickerTitle = el("span", { class: "table-picker-title" });
     const pickerCancel = el("button", { class: "link", type: "button" }, ["Cancel"]);
@@ -450,7 +547,9 @@ export class App {
     this.statusEl = el("div", { class: "status" });
     card.append(this.statusEl);
 
-    const sampleButton = el("button", { class: "link", type: "button" }, ["Try sample data"]);
+    const sampleButton = el("button", { class: "ghost small", type: "button" }, [
+      "Try sample data",
+    ]);
     sampleButton.addEventListener("click", () => {
       this.textarea.value = sampleCsv();
       this.loadFromTextarea();
@@ -466,14 +565,30 @@ export class App {
     this.workspaceTitle = el("h1", { class: "sr-only" }, ["TurboFuzz workspace"]);
     workspace.append(this.workspaceTitle);
 
+    const tabHost = el("div");
+    this.tabHost = tabHost;
+    this.tabs = new ViewTabs(tabHost, { onChange: (view) => this.setView(view) });
     this.stepperHost = el("div", { class: "stepper-host" });
     this.stepper = new PipelineStepper(this.stepperHost, {
       onSelect: (id) => this.selectStage(id),
     });
+    const navRow = el("div", { class: "nav-row" }, [tabHost, this.stepperHost]);
 
-    const sidebar = el("aside", { class: "sidebar" });
+    const sidebar = el("aside", { class: "sidebar hidden" });
+    this.sidebarEl = sidebar;
     const sidebarHead = el("div", { class: "sidebar-head" });
-    sidebarHead.append(el("span", { class: "sidebar-title" }, ["Filters"]));
+    this.sidebarToggle = el(
+      "button",
+      { class: "icon-btn sidebar-toggle", type: "button", title: "Collapse filters" },
+      ["«"],
+    ) as HTMLButtonElement;
+    this.sidebarToggle.addEventListener("click", () =>
+      this.setSidebarCollapsed(!this.sidebarCollapsed),
+    );
+    sidebarHead.append(
+      this.sidebarToggle,
+      el("span", { class: "sidebar-title" }, ["Filters"]),
+    );
     const clearAll = el("button", { class: "ghost small", type: "button" }, ["Clear all"]);
     clearAll.addEventListener("click", () => this.clearFilters());
     sidebarHead.append(clearAll);
@@ -493,6 +608,7 @@ export class App {
     const results = el("main", { class: "results" });
     const resultsBar = el("div", { class: "results-bar" });
     const resultsRow = el("div", { class: "results-row" });
+
     this.countEl = el("span", { class: "count" });
     this.actionEl = el("span", { class: "action-status" });
 
@@ -505,55 +621,94 @@ export class App {
 
     this.stepsButton = el(
       "button",
-      { class: "ghost small", type: "button", title: "Review, undo or export the applied steps" },
-      ["Steps"],
+      { class: "ghost small", type: "button", title: "Review, undo or export the applied changes" },
+      ["Process Log"],
     ) as HTMLButtonElement;
     this.stepsButton.classList.add("hidden");
     this.stepsButton.addEventListener("click", () => this.openSteps());
 
     this.exportButton = el(
       "button",
-      { class: "ghost small", type: "button", title: "Choose a file name and format, then export" },
+      {
+        class: "primary small",
+        type: "button",
+        title: "Choose a file name and format, then export",
+      },
       ["Export…"],
     ) as HTMLButtonElement;
     this.exportButton.addEventListener("click", () => this.openExportDialog());
 
-    const shuffleControl = el("span", { class: "shuffle-control" });
-    this.shuffleCount = el("input", {
-      class: "shuffle-count",
-      type: "number",
-      min: "1",
-      step: "1",
-      value: String(DEFAULT_SHUFFLE_SAMPLE),
-      title: "Rows to sample at random — clear or 0 to shuffle all",
-      "aria-label": "Number of rows to sample",
-      spellcheck: "false",
-    }) as HTMLInputElement;
-    this.shuffleCount.addEventListener("input", () => this.updateShuffleLabel());
-
     this.shuffleButton = el(
       "button",
       {
-        class: "shuffle-button",
+        class: "ghost small shuffle-button",
         type: "button",
-        title: "Show a random sample of rows",
+        title: "Show every row in a random order",
+        "aria-label": "Shuffle data",
       },
       [],
     ) as HTMLButtonElement;
-    this.shuffleButton.append(diceIcon(), el("span", { class: "shuffle-label" }, []));
+    this.shuffleButton.append(
+      diceIcon(),
+      el("span", { class: "shuffle-label" }, ["Shuffle data"]),
+    );
     this.shuffleButton.addEventListener("click", () => this.shuffleRows());
-    this.updateShuffleLabel();
 
-    shuffleControl.append(this.shuffleButton, this.shuffleCount);
+    this.healthHost = el("span", { class: "health-host hidden" });
+    this.tilesButton = el(
+      "button",
+      {
+        class: "ghost small tiles-toggle",
+        type: "button",
+        title: "Show a column summary strip above the table while you work (T)",
+        "aria-pressed": "false",
+      },
+      [],
+    ) as HTMLButtonElement;
+    this.tilesButton.classList.add("hidden");
+    this.tilesButton.append(
+      tilesIcon(),
+      tilesChartIcon(),
+      checkIcon(),
+      el("span", { class: "tiles-label" }, ["Info Tiles"]),
+    );
+    this.tilesButton.addEventListener("click", () => this.toggleColumnTiles());
+    this.filterChipsEl = el("span", { class: "filter-chips hidden" });
+    this.addFilterButton = el(
+      "button",
+      {
+        class: "ghost small add-filter",
+        type: "button",
+        title: "Search for a column to filter",
+      },
+      ["+ Add filter"],
+    ) as HTMLButtonElement;
+    this.addFilterButton.addEventListener("click", () => this.openAddFilter(this.addFilterButton));
+    this.moreButton = el(
+      "button",
+      {
+        class: "icon-btn",
+        type: "button",
+        title: "More actions",
+        "aria-label": "More actions",
+      },
+      ["⋯"],
+    ) as HTMLButtonElement;
+    this.moreButton.addEventListener("click", () => this.openMoreMenu(this.moreButton));
 
     resultsRow.append(
       this.countEl,
+      this.filterChipsEl,
+      this.addFilterButton,
+      this.healthHost,
+      this.tilesButton,
       el("span", { class: "grow" }),
       this.actionEl,
-      shuffleControl,
+      this.shuffleButton,
       this.stepsButton,
       this.copyButton,
       this.exportButton,
+      this.moreButton,
     );
 
     this.deleteBar = el("div", { class: "delete-bar hidden" });
@@ -569,11 +724,31 @@ export class App {
     this.bannerEl = el("div", { class: "banner hidden" });
     resultsBar.append(resultsRow, this.deleteBar, this.bannerEl);
     this.tableHost = el("div", { class: "table-host" });
-    results.append(resultsBar, this.tableHost);
+    this.chartHost = el("div", { class: "chart-host hidden" });
+    this.columnsStrip = el("div", { class: "column-strip hidden" });
+    results.append(resultsBar, this.columnsStrip, this.tableHost, this.chartHost);
 
-    this.summaryHost = el("div");
+    this.overviewHost = el("div", { class: "overview-host hidden" });
+    this.overview = new Overview(this.overviewHost, {
+      onOpenTable: () => this.setView("table"),
+      onOpenChart: () => this.setView("chart"),
+      onFilterColumn: (column) => this.focusFilterColumn(column),
+      onCleanColumn: (column) => this.openClean(column, "values"),
+      onOpenCleanNulls: () => this.openClean(undefined, "nulls"),
+      onDedupe: (anchor) => {
+        const stats = this.latestStats;
+        if (stats !== null) openDedupeMenu(anchor, stats, (keep) => this.dropDuplicates(keep));
+      },
+      onOpenMerge: (column) => this.openMerge(column),
+      onReviewColumn: (column) => this.focusFilterColumn(column),
+      onDropColumn: (column) => this.dropEmptyColumns([column]),
+      onOpenStats: () => this.openStats(),
+      onCombineDate: (op) =>
+        this.applyTransform([...this.transformOps, op], "Combined the date columns"),
+      onBlankTokens: (tokens) => this.applyNullPolicyAll(tokens, []),
+    });
     const body = el("div", { class: "workspace-body" }, [sidebar, results]);
-    workspace.append(this.stepperHost, this.summaryHost, body);
+    workspace.append(navRow, this.overviewHost, body);
     return workspace;
   }
 
@@ -582,6 +757,29 @@ export class App {
       if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
         event.preventDefault();
         this.loadFromTextarea();
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (this.workspace.classList.contains("hidden")) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target !== null &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (event.key === "1") this.setView("overview");
+      else if (event.key === "2") this.setView("table");
+      else if (event.key === "3") this.setView("chart");
+      else if (
+        (event.key === "t" || event.key === "T") &&
+        this.view === "table"
+      ) {
+        this.toggleColumnTiles();
       }
     });
   }
@@ -593,6 +791,7 @@ export class App {
       this.statusEl.classList.add("error");
       return;
     }
+    this.showLoadProgress("Pasted data", new TextEncoder().encode(text).byteLength);
     void this.load({ text, name: "Pasted data", source: "paste" });
   }
 
@@ -607,8 +806,11 @@ export class App {
     this.generation++;
     this.pendingSend = null;
     this.hideTablePicker();
-    this.statusEl.textContent = "Parsing…";
-    this.statusEl.classList.remove("error");
+    this.setLoadingText("Parsing…");
+    this.sourceBytes =
+      options.text !== undefined
+        ? new TextEncoder().encode(options.text).byteLength
+        : (options.buffer?.byteLength ?? null);
 
     try {
       const loaded = await this.client.load({
@@ -619,6 +821,7 @@ export class App {
         buffer: options.buffer,
       });
       this.statusEl.textContent = "";
+      this.hideLoadProgress();
       this.openWorkspace(loaded);
     } catch (error) {
       this.statusEl.textContent =
@@ -629,101 +832,18 @@ export class App {
     }
   }
 
-  /**
-   * One URL field, two behaviours: data links (CSV/TSV/PSV by extension or
-   * content type) load as a table, anything else is scraped for its first
-   * table.
-   */
-  private async loadFromUrl(): Promise<void> {
-    const url = this.urlInput.value.trim();
-    if (url === "") {
-      this.setStatusError("Enter a URL first.");
-      return;
-    }
-    this.hideTablePicker();
-    try {
-      this.statusEl.textContent = "Downloading…";
-      this.statusEl.classList.remove("error");
-      const response = await fetch(`/api/fetch?url=${encodeURIComponent(url)}`);
-      if (!response.ok) throw new Error(`Download failed (${response.status})`);
-
-      const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
-      const buffer = await response.arrayBuffer();
-
-      const urlExtension = extensionOf(new URL(url).pathname);
-      if (urlExtension === ".zip") {
-        await this.openArchive(buffer, nameFromUrl(url));
-        return;
-      }
-      if (urlExtension === ".gz") {
-        await this.openGzip(buffer, nameFromUrl(url));
-        return;
-      }
-      if (urlExtension === ".bz2") {
-        await this.openBzip2(buffer, nameFromUrl(url));
-        return;
-      }
-
-      if (isWorkbookUrl(url) || contentType.includes("spreadsheetml") || contentType.includes("ms-excel")) {
-        await this.openWorkbook(buffer, nameFromUrl(url));
-        return;
-      }
-
-      const looksHtml = contentType.includes("html");
-      const looksData =
-        contentType.includes("csv") ||
-        contentType.includes("tab-separated") ||
-        contentType.includes("comma-separated");
-
-      if (looksData || (!looksHtml && isDataUrl(url))) {
-        await this.load({ buffer, name: nameFromUrl(url), source: "file" });
-        return;
-      }
-
-      const html = decodeText(buffer).text;
-      const tables = findDataTables(html, 10);
-      if (tables.length === 0) throw new Error("No data tables found on that page");
-      if (tables.length === 1) {
-        await this.loadGrid(tables[0].grid, this.tableNameFor(tables[0], url));
-        return;
-      }
-      this.statusEl.textContent = "";
-      this.showPicker(
-        `${tables.length} tables found — pick one`,
-        tables.map((table, index) => ({
-          label: table.label,
-          rows: table.rows,
-          columns: table.columns,
-          best: index === 0,
-          onSelect: () => {
-            this.hideTablePicker();
-            void this.loadGrid(table.grid, this.tableNameFor(table, url));
-          },
-        })),
-      );
-    } catch (error) {
-      this.setStatusError(error instanceof Error ? error.message : "Download failed");
-    }
-  }
-
-  private tableNameFor(table: TableCandidate, url: string): string {
-    return table.label.startsWith("Table ") ? nameFromUrl(url) : table.label;
-  }
-
   private hideTablePicker(): void {
     this.tablePickerEl.classList.add("hidden");
   }
 
   private showPicker(title: string, items: PickerItem[]): void {
+    this.hideLoadProgress();
     clear(this.tablePickerList);
     this.tablePickerTitle.textContent = title;
 
-    items.forEach((item, index) => {
+    items.forEach((item) => {
       const option = el("button", { class: "table-option", type: "button" });
       option.append(el("span", { class: "table-option-name" }, [item.label]));
-      if (item.best === true) {
-        option.append(el("span", { class: "table-option-best" }, ["best match"]));
-      }
       option.append(
         el("span", { class: "table-option-size" }, [
           item.detail ??
@@ -738,14 +858,9 @@ export class App {
     this.tablePickerEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
-  private updateUrlButton(): void {
-    this.urlButton.textContent = isDataUrl(this.urlInput.value.trim())
-      ? "Load file"
-      : "Scrape table";
-  }
-
   private async loadFile(file: File): Promise<void> {
     try {
+      this.showLoadProgress(file.name, file.size);
       const extension = extensionOf(file.name);
       const unsupported = UNSUPPORTED_FORMATS.find((entry) =>
         entry.extensions.includes(extension),
@@ -787,8 +902,7 @@ export class App {
   /** Lists data files inside a ZIP and loads the only one or shows a picker. */
   private async openArchive(buffer: ArrayBuffer, fileName: string): Promise<void> {
     this.hideTablePicker();
-    this.statusEl.textContent = "Reading archive…";
-    this.statusEl.classList.remove("error");
+    this.setLoadingText("Reading archive…");
     try {
       const entries = await listArchiveEntries(buffer);
       if (entries.length === 0) {
@@ -799,7 +913,7 @@ export class App {
         return;
       }
 
-      this.statusEl.textContent = "";
+      this.setLoadingText("");
       this.showPicker(
         `${entries.length} files in ${fileName} — pick one`,
         entries.map((entry) => ({
@@ -823,8 +937,7 @@ export class App {
     fileName: string,
     archive: ArrayBuffer,
   ): Promise<void> {
-    this.statusEl.textContent = `Extracting “${entry.name}”…`;
-    this.statusEl.classList.remove("error");
+    this.setLoadingText(`Extracting “${entry.name}”…`);
     try {
       const bytes = await readArchiveEntry(archive, entry.path);
       const data = bytes.buffer.slice(
@@ -835,7 +948,7 @@ export class App {
         await this.openWorkbook(data, entry.name);
         return;
       }
-      this.statusEl.textContent = "";
+      this.setLoadingText("");
       await this.load({
         buffer: data,
         name: `${fileName.replace(/\.zip$/i, "")}/${entry.path}`,
@@ -849,8 +962,7 @@ export class App {
   /** Decompresses a .gz and routes the inner file (data, workbook or zip). */
   private async openGzip(buffer: ArrayBuffer, fileName: string): Promise<void> {
     this.hideTablePicker();
-    this.statusEl.textContent = "Decompressing…";
-    this.statusEl.classList.remove("error");
+    this.setLoadingText("Decompressing…");
     try {
       const { gunzipSync } = await import("fflate");
       const inner = gunzipSync(new Uint8Array(buffer));
@@ -863,8 +975,7 @@ export class App {
   /** Decompresses a .bz2 and routes the inner file. */
   private async openBzip2(buffer: ArrayBuffer, fileName: string): Promise<void> {
     this.hideTablePicker();
-    this.statusEl.textContent = "Decompressing bzip2…";
-    this.statusEl.classList.remove("error");
+    this.setLoadingText("Decompressing bzip2…");
     try {
       // Let the status paint before the synchronous decode blocks the thread.
       await new Promise((resolve) => setTimeout(resolve, 30));
@@ -898,15 +1009,15 @@ export class App {
       await this.openWorkbook(data, innerName);
       return;
     }
-    this.statusEl.textContent = "";
+    this.setLoadingText("");
     await this.load({ buffer: data, name: innerName, source: "file" });
   }
 
   /** Lists worksheets (biggest first) and either loads the only one or shows a picker. */
   private async openWorkbook(buffer: ArrayBuffer, fileName: string): Promise<void> {
     this.hideTablePicker();
-    this.statusEl.textContent = "Reading workbook…";
-    this.statusEl.classList.remove("error");
+    this.setLoadingText("Reading workbook…");
+    this.sourceBytes = buffer.byteLength;
     try {
       let sheets;
       let total: number;
@@ -928,7 +1039,7 @@ export class App {
         return;
       }
 
-      this.statusEl.textContent = "";
+      this.setLoadingText("");
       this.showPicker(
         total > sheets.length
           ? `${total} worksheets — first ${sheets.length} shown, pick one`
@@ -951,15 +1062,14 @@ export class App {
   private async loadSheet(sheetName: string, fileName: string): Promise<void> {
     const pending = this.pendingWorkbook;
     if (pending === null) return;
-    this.statusEl.textContent = `Reading “${sheetName}”…`;
-    this.statusEl.classList.remove("error");
+    this.setLoadingText(`Reading “${sheetName}”…`);
     try {
       const rows =
         pending.kind === "xlsx"
           ? await readWorkbookSheet(pending.buffer, sheetName)
           : await readLegacySheet(pending.workbook, sheetName);
       if (rows.length === 0) throw new Error("That worksheet has no data");
-      this.statusEl.textContent = "";
+      this.setLoadingText("");
       const base = fileName.replace(/\.[^.]+$/, "");
       await this.loadGrid(rows, `${base} — ${sheetName}`);
     } catch (error) {
@@ -1003,8 +1113,7 @@ export class App {
     this.loading = true;
     this.generation++;
     this.pendingSend = null;
-    this.statusEl.textContent = "Building table…";
-    this.statusEl.classList.remove("error");
+    this.setLoadingText("Building table…");
 
     try {
       const hasHeaders = hasHeadersOverride ?? this.headersCheckbox.checked;
@@ -1015,6 +1124,7 @@ export class App {
         table: { rows, hasHeaders },
       });
       this.statusEl.textContent = "";
+      this.hideLoadProgress();
       this.openWorkspace(loaded);
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Failed to build table");
@@ -1024,15 +1134,60 @@ export class App {
   }
 
   private setStatusError(message: string): void {
+    this.hideLoadProgress();
     this.statusEl.textContent = message;
     this.statusEl.classList.add("error");
   }
 
+  /** Prominent feedback from the moment a file is picked. */
+  private showLoadProgress(name: string, bytes: number | null): void {
+    this.loadTitle.textContent = `Processing ${name}${
+      bytes === null ? "" : ` · ${formatBytes(bytes)}`
+    }`;
+    this.setLoadDetail("Reading file…", null, null);
+    this.statusEl.textContent = "";
+    this.statusEl.classList.remove("error");
+    this.loadPanel.classList.remove("hidden");
+  }
+
+  private hideLoadProgress(): void {
+    this.loadPanel.classList.add("hidden");
+  }
+
+  private setLoadDetail(text: string, current: number | null, total: number | null): void {
+    this.loadDetail.textContent = text;
+    const determinate = current !== null && total !== null && total > 0;
+    this.loadBar.classList.toggle("indeterminate", !determinate);
+    this.loadBar.style.width = determinate
+      ? `${Math.round((current / total) * 100)}%`
+      : "";
+  }
+
+  /** Routes load-flow text to the panel while it is visible, else the status line. */
+  private setLoadingText(text: string): void {
+    if (this.loadPanel.classList.contains("hidden")) {
+      this.statusEl.textContent = text;
+      this.statusEl.classList.remove("error");
+      return;
+    }
+    this.setLoadDetail(text, null, null);
+  }
+
+  private setLoadingProgress(text: string, current?: number, total?: number): void {
+    if (this.loadPanel.classList.contains("hidden")) return;
+    this.setLoadDetail(text, current ?? null, total ?? null);
+  }
+
   private handleProgress(progress: ProgressMessage): void {
     if (progress.phase === "parse") {
-      this.statusEl.textContent = progress.detail ?? "Parsing…";
-    } else if (progress.phase === "build") {
-      this.statusEl.textContent = progress.detail ?? "Building…";
+      this.setLoadingProgress(progress.detail ?? "Parsing…", progress.current, progress.total);
+    } else if (progress.phase === "build" || progress.phase === "stats") {
+      const fallback = progress.phase === "stats" ? "Computing statistics…" : "Building…";
+      this.setLoadingProgress(
+        progress.detail ?? fallback,
+        progress.current,
+        progress.total,
+      );
     } else if (progress.phase === "index" && progress.column !== undefined) {
       this.filterPanel?.setStatus(progress.column, progress.active === true ? "Building index…" : "");
     } else if (progress.phase === "sort") {
@@ -1041,20 +1196,35 @@ export class App {
   }
 
   private openWorkspace(loaded: LoadedMessage | TransformedMessage): void {
+    if (loaded.type === "transformed") {
+      const captured = this.chartsPanel?.captureConfigs() ?? this.chartRestore;
+      if (captured !== null) {
+        const remapped = remapChartConfigs(captured, loaded.columns);
+        this.chartRestore = remapped.kept;
+        this.chartRemoved = remapped.removed;
+      }
+    } else {
+      this.chartRestore = null;
+      this.chartRemoved = 0;
+    }
     this.metas = loaded.columns;
     this.rowCount = loaded.rowCount;
     this.datasetName = loaded.name;
     this.workspaceTitle.textContent = `${loaded.name} — ${loaded.rowCount.toLocaleString()} rows`;
     this.stepper?.setDone("load", true);
-    this.setStage("view");
     this.filters.clear();
+    this.renderFilterChips();
     this.cleanedColumns.clear();
+    this.nullEdits.length = 0;
+    this.typeEdits.length = 0;
     if (loaded.type === "transformed") {
       this.transformOps = loaded.ops;
       this.transformBaseSchema = loaded.baseSchema;
+      this.syncTransformBatches();
     } else {
       this.transformOps = [];
       this.transformBaseSchema = [];
+      this.transformCommitSizes = [];
     }
     this.specials.clear();
     this.columnSpecials.clear();
@@ -1062,33 +1232,75 @@ export class App {
     this.clearPendingDeletes();
     this.shuffleActive = false;
     this.updateStepsButton();
-    this.summaryBand = new SummaryBand(this.summaryHost, {
-      onToggleSpecial: (kind) => this.toggleSpecial(kind),
-      onOpenStats: () => this.openStats(),
-      onColumnClick: (column) => this.filterPanel?.focusColumn(column),
-      onDropDuplicates: (keep) => this.dropDuplicates(keep),
-    });
-    this.summaryBand.render(loaded);
 
     this.pasteView.classList.add("hidden");
     this.workspace.classList.remove("hidden");
     this.newButton.classList.remove("hidden");
 
-    const emptyPct =
-      loaded.stats.totalCells > 0
-        ? (loaded.stats.totalNullCells / loaded.stats.totalCells) * 100
-        : 0;
+    const columnsWithNulls = loaded.columns.filter((column) => column.stats.nulls > 0).length;
+    const emptyText =
+      columnsWithNulls === 0
+        ? "no missing values"
+        : `${columnsWithNulls} of ${loaded.columnCount} columns have missing values`;
     const duplicateText =
       loaded.stats.duplicateGroups > 0
         ? ` · ${loaded.stats.duplicateGroups.toLocaleString()} duplicate groups (${loaded.stats.duplicateRows.toLocaleString()} redundant rows)`
         : "";
-    const encodingText = loaded.encoding === "windows-1252" ? " · windows-1252" : "";
+    const encodingText =
+      loaded.encoding === null
+        ? ""
+        : ` · ${loaded.encoding === "utf-8" ? "UTF-8" : loaded.encoding}`;
+    const delimiter = delimiterLabel(loaded.delimiter);
+    const delimiterText = delimiter === null ? "" : ` · ${delimiter}-separated`;
+    const sizeText = this.sourceBytes === null ? "" : ` · ${formatBytes(this.sourceBytes)}`;
     this.metaEl.textContent =
-      `${loaded.rowCount.toLocaleString()} rows × ${loaded.columnCount} columns` +
-      `${duplicateText} · ${emptyPct.toFixed(1)}% empty${encodingText} · ${Math.round(loaded.ingestMs)} ms`;
+      `${loaded.name} · ${loaded.rowCount.toLocaleString()} × ${loaded.columnCount.toLocaleString()}`;
+    this.metaEl.title =
+      `${loaded.rowCount.toLocaleString()} rows × ${loaded.columnCount.toLocaleString()} columns` +
+      `${sizeText}${delimiterText}${encodingText}${duplicateText} · ${emptyText} · ${Math.round(loaded.ingestMs)} ms`;
 
     this.table?.dispose();
+    this.table = null;
     clear(this.tableHost);
+
+    this.chartsPanel?.dispose();
+    this.chartsPanel = null;
+    clear(this.chartHost);
+
+    clear(this.filterHost);
+    this.filterSearch.value = "";
+    this.filterPanel = null;
+    this.sidebarEl.classList.add("hidden");
+    this.latestFacets = {};
+    this.latestHistograms = {};
+
+    this.latestStats = loaded.stats;
+    this.overview?.render(loaded, {
+      sizeLabel: this.sourceBytes === null ? null : formatBytes(this.sourceBytes),
+    });
+    this.refreshMissingness();
+    this.renderHealthGroup();
+    this.updateCount(loaded.rowCount, 0);
+    this.updateGuardrail(loaded, loaded.source === "file" || loaded.type === "transformed");
+    if (loaded.type === "transformed" && this.chartRemoved > 0) {
+      const count = this.chartRemoved;
+      this.showWarning(
+        `${count} chart${count === 1 ? "" : "s"} removed because ${
+          count === 1 ? "its" : "their"
+        } column was deleted.`,
+      );
+    }
+    if (loaded.type === "loaded") {
+      this.view = readDefaultView();
+      const sidebarPreference = this.readSidebarCollapsed();
+      this.setSidebarCollapsed(sidebarPreference ?? loaded.columnCount > 8);
+    }
+    this.updateChartBadge();
+    this.setView(this.view);
+  }
+
+  private ensureTable(): void {
+    if (this.table !== null) return;
     this.table = new ResultTable(this.tableHost, {
       onSort: (column, dir) => this.changeSort(column, dir),
       onTypeChange: (column, type) => this.changeType(column, type),
@@ -1097,6 +1309,8 @@ export class App {
       onColumnContext: (column, x, y) => this.openColumnMenu(column, x, y),
       onToggleColumnDelete: (column) => this.toggleColumnDelete(column),
       onToggleRowDelete: (position) => this.toggleRowDelete(position),
+      onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
+      onConvertToken: (column, tokens) => this.convertToken(column, tokens),
       onRequestRows: (start, end, done) => {
         void this.client
           .getRows(start, end)
@@ -1104,21 +1318,49 @@ export class App {
           .catch(() => done(start, []));
       },
     });
-    this.table.setColumns(loaded.columns);
+    this.table.setColumns(this.metas);
     this.table.setSort(-1, 1);
-    this.table.setCount(loaded.rowCount);
+    this.table.setCount(this.resultCount);
+    this.syncColumnQa();
+    this.syncPendingDeletes();
+  }
 
-    clear(this.filterHost);
-    this.filterSearch.value = "";
+  private ensureCharts(): void {
+    if (this.chartsPanel !== null) return;
+    this.chartOpened = true;
+    this.updateChartBadge();
+    this.chartsPanel = new ChartsPanel(this.chartHost, {
+      datasetName: () => this.datasetName,
+      requestBins: (column, options) => this.client.getChartBins(column, options),
+      requestSeries: (input) => this.client.getChartSeries(input),
+      requestBoxStats: (input) => this.client.getBoxStats(input),
+      requestCrosstab: (input) => this.client.getCrosstab(input),
+      requestCorrelation: (columns) => this.client.getCorrelation(columns),
+      requestGroupedBins: (input) => this.client.getGroupedBins(input),
+      onFilter: (column, filter, preview) =>
+        this.changeFilter(column, filter, preview ?? false),
+      currentFilter: (column) => this.filters.get(column) ?? null,
+    });
+    if (this.chartRestore !== null) {
+      const remapped = remapChartConfigs(this.chartRestore, this.metas);
+      this.chartsPanel.restore(remapped.configs, this.metas);
+      this.chartRestore = null;
+    } else {
+      this.chartsPanel.setColumns(this.metas);
+    }
+    this.chartsPanel.setFiltered(this.latestFacets, this.latestHistograms);
+    this.chartsPanel.setRowCount(this.resultCount);
+  }
+
+  private ensureFilters(): void {
+    if (this.filterPanel !== null) return;
     this.filterPanel = new FilterPanel(this.filterHost, this.metas, this.filters, {
       onFilter: (column, filter, preview) => this.changeFilter(column, filter, preview ?? false),
       onTypeChange: (column, type) => this.changeType(column, type),
       onNumberLocale: (column, locale) => this.changeNumberLocale(column, locale),
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
     });
-
-    this.updateCount(loaded.rowCount, 0);
-    this.updateGuardrail(loaded, loaded.source === "file" || loaded.type === "transformed");
+    this.sidebarEl.classList.remove("hidden");
   }
 
   private toggleColumnSpecial(column: number, kind: ColumnQaKind): void {
@@ -1141,7 +1383,7 @@ export class App {
         .setSpecial(kind, active, column)
         .then((message) => {
           this.updateCount(message.count, message.queryMs);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.applyFacets(message.facets, message.histograms);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
         })
@@ -1204,8 +1446,8 @@ export class App {
       title: `Delete ${labels.join(" and ")}?`,
       body:
         positions.length > 0
-          ? "Rows are removed from the working set — counts and exports exclude them, and the deletion is undoable from the Steps list. Columns are removed as tracked transform steps."
-          : "Columns are removed as tracked transform steps, undoable from the Steps list.",
+          ? "Rows are removed from the working set — counts and exports exclude them, and the deletion is undoable from the Process Log. Columns are removed as tracked transform steps."
+          : "Columns are removed as tracked transform steps, undoable from the Process Log.",
       confirmLabel: "Delete",
       danger: true,
     });
@@ -1217,7 +1459,7 @@ export class App {
         const message = await this.client.dropRows(positions);
         this.excludedRowCount += positions.length;
         this.updateCount(message.count, message.queryMs);
-        this.filterPanel?.applyResults(message.facets, message.histograms);
+        this.applyFacets(message.facets, message.histograms);
         this.table?.setCount(message.count);
         this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
         this.updateStepsButton();
@@ -1238,7 +1480,7 @@ export class App {
       const message = await this.client.clearExcludedRows();
       this.excludedRowCount = 0;
       this.updateCount(message.count, message.queryMs);
-      this.filterPanel?.applyResults(message.facets, message.histograms);
+      this.applyFacets(message.facets, message.histograms);
       this.table?.setCount(message.count);
       this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
       this.updateStepsButton();
@@ -1252,7 +1494,7 @@ export class App {
     const active = !this.specials.has(kind);
     if (active) this.specials.add(kind);
     else this.specials.delete(kind);
-    this.summaryBand?.setSpecials(this.specials);
+    this.syncHealthChips();
 
     // Grouping takes over ordering in the worker, so clear the sort indicator.
     if (kind === "duplicates" && active) this.table?.setSort(-1, 1);
@@ -1262,7 +1504,7 @@ export class App {
         .setSpecial(kind, active)
         .then((message) => {
           this.updateCount(message.count, message.queryMs);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.applyFacets(message.facets, message.histograms);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
         })
@@ -1270,30 +1512,14 @@ export class App {
     );
   }
 
-  private shuffleLimit(): number | null {
-    const raw = this.shuffleCount.value.trim();
-    if (raw === "") return null;
-    const value = Number.parseInt(raw, 10);
-    return Number.isFinite(value) && value > 0 ? value : null;
-  }
-
-  private updateShuffleLabel(): void {
-    const limit = this.shuffleLimit();
-    const label = this.shuffleButton.querySelector(".shuffle-label");
-    if (label !== null) {
-      label.textContent = limit === null ? "Shuffle all" : `Shuffle ${limit.toLocaleString()}`;
-    }
-  }
-
   private shuffleRows(): void {
     if (this.datasetName === "" || this.loading) return;
-    const limit = this.shuffleLimit();
     this.queueSend(() =>
       this.client
-        .shuffle(limit ?? undefined)
+        .shuffle()
         .then((message) => {
           this.table?.setSort(-1, 1);
-          this.shuffleActive = message.count < this.rowCount;
+          this.shuffleActive = false;
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, undefined, message.firstFlags);
           this.table?.scrollToTop();
@@ -1329,6 +1555,7 @@ export class App {
     this.shuffleActive = false;
     if (filter === null) this.filters.delete(column);
     else this.filters.set(column, filter);
+    this.renderFilterChips();
 
     this.table?.setHighlights(this.highlightRules());
 
@@ -1337,7 +1564,7 @@ export class App {
         .setFilter(column, filter, preview)
         .then((message) => {
           this.updateCount(message.count, message.queryMs);
-          if (!preview) this.filterPanel?.applyResults(message.facets, message.histograms);
+          if (!preview) this.applyFacets(message.facets, message.histograms);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
         })
@@ -1345,25 +1572,36 @@ export class App {
     );
   }
 
-  private changeType(column: number, type: ColumnType): void {
+  private changeType(column: number, type: ColumnType, record = true): void {
     const hadFilter = this.filters.has(column);
     const name = this.metas[column]?.name ?? `Column ${column + 1}`;
+    const previous = this.metas[column]?.type;
     this.queueSend(() =>
       this.client
         .setType(column, type)
         .then((message) => {
           this.metas[column] = message.meta;
           this.filters.delete(column);
+          this.renderFilterChips();
+          this.refreshCharts();
           if (hadFilter) {
             this.showWarning(
               `Type changed to ${TYPE_LABELS[type]} — the previous filter on “${name}” was cleared.`,
             );
           }
-          this.summaryBand?.setCounts(message.stats);
-          this.summaryBand?.updateColumn(column, message.meta);
+          if (record && previous !== undefined && previous !== type) {
+            this.typeEdits.push({
+              column,
+              label: `${message.meta.name}: type → ${TYPE_LABELS[type]}`,
+              detail: `type → ${TYPE_LABELS[previous]} → ${TYPE_LABELS[type]}`,
+              previous,
+            });
+            this.updateStepsButton();
+          }
+          this.overview?.updateColumn(column, message.meta);
           this.filterPanel?.updateMeta(column, message.meta);
           this.table?.updateColumn(column, message.meta);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
@@ -1377,7 +1615,10 @@ export class App {
     switch (suggestion.kind) {
       case "sentinel": {
         const extra = [...new Set([...(meta?.nullPolicy.extra ?? []), suggestion.value])];
-        this.applyNullPolicy(column, extra, meta?.nullPolicy.keep ?? []);
+        const name = meta?.name ?? `Column ${column + 1}`;
+        this.applyNullPolicy(column, extra, meta?.nullPolicy.keep ?? [], {
+          label: `${name}: treat “${suggestion.value}” as missing`,
+        });
         break;
       }
       case "boolean": {
@@ -1406,6 +1647,24 @@ export class App {
         ]);
         break;
       }
+      case "mixedNumber": {
+        const existing = this.cleanedColumns.get(column) ?? [];
+        this.applyClean([
+          { column, ops: [...existing, { kind: "repairDecimal", locale: suggestion.locale }] },
+        ]);
+        break;
+      }
+      case "typeConflict": {
+        this.changeType(column, "string");
+        break;
+      }
+      case "formula": {
+        const existing = this.cleanedColumns.get(column) ?? [];
+        this.applyClean([
+          { column, ops: [...existing, { kind: "escapeFormulas" }] },
+        ]);
+        break;
+      }
     }
   }
 
@@ -1416,11 +1675,12 @@ export class App {
         .then((message) => {
           this.metas[column] = message.meta;
           this.filters.delete(column);
-          this.summaryBand?.setCounts(message.stats);
-          this.summaryBand?.updateColumn(column, message.meta);
+          this.renderFilterChips();
+          this.refreshCharts();
+          this.overview?.updateColumn(column, message.meta);
           this.filterPanel?.updateMeta(column, message.meta);
           this.table?.updateColumn(column, message.meta);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
@@ -1466,7 +1726,8 @@ export class App {
     this.specials.clear();
     this.columnSpecials.clear();
     this.syncColumnQa();
-    this.summaryBand?.setSpecials(this.specials);
+    this.syncHealthChips();
+    this.renderFilterChips();
     this.filterPanel?.rebuild();
     this.table?.setHighlights([]);
 
@@ -1477,7 +1738,7 @@ export class App {
       }
       const message = await this.client.clearFilters();
       this.updateCount(message.count, message.queryMs);
-      this.filterPanel?.applyResults(message.facets, message.histograms);
+      this.applyFacets(message.facets, message.histograms);
       this.table?.setCount(message.count);
       this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
     });
@@ -1536,16 +1797,44 @@ export class App {
 
   private openExportDialog(): void {
     if (this.datasetName === "" || this.loading) return;
+    this.setStage("export");
     openExportPanel(
       this.defaultExportName(),
-      { nullAsBlank: this.exportNullAsBlank },
+      {
+        nullAsBlank: this.exportNullAsBlank,
+        escapeFormulas: this.exportEscapeFormulas,
+        scope: "all",
+        limit: this.exportLimit,
+      },
+      {
+        allRows: Math.max(0, this.rowCount - this.excludedRowCount),
+        filteredRows: this.resultCount,
+        filtersActive: this.filtersActive(),
+      },
       {
         onSave: (fileName, settings) => {
           this.exportNullAsBlank = settings.nullAsBlank;
-          void this.runExport(fileName, settings.nullAsBlank);
+          this.exportEscapeFormulas = settings.escapeFormulas;
+          this.exportLimit = settings.limit;
+          void this.runExport(
+            fileName,
+            settings.nullAsBlank,
+            settings.escapeFormulas,
+            settings.scope,
+            settings.limit,
+          );
         },
-        onClose: () => {},
+        onClose: () => this.setStage(null),
       },
+    );
+  }
+
+  private filtersActive(): boolean {
+    return (
+      this.filters.size > 0 ||
+      this.specials.size > 0 ||
+      this.columnSpecials.size > 0 ||
+      this.shuffleActive
     );
   }
 
@@ -1556,7 +1845,13 @@ export class App {
     return `${exportFileName(this.datasetName)}${suffix}.csv`;
   }
 
-  private async runExport(fileName: string, nullAsBlank: boolean): Promise<void> {
+  private async runExport(
+    fileName: string,
+    nullAsBlank: boolean,
+    escapeFormulas: boolean,
+    scope: ExportScope,
+    limit: number | null,
+  ): Promise<void> {
     if (this.datasetName === "" || this.loading) return;
     try {
       // Ask for the destination up front, while the click is still a user
@@ -1575,17 +1870,18 @@ export class App {
         }
       }
 
-      const { total } = await this.client.startExport();
+      const { total } = await this.client.startExport(scope);
       if (total === 0) {
         this.setAction("Nothing to export");
         return;
       }
+      const take = limit === null ? total : Math.min(total, Math.max(1, Math.floor(limit)));
 
       const parts: string[] = ["\uFEFF"];
-      for (let start = 0; start < total; start += EXPORT_CHUNK_ROWS) {
-        this.actionEl.textContent = `Exporting… ${Math.round((start / total) * 100)}%`;
-        const end = Math.min(start + EXPORT_CHUNK_ROWS, total);
-        const chunk = await this.client.getCsv(start, end, { nullAsBlank });
+      for (let start = 0; start < take; start += EXPORT_CHUNK_ROWS) {
+        this.actionEl.textContent = `Exporting… ${Math.round((start / take) * 100)}%`;
+        const end = Math.min(start + EXPORT_CHUNK_ROWS, take);
+        const chunk = await this.client.getCsv(start, end, { nullAsBlank, escapeFormulas });
         parts.push(chunk.text);
       }
       const text = parts.join("");
@@ -1605,7 +1901,8 @@ export class App {
         anchor.remove();
         URL.revokeObjectURL(url);
       }
-      this.setAction(`Exported ${total.toLocaleString()} rows to ${fileName}`);
+      const subset = take < total ? ` (first ${take.toLocaleString()} of ${total.toLocaleString()})` : "";
+      this.setAction(`Exported ${take.toLocaleString()} rows${subset} to ${fileName}`);
     } catch (error) {
       this.showError(error);
     }
@@ -1618,7 +1915,339 @@ export class App {
     }, 4000);
   }
 
+  private setView(view: ViewId): void {
+    this.view = view;
+    if (view === "table" || view === "chart") this.ensureFilters();
+    if (view === "table") this.ensureTable();
+    if (view === "chart") {
+      this.ensureCharts();
+      this.chartsPanel?.refresh();
+    }
+    if (view !== "overview") this.lastLens = view;
+    const chart = view === "chart";
+    this.chartActive = chart;
+    this.workspace.classList.toggle("chart-mode", chart);
+    this.workspace.classList.toggle("overview-mode", view === "overview");
+    this.overviewHost.classList.toggle("hidden", view !== "overview");
+    this.tableHost.classList.toggle("hidden", view !== "table");
+    this.chartHost.classList.toggle("hidden", view !== "chart");
+    this.healthHost.classList.toggle("hidden", view === "overview" || this.healthChipCount === 0);
+    this.moreButton.classList.toggle("hidden", view === "overview");
+    this.addFilterButton.classList.toggle("hidden", view === "overview");
+    this.syncTabs();
+    this.syncColumnTiles();
+    this.hints?.refresh();
+  }
+
+  private syncTabs(): void {
+    this.tabs?.setSelected(this.view);
+  }
+
+  /** "3 ideas" badge until the Chart lens has been opened once. */
+  private updateChartBadge(): void {
+    const ideas = this.chartOpened ? 0 : suggestCharts(this.metas, this.rowCount).length;
+    this.tabs?.setBadge("chart", ideas > 0 ? `${ideas} ideas` : null);
+  }
+
+  /** Refreshes the health group and dataset stats after a worker update. */
+  private applyDatasetStats(stats: DatasetStats): void {
+    this.latestStats = stats;
+    this.renderHealthGroup();
+    this.overview?.updateHealth(this.metas, stats);
+    this.refreshMissingness();
+    this.syncColumnTiles();
+  }
+
+  /** Rebuilds the Overview's zoomed-out missingness map. */
+  private refreshMissingness(): void {
+    if (this.datasetName === "") return;
+    void this.client
+      .getMissingness(240)
+      .then((message) => this.overview?.setMissingness(message))
+      .catch(() => {
+        // The map is supplementary; the rest of the Overview still stands.
+      });
+  }
+
+  /** Compact Table/Chart replacement for the old summary band. */
+  private renderHealthGroup(): void {
+    clear(this.healthHost);
+    const stats = this.latestStats;
+    if (stats === null) {
+      this.healthChipCount = 0;
+      return;
+    }
+    let count = 0;
+    const addChip = (kind: SpecialKind, label: string, title: string): void => {
+      const chip = el(
+        "button",
+        {
+          class: "ghost small health-chip",
+          type: "button",
+          title,
+          "aria-pressed": this.specials.has(kind) ? "true" : "false",
+        },
+        [label],
+      ) as HTMLButtonElement;
+      chip.dataset.kind = kind;
+      chip.addEventListener("click", () => this.toggleSpecial(kind));
+      this.healthHost.append(chip);
+      count++;
+    };
+    if (stats.duplicateRows > 0) {
+      addChip(
+        "duplicates",
+        `Duplicates ${stats.duplicateRows.toLocaleString()}`,
+        "Show rows that belong to a duplicate group",
+      );
+      const remove = el(
+        "button",
+        {
+          class: "ghost small",
+          type: "button",
+          title: `Remove duplicate rows — ${stats.duplicateRows.toLocaleString()} redundant rows`,
+        },
+        ["Remove duplicates"],
+      ) as HTMLButtonElement;
+      remove.addEventListener("click", () =>
+        openDedupeMenu(remove, stats, (keep) => this.dropDuplicates(keep)),
+      );
+      this.healthHost.append(remove);
+    }
+    const columnsWithNulls = this.metas.filter((meta) => meta.stats.nulls > 0).length;
+    if (columnsWithNulls > 0) {
+      addChip(
+        "nulls",
+        `Empty cells · ${columnsWithNulls.toLocaleString()} ${
+          columnsWithNulls === 1 ? "col" : "cols"
+        }`,
+        "Show rows with at least one empty cell",
+      );
+    }
+    if (stats.valueAnomalyRows > 0) {
+      addChip(
+        "valueAnomalies",
+        `Outliers ${stats.valueAnomalyRows.toLocaleString()}`,
+        "Show rows with a value outside the column fence",
+      );
+    }
+    this.healthChipCount = count;
+    this.healthHost.classList.toggle("hidden", this.view === "overview" || count === 0);
+  }
+
+  private syncHealthChips(): void {
+    for (const chip of this.healthHost.querySelectorAll<HTMLElement>(".health-chip")) {
+      const kind = chip.dataset.kind as SpecialKind | undefined;
+      const on = kind !== undefined && this.specials.has(kind);
+      chip.classList.toggle("active", on);
+      chip.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  }
+
+  /** `⋯` menu on the Table and Chart lenses: Stats Report and friends. */
+  private openMoreMenu(anchor: HTMLElement): void {
+    openMenu(anchor, [
+      {
+        label: "Stats Report",
+        title: "Full per-column statistics",
+        action: () => this.openStats(),
+      },
+    ]);
+  }
+
+  private setSidebarCollapsed(collapsed: boolean): void {
+    this.sidebarCollapsed = collapsed;
+    this.sidebarEl.classList.toggle("collapsed", collapsed);
+    this.sidebarToggle.textContent = collapsed ? "»" : "«";
+    this.sidebarToggle.title = collapsed ? "Show filters" : "Collapse filters";
+    try {
+      sessionStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
+    } catch {
+      // Persisting the preference is best-effort.
+    }
+  }
+
+  private readSidebarCollapsed(): boolean | null {
+    try {
+      const raw = sessionStorage.getItem(SIDEBAR_COLLAPSED_KEY);
+      return raw === null ? null : raw === "true";
+    } catch {
+      return null;
+    }
+  }
+
+  private toggleColumnTiles(): void {
+    this.tilesOn = !this.tilesOn;
+    try {
+      sessionStorage.setItem(COLUMN_TILES_KEY, String(this.tilesOn));
+    } catch {
+      // Persisting the preference is best-effort.
+    }
+    this.syncColumnTiles();
+  }
+
+  /** Shows/hides the column tile strip for the current view and refreshes it. */
+  private syncColumnTiles(): void {
+    this.tilesButton.classList.toggle("hidden", this.view !== "table");
+    this.tilesButton.classList.toggle("active", this.tilesOn);
+    this.tilesButton.setAttribute("aria-pressed", this.tilesOn ? "true" : "false");
+    const visible = this.tilesOn && this.view === "table";
+    this.columnsStrip.classList.toggle("hidden", !visible);
+    if (visible) this.renderColumnStrip();
+  }
+
+  private renderColumnStrip(): void {
+    clear(this.columnsStrip);
+    this.metas.forEach((meta, index) => {
+      let card: HTMLElement;
+      card = buildColumnCard(meta, index, () => this.openStripMenu(index, card));
+      this.columnsStrip.append(card);
+    });
+  }
+
+  /** Column tile menu: Filter · Chart · Clean (plus Drop for empty columns). */
+  private openStripMenu(column: number, anchor: HTMLElement): void {
+    const meta = this.metas[column];
+    const items: { label: string; title?: string; action: () => void }[] = [
+      { label: "Filter", action: () => this.focusFilterColumn(column) },
+      { label: "Chart", action: () => this.setView("chart") },
+      { label: "Clean", action: () => this.openClean(column, "values") },
+    ];
+    if (meta !== undefined && this.rowCount > 0 && meta.stats.nulls === this.rowCount) {
+      items.push({
+        label: "Drop empty column",
+        title: "Remove this column — it is empty in every row, tracked as a transform step",
+        action: () => this.dropEmptyColumns([column]),
+      });
+    }
+    openMenu(anchor, items);
+  }
+
+  private filterChipLabel(filter: ColumnFilter): string {
+    switch (filter.kind) {
+      case "text":
+        return filter.query === "" ? "…" : `“${filter.query}”`;
+      case "range":
+        return `${filter.min === null ? "−∞" : filter.min.toLocaleString()} – ${
+          filter.max === null ? "∞" : filter.max.toLocaleString()
+        }`;
+      case "values":
+        return `${filter.selected.length} value${filter.selected.length === 1 ? "" : "s"}`;
+    }
+  }
+
+  /** Active filters as removable chips in the results bar. */
+  private renderFilterChips(): void {
+    this.filterChipsEl.replaceChildren();
+    if (this.filters.size === 0) {
+      this.filterChipsEl.classList.add("hidden");
+      return;
+    }
+    for (const [column, filter] of this.filters) {
+      const name = this.metas[column]?.name ?? `Column ${column + 1}`;
+      const chip = el("span", { class: "filter-chip" });
+      chip.append(
+        el("span", { class: "filter-chip-label" }, [`${name} · ${this.filterChipLabel(filter)}`]),
+      );
+      const remove = el(
+        "button",
+        {
+          class: "filter-chip-remove",
+          type: "button",
+          "aria-label": `Remove the ${name} filter`,
+          title: `Remove the ${name} filter`,
+        },
+        ["×"],
+      ) as HTMLButtonElement;
+      remove.addEventListener("click", () => this.changeFilter(column, null));
+      chip.append(remove);
+      this.filterChipsEl.append(chip);
+    }
+    this.filterChipsEl.classList.remove("hidden");
+  }
+
+  private focusFilterColumn(column: number): void {
+    this.setView("table");
+    this.ensureFilters();
+    this.setSidebarCollapsed(false);
+    this.filterPanel?.focusColumn(column);
+  }
+
+  /** `+ Add filter`: a searchable column list that opens that column's card. */
+  private openAddFilter(anchor: HTMLElement): void {
+    const menu = el("div", { class: "context-menu filter-menu", role: "menu" });
+    const input = el("input", {
+      class: "text-input filter-menu-search",
+      type: "search",
+      placeholder: "Find a column…",
+      spellcheck: "false",
+      "aria-label": "Find a column to filter",
+    }) as HTMLInputElement;
+    const list = el("div", { class: "filter-menu-list" });
+    let closed = false;
+    const close = (): void => {
+      if (closed) return;
+      closed = true;
+      menu.remove();
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!menu.contains(event.target as Node)) close();
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") close();
+    };
+
+    const renderList = (): void => {
+      list.replaceChildren();
+      const needle = input.value.trim().toLowerCase();
+      this.metas.forEach((meta, index) => {
+        if (needle !== "" && !meta.name.toLowerCase().includes(needle)) return;
+        const item = el(
+          "button",
+          { class: "context-item", type: "button", role: "menuitem" },
+          [meta.name],
+        ) as HTMLButtonElement;
+        item.addEventListener("click", () => {
+          close();
+          this.focusFilterColumn(index);
+        });
+        list.append(item);
+      });
+    };
+    input.addEventListener("input", renderList);
+
+    menu.append(input, list);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    document.body.append(menu);
+    const rect = anchor.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8))}px`;
+    menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8)}px`;
+    renderList();
+    input.focus();
+  }
+
+  /** Pushes fresh facet/histogram payloads to the sidebar filters and charts. */
+  private applyFacets(
+    facets: Record<number, number[]>,
+    histograms: Record<number, number[]>,
+  ): void {
+    this.latestFacets = facets;
+    this.latestHistograms = histograms;
+    this.filterPanel?.applyResults(facets, histograms);
+    this.chartsPanel?.setFiltered(facets, histograms);
+  }
+
+  /** Column metas changed (type/clean/rename) — rebuild chart pickers too. */
+  private refreshCharts(): void {
+    this.chartsPanel?.setColumns(this.metas);
+  }
+
   private updateCount(count: number, queryMs: number): void {
+    this.resultCount = count;
+    this.chartsPanel?.setRowCount(count);
     const timeText = queryMs < 1 ? "<1" : String(Math.round(queryMs));
     const total = this.rowCount;
     const parts: string[] = [];
@@ -1643,15 +2272,34 @@ export class App {
 
   private updateGuardrail(loaded: LoadedMessage | TransformedMessage, fromFile: boolean): void {
     clear(this.bannerEl);
-    const largePaste = !fromFile && loaded.rowCount > LARGE_PASTE_ROWS;
-    if (!largePaste) {
+    const parts: string[] = [];
+
+    if (loaded.type === "loaded") {
+      const { paddedRows, extraCellRows, extraCells } = loaded.ragged;
+      if (paddedRows > 0) {
+        parts.push(
+          `${paddedRows.toLocaleString()} short row${paddedRows === 1 ? "" : "s"} padded with empty cells`,
+        );
+      }
+      if (extraCellRows > 0) {
+        parts.push(
+          `${extraCellRows.toLocaleString()} row${extraCellRows === 1 ? "" : "s"} with ${extraCells.toLocaleString()} extra cell${extraCells === 1 ? "" : "s"} beyond ${loaded.columnCount} columns — trimmed`,
+        );
+      }
+    }
+
+    if (!fromFile && loaded.rowCount > LARGE_PASTE_ROWS) {
+      parts.push(
+        `large paste (${loaded.rowCount.toLocaleString()} rows) — "Upload file" is faster and more stable`,
+      );
+    }
+
+    if (parts.length === 0) {
       this.bannerEl.classList.add("hidden");
       return;
     }
     this.bannerEl.append(
-      el("span", { class: "banner-text" }, [
-        `Large paste (${loaded.rowCount.toLocaleString()} rows). For datasets this size, "Upload file" is faster and more stable.`,
-      ]),
+      el("span", { class: "banner-text" }, [`Import check: ${parts.join(" · ")}`]),
     );
     const dismiss = el("button", { class: "icon-btn", type: "button", title: "Dismiss" }, ["×"]);
     dismiss.addEventListener("click", () => this.bannerEl.classList.add("hidden"));
@@ -1683,9 +2331,6 @@ export class App {
       case "load":
         this.showPaste();
         break;
-      case "view":
-        this.setStage("view");
-        break;
       case "clean":
         this.openClean();
         break;
@@ -1698,33 +2343,42 @@ export class App {
     }
   }
 
-  private setStage(id: StageId): void {
+  private setStage(id: StageId | null): void {
     this.stepper?.setActive(id);
   }
 
-  private openClean(): void {
+  private openClean(
+    column?: number,
+    tab?: "values" | "nulls",
+    op?: CleanOp,
+  ): void {
     if (this.datasetName === "" || this.loading) return;
     this.setStage("clean");
-    openCleanPanel(this.metas, this.cleanedColumns, {
-      onApplyHeaders: (headers) => this.applyHeaderRename(headers),
-      onApplyClean: (updates) => this.applyClean(updates),
-      onResetCleans: () =>
-        this.applyClean([...this.cleanedColumns.keys()].map((column) => ({ column, ops: [] }))),
-      onApplyNullPolicy: (column, extra, keep) => this.applyNullPolicy(column, extra, keep),
-      onApplyNullPolicyAll: (extra, keep) => this.applyNullPolicyAll(extra, keep),
-      onPreviewClean: (updates) =>
-        this.client.previewClean(updates).then((message) => {
-          let changed = 0;
-          let total = 0;
-          for (const entry of message.columns) {
-            changed += entry.changed;
-            total += entry.total;
-          }
-          return { changed, total };
-        }),
-      onOpenMerge: (column) => this.openMerge(column),
-      onClose: () => this.setStage("view"),
-    });
+    openCleanPanel(
+      this.metas,
+      this.cleanedColumns,
+      {
+        onApplyHeaders: (headers) => this.applyHeaderRename(headers),
+        onApplyClean: (updates) => this.applyClean(updates),
+        onResetCleans: () =>
+          this.applyClean([...this.cleanedColumns.keys()].map((column) => ({ column, ops: [] }))),
+        onApplyNullPolicy: (column, extra, keep) => this.applyNullPolicy(column, extra, keep),
+        onApplyNullPolicyAll: (extra, keep) => this.applyNullPolicyAll(extra, keep),
+        onPreviewClean: (updates) =>
+          this.client.previewClean(updates).then((message) => {
+            let changed = 0;
+            let total = 0;
+            for (const entry of message.columns) {
+              changed += entry.changed;
+              total += entry.total;
+            }
+            return { changed, total };
+          }),
+        onOpenMerge: (column) => this.openMerge(column),
+        onClose: () => this.setStage(null),
+      },
+      { column, tab, op },
+    );
   }
 
   private openMerge(column: number): void {
@@ -1735,7 +2389,10 @@ export class App {
         const existing = this.cleanedColumns.get(target) ?? [];
         this.applyClean([{ column: target, ops: [...existing, ...ops] }]);
       },
-      onClose: () => this.setStage("view"),
+      onClose: () => {
+        this.table?.refreshHeader();
+        this.setStage(null);
+      },
     });
   }
 
@@ -1763,17 +2420,22 @@ export class App {
     const addItem = (
       label: string,
       action: () => void,
-      options: { danger?: boolean } = {},
+      options: { danger?: boolean; instant?: boolean } = {},
     ): void => {
       const item = el(
         "button",
         {
-          class: `context-item${options.danger === true ? " danger" : ""}`,
+          class: `context-item${options.danger === true ? " danger" : ""}${
+            options.instant === true ? " instant" : ""
+          }`,
           type: "button",
           role: "menuitem",
         },
         [label],
       ) as HTMLButtonElement;
+      if (options.instant === true) {
+        item.title = "Applies immediately — Undo is offered in the toast";
+      }
       item.addEventListener("click", () => {
         close();
         action();
@@ -1781,17 +2443,152 @@ export class App {
       menu.append(item);
     };
 
-    addItem("Filter this column", () => this.filterPanel?.focusColumn(column));
+    const addHeader = (label: string): void => {
+      menu.append(el("div", { class: "context-header" }, [label]));
+    };
+
+    addItem("Filter this column", () => this.focusFilterColumn(column));
+
+    addHeader("Column");
+    addItem("Rename column…", () => void this.renameColumn(column));
     if (meta.type === "category") {
       addItem("Merge similar values…", () => this.openMerge(column));
     }
     addItem("Delete column…", () => void this.confirmDeleteColumn(column), { danger: true });
+
+    addHeader("Clean");
+    addItem(
+      "Trim whitespace",
+      () => this.applyQuickClean(column, { kind: "trim" }),
+      { instant: true },
+    );
+    addItem(
+      "UPPERCASE",
+      () => this.applyQuickClean(column, { kind: "case", style: "upper" }),
+      { instant: true },
+    );
+    addItem(
+      "lowercase",
+      () => this.applyQuickClean(column, { kind: "case", style: "lower" }),
+      { instant: true },
+    );
+    addItem(
+      "Title Case",
+      () => this.applyQuickClean(column, { kind: "case", style: "title" }),
+      { instant: true },
+    );
+    addItem(
+      "Convert to number",
+      () => this.applyQuickClean(column, { kind: "toNumber", locale: meta.numberLocale }),
+      { instant: true },
+    );
+    addItem(
+      "Convert to date",
+      () => this.applyQuickClean(column, { kind: "toDate", order: meta.dateOrder }),
+      { instant: true },
+    );
+    addItem(
+      "Escape formula-like cells",
+      () => this.applyQuickClean(column, { kind: "escapeFormulas" }),
+      { instant: true },
+    );
+    addItem("Find & replace…", () =>
+      this.openClean(column, "values", {
+        kind: "replace",
+        find: "",
+        replacement: "",
+        ignoreCase: false,
+      }),
+    );
+    addItem("Clean values…", () => this.openClean(column, "values"));
+    addItem("Missing values…", () => this.openClean(column, "nulls"));
+
+    addHeader("Transform");
+    addItem("Remove duplicate rows", () => this.openTransform({ type: "dedupe" }));
+    addItem("Round…", () => this.openTransform({ type: "round", column }));
+    addItem("Group by & aggregate…", () => this.openTransform({ type: "groupBy", column }));
+    addItem("Fill missing values…", () => this.openTransform({ type: "impute", column }));
+    addItem("KNN impute…", () => this.openTransform({ type: "knn", column }));
+    addItem("Melt (wide → long)…", () => this.openTransform({ type: "melt", column }));
+    addItem("Combine date/time columns…", () =>
+      this.openTransform({ type: "combineDate", column }),
+    );
+    addItem("Split a column…", () => this.openTransform({ type: "splitColumn", column }));
+    addItem("Transform dataset…", () => this.openTransform());
 
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKey);
     document.body.append(menu);
     menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8))}px`;
     menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8))}px`;
+    menu.scrollTop = 0;
+  }
+
+  /** Right-click rename: prompts for a new header name and applies it. */
+  private async renameColumn(column: number): Promise<void> {
+    const meta = this.metas[column];
+    if (meta === undefined) return;
+    const next = await openPrompt({
+      title: "Rename column",
+      label: "Column name",
+      value: meta.name,
+      confirmLabel: "Rename",
+    });
+    if (next === null) return;
+    const name = next.trim();
+    if (name === "" || name === meta.name) return;
+    const headers = this.metas.map((entry) => entry.name);
+    headers[column] = name;
+    this.applyHeaderRename(headers);
+  }
+
+  /** Applies a parameter-free clean straight from the menu, with an undo toast. */
+  private applyQuickClean(column: number, op: CleanOp): void {
+    const existing = this.cleanedColumns.get(column) ?? [];
+    this.applyClean([{ column, ops: [...existing, op] }]);
+    const name = this.metas[column]?.name ?? `Column ${column + 1}`;
+    this.showToast(`${describeCleanOp(op)} applied to “${name}”`, () => {
+      const current = this.cleanedColumns.get(column) ?? [];
+      const key = JSON.stringify(op);
+      let index = -1;
+      for (let i = current.length - 1; i >= 0; i--) {
+        if (JSON.stringify(current[i]) === key) {
+          index = i;
+          break;
+        }
+      }
+      if (index < 0) return;
+      this.applyClean([{ column, ops: current.filter((_, i) => i !== index) }]);
+    });
+  }
+
+  /** One transient toast at a time, with an optional Undo action. */
+  private showToast(message: string, onUndo?: () => void): void {
+    for (const existing of document.querySelectorAll(".toast")) existing.remove();
+    const toast = el("div", { class: "toast", role: "status" });
+    toast.append(el("span", { class: "toast-text" }, [message]));
+    const timer = window.setTimeout(() => toast.remove(), 6000);
+    if (onUndo !== undefined) {
+      const undo = el("button", { class: "toast-undo", type: "button" }, ["Undo"]);
+      undo.title = "Reverse this action";
+      undo.addEventListener("click", () => {
+        window.clearTimeout(timer);
+        toast.remove();
+        onUndo();
+      });
+      toast.append(undo);
+    }
+    const dismiss = el(
+      "button",
+      { class: "toast-close icon-btn", type: "button", title: "Dismiss" },
+      ["×"],
+    );
+    dismiss.addEventListener("click", () => {
+      window.clearTimeout(timer);
+      toast.remove();
+    });
+    toast.append(dismiss);
+    document.body.append(toast);
   }
 
   private async confirmDeleteColumn(column: number): Promise<void> {
@@ -1800,7 +2597,7 @@ export class App {
     const confirmed = await openConfirm({
       title: `Delete column “${meta.name}”?`,
       body:
-        "The column is removed from the dataset as a tracked transform step — you can undo it from the Steps list.",
+        "The column is removed from the dataset as a tracked transform step — you can undo it from the Process Log.",
       confirmLabel: "Delete column",
       danger: true,
     });
@@ -1808,17 +2605,52 @@ export class App {
     this.applyTransform([...this.transformOps, { kind: "drop", column }]);
   }
 
+  /** Keeps the per-commit sizes in step with the current transform op list. */
+  private syncTransformBatches(): void {
+    const total = this.transformOps.length;
+    if (total === 0) {
+      this.transformCommitSizes = [];
+      return;
+    }
+    let covered = 0;
+    for (const size of this.transformCommitSizes) covered += size;
+    if (total > covered) {
+      this.transformCommitSizes.push(total - covered);
+      return;
+    }
+    const kept: number[] = [];
+    let used = 0;
+    for (const size of this.transformCommitSizes) {
+      if (used + size <= total) {
+        kept.push(size);
+        used += size;
+      } else {
+        break;
+      }
+    }
+    if (used < total) kept.push(total - used);
+    this.transformCommitSizes = kept;
+  }
+
   private updateStepsButton(): void {
-    let count = this.transformOps.length;
-    for (const ops of this.cleanedColumns.values()) count += ops.length;
-    if (this.excludedRowCount > 0) count += 1;
-    this.stepsButton.textContent = count === 0 ? "Steps" : `Steps (${count})`;
+    const groups = groupSteps(this.stepEntries());
+    let cleanCount = 0;
+    let transformCount = 0;
+    for (const group of groups) {
+      if (group.entries.some((entry) => entry.kind === "transform")) transformCount++;
+      else cleanCount++;
+    }
+    this.stepper?.setCount("clean", cleanCount);
+    this.stepper?.setCount("transform", transformCount);
+    const count = groups.length;
+    this.stepsButton.textContent = count === 0 ? "Process Log" : `Process Log (${count})`;
     this.stepsButton.disabled = count === 0;
     this.stepsButton.title =
       count === 0
-        ? "No applied steps yet — clean or transform a column to build the list"
-        : "Review, undo or export the applied steps";
-    this.stepsButton.classList.remove("hidden");
+        ? "No changes yet — clean, fix or transform a column to start the log"
+        : "Review, undo or export the applied changes";
+    this.stepsButton.classList.toggle("hidden", count === 0);
+    this.hints?.refresh();
   }
 
   private stepEntries(): StepsPanelEntry[] {
@@ -1836,6 +2668,28 @@ export class App {
         });
       }
     }
+    for (let index = 0; index < this.nullEdits.length; index++) {
+      const edit = this.nullEdits[index];
+      entries.push({
+        kind: "nulls",
+        label: edit.label,
+        detail: edit.detail,
+        column: edit.column,
+        opIndex: index,
+        groupSize: this.nullEdits.length,
+      });
+    }
+    for (let index = 0; index < this.typeEdits.length; index++) {
+      const edit = this.typeEdits[index];
+      entries.push({
+        kind: "type",
+        label: edit.label,
+        detail: edit.detail,
+        column: edit.column,
+        opIndex: index,
+        groupSize: this.typeEdits.length,
+      });
+    }
     const schema =
       this.transformBaseSchema.length > 0
         ? this.transformBaseSchema
@@ -1844,8 +2698,17 @@ export class App {
             numeric: meta.type === "integer" || meta.type === "number",
           }));
     let running = schema;
+    const batchOf = new Array<number>(this.transformOps.length).fill(-1);
+    let batchCursor = 0;
+    this.transformCommitSizes.forEach((size, batchIndex) => {
+      for (let step = 0; step < size && batchCursor < batchOf.length; step++) {
+        batchOf[batchCursor++] = batchIndex;
+      }
+    });
     for (let index = 0; index < this.transformOps.length; index++) {
       const op = this.transformOps[index];
+      const batch = batchOf[index];
+      const batchSize = batch >= 0 ? this.transformCommitSizes[batch] : 1;
       entries.push({
         kind: "transform",
         label: describeTransformOp(
@@ -1859,6 +2722,10 @@ export class App {
         column: -1,
         opIndex: index,
         groupSize: this.transformOps.length,
+        group:
+          batchSize > 1
+            ? { id: `transform-batch-${batch}`, label: `Transform batch (${batchSize} steps)` }
+            : undefined,
       });
       running = schemaAfter(running, op);
     }
@@ -1892,6 +2759,24 @@ export class App {
       },
       onRemoveLastTransform: () => this.applyTransform(this.transformOps.slice(0, -1)),
       onRestoreRows: () => void this.restoreExcludedRows(),
+      onUndoPolicy: (column, opIndex) => {
+        const edit = this.nullEdits[opIndex];
+        if (edit === undefined) return;
+        this.nullEdits.splice(opIndex, 1);
+        if (edit.all === true) this.applyNullPolicyAll([], [], { record: false });
+        else {
+          this.applyNullPolicy(column, edit.previousExtra, edit.previousKeep, { record: false });
+        }
+        this.updateStepsButton();
+      },
+      onUndoType: (column, opIndex) => {
+        const edit = this.typeEdits[opIndex];
+        if (edit === undefined) return;
+        this.typeEdits.splice(opIndex, 1);
+        this.changeType(column, edit.previous, false);
+        this.updateStepsButton();
+      },
+      onUndoBatch: (batch) => this.undoBatch(batch),
       onClearAll: () => {
         if (this.transformOps.length > 0) this.applyTransform([]);
         if (this.cleanedColumns.size > 0) {
@@ -1899,10 +2784,47 @@ export class App {
             [...this.cleanedColumns.keys()].map((column) => ({ column, ops: [] })),
           );
         }
+        for (let i = this.nullEdits.length - 1; i >= 0; i--) {
+          const edit = this.nullEdits[i];
+          if (edit.all === true) this.applyNullPolicyAll([], [], { record: false });
+          else this.applyNullPolicy(edit.column, edit.previousExtra, edit.previousKeep, { record: false });
+        }
+        this.nullEdits.length = 0;
+        for (let i = this.typeEdits.length - 1; i >= 0; i--) {
+          this.changeType(this.typeEdits[i].column, this.typeEdits[i].previous, false);
+        }
+        this.typeEdits.length = 0;
+        this.updateStepsButton();
       },
       onCopyRecipe: () => this.copyRecipe(),
-      onClose: () => this.setStage("view"),
+      onClose: () => this.setStage(null),
     });
+  }
+
+  /** Reverses every sub-step of a condensed batch in a single action. */
+  private undoBatch(batch: readonly StepsPanelEntry[]): void {
+    if (batch.length === 0) return;
+    if (batch[0].kind === "clean") {
+      const perColumn = new Map<number, Set<number>>();
+      for (const entry of batch) {
+        let indexes = perColumn.get(entry.column);
+        if (indexes === undefined) {
+          indexes = new Set();
+          perColumn.set(entry.column, indexes);
+        }
+        indexes.add(entry.opIndex);
+      }
+      const updates = [...perColumn.entries()].map(([column, indexes]) => ({
+        column,
+        ops: (this.cleanedColumns.get(column) ?? []).filter((_, index) => !indexes.has(index)),
+      }));
+      this.applyClean(updates);
+      return;
+    }
+    if (batch[0].kind === "transform") {
+      const indexes = new Set(batch.map((entry) => entry.opIndex));
+      this.applyTransform(this.transformOps.filter((_, index) => !indexes.has(index)));
+    }
   }
 
   private async copyRecipe(): Promise<boolean> {
@@ -1931,9 +2853,11 @@ export class App {
         .then((message) => {
           const count = Math.min(this.metas.length, message.headers.length);
           for (let i = 0; i < count; i++) this.metas[i].name = message.headers[i];
+          this.refreshCharts();
           this.filterPanel?.rebuild();
           this.table?.refreshHeader();
-          this.summaryBand?.updateNames(message.headers);
+          this.overview?.updateNames(message.headers);
+          this.syncColumnTiles();
           const plural = message.headers.length === 1 ? "" : "s";
           this.setAction(`Renamed ${message.headers.length} column${plural}`);
         })
@@ -1949,20 +2873,23 @@ export class App {
         .then((message) => {
           this.transformOps = [];
           this.transformBaseSchema = [];
+          this.transformCommitSizes = [];
           for (const update of updates) {
             this.filters.delete(update.column);
             if (update.ops.length === 0) this.cleanedColumns.delete(update.column);
             else this.cleanedColumns.set(update.column, update.ops);
           }
+          this.renderFilterChips();
           for (const { column, meta } of message.columns) {
             this.metas[column] = meta;
             this.filterPanel?.updateMeta(column, meta);
             this.table?.updateColumn(column, meta);
-            this.summaryBand?.updateColumn(column, meta);
+            this.overview?.updateColumn(column, meta);
           }
-          this.summaryBand?.setCounts(message.stats);
+          this.refreshCharts();
+          this.applyDatasetStats(message.stats);
           this.table?.setSort(-1, 1);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
@@ -1977,47 +2904,96 @@ export class App {
     );
   }
 
-  private applyNullPolicy(column: number, extra: string[], keep: string[]): void {
+  /** Header chip: blank a column's placeholder text, tracked + undoable. */
+  private convertToken(column: number, tokens: string[]): void {
+    const meta = this.metas[column];
+    if (meta === undefined) return;
+    const extra = [...new Set([...meta.nullPolicy.extra, ...tokens])];
+    this.applyNullPolicy(column, extra, meta.nullPolicy.keep, {
+      label: `${meta.name}: placeholder text treated as missing`,
+    });
+  }
+
+  private applyNullPolicy(
+    column: number,
+    extra: string[],
+    keep: string[],
+    options: { record?: boolean; label?: string } = {},
+  ): void {
+    const previous = this.metas[column]?.nullPolicy;
+    const changed =
+      previous === undefined ||
+      !sameTokens(previous.extra, extra) ||
+      !sameTokens(previous.keep, keep);
     this.queueSend(() =>
       this.client
         .setNullPolicy(column, extra, keep)
         .then((message) => {
           this.filters.delete(column);
+          this.renderFilterChips();
           for (const { column: index, meta } of message.columns) {
             this.metas[index] = meta;
             this.filterPanel?.updateMeta(index, meta);
             this.table?.updateColumn(index, meta);
-            this.summaryBand?.updateColumn(index, meta);
+            this.overview?.updateColumn(index, meta);
           }
-          this.summaryBand?.setCounts(message.stats);
+          if (options.record !== false && changed) {
+            const name = message.columns[0]?.meta.name ?? `Column ${column + 1}`;
+            this.nullEdits.push({
+              column,
+              label: options.label ?? `${name}: missing-value policy updated`,
+              detail: "nulls → exact-match missing tokens",
+              previousExtra: [...(previous?.extra ?? [])],
+              previousKeep: [...(previous?.keep ?? [])],
+            });
+            this.updateStepsButton();
+          }
+          this.refreshCharts();
+          this.applyDatasetStats(message.stats);
           this.table?.setSort(-1, 1);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
           this.setAction(
-            `Nulls resolved — ${(message.columns[0]?.meta.stats.nulls ?? 0).toLocaleString()} blanks in ${message.columns[0]?.meta.name ?? "column"}`,
+            `Nulls resolved - ${(message.columns[0]?.meta.stats.nulls ?? 0).toLocaleString()} blanks in ${message.columns[0]?.meta.name ?? "column"}`,
           );
         })
         .catch((error: unknown) => this.showError(error)),
     );
   }
 
-  private applyNullPolicyAll(extra: string[], keep: string[]): void {
+  private applyNullPolicyAll(
+    extra: string[],
+    keep: string[],
+    options: { record?: boolean } = {},
+  ): void {
     this.queueSend(() =>
       this.client
         .resolveNullsAll(extra, keep)
         .then((message) => {
           this.filters.clear();
           for (const { column, meta } of message.columns) this.metas[column] = meta;
+          this.refreshCharts();
+          if (options.record !== false && (extra.length > 0 || keep.length > 0)) {
+            this.nullEdits.push({
+              column: -1,
+              all: true,
+              label: "All columns: missing-value policy updated",
+              detail: "nulls → exact-match missing tokens (all columns)",
+              previousExtra: [],
+              previousKeep: [],
+            });
+            this.updateStepsButton();
+          }
           this.table?.updateColumns(this.metas);
           for (const { column, meta } of message.columns) {
-            this.summaryBand?.updateColumn(column, meta);
+            this.overview?.updateColumn(column, meta);
           }
-          this.summaryBand?.setCounts(message.stats);
+          this.applyDatasetStats(message.stats);
           this.filterPanel?.rebuild();
           this.table?.setSort(-1, 1);
-          this.filterPanel?.applyResults(message.facets, message.histograms);
+          this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
           this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
@@ -2029,7 +3005,7 @@ export class App {
     );
   }
 
-  private openTransform(): void {
+  private openTransform(preset?: { type: string; column?: number }): void {
     if (this.datasetName === "" || this.loading) return;
     this.setStage("transform");
     const baseSchema =
@@ -2039,11 +3015,16 @@ export class App {
             name: meta.name,
             numeric: meta.type === "integer" || meta.type === "number",
           }));
-    openTransformPanel(this.transformOps, baseSchema, {
-      onApply: (ops) => this.applyTransform(ops),
-      onPreview: (ops) => this.client.previewTransform(ops),
-      onClose: () => this.setStage("view"),
-    });
+    openTransformPanel(
+      this.transformOps,
+      baseSchema,
+      {
+        onApply: (ops) => this.applyTransform(ops),
+        onPreview: (ops) => this.client.previewTransform(ops),
+        onClose: () => this.setStage(null),
+      },
+      preset,
+    );
   }
 
   private applyTransform(ops: TransformOp[], action?: string): void {
@@ -2069,6 +3050,18 @@ export class App {
     this.applyTransform(
       [...this.transformOps, { kind: "dedupe", keep }],
       `Removed duplicate rows (${label})`,
+    );
+  }
+
+  /** Quick action from the QA block: drop columns that are empty in every row. */
+  private dropEmptyColumns(columns: number[]): void {
+    if (columns.length === 0) return;
+    this.applyTransform(
+      [
+        ...this.transformOps,
+        ...columns.map((column) => ({ kind: "drop" as const, column })),
+      ],
+      `Dropped ${columns.length} empty column${columns.length === 1 ? "" : "s"}`,
     );
   }
 }

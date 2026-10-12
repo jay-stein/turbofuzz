@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
+import type { ColumnSuggestion } from "../src/data/suggestions.js";
 import { ResultTable, type ColumnQaKind } from "../src/ui/table.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
 
@@ -54,6 +55,8 @@ interface Harness {
   contexts: { column: number; x: number; y: number }[];
   colDeletes: number[];
   rowDeletes: number[];
+  fixes: { column: number; suggestion: ColumnSuggestion }[];
+  converts: { column: number; tokens: string[] }[];
   window: Window;
 }
 
@@ -66,6 +69,8 @@ function buildTable(columns: ColumnMeta[]): Harness {
   const contexts: Harness["contexts"] = [];
   const colDeletes: number[] = [];
   const rowDeletes: number[] = [];
+  const fixes: Harness["fixes"] = [];
+  const converts: Harness["converts"] = [];
   const table = new ResultTable(host, {
     onSort: () => {},
     onTypeChange: () => {},
@@ -74,13 +79,26 @@ function buildTable(columns: ColumnMeta[]): Harness {
     onColumnContext: (column, x, y) => contexts.push({ column, x, y }),
     onToggleColumnDelete: (column) => colDeletes.push(column),
     onToggleRowDelete: (position) => rowDeletes.push(position),
+    onSuggestion: (column, suggestion) => fixes.push({ column, suggestion }),
+    onConvertToken: (column, tokens) => converts.push({ column, tokens }),
     onRequestRows: () => {},
   });
   table.setColumns(columns);
-  return { host, table, clicks, merges, contexts, colDeletes, rowDeletes, window };
+  return {
+    host,
+    table,
+    clicks,
+    merges,
+    contexts,
+    colDeletes,
+    rowDeletes,
+    fixes,
+    converts,
+    window,
+  };
 }
 
-test("header shows readable QA chips: amber when flagged, muted when clean", () => {
+test("header shows only actionable QA chips", () => {
   const { host } = buildTable([
     meta({
       name: "city",
@@ -93,16 +111,52 @@ test("header shows readable QA chips: amber when flagged, muted when clean", () 
   const cells = host.querySelectorAll(".th");
   // cells[0] is the row-index header; column cells start at 1.
   const chips = cells[1].querySelectorAll(".th-qa-chip");
-  assert.equal(chips.length, 3);
+  assert.equal(chips.length, 2);
   assert.equal(chips[0].textContent, "3 empty cells");
   assert.ok(chips[0].classList.contains("warn"));
-  assert.equal(chips[1].textContent, "no value outliers");
-  assert.ok(chips[1].classList.contains("ok"));
-  assert.equal(chips[2].textContent, "2 long values");
+  assert.equal(chips[1].textContent, "2 long values");
 
   const cleanChips = cells[2].querySelectorAll(".th-qa-chip");
-  assert.equal(cleanChips[0].textContent, "no empty cells");
-  assert.ok(cleanChips[0].classList.contains("ok"));
+  assert.equal(cleanChips.length, 0, "zero-count chips are hidden");
+});
+
+test("header shows one-click fix chips for column suggestions", () => {
+  const { host, fixes } = buildTable([
+    meta({
+      name: "Amount",
+      type: "number",
+      suggestions: [
+        { kind: "mixedNumber", locale: "dot", count: 55, ratio: 0.03, sampled: 1951 },
+        { kind: "sentinel", value: "-999", count: 38, ratio: 0.02, sampled: 1951 },
+      ],
+    }),
+  ]);
+
+  const cells = host.querySelectorAll(".th");
+  const chips = cells[1].querySelectorAll(".th-qa-chip.fix");
+  assert.equal(chips.length, 2);
+  assert.equal(chips[0].textContent, "repair 55 mixed decimals");
+  assert.equal(chips[1].textContent, "treat “-999” as missing");
+
+  (chips[0] as unknown as { click(): void }).click();
+  assert.equal(fixes.length, 1);
+  assert.equal(fixes[0].column, 0);
+  assert.equal(fixes[0].suggestion.kind, "mixedNumber");
+});
+
+test("marks numeric and boolean cells for alignment", () => {  const { host, table } = buildTable([
+    meta({ name: "amount", type: "number" }),
+    meta({ name: "active", type: "boolean" }),
+    meta({ name: "name", type: "string" }),
+  ]);
+  table.setFirstRows([["12.5", "true", "Ada"]]);
+  table.setCount(1);
+
+  const cells = host.querySelectorAll(".tr .td");
+  // cells[0] is the row-index cell; data cells start at 1.
+  assert.ok(cells[1]?.classList.contains("num-cell"));
+  assert.ok(cells[2]?.classList.contains("bool-cell"));
+  assert.equal(cells[3]?.className, "td");
 });
 
 test("clicking a QA chip reports the column and kind", () => {
@@ -139,8 +193,14 @@ test("mergeable categories surface a chip that opens the merge panel", () => {
     click(): void;
     textContent: string | null;
   };
-  assert.equal(chip.textContent, "2 mergeable");
+  assert.equal(chip.textContent, "2 similar pairs");
   chip.click();
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const action = [...document.querySelectorAll(".context-menu .context-item")].find(
+    (button) => button.textContent === "Merge values…",
+  ) as unknown as { click(): void } | undefined;
+  assert.ok(action !== undefined, "the popover offers the Merge panel");
+  action.click();
   assert.deepEqual(merges, [0]);
 });
 
@@ -183,4 +243,62 @@ test("pending deletes mark rows and columns red", () => {
   assert.ok(host.querySelector(".tr.row-pending") !== null, "row should be tinted");
   assert.ok(host.querySelectorAll(".th")[2].classList.contains("col-pending"));
   assert.ok(host.querySelectorAll(".del-btn.active").length >= 2);
+});
+
+test("placeholder null tokens keep a bold red cell marker", () => {
+  const { host, table } = buildTable([meta({ name: "amount" })]);
+  table.setFirstRows([["NA"], [""], ["12"]]);
+  table.setCount(3);
+
+  const rows = host.querySelectorAll(".tr");
+  const cellOf = (index: number): HTMLElement =>
+    rows[index].querySelectorAll(".td")[1] as unknown as HTMLElement;
+  const tokenCell = cellOf(0);
+  const blankCell = cellOf(1);
+  const valueCell = cellOf(2);
+
+  assert.ok(tokenCell.classList.contains("null-cell"));
+  assert.ok(tokenCell.classList.contains("null-token-cell"));
+  assert.match(tokenCell.getAttribute("title") ?? "", /read as a missing value/);
+  assert.ok(blankCell.classList.contains("null-cell"));
+  assert.equal(blankCell.classList.contains("null-token-cell"), false);
+  assert.equal(valueCell.classList.contains("null-cell"), false);
+});
+
+test("placeholder tokens get a header chip that blanks them in one column", () => {
+  const { host, converts } = buildTable([
+    meta({
+      name: "amount",
+      stats: { ...meta().stats, nulls: 12 },
+      nullTokens: [
+        { label: "NA", count: 7 },
+        { label: "TBD", count: 2 },
+        { label: "", count: 3 },
+      ],
+    }),
+  ]);
+  const chip = host.querySelector(".th-qa-chip.token") as unknown as {
+    textContent: string;
+    title: string;
+    click(): void;
+  };
+  assert.equal(chip.textContent, "9 placeholders");
+  assert.match(chip.title, /12 cells in “amount” are missing/);
+  assert.match(chip.title, /3 blank \+ 9 placeholder text/);
+  assert.match(chip.title, /blank the placeholder text “NA”, “TBD”/);
+  assert.doesNotMatch(chip.title, /“”/);
+  assert.equal(
+    host.querySelectorAll(".th-qa-chip.warn").length,
+    0,
+    "the generic empty-cell chip is replaced",
+  );
+  chip.click();
+  assert.deepEqual(converts, [{ column: 0, tokens: ["NA", "TBD"] }]);
+});
+
+test("columns with only blank cells get no placeholder chip", () => {
+  const { host } = buildTable([
+    meta({ name: "clean", nullTokens: [{ label: "", count: 4 }] }),
+  ]);
+  assert.equal(host.querySelector(".th-qa-chip.token"), null);
 });

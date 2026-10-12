@@ -1,8 +1,21 @@
+import type { ExportScope } from "../worker/protocol.js";
 import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
 
 export interface ExportSettings {
   nullAsBlank: boolean;
+  escapeFormulas: boolean;
+  scope: ExportScope;
+  /** null = every row in the selected scope; otherwise the first N. */
+  limit: number | null;
+}
+
+export interface ExportScopeInfo {
+  /** Rows after steps/deletes, ignoring filters. */
+  allRows: number;
+  /** Rows matching the current filters/specials/sample. */
+  filteredRows: number;
+  filtersActive: boolean;
 }
 
 export interface ExportPanelCallbacks {
@@ -18,13 +31,15 @@ export function ensureCsvExtension(name: string, fallback: string): string {
 }
 
 /**
- * Export dialog: confirms the file name and options before anything is
- * written, and lists the formats the app can emit. Formats beyond CSV are
- * shown as planned so the choice stays discoverable.
+ * Export dialog: confirms the scope, file name and options before anything is
+ * written. The scope is stated in row counts so a filtered view can never be
+ * exported silently: "all rows after steps" is the default when filters are
+ * active, and the filtered option spells out how many rows it covers.
  */
 export function openExportPanel(
   defaultName: string,
   settings: ExportSettings,
+  scopeInfo: ExportScopeInfo,
   callbacks: ExportPanelCallbacks,
 ): void {
   const overlay = el("div", { class: "modal-overlay" });
@@ -45,6 +60,102 @@ export function openExportPanel(
   formatSelect.append(parquet);
   formatField.append(formatSelect);
 
+  let scope: ExportScope = scopeInfo.filtersActive ? settings.scope : "all";
+  const scopeField = el("div", { class: "clean-field scope-field" });
+  scopeField.append(el("span", { class: "clean-label" }, ["Rows to export"]));
+  const scopeOptions = el("div", { class: "scope-options" });
+  const warning = el("div", { class: "clean-hint scope-warning" });
+
+  const updateWarning = (): void => {
+    if (!scopeInfo.filtersActive) {
+      warning.textContent = `All ${scopeInfo.allRows.toLocaleString()} rows after steps — no filters are active.`;
+      return;
+    }
+    warning.textContent =
+      scope === "all"
+        ? `Filters are active — ${scopeInfo.filteredRows.toLocaleString()} of ${scopeInfo.allRows.toLocaleString()} rows match, but this export includes all ${scopeInfo.allRows.toLocaleString()} rows after steps.`
+        : `Only the ${scopeInfo.filteredRows.toLocaleString()} rows currently shown will be exported.`;
+  };
+
+  if (scopeInfo.filtersActive) {
+    const makeRadio = (value: ExportScope, label: string): HTMLLabelElement => {
+      const option = el("label", { class: "control check clean-check" });
+      const input = el("input", { type: "radio", name: "export-scope" }) as HTMLInputElement;
+      input.value = value;
+      input.checked = scope === value;
+      input.addEventListener("change", () => {
+        if (input.checked) {
+          scope = value;
+          updateWarning();
+        }
+      });
+      option.append(input, label);
+      return option;
+    };
+    scopeOptions.append(
+      makeRadio(
+        "all",
+        `All rows after steps (${scopeInfo.allRows.toLocaleString()})`,
+      ),
+      makeRadio(
+        "filtered",
+        `Rows matching current filters (${scopeInfo.filteredRows.toLocaleString()} of ${scopeInfo.allRows.toLocaleString()})`,
+      ),
+    );
+  } else {
+    scopeOptions.append(
+      el("span", { class: "scope-static" }, [
+        `All ${scopeInfo.allRows.toLocaleString()} rows after steps`,
+      ]),
+    );
+  }
+  updateWarning();
+  scopeField.append(scopeOptions, warning);
+
+  const limitField = el("div", { class: "clean-field scope-field" });
+  limitField.append(el("span", { class: "clean-label" }, ["Rows to include"]));
+  const limitOptions = el("div", { class: "scope-options" });
+  const countInput = el("input", {
+    class: "text-input export-limit-input",
+    type: "number",
+    min: "1",
+    step: "1",
+    value: String(settings.limit ?? 1000),
+    "aria-label": "Number of rows to export",
+    spellcheck: "false",
+  }) as HTMLInputElement;
+  countInput.disabled = settings.limit === null;
+  let limit: number | null = settings.limit;
+
+  const allOption = el("label", { class: "control check clean-check" });
+  const allInput = el("input", { type: "radio", name: "export-limit" }) as HTMLInputElement;
+  allInput.checked = settings.limit === null;
+  allOption.append(allInput, "All rows");
+
+  const subsetOption = el("label", { class: "control check clean-check" });
+  const subsetInput = el("input", { type: "radio", name: "export-limit" }) as HTMLInputElement;
+  subsetInput.checked = settings.limit !== null;
+  subsetOption.append(subsetInput, "First");
+  subsetOption.append(countInput);
+  subsetOption.append("rows");
+
+  const syncLimit = (): void => {
+    countInput.disabled = !subsetInput.checked;
+    limit = subsetInput.checked
+      ? Math.max(1, Math.floor(Number(countInput.value) || 1000))
+      : null;
+  };
+  allInput.addEventListener("change", syncLimit);
+  subsetInput.addEventListener("change", syncLimit);
+  countInput.addEventListener("input", () => {
+    if (subsetInput.checked) syncLimit();
+  });
+  limitOptions.append(allOption, subsetOption);
+  const limitHint = el("div", { class: "clean-hint" }, [
+    "The subset takes the first N rows of the selected scope, in the current display order.",
+  ]);
+  limitField.append(limitOptions, limitHint);
+
   const nameField = el("label", { class: "clean-field" });
   nameField.append(el("span", { class: "clean-label" }, ["File name"]));
   const nameInput = el("input", {
@@ -61,6 +172,13 @@ export function openExportPanel(
   nullInput.checked = settings.nullAsBlank;
   optionsRow.append(nullInput, "Blank null values");
 
+  const formulaRow = el("label", { class: "control check clean-check" });
+  const formulaInput = el("input", { type: "checkbox" }) as HTMLInputElement;
+  formulaInput.checked = settings.escapeFormulas;
+  formulaInput.title =
+    "Prefix =, @ and signed expressions with ' so Excel and Sheets import them as text";
+  formulaRow.append(formulaInput, "Escape formula-like cells (safe for Excel)");
+
   const hint = el("div", { class: "clean-hint" }, [
     "The file is built in this browser. When your browser supports it, you choose the folder and name in the system save dialog.",
   ]);
@@ -71,12 +189,18 @@ export function openExportPanel(
   const save = el("button", { class: "primary", type: "button" }, ["Save file"]);
   save.addEventListener("click", () => {
     const fileName = ensureCsvExtension(nameInput.value, defaultName);
-    callbacks.onSave(fileName, { nullAsBlank: nullInput.checked });
+    syncLimit();
+    callbacks.onSave(fileName, {
+      nullAsBlank: nullInput.checked,
+      escapeFormulas: formulaInput.checked,
+      scope,
+      limit,
+    });
     close();
   });
   footer.append(cancel, el("span", { class: "grow" }), save);
 
-  modal.append(formatField, nameField, optionsRow, hint, footer);
+  modal.append(formatField, scopeField, limitField, nameField, optionsRow, formulaRow, hint, footer);
 
   function close(): void {
     overlay.remove();

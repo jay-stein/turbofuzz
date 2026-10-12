@@ -50,6 +50,78 @@ export function setupDialog(overlay: HTMLElement, label: string): void {
   observer.observe(document.body, { childList: true });
 }
 
+export interface PromptOptions {
+  title: string;
+  label: string;
+  value?: string;
+  placeholder?: string;
+  confirmLabel?: string;
+}
+
+/** Small single-line input dialog; resolves the text, or null when cancelled. */
+export function openPrompt(options: PromptOptions): Promise<string | null> {
+  return new Promise((resolve) => {
+    const overlay = el("div", { class: "modal-overlay" });
+    const modal = el("div", { class: "modal confirm-modal" });
+
+    const head = el("div", { class: "modal-head" });
+    head.append(el("h2", {}, [options.title]));
+    const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close" }, ["×"]);
+    head.append(closeButton);
+    modal.append(head);
+
+    const field = el("label", { class: "clean-field" });
+    field.append(el("span", { class: "clean-label" }, [options.label]));
+    const input = el("input", {
+      class: "text-input",
+      type: "text",
+      value: options.value ?? "",
+      spellcheck: "false",
+      "aria-label": options.label,
+    }) as HTMLInputElement;
+    if (options.placeholder !== undefined) input.placeholder = options.placeholder;
+    field.append(input);
+    modal.append(field);
+
+    const footer = el("div", { class: "clean-footer" });
+    const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
+    const confirm = el("button", { class: "primary", type: "button" }, [
+      options.confirmLabel ?? "Save",
+    ]);
+    footer.append(cancel, el("span", { class: "grow" }), confirm);
+    modal.append(footer);
+
+    let settled = false;
+    const finish = (value: string | null): void => {
+      if (settled) return;
+      settled = true;
+      overlay.remove();
+      document.removeEventListener("keydown", onKey);
+      resolve(value);
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") finish(null);
+      if (event.key === "Enter" && document.activeElement === input) {
+        event.preventDefault();
+        finish(input.value);
+      }
+    };
+    closeButton.addEventListener("click", () => finish(null));
+    cancel.addEventListener("click", () => finish(null));
+    confirm.addEventListener("click", () => finish(input.value));
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) finish(null);
+    });
+    document.addEventListener("keydown", onKey);
+
+    overlay.append(modal);
+    document.body.append(overlay);
+    setupDialog(overlay, options.title);
+    input.focus();
+    input.select();
+  });
+}
+
 export interface ConfirmOptions {
   title: string;
   body: string;

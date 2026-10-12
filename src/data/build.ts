@@ -3,24 +3,37 @@ import { Dataset } from "./dataset.js";
 import { computeDatasetStats } from "./stats.js";
 import type { NumberLocale } from "../parse/numbers.js";
 
+/** Fine-grained build progress, forwarded to the load panel in the UI. */
+export interface BuildProgress {
+  detail: string;
+  current?: number;
+  total?: number;
+  /** "stats" is the post-column pass, so the UI can label it separately. */
+  phase?: "build" | "stats";
+}
+
 export function buildDataset(
   name: string,
   headers: string[],
   rows: string[][],
-  onProgress?: (detail: string) => void,
+  onProgress?: (progress: BuildProgress) => void,
   numberPrior: NumberLocale = "dot",
 ): Dataset {
   const rowCount = rows.length;
   const columnCount = headers.length;
   const columns = headers.map((header, columnIndex) => {
-    onProgress?.(`Building columns (${columnIndex + 1}/${columnCount})…`);
+    onProgress?.({
+      detail: `Building columns (${columnIndex + 1}/${columnCount})…`,
+      current: columnIndex + 1,
+      total: columnCount,
+    });
     const raw = new Array<string>(rowCount);
     for (let row = 0; row < rowCount; row++) {
       raw[row] = rows[row][columnIndex] ?? "";
     }
     return ColumnData.create(header, raw, undefined, numberPrior);
   });
-  onProgress?.("Computing dataset stats…");
+  onProgress?.({ detail: "Computing dataset stats…", phase: "stats" });
   const {
     stats,
     duplicateBits,
@@ -32,7 +45,14 @@ export function buildDataset(
     lengthColumnBits,
     valueFences,
     lengthFences,
-  } = computeDatasetStats(columns, rowCount);
+  } = computeDatasetStats(columns, rowCount, (phase, current, total) => {
+    onProgress?.({
+      detail: `${phase} (${current}/${total})…`,
+      current,
+      total,
+      phase: "stats",
+    });
+  });
   return new Dataset(
     name,
     rowCount,

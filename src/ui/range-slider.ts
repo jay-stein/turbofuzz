@@ -1,9 +1,12 @@
+import { symlog, symlogInverse } from "../data/symlog.js";
 import { el } from "./dom.js";
 
 export interface RangeSliderOptions {
   binCount: number;
   integer?: boolean;
   isDate?: boolean;
+  /** Heavy-tailed columns: handles move on the signed-log axis of the bins. */
+  symlog?: boolean;
   onInput: (min: number | null, max: number | null, preview: boolean) => void;
 }
 
@@ -105,9 +108,25 @@ export class RangeSlider {
 
   private fractionOf(value: number | null, fallback: number): number {
     if (value === null) return fallback;
-    const span = this.dataMax - this.dataMin;
+    const span = this.tMax() - this.tMin();
     if (span <= 0) return 0;
-    return Math.min(1, Math.max(0, (value - this.dataMin) / span));
+    return Math.min(1, Math.max(0, (this.toT(value) - this.tMin()) / span));
+  }
+
+  private toT(value: number): number {
+    return this.options.symlog === true ? symlog(value) : value;
+  }
+
+  private fromT(t: number): number {
+    return this.options.symlog === true ? symlogInverse(t) : t;
+  }
+
+  private tMin(): number {
+    return this.toT(this.dataMin);
+  }
+
+  private tMax(): number {
+    return this.toT(this.dataMax);
   }
 
   private render(): void {
@@ -122,11 +141,12 @@ export class RangeSlider {
     this.band.style.width = `${Math.max(0, hiFraction - loFraction) * 100}%`;
 
     const noSelection = this.lo === null && this.hi === null;
-    const span = this.dataMax - this.dataMin || 1;
+    const tMin = this.tMin();
+    const tSpan = this.tMax() - tMin || 1;
     const binCount = this.bars.length;
     for (let i = 0; i < binCount; i++) {
-      const binStart = this.dataMin + (i / binCount) * span;
-      const binEnd = this.dataMin + ((i + 1) / binCount) * span;
+      const binStart = this.fromT(tMin + (i / binCount) * tSpan);
+      const binEnd = this.fromT(tMin + ((i + 1) / binCount) * tSpan);
       const selected =
         !noSelection &&
         (this.lo === null || binEnd > this.lo) &&
@@ -140,24 +160,33 @@ export class RangeSlider {
     const rect = this.sliderEl.getBoundingClientRect();
     const width = rect.width || 1;
     const fraction = Math.min(1, Math.max(0, (clientX - rect.left) / width));
-    return this.snap(this.dataMin + fraction * (this.dataMax - this.dataMin));
+    const tMin = this.tMin();
+    return this.snap(this.fromT(tMin + fraction * (this.tMax() - tMin)));
   }
 
   private snap(value: number): number {
     if (this.options.integer === true) return Math.round(value);
     if (this.options.isDate === true) return Math.round(value / DAY_MS) * DAY_MS;
-    const span = this.dataMax - this.dataMin;
-    if (span <= 0) return this.dataMin;
-    const step = span / this.bars.length;
-    return this.dataMin + Math.round((value - this.dataMin) / step) * step;
+    const tMin = this.tMin();
+    const tSpan = this.tMax() - tMin;
+    if (tSpan <= 0) return this.dataMin;
+    const step = tSpan / this.bars.length;
+    const t = this.toT(value);
+    return this.fromT(tMin + Math.round((t - tMin) / step) * step);
   }
 
   private outLo(): number | null {
-    return this.lo === null || this.lo <= this.dataMin ? null : this.lo;
+    if (this.lo === null) return null;
+    return this.toT(this.lo) - this.tMin() < (this.tMax() - this.tMin()) * 1e-9
+      ? null
+      : this.lo;
   }
 
   private outHi(): number | null {
-    return this.hi === null || this.hi >= this.dataMax ? null : this.hi;
+    if (this.hi === null) return null;
+    return this.tMax() - this.toT(this.hi) < (this.tMax() - this.tMin()) * 1e-9
+      ? null
+      : this.hi;
   }
 
   private emit(preview: boolean): void {
@@ -190,20 +219,21 @@ export class RangeSlider {
       this.hi = value;
     } else {
       const rect = this.sliderEl.getBoundingClientRect();
-      const span = this.dataMax - this.dataMin;
-      const delta = ((event.clientX - drag.startX) / (rect.width || 1)) * span;
-      let lo = drag.startLo + delta;
-      let hi = drag.startHi + delta;
-      if (lo < this.dataMin) {
-        hi += this.dataMin - lo;
-        lo = this.dataMin;
+      const tMin = this.tMin();
+      const tMax = this.tMax();
+      const delta = ((event.clientX - drag.startX) / (rect.width || 1)) * (tMax - tMin);
+      let loT = this.toT(drag.startLo) + delta;
+      let hiT = this.toT(drag.startHi) + delta;
+      if (loT < tMin) {
+        hiT += tMin - loT;
+        loT = tMin;
       }
-      if (hi > this.dataMax) {
-        lo -= hi - this.dataMax;
-        hi = this.dataMax;
+      if (hiT > tMax) {
+        loT -= hiT - tMax;
+        hiT = tMax;
       }
-      this.lo = this.snap(Math.max(this.dataMin, lo));
-      this.hi = this.snap(Math.min(this.dataMax, hi));
+      this.lo = this.snap(Math.max(this.dataMin, this.fromT(loT)));
+      this.hi = this.snap(Math.min(this.dataMax, this.fromT(hiT)));
     }
 
     this.emit(true);
@@ -231,12 +261,18 @@ export class RangeSlider {
   }
 
   private onKey(event: KeyboardEvent, kind: "lo" | "hi"): void {
-    const step =
-      this.options.integer === true
-        ? 1
-        : this.options.isDate === true
-          ? DAY_MS
-          : (this.dataMax - this.dataMin) / this.bars.length;
+    const current = kind === "lo" ? this.lo ?? this.dataMin : this.hi ?? this.dataMax;
+    let step: number;
+    if (this.options.integer === true) {
+      step = 1;
+    } else if (this.options.isDate === true) {
+      step = DAY_MS;
+    } else if (this.options.symlog === true) {
+      const tStep = (this.tMax() - this.tMin()) / this.bars.length;
+      step = Math.abs(this.fromT(this.toT(current) + tStep) - current) || tStep;
+    } else {
+      step = (this.dataMax - this.dataMin) / this.bars.length;
+    }
     let delta = 0;
     if (event.key === "ArrowLeft" || event.key === "ArrowDown") delta = -step;
     else if (event.key === "ArrowRight" || event.key === "ArrowUp") delta = step;

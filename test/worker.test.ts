@@ -140,4 +140,59 @@ test("search worker handles the full request lifecycle", async () => {
   send({ type: "getCsv", requestId: 12, start: 0, end: 3 });
   const csv = find("csv", 12) as unknown as { text: string };
   assert.equal(csv.text, "name,age\r\nAlice,30\r\nBob,40\r\nCara,50\r\n");
+
+  // Export scope: "all" ignores the active filter, "filtered" (default) keeps it.
+  send({
+    type: "setFilter",
+    requestId: 16,
+    column: 1,
+    filter: { kind: "range", min: 40, max: null },
+  });
+  assert.equal(find("results", 16).count, 2);
+
+  send({ type: "startExport", requestId: 17, scope: "all" });
+  assert.equal((find("exportStarted", 17) as unknown as { total: number }).total, 3);
+  send({ type: "getCsv", requestId: 18, start: 0, end: 3 });
+  assert.equal(
+    (find("csv", 18) as unknown as { text: string }).text,
+    "name,age\r\nAlice,30\r\nBob,40\r\nCara,50\r\n",
+  );
+
+  send({ type: "startExport", requestId: 19, scope: "filtered" });
+  assert.equal((find("exportStarted", 19) as unknown as { total: number }).total, 2);
+  send({ type: "startExport", requestId: 20 });
+  assert.equal(
+    (find("exportStarted", 20) as unknown as { total: number }).total,
+    2,
+    "omitted scope keeps the filtered behaviour",
+  );
+
+  // Custom chart bins follow the current filters (range >= 40 still active).
+  send({
+    type: "getChartBins",
+    requestId: 21,
+    column: 1,
+    options: { min: 0, max: 100, binCount: 5, overflow: false },
+  });
+  const chartBins = find("chartBins", 21) as unknown as {
+    bins: number[];
+    total: number;
+    above: number;
+  };
+  assert.deepEqual(chartBins.bins, [0, 0, 2, 0, 0]);
+  assert.equal(chartBins.total, 2);
+  assert.equal(chartBins.above, 0);
+
+  send({
+    type: "getChartBins",
+    requestId: 22,
+    column: 1,
+    options: { min: 0, max: 40, binCount: 2, overflow: true },
+  });
+  const overflowBins = find("chartBins", 22) as unknown as {
+    bins: number[];
+    overflow: number;
+  };
+  assert.deepEqual(overflowBins.bins, [0, 1], "40 clamps into the last bin");
+  assert.equal(overflowBins.overflow, 1, "50 lands in the > Max bar");
 });

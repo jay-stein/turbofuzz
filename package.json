@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Browser-based fuzzy search over tabular data (client-side, no backend)",
+  "description": "Clean, reshape and search tabular data entirely in the browser — no uploads, no network",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -34,6 +34,6 @@
     "hyparquet": "^1.31.2",
     "hyparquet-compressors": "^1.1.2",
     "papaparse": "^5.7.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

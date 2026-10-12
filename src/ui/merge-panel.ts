@@ -1,5 +1,6 @@
 import { setupDialog } from "./dialog.js";
 import { clear, el } from "./dom.js";
+import { dismissCluster, isClusterDismissed } from "./similar-dismissals.js";
 import type { CleanOp } from "../data/clean-ops.js";
 import { clusterSimilar, type SimilarCluster } from "../search/similar.js";
 import type { ColumnMeta } from "../worker/protocol.js";
@@ -60,7 +61,9 @@ export function openMergePanel(
   let clusters: SimilarCluster[] = [];
 
   function rebuild(): void {
-    clusters = clusterSimilar(values, Number(levelSelect.value));
+    clusters = clusterSimilar(values, Number(levelSelect.value)).filter(
+      (cluster) => !isClusterDismissed(meta.name, cluster),
+    );
     selections = new Map();
     clusters.forEach((cluster, index) => {
       selections.set(index, {
@@ -135,6 +138,20 @@ export function openMergePanel(
         render();
       });
       clusterHead.append(canonicalSelect);
+      const notDuplicate = el(
+        "button",
+        {
+          class: "ghost small merge-dismiss",
+          type: "button",
+          title: "Not a duplicate — hide this cluster for the session",
+        },
+        ["Not a duplicate"],
+      );
+      notDuplicate.addEventListener("click", () => {
+        dismissCluster(meta.name, cluster);
+        rebuild();
+      });
+      clusterHead.append(notDuplicate);
       card.append(clusterHead);
 
       for (const member of cluster.values) {

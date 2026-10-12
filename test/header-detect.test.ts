@@ -90,3 +90,19 @@ test("handles an empty grid", () => {
   assert.equal(detected.headerRows, 0);
   assert.deepEqual(detected.rows, []);
 });
+
+test("keeps a trailing blank-header column that data populates", () => {
+  // The last column has no header but every row has a value; a middle column
+  // is empty, so the populated-cell count equals the header count (17 vs 17
+  // in the torture fixture). Width must follow the column extent, not the
+  // populated count, or the last column is silently dropped.
+  const grid = [
+    ["id", "name", "legacy", ""],
+    ["1", "Alice", "", "x"],
+    ["2", "Bob", "", "x"],
+  ];
+
+  const detected = detectTable(grid);
+  assert.deepEqual(detected.headers, ["id", "name", "legacy", ""]);
+  assert.equal(detected.rows[0].length, 4);
+});

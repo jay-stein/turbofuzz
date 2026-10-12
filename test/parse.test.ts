@@ -49,6 +49,16 @@ test("parseDelimited pads and truncates ragged rows", () => {
     ["1", "2", ""],
     ["3", "4", "5"],
   ]);
+  assert.deepEqual(table.ragged, { paddedRows: 1, extraCellRows: 1, extraCells: 1 });
+});
+
+test("parseDelimited can keep raw row lengths for raggedness checks", () => {
+  const table = parseDelimited("a,b,c\n1,2\n3,4,5,6", { normalizeRows: false });
+  assert.deepEqual(table.rows, [
+    ["1", "2"],
+    ["3", "4", "5", "6"],
+  ]);
+  assert.deepEqual(table.ragged, { paddedRows: 1, extraCellRows: 1, extraCells: 1 });
 });
 
 test("parseNumber handles separators, currency and negatives", () => {
@@ -88,6 +98,23 @@ test("parseDate handles ISO, day-first and month-first", () => {
 test("parseDate normalises month-name dates to UTC", () => {
   assert.equal(parseDate("1 Mar 2024", "dmy"), Date.UTC(2024, 2, 1));
   assert.equal(parseDate("March 1, 2024", "dmy"), Date.UTC(2024, 2, 1));
+});
+
+test("parseDate accepts month-name formats", () => {
+  assert.equal(parseDate("15 Mar 2024"), Date.UTC(2024, 2, 15));
+  assert.equal(parseDate("Mar 15, 2024"), Date.UTC(2024, 2, 15));
+  assert.equal(parseDate("March 15 2024"), Date.UTC(2024, 2, 15));
+  assert.equal(parseDate("Tue, 15 Mar 2024"), Date.UTC(2024, 2, 15));
+  assert.equal(parseDate("1st March 2024"), Date.UTC(2024, 2, 1));
+  assert.equal(parseDate("15 Mar 2024 14:35"), Date.UTC(2024, 2, 15, 14, 35));
+  assert.equal(parseDate("Mar 15, 2024 2:35 PM"), Date.UTC(2024, 2, 15, 14, 35));
+});
+
+test("parseDate rejects ID-like and bare-number strings", () => {
+  assert.ok(Number.isNaN(parseDate("ORD-00001")));
+  assert.ok(Number.isNaN(parseDate("INV-1001")));
+  assert.ok(Number.isNaN(parseDate("Room 12")));
+  assert.ok(Number.isNaN(parseDate("2024")));
 });
 
 test("detectDateOrder infers from unambiguous days", () => {

@@ -1,6 +1,9 @@
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
+import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
+import type { SeriesMode, SeriesResult } from "../data/chart-series.js";
+import type { BoxStatsResult, CorrelationResult, CrossTabResult } from "../data/chart-stats.js";
 import type { CleanOp } from "../data/clean-ops.js";
-import type { NullTokenCount } from "../data/column.js";
+import type { HistogramData, NullTokenCount } from "../data/column.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import type { DatasetStats } from "../data/stats.js";
 import type { ColumnSchema, TransformOp } from "../data/transform-ops.js";
@@ -9,6 +12,7 @@ import type { Delimiter } from "../parse/delimiter.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import type { ColumnStats } from "../parse/infer.js";
 import type { NumberLocale } from "../parse/numbers.js";
+import type { RaggedInfo } from "../parse/parse.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnType } from "../types.js";
 
@@ -35,11 +39,7 @@ export interface ColumnMeta {
   suggestions: ColumnSuggestion[];
 }
 
-export interface HistogramMeta {
-  bins: number[];
-  min: number;
-  max: number;
-}
+export type HistogramMeta = HistogramData;
 
 export interface ColumnDetail {
   name: string;
@@ -63,6 +63,9 @@ export interface ProgressMessage {
   type: "progress";
   phase: ProgressPhase;
   detail?: string;
+  /** Steps done within the phase, for a determinate progress bar. */
+  current?: number;
+  total?: number;
   column?: number;
   active?: boolean;
 }
@@ -140,11 +143,168 @@ export type SetNumberLocaleRequest = {
 
 export type GetStatsRequest = { type: "getStats"; requestId: number };
 
-export type StartExportRequest = { type: "startExport"; requestId: number };
+export type GetChartBinsRequest = {
+  type: "getChartBins";
+  requestId: number;
+  column: number;
+  options: ChartBinOptions;
+};
+
+export interface ChartBinsMessage extends ChartBins {
+  type: "chartBins";
+  requestId: number;
+  column: number;
+  /** Sampled column median, drawn as an annotation (null when undefined). */
+  median: number | null;
+}
+
+export type GetGroupedBinsRequest = {
+  type: "getGroupedBins";
+  requestId: number;
+  column: number;
+  groupColumn: number;
+  options: ChartBinOptions;
+  topN: number;
+};
+
+export interface GroupedBinsMessage {
+  type: "groupedBins";
+  requestId: number;
+  column: number;
+  groupColumn: number;
+  /** Aligned with codes, groups and totals. */
+  labels: string[];
+  /** Category code per series; -1 marks the Other bucket. */
+  codes: number[];
+  /** Bin counts per series (length = bins). */
+  groups: number[][];
+  totals: number[];
+  /** Index of the Other series, or -1. */
+  otherIndex: number;
+  bins: number;
+  overflow: number;
+  above: number;
+  below: number;
+  total: number;
+  /** Worker compute time for this payload. */
+  ms: number;
+}
+
+export type GetMissingnessRequest = {
+  type: "getMissingness";
+  requestId: number;
+  /** Maximum row buckets for the missingness map (capped at 1024). */
+  buckets: number;
+};
+
+export interface MissingnessMessage {
+  type: "missingness";
+  requestId: number;
+  /** Row buckets actually used (top bucket = first rows). */
+  buckets: number;
+  columns: number;
+  /** Row-major missing-cell counts per bucket × column (exact). */
+  cells: Uint16Array;
+  totalRows: number;
+  columnNames: string[];
+  /** Worker compute time for this payload. */
+  ms: number;
+}
+
+export type GetChartSeriesRequest = {
+  type: "getChartSeries";
+  requestId: number;
+  xColumn: number;
+  yColumn: number;
+  /** -1 (or omitted) draws every point in the chart colour. */
+  colorColumn?: number;
+  sizeColumn?: number;
+  mode: SeriesMode;
+  limit?: number;
+};
+
+export interface ChartSeriesMessage {
+  type: "chartSeries";
+  requestId: number;
+  xColumn: number;
+  yColumn: number;
+  colorColumn: number;
+  sizeColumn: number;
+  colorLabels: string[] | null;
+  /** Worker compute time for this payload. */
+  ms: number;
+  /** Pearson r of the two plotted columns over the filtered pairs (NaN if undefined). */
+  correlation: number;
+  result: SeriesResult;
+}
+
+export type GetBoxStatsRequest = {
+  type: "getBoxStats";
+  requestId: number;
+  valueColumn: number;
+  categoryColumn: number;
+  topN: number;
+  groupOther: boolean;
+};
+
+export interface BoxStatsMessage {
+  type: "boxStats";
+  requestId: number;
+  valueColumn: number;
+  categoryColumn: number;
+  ms: number;
+  result: BoxStatsResult;
+}
+
+export type GetCrosstabRequest = {
+  type: "getCrosstab";
+  requestId: number;
+  xColumn: number;
+  yColumn: number;
+  topX: number;
+  topY: number;
+  groupOther: boolean;
+};
+
+export interface CrosstabMessage {
+  type: "crosstab";
+  requestId: number;
+  xColumn: number;
+  yColumn: number;
+  ms: number;
+  result: CrossTabResult;
+}
+
+export type GetCorrelationRequest = {
+  type: "getCorrelation";
+  requestId: number;
+  columns: number[];
+};
+
+export interface CorrelationMessage {
+  type: "correlation";
+  requestId: number;
+  /** Dataset column indexes, aligned with the matrix rows/columns. */
+  columns: number[];
+  labels: string[];
+  ms: number;
+  result: CorrelationResult;
+}
+
+export type ExportScope = "all" | "filtered";
+
+export type StartExportRequest = {
+  type: "startExport";
+  requestId: number;
+  /** "all" = every row after steps, ignoring filters (default "filtered"). */
+  scope?: ExportScope;
+};
 
 export interface ExportOptions {
   /** Replace null/heuristic-missing cells with an empty string (default true). */
   nullAsBlank?: boolean;
+  /** Prefix formula-like cells with ' so spreadsheets import them as text. */
+  escapeFormulas?: boolean;
 }
 
 export type GetCsvRequest = {
@@ -218,6 +378,13 @@ export type WorkerRequest =
   | SetTypeRequest
   | SetNumberLocaleRequest
   | GetStatsRequest
+  | GetChartBinsRequest
+  | GetGroupedBinsRequest
+  | GetMissingnessRequest
+  | GetChartSeriesRequest
+  | GetBoxStatsRequest
+  | GetCrosstabRequest
+  | GetCorrelationRequest
   | StartExportRequest
   | GetCsvRequest
   | RenameHeadersRequest
@@ -239,6 +406,10 @@ export interface DatasetMessage {
   ingestMs: number;
   source: "paste" | "file";
   encoding: FileEncoding | null;
+  /** Auto-detected delimiter for delimited files (null for JSON, Excel, data grids). */
+  delimiter: Delimiter | null;
+  /** Ragged rows seen at import time (padded or dropped extra cells). */
+  ragged: RaggedInfo;
 }
 
 export interface LoadedMessage extends DatasetMessage {
@@ -362,6 +533,8 @@ export interface TransformPreviewMessage {
   baseNullCells: number;
   nullCells: number;
   columnCount: number;
+  /** Column names after the staged ops (needed when a split changes the count). */
+  columnNames: string[];
 }
 
 export interface CleanPreviewMessage {
@@ -380,6 +553,13 @@ export type WorkerResponse =
   | RowsMessage
   | ColumnMetaMessage
   | StatsMessage
+  | ChartBinsMessage
+  | GroupedBinsMessage
+  | MissingnessMessage
+  | ChartSeriesMessage
+  | BoxStatsMessage
+  | CrosstabMessage
+  | CorrelationMessage
   | ExportStartedMessage
   | CsvChunkMessage
   | HeadersRenamedMessage

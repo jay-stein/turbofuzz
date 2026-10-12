@@ -4,7 +4,12 @@ import { buildDataset, datasetFromColumns, rebuildDataset } from "../data/build.
 import { applyCleanOps } from "../data/clean-ops.js";
 import type { Dataset } from "../data/dataset.js";
 import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
+import { binValues, groupedBinValues } from "../data/chart-bins.js";
+import { missingnessGrid } from "../data/missingness.js";
+import { categoryCodes, computeSeries } from "../data/chart-series.js";
+import { computeBoxStats, computeCorrelation, computeCrossTab } from "../data/chart-stats.js";
 import type { FileEncoding } from "../parse/encoding.js";
+import type { Delimiter } from "../parse/delimiter.js";
 import {
   createNullPolicy,
   EMPTY_NULL_POLICY,
@@ -13,6 +18,7 @@ import {
 } from "../parse/null-tokens.js";
 import { isParquetName, readParquetGrid } from "../parse/parquet.js";
 import type { NumberLocale } from "../parse/numbers.js";
+import { measureRagged, type RaggedInfo } from "../parse/parse.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
 import { BitSet } from "../search/bitset.js";
 import { buildRank, orderIds } from "../search/order.js";
@@ -33,6 +39,13 @@ import type {
   DropRowsRequest,
   GetRowsRequest,
   GetStatsRequest,
+  GetChartBinsRequest,
+  GetGroupedBinsRequest,
+  GetMissingnessRequest,
+  GetChartSeriesRequest,
+  GetBoxStatsRequest,
+  GetCrosstabRequest,
+  GetCorrelationRequest,
   LoadRequest,
   PreviewCleanRequest,
   PreviewTransformRequest,
@@ -84,6 +97,8 @@ let transformSource: Dataset | null = null;
 let transformOps: TransformOp[] = [];
 let datasetSource: "paste" | "file" = "paste";
 let datasetEncoding: FileEncoding | null = null;
+let datasetDelimiter: Delimiter | null = null;
+let datasetRagged: RaggedInfo = { paddedRows: 0, extraCellRows: 0, extraCells: 0 };
 
 const FIRST_PAGE_ROWS = 40;
 
@@ -146,6 +161,27 @@ async function handle(message: WorkerRequest): Promise<void> {
     case "getStats":
       handleGetStats(message);
       break;
+    case "getChartBins":
+      handleGetChartBins(message);
+      break;
+    case "getGroupedBins":
+      handleGetGroupedBins(message);
+      break;
+    case "getMissingness":
+      handleGetMissingness(message);
+      break;
+    case "getChartSeries":
+      handleGetChartSeries(message);
+      break;
+    case "getBoxStats":
+      handleGetBoxStats(message);
+      break;
+    case "getCrosstab":
+      handleGetCrosstab(message);
+      break;
+    case "getCorrelation":
+      handleGetCorrelation(message);
+      break;
     case "renameHeaders":
       handleRenameHeaders(message);
       break;
@@ -168,7 +204,14 @@ async function handle(message: WorkerRequest): Promise<void> {
       handlePreviewClean(message);
       break;
     case "startExport":
-      exportIds = sortedIds.slice();
+      if (message.scope === "all") {
+        const { dataset: current } = state();
+        const all = new BitSet(current.rowCount);
+        all.setAll();
+        exportIds = withoutExcluded(all).toIndices();
+      } else {
+        exportIds = sortedIds.slice();
+      }
       post({ type: "exportStarted", requestId: message.requestId, total: exportIds.length });
       break;
     case "getCsv": {
@@ -313,10 +356,21 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   if (message.buffer !== undefined && isParquetName(message.name)) {
     post({ type: "progress", phase: "parse", detail: "Reading parquet…" });
     const grid = await readParquetGrid(message.buffer);
-    const dataset = buildDataset(message.name, grid.headers, grid.rows, (detail) =>
-      post({ type: "progress", phase: "build", detail }),
+    const dataset = buildDataset(message.name, grid.headers, grid.rows, (progress) =>
+      post({
+        type: "progress",
+        phase: progress.phase ?? "build",
+        detail: progress.detail,
+        current: progress.current,
+        total: progress.total,
+      }),
     );
-    ingested = { dataset, encoding: null };
+    ingested = {
+      dataset,
+      encoding: null,
+      delimiter: null,
+      ragged: measureRagged(grid.rows, grid.headers.length),
+    };
   } else {
     ingested = ingestDataset({
       name: message.name,
@@ -330,7 +384,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
     });
   }
 
-  const { dataset: next, encoding } = ingested;
+  const { dataset: next, encoding, ragged, delimiter } = ingested;
   dataset = next;
   engine = new QueryEngine(next);
   filters.clear();
@@ -351,6 +405,8 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   transformOps = [];
   datasetSource = message.buffer !== undefined ? "file" : "paste";
   datasetEncoding = encoding;
+  datasetDelimiter = delimiter;
+  datasetRagged = ragged;
   sortedIds = engine.evaluate(filters);
 
   post({
@@ -365,6 +421,8 @@ async function handleLoad(message: LoadRequest): Promise<void> {
     ingestMs: performance.now() - started,
     source: datasetSource,
     encoding: datasetEncoding,
+    delimiter: datasetDelimiter,
+    ragged: datasetRagged,
   });
 }
 
@@ -646,6 +704,266 @@ function handleGetStats(message: GetStatsRequest): void {
     stats: dataset.stats,
     columns: dataset.columns.map(detailsFor),
   });
+}
+
+/** Custom chart bins over the current result order (chart tab settings). */
+function handleGetChartBins(message: GetChartBinsRequest): void {
+  const { dataset } = state();
+  const column = dataset.columns[message.column];
+  if (column === undefined) throw new Error("Unknown column");
+  const bins = binValues(column.numbers(), sortedIds, message.options);
+  const numeric = column.type === "integer" || column.type === "number" || column.type === "date";
+  post({
+    type: "chartBins",
+    requestId: message.requestId,
+    column: message.column,
+    median: numeric ? column.medianSampled() : null,
+    ...bins,
+  });
+}
+
+/** Downsampled null map of the working table for the Overview heatmap. */
+function handleGetMissingness(message: GetMissingnessRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const grid = missingnessGrid(dataset.columns, dataset.rowCount, message.buckets);
+  post(
+    {
+      type: "missingness",
+      requestId: message.requestId,
+      buckets: grid.buckets,
+      columns: dataset.columnCount,
+      cells: grid.cells,
+      totalRows: dataset.rowCount,
+      columnNames: dataset.columns.map((column) => column.name),
+      ms: performance.now() - started,
+    },
+    [grid.cells.buffer],
+  );
+}
+
+/**
+ * Bins of one column split by a category column, for grouped time series.
+ * The top N groups by filtered volume get their own series; the rest fold into
+ * an Other bucket, so a high-cardinality grouping cannot explode the legend.
+ */
+function handleGetGroupedBins(message: GetGroupedBinsRequest): void {
+  const { dataset } = state();
+  const column = dataset.columns[message.column];
+  const groupColumn = dataset.columns[message.groupColumn];
+  if (column === undefined || groupColumn === undefined) throw new Error("Unknown column");
+  const categories = groupColumn.categories();
+  const codes = categoryCodes(categories.bits, dataset.rowCount);
+  const started = performance.now();
+  const result = groupedBinValues(
+    column.numbers(),
+    codes,
+    categories.labels.length,
+    sortedIds,
+    message.options,
+    message.topN,
+  );
+  const labels: string[] = [];
+  const seriesCodes: number[] = [];
+  const groups: number[][] = [];
+  const totals: number[] = [];
+  for (const series of result.groups) {
+    labels.push(categories.labels[series.code] ?? "(blank)");
+    seriesCodes.push(series.code);
+    groups.push(series.bins);
+    totals.push(series.total);
+  }
+  let otherIndex = -1;
+  if (result.other !== null) {
+    otherIndex = groups.length;
+    labels.push("Other");
+    seriesCodes.push(-1);
+    groups.push(result.other.bins);
+    totals.push(result.other.total);
+  }
+  post({
+    type: "groupedBins",
+    requestId: message.requestId,
+    column: message.column,
+    groupColumn: message.groupColumn,
+    labels,
+    codes: seriesCodes,
+    groups,
+    totals,
+    otherIndex,
+    bins: groups[0]?.length ?? 0,
+    overflow: result.overflow,
+    above: result.above,
+    below: result.below,
+    total: result.total,
+    ms: performance.now() - started,
+  });
+}
+
+/**
+ * Scatter sample (<= limit points) or exact density grid for two numeric
+ * columns over the current result order, with optional colour and size
+ * encodings. Numeric arrays are computed fresh inside `computeSeries`, so the
+ * column caches are never transferred (which would detach them).
+ */
+function handleGetChartSeries(message: GetChartSeriesRequest): void {
+  const { dataset } = state();
+  const xColumn = dataset.columns[message.xColumn];
+  const yColumn = dataset.columns[message.yColumn];
+  if (xColumn === undefined || yColumn === undefined) throw new Error("Unknown column");
+
+  let colorValues: Float64Array | null = null;
+  let colorCodes: Uint16Array | null = null;
+  let colorLabels: string[] | null = null;
+  const colorIndex = message.colorColumn ?? -1;
+  if (colorIndex >= 0 && colorIndex < dataset.columnCount) {
+    const column = dataset.columns[colorIndex];
+    if (column.type === "category" || column.type === "boolean") {
+      const categories = column.categories();
+      colorCodes = categoryCodes(categories.bits, dataset.rowCount);
+      colorLabels = categories.labels;
+    } else {
+      colorValues = column.numbers();
+    }
+  }
+
+  let size: Float64Array | null = null;
+  const sizeIndex = message.sizeColumn ?? -1;
+  if (sizeIndex >= 0 && sizeIndex < dataset.columnCount) {
+    size = dataset.columns[sizeIndex].numbers();
+  }
+
+  const started = performance.now();
+  const xNumbers = xColumn.numbers();
+  const yNumbers = yColumn.numbers();
+  const result = computeSeries(
+    xNumbers,
+    yNumbers,
+    sortedIds,
+    colorValues,
+    colorCodes,
+    size,
+    {
+      mode: message.mode,
+      limit: message.limit ?? 20_000,
+      gridCols: 128,
+      gridRows: 72,
+    },
+  );
+  const correlation = computeCorrelation([xNumbers, yNumbers], sortedIds).values[1] ?? Number.NaN;
+
+  const transfer: Transferable[] = [];
+  if (result.mode === "density") {
+    transfer.push(result.counts.buffer);
+  } else {
+    transfer.push(result.x.buffer, result.y.buffer);
+    if (result.colorValues !== null) transfer.push(result.colorValues.buffer);
+    if (result.colorCodes !== null) transfer.push(result.colorCodes.buffer);
+    if (result.size !== null) transfer.push(result.size.buffer);
+  }
+
+  post(
+    {
+      type: "chartSeries",
+      requestId: message.requestId,
+      xColumn: message.xColumn,
+      yColumn: message.yColumn,
+      colorColumn: colorIndex,
+      sizeColumn: sizeIndex,
+      colorLabels,
+      ms: performance.now() - started,
+      correlation,
+      result,
+    },
+    transfer,
+  );
+}
+
+/** Tukey box summaries per category of a numeric column (filtered rows). */
+function handleGetBoxStats(message: GetBoxStatsRequest): void {
+  const { dataset } = state();
+  const valueColumn = dataset.columns[message.valueColumn];
+  const categoryColumn = dataset.columns[message.categoryColumn];
+  if (valueColumn === undefined || categoryColumn === undefined) throw new Error("Unknown column");
+  const categories = categoryColumn.categories();
+  const codes = categoryCodes(categories.bits, dataset.rowCount);
+  const started = performance.now();
+  const result = computeBoxStats(valueColumn.numbers(), codes, categories.labels, sortedIds, {
+    topN: message.topN,
+    groupOther: message.groupOther,
+  });
+  const transfer: Transferable[] = [];
+  for (const group of result.groups) transfer.push(group.outliers.buffer);
+  post(
+    {
+      type: "boxStats",
+      requestId: message.requestId,
+      valueColumn: message.valueColumn,
+      categoryColumn: message.categoryColumn,
+      ms: performance.now() - started,
+      result,
+    },
+    transfer,
+  );
+}
+
+/** Category × category counts for the heatmap card (filtered rows). */
+function handleGetCrosstab(message: GetCrosstabRequest): void {
+  const { dataset } = state();
+  const xColumn = dataset.columns[message.xColumn];
+  const yColumn = dataset.columns[message.yColumn];
+  if (xColumn === undefined || yColumn === undefined) throw new Error("Unknown column");
+  const xCategories = xColumn.categories();
+  const yCategories = yColumn.categories();
+  const started = performance.now();
+  const result = computeCrossTab(
+    categoryCodes(xCategories.bits, dataset.rowCount),
+    categoryCodes(yCategories.bits, dataset.rowCount),
+    xCategories.labels,
+    yCategories.labels,
+    sortedIds,
+    { topX: message.topX, topY: message.topY, groupOther: message.groupOther },
+  );
+  post(
+    {
+      type: "crosstab",
+      requestId: message.requestId,
+      xColumn: message.xColumn,
+      yColumn: message.yColumn,
+      ms: performance.now() - started,
+      result,
+    },
+    [result.counts.buffer],
+  );
+}
+
+/** Pearson correlation matrix for up to 12 numeric columns (filtered rows). */
+function handleGetCorrelation(message: GetCorrelationRequest): void {
+  const { dataset } = state();
+  const seen = new Set<number>();
+  const indexes: number[] = [];
+  for (const index of message.columns) {
+    if (index < 0 || index >= dataset.columnCount || seen.has(index)) continue;
+    seen.add(index);
+    indexes.push(index);
+    if (indexes.length >= 12) break;
+  }
+  const started = performance.now();
+  const result = computeCorrelation(
+    indexes.map((index) => dataset.columns[index].numbers()),
+    sortedIds,
+  );
+  post(
+    {
+      type: "correlation",
+      requestId: message.requestId,
+      columns: indexes,
+      labels: indexes.map((index) => dataset.columns[index].name),
+      ms: performance.now() - started,
+      result,
+    },
+    [result.values.buffer, result.counts.buffer],
+  );
 }
 
 /**
@@ -1032,6 +1350,8 @@ function handleTransform(message: TransformRequest): void {
     ingestMs: performance.now() - started,
     source: datasetSource,
     encoding: datasetEncoding,
+    delimiter: datasetDelimiter,
+    ragged: datasetRagged,
     ops: transformOps,
     baseSchema,
   });
@@ -1054,6 +1374,7 @@ function handlePreviewTransform(message: PreviewTransformRequest): void {
     baseNullCells: base.stats.totalNullCells,
     nullCells: next.stats.totalNullCells,
     columnCount: next.columnCount,
+    columnNames: next.columns.map((column) => column.name),
   });
 }
 

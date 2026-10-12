@@ -55,6 +55,30 @@ const OP_TYPES: readonly { value: string; label: string }[] = [
   { value: "toDate", label: "Convert to date" },
 ];
 
+export interface CleanPanelOptions {
+  /** Preselect this column in the Values and Nulls tabs. */
+  column?: number;
+  /** First tab to show; defaults to "values" when a column is given. */
+  tab?: "names" | "values" | "nulls";
+  /** Preselect an operation in the Values tab builder (e.g. from the column menu). */
+  op?: CleanOp;
+}
+
+/**
+ * Where the Clean drawer opens: the Nulls tab when any column has empty
+ * cells, otherwise Values when there are one-click suggestions, otherwise
+ * Column names. A preselected column always opens the Values tab.
+ */
+export function initialCleanTab(
+  metas: readonly ColumnMeta[],
+  column?: number,
+): "names" | "values" | "nulls" {
+  if (column !== undefined) return "values";
+  if (metas.some((meta) => meta.stats.nulls > 0)) return "nulls";
+  if (metas.some((meta) => meta.suggestions.length > 0)) return "values";
+  return "names";
+}
+
 /**
  * Clean panel: column-name normalisation and non-destructive value cleaning.
  * Both tabs preview exactly what will change before anything is applied, and
@@ -64,6 +88,7 @@ export function openCleanPanel(
   metas: readonly ColumnMeta[],
   cleaned: ReadonlyMap<number, CleanOp[]>,
   callbacks: CleanPanelCallbacks,
+  options: CleanPanelOptions = {},
 ): void {
   const overlay = el("div", { class: "modal-overlay drawer-overlay" });
   const modal = el("div", { class: "modal clean-modal drawer" });
@@ -81,8 +106,8 @@ export function openCleanPanel(
   tabs.append(namesButton, valuesButton, nullsButton);
 
   const namesTab = buildNamesTab(metas.map((meta) => meta.name), callbacks, close);
-  const valuesTab = buildValuesTab(metas, cleaned, callbacks, close);
-  const nullsTab = buildNullsTab(metas, callbacks, close);
+  const valuesTab = buildValuesTab(metas, cleaned, callbacks, close, options.column, options.op);
+  const nullsTab = buildNullsTab(metas, callbacks, close, options.column);
   modal.append(tabs, namesTab, valuesTab, nullsTab);
 
   type Tab = "names" | "values" | "nulls";
@@ -97,7 +122,7 @@ export function openCleanPanel(
   namesButton.addEventListener("click", () => selectTab("names"));
   valuesButton.addEventListener("click", () => selectTab("values"));
   nullsButton.addEventListener("click", () => selectTab("nulls"));
-  selectTab("names");
+  selectTab(options.tab ?? initialCleanTab(metas, options.column));
 
   function close(): void {
     overlay.remove();
@@ -177,6 +202,7 @@ function buildNamesTab(
     previewList.replaceChildren(fragment);
     previewSummary.textContent =
       changed === 0 ? "No changes." : `${changed} of ${headers.length} columns will be renamed`;
+    apply.disabled = changed === 0;
   }
 
   const footer = el("div", { class: "clean-footer" });
@@ -199,10 +225,12 @@ function buildValuesTab(
   cleaned: ReadonlyMap<number, CleanOp[]>,
   callbacks: CleanPanelCallbacks,
   close: () => void,
+  initialColumn: number | undefined,
+  initialOp: CleanOp | undefined,
 ): HTMLElement {
   const wrap = el("div", { class: "clean-values" });
 
-  let column = 0;
+  let column = initialColumn ?? 0;
   let pending: CleanOp[] = (cleaned.get(column) ?? []).slice();
 
   const colField = el("label", { class: "clean-field" });
@@ -211,6 +239,7 @@ function buildValuesTab(
   metas.forEach((meta, index) => {
     colSelect.append(el("option", { value: String(index) }, [meta.name]) as HTMLOptionElement);
   });
+  colSelect.value = String(column);
   colField.append(colSelect);
 
   const mergeButton = el(
@@ -290,11 +319,9 @@ function buildValuesTab(
     localeRow.classList.toggle("hidden", opSelect.value !== "toNumber");
     dateOrderRow.classList.toggle("hidden", opSelect.value !== "toDate");
   };
-  opSelect.addEventListener("change", syncOpType);
 
-  const addButton = el("button", { class: "ghost small", type: "button" }, ["Add operation"]);
-  addButton.addEventListener("click", () => {
-    const op = readOp(
+  const currentBuilderOp = (): CleanOp | null =>
+    readOp(
       opSelect.value,
       findInput.value,
       replacementInput.value,
@@ -302,8 +329,67 @@ function buildValuesTab(
       localeSelect.value === "comma" ? "comma" : "dot",
       dateOrderSelect.value === "mdy" ? "mdy" : "dmy",
     );
+
+  // The configured operation is only included when the user actually touched
+  // the builder, so opening the panel and clicking Apply cannot apply a
+  // default operation by surprise.
+  let builderTouched = false;
+  let previewTimer: number | undefined;
+  const onBuilderChange = (): void => {
+    builderTouched = true;
+    if (previewTimer !== undefined) window.clearTimeout(previewTimer);
+    previewTimer = window.setTimeout(() => {
+      previewTimer = undefined;
+      renderPreview();
+    }, 250);
+  };
+  opSelect.addEventListener("change", () => {
+    builderTouched = true;
+    syncOpType();
+    renderPreview();
+  });
+  findInput.addEventListener("input", onBuilderChange);
+  replacementInput.addEventListener("input", onBuilderChange);
+  ignoreCaseInput.addEventListener("change", onBuilderChange);
+  localeSelect.addEventListener("change", onBuilderChange);
+  dateOrderSelect.addEventListener("change", onBuilderChange);
+
+  if (initialOp !== undefined) {
+    switch (initialOp.kind) {
+      case "trim":
+        opSelect.value = "trim";
+        break;
+      case "case":
+        opSelect.value = initialOp.style;
+        break;
+      case "replace":
+        opSelect.value = "replace";
+        findInput.value = initialOp.find;
+        replacementInput.value = initialOp.replacement;
+        ignoreCaseInput.checked = initialOp.ignoreCase;
+        break;
+      case "toNumber":
+        opSelect.value = "toNumber";
+        localeSelect.value = initialOp.locale;
+        break;
+      case "toDate":
+        opSelect.value = "toDate";
+        dateOrderSelect.value = initialOp.order;
+        break;
+      default:
+        break;
+    }
+    builderTouched = true;
+    syncOpType();
+  }
+
+  const addButton = el("button", { class: "ghost small", type: "button" }, ["Add another"]);
+  addButton.title = "Stage this operation in the list and configure the next one";
+  addButton.addEventListener("click", () => {
+    const op = currentBuilderOp();
     if (op === null) return;
     pending.push(op);
+    builderTouched = false;
     renderOps();
     renderPreview();
   });
@@ -346,8 +432,15 @@ function buildValuesTab(
 
   let previewGeneration = 0;
 
+  /** Pending operations plus the builder op, when the builder was touched. */
+  function nextOps(): CleanOp[] {
+    if (!builderTouched) return pending.slice();
+    const builder = currentBuilderOp();
+    return builder === null ? pending.slice() : [...pending, builder];
+  }
+
   function targetUpdates(): CleanUpdateRequest[] {
-    const ops = pending.slice();
+    const ops = nextOps();
     return allColumnsInput.checked
       ? metas.map((_, index) => ({ column: index, ops }))
       : [{ column, ops }];
@@ -355,8 +448,9 @@ function buildValuesTab(
 
   function renderPreview(): void {
     const generation = ++previewGeneration;
+    const ops = nextOps();
     const samples = sampleValues();
-    const results = applyCleanOps(samples, pending);
+    const results = applyCleanOps(samples, ops);
     clear(preview);
     let baseText: string;
     if (samples.length === 0) {
@@ -376,11 +470,12 @@ function buildValuesTab(
       preview.append(fragment);
       const changed = samples.filter((value, i) => value !== results[i]).length;
       baseText =
-        pending.length === 0
+        ops.length === 0
           ? `Preview of ${samples.length} sample values`
           : `Preview of ${samples.length} sample values · ${changed} would change`;
     }
     previewSummary.textContent = baseText;
+    updateApply();
     void callbacks
       .onPreviewClean(targetUpdates())
       .then((count) => {
@@ -425,6 +520,23 @@ function buildValuesTab(
     close();
   });
   footer.append(apply);
+
+  /** The apply button always states exactly what one click will commit. */
+  function updateApply(): void {
+    const builder = builderTouched ? currentBuilderOp() : null;
+    const total = pending.length + (builder === null ? 0 : 1);
+    const scope = allColumnsInput.checked ? " to all columns" : "";
+    if (total === 0) {
+      apply.textContent = "Apply to column";
+      apply.disabled = true;
+      return;
+    }
+    apply.disabled = false;
+    apply.textContent =
+      builder !== null && pending.length === 0
+        ? `Apply “${describeCleanOp(builder)}”${scope}`
+        : `Apply ${total} operation${total === 1 ? "" : "s"}${scope}`;
+  }
 
   const builder = el("div", { class: "clean-builder" }, [
     opField,
@@ -492,10 +604,11 @@ function buildNullsTab(
   metas: readonly ColumnMeta[],
   callbacks: CleanPanelCallbacks,
   close: () => void,
+  initialColumn: number | undefined,
 ): HTMLElement {
   const wrap = el("div", { class: "clean-values" });
 
-  let column: number | null = null;
+  let column: number | null = initialColumn ?? null;
   let extra = new Set<string>();
   let keep = new Set<string>();
 
@@ -648,6 +761,7 @@ function buildNullsTab(
   footer.append(cancel, el("span", { class: "grow" }), apply);
 
   wrap.append(colField, hint, list, extraField, summary, footer);
-  loadColumn(null);
+  if (initialColumn !== undefined) colSelect.value = String(initialColumn);
+  loadColumn(initialColumn ?? null);
   return wrap;
 }

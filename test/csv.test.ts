@@ -61,3 +61,19 @@ test("nullAsBlank controls text null handling", () => {
     "city\r\n\r\nPerth\r\n",
   );
 });
+
+test("escapeFormulas guards formula-like cells but keeps plain numbers", () => {
+  const dataset = buildDataset("t", ["email", "amount"], [
+    ["=1+1", "-999"],
+    ["@SUM(1,1)", "12.5"],
+    ["+1+2", "-20"],
+    ["-2+3", "7"],
+  ]);
+  const ids = Uint32Array.from([0, 1, 2, 3]);
+  assert.equal(
+    buildCsv(dataset, ids, 0, 4, true, { escapeFormulas: true }),
+    "email,amount\r\n'=1+1,-999\r\n\"'@SUM(1,1)\",12.5\r\n'+1+2,-20\r\n'-2+3,7\r\n",
+  );
+  // Off by default: values are exported untouched.
+  assert.match(buildCsv(dataset, ids, 0, 4, true), /^email,amount\r\n=1\+1,-999/);
+});

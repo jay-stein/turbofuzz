@@ -3,6 +3,130 @@ export type DateOrder = "dmy" | "mdy";
 const DMY_OR_MDY = /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/;
 const ISO = /^(\d{4})-(\d{1,2})-(\d{1,2})/;
 const YMD = /^(\d{4})[/.](\d{1,2})[/.](\d{1,2})$/;
+const ISO_DATETIME =
+  /^(\d{4})-(\d{1,2})-(\d{1,2})[Tt ](\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\s*(Z|[+-]\d{2}:?\d{2})?$/;
+
+const MONTH_NUMBERS: Record<string, number> = {
+  jan: 1,
+  january: 1,
+  feb: 2,
+  february: 2,
+  mar: 3,
+  march: 3,
+  apr: 4,
+  april: 4,
+  may: 5,
+  jun: 6,
+  june: 6,
+  jul: 7,
+  july: 7,
+  aug: 8,
+  august: 8,
+  sep: 9,
+  sept: 9,
+  september: 9,
+  oct: 10,
+  october: 10,
+  nov: 11,
+  november: 11,
+  dec: 12,
+  december: 12,
+};
+
+const WEEKDAY_NAMES = new Set([
+  "sun",
+  "sunday",
+  "mon",
+  "monday",
+  "tue",
+  "tues",
+  "tuesday",
+  "wed",
+  "wednesday",
+  "thu",
+  "thur",
+  "thurs",
+  "thursday",
+  "fri",
+  "friday",
+  "sat",
+  "saturday",
+]);
+
+const WEEKDAY_PREFIX = /^([A-Za-z]{3,9})\.?,?\s+/;
+const WEEKDAY_FIRST = /^(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?,?\s+(\d{2,4})(?:\s+(.+))?$/i;
+const MONTH_FIRST = /^([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{2,4})(?:\s+(.+))?$/i;
+const TRAILING_TIME =
+  /^(\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\s*(?:([ap])\.?m\.?)?\s*(?:(z|utc|gmt)|([+-])(\d{1,2}):?(\d{2})?)?$/i;
+
+function monthNumber(name: string): number | null {
+  return MONTH_NUMBERS[name.toLowerCase()] ?? null;
+}
+
+/** Parses `D Mon YYYY` / `Mon D, YYYY`, optionally weekday-prefixed and timed. */
+function parseMonthNameDate(raw: string): number {
+  let s = raw.trim().replace(/\s+/g, " ");
+  if (s === "") return NaN;
+
+  const weekday = s.match(WEEKDAY_PREFIX);
+  if (weekday !== null && WEEKDAY_NAMES.has(weekday[1].toLowerCase())) {
+    s = s.slice(weekday[0].length);
+  }
+
+  let match = s.match(WEEKDAY_FIRST);
+  let day: number;
+  let monthText: string;
+  let yearText: string;
+  let trailing: string | undefined;
+  if (match !== null) {
+    day = Number(match[1]);
+    monthText = match[2];
+    yearText = match[3];
+    trailing = match[4];
+  } else {
+    match = s.match(MONTH_FIRST);
+    if (match === null) return NaN;
+    monthText = match[1];
+    day = Number(match[2]);
+    yearText = match[3];
+    trailing = match[4];
+  }
+
+  const month = monthNumber(monthText);
+  if (month === null || day < 1 || day > 31) return NaN;
+
+  let year = Number(yearText);
+  if (yearText.length < 3) year += year >= 70 ? 1900 : 2000;
+
+  let hour = 0;
+  let minute = 0;
+  let second = 0;
+  let millisecond = 0;
+  let offsetMinutes = 0;
+  if (trailing !== undefined) {
+    const time = trailing.match(TRAILING_TIME);
+    if (time === null) return NaN;
+    hour = Number(time[1]);
+    minute = Number(time[2]);
+    second = time[3] === undefined ? 0 : Number(time[3]);
+    millisecond = time[4] === undefined ? 0 : Number(time[4].padEnd(3, "0"));
+    const meridiem = time[5] === undefined ? null : time[5].toLowerCase();
+    if (meridiem !== null) {
+      if (hour < 1 || hour > 12) return NaN;
+      if (meridiem === "p" && hour !== 12) hour += 12;
+      if (meridiem === "a" && hour === 12) hour = 0;
+    }
+    if (hour > 23 || minute > 59 || second > 59) return NaN;
+    if (time[7] !== undefined) {
+      const hours = Number(time[8]);
+      const minutes = time[9] === undefined ? 0 : Number(time[9]);
+      if (hours > 14 || minutes > 59) return NaN;
+      offsetMinutes = (time[7] === "-" ? -1 : 1) * (hours * 60 + minutes);
+    }
+  }
+
+  return Date.UTC(year, month - 1, day, hour, minute, second, millisecond) - offsetMinutes * 60_000;
+}
 
 export function looksLikeDate(value: string): boolean {
   const s = value.trim();
@@ -27,7 +151,27 @@ export function parseDate(raw: string, order: DateOrder = "dmy"): number {
   const s = raw.trim();
   if (s === "") return NaN;
 
-  let m = s.match(ISO);
+  let m = s.match(ISO_DATETIME);
+  if (m !== null) {
+    const millisecond = m[7] === undefined ? 0 : Number(m[7].padEnd(3, "0"));
+    const utc = Date.UTC(
+      Number(m[1]),
+      Number(m[2]) - 1,
+      Number(m[3]),
+      Number(m[4]),
+      Number(m[5]),
+      m[6] === undefined ? 0 : Number(m[6]),
+      millisecond,
+    );
+    const zone = m[8];
+    if (zone === undefined || /^z$/i.test(zone)) return utc;
+    const sign = zone.startsWith("-") ? -1 : 1;
+    const hours = Number(zone.slice(1, 3));
+    const minutes = Number(zone.slice(3).replace(":", "") || 0);
+    return utc - sign * (hours * 60 + minutes) * 60_000;
+  }
+
+  m = s.match(ISO);
   if (m !== null) return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 
   m = s.match(YMD);
@@ -45,12 +189,7 @@ export function parseDate(raw: string, order: DateOrder = "dmy"): number {
     return Date.UTC(year, month - 1, day);
   }
 
-  const t = Date.parse(s);
-  if (Number.isNaN(t)) return NaN;
-  // Date.parse yields local-time midnight for formats without a zone; map the
-  // calendar fields back to UTC so results do not shift by timezone offset.
-  const local = new Date(t);
-  return Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
+  return parseMonthNameDate(s);
 }
 
 export function toDateInputValue(epochMs: number): string {

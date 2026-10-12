@@ -4,13 +4,20 @@ import { decodeText, type FileEncoding } from "../parse/encoding.js";
 import { detectTable } from "../parse/header-detect.js";
 import { isJsonName, parseJsonGrid } from "../parse/json.js";
 import type { NumberLocale } from "../parse/numbers.js";
-import { parseDelimited, structureTable } from "../parse/parse.js";
+import {
+  measureRagged,
+  parseDelimited,
+  structureTable,
+  type RaggedInfo,
+} from "../parse/parse.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { ProgressPhase } from "./protocol.js";
 
 export interface IngestProgress {
   phase: ProgressPhase;
   detail?: string;
+  current?: number;
+  total?: number;
 }
 
 export interface IngestOptions {
@@ -26,15 +33,27 @@ export interface IngestOptions {
 export interface IngestResult {
   dataset: Dataset;
   encoding: FileEncoding | null;
+  /** Auto-detected delimiter for delimited text; null for JSON, tables, grids. */
+  delimiter: Delimiter | null;
+  /** Rows that were padded or truncated to match the final column set. */
+  ragged: RaggedInfo;
 }
 
 export function ingestDataset(options: IngestOptions): IngestResult {
   if (options.table !== undefined) {
-    const { headers, rows } = structureTable(options.table.rows, options.table.hasHeaders);
-    const dataset = buildDataset(options.name, headers, rows, (detail) => {
-      options.onProgress?.({ phase: "build", detail });
+    const { headers, rows, ragged } = structureTable(
+      options.table.rows,
+      options.table.hasHeaders,
+    );
+    const dataset = buildDataset(options.name, headers, rows, (progress) => {
+      options.onProgress?.({
+        phase: progress.phase ?? "build",
+        detail: progress.detail,
+        current: progress.current,
+        total: progress.total,
+      });
     });
-    return { dataset, encoding: null };
+    return { dataset, encoding: null, delimiter: null, ragged };
   }
 
   let text = options.text;
@@ -51,21 +70,34 @@ export function ingestDataset(options: IngestOptions): IngestResult {
   // JSON is structure-carrying, so it bypasses delimiter/header detection.
   if (isJsonName(options.name)) {
     const grid = parseJsonGrid(source, options.hasHeaders);
-    return { dataset: buildFromGrid(options.name, grid.headers, grid.rows, options), encoding };
+    return {
+      dataset: buildFromGrid(options.name, grid.headers, grid.rows, options),
+      encoding,
+      delimiter: null,
+      ragged: measureRagged(grid.rows, grid.headers.length),
+    };
   }
   if (looksLikeJson(source, options.delimiter)) {
     try {
       const grid = parseJsonGrid(source, options.hasHeaders);
-      return { dataset: buildFromGrid(options.name, grid.headers, grid.rows, options), encoding };
+      return {
+        dataset: buildFromGrid(options.name, grid.headers, grid.rows, options),
+        encoding,
+        delimiter: null,
+        ragged: measureRagged(grid.rows, grid.headers.length),
+      };
     } catch {
       // Not JSON after all — fall through to delimited parsing.
     }
   }
 
   options.onProgress?.({ phase: "parse" });
+  // Keep the raw row lengths: the final width is only known after header
+  // detection, and raggedness is measured against that width below.
   const parsed = parseDelimited(source, {
     delimiter: options.delimiter,
     hasHeaders: false,
+    normalizeRows: false,
   });
 
   // Semicolon delimiters and windows-1252 are strong European-locale signals,
@@ -73,10 +105,11 @@ export function ingestDataset(options: IngestOptions): IngestResult {
   const numberPrior: NumberLocale =
     parsed.delimiter === ";" || encoding === "windows-1252" ? "comma" : "dot";
 
-  // Same smart header detection as worksheets/scraped tables: skip title
-  // rows and merge multi-level headers instead of blindly taking row 1.
+  // Same smart header detection as worksheets: skip title rows and merge
+  // multi-level headers instead of blindly taking row 1.
   let headers = parsed.headers;
   let rows = parsed.rows;
+  let ragged = parsed.ragged;
   if (options.hasHeaders) {
     const detected = detectTable(parsed.rows);
     if (detected.headerRows > 0) {
@@ -84,6 +117,7 @@ export function ingestDataset(options: IngestOptions): IngestResult {
         value.trim() === "" ? `Column ${index + 1}` : value,
       );
       rows = detected.rows;
+      ragged = measureRagged(rows, headers.length);
     }
   }
 
@@ -91,13 +125,18 @@ export function ingestDataset(options: IngestOptions): IngestResult {
     options.name,
     headers,
     rows,
-    (detail) => {
-      options.onProgress?.({ phase: "build", detail });
+    (progress) => {
+      options.onProgress?.({
+        phase: progress.phase ?? "build",
+        detail: progress.detail,
+        current: progress.current,
+        total: progress.total,
+      });
     },
     numberPrior,
   );
 
-  return { dataset, encoding };
+  return { dataset, encoding, delimiter: parsed.delimiter, ragged };
 }
 
 function buildFromGrid(
@@ -106,8 +145,13 @@ function buildFromGrid(
   rows: string[][],
   options: IngestOptions,
 ): Dataset {
-  return buildDataset(name, headers, rows, (detail) => {
-    options.onProgress?.({ phase: "build", detail });
+  return buildDataset(name, headers, rows, (progress) => {
+    options.onProgress?.({
+      phase: progress.phase ?? "build",
+      detail: progress.detail,
+      current: progress.current,
+      total: progress.total,
+    });
   });
 }
 

@@ -1,18 +1,28 @@
 import type { Delimiter } from "../parse/delimiter.js";
 import type { NumberLocale } from "../parse/numbers.js";
+import type { ChartBinOptions } from "../data/chart-bins.js";
+import type { SeriesMode } from "../data/chart-series.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { TransformOp } from "../data/transform-ops.js";
 import type { ColumnType } from "../types.js";
 import type {
+  BoxStatsMessage,
+  ChartBinsMessage,
+  ChartSeriesMessage,
+  CorrelationMessage,
+  CrosstabMessage,
   CleanedMessage,
   CleanPreviewMessage,
   CleanUpdate,
   ColumnMetaMessage,
   CsvChunkMessage,
   ExportOptions,
+  ExportScope,
   ExportStartedMessage,
+  GroupedBinsMessage,
   HeadersRenamedMessage,
   LoadedMessage,
+  MissingnessMessage,
   ProgressMessage,
   ResultsMessage,
   RowsMessage,
@@ -118,6 +128,57 @@ export class SearchWorkerClient {
     return this.request<StatsMessage>({ type: "getStats" });
   }
 
+  getChartBins(column: number, options: ChartBinOptions): Promise<ChartBinsMessage> {
+    return this.request<ChartBinsMessage>({ type: "getChartBins", column, options });
+  }
+
+  getGroupedBins(input: {
+    column: number;
+    groupColumn: number;
+    options: ChartBinOptions;
+    topN: number;
+  }): Promise<GroupedBinsMessage> {
+    return this.request<GroupedBinsMessage>({ type: "getGroupedBins", ...input });
+  }
+
+  getMissingness(buckets: number): Promise<MissingnessMessage> {
+    return this.request<MissingnessMessage>({ type: "getMissingness", buckets });
+  }
+
+  getChartSeries(input: {
+    xColumn: number;
+    yColumn: number;
+    colorColumn?: number;
+    sizeColumn?: number;
+    mode: SeriesMode;
+    limit?: number;
+  }): Promise<ChartSeriesMessage> {
+    return this.request<ChartSeriesMessage>({ type: "getChartSeries", ...input });
+  }
+
+  getBoxStats(input: {
+    valueColumn: number;
+    categoryColumn: number;
+    topN: number;
+    groupOther: boolean;
+  }): Promise<BoxStatsMessage> {
+    return this.request<BoxStatsMessage>({ type: "getBoxStats", ...input });
+  }
+
+  getCrosstab(input: {
+    xColumn: number;
+    yColumn: number;
+    topX: number;
+    topY: number;
+    groupOther: boolean;
+  }): Promise<CrosstabMessage> {
+    return this.request<CrosstabMessage>({ type: "getCrosstab", ...input });
+  }
+
+  getCorrelation(columns: number[]): Promise<CorrelationMessage> {
+    return this.request<CorrelationMessage>({ type: "getCorrelation", columns });
+  }
+
   renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {
     return this.request<HeadersRenamedMessage>({ type: "renameHeaders", headers });
   }
@@ -146,8 +207,8 @@ export class SearchWorkerClient {
     return this.request<CleanPreviewMessage>({ type: "previewClean", updates });
   }
 
-  startExport(): Promise<ExportStartedMessage> {
-    return this.request<ExportStartedMessage>({ type: "startExport" });
+  startExport(scope: ExportScope = "filtered"): Promise<ExportStartedMessage> {
+    return this.request<ExportStartedMessage>({ type: "startExport", scope });
   }
 
   getCsv(start: number, end: number, options?: ExportOptions): Promise<CsvChunkMessage> {

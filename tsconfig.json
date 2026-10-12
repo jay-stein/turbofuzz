@@ -13,5 +13,5 @@
     "isolatedModules": true,
     "useDefineForClassFields": true
   },
-  "include": ["src", "bench", "test", "worker", "vite.config.ts"]
+  "include": ["src", "bench", "test", "vite.config.ts"]
 }

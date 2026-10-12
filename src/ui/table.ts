@@ -1,4 +1,12 @@
 import { clear, el, svgIcon } from "./dom.js";
+import { openMenu, type MenuItem } from "./menu.js";
+import {
+  describeSuggestion,
+  suggestionShortLabel,
+  type ColumnSuggestion,
+} from "../data/suggestions.js";
+import { clusterSimilar, type SimilarCluster } from "../search/similar.js";
+import { dismissedClusterCount, isClusterDismissed } from "./similar-dismissals.js";
 import { isNullToken, isNullWithWire } from "../parse/null-tokens.js";
 import { parseNumber } from "../parse/numbers.js";
 import { valueLength } from "../parse/value-length.js";
@@ -33,6 +41,10 @@ export interface ResultTableOptions {
   onColumnContext: (column: number, x: number, y: number) => void;
   onToggleColumnDelete: (column: number) => void;
   onToggleRowDelete: (position: number) => void;
+  /** Applies a one-click fix suggested for the column (sentinel, locale, ...). */
+  onSuggestion?: (column: number, suggestion: ColumnSuggestion) => void;
+  /** Converts placeholder tokens ("NA", "TBD") to real nulls in one column. */
+  onConvertToken?: (column: number, tokens: string[]) => void;
   onRequestRows: (
     start: number,
     end: number,
@@ -86,8 +98,13 @@ export class ResultTable {
   }
 
   setColumns(columns: ColumnMeta[]): void {
+    const previous = new Map<string, number>();
+    this.columns.forEach((column, index) => {
+      const width = this.widths[index];
+      if (width !== undefined) previous.set(column.name, width);
+    });
     this.columns = columns;
-    this.widths = columns.map(() => DEFAULT_COL_WIDTH);
+    this.widths = columns.map((column) => previous.get(column.name) ?? DEFAULT_COL_WIDTH);
     this.renderHeader();
     this.invalidateRows();
   }
@@ -323,11 +340,23 @@ export class ResultTable {
    */
   private buildQaRow(column: ColumnMeta, index: number): HTMLElement {
     const row = el("div", { class: "th-qa" });
-    row.append(
-      this.qaChip(column, index, "nulls", column.stats.nulls, {
-        one: "empty cell",
-        many: "empty cells",
-      }, "click to show rows where this column is empty"),
+    const tokenChips = this.buildTokenChips(column, index);
+    const chips = [
+      // Placeholder text replaces the generic empty-cell chip so the header
+      // stays one line and the actionable count wins.
+      tokenChips.length === 0
+        ? this.qaChip(
+            column,
+            index,
+            "nulls",
+            column.stats.nulls,
+            {
+              one: "empty cell",
+              many: "empty cells",
+            },
+            "click to show rows where this column is empty",
+          )
+        : null,
       this.qaChip(column, index, "valueAnomalies", column.anomalyCounts.values, {
         one: "value outlier",
         many: "value outliers",
@@ -336,17 +365,19 @@ export class ResultTable {
         one: "long value",
         many: "long values",
       }, "click to show this column's overlong values"),
-    );
-    if (column.similarGroups > 0) {
+    ].filter((chip): chip is HTMLButtonElement => chip !== null);
+    row.append(...chips, ...tokenChips, ...this.buildFixChips(column, index));
+    const similarPairs = column.similarGroups - dismissedClusterCount(column.name);
+    if (similarPairs > 0 && column.categories !== null) {
       const merge = el(
         "button",
         { class: "th-qa-chip warn merge", type: "button" },
-        [`${column.similarGroups.toLocaleString()} mergeable`],
+        [`${similarPairs.toLocaleString()} similar ${similarPairs === 1 ? "pair" : "pairs"}`],
       ) as HTMLButtonElement;
-      merge.title = `${column.similarGroups.toLocaleString()} group${
-        column.similarGroups === 1 ? "" : "s"
-      } of near-identical values in “${column.name}” — click to merge them`;
-      merge.addEventListener("click", () => this.options.onMergeSimilar(index));
+      merge.title = `${similarPairs.toLocaleString()} ${
+        similarPairs === 1 ? "pair" : "pairs"
+      } of near-identical values in “${column.name}” — click to review`;
+      merge.addEventListener("click", () => this.openSimilarPairs(column, index, merge));
       row.append(merge);
     }
     if (column.stats.distinct === 1) {
@@ -364,6 +395,43 @@ export class ResultTable {
     return row;
   }
 
+  /**
+   * Popover for the "N similar pairs" chip: up to three pairs with counts,
+   * then the Merge panel for the full review.
+   */
+  private openSimilarPairs(column: ColumnMeta, index: number, anchor: HTMLElement): void {
+    const labels = column.categories?.labels ?? [];
+    const counts = column.categories?.counts ?? [];
+    const clusters = clusterSimilar(
+      labels.map((value, memberIndex) => ({ value, count: counts[memberIndex] })),
+    )
+      .filter((cluster) => !isClusterDismissed(column.name, cluster))
+      .slice(0, 3);
+    const items: MenuItem[] = clusters.map((cluster) => ({
+      label: this.pairLabel(cluster),
+      title: cluster.values
+        .map((entry) => `${entry.value} (${entry.count.toLocaleString()})`)
+        .join(" / "),
+      disabled: true,
+      action: () => {},
+    }));
+    items.push({
+      label: "Merge values…",
+      title: "Review and merge these values",
+      action: () => this.options.onMergeSimilar(index),
+    });
+    openMenu(anchor, items);
+  }
+
+  /** “Widget A (42) / Widget B (3)” for one similar cluster. */
+  private pairLabel(cluster: SimilarCluster): string {
+    const suggested =
+      cluster.values.find((entry) => entry.value === cluster.suggested) ?? cluster.values[0];
+    const other = cluster.values.find((entry) => entry.value !== cluster.suggested);
+    if (other === undefined) return `${suggested.value} (${suggested.count.toLocaleString()})`;
+    return `${suggested.value} (${suggested.count.toLocaleString()}) / ${other.value} (${other.count.toLocaleString()})`;
+  }
+
   private qaChip(
     column: ColumnMeta,
     index: number,
@@ -371,23 +439,70 @@ export class ResultTable {
     count: number,
     noun: { one: string; many: string },
     hint: string,
-  ): HTMLButtonElement {
+  ): HTMLButtonElement | null {
+    // Zero-count chips are noise: only surface what needs attention.
+    if (count === 0) return null;
     const active = this.columnQa.has(`${index}:${kind}`);
-    const text =
-      count > 0
-        ? `${count.toLocaleString()} ${count === 1 ? noun.one : noun.many}`
-        : `no ${noun.many}`;
-    const chip = el("button", { class: "th-qa-chip", type: "button" }, [text]) as HTMLButtonElement;
-    chip.classList.toggle("warn", count > 0);
-    chip.classList.toggle("ok", count === 0);
+    const text = `${count.toLocaleString()} ${count === 1 ? noun.one : noun.many}`;
+    const chip = el("button", { class: "th-qa-chip warn", type: "button" }, [text]) as HTMLButtonElement;
     chip.classList.toggle("active", active);
-    chip.disabled = count === 0;
-    chip.title =
-      count > 0
-        ? `${text} in “${column.name}” — ${active ? "click to clear" : hint}`
-        : `${text} in “${column.name}”`;
+    chip.setAttribute("aria-pressed", active ? "true" : "false");
+    chip.title = `${text} in “${column.name}” — ${active ? "click to clear" : hint}`;
     chip.addEventListener("click", () => this.options.onColumnSpecial(index, kind));
     return chip;
+  }
+
+  /**
+   * Header chip for placeholder tokens in this column ("NA", "TBD", "NULL").
+   * One click blanks all of them in this column as a tracked, undoable step —
+   * the missing-value policy considers every null spelling at once, so the
+   * chip counts all placeholder cells rather than one token.
+   */
+  private buildTokenChips(column: ColumnMeta, index: number): HTMLButtonElement[] {
+    if (this.options.onConvertToken === undefined) return [];
+    const tokens = column.nullTokens.filter((token) => token.label !== "" && token.count > 0);
+    if (tokens.length === 0) return [];
+    const total = tokens.reduce((sum, token) => sum + token.count, 0);
+    const ranked = tokens
+      .slice()
+      .sort((a, b) => b.count - a.count)
+      .map((token) => token.label);
+    const chip = el(
+      "button",
+      { class: "th-qa-chip fix token", type: "button" },
+      [`${total.toLocaleString()} ${total === 1 ? "placeholder" : "placeholders"}`],
+    ) as HTMLButtonElement;
+    const examples = ranked.slice(0, 3).map((label) => `“${label}”`).join(", ");
+    const blanks = Math.max(0, column.stats.nulls - total);
+    chip.title = `${column.stats.nulls.toLocaleString()} cells in “${column.name}” are missing${
+      blanks > 0
+        ? ` (${blanks.toLocaleString()} blank + ${total.toLocaleString()} placeholder text)`
+        : ""
+    } — click to blank the placeholder text ${examples}${
+      ranked.length > 3 ? ", …" : ""
+    } (undo in the Process Log)`;
+    chip.addEventListener("click", () => this.options.onConvertToken?.(index, ranked));
+    return [chip];
+  }
+
+  /**
+   * One-click fix chips from the column's suggestions (missing-value tokens,
+   * mixed decimal conventions, type conflicts, formula-like cells). Same
+   * actions as the suggestion chips in the filter sidebar, but on the header
+   * where the problem is visible.
+   */
+  private buildFixChips(column: ColumnMeta, index: number): HTMLButtonElement[] {
+    if (column.suggestions.length === 0 || this.options.onSuggestion === undefined) return [];
+    return column.suggestions.map((suggestion) => {
+      const chip = el(
+        "button",
+        { class: "th-qa-chip fix", type: "button" },
+        [suggestionShortLabel(suggestion)],
+      ) as HTMLButtonElement;
+      chip.title = `${describeSuggestion(suggestion)} — click to fix`;
+      chip.addEventListener("click", () => this.options.onSuggestion?.(index, suggestion));
+      return chip;
+    });
   }
 
   private render(): void {
@@ -466,7 +581,10 @@ export class ResultTable {
     tr.append(indexCell);
 
     for (let c = 0; c < this.columns.length; c++) {
+      const type = this.columns[c]?.type;
       const cell = el("div", { class: "td" });
+      if (type === "integer" || type === "number") cell.classList.add("num-cell");
+      else if (type === "boolean") cell.classList.add("bool-cell");
       if (row !== undefined) this.fillCell(cell, row[c] ?? "", c);
       tr.append(cell);
     }
@@ -492,6 +610,12 @@ export class ResultTable {
     if (isNull) {
       cell.classList.add("null-cell");
       cell.textContent = value;
+      if (value !== "") {
+        // Placeholder tokens ("NA", "TBD") keep a bold red value so the raw
+        // text stays readable through the hatching and looks clickable.
+        cell.classList.add("null-token-cell");
+        cell.title = `“${value}” is read as a missing value — convert placeholder tokens from the Overview or Clean → Nulls`;
+      }
       return;
     }
     this.applyAnomaly(cell, value, columnIndex);
@@ -539,7 +663,13 @@ export class ResultTable {
             : bound > 0
               ? "∞"
               : "-∞";
-        cell.title = `Value outlier — median ${valueFence.center.toLocaleString()}, expected ${format(valueFence.lo)} – ${format(valueFence.hi)}`;
+        const method =
+          valueFence.method === "quantile"
+            ? "p0.5–p99.5 quantile fence"
+            : valueFence.method === "log"
+              ? "log-scale median fence (MAD)"
+              : "robust median fence (MAD)";
+        cell.title = `Value outlier — median ${valueFence.center.toLocaleString()}, expected ${format(valueFence.lo)} – ${format(valueFence.hi)} (${method})`;
       }
       return;
     }

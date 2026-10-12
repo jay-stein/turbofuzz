@@ -43,6 +43,19 @@ function profileOf(row: readonly string[]): RowProfile {
   return { populated, text, numeric };
 }
 
+/**
+ * Index just past the last non-empty cell. This is the column extent, which
+ * differs from the populated-cell count when a column is blank in some cells:
+ * a blank header above a populated data column must still count as a column.
+ */
+function populatedExtent(row: readonly string[]): number {
+  const limit = Math.min(row.length, MAX_SCAN_COLUMNS);
+  for (let i = limit - 1; i >= 0; i--) {
+    if ((row[i] ?? "") !== "") return i + 1;
+  }
+  return 0;
+}
+
 /** Highest fraction of numeric cells in the next few populated rows. */
 function numericDataBelow(grid: readonly string[][], index: number): number {
   let best = 0;
@@ -114,7 +127,7 @@ export function detectTable(grid: readonly string[][]): DetectedTable {
   for (let row = 0; row < scanRows; row++) {
     const profile = profileOf(grid[row] ?? []);
     profiles.push(profile);
-    width = Math.max(width, profile.populated);
+    width = Math.max(width, populatedExtent(grid[row] ?? []));
   }
 
   let bestIndex = -1;
