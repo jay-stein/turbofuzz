@@ -1,4 +1,5 @@
 import { timeBucket, timeLabel, type TimeGrain } from "./aggregate.js";
+import type { GridMeasure } from "./chart-stats.js";
 
 export interface AnimationFrame {
   time: number;
@@ -20,6 +21,9 @@ export interface BubbleAnimation {
   bins: number;
   /** frames × bins × bins counts, row-major per frame. */
   grids: Uint32Array;
+  /** frames × bins × bins measure values (null when sizing by count). */
+  values: Float64Array | null;
+  valueMax: number;
 }
 
 export interface HistogramAnimation {
@@ -169,6 +173,7 @@ export function computeBubbleFrames(
   ids: Uint32Array,
   grain: TimeGrain,
   bins: number,
+  measure?: GridMeasure,
 ): AnimationResult {
   const { frames, index, missing } = frameTimes(times, ids, grain);
   const size = Math.max(4, Math.min(120, Math.floor(bins) || 40));
@@ -195,6 +200,8 @@ export function computeBubbleFrames(
   }
   const cellCount = size * size;
   const grids = new Uint32Array(Math.max(1, frames.length) * cellCount);
+  const values = measure === undefined ? null : new Float64Array(grids.length).fill(Number.NaN);
+  const sums = measure === undefined ? null : new Float64Array(grids.length);
   if (total > 0) {
     const xSpan = xMax > xMin ? xMax - xMin : 1;
     const ySpan = yMax > yMin ? yMax - yMin : 1;
@@ -208,16 +215,37 @@ export function computeBubbleFrames(
       if (frame === undefined) continue;
       const bx = Math.min(size - 1, Math.floor(((x - xMin) / xSpan) * size));
       const by = Math.min(size - 1, Math.floor(((y - yMin) / ySpan) * size));
-      grids[frame * cellCount + by * size + bx]++;
+      const cell = frame * cellCount + by * size + bx;
+      grids[cell]++;
+      if (measure === undefined || values === null || sums === null) continue;
+      const value = measure.values[row];
+      if (!Number.isFinite(value)) continue;
+      sums[cell] += value;
+      if (Number.isNaN(values[cell])) values[cell] = value;
+      else if (measure.agg === "min") values[cell] = Math.min(values[cell], value);
+      else if (measure.agg === "max") values[cell] = Math.max(values[cell], value);
     }
   }
   let maxCount = 0;
   for (const value of grids) if (value > maxCount) maxCount = value;
+  let valueMax = 0;
+  if (measure !== undefined && values !== null && sums !== null) {
+    for (let cell = 0; cell < values.length; cell++) {
+      const count = grids[cell] ?? 0;
+      if (count === 0) {
+        values[cell] = Number.NaN;
+        continue;
+      }
+      if (measure.agg === "sum") values[cell] = sums[cell] ?? 0;
+      else if (measure.agg === "mean") values[cell] = (sums[cell] ?? 0) / count;
+      if (Number.isFinite(values[cell]) && values[cell] > valueMax) valueMax = values[cell];
+    }
+  }
   return {
     frames,
     maxCount,
     total,
     missing: skips,
-    bubble: { xMin, xMax, yMin, yMax, bins: size, grids },
+    bubble: { xMin, xMax, yMin, yMax, bins: size, grids, values, valueMax },
   };
 }

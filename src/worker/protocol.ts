@@ -503,6 +503,8 @@ export type GetGridCountsRequest = {
   yColumn: number;
   /** Grid resolution per axis (4–120, default 40). */
   bins?: number;
+  /** Optional per-cell measure driving the bubble sizes. */
+  measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
 };
 
 export interface GridCountsMessage {
@@ -529,6 +531,8 @@ export type GetAnimationRequest = {
   bins?: number;
   /** bar: categories kept before Other (default 8). */
   topN?: number;
+  /** Optional per-cell measure driving the bubble sizes. */
+  measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
 };
 
 export interface AnimationMessage {

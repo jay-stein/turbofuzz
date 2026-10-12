@@ -107,7 +107,12 @@ export interface ChartCardOptions {
   /** Token frequencies and shapes for the top-terms chart. */
   requestTextProfile(column: number): Promise<TextProfileMessage>;
   /** Row counts per x/y grid cell, for the bubble chart. */
-  requestGridCounts?(xColumn: number, yColumn: number, bins?: number): Promise<GridCountsMessage>;
+  requestGridCounts?(
+    xColumn: number,
+    yColumn: number,
+    bins?: number,
+    measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
+  ): Promise<GridCountsMessage>;
   /** Per-time-bucket frames for animated bar, bubble, histogram and treemap charts. */
   requestAnimation?(input: {
     timeColumn: number;
@@ -117,6 +122,7 @@ export interface ChartCardOptions {
     yColumn: number;
     bins?: number;
     topN?: number;
+    measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
   }): Promise<AnimationMessage>;
   /** Label for the filtered-table source: "Table" when no filters apply. */
   tableSourceLabel?(): string;
@@ -158,6 +164,10 @@ export interface ChartCardConfig {
   groupColumn: number;
   /** Bubble grid resolution per axis. */
   bubbleBins?: number;
+  /** Bubble size measure: rows per cell or an aggregate of a numeric column. */
+  bubbleAgg?: "count" | "sum" | "mean" | "min" | "max";
+  /** How bubble radius maps from the measure value. */
+  bubbleScale?: "area" | "radius" | "log";
   /** Time column for frame animation (-1 = off). */
   animationTimeColumn?: number;
   animationGrain?: TimeGrain;
@@ -487,6 +497,8 @@ function defaultConfig(): ChartCardConfig {
     title: "",
     groupColumn: -1,
     bubbleBins: 40,
+    bubbleAgg: "count",
+    bubbleScale: "area",
     animationTimeColumn: -1,
     animationGrain: "day",
     animationSpeed: 1,
@@ -539,6 +551,8 @@ export class ChartCard {
   private animationTimer: number | null = null;
   private animationSetupOpen = false;
   private readonly bubbleBinsInput: HTMLInputElement;
+  private readonly bubbleAggSelect: HTMLSelectElement;
+  private readonly bubbleScaleSelect: HTMLSelectElement;
   private readonly animateButton: HTMLButtonElement;
   private readonly animationSetup: HTMLElement;
   private readonly animationTimeSelect: HTMLSelectElement;
@@ -729,6 +743,8 @@ export class ChartCard {
       this.generation++;
       this.refreshSeries();
       this.refreshTreemap();
+      this.refreshBubble();
+      this.refreshAnimation();
       this.render();
     });
     this.sizeWrap = this.tagged("Size", this.sizeSelect).wrap;
@@ -940,9 +956,67 @@ export class ChartCard {
       el("span", { class: "chart-field-label" }, ["Grid"]),
       this.bubbleBinsInput,
     );
+    this.bubbleAggSelect = el("select", {
+      class: "chart-picker chart-picker-small",
+      "aria-label": "Bubble size measure",
+      title: "What the bubble area represents: rows per cell or an aggregate of a numeric column",
+    }) as HTMLSelectElement;
+    for (const [value, label] of [
+      ["count", "Count (rows)"],
+      ["sum", "Sum"],
+      ["mean", "Mean"],
+      ["min", "Min"],
+      ["max", "Max"],
+    ] as const) {
+      this.bubbleAggSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+    }
+    this.bubbleAggSelect.value = this.config.bubbleAgg ?? "count";
+    this.bubbleAggSelect.addEventListener("change", () => {
+      this.config.bubbleAgg = this.bubbleAggSelect.value as
+        | "count"
+        | "sum"
+        | "mean"
+        | "min"
+        | "max";
+      this.generation++;
+      this.refreshBubble();
+      this.refreshAnimation();
+      this.render();
+    });
+    const bubbleAggField = el("label", { class: "chart-field" });
+    bubbleAggField.title = "Size by an aggregate of a numeric column instead of row counts";
+    bubbleAggField.append(
+      el("span", { class: "chart-field-label" }, ["Size by"]),
+      this.bubbleAggSelect,
+    );
+    this.bubbleScaleSelect = el("select", {
+      class: "chart-picker chart-picker-small",
+      "aria-label": "Bubble size scale",
+      title: "How the measure maps to bubble radius — area is the honest default",
+    }) as HTMLSelectElement;
+    for (const [value, label] of [
+      ["area", "Area ∝ value"],
+      ["radius", "Radius ∝ value"],
+      ["log", "Log scale"],
+    ] as const) {
+      this.bubbleScaleSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+    }
+    this.bubbleScaleSelect.value = this.config.bubbleScale ?? "area";
+    this.bubbleScaleSelect.addEventListener("change", () => {
+      this.config.bubbleScale = this.bubbleScaleSelect.value as "area" | "radius" | "log";
+      this.render();
+    });
+    const bubbleScaleField = el("label", { class: "chart-field" });
+    bubbleScaleField.title = "Area keeps sizes proportional; log compresses extreme values";
+    bubbleScaleField.append(
+      el("span", { class: "chart-field-label" }, ["Scale"]),
+      this.bubbleScaleSelect,
+    );
     this.barSettings = el("div", { class: "chart-settings" }, [
       topField,
       bubbleField,
+      bubbleAggField,
+      bubbleScaleField,
       otherField,
       multiField,
     ]);
@@ -1185,7 +1259,7 @@ export class ChartCard {
       "aria-label": "Play speed",
       title: "Playback speed; also sets the exported frame rate",
     }) as HTMLSelectElement;
-    for (const speed of [0.5, 0.75, 1, 1.5, 2]) {
+    for (const speed of [0.5, 0.75, 1, 1.25, 1.5, 2]) {
       this.animationSpeedSelect.append(
         el("option", { value: String(speed) }, [`${speed}×`]) as HTMLOptionElement,
       );
@@ -1648,7 +1722,10 @@ export class ChartCard {
     this.sizeSelect.value = String(this.config.sizeColumn);
     const sizeNone = this.sizeSelect.options[0];
     if (sizeNone !== undefined) {
-      sizeNone.textContent = this.config.kind === "treemap" ? "Count (rows)" : "None";
+      sizeNone.textContent =
+        this.config.kind === "treemap" || this.config.kind === "bubble"
+          ? "Count (rows)"
+          : "None";
     }
     this.modeSelect.value = this.config.mode;
     this.densityStyleSelect.value = this.config.densityStyle;
@@ -1717,7 +1794,10 @@ export class ChartCard {
     this.yWrap.classList.toggle("hidden", !pair);
     const seriesKind = kind === "scatter" || kind === "density";
     this.colorWrap.classList.toggle("hidden", !seriesKind);
-    this.sizeWrap.classList.toggle("hidden", !seriesKind && kind !== "treemap");
+    this.sizeWrap.classList.toggle(
+      "hidden",
+      !seriesKind && kind !== "treemap" && kind !== "bubble",
+    );
     this.modeWrap.classList.toggle("hidden", kind !== "scatter");
     this.densityStyleWrap.classList.toggle("hidden", !seriesKind);
     this.colorGroup.classList.toggle("hidden", kind === "correlation");
@@ -1748,9 +1828,12 @@ export class ChartCard {
       "hidden",
       !(animatable && hasDates && this.animationSetupOpen),
     );
-    this.bubbleBinsInput.parentElement?.classList.toggle("hidden", kind !== "bubble");
-    this.topLabel.parentElement?.classList.toggle("hidden", kind === "bubble");
-    this.multiInput.parentElement?.classList.toggle("hidden", kind === "bubble");
+    const bubbleOnly = kind === "bubble";
+    this.bubbleBinsInput.parentElement?.classList.toggle("hidden", !bubbleOnly);
+    this.bubbleAggSelect.parentElement?.classList.toggle("hidden", !bubbleOnly);
+    this.bubbleScaleSelect.parentElement?.classList.toggle("hidden", !bubbleOnly);
+    this.topLabel.parentElement?.classList.toggle("hidden", bubbleOnly);
+    this.multiInput.parentElement?.classList.toggle("hidden", bubbleOnly);
     this.correlationSettings.classList.toggle("hidden", kind !== "correlation");
     this.topLabel.textContent =
       kind === "bar"
@@ -2396,6 +2479,15 @@ export class ChartCard {
       });
   }
 
+  /** Bubble measure: rows per cell, or sum/mean/min/max of a numeric column. */
+  private bubbleMeasure(): { column: number; agg: "sum" | "mean" | "min" | "max" } | undefined {
+    const agg = this.config.bubbleAgg ?? "count";
+    if (agg === "count" || this.config.sizeColumn < 0) return undefined;
+    const meta = this.meta(this.config.sizeColumn);
+    if (meta === undefined || !isNumericType(meta.type)) return undefined;
+    return { column: this.config.sizeColumn, agg };
+  }
+
   /** Row counts per x/y grid cell for the bubble chart. */
   private refreshBubble(): void {
     if (this.config.kind !== "bubble" || this.options.requestGridCounts === undefined) {
@@ -2415,7 +2507,12 @@ export class ChartCard {
     }
     const generation = ++this.generation;
     void this.options
-      .requestGridCounts(this.config.x, this.config.y, this.config.bubbleBins ?? 40)
+      .requestGridCounts(
+        this.config.x,
+        this.config.y,
+        this.config.bubbleBins ?? 40,
+        this.bubbleMeasure(),
+      )
       .then((message) => {
         if (generation !== this.generation || this.disposed) return;
         this.bubbleResult = message.result;
@@ -2502,6 +2599,7 @@ export class ChartCard {
       yColumn: isPair ? this.config.y : -1,
       bins: chart === "histogram" ? histogramBins : (this.config.bubbleBins ?? 40),
       topN: this.config.topN,
+      measure: isPair ? this.bubbleMeasure() : undefined,
     })
       .then((message) => {
         if (generation !== this.generation || this.disposed) return;
@@ -2611,7 +2709,7 @@ export class ChartCard {
     this.animationSlider.max = String(result.frames.length - 1);
     this.animationSlider.value = String(this.animationFrame);
     const speed = this.config.animationSpeed ?? 1;
-    const presets = ["0.5", "0.75", "1", "1.5", "2"];
+    const presets = ["0.5", "0.75", "1", "1.25", "1.5", "2"];
     this.animationSpeedSelect.value = presets.includes(String(speed)) ? String(speed) : "custom";
     const customOption = [...this.animationSpeedSelect.options].find(
       (option) => option.value === "custom",
@@ -4355,7 +4453,7 @@ export class ChartCard {
     this.noteEl.textContent = `${time} · ${result.total.toLocaleString()} rows · play or scrub below`;
   }
 
-  /** Bubble chart: rows per x/y grid cell, sized by count (static or a frame). */
+  /** Bubble chart: rows per x/y grid cell, sized by count or a measure. */
   private drawBubble(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const animated = this.animationResult?.bubble;
     if (animated !== undefined && this.animationResult !== null) {
@@ -4363,6 +4461,10 @@ export class ChartCard {
       const index = Math.min(Math.max(0, this.animationFrame), Math.max(0, frames.length - 1));
       const cellCount = animated.bins * animated.bins;
       const grid = animated.grids.subarray(index * cellCount, (index + 1) * cellCount);
+      const values =
+        animated.values === null
+          ? null
+          : animated.values.slice(index * cellCount, (index + 1) * cellCount);
       this.drawBubbleGrid(ctx, frame, {
         xMin: animated.xMin,
         xMax: animated.xMax,
@@ -4370,7 +4472,9 @@ export class ChartCard {
         yMax: animated.yMax,
         bins: animated.bins,
         grid,
+        values,
         maxCount: this.animationResult.maxCount,
+        valueMax: animated.valueMax,
         total: this.animationResult.total,
         caption: frames[index]?.label ?? "",
       });
@@ -4393,10 +4497,34 @@ export class ChartCard {
       yMax: result.yMax,
       bins: result.bins,
       grid: result.counts,
+      values: result.values,
       maxCount: result.maxCount,
+      valueMax: result.valueMax,
       total: result.total,
       caption: "",
     });
+  }
+
+  /** Human description of what the bubble sizes represent. */
+  private bubbleSizeLabel(): string {
+    const measure = this.bubbleMeasure();
+    if (measure === undefined) return "rows per cell";
+    const name = this.meta(measure.column)?.name ?? "?";
+    return `${measure.agg}(${name}) per cell`;
+  }
+
+  /** Radius fraction for one cell value under the configured scale. */
+  private bubbleFraction(value: number, max: number): number {
+    if (!(max > 0) || !Number.isFinite(value) || value <= 0) return 0;
+    const t = Math.min(1, value / max);
+    switch (this.config.bubbleScale ?? "area") {
+      case "radius":
+        return t;
+      case "log":
+        return Math.log1p(value) / Math.log1p(max);
+      default:
+        return Math.sqrt(t);
+    }
   }
 
   private drawBubbleGrid(
@@ -4409,7 +4537,9 @@ export class ChartCard {
       yMax: number;
       bins: number;
       grid: Uint32Array;
+      values: Float64Array | null;
       maxCount: number;
+      valueMax: number;
       total: number;
       caption: string;
     },
@@ -4445,18 +4575,27 @@ export class ChartCard {
     ctx.textAlign = "left";
 
     const color = this.primaryColor();
+    const sizeValues = input.values;
+    const sizeMax =
+      sizeValues === null ? Math.max(1, input.maxCount) : Math.max(1e-12, input.valueMax);
+    const scaleName = this.config.bubbleScale ?? "area";
     let cells = 0;
     let frameRows = 0;
     for (let by = 0; by < bins; by++) {
       for (let bx = 0; bx < bins; bx++) {
-        const count = grid[by * bins + bx] ?? 0;
+        const cell = by * bins + bx;
+        const count = grid[cell] ?? 0;
         if (count === 0) continue;
+        const value =
+          sizeValues === null ? count : (sizeValues[cell] ?? Number.NaN);
+        if (!Number.isFinite(value) || value <= 0) continue;
         cells++;
         frameRows += count;
         const x = frame.left + ((bx + 0.5) / bins) * frame.plotW;
         const y = frame.top + frame.plotH - ((by + 0.5) / bins) * frame.plotH;
-        const radius = (1.5 + 13 * Math.sqrt(count / maxCount)) * ui;
-        ctx.globalAlpha = 0.24 + 0.5 * (count / maxCount);
+        const fraction = this.bubbleFraction(value, sizeMax);
+        const radius = (1.5 + 13 * fraction) * ui;
+        ctx.globalAlpha = 0.24 + 0.5 * fraction;
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -4480,7 +4619,9 @@ export class ChartCard {
     const xName = this.meta(this.config.x)?.name ?? "x";
     const yName = this.meta(this.config.y)?.name ?? "y";
     const caption = input.caption === "" ? "" : `${input.caption} · `;
-    this.noteEl.textContent = `${caption}${frameRows.toLocaleString()} rows in ${cells.toLocaleString()} cells · ${xName} × ${yName} · bubble area ∝ rows`;
+    const scaleNote =
+      scaleName === "area" ? "" : scaleName === "log" ? " (log scale)" : " (radius scale)";
+    this.noteEl.textContent = `${caption}${frameRows.toLocaleString()} rows in ${cells.toLocaleString()} cells · ${xName} × ${yName} · size: ${this.bubbleSizeLabel()}${scaleNote}`;
   }
 
   private drawBars(ctx: CanvasRenderingContext2D, frame: Frame): void {

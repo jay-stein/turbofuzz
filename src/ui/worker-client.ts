@@ -223,8 +223,19 @@ export class SearchWorkerClient {
     return this.request<SimilarClustersMessage>({ type: "getSimilarClusters" });
   }
 
-  getGridCounts(xColumn: number, yColumn: number, bins?: number): Promise<GridCountsMessage> {
-    return this.request<GridCountsMessage>({ type: "getGridCounts", xColumn, yColumn, bins });
+  getGridCounts(
+    xColumn: number,
+    yColumn: number,
+    bins?: number,
+    measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
+  ): Promise<GridCountsMessage> {
+    return this.request<GridCountsMessage>({
+      type: "getGridCounts",
+      xColumn,
+      yColumn,
+      bins,
+      measure,
+    });
   }
 
   getAnimation(input: {
@@ -235,6 +246,7 @@ export class SearchWorkerClient {
     yColumn: number;
     bins?: number;
     topN?: number;
+    measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
   }): Promise<AnimationMessage> {
     return this.request<AnimationMessage>({ type: "getAnimation", ...input });
   }

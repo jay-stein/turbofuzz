@@ -58,8 +58,13 @@ export interface ChartsPanelOptions {
   requestAggregate(view: ViewDef): Promise<AggregateMessage>;
   /** Token frequencies for the top-terms chart. */
   requestTextProfile(column: number): Promise<TextProfileMessage>;
-  /** Row counts per x/y grid cell, for the bubble chart. */
-  requestGridCounts?(xColumn: number, yColumn: number, bins?: number): Promise<GridCountsMessage>;
+  /** Row counts (and optional per-cell measure) for the bubble chart. */
+  requestGridCounts?(
+    xColumn: number,
+    yColumn: number,
+    bins?: number,
+    measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
+  ): Promise<GridCountsMessage>;
   /** Per-time-bucket frames for animated bar, bubble, histogram and treemap charts. */
   requestAnimation?(input: {
     timeColumn: number;
@@ -69,6 +74,7 @@ export interface ChartsPanelOptions {
     yColumn: number;
     bins?: number;
     topN?: number;
+    measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
   }): Promise<AnimationMessage>;
   /** Label for the filtered-table source: "Table" when no filters apply. */
   tableSourceLabel?(): string;

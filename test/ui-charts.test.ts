@@ -1124,27 +1124,33 @@ test("bubble chart draws grid counts and explains the area", async () => {
   const window = setupDom();
   captureMockContext(window, []);
   const host = document.createElement("div");
+  const calls: unknown[][] = [];
   const card = new ChartCard(
     host,
     {
       ...stubCardOptions(),
-      requestGridCounts: async () => ({
-        type: "gridCounts",
-        requestId: 1,
-        result: {
-          xMin: 0,
-          xMax: 10,
-          yMin: 0,
-          yMax: 10,
-          bins: 4,
-          counts: Uint32Array.from(Array.from({ length: 16 }, (_, i) => (i === 5 ? 3 : i % 4 === 0 ? 1 : 0))),
-          maxCount: 3,
-          total: 7,
-          missing: 0,
-        },
-        ms: 1,
-      }),
-    },
+      requestGridCounts: async (...args: unknown[]) => {
+        calls.push(args);
+        return {
+          type: "gridCounts",
+          requestId: 1,
+          result: {
+            xMin: 0,
+            xMax: 10,
+            yMin: 0,
+            yMax: 10,
+            bins: 4,
+            counts: Uint32Array.from(Array.from({ length: 16 }, (_, i) => (i === 5 ? 3 : i % 4 === 0 ? 1 : 0))),
+            maxCount: 3,
+            values: null,
+            valueMax: 0,
+            total: 7,
+            missing: 0,
+          },
+          ms: 1,
+        };
+      },
+    } as unknown as ChartCardOptions,
     { kind: "bubble", x: 0, y: 1 },
   );
   const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
@@ -1152,11 +1158,40 @@ test("bubble chart draws grid counts and explains the area", async () => {
   card.setColumns([
     meta({ name: "lat", type: "number", histogram: { bins: [1], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 } }),
     meta({ name: "lon", type: "number", histogram: { bins: [1], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 } }),
+    meta({ name: "amount", type: "number", histogram: { bins: [1], min: 0, max: 100, symlog: false, below: 0, above: 0, p05: 0, p95: 100 } }),
   ]);
   await tick();
   const note = host.querySelector(".chart-note")?.textContent ?? "";
-  assert.match(note, /bubble area ∝ rows/);
+  assert.match(note, /size: rows per cell/);
   assert.match(note, /cells/);
+  assert.equal(calls[0]?.[3], undefined, "count mode sends no measure");
+
+  const agg = host.querySelector(
+    'select[aria-label="Bubble size measure"]',
+  ) as HTMLSelectElement;
+  assert.ok(agg !== null, "the size-by control renders for bubbles");
+  agg.value = "mean";
+  agg.dispatchEvent(new window.Event("change") as unknown as Event);
+  const size = host.querySelector('select[aria-label="Size column"]') as HTMLSelectElement;
+  assert.ok(size !== null);
+  size.value = "2";
+  size.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  const lastCall = calls[calls.length - 1];
+  assert.deepEqual(lastCall?.[3], { column: 2, agg: "mean" });
+  assert.match(
+    host.querySelector(".chart-note")?.textContent ?? "",
+    /size: mean\(amount\) per cell/,
+  );
+
+  const scale = host.querySelector(
+    'select[aria-label="Bubble size scale"]',
+  ) as HTMLSelectElement;
+  assert.ok(scale !== null);
+  scale.value = "log";
+  scale.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /log scale/);
   card.dispose();
 });
 
@@ -1403,5 +1438,23 @@ test("the Animate button is disabled when the file has no date column", async ()
   const button = host.querySelector(".chart-animate-btn") as HTMLButtonElement;
   assert.equal(button.disabled, true);
   assert.match(button.title, /needs a date column/);
+  card.dispose();
+});
+
+test("animation speed presets cover 1.25x and a custom multiplier", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({ name: "status", type: "category", categories: { labels: ["open"], counts: [1] } }),
+  ]);
+  await tick();
+  const speed = host.querySelector(
+    'select[aria-label="Play speed"]',
+  ) as HTMLSelectElement;
+  assert.ok(speed !== null);
+  const values = [...speed.options].map((option) => option.value);
+  assert.deepEqual(values, ["0.5", "0.75", "1", "1.25", "1.5", "2", "custom"]);
   card.dispose();
 });

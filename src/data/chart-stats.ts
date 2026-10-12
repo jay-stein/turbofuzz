@@ -287,6 +287,14 @@ export function computeCorrelation(
   return { values, counts };
 }
 
+export type GridMeasureAgg = "sum" | "mean" | "min" | "max";
+
+export interface GridMeasure {
+  /** Numeric values to aggregate per cell. */
+  values: Float64Array;
+  agg: GridMeasureAgg;
+}
+
 export interface GridCountsResult {
   xMin: number;
   xMax: number;
@@ -296,19 +304,25 @@ export interface GridCountsResult {
   /** Row-major counts: index = y * bins + x. */
   counts: Uint32Array;
   maxCount: number;
+  /** Per-cell measure (null when sizing by count only). */
+  values: Float64Array | null;
+  /** Largest finite measure value, for scaling bubble sizes. */
+  valueMax: number;
   total: number;
   missing: number;
 }
 
 /**
- * Counts rows per cell of a bins x bins grid over two numeric columns:
- * the aggregation behind the bubble chart (size = rows in the area).
+ * Counts rows per cell of a bins x bins grid over two numeric columns and
+ * optionally aggregates a measure per cell: the data behind the bubble chart
+ * (size = rows or any sum/mean/min/max in the area).
  */
 export function computeGridCounts(
   xValues: Float64Array,
   yValues: Float64Array,
   ids: Uint32Array,
   bins: number,
+  measure?: GridMeasure,
 ): GridCountsResult {
   const size = Math.max(4, Math.min(120, Math.floor(bins) || 40));
   let xMin = Infinity;
@@ -333,20 +347,74 @@ export function computeGridCounts(
   }
   const counts = new Uint32Array(size * size);
   if (total === 0) {
-    return { xMin: 0, xMax: 0, yMin: 0, yMax: 0, bins: size, counts, maxCount: 0, total, missing };
+    return {
+      xMin: 0,
+      xMax: 0,
+      yMin: 0,
+      yMax: 0,
+      bins: size,
+      counts,
+      maxCount: 0,
+      values: measure === undefined ? null : new Float64Array(size * size),
+      valueMax: 0,
+      total,
+      missing,
+    };
   }
   const xSpan = xMax > xMin ? xMax - xMin : 1;
   const ySpan = yMax > yMin ? yMax - yMin : 1;
+  const cellOf = (x: number, y: number): number => {
+    const bx = Math.min(size - 1, Math.floor(((x - xMin) / xSpan) * size));
+    const by = Math.min(size - 1, Math.floor(((y - yMin) / ySpan) * size));
+    return by * size + bx;
+  };
   let maxCount = 0;
+  let values: Float64Array | null = null;
+  let sums: Float64Array | null = null;
+  if (measure !== undefined) {
+    values = new Float64Array(size * size).fill(Number.NaN);
+    sums = new Float64Array(size * size);
+  }
   for (let index = 0; index < ids.length; index++) {
     const row = ids[index];
     const x = xValues[row];
     const y = yValues[row];
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-    const bx = Math.min(size - 1, Math.floor(((x - xMin) / xSpan) * size));
-    const by = Math.min(size - 1, Math.floor(((y - yMin) / ySpan) * size));
-    const cell = ++counts[by * size + bx];
-    if (cell > maxCount) maxCount = cell;
+    const cell = cellOf(x, y);
+    const cellCount = ++counts[cell];
+    if (cellCount > maxCount) maxCount = cellCount;
+    if (measure === undefined || values === null || sums === null) continue;
+    const value = measure.values[row];
+    if (!Number.isFinite(value)) continue;
+    sums[cell] += value;
+    if (Number.isNaN(values[cell])) values[cell] = value;
+    else if (measure.agg === "min") values[cell] = Math.min(values[cell], value);
+    else if (measure.agg === "max") values[cell] = Math.max(values[cell], value);
   }
-  return { xMin, xMax, yMin, yMax, bins: size, counts, maxCount, total, missing };
+  let valueMax = 0;
+  if (measure !== undefined && values !== null && sums !== null) {
+    for (let cell = 0; cell < values.length; cell++) {
+      const count = counts[cell] ?? 0;
+      if (count === 0) {
+        values[cell] = Number.NaN;
+        continue;
+      }
+      if (measure.agg === "sum") values[cell] = sums[cell] ?? 0;
+      else if (measure.agg === "mean") values[cell] = (sums[cell] ?? 0) / count;
+      if (Number.isFinite(values[cell]) && values[cell] > valueMax) valueMax = values[cell];
+    }
+  }
+  return {
+    xMin,
+    xMax,
+    yMin,
+    yMax,
+    bins: size,
+    counts,
+    maxCount,
+    values,
+    valueMax,
+    total,
+    missing,
+  };
 }

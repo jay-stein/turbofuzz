@@ -122,6 +122,45 @@ test("worker serves grid counts and animation frames", async () => {
   assert.equal([...january].reduce((sum, value) => sum + value, 0), 2);
 
   send({
+    type: "getGridCounts",
+    requestId: 6,
+    xColumn: 0,
+    yColumn: 1,
+    bins: 4,
+    measure: { column: 0, agg: "sum" },
+  });
+  const measured = find("gridCounts", 6) as unknown as {
+    result: { values: Float64Array | null; valueMax: number; counts: Uint32Array };
+  };
+  assert.ok(measured.result.values !== null, "the worker aggregates the measure per cell");
+  assert.ok(measured.result.valueMax >= 1.5);
+  assert.equal(
+    measured.result.values?.length,
+    measured.result.counts.length,
+    "one value per grid cell",
+  );
+
+  send({
+    type: "getAnimation",
+    requestId: 7,
+    timeColumn: 3,
+    grain: "month",
+    chart: "bubble",
+    column: 0,
+    yColumn: 1,
+    bins: 4,
+    measure: { column: 0, agg: "mean" },
+  });
+  const measuredFrames = find("animation", 7) as unknown as {
+    result: { bubble: { values: Float64Array | null; valueMax: number; grids: Uint32Array } };
+  };
+  assert.ok(measuredFrames.result.bubble.values !== null);
+  assert.equal(
+    measuredFrames.result.bubble.values?.length,
+    measuredFrames.result.bubble.grids.length,
+  );
+
+  send({
     type: "getAnimation",
     requestId: 5,
     timeColumn: 3,

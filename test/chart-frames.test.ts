@@ -126,3 +126,38 @@ test("histogram frames bin values per time bucket on a global scale", () => {
   assert.equal(january, 3);
   assert.equal(february, 2);
 });
+
+test("grid counts aggregate a measure per cell", () => {
+  const x = Float64Array.from([0, 0, 0, 9]);
+  const y = Float64Array.from([0, 0, 0, 9]);
+  const values = Float64Array.from([2, 4, 9, 100]);
+  const ids = allIds(4);
+  const sum = computeGridCounts(x, y, ids, 4, { values, agg: "sum" });
+  assert.equal(sum.values?.[0], 15);
+  assert.equal(sum.valueMax, 100);
+  const mean = computeGridCounts(x, y, ids, 4, { values, agg: "mean" });
+  assert.equal(mean.values?.[0], 5);
+  assert.equal(mean.valueMax, 100);
+  const min = computeGridCounts(x, y, ids, 4, { values, agg: "min" });
+  assert.equal(min.values?.[0], 2);
+  const max = computeGridCounts(x, y, ids, 4, { values, agg: "max" });
+  assert.equal(max.values?.[0], 9);
+  assert.ok(Number.isNaN(sum.values?.[5] ?? 0), "empty cells carry no value");
+});
+
+test("bubble frames aggregate a measure per frame", () => {
+  const times = Float64Array.from([Date.UTC(2024, 0, 5), Date.UTC(2024, 0, 6), Date.UTC(2024, 1, 3)]);
+  const x = Float64Array.from([0, 0, 9]);
+  const y = Float64Array.from([0, 0, 9]);
+  const values = Float64Array.from([2, 4, 100]);
+  const result = computeBubbleFrames(times, x, y, allIds(3), "month", 4, {
+    values,
+    agg: "sum",
+  });
+  const bubble = result.bubble;
+  assert.ok(bubble?.values !== null && bubble?.values !== undefined);
+  assert.equal(bubble.valueMax, 100);
+  assert.equal(bubble.values?.[0], 6, "January sums into the corner cell");
+  const cellCount = 16;
+  assert.equal(bubble.values?.[cellCount + 15], 100, "February keeps the lone value");
+});

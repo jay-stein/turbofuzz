@@ -20,6 +20,7 @@ import {
   computeCorrelation,
   computeCrossTab,
   computeGridCounts,
+  type GridMeasure,
 } from "../data/chart-stats.js";
 import { computeBarFrames, computeBubbleFrames, computeHistogramFrames } from "../data/chart-frames.js";
 import type { FileEncoding } from "../parse/encoding.js";
@@ -1199,6 +1200,17 @@ function handleGetSimilarClusters(message: GetSimilarClustersRequest): void {
   });
 }
 
+/** Resolves a wire measure into per-row values for grid aggregation. */
+function gridMeasure(
+  dataset: Dataset,
+  measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
+): GridMeasure | undefined {
+  if (measure === undefined) return undefined;
+  const column = dataset.columns[measure.column];
+  if (column === undefined) return undefined;
+  return { values: column.numbers(), agg: measure.agg };
+}
+
 /** Row counts per x/y grid cell for the bubble chart. */
 function handleGetGridCounts(message: GetGridCountsRequest): void {
   const { dataset } = state();
@@ -1211,10 +1223,13 @@ function handleGetGridCounts(message: GetGridCountsRequest): void {
     y.numbers(),
     sortedIds,
     message.bins ?? 40,
+    gridMeasure(dataset, message.measure),
   );
+  const transfer: Transferable[] = [result.counts.buffer];
+  if (result.values !== null) transfer.push(result.values.buffer);
   post(
     { type: "gridCounts", requestId: message.requestId, result, ms: performance.now() - started },
-    [result.counts.buffer],
+    transfer,
   );
 }
 
@@ -1273,10 +1288,16 @@ function handleGetAnimation(message: GetAnimationRequest): void {
       sortedIds,
       message.grain,
       message.bins ?? 40,
+      gridMeasure(dataset, message.measure),
     );
+    const transfer: Transferable[] = [];
+    if (result.bubble !== undefined) {
+      transfer.push(result.bubble.grids.buffer);
+      if (result.bubble.values !== null) transfer.push(result.bubble.values.buffer);
+    }
     post(
       { type: "animation", requestId: message.requestId, result, ms: performance.now() - started },
-      result.bubble === undefined ? [] : [result.bubble.grids.buffer],
+      transfer,
     );
     return;
   }
