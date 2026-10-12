@@ -1144,6 +1144,7 @@ test("bubble chart draws grid counts and explains the area", async () => {
             maxCount: 3,
             values: null,
             valueMax: 0,
+            groups: null,
             total: 7,
             missing: 0,
           },
@@ -1483,6 +1484,7 @@ test("picking a Size column for a bubble switches the measure to sum", async () 
             maxCount: 0,
             values: null,
             valueMax: 0,
+            groups: null,
             total: 0,
             missing: 0,
           },
@@ -1513,5 +1515,113 @@ test("picking a Size column for a bubble switches the measure to sum", async () 
   kind.dispatchEvent(new window.Event("change") as unknown as Event);
   await tick();
   assert.equal(settingsRow.classList.contains("hidden"), true, "hidden for bars");
+  card.dispose();
+});
+
+test("a grouped bubble chart draws one set per category with a legend", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const cellCount = 16;
+  const alphaCounts = Uint32Array.from(Array.from({ length: cellCount }, (_, i) => (i % 5 === 0 ? 1 : 0)));
+  const betaCounts = Uint32Array.from(Array.from({ length: cellCount }, (_, i) => (i % 3 === 0 ? 2 : 0)));
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestGridCounts: async () => ({
+        type: "gridCounts",
+        requestId: 1,
+        result: {
+          xMin: 0,
+          xMax: 10,
+          yMin: 0,
+          yMax: 10,
+          bins: 4,
+          counts: alphaCounts.map((value, i) => value + (betaCounts[i] ?? 0)),
+          maxCount: 4,
+          values: null,
+          valueMax: 0,
+          groups: [
+            { code: 0, label: "alpha", counts: alphaCounts, values: null },
+            { code: 1, label: "beta", counts: betaCounts, values: null },
+          ],
+          total: 9,
+          missing: 0,
+        },
+        ms: 1,
+      }),
+    } as unknown as ChartCardOptions,
+    { kind: "bubble", x: 0, y: 1, groupColumn: 2 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({ name: "lat", type: "number" }),
+    meta({ name: "lon", type: "number" }),
+    meta({ name: "gender", type: "category", categories: { labels: ["alpha", "beta"], counts: [5, 4] } }),
+  ]);
+  await tick();
+  const legend = host.querySelectorAll(".chart-legend-item");
+  assert.equal(legend.length, 2, "one legend entry per group");
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /2 of 2 groups by gender/);
+  (legend[0] as unknown as { click(): void }).click();
+  await tick();
+  const refreshed = host.querySelectorAll(".chart-legend-item");
+  assert.ok(refreshed[0]?.classList.contains("off"), "clicking hides the group");
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /1 of 2 groups/);
+  card.dispose();
+});
+
+test("the chart rail lists every type, adds cards and collapses", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  panel.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+    meta({ name: "amount", type: "number" }),
+    meta({ name: "score", type: "number" }),
+    meta({ name: "when", type: "date" }),
+  ]);
+  await tick();
+  const tiles = [...host.querySelectorAll(".charts-rail-tile")] as HTMLButtonElement[];
+  assert.equal(tiles.length, 11, "one rail tile per chart type");
+  const bubbleTile = tiles.find((tile) => (tile.textContent ?? "").includes("Bubble"));
+  assert.ok(bubbleTile !== undefined, "the rail offers Bubble");
+  assert.equal(bubbleTile.disabled, false);
+  const before = host.querySelectorAll(".chart-card").length;
+  bubbleTile.click();
+  await tick();
+  assert.equal(host.querySelectorAll(".chart-card").length, before + 1, "clicking adds a card");
+  const kinds = host.querySelectorAll<HTMLSelectElement>(".chart-kind");
+  assert.equal(kinds[kinds.length - 1]?.value, "bubble");
+  const rail = host.querySelector(".charts-rail") as HTMLElement;
+  assert.equal(rail.classList.contains("collapsed"), false);
+  (host.querySelector(".charts-rail-toggle") as unknown as { click(): void }).click();
+  assert.ok(rail.classList.contains("collapsed"), "the rail collapses to icons");
+  panel.dispose();
+});
+
+test("single-axis kinds keep the X/Y controls hidden through filter updates", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a"], counts: [1] } }),
+    meta({ name: "amount", type: "number" }),
+  ]);
+  await tick();
+  card.setFiltered({}, {});
+  await tick();
+  const xWrap = host
+    .querySelector('select[aria-label="X column"]')
+    ?.closest(".chart-tag");
+  const yWrap = host
+    .querySelector('select[aria-label="Y column"]')
+    ?.closest(".chart-tag");
+  assert.ok(xWrap?.classList.contains("hidden"), "X stays hidden on a bar chart");
+  assert.ok(yWrap?.classList.contains("hidden"), "Y stays hidden on a bar chart");
   card.dispose();
 });

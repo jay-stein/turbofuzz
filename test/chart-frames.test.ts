@@ -161,3 +161,22 @@ test("bubble frames aggregate a measure per frame", () => {
   const cellCount = 16;
   assert.equal(bubble.values?.[cellCount + 15], 100, "February keeps the lone value");
 });
+
+
+test("grouped grid counts build one grid per category over shared bounds", () => {
+  const x = Float64Array.from([0, 0, 9]);
+  const y = Float64Array.from([0, 0, 9]);
+  const codes = Uint16Array.from([0, 1, 0]);
+  const result = computeGridCounts(x, y, allIds(3), 4, undefined, {
+    codes,
+    labels: ["alpha", "beta"],
+  });
+  assert.ok(result.groups !== null);
+  assert.equal(result.groups?.length, 2);
+  const alpha = result.groups?.[0]?.counts.reduce((a, b) => a + b, 0);
+  const beta = result.groups?.[1]?.counts.reduce((a, b) => a + b, 0);
+  assert.equal(alpha, 2);
+  assert.equal(beta, 1);
+  assert.equal(result.counts.reduce((a, b) => a + b, 0), 3, "the combined grid covers every row");
+  assert.equal(result.maxCount, 2);
+});

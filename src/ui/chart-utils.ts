@@ -28,7 +28,7 @@ export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   terms: "Top terms",
   heatmap: "Heatmap",
   correlation: "Correlation",
-  bubble: "Bubble (count)",
+  bubble: "Bubble",
 };
 
 export const PAIR_KINDS: readonly ChartCardKind[] = [

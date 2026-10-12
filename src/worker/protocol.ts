@@ -505,6 +505,8 @@ export type GetGridCountsRequest = {
   bins?: number;
   /** Optional per-cell measure driving the bubble sizes. */
   measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
+  /** Optional category column splitting the bubbles into one set per group. */
+  groupColumn?: number;
 };
 
 export interface GridCountsMessage {
@@ -533,6 +535,8 @@ export type GetAnimationRequest = {
   topN?: number;
   /** Optional per-cell measure driving the bubble sizes. */
   measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
+  /** bubble: optional category column splitting the bubbles into sets. */
+  groupColumn?: number;
 };
 
 export interface AnimationMessage {

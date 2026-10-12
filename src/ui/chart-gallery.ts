@@ -337,4 +337,12 @@ export function openChartGallery(anchor: HTMLElement, options: ChartGalleryOptio
   )}px`;
 }
 
+/** Icon markup per kind, reused by the chart rail. */
+export const CHART_KIND_ICONS: Record<ChartCardKind, string> = ICONS;
+
+/** Every kind in the gallery's question order, for the chart rail. */
+export const GALLERY_KINDS: readonly ChartCardKind[] = QUESTION_GROUPS.flatMap(
+  (group) => group.kinds,
+);
+
 export type { ChartIdea };

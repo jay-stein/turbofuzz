@@ -106,12 +106,13 @@ export interface ChartCardOptions {
   requestAggregate(view: ViewDef): Promise<AggregateMessage>;
   /** Token frequencies and shapes for the top-terms chart. */
   requestTextProfile(column: number): Promise<TextProfileMessage>;
-  /** Row counts per x/y grid cell, for the bubble chart. */
+  /** Row counts (and optional per-cell measure) for the bubble chart. */
   requestGridCounts?(
     xColumn: number,
     yColumn: number,
     bins?: number,
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
+    groupColumn?: number,
   ): Promise<GridCountsMessage>;
   /** Per-time-bucket frames for animated bar, bubble, histogram and treemap charts. */
   requestAnimation?(input: {
@@ -123,6 +124,7 @@ export interface ChartCardOptions {
     bins?: number;
     topN?: number;
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
+    groupColumn?: number;
   }): Promise<AnimationMessage>;
   /** Label for the filtered-table source: "Table" when no filters apply. */
   tableSourceLabel?(): string;
@@ -176,6 +178,15 @@ export interface ChartCardConfig {
   /** "Suggested: …" reason shown in the note for rule-picked default cards. */
   suggested: string;
   correlationColumns: number[];
+}
+
+/** One overlaid bubble set (a group, or the whole chart when ungrouped). */
+interface BubbleLayer {
+  label: string;
+  code: number;
+  counts: Uint32Array;
+  values: Float64Array | null;
+  color: string;
 }
 
 interface Frame {
@@ -590,6 +601,9 @@ export class ChartCard {
   private readonly yWrap: HTMLElement;
   private readonly colorWrap: HTMLElement;
   private readonly sizeWrap: HTMLElement;
+  private readonly sizeTagLabel: HTMLElement;
+  private readonly primaryTagLabel: HTMLElement;
+  private readonly bubbleAggField: HTMLElement;
   private readonly modeWrap: HTMLElement;
   private readonly densityStyleWrap: HTMLElement;
   private readonly xTagLabel: HTMLElement;
@@ -684,7 +698,9 @@ export class ChartCard {
     this.primarySelect.addEventListener("change", () =>
       this.setPrimaryColumn(Number(this.primarySelect.value)),
     );
-    this.primaryWrap = this.tagged("Column", this.primarySelect).wrap;
+    const primaryTag = this.tagged("Column", this.primarySelect);
+    this.primaryWrap = primaryTag.wrap;
+    this.primaryTagLabel = primaryTag.label;
 
     this.groupSelect = this.buildSelect(
       "chart-picker chart-picker-small",
@@ -758,7 +774,9 @@ export class ChartCard {
       this.refreshAnimation();
       this.render();
     });
-    this.sizeWrap = this.tagged("Size", this.sizeSelect).wrap;
+    const sizeTag = this.tagged("Size", this.sizeSelect);
+    this.sizeWrap = sizeTag.wrap;
+    this.sizeTagLabel = sizeTag.label;
 
     this.modeSelect = this.buildSelect("chart-picker chart-picker-small", "Render mode");
     ([
@@ -995,6 +1013,7 @@ export class ChartCard {
       this.render();
     });
     const bubbleAggField = el("label", { class: "chart-field" });
+    this.bubbleAggField = bubbleAggField;
     bubbleAggField.title = "Size by an aggregate of a numeric column instead of row counts";
     bubbleAggField.append(
       el("span", { class: "chart-field-label" }, ["Size by"]),
@@ -1404,12 +1423,22 @@ export class ChartCard {
   /** A view-bound card hides the raw-column pickers; its type comes from the view. */
   private syncSourceControls(): void {
     const bound = this.config.source !== "";
+    // Must agree with renderControls: this runs on filter updates too, and
+    // blindly unhiding the pair controls would leak X/Y into single-axis kinds.
+    const kind = this.config.kind;
+    const pair = isPairKind(kind);
+    const groupable = this.columns.some((meta) => isCategoryType(meta.type));
     this.kindSelect.classList.toggle("hidden", bound);
-    this.primaryWrap.classList.toggle("hidden", bound);
-    this.groupWrap.classList.toggle("hidden", bound);
-    this.xWrap.classList.toggle("hidden", bound);
-    this.yWrap.classList.toggle("hidden", bound);
-    this.axesPanel.classList.toggle("hidden", bound);
+    this.primaryWrap.classList.toggle("hidden", bound || pair || kind === "correlation");
+    this.groupWrap.classList.toggle(
+      "hidden",
+      bound ||
+        (kind !== "line" && kind !== "histogram" && kind !== "bubble") ||
+        !groupable,
+    );
+    this.xWrap.classList.toggle("hidden", bound || !pair);
+    this.yWrap.classList.toggle("hidden", bound || !pair);
+    this.axesPanel.classList.toggle("hidden", bound || kind === "correlation");
     this.settingsBody.classList.toggle("hidden", bound ? false : !this.canDraw());
   }
 
@@ -1686,6 +1715,11 @@ export class ChartCard {
       const meta = this.columns[index];
       this.primarySelect.append(this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`));
     });
+    if (primary.length === 0) {
+      const placeholder = this.option("-1", "No matching column");
+      placeholder.disabled = true;
+      this.primarySelect.append(placeholder);
+    }
     if (this.config.column >= 0) this.primarySelect.value = String(this.config.column);
 
     const groupable = this.allowedIndexes((meta) => isCategoryType(meta.type));
@@ -1714,7 +1748,13 @@ export class ChartCard {
         const meta = this.columns[index];
         select.append(this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`));
       });
-      if (selected >= 0) select.value = String(selected);
+      if (allowed.length === 0) {
+        const placeholder = this.option("-1", "No numeric column");
+        placeholder.disabled = true;
+        select.append(placeholder);
+      } else if (selected >= 0) {
+        select.value = String(selected);
+      }
     }
 
     this.colorSelect.replaceChildren(this.option("-1", "None"));
@@ -1798,19 +1838,37 @@ export class ChartCard {
       "hidden",
       this.config.source !== "" || kind === "correlation",
     );
+    this.primaryTagLabel.textContent =
+      kind === "histogram"
+        ? "Values"
+        : kind === "line"
+          ? "Date"
+          : kind === "bar" || kind === "treemap"
+            ? "Category"
+            : kind === "terms"
+              ? "Text"
+              : "Column";
     const groupable = this.columns.some((meta) => isCategoryType(meta.type));
     this.groupWrap.classList.toggle(
       "hidden",
-      (kind !== "line" && kind !== "histogram") || !groupable,
+      (kind !== "line" && kind !== "histogram" && kind !== "bubble") || !groupable,
     );
     this.xWrap.classList.toggle("hidden", !pair);
     this.yWrap.classList.toggle("hidden", !pair);
     const seriesKind = kind === "scatter" || kind === "density";
     this.colorWrap.classList.toggle("hidden", !seriesKind);
+    this.sizeTagLabel.textContent = kind === "bubble" ? "Size by" : "Size";
     this.sizeWrap.classList.toggle(
       "hidden",
       !seriesKind && kind !== "treemap" && kind !== "bubble",
     );
+    // The size column belongs to the visible Bubbles row, not the Settings
+    // drawer, so switching what drives the area is one obvious control.
+    if (kind === "bubble") {
+      this.bubbleSettings.insertBefore(this.sizeWrap, this.bubbleAggField);
+    } else if (this.sizeWrap.parentElement !== this.settingsBody) {
+      this.settingsBody.append(this.sizeWrap);
+    }
     this.modeWrap.classList.toggle("hidden", kind !== "scatter");
     this.densityStyleWrap.classList.toggle("hidden", !seriesKind);
     this.colorGroup.classList.toggle("hidden", kind === "correlation");
@@ -2499,6 +2557,13 @@ export class ChartCard {
     return { column: this.config.sizeColumn, agg };
   }
 
+  /** Group column for bubble sets, when one is chosen and category-typed. */
+  private bubbleGroupColumn(): number | undefined {
+    if (this.config.groupColumn < 0) return undefined;
+    const meta = this.meta(this.config.groupColumn);
+    return meta !== undefined && isCategoryType(meta.type) ? this.config.groupColumn : undefined;
+  }
+
   /** Row counts per x/y grid cell for the bubble chart. */
   private refreshBubble(): void {
     if (this.config.kind !== "bubble" || this.options.requestGridCounts === undefined) {
@@ -2523,6 +2588,7 @@ export class ChartCard {
         this.config.y,
         this.config.bubbleBins ?? 40,
         this.bubbleMeasure(),
+        this.bubbleGroupColumn(),
       )
       .then((message) => {
         if (generation !== this.generation || this.disposed) return;
@@ -2611,6 +2677,7 @@ export class ChartCard {
       bins: chart === "histogram" ? histogramBins : (this.config.bubbleBins ?? 40),
       topN: this.config.topN,
       measure: isPair ? this.bubbleMeasure() : undefined,
+      groupColumn: isPair ? this.bubbleGroupColumn() : undefined,
     })
       .then((message) => {
         if (generation !== this.generation || this.disposed) return;
@@ -4140,13 +4207,23 @@ export class ChartCard {
   /** Clickable legend under grouped time series; entries toggle line visibility. */
   private syncLegend(): void {
     const result = this.groupResult;
-    const grouped =
-      (this.config.kind === "line" || this.config.kind === "histogram") && result !== null;
-    this.legendEl.classList.toggle("hidden", !grouped);
+    const bubbleGroups =
+      this.config.kind === "bubble"
+        ? (this.bubbleResult?.groups ?? this.animationResult?.bubble?.groups ?? null)
+        : null;
+    const entries =
+      bubbleGroups !== null
+        ? bubbleGroups.map((group) => ({ label: group.label, code: group.code }))
+        : (this.config.kind === "line" || this.config.kind === "histogram") && result !== null
+          ? result.labels.map((label, index) => ({
+              label,
+              code: result.codes[index] ?? index,
+            }))
+          : null;
+    this.legendEl.classList.toggle("hidden", entries === null);
     this.legendEl.replaceChildren();
-    if (!grouped || result === null) return;
-    result.labels.forEach((label, index) => {
-      const code = result.codes[index];
+    if (entries === null) return;
+    entries.forEach(({ label, code }, index) => {
       const off = this.hiddenGroups.has(code);
       const item = el(
         "button",
@@ -4154,7 +4231,7 @@ export class ChartCard {
           class: "chart-legend-item",
           type: "button",
           "aria-pressed": off ? "false" : "true",
-          title: off ? `Show the ${label} line` : `Hide the ${label} line`,
+          title: off ? `Show ${label}` : `Hide ${label}`,
         },
         [label],
       ) as HTMLButtonElement;
@@ -4471,23 +4548,37 @@ export class ChartCard {
       const frames = this.animationResult.frames;
       const index = Math.min(Math.max(0, this.animationFrame), Math.max(0, frames.length - 1));
       const cellCount = animated.bins * animated.bins;
-      const grid = animated.grids.subarray(index * cellCount, (index + 1) * cellCount);
-      const values =
-        animated.values === null
-          ? null
-          : animated.values.slice(index * cellCount, (index + 1) * cellCount);
+      const groupCount = animated.groups === null ? 1 : animated.groups.length;
+      const frameBase = index * groupCount * cellCount;
+      const layers: BubbleLayer[] = [];
+      for (let group = 0; group < groupCount; group++) {
+        const meta = animated.groups?.[group];
+        const code = meta?.code ?? 0;
+        if (animated.groups !== null && this.hiddenGroups.has(code)) continue;
+        const base = frameBase + group * cellCount;
+        layers.push({
+          label: meta?.label ?? "",
+          code,
+          counts: animated.grids.subarray(base, base + cellCount),
+          values:
+            animated.values === null
+              ? null
+              : animated.values.slice(base, base + cellCount),
+          color: animated.groups === null ? this.primaryColor() : this.groupColor(group),
+        });
+      }
       this.drawBubbleGrid(ctx, frame, {
         xMin: animated.xMin,
         xMax: animated.xMax,
         yMin: animated.yMin,
         yMax: animated.yMax,
         bins: animated.bins,
-        grid,
-        values,
+        layers,
         maxCount: this.animationResult.maxCount,
         valueMax: animated.valueMax,
         total: this.animationResult.total,
         caption: frames[index]?.label ?? "",
+        groupCount,
       });
       return;
     }
@@ -4501,18 +4592,39 @@ export class ChartCard {
       this.drawPlotMessage(ctx, frame, message);
       return;
     }
+    const layers: BubbleLayer[] = [];
+    if (result.groups === null) {
+      layers.push({
+        label: "",
+        code: 0,
+        counts: result.counts,
+        values: result.values,
+        color: this.primaryColor(),
+      });
+    } else {
+      result.groups.forEach((group, index) => {
+        if (this.hiddenGroups.has(group.code)) return;
+        layers.push({
+          label: group.label,
+          code: group.code,
+          counts: group.counts,
+          values: group.values,
+          color: this.groupColor(index),
+        });
+      });
+    }
     this.drawBubbleGrid(ctx, frame, {
       xMin: result.xMin,
       xMax: result.xMax,
       yMin: result.yMin,
       yMax: result.yMax,
       bins: result.bins,
-      grid: result.counts,
-      values: result.values,
+      layers,
       maxCount: result.maxCount,
       valueMax: result.valueMax,
       total: result.total,
       caption: "",
+      groupCount: result.groups === null ? 1 : result.groups.length,
     });
   }
 
@@ -4547,20 +4659,23 @@ export class ChartCard {
       yMin: number;
       yMax: number;
       bins: number;
-      grid: Uint32Array;
-      values: Float64Array | null;
+      layers: BubbleLayer[];
       maxCount: number;
       valueMax: number;
       total: number;
       caption: string;
+      groupCount: number;
     },
   ): void {
     const ui = frame.ui;
-    const { xMin, xMax, yMin, yMax, bins, grid } = input;
-    const maxCount = Math.max(1, input.maxCount);
+    const { xMin, xMax, yMin, yMax, bins } = input;
+    const scaleName = this.config.bubbleScale ?? "area";
 
     const xTicks = niceTicks(xMin, xMax, 4);
-    const yTicks = niceTicks(yMin, yMax, 4).filter((value, index, all) => index === 0 || formatChartNumber(value) !== formatChartNumber(all[index - 1]));
+    const yTicks = niceTicks(yMin, yMax, 4).filter(
+      (value, index, all) =>
+        index === 0 || formatChartNumber(value) !== formatChartNumber(all[index - 1]),
+    );
     ctx.lineWidth = 1;
     ctx.fillStyle = frame.dim;
     this.font(ctx, ui, 10);
@@ -4579,43 +4694,42 @@ export class ChartCard {
     }
     ctx.textAlign = "center";
     for (const value of xTicks) {
-      const x =
-        frame.left + ((value - xMin) / Math.max(1e-12, xMax - xMin)) * frame.plotW;
+      const x = frame.left + ((value - xMin) / Math.max(1e-12, xMax - xMin)) * frame.plotW;
       ctx.fillText(formatChartNumber(value), x, frame.top + frame.plotH + 14 * ui);
     }
     ctx.textAlign = "left";
 
-    const color = this.primaryColor();
-    const sizeValues = input.values;
-    const sizeMax =
-      sizeValues === null ? Math.max(1, input.maxCount) : Math.max(1e-12, input.valueMax);
-    const scaleName = this.config.bubbleScale ?? "area";
+    const grouped = input.layers.length > 1 || input.layers[0]?.label !== "";
     let cells = 0;
     let frameRows = 0;
-    for (let by = 0; by < bins; by++) {
-      for (let bx = 0; bx < bins; bx++) {
-        const cell = by * bins + bx;
-        const count = grid[cell] ?? 0;
-        if (count === 0) continue;
-        const value =
-          sizeValues === null ? count : (sizeValues[cell] ?? Number.NaN);
-        if (!Number.isFinite(value) || value <= 0) continue;
-        cells++;
-        frameRows += count;
-        const x = frame.left + ((bx + 0.5) / bins) * frame.plotW;
-        const y = frame.top + frame.plotH - ((by + 0.5) / bins) * frame.plotH;
-        const fraction = this.bubbleFraction(value, sizeMax);
-        const radius = (1.5 + 13 * fraction) * ui;
-        ctx.globalAlpha = 0.24 + 0.5 * fraction;
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 0.75;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.globalAlpha = 1;
+    for (const layer of input.layers) {
+      const sizeValues = layer.values;
+      const sizeMax =
+        sizeValues === null ? Math.max(1, input.maxCount) : Math.max(1e-12, input.valueMax);
+      for (let by = 0; by < bins; by++) {
+        for (let bx = 0; bx < bins; bx++) {
+          const cell = by * bins + bx;
+          const count = layer.counts[cell] ?? 0;
+          if (count === 0) continue;
+          const value = sizeValues === null ? count : (sizeValues[cell] ?? Number.NaN);
+          if (!Number.isFinite(value) || value <= 0) continue;
+          cells++;
+          frameRows += count;
+          const x = frame.left + ((bx + 0.5) / bins) * frame.plotW;
+          const y = frame.top + frame.plotH - ((by + 0.5) / bins) * frame.plotH;
+          const fraction = this.bubbleFraction(value, sizeMax);
+          const radius = (1.5 + 13 * fraction) * ui;
+          ctx.globalAlpha = 0.24 + 0.5 * fraction;
+          ctx.fillStyle = layer.color;
+          ctx.beginPath();
+          ctx.arc(x, y, radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 0.75;
+          ctx.strokeStyle = layer.color;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
       }
     }
     if (input.caption !== "") {
@@ -4632,7 +4746,12 @@ export class ChartCard {
     const caption = input.caption === "" ? "" : `${input.caption} · `;
     const scaleNote =
       scaleName === "area" ? "" : scaleName === "log" ? " (log scale)" : " (radius scale)";
-    this.noteEl.textContent = `${caption}${frameRows.toLocaleString()} rows in ${cells.toLocaleString()} cells · ${xName} × ${yName} · size: ${this.bubbleSizeLabel()}${scaleNote}`;
+    const groupName = this.meta(this.config.groupColumn)?.name;
+    const groupNote =
+      grouped && groupName !== undefined
+        ? ` · ${input.layers.length} of ${input.groupCount} groups by ${groupName}`
+        : "";
+    this.noteEl.textContent = `${caption}${frameRows.toLocaleString()} rows in ${cells.toLocaleString()} cells · ${xName} × ${yName} · size: ${this.bubbleSizeLabel()}${scaleNote}${groupNote}`;
   }
 
   private drawBars(ctx: CanvasRenderingContext2D, frame: Frame): void {

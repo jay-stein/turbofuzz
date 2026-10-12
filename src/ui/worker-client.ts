@@ -228,6 +228,7 @@ export class SearchWorkerClient {
     yColumn: number,
     bins?: number,
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
+    groupColumn?: number,
   ): Promise<GridCountsMessage> {
     return this.request<GridCountsMessage>({
       type: "getGridCounts",
@@ -235,6 +236,7 @@ export class SearchWorkerClient {
       yColumn,
       bins,
       measure,
+      groupColumn,
     });
   }
 
@@ -247,6 +249,7 @@ export class SearchWorkerClient {
     bins?: number;
     topN?: number;
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
+    groupColumn?: number;
   }): Promise<AnimationMessage> {
     return this.request<AnimationMessage>({ type: "getAnimation", ...input });
   }

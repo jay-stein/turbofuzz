@@ -3336,6 +3336,127 @@ mark {
   white-space: nowrap;
 }
 
+/* Left rail: chart types as icon tiles, collapsible to icons only. */
+.charts-panel {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.charts-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.charts-rail {
+  flex: none;
+  width: 172px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--panel);
+  position: sticky;
+  top: 45px;
+}
+
+.charts-rail.collapsed {
+  width: 52px;
+  padding: 8px 6px;
+}
+
+.charts-rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.charts-rail-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+.charts-rail.collapsed .charts-rail-title {
+  display: none;
+}
+
+.charts-rail.collapsed .charts-rail-head {
+  justify-content: center;
+}
+
+.charts-rail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.charts-rail-tile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.charts-rail-tile:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.charts-rail-tile:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.charts-rail-icon {
+  flex: none;
+  display: inline-flex;
+  width: 26px;
+  height: 18px;
+  color: var(--accent);
+}
+
+.charts-rail-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.charts-rail-tile:disabled .charts-rail-icon {
+  color: var(--text-dim);
+}
+
+.charts-rail-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.charts-rail.collapsed .charts-rail-tile {
+  justify-content: center;
+  padding: 4px;
+}
+
+.charts-rail.collapsed .charts-rail-label {
+  display: none;
+}
+
 .chart-animation-label {
   font-size: 11.5px;
   color: var(--text-dim);

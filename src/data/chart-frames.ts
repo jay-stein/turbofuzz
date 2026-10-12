@@ -19,11 +19,16 @@ export interface BubbleAnimation {
   yMin: number;
   yMax: number;
   bins: number;
-  /** frames × bins × bins counts, row-major per frame. */
+  /**
+   * Frames × groups × bins × bins counts (groups collapse to one when the
+   * chart is not grouped), row-major per frame and group.
+   */
   grids: Uint32Array;
-  /** frames × bins × bins measure values (null when sizing by count). */
+  /** Same layout as `grids` for the per-cell measure (null for counts). */
   values: Float64Array | null;
   valueMax: number;
+  /** Group metadata when overlaid bubble sets are drawn. */
+  groups: { code: number; label: string }[] | null;
 }
 
 export interface HistogramAnimation {
@@ -174,6 +179,7 @@ export function computeBubbleFrames(
   grain: TimeGrain,
   bins: number,
   measure?: GridMeasure,
+  groups?: { codes: Uint16Array; labels: string[] },
 ): AnimationResult {
   const { frames, index, missing } = frameTimes(times, ids, grain);
   const size = Math.max(4, Math.min(120, Math.floor(bins) || 40));
@@ -199,7 +205,8 @@ export function computeBubbleFrames(
     if (y > yMax) yMax = y;
   }
   const cellCount = size * size;
-  const grids = new Uint32Array(Math.max(1, frames.length) * cellCount);
+  const groupCount = groups === undefined ? 1 : Math.max(1, groups.labels.length);
+  const grids = new Uint32Array(Math.max(1, frames.length) * groupCount * cellCount);
   const values = measure === undefined ? null : new Float64Array(grids.length).fill(Number.NaN);
   const sums = measure === undefined ? null : new Float64Array(grids.length);
   if (total > 0) {
@@ -213,9 +220,10 @@ export function computeBubbleFrames(
       if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(time)) continue;
       const frame = index.get(timeBucket(time, grain));
       if (frame === undefined) continue;
+      const group = groups === undefined ? 0 : Math.min(groupCount - 1, groups.codes[row] ?? 0);
       const bx = Math.min(size - 1, Math.floor(((x - xMin) / xSpan) * size));
       const by = Math.min(size - 1, Math.floor(((y - yMin) / ySpan) * size));
-      const cell = frame * cellCount + by * size + bx;
+      const cell = (frame * groupCount + group) * cellCount + by * size + bx;
       grids[cell]++;
       if (measure === undefined || values === null || sums === null) continue;
       const value = measure.values[row];
@@ -246,6 +254,19 @@ export function computeBubbleFrames(
     maxCount,
     total,
     missing: skips,
-    bubble: { xMin, xMax, yMin, yMax, bins: size, grids, values, valueMax },
+    bubble: {
+      xMin,
+      xMax,
+      yMin,
+      yMax,
+      bins: size,
+      grids,
+      values,
+      valueMax,
+      groups:
+        groups === undefined
+          ? null
+          : groups.labels.map((label, code) => ({ code, label })),
+    },
   };
 }

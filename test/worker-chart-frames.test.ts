@@ -123,6 +123,31 @@ test("worker serves grid counts and animation frames", async () => {
 
   send({
     type: "getGridCounts",
+    requestId: 8,
+    xColumn: 0,
+    yColumn: 1,
+    bins: 4,
+    groupColumn: 2,
+  });
+  const grouped = find("gridCounts", 8) as unknown as {
+    result: { groups: { label: string; counts: Uint32Array }[] | null };
+  };
+  assert.ok(grouped.result.groups !== null, "grouping returns one grid per category");
+  assert.deepEqual(
+    grouped.result.groups?.map((group) => group.label),
+    ["closed", "open", "pending"],
+  );
+  assert.equal(
+    grouped.result.groups?.reduce(
+      (sum, group) => sum + group.counts.reduce((a, b) => a + b, 0),
+      0,
+    ),
+    5,
+    "every row lands in exactly one group grid",
+  );
+
+  send({
+    type: "getGridCounts",
     requestId: 6,
     xColumn: 0,
     yColumn: 1,

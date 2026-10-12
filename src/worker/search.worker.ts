@@ -1211,6 +1211,29 @@ function gridMeasure(
   return { values: column.numbers(), agg: measure.agg };
 }
 
+/** Top category codes (plus Other) for overlaid bubble sets. */
+function bubbleGroups(
+  column: ColumnData,
+  rowCount: number,
+  limit = 10,
+): { codes: Uint16Array; labels: string[] } {
+  const { codes, labels } = categoryCodesFor(column, rowCount);
+  if (labels.length <= limit) return { codes, labels };
+  const counts = new Uint32Array(labels.length);
+  for (const code of codes) counts[code]++;
+  const order = [...labels.keys()].sort((a, b) => counts[b] - counts[a]);
+  const map = new Uint16Array(labels.length).fill(limit);
+  const outLabels: string[] = [];
+  order.slice(0, limit).forEach((code, index) => {
+    map[code] = index;
+    outLabels.push(labels[code] ?? "?");
+  });
+  outLabels.push("Other");
+  const outCodes = new Uint16Array(rowCount);
+  for (let row = 0; row < rowCount; row++) outCodes[row] = map[codes[row]] ?? limit;
+  return { codes: outCodes, labels: outLabels };
+}
+
 /** Row counts per x/y grid cell for the bubble chart. */
 function handleGetGridCounts(message: GetGridCountsRequest): void {
   const { dataset } = state();
@@ -1218,15 +1241,22 @@ function handleGetGridCounts(message: GetGridCountsRequest): void {
   const y = dataset.columns[message.yColumn];
   if (x === undefined || y === undefined) throw new Error("Unknown column");
   const started = performance.now();
+  const groupColumn =
+    message.groupColumn === undefined ? undefined : dataset.columns[message.groupColumn];
   const result = computeGridCounts(
     x.numbers(),
     y.numbers(),
     sortedIds,
     message.bins ?? 40,
     gridMeasure(dataset, message.measure),
+    groupColumn === undefined ? undefined : bubbleGroups(groupColumn, dataset.rowCount),
   );
   const transfer: Transferable[] = [result.counts.buffer];
   if (result.values !== null) transfer.push(result.values.buffer);
+  for (const group of result.groups ?? []) {
+    transfer.push(group.counts.buffer);
+    if (group.values !== null) transfer.push(group.values.buffer);
+  }
   post(
     { type: "gridCounts", requestId: message.requestId, result, ms: performance.now() - started },
     transfer,
@@ -1281,6 +1311,8 @@ function handleGetAnimation(message: GetAnimationRequest): void {
     const x = dataset.columns[message.column];
     const y = dataset.columns[message.yColumn];
     if (x === undefined || y === undefined) throw new Error("Unknown column");
+    const groupColumn =
+      message.groupColumn === undefined ? undefined : dataset.columns[message.groupColumn];
     const result = computeBubbleFrames(
       times,
       x.numbers(),
@@ -1289,6 +1321,7 @@ function handleGetAnimation(message: GetAnimationRequest): void {
       message.grain,
       message.bins ?? 40,
       gridMeasure(dataset, message.measure),
+      groupColumn === undefined ? undefined : bubbleGroups(groupColumn, dataset.rowCount),
     );
     const transfer: Transferable[] = [];
     if (result.bubble !== undefined) {

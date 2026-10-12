@@ -15,8 +15,14 @@ import type {
   TextProfileMessage,
 } from "../worker/protocol.js";
 import { ChartCard, type ChartCardConfig, type SeriesRequestInput } from "./chart-card.js";
-import { openChartGallery } from "./chart-gallery.js";
 import {
+  CHART_KIND_ICONS,
+  GALLERY_KINDS,
+  fitChartKind,
+  openChartGallery,
+} from "./chart-gallery.js";
+import {
+  CHART_KIND_LABELS,
   DEFAULT_EXPORT_SIZE,
   EXPORT_SIZES,
   type ChartCardKind,
@@ -26,6 +32,16 @@ import {
   pickDefaultCard,
 } from "./chart-utils.js";
 import { el } from "./dom.js";
+
+const RAIL_KEY = "turbofuzz.charts.rail";
+
+function readRailCollapsed(): boolean {
+  try {
+    return localStorage.getItem(RAIL_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 export interface ChartsPanelOptions {
   datasetName(): string;
@@ -64,6 +80,7 @@ export interface ChartsPanelOptions {
     yColumn: number,
     bins?: number,
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
+    groupColumn?: number,
   ): Promise<GridCountsMessage>;
   /** Per-time-bucket frames for animated bar, bubble, histogram and treemap charts. */
   requestAnimation?(input: {
@@ -75,6 +92,7 @@ export interface ChartsPanelOptions {
     bins?: number;
     topN?: number;
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
+    groupColumn?: number;
   }): Promise<AnimationMessage>;
   /** Label for the filtered-table source: "Table" when no filters apply. */
   tableSourceLabel?(): string;
@@ -256,6 +274,10 @@ function readLayout(): number {
 export class ChartsPanel {
   private readonly grid: HTMLElement;
   private readonly empty: HTMLElement;
+  private readonly rail: HTMLElement;
+  private readonly railList: HTMLElement;
+  private readonly railToggle: HTMLButtonElement;
+  private railCollapsed = readRailCollapsed();
   private readonly layoutSelect: HTMLSelectElement;
   private readonly sizeSelect: HTMLSelectElement;
   private cards: ChartCard[] = [];
@@ -330,9 +352,71 @@ export class ChartsPanel {
     this.empty = el("div", { class: "charts-empty" }, [
       "No charts yet — use “+ Add chart” to plot the current result set.",
     ]);
-    this.root.append(toolbar, this.grid, this.empty);
+
+    // Left rail: every chart type as an icon tile, collapsible to icons only.
+    this.railToggle = el(
+      "button",
+      { class: "icon-btn charts-rail-toggle", type: "button" },
+      ["⟨"],
+    ) as HTMLButtonElement;
+    this.railToggle.addEventListener("click", () => this.toggleRail());
+    this.railList = el("div", { class: "charts-rail-list" });
+    this.rail = el("div", { class: "charts-rail" }, [
+      el("div", { class: "charts-rail-head" }, [
+        el("span", { class: "charts-rail-title" }, ["Chart types"]),
+        this.railToggle,
+      ]),
+      this.railList,
+    ]);
+    this.root.classList.add("charts-panel");
+    const main = el("div", { class: "charts-main" }, [toolbar, this.grid, this.empty]);
+    this.root.append(this.rail, main);
+    this.applyRailState();
+    this.syncRail();
     this.syncLayout();
     this.syncEmpty();
+  }
+
+  /** Rebuilds the rail tiles from the current columns and their fit. */
+  private syncRail(): void {
+    this.railList.replaceChildren();
+    for (const kind of GALLERY_KINDS) {
+      const fit = fitChartKind(kind, this.columns, this.rowCount);
+      const tile = el(
+        "button",
+        { class: "charts-rail-tile", type: "button" },
+        [],
+      ) as HTMLButtonElement;
+      const icon = el("span", { class: "charts-rail-icon" });
+      icon.innerHTML = `<svg viewBox="0 0 72 48" aria-hidden="true">${CHART_KIND_ICONS[kind]}</svg>`;
+      tile.append(icon, el("span", { class: "charts-rail-label" }, [CHART_KIND_LABELS[kind]]));
+      tile.disabled = !fit.ok;
+      tile.title = fit.ok
+        ? `Add a ${CHART_KIND_LABELS[kind].toLowerCase()} chart`
+        : `${CHART_KIND_LABELS[kind]} — ${fit.reason}`;
+      tile.addEventListener("click", () => {
+        this.addCard(fit.preset);
+      });
+      this.railList.append(tile);
+    }
+  }
+
+  private toggleRail(): void {
+    this.railCollapsed = !this.railCollapsed;
+    try {
+      localStorage.setItem(RAIL_KEY, this.railCollapsed ? "1" : "0");
+    } catch {
+      // Persisting the preference is best-effort.
+    }
+    this.applyRailState();
+  }
+
+  private applyRailState(): void {
+    this.rail.classList.toggle("collapsed", this.railCollapsed);
+    this.railToggle.textContent = this.railCollapsed ? "⟩" : "⟨";
+    this.railToggle.title = this.railCollapsed
+      ? "Expand the chart type list"
+      : "Collapse to icons";
   }
 
   addCard(preset?: Partial<ChartCardConfig>): ChartCard {
@@ -407,6 +491,7 @@ export class ChartsPanel {
 
   setColumns(columns: ColumnMeta[]): void {
     this.columns = columns;
+    this.syncRail();
     if (!this.initialised) {
       this.initialised = true;
       if (columns.length > 0 && this.cards.length === 0) {
@@ -430,6 +515,7 @@ export class ChartsPanel {
   restore(configs: readonly Partial<ChartCardConfig>[], columns: ColumnMeta[]): void {
     this.columns = columns;
     this.initialised = true;
+    this.syncRail();
     for (const config of configs) this.addCard(config);
   }
 

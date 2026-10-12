@@ -295,6 +295,13 @@ export interface GridMeasure {
   agg: GridMeasureAgg;
 }
 
+export interface GridGroup {
+  code: number;
+  label: string;
+  counts: Uint32Array;
+  values: Float64Array | null;
+}
+
 export interface GridCountsResult {
   xMin: number;
   xMax: number;
@@ -308,6 +315,8 @@ export interface GridCountsResult {
   values: Float64Array | null;
   /** Largest finite measure value, for scaling bubble sizes. */
   valueMax: number;
+  /** One grid per category when grouping (overlaid bubble sets). */
+  groups: GridGroup[] | null;
   total: number;
   missing: number;
 }
@@ -315,7 +324,8 @@ export interface GridCountsResult {
 /**
  * Counts rows per cell of a bins x bins grid over two numeric columns and
  * optionally aggregates a measure per cell: the data behind the bubble chart
- * (size = rows or any sum/mean/min/max in the area).
+ * (size = rows or any sum/mean/min/max in the area). With `groups` it builds
+ * one grid per category over shared bounds, for overlaid bubble sets.
  */
 export function computeGridCounts(
   xValues: Float64Array,
@@ -323,6 +333,7 @@ export function computeGridCounts(
   ids: Uint32Array,
   bins: number,
   measure?: GridMeasure,
+  groups?: { codes: Uint16Array; labels: string[] },
 ): GridCountsResult {
   const size = Math.max(4, Math.min(120, Math.floor(bins) || 40));
   let xMin = Infinity;
@@ -345,22 +356,32 @@ export function computeGridCounts(
     if (y < yMin) yMin = y;
     if (y > yMax) yMax = y;
   }
-  const counts = new Uint32Array(size * size);
-  if (total === 0) {
-    return {
-      xMin: 0,
-      xMax: 0,
-      yMin: 0,
-      yMax: 0,
-      bins: size,
-      counts,
-      maxCount: 0,
-      values: measure === undefined ? null : new Float64Array(size * size),
-      valueMax: 0,
-      total,
-      missing,
-    };
-  }
+  const cellCount = size * size;
+  const groupCount = groups === undefined ? 0 : groups.labels.length;
+  const emptyResult = (): GridCountsResult => ({
+    xMin: 0,
+    xMax: 0,
+    yMin: 0,
+    yMax: 0,
+    bins: size,
+    counts: new Uint32Array(cellCount),
+    maxCount: 0,
+    values: measure === undefined ? null : new Float64Array(cellCount),
+    valueMax: 0,
+    groups:
+      groups === undefined
+        ? null
+        : groups.labels.map((label, code) => ({
+            code,
+            label,
+            counts: new Uint32Array(cellCount),
+            values: measure === undefined ? null : new Float64Array(cellCount),
+          })),
+    total,
+    missing,
+  });
+  if (total === 0) return emptyResult();
+
   const xSpan = xMax > xMin ? xMax - xMin : 1;
   const ySpan = yMax > yMin ? yMax - yMin : 1;
   const cellOf = (x: number, y: number): number => {
@@ -368,42 +389,95 @@ export function computeGridCounts(
     const by = Math.min(size - 1, Math.floor(((y - yMin) / ySpan) * size));
     return by * size + bx;
   };
-  let maxCount = 0;
-  let values: Float64Array | null = null;
-  let sums: Float64Array | null = null;
-  if (measure !== undefined) {
-    values = new Float64Array(size * size).fill(Number.NaN);
-    sums = new Float64Array(size * size);
-  }
+  const makeValues = (): Float64Array | null =>
+    measure === undefined ? null : new Float64Array(cellCount).fill(Number.NaN);
+  const counts = new Uint32Array(cellCount);
+  const values = makeValues();
+  const sums = measure === undefined ? null : new Float64Array(cellCount);
+  const groupCounts = groups === undefined ? [] : groups.labels.map(() => new Uint32Array(cellCount));
+  const groupValues = groups === undefined ? [] : groups.labels.map(() => makeValues());
+  const groupSums = groups === undefined ? [] : groups.labels.map(() => new Float64Array(cellCount));
+
+  const accumulate = (
+    target: Uint32Array,
+    targetValues: Float64Array | null,
+    targetSums: Float64Array | null,
+    cell: number,
+    value: number | null,
+  ): void => {
+    target[cell]++;
+    if (measure === undefined || targetValues === null || targetSums === null) return;
+    if (value === null || !Number.isFinite(value)) return;
+    targetSums[cell] += value;
+    if (Number.isNaN(targetValues[cell])) targetValues[cell] = value;
+    else if (measure.agg === "min") targetValues[cell] = Math.min(targetValues[cell], value);
+    else if (measure.agg === "max") targetValues[cell] = Math.max(targetValues[cell], value);
+  };
+
   for (let index = 0; index < ids.length; index++) {
     const row = ids[index];
     const x = xValues[row];
     const y = yValues[row];
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
     const cell = cellOf(x, y);
-    const cellCount = ++counts[cell];
-    if (cellCount > maxCount) maxCount = cellCount;
-    if (measure === undefined || values === null || sums === null) continue;
-    const value = measure.values[row];
-    if (!Number.isFinite(value)) continue;
-    sums[cell] += value;
-    if (Number.isNaN(values[cell])) values[cell] = value;
-    else if (measure.agg === "min") values[cell] = Math.min(values[cell], value);
-    else if (measure.agg === "max") values[cell] = Math.max(values[cell], value);
-  }
-  let valueMax = 0;
-  if (measure !== undefined && values !== null && sums !== null) {
-    for (let cell = 0; cell < values.length; cell++) {
-      const count = counts[cell] ?? 0;
-      if (count === 0) {
-        values[cell] = Number.NaN;
-        continue;
+    const value = measure === undefined ? null : (measure.values[row] ?? Number.NaN);
+    accumulate(counts, values, sums, cell, value);
+    if (groups !== undefined) {
+      const code = groups.codes[row] ?? 0;
+      if (code < groupCount) {
+        accumulate(
+          groupCounts[code] ?? new Uint32Array(cellCount),
+          groupValues[code] ?? null,
+          groupSums[code] ?? null,
+          cell,
+          value,
+        );
       }
-      if (measure.agg === "sum") values[cell] = sums[cell] ?? 0;
-      else if (measure.agg === "mean") values[cell] = (sums[cell] ?? 0) / count;
-      if (Number.isFinite(values[cell]) && values[cell] > valueMax) valueMax = values[cell];
     }
   }
+
+  const resolveValues = (
+    targetCounts: Uint32Array,
+    targetValues: Float64Array | null,
+    targetSums: Float64Array | null,
+  ): number => {
+    if (measure === undefined || targetValues === null || targetSums === null) return 0;
+    let max = 0;
+    for (let cell = 0; cell < targetValues.length; cell++) {
+      const count = targetCounts[cell] ?? 0;
+      if (count === 0) {
+        targetValues[cell] = Number.NaN;
+        continue;
+      }
+      if (measure.agg === "sum") targetValues[cell] = targetSums[cell] ?? 0;
+      else if (measure.agg === "mean") targetValues[cell] = (targetSums[cell] ?? 0) / count;
+      if (Number.isFinite(targetValues[cell]) && targetValues[cell] > max) {
+        max = targetValues[cell];
+      }
+    }
+    return max;
+  };
+
+  let maxCount = 0;
+  for (const count of counts) if (count > maxCount) maxCount = count;
+  let valueMax = resolveValues(counts, values, sums);
+  const groupResults: GridGroup[] | null =
+    groups === undefined
+      ? null
+      : groups.labels.map((label, index) => {
+          const groupValueMax = resolveValues(
+            groupCounts[index] ?? new Uint32Array(cellCount),
+            groupValues[index] ?? null,
+            groupSums[index] ?? null,
+          );
+          if (groupValueMax > valueMax) valueMax = groupValueMax;
+          return {
+            code: index,
+            label,
+            counts: groupCounts[index] ?? new Uint32Array(cellCount),
+            values: groupValues[index] ?? null,
+          };
+        });
   return {
     xMin,
     xMax,
@@ -414,6 +488,7 @@ export function computeGridCounts(
     maxCount,
     values,
     valueMax,
+    groups: groupResults,
     total,
     missing,
   };
