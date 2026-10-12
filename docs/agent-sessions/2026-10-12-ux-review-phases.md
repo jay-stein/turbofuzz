@@ -239,3 +239,18 @@ camera icon and expands a visible setup row (outside Settings), disabled with
 a reason when the file has no date column; the GIF export button shares the
 icon. GIF remains the default (universal in chat/docs/readmes); APNG or
 WebCodecs WebM are documented options if full-colour quality is needed.
+
+## Play speed and MP4 export (same day)
+
+Commit `3df2e99`, deployed `bf44464c-290c-485a-8fd4-08640518cf80`. 526 tests.
+The "static GIF" report was the Windows Photos viewer, which shows only the
+first frame of an animated GIF; the file itself animates (decode of an
+exported GIF shows distinct frames). To fix the experience regardless of
+viewer: (1) a play-speed selector (0.5x/1x/2x/4x) drives the live interval
+and the exported frame rate; (2) Export is now a menu - Animated GIF or
+Video (.mp4) via WebCodecs H.264 (VP9-in-MP4 fallback) muxed with
+mp4-muxer, which plays in every desktop player and PowerPoint; (3) frames
+carry a time + counter label ("2024-03 3/3") so motion is unambiguous.
+Both formats share one async frame renderer with progress feedback.
+Verified in headless Chrome: GIF at 2x = 3 frames,25-hundredths delays,
+loop extension; MP4 = valid ftyp/mvhd, 0.75 s for 3 frames.
