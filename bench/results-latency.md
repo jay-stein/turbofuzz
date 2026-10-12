@@ -36,3 +36,17 @@ Budgets follow the review's section 7: active view recompute < 50 ms at
 100k rows (≤ 3 measures), > 10k groups never blocks > 100 ms, instant
 clean/transform commit < 500 ms. The 300k run is the paste-limit ceiling.
 
+## Decision: the 300k budget
+
+The 50 ms active-view budget is defined at 100k rows and the app passes it
+with headroom (22–38 ms p50). At the 300k paste-limit the same views take
+77–264 ms: still interactive (one frame hitch at worst, keystrokes remain
+fast because filters stay at ~11 ms), but deliberately over the stated
+budget. **Decision (2026-10-12): keep the 50 ms target at 100k rows, do not
+raise it, and do not add a 300k budget.** 300k remains a supported but
+soft-degraded ceiling; the remediation path (WebAssembly kernels or
+incremental aggregation) is logged as a follow-up rather than silently
+loosening the number. `test/perf-guard.test.ts` fails at 100× the p50 so
+accidental O(n²) regressions are caught long before the budget argues about
+milliseconds.
+

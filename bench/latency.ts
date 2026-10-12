@@ -7,6 +7,7 @@ import { ColumnData } from "../src/data/column.js";
 import { computeRelationships } from "../src/data/relationships.js";
 import { textProfile } from "../src/data/text-profile.js";
 import { computeDistributionChanges } from "../src/data/distribution.js";
+import { computeSimilarClusters } from "../src/data/similar-clusters.js";
 import { QueryEngine } from "../src/search/query-engine.js";
 import { generateDataset } from "./data.js";
 import { count, measure, memMB, ms, type Timing } from "./bench-utils.js";
@@ -159,6 +160,15 @@ function casesFor(size: number): { cases: BenchCase[]; buildMs: number; rssMB: n
           const all = new Uint32Array(dataset.rowCount);
           for (let row = 0; row < all.length; row++) all[row] = row;
           computeDistributionChanges(dataset.columns, dataset.rowCount, all);
+        },
+      },
+      {
+        label: "Near-duplicate clusters: blocked value scan (lazy)",
+        budgetMs: 500,
+        run: () => {
+          const all = new Uint32Array(dataset.rowCount);
+          for (let row = 0; row < all.length; row++) all[row] = row;
+          computeSimilarClusters(dataset.columns, dataset.rowCount, all);
         },
       },
       {
