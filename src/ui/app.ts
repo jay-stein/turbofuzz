@@ -1,6 +1,13 @@
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
-import { listArchiveEntries, readArchiveEntry, type ArchiveEntry } from "../parse/archive.js";
+import {
+  listArchiveEntries,
+  readArchiveEntries,
+  readArchiveEntry,
+  type ArchiveEntry,
+} from "../parse/archive.js";
 import { decompressBzip2 } from "../parse/bz2.js";
+import { decodeText } from "../parse/encoding.js";
+import { parseDelimited, sameHeaderRow } from "../parse/parse.js";
 import { detectTable } from "../parse/header-detect.js";
 import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
 import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
@@ -109,6 +116,15 @@ interface PickerItem {
   rows: number;
   columns: number;
   detail?: string;
+  onSelect: () => void;
+}
+
+/** Optional bulk action shown above the picker list (e.g. ZIP Import all). */
+interface PickerBulk {
+  label: string;
+  title: string;
+  note?: string;
+  disabled?: boolean;
   onSelect: () => void;
 }
 
@@ -445,8 +461,8 @@ export class App {
     topbar.append(this.themeButton, helpButton);
 
     this.newButton = el("button", { class: "ghost", type: "button" }, ["New data"]);
-    this.newButton.addEventListener("click", () => this.showPaste());
-    this.newButton.classList.add("hidden");
+    this.newButton.title = "Load a CSV, Excel, JSON or Parquet file";
+    this.newButton.addEventListener("click", () => this.onNewDataClick());
     topbar.append(this.newButton);
 
     this.pasteView = this.buildPasteView();
@@ -933,10 +949,27 @@ export class App {
     this.tablePickerEl.classList.add("hidden");
   }
 
-  private showPicker(title: string, items: PickerItem[]): void {
+  private showPicker(title: string, items: PickerItem[], bulk?: PickerBulk): void {
     this.hideLoadProgress();
     clear(this.tablePickerList);
     this.tablePickerTitle.textContent = title;
+
+    if (bulk !== undefined) {
+      const option = el("button", {
+        class: "table-option table-option-bulk",
+        type: "button",
+        title: bulk.title,
+      }) as HTMLButtonElement;
+      option.disabled = bulk.disabled === true;
+      option.append(el("span", { class: "table-option-name" }, [bulk.label]));
+      if (bulk.note !== undefined) {
+        option.append(el("span", { class: "table-option-size" }, [bulk.note]));
+      }
+      option.addEventListener("click", () => {
+        if (!option.disabled) bulk.onSelect();
+      });
+      this.tablePickerList.append(option);
+    }
 
     items.forEach((item) => {
       const option = el("button", { class: "table-option", type: "button" });
@@ -1011,19 +1044,48 @@ export class App {
       }
 
       this.setLoadingText("");
-      this.showPicker(
-        `${entries.length} files in ${fileName} — pick one`,
-        entries.map((entry) => ({
-          label: entry.path,
-          rows: 0,
-          columns: 0,
-          detail: formatBytes(entry.size),
-          onSelect: () => {
-            this.hideTablePicker();
-            void this.openArchiveEntry(entry, fileName, buffer);
-          },
-        })),
+      const pickItems = entries.map((entry) => ({
+        label: entry.path,
+        rows: 0,
+        columns: 0,
+        detail: formatBytes(entry.size),
+        onSelect: () => {
+          this.hideTablePicker();
+          void this.openArchiveEntry(entry, fileName, buffer);
+        },
+      }));
+      // Delimited files can be appended into one table when every file's
+      // first row matches; workbooks still need a single pick.
+      const allDelimited = entries.every(
+        (entry) => !WORKBOOK_EXTENSIONS.includes(extensionOf(entry.name)),
       );
+      if (allDelimited) {
+        const check = await this.checkArchiveTables(entries, buffer);
+        this.setLoadingText("");
+        this.showPicker(
+          `${entries.length} files in ${fileName} — pick one, or append them all`,
+          pickItems,
+          check.ok
+            ? {
+                label: `Import all ${entries.length} files (append rows)`,
+                title: "The first row matches in every file — concatenate them into one table",
+                note: `${check.totalRows.toLocaleString()} data rows · ${check.headers.length} columns · first row identical in all ${entries.length} files`,
+                onSelect: () => {
+                  this.hideTablePicker();
+                  void this.importArchiveTables(check.tables, fileName);
+                },
+              }
+            : {
+                label: `Import all ${entries.length} files (append rows)`,
+                title: check.reason,
+                note: check.reason,
+                disabled: true,
+                onSelect: () => undefined,
+              },
+        );
+        return;
+      }
+      this.showPicker(`${entries.length} files in ${fileName} — pick one`, pickItems);
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not read archive");
     }
@@ -1053,6 +1115,92 @@ export class App {
       });
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not extract file");
+    }
+  }
+
+  /**
+   * Reads and parses every delimited archive entry once to test whether their
+   * first rows match. Returns the parsed tables so "Import all" reuses them.
+   */
+  private async checkArchiveTables(
+    entries: readonly ArchiveEntry[],
+    archive: ArrayBuffer,
+  ): Promise<
+    | {
+        ok: true;
+        headers: string[];
+        totalRows: number;
+        tables: { headers: string[]; rows: string[][] }[];
+      }
+    | { ok: false; reason: string }
+  > {
+    try {
+      this.setLoadingText(`Checking ${entries.length} files…`);
+      const files = await readArchiveEntries(
+        archive,
+        entries.map((entry) => entry.path),
+      );
+      const tables: { headers: string[]; rows: string[][] }[] = [];
+      let headers: string[] | null = null;
+      let totalRows = 0;
+      for (let index = 0; index < entries.length; index++) {
+        const entry = entries[index];
+        if (entry === undefined) continue;
+        const bytes = files.get(entry.path);
+        if (bytes === undefined) {
+          return { ok: false, reason: `“${entry.name}” could not be read` };
+        }
+        const data = bytes.buffer.slice(
+          bytes.byteOffset,
+          bytes.byteOffset + bytes.byteLength,
+        ) as ArrayBuffer;
+        const parsed = parseDelimited(decodeText(data).text, { hasHeaders: true });
+        if (parsed.headers.length === 0) {
+          return { ok: false, reason: `“${entry.name}” has no first row to compare` };
+        }
+        if (headers === null) headers = parsed.headers;
+        else if (!sameHeaderRow(headers, parsed.headers)) {
+          return {
+            ok: false,
+            reason: `“${entry.name}” has different columns — pick a single file instead`,
+          };
+        }
+        tables.push({ headers: parsed.headers, rows: parsed.rows });
+        totalRows += parsed.rows.length;
+        this.setLoadingText(`Checking ${entry.name}… (${index + 1}/${entries.length})`);
+        if (index % 8 === 7) await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      if (headers === null || tables.length === 0) {
+        return { ok: false, reason: "No readable files found" };
+      }
+      return { ok: true, headers, totalRows, tables };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: error instanceof Error ? error.message : "Could not check the files",
+      };
+    }
+  }
+
+  /** Vertically concatenates the checked archive tables into one dataset. */
+  private async importArchiveTables(
+    tables: readonly { headers: string[]; rows: string[][] }[],
+    fileName: string,
+  ): Promise<void> {
+    try {
+      const grid: string[][] = [];
+      for (const table of tables) {
+        grid.push([...table.headers]);
+        for (const row of table.rows) grid.push([...row]);
+      }
+      const total = grid.length;
+      this.setLoadingText("");
+      await this.loadGrid(grid, `${fileName.replace(/\.zip$/i, "")} — ${tables.length} files`);
+      this.setAction(
+        `Imported ${tables.length} files · ${total.toLocaleString()} rows before header detection`,
+      );
+    } catch (error) {
+      this.setStatusError(error instanceof Error ? error.message : "Could not import the files");
     }
   }
 
@@ -1341,7 +1489,7 @@ export class App {
 
     this.pasteView.classList.add("hidden");
     this.workspace.classList.remove("hidden");
-    this.newButton.classList.remove("hidden");
+    this.updateNewButton();
 
     const columnsWithNulls = loaded.columns.filter((column) => column.stats.nulls > 0).length;
     const emptyText =
@@ -2776,14 +2924,52 @@ export class App {
     this.pasteView.classList.remove("hidden");
     this.pasteCancel.classList.toggle("hidden", !hasData);
     this.workspace.classList.toggle("hidden", !hasData);
-    this.newButton.classList.add("hidden");
+    this.updateNewButton();
   }
 
   private hidePaste(): void {
     if (this.lastLoaded === null) return;
     this.pasteView.classList.add("hidden");
     this.workspace.classList.remove("hidden");
-    this.newButton.classList.remove("hidden");
+    this.updateNewButton();
+  }
+
+  /**
+   * Toolbar button: "New data" opens the load dialog when empty; "Clear data"
+   * asks for confirmation, then closes the table and reopens the load dialog.
+   */
+  private onNewDataClick(): void {
+    if (this.lastLoaded === null) {
+      this.showPaste();
+      return;
+    }
+    void openConfirm({
+      title: "Clear the data?",
+      body: "The current table, filters and steps will be closed. Saved recipes are not affected.",
+      confirmLabel: "Clear data",
+      danger: true,
+    }).then((confirmed) => {
+      if (confirmed) this.clearData();
+    });
+  }
+
+  private updateNewButton(): void {
+    const hasData = this.lastLoaded !== null;
+    this.newButton.textContent = hasData ? "Clear data" : "New data";
+    this.newButton.title = hasData
+      ? "Close the current table and start over (asks first)"
+      : "Load a CSV, Excel, JSON or Parquet file";
+  }
+
+  private clearData(): void {
+    this.lastLoaded = null;
+    this.datasetName = "";
+    this.archetypeOverride = null;
+    this.workspace.classList.add("hidden");
+    this.pasteView.classList.remove("hidden");
+    this.pasteCancel.classList.add("hidden");
+    this.updateNewButton();
+    this.setAction("Data cleared — load a file to start again");
   }
 
   private openClean(

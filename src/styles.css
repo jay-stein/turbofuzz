@@ -476,6 +476,19 @@ textarea:focus {
   cursor: pointer;
 }
 
+.table-option-bulk {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  margin-bottom: 6px;
+}
+
+.table-option-bulk:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  border-color: var(--border);
+  background: var(--panel-2);
+}
+
 .table-option:hover {
   background: var(--panel);
   border-color: var(--border-subtle);

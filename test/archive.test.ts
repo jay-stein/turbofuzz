@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { zipSync } from "fflate";
-import { listArchiveEntries, readArchiveEntry } from "../src/parse/archive.js";
+import { listArchiveEntries, readArchiveEntries, readArchiveEntry } from "../src/parse/archive.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -35,4 +35,17 @@ test("extracts a single entry by path", async () => {
   const buffer = toBuffer(zip);
   const bytes = await readArchiveEntry(buffer, "b.csv");
   assert.equal(decoder.decode(bytes), "y\n2");
+});
+
+test("reads several entries in one pass for Import all", async () => {
+  const zip = zipSync({
+    "jan.csv": encoder.encode("region,total\nNorth,10"),
+    "feb.csv": encoder.encode("region,total\nSouth,5"),
+    "logo.png": encoder.encode("not really a png"),
+  });
+  const files = await readArchiveEntries(toBuffer(zip), ["jan.csv", "feb.csv"]);
+  assert.equal(files.size, 2);
+  assert.equal(decoder.decode(files.get("jan.csv")), "region,total\nNorth,10");
+  assert.equal(decoder.decode(files.get("feb.csv")), "region,total\nSouth,5");
+  assert.equal(files.has("logo.png"), false, "unrequested entries are not inflated");
 });

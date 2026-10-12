@@ -64,3 +64,21 @@ export async function readArchiveEntry(buffer: ArrayBuffer, path: string): Promi
     });
   });
 }
+
+/** Decompresses several entries in one pass (used by the Import-all flow). */
+export async function readArchiveEntries(
+  buffer: ArrayBuffer,
+  paths: readonly string[],
+): Promise<Map<string, Uint8Array>> {
+  const { unzip } = await import("fflate");
+  const wanted = new Set(paths);
+  return new Promise((resolve, reject) => {
+    unzip(new Uint8Array(buffer), { filter: (file) => wanted.has(file.name) }, (error, files) => {
+      if (error !== null) {
+        reject(error);
+        return;
+      }
+      resolve(new Map(Object.entries(files)));
+    });
+  });
+}
