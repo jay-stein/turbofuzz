@@ -115,6 +115,20 @@ measures, YoY, cohorts); only the explicitly “later” event-log specifics
 `70231219-6db9-4f52-a9fd-c84dccff5f3f` (visual checks on the chart card,
 palette picker, Clear data dialog via headless Chrome).
 
+## Large-ZIP fix (same day)
+
+A 31-file, 916 MB traffic export took minutes because Import all's header
+check inflated and fully parsed every CSV before the picker appeared
+(multi-GB string churn). Header checks now read only the first 128 KB of each
+entry, four at a time with progress; the row count is estimated from the first
+file's bytes-per-row. Measured on the real archive: picker ready in ~3.9 s
+(inflate 3.8 s across 31 concurrent-ish prefix reads, prefix parsing 0.13 s,
+estimated 3.7M rows × 103 columns). Import all is disabled above 20M estimated
+cells with the numbers in the note, and allowed imports stream one file at a
+time (no retained tables, no header re-detection, no array copies). Commit
+`e6ea5f7`, deployed `56093abc-8b12-4172-8447-c1c5f041f6f8`.
+
+
 
 Drawers kept intentionally: the inspector and command bar cover the common
 verbs, but melt, KNN, combine-date roles and regex split still need the
