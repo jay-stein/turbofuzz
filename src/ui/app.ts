@@ -2788,6 +2788,33 @@ export class App {
       onMerge: () => this.openMerge(column),
       onRename: () => void this.renameColumn(column),
       onDelete: () => void this.confirmDeleteColumn(column),
+      onRound: (decimals) =>
+        this.applyTransform(
+          [...this.transformOps, { kind: "round", column, decimals }],
+          `Rounded “${meta.name}” to ${decimals} decimal place${decimals === 1 ? "" : "s"}`,
+        ),
+      onFillMissing: (strategy) =>
+        this.applyTransform(
+          [...this.transformOps, { kind: "impute", column, strategy, groupColumn: null }],
+          `Filled missing values in “${meta.name}”`,
+        ),
+      onDedupe: (keep) => this.dropDuplicates(keep),
+      onSplit: (pattern, regex) =>
+        this.applyTransform(
+          [
+            ...this.transformOps,
+            {
+              kind: "splitColumn",
+              column,
+              pattern,
+              regex,
+              dropEmpty: true,
+              dropOriginal: false,
+              prefix: meta.name,
+            },
+          ],
+          `Split “${meta.name}” on ${regex ? `/${pattern}/` : `“${pattern}”`}`,
+        ),
       onDisplayFormat: (decimals) => {
         if (decimals === null) this.displayFormats.delete(column);
         else this.displayFormats.set(column, decimals);

@@ -1,7 +1,10 @@
 import type { CleanOp } from "../data/clean-ops.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
+import type { DedupeKeep, ImputeStrategy } from "../data/transform-ops.js";
 import type { ColumnMeta } from "../worker/protocol.js";
+import { openPrompt } from "./dialog.js";
 import { el } from "./dom.js";
+import { openMenu, type MenuItem } from "./menu.js";
 
 export interface ColumnInspectorCallbacks {
   onSort(dir: 1 | -1): void;
@@ -14,9 +17,14 @@ export interface ColumnInspectorCallbacks {
   onMerge(): void;
   onRename(): void;
   onDelete(): void;
-  /** null = Auto (raw values); otherwise fixed decimal places. */
+  /** Fixed decimals for display; null = Auto. */
   onDisplayFormat(decimals: number | null): void;
   displayFormat: number | null;
+  /** Quick structural verbs that apply immediately (tracked in the Recipe). */
+  onRound(decimals: number): void;
+  onFillMissing(strategy: ImputeStrategy): void;
+  onDedupe(keep: DedupeKeep): void;
+  onSplit(pattern: string, regex: boolean): void;
 }
 
 function statLine(label: string, value: string | null): HTMLElement | null {
@@ -279,18 +287,56 @@ export function openColumnInspector(
       close();
       callbacks.onQuickClean({ kind: "escapeFormulas" });
     }),
-    action("Split…", "Open the Transform panel with this column preselected", () => {
-      close();
-      callbacks.onOpenTransform({ type: "splitColumn", column });
+    action("Split…", "Split this column without leaving the table", () => {
+      void promptSplit(close, callbacks);
     }),
-    action("Round…", "Open the Transform panel with this column preselected", () => {
-      close();
-      callbacks.onOpenTransform({ type: "round", column });
+    action("Round…", "Round this column to N decimal places", () => {
+      void promptRound(close, callbacks);
     }),
-    action("Fill missing…", "Open the Transform panel with this column preselected", () => {
-      close();
-      callbacks.onOpenTransform({ type: "impute", column });
-    }),
+    (() => {
+      const items: MenuItem[] = [
+        { label: "Mean", action: () => { close(); callbacks.onFillMissing({ kind: "mean" }); } },
+        { label: "Median", action: () => { close(); callbacks.onFillMissing({ kind: "median" }); } },
+        { label: "Mode (most frequent)", action: () => { close(); callbacks.onFillMissing({ kind: "mode" }); } },
+        { label: "Previous value", action: () => { close(); callbacks.onFillMissing({ kind: "forward" }); } },
+        { label: "Next value", action: () => { close(); callbacks.onFillMissing({ kind: "backward" }); } },
+        {
+          label: "Constant value…",
+          action: () => {
+            void (async () => {
+              const value = await openPrompt({
+                title: `Fill “${meta.name}” with a constant`,
+                label: "Value",
+                placeholder: "0",
+                confirmLabel: "Fill",
+              });
+              close();
+              if (value !== null && value.trim() !== "") {
+                callbacks.onFillMissing({ kind: "constant", value });
+              }
+            })();
+          },
+        },
+        { label: "More options…", action: () => { close(); callbacks.onOpenTransform({ type: "impute", column }); } },
+      ];
+      const button = action("Fill missing ▾", "Choose how missing values are filled", () =>
+        openMenu(button, items),
+      );
+      return button;
+    })(),
+    (() => {
+      const items: MenuItem[] = [
+        { label: "Keep first copy", action: () => { close(); callbacks.onDedupe("first"); } },
+        { label: "Keep last copy", action: () => { close(); callbacks.onDedupe("last"); } },
+        { label: "Remove all copies", action: () => { close(); callbacks.onDedupe("none"); } },
+      ];
+      const button = action(
+        "Remove duplicates ▾",
+        "Drop identical rows, keeping the first, last or none",
+        () => openMenu(button, items),
+      );
+      return button;
+    })(),
     action("Group by…", "Aggregate rows by this column", () => {
       close();
       callbacks.onOpenTransform({ type: "groupBy", column });
@@ -352,6 +398,49 @@ export function openColumnInspector(
     8,
     Math.min(rect.bottom + 6, window.innerHeight - panel.offsetHeight - 8),
   )}px`;
+}
+
+/** Decimal-places prompt for the quick Round verb. */
+async function promptRound(
+  close: () => void,
+  callbacks: ColumnInspectorCallbacks,
+): Promise<void> {
+  const value = await openPrompt({
+    title: "Round column",
+    label: "Decimal places — negative rounds left (-1 = nearest 10)",
+    value: "0",
+    confirmLabel: "Round",
+  });
+  close();
+  if (value === null) return;
+  const decimals = Number(value.trim());
+  if (Number.isFinite(decimals) && Math.abs(decimals) <= 12) {
+    callbacks.onRound(Math.round(decimals));
+  }
+}
+
+/** Delimiter or /regex/ prompt for the quick Split verb. */
+async function promptSplit(
+  close: () => void,
+  callbacks: ColumnInspectorCallbacks,
+): Promise<void> {
+  const value = await openPrompt({
+    title: "Split column",
+    label: "Delimiter (comma, space, tab or text), or /regex/ between slashes",
+    placeholder: "comma",
+    confirmLabel: "Split",
+  });
+  close();
+  if (value === null || value.trim() === "") return;
+  let pattern = value.trim();
+  let regex = false;
+  if (pattern.startsWith("/") && pattern.endsWith("/") && pattern.length > 2) {
+    pattern = pattern.slice(1, -1);
+    regex = true;
+  } else if (pattern === "comma") pattern = ",";
+  else if (pattern === "space") pattern = " ";
+  else if (pattern === "tab") pattern = "\t";
+  callbacks.onSplit(pattern, regex);
 }
 
 /** Short chip text for one suggestion (mirrors the header chip wording). */

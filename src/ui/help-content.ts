@@ -41,7 +41,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       ),
       list(
         "Click a chip to apply its fix — every fix is reversible from the Recipe.",
-        "Click a column name to inspect it — profile, issues and one-click fixes (sort, filter, chart, trim, case, convert, split, round, fill missing, display format). Right-click a header for the full grouped Column / Clean / Transform menu. Parameter-free cleans (Trim, UPPERCASE, lowercase, Title Case, Convert to number/date, formula escaping) apply instantly with an Undo toast; configurable operations open their panel with that column (and operation) already selected. Drag the divider on a header's right edge to resize it (double-click the divider to reset).",
+        "Click a column name to inspect it — profile, issues and one-click fixes (sort, filter, chart, trim, case, convert, split, round, fill missing, remove duplicates, display format). Right-click a header for the full grouped Column / Clean / Transform menu. Parameter-free cleans (Trim, UPPERCASE, lowercase, Title Case, Convert to number/date, formula escaping) apply instantly with an Undo toast; configurable operations open their panel with that column (and operation) already selected. Drag the divider on a header's right edge to resize it (double-click the divider to reset).",
         "Use Export… when you are done; the dialog states exactly which rows will be written, with an optional first-N subset.",
         "The header Theme control cycles Auto / Light / Dark — Auto follows your operating system.",
         "Help (this drawer) is searchable; the Chart tab shows a chart of the current result set and exports it as a PNG.",

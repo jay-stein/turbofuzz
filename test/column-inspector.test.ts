@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import { openColumnInspector } from "../src/ui/column-inspector.js";
+import {
+  openColumnInspector,
+  type ColumnInspectorCallbacks,
+} from "../src/ui/column-inspector.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
 
 function setupDom(): Window {
@@ -48,6 +51,36 @@ function meta(overrides: Partial<ColumnMeta> = {}): ColumnMeta {
   };
 }
 
+function callbacks(
+  calls: string[],
+  overrides: Partial<ColumnInspectorCallbacks> = {},
+): ColumnInspectorCallbacks {
+  return {
+    displayFormat: null,
+    onSort: (dir) => calls.push(`sort:${dir}`),
+    onFilter: () => calls.push("filter"),
+    onChart: () => calls.push("chart"),
+    onQuickClean: (op) => calls.push(`clean:${op.kind}`),
+    onOpenClean: (tab) => calls.push(`clean-panel:${tab}`),
+    onOpenTransform: (preset) => calls.push(`transform:${preset?.type ?? "all"}`),
+    onSuggestion: () => calls.push("suggestion"),
+    onMerge: () => calls.push("merge"),
+    onRename: () => calls.push("rename"),
+    onDelete: () => calls.push("delete"),
+    onDisplayFormat: (decimals) => calls.push(`format:${decimals}`),
+    onRound: (decimals) => calls.push(`round:${decimals}`),
+    onFillMissing: (strategy) => calls.push(`fill:${strategy.kind}`),
+    onDedupe: (keep) => calls.push(`dedupe:${keep}`),
+    onSplit: (pattern, regex) => calls.push(`split:${pattern}:${regex}`),
+    ...overrides,
+  };
+}
+
+function anchor(): HTMLElement {
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  return document.createElement("button") as unknown as HTMLElement;
+}
+
 function inspectorText(): string {
   const document = (globalThis as Record<string, unknown>).document as Window["document"];
   return document.querySelector(".column-inspector")?.textContent ?? "";
@@ -62,25 +95,13 @@ function clickAction(label: string): void {
   (button as unknown as { click(): void }).click();
 }
 
-test("column inspector shows the profile, the issues and runs verbs", () => {
+const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+test("column inspector shows the profile, the issues and runs verbs", async () => {
   setupDom();
-  const document = (globalThis as Record<string, unknown>).document as Window["document"];
-  const anchor = document.createElement("button") as unknown as HTMLElement;
   const calls: string[] = [];
-  openColumnInspector(anchor, meta(), 0, {
-    displayFormat: null,
-    onSort: (dir) => calls.push(`sort:${dir}`),
-    onFilter: () => calls.push("filter"),
-    onChart: () => calls.push("chart"),
-    onQuickClean: (op) => calls.push(`clean:${op.kind}`),
-    onOpenClean: (tab) => calls.push(`clean-panel:${tab}`),
-    onOpenTransform: (preset) => calls.push(`transform:${preset?.type ?? "all"}`),
-    onSuggestion: () => calls.push("suggestion"),
-    onMerge: () => calls.push("merge"),
-    onRename: () => calls.push("rename"),
-    onDelete: () => calls.push("delete"),
-    onDisplayFormat: (decimals) => calls.push(`format:${decimals}`),
-  });
+  const button = anchor();
+  openColumnInspector(button, meta(), 0, callbacks(calls));
 
   const text = inspectorText();
   assert.match(text, /amount/);
@@ -92,67 +113,61 @@ test("column inspector shows the profile, the issues and runs verbs", () => {
   clickAction("Sort descending");
   assert.deepEqual(calls, ["sort:-1"]);
 
-  // The panel closes on every action; reopen for the next verb.
-  openColumnInspector(anchor, meta(), 0, {
-    displayFormat: null,
-    onSort: () => {},
-    onFilter: () => {},
-    onChart: () => {},
-    onQuickClean: (op) => calls.push(`clean:${op.kind}`),
-    onOpenClean: () => {},
-    onOpenTransform: (preset) => calls.push(`transform:${preset?.type ?? "all"}`),
-    onSuggestion: () => {},
-    onMerge: () => {},
-    onRename: () => {},
-    onDelete: () => {},
-    onDisplayFormat: (decimals) => calls.push(`format:${decimals}`),
-  });
+  openColumnInspector(button, meta(), 0, callbacks(calls));
   clickAction("UPPERCASE");
   assert.ok(calls.includes("clean:case"));
 
-  openColumnInspector(anchor, meta(), 0, {
-    displayFormat: null,
-    onSort: () => {},
-    onFilter: () => {},
-    onChart: () => {},
-    onQuickClean: () => {},
-    onOpenClean: () => {},
-    onOpenTransform: (preset) => calls.push(`transform:${preset?.type ?? "all"}`),
-    onSuggestion: () => {},
-    onMerge: () => {},
-    onRename: () => {},
-    onDelete: () => {},
-    onDisplayFormat: (decimals) => calls.push(`format:${decimals}`),
-  });
+  openColumnInspector(button, meta(), 0, callbacks(calls));
   clickAction("2 dp");
   assert.ok(calls.includes("format:2"));
+
+  openColumnInspector(button, meta(), 0, callbacks(calls));
+  clickAction("Round…");
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const confirm = document.querySelector(".confirm-modal .primary") as unknown as {
+    click(): void;
+  } | null;
+  assert.ok(confirm !== null, "the round prompt opens");
+  confirm.click();
+  await tick();
+  assert.ok(calls.includes("round:0"), "the round prompt defaults to 0 decimals");
+});
+
+test("fill and dedupe menus run their chosen strategy", () => {
+  setupDom();
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const calls: string[] = [];
+  const button = anchor();
+  openColumnInspector(button, meta(), 0, callbacks(calls));
+  clickAction("Fill missing ▾");
+  const median = [...document.querySelectorAll(".context-menu .context-item")].find(
+    (item) => item.textContent === "Median",
+  );
+  assert.ok(median !== undefined);
+  (median as unknown as { click(): void }).click();
+  assert.deepEqual(calls, ["fill:median"]);
+
+  openColumnInspector(button, meta(), 0, callbacks(calls));
+  clickAction("Remove duplicates ▾");
+  const last = [...document.querySelectorAll(".context-menu .context-item")].find(
+    (item) => item.textContent === "Keep last copy",
+  );
+  assert.ok(last !== undefined);
+  (last as unknown as { click(): void }).click();
+  assert.ok(calls.includes("dedupe:last"));
 });
 
 test("a clean column gets the all-clear and structural verbs open Transform", () => {
   setupDom();
-  const document = (globalThis as Record<string, unknown>).document as Window["document"];
-  const anchor = document.createElement("button") as unknown as HTMLElement;
-  const transforms: string[] = [];
+  const calls: string[] = [];
+  const button = anchor();
   openColumnInspector(
-    anchor,
+    button,
     meta({ suggestions: [], anomalyCounts: { values: 0, lengths: 0 }, stats: { ...meta().stats, nulls: 0 } }),
     2,
-    {
-      displayFormat: null,
-      onSort: () => {},
-      onFilter: () => {},
-      onChart: () => {},
-      onQuickClean: () => {},
-      onOpenClean: () => {},
-      onOpenTransform: (preset) => transforms.push(preset?.type ?? "all"),
-      onSuggestion: () => {},
-      onMerge: () => {},
-      onRename: () => {},
-      onDelete: () => {},
-      onDisplayFormat: () => {},
-    },
+    callbacks(calls),
   );
   assert.match(inspectorText(), /No issues found/);
-  clickAction("Split…");
-  assert.deepEqual(transforms, ["splitColumn"]);
+  clickAction("Group by…");
+  assert.deepEqual(calls, ["transform:groupBy"]);
 });
