@@ -55,7 +55,6 @@ import { openExportPanel } from "./export-panel.js";
 import { openMergePanel } from "./merge-panel.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
-import { PipelineStepper, type StageId } from "./stepper.js";
 import { ViewTabs, type ViewId } from "./view-tabs.js";
 import { suggestCharts } from "./chart-utils.js";
 
@@ -89,7 +88,7 @@ interface PickerItem {
   onSelect: () => void;
 }
 
-/** Reversible missing-value policy change, logged in the Process Log. */
+/** Reversible missing-value policy change, logged in the Recipe. */
 interface NullEdit {
   column: number;
   label: string;
@@ -100,7 +99,7 @@ interface NullEdit {
   all?: boolean;
 }
 
-/** Reversible column type (interpretation) change, logged in the Process Log. */
+/** Reversible column type (interpretation) change, logged in the Recipe. */
 interface TypeEdit {
   column: number;
   label: string;
@@ -245,7 +244,7 @@ export class App {
   private readonly typeEdits: TypeEdit[] = [];
   private transformOps: TransformOp[] = [];
   private transformBaseSchema: ColumnSchema[] = [];
-  /** Sizes of the transform commits, in op order, for Process Log batches. */
+  /** Sizes of the transform commits, in op order, for Recipe batches. */
   private transformCommitSizes: number[] = [];
   private filterPanel: FilterPanel | null = null;
   private table: ResultTable | null = null;
@@ -320,8 +319,6 @@ export class App {
   private latestHistograms: Record<number, number[]> = {};
   private themeButton!: HTMLButtonElement;
   private themePreference: ThemePreference = readThemePreference();
-  private stepperHost!: HTMLElement;
-  private stepper: PipelineStepper | null = null;
   private workspaceTitle!: HTMLElement;
   private tabHost!: HTMLElement;
   private hints: Hints | null = null;
@@ -346,9 +343,9 @@ export class App {
       },
       {
         id: "process-log",
-        text: "Every clean and transform lands in the Process Log, where you can undo it.",
+        text: "Every clean and transform lands in the Recipe, where you can undo it.",
         target: () =>
-          this.stepsButton.classList.contains("hidden") ? null : this.stepsButton,
+          this.workspace.classList.contains("hidden") ? null : this.stepsButton,
       },
       {
         id: "column-tiles",
@@ -574,11 +571,31 @@ export class App {
     const tabHost = el("div");
     this.tabHost = tabHost;
     this.tabs = new ViewTabs(tabHost, { onChange: (view) => this.setView(view) });
-    this.stepperHost = el("div", { class: "stepper-host" });
-    this.stepper = new PipelineStepper(this.stepperHost, {
-      onSelect: (id) => this.selectStage(id),
-    });
-    const navRow = el("div", { class: "nav-row" }, [tabHost, this.stepperHost]);
+
+    this.stepsButton = el(
+      "button",
+      { class: "ghost small", type: "button", title: "Review, undo or export the applied changes" },
+      ["Recipe"],
+    ) as HTMLButtonElement;
+    this.stepsButton.addEventListener("click", () => this.openSteps());
+
+    this.exportButton = el(
+      "button",
+      {
+        class: "primary small",
+        type: "button",
+        title: "Choose a file name and format, then export",
+      },
+      ["Export…"],
+    ) as HTMLButtonElement;
+    this.exportButton.addEventListener("click", () => this.openExportDialog());
+
+    const navRow = el("div", { class: "nav-row" }, [
+      tabHost,
+      el("span", { class: "grow" }),
+      this.stepsButton,
+      this.exportButton,
+    ]);
 
     const sidebar = el("aside", { class: "sidebar hidden" });
     this.sidebarEl = sidebar;
@@ -624,25 +641,6 @@ export class App {
       ["Copy"],
     ) as HTMLButtonElement;
     this.copyButton.addEventListener("click", () => void this.copyResults());
-
-    this.stepsButton = el(
-      "button",
-      { class: "ghost small", type: "button", title: "Review, undo or export the applied changes" },
-      ["Process Log"],
-    ) as HTMLButtonElement;
-    this.stepsButton.classList.add("hidden");
-    this.stepsButton.addEventListener("click", () => this.openSteps());
-
-    this.exportButton = el(
-      "button",
-      {
-        class: "primary small",
-        type: "button",
-        title: "Choose a file name and format, then export",
-      },
-      ["Export…"],
-    ) as HTMLButtonElement;
-    this.exportButton.addEventListener("click", () => this.openExportDialog());
 
     this.shuffleButton = el(
       "button",
@@ -711,9 +709,7 @@ export class App {
       el("span", { class: "grow" }),
       this.actionEl,
       this.shuffleButton,
-      this.stepsButton,
       this.copyButton,
-      this.exportButton,
       this.moreButton,
     );
 
@@ -1217,7 +1213,6 @@ export class App {
     this.rowCount = loaded.rowCount;
     this.datasetName = loaded.name;
     this.workspaceTitle.textContent = `${loaded.name} — ${loaded.rowCount.toLocaleString()} rows`;
-    this.stepper?.setDone("load", true);
     this.filters.clear();
     this.renderFilterChips();
     this.cleanedColumns.clear();
@@ -1452,8 +1447,8 @@ export class App {
       title: `Delete ${labels.join(" and ")}?`,
       body:
         positions.length > 0
-          ? "Rows are removed from the working set — counts and exports exclude them, and the deletion is undoable from the Process Log. Columns are removed as tracked transform steps."
-          : "Columns are removed as tracked transform steps, undoable from the Process Log.",
+          ? "Rows are removed from the working set — counts and exports exclude them, and the deletion is undoable from the Recipe. Columns are removed as tracked transform steps."
+          : "Columns are removed as tracked transform steps, undoable from the Recipe.",
       confirmLabel: "Delete",
       danger: true,
     });
@@ -1803,7 +1798,6 @@ export class App {
 
   private openExportDialog(): void {
     if (this.datasetName === "" || this.loading) return;
-    this.setStage("export");
     openExportPanel(
       this.defaultExportName(),
       {
@@ -1830,7 +1824,7 @@ export class App {
             settings.limit,
           );
         },
-        onClose: () => this.setStage(null),
+        onClose: () => undefined,
       },
     );
   }
@@ -2058,7 +2052,7 @@ export class App {
         {
           class: "ghost small placeholder-action",
           type: "button",
-          title: `Blank ${total.toLocaleString()} placeholder cells (${examples}) across all columns — undo in the Process Log`,
+          title: `Blank ${total.toLocaleString()} placeholder cells (${examples}) across all columns — undo in the Recipe`,
         },
         [`Convert to nulls (${total.toLocaleString()})`],
       ) as HTMLButtonElement;
@@ -2361,34 +2355,12 @@ export class App {
     this.newButton.classList.add("hidden");
   }
 
-  private selectStage(id: StageId): void {
-    switch (id) {
-      case "load":
-        this.showPaste();
-        break;
-      case "clean":
-        this.openClean();
-        break;
-      case "transform":
-        this.openTransform();
-        break;
-      case "export":
-        this.openExportDialog();
-        break;
-    }
-  }
-
-  private setStage(id: StageId | null): void {
-    this.stepper?.setActive(id);
-  }
-
   private openClean(
     column?: number,
     tab?: "values" | "nulls",
     op?: CleanOp,
   ): void {
     if (this.datasetName === "" || this.loading) return;
-    this.setStage("clean");
     openCleanPanel(
       this.metas,
       this.cleanedColumns,
@@ -2410,7 +2382,7 @@ export class App {
             return { changed, total };
           }),
         onOpenMerge: (column) => this.openMerge(column),
-        onClose: () => this.setStage(null),
+        onClose: () => undefined,
       },
       { column, tab, op },
     );
@@ -2426,7 +2398,6 @@ export class App {
       },
       onClose: () => {
         this.table?.refreshHeader();
-        this.setStage(null);
       },
     });
   }
@@ -2632,7 +2603,7 @@ export class App {
     const confirmed = await openConfirm({
       title: `Delete column “${meta.name}”?`,
       body:
-        "The column is removed from the dataset as a tracked transform step — you can undo it from the Process Log.",
+        "The column is removed from the dataset as a tracked transform step — you can undo it from the Recipe.",
       confirmLabel: "Delete column",
       danger: true,
     });
@@ -2669,22 +2640,13 @@ export class App {
 
   private updateStepsButton(): void {
     const groups = groupSteps(this.stepEntries());
-    let cleanCount = 0;
-    let transformCount = 0;
-    for (const group of groups) {
-      if (group.entries.some((entry) => entry.kind === "transform")) transformCount++;
-      else cleanCount++;
-    }
-    this.stepper?.setCount("clean", cleanCount);
-    this.stepper?.setCount("transform", transformCount);
     const count = groups.length;
-    this.stepsButton.textContent = count === 0 ? "Process Log" : `Process Log (${count})`;
+    this.stepsButton.textContent = count === 0 ? "Recipe" : `Recipe (${count})`;
     this.stepsButton.disabled = count === 0;
     this.stepsButton.title =
       count === 0
-        ? "No changes yet — clean, fix or transform a column to start the log"
+        ? "No changes yet — clean, fix or transform a column to start the recipe"
         : "Review, undo or export the applied changes";
-    this.stepsButton.classList.toggle("hidden", count === 0);
     this.hints?.refresh();
   }
 
@@ -2832,7 +2794,7 @@ export class App {
         this.updateStepsButton();
       },
       onCopyRecipe: () => this.copyRecipe(),
-      onClose: () => this.setStage(null),
+      onClose: () => undefined,
     });
   }
 
@@ -3042,7 +3004,6 @@ export class App {
 
   private openTransform(preset?: { type: string; column?: number }): void {
     if (this.datasetName === "" || this.loading) return;
-    this.setStage("transform");
     const baseSchema =
       this.transformBaseSchema.length > 0
         ? this.transformBaseSchema
@@ -3056,7 +3017,7 @@ export class App {
       {
         onApply: (ops) => this.applyTransform(ops),
         onPreview: (ops) => this.client.previewTransform(ops),
-        onClose: () => this.setStage(null),
+        onClose: () => undefined,
       },
       preset,
     );

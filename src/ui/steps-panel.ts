@@ -131,7 +131,7 @@ export function groupSteps(entries: readonly StepsPanelEntry[]): StepsGroup[] {
 }
 
 /**
- * Process Log: every clean, missing-value, type and transform change currently
+ * Recipe: every clean, missing-value, type and transform change currently
  * baked into the dataset, each individually reversible, with cleans
  * reorderable within their column and a pandas recipe export of the pipeline.
  * Batches from a single action are condensed under a + toggle.
@@ -145,7 +145,7 @@ export function openStepsPanel(
   const modal = el("div", { class: "modal clean-modal drawer" });
 
   const head = el("div", { class: "modal-head" });
-  head.append(el("h2", {}, [`Process Log (${groups.length})`]));
+  head.append(el("h2", {}, [`Recipe (${groups.length})`]));
   const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close" }, ["×"]);
   head.append(closeButton);
   modal.append(head);
@@ -313,5 +313,5 @@ export function openStepsPanel(
 
   overlay.append(modal);
   document.body.append(overlay);
-  setupDialog(overlay, "Process Log");
+  setupDialog(overlay, "Recipe");
 }

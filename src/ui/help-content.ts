@@ -40,7 +40,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "After loading you land in the workspace: filters on the left, the table in the middle, and the Data QA strip on top. Fix chips appear above columns and in the left sidebar when the app spots a likely problem.",
       ),
       list(
-        "Click a chip to apply its fix — every fix is reversible from the Process Log.",
+        "Click a chip to apply its fix — every fix is reversible from the Recipe.",
         "Click a column name to sort; right-click a header for grouped Column / Clean / Transform actions. Parameter-free cleans (Trim, UPPERCASE, lowercase, Title Case, Convert to number/date, formula escaping) apply instantly with an Undo toast; configurable operations open their panel with that column (and operation) already selected. Drag the divider on a header's right edge to resize it (double-click the divider to reset).",
         "Use Export… when you are done; the dialog states exactly which rows will be written, with an optional first-N subset.",
         "The header Theme control cycles Auto / Light / Dark — Auto follows your operating system.",
@@ -108,7 +108,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     summary: "Trim, case, replace, convert, repair and missing-value rules.",
     blocks: [
       p(
-        "Open Clean and pick a column. The Apply button always states what one click will commit — “Apply Trim whitespace” or “Apply 3 operations” — and the configured operation is included even if you never staged it. Use “Add another” to stage a multi-step list first. The preview shows the first cells and a “how many cells change” count, and every applied operation is reversible from the Process Log.",
+        "Open Clean and pick a column. The Apply button always states what one click will commit — “Apply Trim whitespace” or “Apply 3 operations” — and the configured operation is included even if you never staged it. Use “Add another” to stage a multi-step list first. The preview shows the first cells and a “how many cells change” count, and every applied operation is reversible from the Recipe.",
       ),
       p(
         "Clean can also be opened from a column: right-click a header and choose Clean values… or Missing values… — the panel opens on that column and tab. Simple cleans (Trim, case, convert number/date, formula escaping) skip the panel and apply from the same menu with an Undo toast.",
@@ -131,7 +131,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     summary: "Dedupe, drop, round, group by, impute, combine dates and reshape.",
     blocks: [
       p(
-        "Transforms change the shape of the working set. They run against the base data captured before the first transform, so the pipeline is re-derived from scratch on every change - the Process Log shows the ordered list. Right-click any column header and choose Transform dataset. to jump straight in. The Apply button commits the step configured in the builder together with the list, so you rarely need to stage first; “Add another” stages a longer pipeline.",
+        "Transforms change the shape of the working set. They run against the base data captured before the first transform, so the pipeline is re-derived from scratch on every change - the Recipe shows the ordered list. Right-click any column header and choose Transform dataset. to jump straight in. The Apply button commits the step configured in the builder together with the list, so you rarely need to stage first; “Add another” stages a longer pipeline.",
       ),
       list(
         "Remove duplicate rows - keep first, keep last, or remove all copies.",
@@ -190,11 +190,11 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
   },
   {
     id: "process-log",
-    title: "Process Log (undo)",
+    title: "Recipe (undo)",
     summary: "Every applied change, individually reversible, plus a pandas recipe.",
     blocks: [
       p(
-        "Process Log lists the changes currently applied to the working set: clean operations, missing-value rules, column type changes, deleted rows and transform steps. The number next to the button counts actions, with batches collapsed.",
+        "Recipe lists the changes currently applied to the working set: clean operations, missing-value rules, column type changes, deleted rows and transform steps. The number next to the button counts actions, with batches collapsed.",
       ),
       list(
         "Batches from one action are condensed — for example a clean applied to 20 columns, or the steps from one Transform commit. Click + on a batch to expand its sub-steps, or use the batch's undo icon to reverse the whole batch in one click.",

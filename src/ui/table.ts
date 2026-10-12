@@ -480,7 +480,7 @@ export class ResultTable {
         : ""
     } — click to blank the placeholder text ${examples}${
       ranked.length > 3 ? ", …" : ""
-    } (undo in the Process Log)`;
+    } (undo in the Recipe)`;
     chip.addEventListener("click", () => this.options.onConvertToken?.(index, ranked));
     return [chip];
   }

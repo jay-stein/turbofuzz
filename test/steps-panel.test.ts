@@ -13,7 +13,7 @@ function setupDom(): Window {
   return window;
 }
 
-test("process log labels the panel and undoes missing-value and type entries", () => {
+test("Recipe labels the panel and undoes missing-value and type entries", () => {
   setupDom();
   const undone: string[] = [];
   openStepsPanel(
@@ -50,7 +50,7 @@ test("process log labels the panel and undoes missing-value and type entries", (
   );
 
   const document = (globalThis as Record<string, unknown>).document as Window["document"];
-  assert.match(document.querySelector(".modal-head h2")?.textContent ?? "", /Process Log \(2\)/);
+  assert.match(document.querySelector(".modal-head h2")?.textContent ?? "", /Recipe \(2\)/);
 
   const rows = document.querySelectorAll(".clean-op");
   assert.equal(rows.length, 2);
@@ -62,7 +62,7 @@ test("process log labels the panel and undoes missing-value and type entries", (
   assert.deepEqual(undone, ["policy:8:0", "type:14:0"]);
 });
 
-test("process log shows the empty state and disables bulk actions", () => {
+test("Recipe shows the empty state and disables bulk actions", () => {
   setupDom();
   openStepsPanel([], {
     onRemoveClean: () => {},
@@ -78,14 +78,14 @@ test("process log shows the empty state and disables bulk actions", () => {
   });
 
   const document = (globalThis as Record<string, unknown>).document as Window["document"];
-  assert.match(document.querySelector(".modal-head h2")?.textContent ?? "", /Process Log \(0\)/);
+  assert.match(document.querySelector(".modal-head h2")?.textContent ?? "", /Recipe \(0\)/);
   assert.equal(document.querySelectorAll(".clean-op").length, 0);
   const buttons = document.querySelectorAll(".clean-footer button");
   assert.equal((buttons[0] as unknown as { disabled: boolean }).disabled, true);
   assert.equal((buttons[1] as unknown as { disabled: boolean }).disabled, true);
 });
 
-test("process log condenses batches and undoes them as one action", () => {
+test("Recipe condenses batches and undoes them as one action", () => {
   setupDom();
   const batches: number[] = [];
   const batch = { id: "transform-batch-0", label: "Transform batch (3 steps)" };
@@ -132,7 +132,7 @@ test("process log condenses batches and undoes them as one action", () => {
   });
 
   const document = (globalThis as Record<string, unknown>).document as Window["document"];
-  assert.match(document.querySelector(".modal-head h2")?.textContent ?? "", /Process Log \(1\)/);
+  assert.match(document.querySelector(".modal-head h2")?.textContent ?? "", /Recipe \(1\)/);
   const group = document.querySelector(".step-group");
   assert.ok(group !== null);
   const children = group.querySelector(".step-group-children");

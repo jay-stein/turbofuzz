@@ -2076,7 +2076,7 @@ mark {
   max-width: 380px;
 }
 
-/* ---------- pipeline stepper ---------- */
+/* ---------- nav row ---------- */
 
 .nav-row {
   display: flex;
@@ -2087,128 +2087,6 @@ mark {
   padding: 8px 14px 0;
   background: var(--bg);
   flex: none;
-}
-
-.nav-row .stepper-host {
-  padding: 0;
-  background: transparent;
-}
-
-.stepper-host {
-  flex: none;
-  padding: 8px 14px 0;
-  background: var(--bg);
-}
-
-.stepper {
-  flex: none;
-}
-
-.stepper-list {
-  display: flex;
-  align-items: center;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.stepper-item {
-  display: flex;
-  align-items: center;
-  flex: none;
-}
-
-.stepper-item:not(:first-child)::before {
-  content: "";
-  width: 26px;
-  height: 2px;
-  margin: 0 8px;
-  background: var(--border);
-  flex: none;
-}
-
-.stepper-item.done:not(:first-child)::before {
-  background: var(--accent);
-}
-
-.stepper-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: color-mix(in srgb, var(--text-dim) 72%, var(--text));
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.stepper-btn:not(:disabled):hover {
-  background: var(--panel);
-  border-color: var(--border);
-  color: var(--text);
-}
-
-.stepper-btn:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
-.stepper-item.active .stepper-btn {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.stepper-item.done .stepper-btn {
-  color: var(--text);
-}
-
-.stepper-number {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 999px;
-  background: var(--panel-2);
-  font-family: var(--mono);
-  font-size: 10.5px;
-  flex: none;
-}
-
-.stepper-item.active .stepper-number {
-  background: var(--accent);
-  color: #fff;
-}
-
-.stepper-item.done .stepper-number {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.stepper-hint {
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0 6px;
-  font-weight: 600;
-}
-
-.stepper-soon {
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0 6px;
 }
 
 /* ---------- clean panel ---------- */
