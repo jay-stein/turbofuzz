@@ -104,6 +104,18 @@ The review's v2 list is now complete (bins, pivot, conditional/weighted/ratio
 measures, YoY, cohorts); only the explicitly “later” event-log specifics
 (time between events, sessionisation, funnels) remain out of scope.
 
+## Usability round (same day, later still)
+
+| Commit | Feature |
+|---|---|
+| `3197b5b` | ColorBrewer/matplotlib palettes (qualitative, sequential, diverging, custom hex) defaulting to Pastel1, applied to multi-series bars, grouped lines, treemap and categorical scatter colours (numeric colour scales use ramps as ramps); red × on each chart card with a confirmation (the ⋯ menu also confirms); the add-chart toolbar sticks below the results bar; Views collapse to 20 rows with Show all (Other row appears with the full list); new views default to View_1, View_2 and open in rename mode; Report actions flash the column they jump to |
+| `855c307` | ZIP Import all: every delimited entry's first row is checked in one decompression pass (trimmed, case-folded); matching headers enable appending all files through header detection, mismatches disable the option with the reason; the toolbar button is New data when empty and Clear data when loaded, with a confirmation before closing the table |
+
+508 tests, typecheck/build clean. Deployed as version
+`70231219-6db9-4f52-a9fd-c84dccff5f3f` (visual checks on the chart card,
+palette picker, Clear data dialog via headless Chrome).
+
+
 Drawers kept intentionally: the inspector and command bar cover the common
 verbs, but melt, KNN, combine-date roles and regex split still need the
 configurable panels, so Clean/Transform stay as the advanced surface.
