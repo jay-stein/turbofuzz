@@ -38,7 +38,8 @@ export type PostOp =
   | { op: "diff" }
   | { op: "pctChange" }
   | { op: "pctTotal" }
-  | { op: "rank" };
+  | { op: "rank" }
+  | { op: "yoy" };
 
 export interface MeasureSpec {
   /** null = COUNT(*) over rows; otherwise the column to aggregate. */
@@ -60,8 +61,8 @@ export interface ViewDef {
   name: string;
   dimensions: DimensionSpec[];
   measures: MeasureSpec[];
-  /** Empty time buckets: dropped (none) or counted as zero. */
-  fill: "none" | "zero";
+  /** Empty time buckets: dropped, counted as zero, or carried forward. */
+  fill: "none" | "zero" | "carry";
   /** "dim0" | "dim1" | "m0" | "m1" — sort key and direction. */
   sort: { key: string; dir: "asc" | "desc" };
   limit: number;
@@ -534,7 +535,25 @@ function quantile(sorted: readonly number[], q: number): number {
   return sorted[lower] * (1 - weight) + sorted[upper] * weight;
 }
 
-function applyPost(values: Float64Array, post: readonly PostOp[], all: Float64Array, index: number): Float64Array {
+/** Bucket start exactly one calendar year earlier (Feb 29 clamps to Feb 28). */
+function previousYear(ms: number): number {
+  const day = Math.floor(ms / DAY);
+  const [year, month, dom] = civilFromDays(day);
+  let target = daysFromCivil(year - 1, month, dom);
+  const [, targetMonth, targetDay] = civilFromDays(target);
+  if (targetMonth !== month || targetDay !== dom) {
+    target = daysFromCivil(year - 1, 2, 28);
+  }
+  return target * DAY;
+}
+
+function applyPost(
+  values: Float64Array,
+  post: readonly PostOp[],
+  all: Float64Array,
+  index: number,
+  times: readonly number[] | null,
+): Float64Array {
   let out = values;
   for (const op of post) {
     const next = new Float64Array(out.length);
@@ -602,6 +621,30 @@ function applyPost(values: Float64Array, post: readonly PostOp[], all: Float64Ar
         }
         for (let i = 0; i < next.length; i++) {
           if (!Number.isFinite(out[i])) next[i] = NaN;
+        }
+        break;
+      }
+      case "yoy": {
+        // Calendar-aligned comparison: the same bucket one year earlier, not
+        // "N rows back" when periods are missing.
+        const timeIndex = new Map<number, number>();
+        if (times !== null) {
+          times.forEach((time, i) => {
+            if (Number.isFinite(time)) timeIndex.set(time, i);
+          });
+        }
+        for (let i = 0; i < out.length; i++) {
+          const time = times?.[i];
+          if (time === undefined || !Number.isFinite(time)) {
+            next[i] = NaN;
+            continue;
+          }
+          const previous = timeIndex.get(previousYear(time));
+          const base = previous === undefined ? NaN : out[previous];
+          next[i] =
+            Number.isFinite(base) && base !== 0 && Number.isFinite(out[i])
+              ? (out[i] - base) / base
+              : NaN;
         }
         break;
       }
@@ -894,6 +937,8 @@ export function computeAggregate(
   const dimTimes: number[][] = dimensions.map(() => []);
   const groupTimes: number[] = [];
   const accs: MeasureAcc[][] = [];
+  /** True for calendar gap groups (used by the carry fill). */
+  const filled: boolean[] = [];
 
   // One accumulator slot per aggregate term; expression measures get one slot
   // per term and are evaluated from the term values after the row loop. Slots
@@ -1020,6 +1065,7 @@ export function computeAggregate(
       }
       groupTimes.push(bucket ?? Number.NaN);
       accs.push(newSlotAccs());
+      filled.push(false);
     }
     const groups = accs[index];
 
@@ -1077,8 +1123,13 @@ export function computeAggregate(
   }
 
   // Calendar gap fill: an empty day/month is a real "0" on a time axis, not a
-  // missing row, so insert zero groups for every bucket between the extremes.
-  if (view.fill === "zero" && timeGrain !== null && groupTimes.length > 0) {
+  // missing row, so insert groups for every bucket between the extremes. With
+  // "carry" the inserted buckets keep the previous period's values instead.
+  if (
+    (view.fill === "zero" || view.fill === "carry") &&
+    timeGrain !== null &&
+    groupTimes.length > 0
+  ) {
     const seen = new Set<number>();
     let min = Infinity;
     let max = -Infinity;
@@ -1096,6 +1147,7 @@ export function computeAggregate(
       dimTimes[0].push(time);
       groupTimes.push(time);
       accs.push(newSlotAccs());
+      filled.push(true);
       if (accs.length >= 50_000) break;
     }
   }
@@ -1180,8 +1232,22 @@ export function computeAggregate(
     for (let i = 0; i < shown.length; i++) out[i] = values[shown[i]];
     return out;
   });
+  const shownTimes = timeGrain !== null ? shown.map((i) => groupTimes[i] ?? Number.NaN) : null;
+  // Carry fill: inserted (empty) periods repeat the previous period's value.
+  if (view.fill === "carry" && timeGrain !== null) {
+    for (const values of limited) {
+      let carried = Number.NaN;
+      for (let i = 0; i < values.length; i++) {
+        if (filled[shown[i] ?? 0] === true) {
+          if (Number.isFinite(carried)) values[i] = carried;
+        } else {
+          carried = values[i];
+        }
+      }
+    }
+  }
   const measuresOut = limited.map((values, m) =>
-    applyPost(values, measures[m].post ?? [], totals, m),
+    applyPost(values, measures[m].post ?? [], totals, m, shownTimes),
   );
 
   return {

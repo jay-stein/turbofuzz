@@ -459,15 +459,37 @@ export class ViewsPanel {
       }
     });
 
-    this.actionsEl.append(
-      respect,
-      el("span", { class: "grow" }),
-      limitLabel,
-      chart,
-      slick,
-      pandas,
-      dataset,
-    );
+    const firstDim = entry?.def.dimensions[0];
+    const isTimeDim =
+      firstDim !== undefined && typeof firstDim.by === "object" && "time" in firstDim.by;
+
+    this.actionsEl.append(respect, el("span", { class: "grow" }));
+    if (isTimeDim && entry !== undefined) {
+      const fillLabel = el("label", { class: "views-limit" });
+      fillLabel.title = "How periods with no rows appear in the result";
+      const fillSelect = el("select", {
+        class: "chart-picker chart-picker-small",
+        "aria-label": "Empty periods",
+      }) as HTMLSelectElement;
+      const fillOptions: readonly (readonly [ViewDef["fill"], string])[] = [
+        ["none", "Drop"],
+        ["zero", "Zero"],
+        ["carry", "Carry forward"],
+      ];
+      for (const [value, label] of fillOptions) {
+        const option = el("option", { value }, [label]) as HTMLOptionElement;
+        if (entry.def.fill === value) option.selected = true;
+        fillSelect.append(option);
+      }
+      fillSelect.addEventListener("change", () =>
+        this.update((view) => {
+          view.fill = fillSelect.value as ViewDef["fill"];
+        }),
+      );
+      fillLabel.append("Empty periods", fillSelect);
+      this.actionsEl.append(fillLabel);
+    }
+    this.actionsEl.append(limitLabel, chart, slick, pandas, dataset);
   }
 
   private renderBuilder(def: ViewDef): void {
@@ -807,6 +829,7 @@ export class ViewsPanel {
       { op: "pctChange", label: "% change" },
       { op: "pctTotal", label: "% of total" },
       { op: "rank", label: "Rank" },
+      { op: "yoy", label: "Year-over-year % (time dimensions)" },
     ];
     for (const option of postOptions) {
       const active = (measure.post ?? []).some((post) => post.op === option.op);

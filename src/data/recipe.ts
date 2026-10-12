@@ -118,8 +118,14 @@ export function viewPandasLines(
   dimensions: readonly DimensionSpec[],
   measures: readonly MeasureSpec[],
   names: readonly string[],
+  fill: "none" | "zero" | "carry" = "none",
 ): string[] {
   const lines: string[] = [];
+  if (fill !== "none") {
+    lines.push(
+      `# empty periods: ${fill === "carry" ? "carried forward" : "filled with zero"} — reindex the group axis before the post steps`,
+    );
+  }
   const groupExprs = dimensions.map((spec, index) => {
     const name = names[spec.column] ?? `Column ${spec.column + 1}`;
     const by = spec.by;
@@ -281,6 +287,11 @@ export function viewPandasLines(
         case "rank":
           lines.push(`# post-aggregation: ${column} = ${column}.rank(ascending=False)`);
           break;
+        case "yoy":
+          lines.push(
+            `# post-aggregation: ${column} = ${column}.pct_change(periods=12)  # align on the same period last year`,
+          );
+          break;
       }
     }
   });
@@ -291,7 +302,7 @@ export function viewPandasLines(
 export function viewToPandas(view: ViewDef, columnNames: readonly string[]): string {
   const lines = [
     `# View: ${view.name}`,
-    ...viewPandasLines(view.dimensions, view.measures, columnNames),
+    ...viewPandasLines(view.dimensions, view.measures, columnNames, view.fill),
   ];
   return lines.join("\n");
 }

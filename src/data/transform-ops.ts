@@ -44,7 +44,7 @@ export type TransformOp =
       kind: "aggregate";
       dimensions: DimensionSpec[];
       measures: MeasureSpec[];
-      fill?: "none" | "zero";
+      fill?: "none" | "zero" | "carry";
     }
   | CombineDateOp
   | SplitColumnOp;

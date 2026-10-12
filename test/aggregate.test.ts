@@ -311,3 +311,51 @@ test("weighted mean and sum use the weight column per row", () => {
   assert.equal(result.totals[1], 80);
   assert.match(result.measureNames[0], /weighted by w/);
 });
+
+test("year-over-year post op aligns on the same calendar period", () => {
+  const ds = buildDataset("t", ["month", "value"], [
+    ["2023-01-05", "100"],
+    ["2023-02-10", "50"],
+    ["2024-01-07", "110"],
+    ["2024-02-15", "55"],
+  ]);
+  const result = computeAggregate(
+    view({
+      dimensions: [{ column: 0, by: { time: "month" } }],
+      measures: [{ column: 1, agg: "sum", post: [{ op: "yoy" }] }],
+      fill: "zero",
+      sort: { key: "dim0", dir: "asc" },
+    }),
+    ds.columns,
+    ds.rowCount,
+    allIds(4),
+  );
+  const index = new Map(result.labels.map((label, i) => [label, i]));
+  assert.equal(result.labels.length, 14, "calendar gaps are filled per month");
+  // The first year has no prior period.
+  assert.ok(Number.isNaN(result.measures[0][index.get("2023-01") ?? 0]));
+  // 2024-01 vs 2023-01 and 2024-02 vs 2023-02.
+  assert.equal(result.measures[0][index.get("2024-01") ?? 0], 0.1);
+  assert.equal(result.measures[0][index.get("2024-02") ?? 0], 0.1);
+});
+
+
+test("carry fill repeats the previous period instead of zero", () => {
+  const ds = buildDataset("t", ["month", "value"], [
+    ["2024-01-05", "10"],
+    ["2024-03-02", "30"],
+  ]);
+  const result = computeAggregate(
+    view({
+      dimensions: [{ column: 0, by: { time: "month" } }],
+      measures: [{ column: 1, agg: "sum" }],
+      fill: "carry",
+      sort: { key: "dim0", dir: "asc" },
+    }),
+    ds.columns,
+    ds.rowCount,
+    allIds(2),
+  );
+  assert.deepEqual(result.labels, ["2024-01", "2024-02", "2024-03"]);
+  assert.deepEqual([...result.measures[0]], [10, 10, 30]);
+});
