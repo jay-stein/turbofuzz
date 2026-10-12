@@ -13,6 +13,8 @@ export interface TriageCallbacks {
   onConvertToken(column: number, tokens: string[]): void;
   onOpenClean(column?: number, tab?: "values" | "nulls"): void;
   onDedupe(anchor: HTMLElement): void;
+  /** The panel closed (the app clears its live handle). */
+  onClose?(): void;
 }
 
 interface TriageItem {
@@ -21,19 +23,38 @@ interface TriageItem {
   detail: string;
   impact: number;
   fixLabel: string;
+  /** True when clicking Apply should make the item disappear. */
+  resolves: boolean;
   run(anchor: HTMLElement): void;
 }
 
+export interface TriagePanelHandle {
+  /** Fresh metadata/stats: refresh the checklist in place. */
+  update(metas: readonly ColumnMeta[], stats: DatasetStats): void;
+  close(): void;
+}
+
+const FIXED_VISIBLE_MS = 4500;
+
 /**
- * The triage queue: every suggested fix in one checklist, ranked by impact,
- * with the fix applied in place. It is the Overview health card's "Review all"
- * destination and shares the exact actions of the fix chips.
+ * The triage queue: every suggested fix in one checklist, ranked by impact.
+ * The panel stays live — as fixes land it re-renders from fresh metadata and
+ * shows a green tick for the issues that were just cleared.
  */
 export function openTriagePanel(
   metas: readonly ColumnMeta[],
   stats: DatasetStats,
   callbacks: TriageCallbacks,
-): void {
+): TriagePanelHandle {
+  let currentMetas = metas;
+  let currentStats = stats;
+  let closed = false;
+  /** Item ids waiting for confirmation (green tick) after Apply. */
+  const applied = new Map<string, number>();
+  const appliedLabels = new Map<string, string>();
+  /** Confirmed fixes, shown with a green tick for a few seconds. */
+  const fixedLog: { label: string; at: number }[] = [];
+
   const overlay = el("div", { class: "modal-overlay drawer-overlay" });
   const modal = el("div", { class: "modal clean-modal drawer" });
   const head = el("div", { class: "modal-head" });
@@ -43,14 +64,18 @@ export function openTriagePanel(
   modal.append(head);
 
   const hint = el("div", { class: "clean-hint" }, [
-    "Every fix applies immediately and lands in the Recipe, where it can be undone. The list refreshes as issues are resolved.",
+    "Every fix applies immediately and lands in the Recipe, where it can be undone. Fixed issues get a green tick and leave the list.",
   ]);
+  const fixesHost = el("div", { class: "triage-fixed" });
   const list = el("div", { class: "triage-list" });
-  modal.append(hint, list);
+  modal.append(hint, fixesHost, list);
 
   const close = (): void => {
+    if (closed) return;
+    closed = true;
     overlay.remove();
     document.removeEventListener("keydown", onKey);
+    callbacks.onClose?.();
   };
   const onKey = (event: KeyboardEvent): void => {
     if (event.key === "Escape") close();
@@ -63,7 +88,7 @@ export function openTriagePanel(
 
   const buildItems = (): TriageItem[] => {
     const items: TriageItem[] = [];
-    metas.forEach((meta, column) => {
+    currentMetas.forEach((meta, column) => {
       for (const suggestion of meta.suggestions) {
         items.push({
           id: `suggestion-${column}-${suggestion.kind}`,
@@ -71,6 +96,7 @@ export function openTriagePanel(
           detail: describeSuggestion(suggestion),
           impact: "count" in suggestion ? Number(suggestion.count) || 1 : 1,
           fixLabel: "Apply",
+          resolves: true,
           run: () => callbacks.onSuggestion(column, suggestion),
         });
       }
@@ -86,6 +112,7 @@ export function openTriagePanel(
             .join(", ")} are counted as missing but stored as text`,
           impact: total,
           fixLabel: "Convert to nulls",
+          resolves: true,
           run: () => callbacks.onConvertToken(column, tokens.map((token) => token.label)),
         });
       }
@@ -95,7 +122,8 @@ export function openTriagePanel(
           label: `${meta.name}: single value`,
           detail: "every non-empty row carries the same value — the column may be droppable",
           impact: 1,
-          fixLabel: "Review",
+          fixLabel: "Review…",
+          resolves: false,
           run: () => callbacks.onOpenClean(column, "values"),
         });
       }
@@ -103,22 +131,24 @@ export function openTriagePanel(
         items.push({
           id: `nulls-${column}`,
           label: `${meta.name}: ${meta.stats.nulls.toLocaleString()} empty cells`,
-          detail: "review the missing values or fill them from the Transform panel",
+          detail: "review the missing values, fill or drop them — applying a null policy cannot create data",
           impact: meta.stats.nulls,
-          fixLabel: "Review",
+          fixLabel: "Review…",
+          resolves: false,
           run: () => callbacks.onOpenClean(column, "nulls"),
         });
       }
     });
-    if (stats.duplicateRows > 0) {
+    if (currentStats.duplicateRows > 0) {
       items.push({
         id: "duplicates",
-        label: `${stats.duplicateRows.toLocaleString()} duplicate rows`,
-        detail: `${stats.duplicateGroups.toLocaleString()} identical row group${
-          stats.duplicateGroups === 1 ? "" : "s"
+        label: `${currentStats.duplicateRows.toLocaleString()} duplicate rows`,
+        detail: `${currentStats.duplicateGroups.toLocaleString()} identical row group${
+          currentStats.duplicateGroups === 1 ? "" : "s"
         } — keep one copy or remove all`,
-        impact: stats.duplicateRows,
+        impact: currentStats.duplicateRows,
         fixLabel: "Remove…",
+        resolves: true,
         run: (anchor) => callbacks.onDedupe(anchor),
       });
     }
@@ -126,6 +156,17 @@ export function openTriagePanel(
   };
 
   const render = (): void => {
+    if (closed) return;
+    const now = Date.now();
+    // Expire old confirmations.
+    for (let i = fixedLog.length - 1; i >= 0; i--) {
+      if (now - (fixedLog[i]?.at ?? 0) > FIXED_VISIBLE_MS) fixedLog.splice(i, 1);
+    }
+    fixesHost.replaceChildren();
+    for (const entry of fixedLog.slice(-3)) {
+      fixesHost.append(el("div", { class: "triage-fixed-entry" }, [`✓ Fixed: ${entry.label}`]));
+    }
+
     list.replaceChildren();
     const items = buildItems();
     if (items.length === 0) {
@@ -133,25 +174,57 @@ export function openTriagePanel(
       return;
     }
     for (const item of items) {
-      const row = el("div", { class: "triage-item" });
+      const pendingAt = applied.get(item.id);
+      const pending = item.resolves && pendingAt !== undefined && now - pendingAt < 8000;
+      const row = el("div", { class: `triage-item${pending ? " fixed" : ""}` });
       const info = el("div", { class: "triage-info" });
       info.append(
         el("span", { class: "triage-label" }, [item.label]),
         el("span", { class: "triage-detail" }, [item.detail]),
       );
-      const fix = el(
-        "button",
-        { class: "primary small", type: "button", title: item.detail },
-        [item.fixLabel],
-      ) as HTMLButtonElement;
-      fix.addEventListener("click", () => {
-        item.run(fix);
-        // Fixes are undoable from the Recipe; refresh the queue's own view once
-        // the app has applied the change.
-        window.setTimeout(render, 350);
-      });
-      row.append(info, fix);
+      row.append(info);
+      if (pending) {
+        row.append(el("span", { class: "triage-done" }, ["✓ Applied"]));
+      } else {
+        const fix = el(
+          "button",
+          { class: "primary small", type: "button", title: item.detail },
+          [item.fixLabel],
+        ) as HTMLButtonElement;
+        fix.addEventListener("click", () => {
+          if (item.resolves) {
+            applied.set(item.id, Date.now());
+            appliedLabels.set(item.id, item.label);
+            render();
+          }
+          item.run(fix);
+        });
+        row.append(fix);
+      }
       list.append(row);
+    }
+  };
+
+  const update = (nextMetas: readonly ColumnMeta[], nextStats: DatasetStats): void => {
+    if (closed) return;
+    currentMetas = nextMetas;
+    currentStats = nextStats;
+    const ids = new Set(buildItems().map((item) => item.id));
+    // Confirmations: an applied item that is gone was fixed; an applied item
+    // that still exists did not resolve, so drop the pending mark.
+    for (const [id, at] of [...applied]) {
+      if (!ids.has(id)) {
+        fixedLog.push({ label: appliedLabels.get(id) ?? "Issue", at: Number(at) });
+        applied.delete(id);
+        appliedLabels.delete(id);
+      } else {
+        applied.delete(id);
+        appliedLabels.delete(id);
+      }
+    }
+    render();
+    if (fixedLog.length > 0) {
+      window.setTimeout(render, FIXED_VISIBLE_MS + 50);
     }
   };
 
@@ -159,4 +232,6 @@ export function openTriagePanel(
   document.body.append(overlay);
   setupDialog(overlay, "Review issues");
   render();
+
+  return { update, close };
 }

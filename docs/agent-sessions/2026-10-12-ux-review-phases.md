@@ -49,6 +49,15 @@ uploaded 5 assets to the `turbofuzz` Worker, version
 `0e7d8016-b5bd-4796-a3b5-d6fc123d3345`
 (https://turbofuzz.mrjaystein.workers.dev, checked: serves the app shell).
 
+## Follow-up fixes after first use
+
+- `bb0e985` YoY + carry fill.
+- Triage queue feedback (live update + green tick): the Review issues panel now
+  receives fresh metadata on every applied change, ticks items green while the
+  fix is pending, logs "✓ Fixed: …" for cleared issues for a few seconds, drops
+  the tick when a fix did not resolve, and the Clean → Nulls Apply button is
+  disabled when there is nothing to blank (applying was a silent no-op before).
+
 Drawers kept intentionally: the inspector and command bar cover the common
 verbs, but melt, KNN, combine-date roles and regex split still need the
 configurable panels, so Clean/Transform stay as the advanced surface.

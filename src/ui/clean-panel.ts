@@ -718,8 +718,16 @@ function buildNullsTab(
     }
     const parts = [`${nullCells.toLocaleString()} cells to blank`];
     if (keep.size > 0) parts.push(`${keep.size} kept`);
-    if (extra.size > 0) parts.push(`${extra.size} added`);
+    if (extra.size > 0) {
+      parts.push(`${extra.size} added token${extra.size === 1 ? "" : "s"}`);
+    }
     summary.textContent = parts.join(" · ");
+    // Nothing to blank (and nothing added): applying would be a no-op.
+    apply.disabled = nullCells === 0 && extra.size === 0;
+    apply.title =
+      apply.disabled
+        ? "No placeholder values are ticked, so there is nothing to blank"
+        : "Replace the ticked placeholder values with real blanks";
   }
 
   function addExtra(): void {

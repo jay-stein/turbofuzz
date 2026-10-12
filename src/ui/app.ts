@@ -71,7 +71,7 @@ import { openTransformPanel } from "./transform-panel.js";
 import { ViewTabs, type ViewId } from "./view-tabs.js";
 import { ViewsPanel } from "./views-panel.js";
 import { openCommandBar, type ParsedCommand } from "./command-bar.js";
-import { openTriagePanel } from "./triage-panel.js";
+import { openTriagePanel, type TriagePanelHandle } from "./triage-panel.js";
 import { openColumnInspector } from "./column-inspector.js";
 import { openSlickTable } from "./slick-table.js";
 import { chartKindFor } from "./chart-utils.js";
@@ -349,6 +349,7 @@ export class App {
   private viewsPanel: ViewsPanel | null = null;
   private reportsHost!: HTMLElement;
   private reportsPanel: ReportsPanel | null = null;
+  private triage: TriagePanelHandle | null = null;
   private archetypeOverride: ArchetypeId | null = null;
   private lastLoaded: LoadedMessage | TransformedMessage | null = null;
   private workspaceTitle!: HTMLElement;
@@ -2272,11 +2273,15 @@ export class App {
   private openTriage(): void {
     const stats = this.latestStats;
     if (stats === null) return;
-    openTriagePanel(this.metas, stats, {
+    this.triage?.close();
+    this.triage = openTriagePanel(this.metas, stats, {
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
       onConvertToken: (column, tokens) => this.convertToken(column, tokens),
       onOpenClean: (column, tab) => this.openClean(column, tab),
       onDedupe: (anchor) => openDedupeMenu(anchor, stats, (keep) => this.dropDuplicates(keep)),
+      onClose: () => {
+        this.triage = null;
+      },
     });
   }
 
@@ -2322,6 +2327,7 @@ export class App {
     this.syncColumnTiles();
     this.reportsPanel?.setData(this.metas, stats, this.rowCount);
     this.reportsPanel?.invalidate();
+    this.triage?.update(this.metas, stats);
   }
 
   /** Rebuilds the Overview's zoomed-out missingness map. */

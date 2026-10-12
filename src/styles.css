@@ -20,6 +20,8 @@
   --qa-btn-active: color-mix(in srgb, var(--null) 6%, var(--danger));
   --qa-ok: #9fdfab;
   --qa-ok-text: #14532d;
+  --ok: #15803d;
+  --ok-soft: #dcfce7;
   --qa-warn: #b45309;
   --qa-warn-border: #fbbf24;
   --qa-warn-soft: #fef3c7;
@@ -49,6 +51,8 @@
     --qa-warn-border: #8a6d1f;
     --qa-warn-soft: #3b2f0e;
     --qa-warn-text: #fbbf24;
+    --ok: #4ade80;
+    --ok-soft: #14351f;
     --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px rgb(0 0 0 / 35%);
   }
 }
@@ -73,6 +77,8 @@
   --qa-warn-border: #8a6d1f;
   --qa-warn-soft: #3b2f0e;
   --qa-warn-text: #fbbf24;
+  --ok: #4ade80;
+  --ok-soft: #14351f;
   --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px rgb(0 0 0 / 35%);
 }
 
@@ -2509,6 +2515,37 @@ mark {
   padding: 18px 4px;
   color: var(--text-dim);
   font-size: 13px;
+}
+
+.triage-fixed {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.triage-fixed-entry {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ok);
+  background: var(--ok-soft);
+  border-radius: 7px;
+  padding: 4px 9px;
+}
+
+.triage-item.fixed {
+  border-color: color-mix(in srgb, var(--ok) 55%, var(--border));
+  background: color-mix(in srgb, var(--ok-soft) 55%, var(--panel));
+}
+
+.triage-done {
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ok);
+  background: var(--ok-soft);
+  border-radius: 999px;
+  padding: 3px 10px;
 }
 
 /* ---------- reports lens ---------- */
