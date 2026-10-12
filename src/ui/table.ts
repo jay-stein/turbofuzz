@@ -48,7 +48,13 @@ export interface ResultTableOptions {
   onRequestRows: (
     start: number,
     end: number,
-    done: (start: number, rows: string[][], groups?: boolean[], flags?: Uint8Array) => void,
+    done: (
+      start: number,
+      rows: string[][],
+      groups?: boolean[],
+      flags?: Uint8Array,
+      changed?: Uint8Array,
+    ) => void,
   ) => void;
 }
 
@@ -70,6 +76,9 @@ export class ResultTable {
   private pendingColumnDeletes = new Set<number>();
   private readonly groupStarts = new Set<number>();
   private readonly rowFlags = new Map<number, number>();
+  /** Per-row, per-cell 1/0 flags: value changed since load. */
+  private readonly changedRows = new Map<number, Uint8Array>();
+  private showChanges = false;
   private readonly cache = new Map<number, string[]>();
   private pendingStart = -1;
   private pendingEnd = -1;
@@ -186,15 +195,26 @@ export class ResultTable {
   }
 
   /** Seeds the cache with the eagerly shipped first page and repaints. */
-  setFirstRows(rows: string[][], groups?: boolean[], flags?: Uint8Array): void {
+  setFirstRows(
+    rows: string[][],
+    groups?: boolean[],
+    flags?: Uint8Array,
+    changed?: Uint8Array,
+  ): void {
     this.cache.clear();
     this.groupStarts.clear();
     this.rowFlags.clear();
+    this.changedRows.clear();
+    const columnCount = this.columns.length;
     for (let i = 0; i < rows.length; i++) {
       this.cache.set(i, rows[i]);
       if (groups?.[i] === true) this.groupStarts.add(i);
       const flag = flags?.[i] ?? 0;
       if (flag !== 0) this.rowFlags.set(i, flag);
+      if (changed !== undefined && columnCount > 0) {
+        const row = changed.slice(i * columnCount, (i + 1) * columnCount);
+        if (row.some((value) => value !== 0)) this.changedRows.set(i, row);
+      }
     }
     this.pendingStart = -1;
     this.pendingEnd = -1;
@@ -606,11 +626,12 @@ export class ResultTable {
     if (missing && (this.pendingStart !== start || this.pendingEnd !== end)) {
       this.pendingStart = start;
       this.pendingEnd = end;
-      this.options.onRequestRows(start, end, (rowsStart, rows, groups, flags) => {
+      this.options.onRequestRows(start, end, (rowsStart, rows, groups, flags, changed) => {
         if (this.pendingStart === start && this.pendingEnd === end) {
           this.pendingStart = -1;
           this.pendingEnd = -1;
         }
+        const columnCount = this.columns.length;
         for (let i = 0; i < rows.length; i++) {
           const position = rowsStart + i;
           this.cache.set(position, rows[i]);
@@ -619,6 +640,11 @@ export class ResultTable {
           this.rowFlags.delete(position);
           const flag = flags?.[i] ?? 0;
           if (flag !== 0) this.rowFlags.set(position, flag);
+          this.changedRows.delete(position);
+          if (changed !== undefined && columnCount > 0) {
+            const row = changed.slice(i * columnCount, (i + 1) * columnCount);
+            if (row.some((value) => value !== 0)) this.changedRows.set(position, row);
+          }
         }
         this.pruneCache(start);
         this.lastStart = -1;
@@ -651,15 +677,25 @@ export class ResultTable {
     indexCell.append(del, el("span", { class: "row-number" }, [String(index + 1)]));
     tr.append(indexCell);
 
+    const changedRow = this.changedRows.get(index);
     for (let c = 0; c < this.columns.length; c++) {
       const type = this.columns[c]?.type;
       const cell = el("div", { class: "td" });
       if (type === "integer" || type === "number") cell.classList.add("num-cell");
       else if (type === "boolean") cell.classList.add("bool-cell");
       if (row !== undefined) this.fillCell(cell, row[c] ?? "", c);
+      if (changedRow !== undefined && changedRow[c] === 1) {
+        cell.classList.add("changed-cell");
+      }
       tr.append(cell);
     }
     return tr;
+  }
+
+  /** "Show changes" toggle: reveals cells whose value differs from load. */
+  setShowChanges(show: boolean): void {
+    this.showChanges = show;
+    this.scroller.classList.toggle("show-changes", show);
   }
 
   private pruneCache(center: number): void {
@@ -668,6 +704,7 @@ export class ResultTable {
       if (key < center - CACHE_LIMIT / 2 || key > center + CACHE_LIMIT / 2) {
         this.cache.delete(key);
         this.rowFlags.delete(key);
+        this.changedRows.delete(key);
       }
     }
   }

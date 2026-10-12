@@ -59,6 +59,8 @@ test("cleanColumns applies value cleans, rebuilds stats and can revert", async (
     columns: { column: number; meta: { name: string; type: string } }[];
     stats: { duplicateRows: number };
     count: number;
+    changedTotal: number;
+    firstChanged?: Uint8Array;
   };
   assert.equal(cleaned.columns.length, 1);
   assert.equal(cleaned.columns[0].column, 0);
@@ -66,10 +68,16 @@ test("cleanColumns applies value cleans, rebuilds stats and can revert", async (
   // Two formerly distinct rows are now identical and the duplicates view is still on.
   assert.equal(cleaned.stats.duplicateRows, 1);
   assert.equal(cleaned.count, 2);
+  // " alice " and "bob" change; "ALICE" is already clean. The duplicates
+  // special is on, so the result order is the two ALICE rows (row 0 changed,
+  // row 1 unchanged); the second cell in each row is the untouched age.
+  assert.equal(cleaned.changedTotal, 2);
+  assert.deepEqual([...(cleaned.firstChanged ?? [])], [1, 0, 0, 0]);
 
   send({ type: "getRows", requestId: 4, start: 0, end: 3 });
-  const rows = find("rows", 4) as unknown as { rows: string[][] };
+  const rows = find("rows", 4) as unknown as { rows: string[][]; changed?: Uint8Array };
   assert.deepEqual(rows.rows.map((row) => row[0]), ["ALICE", "ALICE"]);
+  assert.deepEqual([...(rows.changed ?? [])], [1, 0, 0, 0]);
 
   // An empty op list restores the untouched source values exactly.
   send({
@@ -77,8 +85,12 @@ test("cleanColumns applies value cleans, rebuilds stats and can revert", async (
     requestId: 5,
     updates: [{ column: 0, ops: [] }],
   });
-  const reverted = find("cleaned", 5) as unknown as { stats: { duplicateRows: number } };
+  const reverted = find("cleaned", 5) as unknown as {
+    stats: { duplicateRows: number };
+    changedTotal: number;
+  };
   assert.equal(reverted.stats.duplicateRows, 0);
+  assert.equal(reverted.changedTotal, 0, "reverting clears the changed cells");
 
   // Turn the duplicates view off to see the full reverted column.
   send({ type: "setSpecial", requestId: 6, kind: "duplicates", active: false });

@@ -85,6 +85,60 @@ const columnSpecials = new Map<number, Set<ColumnSpecialKind>>();
 const excludedIds = new Set<number>();
 let excludedBits: BitSet | null = null;
 const histogramCache = new HistogramCache();
+// Cells whose current value differs from the first-seen value, by column,
+// for the "changed cells" highlight. Masks are keyed by original row id.
+const changeBase = new Map<number, readonly string[]>();
+const changedMasks = new Map<number, BitSet>();
+let changedTotalCells = 0;
+
+/** Records which cells of a column now differ from its first-seen values. */
+function recordChange(column: number, before: readonly string[], after: readonly string[]): void {
+  let base = changeBase.get(column);
+  if (base === undefined || base.length !== after.length) {
+    base = before.slice();
+    changeBase.set(column, base);
+  }
+  const existing = changedMasks.get(column);
+  if (existing !== undefined) changedTotalCells -= existing.count();
+  const mask = new BitSet(after.length);
+  let count = 0;
+  const limit = Math.min(base.length, after.length);
+  for (let i = 0; i < limit; i++) {
+    if (base[i] !== after[i]) {
+      mask.set(i);
+      count++;
+    }
+  }
+  changedMasks.set(column, mask);
+  changedTotalCells += count;
+}
+
+function resetChangedCells(): void {
+  changeBase.clear();
+  changedMasks.clear();
+  changedTotalCells = 0;
+}
+
+/** Row-major change flags for a slice of the current result order, or null. */
+function changedFlagsSlice(start: number, end: number): Uint8Array | null {
+  if (changedMasks.size === 0 || dataset === null) return null;
+  const columnCount = dataset.columnCount;
+  const boundedStart = Math.max(0, start);
+  const boundedEnd = Math.min(end, sortedIds.length);
+  const flags = new Uint8Array((boundedEnd - boundedStart) * columnCount);
+  let any = false;
+  for (let position = boundedStart; position < boundedEnd; position++) {
+    const id = sortedIds[position];
+    for (let c = 0; c < columnCount; c++) {
+      const mask = changedMasks.get(c);
+      if (mask !== undefined && mask.get(id)) {
+        flags[(position - boundedStart) * columnCount + c] = 1;
+        any = true;
+      }
+    }
+  }
+  return any ? flags : null;
+}
 // Non-destructive clean state: the untouched source column per cleaned column.
 const cleanSource = new Map<number, ColumnData>();
 // Per-column null overrides, persisted so value cleans and reverts re-apply them.
@@ -349,6 +403,7 @@ function handleShuffle(message: { requestId: number; limit?: number }): void {
     count: sortedIds.length,
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -403,6 +458,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   clearExclusions();
   histogramCache.clear();
   cleanSource.clear();
+  resetChangedCells();
   nullPolicies.clear();
   numberLocales.clear();
   typeOverrides.clear();
@@ -461,6 +517,7 @@ function handleSetFilter(message: SetFilterRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -481,6 +538,7 @@ function handleClearFilters(message: { requestId: number }): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -532,6 +590,7 @@ function handleSetSpecial(message: {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -563,6 +622,7 @@ function handleSort(message: SortRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -590,6 +650,7 @@ function handleGetRows(message: GetRowsRequest): void {
     rows: rowsSlice(start, message.end),
     groups: groupFlags(start, message.end),
     flags: rowFlagsSlice(start, message.end),
+    changed: changedFlagsSlice(start, message.end) ?? undefined,
   });
 }
 
@@ -625,6 +686,7 @@ function handleSetType(message: SetTypeRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -665,6 +727,7 @@ function handleSetNumberLocale(message: SetNumberLocaleRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -1057,6 +1120,7 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
 
     const policy = nullPolicies.get(column) ?? EMPTY_NULL_POLICY;
     const raw = update.ops.length === 0 ? source.raw : applyCleanOps(source.raw, update.ops);
+    recordChange(column, current.columns[column].raw, raw);
     const rebuilt = ColumnData.create(current.columns[column].name, raw, policy);
     const typeOverride = typeOverrides.get(column);
     if (typeOverride !== undefined) rebuilt.setType(typeOverride, true);
@@ -1100,6 +1164,8 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
+    changedTotal: changedTotalCells,
   });
 }
 
@@ -1142,6 +1208,7 @@ function handleSetNullPolicy(message: SetNullPolicyRequest): void {
 
   const columns = current.columns.slice();
   const rebuilt = blankAndRebuild(column, policy);
+  recordChange(message.column, column.raw, rebuilt.raw);
   const typeOverride = typeOverrides.get(message.column);
   if (typeOverride !== undefined) rebuilt.setType(typeOverride, true);
   const locale = numberLocales.get(message.column);
@@ -1177,6 +1244,8 @@ function handleSetNullPolicy(message: SetNullPolicyRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
+    changedTotal: changedTotalCells,
   });
 }
 
@@ -1190,6 +1259,7 @@ function handleResolveNullsAll(message: ResolveNullsAllRequest): void {
   const policy = createNullPolicy(message.extra, message.keep);
   const columns = current.columns.map((column, index) => {
     const next = blankAndRebuild(column, policy);
+    recordChange(index, column.raw, next.raw);
     const typeOverride = typeOverrides.get(index);
     if (typeOverride !== undefined) next.setType(typeOverride, true);
     const locale = numberLocales.get(index);
@@ -1232,6 +1302,8 @@ function handleResolveNullsAll(message: ResolveNullsAllRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
+    changedTotal: changedTotalCells,
   });
 }
 
@@ -1301,6 +1373,7 @@ function handleDropRows(message: DropRowsRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -1321,6 +1394,7 @@ function handleClearExcludedRows(message: ClearExcludedRowsRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -1376,6 +1450,8 @@ function handleTransform(message: TransformRequest): void {
   specials.clear();
   columnSpecials.clear();
   histogramCache.clear();
+  // Transforms change the row set, so previous cell-change positions are void.
+  resetChangedCells();
 
   const started = performance.now();
   sortedIds = engine.evaluate(filters);

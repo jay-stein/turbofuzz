@@ -63,6 +63,7 @@ import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.
 import { openTransformPanel } from "./transform-panel.js";
 import { ViewTabs, type ViewId } from "./view-tabs.js";
 import { ViewsPanel } from "./views-panel.js";
+import { openCommandBar, type ParsedCommand } from "./command-bar.js";
 import { suggestCharts } from "./chart-utils.js";
 
 const LARGE_PASTE_ROWS = 300_000;
@@ -298,6 +299,9 @@ export class App {
   private shuffleButton!: HTMLButtonElement;
   private shuffleActive = false;
   private tilesButton!: HTMLButtonElement;
+  private changesButton!: HTMLButtonElement;
+  private changesTotal = 0;
+  private showChanges = false;
   private columnsStrip!: HTMLElement;
   private tilesOn = readColumnTilesPreference();
   private filterHost!: HTMLElement;
@@ -342,6 +346,11 @@ export class App {
       {
         id: "tabs",
         text: "Overview, Table, Views and Chart are lenses — switch anytime with 1–4.",
+        target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
+      },
+      {
+        id: "command-bar",
+        text: "Press Ctrl/⌘ + K for the command bar — “upper amount”, “group region sum sales”.",
         target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
       },
       {
@@ -688,6 +697,21 @@ export class App {
       el("span", { class: "tiles-label" }, ["Info Tiles"]),
     );
     this.tilesButton.addEventListener("click", () => this.toggleColumnTiles());
+    this.changesButton = el(
+      "button",
+      {
+        class: "ghost small changes-toggle hidden",
+        type: "button",
+        title: "Highlight cells whose value changed since load",
+        "aria-pressed": "false",
+      },
+      ["Show changes"],
+    ) as HTMLButtonElement;
+    this.changesButton.addEventListener("click", () => {
+      this.showChanges = !this.showChanges;
+      this.table?.setShowChanges(this.showChanges);
+      this.syncChangesButton();
+    });
     this.filterChipsEl = el("span", { class: "filter-chips hidden" });
     this.addFilterButton = el(
       "button",
@@ -717,6 +741,7 @@ export class App {
       this.addFilterButton,
       this.healthHost,
       this.tilesButton,
+      this.changesButton,
       el("span", { class: "grow" }),
       this.actionEl,
       this.shuffleButton,
@@ -778,6 +803,15 @@ export class App {
       }
     });
     document.addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        if (this.workspace.classList.contains("hidden")) return;
+        event.preventDefault();
+        openCommandBar({
+          columns: () => this.metas,
+          onRun: (command) => this.runCommand(command),
+        });
+        return;
+      }
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (this.workspace.classList.contains("hidden")) return;
       const target = event.target as HTMLElement | null;
@@ -1230,6 +1264,10 @@ export class App {
     this.rowCount = loaded.rowCount;
     this.lastLoaded = loaded;
     if (loaded.type === "loaded") this.archetypeOverride = null;
+    // A new dataset starts with a fresh change history.
+    this.changesTotal = 0;
+    this.showChanges = false;
+    this.syncChangesButton();
     // Views are definitions over column indexes; a load or transform can change
     // the schema, so start fresh rather than risk stale references.
     this.resetViews();
@@ -1341,13 +1379,16 @@ export class App {
       onRequestRows: (start, end, done) => {
         void this.client
           .getRows(start, end)
-          .then((message) => done(message.start, message.rows, message.groups, message.flags))
+          .then((message) =>
+            done(message.start, message.rows, message.groups, message.flags, message.changed),
+          )
           .catch(() => done(start, []));
       },
     });
     this.table.setColumns(this.metas);
     this.table.setSort(-1, 1);
     this.table.setCount(this.resultCount);
+    this.table.setShowChanges(this.showChanges);
     this.syncColumnQa();
     this.syncPendingDeletes();
   }
@@ -1423,7 +1464,12 @@ export class App {
           this.updateCount(message.count, message.queryMs);
           this.applyFacets(message.facets, message.histograms);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -1499,7 +1545,12 @@ export class App {
         this.updateCount(message.count, message.queryMs);
         this.applyFacets(message.facets, message.histograms);
         this.table?.setCount(message.count);
-        this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+        this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
         this.updateStepsButton();
       } catch (error) {
         this.showError(error);
@@ -1520,7 +1571,12 @@ export class App {
       this.updateCount(message.count, message.queryMs);
       this.applyFacets(message.facets, message.histograms);
       this.table?.setCount(message.count);
-      this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+      this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
       this.updateStepsButton();
     } catch (error) {
       this.showError(error);
@@ -1544,7 +1600,12 @@ export class App {
           this.updateCount(message.count, message.queryMs);
           this.applyFacets(message.facets, message.histograms);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -1559,7 +1620,7 @@ export class App {
           this.table?.setSort(-1, 1);
           this.shuffleActive = false;
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, undefined, message.firstFlags);
+          this.table?.setFirstRows(message.firstRows, undefined, message.firstFlags, message.firstChanged);
           this.table?.scrollToTop();
           this.updateCount(message.count, 0);
         })
@@ -1604,7 +1665,12 @@ export class App {
           this.updateCount(message.count, message.queryMs);
           if (!preview) this.applyFacets(message.facets, message.histograms);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -1642,7 +1708,12 @@ export class App {
           this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -1721,7 +1792,12 @@ export class App {
           this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -1738,7 +1814,12 @@ export class App {
           this.table?.setSort(message.column, message.dir);
           this.updateCount(message.count, 0);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -1778,7 +1859,12 @@ export class App {
       this.updateCount(message.count, message.queryMs);
       this.applyFacets(message.facets, message.histograms);
       this.table?.setCount(message.count);
-      this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+      this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
     });
   }
 
@@ -1952,6 +2038,25 @@ export class App {
     }, 4000);
   }
 
+  /** After an edit, surface the damage: auto-highlight on the first change. */
+  private noteChangedCells(total: number): void {
+    this.changesTotal = total;
+    if (total > 0 && !this.showChanges) this.showChanges = true;
+    this.syncChangesButton();
+  }
+
+  private syncChangesButton(): void {
+    const has = this.changesTotal > 0;
+    this.changesButton.classList.toggle("hidden", !has);
+    if (!has) this.showChanges = false;
+    this.changesButton.textContent = this.showChanges ? "Hide changes" : "Show changes";
+    this.changesButton.setAttribute("aria-pressed", this.showChanges ? "true" : "false");
+    this.changesButton.title = has
+      ? `${this.changesTotal.toLocaleString()} cells changed since load — highlight them`
+      : "Highlight cells whose value changed since load";
+    this.table?.setShowChanges(this.showChanges);
+  }
+
   private setView(view: ViewId): void {
     this.view = view;
     if (view === "table" || view === "chart" || view === "views") this.ensureFilters();
@@ -1976,6 +2081,36 @@ export class App {
     this.syncTabs();
     this.syncColumnTiles();
     this.hints?.refresh();
+  }
+
+  /** Runs one parsed command-bar line. */
+  private runCommand(command: ParsedCommand): void {
+    switch (command.kind) {
+      case "clean":
+        this.applyQuickClean(command.column, command.op);
+        break;
+      case "transform":
+        this.applyTransform([...this.transformOps, ...command.ops], command.label);
+        break;
+      case "dedupe":
+        this.dropDuplicates(command.keep);
+        break;
+      case "openClean":
+        this.openClean(command.column, command.tab ?? "values");
+        break;
+      case "openTransform":
+        this.openTransform();
+        break;
+      case "export":
+        this.openExportDialog();
+        break;
+      case "views":
+        this.setView("views");
+        break;
+      case "error":
+        this.setAction(command.message);
+        break;
+    }
   }
 
   private ensureViews(): void {
@@ -3011,12 +3146,22 @@ export class App {
           this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
           const reverted = updates.every((update) => update.ops.length === 0);
           const name = message.columns[0]?.meta.name ?? "";
           const label =
             updates.length === 1 ? name : `${updates.length} columns`;
-          this.setAction(reverted ? `Reverted ${label}` : `Cleaned ${label}`);
+          const changedText =
+            message.changedTotal > 0
+              ? ` · ${message.changedTotal.toLocaleString()} cells changed`
+              : "";
+          this.setAction(reverted ? `Reverted ${label}` : `Cleaned ${label}${changedText}`);
+          this.noteChangedCells(message.changedTotal);
           this.updateStepsButton();
         })
         .catch((error: unknown) => this.showError(error)),
@@ -3073,10 +3218,16 @@ export class App {
           this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
           this.setAction(
             `Nulls resolved - ${(message.columns[0]?.meta.stats.nulls ?? 0).toLocaleString()} blanks in ${message.columns[0]?.meta.name ?? "column"}`,
           );
+          this.noteChangedCells(message.changedTotal);
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -3115,10 +3266,16 @@ export class App {
           this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
           this.setAction(
             `Nulls resolved — ${message.stats.totalNullCells.toLocaleString()} blanks`,
           );
+          this.noteChangedCells(message.changedTotal);
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -3146,15 +3303,21 @@ export class App {
   }
 
   private applyTransform(ops: TransformOp[], action?: string): void {
+    const before = this.rowCount;
     this.queueSend(() =>
       this.client
         .transform(ops)
         .then((message) => {
           this.openWorkspace(message);
           const plural = ops.length === 1 ? "" : "s";
+          const rowsText =
+            before !== message.rowCount
+              ? ` · rows ${before.toLocaleString()} → ${message.rowCount.toLocaleString()}`
+              : "";
           this.setAction(
-            action ??
-              (ops.length === 0 ? "Transforms reset" : `Applied ${ops.length} transform step${plural}`),
+            (action ??
+              (ops.length === 0 ? "Transforms reset" : `Applied ${ops.length} transform step${plural}`)) +
+              rowsText,
           );
         })
         .catch((error: unknown) => this.showError(error)),

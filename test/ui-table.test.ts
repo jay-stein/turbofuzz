@@ -311,3 +311,17 @@ test("columns with only blank cells get no placeholder chip", () => {
   ]);
   assert.equal(host.querySelector(".th-qa-chip.token"), null);
 });
+
+test("changed cells carry a marker and the show-changes toggle", () => {
+  const { host, table } = buildTable([meta({ name: "a" }), meta({ name: "b" })]);
+  table.setFirstRows([["x", "y"]], undefined, undefined, Uint8Array.from([1, 0]));
+  table.setCount(1);
+  const cells = host.querySelectorAll(".tr .td");
+  // cells[0] is the row-index cell; data cells start at 1.
+  assert.ok(cells[1]?.classList.contains("changed-cell"));
+  assert.equal(cells[2]?.classList.contains("changed-cell"), false);
+  table.setShowChanges(true);
+  assert.ok(host.querySelector(".table-scroller")?.classList.contains("show-changes"));
+  table.setShowChanges(false);
+  assert.equal(host.querySelector(".table-scroller")?.classList.contains("show-changes"), false);
+});

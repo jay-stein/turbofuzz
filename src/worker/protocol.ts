@@ -460,6 +460,7 @@ export interface ResultsMessage {
   firstRows: string[][];
   firstGroups?: boolean[];
   firstFlags?: Uint8Array;
+  firstChanged?: Uint8Array;
 }
 
 export interface SortedMessage {
@@ -471,6 +472,7 @@ export interface SortedMessage {
   firstRows: string[][];
   firstGroups?: boolean[];
   firstFlags?: Uint8Array;
+  firstChanged?: Uint8Array;
 }
 
 export interface ShuffledMessage {
@@ -479,6 +481,7 @@ export interface ShuffledMessage {
   count: number;
   firstRows: string[][];
   firstFlags?: Uint8Array;
+  firstChanged?: Uint8Array;
 }
 
 export interface RowsMessage {
@@ -488,6 +491,8 @@ export interface RowsMessage {
   rows: string[][];
   groups?: boolean[];
   flags?: Uint8Array;
+  /** Row-major 1/0 flags: cell value differs from the original ingest value. */
+  changed?: Uint8Array;
 }
 
 export interface ColumnMetaMessage {
@@ -503,6 +508,7 @@ export interface ColumnMetaMessage {
   firstRows: string[][];
   firstGroups?: boolean[];
   firstFlags?: Uint8Array;
+  firstChanged?: Uint8Array;
 }
 
 export interface StatsMessage {
@@ -545,6 +551,9 @@ export interface CleanedMessage {
   firstRows: string[][];
   firstGroups?: boolean[];
   firstFlags?: Uint8Array;
+  firstChanged?: Uint8Array;
+  /** Cells changed since load, across every tracked column. */
+  changedTotal: number;
 }
 
 export interface ErrorMessage {
