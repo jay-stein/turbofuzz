@@ -20,6 +20,7 @@ import type {
   ColumnMetaMessage,
   CsvChunkMessage,
   DependenciesMessage,
+  DistributionChangesMessage,
   ExportOptions,
   ExportScope,
   ExportStartedMessage,
@@ -208,6 +209,10 @@ export class SearchWorkerClient {
 
   getTextProfile(column: number, limit?: number): Promise<TextProfileMessage> {
     return this.request<TextProfileMessage>({ type: "getTextProfile", column, limit });
+  }
+
+  getDistributionChanges(): Promise<DistributionChangesMessage> {
+    return this.request<DistributionChangesMessage>({ type: "getDistributionChanges" });
   }
 
   renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {

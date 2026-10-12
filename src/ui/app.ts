@@ -2205,6 +2205,7 @@ export class App {
       requestDependencies: () => this.client.getDependencies().catch(() => null),
       requestRelationships: () => this.client.getRelationships().catch(() => null),
       requestTextProfile: (column) => this.client.getTextProfile(column).catch(() => null),
+      requestDistributionChanges: () => this.client.getDistributionChanges().catch(() => null),
       onAction: (finding) => this.runFinding(finding),
     });
     this.reportsPanel.setData(this.metas, stats, this.rowCount);

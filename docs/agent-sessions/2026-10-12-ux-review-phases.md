@@ -68,6 +68,10 @@ uploaded 5 assets to the `turbofuzz` Worker, version
   number/date shape detection; clicking a term filters rows containing it).
   Reports Quality adds text findings per text column (top term, term variety,
   shaped-value mix). Bench: text profile 90 ms at 100k rows.
+- Distribution changes: Quality compares the first and second half of the
+  current row order — PSI over first-half deciles for numbers, Cramér's V for
+  category mixes — and reports shifts with the moving bucket/category. Bench:
+  27 ms at 100k rows.
 
 Drawers kept intentionally: the inspector and command bar cover the common
 verbs, but melt, KNN, combine-date roles and regex split still need the

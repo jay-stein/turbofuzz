@@ -3,6 +3,7 @@ import {
   anomalyFindings,
   coMissingnessFindings,
   dependencyFindings,
+  distributionFindings,
   explainColumn,
   groupAnomalyFindings,
   qualityFindings,
@@ -16,6 +17,7 @@ import type {
   CorrelationMessage,
   ColumnMeta,
   DependenciesMessage,
+  DistributionChangesMessage,
   GroupAnomaliesMessage,
   RelationshipsMessage,
   TextProfileMessage,
@@ -43,6 +45,8 @@ export interface ReportsPanelOptions {
   requestRelationships(): Promise<RelationshipsMessage | null>;
   /** Token profiles for text columns (up to three are read). */
   requestTextProfile(column: number): Promise<TextProfileMessage | null>;
+  /** PSI / Cramér's V between the first and second half of the current rows. */
+  requestDistributionChanges(): Promise<DistributionChangesMessage | null>;
   /** Runs a finding's action (filters, suggestion chips, merge, clean). */
   onAction(finding: Finding): void;
 }
@@ -78,6 +82,9 @@ export class ReportsPanel {
   private textProfiles: TextProfileMessage[] = [];
   private textLoading = false;
   private textRequested = false;
+  private distributionChanges: DistributionChangesMessage | null = null;
+  private distributionLoading = false;
+  private distributionRequested = false;
   private explainLabel: string | null = null;
 
   constructor(
@@ -103,6 +110,7 @@ export class ReportsPanel {
       void this.loadCoMissingness();
       void this.loadDependencies();
       void this.loadTextProfiles();
+      void this.loadDistributionChanges();
     }
     if (this.active === "anomalies") void this.loadGroupAnomalies();
     this.render();
@@ -118,6 +126,7 @@ export class ReportsPanel {
       void this.loadCoMissingness();
       void this.loadDependencies();
       void this.loadTextProfiles();
+      void this.loadDistributionChanges();
     }
     if (tab === "anomalies") void this.loadGroupAnomalies();
     this.render();
@@ -178,6 +187,20 @@ export class ReportsPanel {
     this.render();
   }
 
+  private async loadDistributionChanges(): Promise<void> {
+    if (this.distributionRequested) return;
+    this.distributionRequested = true;
+    this.distributionLoading = true;
+    this.render();
+    try {
+      this.distributionChanges = await this.options.requestDistributionChanges();
+    } catch {
+      this.distributionChanges = null;
+    }
+    this.distributionLoading = false;
+    this.render();
+  }
+
   private async loadGroupAnomalies(): Promise<void> {
     if (this.groupAnomaliesRequested) return;
     this.groupAnomaliesRequested = true;
@@ -234,6 +257,8 @@ export class ReportsPanel {
     this.relationshipsRequested = false;
     this.textProfiles = [];
     this.textRequested = false;
+    this.distributionChanges = null;
+    this.distributionRequested = false;
     if (this.active === "relationships") {
       void this.loadCorrelation();
       void this.loadRelationships();
@@ -242,6 +267,7 @@ export class ReportsPanel {
       void this.loadCoMissingness();
       void this.loadDependencies();
       void this.loadTextProfiles();
+      void this.loadDistributionChanges();
     }
     if (this.active === "anomalies") void this.loadGroupAnomalies();
   }
@@ -267,6 +293,9 @@ export class ReportsPanel {
       }
       if (this.dependencies !== null && this.dependencies.pairs.length > 0) {
         quality.push(...dependencyFindings(this.dependencies.pairs));
+      }
+      if (this.distributionChanges !== null && this.distributionChanges.changes.length > 0) {
+        quality.push(...distributionFindings(this.distributionChanges.changes));
       }
       if (this.coMissingness !== null) {
         quality.push(
@@ -349,6 +378,8 @@ export class ReportsPanel {
               ? " · checking key relationships…"
               : this.textLoading
                 ? " · reading text columns…"
+                : this.distributionLoading
+                  ? " · comparing row halves…"
                 : "";
     this.metaEl.textContent =
       this.stats === null

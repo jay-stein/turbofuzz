@@ -5,6 +5,7 @@ import { computeDependencies } from "../data/dependencies.js";
 import { computeGroupAnomalies } from "../data/group-anomalies.js";
 import { computeRelationships } from "../data/relationships.js";
 import { textProfile } from "../data/text-profile.js";
+import { computeDistributionChanges } from "../data/distribution.js";
 import { computeAnomalies } from "../data/anomalies.js";
 import { buildDataset, datasetFromColumns, rebuildDataset } from "../data/build.js";
 import { applyCleanOps } from "../data/clean-ops.js";
@@ -58,6 +59,7 @@ import type {
   GetDependenciesRequest,
   GetRelationshipsRequest,
   GetTextProfileRequest,
+  GetDistributionChangesRequest,
   LoadRequest,
   PreviewCleanRequest,
   PreviewTransformRequest,
@@ -265,6 +267,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getTextProfile":
       handleGetTextProfile(message);
+      break;
+    case "getDistributionChanges":
+      handleGetDistributionChanges(message);
       break;
     case "renameHeaders":
       handleRenameHeaders(message);
@@ -1144,6 +1149,19 @@ function handleGetTextProfile(message: GetTextProfileRequest): void {
     column: message.column,
     label: column.name,
     profile,
+    ms: performance.now() - started,
+  });
+}
+
+/** PSI / Cramér's V between the first and second half of the current rows. */
+function handleGetDistributionChanges(message: GetDistributionChangesRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const changes = computeDistributionChanges(dataset.columns, dataset.rowCount, sortedIds);
+  post({
+    type: "distributionChanges",
+    requestId: message.requestId,
+    changes,
     ms: performance.now() - started,
   });
 }

@@ -4,6 +4,7 @@ import type { DependencyPair } from "../data/dependencies.js";
 import type { GroupAnomalyPair } from "../data/group-anomalies.js";
 import type { RelationshipData } from "../data/relationships.js";
 import type { TextProfile } from "../data/text-profile.js";
+import type { DistributionChange } from "../data/distribution.js";
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import type { SeriesMode, SeriesResult } from "../data/chart-series.js";
 import type { BoxStatsResult, CorrelationResult, CrossTabResult } from "../data/chart-stats.js";
@@ -476,6 +477,19 @@ export interface TextProfileMessage {
   ms: number;
 }
 
+export type GetDistributionChangesRequest = {
+  type: "getDistributionChanges";
+  requestId: number;
+};
+
+export interface DistributionChangesMessage {
+  type: "distributionChanges";
+  requestId: number;
+  /** PSI (numeric) or Cramér's V (category) between row halves. */
+  changes: DistributionChange[];
+  ms: number;
+}
+
 export type WorkerRequest =
   | LoadRequest
   | SetFilterRequest
@@ -510,7 +524,8 @@ export type WorkerRequest =
   | GetGroupAnomaliesRequest
   | GetDependenciesRequest
   | GetRelationshipsRequest
-  | GetTextProfileRequest;
+  | GetTextProfileRequest
+  | GetDistributionChangesRequest;
 
 export interface DatasetMessage {
   requestId: number;
@@ -692,6 +707,7 @@ export type WorkerResponse =
   | DependenciesMessage
   | RelationshipsMessage
   | TextProfileMessage
+  | DistributionChangesMessage
   | ExportStartedMessage
   | CsvChunkMessage
   | HeadersRenamedMessage

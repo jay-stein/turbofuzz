@@ -2,6 +2,7 @@ import type { DatasetStats } from "./stats.js";
 import type { DependencyPair } from "./dependencies.js";
 import type { GroupAnomalyPair } from "./group-anomalies.js";
 import type { RelationshipData } from "./relationships.js";
+import type { DistributionChange } from "./distribution.js";
 import type { TextProfile } from "./text-profile.js";
 import type { ColumnSuggestion } from "./suggestions.js";
 import type { ColumnMeta } from "../worker/protocol.js";
@@ -556,6 +557,41 @@ export function textProfileFindings(profiles: readonly TextProfileInput[]): Find
       };
       return finding;
     });
+}
+
+/**
+ * Distribution changes between the first and second half of the current row
+ * order (PSI for numbers, Cramér's V for category mixes).
+ */
+export function distributionFindings(changes: readonly DistributionChange[]): Finding[] {
+  return changes.map((change) => {
+    const label = change.kind === "numeric" ? "PSI" : "V";
+    const measure = change.kind === "numeric" ? "numeric distribution" : "category mix";
+    return {
+      id: `distribution.${change.column}`,
+      report: "quality.distributionChanges",
+      severity: change.effect >= 0.25 ? "review" : "info",
+      title: `The ${measure} of “${change.label}” shifted between the first and second half of the rows (${label} ${change.effect.toFixed(2)}) — ${change.detail}`,
+      evidence: [
+        { metric: label, value: change.effect.toFixed(2), n: 1 },
+        { metric: "detail", value: change.detail, n: 1 },
+        {
+          metric: "window",
+          value: `first half vs second half (${change.firstRows.toLocaleString()} / ${change.secondRows.toLocaleString()} rows)`,
+          n: change.firstRows + change.secondRows,
+        },
+        {
+          metric: "method",
+          value:
+            change.kind === "numeric"
+              ? "Population Stability Index over first-half deciles"
+              : "Cramér's V between row half and category",
+          n: 1,
+        },
+      ],
+      impact: { rows: change.firstRows + change.secondRows, columns: [change.column] },
+    };
+  });
 }
 
 /**

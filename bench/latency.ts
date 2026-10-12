@@ -6,6 +6,7 @@ import { applyCleanOps } from "../src/data/clean-ops.js";
 import { ColumnData } from "../src/data/column.js";
 import { computeRelationships } from "../src/data/relationships.js";
 import { textProfile } from "../src/data/text-profile.js";
+import { computeDistributionChanges } from "../src/data/distribution.js";
 import { QueryEngine } from "../src/search/query-engine.js";
 import { generateDataset } from "./data.js";
 import { count, measure, memMB, ms, type Timing } from "./bench-utils.js";
@@ -149,6 +150,15 @@ function casesFor(size: number): { cases: BenchCase[]; buildMs: number; rssMB: n
         run: () => {
           const column = dataset.columns[indexOf("customer_name")];
           if (column !== undefined) textProfile(column.raw, column.nullMask, 30);
+        },
+      },
+      {
+        label: "Distribution changes: PSI / V across row halves (lazy)",
+        budgetMs: 250,
+        run: () => {
+          const all = new Uint32Array(dataset.rowCount);
+          for (let row = 0; row < all.length; row++) all[row] = row;
+          computeDistributionChanges(dataset.columns, dataset.rowCount, all);
         },
       },
       {
