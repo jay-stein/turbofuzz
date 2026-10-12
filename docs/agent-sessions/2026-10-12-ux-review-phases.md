@@ -19,6 +19,12 @@ commit per phase on `agent/ux-review-20261012`.
 | `4f889bb` | 4 | triage queue behind “N issues found — Review all” |
 | `cc7ad8a` | 4b/4c | Reports lens: shared Finding shape, Quality / Relationships / Anomalies tabs |
 | `932aea1` | 5 | recipe save + replay (name matching, skip reporting) and Slick table PNG/HTML from a view |
+| `72ed25a` | follow-up | measure picker chooses the aggregate up front; custom expression measures (+ − × ÷ over aggregates, ratios, percentiles) in the view, totals, Use-as-dataset and pandas recipe |
+| `bd27309` | 3 cont. | column inspector on header click (profile, issues, verbs, display format); per-column fixed-decimal display; reports gain unit inconsistency, join-readiness keys and Explain [column] |
+
+Drawers kept intentionally: the inspector and command bar cover the common
+verbs, but melt, KNN, combine-date roles and regex split still need the
+configurable panels, so Clean/Transform stay as the advanced surface.
 
 ## Verification (all on this branch)
 
