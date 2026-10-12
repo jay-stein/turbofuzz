@@ -242,3 +242,42 @@ test("a measure can be weighted by a numeric column", async () => {
   const view = requests[requests.length - 1];
   assert.equal(view.measures[0]?.weight, 0);
 });
+
+test("double-clicking a view tab renames it in place", async () => {
+  const win = setupDom();
+  const host = document.createElement("div");
+  let changed = 0;
+  const panel = new ViewsPanel(host as unknown as HTMLElement, {
+    requestAggregate: async (view) => aggregateFor(view),
+    onDrill: () => {},
+    onChart: () => {},
+    onUseAsDataset: () => {},
+    onCopyPandas: async () => {},
+    onViewsChanged: () => {
+      changed++;
+    },
+  });
+  panel.setColumns(metas, 100);
+  await tick();
+
+  const first = host.querySelector(".views-tab") as HTMLElement;
+  first.dispatchEvent(new win.MouseEvent("dblclick", { bubbles: true }) as unknown as Event);
+  const input = first.querySelector(".views-tab-input") as HTMLInputElement | null;
+  assert.ok(input !== null, "the tab turns into an input");
+  assert.equal(input.value, "Sum of amount by city");
+  input.value = "Monthly revenue";
+  input.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true }) as unknown as Event);
+  await tick();
+
+  assert.equal(changed, 1);
+  const tab = host.querySelector(".views-tab") as HTMLElement;
+  assert.match(tab.textContent ?? "", /Monthly revenue/);
+
+  const second = host.querySelectorAll(".views-tab")[1] as HTMLElement;
+  second.dispatchEvent(new win.MouseEvent("dblclick", { bubbles: true }) as unknown as Event);
+  const cancelInput = second.querySelector(".views-tab-input") as HTMLInputElement | null;
+  assert.ok(cancelInput !== null);
+  cancelInput.value = "discarded";
+  cancelInput.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }) as unknown as Event);
+  assert.equal(changed, 1, "Escape keeps the old name");
+});

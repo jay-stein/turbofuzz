@@ -301,6 +301,41 @@ export class ViewsPanel {
     this.refresh();
   }
 
+  /** Double-click a view tab to rename it in place. */
+  private beginRename(index: number, tab: HTMLElement): void {
+    const entry = this.views[index];
+    if (entry === undefined) return;
+    const input = el("input", {
+      class: "views-tab-input",
+      "aria-label": "View name",
+      type: "text",
+    }) as HTMLInputElement;
+    input.value = entry.def.name;
+    clear(tab);
+    tab.classList.add("renaming");
+    tab.append(input);
+    input.focus();
+    input.select();
+    const commit = (): void => {
+      const name = input.value.trim();
+      if (name.length > 0 && name !== entry.def.name) {
+        entry.def.name = name.slice(0, 80);
+        this.options.onViewsChanged?.();
+      }
+      this.renderTabs();
+    };
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        commit();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        this.renderTabs();
+      }
+    });
+    input.addEventListener("blur", commit);
+  }
+
   private removeView(index: number): void {
     if (this.views.length <= 1) return;
     this.views.splice(index, 1);
@@ -350,6 +385,10 @@ export class ViewsPanel {
         this.active = index;
         if (entry.stale || entry.result === null) this.refresh();
         else this.render();
+      });
+      tab.addEventListener("dblclick", (event) => {
+        event.stopPropagation();
+        this.beginRename(index, tab);
       });
       if (this.views.length > 1) {
         const remove = el(
