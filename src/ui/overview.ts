@@ -35,6 +35,8 @@ export interface OverviewCallbacks {
   onBlankTokens?(tokens: string[]): void;
   /** The user corrected the detected table archetype. */
   onArchetypeChange?(id: ArchetypeId): void;
+  /** Open the triage queue from the health area. */
+  onOpenTriage?(): void;
 }
 
 export type NextStepAction =
@@ -98,6 +100,20 @@ function writeDefaultView(view: "overview" | "table"): void {
 
 function plural(count: number, singular: string, plural = `${singular}s`): string {
   return count === 1 ? singular : plural;
+}
+
+/** Rough count of fixable issues, for the "Review all" entry point. */
+export function countIssues(columns: readonly ColumnMeta[], stats: DatasetStats): number {
+  let count = 0;
+  for (const column of columns) {
+    count += column.suggestions.length;
+    if (column.nullTokens.some((token) => token.label !== "" && token.count > 0)) count++;
+    if (column.stats.nulls > 0) count++;
+    if (column.similarGroups > 0) count++;
+    if (column.stats.distinct === 1) count++;
+  }
+  if (stats.duplicateGroups > 0) count++;
+  return count;
 }
 
 /** Short format label from the file extension, for the dataset badges. */
@@ -597,6 +613,20 @@ export class Overview {
         el("span", { class: "health-label" }, [tile.label]),
       );
       wrap.append(node);
+    }
+    const issues = countIssues(columns, stats);
+    if (issues > 0) {
+      const review = el(
+        "button",
+        {
+          class: "ghost small triage-open",
+          type: "button",
+          title: "Open the review checklist — every fix is undoable",
+        },
+        [`${issues} issue${issues === 1 ? "" : "s"} found — Review all`],
+      ) as HTMLButtonElement;
+      review.addEventListener("click", () => this.callbacks.onOpenTriage?.());
+      wrap.append(review);
     }
     return wrap;
   }

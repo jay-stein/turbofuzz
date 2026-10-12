@@ -64,6 +64,7 @@ import { openTransformPanel } from "./transform-panel.js";
 import { ViewTabs, type ViewId } from "./view-tabs.js";
 import { ViewsPanel } from "./views-panel.js";
 import { openCommandBar, type ParsedCommand } from "./command-bar.js";
+import { openTriagePanel } from "./triage-panel.js";
 import { suggestCharts } from "./chart-utils.js";
 
 const LARGE_PASTE_ROWS = 300_000;
@@ -789,6 +790,7 @@ export class App {
         this.archetypeOverride = id;
         this.rerenderOverview();
       },
+      onOpenTriage: () => this.openTriage(),
     });
     const body = el("div", { class: "workspace-body" }, [sidebar, results]);
     workspace.append(navRow, this.overviewHost, body);
@@ -2163,6 +2165,18 @@ export class App {
       },
       this.archetypeOverride,
     );
+  }
+
+  /** Triage queue: every suggested fix in one ranked checklist. */
+  private openTriage(): void {
+    const stats = this.latestStats;
+    if (stats === null) return;
+    openTriagePanel(this.metas, stats, {
+      onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
+      onConvertToken: (column, tokens) => this.convertToken(column, tokens),
+      onOpenClean: (column, tab) => this.openClean(column, tab),
+      onDedupe: (anchor) => openDedupeMenu(anchor, stats, (keep) => this.dropDuplicates(keep)),
+    });
   }
 
   private applyViewAsDataset(view: ViewDef): void {
