@@ -19,9 +19,11 @@ import type {
   CoMissingnessMessage,
   ColumnMetaMessage,
   CsvChunkMessage,
+  DependenciesMessage,
   ExportOptions,
   ExportScope,
   ExportStartedMessage,
+  GroupAnomaliesMessage,
   GroupedBinsMessage,
   HeadersRenamedMessage,
   LoadedMessage,
@@ -188,6 +190,14 @@ export class SearchWorkerClient {
 
   getCoMissingness(): Promise<CoMissingnessMessage> {
     return this.request<CoMissingnessMessage>({ type: "getCoMissingness" });
+  }
+
+  getGroupAnomalies(): Promise<GroupAnomaliesMessage> {
+    return this.request<GroupAnomaliesMessage>({ type: "getGroupAnomalies" });
+  }
+
+  getDependencies(): Promise<DependenciesMessage> {
+    return this.request<DependenciesMessage>({ type: "getDependencies" });
   }
 
   renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {

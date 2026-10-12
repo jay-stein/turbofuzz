@@ -31,7 +31,7 @@ export interface HighlightRule {
   mode: "contains" | "exact";
 }
 
-export type ColumnQaKind = "nulls" | "valueAnomalies" | "lengthAnomalies";
+export type ColumnQaKind = "nulls" | "valueAnomalies" | "lengthAnomalies" | "groupAnomalies";
 
 export interface ResultTableOptions {
   onSort: (column: number, dir: 1 | -1 | 0) => void;

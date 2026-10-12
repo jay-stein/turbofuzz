@@ -2199,6 +2199,8 @@ export class App {
     this.reportsPanel = new ReportsPanel(this.reportsHost, {
       requestCorrelation: () => this.requestReportCorrelation(),
       requestCoMissingness: () => this.client.getCoMissingness().catch(() => null),
+      requestGroupAnomalies: () => this.client.getGroupAnomalies().catch(() => null),
+      requestDependencies: () => this.client.getDependencies().catch(() => null),
       onAction: (finding) => this.runFinding(finding),
     });
     this.reportsPanel.setData(this.metas, stats, this.rowCount);
@@ -2226,6 +2228,7 @@ export class App {
       case "filterSpecial": {
         const active = this.columnSpecials.get(action.column)?.has(action.special) ?? false;
         if (!active) this.toggleColumnSpecial(action.column, action.special);
+        this.setAction(finding.title);
         this.setView("table");
         break;
       }

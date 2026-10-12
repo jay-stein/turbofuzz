@@ -1,6 +1,8 @@
 import { ColumnData } from "../data/column.js";
 import { computeAggregate } from "../data/aggregate.js";
 import { coMissingness } from "../data/comissingness.js";
+import { computeDependencies } from "../data/dependencies.js";
+import { computeGroupAnomalies } from "../data/group-anomalies.js";
 import { computeAnomalies } from "../data/anomalies.js";
 import { buildDataset, datasetFromColumns, rebuildDataset } from "../data/build.js";
 import { applyCleanOps } from "../data/clean-ops.js";
@@ -50,6 +52,8 @@ import type {
   GetCorrelationRequest,
   GetAggregateRequest,
   GetCoMissingnessRequest,
+  GetGroupAnomaliesRequest,
+  GetDependenciesRequest,
   LoadRequest,
   PreviewCleanRequest,
   PreviewTransformRequest,
@@ -245,6 +249,12 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getCoMissingness":
       handleGetCoMissingness(message);
+      break;
+    case "getGroupAnomalies":
+      handleGetGroupAnomalies(message);
+      break;
+    case "getDependencies":
+      handleGetDependencies(message);
       break;
     case "renameHeaders":
       handleRenameHeaders(message);
@@ -1066,6 +1076,34 @@ function handleGetCoMissingness(message: GetCoMissingnessRequest): void {
     labels: candidates.map((index) => dataset.columns[index].name),
     nullCells: result.nullCells,
     pairs: result.pairs,
+    ms: performance.now() - started,
+  });
+}
+
+/** Group-relative anomalies: values unusual next to their category peers. */
+function handleGetGroupAnomalies(message: GetGroupAnomaliesRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const result = computeGroupAnomalies(dataset.columns, dataset.rowCount);
+  dataset.applyGroupAnomalies(result.columnBits, result.combined);
+  post({
+    type: "groupAnomalies",
+    requestId: message.requestId,
+    pairs: result.pairs,
+    totalFlagged: result.totalFlagged,
+    ms: performance.now() - started,
+  });
+}
+
+/** Candidate keys and the columns they determine (data integrity/joins). */
+function handleGetDependencies(message: GetDependenciesRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const pairs = computeDependencies(dataset.columns, dataset.rowCount);
+  post({
+    type: "dependencies",
+    requestId: message.requestId,
+    pairs,
     ms: performance.now() - started,
   });
 }

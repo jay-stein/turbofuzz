@@ -25,10 +25,15 @@ export type SpecialFilter =
   | "duplicates"
   | "nulls"
   | "valueAnomalies"
-  | "lengthAnomalies";
+  | "lengthAnomalies"
+  | "groupAnomalies";
 
 /** Specials that can be scoped to a single column (duplicates cannot). */
-export type ColumnSpecialKind = "nulls" | "valueAnomalies" | "lengthAnomalies";
+export type ColumnSpecialKind =
+  | "nulls"
+  | "valueAnomalies"
+  | "lengthAnomalies"
+  | "groupAnomalies";
 
 export class QueryEngine {
   private readonly special = new Set<SpecialFilter>();
@@ -104,6 +109,8 @@ export class QueryEngine {
         return this.dataset.valueColumnBits[column] ?? null;
       case "lengthAnomalies":
         return this.dataset.lengthColumnBits[column] ?? null;
+      case "groupAnomalies":
+        return this.dataset.groupColumnBits[column] ?? null;
     }
   }
 
@@ -117,6 +124,9 @@ export class QueryEngine {
         return this.dataset.valueAnomalyBits;
       case "lengthAnomalies":
         return this.dataset.lengthAnomalyBits;
+      case "groupAnomalies":
+        // Computed lazily by the Reports lens; before that, nothing matches.
+        return this.dataset.groupAnomalyBits ?? new BitSet(this.dataset.rowCount);
     }
   }
 

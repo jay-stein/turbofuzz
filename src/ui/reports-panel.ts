@@ -2,12 +2,20 @@ import type { DatasetStats } from "../data/stats.js";
 import {
   anomalyFindings,
   coMissingnessFindings,
+  dependencyFindings,
   explainColumn,
+  groupAnomalyFindings,
   qualityFindings,
   relationshipFindings,
   type Finding,
 } from "../data/findings.js";
-import type { CoMissingnessMessage, CorrelationMessage, ColumnMeta } from "../worker/protocol.js";
+import type {
+  CoMissingnessMessage,
+  CorrelationMessage,
+  ColumnMeta,
+  DependenciesMessage,
+  GroupAnomaliesMessage,
+} from "../worker/protocol.js";
 import { clear, el } from "./dom.js";
 
 export type ReportTab = "quality" | "relationships" | "anomalies";
@@ -23,6 +31,10 @@ export interface ReportsPanelOptions {
   requestCorrelation(): Promise<CorrelationMessage | null>;
   /** Pairwise co-missingness over the filtered rows. */
   requestCoMissingness(): Promise<CoMissingnessMessage | null>;
+  /** Group-relative anomaly detection over the current rows. */
+  requestGroupAnomalies(): Promise<GroupAnomaliesMessage | null>;
+  /** Candidate keys and functional dependencies. */
+  requestDependencies(): Promise<DependenciesMessage | null>;
   /** Runs a finding's action (filters, suggestion chips, merge, clean). */
   onAction(finding: Finding): void;
 }
@@ -46,6 +58,12 @@ export class ReportsPanel {
   private coMissingness: CoMissingnessMessage | null = null;
   private coMissingnessLoading = false;
   private coMissingnessRequested = false;
+  private groupAnomalies: GroupAnomaliesMessage | null = null;
+  private groupAnomaliesLoading = false;
+  private groupAnomaliesRequested = false;
+  private dependencies: DependenciesMessage | null = null;
+  private dependenciesLoading = false;
+  private dependenciesRequested = false;
   private explainLabel: string | null = null;
 
   constructor(
@@ -63,14 +81,50 @@ export class ReportsPanel {
     this.metas = metas;
     this.stats = stats;
     this.rowCount = rowCount;
-    if (this.active === "quality") void this.loadCoMissingness();
+    if (this.active === "quality") {
+      void this.loadCoMissingness();
+      void this.loadDependencies();
+    }
+    if (this.active === "anomalies") void this.loadGroupAnomalies();
     this.render();
   }
 
   show(tab: ReportTab = this.active): void {
     this.active = tab;
     if (tab === "relationships") void this.loadCorrelation();
-    if (tab === "quality") void this.loadCoMissingness();
+    if (tab === "quality") {
+      void this.loadCoMissingness();
+      void this.loadDependencies();
+    }
+    if (tab === "anomalies") void this.loadGroupAnomalies();
+    this.render();
+  }
+
+  private async loadDependencies(): Promise<void> {
+    if (this.dependenciesRequested) return;
+    this.dependenciesRequested = true;
+    this.dependenciesLoading = true;
+    this.render();
+    try {
+      this.dependencies = await this.options.requestDependencies();
+    } catch {
+      this.dependencies = null;
+    }
+    this.dependenciesLoading = false;
+    this.render();
+  }
+
+  private async loadGroupAnomalies(): Promise<void> {
+    if (this.groupAnomaliesRequested) return;
+    this.groupAnomaliesRequested = true;
+    this.groupAnomaliesLoading = true;
+    this.render();
+    try {
+      this.groupAnomalies = await this.options.requestGroupAnomalies();
+    } catch {
+      this.groupAnomalies = null;
+    }
+    this.groupAnomaliesLoading = false;
     this.render();
   }
 
@@ -108,8 +162,16 @@ export class ReportsPanel {
     this.correlationRequested = false;
     this.coMissingness = null;
     this.coMissingnessRequested = false;
+    this.groupAnomalies = null;
+    this.groupAnomaliesRequested = false;
+    this.dependencies = null;
+    this.dependenciesRequested = false;
     if (this.active === "relationships") void this.loadCorrelation();
-    if (this.active === "quality") void this.loadCoMissingness();
+    if (this.active === "quality") {
+      void this.loadCoMissingness();
+      void this.loadDependencies();
+    }
+    if (this.active === "anomalies") void this.loadGroupAnomalies();
   }
 
   refresh(): void {
@@ -120,6 +182,9 @@ export class ReportsPanel {
     if (this.stats === null) return [];
     if (this.active === "quality") {
       const quality = qualityFindings(this.metas, this.stats, this.rowCount);
+      if (this.dependencies !== null && this.dependencies.pairs.length > 0) {
+        quality.push(...dependencyFindings(this.dependencies.pairs));
+      }
       if (this.coMissingness !== null) {
         quality.push(
           ...coMissingnessFindings(
@@ -129,15 +194,23 @@ export class ReportsPanel {
             this.coMissingness.pairs,
           ),
         );
-        quality.sort(
-          (a, b) =>
-            (b.severity === "fix" ? 1 : 0) - (a.severity === "fix" ? 1 : 0) ||
-            b.impact.rows - a.impact.rows,
-        );
       }
+      quality.sort(
+        (a, b) =>
+          (b.severity === "fix" ? 2 : b.severity === "review" ? 1 : 0) -
+            (a.severity === "fix" ? 2 : a.severity === "review" ? 1 : 0) ||
+          b.impact.rows - a.impact.rows,
+      );
       return quality;
     }
-    if (this.active === "anomalies") return anomalyFindings(this.metas);
+    if (this.active === "anomalies") {
+      const findings = anomalyFindings(this.metas);
+      if (this.groupAnomalies !== null && this.groupAnomalies.pairs.length > 0) {
+        findings.push(...groupAnomalyFindings(this.groupAnomalies.pairs));
+        findings.sort((a, b) => b.impact.rows - a.impact.rows);
+      }
+      return findings;
+    }
     if (this.correlation === null) return [];
     if (this.explainLabel !== null) {
       return explainColumn(
@@ -179,7 +252,11 @@ export class ReportsPanel {
       ? " · computing relationships…"
       : this.coMissingnessLoading
         ? " · checking missing-together…"
-        : "";
+        : this.groupAnomaliesLoading
+          ? " · checking within-group outliers…"
+          : this.dependenciesLoading
+            ? " · checking key relationships…"
+            : "";
     this.metaEl.textContent =
       this.stats === null
         ? ""

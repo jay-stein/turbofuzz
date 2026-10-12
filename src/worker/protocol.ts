@@ -1,5 +1,7 @@
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
 import type { ViewDef } from "../data/aggregate.js";
+import type { DependencyPair } from "../data/dependencies.js";
+import type { GroupAnomalyPair } from "../data/group-anomalies.js";
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import type { SeriesMode, SeriesResult } from "../data/chart-series.js";
 import type { BoxStatsResult, CorrelationResult, CrossTabResult } from "../data/chart-stats.js";
@@ -92,7 +94,12 @@ export type SetFilterRequest = {
 
 export type ClearFiltersRequest = { type: "clearFilters"; requestId: number };
 
-export type SpecialKind = "duplicates" | "nulls" | "valueAnomalies" | "lengthAnomalies";
+export type SpecialKind =
+  | "duplicates"
+  | "nulls"
+  | "valueAnomalies"
+  | "lengthAnomalies"
+  | "groupAnomalies";
 
 export type SetSpecialRequest = {
   type: "setSpecial";
@@ -410,6 +417,33 @@ export interface CoMissingnessMessage {
   ms: number;
 }
 
+export type GetGroupAnomaliesRequest = {
+  type: "getGroupAnomalies";
+  requestId: number;
+};
+
+export interface GroupAnomaliesMessage {
+  type: "groupAnomalies";
+  requestId: number;
+  pairs: GroupAnomalyPair[];
+  /** Every flagged row across the analysed pairs. */
+  totalFlagged: number;
+  ms: number;
+}
+
+export type GetDependenciesRequest = {
+  type: "getDependencies";
+  requestId: number;
+};
+
+export interface DependenciesMessage {
+  type: "dependencies";
+  requestId: number;
+  /** Candidate keys and the columns they determine (98%+ functional). */
+  pairs: DependencyPair[];
+  ms: number;
+}
+
 export type WorkerRequest =
   | LoadRequest
   | SetFilterRequest
@@ -440,7 +474,9 @@ export type WorkerRequest =
   | SetNullPolicyRequest
   | ResolveNullsAllRequest
   | GetAggregateRequest
-  | GetCoMissingnessRequest;
+  | GetCoMissingnessRequest
+  | GetGroupAnomaliesRequest
+  | GetDependenciesRequest;
 
 export interface DatasetMessage {
   requestId: number;
@@ -618,6 +654,8 @@ export type WorkerResponse =
   | CorrelationMessage
   | AggregateMessage
   | CoMissingnessMessage
+  | GroupAnomaliesMessage
+  | DependenciesMessage
   | ExportStartedMessage
   | CsvChunkMessage
   | HeadersRenamedMessage

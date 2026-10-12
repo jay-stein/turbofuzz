@@ -1,4 +1,6 @@
 import type { DatasetStats } from "./stats.js";
+import type { DependencyPair } from "./dependencies.js";
+import type { GroupAnomalyPair } from "./group-anomalies.js";
 import type { ColumnSuggestion } from "./suggestions.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 
@@ -7,7 +9,11 @@ export type FindingSeverity = "fix" | "review" | "info";
 /** What clicking a finding's action does (resolved by the app). */
 export type FindingAction =
   | { kind: "suggestion"; column: number; suggestion: ColumnSuggestion }
-  | { kind: "filterSpecial"; column: number; special: "nulls" | "valueAnomalies" }
+  | {
+      kind: "filterSpecial";
+      column: number;
+      special: "nulls" | "valueAnomalies" | "groupAnomalies";
+    }
   | { kind: "filterDuplicates" }
   | { kind: "filterRange"; column: number; min: number | null; max: number | null }
   | { kind: "filterText"; column: number; query: string }
@@ -356,6 +362,92 @@ export function coMissingnessFindings(
     }
   }
   return findings.sort((a, b) => b.impact.rows - a.impact.rows).slice(0, limit);
+}
+
+/**
+ * Functional dependencies: candidate keys and what they determine. A clean
+ * mapping is useful join/integrity evidence; conflicts point at broken
+ * relationships ("the same station id with two different names").
+ */
+export function dependencyFindings(pairs: readonly DependencyPair[]): Finding[] {
+  return pairs
+    .map((pair) => {
+      const functional = pair.violations === 0;
+      const share = pair.rows > 0 ? 1 - pair.violations / pair.rows : 1;
+      const example = pair.examples[0];
+      const finding: Finding = {
+        id: `dependency.${pair.determinantColumn}.${pair.dependentColumn}`,
+        report: "quality.dataIntegrity",
+        severity: functional ? "info" : "review",
+        title: functional
+          ? `“${pair.determinantLabel}” determines “${pair.dependentLabel}” (consistent for ${pair.rows.toLocaleString()} rows)`
+          : `“${pair.determinantLabel}” almost determines “${pair.dependentLabel}” — ${pair.violations.toLocaleString()} conflicting rows`,
+        evidence: [
+          { metric: "rows checked", value: pair.rows.toLocaleString(), n: pair.rows },
+          { metric: "conflicts", value: pair.violations.toLocaleString(), n: pair.violations },
+          { metric: "consistency", value: percent(share), n: 1 },
+          ...(example === undefined
+            ? []
+            : [
+                {
+                  metric: "example",
+                  value: `${example.determinant} → ${example.values.join(" / ")}`,
+                  n: 1,
+                },
+              ]),
+        ],
+        impact: {
+          rows: pair.violations,
+          columns: [pair.determinantColumn, pair.dependentColumn],
+        },
+      };
+      return finding;
+    })
+    .sort((a, b) => b.impact.rows - a.impact.rows);
+}
+
+/**
+ * Group-relative anomalies: values that are normal alone but unusual next to
+ * their peers in the same category, with the method and an example.
+ */
+export function groupAnomalyFindings(pairs: readonly GroupAnomalyPair[]): Finding[] {
+  return pairs
+    .map((pair) => {
+      const example = pair.examples[0];
+      const formatter = (value: number): string =>
+        value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      const findings: Finding = {
+        id: `groupAnomaly.${pair.valueColumn}.${pair.groupColumn}`,
+        report: "anomalies.groupRelative",
+        severity: "review",
+        title: `${pair.flagged.toLocaleString()} “${pair.valueLabel}” values are unusual within “${pair.groupLabel}”`,
+        evidence: [
+          { metric: "flagged rows", value: pair.flagged.toLocaleString(), n: pair.flagged },
+          { metric: "groups analysed", value: pair.groupsAnalysed.toLocaleString(), n: pair.groupsAnalysed },
+          { metric: "method", value: "robust z per group (median/MAD), |z| > 3.5, groups ≥ 30", n: 1 },
+          ...(example === undefined
+            ? []
+            : [
+                {
+                  metric: "example",
+                  value: `${example.group}: ${formatter(example.value)} vs median ${formatter(
+                    example.median,
+                  )} (z ${example.z.toFixed(1)})`,
+                  n: 1,
+                },
+              ]),
+        ],
+        impact: { rows: pair.flagged, columns: [pair.valueColumn, pair.groupColumn] },
+        fixLabel: "Show rows",
+        action: {
+          kind: "filterSpecial",
+          column: pair.valueColumn,
+          special: "groupAnomalies",
+        },
+      };
+      return findings;
+    })
+    .sort((a, b) => b.impact.rows - a.impact.rows);
 }
 
 /**

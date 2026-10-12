@@ -10,6 +10,9 @@ export class Dataset {
   lengthColumnBits: (BitSet | null)[];
   valueFences: (ValueFence | null)[];
   lengthFences: (LengthFence | null)[];
+  /** Group-relative anomaly bits, computed lazily by the Reports lens. */
+  groupColumnBits: (BitSet | null)[] = [];
+  groupAnomalyBits: BitSet | null = null;
 
   constructor(
     readonly name: string,
@@ -47,5 +50,11 @@ export class Dataset {
     this.lengthFences = anomalies.columns.map((entry) => entry.lengthFence);
     this.stats.valueAnomalyRows = anomalies.valueBits.count();
     this.stats.lengthAnomalyRows = anomalies.lengthBits.count();
+  }
+
+  /** Stores the lazily computed group-relative anomaly bits for filtering. */
+  applyGroupAnomalies(columnBits: (BitSet | null)[], combined: BitSet): void {
+    this.groupColumnBits = columnBits;
+    this.groupAnomalyBits = combined;
   }
 }
