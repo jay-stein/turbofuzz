@@ -86,6 +86,24 @@ mining), `3b66a62c-0d90-4b90-86a3-1b383bd6a312` (distribution changes),
   formats line dropped 80%-alpha dim text (3.39:1). WCAG text pairs all pass;
   decorative `--border` stays 1.4:1 against panels by design.
 
+## Aggregation v2 and the rest of the backlog (same day, later session)
+
+| Commit | Feature |
+|---|---|
+| `1e5aa43` | Engine: conditional measures (`where` value list / range / is-empty, applies to expression terms), time options (week start, fiscal year start month, time zone via fixed offsets, local or IANA), cohort/since dimensions (entity → first period, period index since), partial-period flags on time results with `view.partial` exclude |
+| `36bbb6d` | Views UI: Other row for truncated summable results (total − shown, em-dash for non-summable), Spread matrix (heat-shaded pivot), “+ Cohort” retention starter, Partial periods selector + ◔ markers + note, Only-where editor with pill marker, week/fiscal/tz options in the grain menu, pandas export for where-masks, cohort/since temp columns, fiscal/tz comments, pivot reshaping |
+| `99d0232` | Near-duplicate clusters: primary-metaphone blocking + Jaro-Winkler, capped to the most frequent 2,000 values / 25 clusters, identifier columns skipped, “approximate” label in findings, merge action; time charts bound to a view hatch incomplete edge periods |
+| `a13a70b` | Anomaly actions: Flag column (non-destructive Yes/No column from value/length fences) and Winsorise 1% (percentile clamps) as Recipe steps, replayed by name, described and exported to pandas best-effort |
+| `a149e48` | Load is a modal dialog (New data reopens it with a close button); recipe replay offers a column mapping step when base names do not match; the archetype override is stored in the recipe and restored on replay |
+| `4f3e68a` | Perf guard (100k aggregate fails at 100× p50) + near-duplicate bench case (24 ms at 100k); 300k decision recorded in `bench/results-latency.md` |
+
+Final state: 499 tests, typecheck/build clean, all bench budgets pass
+(including text 97 ms, distribution 35 ms, near-duplicates 24 ms at 100k).
+Deployed as version `6e7ace8e-76d7-4430-9766-6f22b4ccd224`.
+The review's v2 list is now complete (bins, pivot, conditional/weighted/ratio
+measures, YoY, cohorts); only the explicitly “later” event-log specifics
+(time between events, sessionisation, funnels) remain out of scope.
+
 Drawers kept intentionally: the inspector and command bar cover the common
 verbs, but melt, KNN, combine-date roles and regex split still need the
 configurable panels, so Clean/Transform stay as the advanced surface.
@@ -102,31 +120,31 @@ configurable panels, so Clean/Transform stay as the advanced surface.
 ## Decisions and notes
 
 - §3.5 supersedes §3.1, so the engine was built once with the generalised
-  `ViewDef`; bins/quantiles, pivot, conditional/weighted/ratio measures and YoY
-  are the documented v2 remainder.
-- Truncation at > `limit` groups shows “top N of M groups” instead of an Other
-  row, because averaging medians/percentiles of merged groups would be wrong.
+  `ViewDef`. The v2 list is now delivered (bins/quantiles, pivot, conditional/
+  weighted/ratio measures, YoY, cohorts, fiscal/zone time, partial periods).
+- Truncation folds the hidden groups into an Other row when every shown measure
+  is summable (total minus shown); non-summable measures keep “top N of M”
+  because averaging medians/percentiles of merged groups would be wrong.
 - Changed-cell masks are keyed by original row id and reset on load/transform;
   flags ship with row pages (row-major `Uint8Array`).
 - `opencode export` is interactive-only in this environment (see the 2026-10-10
   handoff note); these markdown records remain the session log.
 
-## Deliberately not done (scoped out of this pass, logged for follow-ups)
+## Deliberately not done (scoped out, logged for follow-ups)
 
-- **Full column inspector (§5.1)**: header right-click already carries the
-  verbs in context, so the Clean/Transform drawers were **not retired** — doing
-  so needs the click-to-open inspector first.
+- **Full column inspector (§5.1)**: header right-click and the inspector cover
+  the verbs; the Clean/Transform drawers are **not retired** because melt, KNN,
+  combine-date roles and regex split still need configurable panels.
 - **One commit model (§5.3)**: parameter-free ops are instant with Undo
   toasts; configurable ops still use panel + Apply.
-- **Reports depth**: no co-missingness, join readiness, distribution-change or
-  near-duplicate-cluster reports; Relationships has Pearson only (no Spearman,
-  MI, Cramér's V, confounding); Anomalies has univariate only (no
-  group-relative, kNN joint-rare or time-aware detectors).
-- **Recipe replay transforms** remap only when the saved base schema matches by
-  name; ops whose shapes depend on data (split, melt, combine, KNN) are skipped
-  by design.
-- Latency budget items (<50 ms active-view recompute etc.) were not benchmarked
-  in this pass.
+- **Recipe replay transforms**: name matching now has a mapping step, but ops
+  whose shapes depend on data (split, melt, combine, KNN) are still skipped
+  when the mapping cannot cover them.
+- **Event-log specifics** (the review's “later” phase): time between events,
+  sessionisation and funnels are out of scope; cohorts cover the v2 need.
+- **300k latency**: deliberately stays over the 50 ms view budget (soft
+  ceiling); WebAssembly kernels or incremental aggregation are the logged
+  remediation path — see `bench/results-latency.md`.
 
 ## Commands executed (high level)
 
