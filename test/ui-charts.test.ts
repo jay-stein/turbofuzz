@@ -1217,7 +1217,12 @@ test("animating over a date column shows the playback bar and scrubs frames", as
   slider.dispatchEvent(new window.Event("input") as unknown as Event);
   await tick();
   assert.match(bar.textContent ?? "", /2024-02/);
-  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /frame 2 of 2/);
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /2024-02/);
+  assert.doesNotMatch(
+    host.querySelector(".chart-note")?.textContent ?? "",
+    /frame \d+ of \d+/,
+    "the frame counter clutter is gone; the date is enough",
+  );
   card.dispose();
 });
 

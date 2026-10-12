@@ -513,7 +513,7 @@ export interface GridCountsMessage {
   ms: number;
 }
 
-export type AnimationChart = "bar" | "bubble";
+export type AnimationChart = "bar" | "bubble" | "histogram";
 
 export type GetAnimationRequest = {
   type: "getAnimation";
@@ -521,7 +521,7 @@ export type GetAnimationRequest = {
   timeColumn: number;
   grain: TimeGrain;
   chart: AnimationChart;
-  /** bar: the category column; bubble: the x column. */
+  /** bar/histogram: the value column; bubble: the x column. */
   column: number;
   /** bubble: the y column (ignored for bar). */
   yColumn: number;

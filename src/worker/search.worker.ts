@@ -21,7 +21,7 @@ import {
   computeCrossTab,
   computeGridCounts,
 } from "../data/chart-stats.js";
-import { computeBarFrames, computeBubbleFrames } from "../data/chart-frames.js";
+import { computeBarFrames, computeBubbleFrames, computeHistogramFrames } from "../data/chart-frames.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import {
@@ -1246,6 +1246,22 @@ function handleGetAnimation(message: GetAnimationRequest): void {
   if (timeColumn === undefined) throw new Error("Unknown time column");
   const started = performance.now();
   const times = timeColumn.numbers();
+  if (message.chart === "histogram") {
+    const column = dataset.columns[message.column];
+    if (column === undefined) throw new Error("Unknown column");
+    const result = computeHistogramFrames(
+      times,
+      column.numbers(),
+      sortedIds,
+      message.grain,
+      message.bins ?? 32,
+    );
+    post(
+      { type: "animation", requestId: message.requestId, result, ms: performance.now() - started },
+      result.hist === undefined ? [] : [result.hist.counts.buffer],
+    );
+    return;
+  }
   if (message.chart === "bubble") {
     const x = dataset.columns[message.column];
     const y = dataset.columns[message.yColumn];

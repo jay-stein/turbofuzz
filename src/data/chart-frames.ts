@@ -22,6 +22,14 @@ export interface BubbleAnimation {
   grids: Uint32Array;
 }
 
+export interface HistogramAnimation {
+  /** Global value range and bin counts per frame. */
+  min: number;
+  max: number;
+  bins: number;
+  counts: Uint32Array;
+}
+
 export interface AnimationResult {
   frames: AnimationFrame[];
   maxCount: number;
@@ -29,6 +37,7 @@ export interface AnimationResult {
   missing: number;
   bar?: BarAnimation;
   bubble?: BubbleAnimation;
+  hist?: HistogramAnimation;
 }
 
 function frameTimes(
@@ -104,6 +113,52 @@ export function computeBarFrames(
     total++;
   }
   return { frames, maxCount, total, missing, bar: { labels: outLabels, counts } };
+}
+
+/** Per-time-bucket bin counts for an animated histogram. */
+export function computeHistogramFrames(
+  times: Float64Array,
+  values: Float64Array,
+  ids: Uint32Array,
+  grain: TimeGrain,
+  binCount: number,
+): AnimationResult {
+  const { frames, index, missing } = frameTimes(times, ids, grain);
+  const bins = Math.max(4, Math.min(256, Math.floor(binCount) || 32));
+  let min = Infinity;
+  let max = -Infinity;
+  let total = 0;
+  let skips = missing;
+  for (let position = 0; position < ids.length; position++) {
+    const row = ids[position];
+    const time = times[row];
+    const value = values[row];
+    if (!Number.isFinite(value) || !Number.isFinite(time)) {
+      if (Number.isFinite(time)) skips++;
+      continue;
+    }
+    total++;
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+  const counts = new Uint32Array(Math.max(1, frames.length) * bins);
+  if (total === 0) {
+    return { frames, maxCount: 0, total, missing: skips, hist: { min: 0, max: 0, bins, counts } };
+  }
+  const span = max > min ? max - min : 1;
+  let maxCount = 0;
+  for (let position = 0; position < ids.length; position++) {
+    const row = ids[position];
+    const time = times[row];
+    const value = values[row];
+    if (!Number.isFinite(value) || !Number.isFinite(time)) continue;
+    const frame = index.get(timeBucket(time, grain));
+    if (frame === undefined) continue;
+    const bin = Math.min(bins - 1, Math.floor(((value - min) / span) * bins));
+    const cell = ++counts[frame * bins + bin];
+    if (cell > maxCount) maxCount = cell;
+  }
+  return { frames, maxCount, total, missing: skips, hist: { min, max, bins, counts } };
 }
 
 /** Per-time-bucket 2D grids for an animated bubble chart. */

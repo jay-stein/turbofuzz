@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { computeGridCounts } from "../src/data/chart-stats.js";
-import { computeBarFrames, computeBubbleFrames } from "../src/data/chart-frames.js";
+import {
+  computeBarFrames,
+  computeBubbleFrames,
+  computeHistogramFrames,
+} from "../src/data/chart-frames.js";
 
 const allIds = (count: number): Uint32Array =>
   Uint32Array.from({ length: count }, (_, index) => index);
@@ -95,4 +99,30 @@ test("animation frames need a date value per row", () => {
   const result = computeBarFrames(times, codes, ["a"], allIds(3), "month", 5);
   assert.equal(result.total, 2);
   assert.equal(result.missing, 1);
+});
+
+test("histogram frames bin values per time bucket on a global scale", () => {
+  const times = Float64Array.from([
+    Date.UTC(2024, 0, 5),
+    Date.UTC(2024, 0, 6),
+    Date.UTC(2024, 0, 7),
+    Date.UTC(2024, 1, 3),
+    Date.UTC(2024, 1, 10),
+  ]);
+  const values = Float64Array.from([0, 10, 0, 0, 0]);
+  const result = computeHistogramFrames(times, values, allIds(5), "month", 4);
+  assert.equal(result.frames.length, 2);
+  assert.equal(result.hist?.bins, 4);
+  assert.equal(result.hist?.min, 0);
+  assert.equal(result.hist?.max, 10);
+  assert.equal(result.total, 5);
+  assert.equal(result.maxCount, 2, "two rows share the low bin in each month");
+  const width = 4;
+  const january = [...(result.hist?.counts.slice(0, width) ?? [])].reduce((a, b) => a + b, 0);
+  const february = [...(result.hist?.counts.slice(width, width * 2) ?? [])].reduce(
+    (a, b) => a + b,
+    0,
+  );
+  assert.equal(january, 3);
+  assert.equal(february, 2);
 });

@@ -108,11 +108,11 @@ export interface ChartCardOptions {
   requestTextProfile(column: number): Promise<TextProfileMessage>;
   /** Row counts per x/y grid cell, for the bubble chart. */
   requestGridCounts?(xColumn: number, yColumn: number, bins?: number): Promise<GridCountsMessage>;
-  /** Per-time-bucket frames for animated bar and bubble charts. */
+  /** Per-time-bucket frames for animated bar, bubble, histogram and treemap charts. */
   requestAnimation?(input: {
     timeColumn: number;
     grain: TimeGrain;
-    chart: "bar" | "bubble";
+    chart: "bar" | "bubble" | "histogram";
     column: number;
     yColumn: number;
     bins?: number;
@@ -1185,19 +1185,22 @@ export class ChartCard {
       "aria-label": "Play speed",
       title: "Playback speed; also sets the exported frame rate",
     }) as HTMLSelectElement;
-    for (const speed of [0.5, 1, 2, 4]) {
+    for (const speed of [0.5, 0.75, 1, 1.5, 2]) {
       this.animationSpeedSelect.append(
         el("option", { value: String(speed) }, [`${speed}×`]) as HTMLOptionElement,
       );
     }
+    this.animationSpeedSelect.append(
+      el("option", { value: "custom" }, ["Custom…"]) as HTMLOptionElement,
+    );
     this.animationSpeedSelect.value = String(this.config.animationSpeed ?? 1);
     this.animationSpeedSelect.addEventListener("change", () => {
-      const speed = Number(this.animationSpeedSelect.value);
-      this.config.animationSpeed = Number.isFinite(speed) && speed > 0 ? speed : 1;
-      if (this.animationPlaying) {
-        this.stopAnimation();
-        this.playAnimation();
+      if (this.animationSpeedSelect.value === "custom") {
+        void this.promptAnimationSpeed();
+        return;
       }
+      const speed = Number(this.animationSpeedSelect.value);
+      this.setAnimationSpeed(Number.isFinite(speed) && speed > 0 ? speed : 1);
     });
     this.animationLoopInput = el("input", { type: "checkbox" }) as HTMLInputElement;
     this.animationLoopInput.checked = true;
@@ -1728,7 +1731,12 @@ export class ChartCard {
         kind !== "treemap" &&
         kind !== "bubble",
     );
-    const animatable = kind === "bar" || kind === "bubble";
+    const animatable =
+      kind === "bar" ||
+      kind === "bubble" ||
+      kind === "histogram" ||
+      kind === "treemap" ||
+      kind === "density";
     const hasDates = this.columns.some((meta) => meta.type === "date");
     this.animateButton.classList.toggle("hidden", !animatable);
     this.animateButton.disabled = !hasDates;
@@ -2078,6 +2086,10 @@ export class ChartCard {
       this.drawPlotMessage(ctx, frame, message);
       return;
     }
+    if (this.animationResult?.bar !== undefined) {
+      this.drawAnimatedTreemap(ctx, frame);
+      return;
+    }
 
     let entries: { label: string; value: number; code: number }[];
     const measured = this.config.sizeColumn >= 0;
@@ -2423,7 +2435,12 @@ export class ChartCard {
     this.stopAnimation();
     const timeColumn = this.config.animationTimeColumn ?? -1;
     const kind = this.config.kind;
-    const animatable = kind === "bar" || kind === "bubble";
+    const animatable =
+      kind === "bar" ||
+      kind === "bubble" ||
+      kind === "histogram" ||
+      kind === "treemap" ||
+      kind === "density";
     const request = this.options.requestAnimation;
     if (
       !animatable ||
@@ -2439,13 +2456,9 @@ export class ChartCard {
       this.animationResult = null;
       return;
     }
-    if (kind === "bar") {
-      const column = this.meta(this.config.column);
-      if (column === undefined || !isCategoryType(column.type)) {
-        this.animationResult = null;
-        return;
-      }
-    } else {
+    const isPair = kind === "bubble" || kind === "density";
+    const isCategory = kind === "bar" || kind === "treemap";
+    if (isPair) {
       const x = this.meta(this.config.x);
       const y = this.meta(this.config.y);
       if (
@@ -2457,16 +2470,37 @@ export class ChartCard {
         this.animationResult = null;
         return;
       }
+    } else if (isCategory) {
+      const column = this.meta(this.config.column);
+      if (column === undefined || !isCategoryType(column.type)) {
+        this.animationResult = null;
+        return;
+      }
+    } else {
+      const column = this.meta(this.config.column);
+      if (column === undefined || !isNumericType(column.type)) {
+        this.animationResult = null;
+        return;
+      }
     }
     const generation = ++this.generation;
     this.animationFrame = 0;
+    const chart: "bar" | "bubble" | "histogram" = isPair
+      ? "bubble"
+      : isCategory
+        ? "bar"
+        : "histogram";
+    const histogramBins =
+      this.binResult?.bins.length ??
+      this.meta(this.config.column)?.histogram?.bins.length ??
+      32;
     void request({
       timeColumn,
       grain: this.config.animationGrain ?? "day",
-      chart: kind === "bar" ? "bar" : "bubble",
-      column: kind === "bar" ? this.config.column : this.config.x,
-      yColumn: kind === "bubble" ? this.config.y : -1,
-      bins: this.config.bubbleBins ?? 40,
+      chart,
+      column: isPair ? this.config.x : this.config.column,
+      yColumn: isPair ? this.config.y : -1,
+      bins: chart === "histogram" ? histogramBins : (this.config.bubbleBins ?? 40),
       topN: this.config.topN,
     })
       .then((message) => {
@@ -2504,6 +2538,32 @@ export class ChartCard {
     const speed = this.config.animationSpeed ?? 1;
     const safe = Number.isFinite(speed) && speed > 0 ? speed : 1;
     return Math.max(60, Math.round(500 / safe));
+  }
+
+  private setAnimationSpeed(speed: number): void {
+    this.config.animationSpeed = speed;
+    if (this.animationPlaying) {
+      this.stopAnimation();
+      this.playAnimation();
+    }
+    this.syncAnimationBar();
+  }
+
+  /** Custom speed prompt; the presets cover the common cases. */
+  private async promptAnimationSpeed(): Promise<void> {
+    const entered = await openPrompt({
+      title: "Custom play speed",
+      label: "Multiplier, e.g. 0.25 (slower) to 8 (faster). 1× is one frame every 0.5 s.",
+      value: String(this.config.animationSpeed ?? 1),
+      placeholder: "1.25",
+      confirmLabel: "Use speed",
+    });
+    const parsed = Number(entered?.trim() ?? "");
+    if (entered === null || !Number.isFinite(parsed) || parsed <= 0) {
+      this.syncAnimationBar();
+      return;
+    }
+    this.setAnimationSpeed(Math.min(20, Math.max(0.05, parsed)));
   }
 
   private playAnimation(): void {
@@ -2550,11 +2610,17 @@ export class ChartCard {
     this.animationPlayButton.textContent = this.animationPlaying ? "❚❚ Pause" : "▶ Play";
     this.animationSlider.max = String(result.frames.length - 1);
     this.animationSlider.value = String(this.animationFrame);
-    this.animationSpeedSelect.value = String(this.config.animationSpeed ?? 1);
+    const speed = this.config.animationSpeed ?? 1;
+    const presets = ["0.5", "0.75", "1", "1.5", "2"];
+    this.animationSpeedSelect.value = presets.includes(String(speed)) ? String(speed) : "custom";
+    const customOption = [...this.animationSpeedSelect.options].find(
+      (option) => option.value === "custom",
+    );
+    if (customOption !== undefined) {
+      customOption.textContent = presets.includes(String(speed)) ? "Custom…" : `Custom (${speed}×)`;
+    }
     const frame = result.frames[this.animationFrame];
-    this.animationFrameLabel.textContent = `${frame?.label ?? ""} (${
-      this.animationFrame + 1
-    }/${result.frames.length})`;
+    this.animationFrameLabel.textContent = frame?.label ?? "";
   }
 
   private openExportMenu(anchor: HTMLElement): void {
@@ -3526,6 +3592,10 @@ export class ChartCard {
       this.drawGroupedHistogram(ctx, frame);
       return;
     }
+    if (kind === "histogram" && this.animationResult?.hist !== undefined) {
+      this.drawAnimatedHistogram(ctx, frame);
+      return;
+    }
     const automatic = meta.histogram;
     const custom = kind === "histogram" ? this.binResult : null;
     const bins =
@@ -3993,6 +4063,218 @@ export class ChartCard {
   }
 
   /** Animated bars: category counts for the current frame only. */
+  /** Animated histogram: bin counts for the current frame on a global scale. */
+  private drawAnimatedHistogram(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    const result = this.animationResult;
+    const hist = result?.hist;
+    if (result === null || hist === undefined) {
+      const message = "No frames to draw yet.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const frameIndex = Math.min(Math.max(0, this.animationFrame), result.frames.length - 1);
+    const bins = hist.bins;
+    const offset = frameIndex * bins;
+    const ui = frame.ui;
+    const maxCount = Math.max(1, result.maxCount);
+    const slotW = frame.plotW / bins;
+    const barW = Math.max(1, slotW - 1);
+
+    const yTicks = niceTicks(0, maxCount, 4).filter(
+      (value, index, all) =>
+        index === 0 || formatCount(value) !== formatCount(all[index - 1]),
+    );
+    ctx.strokeStyle = frame.border;
+    ctx.lineWidth = 1;
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
+    ctx.textAlign = "right";
+    for (const value of yTicks) {
+      const y = frame.top + frame.plotH - (value / maxCount) * frame.plotH;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(frame.left, y + 0.5);
+      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText(formatCount(value), frame.left - 6 * ui, y + 3 * ui);
+    }
+    ctx.textAlign = "left";
+    ctx.beginPath();
+    ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
+    ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
+    ctx.stroke();
+
+    for (let bin = 0; bin < bins; bin++) {
+      const count = hist.counts[offset + bin] ?? 0;
+      const height = (count / maxCount) * frame.plotH;
+      if (height <= 0) continue;
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = this.primaryColor();
+      this.fillTopRounded(
+        ctx,
+        frame.left + bin * slotW,
+        frame.top + frame.plotH - height,
+        barW,
+        height,
+        3 * ui,
+      );
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
+    const mid = (hist.min + hist.max) / 2;
+    ctx.fillText(formatTick(hist.min, "histogram"), frame.left, frame.top + frame.plotH + 16 * ui);
+    const midLabel = formatTick(mid, "histogram");
+    ctx.fillText(
+      midLabel,
+      frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
+      frame.top + frame.plotH + 16 * ui,
+    );
+    const maxLabel = formatTick(hist.max, "histogram");
+    ctx.fillText(
+      maxLabel,
+      frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
+      frame.top + frame.plotH + 16 * ui,
+    );
+
+    const time = result.frames[frameIndex]?.label ?? "";
+    this.font(ctx, ui, 12, "600");
+    ctx.fillStyle = frame.text;
+    ctx.fillText(time, frame.left + frame.plotW - ctx.measureText(time).width, frame.top - 8 * ui);
+    const name = this.meta(this.config.column)?.name ?? "values";
+    this.noteEl.textContent = `${time} · ${name} · ${bins} bins · ${result.total.toLocaleString()} rows`;
+  }
+
+  /** Animated treemap: tile areas from the current frame's category counts. */
+  private drawAnimatedTreemap(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    const result = this.animationResult;
+    const barData = result?.bar;
+    if (result === null || barData === undefined) {
+      const message = "No frames to draw yet.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const frameIndex = Math.min(Math.max(0, this.animationFrame), result.frames.length - 1);
+    const width = Math.max(1, barData.labels.length);
+    const offset = frameIndex * width;
+    const entries = barData.labels
+      .map((label, index) => ({ label, value: barData.counts[offset + index] ?? 0 }))
+      .filter((entry) => entry.value > 0)
+      .sort((a, b) => b.value - a.value);
+    if (entries.length === 0) {
+      const message = "No rows in this frame.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const total = entries.reduce((sum, entry) => sum + entry.value, 0);
+    const rects = squarifyLayout(
+      entries.map((entry) => entry.value),
+      frame.left,
+      frame.top,
+      frame.plotW,
+      frame.plotH,
+    );
+    const ui = frame.ui;
+    this.hitRegions = [];
+    rects.forEach((rect, index) => {
+      const entry = entries[index];
+      if (entry === undefined || rect.w <= 0 || rect.h <= 0) return;
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle =
+        this.config.multiColor === true ? this.paletteColor(index) : this.primaryColor();
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = cssVar("--panel", "#ffffff");
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
+      if (rect.w < 42 * ui || rect.h < 18 * ui) return;
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#ffffff";
+      this.font(ctx, ui, 11, "600");
+      ctx.fillText(
+        this.fit(ctx, entry.label === "" ? "(blank)" : entry.label, rect.w - 10 * ui),
+        rect.x + 5 * ui,
+        rect.y + 14 * ui,
+      );
+      this.font(ctx, ui, 10);
+      ctx.fillText(
+        `${formatCount(entry.value)} · ${((entry.value / total) * 100).toFixed(1)}%`,
+        rect.x + 5 * ui,
+        rect.y + 27 * ui,
+      );
+    });
+    ctx.textAlign = "left";
+    const time = result.frames[frameIndex]?.label ?? "";
+    this.font(ctx, ui, 12, "600");
+    ctx.fillStyle = frame.text;
+    ctx.fillText(time, frame.left + frame.plotW - ctx.measureText(time).width, frame.top - 8 * ui);
+    const name = this.meta(this.config.column)?.name ?? "category";
+    this.noteEl.textContent = `${time} · ${formatCount(total)} rows in ${entries.length} tiles by ${name}`;
+  }
+
+  /** Animated density: the frame's grid through the normal density renderer. */
+  private drawAnimatedDensity(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    const result = this.animationResult;
+    const animated = result?.bubble;
+    const xMeta = this.meta(this.config.x);
+    const yMeta = this.meta(this.config.y);
+    if (
+      result === null ||
+      animated === undefined ||
+      xMeta === undefined ||
+      yMeta === undefined
+    ) {
+      const message = "Density animation needs two numeric columns — pick X and Y above.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const frameIndex = Math.min(Math.max(0, this.animationFrame), result.frames.length - 1);
+    const cellCount = animated.bins * animated.bins;
+    const counts = animated.grids.slice(frameIndex * cellCount, (frameIndex + 1) * cellCount);
+    let max = 0;
+    let total = 0;
+    for (const count of counts) {
+      total += count;
+      if (count > max) max = count;
+    }
+    const grid: SeriesGrid = {
+      mode: "density",
+      counts,
+      cols: animated.bins,
+      rows: animated.bins,
+      xMin: animated.xMin,
+      xMax: animated.xMax,
+      yMin: animated.yMin,
+      yMax: animated.yMax,
+      total,
+      outside: 0,
+      max,
+    };
+    const savedCorrelation = this.seriesCorrelation;
+    this.seriesCorrelation = Number.NaN;
+    try {
+      this.drawDensity(ctx, frame, grid, xMeta, yMeta);
+    } finally {
+      this.seriesCorrelation = savedCorrelation;
+    }
+    const time = result.frames[frameIndex]?.label ?? "";
+    this.font(ctx, frame.ui, 12, "600");
+    ctx.textAlign = "left";
+    ctx.fillStyle = frame.text;
+    ctx.fillText(
+      time,
+      frame.left + frame.plotW - ctx.measureText(time).width,
+      frame.top - 8 * frame.ui,
+    );
+    this.noteEl.textContent = `${time} · ${this.noteEl.textContent ?? ""}`;
+  }
+
   private drawAnimatedBars(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const result = this.animationResult;
     const barData = result?.bar;
@@ -4007,10 +4289,9 @@ export class ChartCard {
     const width = Math.max(1, labels.length);
     const offset = frameIndex * width;
     const ui = frame.ui;
-    let maxCount = 1;
-    for (let index = 0; index < width; index++) {
-      maxCount = Math.max(maxCount, barData.counts[offset + index] ?? 0);
-    }
+    // Every frame scales to the global maximum, so growth and decline over
+    // time are visible instead of each frame refilling the plot.
+    const maxCount = Math.max(1, result.maxCount);
     const slotW = frame.plotW / width;
     const barW = Math.max(4, slotW - Math.min(18 * ui, slotW * 0.25));
 
@@ -4068,24 +4349,10 @@ export class ChartCard {
     ctx.textAlign = "left";
 
     const time = result.frames[frameIndex]?.label ?? "";
-    const counter = `${frameIndex + 1}/${result.frames.length}`;
     this.font(ctx, ui, 12, "600");
-    const counterWidth = ctx.measureText(counter).width;
-    ctx.fillStyle = frame.dim;
-    ctx.fillText(
-      counter,
-      frame.left + frame.plotW - counterWidth,
-      frame.top - 8 * ui,
-    );
     ctx.fillStyle = frame.text;
-    ctx.fillText(
-      time,
-      frame.left + frame.plotW - counterWidth - ctx.measureText(time).width - 8 * ui,
-      frame.top - 8 * ui,
-    );
-    this.noteEl.textContent = `${time} · frame ${frameIndex + 1} of ${
-      result.frames.length
-    } · ${result.total.toLocaleString()} rows · play or scrub below`;
+    ctx.fillText(time, frame.left + frame.plotW - ctx.measureText(time).width, frame.top - 8 * ui);
+    this.noteEl.textContent = `${time} · ${result.total.toLocaleString()} rows · play or scrub below`;
   }
 
   /** Bubble chart: rows per x/y grid cell, sized by count (static or a frame). */
@@ -4203,17 +4470,10 @@ export class ChartCard {
     }
     if (input.caption !== "") {
       this.font(ctx, ui, 12, "600");
-      const counter = `${this.animationFrame + 1}/${this.animationResult?.frames.length ?? 1}`;
-      ctx.fillStyle = frame.dim;
-      ctx.fillText(
-        counter,
-        frame.left + frame.plotW - ctx.measureText(counter).width,
-        frame.top - 8 * ui,
-      );
       ctx.fillStyle = frame.text;
       ctx.fillText(
         input.caption,
-        frame.left + frame.plotW - ctx.measureText(counter).width - ctx.measureText(input.caption).width - 8 * ui,
+        frame.left + frame.plotW - ctx.measureText(input.caption).width,
         frame.top - 8 * ui,
       );
     }
@@ -4326,6 +4586,10 @@ export class ChartCard {
   }
 
   private drawScatterLike(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    if (this.config.kind === "density" && this.animationResult?.bubble !== undefined) {
+      this.drawAnimatedDensity(ctx, frame);
+      return;
+    }
     const result = this.seriesResult;
     const xMeta = this.meta(this.config.x);
     const yMeta = this.meta(this.config.y);

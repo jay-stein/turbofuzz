@@ -60,11 +60,11 @@ export interface ChartsPanelOptions {
   requestTextProfile(column: number): Promise<TextProfileMessage>;
   /** Row counts per x/y grid cell, for the bubble chart. */
   requestGridCounts?(xColumn: number, yColumn: number, bins?: number): Promise<GridCountsMessage>;
-  /** Per-time-bucket frames for animated bar and bubble charts. */
+  /** Per-time-bucket frames for animated bar, bubble, histogram and treemap charts. */
   requestAnimation?(input: {
     timeColumn: number;
     grain: TimeGrain;
-    chart: "bar" | "bubble";
+    chart: "bar" | "bubble" | "histogram";
     column: number;
     yColumn: number;
     bins?: number;

@@ -120,4 +120,27 @@ test("worker serves grid counts and animation frames", async () => {
   const cellCount = 16;
   const january = bubbles.result.bubble.grids.slice(0, cellCount);
   assert.equal([...january].reduce((sum, value) => sum + value, 0), 2);
+
+  send({
+    type: "getAnimation",
+    requestId: 5,
+    timeColumn: 3,
+    grain: "month",
+    chart: "histogram",
+    column: 0,
+    yColumn: -1,
+    bins: 4,
+  });
+  const histogram = find("animation", 5) as unknown as {
+    result: {
+      frames: { label: string }[];
+      maxCount: number;
+      hist: { bins: number; min: number; max: number; counts: Uint32Array };
+    };
+  };
+  assert.equal(histogram.result.frames.length, 3);
+  assert.equal(histogram.result.hist.bins, 4);
+  assert.equal(histogram.result.hist.min, 1.5);
+  assert.equal(histogram.result.hist.max, 3.5);
+  assert.ok(histogram.result.maxCount >= 1, "bins receive rows across frames");
 });
