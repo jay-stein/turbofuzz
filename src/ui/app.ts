@@ -2031,6 +2031,35 @@ export class App {
         "Show rows with a value outside the column fence",
       );
     }
+    // Dataset-level placeholder action, always visible even when the affected
+    // column is scrolled off screen. Per-column chips live in the headers.
+    const tokenTotals = new Map<string, number>();
+    for (const meta of this.metas) {
+      for (const token of meta.nullTokens) {
+        if (token.label !== "" && token.count > 0) {
+          tokenTotals.set(token.label, (tokenTotals.get(token.label) ?? 0) + token.count);
+        }
+      }
+    }
+    if (tokenTotals.size > 0) {
+      const total = [...tokenTotals.values()].reduce((sum, value) => sum + value, 0);
+      const ranked = [...tokenTotals.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([label]) => label);
+      const examples = ranked.slice(0, 3).map((label) => `“${label}”`).join(", ");
+      const convert = el(
+        "button",
+        {
+          class: "ghost small placeholder-action",
+          type: "button",
+          title: `Blank ${total.toLocaleString()} placeholder cells (${examples}) across all columns — undo in the Process Log`,
+        },
+        [`Placeholders ${total.toLocaleString()}`],
+      ) as HTMLButtonElement;
+      convert.addEventListener("click", () => this.applyNullPolicyAll(ranked, []));
+      this.healthHost.append(convert);
+      count++;
+    }
     this.healthChipCount = count;
     this.healthHost.classList.toggle("hidden", this.view === "overview" || count === 0);
   }
