@@ -3,6 +3,7 @@ import type { DependencyPair } from "./dependencies.js";
 import type { GroupAnomalyPair } from "./group-anomalies.js";
 import type { RelationshipData } from "./relationships.js";
 import type { DistributionChange } from "./distribution.js";
+import type { SimilarClusterEntry } from "./similar-clusters.js";
 import type { TextProfile } from "./text-profile.js";
 import type { ColumnSuggestion } from "./suggestions.js";
 import type { ColumnMeta } from "../worker/protocol.js";
@@ -557,6 +558,55 @@ export function textProfileFindings(profiles: readonly TextProfileInput[]): Find
       };
       return finding;
     });
+}
+
+/**
+ * Near-duplicate clusters per column: the values worth merging, with the most
+ * frequent spelling suggested as the survivor. Analysis is capped and says so.
+ */
+export function similarClusterFindings(entries: readonly SimilarClusterEntry[]): Finding[] {
+  return entries.map((entry) => {
+    const clusters = entry.clusters.length;
+    const affectedRows = entry.clusters.reduce((sum, cluster) => sum + cluster.rows, 0);
+    const example = entry.clusters[0];
+    const preview =
+      example === undefined
+        ? ""
+        : ` (e.g. ${example.values
+            .slice(0, 3)
+            .map((member) => `“${member.value}”`)
+            .join(" vs ")})`;
+    return {
+      id: `similar.${entry.column}`,
+      report: "quality.nearDuplicates",
+      severity: "review",
+      title: `“${entry.label}” has ${clusters.toLocaleString()} cluster${
+        clusters === 1 ? "" : "s"
+      } of near-duplicate values${preview}`,
+      evidence: [
+        { metric: "clusters", value: clusters.toLocaleString(), n: clusters },
+        { metric: "rows affected", value: affectedRows.toLocaleString(), n: affectedRows },
+        ...(example === undefined
+          ? []
+          : example.values.slice(0, 4).map((member) => ({
+              metric: member.value === example.suggested ? "keep (most common)" : "merge into it",
+              value: `“${member.value}” (${member.count.toLocaleString()})`,
+              n: member.count,
+            }))),
+        {
+          metric: "analysed",
+          value: entry.truncated
+            ? `top ${entry.analysedValues.toLocaleString()} of ${entry.totalDistinct.toLocaleString()} values — approximate`
+            : `${entry.analysedValues.toLocaleString()} of ${entry.totalDistinct.toLocaleString()} values`,
+          n: entry.analysedValues,
+        },
+        { metric: "method", value: "normalised phonetic blocking + Jaro-Winkler", n: 1 },
+      ],
+      impact: { rows: affectedRows, columns: [entry.column] },
+      fixLabel: "Review and merge",
+      action: { kind: "merge", column: entry.column },
+    } satisfies Finding;
+  });
 }
 
 /**

@@ -21,6 +21,7 @@ import type {
   CsvChunkMessage,
   DependenciesMessage,
   DistributionChangesMessage,
+  SimilarClustersMessage,
   ExportOptions,
   ExportScope,
   ExportStartedMessage,
@@ -213,6 +214,10 @@ export class SearchWorkerClient {
 
   getDistributionChanges(): Promise<DistributionChangesMessage> {
     return this.request<DistributionChangesMessage>({ type: "getDistributionChanges" });
+  }
+
+  getSimilarClusters(): Promise<SimilarClustersMessage> {
+    return this.request<SimilarClustersMessage>({ type: "getSimilarClusters" });
   }
 
   renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {

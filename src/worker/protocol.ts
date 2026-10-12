@@ -5,6 +5,7 @@ import type { GroupAnomalyPair } from "../data/group-anomalies.js";
 import type { RelationshipData } from "../data/relationships.js";
 import type { TextProfile } from "../data/text-profile.js";
 import type { DistributionChange } from "../data/distribution.js";
+import type { SimilarClusterEntry } from "../data/similar-clusters.js";
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import type { SeriesMode, SeriesResult } from "../data/chart-series.js";
 import type { BoxStatsResult, CorrelationResult, CrossTabResult } from "../data/chart-stats.js";
@@ -479,6 +480,19 @@ export interface TextProfileMessage {
   ms: number;
 }
 
+export type GetSimilarClustersRequest = {
+  type: "getSimilarClusters";
+  requestId: number;
+};
+
+export interface SimilarClustersMessage {
+  type: "similarClusters";
+  requestId: number;
+  /** Near-duplicate value clusters per column (capped, approximate). */
+  entries: SimilarClusterEntry[];
+  ms: number;
+}
+
 export type GetDistributionChangesRequest = {
   type: "getDistributionChanges";
   requestId: number;
@@ -527,7 +541,8 @@ export type WorkerRequest =
   | GetDependenciesRequest
   | GetRelationshipsRequest
   | GetTextProfileRequest
-  | GetDistributionChangesRequest;
+  | GetDistributionChangesRequest
+  | GetSimilarClustersRequest;
 
 export interface DatasetMessage {
   requestId: number;
@@ -710,6 +725,7 @@ export type WorkerResponse =
   | RelationshipsMessage
   | TextProfileMessage
   | DistributionChangesMessage
+  | SimilarClustersMessage
   | ExportStartedMessage
   | CsvChunkMessage
   | HeadersRenamedMessage

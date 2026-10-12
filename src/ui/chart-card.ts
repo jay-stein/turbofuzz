@@ -2568,6 +2568,33 @@ export class ChartCard {
       ctx.globalAlpha = 1;
     }
 
+    // Incomplete edge periods are hatched so the truncated period is visible.
+    const partials = result.partials ?? null;
+    let partialCount = 0;
+    if (partials !== null) {
+      partials.forEach((partial, i) => {
+        if (partial) {
+          partialCount++;
+          const x = frame.left + i * slot;
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x, frame.top, slot, frame.plotH);
+          ctx.clip();
+          ctx.strokeStyle = frame.dim;
+          ctx.globalAlpha = 0.4;
+          ctx.lineWidth = 1;
+          const step = 8 * ui;
+          for (let offset = -frame.plotH; offset < slot + frame.plotH; offset += step) {
+            ctx.beginPath();
+            ctx.moveTo(x + offset, frame.top + frame.plotH);
+            ctx.lineTo(x + offset + frame.plotH, frame.top);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      });
+    }
+
     ctx.fillStyle = frame.dim;
     this.font(ctx, ui, 10);
     ctx.textAlign = "center";
@@ -2585,9 +2612,13 @@ export class ChartCard {
     ctx.fillText(measure, frame.left, frame.top - 6 * ui);
 
     const ms = result.ms < 1 ? "<1" : String(Math.round(result.ms));
+    const partialNote =
+      partialCount > 0
+        ? ` · ${partialCount} incomplete ${partialCount === 1 ? "period" : "periods"} (hatched)`
+        : "";
     this.noteEl.textContent = `${n.toLocaleString()} groups · ${measure} by ${
       result.dimensionNames[0] ?? "group"
-    } · ${ms} ms`;
+    } · ${ms} ms${partialNote}`;
   }
 
   private drawSeries(

@@ -9,6 +9,7 @@ import {
   qualityFindings,
   relationshipDataFindings,
   relationshipFindings,
+  similarClusterFindings,
   textProfileFindings,
   type Finding,
 } from "../data/findings.js";
@@ -20,6 +21,7 @@ import type {
   DistributionChangesMessage,
   GroupAnomaliesMessage,
   RelationshipsMessage,
+  SimilarClustersMessage,
   TextProfileMessage,
 } from "../worker/protocol.js";
 import { clear, el } from "./dom.js";
@@ -47,6 +49,8 @@ export interface ReportsPanelOptions {
   requestTextProfile(column: number): Promise<TextProfileMessage | null>;
   /** PSI / Cramér's V between the first and second half of the current rows. */
   requestDistributionChanges(): Promise<DistributionChangesMessage | null>;
+  /** Near-duplicate value clusters per text column (blocked, capped). */
+  requestSimilarClusters(): Promise<SimilarClustersMessage | null>;
   /** Runs a finding's action (filters, suggestion chips, merge, clean). */
   onAction(finding: Finding): void;
 }
@@ -85,6 +89,9 @@ export class ReportsPanel {
   private distributionChanges: DistributionChangesMessage | null = null;
   private distributionLoading = false;
   private distributionRequested = false;
+  private similarClusters: SimilarClustersMessage | null = null;
+  private similarLoading = false;
+  private similarRequested = false;
   private explainLabel: string | null = null;
 
   constructor(
@@ -111,6 +118,7 @@ export class ReportsPanel {
       void this.loadDependencies();
       void this.loadTextProfiles();
       void this.loadDistributionChanges();
+      void this.loadSimilarClusters();
     }
     if (this.active === "anomalies") void this.loadGroupAnomalies();
     this.render();
@@ -127,6 +135,7 @@ export class ReportsPanel {
       void this.loadDependencies();
       void this.loadTextProfiles();
       void this.loadDistributionChanges();
+      void this.loadSimilarClusters();
     }
     if (tab === "anomalies") void this.loadGroupAnomalies();
     this.render();
@@ -201,6 +210,20 @@ export class ReportsPanel {
     this.render();
   }
 
+  private async loadSimilarClusters(): Promise<void> {
+    if (this.similarRequested) return;
+    this.similarRequested = true;
+    this.similarLoading = true;
+    this.render();
+    try {
+      this.similarClusters = await this.options.requestSimilarClusters();
+    } catch {
+      this.similarClusters = null;
+    }
+    this.similarLoading = false;
+    this.render();
+  }
+
   private async loadGroupAnomalies(): Promise<void> {
     if (this.groupAnomaliesRequested) return;
     this.groupAnomaliesRequested = true;
@@ -259,6 +282,8 @@ export class ReportsPanel {
     this.textRequested = false;
     this.distributionChanges = null;
     this.distributionRequested = false;
+    this.similarClusters = null;
+    this.similarRequested = false;
     if (this.active === "relationships") {
       void this.loadCorrelation();
       void this.loadRelationships();
@@ -268,6 +293,7 @@ export class ReportsPanel {
       void this.loadDependencies();
       void this.loadTextProfiles();
       void this.loadDistributionChanges();
+      void this.loadSimilarClusters();
     }
     if (this.active === "anomalies") void this.loadGroupAnomalies();
   }
@@ -296,6 +322,9 @@ export class ReportsPanel {
       }
       if (this.distributionChanges !== null && this.distributionChanges.changes.length > 0) {
         quality.push(...distributionFindings(this.distributionChanges.changes));
+      }
+      if (this.similarClusters !== null && this.similarClusters.entries.length > 0) {
+        quality.push(...similarClusterFindings(this.similarClusters.entries));
       }
       if (this.coMissingness !== null) {
         quality.push(
@@ -380,6 +409,8 @@ export class ReportsPanel {
                 ? " · reading text columns…"
                 : this.distributionLoading
                   ? " · comparing row halves…"
+                  : this.similarLoading
+                    ? " · finding near-duplicates…"
                 : "";
     this.metaEl.textContent =
       this.stats === null

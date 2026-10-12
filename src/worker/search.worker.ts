@@ -6,6 +6,7 @@ import { computeGroupAnomalies } from "../data/group-anomalies.js";
 import { computeRelationships } from "../data/relationships.js";
 import { textProfile } from "../data/text-profile.js";
 import { computeDistributionChanges } from "../data/distribution.js";
+import { computeSimilarClusters } from "../data/similar-clusters.js";
 import { computeAnomalies } from "../data/anomalies.js";
 import { buildDataset, datasetFromColumns, rebuildDataset } from "../data/build.js";
 import { applyCleanOps } from "../data/clean-ops.js";
@@ -60,6 +61,7 @@ import type {
   GetRelationshipsRequest,
   GetTextProfileRequest,
   GetDistributionChangesRequest,
+  GetSimilarClustersRequest,
   LoadRequest,
   PreviewCleanRequest,
   PreviewTransformRequest,
@@ -270,6 +272,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getDistributionChanges":
       handleGetDistributionChanges(message);
+      break;
+    case "getSimilarClusters":
+      handleGetSimilarClusters(message);
       break;
     case "renameHeaders":
       handleRenameHeaders(message);
@@ -1163,6 +1168,19 @@ function handleGetDistributionChanges(message: GetDistributionChangesRequest): v
     type: "distributionChanges",
     requestId: message.requestId,
     changes,
+    ms: performance.now() - started,
+  });
+}
+
+/** Near-duplicate value clusters over the current rows (blocked, capped). */
+function handleGetSimilarClusters(message: GetSimilarClustersRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const entries = computeSimilarClusters(dataset.columns, dataset.rowCount, sortedIds);
+  post({
+    type: "similarClusters",
+    requestId: message.requestId,
+    entries,
     ms: performance.now() - started,
   });
 }
