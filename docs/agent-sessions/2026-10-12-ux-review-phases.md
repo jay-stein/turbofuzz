@@ -42,6 +42,13 @@ At 300k rows (paste-limit ceiling) everything scales linearly: views 77–264 ms
 clean commit 307 ms, filter keystroke 11 ms. The 50 ms view budget is stated
 for 100k rows; 300k remains interactive but is over that budget by design.
 
+## Deploy
+
+`npm run build && npx wrangler deploy` from `agent/ux-review-20261012`:
+uploaded 5 assets to the `turbofuzz` Worker, version
+`0e7d8016-b5bd-4796-a3b5-d6fc123d3345`
+(https://turbofuzz.mrjaystein.workers.dev, checked: serves the app shell).
+
 Drawers kept intentionally: the inspector and command bar cover the common
 verbs, but melt, KNN, combine-date roles and regex split still need the
 configurable panels, so Clean/Transform stay as the advanced surface.
