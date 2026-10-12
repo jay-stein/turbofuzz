@@ -1357,8 +1357,6 @@ export class App {
     if (this.filterPanel !== null) return;
     this.filterPanel = new FilterPanel(this.filterHost, this.metas, this.filters, {
       onFilter: (column, filter, preview) => this.changeFilter(column, filter, preview ?? false),
-      onTypeChange: (column, type) => this.changeType(column, type),
-      onNumberLocale: (column, locale) => this.changeNumberLocale(column, locale),
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
     });
     this.sidebarEl.classList.remove("hidden");
@@ -2457,6 +2455,13 @@ export class App {
 
     addHeader("Column");
     addItem("Rename column…", () => void this.renameColumn(column));
+    if (meta.type === "integer" || meta.type === "number") {
+      const next: NumberLocale = meta.numberLocale === "comma" ? "dot" : "comma";
+      const current = meta.numberLocale === "comma" ? "1.234,56" : "1,234.56";
+      addItem(`Number format: ${current} — switch`, () =>
+        this.changeNumberLocale(column, next),
+      );
+    }
     if (meta.type === "category") {
       addItem("Merge similar values…", () => this.openMerge(column));
     }

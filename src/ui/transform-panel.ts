@@ -209,10 +209,9 @@ export function openTransformPanel(
 
   function renderOps(): void {
     clear(opList);
-    if (pending.length === 0) {
-      opList.append(el("div", { class: "clean-empty" }, ["No steps yet."]));
-      return;
-    }
+    // The summary above owns the empty state; the list stays blank so the
+    // panel never shows two "nothing here" messages at once.
+    if (pending.length === 0) return;
     let schema = base.slice();
     pending.forEach((op, index) => {
       const row = el("div", { class: "clean-op" });

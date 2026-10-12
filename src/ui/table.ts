@@ -268,6 +268,9 @@ export class ResultTable {
     this.columns.forEach((column, index) => {
       const name = column.name;
       const cell = el("div", { class: "th" });
+      if (column.type === "integer" || column.type === "number") {
+        cell.classList.add("num-head");
+      }
       const qa = this.buildQaRow(column, index);
       const top = el("div", { class: "th-top" });
       const number = el("span", { class: "th-index", title: `Column ${index + 1}` }, [
@@ -336,37 +339,61 @@ export class ResultTable {
    * Per-column QA indicators above the column name: empty cells, value
    * outliers, long values, mergeable near-duplicates and constant-value
    * flags. Amber when there is something to act on, muted when clean;
-   * clicking a count filters the table to that column's flagged rows.
+   * clicking a count filters the table to that column's flagged rows. Two or
+   * more count issues collapse into one "N issues" chip with a menu so a busy
+   * header can never wrap and push its title below its neighbours'.
    */
   private buildQaRow(column: ColumnMeta, index: number): HTMLElement {
     const row = el("div", { class: "th-qa" });
     const tokenChips = this.buildTokenChips(column, index);
-    const chips = [
-      // Placeholder text replaces the generic empty-cell chip so the header
-      // stays one line and the actionable count wins.
-      tokenChips.length === 0
-        ? this.qaChip(
-            column,
-            index,
-            "nulls",
-            column.stats.nulls,
-            {
-              one: "empty cell",
-              many: "empty cells",
-            },
-            "click to show rows where this column is empty",
-          )
-        : null,
-      this.qaChip(column, index, "valueAnomalies", column.anomalyCounts.values, {
-        one: "value outlier",
-        many: "value outliers",
-      }, "click to show this column's value outliers"),
-      this.qaChip(column, index, "lengthAnomalies", column.anomalyCounts.lengths, {
-        one: "long value",
-        many: "long values",
-      }, "click to show this column's overlong values"),
-    ].filter((chip): chip is HTMLButtonElement => chip !== null);
-    row.append(...chips, ...tokenChips, ...this.buildFixChips(column, index));
+    const issues: {
+      kind: ColumnQaKind;
+      count: number;
+      noun: { one: string; many: string };
+      hint: string;
+    }[] = [];
+    // Placeholder text replaces the generic empty-cell chip so the header
+    // stays one line and the actionable count wins.
+    if (tokenChips.length === 0 && column.stats.nulls > 0) {
+      issues.push({
+        kind: "nulls",
+        count: column.stats.nulls,
+        noun: { one: "empty cell", many: "empty cells" },
+        hint: "click to show rows where this column is empty",
+      });
+    }
+    if (column.anomalyCounts.values > 0) {
+      issues.push({
+        kind: "valueAnomalies",
+        count: column.anomalyCounts.values,
+        noun: { one: "value outlier", many: "value outliers" },
+        hint: "click to show this column's value outliers",
+      });
+    }
+    if (column.anomalyCounts.lengths > 0) {
+      issues.push({
+        kind: "lengthAnomalies",
+        count: column.anomalyCounts.lengths,
+        noun: { one: "long value", many: "long values" },
+        hint: "click to show this column's overlong values",
+      });
+    }
+    if (issues.length <= 1) {
+      for (const issue of issues) {
+        const chip = this.qaChip(
+          column,
+          index,
+          issue.kind,
+          issue.count,
+          issue.noun,
+          issue.hint,
+        );
+        if (chip !== null) row.append(chip);
+      }
+    } else {
+      row.append(this.mergedQaChip(column, index, issues));
+    }
+    row.append(...tokenChips, ...this.buildFixChips(column, index));
     const similarPairs = column.similarGroups - dismissedClusterCount(column.name);
     if (similarPairs > 0 && column.categories !== null) {
       const merge = el(
@@ -393,6 +420,50 @@ export class ResultTable {
       );
     }
     return row;
+  }
+
+  /**
+   * One chip for a column with several count issues; the menu offers each
+   * issue (with its own filter toggle) without making the header taller.
+   */
+  private mergedQaChip(
+    column: ColumnMeta,
+    index: number,
+    issues: readonly {
+      kind: ColumnQaKind;
+      count: number;
+      noun: { one: string; many: string };
+      hint: string;
+    }[],
+  ): HTMLButtonElement {
+    const anyActive = issues.some((issue) => this.columnQa.has(`${index}:${issue.kind}`));
+    const chip = el(
+      "button",
+      { class: "th-qa-chip warn", type: "button" },
+      [`${issues.length} issues`],
+    ) as HTMLButtonElement;
+    chip.classList.toggle("active", anyActive);
+    chip.setAttribute("aria-pressed", anyActive ? "true" : "false");
+    chip.title = `${issues.length} issues in “${column.name}” — click to choose what to show`;
+    chip.addEventListener("click", () => {
+      openMenu(
+        chip,
+        issues.map((issue) => {
+          const label = `${issue.count.toLocaleString()} ${
+            issue.count === 1 ? issue.noun.one : issue.noun.many
+          }`;
+          const active = this.columnQa.has(`${index}:${issue.kind}`);
+          return {
+            label: `${label}${active ? " ✓" : ""}`,
+            title: `${label} in “${column.name}” — ${
+              active ? "click to clear" : issue.hint
+            }`,
+            action: () => this.options.onColumnSpecial(index, issue.kind),
+          };
+        }),
+      );
+    });
+    return chip;
   }
 
   /**

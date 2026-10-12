@@ -495,19 +495,25 @@ test("charts panel adds, duplicates and removes independent cards", async () => 
   assert.equal(kinds[0].value, "bar", "city is the best default category");
   assert.equal(kinds[1].value, "scatter", "second card defaults to scatter over two numerics");
 
-  const duplicate = [...cards[1].querySelectorAll("button")].find(
-    (button) => button.textContent === "Duplicate",
-  );
-  assert.ok(duplicate !== undefined);
-  duplicate.click();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const openCardMenu = (card: Element): void => {
+    (card.querySelector(".chart-more") as unknown as { click(): void }).click();
+  };
+  const menuItem = (label: string): { click(): void } => {
+    const item = [...doc.querySelectorAll(".context-menu .context-item")].find(
+      (button) => button.textContent === label,
+    );
+    assert.ok(item !== undefined, `expected menu item ${label}`);
+    return item as unknown as { click(): void };
+  };
+
+  openCardMenu(cards[1]);
+  menuItem("Duplicate").click();
   await tick();
   assert.equal(host.querySelectorAll(".chart-card").length, 3);
 
-  const remove = [...cards[0].querySelectorAll("button")].find(
-    (button) => button.textContent === "×",
-  );
-  assert.ok(remove !== undefined);
-  remove.click();
+  openCardMenu(cards[0]);
+  menuItem("Remove chart").click();
   assert.equal(host.querySelectorAll(".chart-card").length, 2);
 
   const layout = host.querySelector<HTMLSelectElement>('select[aria-label="Charts per row"]');
@@ -694,9 +700,13 @@ test("an emptied chart grid stays empty through column changes", async () => {
   panel.setColumns([city(), meta({ name: "amount", type: "integer" })]);
   await tick();
   assert.equal(host.querySelectorAll(".chart-card").length, 1);
-  const remove = [...host.querySelectorAll("button")].find((button) => button.textContent === "×");
+  (host.querySelector(".chart-more") as unknown as { click(): void }).click();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const remove = [...doc.querySelectorAll(".context-menu .context-item")].find(
+    (item) => item.textContent === "Remove chart",
+  ) as unknown as { click(): void } | undefined;
   assert.ok(remove !== undefined);
-  (remove as unknown as { click(): void }).click();
+  remove.click();
   assert.equal(host.querySelectorAll(".chart-card").length, 0);
   panel.setColumns([city(), meta({ name: "amount", type: "number" })]);
   await tick();

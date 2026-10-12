@@ -374,11 +374,9 @@ export const EXPORT_SIZES: readonly { label: string; width: number; height: numb
 
 export const DEFAULT_EXPORT_SIZE = 1;
 
-/** Default chart title: data source plus column, editable by the user. */
-export function defaultChartTitle(datasetName: string, columnName: string): string {
-  const base = datasetName.replace(/\.[^.]+$/, "").trim();
-  const source = base === "" ? "Data" : base;
-  return columnName === "" ? source : `${source} — ${columnName}`;
+/** Default chart title: the column (or pair) the card is about. */
+export function defaultChartTitle(columnName: string): string {
+  return columnName === "" ? "Data" : columnName;
 }
 
 /** Displays a bin bound with thousands separators, e.g. 19818400000. */

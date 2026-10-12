@@ -99,7 +99,7 @@ function buildTable(columns: ColumnMeta[]): Harness {
 }
 
 test("header shows only actionable QA chips", () => {
-  const { host } = buildTable([
+  const { host, clicks } = buildTable([
     meta({
       name: "city",
       stats: { ...meta().stats, nulls: 3, distinct: 4 },
@@ -111,10 +111,19 @@ test("header shows only actionable QA chips", () => {
   const cells = host.querySelectorAll(".th");
   // cells[0] is the row-index header; column cells start at 1.
   const chips = cells[1].querySelectorAll(".th-qa-chip");
-  assert.equal(chips.length, 2);
-  assert.equal(chips[0].textContent, "3 empty cells");
+  assert.equal(chips.length, 1);
+  assert.equal(chips[0].textContent, "2 issues");
   assert.ok(chips[0].classList.contains("warn"));
-  assert.equal(chips[1].textContent, "2 long values");
+
+  (chips[0] as unknown as { click(): void }).click();
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const items = [...document.querySelectorAll(".context-menu .context-item")];
+  assert.deepEqual(
+    items.map((item) => item.textContent),
+    ["3 empty cells", "2 long values"],
+  );
+  (items[1] as unknown as { click(): void }).click();
+  assert.deepEqual(clicks, [{ column: 0, kind: "lengthAnomalies" }]);
 
   const cleanChips = cells[2].querySelectorAll(".th-qa-chip");
   assert.equal(cleanChips.length, 0, "zero-count chips are hidden");

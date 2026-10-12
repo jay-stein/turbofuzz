@@ -235,11 +235,10 @@ test("binValues respects the row subset (current filters)", () => {
   assert.deepEqual(out.bins, [0, 1, 1]);
 });
 
-test("chart titles reference the data source and column", () => {
-  assert.equal(defaultChartTitle("torture_utf8_bom.csv", "Amount"), "torture_utf8_bom — Amount");
-  assert.equal(defaultChartTitle("Pasted data", "Score"), "Pasted data — Score");
-  assert.equal(defaultChartTitle("", "Amount"), "Data — Amount");
-  assert.equal(defaultChartTitle("data.csv", ""), "data");
+test("chart titles name the column, not the file", () => {
+  assert.equal(defaultChartTitle("Amount"), "Amount");
+  assert.equal(defaultChartTitle("Score"), "Score");
+  assert.equal(defaultChartTitle(""), "Data");
 });
 
 test("bin bounds round-trip through comma-formatted inputs", () => {

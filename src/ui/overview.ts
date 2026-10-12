@@ -170,7 +170,8 @@ export function healthTiles(columns: readonly ColumnMeta[], stats: DatasetStats)
       id: "complete",
       label: "Complete cells",
       value: completePct,
-      warn: complete < 1,
+      // Amber means "needs action": a 99.x% complete column grid does not.
+      warn: complete < 0.99,
     },
     {
       id: "duplicates",
@@ -407,11 +408,13 @@ export class Overview {
     this.missingnessChart = null;
     clear(this.root);
 
+    // Next steps lead: they are the most actionable thing on the screen, and
+    // the missingness map (the largest element) now follows them.
     this.root.append(
       this.buildDatasetLine(loaded, source),
       this.buildHealthTiles(loaded.columns, loaded.stats),
-      this.buildMissingness(),
       this.buildNextSteps(loaded),
+      this.buildMissingness(),
       this.buildColumns(loaded),
       this.buildActions(),
     );

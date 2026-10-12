@@ -27,6 +27,7 @@ import {
   formatTick,
   hexToRgb,
   isCategoryType,
+  isIdLikeColumn,
   isNumericType,
   isPairKind,
   niceTicks,
@@ -36,6 +37,7 @@ import {
   suggestedBinRange,
 } from "./chart-utils.js";
 import { el } from "./dom.js";
+import { openMenu } from "./menu.js";
 
 export type DensityStyle = "heat" | "contours" | "both";
 
@@ -124,6 +126,19 @@ const POINT_LIMIT = 20_000;
 /** Grouped time series: distinct lines before the rest folds into Other. */
 const GROUP_LINE_LIMIT = 8;
 const HEX = /^#?[0-9a-f]{6}$/i;
+const ID_NAME = /(^|[^a-z0-9])(id|uuid|guid|key)s?($|[^a-z0-9])/i;
+const NON_ID_WORDS = /(paid|valid|void|grid|solid|fluid|rapid|humid|arid|android)$/;
+
+/**
+ * Names that read as identifiers ("start station id", "bikeid") add no value
+ * to a correlation matrix, so they stay out of the default column set.
+ */
+function looksLikeIdName(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (ID_NAME.test(lower)) return true;
+  const compact = lower.replace(/[^a-z0-9]/g, "");
+  return compact.length > 3 && compact.endsWith("id") && !NON_ID_WORDS.test(compact);
+}
 
 /** Plot-area rectangle in canvas CSS pixels, shared by hit-region builders. */
 export interface PlotGeometry {
@@ -328,9 +343,10 @@ export function heatmapHitRegions(geom: PlotGeometry, input: HeatmapHitInput): H
 export function boxHitRegions(
   geom: PlotGeometry,
   groups: readonly BoxGroupStats[],
+  slotCount = groups.length,
 ): HitRegion[] {
-  if (groups.length === 0) return [];
-  const slot = geom.plotW / groups.length;
+  if (groups.length === 0 || slotCount <= 0) return [];
+  const slot = geom.plotW / slotCount;
   return groups.map((group, index) => ({
     x: geom.left + index * slot,
     y: geom.top,
@@ -362,21 +378,18 @@ export function correlationHitRegions(
 ): HitRegion[] {
   const n = input.labels.length;
   if (n === 0) return [];
-  const size = Math.min(geom.plotW / n, geom.plotH / n);
-  const gridW = size * n;
-  const gridH = size * n;
-  const left = geom.left + (geom.plotW - gridW) / 2;
-  const top = geom.top + (geom.plotH - gridH) / 2;
+  const sizeX = geom.plotW / n;
+  const sizeY = geom.plotH / n;
   const regions: HitRegion[] = [];
   for (let row = 0; row < n; row++) {
     for (let column = 0; column < n; column++) {
       const index = row * n + column;
       const r = input.values[index];
       regions.push({
-        x: left + column * size,
-        y: top + row * size,
-        w: size,
-        h: size,
+        x: geom.left + column * sizeX,
+        y: geom.top + row * sizeY,
+        w: sizeX,
+        h: sizeY,
         lines: [
           `${input.labels[row]} × ${input.labels[column]}`,
           Number.isFinite(r) ? `r = ${r.toFixed(2)}` : "r = —",
@@ -622,24 +635,17 @@ export class ChartCard {
     });
     this.densityStyleWrap = this.tagged("Style", this.densityStyleSelect).wrap;
 
-    const duplicate = el(
+    const more = el(
       "button",
-      { class: "ghost small", type: "button", title: "Duplicate this chart" },
-      ["Duplicate"],
-    );
-    duplicate.addEventListener("click", () => this.options.onDuplicate(this));
-    const png = el(
-      "button",
-      { class: "ghost small", type: "button", title: "Download this chart as a PNG" },
-      ["PNG"],
-    );
-    png.addEventListener("click", () => this.options.onExport(this));
-    const remove = el(
-      "button",
-      { class: "ghost small danger", type: "button", title: "Remove this chart" },
-      ["×"],
-    );
-    remove.addEventListener("click", () => this.options.onRemove(this));
+      {
+        class: "icon-btn chart-more",
+        type: "button",
+        title: "More actions",
+        "aria-label": "Chart actions",
+      },
+      ["⋯"],
+    ) as HTMLButtonElement;
+    more.addEventListener("click", () => this.openCardMenu(more));
 
     head.append(
       this.kindSelect,
@@ -648,9 +654,7 @@ export class ChartCard {
       this.xWrap,
       this.yWrap,
       el("span", { class: "grow" }),
-      duplicate,
-      png,
-      remove,
+      more,
     );
 
     const field = (label: string, input: HTMLElement): HTMLElement => {
@@ -852,7 +856,7 @@ export class ChartCard {
       el("summary", { title: "Colours, ranges, titles and other settings" }, ["Settings"]),
       settingsBody,
     ]);
-    head.insertBefore(settings, remove);
+    head.append(settings);
 
     const canvasWrap = el("div", { class: "chart-canvas-wrap" });
     this.canvas = el("canvas", {
@@ -1057,7 +1061,12 @@ export class ChartCard {
   }
 
   private defaultCorrelationColumns(): number[] {
-    return this.allowedIndexes((meta) => isNumericType(meta.type)).slice(0, 8);
+    return this.allowedIndexes(
+      (meta) =>
+        isNumericType(meta.type) &&
+        !isIdLikeColumn(meta, this.rowCount) &&
+        !looksLikeIdName(meta.name),
+    ).slice(0, 8);
   }
 
   private setKind(kind: ChartCardKind): void {
@@ -1297,12 +1306,37 @@ export class ChartCard {
 
   private defaultTitle(): string {
     if (isPairKind(this.config.kind)) {
-      return defaultChartTitle(this.options.datasetName(), this.pairLabel("vs"));
+      return defaultChartTitle(this.pairLabel("vs"));
     }
     if (this.config.kind === "correlation") {
-      return defaultChartTitle(this.options.datasetName(), "Correlation");
+      return defaultChartTitle("Correlation");
     }
-    return defaultChartTitle(this.options.datasetName(), this.meta(this.config.column)?.name ?? "");
+    return defaultChartTitle(this.meta(this.config.column)?.name ?? "");
+  }
+
+  /** Duplicate, PNG and remove live behind one ⋯ menu; no red × in the row. */
+  private openCardMenu(anchor: HTMLElement): void {
+    openMenu(
+      anchor,
+      [
+        {
+          label: "Duplicate",
+          title: "Duplicate this chart",
+          action: () => this.options.onDuplicate(this),
+        },
+        {
+          label: "Download PNG",
+          title: "Download this chart as a PNG",
+          action: () => this.options.onExport(this),
+        },
+        {
+          label: "Remove chart",
+          title: "Remove this chart",
+          action: () => this.options.onRemove(this),
+        },
+      ],
+      "context-menu chart-card-menu",
+    );
   }
 
   private chartName(): string {
@@ -1885,13 +1919,17 @@ export class ChartCard {
         }
         return widest(niceTicks(0, max, 5).map((value) => formatTick(value, "histogram")));
       }
+      case "correlation": {
+        const labels = this.correlationResult?.labels ?? [];
+        return widest(labels);
+      }
       case "histogram":
       case "line":
       case "bar":
         // The Y axis is a count axis on these kinds.
         return formatCount(this.rowCount);
       default:
-        // Heatmap and correlation fit their labels to the margin already.
+        // Heatmap fits its labels to the margin already.
         return "";
     }
   }
@@ -1930,7 +1968,13 @@ export class ChartCard {
     if (this.config.kind === "scatter" || this.config.kind === "density") {
       const x = this.meta(this.config.x)?.name ?? "X";
       const y = this.meta(this.config.y)?.name ?? "Y";
-      return `${x} vs ${y} · ${rows}`;
+      // Say when an auto-mode scatter actually rendered as a density grid.
+      const autoDensity =
+        this.config.kind === "scatter" &&
+        this.config.mode === "auto" &&
+        this.seriesResult?.mode === "density";
+      const mode = autoDensity ? "Density (auto) · " : "";
+      return `${x} vs ${y} · ${mode}${rows}`;
     }
     if (this.config.kind === "box") {
       const value = this.meta(this.config.x)?.name ?? "Value";
@@ -2056,6 +2100,15 @@ export class ChartCard {
     );
 
     this.drawCountAxis(ctx, frame, maxCount);
+
+    if (kind === "line") {
+      // Say what one point on the line counts: "Rows per day" and not just ticks.
+      const unit = this.lineUnitLabel(min, max, bins.length);
+      ctx.fillStyle = frame.dim;
+      this.font(ctx, ui, 10);
+      ctx.textAlign = "left";
+      ctx.fillText(unit, frame.left, frame.top - 6 * ui);
+    }
 
     if (kind === "histogram") {
       for (let i = 0; i < bins.length; i++) {
@@ -2214,6 +2267,27 @@ export class ChartCard {
     ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
     ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
     ctx.stroke();
+  }
+
+  /** "Rows per day" for the time-series Y axis, from the bin's date span. */
+  private lineUnitLabel(min: number, max: number, bins: number): string {
+    if (!(max > min) || bins <= 0) return "Rows";
+    const per = (max - min) / bins;
+    const units: readonly (readonly [number, string])[] = [
+      [365.25 * 86_400_000, "year"],
+      [30.44 * 86_400_000, "month"],
+      [7 * 86_400_000, "week"],
+      [86_400_000, "day"],
+      [3_600_000, "hour"],
+      [60_000, "minute"],
+    ];
+    for (const [span, name] of units) {
+      if (per >= span * 0.9) {
+        const count = Math.round((per / span) * 10) / 10;
+        return `Rows per ${count === 1 ? name : `${count} ${name}s`}`;
+      }
+    }
+    return "Rows";
   }
 
   /**
@@ -2804,9 +2878,19 @@ export class ChartCard {
     }
     const ui = frame.ui;
     const groups = result.groups;
+    // Categories whose value column is entirely missing do not appear in the
+    // stats; give each one a slot so it is visible as "no values" instead of
+    // silently vanishing from the chart.
+    const groupMeta = this.meta(this.config.y);
+    const present = new Set(groups.map((group) => group.label));
+    const emptyLabels = (groupMeta?.categories?.labels ?? [])
+      .filter((label) => label !== "Other" && !present.has(label))
+      .slice(0, 3);
+    const slotCount = groups.length + emptyLabels.length;
     this.hitRegions = boxHitRegions(
       { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
       groups,
+      slotCount,
     );
     let yMin = Infinity;
     let yMax = -Infinity;
@@ -2821,7 +2905,14 @@ export class ChartCard {
     const yOf = (value: number): number =>
       frame.top + frame.plotH - ((value - yMin) / (yMax - yMin)) * frame.plotH;
 
+    // Compact "2k" ticks make no sense for a narrow integer range (birth
+    // years): keep plain integers there and compact only wide ranges.
+    const valueMeta = this.meta(this.config.x);
     const ticks = niceTicks(yMin, yMax, 5);
+    const plainIntegerTicks =
+      valueMeta?.type === "integer" && yMax - yMin <= 100_000;
+    const tickLabel = (value: number): string =>
+      plainIntegerTicks ? formatCount(value) : formatTick(value, "histogram");
     ctx.strokeStyle = frame.border;
     ctx.lineWidth = 1;
     ctx.fillStyle = frame.dim;
@@ -2835,7 +2926,7 @@ export class ChartCard {
       ctx.lineTo(frame.left + frame.plotW, y + 0.5);
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillText(formatTick(value, "histogram"), frame.left - 6 * ui, y + 3 * ui);
+      ctx.fillText(tickLabel(value), frame.left - 6 * ui, y + 3 * ui);
     }
     ctx.textAlign = "left";
     ctx.beginPath();
@@ -2843,7 +2934,7 @@ export class ChartCard {
     ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
     ctx.stroke();
 
-    const slot = frame.plotW / groups.length;
+    const slot = frame.plotW / Math.max(1, slotCount);
     const boxW = Math.min(slot * 0.55, 54 * ui);
     const cap = Math.max(3 * ui, boxW * 0.25);
     groups.forEach((group, index) => {
@@ -2906,15 +2997,50 @@ export class ChartCard {
       ctx.fillText(formatCount(group.count), cx, frame.top + frame.plotH + 27 * ui);
       if (group.other) ctx.fillText("rest", cx, frame.top + frame.plotH + 38 * ui);
     });
+
+    if (emptyLabels.length > 0) {
+      const midY = frame.top + frame.plotH / 2;
+      emptyLabels.forEach((label, index) => {
+        const cx = frame.left + (groups.length + index + 0.5) * slot;
+        ctx.strokeStyle = frame.dim;
+        ctx.globalAlpha = 0.6;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(cx - cap, midY);
+        ctx.lineTo(cx + cap, midY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        ctx.textAlign = "center";
+        ctx.fillStyle = frame.dim;
+        this.font(ctx, ui, 9);
+        ctx.fillText(
+          this.fit(ctx, "no values", Math.max(10, slot - 4 * ui)),
+          cx,
+          midY - 8 * ui,
+        );
+        this.font(ctx, ui, 10);
+        ctx.fillText(
+          this.fit(ctx, label === "" ? "(blank)" : label, Math.max(10, slot - 6 * ui)),
+          cx,
+          frame.top + frame.plotH + 16 * ui,
+        );
+      });
+    }
     ctx.textAlign = "left";
 
     let outliers = 0;
     for (const group of groups) outliers += group.outliers.length;
     const notes = [
-      `${groups.length} groups`,
+      `${groups.length} ${groups.length === 1 ? "group" : "groups"}`,
       `${result.total.toLocaleString()} values`,
       `${outliers.toLocaleString()} outliers`,
     ];
+    if (emptyLabels.length > 0) {
+      notes.push(
+        `${emptyLabels.length} ${emptyLabels.length === 1 ? "group has" : "groups have"} no values`,
+      );
+    }
     if (result.missing > 0) notes.push(`${result.missing.toLocaleString()} missing values`);
     if (this.statsMs > 0) notes.push(`${Math.round(this.statsMs)} ms`);
     this.noteEl.textContent = notes.join(" · ");
@@ -3032,13 +3158,14 @@ export class ChartCard {
       { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
       { labels: result.labels, values: result.values, counts: result.counts },
     );
-    const size = Math.min(frame.plotW / n, frame.plotH / n);
-    const gridW = size * n;
-    const gridH = size * n;
-    const left = frame.left + (frame.plotW - gridW) / 2;
-    const top = frame.top + (frame.plotH - gridH) / 2;
+    const sizeX = frame.plotW / n;
+    const sizeY = frame.plotH / n;
+    const gridW = frame.plotW;
+    const gridH = frame.plotH;
+    const left = frame.left;
+    const top = frame.top;
     const zeroColor = cssVar("--border-subtle", "#eaeef2");
-    const showText = size >= 30 * ui;
+    const showText = Math.min(sizeX, sizeY) >= 30 * ui;
     let minCount = Infinity;
 
     this.font(ctx, ui, showText ? 10 : 9);
@@ -3048,12 +3175,12 @@ export class ChartCard {
         const r = result.values[index];
         const cell = correlationCell(r, zeroColor);
         ctx.fillStyle = cell.bg;
-        ctx.fillRect(left + column * size, top + row * size, size, size);
+        ctx.fillRect(left + column * sizeX, top + row * sizeY, sizeX, sizeY);
         if (showText) {
           ctx.fillStyle = cell.fg;
           ctx.textAlign = "center";
           const text = Number.isFinite(r) ? r.toFixed(2) : "—";
-          ctx.fillText(text, left + (column + 0.5) * size, top + (row + 0.5) * size + 3.5 * ui);
+          ctx.fillText(text, left + (column + 0.5) * sizeX, top + (row + 0.5) * sizeY + 3.5 * ui);
         }
         if (index !== row * n + row) {
           const count = result.counts[index];
@@ -3061,14 +3188,20 @@ export class ChartCard {
         }
       }
     }
+    const labelWidth = Math.max(24, sizeX - 2 * ui);
+    const abbreviate = (label: string): string => {
+      if (ctx.measureText(label).width <= labelWidth) return label;
+      const words = label.split(/[\s_]+/).filter((word) => word !== "");
+      if (words.length >= 2) {
+        const candidate = `${words[0]} ${words[words.length - 1]}`;
+        if (ctx.measureText(candidate).width <= labelWidth) return candidate;
+      }
+      return this.fit(ctx, label, labelWidth);
+    };
     ctx.textAlign = "center";
     result.labels.forEach((label, column) => {
       ctx.fillStyle = frame.dim;
-      ctx.fillText(
-        this.fit(ctx, label, Math.max(8, size - 2 * ui)),
-        left + (column + 0.5) * size,
-        top + gridH + 14 * ui,
-      );
+      ctx.fillText(abbreviate(label), left + (column + 0.5) * sizeX, top + gridH + 14 * ui);
     });
     ctx.textAlign = "right";
     result.labels.forEach((label, row) => {
@@ -3076,7 +3209,7 @@ export class ChartCard {
       ctx.fillText(
         this.fit(ctx, label, Math.max(8, left - frame.left - 6 * ui)),
         left - 4 * ui,
-        top + (row + 0.5) * size + 3.5 * ui,
+        top + (row + 0.5) * sizeY + 3.5 * ui,
       );
     });
     ctx.textAlign = "left";

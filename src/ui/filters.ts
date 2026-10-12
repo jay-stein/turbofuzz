@@ -1,6 +1,6 @@
 import { clear, el } from "./dom.js";
 import { RangeSlider } from "./range-slider.js";
-import { COLUMN_TYPES, TYPE_LABELS, type ColumnType, type TextMode } from "../types.js";
+import type { TextMode } from "../types.js";
 import { parseDate, toDateInputValue } from "../parse/dates.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import {
@@ -13,8 +13,6 @@ import type { ColumnMeta } from "../worker/protocol.js";
 
 export interface FilterPanelCallbacks {
   onFilter: (column: number, filter: ColumnFilter | null, preview?: boolean) => void;
-  onTypeChange: (column: number, type: ColumnType) => void;
-  onNumberLocale: (column: number, locale: NumberLocale) => void;
   onSuggestion: (column: number, suggestion: ColumnSuggestion) => void;
 }
 
@@ -148,44 +146,14 @@ export class FilterPanel {
     });
     head.append(caret, el("span", { class: "filter-name", title: meta.name }, [meta.name]));
 
-    const typeSelect = el("select", {
-      class: "type-select",
-      title: "Data type — change to re-interpret this column",
-      "aria-label": `Data type for ${meta.name}`,
-    }) as HTMLSelectElement;
-    for (const type of COLUMN_TYPES) {
-      const option = el("option", { value: type }, [TYPE_LABELS[type]]) as HTMLOptionElement;
-      if (type === meta.type) option.selected = true;
-      typeSelect.append(option);
-    }
-    typeSelect.addEventListener("change", () => {
-      this.callbacks.onTypeChange(index, typeSelect.value as ColumnType);
-    });
-    head.append(typeSelect);
-
-    if (meta.type === "integer" || meta.type === "number") {
-      const nextLocale: NumberLocale = meta.numberLocale === "comma" ? "dot" : "comma";
-      const localeButton = el(
-        "button",
-        {
-          class: "locale-btn",
-          type: "button",
-          title: "Number format — click to switch between 1,234.56 and 1.234,56",
-          "aria-label": `Number format for ${meta.name}`,
-        },
-        [meta.numberLocale === "comma" ? "1.234,56" : "1,234.56"],
-      );
-      localeButton.addEventListener("click", () => {
-        this.callbacks.onNumberLocale(index, nextLocale);
-      });
-      head.append(localeButton);
-    }
-
     const clearButton = el(
       "button",
       { class: "icon-btn", type: "button", title: "Clear this filter" },
       ["×"],
     );
+    // The × is a filter action, not a column action: only show it while the
+    // column actually has a filter, so the list is search + names by default.
+    clearButton.classList.toggle("hidden", !this.filters.has(index));
     clearButton.addEventListener("click", () => {
       this.callbacks.onFilter(index, null);
       this.rebuildCard(index);
