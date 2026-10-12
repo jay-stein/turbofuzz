@@ -48,6 +48,9 @@ for 100k rows; 300k remains interactive but is over that budget by design.
 uploaded 5 assets to the `turbofuzz` Worker, version
 `0e7d8016-b5bd-4796-a3b5-d6fc123d3345`
 (https://turbofuzz.mrjaystein.workers.dev, checked: serves the app shell).
+Latest versions: `7a03d8ca-a6c3-4132-a597-45cade6d0b97` (treemap + text
+mining), `3b66a62c-0d90-4b90-86a3-1b383bd6a312` (distribution changes),
+`c47f9520-5da9-441e-98da-39852854b8ca` (view rename).
 
 ## Follow-up fixes after first use
 
@@ -72,6 +75,8 @@ uploaded 5 assets to the `turbofuzz` Worker, version
   current row order — PSI over first-half deciles for numbers, Cramér's V for
   category mixes — and reports shifts with the moving bucket/category. Bench:
   27 ms at 100k rows.
+- Views can be renamed by double-clicking their tab (Enter keeps, Escape
+  discards; the name flows into Chart-this titles and saved recipes).
 
 Drawers kept intentionally: the inspector and command bar cover the common
 verbs, but melt, KNN, combine-date roles and regex split still need the
@@ -80,9 +85,9 @@ configurable panels, so Clean/Transform stay as the advanced surface.
 ## Verification (all on this branch)
 
 - `npm run typecheck` — clean.
-- `npm test` — 427 passing (added ~38 tests: aggregate, archetype, findings,
-  recipe-file, command-bar, views-panel, chart-gallery, plus updated worker and
-  UI suites).
+- `npm test` — 474 passing (aggregate, archetype, findings, distribution,
+  text-profile, treemap, recipe-file, command-bar, views-panel, chart-gallery,
+  plus updated worker and UI suites).
 - `npm run build` — clean (Vite bundle grew by ~83 KB raw / ~23 KB gzip on
   index; worker +10 KB).
 
