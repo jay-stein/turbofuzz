@@ -4,6 +4,7 @@ import { computeAggregate, type ViewDef } from "../src/data/aggregate.js";
 import { buildDataset, rebuildDataset } from "../src/data/build.js";
 import { applyCleanOps } from "../src/data/clean-ops.js";
 import { ColumnData } from "../src/data/column.js";
+import { computeRelationships } from "../src/data/relationships.js";
 import { QueryEngine } from "../src/search/query-engine.js";
 import { generateDataset } from "./data.js";
 import { count, measure, memMB, ms, type Timing } from "./bench-utils.js";
@@ -21,7 +22,7 @@ const sizes = arg("rows", "100000")
 const iterations = Number.parseInt(arg("iterations", "10"), 10);
 const outPath = arg("out", "");
 
-const COLUMNS = ["customer_name", "suburb", "status", "install_date", "annual_usage", "nmi"] as const;
+const COLUMNS = ["customer_name", "suburb", "status", "install_date", "annual_usage", "year", "nmi"] as const;
 
 interface BenchCase {
   label: string;
@@ -132,6 +133,13 @@ function casesFor(size: number): { cases: BenchCase[]; buildMs: number; rssMB: n
           const columns = dataset.columns.slice();
           columns[0] = rebuilt;
           rebuildDataset(dataset, columns);
+        },
+      },
+      {
+        label: "Relationships report: Pearson + Spearman + η² (lazy)",
+        budgetMs: 750,
+        run: () => {
+          computeRelationships(dataset.columns, dataset.rowCount, allIds);
         },
       },
       {

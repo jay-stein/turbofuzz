@@ -3,6 +3,7 @@ import { computeAggregate } from "../data/aggregate.js";
 import { coMissingness } from "../data/comissingness.js";
 import { computeDependencies } from "../data/dependencies.js";
 import { computeGroupAnomalies } from "../data/group-anomalies.js";
+import { computeRelationships } from "../data/relationships.js";
 import { computeAnomalies } from "../data/anomalies.js";
 import { buildDataset, datasetFromColumns, rebuildDataset } from "../data/build.js";
 import { applyCleanOps } from "../data/clean-ops.js";
@@ -54,6 +55,7 @@ import type {
   GetCoMissingnessRequest,
   GetGroupAnomaliesRequest,
   GetDependenciesRequest,
+  GetRelationshipsRequest,
   LoadRequest,
   PreviewCleanRequest,
   PreviewTransformRequest,
@@ -255,6 +257,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getDependencies":
       handleGetDependencies(message);
+      break;
+    case "getRelationships":
+      handleGetRelationships(message);
       break;
     case "renameHeaders":
       handleRenameHeaders(message);
@@ -1104,6 +1109,19 @@ function handleGetDependencies(message: GetDependenciesRequest): void {
     type: "dependencies",
     requestId: message.requestId,
     pairs,
+    ms: performance.now() - started,
+  });
+}
+
+/** Ranked relationship discovery over the current rows (Reports → Relationships). */
+function handleGetRelationships(message: GetRelationshipsRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const relationships = computeRelationships(dataset.columns, dataset.rowCount, sortedIds);
+  post({
+    type: "relationships",
+    requestId: message.requestId,
+    relationships,
     ms: performance.now() - started,
   });
 }

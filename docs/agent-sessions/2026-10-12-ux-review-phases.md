@@ -57,6 +57,11 @@ uploaded 5 assets to the `turbofuzz` Worker, version
   fix is pending, logs "✓ Fixed: …" for cleared issues for a few seconds, drops
   the tick when a fix did not resolve, and the Clean → Nulls Apply button is
   disabled when there is nothing to blank (applying was a silent no-op before).
+- `84c5fe6` group-relative anomalies (robust z per category, lazy worker
+  detector, `groupAnomalies` column filter) and functional-dependency discovery
+  (candidate keys → determined columns, conflicts with examples).
+- Relationship discovery: Pearson + Spearman + Cramér's V + η² ranked by effect
+  size in the Relationships tab (lazy, 62 ms at 100k rows; bench case added).
 
 Drawers kept intentionally: the inspector and command bar cover the common
 verbs, but melt, KNN, combine-date roles and regex split still need the

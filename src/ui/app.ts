@@ -2201,6 +2201,7 @@ export class App {
       requestCoMissingness: () => this.client.getCoMissingness().catch(() => null),
       requestGroupAnomalies: () => this.client.getGroupAnomalies().catch(() => null),
       requestDependencies: () => this.client.getDependencies().catch(() => null),
+      requestRelationships: () => this.client.getRelationships().catch(() => null),
       onAction: (finding) => this.runFinding(finding),
     });
     this.reportsPanel.setData(this.metas, stats, this.rowCount);

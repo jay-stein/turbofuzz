@@ -29,6 +29,7 @@ import type {
   LoadedMessage,
   MissingnessMessage,
   ProgressMessage,
+  RelationshipsMessage,
   ResultsMessage,
   RowsMessage,
   ShuffledMessage,
@@ -198,6 +199,10 @@ export class SearchWorkerClient {
 
   getDependencies(): Promise<DependenciesMessage> {
     return this.request<DependenciesMessage>({ type: "getDependencies" });
+  }
+
+  getRelationships(): Promise<RelationshipsMessage> {
+    return this.request<RelationshipsMessage>({ type: "getRelationships" });
   }
 
   renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {

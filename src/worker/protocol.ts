@@ -2,6 +2,7 @@ import type { LengthFence, ValueFence } from "../data/anomalies.js";
 import type { ViewDef } from "../data/aggregate.js";
 import type { DependencyPair } from "../data/dependencies.js";
 import type { GroupAnomalyPair } from "../data/group-anomalies.js";
+import type { RelationshipData } from "../data/relationships.js";
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import type { SeriesMode, SeriesResult } from "../data/chart-series.js";
 import type { BoxStatsResult, CorrelationResult, CrossTabResult } from "../data/chart-stats.js";
@@ -444,6 +445,19 @@ export interface DependenciesMessage {
   ms: number;
 }
 
+export type GetRelationshipsRequest = {
+  type: "getRelationships";
+  requestId: number;
+};
+
+export interface RelationshipsMessage {
+  type: "relationships";
+  requestId: number;
+  /** Ranked associations by effect size (Pearson, Spearman, V, η²). */
+  relationships: RelationshipData[];
+  ms: number;
+}
+
 export type WorkerRequest =
   | LoadRequest
   | SetFilterRequest
@@ -476,7 +490,8 @@ export type WorkerRequest =
   | GetAggregateRequest
   | GetCoMissingnessRequest
   | GetGroupAnomaliesRequest
-  | GetDependenciesRequest;
+  | GetDependenciesRequest
+  | GetRelationshipsRequest;
 
 export interface DatasetMessage {
   requestId: number;
@@ -656,6 +671,7 @@ export type WorkerResponse =
   | CoMissingnessMessage
   | GroupAnomaliesMessage
   | DependenciesMessage
+  | RelationshipsMessage
   | ExportStartedMessage
   | CsvChunkMessage
   | HeadersRenamedMessage

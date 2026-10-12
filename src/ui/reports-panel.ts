@@ -6,6 +6,7 @@ import {
   explainColumn,
   groupAnomalyFindings,
   qualityFindings,
+  relationshipDataFindings,
   relationshipFindings,
   type Finding,
 } from "../data/findings.js";
@@ -15,6 +16,7 @@ import type {
   ColumnMeta,
   DependenciesMessage,
   GroupAnomaliesMessage,
+  RelationshipsMessage,
 } from "../worker/protocol.js";
 import { clear, el } from "./dom.js";
 
@@ -35,6 +37,8 @@ export interface ReportsPanelOptions {
   requestGroupAnomalies(): Promise<GroupAnomaliesMessage | null>;
   /** Candidate keys and functional dependencies. */
   requestDependencies(): Promise<DependenciesMessage | null>;
+  /** Ranked associations: Pearson, Spearman, Cramér's V and η². */
+  requestRelationships(): Promise<RelationshipsMessage | null>;
   /** Runs a finding's action (filters, suggestion chips, merge, clean). */
   onAction(finding: Finding): void;
 }
@@ -64,6 +68,9 @@ export class ReportsPanel {
   private dependencies: DependenciesMessage | null = null;
   private dependenciesLoading = false;
   private dependenciesRequested = false;
+  private relationships: RelationshipsMessage | null = null;
+  private relationshipsLoading = false;
+  private relationshipsRequested = false;
   private explainLabel: string | null = null;
 
   constructor(
@@ -81,6 +88,10 @@ export class ReportsPanel {
     this.metas = metas;
     this.stats = stats;
     this.rowCount = rowCount;
+    if (this.active === "relationships") {
+      void this.loadCorrelation();
+      void this.loadRelationships();
+    }
     if (this.active === "quality") {
       void this.loadCoMissingness();
       void this.loadDependencies();
@@ -91,12 +102,29 @@ export class ReportsPanel {
 
   show(tab: ReportTab = this.active): void {
     this.active = tab;
-    if (tab === "relationships") void this.loadCorrelation();
+    if (tab === "relationships") {
+      void this.loadCorrelation();
+      void this.loadRelationships();
+    }
     if (tab === "quality") {
       void this.loadCoMissingness();
       void this.loadDependencies();
     }
     if (tab === "anomalies") void this.loadGroupAnomalies();
+    this.render();
+  }
+
+  private async loadRelationships(): Promise<void> {
+    if (this.relationshipsRequested) return;
+    this.relationshipsRequested = true;
+    this.relationshipsLoading = true;
+    this.render();
+    try {
+      this.relationships = await this.options.requestRelationships();
+    } catch {
+      this.relationships = null;
+    }
+    this.relationshipsLoading = false;
     this.render();
   }
 
@@ -166,7 +194,12 @@ export class ReportsPanel {
     this.groupAnomaliesRequested = false;
     this.dependencies = null;
     this.dependenciesRequested = false;
-    if (this.active === "relationships") void this.loadCorrelation();
+    this.relationships = null;
+    this.relationshipsRequested = false;
+    if (this.active === "relationships") {
+      void this.loadCorrelation();
+      void this.loadRelationships();
+    }
     if (this.active === "quality") {
       void this.loadCoMissingness();
       void this.loadDependencies();
@@ -211,22 +244,28 @@ export class ReportsPanel {
       }
       return findings;
     }
-    if (this.correlation === null) return [];
-    if (this.explainLabel !== null) {
-      return explainColumn(
+    if (this.active === "relationships") {
+      if (this.explainLabel !== null && this.correlation !== null) {
+        return explainColumn(
+          this.correlation.labels,
+          this.correlation.columns,
+          this.correlation.result.values,
+          this.correlation.result.counts,
+          this.explainLabel,
+        ).findings;
+      }
+      if (this.relationships !== null) {
+        return relationshipDataFindings(this.relationships.relationships);
+      }
+      if (this.correlation === null) return [];
+      return relationshipFindings(
         this.correlation.labels,
         this.correlation.columns,
         this.correlation.result.values,
         this.correlation.result.counts,
-        this.explainLabel,
-      ).findings;
+      );
     }
-    return relationshipFindings(
-      this.correlation.labels,
-      this.correlation.columns,
-      this.correlation.result.values,
-      this.correlation.result.counts,
-    );
+    return [];
   }
 
   private render(): void {
@@ -250,13 +289,15 @@ export class ReportsPanel {
     const reviews = findings.filter((finding) => finding.severity === "review").length;
     const loadingNote = this.correlationLoading
       ? " · computing relationships…"
-      : this.coMissingnessLoading
-        ? " · checking missing-together…"
-        : this.groupAnomaliesLoading
-          ? " · checking within-group outliers…"
-          : this.dependenciesLoading
-            ? " · checking key relationships…"
-            : "";
+      : this.relationshipsLoading
+        ? " · computing relationships…"
+        : this.coMissingnessLoading
+          ? " · checking missing-together…"
+          : this.groupAnomaliesLoading
+            ? " · checking within-group outliers…"
+            : this.dependenciesLoading
+              ? " · checking key relationships…"
+              : "";
     this.metaEl.textContent =
       this.stats === null
         ? ""

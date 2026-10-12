@@ -1,6 +1,7 @@
 import type { DatasetStats } from "./stats.js";
 import type { DependencyPair } from "./dependencies.js";
 import type { GroupAnomalyPair } from "./group-anomalies.js";
+import type { RelationshipData } from "./relationships.js";
 import type { ColumnSuggestion } from "./suggestions.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 
@@ -448,6 +449,52 @@ export function groupAnomalyFindings(pairs: readonly GroupAnomalyPair[]): Findin
       return findings;
     })
     .sort((a, b) => b.impact.rows - a.impact.rows);
+}
+
+/**
+ * Ranked relationship findings from the discovery engine: Pearson and
+ * Spearman for numerics, Cramér's V for categories and η² for numeric ×
+ * category — always effect-sized, never p-valued.
+ */
+export function relationshipDataFindings(
+  relationships: readonly RelationshipData[],
+): Finding[] {
+  return relationships.map((entry) => {
+    const strength = Math.abs(entry.effect);
+    const paired = `“${entry.aLabel}” and “${entry.bLabel}”`;
+    let title: string;
+    let method: string;
+    switch (entry.kind) {
+      case "pearson":
+        title = `“${entry.aLabel}” is associated with “${entry.bLabel}” (Pearson r = ${entry.effect.toFixed(2)})`;
+        method = "Pearson correlation over pairwise-complete rows";
+        break;
+      case "spearman":
+        title = `“${entry.aLabel}” is associated with “${entry.bLabel}” (Spearman ρ = ${entry.effect.toFixed(2)})`;
+        method = "Spearman rank correlation";
+        break;
+      case "cramersV":
+        title = `${paired} are associated (Cramér's V = ${entry.effect.toFixed(2)})`;
+        method = "Cramér's V from the category contingency table";
+        break;
+      default:
+        title = `“${entry.aLabel}” differs across “${entry.bLabel}” groups (η² = ${entry.effect.toFixed(2)})`;
+        method = "correlation ratio η² (between-group variance share)";
+        break;
+    }
+    return {
+      id: `relationship.${entry.kind}.${entry.aColumn}.${entry.bColumn}`,
+      report: "relationships.association",
+      severity: strength >= 0.95 ? "review" : "info",
+      title,
+      evidence: [
+        { metric: "effect size", value: entry.effect.toFixed(2), n: entry.n },
+        { metric: "observations", value: entry.n.toLocaleString(), n: entry.n },
+        { metric: "method", value: method, n: 1 },
+      ],
+      impact: { rows: entry.n, columns: [entry.aColumn, entry.bColumn] },
+    } satisfies Finding;
+  });
 }
 
 /**
