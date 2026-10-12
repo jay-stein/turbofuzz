@@ -254,3 +254,16 @@ carry a time + counter label ("2024-03 3/3") so motion is unambiguous.
 Both formats share one async frame renderer with progress feedback.
 Verified in headless Chrome: GIF at 2x = 3 frames,25-hundredths delays,
 loop extension; MP4 = valid ftyp/mvhd, 0.75 s for 3 frames.
+
+## Animation round 2 (same day)
+
+Commit `9c2dee6`, deployed `2ec39d9c-3078-4f31-890c-45fdbe323f22`. 527 tests.
+Root cause of the "static" GIF finally pinned down: animated bars scaled to
+each frame's own maximum, so every frame refilled the plot and only the date
+changed; MP4 looked livelier mainly because VLC animates. Bars now scale to
+the global maximum across all frames (verified visually: Jan 1/5 height,
+Mar 2/5). Histograms, treemaps and density charts animate too - a new worker
+histogram-frame mode, animated treemap tiles from frame counts, and density
+reusing the bubble grids through the normal density renderer. Play speed
+presets are 0.5/0.75/1/1.5/2x plus Custom (0.05-20x), driving live playback
+and export frame delay. Frame counters were removed; the date is the label.
