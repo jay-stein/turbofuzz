@@ -3314,6 +3314,30 @@ mark {
   color: var(--text-dim);
 }
 
+/* Playback bar for animated charts. */
+.chart-animation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.chart-animation-slider {
+  flex: 1 1 auto;
+  min-width: 60px;
+  accent-color: var(--accent);
+}
+
+.chart-animation-label {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .chart-legend {
   display: flex;
   align-items: center;

@@ -1,5 +1,5 @@
 import type { ChartBinOptions } from "../data/chart-bins.js";
-import type { ViewDef } from "../data/aggregate.js";
+import type { TimeGrain, ViewDef } from "../data/aggregate.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type {
   AggregateMessage,
@@ -10,6 +10,8 @@ import type {
   CorrelationMessage,
   CrosstabMessage,
   GroupedBinsMessage,
+  GridCountsMessage,
+  AnimationMessage,
   TextProfileMessage,
 } from "../worker/protocol.js";
 import { ChartCard, type ChartCardConfig, type SeriesRequestInput } from "./chart-card.js";
@@ -56,6 +58,18 @@ export interface ChartsPanelOptions {
   requestAggregate(view: ViewDef): Promise<AggregateMessage>;
   /** Token frequencies for the top-terms chart. */
   requestTextProfile(column: number): Promise<TextProfileMessage>;
+  /** Row counts per x/y grid cell, for the bubble chart. */
+  requestGridCounts?(xColumn: number, yColumn: number, bins?: number): Promise<GridCountsMessage>;
+  /** Per-time-bucket frames for animated bar and bubble charts. */
+  requestAnimation?(input: {
+    timeColumn: number;
+    grain: TimeGrain;
+    chart: "bar" | "bubble";
+    column: number;
+    yColumn: number;
+    bins?: number;
+    topN?: number;
+  }): Promise<AnimationMessage>;
   /** Label for the filtered-table source: "Table" when no filters apply. */
   tableSourceLabel?(): string;
   /** Applies a filter from a click on a chart region (bars, bins, cells). */
@@ -336,6 +350,8 @@ export class ChartsPanel {
         requestViewAggregate: this.options.requestViewAggregate,
         requestAggregate: this.options.requestAggregate,
         requestTextProfile: this.options.requestTextProfile,
+        requestGridCounts: this.options.requestGridCounts,
+        requestAnimation: this.options.requestAnimation,
         tableSourceLabel: this.options.tableSourceLabel,
         onFilter: this.options.onFilter,
         currentFilter: this.options.currentFilter,

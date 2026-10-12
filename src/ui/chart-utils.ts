@@ -14,7 +14,8 @@ export type ChartCardKind =
   | "treemap"
   | "terms"
   | "heatmap"
-  | "correlation";
+  | "correlation"
+  | "bubble";
 
 export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   histogram: "Histogram",
@@ -27,9 +28,16 @@ export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   terms: "Top terms",
   heatmap: "Heatmap",
   correlation: "Correlation",
+  bubble: "Bubble (count)",
 };
 
-export const PAIR_KINDS: readonly ChartCardKind[] = ["scatter", "density", "box", "heatmap"];
+export const PAIR_KINDS: readonly ChartCardKind[] = [
+  "scatter",
+  "density",
+  "box",
+  "heatmap",
+  "bubble",
+];
 
 export function isPairKind(kind: ChartCardKind): boolean {
   return PAIR_KINDS.includes(kind);

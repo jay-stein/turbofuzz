@@ -1646,6 +1646,8 @@ export class App {
       requestViewAggregate: (source) => this.aggregateForSource(source),
       requestAggregate: (view) => this.client.getAggregate(view),
       requestTextProfile: (column) => this.client.getTextProfile(column),
+      requestGridCounts: (xColumn, yColumn, bins) => this.client.getGridCounts(xColumn, yColumn, bins),
+      requestAnimation: (input) => this.client.getAnimation(input),
       tableSourceLabel: () =>
         this.filters.size === 0 &&
         this.specials.size === 0 &&

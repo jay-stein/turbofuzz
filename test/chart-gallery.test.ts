@@ -84,6 +84,7 @@ test("the gallery groups every chart type by the question it answers", () => {
     [
       "bar",
       "box",
+      "bubble",
       "correlation",
       "density",
       "heatmap",

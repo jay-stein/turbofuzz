@@ -133,6 +133,17 @@ export function fitChartKind(
         };
       }
       return { kind, ok: false, reason: "needs two category columns", preset: {} };
+    case "bubble": {
+      if (numeric.length >= 2) {
+        return {
+          kind,
+          ok: true,
+          reason: "",
+          preset: { kind, x: numeric[0].index, y: numeric[1].index },
+        };
+      }
+      return { kind, ok: false, reason: "needs two numeric columns", preset: {} };
+    }
     case "correlation":
       if (numeric.length >= 2) {
         return {
@@ -151,7 +162,7 @@ export const QUESTION_GROUPS: readonly { question: string; kinds: readonly Chart
   { question: "How is it distributed?", kinds: ["histogram", "box", "density"] },
   { question: "How does it change over time?", kinds: ["line"] },
   { question: "How do groups compare?", kinds: ["bar", "treemap", "heatmap"] },
-  { question: "How are two things related?", kinds: ["scatter", "correlation"] },
+  { question: "How are two things related?", kinds: ["scatter", "bubble", "correlation"] },
   { question: "What is the text about?", kinds: ["terms"] },
 ];
 
@@ -172,6 +183,8 @@ const ICONS: Record<ChartCardKind, string> = {
     '<rect x="8" y="8" width="14" height="14" fill="currentColor" opacity="0.8"/><rect x="24" y="8" width="14" height="14" fill="currentColor" opacity="0.3"/><rect x="40" y="8" width="14" height="14" fill="currentColor" opacity="0.5"/><rect x="8" y="24" width="14" height="14" fill="currentColor" opacity="0.35"/><rect x="24" y="24" width="14" height="14" fill="currentColor" opacity="0.75"/><rect x="40" y="24" width="14" height="14" fill="currentColor" opacity="0.2"/><rect x="56" y="8" width="14" height="14" fill="currentColor" opacity="0.6"/><rect x="56" y="24" width="14" height="14" fill="currentColor" opacity="0.45"/>',
   scatter:
     '<circle cx="14" cy="28" r="3" fill="currentColor"/><circle cx="24" cy="20" r="3" fill="currentColor"/><circle cx="34" cy="24" r="3" fill="currentColor"/><circle cx="44" cy="14" r="3" fill="currentColor"/><circle cx="54" cy="18" r="3" fill="currentColor"/><circle cx="62" cy="10" r="3" fill="currentColor"/>',
+  bubble:
+    '<circle cx="20" cy="26" r="10" fill="currentColor" opacity="0.35"/><circle cx="40" cy="18" r="7" fill="currentColor" opacity="0.55"/><circle cx="52" cy="30" r="5" fill="currentColor" opacity="0.7"/><circle cx="30" cy="34" r="3" fill="currentColor" opacity="0.8"/>',
   correlation:
     '<rect x="10" y="8" width="16" height="16" fill="currentColor" opacity="0.8"/><rect x="28" y="8" width="16" height="16" fill="currentColor" opacity="0.25"/><rect x="46" y="8" width="16" height="16" fill="currentColor" opacity="0.55"/><rect x="10" y="28" width="16" height="16" fill="currentColor" opacity="0.25"/><rect x="28" y="28" width="16" height="16" fill="currentColor" opacity="0.8"/><rect x="46" y="28" width="16" height="16" fill="currentColor" opacity="0.2"/>',
 };

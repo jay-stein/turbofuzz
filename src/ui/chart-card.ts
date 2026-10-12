@@ -1,6 +1,12 @@
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import type { SeriesGrid, SeriesMode, SeriesPoints } from "../data/chart-series.js";
-import type { BoxGroupStats, BoxStatsResult, CrossTabResult } from "../data/chart-stats.js";
+import type {
+  BoxGroupStats,
+  BoxStatsResult,
+  CrossTabResult,
+  GridCountsResult,
+} from "../data/chart-stats.js";
+import type { AnimationResult } from "../data/chart-frames.js";
 import { contourLevels, marchingSquares, smoothGrid, smoothSeries } from "../data/kde.js";
 import { squarifyLayout } from "../data/treemap.js";
 import {
@@ -13,7 +19,7 @@ import {
   rampAt,
   samplePalette,
 } from "../data/palettes.js";
-import type { ViewDef } from "../data/aggregate.js";
+import type { TimeGrain, ViewDef } from "../data/aggregate.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import { TYPE_LABELS } from "../types.js";
 import type {
@@ -25,6 +31,8 @@ import type {
   CorrelationMessage,
   CrosstabMessage,
   GroupedBinsMessage,
+  GridCountsMessage,
+  AnimationMessage,
   TextProfileMessage,
 } from "../worker/protocol.js";
 import {
@@ -97,6 +105,18 @@ export interface ChartCardOptions {
   requestAggregate(view: ViewDef): Promise<AggregateMessage>;
   /** Token frequencies and shapes for the top-terms chart. */
   requestTextProfile(column: number): Promise<TextProfileMessage>;
+  /** Row counts per x/y grid cell, for the bubble chart. */
+  requestGridCounts?(xColumn: number, yColumn: number, bins?: number): Promise<GridCountsMessage>;
+  /** Per-time-bucket frames for animated bar and bubble charts. */
+  requestAnimation?(input: {
+    timeColumn: number;
+    grain: TimeGrain;
+    chart: "bar" | "bubble";
+    column: number;
+    yColumn: number;
+    bins?: number;
+    topN?: number;
+  }): Promise<AnimationMessage>;
   /** Label for the filtered-table source: "Table" when no filters apply. */
   tableSourceLabel?(): string;
   /** Applies a filter from a click on a chart region (bars, bins, cells). */
@@ -135,6 +155,11 @@ export interface ChartCardConfig {
   title: string;
   /** Category column splitting a time series into one line per value (-1 = off). */
   groupColumn: number;
+  /** Bubble grid resolution per axis. */
+  bubbleBins?: number;
+  /** Time column for frame animation (-1 = off). */
+  animationTimeColumn?: number;
+  animationGrain?: TimeGrain;
   /** "Suggested: …" reason shown in the note for rule-picked default cards. */
   suggested: string;
   correlationColumns: number[];
@@ -450,6 +475,9 @@ function defaultConfig(): ChartCardConfig {
     binClipped: false,
     title: "",
     groupColumn: -1,
+    bubbleBins: 40,
+    animationTimeColumn: -1,
+    animationGrain: "day",
     suggested: "",
     correlationColumns: [],
   };
@@ -492,6 +520,21 @@ export class ChartCard {
     counts: Uint32Array;
   } | null = null;
   private groupResult: GroupedBinsMessage | null = null;
+  private bubbleResult: GridCountsResult | null = null;
+  private animationResult: AnimationResult | null = null;
+  private animationFrame = 0;
+  private animationPlaying = false;
+  private animationTimer: number | null = null;
+  private readonly bubbleBinsInput: HTMLInputElement;
+  private readonly animationSettings: HTMLElement;
+  private readonly animationTimeSelect: HTMLSelectElement;
+  private readonly animationGrainSelect: HTMLSelectElement;
+  private readonly animationBar: HTMLElement;
+  private readonly animationPlayButton: HTMLButtonElement;
+  private readonly animationSlider: HTMLInputElement;
+  private readonly animationFrameLabel: HTMLElement;
+  private readonly animationLoopInput: HTMLInputElement;
+  private readonly animationExportButton: HTMLButtonElement;
   private readonly hiddenGroups = new Set<number>();
   private statsMs = 0;
 
@@ -633,6 +676,8 @@ export class ChartCard {
       this.refreshSeries();
       this.refreshBox();
       this.refreshCrosstab();
+      this.refreshBubble();
+      this.refreshAnimation();
       this.render();
     });
     const xTag = this.tagged("X", this.xSelect);
@@ -646,6 +691,8 @@ export class ChartCard {
       this.refreshSeries();
       this.refreshBox();
       this.refreshCrosstab();
+      this.refreshBubble();
+      this.refreshAnimation();
       this.render();
     });
     const yTag = this.tagged("Y", this.ySelect);
@@ -809,6 +856,8 @@ export class ChartCard {
       this.generation++;
       this.refreshBox();
       this.refreshCrosstab();
+      this.refreshBubble();
+      this.refreshAnimation();
       this.render();
     });
     this.otherInput = el("input", { type: "checkbox" }) as HTMLInputElement;
@@ -820,6 +869,8 @@ export class ChartCard {
       this.generation++;
       this.refreshBox();
       this.refreshCrosstab();
+      this.refreshBubble();
+      this.refreshAnimation();
       this.render();
     });
     this.multiInput = el("input", { type: "checkbox" }) as HTMLInputElement;
@@ -834,7 +885,39 @@ export class ChartCard {
     const topField = el("label", { class: "chart-field" });
     this.topLabel = el("span", { class: "chart-field-label" }, ["Top bars"]);
     topField.append(this.topLabel, this.topInput);
-    this.barSettings = el("div", { class: "chart-settings" }, [topField, otherField, multiField]);
+    this.bubbleBinsInput = el("input", {
+      class: "chart-number",
+      type: "number",
+      min: "4",
+      max: "120",
+      step: "1",
+      title: "Bubble grid resolution per axis (4–120)",
+      spellcheck: "false",
+    }) as HTMLInputElement;
+    this.bubbleBinsInput.value = String(this.config.bubbleBins ?? 40);
+    const bubbleBinsChange = (): void => {
+      const value = Math.round(Number(this.bubbleBinsInput.value));
+      if (Number.isFinite(value) && value >= 4 && value <= 120) {
+        this.config.bubbleBins = value;
+        this.generation++;
+        this.refreshBubble();
+        this.refreshAnimation();
+        this.render();
+      }
+    };
+    this.bubbleBinsInput.addEventListener("change", bubbleBinsChange);
+    const bubbleField = el("label", { class: "chart-field" });
+    bubbleField.title = "How many cells each axis is divided into before counting rows";
+    bubbleField.append(
+      el("span", { class: "chart-field-label" }, ["Grid"]),
+      this.bubbleBinsInput,
+    );
+    this.barSettings = el("div", { class: "chart-settings" }, [
+      topField,
+      bubbleField,
+      otherField,
+      multiField,
+    ]);
 
     this.correlationSelect = el("select", {
       class: "chart-multiselect",
@@ -960,6 +1043,48 @@ export class ChartCard {
       this.titleInput,
     ]);
 
+    // Frames over time: step and loop a bar or bubble chart, export one loop.
+    this.animationTimeSelect = el("select", {
+      class: "chart-picker chart-picker-small",
+      "aria-label": "Animate over time",
+      title: "Step this chart through a date column, one frame per period",
+    }) as HTMLSelectElement;
+    this.animationTimeSelect.addEventListener("change", () => {
+      const value = Number(this.animationTimeSelect.value);
+      this.config.animationTimeColumn = Number.isFinite(value) ? value : -1;
+      if ((this.config.animationTimeColumn ?? -1) >= 0) {
+        this.config.animationGrain = this.defaultGrainFor(this.config.animationTimeColumn ?? -1);
+        this.animationGrainSelect.value = this.config.animationGrain;
+      }
+      this.stopAnimation();
+      this.generation++;
+      this.refreshAnimation();
+      this.render();
+    });
+    this.animationGrainSelect = el("select", {
+      class: "chart-picker chart-picker-small",
+      "aria-label": "Frame length",
+      title: "How much time each frame covers",
+    }) as HTMLSelectElement;
+    (["hour", "day", "week", "month", "quarter", "year"] as TimeGrain[]).forEach((grain) => {
+      this.animationGrainSelect.append(
+        el("option", { value: grain }, [grain.charAt(0).toUpperCase() + grain.slice(1)]) as HTMLOptionElement,
+      );
+    });
+    this.animationGrainSelect.value = this.config.animationGrain ?? "day";
+    this.animationGrainSelect.addEventListener("change", () => {
+      this.config.animationGrain = this.animationGrainSelect.value as TimeGrain;
+      this.stopAnimation();
+      this.generation++;
+      this.refreshAnimation();
+      this.render();
+    });
+    this.animationSettings = el("div", { class: "chart-settings" }, [
+      el("span", { class: "chart-field-label" }, ["Animate over"]),
+      this.animationTimeSelect,
+      this.animationGrainSelect,
+    ]);
+
     const settingsBody = el("div", { class: "chart-settings-body" }, [
       this.colorWrap,
       this.sizeWrap,
@@ -968,6 +1093,7 @@ export class ChartCard {
       this.histogramSettings,
       this.barSettings,
       this.correlationSettings,
+      this.animationSettings,
       lookRow,
     ]);
     this.settingsBody = settingsBody;
@@ -997,7 +1123,53 @@ export class ChartCard {
       this.resizeObserver.observe(canvasWrap);
     }
 
-    this.root.append(head, canvasWrap, this.legendEl, this.noteEl, this.tooltipEl);
+    // Playback bar: play/pause, frame scrubber, loop and video export.
+    this.animationPlayButton = el(
+      "button",
+      { class: "ghost small", type: "button", title: "Play or pause the animation" },
+      ["▶ Play"],
+    ) as HTMLButtonElement;
+    this.animationPlayButton.addEventListener("click", () => this.toggleAnimation());
+    this.animationSlider = el("input", {
+      class: "chart-animation-slider",
+      type: "range",
+      min: "0",
+      max: "0",
+      step: "1",
+      "aria-label": "Animation frame",
+    }) as HTMLInputElement;
+    this.animationSlider.addEventListener("input", () => {
+      const value = Number(this.animationSlider.value);
+      this.stopAnimation();
+      const last = this.animationResult === null ? 0 : this.animationResult.frames.length - 1;
+      this.animationFrame = Math.max(0, Math.min(Number.isFinite(value) ? value : 0, last));
+      this.render();
+    });
+    this.animationFrameLabel = el("span", { class: "chart-animation-label" });
+    this.animationLoopInput = el("input", { type: "checkbox" }) as HTMLInputElement;
+    this.animationLoopInput.checked = true;
+    const loopField = el("label", { class: "control check clean-check chart-check" });
+    loopField.title = "Restart from the first frame after the last";
+    loopField.append(this.animationLoopInput, "Loop");
+    this.animationExportButton = el(
+      "button",
+      { class: "ghost small", type: "button", title: "Record one loop as a .webm video" },
+      ["Export video"],
+    ) as HTMLButtonElement;
+    this.animationExportButton.addEventListener("click", () => this.exportAnimationVideo());
+    this.animationBar = el(
+      "div",
+      { class: "chart-animation hidden" },
+      [
+        this.animationPlayButton,
+        this.animationSlider,
+        this.animationFrameLabel,
+        loopField,
+        this.animationExportButton,
+      ],
+    );
+
+    this.root.append(head, canvasWrap, this.animationBar, this.legendEl, this.noteEl, this.tooltipEl);
 
     this.syncSwatches();
     this.syncOptions();
@@ -1009,6 +1181,11 @@ export class ChartCard {
 
   dispose(): void {
     this.disposed = true;
+    if (this.animationTimer !== null) {
+      window.clearInterval(this.animationTimer);
+      this.animationTimer = null;
+    }
+    this.animationPlaying = false;
     this.generation++;
     if (this.pointerFrame !== null) {
       if (typeof window.cancelAnimationFrame === "function") {
@@ -1038,6 +1215,8 @@ export class ChartCard {
     this.refreshText();
     this.refreshBox();
     this.refreshCrosstab();
+    this.refreshBubble();
+    this.refreshAnimation();
     this.refreshCorrelation();
     this.refreshGroupedBins();
     this.render();
@@ -1116,6 +1295,8 @@ export class ChartCard {
     this.refreshText();
     this.refreshBox();
     this.refreshCrosstab();
+    this.refreshBubble();
+    this.refreshAnimation();
     this.refreshCorrelation();
     this.refreshGroupedBins();
     this.render();
@@ -1134,6 +1315,8 @@ export class ChartCard {
     this.refreshText();
     this.refreshBox();
     this.refreshCrosstab();
+    this.refreshBubble();
+    this.refreshAnimation();
     this.refreshCorrelation();
     this.refreshGroupedBins();
     this.render();
@@ -1292,6 +1475,8 @@ export class ChartCard {
     this.refreshText();
     this.refreshBox();
     this.refreshCrosstab();
+    this.refreshBubble();
+    this.refreshAnimation();
     this.refreshCorrelation();
     this.refreshGroupedBins();
     this.render();
@@ -1414,6 +1599,33 @@ export class ChartCard {
       option.selected = this.config.correlationColumns.includes(index);
       this.correlationSelect.append(option);
     });
+    this.syncAnimationOptions();
+  }
+
+  /** Date columns available as animation time axes. */
+  private syncAnimationOptions(): void {
+    const dates = this.allowedIndexes((meta) => meta.type === "date");
+    const current = this.config.animationTimeColumn ?? -1;
+    if (current >= 0 && !dates.includes(current)) this.config.animationTimeColumn = -1;
+    this.animationTimeSelect.replaceChildren(this.option("-1", "Off"));
+    dates.forEach((index) => {
+      const meta = this.columns[index];
+      this.animationTimeSelect.append(this.option(String(index), meta.name));
+    });
+    this.animationTimeSelect.value = String(this.config.animationTimeColumn ?? -1);
+  }
+
+  /** Sensible default frame length for a date column's span. */
+  private defaultGrainFor(column: number): TimeGrain {
+    const meta = this.meta(column);
+    const min = meta?.stats.min;
+    const max = meta?.stats.max;
+    if (typeof min !== "number" || typeof max !== "number" || !(max > min)) return "month";
+    const days = (max - min) / 86_400_000;
+    if (days <= 2) return "hour";
+    if (days <= 120) return "day";
+    if (days <= 840) return "week";
+    return "month";
   }
 
   private option(value: string, label: string): HTMLOptionElement {
@@ -1445,8 +1657,20 @@ export class ChartCard {
     this.histogramSettings.classList.toggle("hidden", kind !== "histogram");
     this.barSettings.classList.toggle(
       "hidden",
-      kind !== "bar" && kind !== "box" && kind !== "heatmap" && kind !== "treemap",
+      kind !== "bar" &&
+        kind !== "box" &&
+        kind !== "heatmap" &&
+        kind !== "treemap" &&
+        kind !== "bubble",
     );
+    const animatable = kind === "bar" || kind === "bubble";
+    this.animationSettings.classList.toggle(
+      "hidden",
+      !animatable || !this.columns.some((meta) => meta.type === "date"),
+    );
+    this.bubbleBinsInput.parentElement?.classList.toggle("hidden", kind !== "bubble");
+    this.topLabel.parentElement?.classList.toggle("hidden", kind === "bubble");
+    this.multiInput.parentElement?.classList.toggle("hidden", kind === "bubble");
     this.correlationSettings.classList.toggle("hidden", kind !== "correlation");
     this.topLabel.textContent =
       kind === "bar"
@@ -2088,6 +2312,225 @@ export class ChartCard {
       });
   }
 
+  /** Row counts per x/y grid cell for the bubble chart. */
+  private refreshBubble(): void {
+    if (this.config.kind !== "bubble" || this.options.requestGridCounts === undefined) {
+      this.bubbleResult = null;
+      return;
+    }
+    const x = this.meta(this.config.x);
+    const y = this.meta(this.config.y);
+    if (
+      x === undefined ||
+      y === undefined ||
+      !isNumericType(x.type) ||
+      !isNumericType(y.type)
+    ) {
+      this.bubbleResult = null;
+      return;
+    }
+    const generation = ++this.generation;
+    void this.options
+      .requestGridCounts(this.config.x, this.config.y, this.config.bubbleBins ?? 40)
+      .then((message) => {
+        if (generation !== this.generation || this.disposed) return;
+        this.bubbleResult = message.result;
+        this.statsMs = message.ms;
+        this.render();
+      })
+      .catch(() => {
+        // Keep the last payload as the fallback.
+      });
+  }
+
+  /**
+   * Frames for animated bar and bubble charts: one aggregate per time bucket,
+   * computed worker-side in a single pass over the filtered rows.
+   */
+  private refreshAnimation(): void {
+    this.stopAnimation();
+    const timeColumn = this.config.animationTimeColumn ?? -1;
+    const kind = this.config.kind;
+    const animatable = kind === "bar" || kind === "bubble";
+    const request = this.options.requestAnimation;
+    if (
+      !animatable ||
+      timeColumn < 0 ||
+      request === undefined ||
+      this.config.source !== ""
+    ) {
+      this.animationResult = null;
+      return;
+    }
+    const timeMeta = this.meta(timeColumn);
+    if (timeMeta === undefined || timeMeta.type !== "date") {
+      this.animationResult = null;
+      return;
+    }
+    if (kind === "bar") {
+      const column = this.meta(this.config.column);
+      if (column === undefined || !isCategoryType(column.type)) {
+        this.animationResult = null;
+        return;
+      }
+    } else {
+      const x = this.meta(this.config.x);
+      const y = this.meta(this.config.y);
+      if (
+        x === undefined ||
+        y === undefined ||
+        !isNumericType(x.type) ||
+        !isNumericType(y.type)
+      ) {
+        this.animationResult = null;
+        return;
+      }
+    }
+    const generation = ++this.generation;
+    this.animationFrame = 0;
+    void request({
+      timeColumn,
+      grain: this.config.animationGrain ?? "day",
+      chart: kind === "bar" ? "bar" : "bubble",
+      column: kind === "bar" ? this.config.column : this.config.x,
+      yColumn: kind === "bubble" ? this.config.y : -1,
+      bins: this.config.bubbleBins ?? 40,
+      topN: this.config.topN,
+    })
+      .then((message) => {
+        if (generation !== this.generation || this.disposed) return;
+        this.animationResult = message.result;
+        this.statsMs = message.ms;
+        this.animationFrame = 0;
+        this.render();
+      })
+      .catch((error: unknown) => {
+        if (generation !== this.generation || this.disposed) return;
+        this.animationResult = null;
+        this.noteEl.textContent =
+          error instanceof Error ? error.message : "Could not build the animation frames.";
+        this.render();
+      });
+  }
+
+  private toggleAnimation(): void {
+    if (this.animationPlaying) this.stopAnimation();
+    else this.playAnimation();
+  }
+
+  private playAnimation(): void {
+    const result = this.animationResult;
+    if (result === null || result.frames.length === 0) return;
+    if (this.animationTimer !== null) window.clearInterval(this.animationTimer);
+    this.animationPlaying = true;
+    this.animationTimer = window.setInterval(() => {
+      const current = this.animationResult;
+      if (this.disposed || current === null) {
+        this.stopAnimation();
+        return;
+      }
+      const last = current.frames.length - 1;
+      if (this.animationFrame >= last) {
+        if (this.animationLoopInput.checked) this.animationFrame = 0;
+        else {
+          this.stopAnimation();
+          return;
+        }
+      } else {
+        this.animationFrame++;
+      }
+      this.render();
+    }, 500);
+    this.syncAnimationBar();
+  }
+
+  private stopAnimation(): void {
+    if (this.animationTimer !== null) {
+      window.clearInterval(this.animationTimer);
+      this.animationTimer = null;
+    }
+    this.animationPlaying = false;
+    this.syncAnimationBar();
+  }
+
+  /** Playback bar state: visible only while frames exist. */
+  private syncAnimationBar(): void {
+    const result = this.animationResult;
+    const active = result !== null && result.frames.length > 1;
+    this.animationBar.classList.toggle("hidden", !active);
+    if (!active || result === null) return;
+    this.animationPlayButton.textContent = this.animationPlaying ? "❚❚ Pause" : "▶ Play";
+    this.animationSlider.max = String(result.frames.length - 1);
+    this.animationSlider.value = String(this.animationFrame);
+    const frame = result.frames[this.animationFrame];
+    this.animationFrameLabel.textContent = `${frame?.label ?? ""} (${
+      this.animationFrame + 1
+    }/${result.frames.length})`;
+  }
+
+  /** Records exactly one loop of the animation into a .webm download. */
+  private exportAnimationVideo(): void {
+    const result = this.animationResult;
+    const canvas = this.canvas as HTMLCanvasElement & {
+      captureStream?: (fps?: number) => MediaStream;
+    };
+    if (
+      result === null ||
+      result.frames.length === 0 ||
+      typeof MediaRecorder === "undefined" ||
+      typeof canvas.captureStream !== "function"
+    ) {
+      this.noteEl.textContent =
+        "Video export needs a browser with canvas recording support (Chrome or Firefox).";
+      return;
+    }
+    this.stopAnimation();
+    try {
+      const stream = canvas.captureStream(30);
+      const recorder = new MediaRecorder(stream);
+      const chunks: BlobPart[] = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: "video/webm" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `${safeFileName(this.options.datasetName())}-${safeFileName(
+          this.chartName(),
+        )}-animation.webm`;
+        document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+        for (const track of stream.getTracks()) track.stop();
+      };
+      this.animationFrame = 0;
+      this.render();
+      recorder.start();
+      const total = result.frames.length;
+      const step = (): void => {
+        if (this.disposed) {
+          recorder.stop();
+          return;
+        }
+        this.animationFrame++;
+        if (this.animationFrame < total) {
+          this.render();
+          window.setTimeout(step, 500);
+        } else {
+          this.animationFrame = Math.max(0, total - 1);
+          this.render();
+          recorder.stop();
+        }
+      };
+      window.setTimeout(step, 600);
+    } catch {
+      this.noteEl.textContent = "The browser refused to start the recorder.";
+    }
+  }
+
   private refreshCorrelation(): void {
     if (this.config.kind !== "correlation") {
       this.correlationResult = null;
@@ -2212,6 +2655,7 @@ export class ChartCard {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.drawChart(ctx, cssWidth, cssHeight);
     this.syncLegend();
+    this.syncAnimationBar();
   }
 
   /** Generated text alternative for the canvas, updated on every redraw. */
@@ -2423,6 +2867,13 @@ export class ChartCard {
       }
       case "heatmap":
         return count((meta) => isCategoryType(meta.type)) >= 2;
+      case "bubble": {
+        const x = this.meta(this.config.x);
+        const y = this.meta(this.config.y);
+        return (
+          x !== undefined && y !== undefined && isNumericType(x.type) && isNumericType(y.type)
+        );
+      }
       case "correlation":
         return count((meta) => isNumericType(meta.type)) >= 2;
     }
@@ -2650,6 +3101,9 @@ export class ChartCard {
         break;
       case "heatmap":
         this.drawHeatmap(ctx, frame);
+        break;
+      case "bubble":
+        this.drawBubble(ctx, frame);
         break;
       case "correlation":
         this.drawCorrelation(ctx, frame);
@@ -2999,7 +3453,7 @@ export class ChartCard {
     maxCount: number,
   ): void {
     const ui = frame.ui;
-    const yTicks = niceTicks(0, maxCount, 4);
+    const yTicks = niceTicks(0, maxCount, 4).filter((value, index, all) => index === 0 || value !== all[index - 1]);
     ctx.strokeStyle = frame.border;
     ctx.lineWidth = 1;
     ctx.fillStyle = frame.dim;
@@ -3100,7 +3554,7 @@ export class ChartCard {
     }
 
     // Y axis in percent of the group (share), not counts.
-    const yTicks = niceTicks(0, maxShare, 4);
+    const yTicks = niceTicks(0, maxShare, 4).filter((value, index, all) => index === 0 || value !== all[index - 1]);
     ctx.strokeStyle = frame.border;
     ctx.lineWidth = 1;
     ctx.fillStyle = frame.dim;
@@ -3287,7 +3741,223 @@ export class ChartCard {
     });
   }
 
+  /** Animated bars: category counts for the current frame only. */
+  private drawAnimatedBars(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    const result = this.animationResult;
+    const barData = result?.bar;
+    if (result === null || barData === undefined || result.frames.length === 0) {
+      const message = "No frames to draw yet.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const frameIndex = Math.min(Math.max(0, this.animationFrame), result.frames.length - 1);
+    const labels = barData.labels;
+    const width = Math.max(1, labels.length);
+    const offset = frameIndex * width;
+    const ui = frame.ui;
+    let maxCount = 1;
+    for (let index = 0; index < width; index++) {
+      maxCount = Math.max(maxCount, barData.counts[offset + index] ?? 0);
+    }
+    const slotW = frame.plotW / width;
+    const barW = Math.max(4, slotW - Math.min(18 * ui, slotW * 0.25));
+
+    const yTicks = niceTicks(0, maxCount, 4).filter((value, index, all) => index === 0 || value !== all[index - 1]);
+    ctx.strokeStyle = frame.border;
+    ctx.lineWidth = 1;
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
+    ctx.textAlign = "right";
+    for (const value of yTicks) {
+      const y = frame.top + frame.plotH - (value / maxCount) * frame.plotH;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(frame.left, y + 0.5);
+      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText(formatCount(value), frame.left - 6 * ui, y + 3 * ui);
+    }
+    ctx.textAlign = "left";
+    ctx.beginPath();
+    ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
+    ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
+    ctx.stroke();
+
+    this.font(ctx, ui, 10);
+    labels.forEach((label, index) => {
+      const count = barData.counts[offset + index] ?? 0;
+      const height = (count / maxCount) * frame.plotH;
+      const x = frame.left + index * slotW + (slotW - barW) / 2;
+      if (height > 0) {
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle =
+          this.config.multiColor === true ? this.paletteColor(index) : this.primaryColor();
+        this.fillTopRounded(ctx, x, frame.top + frame.plotH - height, barW, height, 4 * ui);
+        ctx.globalAlpha = 1;
+        if (slotW > 42 * ui) {
+          ctx.fillStyle = frame.dim;
+          ctx.textAlign = "center";
+          ctx.fillText(
+            formatCount(count),
+            x + barW / 2,
+            Math.max(frame.top + 8 * ui, frame.top + frame.plotH - height - 4 * ui),
+          );
+        }
+      }
+      ctx.fillStyle = frame.dim;
+      ctx.textAlign = "center";
+      let text = label === "" ? "(blank)" : label;
+      const maxLabelW = Math.max(10, slotW - 6 * ui);
+      while (text.length > 2 && ctx.measureText(text).width > maxLabelW) text = text.slice(0, -2);
+      if (text !== label) text = `${text}…`;
+      ctx.fillText(text, frame.left + (index + 0.5) * slotW, frame.top + frame.plotH + 16 * ui);
+    });
+    ctx.textAlign = "left";
+
+    const time = result.frames[frameIndex]?.label ?? "";
+    this.font(ctx, ui, 12, "600");
+    ctx.fillStyle = frame.text;
+    ctx.fillText(time, frame.left + frame.plotW - ctx.measureText(time).width, frame.top - 8 * ui);
+    this.noteEl.textContent = `${time} · frame ${frameIndex + 1} of ${
+      result.frames.length
+    } · ${result.total.toLocaleString()} rows · play or scrub below`;
+  }
+
+  /** Bubble chart: rows per x/y grid cell, sized by count (static or a frame). */
+  private drawBubble(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    const animated = this.animationResult?.bubble;
+    if (animated !== undefined && this.animationResult !== null) {
+      const frames = this.animationResult.frames;
+      const index = Math.min(Math.max(0, this.animationFrame), Math.max(0, frames.length - 1));
+      const cellCount = animated.bins * animated.bins;
+      const grid = animated.grids.subarray(index * cellCount, (index + 1) * cellCount);
+      this.drawBubbleGrid(ctx, frame, {
+        xMin: animated.xMin,
+        xMax: animated.xMax,
+        yMin: animated.yMin,
+        yMax: animated.yMax,
+        bins: animated.bins,
+        grid,
+        maxCount: this.animationResult.maxCount,
+        total: this.animationResult.total,
+        caption: frames[index]?.label ?? "",
+      });
+      return;
+    }
+    const result = this.bubbleResult;
+    if (result === null) {
+      const message =
+        this.columns.length === 0
+          ? "Load data to see charts."
+          : "Bubble needs two numeric columns — pick X and Y above.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    this.drawBubbleGrid(ctx, frame, {
+      xMin: result.xMin,
+      xMax: result.xMax,
+      yMin: result.yMin,
+      yMax: result.yMax,
+      bins: result.bins,
+      grid: result.counts,
+      maxCount: result.maxCount,
+      total: result.total,
+      caption: "",
+    });
+  }
+
+  private drawBubbleGrid(
+    ctx: CanvasRenderingContext2D,
+    frame: Frame,
+    input: {
+      xMin: number;
+      xMax: number;
+      yMin: number;
+      yMax: number;
+      bins: number;
+      grid: Uint32Array;
+      maxCount: number;
+      total: number;
+      caption: string;
+    },
+  ): void {
+    const ui = frame.ui;
+    const { xMin, xMax, yMin, yMax, bins, grid } = input;
+    const maxCount = Math.max(1, input.maxCount);
+
+    const xTicks = niceTicks(xMin, xMax, 4);
+    const yTicks = niceTicks(yMin, yMax, 4).filter((value, index, all) => index === 0 || value !== all[index - 1]);
+    ctx.lineWidth = 1;
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
+    ctx.textAlign = "right";
+    for (const value of yTicks) {
+      const y =
+        frame.top + frame.plotH - ((value - yMin) / Math.max(1e-12, yMax - yMin)) * frame.plotH;
+      ctx.strokeStyle = frame.border;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(frame.left, y + 0.5);
+      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText(formatChartNumber(value), frame.left - 6 * ui, y + 3 * ui);
+    }
+    ctx.textAlign = "center";
+    for (const value of xTicks) {
+      const x =
+        frame.left + ((value - xMin) / Math.max(1e-12, xMax - xMin)) * frame.plotW;
+      ctx.fillText(formatChartNumber(value), x, frame.top + frame.plotH + 14 * ui);
+    }
+    ctx.textAlign = "left";
+
+    const color = this.primaryColor();
+    let cells = 0;
+    let frameRows = 0;
+    for (let by = 0; by < bins; by++) {
+      for (let bx = 0; bx < bins; bx++) {
+        const count = grid[by * bins + bx] ?? 0;
+        if (count === 0) continue;
+        cells++;
+        frameRows += count;
+        const x = frame.left + ((bx + 0.5) / bins) * frame.plotW;
+        const y = frame.top + frame.plotH - ((by + 0.5) / bins) * frame.plotH;
+        const radius = (1.5 + 13 * Math.sqrt(count / maxCount)) * ui;
+        ctx.globalAlpha = 0.24 + 0.5 * (count / maxCount);
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.75;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+    if (input.caption !== "") {
+      this.font(ctx, ui, 12, "600");
+      ctx.fillStyle = frame.text;
+      ctx.fillText(
+        input.caption,
+        frame.left + frame.plotW - ctx.measureText(input.caption).width,
+        frame.top - 8 * ui,
+      );
+    }
+    const xName = this.meta(this.config.x)?.name ?? "x";
+    const yName = this.meta(this.config.y)?.name ?? "y";
+    const caption = input.caption === "" ? "" : `${input.caption} · `;
+    this.noteEl.textContent = `${caption}${frameRows.toLocaleString()} rows in ${cells.toLocaleString()} cells · ${xName} × ${yName} · bubble area ∝ rows`;
+  }
+
   private drawBars(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    if (this.animationResult?.bar !== undefined) {
+      this.drawAnimatedBars(ctx, frame);
+      return;
+    }
     const meta = this.meta(this.config.column);
     if (meta === undefined) {
       const message = this.emptySeriesMessage("bar");
@@ -3317,7 +3987,7 @@ export class ChartCard {
       this.config.column,
     );
 
-    const yTicks = niceTicks(0, maxCount, 4);
+    const yTicks = niceTicks(0, maxCount, 4).filter((value, index, all) => index === 0 || value !== all[index - 1]);
     ctx.strokeStyle = frame.border;
     ctx.lineWidth = 1;
     ctx.fillStyle = frame.dim;
@@ -3414,7 +4084,7 @@ export class ChartCard {
   ): void {
     const ui = frame.ui;
     const xTicks = niceTicks(xMin, xMax, 5);
-    const yTicks = niceTicks(yMin, yMax, 4);
+    const yTicks = niceTicks(yMin, yMax, 4).filter((value, index, all) => index === 0 || value !== all[index - 1]);
     ctx.strokeStyle = frame.border;
     ctx.lineWidth = 1;
     ctx.fillStyle = frame.dim;

@@ -31,8 +31,7 @@ export interface CrossTabResult {
   total: number;
 }
 
-export interface CrossTabOptions {
-  topX: number;
+export interface CrossTabOptions {  topX: number;
   topY: number;
   groupOther: boolean;
 }
@@ -286,4 +285,68 @@ export function computeCorrelation(
   }
 
   return { values, counts };
+}
+
+export interface GridCountsResult {
+  xMin: number;
+  xMax: number;
+  yMin: number;
+  yMax: number;
+  bins: number;
+  /** Row-major counts: index = y * bins + x. */
+  counts: Uint32Array;
+  maxCount: number;
+  total: number;
+  missing: number;
+}
+
+/**
+ * Counts rows per cell of a bins x bins grid over two numeric columns:
+ * the aggregation behind the bubble chart (size = rows in the area).
+ */
+export function computeGridCounts(
+  xValues: Float64Array,
+  yValues: Float64Array,
+  ids: Uint32Array,
+  bins: number,
+): GridCountsResult {
+  const size = Math.max(4, Math.min(120, Math.floor(bins) || 40));
+  let xMin = Infinity;
+  let xMax = -Infinity;
+  let yMin = Infinity;
+  let yMax = -Infinity;
+  let total = 0;
+  let missing = 0;
+  for (let index = 0; index < ids.length; index++) {
+    const row = ids[index];
+    const x = xValues[row];
+    const y = yValues[row];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      missing++;
+      continue;
+    }
+    total++;
+    if (x < xMin) xMin = x;
+    if (x > xMax) xMax = x;
+    if (y < yMin) yMin = y;
+    if (y > yMax) yMax = y;
+  }
+  const counts = new Uint32Array(size * size);
+  if (total === 0) {
+    return { xMin: 0, xMax: 0, yMin: 0, yMax: 0, bins: size, counts, maxCount: 0, total, missing };
+  }
+  const xSpan = xMax > xMin ? xMax - xMin : 1;
+  const ySpan = yMax > yMin ? yMax - yMin : 1;
+  let maxCount = 0;
+  for (let index = 0; index < ids.length; index++) {
+    const row = ids[index];
+    const x = xValues[row];
+    const y = yValues[row];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const bx = Math.min(size - 1, Math.floor(((x - xMin) / xSpan) * size));
+    const by = Math.min(size - 1, Math.floor(((y - yMin) / ySpan) * size));
+    const cell = ++counts[by * size + bx];
+    if (cell > maxCount) maxCount = cell;
+  }
+  return { xMin, xMax, yMin, yMax, bins: size, counts, maxCount, total, missing };
 }

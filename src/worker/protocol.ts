@@ -6,6 +6,9 @@ import type { RelationshipData } from "../data/relationships.js";
 import type { TextProfile } from "../data/text-profile.js";
 import type { DistributionChange } from "../data/distribution.js";
 import type { SimilarClusterEntry } from "../data/similar-clusters.js";
+import type { AnimationResult } from "../data/chart-frames.js";
+import type { GridCountsResult } from "../data/chart-stats.js";
+import type { TimeGrain } from "../data/aggregate.js";
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import type { SeriesMode, SeriesResult } from "../data/chart-series.js";
 import type { BoxStatsResult, CorrelationResult, CrossTabResult } from "../data/chart-stats.js";
@@ -493,6 +496,49 @@ export interface SimilarClustersMessage {
   ms: number;
 }
 
+export type GetGridCountsRequest = {
+  type: "getGridCounts";
+  requestId: number;
+  xColumn: number;
+  yColumn: number;
+  /** Grid resolution per axis (4–120, default 40). */
+  bins?: number;
+};
+
+export interface GridCountsMessage {
+  type: "gridCounts";
+  requestId: number;
+  /** Row counts per cell of the x/y grid (bubble chart). */
+  result: GridCountsResult;
+  ms: number;
+}
+
+export type AnimationChart = "bar" | "bubble";
+
+export type GetAnimationRequest = {
+  type: "getAnimation";
+  requestId: number;
+  timeColumn: number;
+  grain: TimeGrain;
+  chart: AnimationChart;
+  /** bar: the category column; bubble: the x column. */
+  column: number;
+  /** bubble: the y column (ignored for bar). */
+  yColumn: number;
+  /** bubble grid resolution (default 40). */
+  bins?: number;
+  /** bar: categories kept before Other (default 8). */
+  topN?: number;
+};
+
+export interface AnimationMessage {
+  type: "animation";
+  requestId: number;
+  /** Frames plus the per-kind series (bars or bubble grids). */
+  result: AnimationResult;
+  ms: number;
+}
+
 export type GetDistributionChangesRequest = {
   type: "getDistributionChanges";
   requestId: number;
@@ -542,7 +588,9 @@ export type WorkerRequest =
   | GetRelationshipsRequest
   | GetTextProfileRequest
   | GetDistributionChangesRequest
-  | GetSimilarClustersRequest;
+  | GetSimilarClustersRequest
+  | GetGridCountsRequest
+  | GetAnimationRequest;
 
 export interface DatasetMessage {
   requestId: number;
@@ -726,6 +774,8 @@ export type WorkerResponse =
   | TextProfileMessage
   | DistributionChangesMessage
   | SimilarClustersMessage
+  | GridCountsMessage
+  | AnimationMessage
   | ExportStartedMessage
   | CsvChunkMessage
   | HeadersRenamedMessage

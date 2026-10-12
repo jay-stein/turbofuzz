@@ -1,6 +1,6 @@
 import type { Delimiter } from "../parse/delimiter.js";
 import type { NumberLocale } from "../parse/numbers.js";
-import type { ViewDef } from "../data/aggregate.js";
+import type { TimeGrain, ViewDef } from "../data/aggregate.js";
 import type { ChartBinOptions } from "../data/chart-bins.js";
 import type { SeriesMode } from "../data/chart-series.js";
 import type { ColumnFilter } from "../search/query-engine.js";
@@ -8,6 +8,8 @@ import type { TransformOp } from "../data/transform-ops.js";
 import type { ColumnType } from "../types.js";
 import type {
   AggregateMessage,
+  AnimationChart,
+  AnimationMessage,
   BoxStatsMessage,
   ChartBinsMessage,
   ChartSeriesMessage,
@@ -21,6 +23,7 @@ import type {
   CsvChunkMessage,
   DependenciesMessage,
   DistributionChangesMessage,
+  GridCountsMessage,
   SimilarClustersMessage,
   ExportOptions,
   ExportScope,
@@ -218,6 +221,22 @@ export class SearchWorkerClient {
 
   getSimilarClusters(): Promise<SimilarClustersMessage> {
     return this.request<SimilarClustersMessage>({ type: "getSimilarClusters" });
+  }
+
+  getGridCounts(xColumn: number, yColumn: number, bins?: number): Promise<GridCountsMessage> {
+    return this.request<GridCountsMessage>({ type: "getGridCounts", xColumn, yColumn, bins });
+  }
+
+  getAnimation(input: {
+    timeColumn: number;
+    grain: TimeGrain;
+    chart: AnimationChart;
+    column: number;
+    yColumn: number;
+    bins?: number;
+    topN?: number;
+  }): Promise<AnimationMessage> {
+    return this.request<AnimationMessage>({ type: "getAnimation", ...input });
   }
 
   renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {

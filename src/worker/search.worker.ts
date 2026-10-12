@@ -15,7 +15,13 @@ import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
 import { binValues, groupedBinValues } from "../data/chart-bins.js";
 import { missingnessGrid } from "../data/missingness.js";
 import { categoryCodes, computeSeries } from "../data/chart-series.js";
-import { computeBoxStats, computeCorrelation, computeCrossTab } from "../data/chart-stats.js";
+import {
+  computeBoxStats,
+  computeCorrelation,
+  computeCrossTab,
+  computeGridCounts,
+} from "../data/chart-stats.js";
+import { computeBarFrames, computeBubbleFrames } from "../data/chart-frames.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import {
@@ -62,6 +68,8 @@ import type {
   GetTextProfileRequest,
   GetDistributionChangesRequest,
   GetSimilarClustersRequest,
+  GetGridCountsRequest,
+  GetAnimationRequest,
   LoadRequest,
   PreviewCleanRequest,
   PreviewTransformRequest,
@@ -275,6 +283,12 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getSimilarClusters":
       handleGetSimilarClusters(message);
+      break;
+    case "getGridCounts":
+      handleGetGridCounts(message);
+      break;
+    case "getAnimation":
+      handleGetAnimation(message);
       break;
     case "renameHeaders":
       handleRenameHeaders(message);
@@ -1183,6 +1197,91 @@ function handleGetSimilarClusters(message: GetSimilarClustersRequest): void {
     entries,
     ms: performance.now() - started,
   });
+}
+
+/** Row counts per x/y grid cell for the bubble chart. */
+function handleGetGridCounts(message: GetGridCountsRequest): void {
+  const { dataset } = state();
+  const x = dataset.columns[message.xColumn];
+  const y = dataset.columns[message.yColumn];
+  if (x === undefined || y === undefined) throw new Error("Unknown column");
+  const started = performance.now();
+  const result = computeGridCounts(
+    x.numbers(),
+    y.numbers(),
+    sortedIds,
+    message.bins ?? 40,
+  );
+  post(
+    { type: "gridCounts", requestId: message.requestId, result, ms: performance.now() - started },
+    [result.counts.buffer],
+  );
+}
+
+/** Compact category codes without the per-category bitsets. */
+function categoryCodesFor(
+  column: ColumnData,
+  rowCount: number,
+): { codes: Uint16Array; labels: string[] } {
+  const index = new Map<string, number>();
+  const labels: string[] = [];
+  const codes = new Uint16Array(rowCount);
+  for (let row = 0; row < rowCount; row++) {
+    const value = column.nullMask.get(row) ? "(empty)" : (column.raw[row] ?? "").trim();
+    let code = index.get(value);
+    if (code === undefined) {
+      code = labels.length;
+      index.set(value, code);
+      labels.push(value);
+    }
+    codes[row] = code;
+  }
+  return { codes, labels };
+}
+
+/** Per-time-bucket frames for animated bar and bubble charts. */
+function handleGetAnimation(message: GetAnimationRequest): void {
+  const { dataset } = state();
+  const timeColumn = dataset.columns[message.timeColumn];
+  if (timeColumn === undefined) throw new Error("Unknown time column");
+  const started = performance.now();
+  const times = timeColumn.numbers();
+  if (message.chart === "bubble") {
+    const x = dataset.columns[message.column];
+    const y = dataset.columns[message.yColumn];
+    if (x === undefined || y === undefined) throw new Error("Unknown column");
+    const result = computeBubbleFrames(
+      times,
+      x.numbers(),
+      y.numbers(),
+      sortedIds,
+      message.grain,
+      message.bins ?? 40,
+    );
+    post(
+      { type: "animation", requestId: message.requestId, result, ms: performance.now() - started },
+      result.bubble === undefined ? [] : [result.bubble.grids.buffer],
+    );
+    return;
+  }
+  const column = dataset.columns[message.column];
+  if (column === undefined) throw new Error("Unknown column");
+  const { codes, labels } = categoryCodesFor(column, dataset.rowCount);
+  if (labels.length > 60_000) {
+    throw new Error("Too many distinct categories to animate — try a bubble chart instead");
+  }
+  const result = computeBarFrames(
+    times,
+    codes,
+    labels,
+    sortedIds,
+    message.grain,
+    message.topN ?? 8,
+  );
+  post(
+    { type: "animation", requestId: message.requestId, result, ms: performance.now() - started },
+    result.bar === undefined ? [] : [result.bar.counts.buffer],
+  );
 }
 
 /** Pearson correlation matrix for up to 12 numeric columns (filtered rows). */

@@ -246,6 +246,9 @@ test("chart text stays legible and date labels fit the left margin", () => {
     closePath(): void {}
     moveTo(): void {}
     lineTo(): void {}
+    arc(): void {}
+    rect(): void {}
+    clip(): void {}
     stroke(): void {}
     fill(): void {}
     setLineDash(): void {}
@@ -351,6 +354,9 @@ test("chart cards draw scatter points and density grids", async () => {
     closePath(): void {}
     moveTo(): void {}
     lineTo(): void {}
+    arc(): void {}
+    rect(): void {}
+    clip(): void {}
     stroke(): void {}
     fill(): void {}
     setLineDash(): void {}
@@ -618,6 +624,9 @@ function captureMockContext(window: Window, drawn: string[]): void {
     closePath(): void {}
     moveTo(): void {}
     lineTo(): void {}
+    arc(): void {}
+    rect(): void {}
+    clip(): void {}
     stroke(): void {}
     fill(): void {}
     setLineDash(): void {}
@@ -1087,5 +1096,106 @@ test("axis controls sit in their own bordered group", async () => {
   await tick();
   assert.ok(axes.querySelector('[aria-label="X column"]') !== null);
   assert.ok(axes.querySelector('[aria-label="Y column"]') !== null);
+  card.dispose();
+});
+
+test("bubble chart draws grid counts and explains the area", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestGridCounts: async () => ({
+        type: "gridCounts",
+        requestId: 1,
+        result: {
+          xMin: 0,
+          xMax: 10,
+          yMin: 0,
+          yMax: 10,
+          bins: 4,
+          counts: Uint32Array.from(Array.from({ length: 16 }, (_, i) => (i === 5 ? 3 : i % 4 === 0 ? 1 : 0))),
+          maxCount: 3,
+          total: 7,
+          missing: 0,
+        },
+        ms: 1,
+      }),
+    },
+    { kind: "bubble", x: 0, y: 1 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({ name: "lat", type: "number", histogram: { bins: [1], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 } }),
+    meta({ name: "lon", type: "number", histogram: { bins: [1], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 } }),
+  ]);
+  await tick();
+  const note = host.querySelector(".chart-note")?.textContent ?? "";
+  assert.match(note, /bubble area ∝ rows/);
+  assert.match(note, /cells/);
+  card.dispose();
+});
+
+test("animating over a date column shows the playback bar and scrubs frames", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  let requests = 0;
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestAnimation: async () => {
+        requests++;
+        return {
+          type: "animation",
+          requestId: 1,
+          result: {
+            frames: [
+              { time: Date.UTC(2024, 0, 1), label: "2024-01" },
+              { time: Date.UTC(2024, 1, 1), label: "2024-02" },
+            ],
+            maxCount: 2,
+            total: 3,
+            missing: 0,
+            bar: { labels: ["open", "closed"], counts: Uint32Array.from([1, 2, 2, 1]) },
+          },
+          ms: 1,
+        };
+      },
+    },
+    { kind: "bar", column: 0, animationTimeColumn: 1, animationGrain: "month" },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({ name: "status", type: "category", categories: { labels: ["open", "closed"], counts: [2, 1] } }),
+    meta({
+      name: "when",
+      type: "date",
+      stats: {
+        ...meta().stats,
+        min: Date.UTC(2024, 0, 1),
+        max: Date.UTC(2024, 2, 1),
+        distinct: 60,
+      },
+      histogram: { bins: [1, 1, 1], min: Date.UTC(2024, 0, 1), max: Date.UTC(2024, 2, 1), symlog: false, below: 0, above: 0, p05: 0, p95: 1 },
+    }),
+  ]);
+  await tick();
+  assert.ok(requests > 0, "frames were requested for the animated kind");
+  const bar = host.querySelector(".chart-animation") as HTMLElement;
+  assert.equal(bar.classList.contains("hidden"), false, "the playback bar appears");
+  const slider = bar.querySelector("input[type=range]") as HTMLInputElement;
+  assert.equal(slider.max, "1");
+  assert.match(bar.textContent ?? "", /2024-01/);
+  slider.value = "1";
+  slider.dispatchEvent(new window.Event("input") as unknown as Event);
+  await tick();
+  assert.match(bar.textContent ?? "", /2024-02/);
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /frame 2 of 2/);
   card.dispose();
 });
