@@ -489,11 +489,19 @@ test("charts panel adds, duplicates and removes independent cards", async () => 
   add.click();
   await tick();
 
+  const galleryDoc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const scatterTile = [...galleryDoc.querySelectorAll(".chart-gallery .chart-tile")].find(
+    (tile) => tile.textContent === "Scatter",
+  );
+  assert.ok(scatterTile !== undefined, "the gallery offers a Scatter tile");
+  (scatterTile as unknown as { click(): void }).click();
+  await tick();
+
   const cards = host.querySelectorAll(".chart-card");
   assert.equal(cards.length, 2);
   const kinds = host.querySelectorAll<HTMLSelectElement>(".chart-kind");
   assert.equal(kinds[0].value, "bar", "city is the best default category");
-  assert.equal(kinds[1].value, "scatter", "second card defaults to scatter over two numerics");
+  assert.equal(kinds[1].value, "scatter", "the Scatter tile adds a scatter card");
 
   const doc = (globalThis as Record<string, unknown>).document as Window["document"];
   const openCardMenu = (card: Element): void => {

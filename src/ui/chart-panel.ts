@@ -10,6 +10,7 @@ import type {
   GroupedBinsMessage,
 } from "../worker/protocol.js";
 import { ChartCard, type ChartCardConfig, type SeriesRequestInput } from "./chart-card.js";
+import { openChartGallery } from "./chart-gallery.js";
 import {
   DEFAULT_EXPORT_SIZE,
   EXPORT_SIZES,
@@ -18,7 +19,6 @@ import {
   isNumericType,
   isPairKind,
   pickDefaultCard,
-  suggestCharts,
 } from "./chart-utils.js";
 import { el } from "./dom.js";
 
@@ -225,7 +225,6 @@ function readLayout(): number {
 export class ChartsPanel {
   private readonly grid: HTMLElement;
   private readonly empty: HTMLElement;
-  private readonly suggestions: HTMLElement;
   private readonly layoutSelect: HTMLSelectElement;
   private readonly sizeSelect: HTMLSelectElement;
   private cards: ChartCard[] = [];
@@ -248,7 +247,13 @@ export class ChartsPanel {
       { class: "primary small", type: "button", title: "Add another chart of the current result set" },
       ["+ Add chart"],
     );
-    add.addEventListener("click", () => this.addCard());
+    add.addEventListener("click", () =>
+      openChartGallery(add, {
+        columns: this.columns,
+        rowCount: this.rowCount,
+        onPick: (preset) => this.addCard(preset),
+      }),
+    );
 
     this.layoutSelect = el("select", {
       class: "chart-size",
@@ -293,8 +298,7 @@ export class ChartsPanel {
     this.empty = el("div", { class: "charts-empty" }, [
       "No charts yet — use “+ Add chart” to plot the current result set.",
     ]);
-    this.suggestions = el("div", { class: "chart-suggestions hidden" });
-    this.root.append(toolbar, this.suggestions, this.grid, this.empty);
+    this.root.append(toolbar, this.grid, this.empty);
     this.syncLayout();
     this.syncEmpty();
   }
@@ -334,7 +338,6 @@ export class ChartsPanel {
     card.setFiltered(this.facets, this.histograms);
     card.setRowCount(this.rowCount);
     this.syncEmpty();
-    this.syncSuggestions();
     return card;
   }
 
@@ -345,7 +348,6 @@ export class ChartsPanel {
     card.dispose();
     card.root.remove();
     this.syncEmpty();
-    this.syncSuggestions();
   }
 
   duplicateCard(card: ChartCard): void {
@@ -362,7 +364,6 @@ export class ChartsPanel {
       }
     }
     for (const card of this.cards) card.setColumns(columns);
-    this.syncSuggestions();
   }
 
   /** Snapshots every card with its columns stored by name. */
@@ -379,7 +380,6 @@ export class ChartsPanel {
     this.columns = columns;
     this.initialised = true;
     for (const config of configs) this.addCard(config);
-    this.syncSuggestions();
   }
 
   setFiltered(
@@ -394,7 +394,6 @@ export class ChartsPanel {
   setRowCount(count: number): void {
     this.rowCount = count;
     for (const card of this.cards) card.setRowCount(count);
-    this.syncSuggestions();
   }
 
   refresh(): void {
@@ -419,33 +418,5 @@ export class ChartsPanel {
     const isEmpty = this.cards.length === 0;
     this.empty.classList.toggle("hidden", !isEmpty);
     this.grid.classList.toggle("hidden", isEmpty);
-  }
-
-  /** Up to three ready-made charts while the grid holds exactly one card. */
-  private syncSuggestions(): void {
-    this.suggestions.replaceChildren();
-    if (this.cards.length !== 1) {
-      this.suggestions.classList.add("hidden");
-      return;
-    }
-    const ideas = suggestCharts(this.columns, this.rowCount);
-    if (ideas.length === 0) {
-      this.suggestions.classList.add("hidden");
-      return;
-    }
-    for (const idea of ideas) {
-      const chip = el(
-        "button",
-        {
-          class: "ghost small chart-suggestion",
-          type: "button",
-          title: "Add this suggested chart",
-        },
-        [idea.label],
-      ) as HTMLButtonElement;
-      chip.addEventListener("click", () => this.addCard(idea.preset));
-      this.suggestions.append(chip);
-    }
-    this.suggestions.classList.remove("hidden");
   }
 }

@@ -76,6 +76,20 @@ export function isIdLikeColumn(meta: ColumnMeta, rowCount: number): boolean {
   return meta.stats.distinct === rowCount;
 }
 
+const ID_NAME = /(^|[^a-z0-9])(id|uuid|guid|key)s?($|[^a-z0-9])/i;
+const NON_ID_WORDS = /(paid|valid|void|grid|solid|fluid|rapid|humid|arid|android)$/;
+
+/**
+ * Names that read as identifiers ("start station id", "bikeid") add no value
+ * to charts and never join a correlation matrix by default.
+ */
+export function looksLikeIdName(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (ID_NAME.test(lower)) return true;
+  const compact = lower.replace(/[^a-z0-9]/g, "");
+  return compact.length > 3 && compact.endsWith("id") && !NON_ID_WORDS.test(compact);
+}
+
 /** A numeric column with few distinct values charts better as categories. */
 export function isChartCategory(meta: ColumnMeta): boolean {
   if (isCategoryType(meta.type)) return true;

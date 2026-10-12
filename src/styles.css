@@ -2743,6 +2743,82 @@ select.chart-number {
   background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
+/* ---------- chart type gallery ---------- */
+
+.chart-gallery {
+  width: min(540px, calc(100vw - 24px));
+  padding: 6px 10px 12px;
+  gap: 0;
+}
+
+.chart-gallery-question {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 2px 0 0;
+}
+
+.chart-gallery .context-header {
+  padding-top: 8px;
+}
+
+.chart-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(98px, 1fr));
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+
+.chart-tile {
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px 7px;
+  border-radius: 9px;
+  border: 1px solid var(--border-subtle);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  text-align: center;
+}
+
+.chart-tile:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.chart-tile:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.chart-tile-preview {
+  display: block;
+  width: 72px;
+  height: 48px;
+  color: var(--accent);
+}
+
+.chart-tile-preview svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.chart-tile-label {
+  font-size: 11.5px;
+}
+
+.chart-tile-reason {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.chart-source-field {
+  flex: none;
+}
+
 .merge-list {
   display: flex;
   flex-direction: column;

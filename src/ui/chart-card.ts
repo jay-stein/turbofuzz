@@ -30,6 +30,7 @@ import {
   isIdLikeColumn,
   isNumericType,
   isPairKind,
+  looksLikeIdName,
   niceTicks,
   parseChartNumber,
   rampColor,
@@ -86,6 +87,8 @@ export interface ChartCardOptions {
 
 export interface ChartCardConfig {
   kind: ChartCardKind;
+  /** Data source: -1 = the filtered table, otherwise a saved view id. */
+  source: number;
   column: number;
   x: number;
   y: number;
@@ -126,19 +129,6 @@ const POINT_LIMIT = 20_000;
 /** Grouped time series: distinct lines before the rest folds into Other. */
 const GROUP_LINE_LIMIT = 8;
 const HEX = /^#?[0-9a-f]{6}$/i;
-const ID_NAME = /(^|[^a-z0-9])(id|uuid|guid|key)s?($|[^a-z0-9])/i;
-const NON_ID_WORDS = /(paid|valid|void|grid|solid|fluid|rapid|humid|arid|android)$/;
-
-/**
- * Names that read as identifiers ("start station id", "bikeid") add no value
- * to a correlation matrix, so they stay out of the default column set.
- */
-function looksLikeIdName(name: string): boolean {
-  const lower = name.toLowerCase();
-  if (ID_NAME.test(lower)) return true;
-  const compact = lower.replace(/[^a-z0-9]/g, "");
-  return compact.length > 3 && compact.endsWith("id") && !NON_ID_WORDS.test(compact);
-}
 
 /** Plot-area rectangle in canvas CSS pixels, shared by hit-region builders. */
 export interface PlotGeometry {
@@ -411,6 +401,7 @@ function cssVar(name: string, fallback: string): string {
 function defaultConfig(): ChartCardConfig {
   return {
     kind: "histogram",
+    source: -1,
     column: -1,
     x: -1,
     y: -1,
@@ -527,6 +518,16 @@ export class ChartCard {
     this.config = { ...defaultConfig(), ...preset };
 
     const head = el("div", { class: "chart-card-head" });
+    // Source selector: every chart reads the filtered table today; aggregate
+    // views are added here as they ship, and no card ever reads raw rows.
+    const sourceWrap = el("label", { class: "chart-field chart-source-field" });
+    sourceWrap.append(el("span", { class: "chart-field-label" }, ["Source"]));
+    const sourceSelect = this.buildSelect("chart-picker chart-picker-small chart-source", "Data source");
+    sourceSelect.append(el("option", { value: "-1" }, ["Table (filtered)"]) as HTMLOptionElement);
+    sourceSelect.value = String(this.config.source);
+    sourceSelect.title = "Charts read the filtered table; aggregate views arrive next";
+    sourceWrap.append(sourceSelect);
+
     this.kindSelect = el("select", {
       class: "chart-kind",
       "aria-label": "Chart type",
@@ -648,6 +649,7 @@ export class ChartCard {
     more.addEventListener("click", () => this.openCardMenu(more));
 
     head.append(
+      sourceWrap,
       this.kindSelect,
       this.primaryWrap,
       this.groupWrap,
