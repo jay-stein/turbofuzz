@@ -68,7 +68,9 @@ function remapTransform(
     case "melt":
       return null;
     case "drop":
-    case "round": {
+    case "round":
+    case "flagAnomalies":
+    case "winsorize": {
       const column = map(op.column);
       return column === null ? null : { ...op, column };
     }

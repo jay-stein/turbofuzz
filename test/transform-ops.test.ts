@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildDataset } from "../src/data/build.js";
 import { viewToPandas } from "../src/data/recipe.js";
+import { pandasRecipe } from "../src/data/recipe.js";
 import {
   applyTransformOps,
   describeTransformOp,
@@ -438,4 +439,57 @@ test("viewToPandas computes weighted means from helper columns", () => {
   assert.match(recipe, /"_aggw_0": \("w", "sum"\),/);
   assert.match(recipe, /df\["mean\(amount\)"\] = df\["_agg_0"\] \/ df\["_aggw_0"\]/);
   assert.match(recipe, /df = df\.drop\(columns=\["_agg_0", "_wx_0", "_aggw_0"\]\)/);
+});
+
+test("winsorize clamps extreme values at the symmetric percentile fences", () => {
+  const rows: string[][] = [];
+  for (let i = 0; i < 98; i++) rows.push([String(10 + (i % 20))]);
+  rows.push(["1000000"]);
+  rows.push(["-1000000"]);
+  const ds = buildDataset("w", ["amount"], rows);
+  const out = applyTransformOps("w", ds.columns, [
+    { kind: "winsorize", column: 0, percent: 1 },
+  ]);
+  const column = out.columns[0];
+  const numbers = column.numbers();
+  const max = Math.max(...numbers);
+  const min = Math.min(...numbers);
+  assert.ok(max < 1000000, "the extreme high value is clamped");
+  assert.ok(min > -1000000, "the extreme low value is clamped");
+  const normal = new Set<number>();
+  for (let i = 0; i < 98; i++) normal.add(Number(rows[i][0]));
+  for (const finite of numbers.values()) {
+    if (finite > 0) assert.ok(normal.has(finite) || finite <= max);
+  }
+});
+
+test("flagAnomalies appends a Yes/No column without changing the originals", () => {
+  const rows: string[][] = [];
+  for (let i = 0; i < 98; i++) rows.push([String(10 + (i % 20))]);
+  rows.push(["1000000"]);
+  rows.push(["-1000000"]);
+  const ds = buildDataset("f", ["amount"], rows);
+  const out = applyTransformOps("f", ds.columns, [
+    { kind: "flagAnomalies", column: 0 },
+  ]);
+  assert.equal(out.columns.length, 2);
+  assert.equal(out.columns[1].name, "flag: amount");
+  const flags = out.columns[1].raw;
+  assert.equal(flags.length, 100);
+  assert.ok(flags.filter((value) => value === "Yes").length >= 1);
+  assert.deepEqual(out.columns[0].raw, ds.columns[0].raw, "the source column is untouched");
+});
+
+test("the pandas recipe covers winsorize and flags", () => {
+  const ds = buildDataset("r", ["amount"], [["1"], ["2"]]);
+  const recipe = pandasRecipe({
+    cleans: [],
+    transforms: [
+      { kind: "winsorize", column: 0, percent: 1 },
+      { kind: "flagAnomalies", column: 0 },
+    ],
+    schema: ds.columns.map((column) => ({ name: column.name, numeric: true })),
+  });
+  assert.match(recipe, /clip\(lower=.*quantile\(0\.01\)/);
+  assert.match(recipe, /outlier flags/);
 });

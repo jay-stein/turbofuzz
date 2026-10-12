@@ -2257,6 +2257,27 @@ export class App {
       case "merge":
         this.openMerge(action.column);
         break;
+      case "flagAnomalies": {
+        const name = this.metas[action.column]?.name ?? "?";
+        this.setView("table");
+        this.applyTransform(
+          [...this.transformOps, { kind: "flagAnomalies", column: action.column }],
+          `Flagged unusual cells in “${name}” (new Yes/No column)`,
+        );
+        break;
+      }
+      case "winsorize": {
+        const name = this.metas[action.column]?.name ?? "?";
+        this.setView("table");
+        this.applyTransform(
+          [
+            ...this.transformOps,
+            { kind: "winsorize", column: action.column, percent: action.percent },
+          ],
+          `Winsorised “${name}” at ${action.percent}% / ${100 - action.percent}%`,
+        );
+        break;
+      }
     }
   }
 

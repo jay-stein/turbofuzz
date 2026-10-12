@@ -22,7 +22,9 @@ export type FindingAction =
   | { kind: "filterRange"; column: number; min: number | null; max: number | null }
   | { kind: "filterText"; column: number; query: string }
   | { kind: "cleanNulls"; column: number }
-  | { kind: "merge"; column: number };
+  | { kind: "merge"; column: number }
+  | { kind: "flagAnomalies"; column: number }
+  | { kind: "winsorize"; column: number; percent: number };
 
 export interface Finding {
   id: string;
@@ -36,6 +38,8 @@ export interface Finding {
   /** Optional one-click remedy; every fix lands in the Recipe with Undo. */
   fixLabel?: string;
   action?: FindingAction;
+  /** Secondary remedies shown beside the primary action. */
+  extraActions?: { label: string; action: FindingAction }[];
 }
 
 const NON_NEGATIVE_NAME = /(qty|quantity|count|stock|units|amount|price|cost|age|duration|distance|weight)/i;
@@ -727,6 +731,16 @@ export function anomalyFindings(columns: readonly ColumnMeta[]): Finding[] {
         impact: { rows: meta.anomalyCounts.values, columns: [column] },
         fixLabel: "Show rows",
         action: { kind: "filterSpecial", column, special: "valueAnomalies" },
+        extraActions: [
+          {
+            label: "Flag column",
+            action: { kind: "flagAnomalies", column },
+          },
+          {
+            label: "Winsorise 1%",
+            action: { kind: "winsorize", column, percent: 1 },
+          },
+        ],
       });
     }
     if (meta.anomalyCounts.lengths > 0 && meta.lengthFence !== null) {

@@ -543,6 +543,19 @@ function transformLines(
         lines.push(...viewPandasLines(op.dimensions, op.measures, names));
         break;
       }
+      case "winsorize": {
+        const column = target(names[op.column]);
+        const q = op.percent / 100;
+        lines.push(
+          `${column} = pd.to_numeric(${column}, errors="coerce").clip(lower=${column}.quantile(${q}), upper=${column}.quantile(${1 - q}))`,
+        );
+        break;
+      }
+      case "flagAnomalies":
+        lines.push(
+          `# outlier flags for ${names[op.column]} depend on fences computed from the data (robust median/MAD or quantiles); recompute before exporting`,
+        );
+        break;
       case "combineDate": {
         const fields = new Map<string, string>();
         const prep: string[] = [];

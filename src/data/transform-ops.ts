@@ -7,6 +7,7 @@ import {
   type ViewDef,
 } from "./aggregate.js";
 import { applyCombineDate, type CombineDateOp } from "./date-combine.js";
+import { computeAnomalies } from "./anomalies.js";
 import { formatNumber } from "./format.js";
 import { knnImpute } from "./knn.js";
 import { applySplitColumn, type SplitColumnOp } from "./split-column.js";
@@ -47,7 +48,19 @@ export type TransformOp =
       fill?: "none" | "zero" | "carry";
     }
   | CombineDateOp
-  | SplitColumnOp;
+  | SplitColumnOp
+  | {
+      /** Appends a Yes/No column marking outlier cells (value or length). */
+      kind: "flagAnomalies";
+      column: number;
+      name?: string;
+    }
+  | {
+      /** Clamps numeric values at the given symmetric percentile (1 = p1/p99). */
+      kind: "winsorize";
+      column: number;
+      percent: number;
+    };
 
 export interface ColumnSchema {
   name: string;
@@ -121,6 +134,12 @@ export function applyTransformOps(
         break;
       case "splitColumn":
         current = applySplitColumn(current, op);
+        break;
+      case "flagAnomalies":
+        current = flagAnomaliesColumn(current, op);
+        break;
+      case "winsorize":
+        current = winsorizeColumn(current, op);
         break;
     }
   }
@@ -206,6 +225,63 @@ function dedupeColumns(columns: readonly ColumnData[], keep: DedupeKeep): Column
     }
   }
   return columns.map((column) => rebuildColumn(column, filterRaw(column.raw, mask)));
+}
+
+/** Appends a Yes/No column marking the outlier cells of one column. */
+function flagAnomaliesColumn(
+  columns: readonly ColumnData[],
+  op: TransformOp & { kind: "flagAnomalies" },
+): ColumnData[] {
+  const column = columns[op.column];
+  if (column === undefined) return columns.slice();
+  const rowCount = column.raw.length;
+  const anomalies = computeAnomalies([column], rowCount);
+  const valueBits = anomalies.valueColumnBits[0] ?? null;
+  const lengthBits = anomalies.lengthColumnBits[0] ?? null;
+  const raw = new Array<string>(rowCount);
+  for (let row = 0; row < rowCount; row++) {
+    raw[row] = (valueBits?.get(row) ?? false) || (lengthBits?.get(row) ?? false) ? "Yes" : "No";
+  }
+  const base = op.name?.trim() !== "" && op.name !== undefined ? op.name.trim() : `flag: ${column.name}`;
+  const taken = new Set(columns.map((entry) => entry.name));
+  let name = base;
+  let suffix = 2;
+  while (taken.has(name)) name = `${base} (${suffix++})`;
+  return [...columns, ColumnData.create(name, raw)];
+}
+
+/**
+ * Clamps numeric values to the symmetric percentile fences (1 => p1/p99),
+ * leaving in-range cells and non-numeric text untouched. Values already
+ * inside the fences keep their original spelling.
+ */
+function winsorizeColumn(
+  columns: readonly ColumnData[],
+  op: TransformOp & { kind: "winsorize" },
+): ColumnData[] {
+  const column = columns[op.column];
+  if (column === undefined) return columns.slice();
+  const numbers = column.numbers();
+  const finite: number[] = [];
+  for (let row = 0; row < numbers.length; row++) {
+    if (Number.isFinite(numbers[row])) finite.push(numbers[row]);
+  }
+  if (finite.length < 20) return columns.slice();
+  finite.sort((a, b) => a - b);
+  const percent = Math.max(0.1, Math.min(25, op.percent));
+  const quantile = (q: number): number =>
+    finite[Math.min(finite.length - 1, Math.max(0, Math.round((finite.length - 1) * q)))] ?? 0;
+  const lo = quantile(percent / 100);
+  const hi = quantile(1 - percent / 100);
+  if (!(hi > lo)) return columns.slice();
+  const raw = column.raw.slice();
+  for (let row = 0; row < numbers.length; row++) {
+    const value = numbers[row];
+    if (!Number.isFinite(value)) continue;
+    if (value < lo) raw[row] = formatNumber(lo);
+    else if (value > hi) raw[row] = formatNumber(hi);
+  }
+  return replaceColumn(columns, op.column, column, raw);
 }
 
 function roundColumn(
@@ -645,6 +721,12 @@ export function describeTransformOp(op: TransformOp, headers: readonly string[])
         .join(", ");
       return `Aggregate: ${measures} grouped by ${dims.join(", ")}`;
     }
+    case "flagAnomalies":
+      return `Flag unusual cells in ${quoted(nameAt(op.column))} (Yes/No column)`;
+    case "winsorize":
+      return `Winsorise ${quoted(nameAt(op.column))} at the ${op.percent}% / ${
+        100 - op.percent
+      }% percentiles`;
   }
 }
 
@@ -697,6 +779,10 @@ export function describeTransformOpDetail(op: TransformOp, headers: readonly str
             : `${measure.agg}(${measure.column === null ? "*" : nameAt(measure.column)})`,
         )
         .join(", ")}], fill=${op.fill ?? "none"})`;
+    case "flagAnomalies":
+      return `flagAnomalies(column=${nameAt(op.column)})`;
+    case "winsorize":
+      return `winsorize(column=${nameAt(op.column)}, percent=${op.percent})`;
   }
 }
 
@@ -767,5 +853,17 @@ export function schemaAfter(schema: readonly ColumnSchema[], op: TransformOp): C
       }));
       return [...dims, ...measures];
     }
+    case "flagAnomalies": {
+      const base = schema[op.column]?.name ?? `Column ${op.column + 1}`;
+      const flagBase =
+        op.name !== undefined && op.name.trim() !== "" ? op.name.trim() : `flag: ${base}`;
+      const taken = new Set(schema.map((entry) => entry.name));
+      let name = flagBase;
+      let suffix = 2;
+      while (taken.has(name)) name = `${flagBase} (${suffix++})`;
+      return [...schema, { name, numeric: false }];
+    }
+    case "winsorize":
+      return schema.slice();
   }
 }

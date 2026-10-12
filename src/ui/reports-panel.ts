@@ -507,6 +507,21 @@ export class ReportsPanel {
       action.addEventListener("click", () => this.options.onAction(finding));
       row.append(action);
     }
+    for (const extra of finding.extraActions ?? []) {
+      const button = el(
+        "button",
+        {
+          class: "ghost small",
+          type: "button",
+          title: "Runs the remedy as a Recipe step — undo is offered in the Recipe",
+        },
+        [extra.label],
+      ) as HTMLButtonElement;
+      button.addEventListener("click", () =>
+        this.options.onAction({ ...finding, action: extra.action, fixLabel: extra.label }),
+      );
+      row.append(button);
+    }
     return row;
   }
 }
