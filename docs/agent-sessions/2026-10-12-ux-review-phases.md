@@ -21,6 +21,26 @@ commit per phase on `agent/ux-review-20261012`.
 | `932aea1` | 5 | recipe save + replay (name matching, skip reporting) and Slick table PNG/HTML from a view |
 | `72ed25a` | follow-up | measure picker chooses the aggregate up front; custom expression measures (+ − × ÷ over aggregates, ratios, percentiles) in the view, totals, Use-as-dataset and pandas recipe |
 | `bd27309` | 3 cont. | column inspector on header click (profile, issues, verbs, display format); per-column fixed-decimal display; reports gain unit inconsistency, join-readiness keys and Explain [column] |
+| `fb1c6db` | perf | `bench/latency.ts` + aggregate optimisations (civil-date math, deferred time labels, scratch arrays, pre-resolved slots, top-N heap, precomputed sort ranks); results in `bench/results-latency.md` |
+| `e7d7b38` | 3/4 cont. | inspector applies Round, Fill missing, Split and Remove duplicates in place; panels remain for KNN/melt/combine/split options |
+
+## Latency (review §7 budgets, `npm run bench:latency`)
+
+Measured on the dev machine (i5-12500H, Node 24), p50/p95 over 20 iterations
+at 100k rows:
+
+| Operation | Budget | p50 | p95 |
+|---|---|---|---|
+| Active view: count + sum + mean by category | 50 ms | 26 ms | 35 ms |
+| Time view: rows + sum by month (gap fill) | 50 ms | 35 ms | 40 ms |
+| High cardinality: top 500 of 100k groups | 100 ms | 78 ms | 78 ms |
+| Expression measure: sum / count | 50 ms | 25 ms | 30 ms |
+| Clean commit: trim + dataset rebuild | 500 ms | 144 ms | 150 ms |
+| Filter keystroke: contains + sort | 50 ms | 3.3 ms | 4.3 ms |
+
+At 300k rows (paste-limit ceiling) everything scales linearly: views 77–264 ms,
+clean commit 307 ms, filter keystroke 11 ms. The 50 ms view budget is stated
+for 100k rows; 300k remains interactive but is over that budget by design.
 
 Drawers kept intentionally: the inspector and command bar cover the common
 verbs, but melt, KNN, combine-date roles and regex split still need the
