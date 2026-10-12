@@ -77,6 +77,14 @@ mining), `3b66a62c-0d90-4b90-86a3-1b383bd6a312` (distribution changes),
   27 ms at 100k rows.
 - Views can be renamed by double-clicking their tab (Enter keeps, Escape
   discards; the name flows into Chart-this titles and saved recipes).
+- Verification pass (headless-Chrome screenshots at 1440/1280/1100, light and
+  dark, all five lenses): no breakage below 1300px — table scrolls with a
+  frozen first column, Views builder wraps, chart toolbar and Reports findings
+  fit, dark theme renders correctly. Fixed: hint callouts dock bottom-left
+  (they covered the Filters header/results bar at 1100px), dark `--null-text`
+  was an unreadable 1.31:1 on the null tint (now 6.46:1), and the landing
+  formats line dropped 80%-alpha dim text (3.39:1). WCAG text pairs all pass;
+  decorative `--border` stays 1.4:1 against panels by design.
 
 Drawers kept intentionally: the inspector and command bar cover the common
 verbs, but melt, KNN, combine-date roles and regex split still need the
