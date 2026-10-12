@@ -7,6 +7,7 @@ import type {
   GridCountsResult,
 } from "../data/chart-stats.js";
 import type { AnimationResult } from "../data/chart-frames.js";
+import { encodeGif, type GifFrameInput } from "../data/gif.js";
 import { contourLevels, marchingSquares, smoothGrid, smoothSeries } from "../data/kde.js";
 import { squarifyLayout } from "../data/treemap.js";
 import {
@@ -1153,10 +1154,10 @@ export class ChartCard {
     loopField.append(this.animationLoopInput, "Loop");
     this.animationExportButton = el(
       "button",
-      { class: "ghost small", type: "button", title: "Record one loop as a .webm video" },
-      ["Export video"],
+      { class: "ghost small", type: "button", title: "Encode one loop as an animated GIF" },
+      ["Export GIF"],
     ) as HTMLButtonElement;
-    this.animationExportButton.addEventListener("click", () => this.exportAnimationVideo());
+    this.animationExportButton.addEventListener("click", () => this.exportAnimationGif());
     this.animationBar = el(
       "div",
       { class: "chart-animation hidden" },
@@ -2468,67 +2469,71 @@ export class ChartCard {
     }/${result.frames.length})`;
   }
 
-  /** Records exactly one loop of the animation into a .webm download. */
-  private exportAnimationVideo(): void {
+  /**
+   * Encodes exactly one loop of the animation as an animated GIF. Every frame
+   * is drawn to an offscreen canvas and packed directly (2x the card's CSS
+   * size), so the export is deterministic — no real-time canvas capture.
+   */
+  private exportAnimationGif(): void {
     const result = this.animationResult;
-    const canvas = this.canvas as HTMLCanvasElement & {
-      captureStream?: (fps?: number) => MediaStream;
-    };
-    if (
-      result === null ||
-      result.frames.length === 0 ||
-      typeof MediaRecorder === "undefined" ||
-      typeof canvas.captureStream !== "function"
-    ) {
+    if (result === null || result.frames.length < 2) {
       this.noteEl.textContent =
-        "Video export needs a browser with canvas recording support (Chrome or Firefox).";
+        "Set up an animation first — pick a time column and frame length above.";
       return;
     }
     this.stopAnimation();
+    const cssWidth = Math.max(
+      1,
+      Math.round(Number.parseFloat(this.canvas.style.width) || this.canvas.clientWidth || 480),
+    );
+    const cssHeight = Math.max(
+      1,
+      Math.round(Number.parseFloat(this.canvas.style.height) || this.canvas.clientHeight || 270),
+    );
+    const scale = 2;
+    const offscreen = document.createElement("canvas");
+    offscreen.width = cssWidth * scale;
+    offscreen.height = cssHeight * scale;
+    const ctx = offscreen.getContext("2d");
+    if (ctx === null) {
+      this.noteEl.textContent = "Canvas rendering is not available in this browser.";
+      return;
+    }
+    const previous = this.animationFrame;
+    let message = "Could not encode the GIF in this browser.";
     try {
-      const stream = canvas.captureStream(30);
-      const recorder = new MediaRecorder(stream);
-      const chunks: BlobPart[] = [];
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunks.push(event.data);
-      };
-      recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: "video/webm" });
+      const frames: GifFrameInput[] = [];
+      for (let index = 0; index < result.frames.length; index++) {
+        this.animationFrame = index;
+        ctx.setTransform(scale, 0, 0, scale, 0, 0);
+        this.drawChart(ctx, cssWidth, cssHeight, true);
+        const image = ctx.getImageData(0, 0, offscreen.width, offscreen.height);
+        frames.push({ data: image.data, width: offscreen.width, height: offscreen.height });
+      }
+      const bytes = encodeGif(frames, 500);
+      if (bytes.length > 0 && typeof URL.createObjectURL === "function") {
+        const blob = new Blob([bytes as BlobPart], { type: "image/gif" });
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
         anchor.href = url;
         anchor.download = `${safeFileName(this.options.datasetName())}-${safeFileName(
           this.chartName(),
-        )}-animation.webm`;
+        )}-animation.gif`;
         document.body.append(anchor);
         anchor.click();
         anchor.remove();
         URL.revokeObjectURL(url);
-        for (const track of stream.getTracks()) track.stop();
-      };
-      this.animationFrame = 0;
-      this.render();
-      recorder.start();
-      const total = result.frames.length;
-      const step = (): void => {
-        if (this.disposed) {
-          recorder.stop();
-          return;
-        }
-        this.animationFrame++;
-        if (this.animationFrame < total) {
-          this.render();
-          window.setTimeout(step, 500);
-        } else {
-          this.animationFrame = Math.max(0, total - 1);
-          this.render();
-          recorder.stop();
-        }
-      };
-      window.setTimeout(step, 600);
+        message = `Exported ${result.frames.length} frames as a GIF · 0.5 s per frame · ${(
+          bytes.length / 1024
+        ).toFixed(0)} KB`;
+      }
     } catch {
-      this.noteEl.textContent = "The browser refused to start the recorder.";
+      // Keep the fallback message.
+    } finally {
+      this.animationFrame = previous;
+      this.render();
     }
+    this.noteEl.textContent = message;
   }
 
   private refreshCorrelation(): void {

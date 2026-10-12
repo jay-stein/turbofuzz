@@ -276,6 +276,13 @@ test("chart text stays legible and date labels fit the left margin", () => {
     } {
       return { data: new Uint8ClampedArray(width * height * 4), width, height };
     }
+    getImageData(_x: number, _y: number, width: number, height: number): {
+      data: Uint8ClampedArray;
+      width: number;
+      height: number;
+    } {
+      return { data: new Uint8ClampedArray(width * height * 4), width, height };
+    }
     putImageData(): void {}
   }
   const proto = window.HTMLCanvasElement.prototype as unknown as {
@@ -375,6 +382,13 @@ test("chart cards draw scatter points and density grids", async () => {
       return { width: text.length * 6 };
     }
     createImageData(width: number, height: number): {
+      data: Uint8ClampedArray;
+      width: number;
+      height: number;
+    } {
+      return { data: new Uint8ClampedArray(width * height * 4), width, height };
+    }
+    getImageData(_x: number, _y: number, width: number, height: number): {
       data: Uint8ClampedArray;
       width: number;
       height: number;
@@ -641,6 +655,13 @@ function captureMockContext(window: Window, drawn: string[]): void {
       drawn.push(String(text));
     }
     createImageData(width: number, height: number): {
+      data: Uint8ClampedArray;
+      width: number;
+      height: number;
+    } {
+      return { data: new Uint8ClampedArray(width * height * 4), width, height };
+    }
+    getImageData(_x: number, _y: number, width: number, height: number): {
       data: Uint8ClampedArray;
       width: number;
       height: number;
@@ -1198,4 +1219,68 @@ test("animating over a date column shows the playback bar and scrubs frames", as
   assert.match(bar.textContent ?? "", /2024-02/);
   assert.match(host.querySelector(".chart-note")?.textContent ?? "", /frame 2 of 2/);
   card.dispose();
+});
+
+test("Export GIF encodes the animation frames and downloads a blob", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const blobs: Blob[] = [];
+  const originalCreate = URL.createObjectURL;
+  const originalRevoke = URL.revokeObjectURL;
+  (URL as unknown as { createObjectURL: (blob: Blob) => string }).createObjectURL = (blob) => {
+    blobs.push(blob);
+    return "blob:test";
+  };
+  (URL as unknown as { revokeObjectURL: (url: string) => void }).revokeObjectURL = () => {};
+  try {
+    const host = document.createElement("div");
+    const card = new ChartCard(
+      host,
+      {
+        ...stubCardOptions(),
+        requestAnimation: async () => ({
+          type: "animation",
+          requestId: 1,
+          result: {
+            frames: [
+              { time: Date.UTC(2024, 0, 1), label: "2024-01" },
+              { time: Date.UTC(2024, 1, 1), label: "2024-02" },
+            ],
+            maxCount: 2,
+            total: 3,
+            missing: 0,
+            bar: { labels: ["open", "closed"], counts: Uint32Array.from([1, 2, 2, 1]) },
+          },
+          ms: 1,
+        }),
+      },
+      { kind: "bar", column: 0, animationTimeColumn: 1, animationGrain: "month" },
+    );
+    const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+    Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+    card.setColumns([
+      meta({ name: "status", type: "category", categories: { labels: ["open", "closed"], counts: [2, 1] } }),
+      meta({
+        name: "when",
+        type: "date",
+        stats: { ...meta().stats, min: Date.UTC(2024, 0, 1), max: Date.UTC(2024, 2, 1), distinct: 60 },
+        histogram: { bins: [1], min: Date.UTC(2024, 0, 1), max: Date.UTC(2024, 2, 1), symlog: false, below: 0, above: 0, p05: 0, p95: 1 },
+      }),
+    ]);
+    await tick();
+    const button = [...host.querySelectorAll(".chart-animation button")].find((entry) =>
+      (entry.textContent ?? "").includes("Export GIF"),
+    );
+    assert.ok(button !== undefined, "the GIF export button exists");
+    (button as unknown as { click(): void }).click();
+    assert.equal(blobs.length, 1, "a GIF blob was created");
+    const bytes = new Uint8Array(await blobs[0].arrayBuffer());
+    assert.ok(bytes.length > 40);
+    assert.equal(String.fromCharCode(...bytes.slice(0, 6)), "GIF89a");
+    assert.match(host.querySelector(".chart-note")?.textContent ?? "", /Exported 2 frames as a GIF/);
+    card.dispose();
+  } finally {
+    URL.createObjectURL = originalCreate;
+    URL.revokeObjectURL = originalRevoke;
+  }
 });
