@@ -555,6 +555,7 @@ export class ChartCard {
   private readonly bubbleScaleSelect: HTMLSelectElement;
   private readonly animateButton: HTMLButtonElement;
   private readonly animationSetup: HTMLElement;
+  private readonly bubbleSettings: HTMLElement;
   private readonly animationTimeSelect: HTMLSelectElement;
   private readonly animationGrainSelect: HTMLSelectElement;
   private readonly animationBar: HTMLElement;
@@ -740,6 +741,16 @@ export class ChartCard {
     this.sizeSelect = this.buildSelect("chart-picker chart-picker-small", "Size column");
     this.sizeSelect.addEventListener("change", () => {
       this.config.sizeColumn = Number(this.sizeSelect.value);
+      // Picking a column for a bubble means "size by this column": switch the
+      // measure away from count so the choice takes effect immediately.
+      if (
+        this.config.kind === "bubble" &&
+        this.config.sizeColumn >= 0 &&
+        (this.config.bubbleAgg ?? "count") === "count"
+      ) {
+        this.config.bubbleAgg = "sum";
+        this.bubbleAggSelect.value = "sum";
+      }
       this.generation++;
       this.refreshSeries();
       this.refreshTreemap();
@@ -1012,13 +1023,14 @@ export class ChartCard {
       el("span", { class: "chart-field-label" }, ["Scale"]),
       this.bubbleScaleSelect,
     );
-    this.barSettings = el("div", { class: "chart-settings" }, [
-      topField,
+    this.barSettings = el("div", { class: "chart-settings" }, [topField, otherField, multiField]);
+    // Bubble options sit in their own visible row, not inside Settings: the
+    // size measure is the whole point of a bubble chart.
+    this.bubbleSettings = el("div", { class: "chart-bubble-settings hidden" }, [
+      el("span", { class: "chart-animate-title" }, ["Bubbles"]),
       bubbleField,
       bubbleAggField,
       bubbleScaleField,
-      otherField,
-      multiField,
     ]);
 
     this.correlationSelect = el("select", {
@@ -1306,6 +1318,7 @@ export class ChartCard {
     this.root.append(
       head,
       this.animationSetup,
+      this.bubbleSettings,
       canvasWrap,
       this.animationBar,
       this.legendEl,
@@ -1829,9 +1842,7 @@ export class ChartCard {
       !(animatable && hasDates && this.animationSetupOpen),
     );
     const bubbleOnly = kind === "bubble";
-    this.bubbleBinsInput.parentElement?.classList.toggle("hidden", !bubbleOnly);
-    this.bubbleAggSelect.parentElement?.classList.toggle("hidden", !bubbleOnly);
-    this.bubbleScaleSelect.parentElement?.classList.toggle("hidden", !bubbleOnly);
+    this.bubbleSettings.classList.toggle("hidden", !bubbleOnly);
     this.topLabel.parentElement?.classList.toggle("hidden", bubbleOnly);
     this.multiInput.parentElement?.classList.toggle("hidden", bubbleOnly);
     this.correlationSettings.classList.toggle("hidden", kind !== "correlation");

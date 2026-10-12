@@ -1458,3 +1458,60 @@ test("animation speed presets cover 1.25x and a custom multiplier", async () => 
   assert.deepEqual(values, ["0.5", "0.75", "1", "1.25", "1.5", "2", "custom"]);
   card.dispose();
 });
+
+test("picking a Size column for a bubble switches the measure to sum", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const calls: unknown[][] = [];
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestGridCounts: async (...args: unknown[]) => {
+        calls.push(args);
+        return {
+          type: "gridCounts",
+          requestId: 1,
+          result: {
+            xMin: 0,
+            xMax: 1,
+            yMin: 0,
+            yMax: 1,
+            bins: 4,
+            counts: new Uint32Array(16),
+            maxCount: 0,
+            values: null,
+            valueMax: 0,
+            total: 0,
+            missing: 0,
+          },
+          ms: 1,
+        };
+      },
+    } as unknown as ChartCardOptions,
+    { kind: "bubble", x: 0, y: 1 },
+  );
+  card.setColumns([
+    meta({ name: "lat", type: "number" }),
+    meta({ name: "lon", type: "number" }),
+    meta({ name: "amount", type: "number" }),
+  ]);
+  await tick();
+  const settingsRow = host.querySelector(".chart-bubble-settings") as HTMLElement;
+  assert.ok(settingsRow !== null, "the bubble options row renders");
+  assert.equal(settingsRow.classList.contains("hidden"), false, "visible for bubbles");
+  const size = host.querySelector('select[aria-label="Size column"]') as HTMLSelectElement;
+  size.value = "2";
+  size.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(card.getConfig().bubbleAgg, "sum", "the measure switches off count");
+  assert.deepEqual(calls[calls.length - 1]?.[3], { column: 2, agg: "sum" });
+  // Non-bubble kinds keep the row hidden.
+  const kind = host.querySelector(".chart-kind") as HTMLSelectElement;
+  kind.value = "bar";
+  kind.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(settingsRow.classList.contains("hidden"), true, "hidden for bars");
+  card.dispose();
+});

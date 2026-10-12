@@ -3362,7 +3362,8 @@ mark {
   flex: none;
 }
 
-.chart-animate-setup {
+.chart-animate-setup,
+.chart-bubble-settings {
   display: flex;
   align-items: center;
   gap: 8px;
