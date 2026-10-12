@@ -56,6 +56,7 @@ interface Harness {
   colDeletes: number[];
   rowDeletes: number[];
   fixes: { column: number; suggestion: ColumnSuggestion }[];
+  converts: { column: number; tokens: string[] }[];
   window: Window;
 }
 
@@ -69,6 +70,7 @@ function buildTable(columns: ColumnMeta[]): Harness {
   const colDeletes: number[] = [];
   const rowDeletes: number[] = [];
   const fixes: Harness["fixes"] = [];
+  const converts: Harness["converts"] = [];
   const table = new ResultTable(host, {
     onSort: () => {},
     onTypeChange: () => {},
@@ -78,10 +80,22 @@ function buildTable(columns: ColumnMeta[]): Harness {
     onToggleColumnDelete: (column) => colDeletes.push(column),
     onToggleRowDelete: (position) => rowDeletes.push(position),
     onSuggestion: (column, suggestion) => fixes.push({ column, suggestion }),
+    onConvertToken: (column, tokens) => converts.push({ column, tokens }),
     onRequestRows: () => {},
   });
   table.setColumns(columns);
-  return { host, table, clicks, merges, contexts, colDeletes, rowDeletes, fixes, window };
+  return {
+    host,
+    table,
+    clicks,
+    merges,
+    contexts,
+    colDeletes,
+    rowDeletes,
+    fixes,
+    converts,
+    window,
+  };
 }
 
 test("header shows only actionable QA chips", () => {
@@ -249,4 +263,42 @@ test("placeholder null tokens keep a bold red cell marker", () => {
   assert.ok(blankCell.classList.contains("null-cell"));
   assert.equal(blankCell.classList.contains("null-token-cell"), false);
   assert.equal(valueCell.classList.contains("null-cell"), false);
+});
+
+test("placeholder tokens get a header chip that blanks them in one column", () => {
+  const { host, converts } = buildTable([
+    meta({
+      name: "amount",
+      stats: { ...meta().stats, nulls: 12 },
+      nullTokens: [
+        { label: "NA", count: 7 },
+        { label: "TBD", count: 2 },
+        { label: "", count: 3 },
+      ],
+    }),
+  ]);
+  const chip = host.querySelector(".th-qa-chip.token") as unknown as {
+    textContent: string;
+    title: string;
+    click(): void;
+  };
+  assert.equal(chip.textContent, "9 placeholders");
+  assert.match(chip.title, /12 cells in “amount” are missing/);
+  assert.match(chip.title, /3 blank \+ 9 placeholder text/);
+  assert.match(chip.title, /blank the placeholder text “NA”, “TBD”/);
+  assert.doesNotMatch(chip.title, /“”/);
+  assert.equal(
+    host.querySelectorAll(".th-qa-chip.warn").length,
+    0,
+    "the generic empty-cell chip is replaced",
+  );
+  chip.click();
+  assert.deepEqual(converts, [{ column: 0, tokens: ["NA", "TBD"] }]);
+});
+
+test("columns with only blank cells get no placeholder chip", () => {
+  const { host } = buildTable([
+    meta({ name: "clean", nullTokens: [{ label: "", count: 4 }] }),
+  ]);
+  assert.equal(host.querySelector(".th-qa-chip.token"), null);
 });

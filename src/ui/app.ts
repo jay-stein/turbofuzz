@@ -1298,6 +1298,7 @@ export class App {
       onToggleColumnDelete: (column) => this.toggleColumnDelete(column),
       onToggleRowDelete: (position) => this.toggleRowDelete(position),
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
+      onConvertToken: (column, tokens) => this.convertToken(column, tokens),
       onRequestRows: (start, end, done) => {
         void this.client
           .getRows(start, end)
@@ -2889,6 +2890,16 @@ export class App {
         })
         .catch((error: unknown) => this.showError(error)),
     );
+  }
+
+  /** Header chip: blank a column's placeholder text, tracked + undoable. */
+  private convertToken(column: number, tokens: string[]): void {
+    const meta = this.metas[column];
+    if (meta === undefined) return;
+    const extra = [...new Set([...meta.nullPolicy.extra, ...tokens])];
+    this.applyNullPolicy(column, extra, meta.nullPolicy.keep, {
+      label: `${meta.name}: placeholder text treated as missing`,
+    });
   }
 
   private applyNullPolicy(

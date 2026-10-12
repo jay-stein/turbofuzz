@@ -43,6 +43,8 @@ export interface ResultTableOptions {
   onToggleRowDelete: (position: number) => void;
   /** Applies a one-click fix suggested for the column (sentinel, locale, ...). */
   onSuggestion?: (column: number, suggestion: ColumnSuggestion) => void;
+  /** Converts placeholder tokens ("NA", "TBD") to real nulls in one column. */
+  onConvertToken?: (column: number, tokens: string[]) => void;
   onRequestRows: (
     start: number,
     end: number,
@@ -338,11 +340,23 @@ export class ResultTable {
    */
   private buildQaRow(column: ColumnMeta, index: number): HTMLElement {
     const row = el("div", { class: "th-qa" });
+    const tokenChips = this.buildTokenChips(column, index);
     const chips = [
-      this.qaChip(column, index, "nulls", column.stats.nulls, {
-        one: "empty cell",
-        many: "empty cells",
-      }, "click to show rows where this column is empty"),
+      // Placeholder text replaces the generic empty-cell chip so the header
+      // stays one line and the actionable count wins.
+      tokenChips.length === 0
+        ? this.qaChip(
+            column,
+            index,
+            "nulls",
+            column.stats.nulls,
+            {
+              one: "empty cell",
+              many: "empty cells",
+            },
+            "click to show rows where this column is empty",
+          )
+        : null,
       this.qaChip(column, index, "valueAnomalies", column.anomalyCounts.values, {
         one: "value outlier",
         many: "value outliers",
@@ -352,7 +366,7 @@ export class ResultTable {
         many: "long values",
       }, "click to show this column's overlong values"),
     ].filter((chip): chip is HTMLButtonElement => chip !== null);
-    row.append(...chips, ...this.buildFixChips(column, index));
+    row.append(...chips, ...tokenChips, ...this.buildFixChips(column, index));
     const similarPairs = column.similarGroups - dismissedClusterCount(column.name);
     if (similarPairs > 0 && column.categories !== null) {
       const merge = el(
@@ -436,6 +450,39 @@ export class ResultTable {
     chip.title = `${text} in “${column.name}” — ${active ? "click to clear" : hint}`;
     chip.addEventListener("click", () => this.options.onColumnSpecial(index, kind));
     return chip;
+  }
+
+  /**
+   * Header chip for placeholder tokens in this column ("NA", "TBD", "NULL").
+   * One click blanks all of them in this column as a tracked, undoable step —
+   * the missing-value policy considers every null spelling at once, so the
+   * chip counts all placeholder cells rather than one token.
+   */
+  private buildTokenChips(column: ColumnMeta, index: number): HTMLButtonElement[] {
+    if (this.options.onConvertToken === undefined) return [];
+    const tokens = column.nullTokens.filter((token) => token.label !== "" && token.count > 0);
+    if (tokens.length === 0) return [];
+    const total = tokens.reduce((sum, token) => sum + token.count, 0);
+    const ranked = tokens
+      .slice()
+      .sort((a, b) => b.count - a.count)
+      .map((token) => token.label);
+    const chip = el(
+      "button",
+      { class: "th-qa-chip fix token", type: "button" },
+      [`${total.toLocaleString()} ${total === 1 ? "placeholder" : "placeholders"}`],
+    ) as HTMLButtonElement;
+    const examples = ranked.slice(0, 3).map((label) => `“${label}”`).join(", ");
+    const blanks = Math.max(0, column.stats.nulls - total);
+    chip.title = `${column.stats.nulls.toLocaleString()} cells in “${column.name}” are missing${
+      blanks > 0
+        ? ` (${blanks.toLocaleString()} blank + ${total.toLocaleString()} placeholder text)`
+        : ""
+    } — click to blank the placeholder text ${examples}${
+      ranked.length > 3 ? ", …" : ""
+    } (undo in the Process Log)`;
+    chip.addEventListener("click", () => this.options.onConvertToken?.(index, ranked));
+    return [chip];
   }
 
   /**
