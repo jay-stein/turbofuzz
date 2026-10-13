@@ -302,3 +302,14 @@ the Bubbles row carries the Size by column select directly and picking a
 column switches the measure to Sum. Regression fixed: X/Y controls were
 leaking onto single-axis kinds after filter updates because
 syncSourceControls and renderControls disagreed.
+
+## Chart feedback round 4 (same day)
+
+Commit `67b0a26`, deployed `a9ca66d6-024b-4eb0-a6c3-4805d35c42d2`. 536 tests.
+The rail now sits in an explicit flex wrapper beside the toolbar and grid for
+the full panel height (it previously rendered above the grid because the
+wrapper class depended on the host element's display). Cards gained a Wide
+toggle (expand icon + card menu item) so any chart can span the whole row.
+Bubble sizing follows seaborn's model: Size = the variable (Count of rows or
+a numeric column), Reduce = how rows in one area combine (shown only when a
+column is chosen), Mapping = how values become radius (Area/Radius/Log).
