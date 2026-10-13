@@ -313,3 +313,15 @@ toggle (expand icon + card menu item) so any chart can span the whole row.
 Bubble sizing follows seaborn's model: Size = the variable (Count of rows or
 a numeric column), Reduce = how rows in one area combine (shown only when a
 column is chosen), Mapping = how values become radius (Area/Radius/Log).
+
+## Bubble Reduce and Group refresh (same day)
+
+Commit `4f9d703`, deployed `603e8923-0f27-490a-95ad-94af5141767c`.
+Reduce was hidden until a Size column was picked (undiscoverable); it now
+always shows in the Bubbles row, disabled with a tooltip until Size is a
+numeric column, enabled and defaulting to Sum after, and re-disabled when
+Size returns to Count. Changing Group only refreshed line/histogram data;
+the group select now refreshes bubble grids and animation frames too, so
+grouping picked later actually redraws. Verified visually: Size [Annual
+Usage] - Reduce [Mean] - Mapping [Area proportional to value], 5 coloured
+groups with the Status legend.
