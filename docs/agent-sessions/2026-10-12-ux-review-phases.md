@@ -337,3 +337,16 @@ and request them worker-side, with hits and axes using the same range.
 Animated density with a Group set also sliced per-group grids as ungrouped
 (14 of 40 rows per frame); the frame's groups are merged back into one
 surface. Verified: 24 daily rows render a flat 40/day line over 24 bins.
+
+## First-open chart glitch (same day)
+
+Commit `785aa8d`, deployed `668f85a2-1ee5-49fe-90c4-91b93219f82a`.
+Opening the Chart lens constructed the panel (which already fetched and
+rendered every payload) and then setView ran a second full ChartsPanel
+refresh, firing up to ten worker requests and re-renders per card - the
+visible refreshing/double-overlay churn on first open that settled after a
+click. Re-entry now only repaints (ChartsPanel.repaint -> ChartCard.repaint);
+the full refresh remains for data changes. Line-chart bucket requests are
+memoized by column and span so filter pushes no longer re-request identical
+bins. Could not reproduce the glitch in headless Chrome; fixes target the
+request/render storm and the redundant repaint.
