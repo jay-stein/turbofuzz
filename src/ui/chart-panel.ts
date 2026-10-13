@@ -20,7 +20,9 @@ import {
   GALLERY_KINDS,
   fitChartKind,
   openChartGallery,
+  type KindFit,
 } from "./chart-gallery.js";
+import { openChartSetupDialog } from "./chart-setup.js";
 import {
   CHART_KIND_LABELS,
   DEFAULT_EXPORT_SIZE,
@@ -96,6 +98,8 @@ export interface ChartsPanelOptions {
   }): Promise<AnimationMessage>;
   /** Label for the filtered-table source: "Table" when no filters apply. */
   tableSourceLabel?(): string;
+  /** Applied when a card lands in the grid (status feedback in the app). */
+  onCardAdded?(label: string): void;
   /** Applies a filter from a click on a chart region (bars, bins, cells). */
   onFilter?(column: number, filter: ColumnFilter | null, preview?: boolean): void;
   /** Reads the app's current filter for a column, so clicks can toggle. */
@@ -288,6 +292,8 @@ export class ChartsPanel {
   private rowCount = 0;
   private exportSizeIndex = DEFAULT_EXPORT_SIZE;
   private layoutCols = readLayout();
+  /** True while the add-chart setup dialog is open (guards double adds). */
+  private setupOpen = false;
   /** True once a dataset's columns have been seen; a cleared grid stays clear. */
   private initialised = false;
 
@@ -305,7 +311,7 @@ export class ChartsPanel {
       openChartGallery(add, {
         columns: this.columns,
         rowCount: this.rowCount,
-        onPick: (preset) => this.addCard(preset),
+        onPick: (preset) => void this.openChartSetup(preset),
       }),
     );
 
@@ -397,9 +403,32 @@ export class ChartsPanel {
         ? `Add a ${CHART_KIND_LABELS[kind].toLowerCase()} chart`
         : `${CHART_KIND_LABELS[kind]} — ${fit.reason}`;
       tile.addEventListener("click", () => {
-        this.addCard(fit.preset);
+        void this.openChartSetup(fit.preset);
       });
       this.railList.append(tile);
+    }
+  }
+
+  /**
+   * Confirmation step shared by the rail and the gallery: shows the chart
+   * type and its columns, and only then adds the card, so a stray click can
+   * never add an invisible chart. The new card is scrolled into view and
+   * briefly highlighted.
+   */
+  private async openChartSetup(preset: Partial<ChartCardConfig>): Promise<void> {
+    if (this.setupOpen) return;
+    this.setupOpen = true;
+    const kind = preset.kind ?? "histogram";
+    try {
+      const config = await openChartSetupDialog(kind, this.columns, preset);
+      if (config === null) return;
+      const card = this.addCard(config);
+      card.root.classList.add("chart-card-new");
+      card.root.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+      window.setTimeout(() => card.root.classList.remove("chart-card-new"), 1500);
+      this.options.onCardAdded?.(CHART_KIND_LABELS[kind]);
+    } finally {
+      this.setupOpen = false;
     }
   }
 

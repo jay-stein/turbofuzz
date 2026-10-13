@@ -1655,6 +1655,8 @@ export class App {
         this.columnSpecials.size === 0
           ? "Table"
           : "Table (filtered)",
+      onCardAdded: (label) =>
+        this.setAction(`Added a ${label} chart — it sits at the end of the grid`),
       onFilter: (column, filter, preview) =>
         this.changeFilter(column, filter, preview ?? false),
       currentFilter: (column) => this.filters.get(column) ?? null,

@@ -556,6 +556,12 @@ test("charts panel adds, duplicates and removes independent cards", async () => 
   assert.ok(scatterTile !== undefined, "the gallery offers a Scatter tile");
   (scatterTile as unknown as { click(): void }).click();
   await tick();
+  const scatterDialog = galleryDoc.querySelector(".chart-setup-modal .primary") as unknown as {
+    click(): void;
+  } | null;
+  assert.ok(scatterDialog !== null, "picking a tile asks for confirmation first");
+  scatterDialog.click();
+  await tick();
 
   const cards = host.querySelectorAll(".chart-card");
   assert.equal(cards.length, 2);
@@ -1593,7 +1599,15 @@ test("the chart rail lists every type, adds cards and collapses", async () => {
   const before = host.querySelectorAll(".chart-card").length;
   bubbleTile.click();
   await tick();
-  assert.equal(host.querySelectorAll(".chart-card").length, before + 1, "clicking adds a card");
+  assert.equal(host.querySelectorAll(".chart-card").length, before, "no card until confirmed");
+  const modal = host.ownerDocument.querySelector(".chart-setup-modal");
+  assert.ok(modal !== null, "the setup dialog opens");
+  // A second click while the dialog is open must not queue another add.
+  bubbleTile.click();
+  assert.equal(host.ownerDocument.querySelectorAll(".chart-setup-modal").length, 1);
+  (modal?.querySelector(".primary") as unknown as { click(): void }).click();
+  await tick();
+  assert.equal(host.querySelectorAll(".chart-card").length, before + 1, "confirming adds one card");
   const kinds = host.querySelectorAll<HTMLSelectElement>(".chart-kind");
   assert.equal(kinds[kinds.length - 1]?.value, "bubble");
   const rail = host.querySelector(".charts-rail") as HTMLElement;

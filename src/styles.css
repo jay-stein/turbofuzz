@@ -3501,6 +3501,38 @@ mark {
   grid-column: 1 / -1;
 }
 
+/* Add-chart confirmation dialog. */
+.chart-setup-modal {
+  width: min(460px, 100%);
+}
+
+.chart-setup-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chart-setup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+@keyframes chart-card-added {
+  0% {
+    outline: 3px solid color-mix(in srgb, var(--accent) 70%, transparent);
+    outline-offset: 2px;
+  }
+  100% {
+    outline: 3px solid transparent;
+    outline-offset: 2px;
+  }
+}
+
+.chart-card-new {
+  animation: chart-card-added 1.5s ease-out;
+}
+
 .chart-animate-setup,
 .chart-bubble-settings {
   display: flex;
