@@ -350,3 +350,16 @@ the full refresh remains for data changes. Line-chart bucket requests are
 memoized by column and span so filter pushes no longer re-request identical
 bins. Could not reproduce the glitch in headless Chrome; fixes target the
 request/render storm and the redundant repaint.
+
+## Chart first-paint flicker, round 2 (same day)
+
+Commit `051edc4`, deployed `9de7540e-de83-4c0a-bde4-14d5ae1e382d`. 539 tests.
+Canvas mutation-counting showed the real mechanism: the card was built while
+the lens host was hidden, painted at 1x1, then snapped to full size, and the
+ResizeObserver reacted to wrap HEIGHT changes caused by the canvas itself - a
+feedback loop that flickered when the expanded rail put card widths near a
+layout threshold. Fixes: the scheduler ignores callbacks unless the wrap
+width changed (theme changes force repaint), the constructor and re-entry
+repaint skip while hidden, and the observer paints the real size once when
+the lens becomes visible. Verified: zero 1x1 paints and no repeated render
+batches on first open and re-entry, expanded and collapsed rail.
