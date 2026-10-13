@@ -1763,3 +1763,48 @@ test("changing Group refreshes the bubble with the group column", async () => {
   assert.equal(calls[calls.length - 1]?.[4], 2, "the group column reaches the worker");
   card.dispose();
 });
+
+test("date time series uses human-grain buckets instead of 64-bin combs", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const requested: { column: number; options: { min: number; max: number; binCount: number } }[] = [];
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestBins: async (column: number, options: unknown) => {
+        requested.push({ column, options: options as { min: number; max: number; binCount: number } });
+        return { type: "chartBins", requestId: 1, bins: [1], overflow: 0, above: 0, below: 0, total: 1, median: null, ms: 1 } as never;
+      },
+    } as unknown as ChartCardOptions,
+    { kind: "line", column: 0 },
+  );
+  const spanDays = 23;
+  card.setColumns([
+    meta({
+      name: "when",
+      type: "date",
+      stats: {
+        ...meta().stats,
+        min: Date.UTC(2024, 2, 1),
+        max: Date.UTC(2024, 2, 1) + spanDays * 86_400_000,
+        distinct: 24,
+      },
+      histogram: {
+        bins: [1],
+        min: Date.UTC(2024, 2, 1),
+        max: Date.UTC(2024, 2, 1) + spanDays * 86_400_000,
+        symlog: false,
+        below: 0,
+        above: 0,
+        p05: 0,
+        p95: 1,
+      },
+    }),
+  ]);
+  await tick();
+  assert.equal(requested.length, 1, "the line asks for day-grain bins");
+  assert.equal(requested[0]?.options.binCount, spanDays + 1, "one bucket per day plus the inclusive end");
+  card.dispose();
+});

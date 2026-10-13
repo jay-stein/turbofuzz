@@ -549,6 +549,8 @@ export class ChartCard {
 
   private pickerSignature = "";
   private binResult: ChartBins | null = null;
+  private lineBinResult: ChartBins | null = null;
+  private lineBinRange: { min: number; max: number } | null = null;
   private binMedian: number | null = null;
   private seriesResult: SeriesPoints | SeriesGrid | null = null;
   /** Treemap tiles: label + value pairs (counts come from facets directly). */
@@ -2168,7 +2170,55 @@ export class ChartCard {
     this.render();
   }
 
+  /**
+   * Preferred bucket count for a time series: human periods instead of the
+   * fixed 64-bin histogram, which turns date-only data into an hourly comb.
+   * One extra bucket because the last edge is inclusive of the maximum.
+   */
+  private preferredLineBins(spanMs: number): number {
+    const day = 86_400_000;
+    const clamp = (count: number): number => Math.max(2, Math.min(256, count));
+    if (!(spanMs > 0)) return 48;
+    if (spanMs <= 2 * day) return clamp(Math.ceil(spanMs / (30 * 60_000)) + 1);
+    if (spanMs <= 14 * day) return clamp(Math.ceil(spanMs / (6 * 3_600_000)) + 1);
+    if (spanMs <= 120 * day) return clamp(Math.ceil(spanMs / day) + 1);
+    if (spanMs <= 900 * day) return clamp(Math.ceil(spanMs / (7 * day)) + 1);
+    return clamp(Math.ceil(spanMs / (30 * day)) + 1);
+  }
+
   private refreshBins(): void {
+    if (this.config.kind === "line") {
+      const meta = this.meta(this.config.column);
+      const min = meta?.stats.min;
+      const max = meta?.stats.max;
+      if (
+        meta === undefined ||
+        meta.type !== "date" ||
+        typeof min !== "number" ||
+        typeof max !== "number" ||
+        !(max > min)
+      ) {
+        this.lineBinResult = null;
+        return;
+      }
+      const binCount = this.preferredLineBins(max - min);
+      const generation = ++this.generation;
+      this.lineBinRange = { min, max };
+      void this.options
+        .requestBins(this.config.column, { min, max, binCount, overflow: false })
+        .then((bins) => {
+          if (generation !== this.generation || this.disposed) return;
+          this.lineBinResult = bins;
+          this.render();
+        })
+        .catch(() => {
+          // Keep the automatic histogram as the fallback.
+        });
+      this.binResult = null;
+      return;
+    }
+    this.lineBinResult = null;
+    this.lineBinRange = null;
     if (this.config.kind !== "histogram") {
       this.binResult = null;
       return;
@@ -2716,7 +2766,9 @@ export class ChartCard {
       bins: chart === "histogram" ? histogramBins : (this.config.bubbleBins ?? 40),
       topN: this.config.topN,
       measure: isPair ? this.bubbleMeasure() : undefined,
-      groupColumn: isPair ? this.bubbleGroupColumn() : undefined,
+      // Density is a single aggregate heat map, so grouping is ignored there;
+      // bubble charts carry the group dimension.
+      groupColumn: kind === "bubble" ? this.bubbleGroupColumn() : undefined,
     })
       .then((message) => {
         if (generation !== this.generation || this.disposed) return;
@@ -3827,7 +3879,7 @@ export class ChartCard {
       return;
     }
     const automatic = meta.histogram;
-    const custom = kind === "histogram" ? this.binResult : null;
+    const custom = kind === "histogram" ? this.binResult : this.lineBinResult;
     const bins =
       custom !== null ? custom.bins : (this.histograms[this.config.column] ?? automatic?.bins ?? []);
     if (bins.length === 0 || automatic === null) {
@@ -3843,8 +3895,8 @@ export class ChartCard {
     const slots = bins.length + (hasOverflow ? 1 : 0);
     const slotW = frame.plotW / slots;
     const barW = Math.max(1, slotW - 1);
-    const min = this.config.binOptions?.min ?? automatic.min;
-    const max = this.config.binOptions?.max ?? automatic.max;
+    const min = this.lineBinRange?.min ?? this.config.binOptions?.min ?? automatic.min;
+    const max = this.lineBinRange?.max ?? this.config.binOptions?.max ?? automatic.max;
     this.hitRegions = seriesHitRegions(
       { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
       {
@@ -4476,16 +4528,26 @@ export class ChartCard {
     }
     const frameIndex = Math.min(Math.max(0, this.animationFrame), result.frames.length - 1);
     const cellCount = animated.bins * animated.bins;
-    const counts = animated.grids.slice(frameIndex * cellCount, (frameIndex + 1) * cellCount);
+    const groupCount = animated.groups === null ? 1 : animated.groups.length;
+    const counts = new Float64Array(animated.bins * animated.bins);
+    // Merge the frame's group grids back into one density surface; the layout
+    // is frames * groups * cells when the worker was asked to group.
+    for (let group = 0; group < groupCount; group++) {
+      const base = (frameIndex * groupCount + group) * cellCount;
+      for (let cell = 0; cell < cellCount; cell++) {
+        counts[cell] += animated.grids[base + cell] ?? 0;
+      }
+    }
+    const merged = Uint32Array.from(counts);
     let max = 0;
     let total = 0;
-    for (const count of counts) {
+    for (const count of merged) {
       total += count;
       if (count > max) max = count;
     }
     const grid: SeriesGrid = {
       mode: "density",
-      counts,
+      counts: merged,
       cols: animated.bins,
       rows: animated.bins,
       xMin: animated.xMin,
