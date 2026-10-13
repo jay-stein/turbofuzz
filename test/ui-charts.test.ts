@@ -1647,3 +1647,119 @@ test("the Wide button makes a card span the full row", async () => {
   assert.equal(card.getConfig().span, "auto");
   card.dispose();
 });
+
+test("Reduce is discoverable, enables with a Size column and updates the measure", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const calls: unknown[][] = [];
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestGridCounts: async (...args: unknown[]) => {
+        calls.push(args);
+        return {
+          type: "gridCounts",
+          requestId: 1,
+          result: {
+            xMin: 0,
+            xMax: 1,
+            yMin: 0,
+            yMax: 1,
+            bins: 4,
+            counts: new Uint32Array(16),
+            maxCount: 0,
+            values: null,
+            valueMax: 0,
+            groups: null,
+            total: 0,
+            missing: 0,
+          },
+          ms: 1,
+        };
+      },
+    } as unknown as ChartCardOptions,
+    { kind: "bubble", x: 0, y: 1 },
+  );
+  card.setColumns([
+    meta({ name: "lat", type: "number" }),
+    meta({ name: "lon", type: "number" }),
+    meta({ name: "amount", type: "number" }),
+  ]);
+  await tick();
+  const reduce = host.querySelector(
+    'select[aria-label="Bubble size measure"]',
+  ) as HTMLSelectElement;
+  assert.ok(reduce !== null, "the Reduce select is visible");
+  assert.ok(
+    !(reduce.closest(".chart-field") as HTMLElement).classList.contains("hidden"),
+    "Reduce is not hidden",
+  );
+  assert.equal(reduce.disabled, true, "disabled while Size is Count of rows");
+  const size = host.querySelector('select[aria-label="Size column"]') as HTMLSelectElement;
+  size.value = "2";
+  size.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(reduce.disabled, false, "enabled once a Size column is chosen");
+  assert.equal(reduce.value, "sum", "switches to Sum automatically");
+  reduce.value = "mean";
+  reduce.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.deepEqual(calls[calls.length - 1]?.[3], { column: 2, agg: "mean" });
+  size.value = "-1";
+  size.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(reduce.disabled, true, "back to Count disables Reduce");
+  assert.equal(calls[calls.length - 1]?.[3], undefined);
+  card.dispose();
+});
+
+test("changing Group refreshes the bubble with the group column", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const calls: unknown[][] = [];
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestGridCounts: async (...args: unknown[]) => {
+        calls.push(args);
+        return {
+          type: "gridCounts",
+          requestId: 1,
+          result: {
+            xMin: 0,
+            xMax: 1,
+            yMin: 0,
+            yMax: 1,
+            bins: 4,
+            counts: new Uint32Array(16),
+            maxCount: 0,
+            values: null,
+            valueMax: 0,
+            groups: null,
+            total: 0,
+            missing: 0,
+          },
+          ms: 1,
+        };
+      },
+    } as unknown as ChartCardOptions,
+    { kind: "bubble", x: 0, y: 1 },
+  );
+  card.setColumns([
+    meta({ name: "lat", type: "number" }),
+    meta({ name: "lon", type: "number" }),
+    meta({ name: "kind", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+  ]);
+  await tick();
+  assert.equal(calls[calls.length - 1]?.[4], undefined, "ungrouped by default");
+  const group = host.querySelector('select[aria-label="Group by"]') as HTMLSelectElement;
+  group.value = "2";
+  group.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(calls[calls.length - 1]?.[4], 2, "the group column reaches the worker");
+  card.dispose();
+});

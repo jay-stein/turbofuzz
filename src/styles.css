@@ -3865,6 +3865,11 @@ select.chart-number {
   letter-spacing: 0.05em;
 }
 
+.chart-bubble-settings select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .chart-card-look {
   display: flex;
   align-items: center;

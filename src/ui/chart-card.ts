@@ -723,6 +723,8 @@ export class ChartCard {
       this.hiddenGroups.clear();
       this.generation++;
       this.refreshGroupedBins();
+      this.refreshBubble();
+      this.refreshAnimation();
       this.render();
     });
     this.groupWrap = this.tagged("Group", this.groupSelect).wrap;
@@ -770,20 +772,23 @@ export class ChartCard {
     this.sizeSelect.addEventListener("change", () => {
       this.config.sizeColumn = Number(this.sizeSelect.value);
       // Picking a column for a bubble means "size by this column": switch the
-      // measure away from count so the choice takes effect immediately.
-      if (
-        this.config.kind === "bubble" &&
-        this.config.sizeColumn >= 0 &&
-        (this.config.bubbleAgg ?? "count") === "count"
-      ) {
-        this.config.bubbleAgg = "sum";
-        this.bubbleAggSelect.value = "sum";
+      // measure away from count so the choice takes effect immediately, and
+      // back to count when the column is cleared.
+      if (this.config.kind === "bubble") {
+        if (this.config.sizeColumn < 0) {
+          this.config.bubbleAgg = "count";
+          this.bubbleAggSelect.value = "count";
+        } else if ((this.config.bubbleAgg ?? "count") === "count") {
+          this.config.bubbleAgg = "sum";
+          this.bubbleAggSelect.value = "sum";
+        }
       }
       this.generation++;
       this.refreshSeries();
       this.refreshTreemap();
       this.refreshBubble();
       this.refreshAnimation();
+      this.renderControls();
       this.render();
     });
     const sizeTag = this.tagged("Size", this.sizeSelect);
@@ -1922,8 +1927,14 @@ export class ChartCard {
     );
     const bubbleOnly = kind === "bubble";
     this.bubbleSettings.classList.toggle("hidden", !bubbleOnly);
-    // "Reduce" only makes sense once a Size column is chosen (not Count).
-    this.bubbleAggField.classList.toggle("hidden", this.config.sizeColumn < 0);
+    // Reduce stays visible so the option is discoverable; it only becomes
+    // usable once a Size column is chosen.
+    const reduceEnabled = this.config.sizeColumn >= 0;
+    this.bubbleAggSelect.disabled = !reduceEnabled;
+    this.bubbleAggField.title = reduceEnabled
+      ? "How the rows in each area combine into one value"
+      : "Pick a numeric column under Size first — then choose how rows combine";
+    if (!reduceEnabled) this.bubbleAggSelect.value = "count";
     this.topLabel.parentElement?.classList.toggle("hidden", bubbleOnly);
     this.multiInput.parentElement?.classList.toggle("hidden", bubbleOnly);
     this.correlationSettings.classList.toggle("hidden", kind !== "correlation");
