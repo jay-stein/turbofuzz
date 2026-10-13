@@ -202,6 +202,10 @@ interface Frame {
   text: string;
   dim: string;
   border: string;
+  /** Measured width of the widest Y tick label, for placing the Y title. */
+  tickW: number;
+  /** Left band reserved for a rotated Y title (0 when the axis has none). */
+  labelPad: number;
 }
 
 const DEFAULT_BIN_COUNT = 32;
@@ -654,6 +658,8 @@ export class ChartCard {
   private readonly onThemeChange = (): void => this.scheduleRender(true);
   private renderQueued = false;
   private renderForce = false;
+  /** True while the frame only shows an empty-state message, so no axes. */
+  private plotMessageDrawn = false;
   /** Wrap width of the last paint, used to ignore no-op resize callbacks. */
   private lastWrapWidth = -1;
   private resizeObserver: ResizeObserver | null = null;
@@ -3434,6 +3440,7 @@ export class ChartCard {
     frame: Frame,
     message: string,
   ): void {
+    this.plotMessageDrawn = true;
     this.font(ctx, frame.ui, 12);
     ctx.fillStyle = frame.dim;
     ctx.textAlign = "center";
@@ -3547,15 +3554,18 @@ export class ChartCard {
     height: number,
     forExport: boolean,
     widestTick = "",
+    yTitle = false,
+    xTitle = false,
   ): Frame {
     const ui = this.textScale(height, forExport);
     this.font(ctx, ui, 10);
+    const tickW = widestTick === "" ? 0 : ctx.measureText(widestTick).width;
+    const labelPad = yTitle ? 20 * ui : 0;
     const baseLeft = 56 * ui;
-    const left =
-      widestTick === "" ? baseLeft : Math.max(baseLeft, ctx.measureText(widestTick).width + 8);
+    const left = Math.max(baseLeft, tickW + 8) + labelPad;
     const right = 18 * ui;
     const top = 58 * ui;
-    const bottom = 40 * ui;
+    const bottom = (40 + (xTitle ? 14 : 0)) * ui;
     return {
       ui,
       left,
@@ -3567,6 +3577,8 @@ export class ChartCard {
       text: cssVar("--text", "#1f2328"),
       dim: cssVar("--text-dim", "#59636e"),
       border: cssVar("--border", "#d8dee4"),
+      tickW,
+      labelPad,
     };
   }
 
@@ -3609,6 +3621,8 @@ export class ChartCard {
         return widest(labels);
       }
       case "histogram":
+        // Grouped histograms label the Y axis in percent of the group.
+        return this.groupResult === null ? formatCount(this.rowCount) : "100%";
       case "line":
       case "bar":
         // The Y axis is a count axis on these kinds.
@@ -3696,8 +3710,18 @@ export class ChartCard {
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
     this.hitRegions = [];
+    this.plotMessageDrawn = false;
     const ui = this.textScale(height, forExport);
-    const frame = this.frame(ctx, width, height, forExport, this.widestYLabel(ctx, ui));
+    const labels = this.axisLabels();
+    const frame = this.frame(
+      ctx,
+      width,
+      height,
+      forExport,
+      this.widestYLabel(ctx, ui),
+      labels.y !== null && labels.y !== "",
+      labels.x !== null && labels.x !== "",
+    );
 
     if (this.columns.length === 0) {
       this.noteEl.textContent = "Load data to see charts.";
@@ -3747,6 +3771,10 @@ export class ChartCard {
       default:
         this.drawSeries(ctx, frame, this.config.kind);
         break;
+    }
+
+    if (!this.plotMessageDrawn) {
+      this.drawAxisTitles(ctx, frame, labels.x, labels.y);
     }
 
     if (this.config.suggested !== "") {
@@ -4907,6 +4935,70 @@ export class ChartCard {
     this.noteEl.textContent = `${caption}${frameRows.toLocaleString()} rows in ${cells.toLocaleString()} cells · ${xName} × ${yName} · size: ${this.bubbleSizeLabel()}${scaleNote}${groupNote}`;
   }
 
+  /**
+   * Column names for the axes of the current chart, or null where a title
+   * would be noise (treemaps label their tiles, correlation its cells).
+   */
+  private axisLabels(): { x: string | null; y: string | null } {
+    // A view-bound card draws the view's aggregate; its own column picks do
+    // not describe those axes.
+    if (this.config.source !== "") return { x: null, y: null };
+    const name = (index: number): string | null =>
+      index >= 0 ? (this.meta(index)?.name ?? null) : null;
+    switch (this.config.kind) {
+      case "histogram":
+        // Grouped histograms draw each group's share per bin, not raw counts.
+        return {
+          x: name(this.config.column),
+          y: this.groupResult === null ? "Rows" : "% of group",
+        };
+      case "line":
+      case "bar":
+        return { x: name(this.config.column), y: "Rows" };
+      case "scatter":
+      case "density":
+      case "bubble":
+        return { x: name(this.config.x), y: name(this.config.y) };
+      case "box":
+        // Values run up the Y axis (config.x); each group slot along the
+        // X axis already carries its own label, so it needs no title.
+        return { x: null, y: name(this.config.x) };
+      case "heatmap":
+        return { x: name(this.config.x), y: name(this.config.y) };
+      default:
+        return { x: null, y: null };
+    }
+  }
+
+  /** Axis titles: X centred under the plot, Y rotated beside its ticks. */
+  private drawAxisTitles(
+    ctx: CanvasRenderingContext2D,
+    frame: Frame,
+    xLabel: string | null,
+    yLabel: string | null,
+  ): void {
+    const ui = frame.ui;
+    this.font(ctx, ui, 10.5, "600");
+    ctx.fillStyle = frame.dim;
+    if (xLabel !== null && xLabel !== "") {
+      ctx.textAlign = "center";
+      ctx.fillText(
+        this.fit(ctx, xLabel, frame.plotW),
+        frame.left + frame.plotW / 2,
+        frame.top + frame.plotH + frame.bottom - 9 * ui,
+      );
+    }
+    if (yLabel !== null && yLabel !== "") {
+      ctx.save();
+      ctx.translate(frame.left - 6 * ui - frame.tickW - 9 * ui, frame.top + frame.plotH / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = "center";
+      ctx.fillText(this.fit(ctx, yLabel, frame.plotH), 0, 0);
+      ctx.restore();
+    }
+    ctx.textAlign = "left";
+  }
+
   private drawBars(ctx: CanvasRenderingContext2D, frame: Frame): void {
     if (this.animationResult?.bar !== undefined) {
       this.drawAnimatedBars(ctx, frame);
@@ -5629,8 +5721,8 @@ export class ChartCard {
     ctx.textAlign = "right";
     result.yLabels.forEach((label, y) => {
       ctx.fillText(
-        this.fit(ctx, label, Math.max(8, frame.left - 8 * ui)),
-        frame.left - 4 * ui,
+        this.fit(ctx, label, Math.max(8, frame.left - frame.labelPad - 8 * ui)),
+        frame.left - frame.labelPad - 4 * ui,
         frame.top + (y + 0.5) * cellH + 3.5 * ui,
       );
     });

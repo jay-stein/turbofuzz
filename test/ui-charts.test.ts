@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { ColumnFilter } from "../src/search/query-engine.js";
 import { ChartsPanel, type ChartsPanelOptions } from "../src/ui/chart-panel.js";
-import { ChartCard, type ChartCardOptions } from "../src/ui/chart-card.js";
+import { ChartCard, type ChartCardConfig, type ChartCardOptions } from "../src/ui/chart-card.js";
 import type {
   BoxStatsMessage,
   ChartBinsMessage,
@@ -229,7 +229,14 @@ const stubCardOptions = (): ChartCardOptions => ({
 
 test("chart text stays legible and date labels fit the left margin", () => {
   const window = setupDom();
-  const captured: { text: string; x: number; width: number; align: string; font: string }[] = [];
+  const captured: {
+    text: string;
+    x: number;
+    width: number;
+    align: string;
+    font: string;
+    rotated: boolean;
+  }[] = [];
   class MockContext {
     font = "";
     fillStyle = "";
@@ -239,6 +246,10 @@ test("chart text stays legible and date labels fit the left margin", () => {
     textAlign = "left";
     textBaseline = "alphabetic";
     imageSmoothingEnabled = true;
+    private tx = 0;
+    private ty = 0;
+    private rotated = false;
+    private readonly stack: { tx: number; ty: number; rotated: boolean }[] = [];
     clearRect(): void {}
     setTransform(): void {}
     scale(): void {}
@@ -256,6 +267,23 @@ test("chart text stays legible and date labels fit the left margin", () => {
     strokeRect(): void {}
     fillRect(): void {}
     drawImage(): void {}
+    save(): void {
+      this.stack.push({ tx: this.tx, ty: this.ty, rotated: this.rotated });
+    }
+    restore(): void {
+      const previous = this.stack.pop();
+      if (previous === undefined) return;
+      this.tx = previous.tx;
+      this.ty = previous.ty;
+      this.rotated = previous.rotated;
+    }
+    translate(x: number, y: number): void {
+      this.tx += x;
+      this.ty += y;
+    }
+    rotate(): void {
+      this.rotated = true;
+    }
     measureText(text: string): { width: number } {
       return { width: String(text).length * 8 };
     }
@@ -263,10 +291,11 @@ test("chart text stays legible and date labels fit the left margin", () => {
       const width = this.measureText(text).width;
       captured.push({
         text: String(text),
-        x,
+        x: x + this.tx,
         width,
         align: this.textAlign,
         font: this.font,
+        rotated: this.rotated,
       });
     }
     createImageData(width: number, height: number): {
@@ -326,6 +355,8 @@ test("chart text stays legible and date labels fit the left margin", () => {
   );
 
   for (const entry of dateY) {
+    // The rotated Y axis title reports positions along its own axis.
+    if (entry.rotated) continue;
     const left =
       entry.align === "right"
         ? entry.x - entry.width
@@ -372,6 +403,10 @@ test("chart cards draw scatter points and density grids", async () => {
       counts.fillRect++;
     }
     drawImage(): void {}
+    save(): void {}
+    restore(): void {}
+    translate(): void {}
+    rotate(): void {}
     fillText(): void {
       counts.fillText++;
     }
@@ -654,6 +689,10 @@ function captureMockContext(window: Window, drawn: string[]): void {
     strokeRect(): void {}
     fillRect(): void {}
     drawImage(): void {}
+    save(): void {}
+    restore(): void {}
+    translate(): void {}
+    rotate(): void {}
     measureText(text: string): { width: number } {
       return { width: String(text).length * 6 };
     }
@@ -1123,6 +1162,62 @@ test("axis controls sit in their own bordered group", async () => {
   await tick();
   assert.ok(axes.querySelector('[aria-label="X column"]') !== null);
   assert.ok(axes.querySelector('[aria-label="Y column"]') !== null);
+  card.dispose();
+});
+
+test("charts label both axes with their column names", async () => {
+  const window = setupDom();
+  const drawn: string[] = [];
+  captureMockContext(window, drawn);
+  const columns = [
+    meta({
+      name: "amount",
+      type: "number",
+      histogram: { bins: [1, 2, 1], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 },
+    }),
+    meta({ name: "score", type: "number" }),
+  ];
+  const render = async (preset: Partial<ChartCardConfig>): Promise<string[]> => {
+    const host = document.createElement("div");
+    const card = new ChartCard(host, stubCardOptions(), preset);
+    const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+    Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+    drawn.length = 0;
+    card.setColumns(columns);
+    await tick();
+    const result = drawn.slice();
+    card.dispose();
+    return result;
+  };
+
+  const histogram = await render({ kind: "histogram", column: 0 });
+  assert.ok(histogram.includes("amount"), "the histogram X axis names the column");
+  assert.ok(histogram.includes("Rows"), "the histogram Y axis names the count");
+
+  const scatter = await render({ kind: "scatter", x: 0, y: 1 });
+  assert.ok(scatter.includes("amount"), "the scatter X axis names its column");
+  assert.ok(scatter.includes("score"), "the scatter Y axis names its column");
+});
+
+test("empty chart states draw no axis titles", async () => {
+  const window = setupDom();
+  const drawn: string[] = [];
+  captureMockContext(window, drawn);
+  const host = document.createElement("div");
+  const card = new ChartCard(
+    host,
+    { ...stubCardOptions(), requestBins: () => new Promise(() => {}) },
+    { kind: "histogram", column: 0 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([meta({ name: "amount", type: "number" })]);
+  await tick();
+  assert.ok(
+    drawn.some((text) => text.includes("no histogram data")),
+    "the empty state explains why",
+  );
+  assert.ok(!drawn.includes("Rows"), "no Y title under an empty-state message");
   card.dispose();
 });
 
