@@ -1806,5 +1806,8 @@ test("date time series uses human-grain buckets instead of 64-bin combs", async 
   await tick();
   assert.equal(requested.length, 1, "the line asks for day-grain bins");
   assert.equal(requested[0]?.options.binCount, spanDays + 1, "one bucket per day plus the inclusive end");
+  card.setFiltered({}, {});
+  await tick();
+  assert.equal(requested.length, 1, "unchanged filters do not re-request buckets");
   card.dispose();
 });

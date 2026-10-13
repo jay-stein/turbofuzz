@@ -539,6 +539,11 @@ export class ChartsPanel {
     for (const card of this.cards) card.refresh();
   }
 
+  /** Cheap re-entry: repaint without re-requesting any worker payloads. */
+  repaint(): void {
+    for (const card of this.cards) card.repaint();
+  }
+
   dispose(): void {
     for (const card of this.cards) card.dispose();
     this.cards = [];

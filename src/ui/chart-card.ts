@@ -551,6 +551,7 @@ export class ChartCard {
   private binResult: ChartBins | null = null;
   private lineBinResult: ChartBins | null = null;
   private lineBinRange: { min: number; max: number } | null = null;
+  private lineBinSignature = "";
   private binMedian: number | null = null;
   private seriesResult: SeriesPoints | SeriesGrid | null = null;
   /** Treemap tiles: label + value pairs (counts come from facets directly). */
@@ -1534,6 +1535,11 @@ export class ChartCard {
     this.render();
   }
 
+  /** Repaints the current payloads; used when the lens is re-entered. */
+  repaint(): void {
+    this.render();
+  }
+
   getConfig(): ChartCardConfig {
     return {
       ...this.config,
@@ -2202,6 +2208,11 @@ export class ChartCard {
         return;
       }
       const binCount = this.preferredLineBins(max - min);
+      // The same column and span produce the same buckets: don't re-request on
+      // every filter push (each response used to trigger another repaint).
+      const signature = `${this.config.column}|${binCount}|${min}|${max}`;
+      if (this.lineBinSignature === signature && this.lineBinResult !== null) return;
+      this.lineBinSignature = signature;
       const generation = ++this.generation;
       this.lineBinRange = { min, max };
       void this.options

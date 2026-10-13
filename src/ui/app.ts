@@ -2311,8 +2311,11 @@ export class App {
     if (view === "table" || view === "chart" || view === "views") this.ensureFilters();
     if (view === "table") this.ensureTable();
     if (view === "chart") {
+      const existing = this.chartsPanel !== null;
       this.ensureCharts();
-      this.chartsPanel?.refresh();
+      // First open: the panel was just built and already fetched everything,
+      // a second full refresh here caused a visible re-render storm.
+      if (existing) this.chartsPanel?.repaint();
     }
     if (view === "views") this.ensureViews();
     if (view === "reports") this.ensureReports();
