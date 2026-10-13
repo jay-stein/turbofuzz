@@ -363,3 +363,13 @@ width changed (theme changes force repaint), the constructor and re-entry
 repaint skip while hidden, and the observer paints the real size once when
 the lens becomes visible. Verified: zero 1x1 paints and no repeated render
 batches on first open and re-entry, expanded and collapsed rail.
+
+## Add-chart confirmation dialog (same day)
+
+Commit `715718b`, deployed `ebed8f7c-89ea-4893-8a4b-76e2a07b84e9`. 542 tests.
+Rail and gallery tiles added cards silently and often below the fold, so
+stray clicks produced invisible duplicates. Picking a chart type now opens an
+"Add a ... chart" dialog naming the type and exposing its columns (Column,
+X/Y, correlation multi-select) with fitted defaults; Cancel adds nothing and
+a guard blocks a second dialog. On confirm the card is scrolled into view,
+outlined for 1.5 s and announced in the status line. Help text updated.
