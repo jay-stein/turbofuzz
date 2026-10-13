@@ -287,3 +287,18 @@ row directly under the toolbar whenever the chart is a bubble, and picking a
 Size column switches the measure to Sum automatically. Verified visually:
 the row appears with Grid 40, Size by Count (rows), Scale Area proportional to
 value.
+
+## Chart feedback round 3 (same day)
+
+Commit `4dca4fa`, deployed `34b66c73-27c8-4e4b-b403-043c2a9fa7a0`. 535 tests.
+Five issues plus a rail: the kind is now "Bubble" (not "Bubble (count)");
+a left chart-type rail lists every kind as an icon tile (one-click add,
+collapsible to icons only, remembered across sessions), with the Help drawer
+documenting Grid/Size by/Scale/Group/animation/GIF-vs-MP4; axes tags are
+kind-aware (Values/Date/Category/Text/Column) and empty selects say why;
+bubbles can be grouped by a category column (one overlaid grid per group,
+shared bounds, capped Other bucket, legend toggles, works with animation);
+the Bubbles row carries the Size by column select directly and picking a
+column switches the measure to Sum. Regression fixed: X/Y controls were
+leaking onto single-axis kinds after filter updates because
+syncSourceControls and renderControls disagreed.
