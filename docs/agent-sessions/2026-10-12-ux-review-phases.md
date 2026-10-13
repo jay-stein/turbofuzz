@@ -325,3 +325,15 @@ the group select now refreshes bubble grids and animation frames too, so
 grouping picked later actually redraws. Verified visually: Size [Annual
 Usage] - Reduce [Mean] - Mapping [Area proportional to value], 5 coloured
 groups with the Status legend.
+
+## Time series combs and density groups (same day)
+
+Commit `b974768`, deployed `0ad95876-a796-4dbc-a703-5b8c013c81ac`.
+The automatic time series chart used the fixed 64-bin column histogram, so
+month-scale date-only data drew in ~8.6-hour buckets - a spike comb that read
+as a crazy/doubled render. Line charts now pick human-grain buckets from the
+data span (30-minute, 6-hour, daily, weekly, monthly; inclusive final bucket)
+and request them worker-side, with hits and axes using the same range.
+Animated density with a Group set also sliced per-group grids as ungrouped
+(14 of 40 rows per frame); the frame's groups are merged back into one
+surface. Verified: 24 daily rows render a flat 40/day line over 24 bins.
