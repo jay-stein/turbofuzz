@@ -651,7 +651,11 @@ export class ChartCard {
   private pointerFrame: number | null = null;
 
   private readonly onResize = (): void => this.scheduleRender();
+  private readonly onThemeChange = (): void => this.scheduleRender(true);
   private renderQueued = false;
+  private renderForce = false;
+  /** Wrap width of the last paint, used to ignore no-op resize callbacks. */
+  private lastWrapWidth = -1;
   private resizeObserver: ResizeObserver | null = null;
 
   constructor(
@@ -1377,9 +1381,11 @@ export class ChartCard {
     this.applySpan();
     this.syncOptions();
     this.renderControls();
-    this.render();
+    // Skip the first paint while the lens is hidden: a 1x1 canvas would flash
+    // before the ResizeObserver paints the real size.
+    if ((this.canvas.parentElement?.clientWidth ?? 0) > 1) this.render();
     window.addEventListener("resize", this.onResize);
-    window.addEventListener("themechange", this.onResize);
+    window.addEventListener("themechange", this.onThemeChange);
   }
 
   dispose(): void {
@@ -1401,7 +1407,7 @@ export class ChartCard {
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     window.removeEventListener("resize", this.onResize);
-    window.removeEventListener("themechange", this.onResize);
+    window.removeEventListener("themechange", this.onThemeChange);
   }
 
   setColumns(columns: ColumnMeta[]): void {
@@ -1537,6 +1543,9 @@ export class ChartCard {
 
   /** Repaints the current payloads; used when the lens is re-entered. */
   repaint(): void {
+    // The host may still be hidden at this point; painting then would leave a
+    // 1x1 canvas that flashes before the ResizeObserver sees the real size.
+    if ((this.canvas.parentElement?.clientWidth ?? 0) <= 1) return;
     this.render();
   }
 
@@ -3224,12 +3233,28 @@ export class ChartCard {
   }
 
   /** Coalesces resize-driven redraws into one animation frame. */
-  private scheduleRender(): void {
-    if (this.renderQueued || this.disposed) return;
+  /**
+   * Coalesces resize-driven redraws into one animation frame. Repaints are
+   * skipped when the wrap width has not actually changed: the canvas height is
+   * derived from the width, so reacting to every wrap mutation can oscillate
+   * (scrollbar thresholds, sticky layouts). Theme changes force a repaint.
+   */
+  private scheduleRender(force = false): void {
+    if (this.disposed) return;
+    this.renderForce = this.renderForce || force;
+    if (this.renderQueued) return;
     this.renderQueued = true;
     const run = (): void => {
+      const forceNow = this.renderForce;
       this.renderQueued = false;
-      if (!this.disposed) this.render();
+      this.renderForce = false;
+      if (this.disposed) return;
+      if (!forceNow) {
+        const wrap = this.canvas.parentElement;
+        const width = Math.round(wrap?.clientWidth ?? 0);
+        if (width <= 1 || width === this.lastWrapWidth) return;
+      }
+      this.render();
     };
     if (typeof window.requestAnimationFrame === "function") {
       window.requestAnimationFrame(run);
@@ -3247,6 +3272,7 @@ export class ChartCard {
       const padding =
         (Number.parseFloat(style.paddingLeft) || 0) + (Number.parseFloat(style.paddingRight) || 0);
       cssWidth = wrap.clientWidth - padding;
+      this.lastWrapWidth = Math.round(wrap.clientWidth);
     }
     // The canvas follows the card at any width; text has a legibility floor
     // instead of the old 300px minimum that overflowed narrow cards.
