@@ -3337,10 +3337,11 @@ mark {
 }
 
 /* Left rail: chart types as icon tiles, collapsible to icons only. */
-.charts-panel {
+.charts-layout {
   display: flex;
   align-items: flex-start;
   gap: 10px;
+  width: 100%;
 }
 
 .charts-main {
@@ -3477,10 +3478,27 @@ mark {
   background: var(--accent-soft);
 }
 
-.chart-movie-icon {
+.chart-movie-icon,
+.chart-width-icon {
   width: 14px;
   height: 14px;
   flex: none;
+}
+
+.chart-width-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chart-width-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.chart-card.span-full {
+  grid-column: 1 / -1;
 }
 
 .chart-animate-setup,

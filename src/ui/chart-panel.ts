@@ -370,7 +370,9 @@ export class ChartsPanel {
     ]);
     this.root.classList.add("charts-panel");
     const main = el("div", { class: "charts-main" }, [toolbar, this.grid, this.empty]);
-    this.root.append(this.rail, main);
+    // The wrapper guarantees the rail sits beside the whole panel (toolbar and
+    // grid), regardless of the host element's own display rules.
+    this.root.append(el("div", { class: "charts-layout" }, [this.rail, main]));
     this.applyRailState();
     this.syncRail();
     this.syncLayout();

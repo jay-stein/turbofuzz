@@ -1625,3 +1625,25 @@ test("single-axis kinds keep the X/Y controls hidden through filter updates", as
   assert.ok(yWrap?.classList.contains("hidden"), "Y stays hidden on a bar chart");
   card.dispose();
 });
+
+test("the Wide button makes a card span the full row", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a"], counts: [1] } }),
+  ]);
+  await tick();
+  const button = host.querySelector(".chart-width-btn") as HTMLButtonElement;
+  assert.ok(button !== null, "the width control renders");
+  assert.equal(card.root.classList.contains("span-full"), false);
+  button.click();
+  assert.equal(card.root.classList.contains("span-full"), true);
+  assert.equal(card.getConfig().span, "full");
+  assert.ok(button.classList.contains("active"));
+  button.click();
+  assert.equal(card.root.classList.contains("span-full"), false);
+  assert.equal(card.getConfig().span, "auto");
+  card.dispose();
+});

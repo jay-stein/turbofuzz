@@ -170,6 +170,8 @@ export interface ChartCardConfig {
   bubbleAgg?: "count" | "sum" | "mean" | "min" | "max";
   /** How bubble radius maps from the measure value. */
   bubbleScale?: "area" | "radius" | "log";
+  /** Card width in the grid: normal cell or the whole row. */
+  span?: "auto" | "full";
   /** Time column for frame animation (-1 = off). */
   animationTimeColumn?: number;
   animationGrain?: TimeGrain;
@@ -485,6 +487,14 @@ function movieIcon(): SVGElement {
   );
 }
 
+/** Expand-arrows glyph for the full-row width toggle. */
+function widthIcon(): SVGElement {
+  return svgIcon(
+    '<path d="M4 9V4h5"/><path d="M20 15v5h-5"/><path d="M15 4h5v5"/><path d="M9 20H4v-5"/>',
+    "chart-width-icon",
+  );
+}
+
 function defaultConfig(): ChartCardConfig {
   return {
     kind: "histogram",
@@ -510,6 +520,7 @@ function defaultConfig(): ChartCardConfig {
     bubbleBins: 40,
     bubbleAgg: "count",
     bubbleScale: "area",
+    span: "auto",
     animationTimeColumn: -1,
     animationGrain: "day",
     animationSpeed: 1,
@@ -565,6 +576,7 @@ export class ChartCard {
   private readonly bubbleAggSelect: HTMLSelectElement;
   private readonly bubbleScaleSelect: HTMLSelectElement;
   private readonly animateButton: HTMLButtonElement;
+  private readonly widthButton: HTMLButtonElement;
   private readonly animationSetup: HTMLElement;
   private readonly bubbleSettings: HTMLElement;
   private readonly animationTimeSelect: HTMLSelectElement;
@@ -830,6 +842,13 @@ export class ChartCard {
       this.xWrap,
       this.yWrap,
     ]);
+    this.widthButton = el(
+      "button",
+      { class: "ghost small chart-width-btn", type: "button" },
+      [],
+    ) as HTMLButtonElement;
+    this.widthButton.append(widthIcon(), el("span", {}, ["Wide"]));
+    this.widthButton.addEventListener("click", () => this.toggleSpan());
     this.animateButton = el(
       "button",
       {
@@ -848,6 +867,7 @@ export class ChartCard {
       this.groupWrap,
       this.axesPanel,
       el("span", { class: "grow" }),
+      this.widthButton,
       this.animateButton,
       more,
     );
@@ -1014,9 +1034,9 @@ export class ChartCard {
     });
     const bubbleAggField = el("label", { class: "chart-field" });
     this.bubbleAggField = bubbleAggField;
-    bubbleAggField.title = "Size by an aggregate of a numeric column instead of row counts";
+    bubbleAggField.title = "How the rows in each area combine into one value";
     bubbleAggField.append(
-      el("span", { class: "chart-field-label" }, ["Size by"]),
+      el("span", { class: "chart-field-label" }, ["Reduce"]),
       this.bubbleAggSelect,
     );
     this.bubbleScaleSelect = el("select", {
@@ -1037,9 +1057,9 @@ export class ChartCard {
       this.render();
     });
     const bubbleScaleField = el("label", { class: "chart-field" });
-    bubbleScaleField.title = "Area keeps sizes proportional; log compresses extreme values";
+    bubbleScaleField.title = "How values become radius: area keeps sizes proportional, log compresses extremes";
     bubbleScaleField.append(
-      el("span", { class: "chart-field-label" }, ["Scale"]),
+      el("span", { class: "chart-field-label" }, ["Mapping"]),
       this.bubbleScaleSelect,
     );
     this.barSettings = el("div", { class: "chart-settings" }, [topField, otherField, multiField]);
@@ -1346,6 +1366,7 @@ export class ChartCard {
     );
 
     this.syncSwatches();
+    this.applySpan();
     this.syncOptions();
     this.renderControls();
     this.render();
@@ -1857,7 +1878,7 @@ export class ChartCard {
     this.yWrap.classList.toggle("hidden", !pair);
     const seriesKind = kind === "scatter" || kind === "density";
     this.colorWrap.classList.toggle("hidden", !seriesKind);
-    this.sizeTagLabel.textContent = kind === "bubble" ? "Size by" : "Size";
+    this.sizeTagLabel.textContent = "Size";
     this.sizeWrap.classList.toggle(
       "hidden",
       !seriesKind && kind !== "treemap" && kind !== "bubble",
@@ -1901,6 +1922,8 @@ export class ChartCard {
     );
     const bubbleOnly = kind === "bubble";
     this.bubbleSettings.classList.toggle("hidden", !bubbleOnly);
+    // "Reduce" only makes sense once a Size column is chosen (not Count).
+    this.bubbleAggField.classList.toggle("hidden", this.config.sizeColumn < 0);
     this.topLabel.parentElement?.classList.toggle("hidden", bubbleOnly);
     this.multiInput.parentElement?.classList.toggle("hidden", bubbleOnly);
     this.correlationSettings.classList.toggle("hidden", kind !== "correlation");
@@ -2071,6 +2094,11 @@ export class ChartCard {
           label: "Download PNG",
           title: "Download this chart as a PNG",
           action: () => this.options.onExport(this),
+        },
+        {
+          label: `${this.config.span === "full" ? "● " : ""}Full row width`,
+          title: "Span the whole row, or return to the normal grid cell",
+          action: () => this.toggleSpan(),
         },
         {
           label: "Remove chart",
@@ -2693,6 +2721,21 @@ export class ChartCard {
           error instanceof Error ? error.message : "Could not build the animation frames.";
         this.render();
       });
+  }
+
+  private toggleSpan(): void {
+    this.config.span = this.config.span === "full" ? "auto" : "full";
+    this.applySpan();
+  }
+
+  /** Applies the full-row width class and keeps the button state in sync. */
+  private applySpan(): void {
+    const full = this.config.span === "full";
+    this.root.classList.toggle("span-full", full);
+    this.widthButton.classList.toggle("active", full);
+    this.widthButton.title = full
+      ? "Back to the normal grid cell width"
+      : "Make this chart span the full row";
   }
 
   private toggleAnimationSetup(): void {
