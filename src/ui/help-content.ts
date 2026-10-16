@@ -109,7 +109,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     summary: "Trim, case, replace, convert, repair and missing-value rules.",
     blocks: [
       p(
-        "Open Clean and pick a column. The Apply button always states what one click will commit — “Apply Trim whitespace” or “Apply 3 operations” — and the configured operation is included even if you never staged it. Use “Add another” to stage a multi-step list first. The preview shows the first cells and a “how many cells change” count, and every applied operation is reversible from the Recipe.",
+        "Open Clean and pick a column. The Apply button always states what one click will commit — “Apply Trim whitespace” or “Apply 3 operations” — and the configured operation is included even if you never staged it. Use “Add another” to stage a multi-step list first. The preview shows the first cells, a “how many cells change” count and — for number/date conversions — how many non-empty cells still can’t be parsed. Every applied operation is reversible from the Recipe.",
       ),
       p(
         "Clean can also be opened from a column: right-click a header and choose Clean values… or Missing values… — the panel opens on that column and tab. Simple cleans (Trim, case, convert number/date, formula escaping) skip the panel and apply from the same menu with an Undo toast.",
@@ -132,7 +132,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     summary: "Dedupe, drop, round, group by, impute, combine dates and reshape.",
     blocks: [
       p(
-        "Transforms change the shape of the working set. They run against the base data captured before the first transform, so the pipeline is re-derived from scratch on every change - the Recipe shows the ordered list. Right-click any column header and choose Transform dataset. to jump straight in. The Apply button commits the step configured in the builder together with the list, so you rarely need to stage first; “Add another” stages a longer pipeline.",
+        "Transforms change the shape of the working set. They run against the base data captured before the first transform, so the pipeline is re-derived from scratch on every change - the Recipe shows the ordered list. Right-click any column header and choose Transform dataset. to jump straight in. The Apply button commits the step configured in the builder together with the list, so you rarely need to stage first; “Add another” stages a longer pipeline. Every staged step gets its own impact note with before → after samples: filled cells and the strategy, identical rows removed, rows that could not be combined, flagged outliers.",
       ),
       list(
         "Remove duplicate rows - keep first, keep last, or remove all copies.",

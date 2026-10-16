@@ -761,6 +761,14 @@ export interface ErrorMessage {
   message: string;
 }
 
+export interface TransformPreviewNote {
+  /** Index in the staged op list. */
+  op: number;
+  text: string;
+  /** Up to three before → after cells behind the summary. */
+  samples?: { before: string; after: string }[];
+}
+
 export interface TransformPreviewMessage {
   type: "transformPreview";
   requestId: number;
@@ -771,12 +779,20 @@ export interface TransformPreviewMessage {
   columnCount: number;
   /** Column names after the staged ops (needed when a split changes the count). */
   columnNames: string[];
+  /** Per-op impact details: replacements, failures, samples. */
+  notes: TransformPreviewNote[];
 }
 
 export interface CleanPreviewMessage {
   type: "cleanPreview";
   requestId: number;
-  columns: { column: number; changed: number; total: number }[];
+  columns: {
+    column: number;
+    changed: number;
+    total: number;
+    /** Non-null cells a cast op could not parse (0 when no cast is staged). */
+    failed: number;
+  }[];
 }
 
 export type WorkerResponse =

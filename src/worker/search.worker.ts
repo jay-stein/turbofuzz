@@ -32,7 +32,8 @@ import {
   type NullPolicy,
 } from "../parse/null-tokens.js";
 import { isParquetName, readParquetGrid } from "../parse/parquet.js";
-import type { NumberLocale } from "../parse/numbers.js";
+import { parseNumber, type NumberLocale } from "../parse/numbers.js";
+import { parseDate } from "../parse/dates.js";
 import { measureRagged, type RaggedInfo } from "../parse/parse.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
 import { BitSet } from "../search/bitset.js";
@@ -84,6 +85,7 @@ import type {
   SpecialKind,
   ProgressPhase,
   TransformRequest,
+  TransformPreviewNote,
   WorkerRequest,
   WorkerResponse,
 } from "./protocol.js";
@@ -1892,7 +1894,151 @@ function handlePreviewTransform(message: PreviewTransformRequest): void {
     nullCells: next.stats.totalNullCells,
     columnCount: next.columnCount,
     columnNames: next.columns.map((column) => column.name),
+    notes: transformPreviewNotes(base, message.ops),
   });
+}
+
+const MAX_PREVIEW_SAMPLES = 3;
+
+/** Human label for an impute strategy, including its group column. */
+function imputeStrategyLabel(
+  op: TransformOp & { kind: "impute" },
+  columns: readonly ColumnData[],
+): string {
+  const strategy =
+    op.strategy.kind === "constant" ? `constant “${op.strategy.value}”` : op.strategy.kind;
+  const group =
+    op.groupColumn === null ? "" : ` within ${columns[op.groupColumn]?.name ?? "group"}`;
+  return `${strategy}${group}`;
+}
+
+/**
+ * Per-op impact notes with before → after samples, computed by applying each
+ * staged op to the result of the previous one so the details describe the
+ * step the user is looking at.
+ */
+function transformPreviewNotes(
+  base: Dataset,
+  ops: readonly TransformOp[],
+): TransformPreviewNote[] {
+  const notes: TransformPreviewNote[] = [];
+  let running = base;
+  for (let index = 0; index < ops.length; index++) {
+    const op = ops[index];
+    const after = applyTransformOps(base.name, running.columns, [op]);
+    switch (op.kind) {
+      case "dedupe": {
+        const removed = running.rowCount - after.rowCount;
+        notes.push({
+          op: index,
+          text: `Removes ${removed.toLocaleString()} identical row${removed === 1 ? "" : "s"} — every column is the key`,
+        });
+        break;
+      }
+      case "drop": {
+        const name = running.columns[op.column]?.name;
+        notes.push({
+          op: index,
+          text: name === undefined ? "Column already gone" : `Drops “${name}” and its cells`,
+        });
+        break;
+      }
+      case "impute": {
+        const before = running.columns[op.column];
+        const filled = after.columns[op.column];
+        if (before === undefined || filled === undefined) break;
+        let replaced = 0;
+        const samples: { before: string; after: string }[] = [];
+        for (let row = 0; row < before.raw.length; row++) {
+          if (!before.isNull(before.raw[row])) continue;
+          if (filled.isNull(filled.raw[row])) continue;
+          replaced++;
+          if (samples.length < MAX_PREVIEW_SAMPLES) {
+            samples.push({ before: "(empty)", after: filled.raw[row] });
+          }
+        }
+        notes.push({
+          op: index,
+          text: `Fills ${replaced.toLocaleString()} missing cell${replaced === 1 ? "" : "s"} (${imputeStrategyLabel(op, running.columns)})`,
+          samples,
+        });
+        break;
+      }
+      case "combineDate": {
+        const output = after.columns[after.columnCount - 1];
+        if (output === undefined) break;
+        let failed = 0;
+        const samples: { before: string; after: string }[] = [];
+        for (let row = 0; row < output.raw.length; row++) {
+          if (!output.isNull(output.raw[row])) continue;
+          let before = "";
+          let allPartsMissing = true;
+          for (const part of op.parts) {
+            const value = running.columns[part.column]?.raw[row] ?? "";
+            before = before === "" ? value : `${before} · ${value}`;
+            if (value !== "" && !running.columns[part.column]?.isNull(value)) allPartsMissing = false;
+          }
+          if (allPartsMissing) continue;
+          failed++;
+          if (samples.length < MAX_PREVIEW_SAMPLES) {
+            samples.push({ before, after: "(could not combine)" });
+          }
+        }
+        notes.push({
+          op: index,
+          text: `Joins ${op.parts.length} part${op.parts.length === 1 ? "" : "s"} into “${output.name}” (${op.output}, ${op.order === "auto" ? "order per column" : `${op.order} order`})` +
+            (failed > 0 ? ` · ${failed.toLocaleString()} row${failed === 1 ? "" : "s"} could not be combined` : ""),
+          samples,
+        });
+        break;
+      }
+      case "flagAnomalies": {
+        const output = after.columns[after.columnCount - 1];
+        if (output === undefined) break;
+        let flagged = 0;
+        for (const value of output.raw) if (value === "Yes") flagged++;
+        notes.push({
+          op: index,
+          text: `Adds “${output.name}”: ${flagged.toLocaleString()} row${flagged === 1 ? "" : "s"} flagged`,
+        });
+        break;
+      }
+      case "splitColumn": {
+        const created = after.columnCount - running.columnCount + (op.dropOriginal ? 1 : 0);
+        notes.push({
+          op: index,
+          text: `Splits into ${created} new column${created === 1 ? "" : "s"}${op.dropEmpty ? " after dropping empty parts" : ""}`,
+        });
+        break;
+      }
+      case "melt": {
+        const added = after.rowCount - running.rowCount;
+        notes.push({
+          op: index,
+          text: `Unpivots to ${after.rowCount.toLocaleString()} rows (+${added.toLocaleString()})`,
+        });
+        break;
+      }
+      case "aggregate": {
+        notes.push({
+          op: index,
+          text: `Aggregates to ${after.rowCount.toLocaleString()} group${after.rowCount === 1 ? "" : "s"} across ${after.columnCount} columns`,
+        });
+        break;
+      }
+      case "groupBy": {
+        notes.push({
+          op: index,
+          text: `Aggregates to ${after.rowCount.toLocaleString()} row${after.rowCount === 1 ? "" : "s"}`,
+        });
+        break;
+      }
+      default:
+        break;
+    }
+    running = after;
+  }
+  return notes;
 }
 
 /**
@@ -1904,12 +2050,26 @@ function handlePreviewClean(message: PreviewCleanRequest): void {
   const columns = message.updates.map((update) => {
     const index = update.column;
     const column = current.columns[index];
-    if (column === undefined) return { column: index, changed: 0, total: 0 };
+    if (column === undefined) return { column: index, changed: 0, total: 0, failed: 0 };
     const source = cleanSource.get(index) ?? column;
     const raw = update.ops.length === 0 ? source.raw : applyCleanOps(source.raw, update.ops);
     let changed = 0;
     for (let i = 0; i < raw.length; i++) if (raw[i] !== source.raw[i]) changed++;
-    return { column: index, changed, total: raw.length };
+    // For the last cast in the op list, count the cells that still do not
+    // parse so the panel can warn before committing ("12 can't be parsed").
+    const cast = [...update.ops].reverse().find(
+      (op) => op.kind === "toNumber" || op.kind === "toDate",
+    );
+    let failed = 0;
+    if (cast !== undefined) {
+      for (let i = 0; i < raw.length; i++) {
+        if (source.isNull(source.raw[i])) continue;
+        const parsed =
+          cast.kind === "toDate" ? parseDate(raw[i], cast.order) : parseNumber(raw[i], cast.locale);
+        if (!Number.isFinite(parsed)) failed++;
+      }
+    }
+    return { column: index, changed, total: raw.length, failed };
   });
   post({ type: "cleanPreview", requestId: message.requestId, columns });
 }

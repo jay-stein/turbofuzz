@@ -243,6 +243,8 @@ export function openStepsPanel(
       );
     } else {
       const index = indexOf.get(entry) ?? -1;
+      info.title =
+        "Transforms run in order: a step can only be removed from the end so later steps keep their inputs.";
       row.append(
         undo(
           index === lastTransformIndex

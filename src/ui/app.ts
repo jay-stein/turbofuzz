@@ -2411,6 +2411,42 @@ export class App {
       case "dedupe":
         this.dropDuplicates(command.keep);
         break;
+      case "prepareTimeSeries": {
+        const updates: { column: number; ops: CleanOp[] }[] = [];
+        const existing = (column: number): CleanOp[] =>
+          (this.cleanedColumns.get(column) ?? []).slice();
+        const dateMeta = this.metas[command.dateColumn];
+        if (
+          dateMeta !== undefined &&
+          dateMeta.type !== "date" &&
+          dateMeta.type !== "datetime"
+        ) {
+          updates.push({
+            column: command.dateColumn,
+            ops: [...existing(command.dateColumn), { kind: "toDate", order: command.dateOrder }],
+          });
+        }
+        const valueMeta = this.metas[command.valueColumn];
+        if (
+          valueMeta !== undefined &&
+          valueMeta.type !== "integer" &&
+          valueMeta.type !== "number"
+        ) {
+          updates.push({
+            column: command.valueColumn,
+            ops: [...existing(command.valueColumn), { kind: "toNumber", locale: command.valueLocale }],
+          });
+        }
+        if (updates.length === 0) {
+          this.setAction("Time series ready — the date and measure are already converted.");
+          break;
+        }
+        this.applyClean(updates);
+        this.setAction(
+          `${command.label} — check the sentinel chips, sort by the date, filter the period, then “Chart this”`,
+        );
+        break;
+      }
       case "openClean":
         this.openClean(command.column, command.tab ?? "values");
         break;
@@ -3109,11 +3145,13 @@ export class App {
           this.client.previewClean(updates).then((message) => {
             let changed = 0;
             let total = 0;
+            let failed = 0;
             for (const entry of message.columns) {
               changed += entry.changed;
               total += entry.total;
+              failed += entry.failed;
             }
-            return { changed, total };
+            return { changed, total, failed };
           }),
         onOpenMerge: (column) => this.openMerge(column),
         onClose: () => undefined,

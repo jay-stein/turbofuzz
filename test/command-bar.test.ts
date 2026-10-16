@@ -125,6 +125,33 @@ test("unknown verbs and missing columns produce friendly errors", () => {
   if (missing.kind === "error") assert.match(missing.message, /Which column/);
 });
 
+test("timeseries prepares the date column and the measure in one command", () => {
+  const withDates = [
+    meta({ name: "when", type: "string", suggestions: [{ kind: "date", ratio: 0.9, sampled: 100 }] }),
+    meta({ name: "kwh", type: "number" }),
+  ];
+  const command = parseCommand("timeseries", withDates);
+  assert.equal(command.kind, "prepareTimeSeries");
+  if (command.kind === "prepareTimeSeries") {
+    assert.equal(command.dateColumn, 0);
+    assert.equal(command.valueColumn, 1);
+    assert.equal(command.dateOrder, "dmy");
+    assert.equal(command.valueLocale, "dot");
+    assert.match(command.label, /when × kwh/);
+  }
+
+  const noDates = parseCommand("time series", [meta({ name: "kwh", type: "number" })]);
+  assert.equal(noDates.kind, "error");
+  if (noDates.kind === "error") assert.match(noDates.message, /No date-like/);
+
+  const noMeasure = parseCommand(
+    "prepare time series",
+    [meta({ name: "when", type: "date" })],
+  );
+  assert.equal(noMeasure.kind, "error");
+  if (noMeasure.kind === "error") assert.match(noMeasure.message, /No numeric measure/);
+});
+
 test("suggestions rank prefix matches first", () => {
   const suggestions = commandSuggestions("upp", columns);
   assert.equal(suggestions[0].usage, "upper amount");

@@ -18,6 +18,8 @@ import type { ColumnMeta } from "../worker/protocol.js";
 export interface CleanPreviewCount {
   changed: number;
   total: number;
+  /** Non-null cells the staged cast could not parse. */
+  failed: number;
 }
 
 export interface CleanUpdateRequest {
@@ -493,7 +495,8 @@ function buildValuesTab(
       .then((count) => {
         if (generation !== previewGeneration || count === null) return;
         const scope = allColumnsInput.checked ? ` across ${metas.length} columns` : "";
-        previewSummary.textContent = `${baseText} · ${count.changed.toLocaleString()} of ${count.total.toLocaleString()} cells change${scope}`;
+        const failed = count.failed > 0 ? ` · ${count.failed.toLocaleString()} can't be parsed` : "";
+        previewSummary.textContent = `${baseText} · ${count.changed.toLocaleString()} of ${count.total.toLocaleString()} cells change${failed}${scope}`;
       })
       .catch(() => {});
   }

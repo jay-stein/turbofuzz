@@ -1,4 +1,6 @@
 import type { ColumnMeta } from "../worker/protocol.js";
+import type { DateOrder } from "../parse/dates.js";
+import type { NumberLocale } from "../parse/numbers.js";
 import type { CleanOp } from "../data/clean-ops.js";
 import type { TransformOp } from "../data/transform-ops.js";
 import { el } from "./dom.js";
@@ -8,6 +10,14 @@ export type ParsedCommand =
   | { kind: "clean"; column: number; op: CleanOp; label: string }
   | { kind: "transform"; ops: TransformOp[]; label: string }
   | { kind: "dedupe"; keep: "first" | "last" | "none"; label: string }
+  | {
+      kind: "prepareTimeSeries";
+      dateColumn: number;
+      dateOrder: DateOrder;
+      valueColumn: number;
+      valueLocale: NumberLocale;
+      label: string;
+    }
   | { kind: "openClean"; column?: number; tab?: "values" | "nulls"; label: string }
   | { kind: "openTransform"; label: string }
   | { kind: "export"; label: string }
@@ -41,6 +51,11 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
   { name: "transform", aliases: [], hint: "Open the Transform panel" },
   { name: "export", aliases: ["download"], hint: "Open the Export dialog" },
   { name: "views", aliases: ["view", "aggregate view"], hint: "Open the Views lens" },
+  {
+    name: "timeseries",
+    aliases: ["time series", "prepare time series"],
+    hint: "One step: parse the date and measure, ready for sorting, filtering and charting",
+  },
 ];
 
 function normalise(value: string): string {
@@ -323,6 +338,46 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
       return { kind: "export", label: "Opened Export" };
     case "views":
       return { kind: "views", label: "Opened Views" };
+    case "timeseries": {
+      const dateType = columns.findIndex(
+        (meta) => meta.type === "date" || meta.type === "datetime",
+      );
+      const dateIndex =
+        dateType >= 0
+          ? dateType
+          : columns.findIndex((meta) =>
+              meta.suggestions.some((suggestion) => suggestion.kind === "date"),
+            );
+      const valueType = columns.findIndex(
+        (meta) => meta.type === "integer" || meta.type === "number",
+      );
+      const valueIndex =
+        valueType >= 0
+          ? valueType
+          : columns.findIndex((meta) =>
+              meta.suggestions.some((suggestion) => suggestion.kind === "number"),
+            );
+      if (dateIndex < 0) {
+        return {
+          kind: "error",
+          message: "No date-like column found — convert the time column to dates first.",
+        };
+      }
+      if (valueIndex < 0) {
+        return {
+          kind: "error",
+          message: "No numeric measure found — convert the measure column to numbers first.",
+        };
+      }
+      return {
+        kind: "prepareTimeSeries",
+        dateColumn: dateIndex,
+        dateOrder: columns[dateIndex].dateOrder ?? "dmy",
+        valueColumn: valueIndex,
+        valueLocale: columns[valueIndex].numberLocale ?? "dot",
+        label: `Prepared time series: ${columns[dateIndex].name} × ${columns[valueIndex].name}`,
+      };
+    }
     default:
       return { kind: "error", message: `Unrecognised command “${verb}”.` };
   }

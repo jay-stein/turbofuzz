@@ -70,9 +70,9 @@ test("convert ops canonicalise values and keep inferred types", async () => {
     updates: [{ column: 0, ops: [{ kind: "toNumber", locale: "comma" }] }],
   });
   const cleanPreview = find("cleanPreview", 4) as unknown as {
-    columns: { column: number; changed: number; total: number }[];
+    columns: { column: number; changed: number; total: number; failed: number }[];
   };
-  assert.deepEqual(cleanPreview.columns[0], { column: 0, changed: 1, total: 2 });
+  assert.deepEqual(cleanPreview.columns[0], { column: 0, changed: 1, total: 2, failed: 0 });
 
   send({
     type: "previewTransform",
