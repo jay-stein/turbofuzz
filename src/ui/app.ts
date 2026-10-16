@@ -87,6 +87,8 @@ import { openRecipeMapping } from "./recipe-mapping.js";
 import { openExportPanel } from "./export-panel.js";
 import { openMergePanel } from "./merge-panel.js";
 import { normalize } from "../search/normalize.js";
+import { computeDQScore, type DQScore, type ScoreCheck } from "../data/score.js";
+import { openQualityPanel } from "./quality-panel.js";
 import type { PairOperator } from "../data/pair-checks.js";
 import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
@@ -383,6 +385,9 @@ export class App {
   private overviewHost!: HTMLElement;
   private overview: Overview | null = null;
   private latestStats: DatasetStats | null = null;
+  /** Current weighted data-quality score (plan §3), or null before load. */
+  private dqScore: DQScore | null = null;
+  private scoreTile!: HTMLButtonElement;
   /** Input size in bytes for the dataset line (file or pasted text). */
   private sourceBytes: number | null = null;
   private sidebarEl!: HTMLElement;
@@ -487,6 +492,17 @@ export class App {
           if (this.themePreference === "auto") applyThemePreference("auto");
         });
     }
+    this.scoreTile = el(
+      "button",
+      {
+        class: "ghost small score-tile hidden",
+        type: "button",
+        title: "Data quality score — click for the full breakdown",
+      },
+      [],
+    ) as HTMLButtonElement;
+    this.scoreTile.addEventListener("click", () => this.openQuality());
+
     const paletteButton = el(
       "button",
       {
@@ -497,7 +513,7 @@ export class App {
       [el("span", { class: "palette-button-label" }, ["Do something…"]), el("span", { class: "kbd" }, ["Ctrl/⌘ K"])],
     ) as HTMLButtonElement;
     paletteButton.addEventListener("click", () => this.openPalette());
-    topbar.append(paletteButton, this.themeButton, helpButton);
+    topbar.append(this.scoreTile, paletteButton, this.themeButton, helpButton);
 
     this.newButton = el("button", { class: "ghost", type: "button" }, ["New data"]);
     this.newButton.title = "Load a CSV, Excel, JSON or Parquet file";
@@ -1647,6 +1663,7 @@ export class App {
     // Views are definitions over column indexes; a load or transform can change
     // the schema, so start fresh rather than risk stale references.
     this.resetViews();
+    const scoreBaselineReset = this.datasetName !== loaded.name;
     this.datasetName = loaded.name;
     this.workspaceTitle.textContent = `${loaded.name} — ${loaded.rowCount.toLocaleString()} rows`;
     this.filters.clear();
@@ -1712,6 +1729,7 @@ export class App {
     this.latestHistograms = {};
 
     this.latestStats = loaded.stats;
+    this.refreshScore(scoreBaselineReset);
     this.overview?.render(
       loaded,
       {
@@ -2538,6 +2556,9 @@ export class App {
       case "dedupe":
         this.dropDuplicates(command.keep);
         break;
+      case "quality":
+        this.openQuality();
+        break;
       case "keyDuplicates": {
         this.setView("table");
         const label = command.label;
@@ -2829,6 +2850,7 @@ export class App {
   /** Refreshes the health group and dataset stats after a worker update. */
   private applyDatasetStats(stats: DatasetStats): void {
     this.latestStats = stats;
+    this.refreshScore();
     this.renderHealthGroup();
     this.overview?.updateHealth(this.metas, stats);
     this.refreshMissingness();
@@ -2847,6 +2869,70 @@ export class App {
       .catch(() => {
         // The map is supplementary; the rest of the Overview still stands.
       });
+  }
+
+  /** Recomputes the dataset quality score and refreshes the tile. */
+  private refreshScore(baselineReset = false): void {
+    const stats = this.latestStats;
+    if (stats === null || this.metas.length === 0) {
+      this.dqScore = null;
+      this.scoreTile.classList.add("hidden");
+      return;
+    }
+    const previous = baselineReset ? null : (this.dqScore?.overall ?? null);
+    const score = computeDQScore(this.metas, stats, this.rowCount);
+    this.dqScore = score;
+    this.syncScoreTile(
+      previous === null || score.overall === null ? null : score.overall - previous,
+    );
+  }
+
+  /** Score tile: number + band colour + delta versus the previous step. */
+  private syncScoreTile(delta: number | null): void {
+    const score = this.dqScore;
+    if (score === null || score.overall === null) {
+      this.scoreTile.classList.add("hidden");
+      return;
+    }
+    const rounded = Math.round(score.overall * 10) / 10;
+    clear(this.scoreTile);
+    this.scoreTile.append(
+      el("span", { class: `score-tile-value band-${score.band}` }, [rounded.toFixed(1)]),
+      el("span", { class: "score-tile-label" }, ["DQ"]),
+    );
+    if (delta !== null && Math.abs(delta) >= 0.05) {
+      this.scoreTile.append(
+        el("span", { class: `score-tile-delta ${delta > 0 ? "up" : "down"}` }, [
+          `${delta > 0 ? "▲ +" : "▼ "}${delta.toFixed(1)}`,
+        ]),
+      );
+    }
+    this.scoreTile.title = `Data quality ${rounded.toFixed(1)} (${score.band}) — click for the full breakdown`;
+    this.scoreTile.classList.remove("hidden");
+  }
+
+  /** The Data Quality drawer (plan §4.2): breakdown with one-click filters. */
+  private openQuality(): void {
+    if (this.dqScore === null) return;
+    openQualityPanel(this.dqScore, {
+      onFilter: (check: ScoreCheck) => {
+        if (check.column === null) {
+          if (check.filter === "duplicates" && !this.specials.has("duplicates")) {
+            this.toggleSpecial("duplicates");
+          }
+          this.setView("table");
+          return;
+        }
+        if (check.filter === "nulls" || check.filter === "pattern" || check.filter === "valueAnomalies") {
+          const active = this.columnSpecials.get(check.column)?.has(check.filter) ?? false;
+          if (!active) this.toggleColumnSpecial(check.column, check.filter);
+        } else if (check.filter === "duplicates" && !this.specials.has("duplicates")) {
+          this.toggleSpecial("duplicates");
+        }
+        this.setView("table");
+        this.table?.flashColumn(check.column);
+      },
+    });
   }
 
   /** Compact Table/Chart replacement for the old summary band. */

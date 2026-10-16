@@ -1,0 +1,112 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { computeDQScore } from "../src/data/score.js";
+import type { DatasetStats } from "../src/data/stats.js";
+import type { ColumnMeta } from "../src/worker/protocol.js";
+
+function meta(overrides: Partial<ColumnMeta> = {}): ColumnMeta {
+  return {
+    name: "col",
+    type: "string",
+    numberLocale: "dot",
+    dateOrder: "dmy",
+    stats: {
+      nulls: 0,
+      distinct: 5,
+      samples: [],
+      topValues: [],
+      min: null,
+      max: null,
+      mean: null,
+      stddev: null,
+      minLength: null,
+      maxLength: null,
+      avgLength: null,
+    },
+    anomalyCounts: { values: 0, lengths: 0 },
+    similarGroups: 0,
+    categories: null,
+    histogram: null,
+    valueFence: null,
+    lengthFence: null,
+    nullPolicy: { extra: [], keep: [] },
+    nullTokens: [],
+    suggestions: [],
+    ...overrides,
+  };
+}
+
+function stats(overrides: Partial<DatasetStats> = {}): DatasetStats {
+  return {
+    duplicateRows: 0,
+    duplicateGroups: 0,
+    rowsInDuplicateGroups: 0,
+    emptyRows: 0,
+    rowsWithNulls: 0,
+    totalNullCells: 0,
+    totalCells: 400,
+    valueAnomalyRows: 0,
+    lengthAnomalyRows: 0,
+    computeMs: 1,
+    ...overrides,
+  };
+}
+
+test("weights applicable dimensions and excludes N.A. ones", () => {
+  const columns = [
+    meta({ name: "city" }),
+    meta({ name: "email", stats: { ...meta().stats, nulls: 20 } }),
+    meta({
+      name: "score",
+      type: "integer",
+      suggestions: [
+        { kind: "typeConflict", count: 10, sampled: 100, example: "high", columnType: "integer" },
+      ],
+    }),
+    meta({
+      name: "phone",
+      pattern: { mask: "+9 9 9", share: 0.97, total: 100, offCount: 5, examples: ["x"] },
+    }),
+  ];
+  const score = computeDQScore(columns, stats(), 100);
+
+  const completeness = score.dimensions.find((d) => d.dimension === "completeness");
+  assert.ok(completeness !== undefined);
+  assert.equal(completeness.score, 95, "20 empty of 400 cells");
+
+  const validity = score.dimensions.find((d) => d.dimension === "validity");
+  assert.ok(validity !== undefined);
+  assert.ok(
+    Math.abs((validity.score ?? 0) - (365 / 380) * 100) < 1e-6,
+    "15 invalid of 380 non-null",
+  );
+  assert.equal(validity.checks.find((c) => c.id === "validity.3")?.filter, "pattern");
+
+  const uniqueness = score.dimensions.find((d) => d.dimension === "uniqueness");
+  assert.equal(uniqueness?.score, 100);
+
+  for (const na of ["consistency", "timeliness", "accuracy"] as const) {
+    const dimension = score.dimensions.find((d) => d.dimension === na);
+    assert.equal(dimension?.score, null, `${na} is N.A.`);
+    assert.ok((dimension?.note ?? "").length > 0, `${na} explains why it is N.A.`);
+  }
+  assert.match(
+    score.dimensions.find((d) => d.dimension === "accuracy")?.note ?? "",
+    /reference/,
+  );
+
+  assert.ok(score.overall !== null);
+  assert.ok(
+    Math.abs(score.overall - (30 * 95 + 30 * (365 / 380) * 100 + 15 * 100) / 75) < 1e-6,
+    "weighted over three dimensions",
+  );
+  assert.equal(score.band, "good");
+
+  // Advisory-only signals never move the score.
+  const quiet = computeDQScore(
+    [meta({ name: "city" })],
+    stats({ valueAnomalyRows: 50, lengthAnomalyRows: 20 }),
+    100,
+  );
+  assert.equal(quiet.dimensions.find((d) => d.dimension === "completeness")?.score, 100);
+});
