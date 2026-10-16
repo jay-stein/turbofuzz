@@ -27,7 +27,8 @@ export type SpecialFilter =
   | "valueAnomalies"
   | "lengthAnomalies"
   | "groupAnomalies"
-  | "keyDuplicates";
+  | "keyDuplicates"
+  | "pairCheck";
 
 /** Specials that can be scoped to a single column (duplicates cannot). */
 export type ColumnSpecialKind =
@@ -134,6 +135,9 @@ export class QueryEngine {
       case "keyDuplicates":
         // Set by the composite-key check; before that, nothing matches.
         return this.dataset.keyDuplicateBits ?? new BitSet(this.dataset.rowCount);
+      case "pairCheck":
+        // Set by the inspector's compare check; before that, nothing matches.
+        return this.dataset.pairCheckBits ?? new BitSet(this.dataset.rowCount);
     }
   }
 

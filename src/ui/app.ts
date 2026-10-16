@@ -87,6 +87,7 @@ import { openRecipeMapping } from "./recipe-mapping.js";
 import { openExportPanel } from "./export-panel.js";
 import { openMergePanel } from "./merge-panel.js";
 import { normalize } from "../search/normalize.js";
+import type { PairOperator } from "../data/pair-checks.js";
 import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
@@ -3363,6 +3364,9 @@ export class App {
       onSuggestion: (suggestion) => this.applySuggestion(column, suggestion),
       onMerge: () => this.openMerge(column),
       onAllowedValues: (values) => this.checkAllowedValues(column, values),
+      onCompare: (target, operator, tolerance) =>
+        this.checkPair(column, target, operator, tolerance),
+      columns: () => this.metas,
       onRename: () => void this.renameColumn(column),
       onDelete: () => void this.confirmDeleteColumn(column),
       onRound: (decimals) =>
@@ -3443,6 +3447,47 @@ export class App {
     this.showToast(
       `“${meta.name}”: ${count.toLocaleString()} ${count === 1 ? "cell" : "cells"} outside the allowed list — filtered.`,
       () => this.changeFilter(column, null),
+    );
+  }
+
+  /** Pair/consistency check (plan §5.3): compare two columns, filter failures. */
+  private checkPair(
+    columnA: number,
+    columnB: number,
+    operator: PairOperator,
+    tolerance: number,
+  ): void {
+    const nameA = this.metas[columnA]?.name ?? `Column ${columnA + 1}`;
+    const nameB = this.metas[columnB]?.name ?? `Column ${columnB + 1}`;
+    const symbol =
+      operator === "gte" ? "≥" : operator === "gt" ? ">" : operator === "eq" ? "=" : "≈";
+    const label = `“${nameA}” ${symbol}${
+      operator === "approx" ? ` (±${tolerance})` : ""
+    } “${nameB}”`;
+    this.setView("table");
+    this.queueSend(() =>
+      this.client
+        .checkPair({ columnA, columnB, operator, tolerance })
+        .then((message) => {
+          const tail =
+            message.violations === 0
+              ? `no failures (${message.compared.toLocaleString()} rows compared)`
+              : `${message.violations.toLocaleString()} row${
+                  message.violations === 1 ? "" : "s"
+                } fail`;
+          this.setAction(`${label}: ${tail}`);
+          this.showToast(`${label}: ${tail}.`, () => this.toggleSpecial("pairCheck"));
+          this.updateCount(message.count, message.queryMs);
+          this.applyFacets(message.facets, message.histograms);
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(
+            message.firstRows,
+            message.firstGroups,
+            message.firstFlags,
+            message.firstChanged,
+          );
+        })
+        .catch((error: unknown) => this.showError(error)),
     );
   }
 

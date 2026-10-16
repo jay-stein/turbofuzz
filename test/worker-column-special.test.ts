@@ -144,4 +144,26 @@ test("worker applies per-column specials and reports anomaly counts", async () =
   assert.equal(keyed.count, 2, "the view is filtered to the duplicate group");
   send({ type: "setSpecial", requestId: 17, kind: "keyDuplicates", active: false });
   assert.equal((find("results", 17) as unknown as { count: number }).count, 4);
+
+  // Pair checks: compare two columns and filter to the failing rows.
+  send({
+    type: "load",
+    requestId: 18,
+    name: "t6",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: "start,end\n1,2\n2,1\n3,3\n",
+  });
+  find("loaded", 18);
+  send({ type: "checkPair", requestId: 19, columnA: 0, columnB: 1, operator: "gte" });
+  const pair = find("pairCheck", 19) as unknown as {
+    violations: number;
+    compared: number;
+    count: number;
+  };
+  assert.equal(pair.compared, 3);
+  assert.equal(pair.violations, 1);
+  assert.equal(pair.count, 1, "the view is filtered to the failing row");
+  send({ type: "setSpecial", requestId: 20, kind: "pairCheck", active: false });
+  assert.equal((find("results", 20) as unknown as { count: number }).count, 3);
 });

@@ -1,4 +1,5 @@
 import type { CleanOp } from "../data/clean-ops.js";
+import type { PairOperator } from "../data/pair-checks.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import type { DedupeKeep, ImputeStrategy } from "../data/transform-ops.js";
 import {
@@ -24,6 +25,10 @@ export interface ColumnInspectorCallbacks {
   onMerge(): void;
   /** Allowed-values check: flags values outside the user's list (filter only). */
   onAllowedValues(values: string[]): void;
+  /** Pair check: compare this column with another (filter to failures). */
+  onCompare(targetColumn: number, operator: PairOperator, tolerance: number): void;
+  /** All columns, so the compare menu can offer other numeric/date columns. */
+  columns?: () => readonly ColumnMeta[];
   onRename(): void;
   onDelete(): void;
   /** Fixed decimals for display; null = Auto. */
@@ -277,6 +282,24 @@ export function openColumnInspector(
 
   // Clean verbs in context (parameter-free ones apply immediately).
   const clean = section("Clean");
+  // Other numeric/date columns for the "Compare with…" check.
+  const comparableColumns =
+    callbacks.columns?.()
+      .map((entry, index) => ({ entry, index }))
+      .filter(
+        (candidate) =>
+          candidate.index !== column &&
+          (candidate.entry.type === "integer" ||
+            candidate.entry.type === "number" ||
+            candidate.entry.type === "date" ||
+            candidate.entry.type === "datetime"),
+      ) ?? [];
+  const canCompare =
+    comparableColumns.length > 0 &&
+    (meta.type === "integer" ||
+      meta.type === "number" ||
+      meta.type === "date" ||
+      meta.type === "datetime");
   clean.append(
     action("Trim", "Trim whitespace (applies immediately)", () => {
       close();
@@ -367,6 +390,59 @@ export function openColumnInspector(
       );
       return button;
     })(),
+    ...(canCompare
+      ? [
+          (() => {
+            const finish = (
+              target: number,
+              operator: PairOperator,
+              tolerance: number,
+            ): void => {
+              close();
+              callbacks.onCompare(target, operator, tolerance);
+            };
+            const button = action(
+              "Compare with…",
+              "Flag rows that break a rule against another column",
+              () => {
+                const columnsMenu: MenuItem[] = comparableColumns.map((candidate) => ({
+                  label: candidate.entry.name,
+                  title: `Compare “${meta.name}” with “${candidate.entry.name}”`,
+                  action: () => {
+                    const target = candidate.index;
+                    const targetName = candidate.entry.name;
+                    const operators: MenuItem[] = [
+                      { label: "≥ (at least)", action: () => finish(target, "gte", 0) },
+                      { label: "> (more than)", action: () => finish(target, "gt", 0) },
+                      { label: "= (equal)", action: () => finish(target, "eq", 0) },
+                      {
+                        label: "≈ within tolerance…",
+                        action: () => {
+                          void (async () => {
+                            const input = await openPrompt({
+                              title: `Tolerance for “${meta.name}” ≈ “${targetName}”`,
+                              label: "Maximum allowed difference",
+                              placeholder: "0.01",
+                              confirmLabel: "Check",
+                            });
+                            if (input === null) return;
+                            const tolerance = Number(input.trim());
+                            if (!Number.isFinite(tolerance) || tolerance < 0) return;
+                            finish(target, "approx", tolerance);
+                          })();
+                        },
+                      },
+                    ];
+                    openMenu(button, operators);
+                  },
+                }));
+                openMenu(button, columnsMenu);
+              },
+            );
+            return button;
+          })(),
+        ]
+      : []),
     ...(meta.categories !== null
       ? [
           action("Allowed values…", "Flag values outside a list you define (filters to them)", () => {

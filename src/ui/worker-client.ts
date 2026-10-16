@@ -1,6 +1,7 @@
 import type { Delimiter } from "../parse/delimiter.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { TimeGrain, ViewDef } from "../data/aggregate.js";
+import type { PairOperator } from "../data/pair-checks.js";
 import type { ChartBinOptions } from "../data/chart-bins.js";
 import type { SeriesMode } from "../data/chart-series.js";
 import type { ColumnFilter } from "../search/query-engine.js";
@@ -25,6 +26,7 @@ import type {
   DistributionChangesMessage,
   GridCountsMessage,
   KeyDuplicatesMessage,
+  PairCheckMessage,
   SimilarClustersMessage,
   ExportOptions,
   ExportScope,
@@ -253,6 +255,15 @@ export class SearchWorkerClient {
 
   checkKeyDuplicates(columns: number[]): Promise<KeyDuplicatesMessage> {
     return this.request<KeyDuplicatesMessage>({ type: "checkKeyDuplicates", columns });
+  }
+
+  checkPair(input: {
+    columnA: number;
+    columnB: number;
+    operator: PairOperator;
+    tolerance?: number;
+  }): Promise<PairCheckMessage> {
+    return this.request<PairCheckMessage>({ type: "checkPair", ...input });
   }
 
   getRelationships(): Promise<RelationshipsMessage> {

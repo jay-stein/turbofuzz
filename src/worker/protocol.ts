@@ -1,5 +1,6 @@
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
 import type { ViewDef } from "../data/aggregate.js";
+import type { PairOperator } from "../data/pair-checks.js";
 import type { DependencyPair } from "../data/dependencies.js";
 import type { GroupAnomalyPair } from "../data/group-anomalies.js";
 import type { RelationshipData } from "../data/relationships.js";
@@ -136,7 +137,8 @@ export type SpecialKind =
   | "lengthAnomalies"
   | "groupAnomalies"
   | "pattern"
-  | "keyDuplicates";
+  | "keyDuplicates"
+  | "pairCheck";
 
 export type SetSpecialRequest = {
   type: "setSpecial";
@@ -588,6 +590,35 @@ export type CheckKeyDuplicatesRequest = {
   columns: number[];
 };
 
+export type CheckPairRequest = {
+  type: "checkPair";
+  requestId: number;
+  columnA: number;
+  columnB: number;
+  operator: PairOperator;
+  tolerance?: number;
+};
+
+export interface PairCheckMessage {
+  type: "pairCheck";
+  requestId: number;
+  columnA: number;
+  columnB: number;
+  operator: PairOperator;
+  /** Rows where both values are present and the comparison fails. */
+  violations: number;
+  /** Rows where both values are present (null on either side is N.A.). */
+  compared: number;
+  count: number;
+  queryMs: number;
+  facets: Record<number, number[]>;
+  histograms: Record<number, number[]>;
+  firstRows: string[][];
+  firstGroups?: boolean[];
+  firstFlags?: Uint8Array;
+  firstChanged?: Uint8Array;
+}
+
 export interface KeyDuplicatesMessage {
   type: "keyDuplicates";
   requestId: number;
@@ -654,6 +685,7 @@ export type WorkerRequest =
   | GetDistributionChangesRequest
   | GetSimilarClustersRequest
   | CheckKeyDuplicatesRequest
+  | CheckPairRequest
   | GetGridCountsRequest
   | GetAnimationRequest;
 
@@ -865,6 +897,7 @@ export type WorkerResponse =
   | DistributionChangesMessage
   | SimilarClustersMessage
   | KeyDuplicatesMessage
+  | PairCheckMessage
   | GridCountsMessage
   | AnimationMessage
   | ExportStartedMessage

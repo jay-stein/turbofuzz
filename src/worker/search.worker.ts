@@ -9,6 +9,7 @@ import { computeDistributionChanges } from "../data/distribution.js";
 import { computeSimilarClusters } from "../data/similar-clusters.js";
 import { computeAnomalies } from "../data/anomalies.js";
 import { computeKeyDuplicates } from "../data/key-duplicates.js";
+import { computePairViolations } from "../data/pair-checks.js";
 import { buildDataset, buildDatasetAsync, datasetFromColumns, rebuildDataset } from "../data/build.js";
 import { applyCleanOps } from "../data/clean-ops.js";
 import type { Dataset } from "../data/dataset.js";
@@ -84,6 +85,7 @@ import type {
   SetNumberLocaleRequest,
   SetTypeRequest,
   CheckKeyDuplicatesRequest,
+  CheckPairRequest,
   SortRequest,
   SpecialKind,
   ProgressPhase,
@@ -270,6 +272,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "checkKeyDuplicates":
       handleCheckKeyDuplicates(message);
+      break;
+    case "checkPair":
+      handleCheckPair(message);
       break;
     case "setNumberLocale":
       handleSetNumberLocale(message);
@@ -859,6 +864,43 @@ function handleCheckKeyDuplicates(message: CheckKeyDuplicatesRequest): void {
     duplicateRows: result.duplicateRows,
     duplicateGroups: result.duplicateGroups,
     counted: result.counted,
+    count: sortedIds.length,
+    queryMs: performance.now() - started,
+    facets: computeFacets(dataset, engine, bits),
+    histograms: computeHistograms(dataset, engine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
+  });
+}
+
+/** Pair/consistency check: stores violation bits and activates the special. */
+function handleCheckPair(message: CheckPairRequest): void {
+  const { dataset, engine } = state();
+  const result = computePairViolations(
+    dataset.columns,
+    message.columnA,
+    message.columnB,
+    message.operator,
+    message.tolerance ?? 0,
+    dataset.rowCount,
+  );
+  dataset.pairCheckBits = result.violationBits;
+  engine.setSpecial("pairCheck", true);
+  specials.add("pairCheck");
+
+  const started = performance.now();
+  const bits = engine.evaluateBits(filters);
+  sortedIds = computeSortedIds(bits);
+  post({
+    type: "pairCheck",
+    requestId: message.requestId,
+    columnA: message.columnA,
+    columnB: message.columnB,
+    operator: message.operator,
+    violations: result.violations,
+    compared: result.compared,
     count: sortedIds.length,
     queryMs: performance.now() - started,
     facets: computeFacets(dataset, engine, bits),

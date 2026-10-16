@@ -67,6 +67,8 @@ function callbacks(
     onSuggestion: () => calls.push("suggestion"),
     onMerge: () => calls.push("merge"),
     onAllowedValues: (values) => calls.push(`allowed:${values.join("|")}`),
+    onCompare: (target, operator, tolerance) =>
+      calls.push(`compare:${target}:${operator}:${tolerance}`),
     onRename: () => calls.push("rename"),
     onDelete: () => calls.push("delete"),
     onDisplayFormat: (decimals) => calls.push(`format:${decimals}`),
@@ -213,6 +215,35 @@ test("category columns offer an allowed-values check", async () => {
   apply.click();
   await tick();
   assert.deepEqual(calls, ["allowed:a|b"]);
+});
+
+test("numeric columns offer a compare check with another column", () => {
+  setupDom();
+  const calls: string[] = [];
+  const cols = [
+    meta({ name: "start", type: "date" }),
+    meta({ name: "amount", type: "number" }),
+    meta({ name: "end", type: "date" }),
+  ];
+  openColumnInspector(
+    anchor(),
+    cols[1],
+    1,
+    callbacks(calls, { columns: () => cols }),
+  );
+  clickAction("Compare with…");
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const endItem = [...document.querySelectorAll(".context-menu .context-item")].find(
+    (item) => item.textContent === "end",
+  );
+  assert.ok(endItem !== undefined, "other numeric/date columns are listed");
+  (endItem as unknown as { click(): void }).click();
+  const gte = [...document.querySelectorAll(".context-menu .context-item")].find((item) =>
+    (item.textContent ?? "").startsWith("≥"),
+  );
+  assert.ok(gte !== undefined, "the operator menu appears");
+  (gte as unknown as { click(): void }).click();
+  assert.deepEqual(calls, ["compare:2:gte:0"]);
 });
 
 test("integer columns offer separators but no decimal-place options", () => {

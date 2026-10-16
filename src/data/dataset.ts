@@ -20,6 +20,8 @@ export class Dataset {
   groupAnomalyBits: BitSet | null = null;
   /** Composite-key duplicate bits, set by the palette's keydup check. */
   keyDuplicateBits: BitSet | null = null;
+  /** Pair-check violation bits, set by the inspector's compare check. */
+  pairCheckBits: BitSet | null = null;
 
   constructor(
     readonly name: string,
