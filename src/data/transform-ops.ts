@@ -185,15 +185,26 @@ function filterRaw(raw: readonly string[], mask: Uint8Array): string[] {
 /**
  * Groups rows by exact content using the same hash-then-compare strategy as
  * duplicate detection, so equality is exact without building row-key strings.
+ * A first counting pass keeps unique rows (the common case) out of the bucket
+ * map entirely — one number per distinct hash instead of one object per row.
  */
 function rowGroups(columns: readonly ColumnData[], rowCount: number): number[][] {
   const hashes = hashRows(columns, rowCount);
+  const counts = new Map<number, number>();
+  for (let row = 0; row < rowCount; row++) {
+    const hash = hashes[row];
+    counts.set(hash, (counts.get(hash) ?? 0) + 1);
+  }
   const buckets = new Map<number, { id: number; rep: number }[]>();
   const groups: number[][] = [];
   const columnCount = columns.length;
 
   for (let row = 0; row < rowCount; row++) {
     const hash = hashes[row];
+    if ((counts.get(hash) ?? 0) < 2) {
+      groups.push([row]);
+      continue;
+    }
     let bucket = buckets.get(hash);
     if (bucket === undefined) {
       bucket = [];

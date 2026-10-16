@@ -18,22 +18,67 @@ export function buildDataset(
   rows: string[][],
   onProgress?: (progress: BuildProgress) => void,
   numberPrior: NumberLocale = "dot",
+  releaseRows = false,
 ): Dataset {
   const rowCount = rows.length;
   const columnCount = headers.length;
-  const columns = headers.map((header, columnIndex) => {
-    onProgress?.({
-      detail: `Building columns (${columnIndex + 1}/${columnCount})…`,
-      current: columnIndex + 1,
-      total: columnCount,
-    });
-    const raw = new Array<string>(rowCount);
-    for (let row = 0; row < rowCount; row++) {
-      raw[row] = rows[row][columnIndex] ?? "";
-    }
-    return ColumnData.create(header, raw, undefined, numberPrior);
-  });
+  const columns = extractColumns(
+    headers,
+    rows,
+    rowCount,
+    numberPrior,
+    releaseRows,
+    (columnIndex) => {
+      onProgress?.({
+        detail: `Building columns (${columnIndex + 1}/${columnCount})…`,
+        current: columnIndex + 1,
+        total: columnCount,
+      });
+    },
+  );
   return finishDataset(name, columns, rowCount, onProgress);
+}
+
+/** Row chunks large enough to amortise the pass, small enough to release. */
+const RELEASE_CHUNK_ROWS = 25_000;
+
+/**
+ * Extracts the per-column raw arrays from the row-major grid. With
+ * `releaseRows` the processed row slots are cleared chunk by chunk, so the
+ * grid and the finished columns never coexist whole (callers give up the
+ * row references; the worker owns its grids).
+ */
+function extractColumns(
+  headers: string[],
+  rows: string[][],
+  rowCount: number,
+  numberPrior: NumberLocale,
+  releaseRows: boolean,
+  onColumn: (columnIndex: number) => void,
+): ColumnData[] {
+  const columnCount = headers.length;
+  const rawByColumn: string[][] = headers.map(() => new Array<string>(rowCount));
+  if (releaseRows && rowCount > RELEASE_CHUNK_ROWS) {
+    for (let start = 0; start < rowCount; start += RELEASE_CHUNK_ROWS) {
+      const end = Math.min(rowCount, start + RELEASE_CHUNK_ROWS);
+      for (let c = 0; c < columnCount; c++) {
+        const target = rawByColumn[c];
+        for (let row = start; row < end; row++) target[row] = rows[row]?.[c] ?? "";
+      }
+      for (let row = start; row < end; row++) rows[row] = null as unknown as string[];
+    }
+  } else {
+    for (let c = 0; c < columnCount; c++) {
+      const target = rawByColumn[c];
+      for (let row = 0; row < rowCount; row++) target[row] = rows[row]?.[c] ?? "";
+    }
+  }
+  const columns: ColumnData[] = [];
+  for (let c = 0; c < columnCount; c++) {
+    onColumn(c);
+    columns.push(ColumnData.create(headers[c], rawByColumn[c], undefined, numberPrior));
+  }
+  return columns;
 }
 
 export interface AsyncBuildOptions {
@@ -49,9 +94,10 @@ const yieldTick = (): Promise<void> =>
   });
 
 /**
- * Cancellable variant of `buildDataset` for the worker: yields between column
- * builds so a `cancelLoad` message can be processed, and returns null when
- * cancelled. The synchronous buildDataset stays for tests and benchmarks.
+ * Cancellable variant of `buildDataset` for the worker: extracts the grid in
+ * chunks (releasing rows as it goes) and yields between chunks and columns so
+ * a `cancelLoad` message can be processed. Returns null when cancelled. The
+ * synchronous buildDataset stays for tests and benchmarks.
  */
 export async function buildDatasetAsync(
   name: string,
@@ -63,8 +109,21 @@ export async function buildDatasetAsync(
 ): Promise<Dataset | null> {
   const rowCount = rows.length;
   const columnCount = headers.length;
-  const columns: ColumnData[] = [];
   const yieldEvery = Math.max(1, options.yieldEvery ?? 4);
+  const rawByColumn: string[][] = headers.map(() => new Array<string>(rowCount));
+
+  for (let start = 0; start < rowCount; start += RELEASE_CHUNK_ROWS) {
+    if (options.shouldCancel?.() === true) return null;
+    const end = Math.min(rowCount, start + RELEASE_CHUNK_ROWS);
+    for (let c = 0; c < columnCount; c++) {
+      const target = rawByColumn[c];
+      for (let row = start; row < end; row++) target[row] = rows[row]?.[c] ?? "";
+    }
+    for (let row = start; row < end; row++) rows[row] = null as unknown as string[];
+    await yieldTick();
+  }
+
+  const columns: ColumnData[] = [];
   for (let columnIndex = 0; columnIndex < columnCount; columnIndex++) {
     if (options.shouldCancel?.() === true) return null;
     onProgress?.({
@@ -72,11 +131,7 @@ export async function buildDatasetAsync(
       current: columnIndex + 1,
       total: columnCount,
     });
-    const raw = new Array<string>(rowCount);
-    for (let row = 0; row < rowCount; row++) {
-      raw[row] = rows[row][columnIndex] ?? "";
-    }
-    columns.push(ColumnData.create(headers[columnIndex], raw, undefined, numberPrior));
+    columns.push(ColumnData.create(headers[columnIndex], rawByColumn[columnIndex], undefined, numberPrior));
     if ((columnIndex + 1) % yieldEvery === 0) await yieldTick();
   }
   if (options.shouldCancel?.() === true) return null;

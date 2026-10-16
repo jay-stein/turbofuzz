@@ -179,7 +179,7 @@ function runCase(shape: ShapeName, rows: number, seed: number, maxCells: number)
   const parseMs = performance.now() - parseStarted;
 
   const buildStarted = performance.now();
-  const built = buildDataset(`bench-${shape}`, parsed.headers, parsed.rows);
+  const built = buildDataset(`bench-${shape}`, parsed.headers, parsed.rows, undefined, "dot", true);
   const buildMs = performance.now() - buildStarted;
   const rssAfterBuildMB = memMB().rssMB;
   void rssBefore;

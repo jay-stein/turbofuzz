@@ -167,6 +167,9 @@ export function ingestDataset(options: IngestOptions): IngestResult {
     prepared.rows,
     buildProgress(options),
     prepared.numberPrior,
+    // The worker owns the parsed grid; releasing rows as columns fill lowers
+    // the peak while the grid and the column arrays would otherwise coexist.
+    true,
   );
   return {
     dataset,
