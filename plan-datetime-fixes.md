@@ -1,6 +1,6 @@
 # Plan: Datetime Conversion Fixes (bird_tracking case)
 
-> Status: **Steps 1 + 4a shipped; steps 2–3, 4b–5 proposed**
+> Status: **Steps 1–4 shipped; step 5 acceptance checklist pending**
 > Date: 2026-10-16
 > Trigger: user report — `bird_tracking.csv` `date_time` (`2013-08-15 00:18:08+00`) could not be converted to a date/datetime; poor discoverability; silent failure.
 
@@ -45,25 +45,25 @@
 - Verified end-to-end on the real file: `date_time` loads as **`datetime` with `timeZoneAware: true`** — no conversion step needed at all.
 - Tests: `test/temporal.test.ts` gains hour-only offsets, lowercase `z`, and the exact bird-tracking format (type, awareness, instant math).
 
-### Step 2 — "Convert to date & time" (`toDateTime`) op (P1)
+### Step 2 — "Convert to date & time" (`toDateTime`) op ✅ (shipped)
 
 - New clean op storing the canonical **UTC instant** ISO (`toDateTimeValue`, offset normalised) so the time is never lost; inference then types it `datetime`.
-- Surface in: Clean panel op list, column ⋯ menu and inspector quick actions, command verb `datetime` (+ aliases `datetime`, `convert datetime`).
-- Rename the existing op label to **"Convert to date (date only)"** so the truncation is explicit.
-- Recipes: pandas `pd.to_datetime(col, utc=True)`; polars `pl.col(c).str.to_datetime(time_unit="us", utc=True)` (with support-report notes).
+- Shipped in: Clean panel op list ("Convert to date (date only)" vs "Convert to date & time"), column ⋯ menu, column inspector, command palette (`datetime`, `todatetime`, `convert datetime`/`convert date time`; placeholder now suggests `convert date_time to datetime`).
+- Recipes: pandas `pd.to_datetime(col, dayfirst=…, utc=True, errors="coerce")`; polars `pl.col(c).str.to_datetime(strict=False, utc=True)`.
 
-### Step 3 — Truthful feedback for instant cleans (P1)
+### Step 3 — Truthful feedback for instant cleans ✅ (shipped)
 
-- Before applying a cast op (`toDate`, `toDateTime`, `toNumber`) from an instant path, run the existing `cleanPreview`:
-  - **0 changed** → warning toast: `Nothing changed — 61,920 of 61,920 values don't parse as dates (e.g. “…”). [Open Clean panel]` and do **not** record a step.
-  - **Partial** → `Converted 54,000 cells · 7,920 left unchanged` + Undo.
-  - **Full** → current success toast.
-- Add the changed count to parameter-free ops too (`Trim applied — 12,301 cells changed`), reusing the preview count.
+- Cast ops (`toDate`, `toDateTime`, `toNumber`) now pre-flight the worker preview:
+  - **0 changed** → `Nothing changed in “date_time” — 61,920 of 61,920 values don't parse.` with a **Review values** action (opens Clean → Values) and no step recorded.
+  - **Partial** → `Converted 54,000 cells · 7,920 don't parse and were left unchanged` + Undo.
+  - **Full** → the existing success toast.
+- Deferred: adding changed counts to parameter-free ops (trim/case) — costs one preview round-trip each; revisit if feedback proves essential there.
 
-### Step 4 — Discoverable operations toolbar + palette coverage (P2)
+### Step 4 — Discoverable operations toolbar + palette coverage ✅ (shipped)
 
-- ✅ **"Do something… Ctrl/⌘ K" toolbar button shipped** (topbar, beside Theme/Help) opening the existing palette via a shared `openPalette()`; the first-run hint now names the button too.
-- Remaining: placeholder cycling examples (`round amount to 2 dp`, `trim customer_name`); add the `datetime` verb; audit that every clean op has a verb; when a verb matches but nothing can parse, explain: `date_time: 0% of values parse as dates — first problem “2013-08-15 00:18:08+00”`.
+- ✅ **"Do something… Ctrl/⌘ K" toolbar button** (topbar, beside Theme/Help) opening the palette via a shared `openPalette()`; first-run hint names the button.
+- ✅ `datetime` verb + aliases; placeholder suggests `convert date_time to datetime`.
+- The "verb matches but nothing parses" case is now explained by **Step 3's pre-flight toast** (exact unparsed counts + Review values), rather than a heuristic block in the parser — blocking on the inference heuristic would wrongly refuse columns whose formats parse below the 95% suggestion threshold.
 
 ### Step 5 — Acceptance (P1/P2 together)
 

@@ -54,7 +54,8 @@ const OP_TYPES: readonly { value: string; label: string }[] = [
   { value: "title", label: "Title Case" },
   { value: "replace", label: "Find & replace" },
   { value: "toNumber", label: "Convert to number" },
-  { value: "toDate", label: "Convert to date" },
+  { value: "toDate", label: "Convert to date (date only)" },
+  { value: "toDateTime", label: "Convert to date & time" },
 ];
 
 export interface CleanPanelOptions {
@@ -327,7 +328,10 @@ function buildValuesTab(
   const syncOpType = (): void => {
     replaceRow.classList.toggle("hidden", opSelect.value !== "replace");
     localeRow.classList.toggle("hidden", opSelect.value !== "toNumber");
-    dateOrderRow.classList.toggle("hidden", opSelect.value !== "toDate");
+    dateOrderRow.classList.toggle(
+      "hidden",
+      opSelect.value !== "toDate" && opSelect.value !== "toDateTime",
+    );
   };
 
   const currentBuilderOp = (): CleanOp | null =>
@@ -384,6 +388,10 @@ function buildValuesTab(
         break;
       case "toDate":
         opSelect.value = "toDate";
+        dateOrderSelect.value = initialOp.order;
+        break;
+      case "toDateTime":
+        opSelect.value = "toDateTime";
         dateOrderSelect.value = initialOp.order;
         break;
       default:
@@ -591,6 +599,8 @@ function readOp(
       return { kind: "toNumber", locale };
     case "toDate":
       return { kind: "toDate", order: dateOrder };
+    case "toDateTime":
+      return { kind: "toDateTime", order: dateOrder };
     default:
       return null;
   }

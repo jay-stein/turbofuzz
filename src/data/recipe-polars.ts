@@ -136,6 +136,8 @@ function polarsCleanLines(
       }
       case "toDate":
         return assign(`${column}.str.to_datetime(strict=False)`, name);
+      case "toDateTime":
+        return assign(`${column}.str.to_datetime(strict=False, utc=True)`, name);
     }
   });
 }

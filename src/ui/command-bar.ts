@@ -38,7 +38,12 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
   { name: "title", aliases: ["titlecase"], hint: "Title Case a column" },
   { name: "trim", aliases: ["strip"], hint: "Trim whitespace" },
   { name: "number", aliases: ["tonumber", "convert number"], hint: "Convert a column to numbers" },
-  { name: "date", aliases: ["todate", "convert date"], hint: "Convert a column to dates" },
+  { name: "date", aliases: ["todate", "convert date"], hint: "Convert a column to dates (date only)" },
+  {
+    name: "datetime",
+    aliases: ["todatetime", "convert datetime", "convert date time"],
+    hint: "Convert a column to date & time (keeps the clock)",
+  },
   { name: "escape", aliases: ["escape formulas"], hint: "Escape formula-like cells" },
   { name: "round", aliases: [], hint: "Round a column to N decimals" },
   { name: "fill", aliases: ["impute"], hint: "Fill missing values (mean/median/mode/constant)" },
@@ -164,6 +169,16 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
         column,
         op: { kind: "toDate", order: columns[column]?.dateOrder ?? "dmy" },
         label: `Converted ${columnName} to dates`,
+      };
+    }
+    case "datetime": {
+      const missing = needsColumn();
+      if (missing !== null) return missing;
+      return {
+        kind: "clean",
+        column,
+        op: { kind: "toDateTime", order: columns[column]?.dateOrder ?? "dmy" },
+        label: `Converted ${columnName} to date & time`,
       };
     }
     case "escape": {
@@ -392,7 +407,7 @@ export function commandSuggestions(
   const text = input.trim();
   const samples = columns.slice(0, 3).map((column) => column.name);
   const example = (name: string): string => {
-    const needs = ["upper", "lower", "title", "trim", "number", "date", "escape", "round", "fill", "split", "drop"].includes(name);
+    const needs = ["upper", "lower", "title", "trim", "number", "date", "datetime", "escape", "round", "fill", "split", "drop"].includes(name);
     return needs ? `${name} ${samples[0] ?? "amount"}` : name;
   };
   const base: CommandSuggestion[] = VERBS.map((verb) => ({
@@ -436,7 +451,7 @@ export function openCommandBar(options: CommandBarOptions): void {
   const input = el("input", {
     class: "command-input",
     type: "text",
-    placeholder: "Type a command — “upper amount”, “round price 2”, “group region sum sales”…",
+    placeholder: "Type a command — “convert date_time to datetime”, “upper amount”, “round price 2”…",
     spellcheck: "false",
     "aria-label": "Command",
   }) as HTMLInputElement;

@@ -297,6 +297,10 @@ export function openColumnInspector(
       close();
       callbacks.onQuickClean({ kind: "toDate", order: meta.dateOrder });
     }),
+    action("Convert to date & time", "Apply immediately — keeps the clock, stored as UTC", () => {
+      close();
+      callbacks.onQuickClean({ kind: "toDateTime", order: meta.dateOrder });
+    }),
     action("Escape formulas", "Prefix formula-like cells so spreadsheets keep them as text", () => {
       close();
       callbacks.onQuickClean({ kind: "escapeFormulas" });

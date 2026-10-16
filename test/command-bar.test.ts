@@ -57,6 +57,21 @@ test("column verbs parse into clean operations", () => {
   assert.equal(number.kind, "clean");
 });
 
+test("datetime converts a column keeping the clock", () => {
+  const command = parseCommand("datetime notes", columns);
+  assert.equal(command.kind, "clean");
+  if (command.kind === "clean") {
+    assert.equal(command.column, 3);
+    assert.deepEqual(command.op, { kind: "toDateTime", order: "dmy" });
+    assert.match(command.label, /date & time/);
+  }
+  const alias = parseCommand("convert datetime notes", columns);
+  assert.equal(alias.kind, "clean");
+  if (alias.kind === "clean") {
+    assert.equal(alias.op.kind, "toDateTime");
+  }
+});
+
 test("multi-word column names resolve by fuzzy match", () => {
   const command = parseCommand("upper start station id", columns);
   assert.equal(command.kind, "clean");

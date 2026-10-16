@@ -3426,6 +3426,11 @@ export class App {
       { instant: true },
     );
     addItem(
+      "Convert to date & time",
+      () => this.applyQuickClean(column, { kind: "toDateTime", order: meta.dateOrder }),
+      { instant: true },
+    );
+    addItem(
       "Escape formula-like cells",
       () => this.applyQuickClean(column, { kind: "escapeFormulas" }),
       { instant: true },
@@ -3482,6 +3487,10 @@ export class App {
 
   /** Applies a parameter-free clean straight from the menu, with an undo toast. */
   private applyQuickClean(column: number, op: CleanOp): void {
+    if (op.kind === "toDate" || op.kind === "toDateTime" || op.kind === "toNumber") {
+      void this.applyQuickCast(column, op);
+      return;
+    }
     const existing = this.cleanedColumns.get(column) ?? [];
     this.applyClean([{ column, ops: [...existing, op] }]);
     const name = this.metas[column]?.name ?? `Column ${column + 1}`;
@@ -3500,15 +3509,54 @@ export class App {
     });
   }
 
-  /** One transient toast at a time, with an optional Undo action. */
-  private showToast(message: string, onUndo?: () => void): void {
+  /**
+   * Cast ops (date, date & time, number) pre-flight the worker preview: a
+   * conversion that would change nothing reports how many values don't parse
+   * instead of applying a silent no-op with a success toast.
+   */
+  private async applyQuickCast(column: number, op: CleanOp): Promise<void> {
+    const existing = this.cleanedColumns.get(column) ?? [];
+    const applied = [...existing, op];
+    const name = this.metas[column]?.name ?? `Column ${column + 1}`;
+    const preview = await this.client.previewClean([{ column, ops: applied }]).catch(() => null);
+    const counts = preview?.columns[0];
+    if (counts !== undefined && counts.changed === 0) {
+      this.showToast(
+        `Nothing changed in “${name}” — ${counts.failed.toLocaleString()} of ${counts.total.toLocaleString()} values don't parse.`,
+        () => this.openClean(column, "values"),
+        "Review values",
+      );
+      return;
+    }
+    this.applyClean([{ column, ops: applied }]);
+    const summary =
+      counts !== undefined && counts.failed > 0
+        ? `Converted ${counts.changed.toLocaleString()} cells · ${counts.failed.toLocaleString()} don't parse and were left unchanged`
+        : `${describeCleanOp(op)} applied to “${name}”`;
+    this.showToast(summary, () => {
+      const current = this.cleanedColumns.get(column) ?? [];
+      const key = JSON.stringify(op);
+      let index = -1;
+      for (let i = current.length - 1; i >= 0; i--) {
+        if (JSON.stringify(current[i]) === key) {
+          index = i;
+          break;
+        }
+      }
+      if (index < 0) return;
+      this.applyClean([{ column, ops: current.filter((_, i) => i !== index) }]);
+    });
+  }
+
+  /** One transient toast at a time, with an optional action button (Undo by default). */
+  private showToast(message: string, onUndo?: () => void, actionLabel = "Undo"): void {
     for (const existing of document.querySelectorAll(".toast")) existing.remove();
     const toast = el("div", { class: "toast", role: "status" });
     toast.append(el("span", { class: "toast-text" }, [message]));
     const timer = window.setTimeout(() => toast.remove(), 6000);
     if (onUndo !== undefined) {
-      const undo = el("button", { class: "toast-undo", type: "button" }, ["Undo"]);
-      undo.title = "Reverse this action";
+      const undo = el("button", { class: "toast-undo", type: "button" }, [actionLabel]);
+      undo.title = actionLabel === "Undo" ? "Reverse this action" : actionLabel;
       undo.addEventListener("click", () => {
         window.clearTimeout(timer);
         toast.remove();

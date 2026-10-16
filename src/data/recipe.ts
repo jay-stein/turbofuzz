@@ -517,6 +517,8 @@ function cleanLines(
         return `${column} = ${column}.map(lambda v: ("'" + v) if isinstance(v, str) and v != "" and (v[0] in "=@\\t\\r" or (v[0] in "+-" and v[1:] != "" and not re.fullmatch(r"[0-9.,\\s]+", v[1:]))) else v)`;
       case "toDate":
         return `${column} = pd.to_datetime(${column}, dayfirst=${op.order === "dmy" ? "True" : "False"}, errors="coerce")`;
+      case "toDateTime":
+        return `${column} = pd.to_datetime(${column}, dayfirst=${op.order === "dmy" ? "True" : "False"}, utc=True, errors="coerce")`;
     }
   });
 }
