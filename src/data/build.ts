@@ -33,6 +33,65 @@ export function buildDataset(
     }
     return ColumnData.create(header, raw, undefined, numberPrior);
   });
+  return finishDataset(name, columns, rowCount, onProgress);
+}
+
+export interface AsyncBuildOptions {
+  /** Yield to the event loop every N columns so pending messages are seen. */
+  yieldEvery?: number;
+  /** Checked between columns and before the stats pass; true aborts. */
+  shouldCancel?: () => boolean;
+}
+
+const yieldTick = (): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+
+/**
+ * Cancellable variant of `buildDataset` for the worker: yields between column
+ * builds so a `cancelLoad` message can be processed, and returns null when
+ * cancelled. The synchronous buildDataset stays for tests and benchmarks.
+ */
+export async function buildDatasetAsync(
+  name: string,
+  headers: string[],
+  rows: string[][],
+  onProgress?: (progress: BuildProgress) => void,
+  numberPrior: NumberLocale = "dot",
+  options: AsyncBuildOptions = {},
+): Promise<Dataset | null> {
+  const rowCount = rows.length;
+  const columnCount = headers.length;
+  const columns: ColumnData[] = [];
+  const yieldEvery = Math.max(1, options.yieldEvery ?? 4);
+  for (let columnIndex = 0; columnIndex < columnCount; columnIndex++) {
+    if (options.shouldCancel?.() === true) return null;
+    onProgress?.({
+      detail: `Building columns (${columnIndex + 1}/${columnCount})…`,
+      current: columnIndex + 1,
+      total: columnCount,
+    });
+    const raw = new Array<string>(rowCount);
+    for (let row = 0; row < rowCount; row++) {
+      raw[row] = rows[row][columnIndex] ?? "";
+    }
+    columns.push(ColumnData.create(headers[columnIndex], raw, undefined, numberPrior));
+    if ((columnIndex + 1) % yieldEvery === 0) await yieldTick();
+  }
+  if (options.shouldCancel?.() === true) return null;
+  await yieldTick();
+  if (options.shouldCancel?.() === true) return null;
+  return finishDataset(name, columns, rowCount, onProgress);
+}
+
+/** Shared stats + Dataset construction for the sync and async builders. */
+function finishDataset(
+  name: string,
+  columns: ColumnData[],
+  rowCount: number,
+  onProgress?: (progress: BuildProgress) => void,
+): Dataset {
   onProgress?.({ detail: "Computing dataset stats…", phase: "stats" });
   const {
     stats,

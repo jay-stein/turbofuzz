@@ -72,7 +72,7 @@ import {
 } from "./theme.js";
 import { ResultTable, type ColumnQaKind, type HighlightRule } from "./table.js";
 import { openStatsModal } from "./stats.js";
-import { SearchWorkerClient } from "./worker-client.js";
+import { LoadCancelledError, SearchWorkerClient } from "./worker-client.js";
 import { openCleanPanel } from "./clean-panel.js";
 import { openConfirm, openPrompt } from "./dialog.js";
 import { openRecipeMapping } from "./recipe-mapping.js";
@@ -320,6 +320,7 @@ export class App {
   private loadTitle!: HTMLElement;
   private loadDetail!: HTMLElement;
   private loadBar!: HTMLElement;
+  private loadCancel!: HTMLButtonElement;
   private metaEl!: HTMLElement;
   private countEl!: HTMLElement;
   private actionEl!: HTMLElement;
@@ -550,7 +551,14 @@ export class App {
     const loadTrack = el("div", { class: "load-progress-track" });
     this.loadBar = el("div", { class: "load-progress-bar indeterminate" });
     loadTrack.append(this.loadBar);
-    this.loadPanel.append(loadHead, loadTrack);
+    this.loadCancel = el(
+      "button",
+      { class: "ghost load-cancel", type: "button" },
+      ["Cancel"],
+    ) as HTMLButtonElement;
+    this.loadCancel.title = "Stop this import — the current data stays loaded";
+    this.loadCancel.addEventListener("click", () => this.cancelLoad());
+    this.loadPanel.append(loadHead, loadTrack, this.loadCancel);
     card.append(this.loadPanel);
 
     const fileInput = el("input", {
@@ -950,9 +958,22 @@ export class App {
       this.hideLoadProgress();
       this.openWorkspace(loaded);
     } catch (error) {
-      this.statusEl.textContent =
-        error instanceof Error ? error.message : "Failed to parse data.";
-      this.statusEl.classList.add("error");
+      if (error instanceof LoadCancelledError) {
+        this.hideLoadProgress();
+        this.statusEl.classList.remove("error");
+        this.statusEl.textContent = this.lastLoaded
+          ? "Import cancelled — the loaded data is unchanged."
+          : "Import cancelled — nothing was loaded.";
+      } else {
+        const reason = error instanceof Error ? error.message : "unknown error";
+        this.setStatusError(
+          `Could not read ${options.name}: ${reason}. ${
+            this.lastLoaded
+              ? "The previous dataset is unchanged — fix the file or choose another."
+              : "Try another file or check the format."
+          }`,
+        );
+      }
     } finally {
       this.loading = false;
     }
@@ -1417,7 +1438,20 @@ export class App {
       this.hideLoadProgress();
       this.openWorkspace(loaded);
     } catch (error) {
-      this.setStatusError(error instanceof Error ? error.message : "Failed to build table");
+      if (error instanceof LoadCancelledError) {
+        this.hideLoadProgress();
+        this.statusEl.classList.remove("error");
+        this.statusEl.textContent = this.lastLoaded
+          ? "Import cancelled — the loaded data is unchanged."
+          : "Import cancelled — nothing was loaded.";
+      } else {
+        const reason = error instanceof Error ? error.message : "unknown error";
+        this.setStatusError(
+          `Could not build the table: ${reason}. ${
+            this.lastLoaded ? "The previous dataset is unchanged." : "Nothing was loaded."
+          }`,
+        );
+      }
     } finally {
       this.loading = false;
     }
@@ -1435,9 +1469,18 @@ export class App {
       bytes === null ? "" : ` · ${formatBytes(bytes)}`
     }`;
     this.setLoadDetail("Reading file…", null, null);
+    this.loadCancel.disabled = false;
     this.statusEl.textContent = "";
     this.statusEl.classList.remove("error");
     this.loadPanel.classList.remove("hidden");
+  }
+
+  /** Stops the in-flight import at the worker's next checkpoint. */
+  private cancelLoad(): void {
+    if (!this.loading) return;
+    this.loadCancel.disabled = true;
+    this.setLoadDetail("Cancelling…", null, null);
+    this.client.cancelLoad();
   }
 
   private hideLoadProgress(): void {
@@ -1469,8 +1512,14 @@ export class App {
   }
 
   private handleProgress(progress: ProgressMessage): void {
-    if (progress.phase === "parse") {
-      this.setLoadingProgress(progress.detail ?? "Parsing…", progress.current, progress.total);
+    if (progress.phase === "read" || progress.phase === "parse" || progress.phase === "infer") {
+      const fallback =
+        progress.phase === "read"
+          ? "Reading file…"
+          : progress.phase === "parse"
+            ? "Parsing…"
+            : "Inferring schema…";
+      this.setLoadingProgress(progress.detail ?? fallback, progress.current, progress.total);
     } else if (progress.phase === "build" || progress.phase === "stats") {
       const fallback = progress.phase === "stats" ? "Computing statistics…" : "Building…";
       this.setLoadingProgress(
@@ -1478,6 +1527,8 @@ export class App {
         progress.current,
         progress.total,
       );
+    } else if (progress.phase === "ready") {
+      this.setLoadingProgress(progress.detail ?? "Ready");
     } else if (progress.phase === "index" && progress.column !== undefined) {
       this.filterPanel?.setStatus(progress.column, progress.active === true ? "Building index…" : "");
     } else if (progress.phase === "sort") {

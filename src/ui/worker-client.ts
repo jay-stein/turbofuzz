@@ -65,11 +65,21 @@ export interface LoadOptions {
   table?: { rows: string[][]; hasHeaders: boolean };
 }
 
+/** The user cancelled an in-flight load; the dataset is unchanged. */
+export class LoadCancelledError extends Error {
+  constructor() {
+    super("Import cancelled");
+    this.name = "LoadCancelledError";
+  }
+}
+
 export class SearchWorkerClient {
   private readonly worker: Worker;
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;
   private progressHandler: ((message: ProgressMessage) => void) | null = null;
+  /** The load whose progress the UI may show; prevents stale-load flicker. */
+  private currentLoadId: number | null = null;
 
   constructor() {
     this.worker = new Worker(new URL("../worker/search.worker.ts", import.meta.url), {
@@ -89,7 +99,20 @@ export class SearchWorkerClient {
 
   load(options: LoadOptions): Promise<LoadedMessage> {
     const transfer = options.buffer === undefined ? [] : [options.buffer];
-    return this.request<LoadedMessage>({ type: "load", ...options }, transfer);
+    const requestId = this.nextId++;
+    return new Promise<LoadedMessage>((resolve, reject) => {
+      this.pending.set(requestId, {
+        resolve: resolve as (value: WorkerResponse) => void,
+        reject,
+      });
+      this.currentLoadId = requestId;
+      this.worker.postMessage({ type: "load", ...options, requestId } as WorkerRequest, transfer);
+    });
+  }
+
+  /** Stops the in-flight load at its next checkpoint; the dataset is unchanged. */
+  cancelLoad(): void {
+    this.worker.postMessage({ type: "cancelLoad" } as WorkerRequest);
   }
 
   setFilter(
@@ -311,13 +334,26 @@ export class SearchWorkerClient {
 
   private handle(message: WorkerResponse): void {
     if (message.type === "progress") {
+      // Drop progress from an earlier load so a cancelled import cannot keep
+      // painting the panel after the next one started.
+      if (message.requestId !== undefined && message.requestId !== this.currentLoadId) return;
       this.progressHandler?.(message);
       return;
     }
     const pending = this.pending.get(message.requestId);
     if (pending === undefined) return;
     this.pending.delete(message.requestId);
-    if (message.type === "error") pending.reject(new Error(message.message));
-    else pending.resolve(message);
+    if (message.type === "loadCancelled") {
+      if (this.currentLoadId === message.requestId) this.currentLoadId = null;
+      pending.reject(new LoadCancelledError());
+    } else if (message.type === "error") {
+      if (this.currentLoadId === message.requestId) this.currentLoadId = null;
+      pending.reject(new Error(message.message));
+    } else {
+      if (this.currentLoadId === message.requestId && message.type === "loaded") {
+        this.currentLoadId = null;
+      }
+      pending.resolve(message);
+    }
   }
 }

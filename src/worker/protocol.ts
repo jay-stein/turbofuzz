@@ -69,7 +69,15 @@ export interface ColumnDetail {
   topValues: { label: string; count: number }[] | null;
 }
 
-export type ProgressPhase = "parse" | "build" | "stats" | "index" | "sort";
+export type ProgressPhase =
+  | "read"
+  | "parse"
+  | "infer"
+  | "build"
+  | "stats"
+  | "index"
+  | "sort"
+  | "ready";
 
 export interface ProgressMessage {
   type: "progress";
@@ -80,6 +88,8 @@ export interface ProgressMessage {
   total?: number;
   column?: number;
   active?: boolean;
+  /** The load this progress belongs to; absent for non-load phases. */
+  requestId?: number;
 }
 
 export type LoadRequest = {
@@ -92,6 +102,9 @@ export type LoadRequest = {
   buffer?: ArrayBuffer;
   table?: { rows: string[][]; hasHeaders: boolean };
 };
+
+/** Stops the in-flight load at its next cancellation checkpoint. */
+export type CancelLoadRequest = { type: "cancelLoad" };
 
 export type SetFilterRequest = {
   type: "setFilter";
@@ -564,6 +577,7 @@ export interface DistributionChangesMessage {
 
 export type WorkerRequest =
   | LoadRequest
+  | CancelLoadRequest
   | SetFilterRequest
   | ClearFiltersRequest
   | SetSpecialRequest
@@ -621,6 +635,12 @@ export interface DatasetMessage {
 
 export interface LoadedMessage extends DatasetMessage {
   type: "loaded";
+}
+
+/** The in-flight load was cancelled before it swapped the dataset. */
+export interface LoadCancelledMessage {
+  type: "loadCancelled";
+  requestId: number;
 }
 
 export interface TransformedMessage extends DatasetMessage {
@@ -762,6 +782,7 @@ export interface CleanPreviewMessage {
 export type WorkerResponse =
   | ProgressMessage
   | LoadedMessage
+  | LoadCancelledMessage
   | TransformedMessage
   | ResultsMessage
   | SortedMessage

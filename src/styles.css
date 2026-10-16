@@ -571,6 +571,10 @@ textarea:focus {
   animation: load-spin 0.7s linear infinite;
 }
 
+.load-cancel {
+  align-self: flex-start;
+}
+
 @keyframes load-spin {
   to {
     transform: rotate(360deg);

@@ -8,7 +8,7 @@ import { textProfile } from "../data/text-profile.js";
 import { computeDistributionChanges } from "../data/distribution.js";
 import { computeSimilarClusters } from "../data/similar-clusters.js";
 import { computeAnomalies } from "../data/anomalies.js";
-import { buildDataset, datasetFromColumns, rebuildDataset } from "../data/build.js";
+import { buildDataset, buildDatasetAsync, datasetFromColumns, rebuildDataset } from "../data/build.js";
 import { applyCleanOps } from "../data/clean-ops.js";
 import type { Dataset } from "../data/dataset.js";
 import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
@@ -45,7 +45,7 @@ import {
 } from "../search/query-engine.js";
 import { isNumericLikeType, type ColumnType } from "../types.js";
 import { buildCsv } from "./csv.js";
-import { ingestDataset, type IngestResult } from "./ingest.js";
+import { ingestDataset, ingestDatasetAsync, type IngestResult } from "./ingest.js";
 import type {
   CleanColumnsRequest,
   ClearExcludedRowsRequest,
@@ -82,6 +82,7 @@ import type {
   SetTypeRequest,
   SortRequest,
   SpecialKind,
+  ProgressPhase,
   TransformRequest,
   WorkerRequest,
   WorkerResponse,
@@ -178,8 +179,30 @@ let datasetSource: "paste" | "file" = "paste";
 let datasetEncoding: FileEncoding | null = null;
 let datasetDelimiter: Delimiter | null = null;
 let datasetRagged: RaggedInfo = { paddedRows: 0, extraCellRows: 0, extraCells: 0 };
+// The in-flight load, so cancelLoad can flag it and the build loop can stop.
+let activeLoad: { requestId: number; cancelled: boolean } | null = null;
 
 const FIRST_PAGE_ROWS = 40;
+
+/** Progress tied to one load, so the client can drop messages from old loads. */
+function postLoadProgress(
+  requestId: number,
+  progress: {
+    phase: ProgressPhase;
+    detail?: string;
+    current?: number;
+    total?: number;
+  },
+): void {
+  post({
+    type: "progress",
+    requestId,
+    phase: progress.phase,
+    detail: progress.detail,
+    current: progress.current,
+    total: progress.total,
+  });
+}
 
 function post(message: WorkerResponse, transfer?: Transferable[]): void {
   if (transfer !== undefined && transfer.length > 0) scope.postMessage(message, transfer);
@@ -194,6 +217,8 @@ async function dispatch(message: WorkerRequest): Promise<void> {
   try {
     await handle(message);
   } catch (error) {
+    // cancelLoad is fire-and-forget and has no requestId to answer.
+    if (!("requestId" in message)) return;
     post({
       type: "error",
       requestId: message.requestId,
@@ -206,6 +231,9 @@ async function handle(message: WorkerRequest): Promise<void> {
   switch (message.type) {
     case "load":
       await handleLoad(message);
+      break;
+    case "cancelLoad":
+      handleCancelLoad();
       break;
     case "setFilter":
       handleSetFilter(message);
@@ -457,84 +485,142 @@ function handleShuffle(message: { requestId: number; limit?: number }): void {
   });
 }
 
+/** Flags the in-flight load; the build loop stops at its next checkpoint. */
+function handleCancelLoad(): void {
+  if (activeLoad !== null) activeLoad.cancelled = true;
+}
+
 async function handleLoad(message: LoadRequest): Promise<void> {
   const started = performance.now();
+  const active = { requestId: message.requestId, cancelled: false };
+  activeLoad = active;
+  const cancelled = (): boolean => active.cancelled;
+  const cancelNow = (): void => {
+    post({ type: "loadCancelled", requestId: message.requestId });
+  };
 
-  // Parquet is decoded lazily inside the worker; every other format goes through
-  // the shared text/table ingest path, which stays synchronous.
-  let ingested: IngestResult;
-  if (message.buffer !== undefined && isParquetName(message.name)) {
-    post({ type: "progress", phase: "parse", detail: "Reading parquet…" });
-    const grid = await readParquetGrid(message.buffer);
-    const dataset = buildDataset(message.name, grid.headers, grid.rows, (progress) =>
-      post({
-        type: "progress",
-        phase: progress.phase ?? "build",
-        detail: progress.detail,
-        current: progress.current,
-        total: progress.total,
-      }),
-    );
-    ingested = {
-      dataset,
-      encoding: null,
-      delimiter: null,
-      ragged: measureRagged(grid.rows, grid.headers.length),
-    };
-  } else {
-    ingested = ingestDataset({
-      name: message.name,
-      delimiter: message.delimiter,
-      hasHeaders: message.hasHeaders,
-      text: message.text,
-      buffer: message.buffer,
-      table: message.table,
-      onProgress: (progress) =>
-        post({ type: "progress", phase: progress.phase, detail: progress.detail }),
+  try {
+    // Parquet is decoded lazily inside the worker; every other format goes
+    // through the shared text/table ingest path.
+    let ingested: IngestResult | null;
+    if (message.buffer !== undefined && isParquetName(message.name)) {
+      postLoadProgress(message.requestId, { phase: "read", detail: "Reading parquet…" });
+      const grid = await readParquetGrid(message.buffer);
+      if (cancelled()) {
+        cancelNow();
+        return;
+      }
+      postLoadProgress(message.requestId, { phase: "infer", detail: "Inferring schema…" });
+      const dataset = await buildDatasetAsync(
+        message.name,
+        grid.headers,
+        grid.rows,
+        (progress) =>
+          postLoadProgress(message.requestId, {
+            phase: progress.phase ?? "build",
+            detail: progress.detail,
+            current: progress.current,
+            total: progress.total,
+          }),
+        "dot",
+        { shouldCancel: cancelled },
+      );
+      if (dataset === null) {
+        cancelNow();
+        return;
+      }
+      ingested = {
+        dataset,
+        encoding: null,
+        delimiter: null,
+        ragged: measureRagged(grid.rows, grid.headers.length),
+      };
+    } else {
+      // Small synchronous loads complete before a cancel could ever arrive;
+      // file buffers and large pastes/tables use the cancellable chunked path.
+      const tableCells =
+        message.table === undefined
+          ? 0
+          : message.table.rows.length * Math.max(1, message.table.rows[0]?.length ?? 1);
+      const cancellable =
+        message.buffer !== undefined ||
+        tableCells > 50_000 ||
+        (message.text !== undefined && message.text.length > 1_000_000);
+      const options = {
+        name: message.name,
+        delimiter: message.delimiter,
+        hasHeaders: message.hasHeaders,
+        text: message.text,
+        buffer: message.buffer,
+        table: message.table,
+        onProgress: (progress: {
+          phase: ProgressPhase;
+          detail?: string;
+          current?: number;
+          total?: number;
+        }) =>
+          postLoadProgress(message.requestId, {
+            phase: progress.phase,
+            detail: progress.detail,
+            current: progress.current,
+            total: progress.total,
+          }),
+      };
+      ingested = cancellable
+        ? await ingestDatasetAsync(options, { cancelled })
+        : ingestDataset(options);
+    }
+
+    if (ingested === null || cancelled()) {
+      cancelNow();
+      return;
+    }
+
+    const { dataset: next, encoding, ragged, delimiter } = ingested;
+    dataset = next;
+    engine = new QueryEngine(next);
+    filters.clear();
+    rankColumn = -1;
+    rankAsc = null;
+    sortDir = 1;
+    exportIds = null;
+    duplicateRank = null;
+    specials.clear();
+    columnSpecials.clear();
+    clearExclusions();
+    histogramCache.clear();
+    cleanSource.clear();
+    resetChangedCells();
+    nullPolicies.clear();
+    numberLocales.clear();
+    typeOverrides.clear();
+    transformSource = null;
+    transformOps = [];
+    datasetSource = message.buffer !== undefined ? "file" : "paste";
+    datasetEncoding = encoding;
+    datasetDelimiter = delimiter;
+    datasetRagged = ragged;
+    sortedIds = engine.evaluate(filters);
+
+    postLoadProgress(message.requestId, { phase: "ready", detail: "Ready" });
+    post({
+      type: "loaded",
+      requestId: message.requestId,
+      name: next.name,
+      headers: next.columns.map((column) => column.name),
+      rowCount: next.rowCount,
+      columnCount: next.columnCount,
+      columns: next.columns.map((column, index) => metaFor(next, column, index)),
+      stats: next.stats,
+      ingestMs: performance.now() - started,
+      source: datasetSource,
+      encoding: datasetEncoding,
+      delimiter: datasetDelimiter,
+      ragged: datasetRagged,
     });
+  } finally {
+    if (activeLoad === active) activeLoad = null;
   }
-
-  const { dataset: next, encoding, ragged, delimiter } = ingested;
-  dataset = next;
-  engine = new QueryEngine(next);
-  filters.clear();
-  rankColumn = -1;
-  rankAsc = null;
-  sortDir = 1;
-  exportIds = null;
-  duplicateRank = null;
-  specials.clear();
-  columnSpecials.clear();
-  clearExclusions();
-  histogramCache.clear();
-  cleanSource.clear();
-  resetChangedCells();
-  nullPolicies.clear();
-  numberLocales.clear();
-  typeOverrides.clear();
-  transformSource = null;
-  transformOps = [];
-  datasetSource = message.buffer !== undefined ? "file" : "paste";
-  datasetEncoding = encoding;
-  datasetDelimiter = delimiter;
-  datasetRagged = ragged;
-  sortedIds = engine.evaluate(filters);
-
-  post({
-    type: "loaded",
-    requestId: message.requestId,
-    name: next.name,
-    headers: next.columns.map((column) => column.name),
-    rowCount: next.rowCount,
-    columnCount: next.columnCount,
-    columns: next.columns.map((column, index) => metaFor(next, column, index)),
-    stats: next.stats,
-    ingestMs: performance.now() - started,
-    source: datasetSource,
-    encoding: datasetEncoding,
-    delimiter: datasetDelimiter,
-    ragged: datasetRagged,
-  });
 }
 
 function handleSetFilter(message: SetFilterRequest): void {
