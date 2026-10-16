@@ -69,6 +69,7 @@ function callbacks(
     onAllowedValues: (values) => calls.push(`allowed:${values.join("|")}`),
     onCompare: (target, operator, tolerance) =>
       calls.push(`compare:${target}:${operator}:${tolerance}`),
+    onCheckFreshness: (days) => calls.push(`fresh:${days}`),
     onRename: () => calls.push("rename"),
     onDelete: () => calls.push("delete"),
     onDisplayFormat: (decimals) => calls.push(`format:${decimals}`),

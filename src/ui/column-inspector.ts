@@ -27,6 +27,8 @@ export interface ColumnInspectorCallbacks {
   onAllowedValues(values: string[]): void;
   /** Pair check: compare this column with another (filter to failures). */
   onCompare(targetColumn: number, operator: PairOperator, tolerance: number): void;
+  /** Freshness rule: max acceptable age in days (scores Timeliness). */
+  onCheckFreshness(days: number): void;
   /** All columns, so the compare menu can offer other numeric/date columns. */
   columns?: () => readonly ColumnMeta[];
   onRename(): void;
@@ -390,6 +392,26 @@ export function openColumnInspector(
       );
       return button;
     })(),
+    ...(meta.type === "date" || meta.type === "datetime"
+      ? meta.stats.max !== null
+        ? [
+            action("Check freshness…", "Score timeliness: how old is the newest value?", () => {
+              void (async () => {
+                const input = await openPrompt({
+                  title: `Freshness for “${meta.name}”`,
+                  label: "Maximum acceptable age in days",
+                  value: "30",
+                  confirmLabel: "Check",
+                });
+                close();
+                if (input === null) return;
+                const days = Number(input.trim());
+                if (Number.isFinite(days) && days > 0) callbacks.onCheckFreshness(days);
+              })();
+            }),
+          ]
+        : []
+      : []),
     ...(canCompare
       ? [
           (() => {

@@ -1,4 +1,4 @@
-import type { DQScore, ScoreCheck } from "../data/score.js";
+import type { DQScore, ScoreCheck, ScoreDimension } from "../data/score.js";
 import { setupDialog } from "./dialog.js";
 import { clear, el } from "./dom.js";
 
@@ -9,6 +9,20 @@ export interface QualityPanelCallbacks {
   onFilter(check: ScoreCheck): void;
   /** Copy/download the DQ report; resolves false when the clipboard blocks. */
   onExport(kind: DQExportKind): Promise<boolean>;
+  /** Column names for the matrix (indexed by column). */
+  columnNames?: readonly string[];
+  /** Current weights/bands overrides (prefills the settings). */
+  config?: {
+    weights?: Partial<Record<ScoreDimension, number>>;
+    bandGood?: number;
+    bandFair?: number;
+  };
+  /** Persist new weights/bands; the app reopens the drawer with the new score. */
+  onConfigChange?(config: {
+    weights: Partial<Record<ScoreDimension, number>>;
+    bandGood: number;
+    bandFair: number;
+  }): void;
 }
 
 function bandClass(score: number | null): string {
@@ -60,6 +74,71 @@ export function openQualityPanel(score: DQScore, callbacks: QualityPanelCallback
   );
   modal.append(summary);
 
+  // Weights & bands: effective weights come from the current score; edits are
+  // persisted by the app, which reopens the drawer with the recomputed score.
+  const settingsToggle = el(
+    "button",
+    { class: "ghost small quality-settings-btn", type: "button" },
+    ["Weights & bands ▾"],
+  ) as HTMLButtonElement;
+  const settings = el("div", { class: "quality-settings hidden" });
+  const weightInputs = new Map<ScoreDimension, HTMLInputElement>();
+  for (const dimension of score.dimensions) {
+    const row = el("label", { class: "quality-setting" });
+    const input = el("input", {
+      class: "chart-number",
+      type: "number",
+      min: "0",
+      max: "100",
+      step: "5",
+      value: String(dimension.weight),
+      "aria-label": `${dimension.label} weight`,
+    }) as HTMLInputElement;
+    weightInputs.set(dimension.dimension, input);
+    row.append(el("span", {}, [dimension.label]), input);
+    settings.append(row);
+  }
+  const bandRow = el("div", { class: "quality-setting" });
+  const goodInput = el("input", {
+    class: "chart-number",
+    type: "number",
+    min: "50",
+    max: "100",
+    value: String(callbacks.config?.bandGood ?? 90),
+    "aria-label": "Good band threshold",
+  }) as HTMLInputElement;
+  const fairInput = el("input", {
+    class: "chart-number",
+    type: "number",
+    min: "0",
+    max: "100",
+    value: String(callbacks.config?.bandFair ?? 75),
+    "aria-label": "Fair band threshold",
+  }) as HTMLInputElement;
+  bandRow.append(el("span", {}, ["Good ≥"]), goodInput, el("span", {}, ["Fair ≥"]), fairInput);
+  settings.append(bandRow);
+  const applySettings = el("button", { class: "primary", type: "button" }, [
+    "Apply",
+  ]) as HTMLButtonElement;
+  applySettings.addEventListener("click", () => {
+    const weights: Partial<Record<ScoreDimension, number>> = {};
+    for (const [dimension, input] of weightInputs) {
+      const value = Number(input.value);
+      if (Number.isFinite(value) && value >= 0) weights[dimension] = value;
+    }
+    const bandGood = Number(goodInput.value);
+    const bandFair = Number(fairInput.value);
+    callbacks.onConfigChange?.({
+      weights,
+      bandGood: Number.isFinite(bandGood) ? bandGood : 90,
+      bandFair: Number.isFinite(bandFair) ? bandFair : 75,
+    });
+    close();
+  });
+  settings.append(applySettings);
+  settingsToggle.addEventListener("click", () => settings.classList.toggle("hidden"));
+  modal.append(settingsToggle, settings);
+
   const only = el("label", { class: "control check clean-check" });
   const toggle = el("input", { type: "checkbox" }) as HTMLInputElement;
   only.append(toggle, "Show only issues");
@@ -67,6 +146,10 @@ export function openQualityPanel(score: DQScore, callbacks: QualityPanelCallback
 
   const list = el("div", { class: "quality-list" });
   modal.append(list);
+
+  const matrixTitle = el("div", { class: "quality-matrix-title" }, ["Column × dimension"]);
+  const matrixHost = el("div", { class: "quality-matrix" });
+  modal.append(matrixTitle, matrixHost);
 
   const footer = el("div", { class: "clean-footer" });
   const swapLabel = (button: HTMLButtonElement, label: string, ok: boolean): void => {
@@ -165,6 +248,77 @@ export function openQualityPanel(score: DQScore, callbacks: QualityPanelCallback
     }
     if (list.childElementCount === 0) {
       list.append(el("div", { class: "clean-empty" }, ["No issues — every check passes."]));
+    }
+
+    // Column × dimension matrix: pass rate per column for the per-column
+    // checks (completeness and validity); click a cell to filter its failures.
+    clear(matrixHost);
+    const perColumn = new Map<number, Map<ScoreDimension, ScoreCheck>>();
+    for (const dimension of score.dimensions) {
+      for (const check of dimension.checks) {
+        if (check.column === null) continue;
+        let entry = perColumn.get(check.column);
+        if (entry === undefined) {
+          entry = new Map();
+          perColumn.set(check.column, entry);
+        }
+        entry.set(dimension.dimension, check);
+      }
+    }
+    const dims: ScoreDimension[] = ["completeness", "validity"];
+    const rows = [...perColumn.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .filter(
+        ([, checks]) =>
+          !toggle.checked || [...checks.values()].some((check) => check.fail > 0),
+      );
+    matrixTitle.classList.toggle("hidden", rows.length === 0);
+    matrixHost.classList.toggle("hidden", rows.length === 0);
+    if (rows.length > 0) {
+      const table = el("table", { class: "quality-matrix-table" });
+      const head = el("tr");
+      head.append(el("th", {}, ["Column"]));
+      for (const dimension of dims) {
+        head.append(
+          el("th", {}, [dimension === "completeness" ? "Comp" : "Valid"]),
+        );
+      }
+      table.append(head);
+      for (const [column, checks] of rows) {
+        const tr = el("tr");
+        tr.append(el("td", {}, [callbacks.columnNames?.[column] ?? `Column ${column + 1}`]));
+        for (const dimension of dims) {
+          const td = el("td", {});
+          const check = checks.get(dimension);
+          if (check === undefined) {
+            td.append(el("span", { class: "quality-cell band-na" }, ["—"]));
+          } else {
+            const applicable = check.pass + check.fail;
+            const rate = applicable === 0 ? null : check.pass / applicable;
+            const button = el(
+              "button",
+              {
+                class: `quality-cell band-${
+                  rate === null ? "na" : rate >= 0.95 ? "good" : rate >= 0.8 ? "fair" : "poor"
+                }`,
+                type: "button",
+                title: `${check.label} — ${check.fail.toLocaleString()} fail`,
+              },
+              [rate === null ? "n/a" : `${Math.round(rate * 100)}%`],
+            ) as HTMLButtonElement;
+            if (check.filter !== null) {
+              button.addEventListener("click", () => {
+                callbacks.onFilter(check);
+                close();
+              });
+            }
+            td.append(button);
+          }
+          tr.append(td);
+        }
+        table.append(tr);
+      }
+      matrixHost.append(table);
     }
   };
   render();

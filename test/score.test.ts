@@ -110,3 +110,65 @@ test("weights applicable dimensions and excludes N.A. ones", () => {
   );
   assert.equal(quiet.dimensions.find((d) => d.dimension === "completeness")?.score, 100);
 });
+
+test("user-run checks score consistency and timeliness", () => {
+  const userChecks = [
+    {
+      id: "consistency.pair",
+      dimension: "consistency" as const,
+      label: "“a” ≤ “b”",
+      detail: "90 rows compared",
+      pass: 90,
+      fail: 10,
+      na: 0,
+      column: null,
+      filter: "pairCheck" as const,
+      fixLabel: "Show failing",
+    },
+    {
+      id: "timeliness.freshness",
+      dimension: "timeliness" as const,
+      label: "“day” is fresh (≤ 30 days)",
+      detail: "newest value 2026-10-01",
+      pass: 0,
+      fail: 1,
+      na: 0,
+      column: null,
+      filter: null,
+      fixLabel: null,
+    },
+  ];
+  const score = computeDQScore([meta({ name: "city" })], stats(), 100, {}, userChecks);
+
+  const consistency = score.dimensions.find((d) => d.dimension === "consistency");
+  assert.equal(consistency?.score, 90, "pair violations become the dimension score");
+  assert.equal(consistency?.note, null, "the N.A. note disappears once a check runs");
+  assert.equal(consistency?.checks[0]?.id, "consistency.pair");
+  assert.equal(consistency?.checks[0]?.filter, "pairCheck");
+  assert.equal(score.dimensions.find((d) => d.dimension === "timeliness")?.score, 0);
+
+  // 30·100 + 30·100 + 15·100 + 15·90 + 10·0 over a weight sum of 100.
+  assert.ok(score.overall !== null && Math.abs(score.overall - 88.5) < 1e-6);
+  assert.equal(score.band, "fair");
+
+  // Weights and bands come from the config.
+  const strict = computeDQScore(
+    [meta({ name: "city" })],
+    stats(),
+    100,
+    { bandGood: 85 },
+    userChecks,
+  );
+  assert.equal(strict.band, "good", "a lower good-band reclassifies the same score");
+  const noValidity = computeDQScore(
+    [meta({ name: "city", stats: { ...meta().stats, nulls: 10 } })],
+    stats(),
+    100,
+    { weights: { completeness: 100, validity: 0 } },
+  );
+  assert.ok(
+    noValidity.overall !== null &&
+      Math.abs(noValidity.overall - (100 * 90 + 15 * 100) / 115) < 1e-6,
+    "zero-weight dimensions drop out of the overall",
+  );
+});

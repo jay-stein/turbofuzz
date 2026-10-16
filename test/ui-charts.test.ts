@@ -2064,3 +2064,63 @@ test("a line card plots its own measure over time without a view", async () => {
   assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), false);
   card.dispose();
 });
+
+test("a bar card plots a measure per category without a view", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: ViewDef[] = [];
+  const aggregate = (view: ViewDef): AggregateMessage => ({
+    type: "aggregate",
+    requestId: 1,
+    viewId: view.id,
+    labels: ["Portland", "Salem"],
+    dimensions: [["Portland", "Salem"]],
+    dimensionNames: ["city (value)"],
+    dimensionIsTime: [false],
+    dimensionTimes: [Float64Array.from([Number.NaN, Number.NaN])],
+    measures: [Float64Array.from([30, 10])],
+    measureNames: ["mean(amount)"],
+    totals: Float64Array.from([20]),
+    groupCount: 2,
+    totalGroups: 2,
+    truncated: false,
+    partials: null,
+    ms: 1,
+  });
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestAggregate: (view: ViewDef) => {
+        calls.push(view);
+        return Promise.resolve(aggregate(view));
+      },
+    },
+    { kind: "bar", column: 1, valueColumn: 0, valueAgg: "mean" },
+  );
+  const columns = [
+    meta({ name: "amount", type: "number" }),
+    meta({ name: "city", type: "category" }),
+  ];
+  card.setColumns(columns);
+  await tick();
+
+  assert.equal(calls.length, 1, "the card fetches its own aggregate");
+  const def = calls[0];
+  assert.ok(def !== undefined);
+  assert.deepEqual(def.dimensions, [{ column: 1, by: "value" }]);
+  assert.deepEqual(def.measures, [{ column: 0, agg: "mean" }]);
+  assert.deepEqual(def.sort, { key: "m0", dir: "desc" }, "categories sort by measure");
+  assert.equal(def.fill, "none");
+  assert.equal(def.respectFilters, true, "value bars respect the active filters");
+
+  const tagWrap = (label: string): HTMLElement | null =>
+    ([...host.querySelectorAll(".chart-tag")] as HTMLElement[]).find(
+      (tag) => tag.querySelector(".chart-tag-label")?.textContent === label,
+    ) ?? null;
+  assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Agg")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), true, "no grain for bars");
+  card.dispose();
+});

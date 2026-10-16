@@ -5307,3 +5307,50 @@ label.null-row {
 }
 
 .quality-list { max-height: 60vh; overflow-y: auto; }
+
+/* ---------- quality settings + matrix ---------- */
+
+.quality-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 2px;
+  align-items: center;
+}
+
+.quality-setting {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.quality-setting input { width: 64px; }
+
+.quality-matrix-title { margin-top: 14px; font-weight: 600; font-size: 12.5px; }
+.quality-matrix-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+
+.quality-matrix-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 600;
+  font-size: 11px;
+  padding: 4px 6px;
+}
+
+.quality-matrix-table td { padding: 2px 6px; font-size: 12px; }
+
+.quality-cell {
+  border: none;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font: inherit;
+  cursor: pointer;
+  background: var(--panel-2);
+}
+
+.quality-cell.band-good { color: var(--ok); }
+.quality-cell.band-fair { color: var(--qa-warn); }
+.quality-cell.band-poor { color: var(--danger); }
+.quality-cell.band-na { color: var(--text-dim); cursor: default; }

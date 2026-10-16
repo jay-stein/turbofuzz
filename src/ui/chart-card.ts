@@ -1623,8 +1623,9 @@ export class ChartCard {
     const kind = this.config.kind;
     const pair = isPairKind(kind);
     const groupable = this.columns.some((meta) => isCategoryType(meta.type));
+    const measureKinds = kind === "line" || kind === "bar";
     const valueOn =
-      kind === "line" && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
+      measureKinds && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
     this.kindSelect.classList.toggle("hidden", bound);
     this.primaryWrap.classList.toggle("hidden", bound || pair || kind === "correlation");
     this.groupWrap.classList.toggle(
@@ -1634,8 +1635,8 @@ export class ChartCard {
         !groupable ||
         valueOn,
     );
-    this.valueWrap.classList.toggle("hidden", bound || kind !== "line");
-    this.valueAggWrap.classList.toggle("hidden", bound || kind !== "line" || !valueOn);
+    this.valueWrap.classList.toggle("hidden", bound || !measureKinds);
+    this.valueAggWrap.classList.toggle("hidden", bound || !measureKinds || !valueOn);
     this.valueGrainWrap.classList.toggle("hidden", bound || kind !== "line" || !valueOn);
     this.xWrap.classList.toggle("hidden", bound || !pair);
     this.yWrap.classList.toggle("hidden", bound || !pair);
@@ -1664,11 +1665,11 @@ export class ChartCard {
       });
   }
 
-  /** True when this card plots its own value-over-time aggregate (line cards). */
+  /** True when this card plots its own measure aggregate (line/bar cards). */
   private usesValueAggregate(): boolean {
     return (
       this.config.source === "" &&
-      this.config.kind === "line" &&
+      (this.config.kind === "line" || this.config.kind === "bar") &&
       (this.config.valueColumn ?? -1) >= 0
     );
   }
@@ -1682,24 +1683,27 @@ export class ChartCard {
     return this.config.source !== "" ? this.viewResult : this.valueResult;
   }
 
-  /** Implicit view definition: value column aggregated over the date buckets. */
+  /** Implicit view definition: the measure aggregated over time or categories. */
   private valueViewDef(): ViewDef | null {
     if (!this.usesValueAggregate() || this.options.requestAggregate === undefined) return null;
-    const dateColumn = this.config.column;
-    if (!this.isDateLike(this.meta(dateColumn))) return null;
     const column = this.config.valueColumn ?? -1;
     if (column < 0) return null;
+    const line = this.config.kind === "line";
+    if (line && !this.isDateLike(this.meta(this.config.column))) return null;
+    if (!line && this.config.column < 0) return null;
     const grain =
       this.config.valueGrain === undefined || this.config.valueGrain === "auto"
-        ? this.defaultGrainFor(dateColumn)
+        ? this.defaultGrainFor(this.config.column)
         : this.config.valueGrain;
     return {
       id: "card-value",
       name: this.config.title.trim() === "" ? this.defaultTitle() : this.config.title.trim(),
-      dimensions: [{ column: dateColumn, by: { time: grain } }],
+      dimensions: line
+        ? [{ column: this.config.column, by: { time: grain } }]
+        : [{ column: this.config.column, by: "value" }],
       measures: [{ column, agg: this.config.valueAgg ?? "mean" }],
-      fill: "zero",
-      sort: { key: "dim0", dir: "asc" },
+      fill: line ? "zero" : "none",
+      sort: line ? { key: "dim0", dir: "asc" } : { key: "m0", dir: "desc" },
       limit: 5000,
       respectFilters: true,
     };
@@ -2154,15 +2158,16 @@ export class ChartCard {
               ? "Text"
               : "Column";
     const groupable = this.columns.some((meta) => isCategoryType(meta.type));
+    const measureKinds = kind === "line" || kind === "bar";
     const valueOn =
-      kind === "line" && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
+      measureKinds && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
     this.groupWrap.classList.toggle(
       "hidden",
       (kind !== "line" && kind !== "histogram" && kind !== "bubble") || !groupable || valueOn,
     );
     const unbound = this.config.source === "";
-    this.valueWrap.classList.toggle("hidden", kind !== "line" || !unbound);
-    this.valueAggWrap.classList.toggle("hidden", kind !== "line" || !unbound || !valueOn);
+    this.valueWrap.classList.toggle("hidden", !measureKinds || !unbound);
+    this.valueAggWrap.classList.toggle("hidden", !measureKinds || !unbound || !valueOn);
     this.valueGrainWrap.classList.toggle("hidden", kind !== "line" || !unbound || !valueOn);
     this.xWrap.classList.toggle("hidden", !pair);
     this.yWrap.classList.toggle("hidden", !pair);

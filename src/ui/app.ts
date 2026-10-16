@@ -87,7 +87,12 @@ import { openRecipeMapping } from "./recipe-mapping.js";
 import { openExportPanel } from "./export-panel.js";
 import { openMergePanel } from "./merge-panel.js";
 import { normalize } from "../search/normalize.js";
-import { computeDQScore, type DQScore, type ScoreCheck } from "../data/score.js";
+import {
+  computeDQScore,
+  type DQScore,
+  type DQScoreConfig,
+  type ScoreCheck,
+} from "../data/score.js";
 import {
   buildDQReport,
   dqReportJson,
@@ -275,6 +280,28 @@ type SavePicker = (options: {
   types: { description: string; accept: Record<string, string[]> }[];
 }) => Promise<FileHandleLike>;
 
+const DQ_CONFIG_KEY = "turbofuzz.dqConfig";
+
+function loadDQConfig(): DQScoreConfig {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(DQ_CONFIG_KEY);
+    if (raw === null) return {};
+    return JSON.parse(raw) as DQScoreConfig;
+  } catch {
+    return {};
+  }
+}
+
+function saveDQConfig(config: DQScoreConfig): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(DQ_CONFIG_KEY, JSON.stringify(config));
+  } catch {
+    // Storage is best-effort; the session still uses the in-memory config.
+  }
+}
+
 async function copyText(text: string): Promise<boolean> {
   if (navigator.clipboard?.writeText !== undefined) {
     try {
@@ -394,6 +421,12 @@ export class App {
   private latestStats: DatasetStats | null = null;
   /** Current weighted data-quality score (plan §3), or null before load. */
   private dqScore: DQScore | null = null;
+  /** User-run checks that feed the score (pair, key, freshness). */
+  private dqUserChecks: ScoreCheck[] = [];
+  /** Persisted weights/bands overrides for the score. */
+  private dqConfig: DQScoreConfig = loadDQConfig();
+  /** Active freshness rule (column + max age in days), if the user set one. */
+  private freshnessRule: { column: number; days: number } | null = null;
   private scoreTile!: HTMLButtonElement;
   /** Input size in bytes for the dataset line (file or pasted text). */
   private sourceBytes: number | null = null;
@@ -1666,6 +1699,9 @@ export class App {
     this.showChanges = false;
     this.displayFormats.clear();
     this.displayGrouping.clear();
+    // User-run checks reference filter bits that reset with the data.
+    this.dqUserChecks = [];
+    this.freshnessRule = null;
     this.syncChangesButton();
     // Views are definitions over column indexes; a load or transform can change
     // the schema, so start fresh rather than risk stale references.
@@ -2583,6 +2619,22 @@ export class App {
                     }`;
               this.setAction(`${label}: ${tail}`);
               this.showToast(`${label} — ${tail}.`, () => this.toggleSpecial("keyDuplicates"));
+              this.dqUserChecks = [
+                ...this.dqUserChecks.filter((check) => check.id !== "uniqueness.key"),
+                {
+                  id: "uniqueness.key",
+                  dimension: "uniqueness",
+                  label,
+                  detail: `${message.counted.toLocaleString()} rows with a complete key`,
+                  pass: Math.max(0, message.counted - message.duplicateRows),
+                  fail: message.duplicateRows,
+                  na: Math.max(0, this.rowCount - message.counted),
+                  column: null,
+                  filter: "keyDuplicates",
+                  fixLabel: "Show duplicates",
+                },
+              ];
+              this.refreshScore();
               this.updateCount(message.count, message.queryMs);
               this.applyFacets(message.facets, message.histograms);
               this.table?.setCount(message.count);
@@ -2887,7 +2939,7 @@ export class App {
       return;
     }
     const previous = baselineReset ? null : (this.dqScore?.overall ?? null);
-    const score = computeDQScore(this.metas, stats, this.rowCount);
+    const score = computeDQScore(this.metas, stats, this.rowCount, this.dqConfig, this.dqUserChecks);
     this.dqScore = score;
     this.syncScoreTile(
       previous === null || score.overall === null ? null : score.overall - previous,
@@ -2923,10 +2975,25 @@ export class App {
     if (this.dqScore === null) return;
     openQualityPanel(this.dqScore, {
       onExport: (kind) => this.exportQuality(kind),
+      columnNames: this.metas.map((meta) => meta.name),
+      config: this.dqConfig,
+      onConfigChange: (config) => {
+        this.dqConfig = config;
+        saveDQConfig(config);
+        this.refreshScore();
+        this.openQuality();
+      },
       onFilter: (check: ScoreCheck) => {
         if (check.column === null) {
           if (check.filter === "duplicates" && !this.specials.has("duplicates")) {
             this.toggleSpecial("duplicates");
+          } else if (
+            check.filter === "keyDuplicates" &&
+            !this.specials.has("keyDuplicates")
+          ) {
+            this.toggleSpecial("keyDuplicates");
+          } else if (check.filter === "pairCheck" && !this.specials.has("pairCheck")) {
+            this.toggleSpecial("pairCheck");
           }
           this.setView("table");
           return;
@@ -3502,6 +3569,7 @@ export class App {
       onAllowedValues: (values) => this.checkAllowedValues(column, values),
       onCompare: (target, operator, tolerance) =>
         this.checkPair(column, target, operator, tolerance),
+      onCheckFreshness: (days) => this.checkFreshness(column, days),
       columns: () => this.metas,
       onRename: () => void this.renameColumn(column),
       onDelete: () => void this.confirmDeleteColumn(column),
@@ -3553,6 +3621,39 @@ export class App {
         );
       },
     });
+  }
+
+  /** Freshness rule (plan §6): scores Timeliness against “now”. */
+  private checkFreshness(column: number, days: number): void {
+    const meta = this.metas[column];
+    const latest = meta?.stats.max ?? null;
+    if (meta === undefined || latest === null) return;
+    const ageDays = Math.max(0, (Date.now() - latest) / 86_400_000);
+    const fresh = ageDays <= days;
+    this.freshnessRule = { column, days };
+    this.dqUserChecks = [
+      ...this.dqUserChecks.filter((check) => check.dimension !== "timeliness"),
+      {
+        id: "timeliness.freshness",
+        dimension: "timeliness",
+        label: `“${meta.name}” is fresh (≤ ${days} day${days === 1 ? "" : "s"})`,
+        detail: `newest value ${new Date(latest).toISOString().slice(0, 10)} · ${ageDays.toFixed(
+          1,
+        )} days old`,
+        pass: fresh ? 1 : 0,
+        fail: fresh ? 0 : 1,
+        na: 0,
+        column: null,
+        filter: null,
+        fixLabel: null,
+      },
+    ];
+    this.refreshScore();
+    this.setAction(
+      fresh
+        ? `“${meta.name}”: fresh — newest value is ${ageDays.toFixed(1)} days old`
+        : `“${meta.name}”: stale — newest value is ${ageDays.toFixed(0)} days old (over ${days})`,
+    );
   }
 
   /**
@@ -3613,6 +3714,22 @@ export class App {
                 } fail`;
           this.setAction(`${label}: ${tail}`);
           this.showToast(`${label}: ${tail}.`, () => this.toggleSpecial("pairCheck"));
+          this.dqUserChecks = [
+            ...this.dqUserChecks.filter((check) => check.dimension !== "consistency"),
+            {
+              id: "consistency.pair",
+              dimension: "consistency",
+              label,
+              detail: `${message.compared.toLocaleString()} rows compared`,
+              pass: Math.max(0, message.compared - message.violations),
+              fail: message.violations,
+              na: 0,
+              column: null,
+              filter: "pairCheck",
+              fixLabel: "Show failing",
+            },
+          ];
+          this.refreshScore();
           this.updateCount(message.count, message.queryMs);
           this.applyFacets(message.facets, message.histograms);
           this.table?.setCount(message.count);

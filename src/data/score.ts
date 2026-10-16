@@ -10,7 +10,13 @@ export type ScoreDimension =
   | "accuracy";
 
 /** A check the failing rows of which the drawer can filter to. */
-export type ScoreCheckFilter = "nulls" | "pattern" | "duplicates" | "valueAnomalies";
+export type ScoreCheckFilter =
+  | "nulls"
+  | "pattern"
+  | "duplicates"
+  | "valueAnomalies"
+  | "keyDuplicates"
+  | "pairCheck";
 
 export interface ScoreCheck {
   id: string;
@@ -96,6 +102,7 @@ export function computeDQScore(
   stats: DatasetStats,
   rowCount: number,
   config: DQScoreConfig = {},
+  userChecks: readonly ScoreCheck[] = [],
 ): DQScore {
   const weights = { ...DEFAULT_DQ_CONFIG.weights, ...(config.weights ?? {}) };
   const bandGood = config.bandGood ?? DEFAULT_DQ_CONFIG.bandGood;
@@ -176,6 +183,13 @@ export function computeDQScore(
 
   const byDimension = new Map<ScoreDimension, ScoreCheck[]>();
   for (const check of checks) {
+    const list = byDimension.get(check.dimension);
+    if (list === undefined) byDimension.set(check.dimension, [check]);
+    else list.push(check);
+  }
+  // User-run checks (pair comparisons, key duplicates, freshness rules) score
+  // Consistency/Timeliness/Uniqueness once they exist.
+  for (const check of userChecks) {
     const list = byDimension.get(check.dimension);
     if (list === undefined) byDimension.set(check.dimension, [check]);
     else list.push(check);
