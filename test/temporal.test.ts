@@ -160,7 +160,14 @@ test("chart axis formatting follows the temporal type", () => {
   const noon = Date.UTC(2026, 9, 16, 9, 30);
   assert.equal(formatTick(noon, "line"), "2026-10-16");
   assert.equal(formatTick(noon, "datetime"), "2026-10-16 09:30");
-  assert.equal(formatTick(noon, "datetime"), "2026-10-16 09:30");
+  // Span-aware temporal ticks: intraday spans show clock times, day-scale
+  // spans keep the clock, multi-year spans drop to months.
+  assert.equal(formatTick(noon, "datetime", 6 * 3_600_000), "09:30");
+  assert.equal(formatTick(noon, "datetime", 30 * 86_400_000), "10-16 09:30");
+  assert.equal(formatTick(noon, "datetime", 2 * 365 * 86_400_000), "2026-10-16");
+  assert.equal(formatTick(noon, "datetime", 5 * 365 * 86_400_000), "2026-10");
+  assert.equal(formatTick(noon, "line", 5 * 365 * 86_400_000), "2026-10");
+  assert.equal(formatTick(noon, "line", 30 * 86_400_000), "2026-10-16");
   assert.equal(formatTick(parseTimeOfDay("14:05"), "time"), "14:05");
   assert.equal(formatTick(parseDuration("1h 30m"), "duration"), "1:30:00");
   assert.equal(formatDurationMs(5_400_000), "1:30:00");

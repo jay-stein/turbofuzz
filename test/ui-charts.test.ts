@@ -1920,3 +1920,87 @@ test("date time series uses human-grain buckets instead of 64-bin combs", async 
   assert.equal(requested.length, 1, "unchanged filters do not re-request buckets");
   card.dispose();
 });
+
+test("focus mode expands a card and restores it with its config", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+  ]);
+  await tick();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  doc.body.append(host as never);
+  (host.querySelector(".chart-focus-btn") as unknown as { click(): void }).click();
+  const overlay = doc.querySelector(".chart-focus-overlay") as unknown as HTMLElement;
+  assert.ok(overlay !== null, "the focus overlay opens");
+  assert.equal(overlay.contains(host as never), true, "the same card moves into the overlay");
+  overlay.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" }) as never);
+  assert.equal(doc.querySelector(".chart-focus-overlay"), null, "Escape closes the overlay");
+  assert.equal(
+    (host.parentNode as unknown as Window["document"]["body"]) === doc.body,
+    true,
+    "the card returns to its grid slot",
+  );
+  assert.equal(card.getConfig().kind, "bar", "configuration survives the round trip");
+  card.dispose();
+});
+
+test("axis title overrides and units label the axes; truncated titles stay hoverable", async () => {
+  const window = setupDom();
+  const drawn: string[] = [];
+  captureMockContext(window, drawn);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), {
+    kind: "histogram",
+    column: 0,
+    xTitle: "Trip duration",
+    yUnit: "kWh",
+  });
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({
+      name: "amount",
+      type: "number",
+      histogram: { bins: [1, 2, 1], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 },
+    }),
+  ]);
+  await tick();
+  assert.ok(drawn.includes("Trip duration"), "the X override replaces the column name");
+  assert.ok(drawn.includes("Rows (kWh)"), "the unit is appended to the Y title");
+
+  const long = "A very long axis title that will definitely not fit in the plot area";
+  const host2 = document.createElement("div");
+  const card2 = new ChartCard(host2, stubCardOptions(), {
+    kind: "histogram",
+    column: 0,
+    xTitle: long,
+  });
+  const wrap2 = host2.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap2, "clientWidth", { value: 480, configurable: true });
+  card2.setColumns([
+    meta({
+      name: "amount",
+      type: "number",
+      histogram: { bins: [1, 2, 1], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 },
+    }),
+  ]);
+  await tick();
+  assert.ok(
+    drawn.some((text) => text.startsWith("A very long axis title") && text.endsWith("…")),
+    "the long title is truncated with an ellipsis",
+  );
+  const canvas2 = host2.querySelector("canvas") as HTMLCanvasElement;
+  (canvas2 as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(
+    new window.MouseEvent("pointermove", { clientX: 276, clientY: 252 }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const tooltip = host2.querySelector("[role=tooltip]") as HTMLElement;
+  assert.equal(tooltip.textContent, long, "hovering the truncated title shows the full text");
+  card.dispose();
+  card2.dispose();
+});

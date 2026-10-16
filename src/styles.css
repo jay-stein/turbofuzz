@@ -3930,6 +3930,40 @@ select.chart-number {
   max-width: none;
 }
 
+.chart-axis-title {
+  flex: 0 1 150px;
+  min-width: 110px;
+}
+
+.chart-focus-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+}
+
+.chart-focus-stage {
+  width: min(1400px, 96vw);
+}
+
+.chart-focus-stage .chart-card {
+  margin: 0;
+}
+
+.chart-focus-close {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+}
+
+.chart-focus-overlay:focus {
+  outline: none;
+}
+
 .charts-empty {
   padding: 28px 16px;
   text-align: center;

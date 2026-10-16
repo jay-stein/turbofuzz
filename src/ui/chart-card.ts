@@ -163,6 +163,11 @@ export interface ChartCardConfig {
   binOptions: ChartBinOptions | null;
   binClipped: boolean;
   title: string;
+  /** Axis title overrides; empty = the automatic column name. */
+  xTitle?: string;
+  yTitle?: string;
+  /** Unit appended to the Y axis title, e.g. "kWh". */
+  yUnit?: string;
   /** Category column splitting a time series into one line per value (-1 = off). */
   groupColumn: number;
   /** Bubble grid resolution per axis. */
@@ -280,7 +285,11 @@ export function seriesHitRegions(geom: PlotGeometry, input: SeriesHitInput): Hit
   const slotW = geom.plotW / slots;
   const step = bins.length === 0 ? 0 : (max - min) / bins.length;
   const format = (value: number): string =>
-    formatTick(value, input.axisFormat ?? (dateAxis ? "line" : "histogram"));
+    formatTick(
+      value,
+      input.axisFormat ?? (dateAxis ? "line" : "histogram"),
+      input.max - input.min,
+    );
   const regions: HitRegion[] = [];
   for (let index = 0; index < bins.length; index++) {
     const lo = min + index * step;
@@ -328,7 +337,8 @@ export function groupedSeriesHitRegions(
   if (binCount === 0 || input.groups.length === 0) return [];
   const slotW = geom.plotW / binCount;
   const step = (input.max - input.min) / binCount;
-  const format = (value: number): string => formatTick(value, input.axisFormat ?? "line");
+  const format = (value: number): string =>
+    formatTick(value, input.axisFormat ?? "line", input.max - input.min);
   const regions: HitRegion[] = [];
   for (let index = 0; index < binCount; index++) {
     const lo = input.min + index * step;
@@ -504,6 +514,14 @@ function widthIcon(): SVGElement {
   );
 }
 
+/** Frame glyph for the expand/focus mode toggle. */
+function focusIcon(): SVGElement {
+  return svgIcon(
+    '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
+    "chart-focus-icon",
+  );
+}
+
 function defaultConfig(): ChartCardConfig {
   return {
     kind: "histogram",
@@ -589,6 +607,9 @@ export class ChartCard {
   private readonly bubbleScaleSelect: HTMLSelectElement;
   private readonly animateButton: HTMLButtonElement;
   private readonly widthButton: HTMLButtonElement;
+  private readonly focusButton: HTMLButtonElement;
+  private focusOverlay: HTMLElement | null = null;
+  private readonly focusPlaceholder = document.createComment("chart-focus");
   private readonly animationSetup: HTMLElement;
   private readonly bubbleSettings: HTMLElement;
   private readonly animationTimeSelect: HTMLSelectElement;
@@ -650,6 +671,9 @@ export class ChartCard {
   private readonly swatches: HTMLButtonElement[] = [];
   private readonly hexInput: HTMLInputElement;
   private readonly titleInput: HTMLInputElement;
+  private readonly xTitleInput: HTMLInputElement;
+  private readonly yTitleInput: HTMLInputElement;
+  private readonly yUnitInput: HTMLInputElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly noteEl: HTMLElement;
   private readonly legendEl: HTMLElement;
@@ -872,6 +896,17 @@ export class ChartCard {
     ) as HTMLButtonElement;
     this.widthButton.append(widthIcon(), el("span", {}, ["Wide"]));
     this.widthButton.addEventListener("click", () => this.toggleSpan());
+    this.focusButton = el(
+      "button",
+      {
+        class: "ghost small chart-focus-btn",
+        type: "button",
+        title: "Expand this chart for a closer look (Esc to close)",
+      },
+      [],
+    ) as HTMLButtonElement;
+    this.focusButton.append(focusIcon(), el("span", {}, ["Focus"]));
+    this.focusButton.addEventListener("click", () => this.toggleFocus());
     this.animateButton = el(
       "button",
       {
@@ -890,6 +925,7 @@ export class ChartCard {
       this.groupWrap,
       this.axesPanel,
       el("span", { class: "grow" }),
+      this.focusButton,
       this.widthButton,
       this.animateButton,
       more,
@@ -1213,10 +1249,54 @@ export class ChartCard {
       this.config.title = this.titleInput.value;
       this.render();
     });
+    const axisTitleInput = (
+      label: string,
+      get: () => string | undefined,
+      set: (value: string) => void,
+    ): HTMLInputElement => {
+      const input = el("input", {
+        class: "text-input chart-axis-title",
+        type: "text",
+        placeholder: label,
+        spellcheck: "false",
+        "aria-label": label,
+        title: label,
+      }) as HTMLInputElement;
+      input.value = get() ?? "";
+      input.addEventListener("input", () => {
+        set(input.value.trim());
+        this.render();
+      });
+      return input;
+    };
+    this.xTitleInput = axisTitleInput(
+      "X axis title (auto)",
+      () => this.config.xTitle,
+      (value) => {
+        this.config.xTitle = value;
+      },
+    );
+    this.yTitleInput = axisTitleInput(
+      "Y axis title (auto)",
+      () => this.config.yTitle,
+      (value) => {
+        this.config.yTitle = value;
+      },
+    );
+    this.yUnitInput = axisTitleInput(
+      "Unit, e.g. kWh",
+      () => this.config.yUnit,
+      (value) => {
+        this.config.yUnit = value;
+      },
+    );
     const lookRow = el("div", { class: "chart-card-look" }, [
       this.colorGroup,
       this.paletteGroup,
       this.titleInput,
+      this.xTitleInput,
+      this.yTitleInput,
+      this.yUnitInput,
     ]);
 
     // Frames over time: step and loop a bar or bubble chart, export one loop.
@@ -1401,6 +1481,7 @@ export class ChartCard {
 
   dispose(): void {
     this.disposed = true;
+    this.closeFocus();
     if (this.animationTimer !== null) {
       window.clearInterval(this.animationTimer);
       this.animationTimer = null;
@@ -2842,8 +2923,62 @@ export class ChartCard {
       : "Make this chart span the full row";
   }
 
-  private toggleAnimationSetup(): void {
-    if (!this.columns.some((meta) => this.isDateLike(meta))) {
+  /**
+   * Expand/focus mode: the same card element moves into a full-viewport
+   * overlay, so every setting, the loaded data and the scroll-independent
+   * canvas size are retained. Closing (button or Escape) restores the card
+   * to its grid slot.
+   */
+  private toggleFocus(): void {
+    if (this.focusOverlay !== null) {
+      this.closeFocus();
+      return;
+    }
+    const overlay = el("div", {
+      class: "chart-focus-overlay",
+      role: "dialog",
+      "aria-label": "Expanded chart",
+      tabindex: "-1",
+    }) as HTMLElement;
+    const close = el(
+      "button",
+      { class: "icon-btn chart-focus-close", type: "button", title: "Close (Esc)" },
+      ["×"],
+    ) as HTMLButtonElement;
+    close.addEventListener("click", () => this.closeFocus());
+    const stage = el("div", { class: "chart-focus-stage" });
+    overlay.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        this.closeFocus();
+      }
+    });
+    this.root.parentNode?.insertBefore(this.focusPlaceholder, this.root);
+    stage.append(this.root);
+    overlay.append(close, stage);
+    document.body.append(overlay);
+    this.focusOverlay = overlay;
+    this.root.classList.add("focused");
+    this.focusButton.classList.add("active");
+    this.focusButton.title = "Back to the grid (Esc)";
+    overlay.focus();
+    this.render();
+  }
+
+  private closeFocus(): void {
+    const overlay = this.focusOverlay;
+    if (overlay === null) return;
+    this.focusOverlay = null;
+    this.focusPlaceholder.parentNode?.insertBefore(this.root, this.focusPlaceholder);
+    this.focusPlaceholder.remove();
+    overlay.remove();
+    this.root.classList.remove("focused");
+    this.focusButton.classList.remove("active");
+    this.focusButton.title = "Expand this chart for a closer look (Esc to close)";
+    this.render();
+  }
+
+  private toggleAnimationSetup(): void {    if (!this.columns.some((meta) => this.isDateLike(meta))) {
       this.noteEl.textContent = "Animating needs a date or datetime column in the file.";
       return;
     }
@@ -3624,7 +3759,9 @@ export class ChartCard {
         const yMax = result === null ? 1 : result.yMax;
         const meta = this.meta(this.config.y);
         const axisKind = meta === undefined ? null : axisKindFor(meta.type);
-        return widest(niceTicks(yMin, yMax, 4).map((value) => formatTick(value, axisKind)));
+        return widest(
+          niceTicks(yMin, yMax, 4).map((value) => formatTick(value, axisKind, yMax - yMin)),
+        );
       }
       case "box": {
         let max = 1;
@@ -3730,14 +3867,20 @@ export class ChartCard {
     this.plotMessageDrawn = false;
     const ui = this.textScale(height, forExport);
     const labels = this.axisLabels();
+    const hasXTitle =
+      (labels.x ?? "") !== "" || (this.config.xTitle?.trim() ?? "") !== "";
+    const hasYTitle =
+      (labels.y ?? "") !== "" ||
+      (this.config.yTitle?.trim() ?? "") !== "" ||
+      (this.config.yUnit?.trim() ?? "") !== "";
     const frame = this.frame(
       ctx,
       width,
       height,
       forExport,
       this.widestYLabel(ctx, ui),
-      labels.y !== null && labels.y !== "",
-      labels.x !== null && labels.x !== "",
+      hasYTitle,
+      hasXTitle,
     );
 
     if (this.columns.length === 0) {
@@ -3997,10 +4140,11 @@ export class ChartCard {
     if (kind === "line") {
       // Say what one point on the line counts: "Rows per day" and not just ticks.
       const unit = this.lineUnitLabel(min, max, bins.length);
+      const tzNote = meta.timeZoneAware === true ? " · source offsets shown in UTC" : "";
       ctx.fillStyle = frame.dim;
       this.font(ctx, ui, 10);
       ctx.textAlign = "left";
-      ctx.fillText(unit, frame.left, frame.top - 6 * ui);
+      ctx.fillText(`${unit}${tzNote}`, frame.left, frame.top - 6 * ui);
     }
 
     if (kind === "histogram") {
@@ -4094,22 +4238,27 @@ export class ChartCard {
     this.font(ctx, ui, 10);
     const tickKind: "histogram" | AxisFormat =
       axisKindFor(meta.type) ?? (kind === "line" ? "line" : "histogram");
+    const tickSpan = max - min;
     const mid = (min + max) / 2;
-    ctx.fillText(formatTick(min, tickKind), frame.left, frame.top + frame.plotH + 16 * ui);
-    const midLabel = formatTick(mid, tickKind);
-    ctx.fillText(
-      midLabel,
-      frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
-      frame.top + frame.plotH + 16 * ui,
-    );
-    const maxLabel = formatTick(max, tickKind);
+    const minLabel = formatTick(min, tickKind, tickSpan);
+    ctx.fillText(minLabel, frame.left, frame.top + frame.plotH + 16 * ui);
+    // On narrow cards the midpoint label collides with the edge labels.
+    if (frame.plotW >= 220 * (ui / 1.25)) {
+      const midLabel = formatTick(mid, tickKind, tickSpan);
+      ctx.fillText(
+        midLabel,
+        frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
+        frame.top + frame.plotH + 16 * ui,
+      );
+    }
+    const maxLabel = formatTick(max, tickKind, tickSpan);
     ctx.fillText(
       maxLabel,
       frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
       frame.top + frame.plotH + 16 * ui,
     );
     if (hasOverflow) {
-      const overflowLabel = `> ${formatTick(max, tickKind)}`;
+      const overflowLabel = `> ${formatTick(max, tickKind, tickSpan)}`;
       ctx.fillText(
         overflowLabel,
         frame.left + frame.plotW - ctx.measureText(overflowLabel).width,
@@ -4291,15 +4440,16 @@ export class ChartCard {
     this.font(ctx, ui, 10);
     ctx.fillText("share of each group per bin", frame.left, frame.top - 6 * ui);
     const histTickKind: "histogram" | AxisFormat = axisKindFor(meta.type) ?? "histogram";
+    const histTickSpan = max - min;
     const mid = (min + max) / 2;
-    ctx.fillText(formatTick(min, histTickKind), frame.left, frame.top + frame.plotH + 16 * ui);
-    const midLabel = formatTick(mid, histTickKind);
+    ctx.fillText(formatTick(min, histTickKind, histTickSpan), frame.left, frame.top + frame.plotH + 16 * ui);
+    const midLabel = formatTick(mid, histTickKind, histTickSpan);
     ctx.fillText(
       midLabel,
       frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
       frame.top + frame.plotH + 16 * ui,
     );
-    const maxLabel = formatTick(max, histTickKind);
+    const maxLabel = formatTick(max, histTickKind, histTickSpan);
     ctx.fillText(
       maxLabel,
       frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
@@ -4353,15 +4503,16 @@ export class ChartCard {
     this.font(ctx, ui, 10);
     const lineTickKind: "histogram" | AxisFormat =
       axisKindFor(this.meta(this.config.column)?.type ?? "date") ?? "line";
+    const lineTickSpan = max - min;
     const mid = (min + max) / 2;
-    ctx.fillText(formatTick(min, lineTickKind), frame.left, frame.top + frame.plotH + 16 * ui);
-    const midLabel = formatTick(mid, lineTickKind);
+    ctx.fillText(formatTick(min, lineTickKind, lineTickSpan), frame.left, frame.top + frame.plotH + 16 * ui);
+    const midLabel = formatTick(mid, lineTickKind, lineTickSpan);
     ctx.fillText(
       midLabel,
       frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
       frame.top + frame.plotH + 16 * ui,
     );
-    const maxLabel = formatTick(max, lineTickKind);
+    const maxLabel = formatTick(max, lineTickKind, lineTickSpan);
     ctx.fillText(
       maxLabel,
       frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
@@ -4508,15 +4659,16 @@ export class ChartCard {
     this.font(ctx, ui, 10);
     const animTickKind: "histogram" | AxisFormat =
       axisKindFor(this.meta(this.config.column)?.type ?? "number") ?? "histogram";
+    const animTickSpan = hist.max - hist.min;
     const mid = (hist.min + hist.max) / 2;
-    ctx.fillText(formatTick(hist.min, animTickKind), frame.left, frame.top + frame.plotH + 16 * ui);
-    const midLabel = formatTick(mid, animTickKind);
+    ctx.fillText(formatTick(hist.min, animTickKind, animTickSpan), frame.left, frame.top + frame.plotH + 16 * ui);
+    const midLabel = formatTick(mid, animTickKind, animTickSpan);
     ctx.fillText(
       midLabel,
       frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
       frame.top + frame.plotH + 16 * ui,
     );
-    const maxLabel = formatTick(hist.max, animTickKind);
+    const maxLabel = formatTick(hist.max, animTickKind, animTickSpan);
     ctx.fillText(
       maxLabel,
       frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
@@ -5004,23 +5156,55 @@ export class ChartCard {
     yLabel: string | null,
   ): void {
     const ui = frame.ui;
+    const xOverride = this.config.xTitle?.trim() ?? "";
+    const yOverride = this.config.yTitle?.trim() ?? "";
+    const unit = this.config.yUnit?.trim() ?? "";
+    const xText = xOverride !== "" ? xOverride : (xLabel ?? "");
+    let yText = yOverride !== "" ? yOverride : (yLabel ?? "");
+    if (unit !== "") yText = yText === "" ? `(${unit})` : `${yText} (${unit})`;
+
     this.font(ctx, ui, 10.5, "600");
     ctx.fillStyle = frame.dim;
-    if (xLabel !== null && xLabel !== "") {
+    if (xText !== "") {
       ctx.textAlign = "center";
-      ctx.fillText(
-        this.fit(ctx, xLabel, frame.plotW),
-        frame.left + frame.plotW / 2,
-        frame.top + frame.plotH + frame.bottom - 9 * ui,
-      );
+      const cx = frame.left + frame.plotW / 2;
+      const cy = frame.top + frame.plotH + frame.bottom - 9 * ui;
+      const fitted = this.fit(ctx, xText, frame.plotW);
+      ctx.fillText(fitted, cx, cy);
+      if (fitted !== xText) {
+        // Truncated titles keep their full text in a hover tooltip.
+        const width = ctx.measureText(fitted).width;
+        this.hitRegions.push({
+          x: cx - width / 2,
+          y: cy - 10 * ui,
+          w: width,
+          h: 13 * ui,
+          lines: [xText],
+          actions: [],
+        });
+      }
     }
-    if (yLabel !== null && yLabel !== "") {
+    if (yText !== "") {
+      const tx = frame.left - 6 * ui - frame.tickW - 9 * ui;
+      const cy = frame.top + frame.plotH / 2;
       ctx.save();
-      ctx.translate(frame.left - 6 * ui - frame.tickW - 9 * ui, frame.top + frame.plotH / 2);
+      ctx.translate(tx, cy);
       ctx.rotate(-Math.PI / 2);
       ctx.textAlign = "center";
-      ctx.fillText(this.fit(ctx, yLabel, frame.plotH), 0, 0);
+      const fitted = this.fit(ctx, yText, frame.plotH);
+      ctx.fillText(fitted, 0, 0);
       ctx.restore();
+      if (fitted !== yText) {
+        const width = ctx.measureText(fitted).width;
+        this.hitRegions.push({
+          x: tx - 7 * ui,
+          y: cy - width / 2,
+          w: 14 * ui,
+          h: width,
+          lines: [yText],
+          actions: [],
+        });
+      }
     }
     ctx.textAlign = "left";
   }
@@ -5159,8 +5343,12 @@ export class ChartCard {
     yKind: "histogram" | AxisFormat,
   ): void {
     const ui = frame.ui;
-    const xTicks = niceTicks(xMin, xMax, 5);
+    // Tick density follows the actual plot width so narrow cards stay legible.
+    const xTarget = Math.max(2, Math.min(6, Math.floor(frame.plotW / (90 * ui))));
+    const xTicks = niceTicks(xMin, xMax, xTarget);
     const yTicks = niceTicks(yMin, yMax, 4).filter((value, index, all) => index === 0 || formatChartNumber(value) !== formatChartNumber(all[index - 1]));
+    const xSpan = xMax - xMin;
+    const ySpan = yMax - yMin;
     ctx.strokeStyle = frame.border;
     ctx.lineWidth = 1;
     ctx.fillStyle = frame.dim;
@@ -5174,12 +5362,12 @@ export class ChartCard {
       ctx.lineTo(frame.left + frame.plotW, y + 0.5);
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillText(formatTick(value, yKind), frame.left - 6 * ui, y + 3 * ui);
+      ctx.fillText(formatTick(value, yKind, ySpan), frame.left - 6 * ui, y + 3 * ui);
     }
     ctx.textAlign = "center";
     for (const value of xTicks) {
       const x = frame.left + ((value - xMin) / (xMax - xMin)) * frame.plotW;
-      ctx.fillText(formatTick(value, xKind), x, frame.top + frame.plotH + 16 * ui);
+      ctx.fillText(formatTick(value, xKind, xSpan), x, frame.top + frame.plotH + 16 * ui);
     }
     ctx.textAlign = "left";
     ctx.beginPath();

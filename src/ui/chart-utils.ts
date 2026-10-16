@@ -468,9 +468,33 @@ export function suggestedBinRange(meta: ColumnMeta): SuggestedRange {
   return { min, max, overflow: false, clipped: false };
 }
 
-export function formatTick(value: number, kind: "histogram" | AxisFormat | null): string {
-  if (kind === "line") return toDateInputValue(value);
-  if (kind === "datetime") return `${toDateInputValue(value)} ${toTimeInputValue(value)}`;
+const YEAR_MS = 365.25 * 86_400_000;
+
+/**
+ * Axis tick text. Temporal ticks adapt to the axis span: intraday spans show
+ * clock times, day-scale spans dates, multi-year spans month buckets. The
+ * span is optional; without it the full canonical form is used.
+ */
+export function formatTick(
+  value: number,
+  kind: "histogram" | AxisFormat | null,
+  spanMs?: number,
+): string {
+  const span = spanMs ?? Number.POSITIVE_INFINITY;
+  if (kind === "line") {
+    if (spanMs !== undefined && span > 3 * YEAR_MS) return toDateInputValue(value).slice(0, 7);
+    return toDateInputValue(value);
+  }
+  if (kind === "datetime") {
+    // Without a span keep the full canonical form (tooltips, exports).
+    if (spanMs === undefined) return `${toDateInputValue(value)} ${toTimeInputValue(value)}`;
+    if (span <= 2 * 86_400_000) return toTimeInputValue(value);
+    if (span <= 120 * 86_400_000) {
+      return `${toDateInputValue(value).slice(5)} ${toTimeInputValue(value)}`;
+    }
+    if (span > 3 * YEAR_MS) return toDateInputValue(value).slice(0, 7);
+    return toDateInputValue(value);
+  }
   if (kind === "time") return toTimeInputValue(value);
   if (kind === "duration") return formatDurationMs(value);
   const abs = Math.abs(value);
