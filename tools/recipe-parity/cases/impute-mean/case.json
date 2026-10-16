@@ -1,0 +1,4 @@
+{
+  "name": "impute-mean",
+  "description": "mean imputation over a numeric column with blanks"
+}

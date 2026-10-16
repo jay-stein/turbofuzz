@@ -196,7 +196,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
   {
     id: "process-log",
     title: "Recipe (undo)",
-    summary: "Every applied change, individually reversible, plus a pandas recipe.",
+    summary: "Every applied change, individually reversible, plus a pandas or Polars recipe.",
     blocks: [
       p(
         "Recipe lists the changes currently applied to the working set: clean operations, missing-value rules, column type changes, deleted rows and transform steps. The number next to the button counts actions, with batches collapsed.",
@@ -205,7 +205,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Batches from one action are condensed — for example a clean applied to 20 columns, or the steps from one Transform commit. Click + on a batch to expand its sub-steps, or use the batch's undo icon to reverse the whole batch in one click.",
         "The undo icon reverses one entry; clean operations can be reordered within their column.",
         "Undo all restores the original data (except the loaded file itself).",
-        "Copy pandas recipe exports the clean, missing-value, type and transform steps as a Python script for reproducibility. The drawer shows how many steps export as executable pandas; steps that need manual translation (KNN, outlier flags, data-dependent fences) are listed in the script header and in the warning comments — never silently omitted.",
+        "Copy recipe exports the clean, missing-value, type and transform steps as a pandas or Polars Python script for reproducibility. The drawer shows how many steps export as executable code; steps that need manual translation (KNN, outlier flags, data-dependent fences) are listed in the script header and in the warning comments — never silently omitted.",
       ),
       note(
         "Deleting rows is undoable here too. Type changes and missing-value fixes now appear in the log as well, so nothing the chips do is a dead end.",
@@ -242,7 +242,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Security headers add cross-origin isolation, no-referrer and nosniff.",
         "The site is deployed as static assets — there is no backend to talk to.",
       ),
-      note("If you need an audit trail, use Export… or Copy pandas recipe; both are generated locally."),
+      note("If you need an audit trail, use Export… or Copy recipe; both are generated locally."),
     ],
   },
 ];

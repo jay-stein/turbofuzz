@@ -1,0 +1,4 @@
+{
+  "name": "melt",
+  "description": "melt defaults value_vars to every non-id column"
+}

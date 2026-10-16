@@ -11,63 +11,67 @@ Statuses:
 - `supported_with_warning` — executable, with a documented limitation.
 - `manual_step_required` — not generated; the missing work is named in the note.
 
+Execution check: `tools/recipe-parity/` generates fixtures and runs both
+generated scripts in a Python environment with `pandas` and `polars`,
+comparing cell-by-cell against TurboFuzz's own result. The suite passes on all
+9 fixtures × 2 targets (verified against pandas 3.0.6 and polars 2.0.0).
+
 ## Clean operations (`CleanOp`)
 
-| Operation | pandas | Notes |
-|---|---|---|
-| `trim` | supported | `str.strip()` + collapse runs |
-| `case` | supported | `str.title/upper/lower` |
-| `replace` | supported | literal or `(?i)` regex |
-| `toNumber` | supported | locale-aware pre-processing |
-| `repairDecimal` | supported | swaps the other decimal convention only |
-| `escapeFormulas` | supported | mirrors the spreadsheet-formula guard |
-| `toDate` | supported | `pd.to_datetime(dayfirst=...)` |
+| Operation | pandas | Polars | Notes |
+|---|---|---|---|
+| `trim` | supported | supported | strip + collapse runs |
+| `case` | supported | supported | title/upper/lower |
+| `replace` | supported | supported | literal or `(?i)` regex |
+| `toNumber` | supported | supported | locale-aware pre-processing |
+| `repairDecimal` | supported | supported | swaps the other decimal convention only |
+| `escapeFormulas` | supported | supported | mirrors the spreadsheet-formula guard |
+| `toDate` | supported | supported_with_warning | pandas `to_datetime`; Polars `str.to_datetime(strict=False)` parses ISO, day-first needs an explicit format |
 
 ## Missing-value policy and logical types
 
-| Step | pandas | Notes |
-|---|---|---|
-| Treat token as missing (`extra`) | supported | `replace([tokens], pd.NA)` |
-| Keep token as a value (`keep`) | manual | reader nulls it first; adjust `keep_default_na`/`na_values` |
-| type → integer / number | supported | `pd.to_numeric(errors="coerce")` |
-| type → date | supported | `to_datetime(...).dt.date` (Python date objects) |
-| type → datetime | supported | `datetime64[ns]`; naive timestamps read as UTC |
-| type → time | supported_with_warning | requires pandas ≥ 2.0 `format="mixed"` |
-| type → duration | supported_with_warning | colon/unit forms; verify unusual spellings |
-| type → category | supported | `astype("category")` |
-| type → boolean | manual | map the exact source spellings |
-| type → string / identifier | supported_with_warning | read as text so leading zeroes survive |
-| row deletions | manual | data-dependent; counted in the header |
+| Step | pandas | Polars | Notes |
+|---|---|---|---|
+| Treat token as missing (`extra`) | supported | supported | replace to NA/null |
+| Keep token as a value (`keep`) | manual | manual | reader nulls it first; adjust `keep_default_na`/`null_values` |
+| type → integer / number | supported | supported | coerce-like casting |
+| type → date | supported | supported | Python date objects / native `pl.Date` |
+| type → datetime | supported | supported | pandas `datetime64[ns]` (naive read as UTC); Polars `pl.Datetime` (naive stays naive) |
+| type → time | warning | supported | pandas needs ≥2.0 `format="mixed"`; `pl.Time` |
+| type → duration | warning | warning | colon/unit forms; verify unusual spellings |
+| type → category | supported | supported | |
+| type → boolean | manual | manual | map the exact source spellings |
+| type → string / identifier | warning | warning | read as text so leading zeroes survive |
+| row deletions | manual | manual | data-dependent; counted in the header |
 
 ## Transform operations (`TransformOp`)
 
-| Operation | pandas | Notes |
-|---|---|---|
-| `dedupe` | supported | `drop_duplicates(keep=…)` |
-| `drop` | supported | schema-guarded |
-| `round` | supported | |
-| `groupBy` | supported | count/sum/mean/min/max/median |
-| `impute` constant/mean/median/ffill/bfill | supported | grouped variants via `transform` |
-| `impute` mode | supported_with_warning (grouped) | pandas picks the smallest mode on ties |
-| `knn` | manual | `sklearn.impute.KNNImputer` named in the note |
-| `melt` | supported | empty `valueVars` defaults to non-id columns |
-| `aggregate` (group-by view) | supported | executable named aggregation |
-| aggregate fill (`zero`/`carry`) | manual | group axis is not reindexed |
-| aggregate fiscal/week-start/timezone | supported_with_warning | labels/buckets need the documented adjustment |
-| aggregate “only where” (unsupported shapes) | manual | mask shape has no generated equivalent |
-| expression measures | supported; manual when a term cannot be named | |
-| post ops (cumulative/rolling/diff/pctChange/pctTotal/rank/yoy) | manual | comments carry the exact call |
-| `winsorize` | supported | quantile clip |
-| `flagAnomalies` | manual | fences derive from the data |
-| `combineDate` year..second/epoch/date/datetime/time | supported | `pd.to_datetime(dict(...))` |
-| `combineDate` auto role | manual | re-run auto-detection or state the role |
-| `combineDate` offsets/AM-PM columns | manual | named work in the note |
-| `combineDate` timezone | supported_with_warning | source offsets win over localisation |
-| `combineDate` dropParts | supported | drops emitted after the output column |
-| `splitColumn` | supported | regex capture groups or delimiter split |
-| `splitColumn` dropEmpty | manual | per-row packing has no direct pandas equivalent |
+| Operation | pandas | Polars | Notes |
+|---|---|---|---|
+| `dedupe` | supported | supported | keep first/last/none; order preserved |
+| `drop` | supported | supported | schema-guarded |
+| `round` | supported | supported_with_warning (negative) | Polars may not support negative decimals |
+| `groupBy` | supported | supported | sorted by the dimension to match the app |
+| `impute` constant/mean/median/ffill/bfill | supported | supported | grouped variants via `transform`/`over` |
+| `impute` mode | supported_with_warning (grouped) | supported_with_warning (grouped) | libraries pick the smallest mode on ties |
+| `knn` | manual | manual | scikit-learn / explicit neighbour logic named in the note |
+| `melt` | supported | supported | empty `valueVars` defaults to non-id columns |
+| `aggregate` core (value dims, time grains, date parts, bins edges, measures, expression terms, where shapes, weighted measures) | supported | supported | sorted by the first dimension |
+| aggregate bins (width/quantile), fiscal, week-start, timezone | warning | warning | documented adjustment in the note/comment |
+| aggregate fill, cohort/since, unsupported where shapes, post ops | manual | manual | named in the note |
+| `winsorize` | supported | supported | quantile clip |
+| `flagAnomalies` | manual | manual | fences derive from the data |
+| `combineDate` year..second/epoch/date/datetime + dropParts | supported | supported | Polars builds `pl.datetime(...)` with `day=1` default |
+| `combineDate` auto role, offset/AM-PM columns | manual | manual | named work in the note |
+| `combineDate` time-neutral timezone | warning | warning | source offsets win over localisation |
+| `splitColumn` delimiter / regex-with-groups | supported | supported_with_warning | Polars appends new columns at the end of the frame |
+| `splitColumn` regex without groups | supported | manual | Polars needs capture groups or an explicit split |
+| `splitColumn` dropEmpty | manual | manual | per-row packing has no direct library equivalent |
 
-## Polars
+## Language selection
 
-The Polars target is added in Phase 3 of the execution plan and will fill the
-same contract. Until then the recipe drawer exports pandas only.
+The Recipe drawer has a pandas / Polars selector next to **Copy recipe**. Both
+generators read the same `RecipeInput`, so the selected language never changes
+the operations — only the emitted code and the per-language support line.
+Data export (CSV) stays in the separate Export dialog; the recipe is source
+code, not a data file.

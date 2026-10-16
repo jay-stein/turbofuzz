@@ -19,7 +19,8 @@ import {
 import type { ViewDef } from "../data/aggregate.js";
 import { describeCleanOp, describeCleanOpDetail, type CleanOp } from "../data/clean-ops.js";
 import { pandasRecipeScript, type RecipeInput, viewToPandas } from "../data/recipe.js";
-import { supportHint } from "../data/recipe-support.js";
+import { polarsRecipeScript } from "../data/recipe-polars.js";
+import { supportHint, type RecipeScript, type RecipeTarget } from "../data/recipe-support.js";
 import {
   matchColumns,
   parseRecipeFile,
@@ -3542,9 +3543,8 @@ export class App {
         this.typeEdits.length = 0;
         this.updateStepsButton();
       },
-      onCopyRecipe: () => this.copyRecipe(),
-      recipeSupport: () =>
-        supportHint("pandas", pandasRecipeScript(this.recipeInput()).entries),
+      onCopyRecipe: (target) => this.copyRecipe(target),
+      recipeSupport: (target) => supportHint(target, this.recipeScript(target).entries),
       onSaveRecipe: () => this.saveRecipe(),
       onReplayRecipe: () => this.pickRecipeFile(),
       onClose: () => undefined,
@@ -3609,8 +3609,14 @@ export class App {
     };
   }
 
-  private async copyRecipe(): Promise<boolean> {
-    const recipe = pandasRecipeScript(this.recipeInput()).code;
+  /** Runs the selected target generator over the canonical recipe input. */
+  private recipeScript(target: RecipeTarget): RecipeScript {
+    const input = this.recipeInput();
+    return target === "polars" ? polarsRecipeScript(input) : pandasRecipeScript(input);
+  }
+
+  private async copyRecipe(target: RecipeTarget): Promise<boolean> {
+    const recipe = this.recipeScript(target).code;
     return copyText(recipe);
   }
 

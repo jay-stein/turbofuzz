@@ -1,0 +1,4 @@
+{
+  "name": "cleanup",
+  "description": "trim, title case and replace across two text columns"
+}

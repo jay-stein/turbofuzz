@@ -4517,6 +4517,10 @@ select.chart-number {
   background: var(--panel);
 }
 
+.recipe-target {
+  max-width: 110px;
+}
+
 .null-list {
   display: flex;
   flex-direction: column;

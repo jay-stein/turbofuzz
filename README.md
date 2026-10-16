@@ -38,7 +38,8 @@ API, no network requests — everything is parsed and processed on your device.
   PNG export.
 - **Export:** CSV with scope choice (all rows after steps vs. filtered) and an
   optional first-N subset, a BOM for Excel, optional formula escaping, plus
-  clipboard copy and a pandas recipe of the applied steps.
+  clipboard copy and a pandas or Polars recipe of the applied steps (with a
+  support report listing any step that needs manual translation).
 
 ## Development
 

@@ -1,5 +1,6 @@
 import { setupDialog } from "./dialog.js";
 import { el, svgIcon } from "./dom.js";
+import type { RecipeTarget } from "../data/recipe-support.js";
 
 export interface StepsPanelEntry {
   kind: "clean" | "transform" | "rows" | "nulls" | "type";
@@ -32,9 +33,9 @@ export interface StepsPanelCallbacks {
   /** Reverses every sub-step of a condensed batch in one action. */
   onUndoBatch: (entries: readonly StepsPanelEntry[]) => void;
   onClearAll: () => void;
-  onCopyRecipe: () => Promise<boolean>;
+  onCopyRecipe: (target: RecipeTarget) => Promise<boolean>;
   /** One line describing what the recipe exporter can and cannot translate. */
-  recipeSupport?: () => string;
+  recipeSupport?: (target: RecipeTarget) => string;
   /** Download the recipe as a local JSON file for replay next month. */
   onSaveRecipe: () => void;
   /** Pick a saved recipe file and replay it against the current data. */
@@ -159,9 +160,23 @@ export function openStepsPanel(
   const hint = el("div", { class: "clean-hint" }, [
     "Changes apply in order. Batches from one action are condensed — click + to show their sub-steps. The undo icon reverses a change; clean operations can be reordered within their column.",
   ]);
-  const supportText = callbacks.recipeSupport?.() ?? "";
+  const targetSelect = el("select", {
+    class: "recipe-target",
+    "aria-label": "Recipe language",
+    title: "Python recipe language",
+  }) as HTMLSelectElement;
+  for (const target of ["pandas", "polars"] as const) {
+    const option = el("option", { value: target }, [target === "pandas" ? "pandas" : "Polars"]) as HTMLOptionElement;
+    targetSelect.append(option);
+  }
+  const supportText = callbacks.recipeSupport?.(targetSelect.value as RecipeTarget) ?? "";
   const support = el("div", { class: "clean-support" }, [supportText]);
   if (supportText === "") support.classList.add("hidden");
+  targetSelect.addEventListener("change", () => {
+    const text = callbacks.recipeSupport?.(targetSelect.value as RecipeTarget) ?? "";
+    support.textContent = text;
+    support.classList.toggle("hidden", text === "");
+  });
   const list = el("div", { class: "clean-op-list" });
   modal.append(hint, support, list);
 
@@ -293,13 +308,13 @@ export function openStepsPanel(
     callbacks.onClearAll();
     callbacks.onClose();
   });
-  const copy = el("button", { class: "ghost", type: "button" }, ["Copy pandas recipe"]);
+  const copy = el("button", { class: "ghost", type: "button" }, ["Copy recipe"]);
   copy.disabled = entries.length === 0;
   copy.addEventListener("click", () => {
-    void callbacks.onCopyRecipe().then((ok) => {
+    void callbacks.onCopyRecipe(targetSelect.value as RecipeTarget).then((ok) => {
       copy.textContent = ok ? "Copied" : "Clipboard blocked";
       window.setTimeout(() => {
-        copy.textContent = "Copy pandas recipe";
+        copy.textContent = "Copy recipe";
       }, 2000);
     });
   });
@@ -310,7 +325,7 @@ export function openStepsPanel(
   const replay = el("button", { class: "ghost", type: "button" }, ["Replay recipe…"]);
   replay.title = "Load a saved recipe file and re-apply its steps by column name";
   replay.addEventListener("click", () => callbacks.onReplayRecipe());
-  footer.append(undoAll, replay, save, copy, el("span", { class: "grow" }));
+  footer.append(undoAll, replay, save, targetSelect, copy, el("span", { class: "grow" }));
   modal.append(footer);
 
   function close(): void {

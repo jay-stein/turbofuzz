@@ -92,6 +92,62 @@ test("Recipe shows the empty state and disables bulk actions", () => {
   assert.equal((buttons[3] as unknown as { disabled: boolean }).disabled, true);
 });
 
+test("Recipe language selector switches the exporter and its support line", async () => {
+  const window = setupDom();
+  const copies: string[] = [];
+  openStepsPanel(
+    [
+      {
+        kind: "transform",
+        label: "Remove duplicate rows (keep first copy)",
+        column: -1,
+        opIndex: 0,
+        groupSize: 1,
+      },
+    ],
+    {
+      onRemoveClean: () => {},
+      onMoveClean: () => {},
+      onRemoveLastTransform: () => {},
+      onRestoreRows: () => {},
+      onUndoPolicy: () => {},
+      onUndoType: () => {},
+      onUndoBatch: () => {},
+      onClearAll: () => {},
+      onCopyRecipe: async (target) => {
+        copies.push(target);
+        return true;
+      },
+      recipeSupport: (target) => `${target}: support`,
+      onSaveRecipe: () => {},
+      onReplayRecipe: () => {},
+      onClose: () => {},
+    },
+  );
+
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const select = document.querySelector(".recipe-target") as unknown as HTMLSelectElement;
+  assert.ok(select !== null, "the language selector renders");
+  assert.deepEqual(
+    [...select.options].map((option) => option.value),
+    ["pandas", "polars"],
+  );
+  assert.equal(select.value, "pandas");
+  assert.match(document.querySelector(".clean-support")?.textContent ?? "", /pandas: support/);
+
+  select.value = "polars";
+  select.dispatchEvent(new window.Event("change") as unknown as Event);
+  assert.match(document.querySelector(".clean-support")?.textContent ?? "", /polars: support/);
+
+  const copy = [...document.querySelectorAll(".clean-footer button")].find(
+    (button) => button.textContent === "Copy recipe",
+  );
+  assert.ok(copy !== undefined, "the copy button renders");
+  (copy as unknown as { click(): void }).click();
+  await Promise.resolve();
+  assert.deepEqual(copies, ["polars"], "the selected target is sent to the generator");
+});
+
 test("Recipe condenses batches and undoes them as one action", () => {
   setupDom();
   const batches: number[] = [];

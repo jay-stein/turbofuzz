@@ -14,6 +14,7 @@
     "bench:app": "tsx bench/app-smoke.ts",
     "bench:real": "tsx bench/real.ts",
     "bench:latency": "tsx bench/latency.ts",
+    "parity:cases": "tsx tools/recipe-parity/make_cases.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
