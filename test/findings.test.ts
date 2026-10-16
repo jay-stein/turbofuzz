@@ -213,3 +213,32 @@ test("explainColumn writes a careful sentence and ranks the associations", () =>
   assert.equal(findings.length, 2);
   assert.equal(findings[0].report, "relationships.explain");
 });
+
+test("pattern findings flag off-format cells with a filter action", () => {
+  const columns = [
+    meta({
+      name: "phone",
+      pattern: {
+        mask: "+9 9 9",
+        share: 0.97,
+        total: 103,
+        offCount: 3,
+        examples: ["call me"],
+      },
+    }),
+    meta({ name: "code" }),
+  ];
+  const findings = qualityFindings(columns, stats());
+  const pattern = findings.find((finding) => finding.id === "pattern.0");
+  assert.ok(pattern !== undefined, "a finding is produced for the patterned column");
+  assert.match(pattern.title, /phone/);
+  assert.match(pattern.title, /\+9 9 9/);
+  assert.match(pattern.evidence.map((entry) => entry.metric).join(","), /match share/);
+  assert.equal(pattern.fixLabel, "Filter off-format");
+  assert.deepEqual(pattern.action, { kind: "filterSpecial", column: 0, special: "pattern" });
+  assert.equal(
+    findings.some((finding) => finding.id === "pattern.1"),
+    false,
+    "columns without a profile stay quiet",
+  );
+});

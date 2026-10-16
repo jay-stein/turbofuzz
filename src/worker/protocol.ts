@@ -31,6 +31,15 @@ export interface CategoryMeta {
   counts: number[];
 }
 
+/** Dominant-format profile for a text-like column (format-validity check). */
+export interface ColumnPatternMeta {
+  mask: string;
+  share: number;
+  total: number;
+  offCount: number;
+  examples: string[];
+}
+
 export interface ColumnMeta {
   name: string;
   type: ColumnType;
@@ -49,6 +58,8 @@ export interface ColumnMeta {
   nullPolicy: { extra: string[]; keep: string[] };
   nullTokens: NullTokenCount[];
   suggestions: ColumnSuggestion[];
+  /** Dominant-format check: mask, off-pattern count and examples (null when none). */
+  pattern?: ColumnPatternMeta | null;
 }
 
 export type HistogramMeta = HistogramData;
@@ -123,7 +134,8 @@ export type SpecialKind =
   | "nulls"
   | "valueAnomalies"
   | "lengthAnomalies"
-  | "groupAnomalies";
+  | "groupAnomalies"
+  | "pattern";
 
 export type SetSpecialRequest = {
   type: "setSpecial";

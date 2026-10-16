@@ -16,7 +16,7 @@ export type FindingAction =
   | {
       kind: "filterSpecial";
       column: number;
-      special: "nulls" | "valueAnomalies" | "groupAnomalies";
+      special: "nulls" | "valueAnomalies" | "groupAnomalies" | "pattern";
     }
   | { kind: "filterDuplicates" }
   | { kind: "filterRange"; column: number; min: number | null; max: number | null }
@@ -288,6 +288,26 @@ export function qualityFindings(
           });
         }
       }
+    }
+    const pattern = meta.pattern ?? null;
+    if (pattern !== null && pattern.offCount > 0) {
+      findings.push({
+        id: `pattern.${column}`,
+        report: "quality.schemaHealth",
+        severity: "review",
+        title: `“${meta.name}” has ${pattern.offCount.toLocaleString()} values that don't match the ${pattern.mask} format`,
+        evidence: [
+          { metric: "off-format cells", value: pattern.offCount.toLocaleString(), n: pattern.offCount },
+          { metric: "dominant format", value: pattern.mask, n: 1 },
+          { metric: "match share", value: percent(pattern.share), n: 1 },
+          ...(pattern.examples[0] === undefined
+            ? []
+            : [{ metric: "example", value: `“${pattern.examples[0]}”`, n: 1 }]),
+        ],
+        impact: { rows: pattern.offCount, columns: [column] },
+        fixLabel: "Filter off-format",
+        action: { kind: "filterSpecial", column, special: "pattern" },
+      });
     }
   });
 

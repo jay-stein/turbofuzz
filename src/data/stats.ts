@@ -1,6 +1,7 @@
 import { BitSet } from "../search/bitset.js";
 import { computeAnomalies, type LengthFence, type ValueFence } from "./anomalies.js";
 import type { ColumnData } from "./column.js";
+import { computePatternProfiles, type PatternProfile } from "./mask-profile.js";
 
 export interface DatasetStats {
   duplicateRows: number;
@@ -26,6 +27,8 @@ export interface IngestStats {
   lengthColumnBits: (BitSet | null)[];
   valueFences: (ValueFence | null)[];
   lengthFences: (LengthFence | null)[];
+  /** Per column: dominant-format profile and off-pattern bits (null when none). */
+  patternProfiles: (PatternProfile | null)[];
 }
 
 /** Row hash progress: called once per column with 1-based progress. */
@@ -147,6 +150,12 @@ export function computeDatasetStats(
   for (const column of columns) totalNullCells += column.stats.nulls;
 
   const anomalies = computeAnomalies(columns, rowCount, onProgress);
+  const patternProfiles: (PatternProfile | null)[] = new Array<PatternProfile | null>(
+    columnCount,
+  ).fill(null);
+  for (const profile of computePatternProfiles(columns, rowCount)) {
+    patternProfiles[profile.column] = profile;
+  }
 
   return {
     stats: {
@@ -170,5 +179,6 @@ export function computeDatasetStats(
     lengthColumnBits: anomalies.lengthColumnBits,
     valueFences: anomalies.columns.map((entry) => entry.valueFence),
     lengthFences: anomalies.columns.map((entry) => entry.lengthFence),
+    patternProfiles,
   };
 }

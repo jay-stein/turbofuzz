@@ -33,7 +33,8 @@ export type ColumnSpecialKind =
   | "nulls"
   | "valueAnomalies"
   | "lengthAnomalies"
-  | "groupAnomalies";
+  | "groupAnomalies"
+  | "pattern";
 
 export class QueryEngine {
   private readonly special = new Set<SpecialFilter>();
@@ -111,6 +112,8 @@ export class QueryEngine {
         return this.dataset.lengthColumnBits[column] ?? null;
       case "groupAnomalies":
         return this.dataset.groupColumnBits[column] ?? null;
+      case "pattern":
+        return this.dataset.patternColumnBits[column] ?? null;
     }
   }
 

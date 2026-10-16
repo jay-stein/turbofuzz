@@ -31,7 +31,12 @@ export interface HighlightRule {
   mode: "contains" | "exact";
 }
 
-export type ColumnQaKind = "nulls" | "valueAnomalies" | "lengthAnomalies" | "groupAnomalies";
+export type ColumnQaKind =
+  | "nulls"
+  | "valueAnomalies"
+  | "lengthAnomalies"
+  | "groupAnomalies"
+  | "pattern";
 
 export interface ResultTableOptions {
   onSort: (column: number, dir: 1 | -1 | 0) => void;
@@ -426,6 +431,15 @@ export class ResultTable {
         count: column.anomalyCounts.lengths,
         noun: { one: "long value", many: "long values" },
         hint: "click to show this column's overlong values",
+      });
+    }
+    const pattern = column.pattern ?? null;
+    if (pattern !== null && pattern.offCount > 0) {
+      issues.push({
+        kind: "pattern",
+        count: pattern.offCount,
+        noun: { one: "off-format value", many: "off-format values" },
+        hint: `click to show values that don't match ${pattern.mask}`,
       });
     }
     if (issues.length <= 1) {

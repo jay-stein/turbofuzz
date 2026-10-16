@@ -159,6 +159,7 @@ function finishDataset(
     lengthColumnBits,
     valueFences,
     lengthFences,
+    patternProfiles,
   } = computeDatasetStats(columns, rowCount, (phase, current, total) => {
     onProgress?.({
       detail: `${phase} (${current}/${total})…`,
@@ -181,6 +182,7 @@ function finishDataset(
     lengthColumnBits,
     valueFences,
     lengthFences,
+    patternProfiles,
   );
 }
 
@@ -206,6 +208,7 @@ export function datasetFromColumns(name: string, columns: ColumnData[]): Dataset
     result.lengthColumnBits,
     result.valueFences,
     result.lengthFences,
+    result.patternProfiles,
   );
 }
 

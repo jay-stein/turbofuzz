@@ -80,4 +80,28 @@ test("worker applies per-column specials and reports anomaly counts", async () =
   };
   assert.equal(loaded.columns[0].anomalyCounts.values, 0);
   assert.ok(loaded.columns[1].anomalyCounts.values >= 1);
+
+  // Pattern validity: a dominant mask ("A-9") and the off-format rows it flags.
+  const codes: string[] = [];
+  for (let i = 0; i < 60; i++) codes.push(`AB-${1000 + i}`);
+  codes.push("broken", "AB1000");
+  send({
+    type: "load",
+    requestId: 10,
+    name: "t3",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: ["code,n", ...codes.map((code, i) => `${code},${i}`)].join("\n"),
+  });
+  const patterned = find("loaded", 10) as unknown as {
+    columns: { pattern?: { mask: string; offCount: number; examples: string[] } | null }[];
+  };
+  assert.equal(patterned.columns[0].pattern?.mask, "A-9");
+  assert.equal(patterned.columns[0].pattern?.offCount, 2);
+  assert.deepEqual(patterned.columns[0].pattern?.examples, ["broken", "AB1000"]);
+
+  send({ type: "setSpecial", requestId: 11, kind: "pattern", active: true, column: 0 });
+  assert.equal((find("results", 11) as unknown as { count: number }).count, 2);
+  send({ type: "setSpecial", requestId: 12, kind: "pattern", active: false, column: 0 });
+  assert.equal((find("results", 12) as unknown as { count: number }).count, 62);
 });

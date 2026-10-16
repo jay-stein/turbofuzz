@@ -43,6 +43,7 @@ import {
   QueryEngine,
   type ColumnFilter,
   type ColumnSpecialKind,
+  type SpecialFilter,
 } from "../search/query-engine.js";
 import { isNumericLikeType, type ColumnType } from "../types.js";
 import { buildCsv } from "./csv.js";
@@ -104,7 +105,8 @@ let rankAsc: Uint32Array | null = null;
 let sortDir: 1 | -1 = 1;
 let exportIds: Uint32Array | null = null;
 let duplicateRank: Uint32Array | null = null;
-const specials = new Set<SpecialKind>();
+// Global specials only; "pattern" is column-only and never joins this set.
+const specials = new Set<SpecialFilter>();
 // Per-column specials (empties/outliers), carried across clean rebuilds too.
 const columnSpecials = new Map<number, Set<ColumnSpecialKind>>();
 // Rows removed via the delete actions, by original dataset row id.
@@ -703,6 +705,10 @@ function handleSetSpecial(message: {
       if (kinds.size === 0) columnSpecials.delete(message.column);
     }
   } else {
+    if (message.kind === "pattern") {
+      // Column-only special: without a column there is nothing to intersect.
+      return;
+    }
     engine.setSpecial(message.kind, message.active);
     if (message.active) specials.add(message.kind);
     else specials.delete(message.kind);
@@ -2079,6 +2085,7 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
   if (isNumericLikeType(column.type)) {
     column.numbers();
   }
+  const patternProfile = dataset.patternProfiles[index] ?? null;
   let categories: ColumnMeta["categories"] = null;
   let similarGroups = 0;
   if (column.type === "category" || column.type === "boolean") {
@@ -2109,6 +2116,16 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     nullPolicy: { extra: [...column.nullPolicy.extra], keep: [...column.nullPolicy.keep] },
     nullTokens: [...column.nullTokens],
     suggestions: column.suggestions,
+    pattern:
+      patternProfile === null
+        ? null
+        : {
+            mask: patternProfile.mask,
+            share: patternProfile.share,
+            total: patternProfile.total,
+            offCount: patternProfile.offCount,
+            examples: patternProfile.examples,
+          },
   };
 }
 
