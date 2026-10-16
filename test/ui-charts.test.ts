@@ -2125,6 +2125,68 @@ test("a bar card plots a measure per category without a view", async () => {
   card.dispose();
 });
 
+test("a line card splits its measure into one series per group", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: ViewDef[] = [];
+  const aggregate = (view: ViewDef): AggregateMessage => ({
+    type: "aggregate",
+    requestId: 1,
+    viewId: view.id,
+    labels: ["2026-08 · a", "2026-08 · b", "2026-09 · a", "2026-09 · b"],
+    dimensions: [
+      ["2026-08", "2026-08", "2026-09", "2026-09"],
+      ["a", "b", "a", "b"],
+    ],
+    dimensionNames: ["day (month)", "city (value)"],
+    dimensionIsTime: [true, false],
+    dimensionTimes: [
+      Float64Array.from([Date.UTC(2026, 7, 1), Date.UTC(2026, 7, 1), Date.UTC(2026, 8, 1), Date.UTC(2026, 8, 1)]),
+      Float64Array.from([Number.NaN, Number.NaN, Number.NaN, Number.NaN]),
+    ],
+    measures: [Float64Array.from([10, 20, 12, 18])],
+    measureNames: ["sum(amount)"],
+    totals: Float64Array.from([60]),
+    groupCount: 4,
+    totalGroups: 4,
+    truncated: false,
+    partials: null,
+    ms: 1,
+  });
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestAggregate: (view: ViewDef) => {
+        calls.push(view);
+        return Promise.resolve(aggregate(view));
+      },
+    },
+    { kind: "line", column: 0, valueColumn: 1, valueAgg: "sum", valueGrain: "month", groupColumn: 2 },
+  );
+  card.setColumns([
+    meta({ name: "day", type: "datetime", stats: { ...meta().stats, distinct: 300 } }),
+    meta({ name: "amount", type: "number" }),
+    meta({ name: "city", type: "category" }),
+  ]);
+  await tick();
+
+  const def = calls[calls.length - 1];
+  assert.ok(def !== undefined);
+  assert.deepEqual(def.dimensions, [
+    { column: 0, by: { time: "month" } },
+    { column: 2, by: "value" },
+  ]);
+  assert.deepEqual(def.measures, [{ column: 1, agg: "sum" }]);
+  assert.equal((card as unknown as { config: { groupColumn: number } }).config.groupColumn, 2);
+
+  const note = host.querySelector(".chart-note")?.textContent ?? "";
+  assert.match(note, /sum\(amount\) by city/, "the note names the split column");
+  assert.match(note, /2 of 2 series shown/);
+  card.dispose();
+});
+
 test("a histogram card aggregates a measure per bin without a view", async () => {
   setupDom();
   const host = document.createElement("div");

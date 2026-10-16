@@ -782,6 +782,7 @@ export class ChartCard {
       this.refreshGroupedBins();
       this.refreshBubble();
       this.refreshAnimation();
+      this.refreshValue();
       this.render();
     });
     this.groupWrap = this.tagged("Group", this.groupSelect).wrap;
@@ -789,9 +790,16 @@ export class ChartCard {
     this.valueSelect = this.buildSelect("chart-picker chart-picker-small", "Value column");
     this.valueSelect.addEventListener("change", () => {
       this.config.valueColumn = Number(this.valueSelect.value);
-      // A value line and a grouped count line are two different charts; the
-      // value choice wins and clears the group so the result is unambiguous.
-      if ((this.config.valueColumn ?? -1) >= 0) this.config.groupColumn = -1;
+      // A value line and a grouped count line are two different charts, so the
+      // value choice clears the group where both cannot coexist. Lines and bars
+      // keep the group: that combination is the split-by series chart.
+      if (
+        (this.config.valueColumn ?? -1) >= 0 &&
+        this.config.kind !== "line" &&
+        this.config.kind !== "bar"
+      ) {
+        this.config.groupColumn = -1;
+      }
       this.generation++;
       this.syncOptions();
       this.renderControls();
@@ -1632,6 +1640,7 @@ export class ChartCard {
     this.kindSelect.classList.toggle("hidden", bound);
     const kpiPrimaryHidden =
       kind === "kpi" && !this.columns.some((meta) => this.isDateLike(meta));
+    const groupedValue = valueOn && (kind === "line" || kind === "bar");
     this.primaryWrap.classList.toggle(
       "hidden",
       bound || pair || kind === "correlation" || kpiPrimaryHidden,
@@ -1639,9 +1648,9 @@ export class ChartCard {
     this.groupWrap.classList.toggle(
       "hidden",
       bound ||
-        (kind !== "line" && kind !== "histogram" && kind !== "bubble") ||
+        (kind !== "line" && kind !== "histogram" && kind !== "bubble" && kind !== "bar") ||
         !groupable ||
-        valueOn,
+        (valueOn && !groupedValue),
     );
     this.valueWrap.classList.toggle("hidden", bound || !measureKinds);
     this.valueAggWrap.classList.toggle("hidden", bound || !measureKinds || !valueOn);
@@ -1711,6 +1720,14 @@ export class ChartCard {
       this.config.valueGrain === undefined || this.config.valueGrain === "auto"
         ? this.defaultGrainFor(this.config.column)
         : this.config.valueGrain;
+    // Split-by: line/bar cards with a Group draw one series per group value
+    // (dimension 2); the renderer pivots the returned groups into series.
+    const groupType = this.meta(this.config.groupColumn)?.type;
+    const split =
+      (line || this.config.kind === "bar") &&
+      this.config.groupColumn >= 0 &&
+      groupType !== undefined &&
+      isCategoryType(groupType);
     const binCount = Math.max(
       1,
       Math.min(256, Math.floor(this.config.binOptions?.binCount ?? DEFAULT_BIN_COUNT) || 32),
@@ -1720,14 +1737,24 @@ export class ChartCard {
       name: this.config.title.trim() === "" ? this.defaultTitle() : this.config.title.trim(),
       dimensions:
         line || overTime
-          ? [{ column: this.config.column, by: { time: grain } }]
+          ? split
+            ? [
+                { column: this.config.column, by: { time: grain } },
+                { column: this.config.groupColumn, by: "value" },
+              ]
+            : [{ column: this.config.column, by: { time: grain } }]
           : histogram
             ? [{ column: this.config.column, by: { bin: { n: binCount } } }]
             : kpi
               ? []
-              : [{ column: this.config.column, by: "value" }],
+              : split
+                ? [
+                    { column: this.config.column, by: "value" },
+                    { column: this.config.groupColumn, by: "value" },
+                  ]
+                : [{ column: this.config.column, by: "value" }],
       measures: [{ column, agg: this.config.valueAgg ?? "mean" }],
-      fill: line ? "zero" : "none",
+      fill: line && !split ? "zero" : "none",
       sort:
         line || overTime || histogram
           ? { key: "dim0", dir: "asc" }
@@ -2202,9 +2229,12 @@ export class ChartCard {
       kind === "line" || (kind === "kpi" && this.isDateLike(this.meta(this.config.column)));
     const valueOn =
       measureKinds && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
+    const groupedValue = valueOn && (kind === "line" || kind === "bar");
     this.groupWrap.classList.toggle(
       "hidden",
-      (kind !== "line" && kind !== "histogram" && kind !== "bubble") || !groupable || valueOn,
+      (kind !== "line" && kind !== "histogram" && kind !== "bubble" && kind !== "bar") ||
+        !groupable ||
+        (valueOn && !groupedValue),
     );
     const unbound = this.config.source === "";
     this.valueWrap.classList.toggle("hidden", !measureKinds || !unbound);
@@ -4181,6 +4211,192 @@ export class ChartCard {
   }
 
   /**
+   * Split-by series: a line/bar card whose aggregate carries a second (group)
+   * dimension draws one colored series per group value. The top 8 groups by
+   * absolute total are drawn; a legend names them and the note counts the rest.
+   */
+  private drawSplitAggregate(
+    ctx: CanvasRenderingContext2D,
+    frame: Frame,
+    result: AggregateMessage,
+    values: Float64Array,
+  ): void {
+    const n = result.groupCount;
+    const bucketLabels = result.dimensions[0] ?? [];
+    const groupLabels = result.dimensions[1] ?? [];
+    const bucketIndex = new Map<string, number>();
+    const buckets: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const label = bucketLabels[i] ?? "";
+      if (!bucketIndex.has(label)) {
+        bucketIndex.set(label, buckets.length);
+        buckets.push(label);
+      }
+    }
+    interface SplitSeries {
+      label: string;
+      color: string;
+      total: number;
+      values: Float64Array;
+    }
+    const byGroup = new Map<string, SplitSeries>();
+    for (let i = 0; i < n; i++) {
+      const label = groupLabels[i] ?? "(missing)";
+      let entry = byGroup.get(label);
+      if (entry === undefined) {
+        entry = {
+          label,
+          color: this.groupColor(byGroup.size),
+          total: 0,
+          values: new Float64Array(buckets.length).fill(Number.NaN),
+        };
+        byGroup.set(label, entry);
+      }
+      const value = values[i] ?? Number.NaN;
+      if (Number.isFinite(value)) {
+        const bucket = bucketIndex.get(bucketLabels[i] ?? "") ?? 0;
+        entry.values[bucket] = value;
+        entry.total += Math.abs(value);
+      }
+    }
+    const all = [...byGroup.values()].sort((a, b) => b.total - a.total);
+    const shown = all.slice(0, 8);
+    if (shown.length === 0) {
+      const message = "The aggregate has no groups to draw yet.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const ui = frame.ui;
+    let max = 0;
+    for (const series of shown) {
+      for (const value of series.values) {
+        if (Number.isFinite(value)) max = Math.max(max, value);
+      }
+    }
+    const top = Math.max(1, max);
+
+    // Shared y grid and baseline (same shape as the single-series bars).
+    const yTicks = niceTicks(0, top, 4).filter(
+      (value, index, list) =>
+        index === 0 || formatChartNumber(value) !== formatChartNumber(list[index - 1]),
+    );
+    ctx.strokeStyle = frame.border;
+    ctx.lineWidth = 1;
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
+    ctx.textAlign = "right";
+    for (const value of yTicks) {
+      const y = frame.top + frame.plotH - (value / top) * frame.plotH;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(frame.left, y + 0.5);
+      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText(formatChartNumber(value), frame.left - 6 * ui, y + 3 * ui);
+    }
+    ctx.textAlign = "left";
+    ctx.beginPath();
+    ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
+    ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
+    ctx.stroke();
+
+    const slot = frame.plotW / Math.max(1, buckets.length);
+    const lineCard = result.dimensionIsTime[0] === true;
+    if (lineCard) {
+      for (const series of shown) {
+        ctx.strokeStyle = series.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        let started = false;
+        for (let b = 0; b < buckets.length; b++) {
+          const value = series.values[b] ?? Number.NaN;
+          if (!Number.isFinite(value)) {
+            started = false;
+            continue;
+          }
+          const x = frame.left + (b + 0.5) * slot;
+          const y = frame.top + frame.plotH - (value / top) * frame.plotH;
+          if (!started) {
+            ctx.moveTo(x, y);
+            started = true;
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
+        ctx.stroke();
+      }
+    } else {
+      const barW = Math.max(1, (slot * 0.8) / shown.length);
+      shown.forEach((series, s) => {
+        ctx.fillStyle = series.color;
+        ctx.globalAlpha = 0.85;
+        for (let b = 0; b < buckets.length; b++) {
+          const value = series.values[b] ?? Number.NaN;
+          if (!Number.isFinite(value) || value <= 0) continue;
+          const height = (value / top) * frame.plotH;
+          this.fillTopRounded(
+            ctx,
+            frame.left + b * slot + slot * 0.1 + s * barW,
+            frame.top + frame.plotH - height,
+            Math.max(1, barW - 1),
+            height,
+            2 * ui,
+          );
+        }
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 10);
+    ctx.textAlign = "center";
+    const step = Math.max(1, Math.ceil(buckets.length / 8));
+    for (let b = 0; b < buckets.length; b += step) {
+      ctx.fillText(
+        this.fit(ctx, buckets[b] ?? "", Math.max(16, slot * step - 4 * ui)),
+        frame.left + (b + 0.5) * slot,
+        frame.top + frame.plotH + 14 * ui,
+      );
+    }
+    ctx.textAlign = "left";
+
+    // Legend: colored swatch + name, left to right until the row is full.
+    let x = frame.left;
+    let legendCount = 0;
+    for (const series of shown) {
+      const label = series.label;
+      this.font(ctx, ui, 10);
+      const width = ctx.measureText(label).width + 26 * ui;
+      if (x + width > frame.left + frame.plotW) break;
+      ctx.fillStyle = series.color;
+      ctx.fillRect(x, frame.top - 14 * ui, 8 * ui, 8 * ui);
+      ctx.fillStyle = frame.dim;
+      ctx.fillText(label, x + 12 * ui, frame.top - 6 * ui);
+      x += width;
+      legendCount++;
+    }
+    if (legendCount < shown.length) {
+      ctx.fillStyle = frame.dim;
+      ctx.fillText(`+${shown.length - legendCount} more`, x, frame.top - 6 * ui);
+    }
+
+    const measure = result.measureNames[0] ?? "measure";
+    ctx.fillStyle = frame.dim;
+    ctx.fillText(
+      `${measure} · ${shown.length}${all.length > shown.length ? ` of ${all.length}` : ""} series`,
+      frame.left,
+      frame.top + frame.plotH + 30 * ui,
+    );
+    this.noteEl.textContent = `${measure} by ${
+      result.dimensionNames[1] ?? "group"
+    } · ${shown.length} of ${all.length} series shown · ${
+      result.dimensionNames[0] ?? "group"
+    } advances left to right`;
+  }
+
+  /**
    * KPI card: the latest value large, the change vs the previous period in
    * green/red, and a faint sparkline of the series behind it. Without a date
    * column the series has one row and the card is the grand total.
@@ -4282,6 +4498,10 @@ export class ChartCard {
       const message = "The aggregate has no measures.";
       this.noteEl.textContent = message;
       this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    if (this.config.source === "" && result.dimensions.length >= 2) {
+      this.drawSplitAggregate(ctx, frame, result, values);
       return;
     }
     if (this.config.kind === "kpi" && this.config.source === "") {
