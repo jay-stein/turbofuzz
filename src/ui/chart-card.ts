@@ -1623,7 +1623,8 @@ export class ChartCard {
     const kind = this.config.kind;
     const pair = isPairKind(kind);
     const groupable = this.columns.some((meta) => isCategoryType(meta.type));
-    const measureKinds = kind === "line" || kind === "bar" || kind === "kpi";
+    const measureKinds =
+      kind === "line" || kind === "bar" || kind === "kpi" || kind === "histogram";
     const grainKinds =
       kind === "line" || (kind === "kpi" && this.isDateLike(this.meta(this.config.column)));
     const valueOn =
@@ -1672,13 +1673,14 @@ export class ChartCard {
       });
   }
 
-  /** True when this card plots its own measure aggregate (line/bar/KPI cards). */
+  /** True when this card plots its own measure aggregate (line/bar/KPI/bins). */
   private usesValueAggregate(): boolean {
     return (
       this.config.source === "" &&
       (this.config.kind === "line" ||
         this.config.kind === "bar" ||
-        this.config.kind === "kpi") &&
+        this.config.kind === "kpi" ||
+        this.config.kind === "histogram") &&
       (this.config.valueColumn ?? -1) >= 0
     );
   }
@@ -1692,13 +1694,14 @@ export class ChartCard {
     return this.config.source !== "" ? this.viewResult : this.valueResult;
   }
 
-  /** Implicit view definition: the measure aggregated over time or categories. */
+  /** Implicit view definition: the measure aggregated over time, categories or bins. */
   private valueViewDef(): ViewDef | null {
     if (!this.usesValueAggregate() || this.options.requestAggregate === undefined) return null;
     const column = this.config.valueColumn ?? -1;
     if (column < 0) return null;
     const line = this.config.kind === "line";
     const kpi = this.config.kind === "kpi";
+    const histogram = this.config.kind === "histogram";
     if (line && !this.isDateLike(this.meta(this.config.column))) return null;
     // A KPI with a date column reads the series (latest bucket + comparison);
     // without one it is the grand total over every filtered row.
@@ -1708,18 +1711,27 @@ export class ChartCard {
       this.config.valueGrain === undefined || this.config.valueGrain === "auto"
         ? this.defaultGrainFor(this.config.column)
         : this.config.valueGrain;
+    const binCount = Math.max(
+      1,
+      Math.min(256, Math.floor(this.config.binOptions?.binCount ?? DEFAULT_BIN_COUNT) || 32),
+    );
     return {
       id: "card-value",
       name: this.config.title.trim() === "" ? this.defaultTitle() : this.config.title.trim(),
       dimensions:
         line || overTime
           ? [{ column: this.config.column, by: { time: grain } }]
-          : kpi
-            ? []
-            : [{ column: this.config.column, by: "value" }],
+          : histogram
+            ? [{ column: this.config.column, by: { bin: { n: binCount } } }]
+            : kpi
+              ? []
+              : [{ column: this.config.column, by: "value" }],
       measures: [{ column, agg: this.config.valueAgg ?? "mean" }],
       fill: line ? "zero" : "none",
-      sort: line || overTime ? { key: "dim0", dir: "asc" } : { key: "m0", dir: "desc" },
+      sort:
+        line || overTime || histogram
+          ? { key: "dim0", dir: "asc" }
+          : { key: "m0", dir: "desc" },
       limit: 5000,
       respectFilters: true,
     };
@@ -2184,7 +2196,8 @@ export class ChartCard {
                 ? "Text"
                 : "Column";
     const groupable = this.columns.some((meta) => isCategoryType(meta.type));
-    const measureKinds = kind === "line" || kind === "bar" || kind === "kpi";
+    const measureKinds =
+      kind === "line" || kind === "bar" || kind === "kpi" || kind === "histogram";
     const grainKinds =
       kind === "line" || (kind === "kpi" && this.isDateLike(this.meta(this.config.column)));
     const valueOn =

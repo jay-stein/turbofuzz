@@ -2125,6 +2125,66 @@ test("a bar card plots a measure per category without a view", async () => {
   card.dispose();
 });
 
+test("a histogram card aggregates a measure per bin without a view", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: ViewDef[] = [];
+  const aggregate = (view: ViewDef): AggregateMessage => ({
+    type: "aggregate",
+    requestId: 1,
+    viewId: view.id,
+    labels: ["0–10", "10–20", "20–30"],
+    dimensions: [["0–10", "10–20", "20–30"]],
+    dimensionNames: ["age (bins)"],
+    dimensionIsTime: [false],
+    dimensionTimes: [Float64Array.from([Number.NaN, Number.NaN, Number.NaN])],
+    measures: [Float64Array.from([12, 88, 30])],
+    measureNames: ["sum(amount)"],
+    totals: Float64Array.from([130]),
+    groupCount: 3,
+    totalGroups: 3,
+    truncated: false,
+    partials: null,
+    ms: 1,
+  });
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestAggregate: (view: ViewDef) => {
+        calls.push(view);
+        return Promise.resolve(aggregate(view));
+      },
+    },
+    { kind: "histogram", column: 0, valueColumn: 1, valueAgg: "sum" },
+  );
+  card.setColumns([
+    meta({
+      name: "age",
+      type: "number",
+      histogram: { bins: [1, 2, 3], min: 0, max: 30, symlog: false, below: 0, above: 0, p05: 1, p95: 28 },
+    }),
+    meta({ name: "amount", type: "number" }),
+  ]);
+  await tick();
+
+  const def = calls[calls.length - 1];
+  assert.ok(def !== undefined, "the card fetches its own aggregate");
+  assert.deepEqual(def.dimensions, [{ column: 0, by: { bin: { n: 32 } } }]);
+  assert.deepEqual(def.measures, [{ column: 1, agg: "sum" }]);
+  assert.deepEqual(def.sort, { key: "dim0", dir: "asc" }, "bins stay in bin order");
+
+  const tagWrap = (label: string): HTMLElement | null =>
+    ([...host.querySelectorAll(".chart-tag")] as HTMLElement[]).find(
+      (tag) => tag.querySelector(".chart-tag-label")?.textContent === label,
+    ) ?? null;
+  assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Agg")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), true);
+  card.dispose();
+});
+
 test("a KPI card totals a measure over all rows without a date", async () => {
   setupDom();
   const host = document.createElement("div");
