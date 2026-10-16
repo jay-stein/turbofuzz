@@ -18,7 +18,8 @@ import {
 } from "../data/archetype.js";
 import type { ViewDef } from "../data/aggregate.js";
 import { describeCleanOp, describeCleanOpDetail, type CleanOp } from "../data/clean-ops.js";
-import { pandasRecipe, viewToPandas } from "../data/recipe.js";
+import { pandasRecipeScript, type RecipeInput, viewToPandas } from "../data/recipe.js";
+import { supportHint } from "../data/recipe-support.js";
 import {
   matchColumns,
   parseRecipeFile,
@@ -3542,6 +3543,8 @@ export class App {
         this.updateStepsButton();
       },
       onCopyRecipe: () => this.copyRecipe(),
+      recipeSupport: () =>
+        supportHint("pandas", pandasRecipeScript(this.recipeInput()).entries),
       onSaveRecipe: () => this.saveRecipe(),
       onReplayRecipe: () => this.pickRecipeFile(),
       onClose: () => undefined,
@@ -3574,22 +3577,40 @@ export class App {
     }
   }
 
-  private async copyRecipe(): Promise<boolean> {
+  /** The canonical recipe contract: applied cleans, null/type edits, transforms. */
+  private recipeInput(): RecipeInput {
     const schema =
       this.transformBaseSchema.length > 0
         ? this.transformBaseSchema
         : this.metas.map((meta) => ({
             name: meta.name,
             numeric: meta.type === "integer" || meta.type === "number",
+            type: meta.type,
           }));
-    const recipe = pandasRecipe({
+    return {
       cleans: [...this.cleanedColumns.entries()].map(([column, ops]) => ({
         name: this.metas[column]?.name ?? `Column ${column + 1}`,
         ops,
       })),
       transforms: this.transformOps,
       schema,
-    });
+      types: this.typeEdits.map((edit) => ({
+        name: this.metas[edit.column]?.name ?? `Column ${edit.column + 1}`,
+        type: this.metas[edit.column]?.type ?? "string",
+      })),
+      nulls: this.metas
+        .map((meta) => ({
+          name: meta.name,
+          extra: [...meta.nullPolicy.extra],
+          keep: [...meta.nullPolicy.keep],
+        }))
+        .filter((entry) => entry.extra.length > 0 || entry.keep.length > 0),
+      deletedRows: this.excludedRowCount > 0 ? this.excludedRowCount : undefined,
+    };
+  }
+
+  private async copyRecipe(): Promise<boolean> {
+    const recipe = pandasRecipeScript(this.recipeInput()).code;
     return copyText(recipe);
   }
 

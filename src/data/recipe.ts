@@ -1,12 +1,32 @@
-import type { CleanOp } from "./clean-ops.js";
+import { describeCleanOp, type CleanOp } from "./clean-ops.js";
 import { compileExpression, type ExprTerm, type DimensionSpec, type MeasureSpec, type ViewDef } from "./aggregate.js";
-import { schemaAfter, type ColumnSchema, type TransformOp } from "./transform-ops.js";
+import {
+  schemaAfter,
+  describeTransformOp,
+  type ColumnSchema,
+  type TransformOp,
+} from "./transform-ops.js";
+import {
+  supportHeaderLines,
+  type RecipeScript,
+  type SupportEntry,
+} from "./recipe-support.js";
+import type { ColumnType } from "../types.js";
 
 export interface RecipeInput {
   cleans: readonly { name: string; ops: readonly CleanOp[] }[];
   transforms: readonly TransformOp[];
   /** Schema as authored before the transform steps. */
   schema: readonly ColumnSchema[];
+  /**
+   * Manual logical-type changes. Applied after the value cleans, matching the
+   * app where cleans always read the raw text.
+   */
+  types?: readonly { name: string; type: ColumnType }[];
+  /** Per-column missing-value policy: tokens treated as missing, values kept. */
+  nulls?: readonly { name: string; extra: readonly string[]; keep: readonly string[] }[];
+  /** Rows deleted interactively — data-dependent, not expressible in code. */
+  deletedRows?: number;
 }
 
 function py(value: string): string {
@@ -119,12 +139,18 @@ export function viewPandasLines(
   measures: readonly MeasureSpec[],
   names: readonly string[],
   fill: "none" | "zero" | "carry" = "none",
+  entries?: SupportEntry[],
 ): string[] {
   const lines: string[] = [];
   if (fill !== "none") {
     lines.push(
-      `# empty periods: ${fill === "carry" ? "carried forward" : "filled with zero"} — reindex the group axis before the post steps`,
+      `# empty periods: ${fill === "carry" ? "carried forward" : "filled with zero"} — reindex/resample the group axis before the post steps`,
     );
+    entries?.push({
+      label: `aggregate: fill empty periods (${fill === "carry" ? "carry forward" : "zero"})`,
+      status: "manual_step_required",
+      note: "the group axis is not reindexed in the generated code",
+    });
   }
   const groupExprs = dimensions.map((spec, index) => {
     const name = names[spec.column] ?? `Column ${spec.column + 1}`;
@@ -135,13 +161,30 @@ export function viewPandasLines(
         lines.push(
           `# fiscal year starts in month ${by.fiscalStartMonth}: re-label Y/Q buckets after the groupby`,
         );
+        entries?.push({
+          label: `aggregate: fiscal year starts month ${by.fiscalStartMonth}`,
+          status: "supported_with_warning",
+          note: "calendar Y/Q labels need re-labelling for the fiscal calendar",
+        });
       }
       if (by.tz !== undefined && by.tz.trim() !== "") {
         lines.push(
           `# timezone ${by.tz}: convert timestamps before resampling, e.g. ${target(name)}.dt.tz_convert(${py(by.tz)})`,
         );
+        entries?.push({
+          label: `aggregate: timezone ${by.tz}`,
+          status: "supported_with_warning",
+          note: "convert the timestamp column to the zone before the groupby",
+        });
       }
       const weekArg = by.time === "week" && by.weekStart === 0 ? '  # weeks start Sunday' : "";
+      if (weekArg !== "") {
+        entries?.push({
+          label: "aggregate: weeks start Sunday",
+          status: "supported_with_warning",
+          note: "pandas weeks start Monday; shift the bucket labels",
+        });
+      }
       lines.push(
         `${temp} = pd.to_datetime(df[${py(name)}]).dt.to_period(${py(PERIOD[by.time] ?? "D")}).dt.to_timestamp()${weekArg}`,
       );
@@ -166,6 +209,11 @@ export function viewPandasLines(
         lines.push(
           `# periods since first ${entity} at ${cohortSpec.grain} grain: subtract the period indices of ${name} and ${first}`,
         );
+        entries?.push({
+          label: `aggregate: periods since first ${entity} (${cohortSpec.grain})`,
+          status: "supported_with_warning",
+          note: "the generated temp column holds period labels, not offsets",
+        });
         lines.push(`${temp} = pd.to_datetime(df[${py(name)}]).dt.to_period(${period})`);
       }
       return temp;
@@ -192,6 +240,11 @@ export function viewPandasLines(
         lines.push(`${temp} = pd.cut(${source}, bins=[${by.bin.edges.join(", ")}])`);
       } else if ("width" in by.bin) {
         lines.push(`# equal-width bins of ${by.bin.width} from the data minimum`);
+        entries?.push({
+          label: `aggregate: equal-width bins of ${by.bin.width}`,
+          status: "supported_with_warning",
+          note: "bin edges derive from the data minimum; fixed data required",
+        });
         lines.push(
           `${temp} = pd.cut(${source}, bins=max(1, int((${source}.max() - ${source}.min()) / ${by.bin.width}) + 1))`,
         );
@@ -250,6 +303,11 @@ export function viewPandasLines(
       return;
     }
     lines.push(`# “only where” for this measure is not translated: ${measureName(measure, names)}`);
+    entries?.push({
+      label: `aggregate: “only where” on ${measureName(measure, names)}`,
+      status: "manual_step_required",
+      note: "this condition shape has no generated mask; apply it manually",
+    });
   });
 
   // Weighted measures: pre-multiply value × weight so the groupby stays a
@@ -281,6 +339,11 @@ export function viewPandasLines(
         }
       } else {
         lines.push(`    # expression could not be translated: ${measure.expr}`);
+        entries?.push({
+          label: `aggregate: expression ${measure.expr}`,
+          status: "manual_step_required",
+          note: "the expression references something the generator cannot name",
+        });
       }
       continue;
     }
@@ -348,6 +411,11 @@ export function viewPandasLines(
   measures.forEach((measure) => {
     for (const post of measure.post ?? []) {
       const column = target(measureName(measure, names));
+      entries?.push({
+        label: `aggregate: ${post.op} on ${measureName(measure, names)}`,
+        status: "manual_step_required",
+        note: "post-aggregation window ops stay comments; apply them after the groupby",
+      });
       switch (post.op) {
         case "cumulative":
           lines.push(`# post-aggregation: ${column} = ${column}.cumsum()`);
@@ -413,9 +481,14 @@ export function viewToPandas(view: ViewDef, columnNames: readonly string[]): str
   return lines.join("\n");
 }
 
-function cleanLines(name: string, ops: readonly CleanOp[]): string[] {
+function cleanLines(
+  name: string,
+  ops: readonly CleanOp[],
+  entries: SupportEntry[],
+): string[] {
   const column = target(name);
   return ops.map((op) => {
+    entries.push({ label: `${name}: ${describeCleanOp(op)}`, status: "supported" });
     switch (op.kind) {
       case "trim":
         return `${column} = ${column}.str.strip().str.replace(r"\\s+", " ", regex=True)`;
@@ -439,7 +512,9 @@ function cleanLines(name: string, ops: readonly CleanOp[]): string[] {
         }
         return `${column} = ${column}.astype(str).str.replace(r"^([+-]?\\d{1,3}(?:,\\d{3})*)\\.(\\d{1,2})$", r"\\1,\\2", regex=True)`;
       case "escapeFormulas":
-        return `# escape leading =, @, + or - so spreadsheet apps treat the cell as text`;
+        // Mirrors looksLikeFormula(): =, @, tab and CR always; a leading sign
+        // only when the rest is not a plain number.
+        return `${column} = ${column}.map(lambda v: ("'" + v) if isinstance(v, str) and v != "" and (v[0] in "=@\\t\\r" or (v[0] in "+-" and v[1:] != "" and not re.fullmatch(r"[0-9.,\\s]+", v[1:]))) else v)`;
       case "toDate":
         return `${column} = pd.to_datetime(${column}, dayfirst=${op.order === "dmy" ? "True" : "False"}, errors="coerce")`;
     }
@@ -449,26 +524,60 @@ function cleanLines(name: string, ops: readonly CleanOp[]): string[] {
 function transformLines(
   transforms: readonly TransformOp[],
   schema: readonly ColumnSchema[],
+  entries: SupportEntry[],
 ): string[] {
   const lines: string[] = [];
   let current = schema.slice();
   for (const op of transforms) {
     const names = current.map((entry) => entry.name);
+    const before = entries.length;
     switch (op.kind) {
       case "dedupe": {
         const keep = op.keep === "none" ? "False" : py(op.keep);
         lines.push(`df = df.drop_duplicates(keep=${keep})`);
         break;
       }
-      case "drop":
-        lines.push(`df = df.drop(columns=[${py(names[op.column])}])`);
+      case "drop": {
+        const dropped = names[op.column];
+        if (dropped === undefined) {
+          lines.push("# drop skipped in the script: the column is no longer in the schema");
+          entries.push({
+            label: `drop: column ${op.column + 1}`,
+            status: "manual_step_required",
+            note: "the tracked schema no longer has this column",
+          });
+          break;
+        }
+        lines.push(`df = df.drop(columns=[${py(dropped)}])`);
         break;
-      case "round":
-        lines.push(`${target(names[op.column])} = ${target(names[op.column])}.round(${op.decimals})`);
+      }
+      case "round": {
+        const rounded = names[op.column];
+        if (rounded === undefined) {
+          lines.push("# round skipped in the script: the column is no longer in the schema");
+          entries.push({
+            label: `round: column ${op.column + 1}`,
+            status: "manual_step_required",
+            note: "the tracked schema no longer has this column",
+          });
+          break;
+        }
+        lines.push(`${target(rounded)} = ${target(rounded)}.round(${op.decimals})`);
         break;
+      }
       case "groupBy": {
-        const dimension = py(names[op.dimension]);
+        const dimensionName = names[op.dimension];
         const measureName = op.measure === null ? null : names[op.measure];
+        if (dimensionName === undefined || (op.measure !== null && measureName === undefined)) {
+          lines.push("# groupBy skipped in the script: a referenced column is gone");
+          entries.push({
+            label: `groupBy: column ${op.dimension + 1}${op.measure === null ? "" : ` by ${op.measure + 1}`}`,
+            status: "manual_step_required",
+            note: "the tracked schema no longer has the referenced columns",
+          });
+          break;
+        }
+        const dimension = py(dimensionName);
         const header =
           measureName === null
             ? op.aggregate.charAt(0).toUpperCase() + op.aggregate.slice(1)
@@ -484,31 +593,43 @@ function transformLines(
         break;
       }
       case "impute": {
-        const column = target(names[op.column]);
-        const within =
-          op.groupColumn !== null
-            ? ` groupby ${target(names[op.groupColumn])}`
-            : "";
+        const columnName = names[op.column];
+        if (columnName === undefined) {
+          lines.push("# impute skipped in the script: the column is no longer in the schema");
+          entries.push({
+            label: `impute: column ${op.column + 1}`,
+            status: "manual_step_required",
+            note: "the tracked schema no longer has this column",
+          });
+          break;
+        }
+        const column = target(columnName);
         switch (op.strategy.kind) {
           case "constant":
             lines.push(`${column} = ${column}.fillna(${py(op.strategy.value)})`);
             break;
           case "mean":
           case "median":
-            if (op.groupColumn !== null) {
+            if (op.groupColumn !== null && names[op.groupColumn] !== undefined) {
               const group = target(names[op.groupColumn]);
               lines.push(
-                `${column} = df.groupby(${group})[${py(names[op.column])}].transform(lambda s: s.fillna(s.${op.strategy.kind}()))`,
+                `${column} = df.groupby(${group})[${py(columnName)}].transform(lambda s: s.fillna(s.${op.strategy.kind}()))`,
               );
             } else {
               lines.push(`${column} = ${column}.fillna(${column}.${op.strategy.kind}())`);
             }
             break;
           case "mode":
-            if (op.groupColumn !== null) {
+            if (op.groupColumn !== null && names[op.groupColumn] !== undefined) {
+              const group = target(names[op.groupColumn]);
               lines.push(
-                `# Mode within ${within}: ${names[op.column]} — fill per group with the most frequent value`,
+                `${column} = df.groupby(${group})[${py(columnName)}].transform(lambda s: s.fillna(s.mode().iloc[0]) if not s.mode().empty else s)`,
               );
+              entries.push({
+                label: `impute: mode of ${columnName} within ${names[op.groupColumn]}`,
+                status: "supported_with_warning",
+                note: "pandas picks the smallest mode on ties; TurboFuzz picks the most frequent",
+              });
             } else {
               lines.push(`${column} = ${column}.fillna(${column}.mode().iloc[0])`);
             }
@@ -522,29 +643,52 @@ function transformLines(
         }
         break;
       }
-      case "knn":
+      case "knn": {
         lines.push(
           `# KNN impute ${op.fill.map((index) => names[index]).join(", ")} from ${
             op.predictors.map((index) => names[index]).join(", ") || "no predictors"
           } (k=${op.k}) — use sklearn.impute.KNNImputer`,
         );
+        entries.push({
+          label: `knn: impute ${op.fill.map((index) => names[index] ?? `column ${index + 1}`).join(", ")} (k=${op.k})`,
+          status: "manual_step_required",
+          note: "use sklearn.impute.KNNImputer with the generated predictor columns",
+        });
         break;
+      }
       case "melt": {
-        const idVars = op.idVars.map((index) => py(names[index])).join(", ");
-        const valueVars = op.valueVars.map((index) => py(names[index])).join(", ");
+        const idVars = op.idVars.filter((index) => names[index] !== undefined);
+        const idSet = new Set(idVars);
+        const valueVars = (
+          op.valueVars.length > 0
+            ? op.valueVars
+            : names.map((_, index) => index).filter((index) => !idSet.has(index))
+        ).filter((index) => names[index] !== undefined);
+        const ids = idVars.map((index) => py(names[index])).join(", ");
+        const values = valueVars.map((index) => py(names[index])).join(", ");
         const varName = py(op.varName.trim() || "variable");
         const valueName = py(op.valueName.trim() || "value");
         lines.push(
-          `df = df.melt(id_vars=[${idVars}], value_vars=[${valueVars}], var_name=${varName}, value_name=${valueName})`,
+          `df = df.melt(id_vars=[${ids}], value_vars=[${values}], var_name=${varName}, value_name=${valueName})`,
         );
         break;
       }
       case "aggregate": {
-        lines.push(...viewPandasLines(op.dimensions, op.measures, names));
+        lines.push(...viewPandasLines(op.dimensions, op.measures, names, op.fill ?? "none", entries));
         break;
       }
       case "winsorize": {
-        const column = target(names[op.column]);
+        const columnName = names[op.column];
+        if (columnName === undefined) {
+          lines.push("# winsorize skipped in the script: the column is no longer in the schema");
+          entries.push({
+            label: `winsorize: column ${op.column + 1}`,
+            status: "manual_step_required",
+            note: "the tracked schema no longer has this column",
+          });
+          break;
+        }
+        const column = target(columnName);
         const q = op.percent / 100;
         lines.push(
           `${column} = pd.to_numeric(${column}, errors="coerce").clip(lower=${column}.quantile(${q}), upper=${column}.quantile(${1 - q}))`,
@@ -555,6 +699,11 @@ function transformLines(
         lines.push(
           `# outlier flags for ${names[op.column]} depend on fences computed from the data (robust median/MAD or quantiles); recompute before exporting`,
         );
+        entries.push({
+          label: `flagAnomalies: ${names[op.column] ?? `column ${op.column + 1}`}`,
+          status: "manual_step_required",
+          note: "fences come from the data; recompute them or re-run the app's flag action",
+        });
         break;
       case "combineDate": {
         const fields = new Map<string, string>();
@@ -562,11 +711,26 @@ function transformLines(
         let temp = 0;
         const dayfirst = op.order === "dmy" ? "True" : "False";
         op.parts.forEach((part) => {
-          if (part.role === "auto") {
-            prep.push(`# ${names[part.column]}: role auto-detected by TurboFuzz`);
+          const partName = names[part.column];
+          if (partName === undefined) {
+            prep.push(`# column ${part.column + 1}: no longer in the schema — skipped`);
+            entries.push({
+              label: `combineDate: column ${part.column + 1}`,
+              status: "manual_step_required",
+              note: "the tracked schema no longer has this column",
+            });
             return;
           }
-          const source = target(names[part.column]);
+          if (part.role === "auto") {
+            prep.push(`# ${partName}: role auto-detected by TurboFuzz`);
+            entries.push({
+              label: `combineDate: auto role for ${partName}`,
+              status: "manual_step_required",
+              note: "re-run auto-detection or state the role explicitly",
+            });
+            return;
+          }
+          const source = target(partName);
           switch (part.role) {
             case "year":
             case "month":
@@ -580,10 +744,20 @@ function transformLines(
               fields.set("microsecond", `${source}.astype(float).fillna(0) * 1000`);
               break;
             case "meridiem":
-              prep.push(`# ${names[part.column]}: AM/PM column — merge into the hour before combining`);
+              prep.push(`# ${partName}: AM/PM column — merge into the hour before combining`);
+              entries.push({
+                label: `combineDate: AM/PM column ${partName}`,
+                status: "manual_step_required",
+                note: "merge the meridian into the hour before combining",
+              });
               break;
             case "offset":
-              prep.push(`# ${names[part.column]}: UTC offset column — use dt.tz_localize after combining`);
+              prep.push(`# ${partName}: UTC offset column — use dt.tz_localize after combining`);
+              entries.push({
+                label: `combineDate: UTC offset column ${partName}`,
+                status: "manual_step_required",
+                note: "apply the offset with dt.tz_localize after combining",
+              });
               break;
             case "epoch": {
               const name = `_part${temp++}`;
@@ -616,7 +790,8 @@ function transformLines(
           }
         });
         lines.push(...prep);
-        const output = target(op.outputName.trim() || (op.output === "date" ? "date" : "datetime"));
+        const outputName = op.outputName.trim() || (op.output === "date" ? "date" : "datetime");
+        const output = target(outputName);
         const dict = [...fields].map(([key, value]) => `${key}=${value}`).join(", ");
         lines.push(`${output} = pd.to_datetime(dict(${dict}), errors="coerce")`);
         if (op.output === "date") {
@@ -628,11 +803,33 @@ function transformLines(
           lines.push(
             `${output} = ${output}.dt.tz_localize(${py(op.timeZone.trim())}, nonexistent="shift_forward", ambiguous="Naive")`,
           );
+          entries.push({
+            label: `combineDate: timezone ${op.timeZone.trim()}`,
+            status: "supported_with_warning",
+            note: "offsets already present in the source data win over localisation",
+          });
+        }
+        if (op.dropParts) {
+          const droppedParts = [...new Set(op.parts.map((part) => names[part.column]))].filter(
+            (partName): partName is string => partName !== undefined && partName !== outputName,
+          );
+          if (droppedParts.length > 0) {
+            lines.push(`df = df.drop(columns=[${droppedParts.map((partName) => py(partName)).join(", ")}])`);
+          }
         }
         break;
       }
       case "splitColumn": {
         const sourceName = names[op.column];
+        if (sourceName === undefined) {
+          lines.push("# split skipped in the script: the column is no longer in the schema");
+          entries.push({
+            label: `splitColumn: column ${op.column + 1}`,
+            status: "manual_step_required",
+            note: "the tracked schema no longer has this column",
+          });
+          break;
+        }
         const source = target(sourceName);
         const prefix = op.prefix.trim() === "" ? sourceName : op.prefix.trim();
         if (op.regex) {
@@ -646,38 +843,197 @@ function transformLines(
         if (op.dropOriginal) {
           lines.push(`df = df.drop(columns=[${py(sourceName)}])`);
         }
+        if (op.dropEmpty) {
+          lines.push(
+            "# drop-empty parts are packed per row in TurboFuzz; pandas keeps the split positions",
+          );
+          entries.push({
+            label: `splitColumn: ${sourceName} (drop empty parts)`,
+            status: "manual_step_required",
+            note: "per-row packing has no direct pandas equivalent; positions are preserved here",
+          });
+        }
         break;
       }
+    }
+    if (entries.length === before) {
+      entries.push({ label: describeTransformOp(op, names), status: "supported" });
     }
     current = schemaAfter(current, op);
   }
   return lines;
 }
 
+/** Per-column missing-value policy lines, applied right after the read. */
+function nullPolicyLines(
+  nulls: NonNullable<RecipeInput["nulls"]>,
+  entries: SupportEntry[],
+): string[] {
+  const lines: string[] = [];
+  for (const { name, extra, keep } of nulls) {
+    if (extra.length > 0) {
+      lines.push(`${target(name)} = ${target(name)}.replace([${extra.map((token) => py(token)).join(", ")}], pd.NA)`);
+      entries.push({
+        label: `nulls: treat ${extra.map((token) => `“${token}”`).join(", ")} as missing in “${name}”`,
+        status: "supported",
+      });
+    }
+    for (const token of keep) {
+      lines.push(
+        `# “${name}”: “${token}” stays a value — read with keep_default_na=False and list the real missing tokens of this column in na_values`,
+      );
+      entries.push({
+        label: `nulls: keep “${token}” as a value in “${name}”`,
+        status: "manual_step_required",
+        note: "the default reader nulls it before the value can be recovered; adjust the reader",
+      });
+    }
+  }
+  return lines;
+}
+
+/** Logical-type conversions, applied after the value cleans. */
+function typeLines(
+  types: NonNullable<RecipeInput["types"]>,
+  entries: SupportEntry[],
+): string[] {
+  const lines: string[] = [];
+  for (const { name, type } of types) {
+    const column = target(name);
+    switch (type) {
+      case "integer":
+      case "number":
+        lines.push(`${column} = pd.to_numeric(${column}, errors="coerce")`);
+        entries.push({ label: `type: ${name} → ${type}`, status: "supported" });
+        break;
+      case "date":
+        lines.push(`${column} = pd.to_datetime(${column}, errors="coerce").dt.date`);
+        entries.push({ label: `type: ${name} → date`, status: "supported" });
+        break;
+      case "datetime":
+        lines.push(`${column} = pd.to_datetime(${column}, errors="coerce")`);
+        entries.push({ label: `type: ${name} → datetime`, status: "supported" });
+        break;
+      case "time":
+        lines.push(`${column} = pd.to_datetime(${column}, errors="coerce", format="mixed").dt.time`);
+        entries.push({
+          label: `type: ${name} → time`,
+          status: "supported_with_warning",
+          note: "requires pandas 2.0+ for format=\"mixed\"",
+        });
+        break;
+      case "duration":
+        lines.push(`${column} = pd.to_timedelta(${column}, errors="coerce")`);
+        entries.push({
+          label: `type: ${name} → duration`,
+          status: "supported_with_warning",
+          note: "colon and unit forms parse; verify unusual spellings",
+        });
+        break;
+      case "category":
+        lines.push(`${column} = ${column}.astype("category")`);
+        entries.push({ label: `type: ${name} → category`, status: "supported" });
+        break;
+      case "boolean":
+        lines.push(
+          `# “${name}” was read as boolean; map the source spellings (yes/no, y/n, 1/0) to true/false explicitly`,
+        );
+        entries.push({
+          label: `type: ${name} → boolean`,
+          status: "manual_step_required",
+          note: "map the exact source spellings",
+        });
+        break;
+      case "identifier":
+      case "string":
+        lines.push(`# “${name}” stays text; read it with dtype=str if the reader would coerce it`);
+        entries.push({
+          label: `type: ${name} → ${type}`,
+          status: "supported_with_warning",
+          note: "read the column as text so leading zeroes survive",
+        });
+        break;
+    }
+  }
+  return lines;
+}
+
 /**
- * Generates a pandas script from the applied steps. This is a best-effort
- * translation for sharing and reproducibility; KNN imputation is emitted as a
- * comment because it needs scikit-learn.
+ * Generates a pandas script from the applied steps, plus a per-step support
+ * report. Never silently drops a step: anything the generator cannot express
+ * appears as a comment and in the report (and the header warning list).
  */
-export function pandasRecipe(input: RecipeInput): string {
-  const lines: string[] = [
-    "import pandas as pd",
-    "",
-    'df = pd.read_csv("your-file.csv")  # adjust to your source',
-  ];
+export function pandasRecipeScript(input: RecipeInput): RecipeScript {
+  const entries: SupportEntry[] = [];
+  const body: string[] = [];
 
   for (const { name, ops } of input.cleans) {
     if (ops.length === 0) continue;
-    lines.push("", `# Clean: ${name}`);
-    lines.push(...cleanLines(name, ops));
+    body.push("", `# Clean: ${name}`);
+    body.push(...cleanLines(name, ops, entries));
   }
 
-  const transforms = transformLines(input.transforms, input.schema);
+  const nulls = input.nulls ?? [];
+  if (nulls.length > 0) {
+    const lines = nullPolicyLines(nulls, entries);
+    if (lines.length > 0) {
+      body.push("", "# Missing-value policy");
+      body.push(...lines);
+    }
+  }
+
+  const types = input.types ?? [];
+  if (types.length > 0) {
+    const lines = typeLines(types, entries);
+    if (lines.length > 0) {
+      body.push("", "# Logical types");
+      body.push(...lines);
+    }
+  }
+
+  const transforms = transformLines(input.transforms, input.schema, entries);
   if (transforms.length > 0) {
-    lines.push("", "# Transform");
-    lines.push(...transforms);
+    body.push("", "# Transform");
+    body.push(...transforms);
   }
 
-  lines.push("", 'df.to_csv("cleaned.csv", index=False)');
-  return lines.join("\n");
+  if ((input.deletedRows ?? 0) > 0) {
+    body.push(
+      "",
+      `# ${input.deletedRows?.toLocaleString()} rows were deleted interactively; they are not in this script`,
+    );
+    entries.push({
+      label: `rows: ${input.deletedRows?.toLocaleString()} deleted`,
+      status: "manual_step_required",
+      note: "row deletions are data-dependent and cannot be regenerated",
+    });
+  }
+
+  body.push("", 'df.to_csv("cleaned.csv", index=False)');
+
+  const needsRe = body.some((line) => /\bre\./.test(line));
+  const header = [
+    "# TurboFuzz pandas recipe — generated from the applied Recipe.",
+    "# Requirements: pip install pandas  (pandas >= 2.0 for format=\"mixed\" parsing)",
+    "# Input: the app does not record the source file format; point the reader at your data.",
+    "# Conventions: date → Python date objects (datetime64, midnight);",
+    "#   datetime → datetime64[ns] (naive timestamps are read as UTC);",
+    "#   time → Python time; duration → timedelta64.",
+    "# Nulls: pandas NaN/NaT; unparseable values become NaN/NaT via errors=\"coerce\".",
+    ...supportHeaderLines(entries),
+  ];
+  const setup = [
+    ...(needsRe ? ["import re", ""] : []),
+    "import pandas as pd",
+    "",
+    "# Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).",
+    'df = pd.read_csv("input.csv")',
+  ];
+  const code = [...header, "", ...setup, ...body].join("\n");
+  return { target: "pandas", code, entries };
+}
+
+/** Back-compat wrapper used by the Recipe drawer's Copy button. */
+export function pandasRecipe(input: RecipeInput): string {
+  return pandasRecipeScript(input).code;
 }

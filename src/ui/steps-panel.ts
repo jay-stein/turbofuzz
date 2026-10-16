@@ -33,6 +33,8 @@ export interface StepsPanelCallbacks {
   onUndoBatch: (entries: readonly StepsPanelEntry[]) => void;
   onClearAll: () => void;
   onCopyRecipe: () => Promise<boolean>;
+  /** One line describing what the recipe exporter can and cannot translate. */
+  recipeSupport?: () => string;
   /** Download the recipe as a local JSON file for replay next month. */
   onSaveRecipe: () => void;
   /** Pick a saved recipe file and replay it against the current data. */
@@ -157,8 +159,11 @@ export function openStepsPanel(
   const hint = el("div", { class: "clean-hint" }, [
     "Changes apply in order. Batches from one action are condensed — click + to show their sub-steps. The undo icon reverses a change; clean operations can be reordered within their column.",
   ]);
+  const supportText = callbacks.recipeSupport?.() ?? "";
+  const support = el("div", { class: "clean-support" }, [supportText]);
+  if (supportText === "") support.classList.add("hidden");
   const list = el("div", { class: "clean-op-list" });
-  modal.append(hint, list);
+  modal.append(hint, support, list);
 
   const lastTransformIndex = (() => {
     for (let i = entries.length - 1; i >= 0; i--) {

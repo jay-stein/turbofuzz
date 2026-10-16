@@ -205,7 +205,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Batches from one action are condensed — for example a clean applied to 20 columns, or the steps from one Transform commit. Click + on a batch to expand its sub-steps, or use the batch's undo icon to reverse the whole batch in one click.",
         "The undo icon reverses one entry; clean operations can be reordered within their column.",
         "Undo all restores the original data (except the loaded file itself).",
-        "Copy pandas recipe exports the clean and transform steps as a best-effort Python script for reproducibility.",
+        "Copy pandas recipe exports the clean, missing-value, type and transform steps as a Python script for reproducibility. The drawer shows how many steps export as executable pandas; steps that need manual translation (KNN, outlier flags, data-dependent fences) are listed in the script header and in the warning comments — never silently omitted.",
       ),
       note(
         "Deleting rows is undoable here too. Type changes and missing-value fixes now appear in the log as well, so nothing the chips do is a dead end.",
