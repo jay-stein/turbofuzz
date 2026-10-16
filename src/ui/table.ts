@@ -791,13 +791,18 @@ export class ResultTable {
     ) {
       const parsed = parseNumber(value);
       if (Number.isFinite(parsed)) {
+        // Forced decimals apply to real-number columns only; integers always
+        // render whole values (grouping is still honoured).
         display =
-          decimals !== undefined
+          decimals !== undefined && numericType === "number"
             ? parsed.toLocaleString(undefined, {
                 minimumFractionDigits: decimals,
                 maximumFractionDigits: decimals,
               })
-            : parsed.toLocaleString(undefined, { useGrouping: true, maximumFractionDigits: 20 });
+            : parsed.toLocaleString(undefined, {
+                useGrouping: grouped,
+                maximumFractionDigits: 20,
+              });
       }
     }
 

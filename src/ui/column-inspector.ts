@@ -338,6 +338,13 @@ export function openColumnInspector(
             })();
           },
         },
+        {
+          label: "KNN (nearest neighbours)…",
+          action: () => {
+            close();
+            callbacks.onOpenTransform({ type: "knn", column });
+          },
+        },
         { label: "More options…", action: () => { close(); callbacks.onOpenTransform({ type: "impute", column }); } },
       ];
       const button = action("Fill missing ▾", "Choose how missing values are filled", () =>
@@ -372,12 +379,17 @@ export function openColumnInspector(
   // Display format (numeric columns): fixed decimals for reading.
   if (numeric && !isTemporalType(meta.type)) {
     const display = section("Display");
-    const options: readonly { label: string; value: number | null }[] = [
-      { label: "Auto", value: null },
-      { label: "0 dp", value: 0 },
-      { label: "1 dp", value: 1 },
-      { label: "2 dp", value: 2 },
-    ];
+    // Decimal places only make sense for real-number columns; integers show
+    // whole values and keep just the separators toggle below.
+    const options: readonly { label: string; value: number | null }[] =
+      meta.type === "integer"
+        ? []
+        : [
+            { label: "Auto", value: null },
+            { label: "0 dp", value: 0 },
+            { label: "1 dp", value: 1 },
+            { label: "2 dp", value: 2 },
+          ];
     for (const option of options) {
       const active = callbacks.displayFormat === option.value;
       display.append(

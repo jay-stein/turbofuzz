@@ -187,3 +187,36 @@ test("numeric columns offer a display-only thousands-separator toggle", () => {
   clickAction("Thousands separators (1,234,567)");
   assert.deepEqual(calls, ["group:true"]);
 });
+
+test("integer columns offer separators but no decimal-place options", () => {
+  setupDom();
+  const calls: string[] = [];
+  openColumnInspector(
+    anchor(),
+    meta({ name: "count", type: "integer" }),
+    0,
+    callbacks(calls),
+  );
+  const text = inspectorText();
+  assert.match(text, /Thousands separators \(1,234,567\)/);
+  assert.doesNotMatch(text, /1 dp/);
+});
+
+test("the Fill missing menu offers KNN next to the simple strategies", () => {
+  setupDom();
+  const calls: string[] = [];
+  openColumnInspector(
+    anchor(),
+    meta({ name: "amount", type: "number" }),
+    0,
+    callbacks(calls),
+  );
+  clickAction("Fill missing ▾");
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const knn = [...document.querySelectorAll(".context-menu .context-item")].find(
+    (item) => item.textContent === "KNN (nearest neighbours)…",
+  );
+  assert.ok(knn !== undefined, "the KNN entry is present");
+  (knn as unknown as { click(): void }).click();
+  assert.deepEqual(calls, ["transform:knn"]);
+});

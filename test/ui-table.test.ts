@@ -362,3 +362,19 @@ test("thousands-separator display groups digits without touching raw data", () =
   const plain = host.querySelectorAll(".tr .td")[1];
   assert.equal(plain?.textContent, "1234567.89");
 });
+
+test("integer columns ignore decimal display formats", () => {
+  const { host, table } = buildTable([meta({ name: "count", type: "integer" })]);
+  table.setFormats(new Map([[0, 1]]));
+  table.setGrouping([0]);
+  table.setFirstRows([["1234567"]]);
+  table.setCount(1);
+  assert.equal(
+    host.querySelectorAll(".tr .td")[1]?.textContent,
+    "1,234,567",
+    "grouping applies but integers never show forced decimals",
+  );
+  table.setGrouping([]);
+  table.setFirstRows([["1234567"]]);
+  assert.equal(host.querySelectorAll(".tr .td")[1]?.textContent, "1234567");
+});

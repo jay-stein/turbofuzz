@@ -2091,6 +2091,12 @@ export class App {
             });
             this.updateStepsButton();
           }
+          // Decimal display options target real-number columns; a stale
+          // preference must not survive a change to integer (or text/date).
+          if (type !== "number" && this.displayFormats.has(column)) {
+            this.displayFormats.delete(column);
+            this.table?.setFormats(this.displayFormats);
+          }
           this.overview?.updateColumn(column, message.meta);
           this.filterPanel?.updateMeta(column, message.meta);
           this.table?.updateColumn(column, message.meta);
