@@ -12,6 +12,7 @@ export type ParsedCommand =
   | { kind: "clean"; column: number; op: CleanOp; label: string }
   | { kind: "cleanAll"; op: CleanOp; label: string }
   | { kind: "headerCase"; style: HeaderCaseStyle; label: string }
+  | { kind: "keyDuplicates"; columns: number[]; label: string }
   | { kind: "transform"; ops: TransformOp[]; label: string }
   | { kind: "dedupe"; keep: "first" | "last" | "none"; label: string }
   | {
@@ -43,6 +44,11 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
   { name: "trim", aliases: ["strip"], hint: "Trim whitespace (or “trim all”)" },
   { name: "snakecase", aliases: ["snake case", "snake"], hint: "Snake_case every column name" },
   { name: "camelcase", aliases: ["camel case", "camel"], hint: "camelCase every column name" },
+  {
+    name: "keydup",
+    aliases: ["duplicate key", "key duplicates"],
+    hint: "Duplicate rows on a key — “keydup order_id, customer_id”",
+  },
   { name: "number", aliases: ["tonumber", "convert number"], hint: "Convert a column to numbers" },
   { name: "date", aliases: ["todate", "convert date"], hint: "Convert a column to dates (date only)" },
   {
@@ -265,6 +271,38 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
           verb === "snakecase"
             ? "Snake-cased all column names"
             : "Camel-cased all column names",
+      };
+    }
+    case "keydup": {
+      const parts = rest
+        .split(",")
+        .map((part) => part.trim())
+        .filter((part) => part !== "");
+      const indexes: number[] = [];
+      const names: string[] = [];
+      for (const part of parts) {
+        const index = findColumn(part, columns);
+        if (index < 0) {
+          return {
+            kind: "error",
+            message: `No column matches “${part}” — separate the key columns with commas, e.g. “keydup order_id, customer_id”.`,
+          };
+        }
+        if (!indexes.includes(index)) {
+          indexes.push(index);
+          names.push(columns[index]?.name ?? part);
+        }
+      }
+      if (indexes.length === 0) {
+        return {
+          kind: "error",
+          message: "“keydup” needs at least one column, e.g. “keydup order_id, customer_id”.",
+        };
+      }
+      return {
+        kind: "keyDuplicates",
+        columns: indexes,
+        label: `Duplicate rows on (${names.join(", ")})`,
       };
     }
     case "number": {
@@ -525,8 +563,12 @@ export function commandSuggestions(
   // numbers for "round"), so the base list is not fixated on the first column.
   const pickColumn = (verb: string): string =>
     columns.find((meta) => columnFitsVerb(verb, meta))?.name ?? columns[0]?.name ?? "amount";
-  const example = (name: string): string =>
-    COLUMN_VERBS.has(name) ? `${name} ${pickColumn(name)}` : name;
+  const example = (name: string): string => {
+    if (name === "keydup") {
+      return `keydup ${columns[0]?.name ?? "order_id"}, ${columns[1]?.name ?? "customer_id"}`;
+    }
+    return COLUMN_VERBS.has(name) ? `${name} ${pickColumn(name)}` : name;
+  };
   const base: CommandSuggestion[] = VERBS.map((verb) => ({
     usage: example(verb.name),
     hint: verb.hint,
@@ -669,6 +711,7 @@ export function openCommandBar(options: CommandBarOptions): void {
       command.kind === "clean" ||
       command.kind === "cleanAll" ||
       command.kind === "headerCase" ||
+      command.kind === "keyDuplicates" ||
       command.kind === "transform" ||
       command.kind === "dedupe" ||
       command.kind === "prepareTimeSeries";

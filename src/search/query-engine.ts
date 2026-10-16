@@ -26,7 +26,8 @@ export type SpecialFilter =
   | "nulls"
   | "valueAnomalies"
   | "lengthAnomalies"
-  | "groupAnomalies";
+  | "groupAnomalies"
+  | "keyDuplicates";
 
 /** Specials that can be scoped to a single column (duplicates cannot). */
 export type ColumnSpecialKind =
@@ -130,6 +131,9 @@ export class QueryEngine {
       case "groupAnomalies":
         // Computed lazily by the Reports lens; before that, nothing matches.
         return this.dataset.groupAnomalyBits ?? new BitSet(this.dataset.rowCount);
+      case "keyDuplicates":
+        // Set by the composite-key check; before that, nothing matches.
+        return this.dataset.keyDuplicateBits ?? new BitSet(this.dataset.rowCount);
     }
   }
 

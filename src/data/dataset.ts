@@ -18,6 +18,8 @@ export class Dataset {
   /** Group-relative anomaly bits, computed lazily by the Reports lens. */
   groupColumnBits: (BitSet | null)[] = [];
   groupAnomalyBits: BitSet | null = null;
+  /** Composite-key duplicate bits, set by the palette's keydup check. */
+  keyDuplicateBits: BitSet | null = null;
 
   constructor(
     readonly name: string,

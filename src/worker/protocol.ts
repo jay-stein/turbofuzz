@@ -135,7 +135,8 @@ export type SpecialKind =
   | "valueAnomalies"
   | "lengthAnomalies"
   | "groupAnomalies"
-  | "pattern";
+  | "pattern"
+  | "keyDuplicates";
 
 export type SetSpecialRequest = {
   type: "setSpecial";
@@ -581,6 +582,31 @@ export type GetDistributionChangesRequest = {
   requestId: number;
 };
 
+export type CheckKeyDuplicatesRequest = {
+  type: "checkKeyDuplicates";
+  requestId: number;
+  columns: number[];
+};
+
+export interface KeyDuplicatesMessage {
+  type: "keyDuplicates";
+  requestId: number;
+  columns: number[];
+  /** Rows beyond the first copy of each duplicated key combination. */
+  duplicateRows: number;
+  duplicateGroups: number;
+  /** Rows whose key is fully populated (null key parts are skipped as N.A.). */
+  counted: number;
+  count: number;
+  queryMs: number;
+  facets: Record<number, number[]>;
+  histograms: Record<number, number[]>;
+  firstRows: string[][];
+  firstGroups?: boolean[];
+  firstFlags?: Uint8Array;
+  firstChanged?: Uint8Array;
+}
+
 export interface DistributionChangesMessage {
   type: "distributionChanges";
   requestId: number;
@@ -627,6 +653,7 @@ export type WorkerRequest =
   | GetTextProfileRequest
   | GetDistributionChangesRequest
   | GetSimilarClustersRequest
+  | CheckKeyDuplicatesRequest
   | GetGridCountsRequest
   | GetAnimationRequest;
 
@@ -837,6 +864,7 @@ export type WorkerResponse =
   | TextProfileMessage
   | DistributionChangesMessage
   | SimilarClustersMessage
+  | KeyDuplicatesMessage
   | GridCountsMessage
   | AnimationMessage
   | ExportStartedMessage

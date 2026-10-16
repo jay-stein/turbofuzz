@@ -8,6 +8,7 @@ import { textProfile } from "../data/text-profile.js";
 import { computeDistributionChanges } from "../data/distribution.js";
 import { computeSimilarClusters } from "../data/similar-clusters.js";
 import { computeAnomalies } from "../data/anomalies.js";
+import { computeKeyDuplicates } from "../data/key-duplicates.js";
 import { buildDataset, buildDatasetAsync, datasetFromColumns, rebuildDataset } from "../data/build.js";
 import { applyCleanOps } from "../data/clean-ops.js";
 import type { Dataset } from "../data/dataset.js";
@@ -82,6 +83,7 @@ import type {
   SetNullPolicyRequest,
   SetNumberLocaleRequest,
   SetTypeRequest,
+  CheckKeyDuplicatesRequest,
   SortRequest,
   SpecialKind,
   ProgressPhase,
@@ -265,6 +267,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "setType":
       handleSetType(message);
+      break;
+    case "checkKeyDuplicates":
+      handleCheckKeyDuplicates(message);
       break;
     case "setNumberLocale":
       handleSetNumberLocale(message);
@@ -833,6 +838,35 @@ function handleSetType(message: SetTypeRequest): void {
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
     firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
     nonParsing: countNonParsing(column, message.columnType),
+  });
+}
+
+/** Composite-key duplicate check: stores bits and activates the special. */
+function handleCheckKeyDuplicates(message: CheckKeyDuplicatesRequest): void {
+  const { dataset, engine } = state();
+  const result = computeKeyDuplicates(dataset.columns, message.columns, dataset.rowCount);
+  dataset.keyDuplicateBits = result.duplicateBits;
+  engine.setSpecial("keyDuplicates", true);
+  specials.add("keyDuplicates");
+
+  const started = performance.now();
+  const bits = engine.evaluateBits(filters);
+  sortedIds = computeSortedIds(bits);
+  post({
+    type: "keyDuplicates",
+    requestId: message.requestId,
+    columns: message.columns,
+    duplicateRows: result.duplicateRows,
+    duplicateGroups: result.duplicateGroups,
+    counted: result.counted,
+    count: sortedIds.length,
+    queryMs: performance.now() - started,
+    facets: computeFacets(dataset, engine, bits),
+    histograms: computeHistograms(dataset, engine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 

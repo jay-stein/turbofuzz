@@ -222,6 +222,19 @@ test("header casing and all-column cleans parse", () => {
   assert.equal(snakeSuggestion[0]?.usage, "snakecase");
 });
 
+test("keydup parses comma-separated key columns", () => {
+  const command = parseCommand("keydup amount, region", columns);
+  assert.equal(command.kind, "keyDuplicates");
+  if (command.kind === "keyDuplicates") {
+    assert.deepEqual(command.columns, [0, 1]);
+    assert.match(command.label, /amount, region/);
+  }
+  const single = parseCommand("duplicate key notes", columns);
+  assert.equal(single.kind, "keyDuplicates");
+  const bad = parseCommand("keydup nope, region", columns);
+  assert.equal(bad.kind, "error");
+});
+
 test("palette input state tracks verb and full-command recognition", () => {
   assert.equal(commandState("", columns), "empty");
   assert.equal(commandState("frobnicate", columns), "empty");

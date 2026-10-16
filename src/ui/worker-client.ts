@@ -24,6 +24,7 @@ import type {
   DependenciesMessage,
   DistributionChangesMessage,
   GridCountsMessage,
+  KeyDuplicatesMessage,
   SimilarClustersMessage,
   ExportOptions,
   ExportScope,
@@ -248,6 +249,10 @@ export class SearchWorkerClient {
 
   getDependencies(): Promise<DependenciesMessage> {
     return this.request<DependenciesMessage>({ type: "getDependencies" });
+  }
+
+  checkKeyDuplicates(columns: number[]): Promise<KeyDuplicatesMessage> {
+    return this.request<KeyDuplicatesMessage>({ type: "checkKeyDuplicates", columns });
   }
 
   getRelationships(): Promise<RelationshipsMessage> {

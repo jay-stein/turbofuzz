@@ -122,4 +122,26 @@ test("worker applies per-column specials and reports anomaly counts", async () =
   };
   assert.equal(changed.meta.type, "integer");
   assert.equal(changed.nonParsing, 2, "the text and decimal values are counted");
+
+  // Composite-key duplicates: store bits, activate the special, filter to them.
+  send({
+    type: "load",
+    requestId: 15,
+    name: "t5",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: "a,b\n1,x\n1,x\n1,y\n2,x\n",
+  });
+  find("loaded", 15);
+  send({ type: "checkKeyDuplicates", requestId: 16, columns: [0, 1] });
+  const keyed = find("keyDuplicates", 16) as unknown as {
+    duplicateRows: number;
+    duplicateGroups: number;
+    count: number;
+  };
+  assert.equal(keyed.duplicateRows, 1);
+  assert.equal(keyed.duplicateGroups, 1);
+  assert.equal(keyed.count, 2, "the view is filtered to the duplicate group");
+  send({ type: "setSpecial", requestId: 17, kind: "keyDuplicates", active: false });
+  assert.equal((find("results", 17) as unknown as { count: number }).count, 4);
 });
