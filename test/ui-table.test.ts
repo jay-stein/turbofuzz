@@ -393,3 +393,28 @@ test("integers drop float tails and dates display in one standard shape", () => 
   assert.equal(cells[2]?.textContent, "2016/12/03");
   assert.equal(cells[3]?.textContent, "2013/08/15 00:18");
 });
+
+test("display settings repaint rows already on screen", () => {
+  const { host, table } = buildTable([meta({ name: "amount", type: "number" })]);
+  table.setFirstRows([["1234567.89"]]);
+  table.setCount(1);
+  assert.equal(host.querySelectorAll(".tr .td")[1]?.textContent, "1234567.89");
+
+  table.setGrouping([0]);
+  assert.equal(
+    host.querySelectorAll(".tr .td")[1]?.textContent,
+    "1,234,567.89",
+    "enabling separators repaints without a scroll",
+  );
+
+  table.setGrouping([]);
+  table.setFormats(new Map([[0, 2]]));
+  assert.equal(host.querySelectorAll(".tr .td")[1]?.textContent, "1,234,567.89");
+
+  table.setFormats(new Map());
+  assert.equal(
+    host.querySelectorAll(".tr .td")[1]?.textContent,
+    "1234567.89",
+    "clearing the format restores the raw value",
+  );
+});

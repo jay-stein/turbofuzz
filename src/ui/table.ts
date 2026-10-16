@@ -265,11 +265,24 @@ export class ResultTable {
   /** Fixed-decimal display for numeric columns (null entries follow "Auto"). */
   setFormats(formats: ReadonlyMap<number, number>): void {
     this.formats = new Map(formats);
+    this.repaintRows();
   }
 
   /** Per-column thousands-separator display (display only, not the data). */
   setGrouping(columns: Iterable<number>): void {
     this.grouping = new Set(columns);
+    this.repaintRows();
+  }
+
+  /**
+   * Rebuild the visible rows even when the scroll window has not changed —
+   * render() skips identical windows, which made display-setting changes look
+   * like they did nothing.
+   */
+  private repaintRows(): void {
+    this.lastStart = -1;
+    this.lastEnd = -1;
+    this.render();
   }
 
   private gridTemplate(): string {
