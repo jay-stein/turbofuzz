@@ -1,4 +1,8 @@
-import { toDateInputValue } from "../parse/dates.js";
+import {
+  formatDurationMs,
+  toDateInputValue,
+  toTimeInputValue,
+} from "../parse/dates.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import type { ColumnType } from "../types.js";
 
@@ -48,8 +52,11 @@ export function chartKindFor(type: ColumnMeta["type"]): ChartKind {
   switch (type) {
     case "integer":
     case "number":
+    case "time":
+    case "duration":
       return "histogram";
     case "date":
+    case "datetime":
       return "line";
     case "category":
     case "boolean":
@@ -62,7 +69,7 @@ export function chartKindFor(type: ColumnMeta["type"]): ChartKind {
 /** Default chart kind for a new card, in priority order. */
 export function defaultCardKind(columns: ColumnMeta[]): ChartCardKind {
   if (columns.some((meta) => isNumericType(meta.type))) return "histogram";
-  if (columns.some((meta) => meta.type === "date")) return "line";
+  if (columns.some((meta) => meta.type === "date" || meta.type === "datetime")) return "line";
   if (columns.some((meta) => chartKindFor(meta.type) === "bar")) return "bar";
   return "histogram";
 }
@@ -125,7 +132,7 @@ export function pickDefaultCard(columns: readonly ColumnMeta[], rowCount = 0): D
 
   const dates = entries.filter(
     (entry) =>
-      entry.meta.type === "date" &&
+      (entry.meta.type === "date" || entry.meta.type === "datetime") &&
       entry.meta.stats.distinct >= 8 &&
       !isIdLikeColumn(entry.meta, rowCount),
   );
@@ -196,7 +203,9 @@ export function suggestCharts(columns: readonly ColumnMeta[], rowCount = 0): Cha
   const ideas: ChartIdea[] = [];
 
   const dates = entries.filter(
-    (entry) => entry.meta.type === "date" && entry.meta.stats.distinct >= 8,
+    (entry) =>
+      (entry.meta.type === "date" || entry.meta.type === "datetime") &&
+      entry.meta.stats.distinct >= 8,
   );
   if (dates.length > 0) {
     ideas.push({ label: "Rows over time", preset: { kind: "line", column: dates[0].index } });
@@ -248,9 +257,22 @@ export function suggestCharts(columns: readonly ColumnMeta[], rowCount = 0): Cha
   return ideas.slice(0, 3);
 }
 
-/** Axis formatting kind: dates get date ticks, everything else numbers. */
-export function axisKindFor(type: ColumnType): "line" | null {
-  return type === "date" ? "line" : null;
+/** Axis tick formatting: temporal types get their own tick text. */
+export type AxisFormat = "line" | "datetime" | "time" | "duration";
+
+export function axisKindFor(type: ColumnType): AxisFormat | null {
+  switch (type) {
+    case "date":
+      return "line";
+    case "datetime":
+      return "datetime";
+    case "time":
+      return "time";
+    case "duration":
+      return "duration";
+    default:
+      return null;
+  }
 }
 
 export interface CategoryBar {
@@ -446,8 +468,11 @@ export function suggestedBinRange(meta: ColumnMeta): SuggestedRange {
   return { min, max, overflow: false, clipped: false };
 }
 
-export function formatTick(value: number, kind: "histogram" | "line" | null): string {
+export function formatTick(value: number, kind: "histogram" | AxisFormat | null): string {
   if (kind === "line") return toDateInputValue(value);
+  if (kind === "datetime") return `${toDateInputValue(value)} ${toTimeInputValue(value)}`;
+  if (kind === "time") return toTimeInputValue(value);
+  if (kind === "duration") return formatDurationMs(value);
   const abs = Math.abs(value);
   const compact = (scaled: number): string => {
     const text = scaled >= 100 ? scaled.toFixed(0) : scaled.toFixed(1);

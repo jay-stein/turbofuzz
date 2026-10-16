@@ -63,8 +63,14 @@ export function openChartSetupDialog(
     modal.append(head);
 
     const body = el("div", { class: "chart-setup-body" });
-    const numeric = optionsFor(columns, (meta) => isNumericType(meta.type));
-    const date = optionsFor(columns, (meta) => meta.type === "date");
+    const numeric = optionsFor(
+      columns,
+      (meta) => isNumericType(meta.type) || meta.type === "duration",
+    );
+    const date = optionsFor(
+      columns,
+      (meta) => meta.type === "date" || meta.type === "datetime",
+    );
     const category = optionsFor(columns, (meta) => isCategoryType(meta.type));
     const text = optionsFor(columns, (meta) => meta.type === "string");
 

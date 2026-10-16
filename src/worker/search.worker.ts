@@ -43,7 +43,7 @@ import {
   type ColumnFilter,
   type ColumnSpecialKind,
 } from "../search/query-engine.js";
-import type { ColumnType } from "../types.js";
+import { isNumericLikeType, type ColumnType } from "../types.js";
 import { buildCsv } from "./csv.js";
 import { ingestDataset, type IngestResult } from "./ingest.js";
 import type {
@@ -830,7 +830,7 @@ function handleGetChartBins(message: GetChartBinsRequest): void {
   const column = dataset.columns[message.column];
   if (column === undefined) throw new Error("Unknown column");
   const bins = binValues(column.numbers(), sortedIds, message.options);
-  const numeric = column.type === "integer" || column.type === "number" || column.type === "date";
+  const numeric = isNumericLikeType(column.type);
   post({
     type: "chartBins",
     requestId: message.requestId,
@@ -1750,6 +1750,7 @@ function handleTransform(message: TransformRequest): void {
   const baseSchema = baseColumns.map((column) => ({
     name: column.name,
     numeric: column.type === "integer" || column.type === "number",
+    type: column.type,
   }));
 
   dataset = next;
@@ -1828,7 +1829,7 @@ function handlePreviewClean(message: PreviewCleanRequest): void {
 }
 
 function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMeta {
-  if (column.type === "integer" || column.type === "number" || column.type === "date") {
+  if (isNumericLikeType(column.type)) {
     column.numbers();
   }
   let categories: ColumnMeta["categories"] = null;
@@ -1847,6 +1848,7 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     type: column.type,
     numberLocale: column.numberLocale,
     dateOrder: column.dateOrder,
+    ...(column.type === "datetime" ? { timeZoneAware: column.timeZoneAware } : {}),
     stats: column.stats,
     anomalyCounts: {
       values: dataset.valueColumnBits[index]?.count() ?? 0,
@@ -1890,8 +1892,7 @@ function computeHistograms(dataset: Dataset, engine: QueryEngine): Record<number
 }
 
 function detailsFor(column: ColumnData): ColumnDetail {
-  const numeric =
-    column.type === "integer" || column.type === "number" || column.type === "date";
+  const numeric = isNumericLikeType(column.type);
   let median: number | null = null;
   if (numeric) {
     column.numbers();

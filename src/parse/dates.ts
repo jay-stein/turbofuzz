@@ -63,10 +63,48 @@ function monthNumber(name: string): number | null {
   return MONTH_NUMBERS[name.toLowerCase()] ?? null;
 }
 
+/** Strict UTC epoch: rejects rolled-over dates like 2026-02-30 or 2026-13-01. */
+function strictUtcMs(
+  year: number,
+  month: number,
+  day: number,
+  hour = 0,
+  minute = 0,
+  second = 0,
+  millisecond = 0,
+): number | null {
+  if (
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31 ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59
+  ) {
+    return null;
+  }
+  const ms = Date.UTC(year, month - 1, day, hour, minute, second, millisecond);
+  const d = new Date(ms);
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) {
+    return null;
+  }
+  return ms;
+}
+
+/** One parsed temporal value: epoch ms plus the details inference needs. */
+export interface DateValue {
+  ms: number;
+  /** The source carried a time-of-day component (still a `datetime`). */
+  hasTime: boolean;
+  /** The source carried an explicit UTC/zone offset. */
+  hasOffset: boolean;
+}
+
 /** Parses `D Mon YYYY` / `Mon D, YYYY`, optionally weekday-prefixed and timed. */
-function parseMonthNameDate(raw: string): number {
+function parseMonthNameValue(raw: string): DateValue | null {
   let s = raw.trim().replace(/\s+/g, " ");
-  if (s === "") return NaN;
+  if (s === "") return null;
 
   const weekday = s.match(WEEKDAY_PREFIX);
   if (weekday !== null && WEEKDAY_NAMES.has(weekday[1].toLowerCase())) {
@@ -85,7 +123,7 @@ function parseMonthNameDate(raw: string): number {
     trailing = match[4];
   } else {
     match = s.match(MONTH_FIRST);
-    if (match === null) return NaN;
+    if (match === null) return null;
     monthText = match[1];
     day = Number(match[2]);
     yearText = match[3];
@@ -93,7 +131,7 @@ function parseMonthNameDate(raw: string): number {
   }
 
   const month = monthNumber(monthText);
-  if (month === null || day < 1 || day > 31) return NaN;
+  if (month === null || day < 1 || day > 31) return null;
 
   let year = Number(yearText);
   if (yearText.length < 3) year += year >= 70 ? 1900 : 2000;
@@ -103,29 +141,37 @@ function parseMonthNameDate(raw: string): number {
   let second = 0;
   let millisecond = 0;
   let offsetMinutes = 0;
+  let hasOffset = false;
   if (trailing !== undefined) {
     const time = trailing.match(TRAILING_TIME);
-    if (time === null) return NaN;
+    if (time === null) return null;
     hour = Number(time[1]);
     minute = Number(time[2]);
     second = time[3] === undefined ? 0 : Number(time[3]);
     millisecond = time[4] === undefined ? 0 : Number(time[4].padEnd(3, "0"));
     const meridiem = time[5] === undefined ? null : time[5].toLowerCase();
     if (meridiem !== null) {
-      if (hour < 1 || hour > 12) return NaN;
+      if (hour < 1 || hour > 12) return null;
       if (meridiem === "p" && hour !== 12) hour += 12;
       if (meridiem === "a" && hour === 12) hour = 0;
     }
-    if (hour > 23 || minute > 59 || second > 59) return NaN;
+    if (hour > 23 || minute > 59 || second > 59) return null;
     if (time[7] !== undefined) {
       const hours = Number(time[8]);
       const minutes = time[9] === undefined ? 0 : Number(time[9]);
-      if (hours > 14 || minutes > 59) return NaN;
+      if (hours > 14 || minutes > 59) return null;
       offsetMinutes = (time[7] === "-" ? -1 : 1) * (hours * 60 + minutes);
+      hasOffset = true;
     }
   }
 
-  return Date.UTC(year, month - 1, day, hour, minute, second, millisecond) - offsetMinutes * 60_000;
+  const base = strictUtcMs(year, month, day, hour, minute, second, millisecond);
+  if (base === null) return null;
+  return {
+    ms: base - offsetMinutes * 60_000,
+    hasTime: trailing !== undefined,
+    hasOffset,
+  };
 }
 
 export function looksLikeDate(value: string): boolean {
@@ -147,35 +193,53 @@ export function detectDateOrder(values: readonly string[]): DateOrder {
   return mdy > dmy ? "mdy" : "dmy";
 }
 
-export function parseDate(raw: string, order: DateOrder = "dmy"): number {
+/**
+ * Classifies one cell as a calendar date or a timestamp, preserving whether
+ * the source carried a time component and an explicit zone offset. Invalid
+ * date-shaped values (including bad clock parts) return null.
+ */
+export function classifyDateValue(raw: string, order: DateOrder = "dmy"): DateValue | null {
   const s = raw.trim();
-  if (s === "") return NaN;
+  if (s === "") return null;
 
   let m = s.match(ISO_DATETIME);
   if (m !== null) {
     const millisecond = m[7] === undefined ? 0 : Number(m[7].padEnd(3, "0"));
-    const utc = Date.UTC(
+    const utc = strictUtcMs(
       Number(m[1]),
-      Number(m[2]) - 1,
+      Number(m[2]),
       Number(m[3]),
       Number(m[4]),
       Number(m[5]),
       m[6] === undefined ? 0 : Number(m[6]),
       millisecond,
     );
+    if (utc === null) return null;
     const zone = m[8];
-    if (zone === undefined || /^z$/i.test(zone)) return utc;
+    if (zone === undefined || /^z$/i.test(zone)) {
+      return { ms: utc, hasTime: true, hasOffset: zone !== undefined };
+    }
     const sign = zone.startsWith("-") ? -1 : 1;
     const hours = Number(zone.slice(1, 3));
     const minutes = Number(zone.slice(3).replace(":", "") || 0);
-    return utc - sign * (hours * 60 + minutes) * 60_000;
+    return { ms: utc - sign * (hours * 60 + minutes) * 60_000, hasTime: true, hasOffset: true };
   }
 
+  // A date followed by a broken time ("2026-10-16T25:00") must not silently
+  // degrade to midnight; it is an invalid value.
+  if (/^\d{4}-\d{1,2}-\d{1,2}[Tt ]/.test(s)) return null;
+
   m = s.match(ISO);
-  if (m !== null) return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (m !== null) {
+    const ms = strictUtcMs(Number(m[1]), Number(m[2]), Number(m[3]));
+    return ms === null ? null : { ms, hasTime: false, hasOffset: false };
+  }
 
   m = s.match(YMD);
-  if (m !== null) return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (m !== null) {
+    const ms = strictUtcMs(Number(m[1]), Number(m[2]), Number(m[3]));
+    return ms === null ? null : { ms, hasTime: false, hasOffset: false };
+  }
 
   m = s.match(DMY_OR_MDY);
   if (m !== null) {
@@ -185,11 +249,79 @@ export function parseDate(raw: string, order: DateOrder = "dmy"): number {
     if (year < 100) year += year >= 70 ? 1900 : 2000;
     const day = order === "dmy" ? a : b;
     const month = order === "dmy" ? b : a;
-    if (day < 1 || day > 31 || month < 1 || month > 12) return NaN;
-    return Date.UTC(year, month - 1, day);
+    const ms = strictUtcMs(year, month, day);
+    return ms === null ? null : { ms, hasTime: false, hasOffset: false };
   }
 
-  return parseMonthNameDate(s);
+  return parseMonthNameValue(s);
+}
+
+export function parseDate(raw: string, order: DateOrder = "dmy"): number {
+  const value = classifyDateValue(raw, order);
+  return value === null ? NaN : value.ms;
+}
+
+const TIME_OF_DAY = /^(\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\s*(?:([ap])\.?m\.?)?$/i;
+
+/**
+ * `HH:MM[:SS[.fff]]` (optionally 12-hour with am/pm) → milliseconds since
+ * midnight. Out-of-range clocks (`25:10`) and non-clock strings are NaN.
+ */
+export function parseTimeOfDay(raw: string): number {
+  const m = raw.trim().match(TIME_OF_DAY);
+  if (m === null) return NaN;
+  let hour = Number(m[1]);
+  const minute = Number(m[2]);
+  const second = m[3] === undefined ? 0 : Number(m[3]);
+  const millisecond = m[4] === undefined ? 0 : Number(m[4].padEnd(3, "0"));
+  const meridiem = m[5] === undefined ? null : m[5].toLowerCase();
+  if (meridiem !== null) {
+    if (hour < 1 || hour > 12) return NaN;
+    if (meridiem === "p" && hour !== 12) hour += 12;
+    if (meridiem === "a" && hour === 12) hour = 0;
+  }
+  if (hour > 23 || minute > 59 || second > 59) return NaN;
+  return ((hour * 60 + minute) * 60 + second) * 1000 + millisecond;
+}
+
+const DURATION_CLOCK = /^(\d{1,9}):([0-5]\d):([0-5]\d)(?:\.(\d{1,3}))?$/;
+const DURATION_UNITS = /(\d+(?:\.\d+)?)\s*(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)/gi;
+const UNIT_MS: Record<string, number> = {
+  d: 86_400_000,
+  h: 3_600_000,
+  m: 60_000,
+  s: 1_000,
+};
+
+/**
+ * Elapsed time. The clock form requires two colons (`H:MM:SS`, hours may
+ * exceed 23); the unit form needs explicit h/m/s/d letters (`1h 30m`).
+ * One-colon `HH:MM` stays ambiguous and is rejected here.
+ */
+export function parseDuration(raw: string): number {
+  const s = raw.trim();
+  if (s === "") return NaN;
+  const clock = s.match(DURATION_CLOCK);
+  if (clock !== null) {
+    const hours = Number(clock[1]);
+    const minutes = Number(clock[2]);
+    const seconds = Number(clock[3]);
+    const millis = clock[4] === undefined ? 0 : Number(clock[4].padEnd(3, "0"));
+    return ((hours * 60 + minutes) * 60 + seconds) * 1000 + millis;
+  }
+  if (!/[a-z]/i.test(s)) return NaN;
+  DURATION_UNITS.lastIndex = 0;
+  let total = 0;
+  let consumed = "";
+  let match: RegExpExecArray | null;
+  while ((match = DURATION_UNITS.exec(s)) !== null) {
+    consumed += match[0];
+    total += Number(match[1]) * UNIT_MS[match[2].toLowerCase()[0]];
+  }
+  const stripped = s.replace(/[\s,]+/g, "").toLowerCase();
+  const consumedStripped = consumed.replace(/[\s,]+/g, "").toLowerCase();
+  if (consumedStripped.length !== stripped.length) return NaN;
+  return total;
 }
 
 export function toDateInputValue(epochMs: number): string {
@@ -198,4 +330,52 @@ export function toDateInputValue(epochMs: number): string {
   const m = String(d.getUTCMonth() + 1).padStart(2, "0");
   const day = String(d.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+/** `YYYY-MM-DDTHH:MM` for a `datetime-local` input (UTC wall time). */
+export function toDateTimeInputValue(epochMs: number): string {
+  const d = new Date(epochMs);
+  const date = toDateInputValue(epochMs);
+  const h = String(d.getUTCHours()).padStart(2, "0");
+  const min = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${date}T${h}:${min}`;
+}
+
+/** Parses a `datetime-local` value as UTC, matching the column data model. */
+export function fromDateTimeInputValue(value: string): number {
+  const m = value
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (m === null) return NaN;
+  return Date.UTC(
+    Number(m[1]),
+    Number(m[2]) - 1,
+    Number(m[3]),
+    Number(m[4]),
+    Number(m[5]),
+    m[6] === undefined ? 0 : Number(m[6]),
+  );
+}
+
+/** `HH:MM` for a `time` input, from ms since midnight. */
+export function toTimeInputValue(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 60_000));
+  const h = Math.floor(total / 60) % 24;
+  const m = total % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** `H:MM:SS` (sign preserved) for elapsed milliseconds. */
+export function formatDurationMs(ms: number): string {
+  const sign = ms < 0 ? "-" : "";
+  const total = Math.round(Math.abs(ms) / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return `${sign}${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+/** Canonical ISO 8601 timestamp for CSV/recipe export. */
+export function toDateTimeValue(epochMs: number): string {
+  return new Date(epochMs).toISOString().replace(/\.000Z$/, "Z");
 }

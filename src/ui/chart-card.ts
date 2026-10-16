@@ -22,7 +22,7 @@ import {
 } from "../data/palettes.js";
 import type { TimeGrain, ViewDef } from "../data/aggregate.js";
 import type { ColumnFilter } from "../search/query-engine.js";
-import { TYPE_LABELS } from "../types.js";
+import { isNumericLikeType, TYPE_LABELS } from "../types.js";
 import type {
   AggregateMessage,
   BoxStatsMessage,
@@ -38,6 +38,7 @@ import type {
 } from "../worker/protocol.js";
 import {
   axisKindFor,
+  type AxisFormat,
   categorySeries,
   type CategoryBar,
   CHART_COLORS,
@@ -267,6 +268,8 @@ export interface SeriesHitInput {
   min: number;
   max: number;
   dateAxis: boolean;
+  /** Exact temporal tick format when the axis column type is known. */
+  axisFormat?: AxisFormat;
 }
 
 /** One hoverable slot per histogram bin (and the overflow bar). */
@@ -277,7 +280,7 @@ export function seriesHitRegions(geom: PlotGeometry, input: SeriesHitInput): Hit
   const slotW = geom.plotW / slots;
   const step = bins.length === 0 ? 0 : (max - min) / bins.length;
   const format = (value: number): string =>
-    formatTick(value, dateAxis ? "line" : "histogram");
+    formatTick(value, input.axisFormat ?? (dateAxis ? "line" : "histogram"));
   const regions: HitRegion[] = [];
   for (let index = 0; index < bins.length; index++) {
     const lo = min + index * step;
@@ -310,6 +313,7 @@ export interface GroupedSeriesHitInput {
   groups: { label: string; bins: readonly number[] }[];
   min: number;
   max: number;
+  axisFormat?: AxisFormat;
 }
 
 /**
@@ -324,11 +328,12 @@ export function groupedSeriesHitRegions(
   if (binCount === 0 || input.groups.length === 0) return [];
   const slotW = geom.plotW / binCount;
   const step = (input.max - input.min) / binCount;
+  const format = (value: number): string => formatTick(value, input.axisFormat ?? "line");
   const regions: HitRegion[] = [];
   for (let index = 0; index < binCount; index++) {
     const lo = input.min + index * step;
     const hi = index === binCount - 1 ? input.max : input.min + (index + 1) * step;
-    const lines = [`${formatTick(lo, "line")} – ${formatTick(hi, "line")}`];
+    const lines = [`${format(lo)} – ${format(hi)}`];
     for (const group of input.groups) {
       const count = group.bins[index] ?? 0;
       if (count > 0) lines.push(`${group.label}: ${formatCount(count)}`);
@@ -1612,12 +1617,17 @@ export class ChartCard {
     return index >= 0 ? this.columns[index] : undefined;
   }
 
+  /** Calendar dates and timestamps: the kinds a time axis can use. */
+  private isDateLike(meta: ColumnMeta | undefined): boolean {
+    return meta !== undefined && (meta.type === "date" || meta.type === "datetime");
+  }
+
   private allowsPrimary(meta: ColumnMeta): boolean {
     switch (this.config.kind) {
       case "histogram":
-        return isNumericType(meta.type);
+        return isNumericType(meta.type) || meta.type === "time" || meta.type === "duration";
       case "line":
-        return meta.type === "date";
+        return meta.type === "date" || meta.type === "datetime";
       case "bar":
       case "treemap":
         return isCategoryType(meta.type);
@@ -1629,7 +1639,12 @@ export class ChartCard {
   }
 
   private allowsAxis(meta: ColumnMeta): boolean {
-    return isNumericType(meta.type) || meta.type === "date";
+    return (
+      isNumericType(meta.type) ||
+      meta.type === "date" ||
+      meta.type === "datetime" ||
+      meta.type === "duration"
+    );
   }
 
   private allowsX(meta: ColumnMeta): boolean {
@@ -1849,9 +1864,9 @@ export class ChartCard {
     this.syncAnimationOptions();
   }
 
-  /** Date columns available as animation time axes. */
+  /** Date and datetime columns available as animation time axes. */
   private syncAnimationOptions(): void {
-    const dates = this.allowedIndexes((meta) => meta.type === "date");
+    const dates = this.allowedIndexes((meta) => this.isDateLike(meta));
     const current = this.config.animationTimeColumn ?? -1;
     if (current >= 0 && !dates.includes(current)) this.config.animationTimeColumn = -1;
     this.animationTimeSelect.replaceChildren(this.option("-1", "Off"));
@@ -1937,12 +1952,12 @@ export class ChartCard {
       kind === "histogram" ||
       kind === "treemap" ||
       kind === "density";
-    const hasDates = this.columns.some((meta) => meta.type === "date");
+    const hasDates = this.columns.some((meta) => this.isDateLike(meta));
     this.animateButton.classList.toggle("hidden", !animatable);
     this.animateButton.disabled = !hasDates;
     this.animateButton.title = hasDates
       ? "Step this chart through time"
-      : "Animating needs a date column in the file";
+      : "Animating needs a date or datetime column in the file";
     this.animateButton.classList.toggle("active", this.animationSetupOpen && hasDates);
     this.animationSetup.classList.toggle(
       "hidden",
@@ -2214,7 +2229,7 @@ export class ChartCard {
       const max = meta?.stats.max;
       if (
         meta === undefined ||
-        meta.type !== "date" ||
+        (meta.type !== "date" && meta.type !== "datetime") ||
         typeof min !== "number" ||
         typeof max !== "number" ||
         !(max > min)
@@ -2741,7 +2756,7 @@ export class ChartCard {
       return;
     }
     const timeMeta = this.meta(timeColumn);
-    if (timeMeta === undefined || timeMeta.type !== "date") {
+    if (!this.isDateLike(timeMeta)) {
       this.animationResult = null;
       return;
     }
@@ -2828,8 +2843,8 @@ export class ChartCard {
   }
 
   private toggleAnimationSetup(): void {
-    if (!this.columns.some((meta) => meta.type === "date")) {
-      this.noteEl.textContent = "Animating needs a date column in the file.";
+    if (!this.columns.some((meta) => this.isDateLike(meta))) {
+      this.noteEl.textContent = "Animating needs a date or datetime column in the file.";
       return;
     }
     this.animationSetupOpen = !this.animationSetupOpen;
@@ -3204,9 +3219,7 @@ export class ChartCard {
     }
     const meta = this.meta(this.config.column);
     const groupMeta = this.meta(this.config.groupColumn);
-    const numericAxis =
-      meta !== undefined &&
-      (meta.type === "date" || meta.type === "integer" || meta.type === "number");
+    const numericAxis = meta !== undefined && isNumericLikeType(meta.type);
     if (
       meta === undefined ||
       !numericAxis ||
@@ -3477,10 +3490,13 @@ export class ChartCard {
     switch (this.config.kind) {
       case "histogram": {
         const meta = this.meta(this.config.column);
-        return meta !== undefined && isNumericType(meta.type);
+        return (
+          meta !== undefined &&
+          (isNumericType(meta.type) || meta.type === "time" || meta.type === "duration")
+        );
       }
       case "line":
-        return count((meta) => meta.type === "date") > 0;
+        return count((meta) => this.isDateLike(meta)) > 0;
       case "bar":
       case "treemap": {
         const meta = this.meta(this.config.column);
@@ -3524,17 +3540,20 @@ export class ChartCard {
 
   /** Honest reason a series-style card has nothing to plot. */
   private emptySeriesMessage(kind: "histogram" | "line" | "bar"): string {
-    if (kind === "line" && !this.columns.some((meta) => meta.type === "date")) {
-      return "No date column in this file.";
+    if (kind === "line" && !this.columns.some((meta) => this.isDateLike(meta))) {
+      return "No date or datetime column in this file.";
     }
     const chartable = this.columns.some(
       (meta) =>
         isNumericType(meta.type) ||
         meta.type === "date" ||
+        meta.type === "datetime" ||
+        meta.type === "time" ||
+        meta.type === "duration" ||
         isCategoryType(meta.type),
     );
     if (!chartable) {
-      return "This file has no numeric, date or category columns. Change a column's type in the filter list.";
+      return "This file has no numeric, temporal or category columns. Change a column's type in the filter list.";
     }
     return "Pick a column to chart.";
   }
@@ -3604,10 +3623,8 @@ export class ChartCard {
         const yMin = result === null ? 0 : result.yMin;
         const yMax = result === null ? 1 : result.yMax;
         const meta = this.meta(this.config.y);
-        const dateAxis = meta !== undefined && axisKindFor(meta.type) === "line";
-        return widest(
-          niceTicks(yMin, yMax, 4).map((value) => formatTick(value, dateAxis ? "line" : null)),
-        );
+        const axisKind = meta === undefined ? null : axisKindFor(meta.type);
+        return widest(niceTicks(yMin, yMax, 4).map((value) => formatTick(value, axisKind)));
       }
       case "box": {
         let max = 1;
@@ -3971,6 +3988,7 @@ export class ChartCard {
         min,
         max,
         dateAxis: kind === "line",
+        axisFormat: axisKindFor(meta.type) ?? undefined,
       },
     );
 
@@ -4074,22 +4092,24 @@ export class ChartCard {
 
     ctx.fillStyle = frame.dim;
     this.font(ctx, ui, 10);
+    const tickKind: "histogram" | AxisFormat =
+      axisKindFor(meta.type) ?? (kind === "line" ? "line" : "histogram");
     const mid = (min + max) / 2;
-    ctx.fillText(formatTick(min, kind), frame.left, frame.top + frame.plotH + 16 * ui);
-    const midLabel = formatTick(mid, kind);
+    ctx.fillText(formatTick(min, tickKind), frame.left, frame.top + frame.plotH + 16 * ui);
+    const midLabel = formatTick(mid, tickKind);
     ctx.fillText(
       midLabel,
       frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
       frame.top + frame.plotH + 16 * ui,
     );
-    const maxLabel = formatTick(max, kind);
+    const maxLabel = formatTick(max, tickKind);
     ctx.fillText(
       maxLabel,
       frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
       frame.top + frame.plotH + 16 * ui,
     );
     if (hasOverflow) {
-      const overflowLabel = `> ${formatTick(max, kind)}`;
+      const overflowLabel = `> ${formatTick(max, tickKind)}`;
       ctx.fillText(
         overflowLabel,
         frame.left + frame.plotW - ctx.measureText(overflowLabel).width,
@@ -4270,15 +4290,16 @@ export class ChartCard {
     ctx.fillStyle = frame.dim;
     this.font(ctx, ui, 10);
     ctx.fillText("share of each group per bin", frame.left, frame.top - 6 * ui);
+    const histTickKind: "histogram" | AxisFormat = axisKindFor(meta.type) ?? "histogram";
     const mid = (min + max) / 2;
-    ctx.fillText(formatTick(min, "histogram"), frame.left, frame.top + frame.plotH + 16 * ui);
-    const midLabel = formatTick(mid, "histogram");
+    ctx.fillText(formatTick(min, histTickKind), frame.left, frame.top + frame.plotH + 16 * ui);
+    const midLabel = formatTick(mid, histTickKind);
     ctx.fillText(
       midLabel,
       frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
       frame.top + frame.plotH + 16 * ui,
     );
-    const maxLabel = formatTick(max, "histogram");
+    const maxLabel = formatTick(max, histTickKind);
     ctx.fillText(
       maxLabel,
       frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
@@ -4330,15 +4351,17 @@ export class ChartCard {
 
     ctx.fillStyle = frame.dim;
     this.font(ctx, ui, 10);
+    const lineTickKind: "histogram" | AxisFormat =
+      axisKindFor(this.meta(this.config.column)?.type ?? "date") ?? "line";
     const mid = (min + max) / 2;
-    ctx.fillText(formatTick(min, "line"), frame.left, frame.top + frame.plotH + 16 * ui);
-    const midLabel = formatTick(mid, "line");
+    ctx.fillText(formatTick(min, lineTickKind), frame.left, frame.top + frame.plotH + 16 * ui);
+    const midLabel = formatTick(mid, lineTickKind);
     ctx.fillText(
       midLabel,
       frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
       frame.top + frame.plotH + 16 * ui,
     );
-    const maxLabel = formatTick(max, "line");
+    const maxLabel = formatTick(max, lineTickKind);
     ctx.fillText(
       maxLabel,
       frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
@@ -4355,6 +4378,7 @@ export class ChartCard {
         })),
         min,
         max,
+        axisFormat: axisKindFor(this.meta(this.config.column)?.type ?? "date") ?? "line",
       },
     );
 
@@ -4482,15 +4506,17 @@ export class ChartCard {
 
     ctx.fillStyle = frame.dim;
     this.font(ctx, ui, 10);
+    const animTickKind: "histogram" | AxisFormat =
+      axisKindFor(this.meta(this.config.column)?.type ?? "number") ?? "histogram";
     const mid = (hist.min + hist.max) / 2;
-    ctx.fillText(formatTick(hist.min, "histogram"), frame.left, frame.top + frame.plotH + 16 * ui);
-    const midLabel = formatTick(mid, "histogram");
+    ctx.fillText(formatTick(hist.min, animTickKind), frame.left, frame.top + frame.plotH + 16 * ui);
+    const midLabel = formatTick(mid, animTickKind);
     ctx.fillText(
       midLabel,
       frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
       frame.top + frame.plotH + 16 * ui,
     );
-    const maxLabel = formatTick(hist.max, "histogram");
+    const maxLabel = formatTick(hist.max, animTickKind);
     ctx.fillText(
       maxLabel,
       frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
@@ -5129,8 +5155,8 @@ export class ChartCard {
     xMax: number,
     yMin: number,
     yMax: number,
-    xKind: "histogram" | "line",
-    yKind: "histogram" | "line",
+    xKind: "histogram" | AxisFormat,
+    yKind: "histogram" | AxisFormat,
   ): void {
     const ui = frame.ui;
     const xTicks = niceTicks(xMin, xMax, 5);

@@ -1,6 +1,13 @@
 import type { CleanOp } from "../data/clean-ops.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import type { DedupeKeep, ImputeStrategy } from "../data/transform-ops.js";
+import {
+  formatDurationMs,
+  toDateInputValue,
+  toDateTimeInputValue,
+  toTimeInputValue,
+} from "../parse/dates.js";
+import { isNumericLikeType, isTemporalType } from "../types.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import { openPrompt } from "./dialog.js";
 import { el } from "./dom.js";
@@ -105,24 +112,31 @@ export function openColumnInspector(
 
   // Profile.
   const profile = section("Profile");
-  const numeric =
-    meta.type === "integer" || meta.type === "number" || meta.type === "date";
-  const formatNumber = (value: number): string =>
-    value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const numeric = isNumericLikeType(meta.type);
+  const formatValue = (value: number): string =>
+    meta.type === "datetime"
+      ? toDateTimeInputValue(value)
+      : meta.type === "date"
+        ? toDateInputValue(value)
+        : meta.type === "time"
+          ? toTimeInputValue(value)
+          : meta.type === "duration"
+            ? formatDurationMs(value)
+            : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
   const stats: (HTMLElement | null)[] = [
     statLine("Empty", meta.stats.nulls > 0 ? meta.stats.nulls.toLocaleString() : "0"),
     statLine("Distinct", meta.stats.distinct.toLocaleString()),
   ];
   if (numeric && meta.stats.min !== null && meta.stats.max !== null) {
     stats.push(
-      statLine("Min", formatNumber(meta.stats.min)),
-      statLine("Max", formatNumber(meta.stats.max)),
-      statLine("Mean", meta.stats.mean === null ? null : formatNumber(meta.stats.mean)),
+      statLine("Min", formatValue(meta.stats.min)),
+      statLine("Max", formatValue(meta.stats.max)),
+      statLine("Mean", meta.stats.mean === null ? null : formatValue(meta.stats.mean)),
       statLine(
         "Median",
-        meta.valueFence === null || meta.type === "date"
+        meta.valueFence === null || isTemporalType(meta.type)
           ? null
-          : formatNumber(meta.valueFence.center),
+          : formatValue(meta.valueFence.center),
       ),
     );
   } else if (meta.stats.avgLength !== null) {
@@ -349,7 +363,7 @@ export function openColumnInspector(
   panel.append(clean);
 
   // Display format (numeric columns): fixed decimals for reading.
-  if (numeric && meta.type !== "date") {
+  if (numeric && !isTemporalType(meta.type)) {
     const display = section("Display");
     const options: readonly { label: string; value: number | null }[] = [
       { label: "Auto", value: null },
@@ -458,6 +472,10 @@ function suggestionLabel(suggestion: ColumnSuggestion): string {
       return "convert formatted numbers";
     case "date":
       return "convert text to dates";
+    case "time":
+      return "convert text to times of day";
+    case "duration":
+      return "convert text to durations";
     case "boolean":
       return "normalise boolean values";
   }

@@ -36,6 +36,8 @@ export interface ColumnMeta {
   type: ColumnType;
   numberLocale: NumberLocale;
   dateOrder: DateOrder;
+  /** Datetime column: at least one source value carried a zone offset. */
+  timeZoneAware?: boolean;
   stats: ColumnStats;
   anomalyCounts: { values: number; lengths: number };
   /** Category columns: number of near-duplicate value clusters we can merge. */

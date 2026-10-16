@@ -98,7 +98,9 @@ export function detectArchetypes(
     ];
   }
 
-  const dates = columns.filter((column) => column.type === "date");
+  const dates = columns.filter(
+    (column) => column.type === "date" || column.type === "datetime",
+  );
   const numerics = columns.filter(
     (column) => column.type === "integer" || column.type === "number",
   );
@@ -108,7 +110,10 @@ export function detectArchetypes(
   const idLike = columns.filter(
     (column) =>
       column.type === "identifier" ||
-      (column.stats.distinct === rowCount && rowCount > 20 && column.type !== "date"),
+      (column.stats.distinct === rowCount &&
+        rowCount > 20 &&
+        column.type !== "date" &&
+        column.type !== "datetime"),
   );
   const lowCardinality = columns.filter((column) => column.stats.distinct <= 10);
   const nullRatio = stats.totalCells > 0 ? stats.totalNullCells / stats.totalCells : 0;

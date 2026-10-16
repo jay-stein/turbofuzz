@@ -1,5 +1,6 @@
 import type { Dataset } from "../data/dataset.js";
 import type { BitSet } from "./bitset.js";
+import { isNumericLikeType } from "../types.js";
 
 /** Builds the ascending row order for a column. Cache and reverse for desc. */
 export function buildRank(dataset: Dataset, columnIndex: number): Uint32Array {
@@ -8,9 +9,7 @@ export function buildRank(dataset: Dataset, columnIndex: number): Uint32Array {
   const ordered = new Uint32Array(rowCount);
   for (let i = 0; i < rowCount; i++) ordered[i] = i;
 
-  const numeric =
-    column.type === "integer" || column.type === "number" || column.type === "date";
-  if (numeric) {
+  if (isNumericLikeType(column.type)) {
     const numbers = column.numbers();
     ordered.sort((a, b) => {
       const va = numbers[a];

@@ -384,7 +384,9 @@ export function pickNextSteps(
 
 /** The always-present chart slot, preferring dates, then categories, then numerics. */
 export function chartStep(columns: readonly ColumnMeta[]): NextStep {
-  const date = columns.findIndex((column) => column.type === "date");
+  const date = columns.findIndex(
+    (column) => column.type === "date" || column.type === "datetime",
+  );
   const category = columns.findIndex(
     (column) => isCategoryType(column.type) && column.stats.distinct >= 2,
   );

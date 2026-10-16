@@ -2007,6 +2007,13 @@ export class App {
         ]);
         break;
       }
+      case "time":
+      case "duration": {
+        // The ambiguous value text stays as-is; the column type decides how
+        // ranges, sorting, histograms and exports read it.
+        this.changeType(column, suggestion.kind);
+        break;
+      }
       case "mixedNumber": {
         const existing = this.cleanedColumns.get(column) ?? [];
         this.applyClean([

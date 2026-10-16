@@ -809,8 +809,8 @@ test("a card with nothing to draw explains itself inside the plot", async () => 
   card.setColumns([meta({ name: "note", type: "string" })]);
   await tick();
   const text = drawn.join(" ");
-  assert.match(text, /no numeric, date or category columns/);
-  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /no numeric, date or category/);
+  assert.match(text, /no numeric, temporal or category columns/);
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /no numeric, temporal or category/);
   assert.equal(
     host.querySelector(".chart-settings-body")?.classList.contains("hidden"),
     true,
@@ -1539,7 +1539,7 @@ test("the Animate button is disabled when the file has no date column", async ()
   await tick();
   const button = host.querySelector(".chart-animate-btn") as HTMLButtonElement;
   assert.equal(button.disabled, true);
-  assert.match(button.title, /needs a date column/);
+  assert.match(button.title, /needs a date or datetime column/);
   card.dispose();
 });
 

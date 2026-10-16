@@ -51,8 +51,8 @@ test("transform applies a pipeline, rebuilds the dataset and resets", async () =
   };
   assert.equal(deduped.rowCount, 2);
   assert.deepEqual(deduped.baseSchema, [
-    { name: "city", numeric: false },
-    { name: "sales", numeric: true },
+    { name: "city", numeric: false, type: "category" },
+    { name: "sales", numeric: true, type: "integer" },
   ]);
   assert.equal(deduped.ops.length, 1);
 

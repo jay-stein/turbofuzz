@@ -1,7 +1,12 @@
 import type { ColumnData } from "../data/column.js";
 import type { Dataset } from "../data/dataset.js";
 import { escapeFormula } from "../data/formula.js";
-import { toDateInputValue } from "../parse/dates.js";
+import {
+  formatDurationMs,
+  toDateInputValue,
+  toDateTimeValue,
+  toTimeInputValue,
+} from "../parse/dates.js";
 import type { ExportOptions } from "./protocol.js";
 
 export function csvEscape(value: string): string {
@@ -18,8 +23,9 @@ export function csvEscape(value: string): string {
 
 /**
  * Export value for one cell. Typed columns emit their parsed value — numbers
- * lose currency/grouping symbols and dates become ISO — and unparseable cells
- * export as blank. Text columns keep their raw cell unless nullAsBlank is on.
+ * lose currency/grouping symbols, dates/timestamps become ISO, times `HH:MM`,
+ * durations `H:MM:SS` — and unparseable cells export as blank. Text columns
+ * keep their raw cell unless nullAsBlank is on.
  */
 function exportCell(column: ColumnData, row: number, nullAsBlank: boolean): string {
   if (column.type === "integer" || column.type === "number") {
@@ -29,6 +35,18 @@ function exportCell(column: ColumnData, row: number, nullAsBlank: boolean): stri
   if (column.type === "date") {
     const value = column.numbers()[row];
     return Number.isFinite(value) ? toDateInputValue(value) : "";
+  }
+  if (column.type === "datetime") {
+    const value = column.numbers()[row];
+    return Number.isFinite(value) ? toDateTimeValue(value) : "";
+  }
+  if (column.type === "time") {
+    const value = column.numbers()[row];
+    return Number.isFinite(value) ? toTimeInputValue(value) : "";
+  }
+  if (column.type === "duration") {
+    const value = column.numbers()[row];
+    return Number.isFinite(value) ? formatDurationMs(value) : "";
   }
   const raw = column.raw[row];
   if (nullAsBlank && column.isNull(raw)) return "";

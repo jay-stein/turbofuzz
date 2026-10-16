@@ -104,6 +104,8 @@ export function qualityFindings(
       } else if (
         suggestion.kind === "number" ||
         suggestion.kind === "date" ||
+        suggestion.kind === "time" ||
+        suggestion.kind === "duration" ||
         suggestion.kind === "boolean"
       ) {
         const label =
@@ -111,7 +113,11 @@ export function qualityFindings(
             ? "booleans"
             : suggestion.kind === "date"
               ? "dates"
-              : "numbers";
+              : suggestion.kind === "time"
+                ? "clock times"
+                : suggestion.kind === "duration"
+                  ? "durations"
+                  : "numbers";
         const ratio = "ratio" in suggestion ? suggestion.ratio : 0;
         findings.push({
           id: `convert.${column}`,

@@ -221,7 +221,11 @@ function presetFor(
   if (used.size > 0) {
     const axisAll = indexesWhere(
       columns,
-      (meta) => isNumericType(meta.type) || meta.type === "date",
+      (meta) =>
+        isNumericType(meta.type) ||
+        meta.type === "date" ||
+        meta.type === "datetime" ||
+        meta.type === "duration",
     );
     const numeric = indexesWhere(columns, (meta) => isNumericType(meta.type));
     const categories = indexesWhere(columns, (meta) => isCategoryType(meta.type));
@@ -233,7 +237,9 @@ function presetFor(
         for (const y of source) {
           if (x === y) continue;
           // Never pair two date columns; a date against a date says nothing.
-          if (columns[x].type === "date" && columns[y].type === "date") continue;
+          const xDate = columns[x].type === "date" || columns[x].type === "datetime";
+          const yDate = columns[y].type === "date" || columns[y].type === "datetime";
+          if (xDate && yDate) continue;
           pair = { x, y };
           break;
         }

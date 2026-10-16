@@ -13,6 +13,7 @@ import { knnImpute } from "./knn.js";
 import { applySplitColumn, type SplitColumnOp } from "./split-column.js";
 import { hashRows, rowsEqual } from "./stats.js";
 import { parseNumber } from "../parse/numbers.js";
+import type { ColumnType } from "../types.js";
 import type { Dataset } from "./dataset.js";
 
 export type Aggregate = "count" | "sum" | "mean" | "min" | "max" | "median";
@@ -65,6 +66,11 @@ export type TransformOp =
 export interface ColumnSchema {
   name: string;
   numeric: boolean;
+  /**
+   * Logical type when it is known (base schema, combineDate output). Omitted
+   * where a step can only say whether the column is numeric.
+   */
+  type?: ColumnType;
 }
 
 export const AGGREGATES: readonly Aggregate[] = ["count", "sum", "mean", "min", "max", "median"];
@@ -834,7 +840,7 @@ export function schemaAfter(schema: readonly ColumnSchema[], op: TransformOp): C
       let name = base;
       let suffix = 2;
       while (taken.has(name)) name = `${base} (${suffix++})`;
-      return [...kept, { name, numeric: false }];
+      return [...kept, { name, numeric: false, type: op.output }];
     }
     case "splitColumn": {
       // The number of new columns depends on the data, so schema tracking keeps

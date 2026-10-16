@@ -48,8 +48,16 @@ export function fitChartKind(
   columns: readonly ColumnMeta[],
   rowCount: number,
 ): KindFit {
-  const numeric = pool(columns, (meta) => isNumericType(meta.type), rowCount);
-  const dates = pool(columns, (meta) => meta.type === "date", rowCount);
+  const numeric = pool(
+    columns,
+    (meta) => isNumericType(meta.type) || meta.type === "duration",
+    rowCount,
+  );
+  const dates = pool(
+    columns,
+    (meta) => meta.type === "date" || meta.type === "datetime",
+    rowCount,
+  );
   const categories = pool(
     columns,
     (meta) => isCategoryType(meta.type) && meta.stats.distinct >= 2,
@@ -66,7 +74,7 @@ export function fitChartKind(
       if (dates.length >= 1) {
         return { kind, ok: true, reason: "", preset: { kind, column: dates[0].index } };
       }
-      return { kind, ok: false, reason: "needs a date column", preset: {} };
+      return { kind, ok: false, reason: "needs a date or datetime column", preset: {} };
     case "bar":
       if (categories.length >= 1) {
         return { kind, ok: true, reason: "", preset: { kind, column: categories[0].index } };
@@ -95,7 +103,9 @@ export function fitChartKind(
       for (const x of axis) {
         for (const y of axis) {
           if (x.index === y.index) continue;
-          if (x.meta.type === "date" && y.meta.type === "date") continue;
+          const xDate = x.meta.type === "date" || x.meta.type === "datetime";
+          const yDate = y.meta.type === "date" || y.meta.type === "datetime";
+          if (xDate && yDate) continue;
           return { kind, ok: true, reason: "", preset: { kind, x: x.index, y: y.index } };
         }
       }

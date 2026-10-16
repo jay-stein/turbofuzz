@@ -13,6 +13,7 @@ import {
   type TimeGrain,
   type ViewDef,
 } from "../data/aggregate.js";
+import { isNumericLikeType } from "../types.js";
 import { openPrompt } from "./dialog.js";
 import { clear, el } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
@@ -148,7 +149,7 @@ export function starterViews(
   archetype: ArchetypeId = "general",
 ): ViewDef[] {
   const date = columns.findIndex(
-    (meta) => meta.type === "date" && meta.stats.distinct >= 2,
+    (meta) => (meta.type === "date" || meta.type === "datetime") && meta.stats.distinct >= 2,
   );
   const category = columns.findIndex(
     (meta) =>
@@ -306,7 +307,9 @@ export class ViewsPanel {
 
   private blankView(): ViewEntry {
     const category = this.metas.findIndex((meta) => meta.type === "category");
-    const date = this.metas.findIndex((meta) => meta.type === "date");
+    const date = this.metas.findIndex(
+      (meta) => meta.type === "date" || meta.type === "datetime",
+    );
     const dimension = category >= 0 ? category : date >= 0 ? date : 0;
     const def: ViewDef = {
       id: `view-${Date.now().toString(36)}`,
@@ -471,7 +474,9 @@ export class ViewsPanel {
 
   /** Entity + date columns for a retention cohort view, when available. */
   private cohortColumns(): { entity: number; date: number } | null {
-    const date = this.metas.findIndex((meta) => meta.type === "date" && meta.stats.distinct >= 2);
+    const date = this.metas.findIndex(
+      (meta) => (meta.type === "date" || meta.type === "datetime") && meta.stats.distinct >= 2,
+    );
     if (date < 0) return null;
     const entity = this.metas.findIndex(
       (meta, index) =>
@@ -786,7 +791,7 @@ export class ViewsPanel {
       });
     };
     items.push({ label: "Exact value", action: () => setBy("value") });
-    if (meta.type === "date") {
+    if (meta.type === "date" || meta.type === "datetime") {
       for (const grain of ["day", "week", "month", "quarter", "year", "hour", "minute"] as TimeGrain[]) {
         items.push({
           label: `Time · ${GRAIN_LABELS[grain]}`,
@@ -893,10 +898,11 @@ export class ViewsPanel {
       disabled: def.dimensions.some((spec) => spec.column === index),
       action: () =>
         this.update((view) => {
+          const dateLike = meta.type === "date" || meta.type === "datetime";
           const next: DimensionSpec =
-            meta.type === "date" ? { column: index, by: { time: "month" } } : { column: index, by: "value" };
+            dateLike ? { column: index, by: { time: "month" } } : { column: index, by: "value" };
           view.dimensions.push(next);
-          if (meta.type === "date") {
+          if (dateLike) {
             view.fill = "zero";
             if (view.dimensions.length === 1) view.sort = { key: "dim0", dir: "asc" };
           }
@@ -936,7 +942,7 @@ export class ViewsPanel {
   private openAggregateMenu(anchor: HTMLElement, column: number): void {
     const meta = this.metas[column];
     if (meta === undefined) return;
-    const numeric = meta.type === "integer" || meta.type === "number" || meta.type === "date";
+    const numeric = isNumericLikeType(meta.type);
     const items: MenuItem[] = AGG_OPTIONS.filter(
       (option) =>
         numeric || option.value === "count" || option.value === "distinct" || option.value === "mode",
@@ -1016,7 +1022,7 @@ export class ViewsPanel {
     index: number,
   ): void {
     const meta = measure.column === null ? null : this.metas[measure.column];
-    const numeric = meta === null || meta.type === "integer" || meta.type === "number" || meta.type === "date";
+    const numeric = meta === null || isNumericLikeType(meta.type);
     const items: MenuItem[] = [];
     if (measure.agg === "expr") {
       items.push({
@@ -1125,7 +1131,7 @@ export class ViewsPanel {
         view.measures[index] = { ...measure, where };
       });
     const items: MenuItem[] = [];
-    if (meta.type === "integer" || meta.type === "number" || meta.type === "date") {
+    if (isNumericLikeType(meta.type)) {
       items.push({
         label: "Between min and max…",
         action: () => {
