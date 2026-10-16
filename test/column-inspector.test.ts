@@ -66,6 +66,7 @@ function callbacks(
     onOpenTransform: (preset) => calls.push(`transform:${preset?.type ?? "all"}`),
     onSuggestion: () => calls.push("suggestion"),
     onMerge: () => calls.push("merge"),
+    onAllowedValues: (values) => calls.push(`allowed:${values.join("|")}`),
     onRename: () => calls.push("rename"),
     onDelete: () => calls.push("delete"),
     onDisplayFormat: (decimals) => calls.push(`format:${decimals}`),
@@ -186,6 +187,32 @@ test("numeric columns offer a display-only thousands-separator toggle", () => {
   assert.match(inspectorText(), /Thousands separators \(1,234,567\)/);
   clickAction("Thousands separators (1,234,567)");
   assert.deepEqual(calls, ["group:true"]);
+});
+
+test("category columns offer an allowed-values check", async () => {
+  setupDom();
+  const calls: string[] = [];
+  openColumnInspector(
+    anchor(),
+    meta({
+      name: "city",
+      type: "category",
+      categories: { labels: ["a", "b", "c"], counts: [3, 2, 1] },
+    }),
+    0,
+    callbacks(calls),
+  );
+  clickAction("Allowed values…");
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const input = document.querySelector(".modal .text-input") as HTMLInputElement | null;
+  assert.ok(input !== null, "the values prompt opens");
+  input.value = "a, b";
+  const apply = [...document.querySelectorAll(".modal .primary")].pop() as unknown as {
+    click(): void;
+  };
+  apply.click();
+  await tick();
+  assert.deepEqual(calls, ["allowed:a|b"]);
 });
 
 test("integer columns offer separators but no decimal-place options", () => {

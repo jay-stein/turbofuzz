@@ -86,6 +86,7 @@ import { isParquetName } from "../parse/parquet.js";
 import { openRecipeMapping } from "./recipe-mapping.js";
 import { openExportPanel } from "./export-panel.js";
 import { openMergePanel } from "./merge-panel.js";
+import { normalize } from "../search/normalize.js";
 import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
@@ -2536,6 +2537,37 @@ export class App {
       case "dedupe":
         this.dropDuplicates(command.keep);
         break;
+      case "keyDuplicates": {
+        this.setView("table");
+        const label = command.label;
+        this.queueSend(() =>
+          this.client
+            .checkKeyDuplicates(command.columns)
+            .then((message) => {
+              const tail =
+                message.duplicateRows === 0
+                  ? `no duplicate rows (${message.counted.toLocaleString()} rows with a complete key)`
+                  : `${message.duplicateRows.toLocaleString()} duplicate row${
+                      message.duplicateRows === 1 ? "" : "s"
+                    } in ${message.duplicateGroups.toLocaleString()} group${
+                      message.duplicateGroups === 1 ? "" : "s"
+                    }`;
+              this.setAction(`${label}: ${tail}`);
+              this.showToast(`${label} — ${tail}.`, () => this.toggleSpecial("keyDuplicates"));
+              this.updateCount(message.count, message.queryMs);
+              this.applyFacets(message.facets, message.histograms);
+              this.table?.setCount(message.count);
+              this.table?.setFirstRows(
+                message.firstRows,
+                message.firstGroups,
+                message.firstFlags,
+                message.firstChanged,
+              );
+            })
+            .catch((error: unknown) => this.showError(error)),
+        );
+        break;
+      }
       case "prepareTimeSeries": {
         const updates: { column: number; ops: CleanOp[] }[] = [];
         const existing = (column: number): CleanOp[] =>
@@ -3330,6 +3362,7 @@ export class App {
       onOpenTransform: (preset) => this.openTransform(preset),
       onSuggestion: (suggestion) => this.applySuggestion(column, suggestion),
       onMerge: () => this.openMerge(column),
+      onAllowedValues: (values) => this.checkAllowedValues(column, values),
       onRename: () => void this.renameColumn(column),
       onDelete: () => void this.confirmDeleteColumn(column),
       onRound: (decimals) =>
@@ -3380,6 +3413,37 @@ export class App {
         );
       },
     });
+  }
+
+  /**
+   * Allowed-values check (plan §5.4): compares the column's categories against
+   * the user's list (same normalisation as search) and filters to the values
+   * outside it. Display/filters only — the stored data is never changed.
+   */
+  private checkAllowedValues(column: number, allowed: readonly string[]): void {
+    const meta = this.metas[column];
+    const categories = meta?.categories ?? null;
+    if (meta === undefined || categories === null) return;
+    const allowedSet = new Set(allowed.map((value) => normalize(value)));
+    const offending: number[] = [];
+    let count = 0;
+    categories.labels.forEach((label, code) => {
+      if (!allowedSet.has(normalize(label))) {
+        offending.push(code);
+        count += categories.counts[code] ?? 0;
+      }
+    });
+    if (count === 0) {
+      this.showToast(`“${meta.name}”: every value is in the allowed list.`);
+      return;
+    }
+    this.changeFilter(column, { kind: "values", selected: offending });
+    this.setView("table");
+    this.table?.flashColumn(column);
+    this.showToast(
+      `“${meta.name}”: ${count.toLocaleString()} ${count === 1 ? "cell" : "cells"} outside the allowed list — filtered.`,
+      () => this.changeFilter(column, null),
+    );
   }
 
   /** Right-click column menu: quick actions without leaving the table. */

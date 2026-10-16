@@ -22,6 +22,8 @@ export interface ColumnInspectorCallbacks {
   onOpenTransform(preset?: { type: string; column?: number }): void;
   onSuggestion(suggestion: ColumnSuggestion): void;
   onMerge(): void;
+  /** Allowed-values check: flags values outside the user's list (filter only). */
+  onAllowedValues(values: string[]): void;
   onRename(): void;
   onDelete(): void;
   /** Fixed decimals for display; null = Auto. */
@@ -365,6 +367,27 @@ export function openColumnInspector(
       );
       return button;
     })(),
+    ...(meta.categories !== null
+      ? [
+          action("Allowed values…", "Flag values outside a list you define (filters to them)", () => {
+            void (async () => {
+              const input = await openPrompt({
+                title: `Allowed values for “${meta.name}”`,
+                label: "Comma-separated allowed values",
+                placeholder: meta.categories?.labels.slice(0, 3).join(", ") ?? "",
+                confirmLabel: "Check",
+              });
+              close();
+              if (input === null) return;
+              const values = input
+                .split(",")
+                .map((part) => part.trim())
+                .filter((part) => part !== "");
+              if (values.length > 0) callbacks.onAllowedValues(values);
+            })();
+          }),
+        ]
+      : []),
     action("Group by…", "Aggregate rows by this column", () => {
       close();
       callbacks.onOpenTransform({ type: "groupBy", column });
