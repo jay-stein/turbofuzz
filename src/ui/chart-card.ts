@@ -170,6 +170,12 @@ export interface ChartCardConfig {
   yUnit?: string;
   /** Category column splitting a time series into one line per value (-1 = off). */
   groupColumn: number;
+  /** Line cards: plot an aggregate of this numeric column (-1/undefined = row count). */
+  valueColumn?: number;
+  /** Aggregate used for the value line (default mean). */
+  valueAgg?: "mean" | "sum" | "median" | "min" | "max";
+  /** Bucket grain for the value line; "auto"/undefined derives it from the span. */
+  valueGrain?: TimeGrain | "auto";
   /** Bubble grid resolution per axis. */
   bubbleBins?: number;
   /** Bubble size measure: rows per cell or an aggregate of a numeric column. */
@@ -632,6 +638,14 @@ export class ChartCard {
   private readonly primarySelect: HTMLSelectElement;
   private readonly groupSelect: HTMLSelectElement;
   private readonly groupWrap: HTMLElement;
+  private readonly valueSelect: HTMLSelectElement;
+  private readonly valueWrap: HTMLElement;
+  private readonly valueAggSelect: HTMLSelectElement;
+  private readonly valueAggWrap: HTMLElement;
+  private readonly valueGrainSelect: HTMLSelectElement;
+  private readonly valueGrainWrap: HTMLElement;
+  /** Aggregate result for the card's own value-over-time line. */
+  private valueResult: AggregateMessage | null = null;
   private readonly xSelect: HTMLSelectElement;
   private readonly ySelect: HTMLSelectElement;
   private readonly colorSelect: HTMLSelectElement;
@@ -730,6 +744,7 @@ export class ChartCard {
       this.viewResult = null;
       this.syncSourceControls();
       if (this.config.source !== "") this.refreshView();
+      else this.refreshValue();
       this.render();
     });
     sourceWrap.append(this.sourceSelect);
@@ -770,6 +785,55 @@ export class ChartCard {
       this.render();
     });
     this.groupWrap = this.tagged("Group", this.groupSelect).wrap;
+
+    this.valueSelect = this.buildSelect("chart-picker chart-picker-small", "Value column");
+    this.valueSelect.addEventListener("change", () => {
+      this.config.valueColumn = Number(this.valueSelect.value);
+      // A value line and a grouped count line are two different charts; the
+      // value choice wins and clears the group so the result is unambiguous.
+      if ((this.config.valueColumn ?? -1) >= 0) this.config.groupColumn = -1;
+      this.generation++;
+      this.syncOptions();
+      this.renderControls();
+      this.refreshValue();
+      this.render();
+    });
+    this.valueWrap = this.tagged("Value", this.valueSelect).wrap;
+
+    this.valueAggSelect = this.buildSelect("chart-picker chart-picker-small", "Aggregation");
+    (
+      [
+        ["mean", "Mean"],
+        ["sum", "Sum"],
+        ["median", "Median"],
+        ["min", "Min"],
+        ["max", "Max"],
+      ] as const
+    ).forEach(([value, label]) => {
+      this.valueAggSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+    });
+    this.valueAggSelect.addEventListener("change", () => {
+      this.config.valueAgg = this.valueAggSelect.value as ChartCardConfig["valueAgg"];
+      this.generation++;
+      this.refreshValue();
+      this.render();
+    });
+    this.valueAggWrap = this.tagged("Agg", this.valueAggSelect).wrap;
+
+    this.valueGrainSelect = this.buildSelect("chart-picker chart-picker-small", "Bucket");
+    (["auto", "minute", "hour", "day", "week", "month", "quarter", "year"] as const).forEach(
+      (grain) => {
+        const label = grain === "auto" ? "Auto" : grain.charAt(0).toUpperCase() + grain.slice(1);
+        this.valueGrainSelect.append(el("option", { value: grain }, [label]) as HTMLOptionElement);
+      },
+    );
+    this.valueGrainSelect.addEventListener("change", () => {
+      this.config.valueGrain = this.valueGrainSelect.value as ChartCardConfig["valueGrain"];
+      this.generation++;
+      this.refreshValue();
+      this.render();
+    });
+    this.valueGrainWrap = this.tagged("Bucket", this.valueGrainSelect).wrap;
 
     this.xSelect = this.buildSelect("chart-picker", "X column");
     this.xSelect.addEventListener("change", () => {
@@ -923,6 +987,9 @@ export class ChartCard {
       this.sourceWrap,
       this.kindSelect,
       this.groupWrap,
+      this.valueWrap,
+      this.valueAggWrap,
+      this.valueGrainWrap,
       this.axesPanel,
       el("span", { class: "grow" }),
       this.focusButton,
@@ -1520,6 +1587,7 @@ export class ChartCard {
     this.refreshAnimation();
     this.refreshCorrelation();
     this.refreshGroupedBins();
+    this.refreshValue();
     this.render();
   }
 
@@ -1555,14 +1623,20 @@ export class ChartCard {
     const kind = this.config.kind;
     const pair = isPairKind(kind);
     const groupable = this.columns.some((meta) => isCategoryType(meta.type));
+    const valueOn =
+      kind === "line" && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
     this.kindSelect.classList.toggle("hidden", bound);
     this.primaryWrap.classList.toggle("hidden", bound || pair || kind === "correlation");
     this.groupWrap.classList.toggle(
       "hidden",
       bound ||
         (kind !== "line" && kind !== "histogram" && kind !== "bubble") ||
-        !groupable,
+        !groupable ||
+        valueOn,
     );
+    this.valueWrap.classList.toggle("hidden", bound || kind !== "line");
+    this.valueAggWrap.classList.toggle("hidden", bound || kind !== "line" || !valueOn);
+    this.valueGrainWrap.classList.toggle("hidden", bound || kind !== "line" || !valueOn);
     this.xWrap.classList.toggle("hidden", bound || !pair);
     this.yWrap.classList.toggle("hidden", bound || !pair);
     this.axesPanel.classList.toggle("hidden", bound || kind === "correlation");
@@ -1590,6 +1664,67 @@ export class ChartCard {
       });
   }
 
+  /** True when this card plots its own value-over-time aggregate (line cards). */
+  private usesValueAggregate(): boolean {
+    return (
+      this.config.source === "" &&
+      this.config.kind === "line" &&
+      (this.config.valueColumn ?? -1) >= 0
+    );
+  }
+
+  /** True when the card draws an aggregate result (bound view or own value). */
+  private usesAggregate(): boolean {
+    return this.config.source !== "" || this.usesValueAggregate();
+  }
+
+  private aggregateResult(): AggregateMessage | null {
+    return this.config.source !== "" ? this.viewResult : this.valueResult;
+  }
+
+  /** Implicit view definition: value column aggregated over the date buckets. */
+  private valueViewDef(): ViewDef | null {
+    if (!this.usesValueAggregate() || this.options.requestAggregate === undefined) return null;
+    const dateColumn = this.config.column;
+    if (!this.isDateLike(this.meta(dateColumn))) return null;
+    const column = this.config.valueColumn ?? -1;
+    if (column < 0) return null;
+    const grain =
+      this.config.valueGrain === undefined || this.config.valueGrain === "auto"
+        ? this.defaultGrainFor(dateColumn)
+        : this.config.valueGrain;
+    return {
+      id: "card-value",
+      name: this.config.title.trim() === "" ? this.defaultTitle() : this.config.title.trim(),
+      dimensions: [{ column: dateColumn, by: { time: grain } }],
+      measures: [{ column, agg: this.config.valueAgg ?? "mean" }],
+      fill: "zero",
+      sort: { key: "dim0", dir: "asc" },
+      limit: 5000,
+      respectFilters: true,
+    };
+  }
+
+  /** Fetches the card's own value-over-time aggregate (generation-guarded). */
+  refreshValue(): void {
+    const def = this.valueViewDef();
+    if (def === null) {
+      if (this.valueResult !== null) this.valueResult = null;
+      return;
+    }
+    const generation = ++this.generation;
+    void this.options
+      .requestAggregate(def)
+      .then((message) => {
+        if (generation !== this.generation || !this.usesValueAggregate()) return;
+        this.valueResult = message;
+        this.render();
+      })
+      .catch(() => {
+        // Keep the last result as the fallback.
+      });
+  }
+
   setFiltered(
     facets: Record<number, number[]>,
     histograms: Record<number, number[]>,
@@ -1600,6 +1735,7 @@ export class ChartCard {
     this.renderSourceOptions();
     this.syncSourceControls();
     if (this.config.source !== "") this.refreshView();
+    else this.refreshValue();
     this.refreshBins();
     this.refreshSeries();
     this.refreshTreemap();
@@ -1630,6 +1766,7 @@ export class ChartCard {
     this.refreshAnimation();
     this.refreshCorrelation();
     this.refreshGroupedBins();
+    this.refreshValue();
     this.render();
   }
 
@@ -1878,6 +2015,29 @@ export class ChartCard {
     });
     this.groupSelect.value = String(this.config.groupColumn);
 
+    const valueAllowed = this.allowedIndexes(
+      (meta) => isNumericType(meta.type) || meta.type === "time" || meta.type === "duration",
+    );
+    if (
+      this.config.valueColumn !== undefined &&
+      this.config.valueColumn >= 0 &&
+      !valueAllowed.includes(this.config.valueColumn)
+    ) {
+      this.config.valueColumn = -1;
+    }
+    this.valueSelect.replaceChildren(this.option("-1", "Count of rows"));
+    valueAllowed.forEach((index) => {
+      const meta = this.columns[index];
+      this.valueSelect.append(
+        this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`),
+      );
+    });
+    if ((this.config.valueColumn ?? -1) >= 0) {
+      this.valueSelect.value = String(this.config.valueColumn);
+    }
+    if (this.config.valueAgg !== undefined) this.valueAggSelect.value = this.config.valueAgg;
+    this.valueGrainSelect.value = this.config.valueGrain ?? "auto";
+
     const xAllowed = this.allowedIndexes((meta) => this.allowsX(meta));
     const yAllowed = this.allowedIndexes((meta) => this.allowsY(meta));
     if (!xAllowed.includes(this.config.x)) this.config.x = xAllowed[0] ?? -1;
@@ -1994,10 +2154,16 @@ export class ChartCard {
               ? "Text"
               : "Column";
     const groupable = this.columns.some((meta) => isCategoryType(meta.type));
+    const valueOn =
+      kind === "line" && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
     this.groupWrap.classList.toggle(
       "hidden",
-      (kind !== "line" && kind !== "histogram" && kind !== "bubble") || !groupable,
+      (kind !== "line" && kind !== "histogram" && kind !== "bubble") || !groupable || valueOn,
     );
+    const unbound = this.config.source === "";
+    this.valueWrap.classList.toggle("hidden", kind !== "line" || !unbound);
+    this.valueAggWrap.classList.toggle("hidden", kind !== "line" || !unbound || !valueOn);
+    this.valueGrainWrap.classList.toggle("hidden", kind !== "line" || !unbound || !valueOn);
     this.xWrap.classList.toggle("hidden", !pair);
     this.yWrap.classList.toggle("hidden", !pair);
     const seriesKind = kind === "scatter" || kind === "density";
@@ -2200,7 +2366,7 @@ export class ChartCard {
   }
 
   private defaultTitle(): string {
-    if (this.config.source !== "") return "Aggregate";
+    if (this.usesAggregate()) return "Aggregate";
     if (isPairKind(this.config.kind)) {
       return defaultChartTitle(this.pairLabel("vs"));
     }
@@ -3818,9 +3984,9 @@ export class ChartCard {
 
   private subtitle(): string {
     const rows = `${this.rowCount.toLocaleString()} rows shown`;
-    if (this.config.source !== "") {
-      const result = this.viewResult;
-      if (result === null) return "Aggregate view · waiting for the first result";
+    if (this.usesAggregate()) {
+      const result = this.aggregateResult();
+      if (result === null) return "Aggregate · waiting for the first result";
       return `${result.measureNames[0] ?? "measure"} by ${
         result.dimensionNames[0] ?? "group"
       } · ${result.groupCount.toLocaleString()} groups`;
@@ -3897,7 +4063,7 @@ export class ChartCard {
     ctx.fillStyle = frame.dim;
     ctx.fillText(this.fit(ctx, this.subtitle(), width - frame.left - frame.right), frame.left, 40 * frame.ui);
 
-    if (this.config.source !== "") {
+    if (this.usesAggregate()) {
       this.drawViewAggregate(ctx, frame);
       return;
     }
@@ -3947,20 +4113,21 @@ export class ChartCard {
   }
 
   /**
-   * A card bound to a saved view draws that view's aggregate result: a line
-   * when the first dimension is a time bucket, bars otherwise.
+   * A card that draws an aggregate result (a bound view, or the card's own
+   * value-over-time aggregate) renders it as a line when the first dimension
+   * is a time bucket, bars otherwise.
    */
   private drawViewAggregate(ctx: CanvasRenderingContext2D, frame: Frame): void {
-    const result = this.viewResult;
+    const result = this.aggregateResult();
     if (result === null || result.groupCount === 0) {
-      const message = "The bound view has no groups to draw yet.";
+      const message = "The aggregate has no groups to draw yet.";
       this.noteEl.textContent = message;
       this.drawPlotMessage(ctx, frame, message);
       return;
     }
     const values = result.measures[0];
     if (values === undefined) {
-      const message = "The bound view has no measures.";
+      const message = "The aggregate has no measures.";
       this.noteEl.textContent = message;
       this.drawPlotMessage(ctx, frame, message);
       return;
@@ -5118,9 +5285,9 @@ export class ChartCard {
    * would be noise (treemaps label their tiles, correlation its cells).
    */
   private axisLabels(): { x: string | null; y: string | null } {
-    // A view-bound card draws the view's aggregate; its own column picks do
-    // not describe those axes.
-    if (this.config.source !== "") return { x: null, y: null };
+    // Aggregate cards (bound views and own value lines) draw from the
+    // aggregate; their own column picks do not describe those axes.
+    if (this.usesAggregate()) return { x: null, y: null };
     const name = (index: number): string | null =>
       index >= 0 ? (this.meta(index)?.name ?? null) : null;
     switch (this.config.kind) {

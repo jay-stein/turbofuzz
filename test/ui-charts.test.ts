@@ -4,7 +4,9 @@ import { Window } from "happy-dom";
 import type { ColumnFilter } from "../src/search/query-engine.js";
 import { ChartsPanel, type ChartsPanelOptions } from "../src/ui/chart-panel.js";
 import { ChartCard, type ChartCardConfig, type ChartCardOptions } from "../src/ui/chart-card.js";
+import type { ViewDef } from "../src/data/aggregate.js";
 import type {
+  AggregateMessage,
   BoxStatsMessage,
   ChartBinsMessage,
   ChartSeriesMessage,
@@ -2003,4 +2005,62 @@ test("axis title overrides and units label the axes; truncated titles stay hover
   assert.equal(tooltip.textContent, long, "hovering the truncated title shows the full text");
   card.dispose();
   card2.dispose();
+});
+
+test("a line card plots its own measure over time without a view", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: ViewDef[] = [];
+  const aggregate = (view: ViewDef): AggregateMessage => ({
+    type: "aggregate",
+    requestId: 1,
+    viewId: view.id,
+    labels: ["2013-08-15", "2013-08-16"],
+    dimensions: [["2013-08-15", "2013-08-16"]],
+    dimensionNames: ["date_time (day)"],
+    dimensionIsTime: [true],
+    dimensionTimes: [Float64Array.from([Date.UTC(2013, 7, 15), Date.UTC(2013, 7, 16)])],
+    measures: [Float64Array.from([12.5, 18.25])],
+    measureNames: ["mean(direction)"],
+    totals: Float64Array.from([15.375]),
+    groupCount: 2,
+    totalGroups: 2,
+    truncated: false,
+    partials: null,
+    ms: 1,
+  });
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestAggregate: (view: ViewDef) => {
+        calls.push(view);
+        return Promise.resolve(aggregate(view));
+      },
+    },
+    { kind: "line", column: 0, valueColumn: 1, valueAgg: "mean", valueGrain: "day" },
+  );
+  const columns = [
+    meta({ name: "date_time", type: "datetime", stats: { ...meta().stats, distinct: 300 } }),
+    meta({ name: "direction", type: "number" }),
+  ];
+  card.setColumns(columns);
+  await tick();
+
+  assert.equal(calls.length, 1, "the card fetches its own aggregate");
+  const def = calls[0];
+  assert.ok(def !== undefined);
+  assert.deepEqual(def.dimensions, [{ column: 0, by: { time: "day" } }]);
+  assert.deepEqual(def.measures, [{ column: 1, agg: "mean" }]);
+  assert.equal(def.respectFilters, true, "value lines respect the active filters");
+
+  const tagWrap = (label: string): HTMLElement | null =>
+    ([...host.querySelectorAll(".chart-tag")] as HTMLElement[]).find(
+      (tag) => tag.querySelector(".chart-tag-label")?.textContent === label,
+    ) ?? null;
+  assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Agg")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), false);
+  card.dispose();
 });
