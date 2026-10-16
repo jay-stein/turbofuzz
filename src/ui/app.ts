@@ -86,6 +86,7 @@ import { isParquetName } from "../parse/parquet.js";
 import { openRecipeMapping } from "./recipe-mapping.js";
 import { openExportPanel } from "./export-panel.js";
 import { openMergePanel } from "./merge-panel.js";
+import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
 import { ViewTabs, type ViewId } from "./view-tabs.js";
@@ -491,7 +492,7 @@ export class App {
         type: "button",
         title: "Type a command — e.g. “convert date_time to datetime”, “upper amount”, “group region sum sales”",
       },
-      ["Do something…", el("span", { class: "kbd" }, ["Ctrl/⌘ K"])],
+      [el("span", { class: "palette-button-label" }, ["Do something…"]), el("span", { class: "kbd" }, ["Ctrl/⌘ K"])],
     ) as HTMLButtonElement;
     paletteButton.addEventListener("click", () => this.openPalette());
     topbar.append(paletteButton, this.themeButton, helpButton);
@@ -2512,6 +2513,23 @@ export class App {
       case "clean":
         this.applyQuickClean(command.column, command.op);
         break;
+      case "cleanAll": {
+        // "upper all" style: append the same clean op to every column.
+        const updates = this.metas.map((_, column) => ({
+          column,
+          ops: [...(this.cleanedColumns.get(column) ?? []), command.op],
+        }));
+        this.applyClean(updates);
+        break;
+      }
+      case "headerCase": {
+        const headers = normalizeHeaders(
+          this.metas.map((meta) => meta.name),
+          { ...DEFAULT_HEADER_OPTIONS, caseStyle: command.style },
+        );
+        this.applyHeaderRename(headers);
+        break;
+      }
       case "transform":
         this.applyTransform([...this.transformOps, ...command.ops], command.label);
         break;

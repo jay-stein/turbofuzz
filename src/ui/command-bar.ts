@@ -2,6 +2,7 @@ import type { ColumnMeta } from "../worker/protocol.js";
 import type { DateOrder } from "../parse/dates.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { CleanOp } from "../data/clean-ops.js";
+import type { HeaderCaseStyle } from "../data/headers.js";
 import type { TransformOp } from "../data/transform-ops.js";
 import { openConfirm } from "./dialog.js";
 import { el } from "./dom.js";
@@ -9,6 +10,8 @@ import { el } from "./dom.js";
 /** What a typed command means, or a friendly parse error. */
 export type ParsedCommand =
   | { kind: "clean"; column: number; op: CleanOp; label: string }
+  | { kind: "cleanAll"; op: CleanOp; label: string }
+  | { kind: "headerCase"; style: HeaderCaseStyle; label: string }
   | { kind: "transform"; ops: TransformOp[]; label: string }
   | { kind: "dedupe"; keep: "first" | "last" | "none"; label: string }
   | {
@@ -34,10 +37,12 @@ export interface CommandSuggestion {
 }
 
 const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }[] = [
-  { name: "upper", aliases: ["uppercase"], hint: "UPPERCASE a column" },
-  { name: "lower", aliases: ["lowercase"], hint: "lowercase a column" },
-  { name: "title", aliases: ["titlecase"], hint: "Title Case a column" },
-  { name: "trim", aliases: ["strip"], hint: "Trim whitespace" },
+  { name: "upper", aliases: ["uppercase"], hint: "UPPERCASE a column (or “upper all” for every column)" },
+  { name: "lower", aliases: ["lowercase"], hint: "lowercase a column (or “lower all”)" },
+  { name: "title", aliases: ["titlecase"], hint: "Title Case a column (or “title all”)" },
+  { name: "trim", aliases: ["strip"], hint: "Trim whitespace (or “trim all”)" },
+  { name: "snakecase", aliases: ["snake case", "snake"], hint: "Snake_case every column name" },
+  { name: "camelcase", aliases: ["camel case", "camel"], hint: "camelCase every column name" },
   { name: "number", aliases: ["tonumber", "convert number"], hint: "Convert a column to numbers" },
   { name: "date", aliases: ["todate", "convert date"], hint: "Convert a column to dates (date only)" },
   {
@@ -90,6 +95,8 @@ function findColumn(text: string, columns: readonly ColumnMeta[]): number {
 }
 
 /** Verbs that take a column argument. */
+const ALL_VERBS = new Set(["upper", "lower", "title", "trim"]);
+
 const COLUMN_VERBS = new Set([
   "upper",
   "lower",
@@ -221,6 +228,13 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
     case "upper":
     case "lower":
     case "title": {
+      if (rest === "all") {
+        return {
+          kind: "cleanAll",
+          op: { kind: "case", style: verb },
+          label: `${verb === "upper" ? "UPPERCASED" : verb === "lower" ? "lowercased" : "Title Cased"} every column's values`,
+        };
+      }
       const missing = needsColumn();
       if (missing !== null) return missing;
       return {
@@ -231,9 +245,27 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
       };
     }
     case "trim": {
+      if (rest === "all") {
+        return {
+          kind: "cleanAll",
+          op: { kind: "trim" },
+          label: "Trimmed every column's values",
+        };
+      }
       const missing = needsColumn();
       if (missing !== null) return missing;
       return { kind: "clean", column, op: { kind: "trim" }, label: `Trimmed ${columnName}` };
+    }
+    case "snakecase":
+    case "camelcase": {
+      return {
+        kind: "headerCase",
+        style: verb === "snakecase" ? "snake" : "camel",
+        label:
+          verb === "snakecase"
+            ? "Snake-cased all column names"
+            : "Camel-cased all column names",
+      };
     }
     case "number": {
       const missing = needsColumn();
@@ -509,6 +541,17 @@ export function commandSuggestions(
   if (prefix !== null && COLUMN_VERBS.has(prefix.verb)) {
     const rest = text2.slice(prefix.length).trim();
     const hint = VERBS.find((verb) => verb.name === prefix.verb)?.hint ?? "";
+    // "<verb> all" applies a value clean to every column at once.
+    if (rest === "all" && ALL_VERBS.has(prefix.verb)) {
+      const usage = `${prefix.verb} all`;
+      return [
+        {
+          usage,
+          hint: `${hint} · every column`,
+          command: parseCommand(usage, columns),
+        },
+      ];
+    }
     const completions = columns
       .map((meta, index) => ({
         meta,
@@ -624,6 +667,8 @@ export function openCommandBar(options: CommandBarOptions): void {
   const runConfirmed = (command: ParsedCommand): void => {
     const changesData =
       command.kind === "clean" ||
+      command.kind === "cleanAll" ||
+      command.kind === "headerCase" ||
       command.kind === "transform" ||
       command.kind === "dedupe" ||
       command.kind === "prepareTimeSeries";

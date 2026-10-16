@@ -193,6 +193,35 @@ test("column completions finish any column name for a verb", () => {
   assert.ok(drop.length > 0);
 });
 
+test("header casing and all-column cleans parse", () => {
+  const snake = parseCommand("snakecase", columns);
+  assert.equal(snake.kind, "headerCase");
+  if (snake.kind === "headerCase") {
+    assert.equal(snake.style, "snake");
+    assert.match(snake.label, /Snake-cased/);
+  }
+  const camel = parseCommand("camel case", columns);
+  assert.equal(camel.kind, "headerCase");
+  if (camel.kind === "headerCase") assert.equal(camel.style, "camel");
+
+  const upperAll = parseCommand("upper all", columns);
+  assert.equal(upperAll.kind, "cleanAll");
+  if (upperAll.kind === "cleanAll") {
+    assert.deepEqual(upperAll.op, { kind: "case", style: "upper" });
+    assert.match(upperAll.label, /every column/);
+  }
+  const trimAll = parseCommand("trim all", columns);
+  assert.equal(trimAll.kind, "cleanAll");
+  if (trimAll.kind === "cleanAll") assert.deepEqual(trimAll.op, { kind: "trim" });
+
+  const completion = commandSuggestions("upper all", columns);
+  assert.equal(completion[0]?.usage, "upper all");
+  assert.match(completion[0]?.hint ?? "", /every column/);
+
+  const snakeSuggestion = commandSuggestions("snake", columns);
+  assert.equal(snakeSuggestion[0]?.usage, "snakecase");
+});
+
 test("palette input state tracks verb and full-command recognition", () => {
   assert.equal(commandState("", columns), "empty");
   assert.equal(commandState("frobnicate", columns), "empty");

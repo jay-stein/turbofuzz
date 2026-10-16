@@ -5177,12 +5177,40 @@ label.null-row {
 .palette-button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 10px;
+  width: min(33vw, 620px);
+  min-width: 220px;
+  flex: none;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
   color: var(--text-dim);
+  text-align: left;
+  font-size: 13px;
 }
 
 .palette-button:hover {
   color: var(--text);
+  border-color: var(--accent);
+}
+
+.palette-button-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  flex: 1;
+}
+
+@media (max-width: 900px) {
+  .palette-button {
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 160px;
+  }
 }
 
 .palette-button .kbd {
