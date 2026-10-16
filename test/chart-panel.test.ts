@@ -186,6 +186,10 @@ test("axis labels drop insignificant digits", () => {
   assert.equal(formatTick(50_000, "histogram"), "50k");
   assert.equal(formatTick(12_800, "histogram"), "12.8k");
   assert.equal(formatTick(1_500_000, "histogram"), "1.5M");
+  // Year-window integers read as labels: bare 4-digit years, never 1.9k/2k.
+  assert.equal(formatTick(1970, "histogram"), "1970");
+  assert.equal(formatTick(2_010, "histogram"), "2010");
+  assert.equal(formatTick(1_900, "histogram"), "1900");
   assert.equal(formatCount(50_000), "50,000");
   assert.equal(formatCount(48780), "48,780");
 });

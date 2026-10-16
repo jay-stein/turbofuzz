@@ -497,6 +497,10 @@ export function formatTick(
   }
   if (kind === "time") return toTimeInputValue(value);
   if (kind === "duration") return formatDurationMs(value);
+  // Years read as labels, not quantities: bare 4-digit integers in the year
+  // window never compact (1900, 1970, 2010 — not 1.9k/2k). Birth-year axes
+  // are the reported case; wide count axes still show 50k/1.5M below.
+  if (Number.isInteger(value) && value >= 1000 && value <= 2200) return String(value);
   const abs = Math.abs(value);
   const compact = (scaled: number): string => {
     const text = scaled >= 100 ? scaled.toFixed(0) : scaled.toFixed(1);
