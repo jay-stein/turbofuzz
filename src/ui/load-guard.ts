@@ -26,7 +26,10 @@ export interface LoadEstimate {
  */
 export function estimateFromText(totalBytes: number, text: string): LoadEstimate | null {
   if (totalBytes <= 0 || text.trim() === "") return null;
-  const cut = text.includes("\n") ? text.slice(0, text.lastIndexOf("\n")) : text;
+  // Bound the work: the estimate only ever reads a 256 KB prefix, so giant
+  // pastes cost the same as small ones (the worker parses the real thing).
+  const sample = text.length > SAMPLE_BYTES ? text.slice(0, SAMPLE_BYTES) : text;
+  const cut = sample.includes("\n") ? sample.slice(0, sample.lastIndexOf("\n")) : sample;
   if (cut.trim() === "") return null;
   const delimiter = detectDelimiter(cut);
   const parsed = parseDelimited(cut, { delimiter, hasHeaders: false, normalizeRows: false });
