@@ -55,6 +55,27 @@ test("zone offsets are applied to the instant and flagged in metadata", () => {
   assert.equal(naive.timeZoneAware, false);
 });
 
+test("hour-only offsets, lowercase z and the bird-tracking format parse", () => {
+  // The common pandas/CSV export shape: "+00" without minutes (bird_tracking.csv).
+  const bird = column("date_time", [
+    "2013-08-15 00:18:08+00",
+    "2013-08-15 00:48:07+00",
+    "2013-08-15 01:17:58+00",
+  ]);
+  assert.equal(bird.type, "datetime");
+  assert.equal(bird.timeZoneAware, true);
+  assert.equal(bird.numbers()[0], Date.UTC(2013, 7, 15, 0, 18, 8));
+
+  const shifted = column("date_time", [
+    "2013-08-15T00:18:08+02",
+    "2013-08-15T00:18:08-0530",
+    "2013-08-15T00:18:08z",
+  ]);
+  assert.equal(shifted.type, "datetime");
+  assert.equal(shifted.numbers()[0], Date.UTC(2013, 7, 14, 22, 18, 8));
+  assert.equal(shifted.numbers()[1], Date.UTC(2013, 7, 15, 5, 48, 8));
+});
+
 test("ambiguous DMY/MDY values keep the existing date-order policy", () => {
   const ambiguous = column("when", ["01/02/2026", "03/04/2026"]);
   assert.equal(ambiguous.type, "date");

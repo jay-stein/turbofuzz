@@ -4,7 +4,7 @@ const DMY_OR_MDY = /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/;
 const ISO = /^(\d{4})-(\d{1,2})-(\d{1,2})/;
 const YMD = /^(\d{4})[/.](\d{1,2})[/.](\d{1,2})$/;
 const ISO_DATETIME =
-  /^(\d{4})-(\d{1,2})-(\d{1,2})[Tt ](\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\s*(Z|[+-]\d{2}:?\d{2})?$/;
+  /^(\d{4})-(\d{1,2})-(\d{1,2})[Tt ](\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\s*(Z|z|[+-]\d{2}(?::?\d{2})?)?$/;
 
 const MONTH_NUMBERS: Record<string, number> = {
   jan: 1,
@@ -222,6 +222,7 @@ export function classifyDateValue(raw: string, order: DateOrder = "dmy"): DateVa
     const sign = zone.startsWith("-") ? -1 : 1;
     const hours = Number(zone.slice(1, 3));
     const minutes = Number(zone.slice(3).replace(":", "") || 0);
+    if (hours > 14 || minutes > 59) return null;
     return { ms: utc - sign * (hours * 60 + minutes) * 60_000, hasTime: true, hasOffset: true };
   }
 
