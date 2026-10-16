@@ -104,4 +104,22 @@ test("worker applies per-column specials and reports anomaly counts", async () =
   assert.equal((find("results", 11) as unknown as { count: number }).count, 2);
   send({ type: "setSpecial", requestId: 12, kind: "pattern", active: false, column: 0 });
   assert.equal((find("results", 12) as unknown as { count: number }).count, 62);
+
+  // Type changes report the values that cannot be represented in the new type.
+  send({
+    type: "load",
+    requestId: 13,
+    name: "t4",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: "n\n1\n2\nx\n2.5\n0",
+  });
+  find("loaded", 13);
+  send({ type: "setType", requestId: 14, column: 0, columnType: "integer" });
+  const changed = find("columnMeta", 14) as unknown as {
+    nonParsing?: number;
+    meta: { type: string };
+  };
+  assert.equal(changed.meta.type, "integer");
+  assert.equal(changed.nonParsing, 2, "the text and decimal values are counted");
 });

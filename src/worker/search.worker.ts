@@ -832,7 +832,29 @@ function handleSetType(message: SetTypeRequest): void {
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
     firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
+    nonParsing: countNonParsing(column, message.columnType),
   });
+}
+
+/** Non-null cells that cannot be represented in the column's (new) type. */
+function countNonParsing(column: ColumnData, type: ColumnType): number {
+  const numeric = type === "integer" || type === "number";
+  const temporal = type === "date" || type === "datetime";
+  if (!numeric && !temporal) return 0;
+  let failures = 0;
+  for (let row = 0; row < column.raw.length; row++) {
+    const value = column.raw[row];
+    if (column.isNull(value)) continue;
+    if (numeric) {
+      const parsed = parseNumber(value, column.numberLocale);
+      if (!Number.isFinite(parsed) || (type === "integer" && !Number.isInteger(parsed))) {
+        failures++;
+      }
+    } else if (!Number.isFinite(parseDate(value, column.dateOrder))) {
+      failures++;
+    }
+  }
+  return failures;
 }
 
 /**

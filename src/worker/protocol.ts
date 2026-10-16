@@ -722,6 +722,8 @@ export interface ColumnMetaMessage {
   firstGroups?: boolean[];
   firstFlags?: Uint8Array;
   firstChanged?: Uint8Array;
+  /** Non-null values that fail to parse under the new column type (setType). */
+  nonParsing?: number;
 }
 
 export interface StatsMessage {

@@ -2097,6 +2097,22 @@ export class App {
             this.displayFormats.delete(column);
             this.table?.setFormats(this.displayFormats);
           }
+          // Tell the user what happened — and when values cannot be
+          // represented in the new type, say how many instead of pretending.
+          if (previous !== undefined && previous !== type) {
+            const nonParsing = message.nonParsing ?? 0;
+            if (nonParsing > 0) {
+              this.showWarning(
+                `“${name}” is now ${TYPE_LABELS[type]} — ${nonParsing.toLocaleString()} value${
+                  nonParsing === 1 ? "" : "s"
+                } don't parse as ${TYPE_LABELS[type].toLowerCase()} and stay as text.`,
+              );
+            } else {
+              this.showToast(
+                `“${name}” is now ${TYPE_LABELS[type]} — display and stats updated.`,
+              );
+            }
+          }
           this.overview?.updateColumn(column, message.meta);
           this.filterPanel?.updateMeta(column, message.meta);
           this.table?.updateColumn(column, message.meta);

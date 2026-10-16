@@ -378,3 +378,18 @@ test("integer columns ignore decimal display formats", () => {
   table.setFirstRows([["1234567"]]);
   assert.equal(host.querySelectorAll(".tr .td")[1]?.textContent, "1234567");
 });
+
+test("integers drop float tails and dates display in one standard shape", () => {
+  const { host, table } = buildTable([
+    meta({ name: "car", type: "integer" }),
+    meta({ name: "when", type: "date", dateOrder: "dmy" }),
+    meta({ name: "seen", type: "datetime", dateOrder: "dmy" }),
+  ]);
+  table.setFirstRows([["1.0", "3/12/2016", "2013-08-15 00:18:08+00"]]);
+  table.setCount(1);
+  const cells = host.querySelectorAll(".tr .td");
+  assert.equal(cells[1]?.textContent, "1", "the float tail is not shown for integers");
+  assert.equal(cells[1]?.getAttribute("title"), "1.0", "the raw value stays on hover");
+  assert.equal(cells[2]?.textContent, "2016/12/03");
+  assert.equal(cells[3]?.textContent, "2013/08/15 00:18");
+});

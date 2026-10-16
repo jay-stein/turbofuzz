@@ -8,6 +8,7 @@ import {
 import { clusterSimilar, type SimilarCluster } from "../search/similar.js";
 import { dismissedClusterCount, isClusterDismissed } from "./similar-dismissals.js";
 import { isNullToken, isNullWithWire } from "../parse/null-tokens.js";
+import { parseDate, toDateInputValue, toTimeInputValue } from "../parse/dates.js";
 import { parseNumber } from "../parse/numbers.js";
 import { valueLength } from "../parse/value-length.js";
 import { COLUMN_TYPES, TYPE_LABELS, type ColumnType } from "../types.js";
@@ -779,22 +780,27 @@ export class ResultTable {
     }
     this.applyAnomaly(cell, value, columnIndex);
 
-    // Per-column display format: fixed decimals and/or thousands separators
-    // for reading (the stored data is unchanged).
+    // Type-aware display formatting (display only; stored values unchanged):
+    // - integers always render whole values ("1.0" -> 1), honouring grouping
+    // - number columns honour the forced-decimal and grouping preferences
+    // - date/datetime cells render in one standard shape (YYYY/MM/DD [HH:MM])
     const decimals = this.formats.get(columnIndex);
     const grouped = this.grouping.has(columnIndex);
     const numericType = this.columns[columnIndex]?.type;
     let display = value;
-    if (
-      (decimals !== undefined || grouped) &&
-      (numericType === "integer" || numericType === "number")
-    ) {
+    if (numericType === "integer") {
+      const parsed = parseNumber(value);
+      if (Number.isFinite(parsed) && Number.isInteger(parsed)) {
+        display = parsed.toLocaleString(undefined, {
+          useGrouping: grouped,
+          maximumFractionDigits: 0,
+        });
+      }
+    } else if (numericType === "number" && (decimals !== undefined || grouped)) {
       const parsed = parseNumber(value);
       if (Number.isFinite(parsed)) {
-        // Forced decimals apply to real-number columns only; integers always
-        // render whole values (grouping is still honoured).
         display =
-          decimals !== undefined && numericType === "number"
+          decimals !== undefined
             ? parsed.toLocaleString(undefined, {
                 minimumFractionDigits: decimals,
                 maximumFractionDigits: decimals,
@@ -804,7 +810,15 @@ export class ResultTable {
                 maximumFractionDigits: 20,
               });
       }
+    } else if (numericType === "date" || numericType === "datetime") {
+      const dateOrder = this.columns[columnIndex]?.dateOrder ?? "dmy";
+      const ms = parseDate(value, dateOrder);
+      if (Number.isFinite(ms)) {
+        const date = toDateInputValue(ms).replace(/-/g, "/");
+        display = numericType === "datetime" ? `${date} ${toTimeInputValue(ms)}` : date;
+      }
     }
+    if (display !== value && cell.title === "") cell.title = value;
 
     const rule = this.highlights.find((candidate) => candidate.column === columnIndex);
     if (rule === undefined || rule.query.trim() === "") {
