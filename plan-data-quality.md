@@ -5,10 +5,11 @@
 > Source research:
 > - `.copilot-tracking/research/20261016-ataccama-vs-open-source-dq-checks-research.md` (checks + score)
 > - `.copilot-tracking/research/20261016-snowflake-chart-aggregations-research.md` (chart aggregations — Track B §7)
+> - Track C (§8) starts as a **spike**: decision memo first, build only if the measured numbers pass.
 >
 > Prime directive: lightning-fast, low-latency, minimal bloat, fully offline. Nothing here may break the <50 ms keystroke loop or the `connect-src 'none'` promise.
 
-**Reading order:** §1 vision → §2 scope → §3 score design → §4 UX (dedicated Quality view) → §5 checks → §6 reports → §7 Track B → §8–§13 delivery & governance.
+**Reading order:** §1 vision → §2 scope → §3 score design → §4 UX (dedicated Quality view) → §5 checks → §6 reports → §7 Track B → §8 Track C (map spike) → §9–§14 delivery & governance.
 
 ---
 
@@ -23,11 +24,13 @@ TurboFuzz can already detect a wide set of data issues (empties, outliers, senti
 
 **Track B — Chart aggregations (§7):** Snowsight-style on-the-fly measure/aggregation/bucket controls on chart cards (the aggregate engine already exists; this is UI surfacing) + KPI cards + chart suggestions.
 
-Both tracks keep TurboFuzz's differentiators: instant, private, check-then-fix, every issue visible, every fix undoable. Track B is independent and can interleave with the milestones in §8.
+**Track C — Map view (§8, research spike):** decide whether a lightweight, fully offline world map is feasible — bundled basemap (~100 KB class), automatic lat/lon + degree-format detection, points/density reusing the existing pipeline. Spike first (decision memo), build only if the measured numbers pass.
+
+All tracks keep TurboFuzz's differentiators: instant, private, check-then-fix, every issue visible, every fix undoable. Tracks B and C are independent and can interleave with the milestones in §9.
 
 **User decisions locked in (2026-10-16):**
 
-- **The score is weighted** — overall = weighted mean of applicable dimension scores, N.A.-excluded. Not Ataccama's "a record fails if any rule fails" (that model assumes hand-authored per-attribute rules and would punish wide tables unfairly — see §11 Decisions log).
+- **The score is weighted** — overall = weighted mean of applicable dimension scores, N.A.-excluded. Not Ataccama's "a record fails if any rule fails" (that model assumes hand-authored per-attribute rules and would punish wide tables unfairly — see §12 Decisions log).
 - **Transparency is a hard requirement** — the score is never a black box. A user must be able to walk from the number → dimension → check → pass/fail/N.A. counts → the actual failing rows/cells, with one click to filter, fix or export.
 
 ---
@@ -39,7 +42,8 @@ Both tracks keep TurboFuzz's differentiators: instant, private, check-then-fix, 
 - P0 check families: composite-key uniqueness, format/pattern validity, pair/consistency checks, allowed-values checks.
 - P1: weighted Overall Quality score, **dedicated Quality view** with full drill-down, score tile, Process Log deltas, completeness targets, freshness check, user thresholds.
 - P2: Data Quality report export (own JSON/CSV/Markdown first; SodaCL / dbt YAML / GX JSON / DQDL after) including the score and per-check pass/fail counts; failed-rows export per check.
-- Track B (§7): chart aggregation inspector, time-bucket switcher, KPI/scorecard card, auto-chart suggestions, small statistics-inspector polish.
+- Track B (§7): chart aggregation inspector, time-bucket switcher, KPI/scorecard card, auto-chart suggestions, smart tick labels, small statistics-inspector polish.
+- Track C (§8): research spike for an offline world map — bundled basemap options, lat/lon + DMS detection, point/density reuse — with a build/no-build decision memo.
 
 ### Out of scope (deliberately)
 
@@ -48,6 +52,7 @@ Both tracks keep TurboFuzz's differentiators: instant, private, check-then-fix, 
 - Accuracy dimension scoring — shown honestly as **"No reference available"** (N.A.), mirroring Ataccama's own state for rules without reference data.
 - Python/library charting (Streamlit in Snowflake, notebook Altair/Plotly) — violates the no-dependency, offline model; only the *aggregation-inspector* interaction pattern is borrowed.
 - A router-style multi-page app — the Quality view is a lens/tab inside the existing single workspace (see §4.2 rationale).
+- Network map tiles or mapping libraries (Leaflet/MapLibre/Mapbox, OSM/satellite tiles) — any map we build is a bundled, low-resolution world outline; no external requests, ever.
 
 ---
 
@@ -82,7 +87,7 @@ Outliers (values can be legitimately extreme), length outliers, near-duplicate/m
 
 ### 3.4 Recompute & determinism
 
-- Recompute triggers: ingest complete; null-policy change; column type change; every applied clean/transform step; threshold/weight edits. **Not** on filter changes — the score describes the dataset **after the current step pipeline, over all rows** (a filter-scoped score is a possible future toggle, §13).
+- Recompute triggers: ingest complete; null-policy change; column type change; every applied clean/transform step; threshold/weight edits. **Not** on filter changes — the score describes the dataset **after the current step pipeline, over all rows** (a filter-scoped score is a possible future toggle, §14).
 - Deterministic: integer counts over full column scans; no ML, no randomness. Same data + settings ⇒ same score, always.
 - Budget: recompute ≤ 50 ms at 100k rows (aggregation over already-computed stats; new counts are O(cells) single passes, same pattern as `computeAnomalies`).
 
@@ -94,7 +99,7 @@ Outliers (values can be legitimately extreme), length outliers, near-duplicate/m
 
 - Lives in the dataset summary band near the key facts: big number + band colour + delta since ingest + tiny sparkline of score across process steps.
 - Hover → quick popover: top 3 score contributors ("Validity 81 — Email format, Score type conflict, Amount decimals").
-- Click → opens the **Quality view** (§4.2) directly. (The earlier "Data Quality drawer" idea is superseded by the dedicated view — more room for the matrix and checks list; see §11.)
+- Click → opens the **Quality view** (§4.2) directly. (The earlier "Data Quality drawer" idea is superseded by the dedicated view — more room for the matrix and checks list; see §12.)
 
 ### 4.2 Dedicated Data Quality view
 
@@ -152,7 +157,7 @@ Outliers (values can be legitimately extreme), length outliers, near-duplicate/m
 4. **Column × dimension matrix** (right column, top) — columns down, dimensions across, cells show pass rate with heat colour; `—` = not applicable, `n/a` = excluded. Click a cell → expands the checks touching that column/dimension. This is the "where is the problem" triage view.
 5. **"Why is this my score?" tree** (right column, bottom) — expandable calculation: overall → dimension (weight, applicable checks) → per-column/check counts, with N.A. marked. Everything countable and explainable; no opaque sub-scores.
 
-**Interactions:** dimension filter + issues-only + sort are independent toggles; expanding is inline (no navigation); filters from the sidebar do not change the score but are noted ("score is dataset-level; 12,410 rows currently filtered" hint with a one-click "score this filter" parked as a future toggle, §13).
+**Interactions:** dimension filter + issues-only + sort are independent toggles; expanding is inline (no navigation); filters from the sidebar do not change the score but are noted ("score is dataset-level; 12,410 rows currently filtered" hint with a one-click "score this filter" parked as a future toggle, §14).
 
 **States:** computing after a step (skeleton + previous score + spinner chip); all-N.A. (overall hidden, explainer present — Ataccama parity); fully clean (positive empty state: "All 21 checks pass"); small-n caution (`n < 50` chips on affected checks); sampled checks labelled ("sampled").
 
@@ -288,7 +293,52 @@ Invalid-row meter on profile cards (type-conflict counts already exist), email-d
 
 ---
 
-## 8. Milestones
+## 8. Track C — Map view (research spike)
+
+> Value case: for lat/lon datasets (the Citi Bike fixture has station coordinates), a world map is the natural "where" view. Everything except the basemap already exists — worker sampling and density grids (`getChartSeries`) draw the points, numeric range filters map 1:1 to map brushing (lat × lon), canvas rendering and PNG export are shared, and the archetype/suggestion engine can learn to detect coordinates. The spike answers one question: **can the basemap be small, offline and instant?**
+
+**Constraints (non-negotiable):**
+
+- **No network**: no tile servers, no mapping libraries (Leaflet / MapLibre / Mapbox), no CDN assets — the basemap ships as a same-origin asset (CSP untouched).
+- **Initial bundle untouched**: the basemap loads lazily on first map card (the Parquet-reader precedent), never in the critical path.
+- **Spike budget targets**: basemap asset ≤ ~150 KB raw at world scale; first map paint ≤ 50 ms at 100k rows; extra peak RAM ≤ ~10 MB.
+
+**Verified source data (Natural Earth 4.1.0 via world-atlas 2 — quantized TopoJSON, decimal degrees, ISO 3166-1 numeric country ids):**
+
+| File | Contents | Measured raw size (2026-10-16) |
+|---|---|---|
+| `countries-110m.json` | countries **and** land, 1:110m | **105 KB** (one file covers both) |
+| `land-110m.json` | land only, 1:110m | 54 KB |
+| `countries-50m.json` | countries + land, 1:50m | 739 KB |
+
+**Basemap candidates to evaluate (measured, not guessed):**
+
+1. **Build-time raster land mask** — rasterise Natural Earth land at 2048×1024 into a 1-bit mask (256 KB raw bitmap; PNG likely 30–60 KB), drawn via `ImageData` / offscreen canvas and recoloured per theme. Cheapest to draw, lowest RAM; no borders; pixelation on zoom.
+2. **Build-time vector land/countries** — pre-process the 110m TopoJSON into flat `Float32Array` coordinate blobs at build time (a `build:geo` script; no runtime TopoJSON decoder, no dependency), drawn as canvas polygons. Borders plus optional country hover; ~105 KB class; slightly more draw cost, still trivial at world scale.
+3. 1:50m vectors as an optional higher-detail variant if 110m is too coarse (739 KB raw — still lazy, but re-check the budget before adopting).
+
+**Latitude/longitude detection (second half of the spike):**
+
+- Name heuristics (`lat` / `latitude`, `lon` / `lng` / `long` / `longitude`, prefix/case-insensitive) + value-range checks (lat ∈ [−90, 90], lon ∈ [−180, 180]) + pair consistency (both columns present, similar populated counts, plausible spread). Reuse the archetype/suggestion engine's scoring approach; surface as a "Looks like coordinates — map it" suggestion.
+- **Degrees formats** to parse: signed decimal (`51.5074, -0.1278`), hemisphere-suffixed decimal (`51.5074 N`, `0.1278 W`), DMS (`51°30'26"N`, `0°7'39"E`), space/compact DMS (`51 30 26 N`, `N51 30 26`). Conversion to decimal degrees is for plotting only (non-destructive); an optional "Convert to decimal degrees" clean op if the user wants it stored.
+- **No-go formats** (listed explicitly so the memo can close them): UTM/MGRS, geohash, state-plane and national grids.
+- Missing or out-of-range coordinates are **N.A.** (excluded and counted), consistent with the DQ score semantics.
+
+**Interactions & mechanics (reuse, not rebuild):**
+
+- Pan/zoom = the existing chart view transform; above the point cap the existing `getChartSeries` auto-switch goes to density on the map; hover tooltips and click-to-filter reuse the scatter card's hit regions.
+- **Rectangle brush → two existing range filters (lat + lon)** — cross-filtering, linked charts, exports and the Quality view all work for free.
+- PNG export and theme repaints reuse the canvas export/theme paths; projection choice (equirectangular vs Web Mercator with clamped poles) and antimeridian handling are decided in the memo.
+
+**Spike deliverables (decision memo in `docs/`, ~1–2 days):**
+
+- Measured sizes, first-paint and RAM for candidates 1 and 2 against the budget targets (plus the 50m variant if the budget allows).
+- DMS/decimal parsing coverage report against fixtures (`test/` cases incl. the Citi Bike station coordinates).
+- Recommendation: **build, defer or drop** — with the numbers. If build: a new chart card type in the card gallery with a lazy-loaded basemap, the usual budgets and tests; no impact on Track A/B milestones.
+
+---
+
+## 9. Milestones
 
 | # | Milestone | Contents | Exit criteria |
 |---|---|---|---|
@@ -299,17 +349,18 @@ Invalid-row meter on profile cards (type-conflict counts already exist), email-d
 
 Suggested sequencing rule: M1 checks feed M2's score; do **not** ship the score/view with only the legacy checks, or it will be dominated by Validity surprises (patterns, pairs) that users can't yet see.
 
-### Track B milestones (independent — can interleave)
+### Track B & C milestones (independent — can interleave)
 
 | # | Milestone | Contents | Exit criteria |
 |---|---|---|---|
 | C1 | Quick aggregate + buckets | §7.1–7.2 inspector, implicit-ViewDef compile, cache, bucket switcher, bin control | Any card switches measure/aggregation/bucket live; ≤ 50 ms at 100k; no regressions in view-bound/animated cards |
 | C2 | KPI card + suggestions + smart ticks | §7.3–7.5 | KPI comparisons via post-ops; suggestions match column types; year-like axes show bare 4-digit years |
 | C3 (later) | Statistics-inspector polish | §7.6 | Only if demanded |
+| C4 (spike) | Map view research | §8 | Decision memo with measured basemap size, first-paint, RAM and DMS coverage + build/no-build recommendation |
 
 ---
 
-## 9. Performance budgets
+## 10. Performance budgets
 
 | Operation | Budget | Notes |
 |---|---|---|
@@ -326,7 +377,7 @@ All new payloads go through the existing worker protocol with typed arrays; noth
 
 ---
 
-## 10. Test plan
+## 11. Test plan
 
 - **Unit** (`test/`, node:test via tsx): one fixture per check family (clean, all-fail, empty, mixed-locale, date-pair, null-key). Score tests: determinism, N.A. exclusion, weight renormalisation when a dimension is N.A., band thresholds, delta after each op type (null policy ↑Completeness; decimal repair ↑Validity; scoped dedupe ↑Uniqueness; nothing ↑ on undo — restores).
 - **Quality view**: dimension filters, issues-only toggle, matrix pass-rate math, failing-preview paging, all-N.A. and clean states, keyboard navigation.
@@ -338,7 +389,7 @@ All new payloads go through the existing worker protocol with typed arrays; noth
 
 ---
 
-## 11. Decisions log
+## 12. Decisions log
 
 | Decision | Choice | Rationale |
 |---|---|---|
@@ -356,10 +407,11 @@ All new payloads go through the existing worker protocol with typed arrays; noth
 | Scorecards | KPI card using existing post-ops (diff / pctChange / yoy) | Snowsight scorecard parity, offline |
 | Chart suggestions | Type + bindings from column types on card add | Mirrors Snowsight's auto-generated chart; cheap onboarding win |
 | Python charting | Rejected (Streamlit / notebook libraries) | Violates offline/no-dependency model; only the inspector interaction pattern is borrowed |
+| Map view | Research spike only (§8): bundled offline geometry, no tile servers, no mapping libraries; build decision only after the measured memo | Point/density pipeline and range-filter brushing already exist — only the basemap is new; preserves the CSP + offline promise |
 
 ---
 
-## 12. Risks & mitigations
+## 13. Risks & mitigations
 
 - **Score skew on wide/sparse tables**: completeness on many optional text columns drags the mean. → required/optional flags + N.A. exclusion + weight editing + "show only issues".
 - **Small-dataset instability** (1 duplicate in 10 rows ⇒ Uniqueness 90): show counts next to percentages; `n < 50` caution chips; never hide the raw counts.
@@ -371,7 +423,7 @@ All new payloads go through the existing worker protocol with typed arrays; noth
 
 ---
 
-## 13. Open questions (defaults proposed — change before M1 if desired)
+## 14. Open questions (defaults proposed — change before M1 if desired)
 
 1. **Pattern checks auto-on or suggested?** Proposal: discovered automatically, shown as a suggestion chip first (consistent with sentinels); becomes a scoring check once the user accepts it ("Add format check") — mirrors the app's suggestion philosophy.
 2. **Default completeness target**: 100% for required columns with issues shown, or 95% before it colours amber? Proposal: no target percentage initially — required columns score directly; target % arrives with the "completeness targets" setting.

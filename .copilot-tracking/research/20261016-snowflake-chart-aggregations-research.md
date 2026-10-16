@@ -2,7 +2,7 @@
 
 # Task Research Notes: Snowflake Chart UX — On-the-Fly & Temporal Aggregations for TurboFuzz
 
-> Status: **Folded into `plan-data-quality.md` as §8 (Track B), 2026-10-16.** This document remains the detailed evidence base.
+> Status: **Folded into `plan-data-quality.md` as §7 (Track B), 2026-10-16.** This document remains the detailed evidence base.
 
 ## Research Executed
 
