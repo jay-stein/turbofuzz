@@ -55,6 +55,7 @@ import {
   isNumericType,
   isPairKind,
   looksLikeIdName,
+  mapBrushBounds,
   niceTicks,
   parseChartNumber,
   rampColor,
@@ -64,6 +65,49 @@ import {
 import { clear, el, svgIcon } from "./dom.js";
 import { openConfirm, openPrompt } from "./dialog.js";
 import { openMenu } from "./menu.js";
+import {
+  decodeArcs,
+  decodeCountries,
+  decodeLand,
+  type GeoCountry,
+  projectLat,
+  projectLon,
+} from "../data/topo.js";
+
+/** Rectangle brush result: lon/lat bounds for the two coordinate columns. */
+export interface MapBrushSelection {
+  lonColumn: number;
+  lonMin: number;
+  lonMax: number;
+  latColumn: number;
+  latMin: number;
+  latMax: number;
+}
+
+interface Basemap {
+  land: Float64Array[];
+  countries: GeoCountry[];
+}
+
+// The decoded 110m basemap is shared by every map card and decoded once per
+// session; the world module itself is code-split and imports lazily.
+let basemapCache: Basemap | null = null;
+let basemapLoading: Promise<Basemap> | null = null;
+
+function loadBasemap(): Promise<Basemap> {
+  if (basemapCache !== null) return Promise.resolve(basemapCache);
+  if (basemapLoading === null) {
+    basemapLoading = import("../data/world-110m.js").then(({ WORLD_110M }) => {
+      const arcs = decodeArcs(WORLD_110M);
+      basemapCache = {
+        land: decodeLand(WORLD_110M, arcs),
+        countries: decodeCountries(WORLD_110M, arcs),
+      };
+      return basemapCache;
+    });
+  }
+  return basemapLoading;
+}
 
 export type DensityStyle = "heat" | "contours" | "both";
 
@@ -74,12 +118,16 @@ export interface SeriesRequestInput {
   sizeColumn: number;
   mode: SeriesMode;
   limit?: number;
+  /** false keeps the full data range; the map card sets this. */
+  clip?: boolean;
 }
 
 export interface ChartCardOptions {
   datasetName(): string;
   requestBins(column: number, options: ChartBinOptions): Promise<ChartBinsMessage>;
   requestSeries(input: SeriesRequestInput): Promise<ChartSeriesMessage>;
+  /** Map card rectangle brush: filter both coordinate columns to the area. */
+  onMapBrush?(selection: MapBrushSelection): void;
   requestBoxStats(input: {
     valueColumn: number;
     categoryColumn: number;
@@ -587,6 +635,13 @@ export class ChartCard {
   private lineBinSignature = "";
   private binMedian: number | null = null;
   private seriesResult: SeriesPoints | SeriesGrid | null = null;
+  /** Decoded basemap for map cards (shared module cache, set on first paint). */
+  private basemap: Basemap | null = null;
+  /** Live map brush rectangle in canvas pixels while dragging. */
+  private mapBrush: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  private mapBrushStart: { x: number; y: number } | null = null;
+  /** Frame of the last paint, used to map brush pixels to lon/lat. */
+  private lastFrame: Frame | null = null;
   /** Treemap tiles: label + value pairs (counts come from facets directly). */
   private treemapResult: { labels: string[]; values: number[] } | null = null;
   /** Top-terms payload: token frequencies plus shape detection. */
@@ -1455,6 +1510,12 @@ export class ChartCard {
     );
     this.canvas.addEventListener("pointerleave", () => this.hideTooltip());
     this.canvas.addEventListener("click", (event) => this.handleCanvasClick(event));
+    this.canvas.addEventListener("pointerdown", (event) =>
+      this.beginMapBrush(event as PointerEvent),
+    );
+    this.canvas.addEventListener("pointerup", (event) =>
+      this.endMapBrush(event as PointerEvent),
+    );
     if (typeof ResizeObserver !== "undefined") {
       this.resizeObserver = new ResizeObserver(() => this.scheduleRender());
       this.resizeObserver.observe(canvasWrap);
@@ -1683,8 +1744,7 @@ export class ChartCard {
   }
 
   /** True when this card plots its own measure aggregate (line/bar/KPI/bins). */
-  private usesValueAggregate(): boolean {
-    return (
+  private usesValueAggregate(): boolean {    return (
       this.config.source === "" &&
       (this.config.kind === "line" ||
         this.config.kind === "bar" ||
@@ -2613,18 +2673,28 @@ export class ChartCard {
   }
 
   private refreshSeries(): void {
-    if (this.config.kind !== "scatter" && this.config.kind !== "density") {
+    if (
+      this.config.kind !== "scatter" &&
+      this.config.kind !== "density" &&
+      this.config.kind !== "map"
+    ) {
       this.seriesResult = null;
       return;
     }
     const x = this.meta(this.config.x);
     const y = this.meta(this.config.y);
-    if (x === undefined || y === undefined || !this.allowsAxis(x) || !this.allowsAxis(y)) {
+    const map = this.config.kind === "map";
+    if (
+      x === undefined ||
+      y === undefined ||
+      (map ? !isNumericType(x.type) || !isNumericType(y.type) : !this.allowsAxis(x) || !this.allowsAxis(y))
+    ) {
       this.seriesResult = null;
       return;
     }
     const generation = ++this.generation;
-    const mode: SeriesMode = this.config.kind === "density" ? "density" : this.config.mode;
+    const mode: SeriesMode =
+      this.config.kind === "density" ? "density" : map ? "points" : this.config.mode;
     void this.options
       .requestSeries({
         xColumn: this.config.x,
@@ -2633,6 +2703,7 @@ export class ChartCard {
         sizeColumn: this.config.sizeColumn,
         mode,
         limit: POINT_LIMIT,
+        clip: !map,
       })
       .then((message) => {
         if (generation !== this.generation || this.disposed) return;
@@ -3733,6 +3804,16 @@ export class ChartCard {
   /** Coalesces pointer moves into one tooltip update per animation frame. */
   private queuePointer(event: PointerEvent): void {
     const rect = this.canvas.getBoundingClientRect();
+    if (this.config.kind === "map" && this.mapBrushStart !== null) {
+      this.mapBrush = {
+        x0: this.mapBrushStart.x,
+        y0: this.mapBrushStart.y,
+        x1: event.clientX - rect.left,
+        y1: event.clientY - rect.top,
+      };
+      this.render();
+      return;
+    }
     this.pointerAt = {
       x: event.clientX - rect.left,
       y: event.clientY - rect.top,
@@ -3786,6 +3867,75 @@ export class ChartCard {
     );
     if (region === null) return;
     for (const action of region.actions) this.applyHitAction(action);
+  }
+
+  /** Map cards: the rectangle brush starts on pointerdown. */
+  private beginMapBrush(event: PointerEvent): void {
+    if (this.config.kind !== "map" || this.lastFrame === null) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    const frame = this.lastFrame;
+    if (
+      point.x < frame.left ||
+      point.x > frame.left + frame.plotW ||
+      point.y < frame.top ||
+      point.y > frame.top + frame.plotH
+    ) {
+      return;
+    }
+    this.mapBrushStart = point;
+    this.mapBrush = { x0: point.x, y0: point.y, x1: point.x, y1: point.y };
+    try {
+      this.canvas.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is best-effort.
+    }
+  }
+
+  /**
+   * Map brush release: converts the rectangle to lon/lat bounds and filters
+   * both coordinate columns. Rects smaller than 6 px are treated as clicks.
+   */
+  private endMapBrush(event: PointerEvent): void {
+    if (this.mapBrushStart === null || this.config.kind !== "map") return;
+    const rect = this.canvas.getBoundingClientRect();
+    const end = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    const frame = this.lastFrame;
+    this.mapBrushStart = null;
+    const brush = this.mapBrush;
+    this.mapBrush = null;
+    if (frame === null || brush === null) return;
+    const drag = {
+      x0: Math.min(brush.x0, end.x),
+      y0: Math.min(brush.y0, end.y),
+      x1: Math.max(brush.x0, end.x),
+      y1: Math.max(brush.y0, end.y),
+    };
+    const clampX = (value: number): number =>
+      Math.max(frame.left, Math.min(frame.left + frame.plotW, value));
+    const clampY = (value: number): number =>
+      Math.max(frame.top, Math.min(frame.top + frame.plotH, value));
+    if (
+      clampX(drag.x1) - clampX(drag.x0) < 6 ||
+      clampY(drag.y1) - clampY(drag.y0) < 6
+    ) {
+      this.render();
+      return;
+    }
+    const bounds = mapBrushBounds(
+      { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
+      drag,
+    );
+    const selection: MapBrushSelection = {
+      lonColumn: this.config.x,
+      lonMin: bounds.lonMin,
+      lonMax: bounds.lonMax,
+      latColumn: this.config.y,
+      latMin: bounds.latMin,
+      latMax: bounds.latMax,
+    };
+    this.render();
+    this.options.onMapBrush?.(selection);
   }
 
   /** Toggles a category value or sets a range/text filter through the app hook. */
@@ -3919,6 +4069,16 @@ export class ChartCard {
       case "kpi": {
         const meta = this.meta(this.config.valueColumn ?? -1);
         return meta !== undefined && (isNumericType(meta.type) || meta.type === "duration");
+      }
+      case "map": {
+        const x = this.meta(this.config.x);
+        const y = this.meta(this.config.y);
+        return (
+          x !== undefined &&
+          y !== undefined &&
+          isNumericType(x.type) &&
+          isNumericType(y.type)
+        );
       }
     }
   }
@@ -4076,6 +4236,11 @@ export class ChartCard {
       return `${measure} over ${result.dimensionNames[0]} · ${result.groupCount.toLocaleString()} buckets`;
     }
     const rows = `${this.rowCount.toLocaleString()} rows shown`;
+    if (this.config.kind === "map") {
+      const lon = this.meta(this.config.x)?.name ?? "longitude";
+      const lat = this.meta(this.config.y)?.name ?? "latitude";
+      return `${lat} × ${lon} · ${rows}`;
+    }
     if (this.usesAggregate()) {
       const result = this.aggregateResult();
       if (result === null) return "Aggregate · waiting for the first result";
@@ -4140,6 +4305,7 @@ export class ChartCard {
       hasYTitle,
       hasXTitle,
     );
+    this.lastFrame = frame;
 
     if (this.columns.length === 0) {
       this.noteEl.textContent = "Load data to see charts.";
@@ -4185,6 +4351,9 @@ export class ChartCard {
         break;
       case "correlation":
         this.drawCorrelation(ctx, frame);
+        break;
+      case "map":
+        this.drawMap(ctx, frame);
         break;
       case "kpi": {
         const message = "Pick a numeric measure in the card settings.";
@@ -4394,6 +4563,146 @@ export class ChartCard {
     } · ${shown.length} of ${all.length} series shown · ${
       result.dimensionNames[0] ?? "group"
     } advances left to right`;
+  }
+
+  /**
+   * Map card: the vendored 110m basemap (lazy, decoded once) with the filtered
+   * coordinate points drawn in world space. Drag a rectangle to filter both
+   * coordinate columns to that area (plan §8).
+   */
+  private drawMap(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    if (this.basemap === null && basemapCache !== null) this.basemap = basemapCache;
+    if (this.basemap === null) {
+      const message = "Loading the offline basemap…";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      void loadBasemap().then((map) => {
+        this.basemap = map;
+        if (!this.disposed) this.render();
+      });
+      return;
+    }
+    const map = this.basemap;
+    const x0 = frame.left;
+    const y0 = frame.top;
+    const w = frame.plotW;
+    const h = frame.plotH;
+    const px = (lon: number): number => x0 + projectLon(lon) * w;
+    const py = (lat: number): number => y0 + projectLat(lat) * h;
+
+    // Graticule every 30 degrees, faint, so empty seas still read as a map.
+    ctx.strokeStyle = frame.border;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath();
+    for (let lon = -150; lon <= 150; lon += 30) {
+      ctx.moveTo(px(lon), y0);
+      ctx.lineTo(px(lon), y0 + h);
+    }
+    for (let lat = -60; lat <= 60; lat += 30) {
+      ctx.moveTo(x0, py(lat));
+      ctx.lineTo(x0 + w, py(lat));
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // Land polygons: one fill path, then one stroke path for the coast.
+    ctx.beginPath();
+    for (const ring of map.land) {
+      for (let i = 0; i < ring.length; i += 2) {
+        const x = px(ring[i] ?? 0);
+        const y = py(ring[i + 1] ?? 0);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+    }
+    ctx.fillStyle = frame.border;
+    ctx.globalAlpha = 0.4;
+    ctx.fill();
+    ctx.globalAlpha = 0.75;
+    ctx.strokeStyle = frame.dim;
+    ctx.lineWidth = 0.75;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    const result = this.seriesResult;
+    if (result === null) {
+      this.noteEl.textContent = "Pick numeric longitude and latitude columns.";
+      return;
+    }
+    const ui = frame.ui;
+    if (result.mode === "density") {
+      // Density never applies (map requests points), but keep a sane fallback.
+      const spanX = result.xMax - result.xMin;
+      const spanY = result.yMax - result.yMin;
+      ctx.fillStyle = this.primaryColor();
+      for (let cy = 0; cy < result.rows; cy++) {
+        for (let cx = 0; cx < result.cols; cx++) {
+          const count = result.counts[cy * result.cols + cx] ?? 0;
+          if (count === 0) continue;
+          const lon = result.xMin + ((cx + 0.5) / result.cols) * spanX;
+          const lat = result.yMin + ((cy + 0.5) / result.rows) * spanY;
+          if (lon < -180 || lon > 180 || lat < -90 || lat > 90) continue;
+          ctx.globalAlpha = 0.25 + 0.6 * (count / Math.max(1, result.max));
+          ctx.fillRect(px(lon) - 2 * ui, py(lat) - 2 * ui, 4 * ui, 4 * ui);
+        }
+      }
+      ctx.globalAlpha = 1;
+      this.noteEl.textContent = `${result.total.toLocaleString()} points · ${result.outside.toLocaleString()} outside the world bounds · drag a rectangle to filter to an area`;
+      return;
+    }
+    // Points: batched per colour code when a category colour is set.
+    const dot = Math.max(1.5, 1.6 * ui);
+    if (result.colorCodes !== null && this.seriesLabels !== null) {
+      const byCode = new Map<number, number[]>();
+      for (let i = 0; i < result.shown; i++) {
+        const code = result.colorCodes[i] ?? 0xffff;
+        const list = byCode.get(code);
+        if (list === undefined) byCode.set(code, [i]);
+        else list.push(i);
+      }
+      for (const [code, indexes] of byCode) {
+        ctx.fillStyle =
+          code === 0xffff ? this.primaryColor() : this.groupColor(code);
+        ctx.globalAlpha = 0.65;
+        for (const i of indexes) {
+          const lon = result.x[i] ?? Number.NaN;
+          const lat = result.y[i] ?? Number.NaN;
+          if (lon < -180 || lon > 180 || lat < -90 || lat > 90) continue;
+          ctx.fillRect(px(lon) - dot / 2, py(lat) - dot / 2, dot, dot);
+        }
+      }
+    } else {
+      ctx.fillStyle = this.primaryColor();
+      ctx.globalAlpha = 0.6;
+      for (let i = 0; i < result.shown; i++) {
+        const lon = result.x[i] ?? Number.NaN;
+        const lat = result.y[i] ?? Number.NaN;
+        if (lon < -180 || lon > 180 || lat < -90 || lat > 90) continue;
+        ctx.fillRect(px(lon) - dot / 2, py(lat) - dot / 2, dot, dot);
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // Live brush rectangle.
+    if (this.mapBrush !== null) {
+      const rx = Math.min(this.mapBrush.x0, this.mapBrush.x1);
+      const ry = Math.min(this.mapBrush.y0, this.mapBrush.y1);
+      const rw = Math.abs(this.mapBrush.x1 - this.mapBrush.x0);
+      const rh = Math.abs(this.mapBrush.y1 - this.mapBrush.y0);
+      ctx.fillStyle = this.primaryColor();
+      ctx.globalAlpha = 0.15;
+      ctx.fillRect(rx, ry, rw, rh);
+      ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = this.primaryColor();
+      ctx.lineWidth = 1;
+      ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh);
+      ctx.globalAlpha = 1;
+    }
+
+    const sampled = result.sampled ? " (sampled)" : "";
+    this.noteEl.textContent = `${result.shown.toLocaleString()} of ${result.total.toLocaleString()} points${sampled} · drag a rectangle to filter to an area`;
   }
 
   /**

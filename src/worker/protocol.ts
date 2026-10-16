@@ -268,6 +268,8 @@ export type GetChartSeriesRequest = {
   sizeColumn?: number;
   mode: SeriesMode;
   limit?: number;
+  /** false keeps the full data range; the map card sets this. */
+  clip?: boolean;
 };
 
 export interface ChartSeriesMessage {

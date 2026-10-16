@@ -14,7 +14,7 @@ import type {
   AnimationMessage,
   TextProfileMessage,
 } from "../worker/protocol.js";
-import { ChartCard, type ChartCardConfig, type SeriesRequestInput } from "./chart-card.js";
+import { ChartCard, type ChartCardConfig, type MapBrushSelection, type SeriesRequestInput } from "./chart-card.js";
 import {
   CHART_KIND_ICONS,
   GALLERY_KINDS,
@@ -104,6 +104,8 @@ export interface ChartsPanelOptions {
   onFilter?(column: number, filter: ColumnFilter | null, preview?: boolean): void;
   /** Reads the app's current filter for a column, so clicks can toggle. */
   currentFilter?(column: number): ColumnFilter | null;
+  /** Map card rectangle brush: filter both coordinate columns to the area. */
+  onMapBrush?(selection: MapBrushSelection): void;
 }
 
 const LAYOUT_KEY = "turbofuzz.charts.columns";
@@ -482,6 +484,7 @@ export class ChartsPanel {
         tableSourceLabel: this.options.tableSourceLabel,
         onFilter: this.options.onFilter,
         currentFilter: this.options.currentFilter,
+        onMapBrush: this.options.onMapBrush,
         onRemove: (target) => this.removeCard(target),
         onDuplicate: (target) => this.duplicateCard(target),
         onExport: (target) => {

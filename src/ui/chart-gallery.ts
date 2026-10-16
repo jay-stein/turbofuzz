@@ -1,4 +1,5 @@
 import type { ColumnMeta } from "../worker/protocol.js";
+import { detectGeoPair } from "../data/geo.js";
 import type { ChartCardConfig } from "./chart-card.js";
 import {
   type ChartCardKind,
@@ -169,6 +170,23 @@ export function fitChartKind(
         };
       }
       return { kind, ok: false, reason: "needs a numeric column", preset: {} };
+    case "map": {
+      const geo = detectGeoPair(columns, rowCount);
+      if (geo !== null) {
+        return {
+          kind,
+          ok: true,
+          reason: "",
+          preset: { kind, x: geo.lon, y: geo.lat, suggested: geo.reason },
+        };
+      }
+      return {
+        kind,
+        ok: false,
+        reason: "needs a latitude/longitude pair (numeric columns)",
+        preset: {},
+      };
+    }
     case "correlation":
       if (numeric.length >= 2) {
         return {
@@ -185,6 +203,7 @@ export function fitChartKind(
 /** The gallery groups tiles by the question they answer. */
 export const QUESTION_GROUPS: readonly { question: string; kinds: readonly ChartCardKind[] }[] = [
   { question: "What is the headline number?", kinds: ["kpi"] },
+  { question: "Where is it?", kinds: ["map"] },
   { question: "How is it distributed?", kinds: ["histogram", "box", "density"] },
   { question: "How does it change over time?", kinds: ["line"] },
   { question: "How do groups compare?", kinds: ["bar", "treemap", "heatmap"] },
@@ -195,6 +214,7 @@ export const QUESTION_GROUPS: readonly { question: string; kinds: readonly Chart
 /** Compact inline illustrations — no library, one path each. */
 const ICONS: Record<ChartCardKind, string> = {
   kpi: '<rect x="8" y="10" width="56" height="28" rx="5" fill="none" stroke="currentColor" stroke-width="2.5" opacity="0.5"/><path d="M16 30l8-7 6 4 10-11 10 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="14" y="15" width="18" height="6" rx="3" fill="currentColor" opacity="0.85"/>',
+  map: '<path d="M6 12 24 8l14 6 22-6v30l-22 6-14-6-18 4z" fill="currentColor" opacity="0.35"/><path d="M6 12 24 8l14 6 22-6v30l-22 6-14-6-18 4z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M24 8v30M38 14v30" stroke="currentColor" stroke-width="1" opacity="0.5"/><circle cx="30" cy="24" r="3" fill="currentColor"/><circle cx="48" cy="18" r="2.4" fill="currentColor"/><circle cx="52" cy="32" r="2.4" fill="currentColor"/>',
   histogram:
     '<path d="M6 34V20M14 34V12M22 34V24M30 34V8M38 34V18M46 34V26M54 34V14M62 34V22" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>',
   box: '<path d="M8 18h10M30 18h10M40 18h10M62 18h10" stroke="currentColor" stroke-width="2"/><path d="M18 14h12v8H18zM40 10h12v16H40zM62 15h8v6h-8z" fill="currentColor" opacity="0.55"/><path d="M24 6v24M46 6v24M66 10v16" stroke="currentColor" stroke-width="2"/>',

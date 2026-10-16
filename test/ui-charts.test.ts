@@ -1689,7 +1689,7 @@ test("the chart rail lists every type, adds cards and collapses", async () => {
   ]);
   await tick();
   const tiles = [...host.querySelectorAll(".charts-rail-tile")] as HTMLButtonElement[];
-  assert.equal(tiles.length, 12, "one rail tile per chart type");
+  assert.equal(tiles.length, 13, "one rail tile per chart type");
   const bubbleTile = tiles.find((tile) => (tile.textContent ?? "").includes("Bubble"));
   assert.ok(bubbleTile !== undefined, "the rail offers Bubble");
   assert.equal(bubbleTile.disabled, false);
@@ -2122,6 +2122,42 @@ test("a bar card plots a measure per category without a view", async () => {
   assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
   assert.equal(tagWrap("Agg")?.classList.contains("hidden"), false);
   assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), true, "no grain for bars");
+  card.dispose();
+});
+
+test("a map card requests unclipped coordinate points", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: { mode: string; clip?: boolean; xColumn: number; yColumn: number }[] = [];
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestSeries: (input) => {
+        calls.push({
+          mode: input.mode,
+          clip: input.clip,
+          xColumn: input.xColumn,
+          yColumn: input.yColumn,
+        });
+        return Promise.resolve(series());
+      },
+    },
+    { kind: "map", x: 1, y: 0 },
+  );
+  card.setColumns([
+    meta({ name: "lat", type: "number", stats: { ...meta().stats, min: -37.9, max: -37.7 } }),
+    meta({ name: "lon", type: "number", stats: { ...meta().stats, min: 144.8, max: 145.1 } }),
+  ]);
+  await tick();
+
+  const input = calls[calls.length - 1];
+  assert.ok(input !== undefined, "the map fetches its own points");
+  assert.equal(input.mode, "points", "maps never switch to a density grid");
+  assert.equal(input.clip, false, "the full coordinate range is kept");
+  assert.equal(input.xColumn, 1);
+  assert.equal(input.yColumn, 0);
   card.dispose();
 });
 

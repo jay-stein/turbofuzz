@@ -99,10 +99,15 @@ export function openChartSetupDialog(
           .map((option) => Number(option.value));
         return picked.length >= 2 ? { kind, correlationColumns: picked } : null;
       };
-    } else if (kind === "scatter" || kind === "density" || kind === "bubble") {
-      const axis = kind === "bubble" ? numeric : [...numeric, ...date];
-      const x = select("X", axis, preset.x ?? null, "Setup X column");
-      const y = select("Y", axis, preset.y ?? null, "Setup Y column");
+    } else if (
+      kind === "scatter" ||
+      kind === "density" ||
+      kind === "bubble" ||
+      kind === "map"
+    ) {
+      const axis = kind === "bubble" || kind === "map" ? numeric : [...numeric, ...date];
+      const x = select(kind === "map" ? "Longitude" : "X", axis, preset.x ?? null, "Setup X column");
+      const y = select(kind === "map" ? "Latitude" : "Y", axis, preset.y ?? null, "Setup Y column");
       body.append(x.field, y.field);
       collect = () => {
         const xIndex = Number(x.select.value);

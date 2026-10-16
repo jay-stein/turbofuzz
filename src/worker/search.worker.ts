@@ -1159,6 +1159,7 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
       limit: message.limit ?? 20_000,
       gridCols: 128,
       gridRows: 72,
+      clip: message.clip,
     },
   );
   const correlation = computeCorrelation([xNumbers, yNumbers], sortedIds).values[1] ?? Number.NaN;

@@ -210,6 +210,7 @@ export class SearchWorkerClient {
     sizeColumn?: number;
     mode: SeriesMode;
     limit?: number;
+    clip?: boolean;
   }): Promise<ChartSeriesMessage> {
     return this.request<ChartSeriesMessage>({ type: "getChartSeries", ...input });
   }

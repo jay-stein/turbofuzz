@@ -5,6 +5,7 @@ import {
 } from "../parse/dates.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import type { ColumnType } from "../types.js";
+import { detectGeoPair } from "../data/geo.js";
 
 export type ChartKind = "histogram" | "line" | "bar" | null;
 
@@ -20,7 +21,8 @@ export type ChartCardKind =
   | "heatmap"
   | "correlation"
   | "bubble"
-  | "kpi";
+  | "kpi"
+  | "map";
 
 export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   histogram: "Histogram",
@@ -35,6 +37,7 @@ export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   correlation: "Correlation",
   bubble: "Bubble",
   kpi: "KPI",
+  map: "Map",
 };
 
 export const PAIR_KINDS: readonly ChartCardKind[] = [
@@ -43,6 +46,7 @@ export const PAIR_KINDS: readonly ChartCardKind[] = [
   "box",
   "heatmap",
   "bubble",
+  "map",
 ];
 
 export function isPairKind(kind: ChartCardKind): boolean {
@@ -253,6 +257,14 @@ export function suggestCharts(columns: readonly ColumnMeta[], rowCount = 0): Cha
     ideas.push({
       label: `${categoryPool[0].meta.name} × ${categoryPool[1].meta.name}`,
       preset: { kind: "heatmap", x: categoryPool[0].index, y: categoryPool[1].index },
+    });
+  }
+
+  const geo = detectGeoPair(columns, rowCount);
+  if (geo !== null) {
+    ideas.push({
+      label: "Map of coordinates",
+      preset: { kind: "map", x: geo.lon, y: geo.lat },
     });
   }
 
@@ -517,6 +529,47 @@ export function formatTick(
 /** Whole-number tick label for count axes, e.g. 50,000. */
 export function formatCount(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+}
+
+/** The plot rectangle and brush rectangle used by the map card, in canvas px. */
+export interface MapBrushFrame {
+  left: number;
+  top: number;
+  plotW: number;
+  plotH: number;
+}
+
+export interface MapBrushRect {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/**
+ * Converts a map brush rectangle (canvas px) into lon/lat bounds, clamped to
+ * the world. Equirectangular inverse of the map card's projection.
+ */
+export function mapBrushBounds(
+  frame: MapBrushFrame,
+  brush: MapBrushRect,
+): { lonMin: number; lonMax: number; latMin: number; latMax: number } {
+  const clampX = (value: number): number =>
+    Math.max(frame.left, Math.min(frame.left + frame.plotW, value));
+  const clampY = (value: number): number =>
+    Math.max(frame.top, Math.min(frame.top + frame.plotH, value));
+  const x0 = clampX(Math.min(brush.x0, brush.x1));
+  const x1 = clampX(Math.max(brush.x0, brush.x1));
+  const y0 = clampY(Math.min(brush.y0, brush.y1));
+  const y1 = clampY(Math.max(brush.y0, brush.y1));
+  const toLon = (x: number): number => ((x - frame.left) / frame.plotW) * 360 - 180;
+  const toLat = (y: number): number => 90 - ((y - frame.top) / frame.plotH) * 180;
+  return {
+    lonMin: Math.max(-180, toLon(x0)),
+    lonMax: Math.min(180, toLon(x1)),
+    latMin: Math.max(-90, toLat(y1)),
+    latMax: Math.min(90, toLat(y0)),
+  };
 }
 
 export function safeFileName(name: string): string {

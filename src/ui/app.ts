@@ -60,6 +60,7 @@ import { Overview, delimiterLabel, readDefaultView } from "./overview.js";
 import type { DatasetStats } from "../data/stats.js";
 import { FilterPanel } from "./filters.js";
 import { ChartsPanel, remapChartConfigs, type NamedChartCardConfig } from "./chart-panel.js";
+import type { MapBrushSelection } from "./chart-card.js";
 import { openHelpDrawer } from "./help-drawer.js";
 import { Hints } from "./hints.js";
 import { sampleCsv } from "./sample.js";
@@ -1862,6 +1863,7 @@ export class App {
       onFilter: (column, filter, preview) =>
         this.changeFilter(column, filter, preview ?? false),
       currentFilter: (column) => this.filters.get(column) ?? null,
+      onMapBrush: (selection) => this.filterToMapArea(selection),
     });
     if (this.chartRestore !== null) {
       const remapped = remapChartConfigs(this.chartRestore, this.metas);
@@ -2101,6 +2103,25 @@ export class App {
       this.pendingSend = null;
       if (next !== null && next.generation === this.generation) this.runSend(next.send);
     });
+  }
+
+  /** Map rectangle brush: range-filter both coordinate columns to the area. */
+  private filterToMapArea(selection: MapBrushSelection): void {
+    const lat = this.metas[selection.latColumn]?.name ?? "latitude";
+    const lon = this.metas[selection.lonColumn]?.name ?? "longitude";
+    this.changeFilter(selection.lonColumn, {
+      kind: "range",
+      min: selection.lonMin,
+      max: selection.lonMax,
+    });
+    this.changeFilter(selection.latColumn, {
+      kind: "range",
+      min: selection.latMin,
+      max: selection.latMax,
+    });
+    this.setAction(
+      `Map area: ${lon} ${selection.lonMin.toFixed(3)} to ${selection.lonMax.toFixed(3)}, ${lat} ${selection.latMin.toFixed(3)} to ${selection.latMax.toFixed(3)}`,
+    );
   }
 
   private changeFilter(column: number, filter: ColumnFilter | null, preview = false): void {
