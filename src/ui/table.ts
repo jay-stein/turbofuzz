@@ -796,7 +796,7 @@ export class ResultTable {
     // Type-aware display formatting (display only; stored values unchanged):
     // - integers always render whole values ("1.0" -> 1), honouring grouping
     // - number columns honour the forced-decimal and grouping preferences
-    // - date/datetime cells render in one standard shape (YYYY/MM/DD [HH:MM])
+    // - date/datetime cells render as ISO YYYY-MM-DD [HH:MM]
     const decimals = this.formats.get(columnIndex);
     const grouped = this.grouping.has(columnIndex);
     const numericType = this.columns[columnIndex]?.type;
@@ -827,7 +827,7 @@ export class ResultTable {
       const dateOrder = this.columns[columnIndex]?.dateOrder ?? "dmy";
       const ms = parseDate(value, dateOrder);
       if (Number.isFinite(ms)) {
-        const date = toDateInputValue(ms).replace(/-/g, "/");
+        const date = toDateInputValue(ms);
         display = numericType === "datetime" ? `${date} ${toTimeInputValue(ms)}` : date;
       }
     }

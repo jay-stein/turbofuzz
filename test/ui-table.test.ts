@@ -390,8 +390,8 @@ test("integers drop float tails and dates display in one standard shape", () => 
   const cells = host.querySelectorAll(".tr .td");
   assert.equal(cells[1]?.textContent, "1", "the float tail is not shown for integers");
   assert.equal(cells[1]?.getAttribute("title"), "1.0", "the raw value stays on hover");
-  assert.equal(cells[2]?.textContent, "2016/12/03");
-  assert.equal(cells[3]?.textContent, "2013/08/15 00:18");
+  assert.equal(cells[2]?.textContent, "2016-12-03");
+  assert.equal(cells[3]?.textContent, "2013-08-15 00:18");
 });
 
 test("display settings repaint rows already on screen", () => {
