@@ -101,7 +101,8 @@ import {
   emitDQChecks,
 } from "../data/dq-report.js";
 import { safeFileName } from "./chart-utils.js";
-import { openQualityPanel, type DQExportKind } from "./quality-panel.js";
+import type { DQExportKind } from "./quality-panel.js";
+import { QualityPage } from "./quality-page.js";
 import type { PairOperator } from "../data/pair-checks.js";
 import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
@@ -443,6 +444,8 @@ export class App {
   private viewsHost!: HTMLElement;
   private viewsPanel: ViewsPanel | null = null;
   private reportsHost!: HTMLElement;
+  private qualityHost!: HTMLElement;
+  private qualityPage: QualityPage | null = null;
   private reportsPanel: ReportsPanel | null = null;
   private triage: TriagePanelHandle | null = null;
   private archetypeOverride: ArchetypeId | null = null;
@@ -921,10 +924,12 @@ export class App {
     this.chartHost = el("div", { class: "chart-host hidden" });
     this.viewsHost = el("div", { class: "views-host hidden" });
     this.reportsHost = el("div", { class: "reports-host hidden" });
+    this.qualityHost = el("div", { class: "quality-host hidden" });
     this.columnsStrip = el("div", { class: "column-strip hidden" });
     results.append(
       resultsBar,
       this.columnsStrip,
+      this.qualityHost,
       this.tableHost,
       this.chartHost,
       this.viewsHost,
@@ -996,10 +1001,11 @@ export class App {
         return;
       }
       if (event.key === "1") this.setView("overview");
-      else if (event.key === "2") this.setView("table");
-      else if (event.key === "3") this.setView("views");
-      else if (event.key === "4") this.setView("chart");
-      else if (event.key === "5") this.setView("reports");
+      else if (event.key === "2") this.setView("quality");
+      else if (event.key === "3") this.setView("table");
+      else if (event.key === "4") this.setView("views");
+      else if (event.key === "5") this.setView("chart");
+      else if (event.key === "6") this.setView("reports");
       else if (
         (event.key === "t" || event.key === "T") &&
         this.view === "table"
@@ -2573,12 +2579,14 @@ export class App {
     }
     if (view === "views") this.ensureViews();
     if (view === "reports") this.ensureReports();
+    if (view === "quality") this.ensureQuality();
     if (view !== "overview") this.lastLens = view;
     const chart = view === "chart";
     this.chartActive = chart;
     this.workspace.classList.toggle("chart-mode", chart);
     this.workspace.classList.toggle("overview-mode", view === "overview");
     this.overviewHost.classList.toggle("hidden", view !== "overview");
+    this.qualityHost.classList.toggle("hidden", view !== "quality");
     this.tableHost.classList.toggle("hidden", view !== "table");
     this.chartHost.classList.toggle("hidden", view !== "chart");
     this.viewsHost.classList.toggle("hidden", view !== "views");
@@ -2965,6 +2973,7 @@ export class App {
     this.syncScoreTile(
       previous === null || score.overall === null ? null : score.overall - previous,
     );
+    this.renderQualityPage();
   }
 
   /** Score tile: number + band colour + delta versus the previous step. */
@@ -2991,43 +3000,67 @@ export class App {
     this.scoreTile.classList.remove("hidden");
   }
 
-  /** The Data Quality drawer (plan §4.2): breakdown with one-click filters. */
+  /** The Data Quality page (plan §4.2): the diagnostic QA dashboard. */
   private openQuality(): void {
     if (this.dqScore === null) return;
-    openQualityPanel(this.dqScore, {
+    this.setView("quality");
+  }
+
+  /** One check's “show failing rows” action, shared by the page. */
+  private handleQualityFilter(check: ScoreCheck): void {
+    if (check.column === null) {
+      if (check.filter === "duplicates" && !this.specials.has("duplicates")) {
+        this.toggleSpecial("duplicates");
+      } else if (
+        check.filter === "keyDuplicates" &&
+        !this.specials.has("keyDuplicates")
+      ) {
+        this.toggleSpecial("keyDuplicates");
+      } else if (check.filter === "pairCheck" && !this.specials.has("pairCheck")) {
+        this.toggleSpecial("pairCheck");
+      }
+      this.setView("table");
+      return;
+    }
+    if (check.filter === "nulls" || check.filter === "pattern" || check.filter === "valueAnomalies") {
+      const active = this.columnSpecials.get(check.column)?.has(check.filter) ?? false;
+      if (!active) this.toggleColumnSpecial(check.column, check.filter);
+    } else if (check.filter === "duplicates" && !this.specials.has("duplicates")) {
+      this.toggleSpecial("duplicates");
+    }
+    this.setView("table");
+    this.table?.flashColumn(check.column);
+  }
+
+  /** Builds the DQ page lazily; first open renders the current score. */
+  private ensureQuality(): void {
+    if (this.qualityPage !== null) return;
+    this.qualityPage = new QualityPage(this.qualityHost, {
       onExport: (kind) => this.exportQuality(kind),
-      columnNames: this.metas.map((meta) => meta.name),
       config: this.dqConfig,
       onConfigChange: (config) => {
         this.dqConfig = config;
         saveDQConfig(config);
         this.refreshScore();
-        this.openQuality();
       },
-      onFilter: (check: ScoreCheck) => {
-        if (check.column === null) {
-          if (check.filter === "duplicates" && !this.specials.has("duplicates")) {
-            this.toggleSpecial("duplicates");
-          } else if (
-            check.filter === "keyDuplicates" &&
-            !this.specials.has("keyDuplicates")
-          ) {
-            this.toggleSpecial("keyDuplicates");
-          } else if (check.filter === "pairCheck" && !this.specials.has("pairCheck")) {
-            this.toggleSpecial("pairCheck");
-          }
-          this.setView("table");
-          return;
-        }
-        if (check.filter === "nulls" || check.filter === "pattern" || check.filter === "valueAnomalies") {
-          const active = this.columnSpecials.get(check.column)?.has(check.filter) ?? false;
-          if (!active) this.toggleColumnSpecial(check.column, check.filter);
-        } else if (check.filter === "duplicates" && !this.specials.has("duplicates")) {
-          this.toggleSpecial("duplicates");
-        }
-        this.setView("table");
-        this.table?.flashColumn(check.column);
-      },
+      onFilter: (check) => this.handleQualityFilter(check),
+    });
+    this.renderQualityPage();
+  }
+
+  private renderQualityPage(): void {
+    if (this.qualityPage === null) return;
+    const score = this.dqScore;
+    const stats = this.latestStats;
+    if (score === null || stats === null) {
+      this.qualityPage.render(null);
+      return;
+    }
+    this.qualityPage.render({
+      score,
+      rowCount: this.rowCount,
+      stats,
+      columnNames: this.metas.map((meta) => meta.name),
     });
   }
 

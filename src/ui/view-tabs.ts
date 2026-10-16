@@ -1,9 +1,10 @@
 import { el } from "./dom.js";
 
-export type ViewId = "overview" | "table" | "views" | "chart" | "reports";
+export type ViewId = "overview" | "quality" | "table" | "views" | "chart" | "reports";
 
 export const VIEW_ORDER: readonly ViewId[] = [
   "overview",
+  "quality",
   "table",
   "views",
   "chart",
@@ -14,6 +15,10 @@ const LABELS: Record<ViewId, { label: string; title: string }> = {
   overview: {
     label: "Overview",
     title: "What this file is and what to do next",
+  },
+  quality: {
+    label: "Data Quality",
+    title: "The data-quality dashboard — score, checks, columns and fixes",
   },
   table: { label: "Table", title: "Show the row table" },
   views: {

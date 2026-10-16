@@ -86,6 +86,27 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     ],
   },
   {
+    id: "data-quality",
+    title: "Data Quality page",
+    summary: "The QA dashboard: score, dimensions, what to fix first, checks and the column matrix.",
+    blocks: [
+      p(
+        "The Data Quality page (the DQ tile in the topbar, the “quality” palette command, or the tab between Overview and Table) scores the whole dataset — not the filtered rows — across six dimensions: Completeness, Validity, Uniqueness, Consistency, Timeliness and Accuracy.",
+      ),
+      list(
+        "The ring shows the overall score: a weighted mean of the applicable dimensions. Bands: ≥ 90 good, ≥ 75 fair, below needs work.",
+        "Dimension cards show each score, its weight and how many checks fail. Click one to filter the checks list; click again to clear.",
+        "What to fix first ranks failing checks by the points they would add back (+x.x pts), so the biggest win is always at the top.",
+        "Checks lists every check with exact pass · fail · n-a counts; a ● dot colours its pass rate. “Show failing” filters the table to those rows (undo via the toast).",
+        "Column × dimension is the heat matrix — click a cell to filter that column's failures.",
+        "Weights & bands opens the settings: change how much each dimension moves the score and where the band thresholds sit. Saved in this browser.",
+      ),
+      note(
+        "Accuracy stays n/a offline (no reference data) and advisory findings (outliers, near-duplicates) never move the score. Copy report and Download JSON export the full breakdown; consistency and timeliness score once you run Compare-with, keydup or a freshness check.",
+      ),
+    ],
+  },
+  {
     id: "fix-chips",
     title: "Fix chips (suggestions)",
     summary: "One-click fixes for sentinel values, mixed decimals, type conflicts and formulas.",
