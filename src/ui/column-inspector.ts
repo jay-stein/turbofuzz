@@ -27,6 +27,9 @@ export interface ColumnInspectorCallbacks {
   /** Fixed decimals for display; null = Auto. */
   onDisplayFormat(decimals: number | null): void;
   displayFormat: number | null;
+  /** Thousands separators for display; the stored values are never changed. */
+  onDisplayGrouping(on: boolean): void;
+  displayGrouping: boolean;
   /** Quick structural verbs that apply immediately (tracked in the Recipe). */
   onRound(decimals: number): void;
   onFillMissing(strategy: ImputeStrategy): void;
@@ -388,6 +391,17 @@ export function openColumnInspector(
         ),
       );
     }
+    const grouped = callbacks.displayGrouping;
+    display.append(
+      action(
+        `${grouped ? "● " : ""}Thousands separators (1,234,567)`,
+        "Show , between thousands of digits — display only, the stored values never change",
+        () => {
+          close();
+          callbacks.onDisplayGrouping(!grouped);
+        },
+      ),
+    );
     panel.append(display);
   }
 

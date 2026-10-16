@@ -3,6 +3,7 @@ import type { DateOrder } from "../parse/dates.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { CleanOp } from "../data/clean-ops.js";
 import type { TransformOp } from "../data/transform-ops.js";
+import { openConfirm } from "./dialog.js";
 import { el } from "./dom.js";
 
 /** What a typed command means, or a friendly parse error. */
@@ -86,6 +87,89 @@ function findColumn(text: string, columns: readonly ColumnMeta[]): number {
     }
   });
   return bestScore >= 40 ? best : -1;
+}
+
+/** Verbs that take a column argument. */
+const COLUMN_VERBS = new Set([
+  "upper",
+  "lower",
+  "title",
+  "trim",
+  "number",
+  "date",
+  "datetime",
+  "escape",
+  "round",
+  "fill",
+  "split",
+  "drop",
+]);
+
+/** The longest verb (name or alias) matched at the start of the input. */
+function longestVerbPrefix(input: string): { verb: string; length: number } | null {
+  const text = normalise(input);
+  let best: { verb: string; length: number } | null = null;
+  for (const entry of VERBS) {
+    for (const candidate of [entry.name, ...entry.aliases]) {
+      const form = normalise(candidate);
+      if (text === form || text.startsWith(`${form} `)) {
+        if (best === null || form.length > best.length) {
+          best = { verb: entry.name, length: form.length };
+        }
+      }
+    }
+  }
+  return best;
+}
+
+/** Does this verb apply to this column? Drives examples and completions. */
+function columnFitsVerb(verb: string, meta: ColumnMeta): boolean {
+  const numeric = meta.type === "integer" || meta.type === "number";
+  const textish = meta.type === "string" || meta.type === "category" || meta.type === "identifier";
+  const dateish = meta.type === "date" || meta.type === "datetime";
+  switch (verb) {
+    case "number":
+    case "round":
+      return numeric;
+    case "date":
+    case "datetime":
+      // Date conversion applies to real dates and to any text column the user
+      // knows holds dates (the whole point of converting).
+      return dateish || textish;
+    case "upper":
+    case "lower":
+    case "title":
+    case "trim":
+    case "split":
+    case "escape":
+      return textish;
+    default:
+      return true;
+  }
+}
+
+function columnMatchScore(name: string, rest: string): number {
+  if (rest === "") return 1;
+  if (name === rest) return 100;
+  if (name.startsWith(rest)) return 80 - name.length * 0.01;
+  if (name.includes(rest)) return 60;
+  if (rest.split(" ").every((part) => name.includes(part))) return 40;
+  return -1;
+}
+
+/**
+ * Live input state for the palette: "verb" when a verb is recognised but the
+ * command is incomplete (shown light blue), "ready" when the full command
+ * parses (bold blue), "empty" otherwise.
+ */
+export function commandState(
+  input: string,
+  columns: readonly ColumnMeta[],
+): "empty" | "verb" | "ready" {
+  const text = input.trim();
+  if (text === "") return "empty";
+  if (parseCommand(text, columns).kind !== "error") return "ready";
+  return longestVerbPrefix(text) !== null ? "verb" : "empty";
 }
 
 /** Splits "round amount -1" into a verb and the rest, longest verb first. */
@@ -405,11 +489,12 @@ export function commandSuggestions(
   limit = 8,
 ): CommandSuggestion[] {
   const text = input.trim();
-  const samples = columns.slice(0, 3).map((column) => column.name);
-  const example = (name: string): string => {
-    const needs = ["upper", "lower", "title", "trim", "number", "date", "datetime", "escape", "round", "fill", "split", "drop"].includes(name);
-    return needs ? `${name} ${samples[0] ?? "amount"}` : name;
-  };
+  // Examples pick a column the verb actually applies to (dates for "date",
+  // numbers for "round"), so the base list is not fixated on the first column.
+  const pickColumn = (verb: string): string =>
+    columns.find((meta) => columnFitsVerb(verb, meta))?.name ?? columns[0]?.name ?? "amount";
+  const example = (name: string): string =>
+    COLUMN_VERBS.has(name) ? `${name} ${pickColumn(name)}` : name;
   const base: CommandSuggestion[] = VERBS.map((verb) => ({
     usage: example(verb.name),
     hint: verb.hint,
@@ -417,6 +502,33 @@ export function commandSuggestions(
   }));
   const text2 = normalise(text);
   if (text2 === "") return base.slice(0, limit);
+
+  // Verb + partial column: complete against every matching column of the
+  // right type, so any column name can be finished from the palette.
+  const prefix = longestVerbPrefix(text);
+  if (prefix !== null && COLUMN_VERBS.has(prefix.verb)) {
+    const rest = text2.slice(prefix.length).trim();
+    const hint = VERBS.find((verb) => verb.name === prefix.verb)?.hint ?? "";
+    const completions = columns
+      .map((meta, index) => ({
+        meta,
+        index,
+        score: columnMatchScore(normalise(meta.name), rest),
+      }))
+      .filter((entry) => entry.score > 0 && columnFitsVerb(prefix.verb, entry.meta))
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .slice(0, limit)
+      .map(({ meta }) => {
+        const usage = `${prefix.verb} ${meta.name}`;
+        return {
+          usage,
+          hint: hint === "" ? meta.name : `${hint} · ${meta.name}`,
+          command: parseCommand(usage, columns),
+        };
+      });
+    if (completions.length > 0) return completions;
+  }
+
   const scored = base
     .map((suggestion) => {
       const usage = normalise(suggestion.usage);
@@ -461,12 +573,14 @@ export function openCommandBar(options: CommandBarOptions): void {
 
   let suggestions: CommandSuggestion[] = [];
   let active = 0;
+  let confirming = false;
 
   const close = (): void => {
     overlay.remove();
     document.removeEventListener("keydown", onKey, true);
   };
   const onKey = (event: KeyboardEvent): void => {
+    if (confirming) return;
     if (event.key === "Escape") {
       event.preventDefault();
       close();
@@ -474,6 +588,9 @@ export function openCommandBar(options: CommandBarOptions): void {
   };
 
   const render = (): void => {
+    const state = commandState(input.value, options.columns());
+    input.classList.toggle("verb-ok", state === "verb");
+    input.classList.toggle("ready", state === "ready");
     suggestions = commandSuggestions(input.value, options.columns());
     active = Math.min(active, Math.max(0, suggestions.length - 1));
     list.replaceChildren();
@@ -490,7 +607,7 @@ export function openCommandBar(options: CommandBarOptions): void {
         el("span", { class: "command-usage" }, [suggestion.usage]),
         el("span", { class: "command-hint" }, [suggestion.hint]),
       );
-      row.addEventListener("click", () => run(suggestion.command));
+      row.addEventListener("click", () => runConfirmed(suggestion.command));
       list.append(row);
     });
   };
@@ -498,6 +615,32 @@ export function openCommandBar(options: CommandBarOptions): void {
   const run = (command: ParsedCommand): void => {
     close();
     options.onRun(command);
+  };
+
+  /**
+   * Data-changing commands ask first ("did you mean…"), so a stray Enter can
+   * never silently change the table; panels and exports open directly.
+   */
+  const runConfirmed = (command: ParsedCommand): void => {
+    const changesData =
+      command.kind === "clean" ||
+      command.kind === "transform" ||
+      command.kind === "dedupe" ||
+      command.kind === "prepareTimeSeries";
+    if (!changesData) {
+      run(command);
+      return;
+    }
+    confirming = true;
+    void openConfirm({
+      title: "Apply this step?",
+      body: `“${input.value.trim()}” → ${command.label}. Every step is undoable from the Recipe.`,
+      confirmLabel: "Apply",
+    }).then((ok) => {
+      confirming = false;
+      if (ok) run(command);
+      else input.focus();
+    });
   };
 
   input.addEventListener("input", () => {
@@ -513,6 +656,11 @@ export function openCommandBar(options: CommandBarOptions): void {
       event.preventDefault();
       active = Math.max(active - 1, 0);
       render();
+    } else if (event.key === "Tab" && suggestions.length > 0) {
+      // Tab accepts the highlighted suggestion into the input.
+      event.preventDefault();
+      input.value = suggestions[active]?.usage ?? input.value;
+      render();
     } else if (event.key === "Enter") {
       event.preventDefault();
       const parsed = parseCommand(input.value, options.columns());
@@ -523,7 +671,7 @@ export function openCommandBar(options: CommandBarOptions): void {
         );
         return;
       }
-      run(parsed);
+      runConfirmed(parsed);
     }
   });
   overlay.addEventListener("pointerdown", (event) => {

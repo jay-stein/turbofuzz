@@ -80,6 +80,8 @@ export class ResultTable {
   private highlights: HighlightRule[] = [];
   /** Per-column fixed decimal display formats (display only, not the data). */
   private formats = new Map<number, number>();
+  /** Per-column thousands-separator display (display only, not the data). */
+  private grouping = new Set<number>();
   private columnQa = new Set<string>();
   private pendingRowDeletes = new Set<number>();
   private pendingColumnDeletes = new Set<number>();
@@ -262,7 +264,11 @@ export class ResultTable {
   /** Fixed-decimal display for numeric columns (null entries follow "Auto"). */
   setFormats(formats: ReadonlyMap<number, number>): void {
     this.formats = new Map(formats);
-    this.invalidateRows();
+  }
+
+  /** Per-column thousands-separator display (display only, not the data). */
+  setGrouping(columns: Iterable<number>): void {
+    this.grouping = new Set(columns);
   }
 
   private gridTemplate(): string {
@@ -773,20 +779,25 @@ export class ResultTable {
     }
     this.applyAnomaly(cell, value, columnIndex);
 
-    // Per-column display format: fixed decimals for reading (data unchanged).
+    // Per-column display format: fixed decimals and/or thousands separators
+    // for reading (the stored data is unchanged).
     const decimals = this.formats.get(columnIndex);
+    const grouped = this.grouping.has(columnIndex);
     const numericType = this.columns[columnIndex]?.type;
     let display = value;
     if (
-      decimals !== undefined &&
+      (decimals !== undefined || grouped) &&
       (numericType === "integer" || numericType === "number")
     ) {
       const parsed = parseNumber(value);
       if (Number.isFinite(parsed)) {
-        display = parsed.toLocaleString(undefined, {
-          minimumFractionDigits: decimals,
-          maximumFractionDigits: decimals,
-        });
+        display =
+          decimals !== undefined
+            ? parsed.toLocaleString(undefined, {
+                minimumFractionDigits: decimals,
+                maximumFractionDigits: decimals,
+              })
+            : parsed.toLocaleString(undefined, { useGrouping: true, maximumFractionDigits: 20 });
       }
     }
 

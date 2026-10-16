@@ -347,3 +347,18 @@ test("per-column display format renders fixed decimals without touching raw data
   const cell = host.querySelectorAll(".tr .td")[1];
   assert.equal(cell?.textContent, "40.73");
 });
+
+test("thousands-separator display groups digits without touching raw data", () => {
+  const { host, table } = buildTable([meta({ name: "amount", type: "number" })]);
+  table.setGrouping([0]);
+  table.setFirstRows([["1234567.89"]]);
+  table.setCount(1);
+  const cell = host.querySelectorAll(".tr .td")[1];
+  assert.equal(cell?.textContent, "1,234,567.89");
+
+  // Switching grouping off returns to the untouched raw value.
+  table.setGrouping([]);
+  table.setFirstRows([["1234567.89"]]);
+  const plain = host.querySelectorAll(".tr .td")[1];
+  assert.equal(plain?.textContent, "1234567.89");
+});

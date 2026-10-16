@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { commandSuggestions, parseCommand } from "../src/ui/command-bar.js";
+import { commandState, commandSuggestions, parseCommand } from "../src/ui/command-bar.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
 
 function meta(overrides: Partial<ColumnMeta> = {}): ColumnMeta {
@@ -169,8 +169,35 @@ test("timeseries prepares the date column and the measure in one command", () =>
 
 test("suggestions rank prefix matches first", () => {
   const suggestions = commandSuggestions("upp", columns);
-  assert.equal(suggestions[0].usage, "upper amount");
+  // The example picks a column the verb applies to (a text column), not the
+  // first column in the file.
+  assert.equal(suggestions[0].usage, "upper region");
   assert.match(suggestions[0].hint, /UPPERCASE/);
   const empty = commandSuggestions("", columns);
   assert.ok(empty.length >= 8);
+});
+
+test("column completions finish any column name for a verb", () => {
+  const round = commandSuggestions("round a", columns);
+  assert.equal(round[0]?.usage, "round amount");
+  assert.equal(round[0]?.command.kind, "transform");
+
+  const upper = commandSuggestions("upper n", columns);
+  assert.equal(upper[0]?.usage, "upper notes", "prefix matches outrank contains");
+
+  const datetime = commandSuggestions("convert datetime not", columns);
+  assert.equal(datetime[0]?.usage, "datetime notes");
+  assert.equal(datetime[0]?.command.kind, "clean");
+
+  const drop = commandSuggestions("drop", columns);
+  assert.ok(drop.length > 0);
+});
+
+test("palette input state tracks verb and full-command recognition", () => {
+  assert.equal(commandState("", columns), "empty");
+  assert.equal(commandState("frobnicate", columns), "empty");
+  assert.equal(commandState("round", columns), "verb");
+  assert.equal(commandState("round amount", columns), "ready");
+  assert.equal(commandState("trim notes", columns), "ready");
+  assert.equal(commandState("convert datetime notes", columns), "ready");
 });

@@ -57,6 +57,7 @@ function callbacks(
 ): ColumnInspectorCallbacks {
   return {
     displayFormat: null,
+    displayGrouping: false,
     onSort: (dir) => calls.push(`sort:${dir}`),
     onFilter: () => calls.push("filter"),
     onChart: () => calls.push("chart"),
@@ -68,6 +69,7 @@ function callbacks(
     onRename: () => calls.push("rename"),
     onDelete: () => calls.push("delete"),
     onDisplayFormat: (decimals) => calls.push(`format:${decimals}`),
+    onDisplayGrouping: (on) => calls.push(`group:${on}`),
     onRound: (decimals) => calls.push(`round:${decimals}`),
     onFillMissing: (strategy) => calls.push(`fill:${strategy.kind}`),
     onDedupe: (keep) => calls.push(`dedupe:${keep}`),
@@ -170,4 +172,18 @@ test("a clean column gets the all-clear and structural verbs open Transform", ()
   assert.match(inspectorText(), /No issues found/);
   clickAction("Group by…");
   assert.deepEqual(calls, ["transform:groupBy"]);
+});
+
+test("numeric columns offer a display-only thousands-separator toggle", () => {
+  setupDom();
+  const calls: string[] = [];
+  openColumnInspector(
+    anchor(),
+    meta({ name: "amount", type: "number" }),
+    0,
+    callbacks(calls),
+  );
+  assert.match(inspectorText(), /Thousands separators \(1,234,567\)/);
+  clickAction("Thousands separators (1,234,567)");
+  assert.deepEqual(calls, ["group:true"]);
 });

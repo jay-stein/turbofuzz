@@ -196,7 +196,10 @@ export function openStepsPanel(
     if (!disabled) {
       button.addEventListener("click", () => {
         action();
-        callbacks.onClose();
+        // Close the drawer so the reverted table (and the status line) is
+        // visible — previously this called the app's no-op onClose and the
+        // panel stayed open with a stale list, looking like nothing happened.
+        close();
       });
     }
     return button;
@@ -216,13 +219,13 @@ export function openStepsPanel(
       up.disabled = entry.opIndex === 0;
       up.addEventListener("click", () => {
         callbacks.onMoveClean(entry.column, entry.opIndex, -1);
-        callbacks.onClose();
+        close();
       });
       const down = el("button", { class: "icon-btn", type: "button", title: "Move down" }, ["↓"]);
       down.disabled = entry.opIndex >= entry.groupSize - 1;
       down.addEventListener("click", () => {
         callbacks.onMoveClean(entry.column, entry.opIndex, 1);
-        callbacks.onClose();
+        close();
       });
       row.append(
         up,
@@ -308,7 +311,7 @@ export function openStepsPanel(
   undoAll.disabled = entries.length === 0;
   undoAll.addEventListener("click", () => {
     callbacks.onClearAll();
-    callbacks.onClose();
+    close();
   });
   const copy = el("button", { class: "ghost", type: "button" }, ["Copy recipe"]);
   copy.disabled = entries.length === 0;

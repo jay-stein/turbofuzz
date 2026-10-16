@@ -2639,6 +2639,17 @@ mark {
   box-sizing: border-box;
 }
 
+/* Live parse feedback: a recognised verb reads light blue; a fully parsed
+   command (verb + resolved column) reads bold blue. */
+.command-input.verb-ok {
+  color: #60a5fa;
+}
+
+.command-input.ready {
+  color: var(--accent);
+  font-weight: 650;
+}
+
 .command-list {
   max-height: 320px;
   overflow-y: auto;

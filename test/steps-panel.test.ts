@@ -16,6 +16,7 @@ function setupDom(): Window {
 test("Recipe labels the panel and undoes missing-value and type entries", () => {
   setupDom();
   const undone: string[] = [];
+  let closed = 0;
   openStepsPanel(
     [
       {
@@ -47,7 +48,9 @@ test("Recipe labels the panel and undoes missing-value and type entries", () => 
       onCopyRecipe: async () => true,
       onSaveRecipe: () => {},
       onReplayRecipe: () => {},
-      onClose: () => {},
+      onClose: () => {
+        closed++;
+      },
     },
   );
 
@@ -60,6 +63,12 @@ test("Recipe labels the panel and undoes missing-value and type entries", () => 
   assert.match(rows[1].textContent ?? "", /type → String/);
 
   (rows[0].querySelector(".undo-btn") as unknown as { click(): void }).click();
+  assert.equal(
+    document.querySelector(".modal-overlay"),
+    null,
+    "the drawer closes after an undo so the reverted table is visible",
+  );
+  assert.equal(closed, 1, "onClose fires with the panel closing");
   (rows[1].querySelector(".undo-btn") as unknown as { click(): void }).click();
   assert.deepEqual(undone, ["policy:8:0", "type:14:0"]);
 });
@@ -209,4 +218,9 @@ test("Recipe condenses batches and undoes them as one action", () => {
   assert.equal(children.classList.contains("hidden"), false);
   (group.querySelector(".undo-btn") as unknown as { click(): void }).click();
   assert.deepEqual(batches, [3]);
+  assert.equal(
+    document.querySelector(".modal-overlay"),
+    null,
+    "batch undo also closes the drawer",
+  );
 });

@@ -361,6 +361,8 @@ export class App {
   private showChanges = false;
   /** Display-only fixed decimals per column (not part of the data/Recipe). */
   private displayFormats = new Map<number, number>();
+  /** Columns showing thousands separators (display only, data unchanged). */
+  private displayGrouping = new Set<number>();
   private columnsStrip!: HTMLElement;
   private tilesOn = readColumnTilesPreference();
   private filterHost!: HTMLElement;
@@ -1637,6 +1639,7 @@ export class App {
     this.changesTotal = 0;
     this.showChanges = false;
     this.displayFormats.clear();
+    this.displayGrouping.clear();
     this.syncChangesButton();
     // Views are definitions over column indexes; a load or transform can change
     // the schema, so start fresh rather than risk stale references.
@@ -1760,6 +1763,7 @@ export class App {
     this.table.setSort(-1, 1);
     this.table.setCount(this.resultCount);
     this.table.setFormats(this.displayFormats);
+    this.table.setGrouping(this.displayGrouping);
     this.table.setShowChanges(this.showChanges);
     this.syncColumnQa();
     this.syncPendingDeletes();
@@ -3273,6 +3277,7 @@ export class App {
     if (meta === undefined) return;
     openColumnInspector(anchor, meta, column, {
       displayFormat: this.displayFormats.get(column) ?? null,
+      displayGrouping: this.displayGrouping.has(column),
       onSort: (dir) => this.changeSort(column, dir),
       onFilter: () => this.focusFilterColumn(column),
       onChart: () => {
@@ -3322,6 +3327,16 @@ export class App {
           decimals === null
             ? `“${meta.name}”: automatic display`
             : `“${meta.name}”: ${decimals} decimal place${decimals === 1 ? "" : "s"}`,
+        );
+      },
+      onDisplayGrouping: (on) => {
+        if (on) this.displayGrouping.add(column);
+        else this.displayGrouping.delete(column);
+        this.table?.setGrouping(this.displayGrouping);
+        this.setAction(
+          on
+            ? `“${meta.name}”: thousands separators shown (values unchanged)`
+            : `“${meta.name}”: thousands separators off`,
         );
       },
     });
