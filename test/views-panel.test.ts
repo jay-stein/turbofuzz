@@ -108,8 +108,9 @@ test("views panel renders the active view, drills and charts", async () => {
   await tick();
 
   assert.equal(requests.length, 1, "the first starter view is requested");
-  const tabs = host.querySelectorAll(".views-tab");
-  assert.ok(tabs.length >= 3, "one tab per starter view plus + View");
+  const cards = host.querySelectorAll(".views-card");
+  assert.ok(cards.length >= 3, "one card per starter view");
+  assert.ok(host.querySelector(".views-card.expanded") !== null, "the first card starts expanded");
   const rows = host.querySelectorAll(".views-row");
   assert.equal(rows.length, 2);
   const total = host.querySelector(".views-total");
@@ -145,13 +146,13 @@ test("views panel switches views and marks the active one stale", async () => {
   });
   panel.setColumns(metas, 100);
   await tick();
-  const tabs = [...host.querySelectorAll(".views-tab")] as unknown as {
-    click(): void;
-    textContent: string;
+  const cards = [...host.querySelectorAll(".views-card")] as unknown as {
+    querySelector(selector: string): { click(): void } | null;
+    textContent: string | null;
   }[];
-  const monthly = tabs.find((tab) => tab.textContent?.includes("Rows by when month"));
+  const monthly = cards.find((card) => card.textContent?.includes("Rows by when month"));
   assert.ok(monthly !== undefined);
-  monthly.click();
+  monthly.querySelector(".views-card-head")?.click();
   await tick();
   assert.equal(requests[requests.length - 1], "Rows by when month");
 
@@ -244,7 +245,7 @@ test("a measure can be weighted by a numeric column", async () => {
   assert.equal(view.measures[0]?.weight, 0);
 });
 
-test("double-clicking a view tab renames it in place", async () => {
+test("clicking a view name renames it in place", async () => {
   const win = setupDom();
   const host = document.createElement("div");
   let changed = 0;
@@ -261,22 +262,22 @@ test("double-clicking a view tab renames it in place", async () => {
   panel.setColumns(metas, 100);
   await tick();
 
-  const first = host.querySelector(".views-tab") as HTMLElement;
-  first.dispatchEvent(new win.MouseEvent("dblclick", { bubbles: true }) as unknown as Event);
-  const input = first.querySelector(".views-tab-input") as HTMLInputElement | null;
-  assert.ok(input !== null, "the tab turns into an input");
+  const first = host.querySelector(".views-card-name") as unknown as { click(): void };
+  first.click();
+  const input = host.querySelector(".views-card-name-input") as HTMLInputElement | null;
+  assert.ok(input !== null, "the card name turns into an input");
   assert.equal(input.value, "Sum of amount by city");
   input.value = "Monthly revenue";
   input.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true }) as unknown as Event);
   await tick();
 
   assert.equal(changed, 1);
-  const tab = host.querySelector(".views-tab") as HTMLElement;
-  assert.match(tab.textContent ?? "", /Monthly revenue/);
+  const name = host.querySelector(".views-card-name") as HTMLElement;
+  assert.match(name.textContent ?? "", /Monthly revenue/);
 
-  const second = host.querySelectorAll(".views-tab")[1] as HTMLElement;
-  second.dispatchEvent(new win.MouseEvent("dblclick", { bubbles: true }) as unknown as Event);
-  const cancelInput = second.querySelector(".views-tab-input") as HTMLInputElement | null;
+  const second = host.querySelectorAll(".views-card-name")[1] as unknown as { click(): void };
+  second.click();
+  const cancelInput = host.querySelector(".views-card-name-input") as HTMLInputElement | null;
   assert.ok(cancelInput !== null);
   cancelInput.value = "discarded";
   cancelInput.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }) as unknown as Event);
@@ -380,8 +381,8 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
   });
   panel.setColumns(metas, 100);
   await tick();
-  const cohortButton = [...host.querySelectorAll(".views-tab")].find((tab) =>
-    (tab.textContent ?? "").includes("+ Cohort"),
+  const cohortButton = [...host.querySelectorAll(".views-add-row button")].find((button) =>
+    (button.textContent ?? "").includes("+ Cohort"),
   );
   assert.ok(cohortButton !== undefined, "the cohort starter appears for date + entity data");
   (cohortButton as unknown as { click(): void }).click();
@@ -425,11 +426,13 @@ test("partial periods are marked and can be excluded from the view", async () =>
   });
   panel.setColumns(metas, 100);
   await tick();
-  const monthly = [...host.querySelectorAll(".views-tab")].find((tab) =>
-    (tab.textContent ?? "").includes("Rows by when month"),
+  const monthlyCard = [...host.querySelectorAll(".views-card")].find((card) =>
+    (card.textContent ?? "").includes("Rows by when month"),
   );
-  assert.ok(monthly !== undefined);
-  (monthly as unknown as { click(): void }).click();
+  assert.ok(monthlyCard !== undefined);
+  (
+    monthlyCard.querySelector(".views-card-head") as unknown as { click(): void }
+  ).click();
   await tick();
   assert.ok(host.querySelector(".views-partial") !== null, "the period marker renders");
   assert.match(host.querySelector(".views-note")?.textContent ?? "", /incomplete/);

@@ -204,18 +204,19 @@ export function starterViews(
  * the current rows and the Table and Recipe are untouched.
  */
 export class ViewsPanel {
-  private readonly tabsEl: HTMLElement;
+  private readonly stackEl: HTMLElement;
   private readonly builderEl: HTMLElement;
   private readonly noteEl: HTMLElement;
   private readonly tableEl: HTMLElement;
   private readonly actionsEl: HTMLElement;
   private views: ViewEntry[] = [];
+  /** Index of the expanded card; -1 when every card is minimised. */
   private active = 0;
   private metas: ColumnMeta[] = [];
   private rowCount = 0;
   private started = false;
   private transientNote: string | null = null;
-  /** Index of a just-added view whose tab should open in rename mode. */
+  /** Index of a just-added view whose name field should open for editing. */
   private pendingRename: number | null = null;
 
   constructor(
@@ -223,12 +224,12 @@ export class ViewsPanel {
     private readonly options: ViewsPanelOptions,
   ) {
     this.root.classList.add("views-panel");
-    this.tabsEl = el("div", { class: "views-tabs" });
+    this.stackEl = el("div", { class: "views-stack" });
     this.builderEl = el("div", { class: "views-builder" });
     this.noteEl = el("div", { class: "views-note" });
     this.tableEl = el("div", { class: "views-table-host" });
     this.actionsEl = el("div", { class: "views-actions" });
-    this.root.append(this.tabsEl, this.builderEl, this.noteEl, this.tableEl, this.actionsEl);
+    this.root.append(this.stackEl);
   }
 
   setColumns(metas: ColumnMeta[], rowCount: number): void {
@@ -324,7 +325,8 @@ export class ViewsPanel {
     return { def, result: null, loading: false, stale: true, error: null, expanded: false };
   }
 
-  private addView(): void {
+  /** Insert a blank view at `at` (clamped); it opens with the name field focused. */
+  private addView(at?: number): void {
     if (this.views.length >= MAX_VIEWS) return;
     const entry = this.blankView();
     entry.def.id = `view-${this.views.length + 1}-${Date.now().toString(36)}`;
@@ -333,27 +335,29 @@ export class ViewsPanel {
     let name = `View_${counter}`;
     while (taken.has(name)) name = `View_${++counter}`;
     entry.def.name = name;
-    this.views.push(entry);
-    this.active = this.views.length - 1;
+    const index = at === undefined ? this.views.length : Math.max(0, Math.min(at, this.views.length));
+    this.views.splice(index, 0, entry);
+    this.active = index;
     // A fresh view starts in rename mode so naming it is the obvious next step.
-    this.pendingRename = this.active;
+    this.pendingRename = index;
     this.options.onViewsChanged?.();
     this.refresh();
   }
 
-  /** Double-click a view tab to rename it in place. */
-  private beginRename(index: number, tab: HTMLElement): void {
+  /** Turn the card's name into an input (click the name or the ✎ button). */
+  private beginRename(index: number, host: HTMLElement): void {
     const entry = this.views[index];
-    if (entry === undefined) return;
+    if (entry === undefined || host.querySelector("input") !== null) return;
     const input = el("input", {
-      class: "views-tab-input",
+      class: "views-card-name-input",
       "aria-label": "View name",
+      placeholder: "Name your view…",
       type: "text",
     }) as HTMLInputElement;
     input.value = entry.def.name;
-    clear(tab);
-    tab.classList.add("renaming");
-    tab.append(input);
+    clear(host);
+    host.classList.add("renaming");
+    host.append(input);
     input.focus();
     input.select();
     const commit = (): void => {
@@ -362,7 +366,7 @@ export class ViewsPanel {
         entry.def.name = name.slice(0, 80);
         this.options.onViewsChanged?.();
       }
-      this.renderTabs();
+      this.render();
     };
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
@@ -370,7 +374,7 @@ export class ViewsPanel {
         commit();
       } else if (event.key === "Escape") {
         event.preventDefault();
-        this.renderTabs();
+        this.render();
       }
     });
     input.addEventListener("blur", commit);
@@ -379,7 +383,10 @@ export class ViewsPanel {
   private removeView(index: number): void {
     if (this.views.length <= 1) return;
     this.views.splice(index, 1);
-    this.active = Math.max(0, Math.min(this.active >= index ? this.active - 1 : this.active, this.views.length - 1));
+    this.active =
+      this.active < 0
+        ? -1
+        : Math.max(-1, Math.min(this.active >= index ? this.active - 1 : this.active, this.views.length - 1));
     this.options.onViewsChanged?.();
     this.refresh();
   }
@@ -394,82 +401,212 @@ export class ViewsPanel {
   }
 
   private render(): void {
-    this.renderTabs();
-    this.renderActions();
+    clear(this.stackEl);
+    this.views.forEach((entry, index) => {
+      const { card, name } = this.renderCard(entry, index, index === this.active);
+      this.stackEl.append(card);
+      if (this.pendingRename === index) {
+        this.pendingRename = null;
+        this.beginRename(index, name);
+      }
+    });
+    this.renderAddRow();
     const entry = this.views[this.active];
     if (entry === undefined) {
+      // Every card is minimised: the shared panels stay detached.
       clear(this.builderEl);
+      clear(this.noteEl);
       clear(this.tableEl);
-      this.noteEl.textContent = "";
+      clear(this.actionsEl);
       return;
     }
     this.renderBuilder(entry.def);
     this.renderNote(entry);
     this.renderTable(entry);
+    this.renderActions();
   }
 
-  private renderTabs(): void {
-    clear(this.tabsEl);
-    this.views.forEach((entry, index) => {
-      const tab = el(
-        "button",
-        {
-          class: `views-tab${index === this.active ? " active" : ""}`,
-          type: "button",
-          title: `${entry.def.name} — double-click to rename`,
-        },
-        [entry.def.name],
-      ) as HTMLButtonElement;
-      tab.addEventListener("click", () => {
-        if (index === this.active) return;
-        this.active = index;
-        if (entry.stale || entry.result === null) this.refresh();
-        else this.render();
-      });
-      tab.addEventListener("dblclick", (event) => {
-        event.stopPropagation();
-        this.beginRename(index, tab);
-      });
-      if (this.views.length > 1) {
-        const remove = el(
-          "span",
-          { class: "views-tab-remove", title: "Remove this view", role: "button" },
-          ["×"],
-        );
-        remove.addEventListener("click", (event) => {
-          event.stopPropagation();
-          this.removeView(index);
-        });
-        tab.append(remove);
-      }
-      this.tabsEl.append(tab);
-      if (this.pendingRename === index) {
-        this.pendingRename = null;
-        this.beginRename(index, tab);
-      }
+  /** One card: header (always visible) + editor/table/actions when expanded. */
+  private renderCard(
+    entry: ViewEntry,
+    index: number,
+    expanded: boolean,
+  ): { card: HTMLElement; name: HTMLElement } {
+    const card = el("div", { class: `views-card${expanded ? " expanded" : ""}` });
+    const head = el("div", { class: "views-card-head" });
+    const toggle = el(
+      "button",
+      {
+        class: "views-card-toggle",
+        type: "button",
+        title: expanded ? "Minimise this view" : "Expand this view",
+        "aria-expanded": expanded ? "true" : "false",
+        "aria-label": `${expanded ? "Minimise" : "Expand"} ${entry.def.name}`,
+      },
+      [expanded ? "▾" : "▸"],
+    ) as HTMLButtonElement;
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.toggleCard(index);
     });
-    if (this.views.length < MAX_VIEWS) {
-      const add = el(
-        "button",
-        { class: "views-tab views-tab-add", type: "button", title: "Add an aggregate view" },
-        ["+ View"],
-      ) as HTMLButtonElement;
-      add.addEventListener("click", () => this.addView());
-      this.tabsEl.append(add);
-      if (this.cohortColumns() !== null) {
-        const cohort = el(
-          "button",
-          {
-            class: "views-tab views-tab-add",
-            type: "button",
-            title: "Retention matrix: group entities by their first period, then count them per period since",
-          },
-          ["+ Cohort"],
-        ) as HTMLButtonElement;
-        cohort.addEventListener("click", () => this.addCohortView());
-        this.tabsEl.append(cohort);
+
+    const name = el(
+      "span",
+      { class: "views-card-name", title: "Click to rename this view" },
+      [entry.def.name],
+    );
+    name.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.beginRename(index, name);
+    });
+
+    const rename = el(
+      "button",
+      {
+        class: "views-card-rename",
+        type: "button",
+        title: "Rename this view",
+        "aria-label": `Rename ${entry.def.name}`,
+      },
+      ["✎"],
+    ) as HTMLButtonElement;
+    rename.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.beginRename(index, name);
+    });
+
+    head.append(toggle, name, rename);
+    if (!expanded) {
+      head.append(el("span", { class: "views-card-summary" }, [this.summarise(entry)]));
+      if (entry.stale && entry.result !== null) {
+        head.append(
+          el(
+            "span",
+            {
+              class: "views-card-stale",
+              title: "Filters or columns changed — expand to recompute this view",
+            },
+            ["stale"],
+          ),
+        );
       }
     }
+    head.append(el("span", { class: "grow" }));
+    if (this.views.length > 1) {
+      const remove = el(
+        "button",
+        {
+          class: "views-card-remove",
+          type: "button",
+          title: "Remove this view",
+          "aria-label": `Remove ${entry.def.name}`,
+        },
+        ["×"],
+      ) as HTMLButtonElement;
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.removeView(index);
+      });
+      head.append(remove);
+    }
+    head.addEventListener("click", () => this.toggleCard(index));
+    card.append(head);
+
+    if (expanded) {
+      const body = el("div", { class: "views-card-body", id: `views-body-${entry.def.id}` });
+      body.append(this.builderEl, this.noteEl, this.tableEl, this.actionsEl);
+      card.append(body);
+    }
+    return { card, name };
+  }
+
+  /** Expand a card (collapsing any other) or minimise the expanded one. */
+  private toggleCard(index: number): void {
+    if (this.active === index) {
+      this.active = -1;
+      this.render();
+      return;
+    }
+    this.active = index;
+    const entry = this.views[index];
+    if (entry !== undefined && (entry.stale || entry.result === null)) this.refresh();
+    else this.render();
+  }
+
+  /** One-line description for a minimised card: group-bys × measures · groups. */
+  private summarise(entry: ViewEntry): string {
+    const parts: string[] = [];
+    const dims = entry.def.dimensions
+      .map((spec) => `${this.metas[spec.column]?.name ?? "?"}${this.dimensionSuffix(spec)}`)
+      .join(" + ");
+    if (dims !== "") parts.push(dims);
+    const measures = entry.def.measures.map((measure) => measureSymbol(measure)).join(", ");
+    if (measures !== "") parts.push(measures);
+    if (entry.result !== null) {
+      parts.push(
+        `${entry.result.groupCount.toLocaleString()} ${
+          entry.result.groupCount === 1 ? "group" : "groups"
+        }`,
+      );
+    } else if (entry.loading) {
+      parts.push("aggregating…");
+    } else if (!isCompleteView(entry.def)) {
+      parts.push("incomplete — add a group-by and a measure");
+    }
+    return parts.join(" · ");
+  }
+
+  /** " · Month" / " · Day of week" / " · bins of 10" suffix for a dimension. */
+  private dimensionSuffix(spec: DimensionSpec): string {
+    const by = spec.by;
+    if (by === "value") return "";
+    if (typeof by === "object" && "time" in by) return ` · ${GRAIN_LABELS[by.time]}`;
+    if (typeof by === "object" && "datePart" in by) {
+      return ` · ${DATE_PARTS.find((part) => part.value === by.datePart)?.label ?? by.datePart}`;
+    }
+    if (typeof by === "object" && "bin" in by) {
+      return "width" in by.bin
+        ? ` · bins of ${by.bin.width}`
+        : "n" in by.bin
+          ? ` · ${by.bin.n} bins`
+          : ` · ${by.bin.edges.length - 1} bins`;
+    }
+    return "";
+  }
+
+  /** The add controls at the end of the stack. */
+  private renderAddRow(): void {
+    const row = el("div", { class: "views-add-row" });
+    if (this.views.length >= MAX_VIEWS) {
+      row.append(
+        el("span", { class: "views-add-limit" }, [
+          `${MAX_VIEWS} views maximum — remove one to add another`,
+        ]),
+      );
+      this.stackEl.append(row);
+      return;
+    }
+    const add = el(
+      "button",
+      { class: "ghost small", type: "button", title: "Add an aggregate view at the end" },
+      ["+ New view"],
+    ) as HTMLButtonElement;
+    add.addEventListener("click", () => this.addView());
+    row.append(add);
+    if (this.cohortColumns() !== null) {
+      const cohort = el(
+        "button",
+        {
+          class: "ghost small",
+          type: "button",
+          title: "Retention matrix: group entities by their first period, then count them per period since",
+        },
+        ["+ Cohort view"],
+      ) as HTMLButtonElement;
+      cohort.addEventListener("click", () => this.addCohortView());
+      row.append(cohort);
+    }
+    this.stackEl.append(row);
   }
 
   /** Entity + date columns for a retention cohort view, when available. */
@@ -673,7 +810,18 @@ export class ViewsPanel {
       pivotLabel.append("Spread", pivotSelect);
       this.actionsEl.append(pivotLabel);
     }
-    this.actionsEl.append(limitLabel, chart, slick, pandas, dataset);
+    const below = el(
+      "button",
+      {
+        class: "ghost small views-new-below",
+        type: "button",
+        title: "Create a new view directly below this one",
+      },
+      ["+ New view below"],
+    ) as HTMLButtonElement;
+    below.disabled = this.views.length >= MAX_VIEWS;
+    below.addEventListener("click", () => this.addView(this.active + 1));
+    this.actionsEl.append(limitLabel, chart, slick, pandas, dataset, below);
   }
 
   private renderBuilder(def: ViewDef): void {
@@ -709,21 +857,7 @@ export class ViewsPanel {
 
   private dimensionPill(def: ViewDef, spec: DimensionSpec, index: number): HTMLElement {
     const meta = this.metas[spec.column];
-    const by = spec.by;
-    const suffix =
-      by === "value"
-        ? ""
-        : typeof by === "object" && "time" in by
-          ? ` · ${GRAIN_LABELS[by.time]}`
-          : typeof by === "object" && "datePart" in by
-            ? ` · ${DATE_PARTS.find((part) => part.value === by.datePart)?.label ?? by.datePart}`
-            : typeof by === "object" && "bin" in by
-              ? "width" in by.bin
-                ? ` · bins of ${by.bin.width}`
-                : "n" in by.bin
-                  ? ` · ${by.bin.n} bins`
-                  : ` · ${by.bin.edges.length - 1} bins`
-              : "";
+    const suffix = this.dimensionSuffix(spec);
     const pill = el("span", { class: "views-pill" });
     const label = el(
       "button",
