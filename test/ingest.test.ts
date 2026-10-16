@@ -44,8 +44,7 @@ test("ingestDataset parses text and reports progress", () => {
   assert.ok(stats.every((step) => step.total === 2));
 });
 
-test("ingestDataset decodes transferred UTF-8 array buffers", () => {
-  const encoded = new TextEncoder().encode("a,b\n1,2\n3,4");
+test("ingestDataset decodes transferred UTF-8 array buffers", () => {  const encoded = new TextEncoder().encode("a,b\n1,2\n3,4");
   const buffer = encoded.buffer.slice(
     encoded.byteOffset,
     encoded.byteOffset + encoded.byteLength,
@@ -229,4 +228,17 @@ test("ingestDataset sniffs pasted JSON", () => {
     ["a"],
   );
   assert.equal(dataset.rowCount, 2);
+});
+
+test("maxRows previews only the first rows of delimited text", () => {
+  const rows = Array.from({ length: 50 }, (_, index) => `${index},value-${index}`).join("\n");
+  const { dataset } = ingestDataset({
+    name: "sample",
+    delimiter: "auto",
+    hasHeaders: false,
+    text: `a,b\n${rows}`,
+    maxRows: 10,
+  });
+  assert.equal(dataset.rowCount, 10, "only the preview rows are materialised");
+  assert.equal(dataset.columnCount, 2);
 });

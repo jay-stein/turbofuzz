@@ -63,6 +63,8 @@ export interface LoadOptions {
   text?: string;
   buffer?: ArrayBuffer;
   table?: { rows: string[][]; hasHeaders: boolean };
+  /** Parse only the first N rows (safe path for very large files). */
+  maxRows?: number;
 }
 
 /** The user cancelled an in-flight load; the dataset is unchanged. */
@@ -74,23 +76,41 @@ export class LoadCancelledError extends Error {
 }
 
 export class SearchWorkerClient {
-  private readonly worker: Worker;
+  private worker: Worker;
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;
   private progressHandler: ((message: ProgressMessage) => void) | null = null;
+  private crashHandler: (() => void) | null = null;
   /** The load whose progress the UI may show; prevents stale-load flicker. */
   private currentLoadId: number | null = null;
 
   constructor() {
-    this.worker = new Worker(new URL("../worker/search.worker.ts", import.meta.url), {
+    this.worker = this.spawn();
+  }
+
+  /** Creates (or recreates) the worker and wires its handlers. */
+  private spawn(): Worker {
+    const worker = new Worker(new URL("../worker/search.worker.ts", import.meta.url), {
       type: "module",
     });
-    this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => this.handle(event.data);
-    this.worker.onerror = (event: ErrorEvent) => {
+    worker.onmessage = (event: MessageEvent<WorkerResponse>) => this.handle(event.data);
+    worker.onerror = (event: ErrorEvent) => {
       const error = new Error(event.message === "" ? "Search worker crashed" : event.message);
       for (const pending of this.pending.values()) pending.reject(error);
       this.pending.clear();
+      this.currentLoadId = null;
+      // An out-of-memory file kills the worker with all its data. Restart it
+      // so the next load works, and let the app explain what happened.
+      worker.terminate();
+      this.worker = this.spawn();
+      this.crashHandler?.();
     };
+    return worker;
+  }
+
+  /** Called once after a worker crash and restart (e.g. browser OOM). */
+  onCrash(handler: () => void): void {
+    this.crashHandler = handler;
   }
 
   onProgress(handler: (message: ProgressMessage) => void): void {

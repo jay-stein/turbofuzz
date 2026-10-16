@@ -75,6 +75,14 @@ import { openStatsModal } from "./stats.js";
 import { LoadCancelledError, SearchWorkerClient } from "./worker-client.js";
 import { openCleanPanel } from "./clean-panel.js";
 import { openConfirm, openPrompt } from "./dialog.js";
+import {
+  estimateFromBuffer,
+  estimateFromText,
+  LARGE_LOAD_CELLS,
+  openLargeLoadDialog,
+  SAMPLE_ROWS,
+} from "./load-guard.js";
+import { isParquetName } from "../parse/parquet.js";
 import { openRecipeMapping } from "./recipe-mapping.js";
 import { openExportPanel } from "./export-panel.js";
 import { openMergePanel } from "./merge-panel.js";
@@ -321,6 +329,8 @@ export class App {
   private loadDetail!: HTMLElement;
   private loadBar!: HTMLElement;
   private loadCancel!: HTMLButtonElement;
+  /** Banner note recorded when a large load is taken as a sample. */
+  private sampleNote: string | null = null;
   private metaEl!: HTMLElement;
   private countEl!: HTMLElement;
   private actionEl!: HTMLElement;
@@ -484,6 +494,9 @@ export class App {
     const main = el("main", { class: "app-main" });
     main.append(this.pasteView, this.workspace);
     this.root.append(topbar, main);
+    // A browser OOM kills the worker with its dataset: restart cleanly and
+    // tell the user what happened instead of leaving the app stuck.
+    this.client.onCrash(() => this.handleWorkerCrash());
   }
 
   private buildPasteView(): HTMLElement {
@@ -918,15 +931,32 @@ export class App {
     });
   }
 
-  private loadFromTextarea(): void {
+  private async loadFromTextarea(): Promise<void> {
     const text = this.textarea.value;
     if (text.trim() === "") {
       this.statusEl.textContent = "Paste some data first.";
       this.statusEl.classList.add("error");
       return;
     }
-    this.showLoadProgress("Pasted data", new TextEncoder().encode(text).byteLength);
-    void this.load({ text, name: "Pasted data", source: "paste" });
+    const bytes = new TextEncoder().encode(text).byteLength;
+    this.showLoadProgress("Pasted data", bytes);
+    this.sampleNote = null;
+    let maxRows: number | undefined;
+    const estimate = estimateFromText(bytes, text);
+    if (estimate !== null && estimate.cells > LARGE_LOAD_CELLS) {
+      const choice = await openLargeLoadDialog(estimate, "Pasted data");
+      if (choice === null) {
+        this.hideLoadProgress();
+        this.statusEl.classList.remove("error");
+        this.statusEl.textContent = "Import cancelled — nothing was loaded.";
+        return;
+      }
+      if (choice === "sample") {
+        maxRows = SAMPLE_ROWS;
+        this.sampleNote = `sample: first ${SAMPLE_ROWS.toLocaleString()} rows of ≈${estimate.rows.toLocaleString()}`;
+      }
+    }
+    void this.load({ text, name: "Pasted data", source: "paste", maxRows });
   }
 
   private async load(options: {
@@ -934,6 +964,7 @@ export class App {
     buffer?: ArrayBuffer;
     name: string;
     source: "paste" | "file";
+    maxRows?: number;
   }): Promise<void> {
     if (this.loading) return;
     this.loading = true;
@@ -953,6 +984,7 @@ export class App {
         hasHeaders: this.headersCheckbox.checked,
         text: options.text,
         buffer: options.buffer,
+        maxRows: options.maxRows,
       });
       this.statusEl.textContent = "";
       this.hideLoadProgress();
@@ -1057,10 +1089,43 @@ export class App {
         return;
       }
       const buffer = await file.arrayBuffer();
-      await this.load({ buffer, name: file.name, source: "file" });
+      const maxRows = await this.confirmLargeBuffer(buffer, file.name);
+      if (maxRows === "cancel") return;
+      await this.load({
+        buffer,
+        name: file.name,
+        source: "file",
+        maxRows: maxRows === "sample" ? SAMPLE_ROWS : undefined,
+      });
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not read file");
     }
+  }
+
+  /**
+   * Pre-flight guard for very large files: estimates rows × columns from the
+   * first 256 KB and asks how to proceed. Returns "all", "sample" or
+   * "cancel" (also updating the sample banner note).
+   */
+  private async confirmLargeBuffer(
+    buffer: ArrayBuffer,
+    fileName: string,
+  ): Promise<"all" | "sample" | "cancel"> {
+    this.sampleNote = null;
+    if (isParquetName(fileName)) return "all";
+    const estimate = estimateFromBuffer(buffer.byteLength, buffer);
+    if (estimate === null || estimate.cells <= LARGE_LOAD_CELLS) return "all";
+    const choice = await openLargeLoadDialog(estimate, fileName);
+    if (choice === null) {
+      this.hideLoadProgress();
+      this.statusEl.classList.remove("error");
+      this.statusEl.textContent = "Import cancelled — nothing was loaded.";
+      return "cancel";
+    }
+    if (choice === "sample") {
+      this.sampleNote = `sample: first ${SAMPLE_ROWS.toLocaleString()} rows of ≈${estimate.rows.toLocaleString()}`;
+    }
+    return choice;
   }
 
   /** Lists data files inside a ZIP and loads the only one or shows a picker. */
@@ -3027,6 +3092,7 @@ export class App {
     const parts: string[] = [];
 
     if (loaded.type === "loaded") {
+      if (this.sampleNote !== null) parts.push(this.sampleNote);
       const { paddedRows, extraCellRows, extraCells } = loaded.ragged;
       if (paddedRows > 0) {
         parts.push(
@@ -3118,11 +3184,22 @@ export class App {
     this.lastLoaded = null;
     this.datasetName = "";
     this.archetypeOverride = null;
+    this.sampleNote = null;
     this.workspace.classList.add("hidden");
     this.pasteView.classList.remove("hidden");
     this.pasteCancel.classList.add("hidden");
     this.updateNewButton();
     this.setAction("Data cleared — load a file to start again");
+  }
+
+  /** Worker restart after an out-of-memory crash: reset to the start screen. */
+  private handleWorkerCrash(): void {
+    this.loading = false;
+    this.hideLoadProgress();
+    this.clearData();
+    this.setStatusError(
+      "The file was too large for browser memory — the worker restarted and nothing is loaded. Try the sample option or a smaller file.",
+    );
   }
 
   private openClean(

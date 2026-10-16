@@ -27,6 +27,8 @@ export interface IngestOptions {
   text?: string;
   buffer?: ArrayBuffer;
   table?: { rows: string[][]; hasHeaders: boolean };
+  /** Parse only the first N rows of delimited text (large-file sampling). */
+  maxRows?: number;
   onProgress?: (progress: IngestProgress) => void;
 }
 
@@ -132,6 +134,7 @@ function prepareGrid(options: IngestOptions): PreparedGrid {
     delimiter: options.delimiter,
     hasHeaders: false,
     normalizeRows: false,
+    ...(options.maxRows === undefined ? {} : { preview: options.maxRows }),
   });
 
   // Semicolon delimiters and windows-1252 are strong European-locale signals,

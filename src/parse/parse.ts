@@ -14,6 +14,8 @@ export interface ParseOptions {
   hasHeaders?: boolean;
   /** Pad/truncate rows to the table width (default true). */
   normalizeRows?: boolean;
+  /** Stop after this many rows (Papaparse preview) for sampling big files. */
+  preview?: number;
 }
 
 /** Counts describing rows that do not match the final table width. */
@@ -98,6 +100,7 @@ export function parseDelimited(text: string, options: ParseOptions = {}): Parsed
   const result = Papa.parse<string[]>(text, {
     delimiter,
     skipEmptyLines: "greedy",
+    ...(options.preview === undefined ? {} : { preview: options.preview }),
   });
 
   const data = result.data.filter((row) => Array.isArray(row) && row.length > 0);

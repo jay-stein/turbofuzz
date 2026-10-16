@@ -555,6 +555,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
         text: message.text,
         buffer: message.buffer,
         table: message.table,
+        maxRows: message.maxRows,
         onProgress: (progress: {
           phase: ProgressPhase;
           detail?: string;

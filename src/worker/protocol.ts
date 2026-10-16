@@ -101,6 +101,8 @@ export type LoadRequest = {
   text?: string;
   buffer?: ArrayBuffer;
   table?: { rows: string[][]; hasHeaders: boolean };
+  /** Parse only the first N rows: the safe path offered for giant files. */
+  maxRows?: number;
 };
 
 /** Stops the in-flight load at its next cancellation checkpoint. */
