@@ -40,6 +40,21 @@ test("infers integer", () => {
   assert.equal(inferType(["2020", "2021", "2022"]), "integer");
 });
 
+test("redundant zero tails still infer integer (pandas float shape)", () => {
+  // Landsize/YearBuilt style columns from pandas exports.
+  assert.equal(inferType(["202.0", "156.0", "0.0", "350.0"]), "integer");
+  assert.equal(inferType(["1900.0", "2010.0", "1975.0"]), "integer");
+  assert.equal(inferType(["1", "2.0", "3", "4.0"]), "integer");
+  // A genuine fraction keeps the column a number.
+  assert.equal(inferType(["202.0", "156.5", "350.0"]), "number");
+  // Codes written as floats prefer integer over the small-code category rule.
+  const codes = Array.from({ length: 120 }, (_, index) => `${index % 3}.0`);
+  assert.equal(inferType(codes), "integer");
+  // Plain-integer codes keep the category treatment (Pclass style).
+  const plainCodes = Array.from({ length: 120 }, (_, index) => String(index % 3));
+  assert.equal(inferType(plainCodes), "category");
+});
+
 test("infers identifier for leading zeros and long unique digits", () => {
   assert.equal(inferType(["007", "008", "009"]), "identifier");
   assert.equal(

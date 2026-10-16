@@ -39,6 +39,8 @@ export interface ColumnStats {
 const TRUE_VALUES = new Set(["true", "yes", "y", "t", "1"]);
 const FALSE_VALUES = new Set(["false", "no", "n", "f", "0"]);
 const INTEGER = /^[+-]?\d{1,15}$/;
+/** An integer written with a redundant zero tail ("202.0" from pandas floats). */
+const INTEGER_ZERO_TAIL = /^[+-]?\d+\.0+$/;
 const ALL_DIGITS = /^\d+$/;
 /** Upper bound for "small code" integers that default to a category list. */
 const CATEGORY_CODE_MAX = 12;
@@ -156,8 +158,13 @@ export function inferColumnType(
 
   let integerOk = 0;
   let numberOk = 0;
+  let zeroTail = false;
   for (const value of nonNull) {
     if (INTEGER.test(value)) integerOk++;
+    else if (INTEGER_ZERO_TAIL.test(value)) {
+      integerOk++;
+      zeroTail = true;
+    }
     if (Number.isFinite(parseNumber(value))) numberOk++;
   }
   const total = nonNull.length;
@@ -166,8 +173,11 @@ export function inferColumnType(
     const allLong = nonNull.every((value) => value.replace(/^[+-]/, "").length >= 7);
     if (allLong && present > 0 && distinct / present > 0.9) return { type: "identifier" };
     // Small non-negative code columns (Pclass, ratings, weekday numbers) are
-    // far more useful as a value list than as a numeric range.
+    // far more useful as a value list than as a numeric range — but only when
+    // written as plain integers; ".0" tails read as measures, not codes, so a
+    // float-written column like Excel's Car/Bedroom2 prefers integer.
     if (
+      !zeroTail &&
       distinct <= CATEGORY_CODE_DISTINCT &&
       present >= distinct * 5 &&
       nonNull.every((value) => {
