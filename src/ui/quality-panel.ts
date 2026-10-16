@@ -2,9 +2,13 @@ import type { DQScore, ScoreCheck } from "../data/score.js";
 import { setupDialog } from "./dialog.js";
 import { clear, el } from "./dom.js";
 
+export type DQExportKind = "markdown" | "json" | "sodacl" | "dbt" | "gx" | "dqdl";
+
 export interface QualityPanelCallbacks {
   /** Filter the table to the failing rows of a check (undo via the toast). */
   onFilter(check: ScoreCheck): void;
+  /** Copy/download the DQ report; resolves false when the clipboard blocks. */
+  onExport(kind: DQExportKind): Promise<boolean>;
 }
 
 function bandClass(score: number | null): string {
@@ -63,6 +67,51 @@ export function openQualityPanel(score: DQScore, callbacks: QualityPanelCallback
 
   const list = el("div", { class: "quality-list" });
   modal.append(list);
+
+  const footer = el("div", { class: "clean-footer" });
+  const swapLabel = (button: HTMLButtonElement, label: string, ok: boolean): void => {
+    button.textContent = ok ? "Copied" : "Clipboard blocked";
+    window.setTimeout(() => {
+      button.textContent = label;
+    }, 2000);
+  };
+  const copyReport = el("button", { class: "ghost", type: "button" }, [
+    "Copy report",
+  ]) as HTMLButtonElement;
+  copyReport.title = "Copy the full data-quality report (Markdown)";
+  copyReport.addEventListener("click", () => {
+    void callbacks.onExport("markdown").then((ok) => swapLabel(copyReport, "Copy report", ok));
+  });
+  const downloadJson = el("button", { class: "ghost", type: "button" }, [
+    "Download JSON",
+  ]) as HTMLButtonElement;
+  downloadJson.title = "Download the report as a JSON file";
+  downloadJson.addEventListener("click", () => {
+    void callbacks.onExport("json");
+  });
+  const targetSelect = el("select", {
+    class: "recipe-target",
+    "aria-label": "Pipeline format",
+    title: "Emit the discovered checks for a pipeline tool",
+  }) as HTMLSelectElement;
+  for (const [value, label] of [
+    ["sodacl", "SodaCL"],
+    ["dbt", "dbt"],
+    ["gx", "Great Expectations"],
+    ["dqdl", "Deequ DQDL"],
+  ] as const) {
+    targetSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+  }
+  const copyAs = el("button", { class: "ghost", type: "button" }, [
+    "Copy as…",
+  ]) as HTMLButtonElement;
+  copyAs.title = "Copy the discovered checks as pipeline-format rules (support notes included)";
+  copyAs.addEventListener("click", () => {
+    const kind = targetSelect.value as DQExportKind;
+    void callbacks.onExport(kind).then((ok) => swapLabel(copyAs, "Copy as…", ok));
+  });
+  footer.append(copyReport, downloadJson, el("span", { class: "grow" }), targetSelect, copyAs);
+  modal.append(footer);
 
   const renderCheck = (check: ScoreCheck): HTMLElement => {
     const row = el("div", { class: "quality-check" });

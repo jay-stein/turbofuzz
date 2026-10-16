@@ -88,7 +88,14 @@ import { openExportPanel } from "./export-panel.js";
 import { openMergePanel } from "./merge-panel.js";
 import { normalize } from "../search/normalize.js";
 import { computeDQScore, type DQScore, type ScoreCheck } from "../data/score.js";
-import { openQualityPanel } from "./quality-panel.js";
+import {
+  buildDQReport,
+  dqReportJson,
+  dqReportMarkdown,
+  emitDQChecks,
+} from "../data/dq-report.js";
+import { safeFileName } from "./chart-utils.js";
+import { openQualityPanel, type DQExportKind } from "./quality-panel.js";
 import type { PairOperator } from "../data/pair-checks.js";
 import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
@@ -2915,6 +2922,7 @@ export class App {
   private openQuality(): void {
     if (this.dqScore === null) return;
     openQualityPanel(this.dqScore, {
+      onExport: (kind) => this.exportQuality(kind),
       onFilter: (check: ScoreCheck) => {
         if (check.column === null) {
           if (check.filter === "duplicates" && !this.specials.has("duplicates")) {
@@ -2933,6 +2941,48 @@ export class App {
         this.table?.flashColumn(check.column);
       },
     });
+  }
+
+  /** DQ report export (plan §6): report file + pipeline-format emitters. */
+  private async exportQuality(kind: DQExportKind): Promise<boolean> {
+    const score = this.dqScore;
+    if (score === null) return false;
+    const report = buildDQReport(
+      score,
+      this.datasetName === "" ? "dataset" : this.datasetName,
+      this.rowCount,
+      this.metas.length,
+    );
+    if (kind === "json") {
+      const blob = new Blob([dqReportJson(report)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${safeFileName(this.datasetName === "" ? "dataset" : this.datasetName)}-dq-report.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      this.setAction("Downloaded the data-quality report (JSON)");
+      return true;
+    }
+    let text: string;
+    if (kind === "markdown") {
+      text = dqReportMarkdown(report);
+    } else {
+      const emitted = emitDQChecks(
+        this.metas,
+        this.datasetName === "" ? "dataset" : this.datasetName,
+      );
+      const body = emitted[kind];
+      text =
+        emitted.support.length === 0
+          ? body
+          : `${body}\n# Support notes — not translated:\n${emitted.support
+              .map((line) => `# - ${line}`)
+              .join("\n")}\n`;
+    }
+    const ok = await copyText(text);
+    this.setAction(ok ? `Copied the DQ ${kind} export` : "Clipboard blocked — copy failed");
+    return ok;
   }
 
   /** Compact Table/Chart replacement for the old summary band. */

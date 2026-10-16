@@ -63,7 +63,7 @@ function stats(): DatasetStats {
   };
 }
 
-test("the quality drawer lists dimensions, filters issues and closes", () => {
+test("the quality drawer lists dimensions, filters issues and closes", async () => {
   const window = setupDom();
   const columns = [
     meta({ name: "city" }),
@@ -78,7 +78,14 @@ test("the quality drawer lists dimensions, filters issues and closes", () => {
   ];
   const score = computeDQScore(columns, stats(), 100);
   const filters: string[] = [];
-  openQualityPanel(score, { onFilter: (check) => filters.push(check.id) });
+  const exports: string[] = [];
+  openQualityPanel(score, {
+    onFilter: (check) => filters.push(check.id),
+    onExport: async (kind) => {
+      exports.push(kind);
+      return true;
+    },
+  });
 
   const document = (globalThis as Record<string, unknown>).document as Window["document"];
   assert.equal(document.querySelector(".quality-score")?.textContent, "95.9");
@@ -110,4 +117,19 @@ test("the quality drawer lists dimensions, filters issues and closes", () => {
   first.click();
   assert.deepEqual(filters, ["completeness.1"], "the email emptiness filter fires");
   assert.equal(document.querySelector(".modal-overlay"), null, "the drawer closes after filtering");
+
+  openQualityPanel(score, {
+    onFilter: (check) => filters.push(check.id),
+    onExport: async (kind) => {
+      exports.push(kind);
+      return true;
+    },
+  });
+  const copyReport = [...document.querySelectorAll(".clean-footer button")].find(
+    (button) => button.textContent === "Copy report",
+  );
+  assert.ok(copyReport !== undefined, "the report export renders");
+  (copyReport as unknown as { click(): void }).click();
+  await Promise.resolve();
+  assert.deepEqual(exports, ["markdown"]);
 });
