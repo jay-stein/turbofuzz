@@ -30,3 +30,7 @@ Research how Ataccama ONE and the open-source DQ ecosystem (Great Expectations, 
 - `opencode export` cannot complete while the session is live (timed out, partial file removed). Run `opencode export` after the session ends per the global session-handling rule.
 - Ataccama's outlier-detection detail page is JS-rendered (no content captured); anomaly detection is documented at the feature level only.
 - Soda Core's licence is NOASSERTION ("Other"); only GX/dbt/Deequ are unambiguously Apache-2.0.
+
+## Follow-up (same session)
+
+- Added **§7.5 Smart tick labels** to `plan-data-quality.md` (user request, Citi Bike birth-year example): year-like domains (integer ticks inside 1000–2200) render as bare 4-digit years (`1970`, `2010`); compact notation (`1.9k` / `1.5M`) only when the tick span ≥ 10,000. A partial heuristic exists only on the box-plot y-axis (`chart-card.ts:5728`, column-type check + hard-coded `≤ 100_000`) — the plan centralises the rule in `formatTick` (`chart-utils.ts`) and extends it to every numeric axis. Logged in the decisions log, C2 milestone updated, formatter test matrix added.

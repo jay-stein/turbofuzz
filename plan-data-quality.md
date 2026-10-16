@@ -265,11 +265,22 @@ New card type: single aggregate value (`sum(revenue)`, `median(age)`, `distinct(
 
 When a card is added (or column picks change), suggest type + bindings from column types: date + numeric → line; category + numeric → bars; numeric + numeric → scatter; single measure → KPI; two categories → heat grid. One-click accept; mirrors Snowsight's auto-generated chart.
 
-### 7.5 Later polish (A5)
+### 7.5 Smart tick labels
+
+- **Problem (user report, 2026-10-16):** value axes compact big-looking numbers even when the domain is year-like — the Citi Bike birth-year column (1900–2026) should read as bare 4-digit years (1970, 2010), not "1.9k". Compact is only wanted when the range between min and max is genuinely large.
+- **Rule (domain-driven, centralised in `formatTick`, `src/ui/chart-utils.ts`):**
+  1. **Year-like**: every tick is an integer AND the domain sits inside `[1000, 2200]` → render bare integers with no compact and no thousand separators (`1970`, `2010` are labels, not quantities — `1,970` / `1.970` reads wrong in some locales).
+  2. **Compact only for wide spans**: use `190k` / `1.5M` only when `max − min ≥ 10,000` (tunable constant) or when full labels would overflow the axis on a non-year-like domain.
+  3. **Everything else**: locale-formatted numbers with thousand separators and the existing decimal trimming (`1,500` · `12.5` · `0.75`).
+- **Coverage:** all numeric axes route through the same helper with the tick span — histogram x/y, box plot y (replacing the local `plainIntegerTicks` heuristic at `chart-card.ts:5724` and its hard-coded `≤ 100_000` check), scatter/density/correlation/heatmap axes, time-series y axes, animation frames, profile mini-histograms, treemap/count axes and the new Track B aggregate/KPI cards. Tooltips keep full precision.
+- **Why now:** a partial implementation exists only on the box-plot y-axis and only when the source column is typed `integer`; the rule must move into the formatter so every renderer behaves the same (and so the new Track B charts inherit it).
+- **Acceptance:** Citi Bike birth-year axis shows `1970`-style bare years; a 1.5M-row count axis still shows `50k` / `1.5M`; a 0–1,500 count axis shows `1,500` (not `1.5k`); decimal and negative axes unchanged; no new label overlap on existing fixtures; formatter unit tests cover year-like, wide-span, small-int, decimal, negative and locale cases.
+
+### 7.6 Later polish (A5)
 
 Invalid-row meter on profile cards (type-conflict counts already exist), email-domain split for detected email columns, typed exact-value entry on histogram tooltips (Snowsight contextual-statistics parity). Optional; only after 7.1–7.4 land.
 
-### 7.6 Mechanics
+### 7.7 Mechanics
 
 - Cache keys `(dataGeneration, filtersSignature, specHash)` cleared by `engine.invalidate()`, reusing the `HistogramCache` pattern; responses remain generation-guarded.
 - No new worker messages required for the core case beyond a thin `quickAggregate` wrapper over the existing `aggregate` path.
@@ -293,8 +304,8 @@ Suggested sequencing rule: M1 checks feed M2's score; do **not** ship the score/
 | # | Milestone | Contents | Exit criteria |
 |---|---|---|---|
 | C1 | Quick aggregate + buckets | §7.1–7.2 inspector, implicit-ViewDef compile, cache, bucket switcher, bin control | Any card switches measure/aggregation/bucket live; ≤ 50 ms at 100k; no regressions in view-bound/animated cards |
-| C2 | KPI card + suggestions | §7.3–7.4 | KPI comparisons via post-ops; suggestions match column types |
-| C3 (later) | Statistics-inspector polish | §7.5 | Only if demanded |
+| C2 | KPI card + suggestions + smart ticks | §7.3–7.5 | KPI comparisons via post-ops; suggestions match column types; year-like axes show bare 4-digit years |
+| C3 (later) | Statistics-inspector polish | §7.6 | Only if demanded |
 
 ---
 
@@ -320,6 +331,7 @@ All new payloads go through the existing worker protocol with typed arrays; noth
 - **Unit** (`test/`, node:test via tsx): one fixture per check family (clean, all-fail, empty, mixed-locale, date-pair, null-key). Score tests: determinism, N.A. exclusion, weight renormalisation when a dimension is N.A., band thresholds, delta after each op type (null policy ↑Completeness; decimal repair ↑Validity; scoped dedupe ↑Uniqueness; nothing ↑ on undo — restores).
 - **Quality view**: dimension filters, issues-only toggle, matrix pass-rate math, failing-preview paging, all-N.A. and clean states, keyboard navigation.
 - **Chart aggregations**: ViewDef compilation of card specs (each aggregate, split, fill), time-bucket edge correctness (week start, fiscal, timezone, partial periods), KPI comparison math, cache invalidation on generation/filter change, suggestion heuristic on column types.
+- **Smart tick labels**: formatter matrix — year-like domains (bare integers), spans ≥ 10k (compact), small integer spans (locale separators), decimals, negatives, locale (de-DE separators); Citi Bike birth-year fixture asserts 4-digit labels on histogram and box-plot axes.
 - **Integration**: torture fixture end-to-end — ingest → score tile → open Quality view → drill to a check → filter → fix → score delta in Process Log → export report; plus: add chart → quick aggregate → switch bucket → KPI card.
 - **Bench**: `bench:ingest` + new score/pattern/aggregate passes at 100k/500k/1.5M; numbers recorded in `bench/results-ingest.md`.
 - **Commands**: `npm test`, `npm run typecheck`, `npm run bench:quick` before any merge.
@@ -340,6 +352,7 @@ All new payloads go through the existing worker protocol with typed arrays; noth
 | Transparency surface | **Dedicated Quality view (View lens) replaces the drawer concept**; score tile deep-links to it | Room for dimension cards, checks list, column × dimension matrix and calculation tree; preserves one-workspace model; no router page |
 | Chart aggregation inspector | Per-card quick aggregate compiled to an implicit `ViewDef`; a third source mode beside filtered table / saved views | Engine already exists; keeps explicit view authoring optional; no new dependencies |
 | Time bucket default | "Auto" from the data span (animation precedent); explicit grains override | Matches Snowsight's day→minute / day→week switching without a query round-trip |
+| Tick label style | Domain-driven: year-like window `[1000, 2200]` → bare integers; compact only when the tick span ≥ 10,000 | Users read years as labels, not quantities (reported on Citi Bike birth years); keeps 50k/1.5M on genuinely wide count axes |
 | Scorecards | KPI card using existing post-ops (diff / pctChange / yoy) | Snowsight scorecard parity, offline |
 | Chart suggestions | Type + bindings from column types on card add | Mirrors Snowsight's auto-generated chart; cheap onboarding win |
 | Python charting | Rejected (Streamlit / notebook libraries) | Violates offline/no-dependency model; only the inspector interaction pattern is borrowed |
