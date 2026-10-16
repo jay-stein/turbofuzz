@@ -113,6 +113,30 @@ export function openChartSetupDialog(
           ? null
           : { ...preset, kind, x: xIndex, y: adjusted };
       };
+    } else if (kind === "kpi") {
+      const measure = select("Measure", numeric, preset.valueColumn ?? null, "Setup KPI measure");
+      const dateOptions: FieldOption[] = [
+        { index: -1, label: "All filtered rows" },
+        ...date,
+      ];
+      const timeline = select(
+        "Over time (optional)",
+        dateOptions,
+        preset.column !== undefined && preset.column >= 0 ? preset.column : -1,
+        "Setup KPI date column",
+      );
+      body.append(measure.field, timeline.field);
+      collect = () => {
+        const valueColumn = Number(measure.select.value);
+        if (!Number.isFinite(valueColumn)) return null;
+        return {
+          ...preset,
+          kind,
+          column: Number(timeline.select.value),
+          valueColumn,
+          valueAgg: preset.valueAgg ?? "mean",
+        };
+      };
     } else if (kind === "box") {
       const value = select("Values", numeric, preset.x ?? null, "Setup value column");
       const group = select("Group by", category, preset.y ?? null, "Setup group column");

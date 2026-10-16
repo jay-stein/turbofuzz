@@ -254,7 +254,7 @@ Editable thresholds for existing drift (PSI/Cramér's V) and similarity suggesti
 ### 7.1 In-card aggregation inspector (core)
 
 - ✅ **v1 shipped (line cards):** a **Value** control (Count of rows | any numeric column) + **Agg** (mean/sum/median/min/max) + **Bucket** (Auto · minute→year) sits directly on every unbound line card — no View required. The card compiles an implicit `ViewDef` (date dimension with the chosen grain, one measure) and fetches it through the existing `requestAggregate` worker path, then renders via the view-aggregate line renderer. Picking a Value clears any Group split (value line and grouped counts are different charts); Views remain the path for multi-dimension/multi-measure specs.
-- Remaining for C1: extend the same inspector to histogram/bar/density cards, split-by series measures, and the KPI/scorecard card (7.3).
+- Remaining for C1: extend the same inspector to histogram/density cards and split-by series measures (line/bar/KPI shipped; KPI sees §7.3).
 - Any chart card gains a **Quick aggregate** mode beside "filtered table" and "saved view": pick dimension (any column; optional time bucket, date part or numeric bin), one or more measures (`count(*)` or column × aggregate), optional split-by series.
 - The spec compiles to an **implicit `ViewDef`** and rides the existing `aggregate` worker request with the active filters (`respectFilters` semantics as-is). Rendering reuses existing renderers: line when the first dimension is a time bucket, bars otherwise.
 - Snowsight parallel: bucket/aggregation changes happen **without modifying the query**; their chart types are bar / line / scatterplots / heat grids / scorecards with an inspector Data section.
@@ -268,9 +268,13 @@ Editable thresholds for existing drift (PSI/Cramér's V) and similarity suggesti
 
 New card type: single aggregate value (`sum(revenue)`, `median(age)`, `distinct(customers)`, `count(*)`) with optional period comparison via existing post-ops (`diff`, `pctChange`, `yoy`, `rolling`) and a sparkline from the aggregate series. Snowsight ships scorecards as a chart type; ours is computable offline with zero new engine work.
 
+- ✅ **Shipped (2026-10-16):** the **KPI** card type in the gallery (new "What is the headline number?" group). Controls: **Value** (any numeric column) × **Agg** (mean/sum/median/min/max) plus an optional **Date** column; with a date the card compiles a time-bucket `ViewDef`, shows the latest bucket large (compacted like value axes), the change vs the previous bucket in green/red (`↑ +2.5 (6.3%)`), and a faint sparkline of the series; without a date it compiles a **dimension-less** `ViewDef` (grand total over all filtered rows — the aggregate engine already grouped `dimensions: []` into one group). Comparison is computed client-side from the returned series (no post-op plumbing needed for v1; `diff`/`pctChange` remain available for view measures).
+
 ### 7.4 Auto-chart suggestions
 
 When a card is added (or column picks change), suggest type + bindings from column types: date + numeric → line; category + numeric → bars; numeric + numeric → scatter; single measure → KPI; two categories → heat grid. One-click accept; mirrors Snowsight's auto-generated chart.
+
+- ✅ **Shipped (2026-10-16):** `suggestCharts` (typed ideas with fitting presets), the gallery's "Suggested for your data" strip with live previews, `pickDefaultCard` for the first card, and the setup dialog that confirms/adjusts bindings before the card lands. The KPI tile's preset follows the same rules (first numeric measure).
 
 ### 7.5 Smart tick labels
 

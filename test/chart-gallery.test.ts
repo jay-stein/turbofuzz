@@ -89,6 +89,7 @@ test("the gallery groups every chart type by the question it answers", () => {
       "density",
       "heatmap",
       "histogram",
+      "kpi",
       "line",
       "scatter",
       "terms",

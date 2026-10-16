@@ -1689,7 +1689,7 @@ test("the chart rail lists every type, adds cards and collapses", async () => {
   ]);
   await tick();
   const tiles = [...host.querySelectorAll(".charts-rail-tile")] as HTMLButtonElement[];
-  assert.equal(tiles.length, 11, "one rail tile per chart type");
+  assert.equal(tiles.length, 12, "one rail tile per chart type");
   const bubbleTile = tiles.find((tile) => (tile.textContent ?? "").includes("Bubble"));
   assert.ok(bubbleTile !== undefined, "the rail offers Bubble");
   assert.equal(bubbleTile.disabled, false);
@@ -2122,5 +2122,122 @@ test("a bar card plots a measure per category without a view", async () => {
   assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
   assert.equal(tagWrap("Agg")?.classList.contains("hidden"), false);
   assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), true, "no grain for bars");
+  card.dispose();
+});
+
+test("a KPI card totals a measure over all rows without a date", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: ViewDef[] = [];
+  const aggregate = (view: ViewDef): AggregateMessage => ({
+    type: "aggregate",
+    requestId: 1,
+    viewId: view.id,
+    labels: [""],
+    dimensions: [],
+    dimensionNames: [],
+    dimensionIsTime: [],
+    dimensionTimes: [],
+    measures: [Float64Array.from([42.5])],
+    measureNames: ["mean(amount)"],
+    totals: Float64Array.from([42.5]),
+    groupCount: 1,
+    totalGroups: 1,
+    truncated: false,
+    partials: null,
+    ms: 1,
+  });
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestAggregate: (view: ViewDef) => {
+        calls.push(view);
+        return Promise.resolve(aggregate(view));
+      },
+    },
+    { kind: "kpi", column: 0, valueColumn: 0, valueAgg: "mean" },
+  );
+  card.setColumns([meta({ name: "amount", type: "number" })]);
+  await tick();
+
+  assert.equal(calls.length, 1, "the KPI fetches its own aggregate");
+  const def = calls[0];
+  assert.ok(def !== undefined);
+  assert.deepEqual(def.dimensions, [], "a grand total needs no dimension");
+  assert.deepEqual(def.measures, [{ column: 0, agg: "mean" }]);
+  assert.equal(def.respectFilters, true);
+
+  const tagWrap = (label: string): HTMLElement | null =>
+    ([...host.querySelectorAll(".chart-tag")] as HTMLElement[]).find(
+      (tag) => tag.querySelector(".chart-tag-label")?.textContent === label,
+    ) ?? null;
+  assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Agg")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), true);
+  const note = host.querySelector(".chart-note")?.textContent ?? "";
+  assert.match(note, /mean\(amount\) = 42\.5/, "the note carries the full value");
+  card.dispose();
+});
+
+test("a KPI card with a date column reads the series and shows Bucket", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: ViewDef[] = [];
+  const aggregate = (view: ViewDef): AggregateMessage => ({
+    type: "aggregate",
+    requestId: 1,
+    viewId: view.id,
+    labels: ["2026-08", "2026-09"],
+    dimensions: [["2026-08", "2026-09"]],
+    dimensionNames: ["day (month)"],
+    dimensionIsTime: [true],
+    dimensionTimes: [
+      Float64Array.from([Date.UTC(2026, 7, 1), Date.UTC(2026, 8, 1)]),
+    ],
+    measures: [Float64Array.from([40, 42.5])],
+    measureNames: ["mean(amount)"],
+    totals: Float64Array.from([41.25]),
+    groupCount: 2,
+    totalGroups: 2,
+    truncated: false,
+    partials: null,
+    ms: 1,
+  });
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestAggregate: (view: ViewDef) => {
+        calls.push(view);
+        return Promise.resolve(aggregate(view));
+      },
+    },
+    { kind: "kpi", column: 0, valueColumn: 1, valueAgg: "mean" },
+  );
+  card.setColumns([
+    meta({ name: "day", type: "datetime", stats: { ...meta().stats, distinct: 300 } }),
+    meta({ name: "amount", type: "number" }),
+  ]);
+  await tick();
+
+  const def = calls[calls.length - 1];
+  assert.ok(def !== undefined);
+  assert.equal(def.dimensions.length, 1);
+  assert.equal(
+    (def.dimensions[0] as { column: number }).column,
+    0,
+    "the date column buckets the series",
+  );
+  const tagWrap = (label: string): HTMLElement | null =>
+    ([...host.querySelectorAll(".chart-tag")] as HTMLElement[]).find(
+      (tag) => tag.querySelector(".chart-tag-label")?.textContent === label,
+    ) ?? null;
+  assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), false);
+  const note = host.querySelector(".chart-note")?.textContent ?? "";
+  assert.match(note, /42\.5/, "the note carries the latest value");
+  assert.match(note, /vs previous/, "the change is stated");
   card.dispose();
 });

@@ -1623,11 +1623,18 @@ export class ChartCard {
     const kind = this.config.kind;
     const pair = isPairKind(kind);
     const groupable = this.columns.some((meta) => isCategoryType(meta.type));
-    const measureKinds = kind === "line" || kind === "bar";
+    const measureKinds = kind === "line" || kind === "bar" || kind === "kpi";
+    const grainKinds =
+      kind === "line" || (kind === "kpi" && this.isDateLike(this.meta(this.config.column)));
     const valueOn =
       measureKinds && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
     this.kindSelect.classList.toggle("hidden", bound);
-    this.primaryWrap.classList.toggle("hidden", bound || pair || kind === "correlation");
+    const kpiPrimaryHidden =
+      kind === "kpi" && !this.columns.some((meta) => this.isDateLike(meta));
+    this.primaryWrap.classList.toggle(
+      "hidden",
+      bound || pair || kind === "correlation" || kpiPrimaryHidden,
+    );
     this.groupWrap.classList.toggle(
       "hidden",
       bound ||
@@ -1637,7 +1644,7 @@ export class ChartCard {
     );
     this.valueWrap.classList.toggle("hidden", bound || !measureKinds);
     this.valueAggWrap.classList.toggle("hidden", bound || !measureKinds || !valueOn);
-    this.valueGrainWrap.classList.toggle("hidden", bound || kind !== "line" || !valueOn);
+    this.valueGrainWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn);
     this.xWrap.classList.toggle("hidden", bound || !pair);
     this.yWrap.classList.toggle("hidden", bound || !pair);
     this.axesPanel.classList.toggle("hidden", bound || kind === "correlation");
@@ -1665,11 +1672,13 @@ export class ChartCard {
       });
   }
 
-  /** True when this card plots its own measure aggregate (line/bar cards). */
+  /** True when this card plots its own measure aggregate (line/bar/KPI cards). */
   private usesValueAggregate(): boolean {
     return (
       this.config.source === "" &&
-      (this.config.kind === "line" || this.config.kind === "bar") &&
+      (this.config.kind === "line" ||
+        this.config.kind === "bar" ||
+        this.config.kind === "kpi") &&
       (this.config.valueColumn ?? -1) >= 0
     );
   }
@@ -1689,8 +1698,12 @@ export class ChartCard {
     const column = this.config.valueColumn ?? -1;
     if (column < 0) return null;
     const line = this.config.kind === "line";
+    const kpi = this.config.kind === "kpi";
     if (line && !this.isDateLike(this.meta(this.config.column))) return null;
-    if (!line && this.config.column < 0) return null;
+    // A KPI with a date column reads the series (latest bucket + comparison);
+    // without one it is the grand total over every filtered row.
+    const overTime = kpi && this.isDateLike(this.meta(this.config.column));
+    if (!line && !kpi && this.config.column < 0) return null;
     const grain =
       this.config.valueGrain === undefined || this.config.valueGrain === "auto"
         ? this.defaultGrainFor(this.config.column)
@@ -1698,12 +1711,15 @@ export class ChartCard {
     return {
       id: "card-value",
       name: this.config.title.trim() === "" ? this.defaultTitle() : this.config.title.trim(),
-      dimensions: line
-        ? [{ column: this.config.column, by: { time: grain } }]
-        : [{ column: this.config.column, by: "value" }],
+      dimensions:
+        line || overTime
+          ? [{ column: this.config.column, by: { time: grain } }]
+          : kpi
+            ? []
+            : [{ column: this.config.column, by: "value" }],
       measures: [{ column, agg: this.config.valueAgg ?? "mean" }],
       fill: line ? "zero" : "none",
-      sort: line ? { key: "dim0", dir: "asc" } : { key: "m0", dir: "desc" },
+      sort: line || overTime ? { key: "dim0", dir: "asc" } : { key: "m0", dir: "desc" },
       limit: 5000,
       respectFilters: true,
     };
@@ -1849,6 +1865,9 @@ export class ChartCard {
       case "histogram":
         return isNumericType(meta.type) || meta.type === "time" || meta.type === "duration";
       case "line":
+        return meta.type === "date" || meta.type === "datetime";
+      case "kpi":
+        // The primary column is the KPI's optional date axis.
         return meta.type === "date" || meta.type === "datetime";
       case "bar":
       case "treemap":
@@ -2142,7 +2161,12 @@ export class ChartCard {
   private renderControls(): void {
     const kind = this.config.kind;
     const pair = isPairKind(kind);
-    this.primaryWrap.classList.toggle("hidden", pair || kind === "correlation");
+    const kpiPrimary =
+      kind !== "kpi" || this.columns.some((meta) => this.isDateLike(meta));
+    this.primaryWrap.classList.toggle(
+      "hidden",
+      pair || kind === "correlation" || !kpiPrimary,
+    );
     this.axesPanel.classList.toggle(
       "hidden",
       this.config.source !== "" || kind === "correlation",
@@ -2152,13 +2176,17 @@ export class ChartCard {
         ? "Values"
         : kind === "line"
           ? "Date"
-          : kind === "bar" || kind === "treemap"
-            ? "Category"
-            : kind === "terms"
-              ? "Text"
-              : "Column";
+          : kind === "kpi"
+            ? "Date (optional)"
+            : kind === "bar" || kind === "treemap"
+              ? "Category"
+              : kind === "terms"
+                ? "Text"
+                : "Column";
     const groupable = this.columns.some((meta) => isCategoryType(meta.type));
-    const measureKinds = kind === "line" || kind === "bar";
+    const measureKinds = kind === "line" || kind === "bar" || kind === "kpi";
+    const grainKinds =
+      kind === "line" || (kind === "kpi" && this.isDateLike(this.meta(this.config.column)));
     const valueOn =
       measureKinds && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
     this.groupWrap.classList.toggle(
@@ -2168,7 +2196,7 @@ export class ChartCard {
     const unbound = this.config.source === "";
     this.valueWrap.classList.toggle("hidden", !measureKinds || !unbound);
     this.valueAggWrap.classList.toggle("hidden", !measureKinds || !unbound || !valueOn);
-    this.valueGrainWrap.classList.toggle("hidden", kind !== "line" || !unbound || !valueOn);
+    this.valueGrainWrap.classList.toggle("hidden", !grainKinds || !unbound || !valueOn);
     this.xWrap.classList.toggle("hidden", !pair);
     this.yWrap.classList.toggle("hidden", !pair);
     const seriesKind = kind === "scatter" || kind === "density";
@@ -2371,6 +2399,10 @@ export class ChartCard {
   }
 
   private defaultTitle(): string {
+    if (this.config.kind === "kpi") {
+      const measure = this.meta(this.config.valueColumn ?? -1)?.name ?? "Count of rows";
+      return defaultChartTitle(measure);
+    }
     if (this.usesAggregate()) return "Aggregate";
     if (isPairKind(this.config.kind)) {
       return defaultChartTitle(this.pairLabel("vs"));
@@ -3841,6 +3873,10 @@ export class ChartCard {
       }
       case "correlation":
         return count((meta) => isNumericType(meta.type)) >= 2;
+      case "kpi": {
+        const meta = this.meta(this.config.valueColumn ?? -1);
+        return meta !== undefined && (isNumericType(meta.type) || meta.type === "duration");
+      }
     }
   }
 
@@ -3988,6 +4024,14 @@ export class ChartCard {
   }
 
   private subtitle(): string {
+    if (this.config.kind === "kpi" && this.usesValueAggregate()) {
+      const result = this.aggregateResult();
+      const measure = result?.measureNames[0] ?? "measure";
+      if (result === null || result.dimensionNames.length === 0) {
+        return `${measure} · all filtered rows`;
+      }
+      return `${measure} over ${result.dimensionNames[0]} · ${result.groupCount.toLocaleString()} buckets`;
+    }
     const rows = `${this.rowCount.toLocaleString()} rows shown`;
     if (this.usesAggregate()) {
       const result = this.aggregateResult();
@@ -4099,6 +4143,12 @@ export class ChartCard {
       case "correlation":
         this.drawCorrelation(ctx, frame);
         break;
+      case "kpi": {
+        const message = "Pick a numeric measure in the card settings.";
+        this.noteEl.textContent = message;
+        this.drawPlotMessage(ctx, frame, message);
+        break;
+      }
       default:
         this.drawSeries(ctx, frame, this.config.kind);
         break;
@@ -4115,6 +4165,90 @@ export class ChartCard {
           ? `Suggested: ${this.config.suggested}`
           : `${existing} · Suggested: ${this.config.suggested}`;
     }
+  }
+
+  /**
+   * KPI card: the latest value large, the change vs the previous period in
+   * green/red, and a faint sparkline of the series behind it. Without a date
+   * column the series has one row and the card is the grand total.
+   */
+  private drawKpi(
+    ctx: CanvasRenderingContext2D,
+    frame: Frame,
+    result: AggregateMessage,
+    values: Float64Array,
+  ): void {
+    const ui = frame.ui;
+    const n = result.groupCount;
+    const latest = values[n - 1] ?? Number.NaN;
+    const measure = result.measureNames[0] ?? "value";
+    const overTime = result.dimensionNames.length > 0;
+    if (!Number.isFinite(latest)) {
+      const message = "No value to show for this measure.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const full = latest.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+    // Sparkline: the whole series, faint, across the plot width.
+    if (overTime && n >= 2) {
+      let min = Number.POSITIVE_INFINITY;
+      let max = Number.NEGATIVE_INFINITY;
+      for (const value of values) {
+        if (!Number.isFinite(value)) continue;
+        min = Math.min(min, value);
+        max = Math.max(max, value);
+      }
+      if (Number.isFinite(min) && max > min) {
+        ctx.strokeStyle = this.primaryColor();
+        ctx.globalAlpha = 0.3;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let i = 0; i < n; i++) {
+          const x = frame.left + ((i + 0.5) / n) * frame.plotW;
+          const y =
+            frame.top + frame.plotH * (1 - ((values[i] ?? min) - min) / (max - min));
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // The big number (compacted like value axes: 1.5M, 50k, 12.5).
+    const big = formatTick(latest, null);
+    const bigSize = Math.min(40, (frame.plotH * 0.45) / ui);
+    ctx.fillStyle = frame.text;
+    this.font(ctx, ui, bigSize, "700");
+    ctx.fillText(this.fit(ctx, big, frame.plotW), frame.left, frame.top + frame.plotH * 0.45);
+
+    // Change vs the previous bucket, in green (up) / red (down).
+    const previous = n >= 2 ? (values[n - 2] ?? Number.NaN) : Number.NaN;
+    let deltaNote = "";
+    if (overTime && Number.isFinite(previous)) {
+      const delta = latest - previous;
+      const pct = previous !== 0 ? (delta / previous) * 100 : null;
+      const flat = delta === 0;
+      const arrow = flat ? "→" : delta > 0 ? "↑" : "↓";
+      const pctText = pct === null ? "" : ` (${delta > 0 ? "+" : ""}${pct.toFixed(1)}%)`;
+      const text = `${arrow} ${formatTick(Math.abs(delta), null)}${pctText} vs previous ${
+        result.dimensionNames[0] ?? "period"
+      }`;
+      ctx.fillStyle = flat ? frame.dim : delta > 0 ? "#10b981" : "#ef4444";
+      this.font(ctx, ui, 13, "600");
+      ctx.fillText(this.fit(ctx, text, frame.plotW), frame.left, frame.top + frame.plotH * 0.26 + bigSize * ui * 0.2 + 18 * ui);
+      deltaNote = ` · ${text}`;
+    }
+
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 12);
+    const caption = overTime
+      ? `${result.labels[n - 1] ?? ""} · ${measure}`
+      : `${measure} · all filtered rows`;
+    ctx.fillText(this.fit(ctx, caption, frame.plotW), frame.left, frame.top + frame.plotH * 0.88);
+    this.noteEl.textContent = `${measure} = ${full}${deltaNote}`;
   }
 
   /**
@@ -4135,6 +4269,10 @@ export class ChartCard {
       const message = "The aggregate has no measures.";
       this.noteEl.textContent = message;
       this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    if (this.config.kind === "kpi" && this.config.source === "") {
+      this.drawKpi(ctx, frame, result, values);
       return;
     }
     const ui = frame.ui;

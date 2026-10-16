@@ -19,7 +19,8 @@ export type ChartCardKind =
   | "terms"
   | "heatmap"
   | "correlation"
-  | "bubble";
+  | "bubble"
+  | "kpi";
 
 export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   histogram: "Histogram",
@@ -33,6 +34,7 @@ export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   heatmap: "Heatmap",
   correlation: "Correlation",
   bubble: "Bubble",
+  kpi: "KPI",
 };
 
 export const PAIR_KINDS: readonly ChartCardKind[] = [
