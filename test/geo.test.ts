@@ -123,3 +123,18 @@ test("detectGeoPair stays quiet without real coordinates", () => {
     "row-id-like columns never pair",
   );
 });
+
+test("misspelled coordinate names still detect", () => {
+  const typo = detectGeoPair([num("Lattitude", -37.9, -37.7), num("Longtitude", 144.8, 145.1)]);
+  assert.equal(typo?.lat, 0, "Lattitude (double t) is latitude");
+  assert.equal(typo?.lon, 1, "Longtitude (missing i) is longitude");
+
+  const short = detectGeoPair([num("latitute", -37.9, -37.7), num("lngitude", 144.8, 145.1)]);
+  assert.ok(short !== null, "letter slips inside the word detect");
+
+  const spaced = detectGeoPair([num("Station Lattitude", -37.9, -37.7), num("Station Longitude", 144.8, 145.1)]);
+  assert.equal(spaced?.lat, 0, "tokens inside longer names match");
+
+  const alt = detectGeoPair([num("altitude", 10, 500), num("longitude", 144.8, 145.1)]);
+  assert.equal(alt, null, "altitude is not latitude, even one edit away");
+});

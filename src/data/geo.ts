@@ -58,6 +58,63 @@ export function parseLongitude(text: string): number | null {
 const LAT_NAME = /(^|[^a-z])lat(itude)?($|[^a-z])/i;
 const LON_NAME = /(^|[^a-z])(lon|lng|longitude)($|[^a-z])/i;
 
+/**
+ * Real words one edit away from latitude/longitude that are not coordinates.
+ * "altitude" is the dangerous one (distance 1 from "latitude").
+ */
+const CONFUSABLE = new Set([
+  "altitude",
+  "attitude",
+  "magnitude",
+  "solitude",
+  "gratitude",
+  "multitude",
+  "plenitude",
+  "similitude",
+  "certitude",
+]);
+
+/** Plain Levenshtein distance, two rows, no dependencies. */
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  const n = b.length;
+  let prev: number[] = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const current: number[] = [i];
+    for (let j = 1; j <= n; j++) {
+      current[j] = Math.min(
+        (prev[j] ?? 0) + 1,
+        (current[j - 1] ?? 0) + 1,
+        (prev[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    prev = current;
+  }
+  return prev[n] ?? 0;
+}
+
+/**
+ * Classifies a column name as latitude/longitude: exact forms and common
+ * abbreviations first, then tokens one typo away from the full words
+ * ("Lattitude", "Longtitude", "latitute"). Short words never fuzzy-match, so
+ * "lat"/"lon" stay exact; "altitude" and friends are excluded by name.
+ */
+export function matchGeoName(name: string): "lat" | "lon" | null {
+  if (LAT_NAME.test(name)) return "lat";
+  if (LON_NAME.test(name)) return "lon";
+  for (const token of name.toLowerCase().split(/[^a-z]+/)) {
+    if (token.length < 4 || CONFUSABLE.has(token)) continue;
+    for (const target of ["latitude", "longitude"] as const) {
+      const max = token.length >= 8 ? 2 : 1;
+      if (Math.abs(token.length - target.length) > max) continue;
+      if (editDistance(token, target) <= max) {
+        return target === "latitude" ? "lat" : "lon";
+      }
+    }
+  }
+  return null;
+}
+
 function numericRange(meta: ColumnMeta): { min: number; max: number } | null {
   const { min, max } = meta.stats;
   if (min === null || max === null || !Number.isFinite(min) || !Number.isFinite(max)) {
@@ -109,8 +166,8 @@ export function detectGeoPair(
     );
   if (entries.length < 2) return null;
 
-  const namedLat = entries.find((entry) => LAT_NAME.test(entry.meta.name));
-  const namedLon = entries.find((entry) => LON_NAME.test(entry.meta.name));
+  const namedLat = entries.find((entry) => matchGeoName(entry.meta.name) === "lat");
+  const namedLon = entries.find((entry) => matchGeoName(entry.meta.name) === "lon");
   if (namedLat !== undefined && namedLon !== undefined && namedLat.index !== namedLon.index) {
     return {
       lat: namedLat.index,
