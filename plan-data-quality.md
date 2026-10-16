@@ -42,7 +42,7 @@ All tracks keep TurboFuzz's differentiators: instant, private, check-then-fix, e
 - P0 check families: composite-key uniqueness, format/pattern validity, pair/consistency checks, allowed-values checks.
 - P1: weighted Overall Quality score, **dedicated Quality view** with full drill-down, score tile, Process Log deltas, completeness targets, freshness check, user thresholds.
 - P2: Data Quality report export (own JSON/CSV/Markdown first; SodaCL / dbt YAML / GX JSON / DQDL after) including the score and per-check pass/fail counts; failed-rows export per check.
-- Track B (§7): chart aggregation inspector, time-bucket switcher, KPI/scorecard card, auto-chart suggestions, smart tick labels, small statistics-inspector polish.
+- Track B (§7): chart aggregation inspector, time-bucket switcher, KPI/scorecard card, auto-chart suggestions, smart tick labels, **Views lens UX rework** (obvious naming, minimisable stacked cards, new-view-below), small statistics-inspector polish.
 - Track C (§8): research spike for an offline world map — bundled basemap options, lat/lon + DMS detection, point/density reuse — with a build/no-build decision memo.
 
 ### Out of scope (deliberately)
@@ -291,6 +291,21 @@ Invalid-row meter on profile cards (type-conflict counts already exist), email-d
 - No new worker messages required for the core case beyond a thin `quickAggregate` wrapper over the existing `aggregate` path.
 - Rejected for this track: `:daterange` / `:datebucket` SQL parameters (no SQL layer offline — client-side bucketing is the equivalent), Streamlit/notebook charting (library-based).
 
+### 7.8 Views lens UX rework (user feedback, 2026-10-16)
+
+**Diagnosis (verified in `views-panel.ts` / `view-tabs.ts`):** views are horizontal tabs; only the active view's builder renders; renaming is a hidden double-click (announced only in a tooltip); there is no way to see a minimised view above while editing another; `+ View` appends to the tab strip. The underlying model (saved aggregates over the filtered table, bindable to chart cards) is right — the surface reads like browser tabs and hides its gestures.
+
+**Rework: stacked, minimisable view cards (accordion) instead of tabs.**
+
+1. **Card header (always visible):** the view name is a **visible inline rename** — click the name (hover ✎ affordance) to open an input; Enter/blur commits, Escape cancels; double-click stays as a shortcut. New views start in edit mode with placeholder "Name your view…". A summary line shows when minimised: `dimensions × measures · N groups` using `measureSymbol`, plus a "stale" dot when filters/columns changed since the last compute.
+2. **Minimise:** an explicit chevron button (aria-expanded; "Minimise view" / "Expand view") on every card, and the header row is click-to-toggle. Exactly **one card expanded at a time** — only the expanded view computes (matches today's single-active refresh cost) and it makes "finish A → minimise → start B" the primary path. Minimised cards keep their last result with a stale marker.
+3. **New below:** a "＋ New view below" button in each expanded card's footer inserts a blank view directly beneath the active one, auto-minimises the previous one and focuses the name field; the end of the stack keeps "＋ New view" / "＋ Cohort view" (existing cohort builder).
+4. **Remove:** keep the header × (only when >1 view), unchanged behaviour; `MAX_VIEWS = 5` unchanged for now.
+5. **Keep:** starter views (archetype-based) become collapsed cards except the first; the actions bar (chart this, use as dataset, pandas recipe, slick table) moves to the expanded card footer; drill-down/table unchanged; the "Views" help topic is updated to describe naming/minimising (drop the "double-click to rename" copy).
+6. **Out of scope for this pass:** drag-to-reorder, multiple expanded cards, persisting minimise state, cross-view comparison.
+
+**Acceptance:** renaming is discoverable without a tooltip (visible affordance + labelled input); a view can be minimised with one click and a new one created directly below it with one more; only one view ever computes at a time; keyboard operable (header toggle, name edit, new-below); all existing behaviours (chart binding, dataset conversion, pandas recipe, slick table, cohort, drill-down) unchanged.
+
 ---
 
 ## 8. Track C — Map view (research spike)
@@ -357,6 +372,7 @@ Suggested sequencing rule: M1 checks feed M2's score; do **not** ship the score/
 | C2 | KPI card + suggestions + smart ticks | §7.3–7.5 | KPI comparisons via post-ops; suggestions match column types; year-like axes show bare 4-digit years |
 | C3 (later) | Statistics-inspector polish | §7.6 | Only if demanded |
 | C4 (spike) | Map view research | §8 | Decision memo with measured basemap size, first-paint, RAM and DMS coverage + build/no-build recommendation |
+| C5 | Views lens UX rework | §7.8 | Obvious naming (visible inline edit), one-click minimise, "new view below", single-expanded accordion; keyboard pass; existing view behaviours unchanged |
 
 ---
 
@@ -408,6 +424,7 @@ All new payloads go through the existing worker protocol with typed arrays; noth
 | Chart suggestions | Type + bindings from column types on card add | Mirrors Snowsight's auto-generated chart; cheap onboarding win |
 | Python charting | Rejected (Streamlit / notebook libraries) | Violates offline/no-dependency model; only the inspector interaction pattern is borrowed |
 | Map view | Research spike only (§8): bundled offline geometry, no tile servers, no mapping libraries; build decision only after the measured memo | Point/density pipeline and range-filter brushing already exist — only the basemap is new; preserves the CSP + offline promise |
+| Views lens layout | Stacked minimisable cards (accordion), one expanded at a time; visible inline rename; "New view below" inserts under the active card | Replaces the tab strip + hidden double-click rename (user feedback); keeps the single-active compute cost |
 
 ---
 
