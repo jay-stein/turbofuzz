@@ -1,6 +1,6 @@
 # Plan: Datetime Conversion Fixes (bird_tracking case)
 
-> Status: **Step 1 shipped; steps 2–5 proposed**
+> Status: **Steps 1 + 4a shipped; steps 2–3, 4b–5 proposed**
 > Date: 2026-10-16
 > Trigger: user report — `bird_tracking.csv` `date_time` (`2013-08-15 00:18:08+00`) could not be converted to a date/datetime; poor discoverability; silent failure.
 
@@ -62,8 +62,8 @@
 
 ### Step 4 — Discoverable operations toolbar + palette coverage (P2)
 
-- Visible **"Do something… ⌘K"** control in the workspace toolbar that opens the existing fuzzy command palette, placeholder cycling examples (`convert date_time to datetime`, `round amount to 2 dp`, `trim customer_name`).
-- Palette: add the `datetime` verb; audit that every clean op has a verb; when a verb matches but nothing can parse, explain: `date_time: 0% of values parse as dates — first problem “2013-08-15 00:18:08+00”`.
+- ✅ **"Do something… Ctrl/⌘ K" toolbar button shipped** (topbar, beside Theme/Help) opening the existing palette via a shared `openPalette()`; the first-run hint now names the button too.
+- Remaining: placeholder cycling examples (`round amount to 2 dp`, `trim customer_name`); add the `datetime` verb; audit that every clean op has a verb; when a verb matches but nothing can parse, explain: `date_time: 0% of values parse as dates — first problem “2013-08-15 00:18:08+00”`.
 
 ### Step 5 — Acceptance (P1/P2 together)
 

@@ -412,7 +412,7 @@ export class App {
       },
       {
         id: "command-bar",
-        text: "Press Ctrl/⌘ + K for the command bar — “upper amount”, “group region sum sales”.",
+        text: "“Do something…” in the toolbar (or Ctrl/⌘ + K) opens the command bar — “upper amount”, “convert date_time to datetime”, “group region sum sales”.",
         target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
       },
       {
@@ -482,7 +482,17 @@ export class App {
           if (this.themePreference === "auto") applyThemePreference("auto");
         });
     }
-    topbar.append(this.themeButton, helpButton);
+    const paletteButton = el(
+      "button",
+      {
+        class: "ghost small palette-button",
+        type: "button",
+        title: "Type a command — e.g. “convert date_time to datetime”, “upper amount”, “group region sum sales”",
+      },
+      ["Do something…", el("span", { class: "kbd" }, ["Ctrl/⌘ K"])],
+    ) as HTMLButtonElement;
+    paletteButton.addEventListener("click", () => this.openPalette());
+    topbar.append(paletteButton, this.themeButton, helpButton);
 
     this.newButton = el("button", { class: "ghost", type: "button" }, ["New data"]);
     this.newButton.title = "Load a CSV, Excel, JSON or Parquet file";
@@ -888,6 +898,15 @@ export class App {
     return workspace;
   }
 
+  /** Opens the fuzzy command palette (Ctrl/⌘+K or the "Do something…" button). */
+  private openPalette(): void {
+    if (this.workspace.classList.contains("hidden")) return;
+    openCommandBar({
+      columns: () => this.metas,
+      onRun: (command) => this.runCommand(command),
+    });
+  }
+
   private bindEvents(): void {
     this.textarea.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
@@ -899,10 +918,7 @@ export class App {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         if (this.workspace.classList.contains("hidden")) return;
         event.preventDefault();
-        openCommandBar({
-          columns: () => this.metas,
-          onRun: (command) => this.runCommand(command),
-        });
+        this.openPalette();
         return;
       }
       if (event.ctrlKey || event.metaKey || event.altKey) return;

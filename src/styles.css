@@ -5160,3 +5160,27 @@ label.null-row {
   background: var(--panel-2);
   color: var(--text);
 }
+
+/* ---------- command palette button ---------- */
+
+.palette-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+}
+
+.palette-button:hover {
+  color: var(--text);
+}
+
+.palette-button .kbd {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  background: var(--panel-2);
+}
