@@ -687,9 +687,15 @@ export class ChartCard {
   /** Map viewport in degrees (null = the whole world). */
   private mapView: { lonMin: number; lonMax: number; latMin: number; latMax: number } | null = null;
   private mapDrag: { x: number; y: number } | null = null;
+  /** True once a drag moved: the release click must not also fire a filter. */
+  private dragMoved = false;
   /** Scatter/density viewport in data units (null = the full series bounds). */
   private plotView: { xMin: number; xMax: number; yMin: number; yMax: number } | null = null;
   private plotDrag: { x: number; y: number } | null = null;
+  /** Line/histogram x-axis zoom in data units (null = the full range). */
+  private chartXZoom: { min: number; max: number } | null = null;
+  /** Bar chart category window: start index and count over the sorted bars. */
+  private barWindow: { start: number; count: number } | null = null;
   private readonly animationTimeSelect: HTMLSelectElement;
   private readonly animationGrainSelect: HTMLSelectElement;
   private readonly animationBar: HTMLElement;
@@ -920,6 +926,8 @@ export class ChartCard {
       this.config.x = Number(this.xSelect.value);
       this.plotView = null;
       this.mapView = null;
+      this.chartXZoom = null;
+      this.barWindow = null;
       this.generation++;
       this.refreshSeries();
       this.refreshBox();
@@ -938,6 +946,8 @@ export class ChartCard {
       this.config.y = Number(this.ySelect.value);
       this.plotView = null;
       this.mapView = null;
+      this.chartXZoom = null;
+      this.barWindow = null;
       this.generation++;
       this.refreshSeries();
       this.refreshBox();
@@ -1159,6 +1169,7 @@ export class ChartCard {
       const value = Math.floor(Number(this.topInput.value));
       this.config.topN = Number.isFinite(value) ? Math.max(1, Math.min(50, value)) : 5;
       this.topInput.value = String(this.config.topN);
+      this.barWindow = null;
       this.generation++;
       this.refreshBox();
       this.refreshCrosstab();
@@ -1703,6 +1714,8 @@ export class ChartCard {
     this.columns = columns;
     this.plotView = null;
     this.mapView = null;
+    this.chartXZoom = null;
+    this.barWindow = null;
     this.generation++;
     this.pickerSignature = "";
     this.syncOptions();
@@ -2101,6 +2114,8 @@ export class ChartCard {
     this.plotView = null;
     this.mapView = null;
     this.mapGrid = null;
+    this.chartXZoom = null;
+    this.barWindow = null;
     if (isPairKind(kind)) {
       const xAllowed = this.allowedIndexes((meta) => this.allowsX(meta));
       const yAllowed = this.allowedIndexes((meta) => this.allowsY(meta));
@@ -2143,6 +2158,8 @@ export class ChartCard {
   private setPrimaryColumn(index: number): void {
     if (index === this.config.column) return;
     this.config.column = index;
+    this.chartXZoom = null;
+    this.barWindow = null;
     if (this.config.kind === "histogram") this.applyColumnDefaults();
     this.generation++;
     this.syncPlaceholder();
@@ -2157,6 +2174,7 @@ export class ChartCard {
   private applyColumnDefaults(): void {
     const meta = this.meta(this.config.column);
     this.binResult = null;
+    this.chartXZoom = null;
     if (meta === undefined) {
       this.config.binOptions = null;
       return;
@@ -2678,6 +2696,8 @@ export class ChartCard {
       overflow: this.overflowInput.checked,
     };
     this.config.binClipped = false;
+    // A manual range is the new full view; any drag-zoom no longer applies.
+    this.chartXZoom = null;
     this.renderControls();
     this.refreshBins();
     this.render();
@@ -2702,15 +2722,21 @@ export class ChartCard {
   private refreshBins(): void {
     if (this.config.kind === "line") {
       const meta = this.meta(this.config.column);
-      const min = meta?.stats.min;
-      const max = meta?.stats.max;
+      const fullMin = meta?.stats.min;
+      const fullMax = meta?.stats.max;
       if (
         meta === undefined ||
         (meta.type !== "date" && meta.type !== "datetime") ||
-        typeof min !== "number" ||
-        typeof max !== "number" ||
-        !(max > min)
+        typeof fullMin !== "number" ||
+        typeof fullMax !== "number" ||
+        !(fullMax > fullMin)
       ) {
+        this.lineBinResult = null;
+        return;
+      }
+      const min = this.chartXZoom?.min ?? fullMin;
+      const max = this.chartXZoom?.max ?? fullMax;
+      if (!(max > min)) {
         this.lineBinResult = null;
         return;
       }
@@ -2748,7 +2774,15 @@ export class ChartCard {
     }
     const generation = ++this.generation;
     const column = this.config.column;
-    const binOptions = this.config.binOptions;
+    const zoom = this.chartXZoom;
+    const binOptions =
+      zoom === null
+        ? this.config.binOptions
+        : {
+            ...this.config.binOptions,
+            min: zoom.min,
+            max: zoom.max,
+          };
     void this.options
       .requestBins(column, binOptions)
       .then((bins) => {
@@ -2760,6 +2794,47 @@ export class ChartCard {
       .catch(() => {
         // Keep the automatic histogram as the fallback.
       });
+  }
+
+  /** Every category bar sorted by count; the bar window pans across this. */
+  private allCategoryBars(): CategoryBar[] {
+    const meta = this.meta(this.config.column);
+    const categories = meta?.categories ?? null;
+    if (meta === undefined || categories === null) return [];
+    const counts = this.facets[this.config.column] ?? categories.counts;
+    const total = categories.labels.reduce(
+      (sum, _, index) => sum + (counts[index] ?? 0),
+      0,
+    );
+    return categories.labels
+      .map((label, index) => {
+        const count = counts[index] ?? categories.counts[index] ?? 0;
+        return {
+          label,
+          count,
+          pct: total > 0 ? (count / total) * 100 : 0,
+        };
+      })
+      .sort((a, b) => b.count - a.count);
+  }
+
+  /** The full data range a line/histogram x axis can zoom within. */
+  private xZoomBase(): { min: number; max: number } | null {
+    if (this.config.kind === "line") {
+      const meta = this.meta(this.config.column);
+      const min = meta?.stats.min;
+      const max = meta?.stats.max;
+      return typeof min === "number" && typeof max === "number" && max > min
+        ? { min, max }
+        : null;
+    }
+    if (this.config.kind === "histogram") {
+      const options = this.config.binOptions;
+      return options !== null && options.max > options.min
+        ? { min: options.min, max: options.max }
+        : null;
+    }
+    return null;
   }
 
   private refreshSeries(): void {
@@ -3898,10 +3973,18 @@ export class ChartCard {
     const zoomable =
       this.config.kind === "map" ||
       this.config.kind === "scatter" ||
-      this.config.kind === "density";
+      this.config.kind === "density" ||
+      this.config.kind === "line" ||
+      this.config.kind === "histogram" ||
+      this.config.kind === "bar";
     this.resetViewButton.classList.toggle(
       "hidden",
-      !(this.mapView !== null || this.plotView !== null),
+      !(
+        this.mapView !== null ||
+        this.plotView !== null ||
+        this.chartXZoom !== null ||
+        this.barWindow !== null
+      ),
     );
     this.canvas.style.cursor = zoomable
       ? this.mapDrag !== null || this.plotDrag !== null
@@ -3953,6 +4036,7 @@ export class ChartCard {
       const frame = this.lastFrame;
       const dx = (event.clientX - rect.left - this.mapDrag.x) / frame.plotW;
       const dy = (event.clientY - rect.top - this.mapDrag.y) / frame.plotH;
+      this.dragMoved = true;
       this.mapDrag = { x: event.clientX - rect.left, y: event.clientY - rect.top };
       const view = this.mapView ?? { lonMin: -180, lonMax: 180, latMin: -90, latMax: 90 };
       const lonSpan = view.lonMax - view.lonMin;
@@ -3970,6 +4054,7 @@ export class ChartCard {
       return;
     }
     if (this.config.kind === "map" && this.mapBrushStart !== null) {
+      this.dragMoved = true;
       this.mapBrush = {
         x0: this.mapBrushStart.x,
         y0: this.mapBrushStart.y,
@@ -3991,6 +4076,7 @@ export class ChartCard {
       const y = event.clientY - rect.top;
       const dx = (x - this.plotDrag.x) / frame.plotW;
       const dy = (y - this.plotDrag.y) / frame.plotH;
+      this.dragMoved = true;
       this.plotDrag = { x, y };
       const view =
         this.plotView ?? {
@@ -4008,6 +4094,57 @@ export class ChartCard {
         yMax: view.yMax + dy * spanY,
       };
       this.render();
+      return;
+    }
+    if (
+      (this.config.kind === "line" || this.config.kind === "histogram") &&
+      this.plotDrag !== null &&
+      this.lastFrame !== null
+    ) {
+      const frame = this.lastFrame;
+      const base = this.xZoomBase();
+      const current = this.chartXZoom;
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      if (base === null || current === null) {
+        this.plotDrag = { x, y };
+        return;
+      }
+      const dx = (x - this.plotDrag.x) / frame.plotW;
+      this.dragMoved = true;
+      this.plotDrag = { x, y };
+      const span = current.max - current.min;
+      const min = Math.min(
+        base.max - span,
+        Math.max(base.min, current.min - dx * span),
+      );
+      this.chartXZoom = { min, max: min + span };
+      this.refreshBins();
+      this.render();
+      return;
+    }
+    if (this.config.kind === "bar" && this.plotDrag !== null) {
+      const frame = this.lastFrame;
+      if (frame === null) return;
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const total = this.allCategoryBars().length;
+      const state = this.barWindow ?? {
+        start: 0,
+        count: Math.max(1, this.config.topN),
+      };
+      const slot = frame.plotW / Math.max(1, state.count);
+      const steps = Math.round((x - this.plotDrag.x) / Math.max(1, slot));
+      if (steps !== 0 && total > 0) {
+        this.dragMoved = true;
+        this.plotDrag = { x, y };
+        const start = Math.min(
+          Math.max(0, total - state.count),
+          Math.max(0, state.start - steps),
+        );
+        this.barWindow = { start, count: state.count };
+        this.render();
+      }
       return;
     }
     this.pointerAt = {
@@ -4055,6 +4192,10 @@ export class ChartCard {
   }
 
   private handleCanvasClick(event: MouseEvent): void {
+    if (this.dragMoved) {
+      this.dragMoved = false;
+      return;
+    }
     const rect = this.canvas.getBoundingClientRect();
     const region = hitTest(
       this.hitRegions,
@@ -4069,7 +4210,12 @@ export class ChartCard {
   private beginMapBrush(event: PointerEvent): void {
     const kind = this.config.kind;
     if (
-      (kind !== "map" && kind !== "scatter" && kind !== "density") ||
+      (kind !== "map" &&
+        kind !== "scatter" &&
+        kind !== "density" &&
+        kind !== "line" &&
+        kind !== "histogram" &&
+        kind !== "bar") ||
       this.lastFrame === null
     ) {
       return;
@@ -4087,6 +4233,7 @@ export class ChartCard {
     }
     if (kind !== "map") {
       // Scatter/density: drag pans the viewport.
+      this.dragMoved = false;
       this.plotDrag = point;
       try {
         this.canvas.setPointerCapture(event.pointerId);
@@ -4097,6 +4244,7 @@ export class ChartCard {
     }
     if (!event.shiftKey) {
       // Plain drag pans the viewport; Shift+drag is the rectangle filter.
+      this.dragMoved = false;
       this.mapDrag = point;
       try {
         this.canvas.setPointerCapture(event.pointerId);
@@ -4106,6 +4254,7 @@ export class ChartCard {
       return;
     }
     this.mapBrushStart = point;
+    this.dragMoved = false;
     this.mapBrush = { x0: point.x, y0: point.y, x1: point.x, y1: point.y };
     try {
       this.canvas.setPointerCapture(event.pointerId);
@@ -4169,7 +4318,12 @@ export class ChartCard {
   private onWheel(event: WheelEvent): void {
     const kind = this.config.kind;
     if (
-      (kind !== "map" && kind !== "scatter" && kind !== "density") ||
+      (kind !== "map" &&
+        kind !== "scatter" &&
+        kind !== "density" &&
+        kind !== "line" &&
+        kind !== "histogram" &&
+        kind !== "bar") ||
       this.lastFrame === null
     ) {
       return;
@@ -4189,6 +4343,44 @@ export class ChartCard {
     const tx = (x - frame.left) / frame.plotW;
     const ty = 1 - (y - frame.top) / frame.plotH;
     const factor = event.deltaY < 0 ? 0.8 : 1.25;
+    if (kind === "line" || kind === "histogram") {
+      const base = this.xZoomBase();
+      if (base === null) return;
+      const current = this.chartXZoom ?? base;
+      const minSpan = Math.max(1e-9, (base.max - base.min) / 1000);
+      const zoomed = zoomPlotBounds(
+        { xMin: current.min, xMax: current.max, yMin: 0, yMax: 1 },
+        { x: tx, y: 0.5 },
+        factor,
+        minSpan,
+      );
+      const min = Math.max(base.min, zoomed.xMin);
+      const max = Math.min(base.max, zoomed.xMax);
+      if (!(max > min)) return;
+      event.preventDefault();
+      this.chartXZoom = { min, max };
+      this.refreshBins();
+      this.render();
+      return;
+    }
+    if (kind === "bar") {
+      const total = this.allCategoryBars().length;
+      if (total === 0) return;
+      event.preventDefault();
+      const current = this.barWindow ?? {
+        start: 0,
+        count: Math.max(1, this.config.topN),
+      };
+      const count = Math.min(total, Math.max(3, Math.round(current.count * factor)));
+      const center = current.start + current.count / 2;
+      const start = Math.min(
+        Math.max(0, total - count),
+        Math.max(0, Math.round(center - count / 2)),
+      );
+      this.barWindow = { start, count };
+      this.render();
+      return;
+    }
     if (kind === "map") {
       event.preventDefault();
       const view = this.mapView ?? { lonMin: -180, lonMax: 180, latMin: -90, latMax: 90 };
@@ -4239,6 +4431,7 @@ export class ChartCard {
   /** Double-click resets the map/scatter viewport to the full data range. */
   private resetMapZoom(): void {
     let changed = false;
+    let binsChanged = false;
     if (this.config.kind === "map" && this.mapView !== null) {
       this.mapView = null;
       changed = true;
@@ -4250,7 +4443,19 @@ export class ChartCard {
       this.plotView = null;
       changed = true;
     }
-    if (changed) this.render();
+    if (
+      (this.config.kind === "line" || this.config.kind === "histogram") &&
+      this.chartXZoom !== null
+    ) {
+      this.chartXZoom = null;
+      binsChanged = true;
+    }
+    if (this.config.kind === "bar" && this.barWindow !== null) {
+      this.barWindow = null;
+      changed = true;
+    }
+    if (binsChanged) this.refreshBins();
+    if (changed || binsChanged) this.render();
   }
 
   /** Toggles a category value or sets a range/text filter through the app hook. */
@@ -5428,8 +5633,16 @@ export class ChartCard {
     const slots = bins.length + (hasOverflow ? 1 : 0);
     const slotW = frame.plotW / slots;
     const barW = Math.max(1, slotW - 1);
-    const min = this.lineBinRange?.min ?? this.config.binOptions?.min ?? automatic.min;
-    const max = this.lineBinRange?.max ?? this.config.binOptions?.max ?? automatic.max;
+    const min =
+      this.lineBinRange?.min ??
+      this.chartXZoom?.min ??
+      this.config.binOptions?.min ??
+      automatic.min;
+    const max =
+      this.lineBinRange?.max ??
+      this.chartXZoom?.max ??
+      this.config.binOptions?.max ??
+      automatic.max;
     this.hitRegions = seriesHitRegions(
       { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
       {
@@ -5586,8 +5799,9 @@ export class ChartCard {
     }
     if (custom === null) {
       const outside = automatic.below + automatic.above;
-      if (outside > 0) notes.push(`${outside.toLocaleString()} values beyond the p1–p99 chart range`);
+      if (outside > 0) notes.push(`${outside.toLocaleString()} values beyond the p1-p99 chart range`);
     }
+    notes.push("scroll to zoom · drag to pan · double-click resets");
     this.noteEl.textContent = notes.join(" · ");
   }
 
@@ -6529,12 +6743,31 @@ export class ChartCard {
       this.drawPlotMessage(ctx, frame, message);
       return;
     }
-    const bars = categorySeries(meta, this.facets[this.config.column], this.config.topN, this.config.groupOther);
-    if (bars.length === 0) {
+    const all = this.allCategoryBars();
+    if (all.length === 0) {
       const message = "This column has no category data yet.";
       this.noteEl.textContent = message;
       this.drawPlotMessage(ctx, frame, message);
       return;
+    }
+    const windowState = this.barWindow ?? {
+      start: 0,
+      count: Math.max(1, this.config.topN),
+    };
+    const windowEnd = Math.min(
+      all.length,
+      windowState.start + Math.max(1, windowState.count),
+    );
+    const bars: CategoryBar[] = all.slice(windowState.start, windowEnd).map((bar) => ({ ...bar }));
+    const totalAll = all.reduce((sum, bar) => sum + bar.count, 0);
+    if (this.barWindow === null && this.config.groupOther && windowEnd < all.length) {
+      const count = all.slice(windowEnd).reduce((sum, bar) => sum + bar.count, 0);
+      bars.push({
+        label: "Other",
+        count,
+        pct: totalAll > 0 ? (count / totalAll) * 100 : 0,
+        other: true,
+      });
     }
     const ui = frame.ui;
     const maxCount = Math.max(1, ...bars.map((bar) => bar.count));
@@ -6613,10 +6846,14 @@ export class ChartCard {
     ctx.textAlign = "left";
 
     const shown = bars.reduce((sum, bar) => sum + bar.count, 0);
-    this.noteEl.textContent = `${bars.length} bars covering ${shown.toLocaleString()} values · top ${Math.min(
+    const windowNote =
+      this.barWindow === null
+        ? ""
+        : ` · showing ${windowState.start + 1}–${windowEnd} of ${all.length}`;
+    this.noteEl.textContent = `${bars.length} bars covering ${shown.toLocaleString()} values — top ${Math.min(
       this.config.topN,
       bars.length,
-    )}${this.config.groupOther && bars.some((bar) => bar.other === true) ? " + Other" : ""}`;
+    )}${this.config.groupOther && bars.some((bar) => bar.other === true) ? " + Other" : ""}${windowNote} · scroll to zoom · drag to pan · double-click resets`;
   }
 
   private drawScatterLike(ctx: CanvasRenderingContext2D, frame: Frame): void {
