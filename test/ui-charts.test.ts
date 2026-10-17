@@ -377,7 +377,7 @@ test("chart text stays legible and date labels fit the left margin", () => {
 
 test("chart cards draw scatter points and density grids", async () => {
   const window = setupDom();
-  const counts = { fillRect: 0, putImageData: 0, fillText: 0 };
+  const counts = { fillRect: 0, putImageData: 0, fillText: 0, arc: 0 };
   class MockContext {
     font = "";
     fillStyle = "";
@@ -394,7 +394,9 @@ test("chart cards draw scatter points and density grids", async () => {
     closePath(): void {}
     moveTo(): void {}
     lineTo(): void {}
-    arc(): void {}
+    arc(): void {
+      counts.arc++;
+    }
     rect(): void {}
     clip(): void {}
     stroke(): void {}
@@ -482,7 +484,10 @@ test("chart cards draw scatter points and density grids", async () => {
     new window.Event("change"),
   );
   await tick();
-  assert.ok(counts.fillRect > 0, "scatter points were drawn");
+  assert.ok(
+    counts.fillRect > 0 || counts.arc > 0,
+    "scatter points were drawn (as circles for small series)",
+  );
 
   const mode = host.querySelector<HTMLSelectElement>('select[aria-label="Render mode"]');
   assert.ok(mode !== null);

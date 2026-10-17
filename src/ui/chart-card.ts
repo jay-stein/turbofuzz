@@ -681,6 +681,7 @@ export class ChartCard {
   private readonly bubbleScaleField: HTMLElement;
   private readonly mapModeSelect: HTMLSelectElement;
   private readonly mapModeWrap: HTMLElement;
+  private readonly resetViewButton: HTMLButtonElement;
   /** Map heat grid (count or measure per cell), computed by the worker. */
   private mapGrid: GridCountsResult | null = null;
   /** Map viewport in degrees (null = the whole world). */
@@ -1547,6 +1548,17 @@ export class ChartCard {
       "aria-label": "Chart",
     }) as HTMLCanvasElement;
     canvasWrap.append(this.canvas);
+    this.resetViewButton = el(
+      "button",
+      {
+        class: "chart-reset-view hidden",
+        type: "button",
+        title: "Reset the zoomed view to the full range",
+      },
+      ["Reset view"],
+    ) as HTMLButtonElement;
+    this.resetViewButton.addEventListener("click", () => this.resetMapZoom());
+    canvasWrap.append(this.resetViewButton);
     this.noteEl = el("div", { class: "chart-note" });
     this.legendEl = el("div", { class: "chart-legend hidden" });
     this.tooltipEl = el("div", { class: "chart-tooltip hidden", role: "tooltip" });
@@ -2376,6 +2388,12 @@ export class ChartCard {
       this.bubbleSettings.insertBefore(this.sizeWrap, this.bubbleAggField);
     } else if (this.sizeWrap.parentElement !== this.settingsBody) {
       this.settingsBody.append(this.sizeWrap);
+    }
+    // Colour belongs next to Show/Measure on the map row; elsewhere it stays
+    // in the Settings disclosure.
+    if (mapKind) this.bubbleSettings.insertBefore(this.colorWrap, this.sizeWrap);
+    else if (this.colorWrap.parentElement === this.bubbleSettings) {
+      this.settingsBody.append(this.colorWrap);
     }
     this.modeWrap.classList.toggle("hidden", kind !== "scatter");
     this.densityStyleWrap.classList.toggle("hidden", !seriesKind);
@@ -3877,6 +3895,19 @@ export class ChartCard {
     this.drawChart(ctx, cssWidth, cssHeight);
     this.syncLegend();
     this.syncAnimationBar();
+    const zoomable =
+      this.config.kind === "map" ||
+      this.config.kind === "scatter" ||
+      this.config.kind === "density";
+    this.resetViewButton.classList.toggle(
+      "hidden",
+      !(this.mapView !== null || this.plotView !== null),
+    );
+    this.canvas.style.cursor = zoomable
+      ? this.mapDrag !== null || this.plotDrag !== null
+        ? "grabbing"
+        : "grab"
+      : "";
   }
 
   /** Generated text alternative for the canvas, updated on every redraw. */
@@ -4882,6 +4913,12 @@ export class ChartCard {
     ctx.rect(x0, y0, w, h);
     ctx.clip();
 
+    // A barely tinted ocean separates water from the panel background.
+    ctx.fillStyle = frame.border;
+    ctx.globalAlpha = 0.12;
+    ctx.fillRect(x0, y0, w, h);
+    ctx.globalAlpha = 1;
+
     // Graticule: 30° at world scale, finer as the viewport zooms in.
     const gridStep = lonSpan > 180 ? 30 : lonSpan > 60 ? 10 : lonSpan > 20 ? 5 : 1;
     ctx.strokeStyle = frame.border;
@@ -4924,6 +4961,25 @@ export class ChartCard {
     ctx.globalAlpha = 0.75;
     ctx.strokeStyle = frame.dim;
     ctx.lineWidth = 0.75;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // Country borders add detail without turning the map into a wireframe.
+    ctx.beginPath();
+    for (const country of map.countries) {
+      for (const ring of country.rings) {
+        for (let i = 0; i < ring.length; i += 2) {
+          const x = px(ring[i] ?? 0);
+          const y = py(ring[i + 1] ?? 0);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+      }
+    }
+    ctx.strokeStyle = frame.dim;
+    ctx.globalAlpha = 0.28;
+    ctx.lineWidth = 0.6;
     ctx.stroke();
     ctx.globalAlpha = 1;
 
@@ -4971,6 +5027,34 @@ export class ChartCard {
         }
       }
       ctx.globalAlpha = 1;
+      // Compact colour scale so heat values read quantitatively.
+      const barW = Math.min(160 * ui, w * 0.45);
+      const barH = 7 * ui;
+      const barX = x0 + 12 * ui;
+      const barY = y0 + h - 20 * ui;
+      ctx.fillStyle = frame.text;
+      ctx.globalAlpha = 0.1;
+      ctx.fillRect(barX - 6 * ui, barY - 14 * ui, barW + 12 * ui, barH + 22 * ui);
+      ctx.globalAlpha = 1;
+      const gradient = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+      colors.forEach((color, index) =>
+        gradient.addColorStop(index / Math.max(1, colors.length - 1), color),
+      );
+      ctx.fillStyle = gradient;
+      ctx.fillRect(barX, barY, barW, barH);
+      ctx.strokeStyle = frame.dim;
+      ctx.globalAlpha = 0.5;
+      ctx.strokeRect(barX + 0.5, barY + 0.5, barW, barH);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = frame.dim;
+      this.font(ctx, ui, 9);
+      ctx.fillText(formatTick(0, null), barX, barY - 4 * ui);
+      const maxLabel = formatTick(max, null);
+      ctx.fillText(
+        maxLabel,
+        barX + barW - ctx.measureText(maxLabel).width,
+        barY - 4 * ui,
+      );
       const measureMeta = this.meta(this.config.sizeColumn);
       const agg = this.config.bubbleAgg ?? "count";
       const measure =
@@ -5023,7 +5107,13 @@ export class ChartCard {
         return;
       }
       const r = sizes === null ? baseRadius : (sizes[index] ?? baseRadius);
-      ctx.fillRect(px(lon) - r, py(lat) - r, r * 2, r * 2);
+      if (result.shown <= 5000) {
+        ctx.beginPath();
+        ctx.arc(px(lon), py(lat), Math.max(0.5, r), 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillRect(px(lon) - r, py(lat) - r, r * 2, r * 2);
+      }
     };
     if (buckets === null) {
       ctx.fillStyle = this.primaryColor();
@@ -6606,6 +6696,27 @@ export class ChartCard {
     ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
     ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
     ctx.stroke();
+
+    // Zero reference lines when either domain crosses zero.
+    ctx.save();
+    ctx.strokeStyle = frame.dim;
+    ctx.globalAlpha = 0.55;
+    ctx.setLineDash([2, 3]);
+    if (yMin < 0 && yMax > 0) {
+      const zeroY = frame.top + frame.plotH - ((0 - yMin) / (yMax - yMin)) * frame.plotH;
+      ctx.beginPath();
+      ctx.moveTo(frame.left, zeroY + 0.5);
+      ctx.lineTo(frame.left + frame.plotW, zeroY + 0.5);
+      ctx.stroke();
+    }
+    if (xMin < 0 && xMax > 0) {
+      const zeroX = frame.left + ((0 - xMin) / (xMax - xMin)) * frame.plotW;
+      ctx.beginPath();
+      ctx.moveTo(zeroX + 0.5, frame.top);
+      ctx.lineTo(zeroX + 0.5, frame.top + frame.plotH);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   private pointSizes(result: SeriesPoints, ui: number): Float64Array | null {
@@ -6719,12 +6830,19 @@ export class ChartCard {
     const sizes = this.pointSizes(result, frame.ui);
     const buckets = this.colorBuckets(result);
     const radius = 2.2 * frame.ui;
+    const circular = result.shown <= 5000;
 
     const drawAt = (index: number): void => {
       const r = sizes === null ? radius : sizes[index];
       const x = frame.left + (result.x[index] - result.xMin) * xScale;
       const y = frame.top + frame.plotH - (result.y[index] - result.yMin) * yScale;
-      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+      if (circular) {
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillRect(x - r, y - r, r * 2, r * 2);
+      }
     };
 
     // Zoom/pan can move points past the plot: clip the marks, not the axes.

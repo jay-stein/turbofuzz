@@ -5521,3 +5521,24 @@ label.null-row {
   .qp-check-dim,
   .qp-check-detail { display: none; }
 }
+
+/* ---------- chart polish: zoom reset + notes ---------- */
+
+.chart-canvas-wrap { position: relative; }
+
+.chart-reset-view {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  z-index: 5;
+  padding: 3px 10px;
+  font-size: 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.chart-reset-view:hover { color: var(--text); border-color: var(--accent); }
+.chart-note { line-height: 1.6; }
