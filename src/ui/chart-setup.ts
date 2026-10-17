@@ -74,7 +74,10 @@ export function openChartSetupDialog(
     const category = optionsFor(columns, (meta) => isCategoryType(meta.type));
     const text = optionsFor(columns, (meta) => meta.type === "string");
 
-    let collect: () => Partial<ChartCardConfig> | null = () => ({ ...preset });
+    let collect: () => { config: Partial<ChartCardConfig> | null; error: string | null } = () => ({
+      config: { ...preset },
+      error: null,
+    });
 
     if (kind === "correlation") {
       const field = el("label", { class: "chart-setup-field" });
@@ -97,7 +100,12 @@ export function openChartSetupDialog(
         const picked = [...picker.options]
           .filter((option) => option.selected)
           .map((option) => Number(option.value));
-        return picked.length >= 2 ? { kind, correlationColumns: picked } : null;
+        return picked.length >= 2
+          ? { config: { kind, correlationColumns: picked }, error: null }
+          : {
+              config: null,
+              error: "Columns: pick at least two numeric columns for correlation.",
+            };
       };
     } else if (
       kind === "scatter" ||
@@ -110,13 +118,21 @@ export function openChartSetupDialog(
       const y = select(kind === "map" ? "Latitude" : "Y", axis, preset.y ?? null, "Setup Y column");
       body.append(x.field, y.field);
       collect = () => {
+        if (axis.length < 2) {
+          return {
+            config: null,
+            error: `${kind === "map" ? "Longitude/Latitude" : "X/Y"}: pick two different numeric columns.`,
+          };
+        }
         const xIndex = Number(x.select.value);
         const yIndex = Number(y.select.value);
-        if (!Number.isFinite(xIndex) || !Number.isFinite(yIndex)) return null;
+        if (!Number.isFinite(xIndex) || !Number.isFinite(yIndex)) {
+          return { config: null, error: "X/Y: pick both columns." };
+        }
         const adjusted = xIndex === yIndex ? (axis.find((option) => option.index !== xIndex)?.index ?? -1) : yIndex;
         return adjusted < 0
-          ? null
-          : { ...preset, kind, x: xIndex, y: adjusted };
+          ? { config: null, error: "X/Y: pick two different columns." }
+          : { config: { ...preset, kind, x: xIndex, y: adjusted }, error: null };
       };
     } else if (kind === "kpi") {
       const measure = select("Measure", numeric, preset.valueColumn ?? null, "Setup KPI measure");
@@ -132,36 +148,65 @@ export function openChartSetupDialog(
       );
       body.append(measure.field, timeline.field);
       collect = () => {
+        if (numeric.length === 0) {
+          return { config: null, error: "Measure: pick a numeric column." };
+        }
         const valueColumn = Number(measure.select.value);
-        if (!Number.isFinite(valueColumn)) return null;
+        if (!Number.isFinite(valueColumn)) {
+          return { config: null, error: "Measure: pick a numeric column." };
+        }
         return {
-          ...preset,
-          kind,
-          column: Number(timeline.select.value),
-          valueColumn,
-          valueAgg: preset.valueAgg ?? "mean",
+          config: {
+            ...preset,
+            kind,
+            column: Number(timeline.select.value),
+            valueColumn,
+            valueAgg: preset.valueAgg ?? "mean",
+          },
+          error: null,
         };
       };
     } else if (kind === "box") {
       const value = select("Values", numeric, preset.x ?? null, "Setup value column");
       const group = select("Group by", category, preset.y ?? null, "Setup group column");
       body.append(value.field, group.field);
-      collect = () => ({
-        ...preset,
-        kind,
-        x: Number(value.select.value),
-        y: Number(group.select.value),
-      });
+      collect = () => {
+        if (numeric.length === 0 || category.length === 0) {
+          return {
+            config: null,
+            error: "Values/Group: pick a numeric value column and a category group.",
+          };
+        }
+        return {
+          config: {
+            ...preset,
+            kind,
+            x: Number(value.select.value),
+            y: Number(group.select.value),
+          },
+          error: null,
+        };
+      };
     } else if (kind === "heatmap") {
       const x = select("Rows", category, preset.x ?? null, "Setup row column");
       const y = select("Columns", category, preset.y ?? null, "Setup column column");
       body.append(x.field, y.field);
-      collect = () => ({
-        ...preset,
-        kind,
-        x: Number(x.select.value),
-        y: Number(y.select.value),
-      });
+      collect = () => {
+        if (category.length < 2) {
+          return {
+            config: null,
+            error: "Rows/Columns: pick two category columns.",
+          };
+        }
+        const xIndex = Number(x.select.value);
+        const yIndex = Number(y.select.value);
+        return xIndex === yIndex
+          ? { config: null, error: "Rows/Columns: pick two different columns." }
+          : {
+              config: { ...preset, kind, x: xIndex, y: yIndex },
+              error: null,
+            };
+      };
     } else {
       const allowed =
         kind === "histogram"
@@ -174,7 +219,18 @@ export function openChartSetupDialog(
       const label = kind === "histogram" ? "Values" : kind === "line" ? "Date" : "Category";
       const column = select(label, allowed, preset.column ?? null, "Setup chart column");
       body.append(column.field);
-      collect = () => ({ ...preset, kind, column: Number(column.select.value) });
+      collect = () => {
+        if (allowed.length === 0) {
+          return {
+            config: null,
+            error: `${label}: pick a ${label.toLowerCase()} column; none are available.`,
+          };
+        }
+        const value = Number(column.select.value);
+        return Number.isFinite(value)
+          ? { config: { ...preset, kind, column: value }, error: null }
+          : { config: null, error: `${label}: pick a column.` };
+      };
     }
 
     body.append(
@@ -182,7 +238,11 @@ export function openChartSetupDialog(
         "The card is added at the end of the grid and briefly highlighted; Cancel adds nothing.",
       ]),
     );
-    modal.append(body);
+    const errorEl = el("div", { class: "chart-setup-error", role: "alert" });
+    body.addEventListener("change", () => {
+      errorEl.textContent = "";
+    });
+    modal.append(body, errorEl);
 
     const footer = el("div", { class: "clean-footer" });
     const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
@@ -204,15 +264,12 @@ export function openChartSetupDialog(
     closeButton.addEventListener("click", () => finish(null));
     cancel.addEventListener("click", () => finish(null));
     confirm.addEventListener("click", () => {
-      const config = collect();
-      if (config === null) {
-        confirm.textContent = "Pick valid columns";
-        window.setTimeout(() => {
-          confirm.textContent = "Add chart";
-        }, 1400);
+      const result = collect();
+      if (result.config === null) {
+        errorEl.textContent = result.error ?? "Check the chart fields and try again.";
         return;
       }
-      finish(config);
+      finish(result.config);
     });
     overlay.addEventListener("click", (event) => {
       if (event.target === overlay) finish(null);

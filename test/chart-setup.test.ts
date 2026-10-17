@@ -87,11 +87,28 @@ test("correlation needs at least two columns before it can be added", async () =
     textContent: string;
   };
   confirm.click();
-  assert.equal(confirm.textContent, "Pick valid columns", "one column is not enough");
+  assert.match(
+    document.querySelector(".chart-setup-error")?.textContent ?? "",
+    /Columns: pick at least two numeric columns/,
+    "the field and reason are named",
+  );
+  assert.equal(confirm.textContent, "Add chart", "the button label is unchanged");
   for (const option of picker.options) {
     option.selected = option.value === "0" || option.value === "1";
   }
   confirm.click();
   const config = await pending;
   assert.deepEqual(config, { kind: "correlation", correlationColumns: [0, 1] });
+});
+
+test("setup errors name the conflicting field", async () => {
+  setupDom();
+  const columns = [meta("a", "category"), meta("b", "category")];
+  openChartSetupDialog("heatmap", columns, { kind: "heatmap", x: 0, y: 0 });
+  const modal = document.querySelector(".chart-setup-modal") as HTMLElement;
+  (modal.querySelector(".primary") as unknown as { click(): void }).click();
+  assert.match(
+    document.querySelector(".chart-setup-error")?.textContent ?? "",
+    /Rows\/Columns: pick two different columns/,
+  );
 });

@@ -66,6 +66,7 @@ import {
 } from "./chart-utils.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openConfirm, openPrompt } from "./dialog.js";
+import { describeScope } from "./scope.js";
 import { openMenu } from "./menu.js";
 import {
   decodeArcs,
@@ -773,7 +774,9 @@ export class ChartCard {
   private readonly yTitleInput: HTMLInputElement;
   private readonly yUnitInput: HTMLInputElement;
   private readonly canvas: HTMLCanvasElement;
+  private readonly scopeEl: HTMLElement;
   private readonly noteEl: HTMLElement;
+  private totalRowCount = 0;
   private readonly legendEl: HTMLElement;
   private readonly tooltipEl: HTMLElement;
   private readonly settingsBody: HTMLElement;
@@ -1627,6 +1630,7 @@ export class ChartCard {
     ) as HTMLButtonElement;
     this.resetViewButton.addEventListener("click", () => this.resetMapZoom());
     canvasWrap.append(this.resetViewButton);
+    this.scopeEl = el("div", { class: "chart-scope" });
     this.noteEl = el("div", { class: "chart-note" });
     this.legendEl = el("div", { class: "chart-legend hidden" });
     this.tooltipEl = el("div", { class: "chart-tooltip hidden", role: "tooltip" });
@@ -1724,6 +1728,7 @@ export class ChartCard {
 
     this.root.append(
       head,
+      this.scopeEl,
       this.animationSetup,
       this.bubbleSettings,
       canvasWrap,
@@ -1799,6 +1804,7 @@ export class ChartCard {
     this.sources = sources;
     this.renderSourceOptions();
     this.syncSourceControls();
+    this.syncScope();
   }
 
   private renderSourceOptions(): void {
@@ -2006,6 +2012,23 @@ export class ChartCard {
   setRowCount(count: number): void {
     this.rowCount = count;
     this.render();
+  }
+
+  setTotalRowCount(count: number): void {
+    this.totalRowCount = count;
+    this.syncScope();
+  }
+
+  private syncScope(): void {
+    const view = this.sources.find((source) => source.id === this.config.source);
+    const total = this.totalRowCount > 0 ? this.totalRowCount : this.rowCount;
+    const scope = describeScope({
+      total,
+      visible: this.rowCount,
+      viewName: view?.name ?? null,
+    });
+    this.scopeEl.textContent = view === undefined ? `Table · ${scope}` : scope;
+    this.scopeEl.classList.toggle("hidden", total === 0 && this.rowCount === 0);
   }
 
   refresh(): void {
@@ -4025,6 +4048,7 @@ export class ChartCard {
   }
 
   private render(): void {
+    this.syncScope();
     this.canvas.setAttribute("aria-label", this.canvasLabel());
     const wrap = this.canvas.parentElement;
     let cssWidth = 640;

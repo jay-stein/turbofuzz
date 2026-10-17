@@ -1727,6 +1727,24 @@ test("the chart rail lists every type, adds cards and collapses", async () => {
   const bubbleTile = tiles.find((tile) => (tile.textContent ?? "").includes("Bubble"));
   assert.ok(bubbleTile !== undefined, "the rail offers Bubble");
   assert.equal(bubbleTile.disabled, false);
+  const disabled = tiles.find((tile) => tile.getAttribute("aria-disabled") === "true");
+  assert.ok(disabled !== undefined, "at least one type does not fit these columns");
+  assert.equal(disabled.disabled, false, "disabled tiles remain focusable");
+  assert.equal(disabled.tabIndex, 0, "disabled tiles stay in the tab order");
+  const describedBy = disabled.getAttribute("aria-describedby") ?? "";
+  assert.ok(describedBy !== "", "the disabled tile points at its reason");
+  assert.match(
+    host.querySelector(`#${describedBy}`)?.textContent ?? "",
+    /\S/,
+    "the reason is available to assistive technology",
+  );
+  const modalBefore = host.ownerDocument.querySelectorAll(".chart-setup-modal").length;
+  disabled.click();
+  assert.equal(
+    host.ownerDocument.querySelectorAll(".chart-setup-modal").length,
+    modalBefore,
+    "activating a disabled tile does not open setup",
+  );
   const before = host.querySelectorAll(".chart-card").length;
   bubbleTile.click();
   await tick();
@@ -1745,6 +1763,76 @@ test("the chart rail lists every type, adds cards and collapses", async () => {
   assert.equal(rail.classList.contains("collapsed"), false);
   (host.querySelector(".charts-rail-toggle") as unknown as { click(): void }).click();
   assert.ok(rail.classList.contains("collapsed"), "the rail collapses to icons");
+  panel.dispose();
+});
+
+test("chart cards show their table scope and filtered row count", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  panel.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a"], counts: [1] } }),
+    meta({ name: "amount", type: "number" }),
+  ]);
+  const card = panel.addCard({ kind: "bar", column: 0 });
+  panel.setTotalRowCount(100);
+  panel.setRowCount(20);
+  assert.match(card.root.querySelector(".chart-scope")?.textContent ?? "", /Current rows: 20 of 100/);
+  panel.setRowCount(100);
+  assert.match(card.root.querySelector(".chart-scope")?.textContent ?? "", /Whole dataset \(100 rows\)/);
+  panel.dispose();
+});
+
+test("the empty charts state offers fitting one-click suggestions", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  panel.restore([], [
+    meta({ name: "city", type: "category", categories: { labels: ["a"], counts: [1] } }),
+    meta({ name: "amount", type: "number" }),
+  ]);
+  await tick();
+  const suggestions = host.querySelectorAll(".charts-empty-suggestions button");
+  assert.ok(suggestions.length > 0 && suggestions.length <= 3);
+  (suggestions[0] as unknown as { click(): void }).click();
+  await tick();
+  assert.ok(host.ownerDocument.querySelector(".chart-setup-modal") !== null);
+  (host.ownerDocument.querySelector(".chart-setup-modal .ghost") as unknown as { click(): void }).click();
+  panel.dispose();
+});
+
+test("an orphaned chart stays in the grid and can be rebound", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const sourceHost = document.createElement("div");
+  const source = new ChartsPanel(sourceHost, stubOptions());
+  const columns = [
+    meta({ name: "city", type: "category", categories: { labels: ["a"], counts: [1] } }),
+    meta({ name: "amount", type: "number" }),
+  ];
+  source.setColumns(columns);
+  const original = source.captureConfigs()[0];
+  assert.ok(original !== undefined);
+  source.dispose();
+  const missing = { ...original, column: "gone", missingColumns: ["gone"] };
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  panel.restore([{ missingColumns: ["gone"], namedConfig: missing }], columns);
+  assert.equal(host.querySelectorAll(".chart-card-orphan").length, 1, "the card stays");
+  assert.match(host.textContent ?? "", /gone/);
+  const rebind = [...host.querySelectorAll(".chart-card-orphan button")].find(
+    (button) => (button.textContent ?? "").trim() === "Rebind",
+  ) as unknown as { click(): void };
+  rebind.click();
+  await tick();
+  const modal = host.ownerDocument.querySelector(".chart-setup-modal");
+  assert.ok(modal !== null);
+  (modal.querySelector(".primary") as unknown as { click(): void }).click();
+  await tick();
+  assert.equal(host.querySelectorAll(".chart-card-orphan").length, 0);
+  assert.equal(host.querySelectorAll(".chart-card").length, 1, "rebind keeps a card");
   panel.dispose();
 });
 

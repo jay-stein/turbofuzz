@@ -107,7 +107,7 @@ import type { PairOperator } from "../data/pair-checks.js";
 import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
-import { ViewTabs, type ViewId } from "./view-tabs.js";
+import { ViewTabs, viewSwitchHint, type ViewId } from "./view-tabs.js";
 import { ViewsPanel } from "./views-panel.js";
 import { openCommandBar, type ParsedCommand } from "./command-bar.js";
 import { openTriagePanel, type TriagePanelHandle } from "./triage-panel.js";
@@ -461,7 +461,7 @@ export class App {
     this.hints = new Hints([
       {
         id: "tabs",
-        text: "Overview, Table, Views, Chart and Reports are lenses — switch anytime with 1–5.",
+        text: `Overview, Table, Views, Chart and Reports are lenses — ${viewSwitchHint()}.`,
         target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
       },
       {
@@ -1686,14 +1686,19 @@ export class App {
   }
 
   private openWorkspace(loaded: LoadedMessage | TransformedMessage): void {
-    if (loaded.type === "transformed") {
-      const captured = this.chartsPanel?.captureConfigs() ?? this.chartRestore;
-      if (captured !== null) {
-        const remapped = remapChartConfigs(captured, loaded.columns);
-        this.chartRestore = remapped.kept;
-        this.chartRemoved = remapped.removed;
-      }
+    const captured = this.chartsPanel?.captureConfigs() ?? this.chartRestore;
+    const hadOrphans =
+      (captured ?? []).some((config) => (config.missingColumns?.length ?? 0) > 0) ||
+      (this.chartRestore ?? []).some((config) => (config.missingColumns?.length ?? 0) > 0);
+    if (captured !== null) {
+      const remapped = remapChartConfigs(captured, loaded.columns);
+      this.chartRestore = remapped.named;
+      this.chartRemoved = remapped.removed;
     } else {
+      this.chartRestore = null;
+      this.chartRemoved = 0;
+    }
+    if (loaded.type === "loaded" && !hadOrphans) {
       this.chartRestore = null;
       this.chartRemoved = 0;
     }
@@ -1791,12 +1796,10 @@ export class App {
     this.renderHealthGroup();
     this.updateCount(loaded.rowCount, 0);
     this.updateGuardrail(loaded, loaded.source === "file" || loaded.type === "transformed");
-    if (loaded.type === "transformed" && this.chartRemoved > 0) {
+    if (this.chartRemoved > 0) {
       const count = this.chartRemoved;
       this.showWarning(
-        `${count} chart${count === 1 ? "" : "s"} removed because ${
-          count === 1 ? "its" : "their"
-        } column was deleted.`,
+        `${count} chart${count === 1 ? "" : "s"} need${count === 1 ? "s" : ""} a column that is no longer in this table. Open Chart to rebind or remove ${count === 1 ? "it" : "them"}.`,
       );
     }
     if (loaded.type === "loaded") {
@@ -1873,14 +1876,16 @@ export class App {
     });
     if (this.chartRestore !== null) {
       const remapped = remapChartConfigs(this.chartRestore, this.metas);
-      this.chartsPanel.restore(remapped.configs, this.metas);
+      this.chartsPanel.restore(remapped.entries, this.metas);
       this.chartRestore = null;
+      this.chartRemoved = 0;
     } else {
       this.chartsPanel.setColumns(this.metas);
     }
     this.chartsPanel.setSources(this.viewSources());
     this.chartsPanel.setFiltered(this.latestFacets, this.latestHistograms);
     this.chartsPanel.setRowCount(this.resultCount);
+    this.chartsPanel.setTotalRowCount(this.rowCount);
   }
 
   /** The view list every Source selector offers, alongside the table. */
@@ -2779,7 +2784,7 @@ export class App {
     const stats = this.latestStats ?? this.lastLoaded?.stats;
     if (stats === undefined) return;
     if (this.reportsPanel !== null) {
-      this.reportsPanel.setData(this.metas, stats, this.rowCount);
+      this.reportsPanel.setData(this.metas, stats, this.rowCount, this.resultCount);
       return;
     }
     this.reportsPanel = new ReportsPanel(this.reportsHost, {
@@ -2793,7 +2798,7 @@ export class App {
       requestSimilarClusters: () => this.client.getSimilarClusters().catch(() => null),
       onAction: (finding) => this.runFinding(finding),
     });
-    this.reportsPanel.setData(this.metas, stats, this.rowCount);
+    this.reportsPanel.setData(this.metas, stats, this.rowCount, this.resultCount);
   }
 
   private requestReportCorrelation(): Promise<CorrelationMessage | null> {
@@ -2943,7 +2948,7 @@ export class App {
     this.overview?.updateHealth(this.metas, stats);
     this.refreshMissingness();
     this.syncColumnTiles();
-    this.reportsPanel?.setData(this.metas, stats, this.rowCount);
+    this.reportsPanel?.setData(this.metas, stats, this.rowCount, this.resultCount);
     this.reportsPanel?.invalidate();
     this.triage?.update(this.metas, stats);
   }
@@ -3060,6 +3065,7 @@ export class App {
     this.qualityPage.render({
       score,
       rowCount: this.rowCount,
+      visibleRowCount: this.resultCount,
       stats,
       columnNames: this.metas.map((meta) => meta.name),
     });
@@ -3416,6 +3422,8 @@ export class App {
   private updateCount(count: number, queryMs: number): void {
     this.resultCount = count;
     this.chartsPanel?.setRowCount(count);
+    this.reportsPanel?.setVisibleRowCount(count);
+    if (this.qualityPage !== null && this.lastLoaded !== null) this.renderQualityPage();
     const timeText = queryMs < 1 ? "<1" : String(Math.round(queryMs));
     const total = this.rowCount;
     const parts: string[] = [];

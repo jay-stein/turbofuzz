@@ -29,6 +29,8 @@ export type FindingAction =
 export interface Finding {
   id: string;
   report: string;
+  /** Which rows the finding describes; defaults to the whole dataset. */
+  scope?: "dataset" | "rows";
   severity: FindingSeverity;
   /** Plain-language sentence. */
   title: string;

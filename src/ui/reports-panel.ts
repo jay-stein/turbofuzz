@@ -25,6 +25,7 @@ import type {
   TextProfileMessage,
 } from "../worker/protocol.js";
 import { clear, el } from "./dom.js";
+import { describeScope } from "./scope.js";
 
 export type ReportTab = "quality" | "relationships" | "anomalies";
 
@@ -63,10 +64,12 @@ export interface ReportsPanelOptions {
 export class ReportsPanel {
   private readonly tabsEl: HTMLElement;
   private readonly metaEl: HTMLElement;
+  private readonly scopeEl: HTMLElement;
   private readonly listEl: HTMLElement;
   private metas: readonly ColumnMeta[] = [];
   private stats: DatasetStats | null = null;
   private rowCount = 0;
+  private visibleRowCount = 0;
   private active: ReportTab = "quality";
   private correlation: CorrelationMessage | null = null;
   private correlationLoading = false;
@@ -101,14 +104,21 @@ export class ReportsPanel {
     this.root.classList.add("reports-panel");
     this.tabsEl = el("div", { class: "reports-tabs" });
     this.metaEl = el("div", { class: "reports-meta" });
+    this.scopeEl = el("div", { class: "reports-scope" });
     this.listEl = el("div", { class: "reports-list" });
-    this.root.append(this.tabsEl, this.metaEl, this.listEl);
+    this.root.append(this.tabsEl, this.metaEl, this.scopeEl, this.listEl);
   }
 
-  setData(metas: readonly ColumnMeta[], stats: DatasetStats, rowCount = 0): void {
+  setData(
+    metas: readonly ColumnMeta[],
+    stats: DatasetStats,
+    rowCount = 0,
+    visibleRowCount = rowCount,
+  ): void {
     this.metas = metas;
     this.stats = stats;
     this.rowCount = rowCount;
+    this.visibleRowCount = visibleRowCount;
     if (this.active === "relationships") {
       void this.loadCorrelation();
       void this.loadRelationships();
@@ -298,41 +308,63 @@ export class ReportsPanel {
     if (this.active === "anomalies") void this.loadGroupAnomalies();
   }
 
+  setVisibleRowCount(count: number): void {
+    this.visibleRowCount = count;
+    this.render();
+  }
+
   refresh(): void {
     this.render();
   }
 
   private findings(): Finding[] {
     if (this.stats === null) return [];
+    const withScope = (
+      findings: readonly Finding[],
+      scope: "dataset" | "rows",
+    ): Finding[] => findings.map((finding) => ({ ...finding, scope }));
     if (this.active === "quality") {
-      const quality = qualityFindings(this.metas, this.stats, this.rowCount);
+      const quality = withScope(
+        qualityFindings(this.metas, this.stats, this.rowCount),
+        "dataset",
+      );
       if (this.textProfiles.length > 0) {
         quality.push(
-          ...textProfileFindings(
-            this.textProfiles.map((profile) => ({
-              column: profile.column,
-              label: profile.label,
-              profile: profile.profile,
-            })),
+          ...withScope(
+            textProfileFindings(
+              this.textProfiles.map((profile) => ({
+                column: profile.column,
+                label: profile.label,
+                profile: profile.profile,
+              })),
+            ),
+            "dataset",
           ),
         );
       }
       if (this.dependencies !== null && this.dependencies.pairs.length > 0) {
-        quality.push(...dependencyFindings(this.dependencies.pairs));
+        quality.push(...withScope(dependencyFindings(this.dependencies.pairs), "dataset"));
       }
       if (this.distributionChanges !== null && this.distributionChanges.changes.length > 0) {
-        quality.push(...distributionFindings(this.distributionChanges.changes));
+        quality.push(
+          ...withScope(distributionFindings(this.distributionChanges.changes), "rows"),
+        );
       }
       if (this.similarClusters !== null && this.similarClusters.entries.length > 0) {
-        quality.push(...similarClusterFindings(this.similarClusters.entries));
+        quality.push(
+          ...withScope(similarClusterFindings(this.similarClusters.entries), "rows"),
+        );
       }
       if (this.coMissingness !== null) {
         quality.push(
-          ...coMissingnessFindings(
-            this.coMissingness.columns,
-            this.coMissingness.labels,
-            this.coMissingness.nullCells,
-            this.coMissingness.pairs,
+          ...withScope(
+            coMissingnessFindings(
+              this.coMissingness.columns,
+              this.coMissingness.labels,
+              this.coMissingness.nullCells,
+              this.coMissingness.pairs,
+            ),
+            "rows",
           ),
         );
       }
@@ -345,32 +377,41 @@ export class ReportsPanel {
       return quality;
     }
     if (this.active === "anomalies") {
-      const findings = anomalyFindings(this.metas);
+      const findings = withScope(anomalyFindings(this.metas), "dataset");
       if (this.groupAnomalies !== null && this.groupAnomalies.pairs.length > 0) {
-        findings.push(...groupAnomalyFindings(this.groupAnomalies.pairs));
+        findings.push(...withScope(groupAnomalyFindings(this.groupAnomalies.pairs), "dataset"));
         findings.sort((a, b) => b.impact.rows - a.impact.rows);
       }
       return findings;
     }
     if (this.active === "relationships") {
       if (this.explainLabel !== null && this.correlation !== null) {
-        return explainColumn(
+        return withScope(
+          explainColumn(
+            this.correlation.labels,
+            this.correlation.columns,
+            this.correlation.result.values,
+            this.correlation.result.counts,
+            this.explainLabel,
+          ).findings,
+          "rows",
+        );
+      }
+      if (this.relationships !== null) {
+        return withScope(
+          relationshipDataFindings(this.relationships.relationships),
+          "rows",
+        );
+      }
+      if (this.correlation === null) return [];
+      return withScope(
+        relationshipFindings(
           this.correlation.labels,
           this.correlation.columns,
           this.correlation.result.values,
           this.correlation.result.counts,
-          this.explainLabel,
-        ).findings;
-      }
-      if (this.relationships !== null) {
-        return relationshipDataFindings(this.relationships.relationships);
-      }
-      if (this.correlation === null) return [];
-      return relationshipFindings(
-        this.correlation.labels,
-        this.correlation.columns,
-        this.correlation.result.values,
-        this.correlation.result.counts,
+        ),
+        "rows",
       );
     }
     return [];
@@ -416,6 +457,13 @@ export class ReportsPanel {
       this.stats === null
         ? ""
         : `${findings.length.toLocaleString()} finding${findings.length === 1 ? "" : "s"} · ${fixes} fix · ${reviews} review${loadingNote}`;
+    this.scopeEl.textContent =
+      this.stats === null
+        ? ""
+        : `${describeScope({
+            total: this.rowCount,
+            visible: this.visibleRowCount,
+          })} · Scope is shown on each finding`;
 
     clear(this.listEl);
     if (this.stats === null) {
@@ -489,8 +537,20 @@ export class ReportsPanel {
     const badge = el("span", { class: `finding-badge ${finding.severity}` }, [
       finding.severity === "fix" ? "Fix" : finding.severity === "review" ? "Review" : "Info",
     ]);
+    const scope = el(
+      "span",
+      {
+        class: `finding-scope finding-scope-${finding.scope ?? "dataset"}`,
+        title: "Rows this finding describes",
+      },
+      [finding.scope === "rows" ? "Current rows" : "Whole dataset"],
+    );
     body.append(
-      el("div", { class: "finding-title-row" }, [badge, el("span", { class: "finding-title" }, [finding.title])]),
+      el("div", { class: "finding-title-row" }, [
+        badge,
+        scope,
+        el("span", { class: "finding-title" }, [finding.title]),
+      ]),
       el(
         "div",
         { class: "finding-evidence" },
