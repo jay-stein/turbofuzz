@@ -101,6 +101,26 @@ test("round, fill and split parse into transform steps", () => {
     assert.equal(op?.kind, "splitColumn");
     if (op !== undefined && op.kind === "splitColumn") assert.equal(op.pattern, ",");
   }
+  const constant = parseCommand("fill amount 0", columns);
+  assert.equal(constant.kind, "transform");
+  if (constant.kind === "transform") {
+    assert.deepEqual(constant.ops[0], {
+      kind: "impute",
+      column: 0,
+      strategy: { kind: "constant", value: "0" },
+      groupColumn: null,
+    });
+  }
+  const namedConstant = parseCommand("fill amount constant N/A", columns);
+  assert.equal(namedConstant.kind, "transform");
+  if (namedConstant.kind === "transform") {
+    assert.deepEqual(namedConstant.ops[0], {
+      kind: "impute",
+      column: 0,
+      strategy: { kind: "constant", value: "N/A" },
+      groupColumn: null,
+    });
+  }
 });
 
 test("group builds a group-by aggregate over parsed columns", () => {
@@ -233,6 +253,137 @@ test("keydup parses comma-separated key columns", () => {
   assert.equal(single.kind, "keyDuplicates");
   const bad = parseCommand("keydup nope, region", columns);
   assert.equal(bad.kind, "error");
+});
+
+test("melt, combine and KNN cover the missing transform operations", () => {
+  const melt = parseCommand("melt keep region", columns);
+  assert.equal(melt.kind, "transform");
+  if (melt.kind === "transform") {
+    assert.deepEqual(melt.ops, [
+      { kind: "melt", idVars: [1], valueVars: [], varName: "variable", valueName: "value" },
+    ]);
+  }
+  const meltAll = parseCommand("melt", columns);
+  assert.equal(meltAll.kind, "transform");
+  if (meltAll.kind === "transform") {
+    const op = meltAll.ops[0];
+    assert.equal(op?.kind, "melt");
+    if (op?.kind === "melt") assert.deepEqual(op.idVars, []);
+  }
+
+  const dateParts = [
+    meta({ name: "Year", type: "integer" }),
+    meta({ name: "Month", type: "integer" }),
+    meta({ name: "Day", type: "integer" }),
+  ];
+  const combine = parseCommand("combine dates", dateParts);
+  assert.equal(combine.kind, "transform");
+  if (combine.kind === "transform") {
+    const op = combine.ops[0];
+    assert.equal(op?.kind, "combineDate");
+    if (op?.kind === "combineDate") {
+      assert.equal(op.output, "date");
+      assert.equal(op.parts.length, 3);
+    }
+  }
+
+  const knn = parseCommand("knn amount 3", columns);
+  assert.equal(knn.kind, "transform");
+  if (knn.kind === "transform") {
+    assert.deepEqual(knn.ops, [{ kind: "knn", fill: [0], predictors: [2], k: 3 }]);
+  }
+});
+
+test("other missing clean, transform and worksheet commands parse", () => {
+  const regex = parseCommand("splitregex notes on \\d+", columns);
+  assert.equal(regex.kind, "transform");
+  if (regex.kind === "transform") {
+    const op = regex.ops[0];
+    assert.equal(op?.kind, "splitColumn");
+    if (op?.kind === "splitColumn") assert.equal(op.regex, true);
+  }
+
+  const repair = parseCommand("repair amount", columns);
+  assert.equal(repair.kind, "clean");
+  if (repair.kind === "clean") assert.equal(repair.op.kind, "repairDecimal");
+
+  const replace = parseCommand('replace notes "N/A" with "Unknown"', columns);
+  assert.equal(replace.kind, "clean");
+  if (replace.kind === "clean") {
+    assert.deepEqual(replace.op, {
+      kind: "replace",
+      find: "N/A",
+      replacement: "Unknown",
+      ignoreCase: false,
+    });
+  }
+
+  assert.equal(parseCommand("type amount number", columns).kind, "type");
+  assert.equal(parseCommand("rename notes memo", columns).kind, "rename");
+  assert.equal(parseCommand("merge region", columns).kind, "merge");
+  assert.equal(parseCommand("winsorize amount 1", columns).kind, "transform");
+  assert.equal(parseCommand("flag amount", columns).kind, "transform");
+});
+
+test("sort, filter, view and output commands parse", () => {
+  const sort = parseCommand("sort amount desc", columns);
+  assert.equal(sort.kind, "sort");
+  if (sort.kind === "sort") {
+    assert.equal(sort.column, 0);
+    assert.equal(sort.dir, -1);
+  }
+  assert.equal(parseCommand("sort none", columns).kind, "sort");
+
+  const filter = parseCommand("filter region exact active", columns);
+  assert.equal(filter.kind, "filter");
+  if (filter.kind === "filter") {
+    assert.deepEqual(filter.filter, { kind: "text", mode: "exact", query: "active" });
+  }
+  const range = parseCommand("filter amount 10..20", columns);
+  assert.equal(range.kind, "filter");
+  if (range.kind === "filter") {
+    assert.deepEqual(range.filter, { kind: "range", min: 10, max: 20 });
+  }
+  assert.equal(parseCommand("clear filters", columns).kind, "clearFilters");
+
+  for (const view of ["table", "overview", "reports"] as const) {
+    const command = parseCommand(view, columns);
+    assert.equal(command.kind, "openView");
+    if (command.kind === "openView") assert.equal(command.view, view);
+  }
+  const chart = parseCommand("chart region", columns);
+  assert.equal(chart.kind, "chart");
+  if (chart.kind === "chart") assert.equal(chart.column, 1);
+  assert.equal(parseCommand("stats", columns).kind, "stats");
+  assert.equal(parseCommand("recipe", columns).kind, "recipe");
+  assert.equal(parseCommand("help", columns).kind, "help");
+  assert.equal(parseCommand("shuffle", columns).kind, "shuffle");
+  assert.equal(parseCommand("copy", columns).kind, "copy");
+  assert.equal(parseCommand("tiles", columns).kind, "tiles");
+  const withEmpty = [
+    ...columns,
+    meta({ name: "blank", stats: { ...meta().stats, distinct: 0, nulls: 3 } }),
+  ];
+  const dropEmpty = parseCommand("dropempty", withEmpty);
+  assert.equal(dropEmpty.kind, "transform");
+  if (dropEmpty.kind === "transform") {
+    assert.deepEqual(dropEmpty.ops, [{ kind: "drop", column: 4 }]);
+  }
+  const header = parseCommand("headercase snake", columns);
+  assert.equal(header.kind, "headerCase");
+  if (header.kind === "headerCase") assert.equal(header.style, "snake");
+  const theme = parseCommand("theme dark", columns);
+  assert.equal(theme.kind, "theme");
+  if (theme.kind === "theme") assert.equal(theme.preference, "dark");
+});
+
+test("suggestions expose the new commands", () => {
+  const melt = commandSuggestions("mel", columns);
+  assert.equal(melt[0]?.usage, "melt keep amount");
+  assert.equal(melt[0]?.command.kind, "transform");
+  const all = commandSuggestions("", columns, 50);
+  assert.ok(all.some((entry) => entry.usage.startsWith("melt")));
+  assert.ok(all.some((entry) => entry.usage === "combine dates"));
 });
 
 test("palette input state tracks verb and full-command recognition", () => {

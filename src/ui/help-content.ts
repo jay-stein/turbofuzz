@@ -50,6 +50,25 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     ],
   },
   {
+    id: "commands",
+    title: "Command bar",
+    summary: "“Enter a command” (Ctrl/⌘+K) reaches navigation, cleaning, transforms and outputs.",
+    blocks: [
+      p(
+        "Open “Enter a command” in the toolbar or press Ctrl/⌘+K. Start typing to filter suggestions, use the arrow keys to choose, and Enter to run. Data-changing commands ask for confirmation and land in Recipe.",
+      ),
+      list(
+        "Navigation — overview, table, views, reports, quality, chart, help.",
+        "Columns — rename notes memo · type amount number · drop notes · dropempty · merge region · headercase snake.",
+        "Clean — upper/lower/title/trim (or “all”), number, date, datetime, repair, replace notes \"old\" with \"new\", escape.",
+        "Transform — round amount 2 · fill amount median · knn amount 5 · split notes on , · splitregex notes on \\d+ · group region sum amount · dedupe last · melt keep region, year · combine dates · winsorize amount 1 · flag amount.",
+        "Filter and sort — filter region active · filter amount 10..20 · sort amount desc · clear filters.",
+        "Output — chart region · chart · export · recipe · stats.",
+        "Workspace — shuffle · copy · tiles · theme dark/light/auto · help.",
+      ),
+    ],
+  },
+  {
     id: "import-check",
     title: "Import check",
     summary: "What the import banner and encoding notes mean.",

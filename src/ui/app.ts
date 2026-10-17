@@ -473,7 +473,7 @@ export class App {
       },
       {
         id: "command-bar",
-        text: "“Do something…” in the toolbar (or Ctrl/⌘ + K) opens the command bar — “upper amount”, “convert date_time to datetime”, “group region sum sales”.",
+        text: "“Enter a command” in the toolbar (or Ctrl/⌘ + K) opens the command bar — “upper amount”, “melt keep region”, “group region sum sales”.",
         target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
       },
       {
@@ -561,7 +561,7 @@ export class App {
         type: "button",
         title: "Type a command — e.g. “convert date_time to datetime”, “upper amount”, “group region sum sales”",
       },
-      [el("span", { class: "palette-button-label" }, ["Do something…"]), el("span", { class: "kbd" }, ["Ctrl/⌘ K"])],
+      [el("span", { class: "palette-button-label" }, ["Enter a command"]), el("span", { class: "kbd" }, ["Ctrl/⌘ K"])],
     ) as HTMLButtonElement;
     paletteButton.addEventListener("click", () => this.openPalette());
     topbar.append(this.scoreTile, paletteButton, this.themeButton, helpButton);
@@ -972,7 +972,7 @@ export class App {
     return workspace;
   }
 
-  /** Opens the fuzzy command palette (Ctrl/⌘+K or the "Do something…" button). */
+  /** Opens the fuzzy command palette (Ctrl/⌘+K or the "Enter a command" button). */
   private openPalette(): void {
     if (this.workspace.classList.contains("hidden")) return;
     openCommandBar({
@@ -2729,6 +2729,69 @@ export class App {
         );
         break;
       }
+      case "filter":
+        this.setView("table");
+        this.changeFilter(command.column, command.filter);
+        break;
+      case "clearFilters":
+        this.clearFilters();
+        break;
+      case "sort":
+        this.setView("table");
+        this.changeSort(command.column, command.dir);
+        break;
+      case "type":
+        this.changeType(command.column, command.type);
+        break;
+      case "rename": {
+        const headers = this.metas.map((meta) => meta.name);
+        headers[command.column] = command.name;
+        this.applyHeaderRename(headers);
+        break;
+      }
+      case "merge":
+        this.setView("table");
+        this.openMerge(command.column);
+        break;
+      case "chart":
+        this.ensureCharts();
+        if (command.column !== undefined && command.column >= 0) {
+          const meta = this.metas[command.column];
+          if (meta !== undefined) {
+            this.chartsPanel?.addCard({
+              kind: chartKindFor(meta.type) ?? "histogram",
+              column: command.column,
+            });
+          }
+        }
+        this.setView("chart");
+        break;
+      case "openView":
+        this.setView(command.view);
+        break;
+      case "shuffle":
+        this.shuffleRows();
+        break;
+      case "copy":
+        void this.copyResults();
+        break;
+      case "tiles":
+        this.toggleColumnTiles();
+        break;
+      case "stats":
+        this.openStats();
+        break;
+      case "recipe":
+        this.openSteps();
+        break;
+      case "help":
+        openHelpDrawer();
+        break;
+      case "theme":
+        this.themePreference = command.preference;
+        applyThemePreference(command.preference);
+        this.themeButton.textContent = `Theme: ${command.preference === "auto" ? "Auto" : command.preference === "light" ? "Light" : "Dark"}`;
+        break;
       case "openClean":
         this.openClean(command.column, command.tab ?? "values");
         break;

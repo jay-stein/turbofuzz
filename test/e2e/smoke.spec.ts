@@ -42,6 +42,13 @@ test("loads a small CSV and shows columns and rows", async ({ page }, testInfo) 
     contentType: "image/png",
   });
 
+  await page.getByRole("button", { name: /Enter a command/ }).click();
+  const command = page.getByRole("textbox", { name: "Command" });
+  await expect(command).toBeVisible();
+  await command.fill("melt keep name");
+  await expect(page.locator(".command-usage").first()).toContainText("melt keep name");
+  await page.keyboard.press("Escape");
+
   await page.getByRole("tab", { name: "Data Quality" }).click();
   await expect(page.locator(".qp-hero")).toBeVisible();
   await expect(page.locator(".qp-scope")).toContainText("Whole dataset");
@@ -53,6 +60,45 @@ test("loads a small CSV and shows columns and rows", async ({ page }, testInfo) 
   await page.getByRole("tab", { name: "Chart" }).click();
   await expect(page.locator(".charts-panel")).toBeVisible();
   await expect(page.locator(".chart-card").first()).toBeVisible();
+
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test("runs sort, filter and melt commands end to end", async ({ page }) => {
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "commands.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("name,amount\nAlice,10\nBob,20\nCara,30\n"),
+  });
+  await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
+
+  const runCommand = async (text: string): Promise<void> => {
+    await page.getByRole("button", { name: /Enter a command/ }).click();
+    const input = page.getByRole("textbox", { name: "Command" });
+    await input.fill(text);
+    await input.press("Enter");
+  };
+
+  await runCommand("sort amount desc");
+  const rows = page.locator(".table-rows .tr");
+  await expect(rows.nth(0).locator(".td").nth(1)).toHaveText("Cara");
+
+  await runCommand("filter amount 10..20");
+  await expect(rows).toHaveCount(2);
+
+  await runCommand("melt keep name");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(page.locator(".th-label")).toHaveText(["name", "variable", "value"]);
+  await expect(rows).toHaveCount(3);
 
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
