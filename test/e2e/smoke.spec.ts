@@ -42,6 +42,18 @@ test("loads a small CSV and shows columns and rows", async ({ page }, testInfo) 
     contentType: "image/png",
   });
 
+  await page.getByRole("tab", { name: "Data Quality" }).click();
+  await expect(page.locator(".qp-hero")).toBeVisible();
+  await expect(page.locator(".qp-scope")).toContainText("Whole dataset");
+  await expect(page.locator(".qp-sensitive-empty")).toContainText(
+    "No obvious email",
+  );
+  await expect(page.locator(".qp-explain")).toContainText("Adjust weights");
+
+  await page.getByRole("tab", { name: "Chart" }).click();
+  await expect(page.locator(".charts-panel")).toBeVisible();
+  await expect(page.locator(".chart-card").first()).toBeVisible();
+
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
 });

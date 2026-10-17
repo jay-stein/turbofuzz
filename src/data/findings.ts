@@ -547,7 +547,13 @@ export function textProfileFindings(profiles: readonly TextProfileInput[]): Find
     .filter((entry) => entry.profile.rows >= 20 && entry.profile.totalTokens >= 20)
     .map((entry) => {
       const profile = entry.profile;
-      const shaped = profile.shapes.email + profile.shapes.url + profile.shapes.phone;
+      const shaped =
+        profile.shapes.email +
+        profile.shapes.url +
+        profile.shapes.phone +
+        profile.shapes.creditCard +
+        profile.shapes.iban +
+        profile.shapes.governmentId;
       const shapedShare = profile.rows > 0 ? shaped / profile.rows : 0;
       const mixed = shapedShare >= 0.1 && shapedShare < 0.9 && shaped >= 5;
       const top = profile.topTerms[0];
@@ -556,7 +562,7 @@ export function textProfileFindings(profiles: readonly TextProfileInput[]): Find
         report: "quality.textMining",
         severity: mixed ? "review" : "info",
         title: mixed
-          ? `“${entry.label}” mixes ${Math.round(shapedShare * 100)}% shaped values (email/URL/phone) with free text`
+          ? `“${entry.label}” mixes ${Math.round(shapedShare * 100)}% shaped values (email/URL/phone/ID/card) with free text`
           : `“${entry.label}” is free text — ${profile.distinctTerms.toLocaleString()} distinct terms in ${profile.rows.toLocaleString()} values`,
         evidence: [
           { metric: "values", value: profile.rows.toLocaleString(), n: profile.rows },
@@ -579,7 +585,7 @@ export function textProfileFindings(profiles: readonly TextProfileInput[]): Find
             ? [
                 {
                   metric: "shaped values",
-                  value: `${profile.shapes.email.toLocaleString()} email · ${profile.shapes.url.toLocaleString()} URL · ${profile.shapes.phone.toLocaleString()} phone`,
+                  value: `${profile.shapes.email.toLocaleString()} email · ${profile.shapes.url.toLocaleString()} URL · ${profile.shapes.phone.toLocaleString()} phone · ${profile.shapes.creditCard.toLocaleString()} card · ${profile.shapes.iban.toLocaleString()} IBAN · ${profile.shapes.governmentId.toLocaleString()} ID`,
                   n: shaped,
                 },
               ]

@@ -5551,6 +5551,59 @@ label.null-row {
 
 .qp-dims { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 
+.qp-freshness,
+.qp-sensitive-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.qp-fresh-card,
+.qp-sensitive-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.qp-fresh-name,
+.qp-sensitive-name {
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qp-fresh-value {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.qp-fresh-meta,
+.qp-sensitive-meta,
+.qp-sensitive-empty {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.qp-sensitive-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.qp-sensitive-tag {
+  font-size: 10.5px;
+  border-radius: 999px;
+  padding: 1px 7px;
+  color: var(--qa-warn-text);
+  background: var(--qa-warn-soft);
+}
+
 .qp-dim {
   display: flex;
   flex-direction: column;

@@ -1357,7 +1357,12 @@ function handleGetTextProfile(message: GetTextProfileRequest): void {
   const column = dataset.columns[message.column];
   if (column === undefined) throw new Error("Unknown column");
   const started = performance.now();
-  const profile = textProfile(column.raw, column.nullMask, message.limit ?? 30);
+  const profile = textProfile(
+    column.raw,
+    column.nullMask,
+    message.limit ?? 30,
+    message.terms !== false,
+  );
   post({
     type: "textProfile",
     requestId: message.requestId,

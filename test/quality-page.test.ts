@@ -147,7 +147,7 @@ test("the Data Quality page shows the score, dims, fixes and matrix", () => {
   );
 
   // A matrix cell click reports its check too (email completeness → nulls).
-  const cells = host.querySelectorAll(".quality-matrix-table .quality-cell");
+  const cells = host.querySelectorAll(".quality-matrix-table button.quality-cell");
   assert.ok(cells.length >= 6, "matrix cells for every column");
   (cells[2] as unknown as { click(): void }).click();
   assert.ok(filters.length >= 2, "matrix cells filter their failures");
@@ -264,6 +264,66 @@ test("a What-to-fix-first row is clickable as a whole", () => {
   assert.ok(row !== null);
   row.click();
   assert.equal(filters.length, 1, "clicking the row runs its check action");
+});
+
+test("the matrix includes a per-column score", () => {
+  const window = setupDom();
+  const host = window.document.createElement("div");
+  const columns = [meta({ name: "city" }), meta({ name: "postcode" })];
+  const page = new QualityPage(host as unknown as HTMLElement, {
+    onFilter: () => {},
+    onExport: () => Promise.resolve(true),
+  });
+  page.render({
+    score: computeDQScore(columns, stats(), 100),
+    rowCount: 100,
+    stats: stats(),
+    columnNames: ["city", "postcode"],
+  });
+  const headers = [...host.querySelectorAll(".quality-matrix-table th")].map(
+    (cell) => cell.textContent,
+  );
+  assert.ok(headers.includes("Score"));
+  const scores = [...host.querySelectorAll(".quality-matrix-table span.quality-cell")];
+  assert.ok(scores.length >= 2);
+  assert.match(scores[0]?.textContent ?? "", /^\d+%$/);
+});
+
+test("sensitive-pattern and freshness advisories render separately", () => {
+  const window = setupDom();
+  const host = window.document.createElement("div");
+  const columns = [meta({ name: "email" }), meta({ name: "card" }), meta({ name: "when", type: "date" })];
+  const page = new QualityPage(host as unknown as HTMLElement, {
+    onFilter: () => {},
+    onExport: () => Promise.resolve(true),
+  });
+  page.render({
+    score: computeDQScore(columns, stats(), 100),
+    rowCount: 100,
+    stats: stats(),
+    columnNames: ["email", "card", "when"],
+    sensitive: [
+      {
+        column: 0,
+        name: "email",
+        rows: 100,
+        counts: [{ label: "Email", count: 100 }],
+      },
+      {
+        column: 1,
+        name: "card",
+        rows: 100,
+        counts: [{ label: "Card", count: 12 }],
+      },
+    ],
+    sensitiveScanned: true,
+    freshness: [{ column: 2, name: "when", latest: Date.UTC(2024, 0, 1) }],
+    now: Date.UTC(2024, 0, 11),
+  });
+  assert.match(host.querySelector(".qp-sensitive-list")?.textContent ?? "", /Email 100/);
+  assert.match(host.querySelector(".qp-sensitive-list")?.textContent ?? "", /Card 12/);
+  assert.match(host.querySelector(".qp-freshness")?.textContent ?? "", /2024-01-01/);
+  assert.match(host.querySelector(".qp-freshness")?.textContent ?? "", /10 days old/);
 });
 
 test("a downgrade check converts the column in one click", () => {

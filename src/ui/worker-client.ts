@@ -271,8 +271,12 @@ export class SearchWorkerClient {
     return this.request<RelationshipsMessage>({ type: "getRelationships" });
   }
 
-  getTextProfile(column: number, limit?: number): Promise<TextProfileMessage> {
-    return this.request<TextProfileMessage>({ type: "getTextProfile", column, limit });
+  getTextProfile(
+    column: number,
+    limit?: number,
+    terms = true,
+  ): Promise<TextProfileMessage> {
+    return this.request<TextProfileMessage>({ type: "getTextProfile", column, limit, terms });
   }
 
   getDistributionChanges(): Promise<DistributionChangesMessage> {

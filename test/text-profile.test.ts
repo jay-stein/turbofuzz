@@ -54,6 +54,25 @@ test("textProfile drops core function words from Top terms", () => {
   assert.ok(terms.includes("service"));
 });
 
+test("textProfile detects sensitive shapes and can skip term counting", () => {
+  const values = [
+    "jane@example.com",
+    "+1 (555) 123-4567",
+    "4111 1111 1111 1111",
+    "GB82 WEST 1234 5698 7654 32",
+    "123-45-6789",
+    "ordinary text",
+  ];
+  const profile = textProfile(values, mask(values), 30, false);
+  assert.equal(profile.shapes.email, 1);
+  assert.equal(profile.shapes.phone, 1);
+  assert.equal(profile.shapes.creditCard, 1);
+  assert.equal(profile.shapes.iban, 1);
+  assert.equal(profile.shapes.governmentId, 1);
+  assert.deepEqual(profile.topTerms, [], "shape-only scans skip term counting");
+  assert.equal(profile.totalTokens, 0);
+});
+
 test("textProfile handles numeric-looking text without counting it as terms", () => {
   const values = ["1.5", "2", "3", "north", "south", "north"];
   const profile = textProfile(values, mask(values));

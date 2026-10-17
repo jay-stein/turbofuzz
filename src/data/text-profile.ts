@@ -5,6 +5,9 @@ export interface TextShapeCounts {
   email: number;
   url: number;
   phone: number;
+  creditCard: number;
+  iban: number;
+  governmentId: number;
   numeric: number;
   dateLike: number;
   uppercase: number;
@@ -29,8 +32,43 @@ export interface TextProfile {
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const URL = /^(https?:\/\/|www\.)\S+$/i;
 const PHONE = /^[+()\d][\d\s().-]{5,}$/;
+const CARD_CANDIDATE = /^(?:\d[ -]?){12,18}\d$/;
+const IBAN_CANDIDATE = /^[A-Za-z]{2}\d{2}[A-Za-z0-9 ]{11,30}$/;
+const GOVERNMENT_ID = /^\d{3}-\d{2}-\d{4}$/;
 const NUMERIC = /^[-+]?\d*\.?\d+$/;
 const DATE_LIKE = /^\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}/;
+
+function luhnValid(value: string): boolean {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length < 13 || digits.length > 19) return false;
+  let sum = 0;
+  let double = false;
+  for (let index = digits.length - 1; index >= 0; index--) {
+    let digit = Number(digits[index]);
+    if (double) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+    double = !double;
+  }
+  return sum % 10 === 0;
+}
+
+function ibanValid(value: string): boolean {
+  const compact = value.replace(/[\s-]/g, "").toUpperCase();
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(compact)) return false;
+  const rearranged = compact.slice(4) + compact.slice(0, 4);
+  let remainder = 0;
+  for (const char of rearranged) {
+    if (/\d/.test(char)) {
+      remainder = (remainder * 10 + Number(char)) % 97;
+    } else {
+      remainder = (remainder * 100 + char.charCodeAt(0) - 55) % 97;
+    }
+  }
+  return remainder === 1;
+}
 
 /** Common English function words: noise for keyword mining, cheap to keep. */
 const STOPWORDS = new Set([
@@ -69,6 +107,7 @@ export function textProfile(
   values: readonly string[],
   nullMask: BitSet,
   limit = 30,
+  includeTerms = true,
 ): TextProfile {
   const counts = new Map<string, number>();
   const distinct = new Set<string>();
@@ -76,6 +115,9 @@ export function textProfile(
     email: 0,
     url: 0,
     phone: 0,
+    creditCard: 0,
+    iban: 0,
+    governmentId: 0,
     numeric: 0,
     dateLike: 0,
     uppercase: 0,
@@ -94,12 +136,16 @@ export function textProfile(
     characters += trimmed.length;
     if (EMAIL.test(trimmed)) shapes.email++;
     else if (URL.test(trimmed)) shapes.url++;
+    else if (CARD_CANDIDATE.test(trimmed) && luhnValid(trimmed)) shapes.creditCard++;
+    else if (IBAN_CANDIDATE.test(trimmed) && ibanValid(trimmed)) shapes.iban++;
+    else if (GOVERNMENT_ID.test(trimmed)) shapes.governmentId++;
     else if (PHONE.test(trimmed)) shapes.phone++;
     else if (NUMERIC.test(trimmed)) shapes.numeric++;
     else if (DATE_LIKE.test(trimmed)) shapes.dateLike++;
     if (trimmed === trimmed.toUpperCase() && /[\p{L}]/u.test(trimmed)) shapes.uppercase++;
     if (/\d/.test(trimmed)) shapes.hasDigits++;
 
+    if (!includeTerms) continue;
     for (const token of tokenize(trimmed)) {
       if (token.length < 2 || STOPWORDS.has(token)) continue;
       totalTokens++;

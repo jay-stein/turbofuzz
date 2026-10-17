@@ -51,6 +51,19 @@ export interface QualityPageCallbacks {
   }): void;
 }
 
+export interface SensitiveColumn {
+  column: number;
+  name: string;
+  rows: number;
+  counts: { label: string; count: number }[];
+}
+
+export interface FreshnessColumn {
+  column: number;
+  name: string;
+  latest: number;
+}
+
 export interface QualityPageInput {
   score: DQScore;
   rowCount: number;
@@ -58,6 +71,13 @@ export interface QualityPageInput {
   visibleRowCount?: number;
   stats: DatasetStats;
   columnNames: readonly string[];
+  /** Advisory PII-like pattern matches, by column. */
+  sensitive?: readonly SensitiveColumn[];
+  sensitiveScanned?: boolean;
+  /** Date/datetime columns with their latest value (epoch ms). */
+  freshness?: readonly FreshnessColumn[];
+  /** Injectable clock for deterministic freshness labels in tests. */
+  now?: number;
 }
 
 /**
@@ -128,8 +148,10 @@ export class QualityPage {
       ),
       this.buildSettings(score),
       this.buildDimensions(score),
+      this.buildFreshness(input.freshness ?? [], input.now ?? Date.now()),
       this.buildFixes(score),
       this.buildChecks(score),
+      this.buildSensitive(input.sensitive ?? [], input.sensitiveScanned === true),
       this.buildMatrix(score, columnNames),
     );
   }
@@ -401,6 +423,101 @@ export class QualityPage {
     return wrap;
   }
 
+  // ---------- freshness ----------
+
+  private buildFreshness(columns: readonly FreshnessColumn[], now: number): HTMLElement {
+    if (columns.length === 0) return el("div", { class: "hidden" });
+    const section = el("div", { class: "qp-section" });
+    section.append(
+      el("h3", { class: "qp-section-title" }, [
+        "Freshness",
+        el("span", { class: "qp-section-hint" }, [
+          `latest value per date column · informational; ${this.scopeLabel}`,
+        ]),
+      ]),
+    );
+    const list = el("div", { class: "qp-freshness" });
+    for (const column of columns) {
+      const date = new Date(column.latest);
+      const latest = Number.isFinite(column.latest)
+        ? date.toISOString().slice(0, 10)
+        : "unknown";
+      const ageDays = Number.isFinite(column.latest)
+        ? Math.max(0, (now - column.latest) / 86_400_000)
+        : null;
+      const age =
+        ageDays === null
+          ? "No recent value"
+          : ageDays < 1
+            ? "Today"
+            : `${Math.floor(ageDays).toLocaleString()} day${Math.floor(ageDays) === 1 ? "" : "s"} old`;
+      const card = el("div", { class: "qp-fresh-card" });
+      card.append(
+        el("span", { class: "qp-fresh-name", title: column.name }, [column.name]),
+        el("span", { class: "qp-fresh-value" }, [latest]),
+        el("span", { class: "qp-fresh-meta" }, [age]),
+      );
+      list.append(card);
+    }
+    section.append(list);
+    return section;
+  }
+
+  // ---------- sensitive data ----------
+
+  private buildSensitive(
+    columns: readonly SensitiveColumn[],
+    scanned: boolean,
+  ): HTMLElement {
+    const section = el("div", { class: "qp-section" });
+    section.append(
+      el("h3", { class: "qp-section-title" }, [
+        "Sensitive data",
+        el("span", { class: "qp-section-hint" }, [
+          "advisory pattern matches in up to 12 text columns — not part of the score",
+        ]),
+      ]),
+    );
+    if (!scanned) {
+      section.append(
+        el("div", { class: "qp-sensitive-empty" }, [
+          "Scanning text columns for email, phone, card, IBAN and SSN-like patterns…",
+        ]),
+      );
+      return section;
+    }
+    if (columns.length === 0) {
+      section.append(
+        el("div", { class: "qp-sensitive-empty" }, [
+          "No obvious email, phone, card, IBAN or SSN-like patterns found.",
+        ]),
+      );
+      return section;
+    }
+    const list = el("div", { class: "qp-sensitive-list" });
+    for (const column of columns) {
+      const card = el("div", { class: "qp-sensitive-card" });
+      const tags = el("div", { class: "qp-sensitive-tags" });
+      for (const count of column.counts) {
+        tags.append(
+          el("span", { class: "qp-sensitive-tag" }, [
+            `${count.label} ${formatCount(count.count)}`,
+          ]),
+        );
+      }
+      card.append(
+        el("div", { class: "qp-sensitive-name", title: column.name }, [column.name]),
+        tags,
+        el("div", { class: "qp-sensitive-meta" }, [
+          `${formatCount(column.rows)} non-empty values scanned`,
+        ]),
+      );
+      list.append(card);
+    }
+    section.append(list);
+    return section;
+  }
+
   // ---------- what to fix first ----------
 
   private buildFixes(score: DQScore): HTMLElement {
@@ -639,6 +756,7 @@ export class QualityPage {
         ]),
       );
     }
+    head.append(el("th", {}, ["Score"]));
     table.append(head);
     for (const [column, checks] of rows) {
       const tr = el("tr");
@@ -669,6 +787,25 @@ export class QualityPage {
         }
         tr.append(td);
       }
+      const checksForColumn = [...checks.values()];
+      const pass = checksForColumn.reduce((sum, check) => sum + check.pass, 0);
+      const fail = checksForColumn.reduce((sum, check) => sum + check.fail, 0);
+      const total = pass + fail;
+      const rate = total === 0 ? null : pass / total;
+      tr.append(
+        el("td", {}, [
+          el(
+            "span",
+            {
+              class: `quality-cell band-${
+                rate === null ? "na" : rate >= 0.95 ? "good" : rate >= 0.8 ? "fair" : "poor"
+              }`,
+              title: `${formatCount(pass)} passing of ${formatCount(total)} applicable values`,
+            },
+            [rate === null ? "n/a" : `${Math.round(rate * 100)}%`],
+          ),
+        ]),
+      );
       table.append(tr);
     }
     section.append(table);

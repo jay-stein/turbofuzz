@@ -508,6 +508,8 @@ export type GetTextProfileRequest = {
   column: number;
   /** Maximum ranked terms returned (default 30). */
   limit?: number;
+  /** Set false for shape/sensitive scans that do not need term frequencies. */
+  terms?: boolean;
 };
 
 export interface TextProfileMessage {

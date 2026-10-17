@@ -102,7 +102,11 @@ import {
 } from "../data/dq-report.js";
 import { safeFileName } from "./chart-utils.js";
 import type { DQExportKind } from "./quality-panel.js";
-import { QualityPage } from "./quality-page.js";
+import {
+  QualityPage,
+  type FreshnessColumn,
+  type SensitiveColumn,
+} from "./quality-page.js";
 import type { PairOperator } from "../data/pair-checks.js";
 import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
@@ -446,6 +450,9 @@ export class App {
   private reportsHost!: HTMLElement;
   private qualityHost!: HTMLElement;
   private qualityPage: QualityPage | null = null;
+  private sensitiveProfiles: SensitiveColumn[] = [];
+  private sensitiveScanned = false;
+  private sensitiveKey = "";
   private reportsPanel: ReportsPanel | null = null;
   private triage: TriagePanelHandle | null = null;
   private archetypeOverride: ArchetypeId | null = null;
@@ -1714,6 +1721,9 @@ export class App {
     // User-run checks reference filter bits that reset with the data.
     this.dqUserChecks = [];
     this.freshnessRule = null;
+    this.sensitiveProfiles = [];
+    this.sensitiveScanned = false;
+    this.sensitiveKey = "";
     this.syncChangesButton();
     // Views are definitions over column indexes; a load or transform can change
     // the schema, so start fresh rather than risk stale references.
@@ -2951,6 +2961,8 @@ export class App {
     this.reportsPanel?.setData(this.metas, stats, this.rowCount, this.resultCount);
     this.reportsPanel?.invalidate();
     this.triage?.update(this.metas, stats);
+    this.sensitiveKey = "";
+    if (this.qualityPage !== null) void this.refreshSensitiveColumns();
   }
 
   /** Rebuilds the Overview's zoomed-out missingness map. */
@@ -3052,6 +3064,75 @@ export class App {
       onConvert: (column, type) => this.changeType(column, type),
     });
     this.renderQualityPage();
+    void this.refreshSensitiveColumns();
+  }
+
+  private freshnessColumns(): FreshnessColumn[] {
+    const out: FreshnessColumn[] = [];
+    this.metas.forEach((meta, column) => {
+      if (
+        (meta.type === "date" || meta.type === "datetime") &&
+        meta.stats.max !== null
+      ) {
+        out.push({ column, name: meta.name, latest: meta.stats.max });
+      }
+    });
+    return out;
+  }
+
+  private async refreshSensitiveColumns(): Promise<void> {
+    const candidates = this.metas
+      .map((meta, column) => ({ meta, column }))
+      .filter((entry) =>
+        entry.meta.type === "string" ||
+        entry.meta.type === "category" ||
+        entry.meta.type === "identifier",
+      )
+      .slice(0, 12);
+    const key = `${this.generation}:${this.metas.map((meta) => meta.name).join("|")}`;
+    if (key === this.sensitiveKey) return;
+    this.sensitiveKey = key;
+    this.sensitiveScanned = false;
+    this.renderQualityPage();
+    if (candidates.length === 0) {
+      this.sensitiveProfiles = [];
+      this.sensitiveScanned = true;
+      this.renderQualityPage();
+      return;
+    }
+    const results = await Promise.all(
+      candidates.map(async (entry) => {
+        try {
+          const message = await this.client.getTextProfile(entry.column, 1, false);
+          return { entry, message };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    if (key !== this.sensitiveKey) return;
+    const profiles: SensitiveColumn[] = [];
+    for (const result of results) {
+      if (result === null) continue;
+      const shapes = result.message.profile.shapes;
+      const counts = [
+        { label: "Email", count: shapes.email },
+        { label: "Phone", count: shapes.phone },
+        { label: "Card", count: shapes.creditCard },
+        { label: "IBAN", count: shapes.iban },
+        { label: "SSN-like", count: shapes.governmentId },
+      ].filter((count) => count.count > 0);
+      if (counts.length === 0) continue;
+      profiles.push({
+        column: result.entry.column,
+        name: result.entry.meta.name,
+        rows: result.message.profile.rows,
+        counts,
+      });
+    }
+    this.sensitiveProfiles = profiles;
+    this.sensitiveScanned = true;
+    this.renderQualityPage();
   }
 
   private renderQualityPage(): void {
@@ -3068,6 +3149,9 @@ export class App {
       visibleRowCount: this.resultCount,
       stats,
       columnNames: this.metas.map((meta) => meta.name),
+      sensitive: this.sensitiveProfiles,
+      sensitiveScanned: this.sensitiveScanned,
+      freshness: this.freshnessColumns(),
     });
   }
 
