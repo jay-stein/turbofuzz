@@ -9,6 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "tsx --test test/*.test.ts",
+    "test:e2e": "playwright test",
     "bench": "tsx bench/run.ts",
     "bench:quick": "tsx bench/run.ts --sizes=10000 --iterations=10",
     "bench:app": "tsx bench/app-smoke.ts",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@leeoniya/ufuzzy": "^1.0.19",
+    "@playwright/test": "^1.64.1",
     "@types/flexsearch": "^0.7.6",
     "@types/node": "^26.6.4",
     "@types/papaparse": "^5.5.2",
