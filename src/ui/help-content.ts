@@ -34,14 +34,15 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     summary: "Load a file or paste rows, then fix what the app flags.",
     blocks: [
       p(
-        "Drop a file on the start screen, click to browse, or paste rows. Supported formats: CSV/TSV/PSV/TXT, JSON, Excel (.xlsx/.xls), Parquet and ZIP/GZ/BZ2 archives. Everything is parsed on your device — the file is never uploaded.",
+        "Drop a file on the start screen, click to browse, or paste rows. Supported formats: CSV/TSV/PSV/TXT, JSON, Excel (.xlsx/.xls), Parquet and ZIP/GZ/BZ2 archives. Everything is parsed on your device — the file is never uploaded. Files estimated above about 8 million cells ask how to proceed first: take the first 100,000 rows as a sample, load everything anyway, or cancel — and if a file still exhausts browser memory the worker restarts cleanly with an explanation instead of hanging the tab.",
       ),
       p(
         "After loading you land in the workspace: filters on the left, the table in the middle, and the Data QA strip on top. Fix chips appear above columns and in the left sidebar when the app spots a likely problem.",
       ),
       list(
-        "Click a chip to apply its fix — every fix is reversible from the Process Log.",
-        "Click a column name to sort; right-click a header for grouped Column / Clean / Transform actions. Parameter-free cleans (Trim, UPPERCASE, lowercase, Title Case, Convert to number/date, formula escaping) apply instantly with an Undo toast; configurable operations open their panel with that column (and operation) already selected. Drag the divider on a header's right edge to resize it (double-click the divider to reset).",
+        "Click a chip to apply its fix — every fix is reversible from the Recipe.",
+        "Columns carry a logical type — Text, Category, Integer, Number, Date, Date & time, Time of day, Duration, Boolean, ID — inferred from the values and changeable from the header dropdown. Date stays a calendar date; a timestamp keeps its time-of-day (and any zone offset); ambiguous clock text such as 09:30 stays text until you choose an interpretation.",
+        "Click a column name to inspect it — profile, issues and one-click fixes (sort, filter, chart, trim, case, convert, split, round, fill missing, remove duplicates, display format). Right-click a header for the full grouped Column / Clean / Transform menu. Parameter-free cleans (Trim, UPPERCASE, lowercase, Title Case, Convert to number/date, formula escaping) apply instantly with an Undo toast; configurable operations open their panel with that column (and operation) already selected. Drag the divider on a header's right edge to resize it (double-click the divider to reset).",
         "Use Export… when you are done; the dialog states exactly which rows will be written, with an optional first-N subset.",
         "The header Theme control cycles Auto / Light / Dark — Auto follows your operating system.",
         "Help (this drawer) is searchable; the Chart tab shows a chart of the current result set and exports it as a PNG.",
@@ -85,6 +86,27 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     ],
   },
   {
+    id: "data-quality",
+    title: "Data Quality page",
+    summary: "The QA dashboard: score, dimensions, what to fix first, checks and the column matrix.",
+    blocks: [
+      p(
+        "The Data Quality page (the DQ tile in the topbar, the “quality” palette command, or the tab between Overview and Table) scores the whole dataset — not the filtered rows — across six dimensions: Completeness, Validity, Uniqueness, Consistency, Timeliness and Accuracy.",
+      ),
+      list(
+        "The ring shows the overall score: a weighted mean of the applicable dimensions. Bands: ≥ 90 good, ≥ 75 fair, below needs work.",
+        "Dimension cards show each score, its weight and how many checks fail. Click one to filter the checks list; click again to clear.",
+        "What to fix first ranks failing checks by the points they would add back (+x.x pts), so the biggest win is always at the top.",
+        "Checks lists every check with exact pass · fail · n-a counts; a ● dot colours its pass rate. “Show failing” filters the table to those rows (undo via the toast).",
+        "Column × dimension is the heat matrix — click a cell to filter that column's failures.",
+        "Weights & bands opens the settings: change how much each dimension moves the score and where the band thresholds sit. Saved in this browser.",
+      ),
+      note(
+        "Accuracy stays n/a offline (no reference data) and advisory findings (outliers, near-duplicates) never move the score. Copy report and Download JSON export the full breakdown; consistency and timeliness score once you run Compare-with, keydup or a freshness check.",
+      ),
+    ],
+  },
+  {
     id: "fix-chips",
     title: "Fix chips (suggestions)",
     summary: "One-click fixes for sentinel values, mixed decimals, type conflicts and formulas.",
@@ -108,7 +130,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     summary: "Trim, case, replace, convert, repair and missing-value rules.",
     blocks: [
       p(
-        "Open Clean and pick a column. The Apply button always states what one click will commit — “Apply Trim whitespace” or “Apply 3 operations” — and the configured operation is included even if you never staged it. Use “Add another” to stage a multi-step list first. The preview shows the first cells and a “how many cells change” count, and every applied operation is reversible from the Process Log.",
+        "Open Clean and pick a column. The Apply button always states what one click will commit — “Apply Trim whitespace” or “Apply 3 operations” — and the configured operation is included even if you never staged it. Use “Add another” to stage a multi-step list first. The preview shows the first cells, a “how many cells change” count and — for number/date conversions — how many non-empty cells still can’t be parsed. Every applied operation is reversible from the Recipe.",
       ),
       p(
         "Clean can also be opened from a column: right-click a header and choose Clean values… or Missing values… — the panel opens on that column and tab. Simple cleans (Trim, case, convert number/date, formula escaping) skip the panel and apply from the same menu with an Undo toast.",
@@ -131,7 +153,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     summary: "Dedupe, drop, round, group by, impute, combine dates and reshape.",
     blocks: [
       p(
-        "Transforms change the shape of the working set. They run against the base data captured before the first transform, so the pipeline is re-derived from scratch on every change - the Process Log shows the ordered list. Right-click any column header and choose Transform dataset. to jump straight in. The Apply button commits the step configured in the builder together with the list, so you rarely need to stage first; “Add another” stages a longer pipeline.",
+        "Transforms change the shape of the working set. They run against the base data captured before the first transform, so the pipeline is re-derived from scratch on every change - the Recipe shows the ordered list. Right-click any column header and choose Transform dataset. to jump straight in. The Apply button commits the step configured in the builder together with the list, so you rarely need to stage first; “Add another” stages a longer pipeline. Every staged step gets its own impact note with before → after samples: filled cells and the strategy, identical rows removed, rows that could not be combined, flagged outliers.",
       ),
       list(
         "Remove duplicate rows - keep first, keep last, or remove all copies.",
@@ -167,22 +189,31 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
   {
     id: "charts",
     title: "Charts",
-    summary: "Plot the current result set as one or more charts and export PNGs.",
+    summary: "Plot the current result set as one or more charts, animate over time and export PNG, GIF or MP4.",
     blocks: [
       p(
-        "The Chart tab in the results bar plots the rows currently matching your filters: histograms for numeric columns, a time series for dates, bars for categories, and scatter/density for two numeric or date columns.",
+        "The Chart tab in the results bar plots the rows currently matching your filters: histograms for numeric columns, a time series for dates, bars and treemaps for categories, scatter/density/bubble for two numeric columns, and terms for text.",
       ),
       list(
-        "Multiple charts: “+ Add chart” adds independent cards, each with its own type, columns and settings; the layout picker fits 1–4 per row and is remembered between sessions.",
+        "Multiple charts: “+ Add chart” opens the chart gallery (grouped by question, with live previews); the icon rail on the left adds any chart type in one click. Picking a type opens a small “Add a … chart” dialog so the columns can be checked before the card lands — the new card is scrolled into view, outlined briefly and announced in the status line, so a stray click can never add an invisible duplicate. The rail can collapse to icons only, and each card has its own type, columns and settings; the layout picker fits 1–4 per row and is remembered between sessions. The expand icon (“Wide”) on any card makes it span the full row — useful for time series or dense heatmaps — and the ⋯ menu has the same toggle.",
+        "Bubble: pick X and Y numeric columns and the plane is divided into a grid (Grid = cells per axis, default 40). Each cell with rows becomes a circle (seaborn-style): “Size” is what the circle represents — Count of rows by default, or any numeric column; when a column is chosen, “Reduce” says how the rows in the same area combine (Sum / Mean / Min / Max, e.g. total distance or mean trip duration), and “Mapping” says how values become radius — Area proportional (honest default), Radius proportional, or Log for extreme ranges. A legend at the bottom lists every group when “Group” is used.",
         "Scatter: pick X and Y (numeric or date) and optionally a Colour column (numeric ramp or category palette) and a Size column (numeric). Above 20,000 matching pairs the card switches to a density grid automatically; “Render: Points / Density” overrides that choice. The Pearson r of the plotted pair is annotated in the corner.",
         "Density: an exact 2D histogram of every matching row, drawn with a “Style” control — Heat (exact), Contours (smoothed bands and iso-lines, seaborn-style) or Heat + lines. Both axes follow the same p1–p99 clipping as the other charts.",
         "Box plot: a numeric Value column grouped by a category column. Boxes show q1–median–q3 with 1.5×IQR whiskers and sampled outlier dots; the median value and group size are labelled on each box, and Top groups / “Group rest as Other” work like the bar chart.",
         "Heatmap: two category columns cross-tabulated as a count grid, with “Top per axis” and an Other bucket keeping it readable.",
         "Correlation: pick two or more numeric columns in the list to get a Pearson matrix (pairwise-complete observations). Blue is positive, red negative, and dashed-out cells have too few pairs to measure.",
-        "Axes: count axes use round ticks (0, 20,000, 40,000 …) instead of the raw maximum, and value axes drop insignificant digits (50k, 1.5M).",
+        "Group: on lines, histograms and bubbles, “Group” splits the chart by a category column — one line or curve per value (histograms), one overlaid bubble set per value (bubbles). Legend entries toggle each group on and off.",
+        "Animate over time: bar, bubble, histogram, treemap and density charts can step through a date column. The 🎥 Animate button opens a visible setup row (which date column, and the frame length: hour → year, defaulted from the data's span). A playback bar appears under the chart: play/pause, frame scrubbing, a speed picker (0.5× through 2× plus a Custom multiplier) and loop. Frames are aggregated in the worker in one pass; the date labels each frame.",
+        "Export animation: the 🎥 Export button offers Animated GIF (.gif, loops anywhere online) or Video (.mp4, H.264/VP9 via WebCodecs — plays in Windows Media Player, Films & TV, PowerPoint and VLC). Both encode exactly one loop at the current speed. Note: some desktop viewers (e.g. Windows Photos) show animated GIFs as a still first frame; use MP4 there.",
+        "Axes: count axes use round ticks (0, 20,000, 40,000 …) instead of the raw maximum, and value axes drop insignificant digits (50k, 1.5M). Axis titles default to the column names — override them and add a unit such as kWh in Settings; long titles truncate with a hover tooltip. Temporal ticks adapt to the span (clock times intraday, dates at day scale, month buckets over years), tick density follows the card width, and timestamp columns read with source offsets are labelled “shown in UTC”.",
+        "Focus: the frame icon expands a card into an overlay for a closer look; Escape or × returns it to the grid with every setting intact.",
+        "Zoom and pan: charts with a continuous axis zoom with the mouse wheel (anchored at the pointer) and pan by dragging; double-click or the Reset view chip returns to the full range. Lines and histograms zoom their X range through the bins, bars show a movable window over the sorted categories (wheel shows more/fewer, drag moves the window), and scatter/density/map cards zoom their data viewport. Marks clip to the plot area, not the axes.",
+        "Map: pick Longitude and Latitude columns (spelling variants like Lattitude are detected). Show switches between one dot per row and a Heat grid. Colour colours the dots (numeric ramp or category palette), Size scales them by a numeric column; in Heat mode the Measure and Reduce controls aggregate every row per cell (e.g. sum(price)) and Grid sets the resolution. Shift+drag draws a filter rectangle over an area.",
+        "Colour map: Pastel1 is the default; ColorBrewer and the seaborn palettes are included (deep, muted, pastel, bright, dark, colorblind, rocket, mako, flare, crest, vlag, icefire). Reverse flips the map in one click. Load JSON opens a palette file: an array of hex colours or an object with colors/palette/stops, e.g. [\"#2563eb\",\"#f97316\"] — #abc and #aabbcc both work, two or more colours. The custom palette is saved with the card.",
+        "Legends toggle series by click or keyboard (each entry is a button with a pressed state); empty charts explain what to pick instead of rendering blank axes.",
         "Numeric: Start/End default to the column's full range, but when a few extreme values dwarf the rest the End is clipped to the 95th percentile with the “> Max” bar switched on (Full range restores everything). Bounds accept thousands commas and the Bins count is free. “KDE curve” overlays a smooth density line and the median is marked with a dashed line.",
         "Categories: set any number of top bars (default 5) and optionally group the rest as “Other”; every bar shows its count and share above it.",
-        "Colours: pick one of ten presets or type a hex code. Category bars can colour each bar separately, and the colour is the fallback for scatter points without a Colour column.",
+        "Colours: choose a ColourBrewer/matplotlib colour map (qualitative, sequential, diverging, or a custom hex list) — the default Pastel1 applies to multi-series charts immediately; single-series charts use the palette's first colour until you pick a swatch or type a hex code.",
         "Title: defaults to “source — column” with the type, rows shown and distinct count underneath; type your own title to override it.",
         "Export PNG per card at 1280×720, 1920×1080 (default) or 2560×1440; charts are drawn in logical coordinates so every size keeps the same 16:9 layout.",
       ),
@@ -190,17 +221,17 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
   },
   {
     id: "process-log",
-    title: "Process Log (undo)",
-    summary: "Every applied change, individually reversible, plus a pandas recipe.",
+    title: "Recipe (undo)",
+    summary: "Every applied change, individually reversible, plus a pandas or Polars recipe.",
     blocks: [
       p(
-        "Process Log lists the changes currently applied to the working set: clean operations, missing-value rules, column type changes, deleted rows and transform steps. The number next to the button counts actions, with batches collapsed.",
+        "Recipe lists the changes currently applied to the working set: clean operations, missing-value rules, column type changes, deleted rows and transform steps. The number next to the button counts actions, with batches collapsed.",
       ),
       list(
         "Batches from one action are condensed — for example a clean applied to 20 columns, or the steps from one Transform commit. Click + on a batch to expand its sub-steps, or use the batch's undo icon to reverse the whole batch in one click.",
         "The undo icon reverses one entry; clean operations can be reordered within their column.",
         "Undo all restores the original data (except the loaded file itself).",
-        "Copy pandas recipe exports the clean and transform steps as a best-effort Python script for reproducibility.",
+        "Copy recipe exports the clean, missing-value, type and transform steps as a pandas or Polars Python script for reproducibility. The drawer shows how many steps export as executable code; steps that need manual translation (KNN, outlier flags, data-dependent fences) are listed in the script header and in the warning comments — never silently omitted.",
       ),
       note(
         "Deleting rows is undoable here too. Type changes and missing-value fixes now appear in the log as well, so nothing the chips do is a dead end.",
@@ -237,7 +268,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Security headers add cross-origin isolation, no-referrer and nosniff.",
         "The site is deployed as static assets — there is no backend to talk to.",
       ),
-      note("If you need an audit trail, use Export… or Copy pandas recipe; both are generated locally."),
+      note("If you need an audit trail, use Export… or Copy recipe; both are generated locally."),
     ],
   },
 ];

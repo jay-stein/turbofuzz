@@ -69,10 +69,12 @@ function activeTab(): string {
 
 test("initialCleanTab picks Nulls, then Values, then Column names", () => {
   const withNulls = [meta({ stats: { ...meta().stats, nulls: 3 } })];
+  const withTokens = [meta({ nullTokens: [{ label: "\\N", count: 4 }] })];
   const withSuggestion = [
     meta({ suggestions: [{ kind: "typeConflict", count: 2, sampled: 10, example: "1", columnType: "string" }] }),
   ];
   assert.equal(initialCleanTab(withNulls), "nulls");
+  assert.equal(initialCleanTab(withTokens), "nulls", "placeholder tokens open Nulls");
   assert.equal(initialCleanTab(withSuggestion), "values");
   assert.equal(initialCleanTab([meta()]), "names");
   assert.equal(initialCleanTab(withNulls, 0), "values", "a chosen column opens Values");

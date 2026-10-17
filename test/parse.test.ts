@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { detectDelimiter } from "../src/parse/delimiter.js";
-import { parseDelimited } from "../src/parse/parse.js";
+import { parseDelimited, sameHeaderRow } from "../src/parse/parse.js";
 import { parseNumber } from "../src/parse/numbers.js";
 import { detectDateOrder, parseDate } from "../src/parse/dates.js";
 
@@ -120,4 +120,11 @@ test("parseDate rejects ID-like and bare-number strings", () => {
 test("detectDateOrder infers from unambiguous days", () => {
   assert.equal(detectDateOrder(["13/02/2024", "01/02/2024"]), "dmy");
   assert.equal(detectDateOrder(["02/13/2024", "01/02/2024"]), "mdy");
+});
+
+test("sameHeaderRow folds case and whitespace for the Import all check", () => {
+  assert.equal(sameHeaderRow(["name", "total"], [" Name ", "TOTAL"]), true);
+  assert.equal(sameHeaderRow(["name", "total"], ["name", "amount"]), false);
+  assert.equal(sameHeaderRow(["name"], ["name", "total"]), false);
+  assert.equal(sameHeaderRow([], []), true);
 });

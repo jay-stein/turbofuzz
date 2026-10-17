@@ -95,8 +95,9 @@ test("transform panel starts empty with a working builder when nothing is applie
   const document = (globalThis as Record<string, unknown>).document as Window["document"];
   const options = document.querySelectorAll(".transform-builder select option");
   assert.ok(options.length >= 6, `expected step-type options, got ${options.length}`);
-  const empty = document.querySelector(".clean-empty")?.textContent ?? "";
-  assert.match(empty, /No steps yet/);
+  const summary = document.querySelector(".clean-summary")?.textContent ?? "";
+  assert.match(summary, /No transforms — the data is unchanged/);
+  assert.equal(document.querySelector(".clean-op-list .clean-empty"), null);
 });
 
 test("the transform panel pre-selects split date parts for one-click combining", () => {

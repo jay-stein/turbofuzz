@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildDataset } from "../src/data/build.js";
+import { viewToPandas } from "../src/data/recipe.js";
+import { pandasRecipe } from "../src/data/recipe.js";
 import {
   applyTransformOps,
   describeTransformOp,
@@ -302,4 +304,192 @@ test("describeTransformOpDetail exposes the technical signature", () => {
     ),
     'impute(column="sales", strategy=constant("0"), groupColumn=null)',
   );
+});
+
+test("aggregate groups multiple dimensions and measures", () => {
+  const ds = buildDataset("t", ["region", "month", "amount", "qty"], [
+    ["North", "2024-01-05", "10", "2"],
+    ["North", "2024-01-20", "5", "1"],
+    ["North", "2024-02-01", "7", "3"],
+    ["South", "2024-01-03", "4", "1"],
+  ]);
+  const out = applyTransformOps("t", ds.columns, [
+    {
+      kind: "aggregate",
+      dimensions: [{ column: 0, by: "value" }, { column: 1, by: { time: "month" } }],
+      measures: [
+        { column: 2, agg: "sum" },
+        { column: 3, agg: "mean" },
+      ],
+      fill: "zero",
+    },
+  ]);
+  assert.equal(out.rowCount, 3);
+  assert.deepEqual(out.columns.map((column) => column.name), [
+    "region",
+    "month (month)",
+    "sum(amount)",
+    "mean(qty)",
+  ]);
+  assert.deepEqual(out.columns[0].raw, ["North", "North", "South"]);
+  assert.deepEqual(out.columns[1].raw, ["2024-01", "2024-02", "2024-01"]);
+  assert.deepEqual(out.columns[2].raw, ["15", "7", "4"]);
+  assert.deepEqual(out.columns[3].raw, ["1.5", "3", "1"]);
+  assert.equal(out.columns[2].type, "number");
+  assert.equal(out.columns[3].type, "number");
+  assert.equal(
+    describeTransformOp(
+      { kind: "aggregate", dimensions: [{ column: 0, by: "value" }], measures: [{ column: 1, agg: "sum" }] },
+      ["region", "amount"],
+    ),
+    "Aggregate: sum of “amount” grouped by “region”",
+  );
+  assert.deepEqual(
+    schemaAfter(
+      [
+        { name: "region", numeric: false },
+        { name: "month", numeric: false },
+        { name: "amount", numeric: true },
+      ],
+      {
+        kind: "aggregate",
+        dimensions: [{ column: 0, by: "value" }, { column: 1, by: { time: "month" } }],
+        measures: [{ column: 2, agg: "sum" }],
+      },
+    ),
+    [
+      { name: "region", numeric: false },
+      { name: "month (month)", numeric: false },
+      { name: "sum(amount)", numeric: true },
+    ],
+  );
+});
+
+test("viewToPandas emits a named group-by recipe", () => {
+  const recipe = viewToPandas(
+    {
+      id: "v1",
+      name: "Monthly sales",
+      dimensions: [{ column: 0, by: { time: "month" } }],
+      measures: [
+        { column: 1, agg: "sum" },
+        { column: null, agg: "count" },
+      ],
+      fill: "zero",
+      sort: { key: "dim0", dir: "asc" },
+      limit: 500,
+      respectFilters: true,
+    },
+    ["when", "amount"],
+  );
+  assert.match(recipe, /# View: Monthly sales/);
+  assert.match(recipe, /_group0 = pd\.to_datetime\(df\["when"\]\)\.dt\.to_period\("M"\)\.dt\.to_timestamp\(\)/);
+  assert.match(recipe, /df = df\.groupby\(\[_group0\], as_index=False\)\.agg\(\*\*\{/);
+  assert.match(recipe, /"sum\(amount\)": \("amount", "sum"\),/);
+  assert.match(recipe, /"count\(\*\)": \("when", "size"\),/);
+});
+
+test("viewToPandas computes expression measures from named terms", () => {
+  const recipe = viewToPandas(
+    {
+      id: "v2",
+      name: "Revenue per order",
+      dimensions: [{ column: 0, by: "value" }],
+      measures: [
+        { column: null, agg: "expr", expr: "sum(amount) / count(*)" },
+        { column: 1, agg: "sum" },
+      ],
+      fill: "none",
+      sort: { key: "m0", dir: "desc" },
+      limit: 500,
+      respectFilters: true,
+    },
+    ["region", "amount"],
+  );
+  assert.match(recipe, /"sum\(amount\)": \("amount", "sum"\),/);
+  assert.match(recipe, /"count\(\*\)": \("region", "size"\),/);
+  assert.match(
+    recipe,
+    /df\["sum\(amount\) \/ count\(\*\)"\] = df\["sum\(amount\)"\] \/ df\["count\(\*\)"\]/,
+  );
+  // sum(amount) is also a standalone measure, so only the count helper drops.
+  assert.match(recipe, /df = df\.drop\(columns=\["count\(\*\)"\]\)/);
+  assert.equal(recipe.match(/"sum\(amount\)":/g)?.length, 1, "no duplicate named-agg keys");
+});
+
+test("viewToPandas computes weighted means from helper columns", () => {
+  const recipe = viewToPandas(
+    {
+      id: "v3",
+      name: "Weighted price",
+      dimensions: [{ column: 0, by: "value" }],
+      measures: [{ column: 1, agg: "mean", weight: 2 }],
+      fill: "none",
+      sort: { key: "m0", dir: "desc" },
+      limit: 500,
+      respectFilters: true,
+    },
+    ["region", "amount", "w"],
+  );
+  assert.match(
+    recipe,
+    /df\["_wx_0"\] = pd\.to_numeric\(df\["amount"\], errors="coerce"\) \* pd\.to_numeric\(df\["w"\], errors="coerce"\)/,
+  );
+  assert.match(recipe, /"_agg_0": \("_wx_0", "sum"\),/);
+  assert.match(recipe, /"_aggw_0": \("w", "sum"\),/);
+  assert.match(recipe, /df\["mean\(amount\)"\] = df\["_agg_0"\] \/ df\["_aggw_0"\]/);
+  assert.match(recipe, /df = df\.drop\(columns=\["_agg_0", "_wx_0", "_aggw_0"\]\)/);
+});
+
+test("winsorize clamps extreme values at the symmetric percentile fences", () => {
+  const rows: string[][] = [];
+  for (let i = 0; i < 98; i++) rows.push([String(10 + (i % 20))]);
+  rows.push(["1000000"]);
+  rows.push(["-1000000"]);
+  const ds = buildDataset("w", ["amount"], rows);
+  const out = applyTransformOps("w", ds.columns, [
+    { kind: "winsorize", column: 0, percent: 1 },
+  ]);
+  const column = out.columns[0];
+  const numbers = column.numbers();
+  const max = Math.max(...numbers);
+  const min = Math.min(...numbers);
+  assert.ok(max < 1000000, "the extreme high value is clamped");
+  assert.ok(min > -1000000, "the extreme low value is clamped");
+  const normal = new Set<number>();
+  for (let i = 0; i < 98; i++) normal.add(Number(rows[i][0]));
+  for (const finite of numbers.values()) {
+    if (finite > 0) assert.ok(normal.has(finite) || finite <= max);
+  }
+});
+
+test("flagAnomalies appends a Yes/No column without changing the originals", () => {
+  const rows: string[][] = [];
+  for (let i = 0; i < 98; i++) rows.push([String(10 + (i % 20))]);
+  rows.push(["1000000"]);
+  rows.push(["-1000000"]);
+  const ds = buildDataset("f", ["amount"], rows);
+  const out = applyTransformOps("f", ds.columns, [
+    { kind: "flagAnomalies", column: 0 },
+  ]);
+  assert.equal(out.columns.length, 2);
+  assert.equal(out.columns[1].name, "flag: amount");
+  const flags = out.columns[1].raw;
+  assert.equal(flags.length, 100);
+  assert.ok(flags.filter((value) => value === "Yes").length >= 1);
+  assert.deepEqual(out.columns[0].raw, ds.columns[0].raw, "the source column is untouched");
+});
+
+test("the pandas recipe covers winsorize and flags", () => {
+  const ds = buildDataset("r", ["amount"], [["1"], ["2"]]);
+  const recipe = pandasRecipe({
+    cleans: [],
+    transforms: [
+      { kind: "winsorize", column: 0, percent: 1 },
+      { kind: "flagAnomalies", column: 0 },
+    ],
+    schema: ds.columns.map((column) => ({ name: column.name, numeric: true })),
+  });
+  assert.match(recipe, /clip\(lower=.*quantile\(0\.01\)/);
+  assert.match(recipe, /outlier flags/);
 });

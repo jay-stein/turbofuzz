@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { DatasetStats } from "../src/data/stats.js";
-import { Overview, chartStep, delimiterLabel, formatLabelFor, healthTiles, pickNextSteps, typeMix } from "../src/ui/overview.js";
+import { Overview, chartStep, countIssues, delimiterLabel, formatLabelFor, healthTiles, pickNextSteps, typeMix } from "../src/ui/overview.js";
 import type { ColumnMeta, LoadedMessage } from "../src/worker/protocol.js";
 
 function setupDom(): Window {
@@ -430,4 +430,20 @@ test("columns with only blank cells keep the review-first empties step", () => {
   const steps = pickNextSteps(columns, stats({ rowsWithNulls: 4 }), 100);
   assert.ok(steps.some((step) => step.id === "empties"));
   assert.ok(!steps.some((step) => step.id === "nullTokens"));
+});
+
+test("countIssues totals fixable issues for the triage entry point", () => {
+  const columns = [
+    meta({
+      name: "amount",
+      type: "integer",
+      stats: { ...meta().stats, nulls: 5 },
+      nullTokens: [{ label: "-999", count: 4 }],
+      suggestions: [{ kind: "sentinel", value: "-999", count: 4, ratio: 0.01, sampled: 100 }],
+    }),
+    meta({ name: "country", type: "category", stats: { ...meta().stats, distinct: 1 }, similarGroups: 2 }),
+  ];
+  // suggestions 1 + placeholder 1 + nulls 1 + similar 1 + constant 1 + duplicates 1
+  assert.equal(countIssues(columns, stats({ duplicateGroups: 2, duplicateRows: 4 })), 6);
+  assert.equal(countIssues([meta()], stats()), 0);
 });

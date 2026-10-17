@@ -80,4 +80,90 @@ test("worker applies per-column specials and reports anomaly counts", async () =
   };
   assert.equal(loaded.columns[0].anomalyCounts.values, 0);
   assert.ok(loaded.columns[1].anomalyCounts.values >= 1);
+
+  // Pattern validity: a dominant mask ("A-9") and the off-format rows it flags.
+  const codes: string[] = [];
+  for (let i = 0; i < 60; i++) codes.push(`AB-${1000 + i}`);
+  codes.push("broken", "AB1000");
+  send({
+    type: "load",
+    requestId: 10,
+    name: "t3",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: ["code,n", ...codes.map((code, i) => `${code},${i}`)].join("\n"),
+  });
+  const patterned = find("loaded", 10) as unknown as {
+    columns: { pattern?: { mask: string; offCount: number; examples: string[] } | null }[];
+  };
+  assert.equal(patterned.columns[0].pattern?.mask, "A-9");
+  assert.equal(patterned.columns[0].pattern?.offCount, 2);
+  assert.deepEqual(patterned.columns[0].pattern?.examples, ["broken", "AB1000"]);
+
+  send({ type: "setSpecial", requestId: 11, kind: "pattern", active: true, column: 0 });
+  assert.equal((find("results", 11) as unknown as { count: number }).count, 2);
+  send({ type: "setSpecial", requestId: 12, kind: "pattern", active: false, column: 0 });
+  assert.equal((find("results", 12) as unknown as { count: number }).count, 62);
+
+  // Type changes report the values that cannot be represented in the new type.
+  send({
+    type: "load",
+    requestId: 13,
+    name: "t4",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: "n\n1\n2\nx\n2.5\n0",
+  });
+  find("loaded", 13);
+  send({ type: "setType", requestId: 14, column: 0, columnType: "integer" });
+  const changed = find("columnMeta", 14) as unknown as {
+    nonParsing?: number;
+    meta: { type: string };
+  };
+  assert.equal(changed.meta.type, "integer");
+  assert.equal(changed.nonParsing, 2, "the text and decimal values are counted");
+
+  // Composite-key duplicates: store bits, activate the special, filter to them.
+  send({
+    type: "load",
+    requestId: 15,
+    name: "t5",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: "a,b\n1,x\n1,x\n1,y\n2,x\n",
+  });
+  find("loaded", 15);
+  send({ type: "checkKeyDuplicates", requestId: 16, columns: [0, 1] });
+  const keyed = find("keyDuplicates", 16) as unknown as {
+    duplicateRows: number;
+    duplicateGroups: number;
+    count: number;
+  };
+  assert.equal(keyed.duplicateRows, 1);
+  assert.equal(keyed.duplicateGroups, 1);
+  assert.equal(keyed.count, 2, "the view is filtered to the duplicate group");
+  send({ type: "setSpecial", requestId: 17, kind: "keyDuplicates", active: false });
+  assert.equal((find("results", 17) as unknown as { count: number }).count, 4);
+
+  // Pair checks: compare two columns and filter to the failing rows.
+  send({
+    type: "load",
+    requestId: 18,
+    name: "t6",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: "start,end\n1,2\n2,1\n3,3\n",
+  });
+  find("loaded", 18);
+  send({ type: "checkPair", requestId: 19, columnA: 0, columnB: 1, operator: "gte" });
+  const pair = find("pairCheck", 19) as unknown as {
+    violations: number;
+    compared: number;
+    count: number;
+  };
+  assert.equal(pair.compared, 3);
+  assert.equal(pair.violations, 1);
+  assert.equal(pair.count, 1, "the view is filtered to the failing row");
+  send({ type: "setSpecial", requestId: 20, kind: "pairCheck", active: false });
+  assert.equal((find("results", 20) as unknown as { count: number }).count, 3);
 });

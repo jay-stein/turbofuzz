@@ -1,4 +1,4 @@
-import { detectDateOrder, parseDate } from "../parse/dates.js";
+import { detectDateOrder, parseDate, parseDuration, parseTimeOfDay } from "../parse/dates.js";
 import { looksLikeFormula } from "./formula.js";
 import { stratifiedSample } from "../parse/infer.js";
 import { detectDecimalStyle, parseNumber, type NumberLocale } from "../parse/numbers.js";
@@ -9,6 +9,8 @@ export type ColumnSuggestion =
   | { kind: "boolean"; truthy: string[]; falsy: string[] }
   | { kind: "number"; locale: NumberLocale; ratio: number; hasSymbol: boolean }
   | { kind: "date"; ratio: number; sampled: number }
+  | { kind: "time"; ratio: number; sampled: number }
+  | { kind: "duration"; ratio: number; sampled: number }
   | { kind: "mixedNumber"; locale: NumberLocale; count: number; ratio: number; sampled: number }
   | { kind: "typeConflict"; count: number; sampled: number; example: string; columnType: string }
   | { kind: "formula"; count: number; ratio: number; sampled: number; example: string };
@@ -45,6 +47,10 @@ export function suggestionLabel(suggestion: ColumnSuggestion): string {
       return "Convert to number";
     case "date":
       return "Convert to date";
+    case "time":
+      return "Convert to time of day";
+    case "duration":
+      return "Convert to duration";
     case "mixedNumber":
       return `Repair ${suggestion.count.toLocaleString()} ${
         suggestion.locale === "dot" ? "decimal-comma" : "decimal-point"
@@ -67,6 +73,10 @@ export function suggestionShortLabel(suggestion: ColumnSuggestion): string {
       return "convert to number";
     case "date":
       return "convert to date";
+    case "time":
+      return "convert to time of day";
+    case "duration":
+      return "convert to duration";
     case "mixedNumber":
       return `repair ${suggestion.count.toLocaleString()} mixed decimals`;
     case "typeConflict":
@@ -87,6 +97,10 @@ export function describeSuggestion(suggestion: ColumnSuggestion): string {
       return `About ${Math.round(suggestion.ratio * 100)}% of values look numeric${suggestion.hasSymbol ? " with currency or percent symbols" : ""}. Click to strip the formatting and convert.`;
     case "date":
       return `About ${Math.round(suggestion.ratio * 100)}% of values look like dates. Click to convert them to ISO dates.`;
+    case "time":
+      return `About ${Math.round(suggestion.ratio * 100)}% of values look like clock times (HH:MM). They may be times of day or elapsed durations, so they stay text until you choose: click to treat them as time of day.`;
+    case "duration":
+      return `About ${Math.round(suggestion.ratio * 100)}% of values look like elapsed durations (HH:MM:SS or 1h 30m). Click to treat them as durations.`;
     case "mixedNumber":
       return suggestion.locale === "dot"
         ? `${suggestion.count.toLocaleString()} of ${suggestion.sampled.toLocaleString()} sampled values look like decimal comma (e.g. 613,26) while this column reads 1,234.56 — they are currently parsed as thousands. Click to rewrite just those values.`
@@ -188,6 +202,25 @@ export function detectSuggestions(
       const dateRatio = dates / nonNull.length;
       if (dateRatio >= DATE_MIN_RATIO) {
         suggestions.push({ kind: "date", ratio: dateRatio, sampled: nonNull.length });
+      } else {
+        // Clock-like text stays text: HH:MM may be a wall clock or elapsed
+        // time, so the user picks the interpretation from the suggestion.
+        let clocks = 0;
+        let durations = 0;
+        for (const value of nonNull) {
+          if (Number.isFinite(parseTimeOfDay(value))) clocks++;
+          else if (Number.isFinite(parseDuration(value))) durations++;
+        }
+        const clockRatio = clocks / nonNull.length;
+        if (clockRatio >= DATE_MIN_RATIO) {
+          suggestions.push({ kind: "time", ratio: clockRatio, sampled: nonNull.length });
+        } else if (durations / nonNull.length >= DATE_MIN_RATIO) {
+          suggestions.push({
+            kind: "duration",
+            ratio: durations / nonNull.length,
+            sampled: nonNull.length,
+          });
+        }
       }
     }
   }

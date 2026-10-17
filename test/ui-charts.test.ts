@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { ColumnFilter } from "../src/search/query-engine.js";
 import { ChartsPanel, type ChartsPanelOptions } from "../src/ui/chart-panel.js";
-import { ChartCard, type ChartCardOptions } from "../src/ui/chart-card.js";
+import { ChartCard, type ChartCardConfig, type ChartCardOptions } from "../src/ui/chart-card.js";
+import type { ViewDef } from "../src/data/aggregate.js";
 import type {
+  AggregateMessage,
   BoxStatsMessage,
   ChartBinsMessage,
   ChartSeriesMessage,
@@ -19,6 +21,7 @@ function setupDom(): Window {
   globals.window = window;
   globals.document = window.document;
   globals.HTMLElement = window.HTMLElement;
+  globals.MutationObserver = window.MutationObserver;
   globals.getComputedStyle = window.getComputedStyle.bind(window);
   return window;
 }
@@ -178,6 +181,45 @@ const stubOptions = (): ChartsPanelOptions => ({
   requestBoxStats: () => Promise.resolve(boxStats()),
   requestCrosstab: () => Promise.resolve(crosstab()),
   requestCorrelation: () => Promise.resolve(correlation()),
+  requestAggregate: () =>
+    Promise.resolve({
+      type: "aggregate",
+      requestId: 1,
+      viewId: "chart-treemap",
+      labels: ["a", "b"],
+      dimensions: [["a", "b"]],
+      dimensionNames: ["city"],
+      dimensionIsTime: [false],
+      dimensionTimes: [Float64Array.from([Number.NaN, Number.NaN])],
+      measures: [Float64Array.from([30, 10])],
+      measureNames: ["sum(amount)"],
+      totals: Float64Array.from([40]),
+      groupCount: 2,
+      totalGroups: 2,
+      truncated: false,
+      partials: null,
+      ms: 1,
+    }),
+  requestTextProfile: () =>
+    Promise.resolve({
+      type: "textProfile",
+      requestId: 1,
+      column: 0,
+      label: "notes",
+      profile: {
+        rows: 40,
+        characters: 400,
+        avgLength: 10,
+        totalTokens: 80,
+        distinctTerms: 25,
+        topTerms: [
+          { term: "delivery", count: 12 },
+          { term: "late", count: 8 },
+        ],
+        shapes: { email: 2, url: 1, phone: 0, numeric: 0, dateLike: 0, uppercase: 3, hasDigits: 5 },
+      },
+      ms: 1,
+    }),
 });
 
 const stubCardOptions = (): ChartCardOptions => ({
@@ -189,7 +231,14 @@ const stubCardOptions = (): ChartCardOptions => ({
 
 test("chart text stays legible and date labels fit the left margin", () => {
   const window = setupDom();
-  const captured: { text: string; x: number; width: number; align: string; font: string }[] = [];
+  const captured: {
+    text: string;
+    x: number;
+    width: number;
+    align: string;
+    font: string;
+    rotated: boolean;
+  }[] = [];
   class MockContext {
     font = "";
     fillStyle = "";
@@ -199,6 +248,10 @@ test("chart text stays legible and date labels fit the left margin", () => {
     textAlign = "left";
     textBaseline = "alphabetic";
     imageSmoothingEnabled = true;
+    private tx = 0;
+    private ty = 0;
+    private rotated = false;
+    private readonly stack: { tx: number; ty: number; rotated: boolean }[] = [];
     clearRect(): void {}
     setTransform(): void {}
     scale(): void {}
@@ -206,6 +259,9 @@ test("chart text stays legible and date labels fit the left margin", () => {
     closePath(): void {}
     moveTo(): void {}
     lineTo(): void {}
+    arc(): void {}
+    rect(): void {}
+    clip(): void {}
     stroke(): void {}
     fill(): void {}
     setLineDash(): void {}
@@ -213,6 +269,23 @@ test("chart text stays legible and date labels fit the left margin", () => {
     strokeRect(): void {}
     fillRect(): void {}
     drawImage(): void {}
+    save(): void {
+      this.stack.push({ tx: this.tx, ty: this.ty, rotated: this.rotated });
+    }
+    restore(): void {
+      const previous = this.stack.pop();
+      if (previous === undefined) return;
+      this.tx = previous.tx;
+      this.ty = previous.ty;
+      this.rotated = previous.rotated;
+    }
+    translate(x: number, y: number): void {
+      this.tx += x;
+      this.ty += y;
+    }
+    rotate(): void {
+      this.rotated = true;
+    }
     measureText(text: string): { width: number } {
       return { width: String(text).length * 8 };
     }
@@ -220,13 +293,21 @@ test("chart text stays legible and date labels fit the left margin", () => {
       const width = this.measureText(text).width;
       captured.push({
         text: String(text),
-        x,
+        x: x + this.tx,
         width,
         align: this.textAlign,
         font: this.font,
+        rotated: this.rotated,
       });
     }
     createImageData(width: number, height: number): {
+      data: Uint8ClampedArray;
+      width: number;
+      height: number;
+    } {
+      return { data: new Uint8ClampedArray(width * height * 4), width, height };
+    }
+    getImageData(_x: number, _y: number, width: number, height: number): {
       data: Uint8ClampedArray;
       width: number;
       height: number;
@@ -276,6 +357,8 @@ test("chart text stays legible and date labels fit the left margin", () => {
   );
 
   for (const entry of dateY) {
+    // The rotated Y axis title reports positions along its own axis.
+    if (entry.rotated) continue;
     const left =
       entry.align === "right"
         ? entry.x - entry.width
@@ -294,7 +377,7 @@ test("chart text stays legible and date labels fit the left margin", () => {
 
 test("chart cards draw scatter points and density grids", async () => {
   const window = setupDom();
-  const counts = { fillRect: 0, putImageData: 0, fillText: 0 };
+  const counts = { fillRect: 0, putImageData: 0, fillText: 0, arc: 0 };
   class MockContext {
     font = "";
     fillStyle = "";
@@ -311,6 +394,11 @@ test("chart cards draw scatter points and density grids", async () => {
     closePath(): void {}
     moveTo(): void {}
     lineTo(): void {}
+    arc(): void {
+      counts.arc++;
+    }
+    rect(): void {}
+    clip(): void {}
     stroke(): void {}
     fill(): void {}
     setLineDash(): void {}
@@ -319,6 +407,10 @@ test("chart cards draw scatter points and density grids", async () => {
       counts.fillRect++;
     }
     drawImage(): void {}
+    save(): void {}
+    restore(): void {}
+    translate(): void {}
+    rotate(): void {}
     fillText(): void {
       counts.fillText++;
     }
@@ -329,6 +421,13 @@ test("chart cards draw scatter points and density grids", async () => {
       return { width: text.length * 6 };
     }
     createImageData(width: number, height: number): {
+      data: Uint8ClampedArray;
+      width: number;
+      height: number;
+    } {
+      return { data: new Uint8ClampedArray(width * height * 4), width, height };
+    }
+    getImageData(_x: number, _y: number, width: number, height: number): {
       data: Uint8ClampedArray;
       width: number;
       height: number;
@@ -385,7 +484,10 @@ test("chart cards draw scatter points and density grids", async () => {
     new window.Event("change"),
   );
   await tick();
-  assert.ok(counts.fillRect > 0, "scatter points were drawn");
+  assert.ok(
+    counts.fillRect > 0 || counts.arc > 0,
+    "scatter points were drawn (as circles for small series)",
+  );
 
   const mode = host.querySelector<HTMLSelectElement>('select[aria-label="Render mode"]');
   assert.ok(mode !== null);
@@ -489,25 +591,51 @@ test("charts panel adds, duplicates and removes independent cards", async () => 
   add.click();
   await tick();
 
+  const galleryDoc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const scatterTile = [...galleryDoc.querySelectorAll(".chart-gallery .chart-tile")].find(
+    (tile) => tile.textContent === "Scatter",
+  );
+  assert.ok(scatterTile !== undefined, "the gallery offers a Scatter tile");
+  (scatterTile as unknown as { click(): void }).click();
+  await tick();
+  const scatterDialog = galleryDoc.querySelector(".chart-setup-modal .primary") as unknown as {
+    click(): void;
+  } | null;
+  assert.ok(scatterDialog !== null, "picking a tile asks for confirmation first");
+  scatterDialog.click();
+  await tick();
+
   const cards = host.querySelectorAll(".chart-card");
   assert.equal(cards.length, 2);
   const kinds = host.querySelectorAll<HTMLSelectElement>(".chart-kind");
   assert.equal(kinds[0].value, "bar", "city is the best default category");
-  assert.equal(kinds[1].value, "scatter", "second card defaults to scatter over two numerics");
+  assert.equal(kinds[1].value, "scatter", "the Scatter tile adds a scatter card");
 
-  const duplicate = [...cards[1].querySelectorAll("button")].find(
-    (button) => button.textContent === "Duplicate",
-  );
-  assert.ok(duplicate !== undefined);
-  duplicate.click();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const openCardMenu = (card: Element): void => {
+    (card.querySelector(".chart-more") as unknown as { click(): void }).click();
+  };
+  const menuItem = (label: string): { click(): void } => {
+    const item = [...doc.querySelectorAll(".context-menu .context-item")].find(
+      (button) => button.textContent === label,
+    );
+    assert.ok(item !== undefined, `expected menu item ${label}`);
+    return item as unknown as { click(): void };
+  };
+
+  openCardMenu(cards[1]);
+  menuItem("Duplicate").click();
   await tick();
   assert.equal(host.querySelectorAll(".chart-card").length, 3);
 
-  const remove = [...cards[0].querySelectorAll("button")].find(
-    (button) => button.textContent === "×",
-  );
-  assert.ok(remove !== undefined);
-  remove.click();
+  openCardMenu(cards[0]);
+  menuItem("Remove chart").click();
+  const confirmRemove = [...doc.querySelectorAll(".modal .primary")].pop() as unknown as {
+    click(): void;
+  };
+  assert.ok(confirmRemove !== undefined, "removal asks for confirmation");
+  confirmRemove.click();
+  await tick();
   assert.equal(host.querySelectorAll(".chart-card").length, 2);
 
   const layout = host.querySelector<HTMLSelectElement>('select[aria-label="Charts per row"]');
@@ -558,6 +686,9 @@ function captureMockContext(window: Window, drawn: string[]): void {
     closePath(): void {}
     moveTo(): void {}
     lineTo(): void {}
+    arc(): void {}
+    rect(): void {}
+    clip(): void {}
     stroke(): void {}
     fill(): void {}
     setLineDash(): void {}
@@ -565,6 +696,10 @@ function captureMockContext(window: Window, drawn: string[]): void {
     strokeRect(): void {}
     fillRect(): void {}
     drawImage(): void {}
+    save(): void {}
+    restore(): void {}
+    translate(): void {}
+    rotate(): void {}
     measureText(text: string): { width: number } {
       return { width: String(text).length * 6 };
     }
@@ -572,6 +707,13 @@ function captureMockContext(window: Window, drawn: string[]): void {
       drawn.push(String(text));
     }
     createImageData(width: number, height: number): {
+      data: Uint8ClampedArray;
+      width: number;
+      height: number;
+    } {
+      return { data: new Uint8ClampedArray(width * height * 4), width, height };
+    }
+    getImageData(_x: number, _y: number, width: number, height: number): {
       data: Uint8ClampedArray;
       width: number;
       height: number;
@@ -674,8 +816,8 @@ test("a card with nothing to draw explains itself inside the plot", async () => 
   card.setColumns([meta({ name: "note", type: "string" })]);
   await tick();
   const text = drawn.join(" ");
-  assert.match(text, /no numeric, date or category columns/);
-  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /no numeric, date or category/);
+  assert.match(text, /no numeric, temporal or category columns/);
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /no numeric, temporal or category/);
   assert.equal(
     host.querySelector(".chart-settings-body")?.classList.contains("hidden"),
     true,
@@ -694,9 +836,19 @@ test("an emptied chart grid stays empty through column changes", async () => {
   panel.setColumns([city(), meta({ name: "amount", type: "integer" })]);
   await tick();
   assert.equal(host.querySelectorAll(".chart-card").length, 1);
-  const remove = [...host.querySelectorAll("button")].find((button) => button.textContent === "×");
+  (host.querySelector(".chart-more") as unknown as { click(): void }).click();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const remove = [...doc.querySelectorAll(".context-menu .context-item")].find(
+    (item) => item.textContent === "Remove chart",
+  ) as unknown as { click(): void } | undefined;
   assert.ok(remove !== undefined);
-  (remove as unknown as { click(): void }).click();
+  remove.click();
+  const confirmRemove = [...doc.querySelectorAll(".modal .primary")].pop() as unknown as {
+    click(): void;
+  };
+  assert.ok(confirmRemove !== undefined);
+  confirmRemove.click();
+  await tick();
   assert.equal(host.querySelectorAll(".chart-card").length, 0);
   panel.setColumns([city(), meta({ name: "amount", type: "number" })]);
   await tick();
@@ -782,5 +934,1563 @@ test("group by draws one line per category with a toggleable legend", async () =
   assert.equal(refreshed[1].classList.contains("off"), true);
   assert.equal(refreshed[1].getAttribute("aria-pressed"), "false");
   assert.match(host.querySelector(".chart-note")?.textContent ?? "", /1 of 2 lines by region/);
+  card.dispose();
+});
+
+test("treemap tiles draw and filter their category", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const applied: [number, ColumnFilter | null][] = [];
+  const host = document.createElement("div");
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      onFilter: (column, filter) => applied.push([column, filter]),
+      currentFilter: () => null,
+    },
+    { kind: "treemap", column: 0 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({
+      name: "region",
+      type: "category",
+      categories: { labels: ["Perth", "Sydney"], counts: [10, 5] },
+    }),
+  ]);
+  await tick();
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /2 tiles/);
+  const canvas = host.querySelector("canvas") as HTMLCanvasElement;
+  (canvas as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(
+    new window.MouseEvent("click", { clientX: 120, clientY: 120 }),
+  );
+  assert.deepEqual(applied, [[0, { kind: "values", selected: [0] }]]);
+  card.dispose();
+});
+
+test("top-terms bars draw and filter rows by term", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const applied: [number, ColumnFilter | null][] = [];
+  const host = document.createElement("div");
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      onFilter: (column, filter) => applied.push([column, filter]),
+      currentFilter: () => null,
+    },
+    { kind: "terms", column: 0 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([meta({ name: "notes", type: "string" })]);
+  await tick();
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /2 terms/);
+  const canvas = host.querySelector("canvas") as HTMLCanvasElement;
+  (canvas as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(
+    new window.MouseEvent("click", { clientX: 120, clientY: 90 }),
+  );
+  assert.deepEqual(applied, [[0, { kind: "text", mode: "contains", query: "delivery" }]]);
+  card.dispose();
+});
+
+test("the red x removes a chart only after confirmation", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  panel.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+  ]);
+  await tick();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  (host.querySelector(".chart-remove") as unknown as { click(): void }).click();
+  const cancel = [...doc.querySelectorAll(".modal .ghost")].find((button) =>
+    (button.textContent ?? "").includes("Cancel"),
+  );
+  assert.ok(cancel !== undefined, "removal asks for confirmation");
+  (cancel as unknown as { click(): void }).click();
+  assert.equal(host.querySelectorAll(".chart-card").length, 1, "cancel keeps the chart");
+  (host.querySelector(".chart-remove") as unknown as { click(): void }).click();
+  const confirm = [...doc.querySelectorAll(".modal .primary")].pop() as unknown as {
+    click(): void;
+  };
+  confirm.click();
+  await tick();
+  assert.equal(host.querySelectorAll(".chart-card").length, 0, "confirm removes the chart");
+  panel.dispose();
+});
+
+test("the colour map defaults to Pastel1 and can be changed", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+  ]);
+  await tick();
+  assert.equal(card.getConfig().palette, "Pastel1");
+  const select = host.querySelector(".chart-palette-select") as HTMLSelectElement;
+  assert.ok(select !== null, "the palette picker renders");
+  assert.equal(select.value, "Pastel1");
+  select.value = "Set2";
+  select.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(card.getConfig().palette, "Set2");
+  assert.equal(host.querySelectorAll(".chart-palette-dot").length, 10);
+  card.dispose();
+});
+
+test("the colour map can be reversed", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({
+      name: "city",
+      type: "category",
+      categories: { labels: ["a", "b"], counts: [1, 1] },
+    }),
+  ]);
+  await tick();
+  const before = [...host.querySelectorAll(".chart-palette-dot")] as HTMLElement[];
+  const secondBefore = before[1]?.style.background;
+  const reverse = host.querySelector(
+    'input[aria-label="Reverse the colour map"]',
+  ) as HTMLInputElement;
+  assert.ok(reverse !== null, "the Reverse toggle renders");
+  assert.equal(reverse.checked, false);
+  reverse.checked = true;
+  reverse.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(card.getConfig().paletteReversed, true);
+  const after = [...host.querySelectorAll(".chart-palette-dot")] as HTMLElement[];
+  assert.notEqual(after[1]?.style.background, secondBefore, "the preview flips");
+  card.dispose();
+});
+
+test("single-series colour follows the palette until the user picks one", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), {
+    kind: "histogram",
+    column: 0,
+  });
+  card.setColumns([
+    meta({
+      name: "amount",
+      type: "number",
+      histogram: { bins: [1, 2], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 },
+    }),
+  ]);
+  await tick();
+  const hex = host.querySelector(".chart-hex") as HTMLInputElement;
+  assert.equal(hex.value, "#fbb4ae", "Pastel1's first colour shows straight away");
+  const palette = host.querySelector(".chart-palette-select") as HTMLSelectElement;
+  palette.value = "Set2";
+  palette.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(hex.value, "#66c2a5", "the single-series colour follows the new palette");
+  (host.querySelector('.chart-swatch[title="#2563eb"]') as unknown as { click(): void }).click();
+  await tick();
+  assert.equal(card.getConfig().colorCustom, true);
+  palette.value = "Set3";
+  palette.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(hex.value, "#2563eb", "a hand-picked colour survives palette changes");
+  card.dispose();
+});
+
+test("a grouped histogram draws one share curve per category with a legend", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestGroupedBins: () =>
+        Promise.resolve({
+          type: "groupedBins",
+          requestId: 1,
+          column: 0,
+          groupColumn: 1,
+          labels: ["Female", "Male"],
+          codes: [0, 1],
+          groups: [
+            [4, 2, 1, 0],
+            [1, 3, 3, 1],
+          ],
+          totals: [7, 8],
+          otherIndex: -1,
+          bins: 4,
+          overflow: 0,
+          above: 0,
+          below: 0,
+          total: 15,
+          ms: 1,
+        }),
+    },
+    { kind: "histogram", column: 0, groupColumn: 1 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({
+      name: "trip_duration",
+      type: "number",
+      histogram: { bins: [1, 1, 1, 1], min: 0, max: 40, symlog: false, below: 0, above: 0, p05: 1, p95: 39 },
+    }),
+    meta({
+      name: "gender",
+      type: "category",
+      categories: { labels: ["Female", "Male"], counts: [7, 8] },
+    }),
+  ]);
+  await tick();
+  const legend = host.querySelectorAll(".chart-legend-item");
+  assert.equal(legend.length, 2, "one legend entry per gender");
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /2 curves by gender/);
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /share of each group per bin/);
+  card.dispose();
+});
+
+test("the source label says Table when no filters apply", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, { ...stubCardOptions(), tableSourceLabel: () => "Table" }, {
+    kind: "bar",
+    column: 0,
+  });
+  card.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+  ]);
+  await tick();
+  const option = host.querySelector(".chart-source option") as HTMLOptionElement;
+  assert.equal(option.textContent, "Table");
+  card.dispose();
+});
+
+test("axis controls sit in their own bordered group", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+  ]);
+  await tick();
+  const axes = host.querySelector(".chart-axes") as HTMLElement;
+  assert.ok(axes !== null, "the axes group renders");
+  assert.equal(axes.classList.contains("hidden"), false);
+  assert.match(axes.textContent ?? "", /Axes/);
+  assert.ok(axes.querySelector('[aria-label="Chart column"]') !== null);
+  const kindSelect = host.querySelector(".chart-kind") as HTMLSelectElement;
+  kindSelect.value = "scatter";
+  kindSelect.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.ok(axes.querySelector('[aria-label="X column"]') !== null);
+  assert.ok(axes.querySelector('[aria-label="Y column"]') !== null);
+  card.dispose();
+});
+
+test("charts label both axes with their column names", async () => {
+  const window = setupDom();
+  const drawn: string[] = [];
+  captureMockContext(window, drawn);
+  const columns = [
+    meta({
+      name: "amount",
+      type: "number",
+      histogram: { bins: [1, 2, 1], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 },
+    }),
+    meta({ name: "score", type: "number" }),
+  ];
+  const render = async (preset: Partial<ChartCardConfig>): Promise<string[]> => {
+    const host = document.createElement("div");
+    const card = new ChartCard(host, stubCardOptions(), preset);
+    const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+    Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+    drawn.length = 0;
+    card.setColumns(columns);
+    await tick();
+    const result = drawn.slice();
+    card.dispose();
+    return result;
+  };
+
+  const histogram = await render({ kind: "histogram", column: 0 });
+  assert.ok(histogram.includes("amount"), "the histogram X axis names the column");
+  assert.ok(histogram.includes("Rows"), "the histogram Y axis names the count");
+
+  const scatter = await render({ kind: "scatter", x: 0, y: 1 });
+  assert.ok(scatter.includes("amount"), "the scatter X axis names its column");
+  assert.ok(scatter.includes("score"), "the scatter Y axis names its column");
+});
+
+test("empty chart states draw no axis titles", async () => {
+  const window = setupDom();
+  const drawn: string[] = [];
+  captureMockContext(window, drawn);
+  const host = document.createElement("div");
+  const card = new ChartCard(
+    host,
+    { ...stubCardOptions(), requestBins: () => new Promise(() => {}) },
+    { kind: "histogram", column: 0 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([meta({ name: "amount", type: "number" })]);
+  await tick();
+  assert.ok(
+    drawn.some((text) => text.includes("no histogram data")),
+    "the empty state explains why",
+  );
+  assert.ok(!drawn.includes("Rows"), "no Y title under an empty-state message");
+  card.dispose();
+});
+
+test("bubble chart draws grid counts and explains the area", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const calls: unknown[][] = [];
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestGridCounts: async (...args: unknown[]) => {
+        calls.push(args);
+        return {
+          type: "gridCounts",
+          requestId: 1,
+          result: {
+            xMin: 0,
+            xMax: 10,
+            yMin: 0,
+            yMax: 10,
+            bins: 4,
+            counts: Uint32Array.from(Array.from({ length: 16 }, (_, i) => (i === 5 ? 3 : i % 4 === 0 ? 1 : 0))),
+            maxCount: 3,
+            values: null,
+            valueMax: 0,
+            groups: null,
+            total: 7,
+            missing: 0,
+          },
+          ms: 1,
+        };
+      },
+    } as unknown as ChartCardOptions,
+    { kind: "bubble", x: 0, y: 1 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({ name: "lat", type: "number", histogram: { bins: [1], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 } }),
+    meta({ name: "lon", type: "number", histogram: { bins: [1], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 } }),
+    meta({ name: "amount", type: "number", histogram: { bins: [1], min: 0, max: 100, symlog: false, below: 0, above: 0, p05: 0, p95: 100 } }),
+  ]);
+  await tick();
+  const note = host.querySelector(".chart-note")?.textContent ?? "";
+  assert.match(note, /size: rows per cell/);
+  assert.match(note, /cells/);
+  assert.equal(calls[0]?.[3], undefined, "count mode sends no measure");
+
+  const agg = host.querySelector(
+    'select[aria-label="Bubble size measure"]',
+  ) as HTMLSelectElement;
+  assert.ok(agg !== null, "the size-by control renders for bubbles");
+  agg.value = "mean";
+  agg.dispatchEvent(new window.Event("change") as unknown as Event);
+  const size = host.querySelector('select[aria-label="Size column"]') as HTMLSelectElement;
+  assert.ok(size !== null);
+  size.value = "2";
+  size.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  const lastCall = calls[calls.length - 1];
+  assert.deepEqual(lastCall?.[3], { column: 2, agg: "mean" });
+  assert.match(
+    host.querySelector(".chart-note")?.textContent ?? "",
+    /size: mean\(amount\) per cell/,
+  );
+
+  const scale = host.querySelector(
+    'select[aria-label="Bubble size scale"]',
+  ) as HTMLSelectElement;
+  assert.ok(scale !== null);
+  scale.value = "log";
+  scale.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /log scale/);
+  card.dispose();
+});
+
+test("animating over a date column shows the playback bar and scrubs frames", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  let requests = 0;
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestAnimation: async () => {
+        requests++;
+        return {
+          type: "animation",
+          requestId: 1,
+          result: {
+            frames: [
+              { time: Date.UTC(2024, 0, 1), label: "2024-01" },
+              { time: Date.UTC(2024, 1, 1), label: "2024-02" },
+            ],
+            maxCount: 2,
+            total: 3,
+            missing: 0,
+            bar: { labels: ["open", "closed"], counts: Uint32Array.from([1, 2, 2, 1]) },
+          },
+          ms: 1,
+        };
+      },
+    },
+    { kind: "bar", column: 0, animationTimeColumn: 1, animationGrain: "month" },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({ name: "status", type: "category", categories: { labels: ["open", "closed"], counts: [2, 1] } }),
+    meta({
+      name: "when",
+      type: "date",
+      stats: {
+        ...meta().stats,
+        min: Date.UTC(2024, 0, 1),
+        max: Date.UTC(2024, 2, 1),
+        distinct: 60,
+      },
+      histogram: { bins: [1, 1, 1], min: Date.UTC(2024, 0, 1), max: Date.UTC(2024, 2, 1), symlog: false, below: 0, above: 0, p05: 0, p95: 1 },
+    }),
+  ]);
+  await tick();
+  assert.ok(requests > 0, "frames were requested for the animated kind");
+  const bar = host.querySelector(".chart-animation") as HTMLElement;
+  assert.equal(bar.classList.contains("hidden"), false, "the playback bar appears");
+  const slider = bar.querySelector("input[type=range]") as HTMLInputElement;
+  assert.equal(slider.max, "1");
+  assert.match(bar.textContent ?? "", /2024-01/);
+  slider.value = "1";
+  slider.dispatchEvent(new window.Event("input") as unknown as Event);
+  await tick();
+  assert.match(bar.textContent ?? "", /2024-02/);
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /2024-02/);
+  assert.doesNotMatch(
+    host.querySelector(".chart-note")?.textContent ?? "",
+    /frame \d+ of \d+/,
+    "the frame counter clutter is gone; the date is enough",
+  );
+  card.dispose();
+});
+
+test("Export GIF encodes the animation frames and downloads a blob", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const blobs: Blob[] = [];
+  const originalCreate = URL.createObjectURL;
+  const originalRevoke = URL.revokeObjectURL;
+  (URL as unknown as { createObjectURL: (blob: Blob) => string }).createObjectURL = (blob) => {
+    blobs.push(blob);
+    return "blob:test";
+  };
+  (URL as unknown as { revokeObjectURL: (url: string) => void }).revokeObjectURL = () => {};
+  try {
+    const host = document.createElement("div");
+    const card = new ChartCard(
+      host,
+      {
+        ...stubCardOptions(),
+        requestAnimation: async () => ({
+          type: "animation",
+          requestId: 1,
+          result: {
+            frames: [
+              { time: Date.UTC(2024, 0, 1), label: "2024-01" },
+              { time: Date.UTC(2024, 1, 1), label: "2024-02" },
+            ],
+            maxCount: 2,
+            total: 3,
+            missing: 0,
+            bar: { labels: ["open", "closed"], counts: Uint32Array.from([1, 2, 2, 1]) },
+          },
+          ms: 1,
+        }),
+      },
+      { kind: "bar", column: 0, animationTimeColumn: 1, animationGrain: "month" },
+    );
+    const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+    Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+    card.setColumns([
+      meta({ name: "status", type: "category", categories: { labels: ["open", "closed"], counts: [2, 1] } }),
+      meta({
+        name: "when",
+        type: "date",
+        stats: { ...meta().stats, min: Date.UTC(2024, 0, 1), max: Date.UTC(2024, 2, 1), distinct: 60 },
+        histogram: { bins: [1], min: Date.UTC(2024, 0, 1), max: Date.UTC(2024, 2, 1), symlog: false, below: 0, above: 0, p05: 0, p95: 1 },
+      }),
+    ]);
+    await tick();
+    const button = [...host.querySelectorAll(".chart-animation button")].find((entry) =>
+      (entry.textContent ?? "").includes("Export"),
+    );
+    assert.ok(button !== undefined, "the export button exists");
+    // Choosing 2x halve the per-frame duration before exporting.
+    const speed = host.querySelector(
+      'select[aria-label="Play speed"]',
+    ) as HTMLSelectElement;
+    assert.ok(speed !== null, "the speed control renders");
+    speed.value = "2";
+    speed.dispatchEvent(new window.Event("change") as unknown as Event);
+    assert.equal(card.getConfig().animationSpeed, 2);
+    (button as unknown as { click(): void }).click();
+    const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+    const gif = [...doc.querySelectorAll(".context-menu .context-item")].find(
+      (entry) => entry.textContent === "Animated GIF (.gif)",
+    );
+    assert.ok(gif !== undefined, "the export menu offers GIF");
+    (gif as unknown as { click(): void }).click();
+    for (let attempt = 0; attempt < 20 && blobs.length === 0; attempt++) await tick();
+    assert.equal(blobs.length, 1, "a GIF blob was created");
+    const bytes = new Uint8Array(await blobs[0].arrayBuffer());
+    assert.ok(bytes.length > 40);
+    assert.equal(String.fromCharCode(...bytes.slice(0, 6)), "GIF89a");
+    assert.match(host.querySelector(".chart-note")?.textContent ?? "", /Exported 2 frames as a GIF/);
+    card.dispose();
+  } finally {
+    URL.createObjectURL = originalCreate;
+    URL.revokeObjectURL = originalRevoke;
+  }
+});
+
+test("video export explains itself when WebCodecs is unavailable", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestAnimation: async () => ({
+        type: "animation",
+        requestId: 1,
+        result: {
+          frames: [
+            { time: Date.UTC(2024, 0, 1), label: "2024-01" },
+            { time: Date.UTC(2024, 1, 1), label: "2024-02" },
+          ],
+          maxCount: 1,
+          total: 2,
+          missing: 0,
+          bar: { labels: ["open"], counts: Uint32Array.from([1, 1]) },
+        },
+        ms: 1,
+      }),
+    },
+    { kind: "bar", column: 0, animationTimeColumn: 1, animationGrain: "month" },
+  );
+  await tick();
+  card.setColumns([
+    meta({ name: "status", type: "category", categories: { labels: ["open"], counts: [1] } }),
+    meta({
+      name: "when",
+      type: "date",
+      stats: { ...meta().stats, min: Date.UTC(2024, 0, 1), max: Date.UTC(2024, 2, 1), distinct: 60 },
+    }),
+  ]);
+  await tick();
+  const exportButton = [...host.querySelectorAll(".chart-animation button")].find((entry) =>
+    (entry.textContent ?? "").includes("Export"),
+  );
+  assert.ok(exportButton !== undefined);
+  (exportButton as unknown as { click(): void }).click();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const video = [...doc.querySelectorAll(".context-menu .context-item")].find(
+    (entry) => entry.textContent === "Video (.mp4)",
+  );
+  assert.ok(video !== undefined, "the export menu offers MP4");
+  (video as unknown as { click(): void }).click();
+  await tick();
+  assert.match(
+    host.querySelector(".chart-note")?.textContent ?? "",
+    /WebCodecs|Could not encode the video/,
+  );
+  card.dispose();
+});
+
+test("the Animate button sits in the toolbar and reveals the setup row", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({ name: "status", type: "category", categories: { labels: ["open"], counts: [1] } }),
+    meta({
+      name: "when",
+      type: "date",
+      stats: { ...meta().stats, min: Date.UTC(2024, 0, 1), max: Date.UTC(2024, 2, 1), distinct: 60 },
+    }),
+  ]);
+  await tick();
+  const button = host.querySelector(".chart-animate-btn") as HTMLButtonElement;
+  assert.ok(button !== null, "the Animate button is in the toolbar");
+  assert.equal(button.disabled, false);
+  const setup = host.querySelector(".chart-animate-setup") as HTMLElement;
+  assert.equal(setup.classList.contains("hidden"), true, "setup starts collapsed");
+  assert.ok(setup.querySelector('select[aria-label="Animate over time"]') !== null);
+  assert.match(setup.textContent ?? "", /Animate/);
+  button.click();
+  await tick();
+  assert.equal(setup.classList.contains("hidden"), false, "clicking reveals the setup row");
+  assert.ok(button.classList.contains("active"));
+  button.click();
+  await tick();
+  assert.equal(setup.classList.contains("hidden"), true);
+  card.dispose();
+});
+
+test("the Animate button is disabled when the file has no date column", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({ name: "status", type: "category", categories: { labels: ["open"], counts: [1] } }),
+  ]);
+  await tick();
+  const button = host.querySelector(".chart-animate-btn") as HTMLButtonElement;
+  assert.equal(button.disabled, true);
+  assert.match(button.title, /needs a date or datetime column/);
+  card.dispose();
+});
+
+test("animation speed presets cover 1.25x and a custom multiplier", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({ name: "status", type: "category", categories: { labels: ["open"], counts: [1] } }),
+  ]);
+  await tick();
+  const speed = host.querySelector(
+    'select[aria-label="Play speed"]',
+  ) as HTMLSelectElement;
+  assert.ok(speed !== null);
+  const values = [...speed.options].map((option) => option.value);
+  assert.deepEqual(values, ["0.5", "0.75", "1", "1.25", "1.5", "2", "custom"]);
+  card.dispose();
+});
+
+test("picking a Size column for a bubble switches the measure to sum", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const calls: unknown[][] = [];
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestGridCounts: async (...args: unknown[]) => {
+        calls.push(args);
+        return {
+          type: "gridCounts",
+          requestId: 1,
+          result: {
+            xMin: 0,
+            xMax: 1,
+            yMin: 0,
+            yMax: 1,
+            bins: 4,
+            counts: new Uint32Array(16),
+            maxCount: 0,
+            values: null,
+            valueMax: 0,
+            groups: null,
+            total: 0,
+            missing: 0,
+          },
+          ms: 1,
+        };
+      },
+    } as unknown as ChartCardOptions,
+    { kind: "bubble", x: 0, y: 1 },
+  );
+  card.setColumns([
+    meta({ name: "lat", type: "number" }),
+    meta({ name: "lon", type: "number" }),
+    meta({ name: "amount", type: "number" }),
+  ]);
+  await tick();
+  const settingsRow = host.querySelector(".chart-bubble-settings") as HTMLElement;
+  assert.ok(settingsRow !== null, "the bubble options row renders");
+  assert.equal(settingsRow.classList.contains("hidden"), false, "visible for bubbles");
+  const size = host.querySelector('select[aria-label="Size column"]') as HTMLSelectElement;
+  size.value = "2";
+  size.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(card.getConfig().bubbleAgg, "sum", "the measure switches off count");
+  assert.deepEqual(calls[calls.length - 1]?.[3], { column: 2, agg: "sum" });
+  // Non-bubble kinds keep the row hidden.
+  const kind = host.querySelector(".chart-kind") as HTMLSelectElement;
+  kind.value = "bar";
+  kind.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(settingsRow.classList.contains("hidden"), true, "hidden for bars");
+  card.dispose();
+});
+
+test("a grouped bubble chart draws one set per category with a legend", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const cellCount = 16;
+  const alphaCounts = Uint32Array.from(Array.from({ length: cellCount }, (_, i) => (i % 5 === 0 ? 1 : 0)));
+  const betaCounts = Uint32Array.from(Array.from({ length: cellCount }, (_, i) => (i % 3 === 0 ? 2 : 0)));
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestGridCounts: async () => ({
+        type: "gridCounts",
+        requestId: 1,
+        result: {
+          xMin: 0,
+          xMax: 10,
+          yMin: 0,
+          yMax: 10,
+          bins: 4,
+          counts: alphaCounts.map((value, i) => value + (betaCounts[i] ?? 0)),
+          maxCount: 4,
+          values: null,
+          valueMax: 0,
+          groups: [
+            { code: 0, label: "alpha", counts: alphaCounts, values: null },
+            { code: 1, label: "beta", counts: betaCounts, values: null },
+          ],
+          total: 9,
+          missing: 0,
+        },
+        ms: 1,
+      }),
+    } as unknown as ChartCardOptions,
+    { kind: "bubble", x: 0, y: 1, groupColumn: 2 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({ name: "lat", type: "number" }),
+    meta({ name: "lon", type: "number" }),
+    meta({ name: "gender", type: "category", categories: { labels: ["alpha", "beta"], counts: [5, 4] } }),
+  ]);
+  await tick();
+  const legend = host.querySelectorAll(".chart-legend-item");
+  assert.equal(legend.length, 2, "one legend entry per group");
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /2 of 2 groups by gender/);
+  (legend[0] as unknown as { click(): void }).click();
+  await tick();
+  const refreshed = host.querySelectorAll(".chart-legend-item");
+  assert.ok(refreshed[0]?.classList.contains("off"), "clicking hides the group");
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /1 of 2 groups/);
+  card.dispose();
+});
+
+test("the chart rail lists every type, adds cards and collapses", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  panel.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+    meta({ name: "amount", type: "number" }),
+    meta({ name: "score", type: "number" }),
+    meta({ name: "when", type: "date" }),
+  ]);
+  await tick();
+  const tiles = [...host.querySelectorAll(".charts-rail-tile")] as HTMLButtonElement[];
+  assert.equal(tiles.length, 13, "one rail tile per chart type");
+  const bubbleTile = tiles.find((tile) => (tile.textContent ?? "").includes("Bubble"));
+  assert.ok(bubbleTile !== undefined, "the rail offers Bubble");
+  assert.equal(bubbleTile.disabled, false);
+  const before = host.querySelectorAll(".chart-card").length;
+  bubbleTile.click();
+  await tick();
+  assert.equal(host.querySelectorAll(".chart-card").length, before, "no card until confirmed");
+  const modal = host.ownerDocument.querySelector(".chart-setup-modal");
+  assert.ok(modal !== null, "the setup dialog opens");
+  // A second click while the dialog is open must not queue another add.
+  bubbleTile.click();
+  assert.equal(host.ownerDocument.querySelectorAll(".chart-setup-modal").length, 1);
+  (modal?.querySelector(".primary") as unknown as { click(): void }).click();
+  await tick();
+  assert.equal(host.querySelectorAll(".chart-card").length, before + 1, "confirming adds one card");
+  const kinds = host.querySelectorAll<HTMLSelectElement>(".chart-kind");
+  assert.equal(kinds[kinds.length - 1]?.value, "bubble");
+  const rail = host.querySelector(".charts-rail") as HTMLElement;
+  assert.equal(rail.classList.contains("collapsed"), false);
+  (host.querySelector(".charts-rail-toggle") as unknown as { click(): void }).click();
+  assert.ok(rail.classList.contains("collapsed"), "the rail collapses to icons");
+  panel.dispose();
+});
+
+test("single-axis kinds keep the X/Y controls hidden through filter updates", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a"], counts: [1] } }),
+    meta({ name: "amount", type: "number" }),
+  ]);
+  await tick();
+  card.setFiltered({}, {});
+  await tick();
+  const xWrap = host
+    .querySelector('select[aria-label="X column"]')
+    ?.closest(".chart-tag");
+  const yWrap = host
+    .querySelector('select[aria-label="Y column"]')
+    ?.closest(".chart-tag");
+  assert.ok(xWrap?.classList.contains("hidden"), "X stays hidden on a bar chart");
+  assert.ok(yWrap?.classList.contains("hidden"), "Y stays hidden on a bar chart");
+  card.dispose();
+});
+
+test("the Wide button makes a card span the full row", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a"], counts: [1] } }),
+  ]);
+  await tick();
+  const button = host.querySelector(".chart-width-btn") as HTMLButtonElement;
+  assert.ok(button !== null, "the width control renders");
+  assert.equal(card.root.classList.contains("span-full"), false);
+  button.click();
+  assert.equal(card.root.classList.contains("span-full"), true);
+  assert.equal(card.getConfig().span, "full");
+  assert.ok(button.classList.contains("active"));
+  button.click();
+  assert.equal(card.root.classList.contains("span-full"), false);
+  assert.equal(card.getConfig().span, "auto");
+  card.dispose();
+});
+
+test("Reduce is discoverable, enables with a Size column and updates the measure", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const calls: unknown[][] = [];
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestGridCounts: async (...args: unknown[]) => {
+        calls.push(args);
+        return {
+          type: "gridCounts",
+          requestId: 1,
+          result: {
+            xMin: 0,
+            xMax: 1,
+            yMin: 0,
+            yMax: 1,
+            bins: 4,
+            counts: new Uint32Array(16),
+            maxCount: 0,
+            values: null,
+            valueMax: 0,
+            groups: null,
+            total: 0,
+            missing: 0,
+          },
+          ms: 1,
+        };
+      },
+    } as unknown as ChartCardOptions,
+    { kind: "bubble", x: 0, y: 1 },
+  );
+  card.setColumns([
+    meta({ name: "lat", type: "number" }),
+    meta({ name: "lon", type: "number" }),
+    meta({ name: "amount", type: "number" }),
+  ]);
+  await tick();
+  const reduce = host.querySelector(
+    'select[aria-label="Bubble size measure"]',
+  ) as HTMLSelectElement;
+  assert.ok(reduce !== null, "the Reduce select is visible");
+  assert.ok(
+    !(reduce.closest(".chart-field") as HTMLElement).classList.contains("hidden"),
+    "Reduce is not hidden",
+  );
+  assert.equal(reduce.disabled, true, "disabled while Size is Count of rows");
+  const size = host.querySelector('select[aria-label="Size column"]') as HTMLSelectElement;
+  size.value = "2";
+  size.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(reduce.disabled, false, "enabled once a Size column is chosen");
+  assert.equal(reduce.value, "sum", "switches to Sum automatically");
+  reduce.value = "mean";
+  reduce.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.deepEqual(calls[calls.length - 1]?.[3], { column: 2, agg: "mean" });
+  size.value = "-1";
+  size.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(reduce.disabled, true, "back to Count disables Reduce");
+  assert.equal(calls[calls.length - 1]?.[3], undefined);
+  card.dispose();
+});
+
+test("changing Group refreshes the bubble with the group column", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const calls: unknown[][] = [];
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestGridCounts: async (...args: unknown[]) => {
+        calls.push(args);
+        return {
+          type: "gridCounts",
+          requestId: 1,
+          result: {
+            xMin: 0,
+            xMax: 1,
+            yMin: 0,
+            yMax: 1,
+            bins: 4,
+            counts: new Uint32Array(16),
+            maxCount: 0,
+            values: null,
+            valueMax: 0,
+            groups: null,
+            total: 0,
+            missing: 0,
+          },
+          ms: 1,
+        };
+      },
+    } as unknown as ChartCardOptions,
+    { kind: "bubble", x: 0, y: 1 },
+  );
+  card.setColumns([
+    meta({ name: "lat", type: "number" }),
+    meta({ name: "lon", type: "number" }),
+    meta({ name: "kind", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+  ]);
+  await tick();
+  assert.equal(calls[calls.length - 1]?.[4], undefined, "ungrouped by default");
+  const group = host.querySelector('select[aria-label="Group by"]') as HTMLSelectElement;
+  group.value = "2";
+  group.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(calls[calls.length - 1]?.[4], 2, "the group column reaches the worker");
+  card.dispose();
+});
+
+test("date time series uses human-grain buckets instead of 64-bin combs", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const requested: { column: number; options: { min: number; max: number; binCount: number } }[] = [];
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestBins: async (column: number, options: unknown) => {
+        requested.push({ column, options: options as { min: number; max: number; binCount: number } });
+        return { type: "chartBins", requestId: 1, bins: [1], overflow: 0, above: 0, below: 0, total: 1, median: null, ms: 1 } as never;
+      },
+    } as unknown as ChartCardOptions,
+    { kind: "line", column: 0 },
+  );
+  const spanDays = 23;
+  card.setColumns([
+    meta({
+      name: "when",
+      type: "date",
+      stats: {
+        ...meta().stats,
+        min: Date.UTC(2024, 2, 1),
+        max: Date.UTC(2024, 2, 1) + spanDays * 86_400_000,
+        distinct: 24,
+      },
+      histogram: {
+        bins: [1],
+        min: Date.UTC(2024, 2, 1),
+        max: Date.UTC(2024, 2, 1) + spanDays * 86_400_000,
+        symlog: false,
+        below: 0,
+        above: 0,
+        p05: 0,
+        p95: 1,
+      },
+    }),
+  ]);
+  await tick();
+  assert.equal(requested.length, 1, "the line asks for day-grain bins");
+  assert.equal(requested[0]?.options.binCount, spanDays + 1, "one bucket per day plus the inclusive end");
+  card.setFiltered({}, {});
+  await tick();
+  assert.equal(requested.length, 1, "unchanged filters do not re-request buckets");
+  card.dispose();
+});
+
+test("focus mode expands a card and restores it with its config", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+  ]);
+  await tick();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  doc.body.append(host as never);
+  (host.querySelector(".chart-focus-btn") as unknown as { click(): void }).click();
+  const overlay = doc.querySelector(".chart-focus-overlay") as unknown as HTMLElement;
+  assert.ok(overlay !== null, "the focus overlay opens");
+  assert.equal(overlay.contains(host as never), true, "the same card moves into the overlay");
+  overlay.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" }) as never);
+  assert.equal(doc.querySelector(".chart-focus-overlay"), null, "Escape closes the overlay");
+  assert.equal(
+    (host.parentNode as unknown as Window["document"]["body"]) === doc.body,
+    true,
+    "the card returns to its grid slot",
+  );
+  assert.equal(card.getConfig().kind, "bar", "configuration survives the round trip");
+  card.dispose();
+});
+
+test("axis title overrides and units label the axes; truncated titles stay hoverable", async () => {
+  const window = setupDom();
+  const drawn: string[] = [];
+  captureMockContext(window, drawn);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), {
+    kind: "histogram",
+    column: 0,
+    xTitle: "Trip duration",
+    yUnit: "kWh",
+  });
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({
+      name: "amount",
+      type: "number",
+      histogram: { bins: [1, 2, 1], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 },
+    }),
+  ]);
+  await tick();
+  assert.ok(drawn.includes("Trip duration"), "the X override replaces the column name");
+  assert.ok(drawn.includes("Rows (kWh)"), "the unit is appended to the Y title");
+
+  const long = "A very long axis title that will definitely not fit in the plot area";
+  const host2 = document.createElement("div");
+  const card2 = new ChartCard(host2, stubCardOptions(), {
+    kind: "histogram",
+    column: 0,
+    xTitle: long,
+  });
+  const wrap2 = host2.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap2, "clientWidth", { value: 480, configurable: true });
+  card2.setColumns([
+    meta({
+      name: "amount",
+      type: "number",
+      histogram: { bins: [1, 2, 1], min: 0, max: 10, symlog: false, below: 0, above: 0, p05: 0, p95: 10 },
+    }),
+  ]);
+  await tick();
+  assert.ok(
+    drawn.some((text) => text.startsWith("A very long axis title") && text.endsWith("…")),
+    "the long title is truncated with an ellipsis",
+  );
+  const canvas2 = host2.querySelector("canvas") as HTMLCanvasElement;
+  (canvas2 as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(
+    new window.MouseEvent("pointermove", { clientX: 276, clientY: 252 }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const tooltip = host2.querySelector("[role=tooltip]") as HTMLElement;
+  assert.equal(tooltip.textContent, long, "hovering the truncated title shows the full text");
+  card.dispose();
+  card2.dispose();
+});
+
+test("a line card plots its own measure over time without a view", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: ViewDef[] = [];
+  const aggregate = (view: ViewDef): AggregateMessage => ({
+    type: "aggregate",
+    requestId: 1,
+    viewId: view.id,
+    labels: ["2013-08-15", "2013-08-16"],
+    dimensions: [["2013-08-15", "2013-08-16"]],
+    dimensionNames: ["date_time (day)"],
+    dimensionIsTime: [true],
+    dimensionTimes: [Float64Array.from([Date.UTC(2013, 7, 15), Date.UTC(2013, 7, 16)])],
+    measures: [Float64Array.from([12.5, 18.25])],
+    measureNames: ["mean(direction)"],
+    totals: Float64Array.from([15.375]),
+    groupCount: 2,
+    totalGroups: 2,
+    truncated: false,
+    partials: null,
+    ms: 1,
+  });
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestAggregate: (view: ViewDef) => {
+        calls.push(view);
+        return Promise.resolve(aggregate(view));
+      },
+    },
+    { kind: "line", column: 0, valueColumn: 1, valueAgg: "mean", valueGrain: "day" },
+  );
+  const columns = [
+    meta({ name: "date_time", type: "datetime", stats: { ...meta().stats, distinct: 300 } }),
+    meta({ name: "direction", type: "number" }),
+  ];
+  card.setColumns(columns);
+  await tick();
+
+  assert.equal(calls.length, 1, "the card fetches its own aggregate");
+  const def = calls[0];
+  assert.ok(def !== undefined);
+  assert.deepEqual(def.dimensions, [{ column: 0, by: { time: "day" } }]);
+  assert.deepEqual(def.measures, [{ column: 1, agg: "mean" }]);
+  assert.equal(def.respectFilters, true, "value lines respect the active filters");
+
+  const tagWrap = (label: string): HTMLElement | null =>
+    ([...host.querySelectorAll(".chart-tag")] as HTMLElement[]).find(
+      (tag) => tag.querySelector(".chart-tag-label")?.textContent === label,
+    ) ?? null;
+  assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Agg")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), false);
+  card.dispose();
+});
+
+test("a bar card plots a measure per category without a view", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: ViewDef[] = [];
+  const aggregate = (view: ViewDef): AggregateMessage => ({
+    type: "aggregate",
+    requestId: 1,
+    viewId: view.id,
+    labels: ["Portland", "Salem"],
+    dimensions: [["Portland", "Salem"]],
+    dimensionNames: ["city (value)"],
+    dimensionIsTime: [false],
+    dimensionTimes: [Float64Array.from([Number.NaN, Number.NaN])],
+    measures: [Float64Array.from([30, 10])],
+    measureNames: ["mean(amount)"],
+    totals: Float64Array.from([20]),
+    groupCount: 2,
+    totalGroups: 2,
+    truncated: false,
+    partials: null,
+    ms: 1,
+  });
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestAggregate: (view: ViewDef) => {
+        calls.push(view);
+        return Promise.resolve(aggregate(view));
+      },
+    },
+    { kind: "bar", column: 1, valueColumn: 0, valueAgg: "mean" },
+  );
+  const columns = [
+    meta({ name: "amount", type: "number" }),
+    meta({ name: "city", type: "category" }),
+  ];
+  card.setColumns(columns);
+  await tick();
+
+  assert.equal(calls.length, 1, "the card fetches its own aggregate");
+  const def = calls[0];
+  assert.ok(def !== undefined);
+  assert.deepEqual(def.dimensions, [{ column: 1, by: "value" }]);
+  assert.deepEqual(def.measures, [{ column: 0, agg: "mean" }]);
+  assert.deepEqual(def.sort, { key: "m0", dir: "desc" }, "categories sort by measure");
+  assert.equal(def.fill, "none");
+  assert.equal(def.respectFilters, true, "value bars respect the active filters");
+
+  const tagWrap = (label: string): HTMLElement | null =>
+    ([...host.querySelectorAll(".chart-tag")] as HTMLElement[]).find(
+      (tag) => tag.querySelector(".chart-tag-label")?.textContent === label,
+    ) ?? null;
+  assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Agg")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), true, "no grain for bars");
+  card.dispose();
+});
+
+test("a map card requests unclipped coordinate points", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: { mode: string; clip?: boolean; xColumn: number; yColumn: number }[] = [];
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestSeries: (input) => {
+        calls.push({
+          mode: input.mode,
+          clip: input.clip,
+          xColumn: input.xColumn,
+          yColumn: input.yColumn,
+        });
+        return Promise.resolve(series());
+      },
+    },
+    { kind: "map", x: 1, y: 0 },
+  );
+  card.setColumns([
+    meta({ name: "lat", type: "number", stats: { ...meta().stats, min: -37.9, max: -37.7 } }),
+    meta({ name: "lon", type: "number", stats: { ...meta().stats, min: 144.8, max: 145.1 } }),
+  ]);
+  await tick();
+
+  const input = calls[calls.length - 1];
+  assert.ok(input !== undefined, "the map fetches its own points");
+  assert.equal(input.mode, "points", "maps never switch to a density grid");
+  assert.equal(input.clip, false, "the full coordinate range is kept");
+  assert.equal(input.xColumn, 1);
+  assert.equal(input.yColumn, 0);
+  card.dispose();
+});
+
+test("a map heat grid aggregates a measure per cell", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: unknown[][] = [];
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestGridCounts: async (...args: unknown[]) => {
+        calls.push(args);
+        return {
+          type: "gridCounts",
+          requestId: 1,
+          result: {
+            xMin: 144.8,
+            xMax: 145.1,
+            yMin: -37.9,
+            yMax: -37.7,
+            bins: 40,
+            counts: new Uint32Array(1600),
+            maxCount: 0,
+            values: Float64Array.from(Array.from({ length: 1600 }, (_, i) => (i % 7 === 0 ? 1200000 : 0))),
+            valueMax: 1200000,
+            groups: null,
+            total: 100,
+            missing: 0,
+          },
+          ms: 1,
+        };
+      },
+    },
+    {
+      kind: "map",
+      x: 1,
+      y: 0,
+      mapMode: "heat",
+      sizeColumn: 2,
+      bubbleAgg: "sum",
+    },
+  );
+  card.setColumns([
+    meta({ name: "lat", type: "number", stats: { ...meta().stats, min: -37.9, max: -37.7 } }),
+    meta({ name: "lon", type: "number", stats: { ...meta().stats, min: 144.8, max: 145.1 } }),
+    meta({ name: "price", type: "number", stats: { ...meta().stats, min: 100000, max: 4000000 } }),
+  ]);
+  await tick();
+
+  assert.ok(calls.length >= 1, "the heat grid is fetched");
+  const last = calls[calls.length - 1] ?? [];
+  assert.equal(last[0], 1, "longitude column");
+  assert.equal(last[1], 0, "latitude column");
+  assert.equal(last[2], 40, "default grid resolution");
+  assert.deepEqual(last[3], { column: 2, agg: "sum" }, "the measure is the size column");
+
+  const mode = host.querySelector('select[aria-label="Map display mode"]') as HTMLSelectElement;
+  assert.ok(mode !== null, "the display mode control exists");
+  assert.equal(mode.value, "heat");
+  card.dispose();
+});
+
+test("a line card splits its measure into one series per group", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: ViewDef[] = [];
+  const aggregate = (view: ViewDef): AggregateMessage => ({
+    type: "aggregate",
+    requestId: 1,
+    viewId: view.id,
+    labels: ["2026-08 · a", "2026-08 · b", "2026-09 · a", "2026-09 · b"],
+    dimensions: [
+      ["2026-08", "2026-08", "2026-09", "2026-09"],
+      ["a", "b", "a", "b"],
+    ],
+    dimensionNames: ["day (month)", "city (value)"],
+    dimensionIsTime: [true, false],
+    dimensionTimes: [
+      Float64Array.from([Date.UTC(2026, 7, 1), Date.UTC(2026, 7, 1), Date.UTC(2026, 8, 1), Date.UTC(2026, 8, 1)]),
+      Float64Array.from([Number.NaN, Number.NaN, Number.NaN, Number.NaN]),
+    ],
+    measures: [Float64Array.from([10, 20, 12, 18])],
+    measureNames: ["sum(amount)"],
+    totals: Float64Array.from([60]),
+    groupCount: 4,
+    totalGroups: 4,
+    truncated: false,
+    partials: null,
+    ms: 1,
+  });
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestAggregate: (view: ViewDef) => {
+        calls.push(view);
+        return Promise.resolve(aggregate(view));
+      },
+    },
+    { kind: "line", column: 0, valueColumn: 1, valueAgg: "sum", valueGrain: "month", groupColumn: 2 },
+  );
+  card.setColumns([
+    meta({ name: "day", type: "datetime", stats: { ...meta().stats, distinct: 300 } }),
+    meta({ name: "amount", type: "number" }),
+    meta({ name: "city", type: "category" }),
+  ]);
+  await tick();
+
+  const def = calls[calls.length - 1];
+  assert.ok(def !== undefined);
+  assert.deepEqual(def.dimensions, [
+    { column: 0, by: { time: "month" } },
+    { column: 2, by: "value" },
+  ]);
+  assert.deepEqual(def.measures, [{ column: 1, agg: "sum" }]);
+  assert.equal((card as unknown as { config: { groupColumn: number } }).config.groupColumn, 2);
+
+  const note = host.querySelector(".chart-note")?.textContent ?? "";
+  assert.match(note, /sum\(amount\) by city/, "the note names the split column");
+  assert.match(note, /2 of 2 series shown/);
+  card.dispose();
+});
+
+test("a histogram card aggregates a measure per bin without a view", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: ViewDef[] = [];
+  const aggregate = (view: ViewDef): AggregateMessage => ({
+    type: "aggregate",
+    requestId: 1,
+    viewId: view.id,
+    labels: ["0–10", "10–20", "20–30"],
+    dimensions: [["0–10", "10–20", "20–30"]],
+    dimensionNames: ["age (bins)"],
+    dimensionIsTime: [false],
+    dimensionTimes: [Float64Array.from([Number.NaN, Number.NaN, Number.NaN])],
+    measures: [Float64Array.from([12, 88, 30])],
+    measureNames: ["sum(amount)"],
+    totals: Float64Array.from([130]),
+    groupCount: 3,
+    totalGroups: 3,
+    truncated: false,
+    partials: null,
+    ms: 1,
+  });
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestAggregate: (view: ViewDef) => {
+        calls.push(view);
+        return Promise.resolve(aggregate(view));
+      },
+    },
+    { kind: "histogram", column: 0, valueColumn: 1, valueAgg: "sum" },
+  );
+  card.setColumns([
+    meta({
+      name: "age",
+      type: "number",
+      histogram: { bins: [1, 2, 3], min: 0, max: 30, symlog: false, below: 0, above: 0, p05: 1, p95: 28 },
+    }),
+    meta({ name: "amount", type: "number" }),
+  ]);
+  await tick();
+
+  const def = calls[calls.length - 1];
+  assert.ok(def !== undefined, "the card fetches its own aggregate");
+  assert.deepEqual(def.dimensions, [{ column: 0, by: { bin: { n: 32 } } }]);
+  assert.deepEqual(def.measures, [{ column: 1, agg: "sum" }]);
+  assert.deepEqual(def.sort, { key: "dim0", dir: "asc" }, "bins stay in bin order");
+
+  const tagWrap = (label: string): HTMLElement | null =>
+    ([...host.querySelectorAll(".chart-tag")] as HTMLElement[]).find(
+      (tag) => tag.querySelector(".chart-tag-label")?.textContent === label,
+    ) ?? null;
+  assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Agg")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), true);
+  card.dispose();
+});
+
+test("a KPI card totals a measure over all rows without a date", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: ViewDef[] = [];
+  const aggregate = (view: ViewDef): AggregateMessage => ({
+    type: "aggregate",
+    requestId: 1,
+    viewId: view.id,
+    labels: [""],
+    dimensions: [],
+    dimensionNames: [],
+    dimensionIsTime: [],
+    dimensionTimes: [],
+    measures: [Float64Array.from([42.5])],
+    measureNames: ["mean(amount)"],
+    totals: Float64Array.from([42.5]),
+    groupCount: 1,
+    totalGroups: 1,
+    truncated: false,
+    partials: null,
+    ms: 1,
+  });
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestAggregate: (view: ViewDef) => {
+        calls.push(view);
+        return Promise.resolve(aggregate(view));
+      },
+    },
+    { kind: "kpi", column: 0, valueColumn: 0, valueAgg: "mean" },
+  );
+  card.setColumns([meta({ name: "amount", type: "number" })]);
+  await tick();
+
+  assert.equal(calls.length, 1, "the KPI fetches its own aggregate");
+  const def = calls[0];
+  assert.ok(def !== undefined);
+  assert.deepEqual(def.dimensions, [], "a grand total needs no dimension");
+  assert.deepEqual(def.measures, [{ column: 0, agg: "mean" }]);
+  assert.equal(def.respectFilters, true);
+
+  const tagWrap = (label: string): HTMLElement | null =>
+    ([...host.querySelectorAll(".chart-tag")] as HTMLElement[]).find(
+      (tag) => tag.querySelector(".chart-tag-label")?.textContent === label,
+    ) ?? null;
+  assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Agg")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), true);
+  const note = host.querySelector(".chart-note")?.textContent ?? "";
+  assert.match(note, /mean\(amount\) = 42\.5/, "the note carries the full value");
+  card.dispose();
+});
+
+test("a KPI card with a date column reads the series and shows Bucket", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: ViewDef[] = [];
+  const aggregate = (view: ViewDef): AggregateMessage => ({
+    type: "aggregate",
+    requestId: 1,
+    viewId: view.id,
+    labels: ["2026-08", "2026-09"],
+    dimensions: [["2026-08", "2026-09"]],
+    dimensionNames: ["day (month)"],
+    dimensionIsTime: [true],
+    dimensionTimes: [
+      Float64Array.from([Date.UTC(2026, 7, 1), Date.UTC(2026, 8, 1)]),
+    ],
+    measures: [Float64Array.from([40, 42.5])],
+    measureNames: ["mean(amount)"],
+    totals: Float64Array.from([41.25]),
+    groupCount: 2,
+    totalGroups: 2,
+    truncated: false,
+    partials: null,
+    ms: 1,
+  });
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestAggregate: (view: ViewDef) => {
+        calls.push(view);
+        return Promise.resolve(aggregate(view));
+      },
+    },
+    { kind: "kpi", column: 0, valueColumn: 1, valueAgg: "mean" },
+  );
+  card.setColumns([
+    meta({ name: "day", type: "datetime", stats: { ...meta().stats, distinct: 300 } }),
+    meta({ name: "amount", type: "number" }),
+  ]);
+  await tick();
+
+  const def = calls[calls.length - 1];
+  assert.ok(def !== undefined);
+  assert.equal(def.dimensions.length, 1);
+  assert.equal(
+    (def.dimensions[0] as { column: number }).column,
+    0,
+    "the date column buckets the series",
+  );
+  const tagWrap = (label: string): HTMLElement | null =>
+    ([...host.querySelectorAll(".chart-tag")] as HTMLElement[]).find(
+      (tag) => tag.querySelector(".chart-tag-label")?.textContent === label,
+    ) ?? null;
+  assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), false);
+  const note = host.querySelector(".chart-note")?.textContent ?? "";
+  assert.match(note, /42\.5/, "the note carries the latest value");
+  assert.match(note, /vs previous/, "the change is stated");
   card.dispose();
 });

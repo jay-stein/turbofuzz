@@ -1,6 +1,11 @@
-import { toDateInputValue } from "../parse/dates.js";
+import {
+  formatDurationMs,
+  toDateInputValue,
+  toTimeInputValue,
+} from "../parse/dates.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import type { ColumnType } from "../types.js";
+import { detectGeoPair } from "../data/geo.js";
 
 export type ChartKind = "histogram" | "line" | "bar" | null;
 
@@ -11,8 +16,13 @@ export type ChartCardKind =
   | "scatter"
   | "density"
   | "box"
+  | "treemap"
+  | "terms"
   | "heatmap"
-  | "correlation";
+  | "correlation"
+  | "bubble"
+  | "kpi"
+  | "map";
 
 export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   histogram: "Histogram",
@@ -21,11 +31,23 @@ export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   scatter: "Scatter",
   density: "Density",
   box: "Box plot",
+  treemap: "Treemap",
+  terms: "Top terms",
   heatmap: "Heatmap",
   correlation: "Correlation",
+  bubble: "Bubble",
+  kpi: "KPI",
+  map: "Map",
 };
 
-export const PAIR_KINDS: readonly ChartCardKind[] = ["scatter", "density", "box", "heatmap"];
+export const PAIR_KINDS: readonly ChartCardKind[] = [
+  "scatter",
+  "density",
+  "box",
+  "heatmap",
+  "bubble",
+  "map",
+];
 
 export function isPairKind(kind: ChartCardKind): boolean {
   return PAIR_KINDS.includes(kind);
@@ -36,8 +58,11 @@ export function chartKindFor(type: ColumnMeta["type"]): ChartKind {
   switch (type) {
     case "integer":
     case "number":
+    case "time":
+    case "duration":
       return "histogram";
     case "date":
+    case "datetime":
       return "line";
     case "category":
     case "boolean":
@@ -50,7 +75,7 @@ export function chartKindFor(type: ColumnMeta["type"]): ChartKind {
 /** Default chart kind for a new card, in priority order. */
 export function defaultCardKind(columns: ColumnMeta[]): ChartCardKind {
   if (columns.some((meta) => isNumericType(meta.type))) return "histogram";
-  if (columns.some((meta) => meta.type === "date")) return "line";
+  if (columns.some((meta) => meta.type === "date" || meta.type === "datetime")) return "line";
   if (columns.some((meta) => chartKindFor(meta.type) === "bar")) return "bar";
   return "histogram";
 }
@@ -76,6 +101,20 @@ export function isIdLikeColumn(meta: ColumnMeta, rowCount: number): boolean {
   return meta.stats.distinct === rowCount;
 }
 
+const ID_NAME = /(^|[^a-z0-9])(id|uuid|guid|key)s?($|[^a-z0-9])/i;
+const NON_ID_WORDS = /(paid|valid|void|grid|solid|fluid|rapid|humid|arid|android)$/;
+
+/**
+ * Names that read as identifiers ("start station id", "bikeid") add no value
+ * to charts and never join a correlation matrix by default.
+ */
+export function looksLikeIdName(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (ID_NAME.test(lower)) return true;
+  const compact = lower.replace(/[^a-z0-9]/g, "");
+  return compact.length > 3 && compact.endsWith("id") && !NON_ID_WORDS.test(compact);
+}
+
 /** A numeric column with few distinct values charts better as categories. */
 export function isChartCategory(meta: ColumnMeta): boolean {
   if (isCategoryType(meta.type)) return true;
@@ -99,7 +138,7 @@ export function pickDefaultCard(columns: readonly ColumnMeta[], rowCount = 0): D
 
   const dates = entries.filter(
     (entry) =>
-      entry.meta.type === "date" &&
+      (entry.meta.type === "date" || entry.meta.type === "datetime") &&
       entry.meta.stats.distinct >= 8 &&
       !isIdLikeColumn(entry.meta, rowCount),
   );
@@ -170,7 +209,9 @@ export function suggestCharts(columns: readonly ColumnMeta[], rowCount = 0): Cha
   const ideas: ChartIdea[] = [];
 
   const dates = entries.filter(
-    (entry) => entry.meta.type === "date" && entry.meta.stats.distinct >= 8,
+    (entry) =>
+      (entry.meta.type === "date" || entry.meta.type === "datetime") &&
+      entry.meta.stats.distinct >= 8,
   );
   if (dates.length > 0) {
     ideas.push({ label: "Rows over time", preset: { kind: "line", column: dates[0].index } });
@@ -219,12 +260,33 @@ export function suggestCharts(columns: readonly ColumnMeta[], rowCount = 0): Cha
     });
   }
 
+  const geo = detectGeoPair(columns, rowCount);
+  if (geo !== null) {
+    ideas.push({
+      label: "Map of coordinates",
+      preset: { kind: "map", x: geo.lon, y: geo.lat },
+    });
+  }
+
   return ideas.slice(0, 3);
 }
 
-/** Axis formatting kind: dates get date ticks, everything else numbers. */
-export function axisKindFor(type: ColumnType): "line" | null {
-  return type === "date" ? "line" : null;
+/** Axis tick formatting: temporal types get their own tick text. */
+export type AxisFormat = "line" | "datetime" | "time" | "duration";
+
+export function axisKindFor(type: ColumnType): AxisFormat | null {
+  switch (type) {
+    case "date":
+      return "line";
+    case "datetime":
+      return "datetime";
+    case "time":
+      return "time";
+    case "duration":
+      return "duration";
+    default:
+      return null;
+  }
 }
 
 export interface CategoryBar {
@@ -374,11 +436,9 @@ export const EXPORT_SIZES: readonly { label: string; width: number; height: numb
 
 export const DEFAULT_EXPORT_SIZE = 1;
 
-/** Default chart title: data source plus column, editable by the user. */
-export function defaultChartTitle(datasetName: string, columnName: string): string {
-  const base = datasetName.replace(/\.[^.]+$/, "").trim();
-  const source = base === "" ? "Data" : base;
-  return columnName === "" ? source : `${source} — ${columnName}`;
+/** Default chart title: the column (or pair) the card is about. */
+export function defaultChartTitle(columnName: string): string {
+  return columnName === "" ? "Data" : columnName;
 }
 
 /** Displays a bin bound with thousands separators, e.g. 19818400000. */
@@ -422,8 +482,39 @@ export function suggestedBinRange(meta: ColumnMeta): SuggestedRange {
   return { min, max, overflow: false, clipped: false };
 }
 
-export function formatTick(value: number, kind: "histogram" | "line" | null): string {
-  if (kind === "line") return toDateInputValue(value);
+const YEAR_MS = 365.25 * 86_400_000;
+
+/**
+ * Axis tick text. Temporal ticks adapt to the axis span: intraday spans show
+ * clock times, day-scale spans dates, multi-year spans month buckets. The
+ * span is optional; without it the full canonical form is used.
+ */
+export function formatTick(
+  value: number,
+  kind: "histogram" | AxisFormat | null,
+  spanMs?: number,
+): string {
+  const span = spanMs ?? Number.POSITIVE_INFINITY;
+  if (kind === "line") {
+    if (spanMs !== undefined && span > 3 * YEAR_MS) return toDateInputValue(value).slice(0, 7);
+    return toDateInputValue(value);
+  }
+  if (kind === "datetime") {
+    // Without a span keep the full canonical form (tooltips, exports).
+    if (spanMs === undefined) return `${toDateInputValue(value)} ${toTimeInputValue(value)}`;
+    if (span <= 2 * 86_400_000) return toTimeInputValue(value);
+    if (span <= 120 * 86_400_000) {
+      return `${toDateInputValue(value).slice(5)} ${toTimeInputValue(value)}`;
+    }
+    if (span > 3 * YEAR_MS) return toDateInputValue(value).slice(0, 7);
+    return toDateInputValue(value);
+  }
+  if (kind === "time") return toTimeInputValue(value);
+  if (kind === "duration") return formatDurationMs(value);
+  // Years read as labels, not quantities: bare 4-digit integers in the year
+  // window never compact (1900, 1970, 2010 — not 1.9k/2k). Birth-year axes
+  // are the reported case; wide count axes still show 50k/1.5M below.
+  if (Number.isInteger(value) && value >= 1000 && value <= 2200) return String(value);
   const abs = Math.abs(value);
   const compact = (scaled: number): string => {
     const text = scaled >= 100 ? scaled.toFixed(0) : scaled.toFixed(1);
@@ -438,6 +529,73 @@ export function formatTick(value: number, kind: "histogram" | "line" | null): st
 /** Whole-number tick label for count axes, e.g. 50,000. */
 export function formatCount(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+}
+
+/** The plot rectangle and brush rectangle used by the map card, in canvas px. */
+export interface MapBrushFrame {
+  left: number;
+  top: number;
+  plotW: number;
+  plotH: number;
+}
+
+export interface PlotBounds {
+  xMin: number;
+  xMax: number;
+  yMin: number;
+  yMax: number;
+}
+
+/**
+ * Zooms a plot viewport around an anchor (0–1 in each axis, y pointing up).
+ * factor < 1 zooms in, > 1 zooms out; spans never drop below minSpan.
+ */
+export function zoomPlotBounds(
+  bounds: PlotBounds,
+  anchor: { x: number; y: number },
+  factor: number,
+  minSpan = 1e-9,
+): PlotBounds {
+  const spanX = Math.max(minSpan, (bounds.xMax - bounds.xMin) * factor);
+  const spanY = Math.max(minSpan, (bounds.yMax - bounds.yMin) * factor);
+  const x = bounds.xMin + anchor.x * (bounds.xMax - bounds.xMin);
+  const y = bounds.yMin + anchor.y * (bounds.yMax - bounds.yMin);
+  const xMin = x - anchor.x * spanX;
+  const yMin = y - anchor.y * spanY;
+  return { xMin, xMax: xMin + spanX, yMin, yMax: yMin + spanY };
+}
+
+export interface MapBrushRect {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/**
+ * Converts a map brush rectangle (canvas px) into lon/lat bounds, clamped to
+ * the world. Equirectangular inverse of the map card's projection.
+ */
+export function mapBrushBounds(
+  frame: MapBrushFrame,
+  brush: MapBrushRect,
+): { lonMin: number; lonMax: number; latMin: number; latMax: number } {
+  const clampX = (value: number): number =>
+    Math.max(frame.left, Math.min(frame.left + frame.plotW, value));
+  const clampY = (value: number): number =>
+    Math.max(frame.top, Math.min(frame.top + frame.plotH, value));
+  const x0 = clampX(Math.min(brush.x0, brush.x1));
+  const x1 = clampX(Math.max(brush.x0, brush.x1));
+  const y0 = clampY(Math.min(brush.y0, brush.y1));
+  const y1 = clampY(Math.max(brush.y0, brush.y1));
+  const toLon = (x: number): number => ((x - frame.left) / frame.plotW) * 360 - 180;
+  const toLat = (y: number): number => 90 - ((y - frame.top) / frame.plotH) * 180;
+  return {
+    lonMin: Math.max(-180, toLon(x0)),
+    lonMax: Math.min(180, toLon(x1)),
+    latMin: Math.max(-90, toLat(y1)),
+    latMax: Math.min(90, toLat(y0)),
+  };
 }
 
 export function safeFileName(name: string): string {

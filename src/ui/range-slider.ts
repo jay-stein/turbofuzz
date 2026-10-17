@@ -5,6 +5,8 @@ export interface RangeSliderOptions {
   binCount: number;
   integer?: boolean;
   isDate?: boolean;
+  /** Snap handles/keyboard to this millisecond step (datetime, time). */
+  snapMs?: number;
   /** Heavy-tailed columns: handles move on the signed-log axis of the bins. */
   symlog?: boolean;
   onInput: (min: number | null, max: number | null, preview: boolean) => void;
@@ -166,7 +168,8 @@ export class RangeSlider {
 
   private snap(value: number): number {
     if (this.options.integer === true) return Math.round(value);
-    if (this.options.isDate === true) return Math.round(value / DAY_MS) * DAY_MS;
+    const snapMs = this.options.snapMs ?? (this.options.isDate === true ? DAY_MS : null);
+    if (snapMs !== null) return Math.round(value / snapMs) * snapMs;
     const tMin = this.tMin();
     const tSpan = this.tMax() - tMin;
     if (tSpan <= 0) return this.dataMin;
@@ -265,8 +268,8 @@ export class RangeSlider {
     let step: number;
     if (this.options.integer === true) {
       step = 1;
-    } else if (this.options.isDate === true) {
-      step = DAY_MS;
+    } else if (this.options.snapMs !== undefined || this.options.isDate === true) {
+      step = this.options.snapMs ?? DAY_MS;
     } else if (this.options.symlog === true) {
       const tStep = (this.tMax() - this.tMin()) / this.bars.length;
       step = Math.abs(this.fromT(this.toT(current) + tStep) - current) || tStep;

@@ -1,6 +1,8 @@
 import type { ChartBinOptions } from "../data/chart-bins.js";
+import type { TimeGrain, ViewDef } from "../data/aggregate.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type {
+  AggregateMessage,
   BoxStatsMessage,
   ChartBinsMessage,
   ChartSeriesMessage,
@@ -8,9 +10,21 @@ import type {
   CorrelationMessage,
   CrosstabMessage,
   GroupedBinsMessage,
+  GridCountsMessage,
+  AnimationMessage,
+  TextProfileMessage,
 } from "../worker/protocol.js";
-import { ChartCard, type ChartCardConfig, type SeriesRequestInput } from "./chart-card.js";
+import { ChartCard, type ChartCardConfig, type MapBrushSelection, type SeriesRequestInput } from "./chart-card.js";
 import {
+  CHART_KIND_ICONS,
+  GALLERY_KINDS,
+  fitChartKind,
+  openChartGallery,
+  type KindFit,
+} from "./chart-gallery.js";
+import { openChartSetupDialog } from "./chart-setup.js";
+import {
+  CHART_KIND_LABELS,
   DEFAULT_EXPORT_SIZE,
   EXPORT_SIZES,
   type ChartCardKind,
@@ -18,9 +32,18 @@ import {
   isNumericType,
   isPairKind,
   pickDefaultCard,
-  suggestCharts,
 } from "./chart-utils.js";
 import { el } from "./dom.js";
+
+const RAIL_KEY = "turbofuzz.charts.rail";
+
+function readRailCollapsed(): boolean {
+  try {
+    return localStorage.getItem(RAIL_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 export interface ChartsPanelOptions {
   datasetName(): string;
@@ -47,10 +70,42 @@ export interface ChartsPanelOptions {
     options: ChartBinOptions;
     topN: number;
   }): Promise<GroupedBinsMessage>;
+  /** Aggregate result for a view-bound card (null when the view is gone). */
+  requestViewAggregate?(source: string): Promise<AggregateMessage | null>;
+  /** Ad-hoc aggregation for the treemap measure. */
+  requestAggregate(view: ViewDef): Promise<AggregateMessage>;
+  /** Token frequencies for the top-terms chart. */
+  requestTextProfile(column: number): Promise<TextProfileMessage>;
+  /** Row counts (and optional per-cell measure) for the bubble chart. */
+  requestGridCounts?(
+    xColumn: number,
+    yColumn: number,
+    bins?: number,
+    measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
+    groupColumn?: number,
+  ): Promise<GridCountsMessage>;
+  /** Per-time-bucket frames for animated bar, bubble, histogram and treemap charts. */
+  requestAnimation?(input: {
+    timeColumn: number;
+    grain: TimeGrain;
+    chart: "bar" | "bubble" | "histogram";
+    column: number;
+    yColumn: number;
+    bins?: number;
+    topN?: number;
+    measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
+    groupColumn?: number;
+  }): Promise<AnimationMessage>;
+  /** Label for the filtered-table source: "Table" when no filters apply. */
+  tableSourceLabel?(): string;
+  /** Applied when a card lands in the grid (status feedback in the app). */
+  onCardAdded?(label: string): void;
   /** Applies a filter from a click on a chart region (bars, bins, cells). */
   onFilter?(column: number, filter: ColumnFilter | null, preview?: boolean): void;
   /** Reads the app's current filter for a column, so clicks can toggle. */
   currentFilter?(column: number): ColumnFilter | null;
+  /** Map card rectangle brush: filter both coordinate columns to the area. */
+  onMapBrush?(selection: MapBrushSelection): void;
 }
 
 const LAYOUT_KEY = "turbofuzz.charts.columns";
@@ -168,7 +223,11 @@ function presetFor(
   if (used.size > 0) {
     const axisAll = indexesWhere(
       columns,
-      (meta) => isNumericType(meta.type) || meta.type === "date",
+      (meta) =>
+        isNumericType(meta.type) ||
+        meta.type === "date" ||
+        meta.type === "datetime" ||
+        meta.type === "duration",
     );
     const numeric = indexesWhere(columns, (meta) => isNumericType(meta.type));
     const categories = indexesWhere(columns, (meta) => isCategoryType(meta.type));
@@ -180,7 +239,9 @@ function presetFor(
         for (const y of source) {
           if (x === y) continue;
           // Never pair two date columns; a date against a date says nothing.
-          if (columns[x].type === "date" && columns[y].type === "date") continue;
+          const xDate = columns[x].type === "date" || columns[x].type === "datetime";
+          const yDate = columns[y].type === "date" || columns[y].type === "datetime";
+          if (xDate && yDate) continue;
           pair = { x, y };
           break;
         }
@@ -225,16 +286,22 @@ function readLayout(): number {
 export class ChartsPanel {
   private readonly grid: HTMLElement;
   private readonly empty: HTMLElement;
-  private readonly suggestions: HTMLElement;
+  private readonly rail: HTMLElement;
+  private readonly railList: HTMLElement;
+  private readonly railToggle: HTMLButtonElement;
+  private railCollapsed = readRailCollapsed();
   private readonly layoutSelect: HTMLSelectElement;
   private readonly sizeSelect: HTMLSelectElement;
   private cards: ChartCard[] = [];
   private columns: ColumnMeta[] = [];
+  private sources: { id: string; name: string }[] = [];
   private facets: Record<number, number[]> = {};
   private histograms: Record<number, number[]> = {};
   private rowCount = 0;
   private exportSizeIndex = DEFAULT_EXPORT_SIZE;
   private layoutCols = readLayout();
+  /** True while the add-chart setup dialog is open (guards double adds). */
+  private setupOpen = false;
   /** True once a dataset's columns have been seen; a cleared grid stays clear. */
   private initialised = false;
 
@@ -248,7 +315,13 @@ export class ChartsPanel {
       { class: "primary small", type: "button", title: "Add another chart of the current result set" },
       ["+ Add chart"],
     );
-    add.addEventListener("click", () => this.addCard());
+    add.addEventListener("click", () =>
+      openChartGallery(add, {
+        columns: this.columns,
+        rowCount: this.rowCount,
+        onPick: (preset) => void this.openChartSetup(preset),
+      }),
+    );
 
     this.layoutSelect = el("select", {
       class: "chart-size",
@@ -293,10 +366,96 @@ export class ChartsPanel {
     this.empty = el("div", { class: "charts-empty" }, [
       "No charts yet — use “+ Add chart” to plot the current result set.",
     ]);
-    this.suggestions = el("div", { class: "chart-suggestions hidden" });
-    this.root.append(toolbar, this.suggestions, this.grid, this.empty);
+
+    // Left rail: every chart type as an icon tile, collapsible to icons only.
+    this.railToggle = el(
+      "button",
+      { class: "icon-btn charts-rail-toggle", type: "button" },
+      ["⟨"],
+    ) as HTMLButtonElement;
+    this.railToggle.addEventListener("click", () => this.toggleRail());
+    this.railList = el("div", { class: "charts-rail-list" });
+    this.rail = el("div", { class: "charts-rail" }, [
+      el("div", { class: "charts-rail-head" }, [
+        el("span", { class: "charts-rail-title" }, ["Chart types"]),
+        this.railToggle,
+      ]),
+      this.railList,
+    ]);
+    this.root.classList.add("charts-panel");
+    const main = el("div", { class: "charts-main" }, [toolbar, this.grid, this.empty]);
+    // The wrapper guarantees the rail sits beside the whole panel (toolbar and
+    // grid), regardless of the host element's own display rules.
+    this.root.append(el("div", { class: "charts-layout" }, [this.rail, main]));
+    this.applyRailState();
+    this.syncRail();
     this.syncLayout();
     this.syncEmpty();
+  }
+
+  /** Rebuilds the rail tiles from the current columns and their fit. */
+  private syncRail(): void {
+    this.railList.replaceChildren();
+    for (const kind of GALLERY_KINDS) {
+      const fit = fitChartKind(kind, this.columns, this.rowCount);
+      const tile = el(
+        "button",
+        { class: "charts-rail-tile", type: "button" },
+        [],
+      ) as HTMLButtonElement;
+      const icon = el("span", { class: "charts-rail-icon" });
+      icon.innerHTML = `<svg viewBox="0 0 72 48" aria-hidden="true">${CHART_KIND_ICONS[kind]}</svg>`;
+      tile.append(icon, el("span", { class: "charts-rail-label" }, [CHART_KIND_LABELS[kind]]));
+      tile.disabled = !fit.ok;
+      tile.title = fit.ok
+        ? `Add a ${CHART_KIND_LABELS[kind].toLowerCase()} chart`
+        : `${CHART_KIND_LABELS[kind]} — ${fit.reason}`;
+      tile.addEventListener("click", () => {
+        void this.openChartSetup(fit.preset);
+      });
+      this.railList.append(tile);
+    }
+  }
+
+  /**
+   * Confirmation step shared by the rail and the gallery: shows the chart
+   * type and its columns, and only then adds the card, so a stray click can
+   * never add an invisible chart. The new card is scrolled into view and
+   * briefly highlighted.
+   */
+  private async openChartSetup(preset: Partial<ChartCardConfig>): Promise<void> {
+    if (this.setupOpen) return;
+    this.setupOpen = true;
+    const kind = preset.kind ?? "histogram";
+    try {
+      const config = await openChartSetupDialog(kind, this.columns, preset);
+      if (config === null) return;
+      const card = this.addCard(config);
+      card.root.classList.add("chart-card-new");
+      card.root.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+      window.setTimeout(() => card.root.classList.remove("chart-card-new"), 1500);
+      this.options.onCardAdded?.(CHART_KIND_LABELS[kind]);
+    } finally {
+      this.setupOpen = false;
+    }
+  }
+
+  private toggleRail(): void {
+    this.railCollapsed = !this.railCollapsed;
+    try {
+      localStorage.setItem(RAIL_KEY, this.railCollapsed ? "1" : "0");
+    } catch {
+      // Persisting the preference is best-effort.
+    }
+    this.applyRailState();
+  }
+
+  private applyRailState(): void {
+    this.rail.classList.toggle("collapsed", this.railCollapsed);
+    this.railToggle.textContent = this.railCollapsed ? "⟩" : "⟨";
+    this.railToggle.title = this.railCollapsed
+      ? "Expand the chart type list"
+      : "Collapse to icons";
   }
 
   addCard(preset?: Partial<ChartCardConfig>): ChartCard {
@@ -317,8 +476,15 @@ export class ChartsPanel {
         requestCrosstab: this.options.requestCrosstab,
         requestCorrelation: this.options.requestCorrelation,
         requestGroupedBins: this.options.requestGroupedBins,
+        requestViewAggregate: this.options.requestViewAggregate,
+        requestAggregate: this.options.requestAggregate,
+        requestTextProfile: this.options.requestTextProfile,
+        requestGridCounts: this.options.requestGridCounts,
+        requestAnimation: this.options.requestAnimation,
+        tableSourceLabel: this.options.tableSourceLabel,
         onFilter: this.options.onFilter,
         currentFilter: this.options.currentFilter,
+        onMapBrush: this.options.onMapBrush,
         onRemove: (target) => this.removeCard(target),
         onDuplicate: (target) => this.duplicateCard(target),
         onExport: (target) => {
@@ -331,11 +497,23 @@ export class ChartsPanel {
     this.cards.push(card);
     this.grid.append(section);
     card.setColumns(this.columns);
+    card.setSources(this.sources);
     card.setFiltered(this.facets, this.histograms);
     card.setRowCount(this.rowCount);
+    if (card.getConfig().source !== "") card.refreshView();
     this.syncEmpty();
-    this.syncSuggestions();
     return card;
+  }
+
+  /** Sources every card can bind to: the filtered table plus each saved view. */
+  setSources(sources: { id: string; name: string }[]): void {
+    this.sources = sources;
+    for (const card of this.cards) card.setSources(sources);
+  }
+
+  /** "Chart this" from the Views lens: a card bound to the view's result. */
+  addViewChart(view: ViewDef): void {
+    this.addCard({ kind: "bar", source: view.id, title: view.name });
   }
 
   removeCard(card: ChartCard): void {
@@ -345,7 +523,6 @@ export class ChartsPanel {
     card.dispose();
     card.root.remove();
     this.syncEmpty();
-    this.syncSuggestions();
   }
 
   duplicateCard(card: ChartCard): void {
@@ -354,6 +531,7 @@ export class ChartsPanel {
 
   setColumns(columns: ColumnMeta[]): void {
     this.columns = columns;
+    this.syncRail();
     if (!this.initialised) {
       this.initialised = true;
       if (columns.length > 0 && this.cards.length === 0) {
@@ -362,7 +540,6 @@ export class ChartsPanel {
       }
     }
     for (const card of this.cards) card.setColumns(columns);
-    this.syncSuggestions();
   }
 
   /** Snapshots every card with its columns stored by name. */
@@ -378,8 +555,8 @@ export class ChartsPanel {
   restore(configs: readonly Partial<ChartCardConfig>[], columns: ColumnMeta[]): void {
     this.columns = columns;
     this.initialised = true;
+    this.syncRail();
     for (const config of configs) this.addCard(config);
-    this.syncSuggestions();
   }
 
   setFiltered(
@@ -394,11 +571,15 @@ export class ChartsPanel {
   setRowCount(count: number): void {
     this.rowCount = count;
     for (const card of this.cards) card.setRowCount(count);
-    this.syncSuggestions();
   }
 
   refresh(): void {
     for (const card of this.cards) card.refresh();
+  }
+
+  /** Cheap re-entry: repaint without re-requesting any worker payloads. */
+  repaint(): void {
+    for (const card of this.cards) card.repaint();
   }
 
   dispose(): void {
@@ -419,33 +600,5 @@ export class ChartsPanel {
     const isEmpty = this.cards.length === 0;
     this.empty.classList.toggle("hidden", !isEmpty);
     this.grid.classList.toggle("hidden", isEmpty);
-  }
-
-  /** Up to three ready-made charts while the grid holds exactly one card. */
-  private syncSuggestions(): void {
-    this.suggestions.replaceChildren();
-    if (this.cards.length !== 1) {
-      this.suggestions.classList.add("hidden");
-      return;
-    }
-    const ideas = suggestCharts(this.columns, this.rowCount);
-    if (ideas.length === 0) {
-      this.suggestions.classList.add("hidden");
-      return;
-    }
-    for (const idea of ideas) {
-      const chip = el(
-        "button",
-        {
-          class: "ghost small chart-suggestion",
-          type: "button",
-          title: "Add this suggested chart",
-        },
-        [idea.label],
-      ) as HTMLButtonElement;
-      chip.addEventListener("click", () => this.addCard(idea.preset));
-      this.suggestions.append(chip);
-    }
-    this.suggestions.classList.remove("hidden");
   }
 }

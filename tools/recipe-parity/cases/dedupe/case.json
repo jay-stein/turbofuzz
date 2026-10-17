@@ -1,0 +1,4 @@
+{
+  "name": "dedupe",
+  "description": "keep the first copy of each duplicated row"
+}

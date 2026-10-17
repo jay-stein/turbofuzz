@@ -57,6 +57,7 @@ interface Harness {
   rowDeletes: number[];
   fixes: { column: number; suggestion: ColumnSuggestion }[];
   converts: { column: number; tokens: string[] }[];
+  inspects: number[];
   window: Window;
 }
 
@@ -71,8 +72,10 @@ function buildTable(columns: ColumnMeta[]): Harness {
   const rowDeletes: number[] = [];
   const fixes: Harness["fixes"] = [];
   const converts: Harness["converts"] = [];
+  const inspects: number[] = [];
   const table = new ResultTable(host, {
     onSort: () => {},
+    onColumnInspect: (column) => inspects.push(column),
     onTypeChange: () => {},
     onColumnSpecial: (column, kind) => clicks.push({ column, kind }),
     onMergeSimilar: (column) => merges.push(column),
@@ -94,12 +97,13 @@ function buildTable(columns: ColumnMeta[]): Harness {
     rowDeletes,
     fixes,
     converts,
+    inspects,
     window,
   };
 }
 
 test("header shows only actionable QA chips", () => {
-  const { host } = buildTable([
+  const { host, clicks } = buildTable([
     meta({
       name: "city",
       stats: { ...meta().stats, nulls: 3, distinct: 4 },
@@ -111,10 +115,19 @@ test("header shows only actionable QA chips", () => {
   const cells = host.querySelectorAll(".th");
   // cells[0] is the row-index header; column cells start at 1.
   const chips = cells[1].querySelectorAll(".th-qa-chip");
-  assert.equal(chips.length, 2);
-  assert.equal(chips[0].textContent, "3 empty cells");
+  assert.equal(chips.length, 1);
+  assert.equal(chips[0].textContent, "2 issues");
   assert.ok(chips[0].classList.contains("warn"));
-  assert.equal(chips[1].textContent, "2 long values");
+
+  (chips[0] as unknown as { click(): void }).click();
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const items = [...document.querySelectorAll(".context-menu .context-item")];
+  assert.deepEqual(
+    items.map((item) => item.textContent),
+    ["3 empty cells", "2 long values"],
+  );
+  (items[1] as unknown as { click(): void }).click();
+  assert.deepEqual(clicks, [{ column: 0, kind: "lengthAnomalies" }]);
 
   const cleanChips = cells[2].querySelectorAll(".th-qa-chip");
   assert.equal(cleanChips.length, 0, "zero-count chips are hidden");
@@ -301,4 +314,107 @@ test("columns with only blank cells get no placeholder chip", () => {
     meta({ name: "clean", nullTokens: [{ label: "", count: 4 }] }),
   ]);
   assert.equal(host.querySelector(".th-qa-chip.token"), null);
+});
+
+test("changed cells carry a marker and the show-changes toggle", () => {
+  const { host, table } = buildTable([meta({ name: "a" }), meta({ name: "b" })]);
+  table.setFirstRows([["x", "y"]], undefined, undefined, Uint8Array.from([1, 0]));
+  table.setCount(1);
+  const cells = host.querySelectorAll(".tr .td");
+  // cells[0] is the row-index cell; data cells start at 1.
+  assert.ok(cells[1]?.classList.contains("changed-cell"));
+  assert.equal(cells[2]?.classList.contains("changed-cell"), false);
+  table.setShowChanges(true);
+  assert.ok(host.querySelector(".table-scroller")?.classList.contains("show-changes"));
+  table.setShowChanges(false);
+  assert.equal(host.querySelector(".table-scroller")?.classList.contains("show-changes"), false);
+});
+
+test("clicking a column name opens the inspector", () => {
+  const { host, inspects } = buildTable([meta({ name: "city" })]);
+  const label = host
+    .querySelectorAll(".th")[1]
+    .querySelector(".th-label") as unknown as { click(): void };
+  label.click();
+  assert.deepEqual(inspects, [0]);
+});
+
+test("per-column display format renders fixed decimals without touching raw data", () => {
+  const { host, table } = buildTable([meta({ name: "amount", type: "number" })]);
+  table.setFormats(new Map([[0, 2]]));
+  table.setFirstRows([["40.7262807"]]);
+  table.setCount(1);
+  const cell = host.querySelectorAll(".tr .td")[1];
+  assert.equal(cell?.textContent, "40.73");
+});
+
+test("thousands-separator display groups digits without touching raw data", () => {
+  const { host, table } = buildTable([meta({ name: "amount", type: "number" })]);
+  table.setGrouping([0]);
+  table.setFirstRows([["1234567.89"]]);
+  table.setCount(1);
+  const cell = host.querySelectorAll(".tr .td")[1];
+  assert.equal(cell?.textContent, "1,234,567.89");
+
+  // Switching grouping off returns to the untouched raw value.
+  table.setGrouping([]);
+  table.setFirstRows([["1234567.89"]]);
+  const plain = host.querySelectorAll(".tr .td")[1];
+  assert.equal(plain?.textContent, "1234567.89");
+});
+
+test("integer columns ignore decimal display formats", () => {
+  const { host, table } = buildTable([meta({ name: "count", type: "integer" })]);
+  table.setFormats(new Map([[0, 1]]));
+  table.setGrouping([0]);
+  table.setFirstRows([["1234567"]]);
+  table.setCount(1);
+  assert.equal(
+    host.querySelectorAll(".tr .td")[1]?.textContent,
+    "1,234,567",
+    "grouping applies but integers never show forced decimals",
+  );
+  table.setGrouping([]);
+  table.setFirstRows([["1234567"]]);
+  assert.equal(host.querySelectorAll(".tr .td")[1]?.textContent, "1234567");
+});
+
+test("integers drop float tails and dates display in one standard shape", () => {
+  const { host, table } = buildTable([
+    meta({ name: "car", type: "integer" }),
+    meta({ name: "when", type: "date", dateOrder: "dmy" }),
+    meta({ name: "seen", type: "datetime", dateOrder: "dmy" }),
+  ]);
+  table.setFirstRows([["1.0", "3/12/2016", "2013-08-15 00:18:08+00"]]);
+  table.setCount(1);
+  const cells = host.querySelectorAll(".tr .td");
+  assert.equal(cells[1]?.textContent, "1", "the float tail is not shown for integers");
+  assert.equal(cells[1]?.getAttribute("title"), "1.0", "the raw value stays on hover");
+  assert.equal(cells[2]?.textContent, "2016-12-03");
+  assert.equal(cells[3]?.textContent, "2013-08-15 00:18");
+});
+
+test("display settings repaint rows already on screen", () => {
+  const { host, table } = buildTable([meta({ name: "amount", type: "number" })]);
+  table.setFirstRows([["1234567.89"]]);
+  table.setCount(1);
+  assert.equal(host.querySelectorAll(".tr .td")[1]?.textContent, "1234567.89");
+
+  table.setGrouping([0]);
+  assert.equal(
+    host.querySelectorAll(".tr .td")[1]?.textContent,
+    "1,234,567.89",
+    "enabling separators repaints without a scroll",
+  );
+
+  table.setGrouping([]);
+  table.setFormats(new Map([[0, 2]]));
+  assert.equal(host.querySelectorAll(".tr .td")[1]?.textContent, "1,234,567.89");
+
+  table.setFormats(new Map());
+  assert.equal(
+    host.querySelectorAll(".tr .td")[1]?.textContent,
+    "1234567.89",
+    "clearing the format restores the raw value",
+  );
 });

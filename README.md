@@ -38,7 +38,8 @@ API, no network requests — everything is parsed and processed on your device.
   PNG export.
 - **Export:** CSV with scope choice (all rows after steps vs. filtered) and an
   optional first-N subset, a BOM for Excel, optional formula escaping, plus
-  clipboard copy and a pandas recipe of the applied steps.
+  clipboard copy and a pandas or Polars recipe of the applied steps (with a
+  support report listing any step that needs manual translation).
 
 ## Development
 
@@ -49,7 +50,10 @@ npm install
 npm run dev        # Vite dev server
 npm test           # node:test suite (tsx)
 npm run typecheck  # tsc --noEmit
-npm run build      # typecheck + production build into dist/
+npm run bench:quick
+npm run bench:real
+npm run bench:ingest   # parse/build/preview/filter/sort/export at 100k/500k/1.5M
+npm run parity:cases   # generate pandas/Polars execution fixtures
 ```
 
 Benchmarks:

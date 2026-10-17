@@ -18,6 +18,8 @@ import type { ColumnMeta } from "../worker/protocol.js";
 export interface CleanPreviewCount {
   changed: number;
   total: number;
+  /** Non-null cells the staged cast could not parse. */
+  failed: number;
 }
 
 export interface CleanUpdateRequest {
@@ -52,7 +54,8 @@ const OP_TYPES: readonly { value: string; label: string }[] = [
   { value: "title", label: "Title Case" },
   { value: "replace", label: "Find & replace" },
   { value: "toNumber", label: "Convert to number" },
-  { value: "toDate", label: "Convert to date" },
+  { value: "toDate", label: "Convert to date (date only)" },
+  { value: "toDateTime", label: "Convert to date & time" },
 ];
 
 export interface CleanPanelOptions {
@@ -65,16 +68,23 @@ export interface CleanPanelOptions {
 }
 
 /**
- * Where the Clean drawer opens: the Nulls tab when any column has empty
- * cells, otherwise Values when there are one-click suggestions, otherwise
- * Column names. A preselected column always opens the Values tab.
+ * Where the Clean drawer opens: the Nulls tab when any column has empty cells
+ * or detected placeholder tokens, otherwise Values when there are one-click
+ * suggestions, otherwise Column names. A preselected column always opens the
+ * Values tab.
  */
 export function initialCleanTab(
   metas: readonly ColumnMeta[],
   column?: number,
 ): "names" | "values" | "nulls" {
   if (column !== undefined) return "values";
-  if (metas.some((meta) => meta.stats.nulls > 0)) return "nulls";
+  if (
+    metas.some(
+      (meta) => meta.stats.nulls > 0 || meta.nullTokens.some((token) => token.count > 0),
+    )
+  ) {
+    return "nulls";
+  }
   if (metas.some((meta) => meta.suggestions.length > 0)) return "values";
   return "names";
 }
@@ -191,7 +201,7 @@ function buildNamesTab(
     for (let i = 0; i < headers.length; i++) {
       if (headers[i] === next[i]) continue;
       changed++;
-      const row = el("div", { class: "clean-preview-row" });
+      const row = el("div", { class: "clean-preview-row changed" });
       row.append(
         el("span", { class: "clean-preview-old", title: headers[i] }, [headers[i]]),
         el("span", { class: "clean-preview-arrow" }, ["→"]),
@@ -200,6 +210,7 @@ function buildNamesTab(
       fragment.append(row);
     }
     previewList.replaceChildren(fragment);
+    previewList.classList.toggle("hidden", changed === 0);
     previewSummary.textContent =
       changed === 0 ? "No changes." : `${changed} of ${headers.length} columns will be renamed`;
     apply.disabled = changed === 0;
@@ -317,7 +328,10 @@ function buildValuesTab(
   const syncOpType = (): void => {
     replaceRow.classList.toggle("hidden", opSelect.value !== "replace");
     localeRow.classList.toggle("hidden", opSelect.value !== "toNumber");
-    dateOrderRow.classList.toggle("hidden", opSelect.value !== "toDate");
+    dateOrderRow.classList.toggle(
+      "hidden",
+      opSelect.value !== "toDate" && opSelect.value !== "toDateTime",
+    );
   };
 
   const currentBuilderOp = (): CleanOp | null =>
@@ -376,14 +390,18 @@ function buildValuesTab(
         opSelect.value = "toDate";
         dateOrderSelect.value = initialOp.order;
         break;
+      case "toDateTime":
+        opSelect.value = "toDateTime";
+        dateOrderSelect.value = initialOp.order;
+        break;
       default:
         break;
     }
-    builderTouched = true;
+    pending.push(initialOp);
     syncOpType();
   }
 
-  const addButton = el("button", { class: "ghost small", type: "button" }, ["Add another"]);
+  const addButton = el("button", { class: "ghost small", type: "button" }, ["Add"]);
   addButton.title = "Stage this operation in the list and configure the next one";
   addButton.addEventListener("click", () => {
     const op = currentBuilderOp();
@@ -409,6 +427,7 @@ function buildValuesTab(
 
   function renderOps(): void {
     clear(opList);
+    addButton.textContent = pending.length === 0 ? "Add" : "Add another";
     if (pending.length === 0) {
       opList.append(el("div", { class: "clean-empty" }, ["No operations — this column is unchanged."]));
       return;
@@ -459,7 +478,10 @@ function buildValuesTab(
     } else {
       const fragment = document.createDocumentFragment();
       for (let i = 0; i < samples.length; i++) {
-        const row = el("div", { class: "clean-preview-row" });
+        const rowChanged = samples[i] !== results[i];
+        const row = el("div", {
+          class: `clean-preview-row${rowChanged ? " changed" : ""}`,
+        });
         row.append(
           el("span", { class: "clean-preview-old", title: samples[i] }, [samples[i]]),
           el("span", { class: "clean-preview-arrow" }, ["→"]),
@@ -481,7 +503,8 @@ function buildValuesTab(
       .then((count) => {
         if (generation !== previewGeneration || count === null) return;
         const scope = allColumnsInput.checked ? ` across ${metas.length} columns` : "";
-        previewSummary.textContent = `${baseText} · ${count.changed.toLocaleString()} of ${count.total.toLocaleString()} cells change${scope}`;
+        const failed = count.failed > 0 ? ` · ${count.failed.toLocaleString()} can't be parsed` : "";
+        previewSummary.textContent = `${baseText} · ${count.changed.toLocaleString()} of ${count.total.toLocaleString()} cells change${failed}${scope}`;
       })
       .catch(() => {});
   }
@@ -576,6 +599,8 @@ function readOp(
       return { kind: "toNumber", locale };
     case "toDate":
       return { kind: "toDate", order: dateOrder };
+    case "toDateTime":
+      return { kind: "toDateTime", order: dateOrder };
     default:
       return null;
   }
@@ -618,9 +643,8 @@ function buildNullsTab(
   colSelect.append(el("option", { value: "" }, ["All columns"]) as HTMLOptionElement);
   metas.forEach((meta, index) => {
     const option = el("option", { value: String(index) }) as HTMLOptionElement;
-    const hasNulls = meta.stats.nulls > 0;
-    option.textContent = hasNulls ? `• ${meta.name}` : meta.name;
-    if (hasNulls) option.style.color = "var(--danger)";
+    option.textContent =
+      meta.stats.nulls > 0 ? `${meta.name} (${meta.stats.nulls.toLocaleString()} missing)` : meta.name;
     colSelect.append(option);
   });
   colField.append(colSelect);
@@ -635,7 +659,7 @@ function buildNullsTab(
   const extraInput = el("input", {
     class: "text-input",
     type: "text",
-    placeholder: "Add a value to treat as null",
+    placeholder: "Add missing value",
     spellcheck: "false",
     "aria-label": "Add a value to treat as null",
   }) as HTMLInputElement;
@@ -707,8 +731,16 @@ function buildNullsTab(
     }
     const parts = [`${nullCells.toLocaleString()} cells to blank`];
     if (keep.size > 0) parts.push(`${keep.size} kept`);
-    if (extra.size > 0) parts.push(`${extra.size} added`);
+    if (extra.size > 0) {
+      parts.push(`${extra.size} added token${extra.size === 1 ? "" : "s"}`);
+    }
     summary.textContent = parts.join(" · ");
+    // Nothing to blank (and nothing added): applying would be a no-op.
+    apply.disabled = nullCells === 0 && extra.size === 0;
+    apply.title =
+      apply.disabled
+        ? "No placeholder values are ticked, so there is nothing to blank"
+        : "Replace the ticked placeholder values with real blanks";
   }
 
   function addExtra(): void {
@@ -736,12 +768,10 @@ function buildNullsTab(
         for (const token of meta.nullPolicy.extra) extra.add(token);
         for (const token of meta.nullPolicy.keep) keep.add(token);
       }
-      colSelect.classList.toggle("has-nulls", metas.some((meta) => meta.stats.nulls > 0));
     } else {
       const meta = metas[index];
       for (const token of meta.nullPolicy.extra) extra.add(token);
       for (const token of meta.nullPolicy.keep) keep.add(token);
-      colSelect.classList.toggle("has-nulls", meta.stats.nulls > 0);
     }
     render();
   }

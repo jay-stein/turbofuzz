@@ -1,0 +1,4 @@
+{
+  "name": "combine-date",
+  "description": "combine year/month/day parts into a date and drop the parts"
+}

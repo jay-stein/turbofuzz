@@ -1,12 +1,34 @@
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
-import { listArchiveEntries, readArchiveEntry, type ArchiveEntry } from "../parse/archive.js";
+import {
+  listArchiveEntries,
+  readArchiveEntry,
+  readArchivePrefixes,
+  type ArchiveEntry,
+} from "../parse/archive.js";
 import { decompressBzip2 } from "../parse/bz2.js";
+import { decodeText } from "../parse/encoding.js";
+import { parseDelimited, sameHeaderRow } from "../parse/parse.js";
 import { detectTable } from "../parse/header-detect.js";
 import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
 import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
 import type { ColumnFilter } from "../search/query-engine.js";
+import {
+  detectArchetypes,
+  type ArchetypeId,
+} from "../data/archetype.js";
+import type { ViewDef } from "../data/aggregate.js";
 import { describeCleanOp, describeCleanOpDetail, type CleanOp } from "../data/clean-ops.js";
-import { pandasRecipe } from "../data/recipe.js";
+import { pandasRecipeScript, type RecipeInput, viewToPandas } from "../data/recipe.js";
+import { polarsRecipeScript } from "../data/recipe-polars.js";
+import { supportHint, type RecipeScript, type RecipeTarget } from "../data/recipe-support.js";
+import {
+  matchColumns,
+  parseRecipeFile,
+  planReplay,
+  type RecipeFile,
+  type RecipeFileType,
+  type ReplayPlan,
+} from "../data/recipe-file.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import {
   describeTransformOp,
@@ -20,8 +42,10 @@ import type { NumberLocale } from "../parse/numbers.js";
 import type { WorkBook } from "xlsx";
 import { TYPE_LABELS, type ColumnType } from "../types.js";
 import type {
+  AggregateMessage,
   CleanUpdate,
   ColumnMeta,
+  CorrelationMessage,
   ExportScope,
   LoadedMessage,
   ProgressMessage,
@@ -36,6 +60,7 @@ import { Overview, delimiterLabel, readDefaultView } from "./overview.js";
 import type { DatasetStats } from "../data/stats.js";
 import { FilterPanel } from "./filters.js";
 import { ChartsPanel, remapChartConfigs, type NamedChartCardConfig } from "./chart-panel.js";
+import type { MapBrushSelection } from "./chart-card.js";
 import { openHelpDrawer } from "./help-drawer.js";
 import { Hints } from "./hints.js";
 import { sampleCsv } from "./sample.js";
@@ -48,18 +73,56 @@ import {
 } from "./theme.js";
 import { ResultTable, type ColumnQaKind, type HighlightRule } from "./table.js";
 import { openStatsModal } from "./stats.js";
-import { SearchWorkerClient } from "./worker-client.js";
+import { LoadCancelledError, SearchWorkerClient } from "./worker-client.js";
 import { openCleanPanel } from "./clean-panel.js";
 import { openConfirm, openPrompt } from "./dialog.js";
+import {
+  estimateFromBuffer,
+  estimateFromText,
+  LARGE_LOAD_CELLS,
+  openLargeLoadDialog,
+  SAMPLE_ROWS,
+} from "./load-guard.js";
+import { isParquetName } from "../parse/parquet.js";
+import { openRecipeMapping } from "./recipe-mapping.js";
 import { openExportPanel } from "./export-panel.js";
 import { openMergePanel } from "./merge-panel.js";
+import { normalize } from "../search/normalize.js";
+import {
+  computeDQScore,
+  type DQScore,
+  type DQScoreConfig,
+  type ScoreCheck,
+} from "../data/score.js";
+import {
+  buildDQReport,
+  dqReportJson,
+  dqReportMarkdown,
+  emitDQChecks,
+} from "../data/dq-report.js";
+import { safeFileName } from "./chart-utils.js";
+import type { DQExportKind } from "./quality-panel.js";
+import { QualityPage } from "./quality-page.js";
+import type { PairOperator } from "../data/pair-checks.js";
+import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
-import { PipelineStepper, type StageId } from "./stepper.js";
 import { ViewTabs, type ViewId } from "./view-tabs.js";
+import { ViewsPanel } from "./views-panel.js";
+import { openCommandBar, type ParsedCommand } from "./command-bar.js";
+import { openTriagePanel, type TriagePanelHandle } from "./triage-panel.js";
+import { openColumnInspector } from "./column-inspector.js";
+import { openSlickTable } from "./slick-table.js";
+import { chartKindFor } from "./chart-utils.js";
+import { ReportsPanel } from "./reports-panel.js";
+import type { Finding } from "../data/findings.js";
 import { suggestCharts } from "./chart-utils.js";
 
 const LARGE_PASTE_ROWS = 300_000;
+/** Bytes read from each archive entry for the Import-all header check. */
+const HEADER_PREFIX_BYTES = 131_072;
+/** Estimated cells (rows x columns) above which Import all is refused. */
+const MAX_APPEND_CELLS = 20_000_000;
 const SIDEBAR_COLLAPSED_KEY = "turbofuzz.filters.collapsed";
 const COLUMN_TILES_KEY = "turbofuzz.table.tiles";
 
@@ -89,7 +152,16 @@ interface PickerItem {
   onSelect: () => void;
 }
 
-/** Reversible missing-value policy change, logged in the Process Log. */
+/** Optional bulk action shown above the picker list (e.g. ZIP Import all). */
+interface PickerBulk {
+  label: string;
+  title: string;
+  note?: string;
+  disabled?: boolean;
+  onSelect: () => void;
+}
+
+/** Reversible missing-value policy change, logged in the Recipe. */
 interface NullEdit {
   column: number;
   label: string;
@@ -100,7 +172,7 @@ interface NullEdit {
   all?: boolean;
 }
 
-/** Reversible column type (interpretation) change, logged in the Process Log. */
+/** Reversible column type (interpretation) change, logged in the Recipe. */
 interface TypeEdit {
   column: number;
   label: string;
@@ -112,6 +184,13 @@ function sameTokens(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false;
   const set = new Set(a);
   return b.every((value) => set.has(value));
+}
+
+/** Compact row estimate for the Import-all label: 3.7M, 480k, 950. */
+function formatApproxRows(rows: number): string {
+  if (rows >= 1_000_000) return `${(rows / 1_000_000).toFixed(1)}M`;
+  if (rows >= 1_000) return `${Math.round(rows / 1_000)}k`;
+  return String(Math.max(0, Math.round(rows)));
 }
 
 function formatBytes(size: number): string {
@@ -203,6 +282,28 @@ type SavePicker = (options: {
   types: { description: string; accept: Record<string, string[]> }[];
 }) => Promise<FileHandleLike>;
 
+const DQ_CONFIG_KEY = "turbofuzz.dqConfig";
+
+function loadDQConfig(): DQScoreConfig {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(DQ_CONFIG_KEY);
+    if (raw === null) return {};
+    return JSON.parse(raw) as DQScoreConfig;
+  } catch {
+    return {};
+  }
+}
+
+function saveDQConfig(config: DQScoreConfig): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(DQ_CONFIG_KEY, JSON.stringify(config));
+  } catch {
+    // Storage is best-effort; the session still uses the in-memory config.
+  }
+}
+
 async function copyText(text: string): Promise<boolean> {
   if (navigator.clipboard?.writeText !== undefined) {
     try {
@@ -245,12 +346,13 @@ export class App {
   private readonly typeEdits: TypeEdit[] = [];
   private transformOps: TransformOp[] = [];
   private transformBaseSchema: ColumnSchema[] = [];
-  /** Sizes of the transform commits, in op order, for Process Log batches. */
+  /** Sizes of the transform commits, in op order, for Recipe batches. */
   private transformCommitSizes: number[] = [];
   private filterPanel: FilterPanel | null = null;
   private table: ResultTable | null = null;
 
   private pasteView!: HTMLElement;
+  private pasteCancel!: HTMLButtonElement;
   private workspace!: HTMLElement;
   private textarea!: HTMLTextAreaElement;
   private pendingWorkbook:
@@ -267,6 +369,9 @@ export class App {
   private loadTitle!: HTMLElement;
   private loadDetail!: HTMLElement;
   private loadBar!: HTMLElement;
+  private loadCancel!: HTMLButtonElement;
+  /** Banner note recorded when a large load is taken as a sample. */
+  private sampleNote: string | null = null;
   private metaEl!: HTMLElement;
   private countEl!: HTMLElement;
   private actionEl!: HTMLElement;
@@ -292,6 +397,13 @@ export class App {
   private shuffleButton!: HTMLButtonElement;
   private shuffleActive = false;
   private tilesButton!: HTMLButtonElement;
+  private changesButton!: HTMLButtonElement;
+  private changesTotal = 0;
+  private showChanges = false;
+  /** Display-only fixed decimals per column (not part of the data/Recipe). */
+  private displayFormats = new Map<number, number>();
+  /** Columns showing thousands separators (display only, data unchanged). */
+  private displayGrouping = new Set<number>();
   private columnsStrip!: HTMLElement;
   private tilesOn = readColumnTilesPreference();
   private filterHost!: HTMLElement;
@@ -304,11 +416,20 @@ export class App {
   private chartRemoved = 0;
   private chartOpened = false;
   private view: ViewId = "overview";
-  private lastLens: "table" | "chart" = "table";
+  private lastLens: ViewId = "table";
   private tabs: ViewTabs | null = null;
   private overviewHost!: HTMLElement;
   private overview: Overview | null = null;
   private latestStats: DatasetStats | null = null;
+  /** Current weighted data-quality score (plan §3), or null before load. */
+  private dqScore: DQScore | null = null;
+  /** User-run checks that feed the score (pair, key, freshness). */
+  private dqUserChecks: ScoreCheck[] = [];
+  /** Persisted weights/bands overrides for the score. */
+  private dqConfig: DQScoreConfig = loadDQConfig();
+  /** Active freshness rule (column + max age in days), if the user set one. */
+  private freshnessRule: { column: number; days: number } | null = null;
+  private scoreTile!: HTMLButtonElement;
   /** Input size in bytes for the dataset line (file or pasted text). */
   private sourceBytes: number | null = null;
   private sidebarEl!: HTMLElement;
@@ -320,8 +441,15 @@ export class App {
   private latestHistograms: Record<number, number[]> = {};
   private themeButton!: HTMLButtonElement;
   private themePreference: ThemePreference = readThemePreference();
-  private stepperHost!: HTMLElement;
-  private stepper: PipelineStepper | null = null;
+  private viewsHost!: HTMLElement;
+  private viewsPanel: ViewsPanel | null = null;
+  private reportsHost!: HTMLElement;
+  private qualityHost!: HTMLElement;
+  private qualityPage: QualityPage | null = null;
+  private reportsPanel: ReportsPanel | null = null;
+  private triage: TriagePanelHandle | null = null;
+  private archetypeOverride: ArchetypeId | null = null;
+  private lastLoaded: LoadedMessage | TransformedMessage | null = null;
   private workspaceTitle!: HTMLElement;
   private tabHost!: HTMLElement;
   private hints: Hints | null = null;
@@ -333,12 +461,17 @@ export class App {
     this.hints = new Hints([
       {
         id: "tabs",
-        text: "Overview, Table and Chart are lenses — switch anytime with 1, 2, 3.",
+        text: "Overview, Table, Views, Chart and Reports are lenses — switch anytime with 1–5.",
+        target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
+      },
+      {
+        id: "command-bar",
+        text: "“Do something…” in the toolbar (or Ctrl/⌘ + K) opens the command bar — “upper amount”, “convert date_time to datetime”, “group region sum sales”.",
         target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
       },
       {
         id: "column-menu",
-        text: "Right-click a column header for Column, Clean and Transform actions.",
+        text: "Click a column name to inspect it — profile, issues and one-click fixes. Right-click for the full menu.",
         target: () =>
           this.tableHost.classList.contains("hidden")
             ? null
@@ -346,9 +479,9 @@ export class App {
       },
       {
         id: "process-log",
-        text: "Every clean and transform lands in the Process Log, where you can undo it.",
+        text: "Every clean and transform lands in the Recipe, where you can undo it.",
         target: () =>
-          this.stepsButton.classList.contains("hidden") ? null : this.stepsButton,
+          this.workspace.classList.contains("hidden") ? null : this.stepsButton,
       },
       {
         id: "column-tiles",
@@ -357,6 +490,12 @@ export class App {
           this.view === "table" && !this.tilesButton.classList.contains("hidden")
             ? this.tilesButton
             : null,
+      },
+      {
+        id: "placeholder-action",
+        text: "Placeholder text like “N/A” is counted as missing — “Convert to nulls” blanks those cells for real.",
+        target: () =>
+          this.healthHost.querySelector<HTMLElement>(".placeholder-action"),
       },
     ]);
   }
@@ -397,11 +536,32 @@ export class App {
           if (this.themePreference === "auto") applyThemePreference("auto");
         });
     }
-    topbar.append(this.themeButton, helpButton);
+    this.scoreTile = el(
+      "button",
+      {
+        class: "ghost small score-tile hidden",
+        type: "button",
+        title: "Data quality score — click for the full breakdown",
+      },
+      [],
+    ) as HTMLButtonElement;
+    this.scoreTile.addEventListener("click", () => this.openQuality());
+
+    const paletteButton = el(
+      "button",
+      {
+        class: "ghost small palette-button",
+        type: "button",
+        title: "Type a command — e.g. “convert date_time to datetime”, “upper amount”, “group region sum sales”",
+      },
+      [el("span", { class: "palette-button-label" }, ["Do something…"]), el("span", { class: "kbd" }, ["Ctrl/⌘ K"])],
+    ) as HTMLButtonElement;
+    paletteButton.addEventListener("click", () => this.openPalette());
+    topbar.append(this.scoreTile, paletteButton, this.themeButton, helpButton);
 
     this.newButton = el("button", { class: "ghost", type: "button" }, ["New data"]);
-    this.newButton.addEventListener("click", () => this.showPaste());
-    this.newButton.classList.add("hidden");
+    this.newButton.title = "Load a CSV, Excel, JSON or Parquet file";
+    this.newButton.addEventListener("click", () => this.onNewDataClick());
     topbar.append(this.newButton);
 
     this.pasteView = this.buildPasteView();
@@ -409,13 +569,28 @@ export class App {
     const main = el("main", { class: "app-main" });
     main.append(this.pasteView, this.workspace);
     this.root.append(topbar, main);
+    // A browser OOM kills the worker with its dataset: restart cleanly and
+    // tell the user what happened instead of leaving the app stuck.
+    this.client.onCrash(() => this.handleWorkerCrash());
   }
 
   private buildPasteView(): HTMLElement {
     const view = el("div", { class: "paste-view" });
     const card = el("div", { class: "paste-card" });
 
-    card.append(el("h1", {}, ["Clean and reshape tables in your browser"]));
+    this.pasteCancel = el(
+      "button",
+      { class: "icon-btn", type: "button", title: "Back to the table" },
+      ["×"],
+    );
+    this.pasteCancel.classList.add("hidden");
+    this.pasteCancel.addEventListener("click", () => this.hidePaste());
+    card.append(
+      el("div", { class: "paste-head" }, [
+        el("h1", {}, ["Clean and reshape tables in your browser"]),
+        this.pasteCancel,
+      ]),
+    );
     card.append(
       el("p", { class: "sub" }, [
         "Drop a messy CSV or Excel file. Type-aware cleanup, transforms and search — all offline, nothing leaves this tab.",
@@ -464,7 +639,14 @@ export class App {
     const loadTrack = el("div", { class: "load-progress-track" });
     this.loadBar = el("div", { class: "load-progress-bar indeterminate" });
     loadTrack.append(this.loadBar);
-    this.loadPanel.append(loadHead, loadTrack);
+    this.loadCancel = el(
+      "button",
+      { class: "ghost load-cancel", type: "button" },
+      ["Cancel"],
+    ) as HTMLButtonElement;
+    this.loadCancel.title = "Stop this import — the current data stays loaded";
+    this.loadCancel.addEventListener("click", () => this.cancelLoad());
+    this.loadPanel.append(loadHead, loadTrack, this.loadCancel);
     card.append(this.loadPanel);
 
     const fileInput = el("input", {
@@ -568,11 +750,31 @@ export class App {
     const tabHost = el("div");
     this.tabHost = tabHost;
     this.tabs = new ViewTabs(tabHost, { onChange: (view) => this.setView(view) });
-    this.stepperHost = el("div", { class: "stepper-host" });
-    this.stepper = new PipelineStepper(this.stepperHost, {
-      onSelect: (id) => this.selectStage(id),
-    });
-    const navRow = el("div", { class: "nav-row" }, [tabHost, this.stepperHost]);
+
+    this.stepsButton = el(
+      "button",
+      { class: "ghost small", type: "button", title: "Review, undo or export the applied changes" },
+      ["Recipe"],
+    ) as HTMLButtonElement;
+    this.stepsButton.addEventListener("click", () => this.openSteps());
+
+    this.exportButton = el(
+      "button",
+      {
+        class: "primary small",
+        type: "button",
+        title: "Choose a file name and format, then export",
+      },
+      ["Export…"],
+    ) as HTMLButtonElement;
+    this.exportButton.addEventListener("click", () => this.openExportDialog());
+
+    const navRow = el("div", { class: "nav-row" }, [
+      tabHost,
+      el("span", { class: "grow" }),
+      this.stepsButton,
+      this.exportButton,
+    ]);
 
     const sidebar = el("aside", { class: "sidebar hidden" });
     this.sidebarEl = sidebar;
@@ -619,25 +821,6 @@ export class App {
     ) as HTMLButtonElement;
     this.copyButton.addEventListener("click", () => void this.copyResults());
 
-    this.stepsButton = el(
-      "button",
-      { class: "ghost small", type: "button", title: "Review, undo or export the applied changes" },
-      ["Process Log"],
-    ) as HTMLButtonElement;
-    this.stepsButton.classList.add("hidden");
-    this.stepsButton.addEventListener("click", () => this.openSteps());
-
-    this.exportButton = el(
-      "button",
-      {
-        class: "primary small",
-        type: "button",
-        title: "Choose a file name and format, then export",
-      },
-      ["Export…"],
-    ) as HTMLButtonElement;
-    this.exportButton.addEventListener("click", () => this.openExportDialog());
-
     this.shuffleButton = el(
       "button",
       {
@@ -673,6 +856,21 @@ export class App {
       el("span", { class: "tiles-label" }, ["Info Tiles"]),
     );
     this.tilesButton.addEventListener("click", () => this.toggleColumnTiles());
+    this.changesButton = el(
+      "button",
+      {
+        class: "ghost small changes-toggle hidden",
+        type: "button",
+        title: "Highlight cells whose value changed since load",
+        "aria-pressed": "false",
+      },
+      ["Show changes"],
+    ) as HTMLButtonElement;
+    this.changesButton.addEventListener("click", () => {
+      this.showChanges = !this.showChanges;
+      this.table?.setShowChanges(this.showChanges);
+      this.syncChangesButton();
+    });
     this.filterChipsEl = el("span", { class: "filter-chips hidden" });
     this.addFilterButton = el(
       "button",
@@ -702,12 +900,11 @@ export class App {
       this.addFilterButton,
       this.healthHost,
       this.tilesButton,
+      this.changesButton,
       el("span", { class: "grow" }),
       this.actionEl,
       this.shuffleButton,
-      this.stepsButton,
       this.copyButton,
-      this.exportButton,
       this.moreButton,
     );
 
@@ -725,8 +922,19 @@ export class App {
     resultsBar.append(resultsRow, this.deleteBar, this.bannerEl);
     this.tableHost = el("div", { class: "table-host" });
     this.chartHost = el("div", { class: "chart-host hidden" });
+    this.viewsHost = el("div", { class: "views-host hidden" });
+    this.reportsHost = el("div", { class: "reports-host hidden" });
+    this.qualityHost = el("div", { class: "quality-host hidden" });
     this.columnsStrip = el("div", { class: "column-strip hidden" });
-    results.append(resultsBar, this.columnsStrip, this.tableHost, this.chartHost);
+    results.append(
+      resultsBar,
+      this.columnsStrip,
+      this.qualityHost,
+      this.tableHost,
+      this.chartHost,
+      this.viewsHost,
+      this.reportsHost,
+    );
 
     this.overviewHost = el("div", { class: "overview-host hidden" });
     this.overview = new Overview(this.overviewHost, {
@@ -746,10 +954,24 @@ export class App {
       onCombineDate: (op) =>
         this.applyTransform([...this.transformOps, op], "Combined the date columns"),
       onBlankTokens: (tokens) => this.applyNullPolicyAll(tokens, []),
+      onArchetypeChange: (id) => {
+        this.archetypeOverride = id;
+        this.rerenderOverview();
+      },
+      onOpenTriage: () => this.openTriage(),
     });
     const body = el("div", { class: "workspace-body" }, [sidebar, results]);
     workspace.append(navRow, this.overviewHost, body);
     return workspace;
+  }
+
+  /** Opens the fuzzy command palette (Ctrl/⌘+K or the "Do something…" button). */
+  private openPalette(): void {
+    if (this.workspace.classList.contains("hidden")) return;
+    openCommandBar({
+      columns: () => this.metas,
+      onRun: (command) => this.runCommand(command),
+    });
   }
 
   private bindEvents(): void {
@@ -760,6 +982,12 @@ export class App {
       }
     });
     document.addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        if (this.workspace.classList.contains("hidden")) return;
+        event.preventDefault();
+        this.openPalette();
+        return;
+      }
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (this.workspace.classList.contains("hidden")) return;
       const target = event.target as HTMLElement | null;
@@ -773,8 +1001,11 @@ export class App {
         return;
       }
       if (event.key === "1") this.setView("overview");
-      else if (event.key === "2") this.setView("table");
-      else if (event.key === "3") this.setView("chart");
+      else if (event.key === "2") this.setView("quality");
+      else if (event.key === "3") this.setView("table");
+      else if (event.key === "4") this.setView("views");
+      else if (event.key === "5") this.setView("chart");
+      else if (event.key === "6") this.setView("reports");
       else if (
         (event.key === "t" || event.key === "T") &&
         this.view === "table"
@@ -784,15 +1015,32 @@ export class App {
     });
   }
 
-  private loadFromTextarea(): void {
+  private async loadFromTextarea(): Promise<void> {
     const text = this.textarea.value;
     if (text.trim() === "") {
       this.statusEl.textContent = "Paste some data first.";
       this.statusEl.classList.add("error");
       return;
     }
-    this.showLoadProgress("Pasted data", new TextEncoder().encode(text).byteLength);
-    void this.load({ text, name: "Pasted data", source: "paste" });
+    const bytes = new TextEncoder().encode(text).byteLength;
+    this.showLoadProgress("Pasted data", bytes);
+    this.sampleNote = null;
+    let maxRows: number | undefined;
+    const estimate = estimateFromText(bytes, text);
+    if (estimate !== null && estimate.cells > LARGE_LOAD_CELLS) {
+      const choice = await openLargeLoadDialog(estimate, "Pasted data");
+      if (choice === null) {
+        this.hideLoadProgress();
+        this.statusEl.classList.remove("error");
+        this.statusEl.textContent = "Import cancelled — nothing was loaded.";
+        return;
+      }
+      if (choice === "sample") {
+        maxRows = SAMPLE_ROWS;
+        this.sampleNote = `sample: first ${SAMPLE_ROWS.toLocaleString()} rows of ≈${estimate.rows.toLocaleString()}`;
+      }
+    }
+    void this.load({ text, name: "Pasted data", source: "paste", maxRows });
   }
 
   private async load(options: {
@@ -800,6 +1048,7 @@ export class App {
     buffer?: ArrayBuffer;
     name: string;
     source: "paste" | "file";
+    maxRows?: number;
   }): Promise<void> {
     if (this.loading) return;
     this.loading = true;
@@ -819,14 +1068,28 @@ export class App {
         hasHeaders: this.headersCheckbox.checked,
         text: options.text,
         buffer: options.buffer,
+        maxRows: options.maxRows,
       });
       this.statusEl.textContent = "";
       this.hideLoadProgress();
       this.openWorkspace(loaded);
     } catch (error) {
-      this.statusEl.textContent =
-        error instanceof Error ? error.message : "Failed to parse data.";
-      this.statusEl.classList.add("error");
+      if (error instanceof LoadCancelledError) {
+        this.hideLoadProgress();
+        this.statusEl.classList.remove("error");
+        this.statusEl.textContent = this.lastLoaded
+          ? "Import cancelled — the loaded data is unchanged."
+          : "Import cancelled — nothing was loaded.";
+      } else {
+        const reason = error instanceof Error ? error.message : "unknown error";
+        this.setStatusError(
+          `Could not read ${options.name}: ${reason}. ${
+            this.lastLoaded
+              ? "The previous dataset is unchanged — fix the file or choose another."
+              : "Try another file or check the format."
+          }`,
+        );
+      }
     } finally {
       this.loading = false;
     }
@@ -836,10 +1099,27 @@ export class App {
     this.tablePickerEl.classList.add("hidden");
   }
 
-  private showPicker(title: string, items: PickerItem[]): void {
+  private showPicker(title: string, items: PickerItem[], bulk?: PickerBulk): void {
     this.hideLoadProgress();
     clear(this.tablePickerList);
     this.tablePickerTitle.textContent = title;
+
+    if (bulk !== undefined) {
+      const option = el("button", {
+        class: "table-option table-option-bulk",
+        type: "button",
+        title: bulk.title,
+      }) as HTMLButtonElement;
+      option.disabled = bulk.disabled === true;
+      option.append(el("span", { class: "table-option-name" }, [bulk.label]));
+      if (bulk.note !== undefined) {
+        option.append(el("span", { class: "table-option-size" }, [bulk.note]));
+      }
+      option.addEventListener("click", () => {
+        if (!option.disabled) bulk.onSelect();
+      });
+      this.tablePickerList.append(option);
+    }
 
     items.forEach((item) => {
       const option = el("button", { class: "table-option", type: "button" });
@@ -893,10 +1173,43 @@ export class App {
         return;
       }
       const buffer = await file.arrayBuffer();
-      await this.load({ buffer, name: file.name, source: "file" });
+      const maxRows = await this.confirmLargeBuffer(buffer, file.name);
+      if (maxRows === "cancel") return;
+      await this.load({
+        buffer,
+        name: file.name,
+        source: "file",
+        maxRows: maxRows === "sample" ? SAMPLE_ROWS : undefined,
+      });
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not read file");
     }
+  }
+
+  /**
+   * Pre-flight guard for very large files: estimates rows × columns from the
+   * first 256 KB and asks how to proceed. Returns "all", "sample" or
+   * "cancel" (also updating the sample banner note).
+   */
+  private async confirmLargeBuffer(
+    buffer: ArrayBuffer,
+    fileName: string,
+  ): Promise<"all" | "sample" | "cancel"> {
+    this.sampleNote = null;
+    if (isParquetName(fileName)) return "all";
+    const estimate = estimateFromBuffer(buffer.byteLength, buffer);
+    if (estimate === null || estimate.cells <= LARGE_LOAD_CELLS) return "all";
+    const choice = await openLargeLoadDialog(estimate, fileName);
+    if (choice === null) {
+      this.hideLoadProgress();
+      this.statusEl.classList.remove("error");
+      this.statusEl.textContent = "Import cancelled — nothing was loaded.";
+      return "cancel";
+    }
+    if (choice === "sample") {
+      this.sampleNote = `sample: first ${SAMPLE_ROWS.toLocaleString()} rows of ≈${estimate.rows.toLocaleString()}`;
+    }
+    return choice;
   }
 
   /** Lists data files inside a ZIP and loads the only one or shows a picker. */
@@ -914,19 +1227,62 @@ export class App {
       }
 
       this.setLoadingText("");
-      this.showPicker(
-        `${entries.length} files in ${fileName} — pick one`,
-        entries.map((entry) => ({
-          label: entry.path,
-          rows: 0,
-          columns: 0,
-          detail: formatBytes(entry.size),
-          onSelect: () => {
-            this.hideTablePicker();
-            void this.openArchiveEntry(entry, fileName, buffer);
-          },
-        })),
+      const pickItems = entries.map((entry) => ({
+        label: entry.path,
+        rows: 0,
+        columns: 0,
+        detail: formatBytes(entry.size),
+        onSelect: () => {
+          this.hideTablePicker();
+          void this.openArchiveEntry(entry, fileName, buffer);
+        },
+      }));
+      // Delimited files can be appended into one table when every file's
+      // first row matches; workbooks still need a single pick.
+      const allDelimited = entries.every(
+        (entry) => !WORKBOOK_EXTENSIONS.includes(extensionOf(entry.name)),
       );
+      if (allDelimited) {
+        const check = await this.checkArchiveHeaders(entries, buffer);
+        this.setLoadingText("");
+        if (check.ok) {
+          const estimatedCells = check.estimatedRows * check.headers.length;
+          const tooBig = estimatedCells > MAX_APPEND_CELLS;
+          const sizeNote = `~${formatApproxRows(check.estimatedRows)} rows × ${check.headers.length.toLocaleString()} columns`;
+          this.showPicker(
+            `${entries.length} files in ${fileName} — pick one, or append them all`,
+            pickItems,
+            {
+              label: `Import all ${entries.length} files (append rows)`,
+              title: tooBig
+                ? `${sizeNote} — over the in-browser append limit; load one file at a time instead`
+                : "The first row matches in every file — concatenate them into one table",
+              note: tooBig
+                ? `${sizeNote} — too large to append in the browser; pick one file instead`
+                : `${sizeNote} · first row identical in all ${entries.length} files`,
+              disabled: tooBig,
+              onSelect: () => {
+                this.hideTablePicker();
+                void this.importArchiveTables(entries, buffer, fileName, check.headers);
+              },
+            },
+          );
+          return;
+        }
+        this.showPicker(
+          `${entries.length} files in ${fileName} — pick one, or append them all`,
+          pickItems,
+          {
+            label: `Import all ${entries.length} files (append rows)`,
+            title: check.reason,
+            note: check.reason,
+            disabled: true,
+            onSelect: () => undefined,
+          },
+        );
+        return;
+      }
+      this.showPicker(`${entries.length} files in ${fileName} — pick one`, pickItems);
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not read archive");
     }
@@ -956,6 +1312,110 @@ export class App {
       });
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not extract file");
+    }
+  }
+
+  /**
+   * Tests whether every delimited archive entry's first row matches, reading
+   * only a prefix of each entry so huge ZIPs stay fast and memory-bounded.
+   * The estimated row count guards Import all against the browser's limits.
+   */
+  private async checkArchiveHeaders(
+    entries: readonly ArchiveEntry[],
+    archive: ArrayBuffer,
+  ): Promise<
+    { ok: true; headers: string[]; estimatedRows: number } | { ok: false; reason: string }
+  > {
+    try {
+      this.setLoadingText(`Checking headers… 0/${entries.length}`);
+      const prefixes = await readArchivePrefixes(
+        archive,
+        entries.map((entry) => entry.path),
+        HEADER_PREFIX_BYTES,
+        {
+          onProgress: (done, total) => this.setLoadingText(`Checking headers… ${done}/${total}`),
+        },
+      );
+      let headers: string[] | null = null;
+      let bytesPerRow = 0;
+      for (let index = 0; index < entries.length; index++) {
+        const entry = entries[index];
+        if (entry === undefined) continue;
+        const prefix = prefixes.get(entry.path);
+        if (prefix === undefined) {
+          return { ok: false, reason: `“${entry.name}” could not be read` };
+        }
+        const data = prefix.buffer.slice(
+          prefix.byteOffset,
+          prefix.byteOffset + prefix.byteLength,
+        ) as ArrayBuffer;
+        const parsed = parseDelimited(decodeText(data).text, {
+          hasHeaders: true,
+          normalizeRows: false,
+        });
+        if (parsed.headers.length === 0) {
+          return { ok: false, reason: `“${entry.name}” has no first row to compare` };
+        }
+        if (headers === null) {
+          headers = parsed.headers;
+          const lines = parsed.rows.length + 1;
+          bytesPerRow = Math.max(1, prefix.byteLength / Math.max(1, lines));
+        } else if (!sameHeaderRow(headers, parsed.headers)) {
+          return {
+            ok: false,
+            reason: `“${entry.name}” has different columns — pick a single file instead`,
+          };
+        }
+        this.setLoadingText(`Checking headers… ${index + 1}/${entries.length}`);
+      }
+      if (headers === null) return { ok: false, reason: "No readable files found" };
+      const totalBytes = entries.reduce((sum, entry) => sum + entry.size, 0);
+      return { ok: true, headers, estimatedRows: Math.round(totalBytes / bytesPerRow) };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: error instanceof Error ? error.message : "Could not check the files",
+      };
+    }
+  }
+
+  /**
+   * Vertically concatenates the checked archive entries into one dataset.
+   * Each file is parsed and appended in turn so only one file plus the final
+   * grid live in memory; header detection is skipped because the first row
+   * was already verified identical in every file.
+   */
+  private async importArchiveTables(
+    entries: readonly ArchiveEntry[],
+    archive: ArrayBuffer,
+    fileName: string,
+    headers: readonly string[],
+  ): Promise<void> {
+    try {
+      const hasHeaders = this.headersCheckbox.checked;
+      const grid: string[][] = hasHeaders ? [[...headers]] : [];
+      for (let index = 0; index < entries.length; index++) {
+        const entry = entries[index];
+        if (entry === undefined) continue;
+        this.setLoadingText(`Appending “${entry.name}”… (${index + 1}/${entries.length})`);
+        const bytes = await readArchiveEntry(archive, entry.path);
+        const data = bytes.buffer.slice(
+          bytes.byteOffset,
+          bytes.byteOffset + bytes.byteLength,
+        ) as ArrayBuffer;
+        const parsed = parseDelimited(decodeText(data).text, { hasHeaders: true });
+        if (!hasHeaders) grid.push([...parsed.headers]);
+        for (const row of parsed.rows) grid.push(row);
+        if (index % 4 === 3) await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      this.setLoadingText("");
+      const base = fileName.replace(/\.zip$/i, "");
+      await this.loadTable(grid, `${base} — ${entries.length} files`, hasHeaders);
+      this.setAction(
+        `Imported ${entries.length} files · ${(hasHeaders ? grid.length - 1 : grid.length).toLocaleString()} rows`,
+      );
+    } catch (error) {
+      this.setStatusError(error instanceof Error ? error.message : "Could not import the files");
     }
   }
 
@@ -1127,7 +1587,20 @@ export class App {
       this.hideLoadProgress();
       this.openWorkspace(loaded);
     } catch (error) {
-      this.setStatusError(error instanceof Error ? error.message : "Failed to build table");
+      if (error instanceof LoadCancelledError) {
+        this.hideLoadProgress();
+        this.statusEl.classList.remove("error");
+        this.statusEl.textContent = this.lastLoaded
+          ? "Import cancelled — the loaded data is unchanged."
+          : "Import cancelled — nothing was loaded.";
+      } else {
+        const reason = error instanceof Error ? error.message : "unknown error";
+        this.setStatusError(
+          `Could not build the table: ${reason}. ${
+            this.lastLoaded ? "The previous dataset is unchanged." : "Nothing was loaded."
+          }`,
+        );
+      }
     } finally {
       this.loading = false;
     }
@@ -1145,9 +1618,18 @@ export class App {
       bytes === null ? "" : ` · ${formatBytes(bytes)}`
     }`;
     this.setLoadDetail("Reading file…", null, null);
+    this.loadCancel.disabled = false;
     this.statusEl.textContent = "";
     this.statusEl.classList.remove("error");
     this.loadPanel.classList.remove("hidden");
+  }
+
+  /** Stops the in-flight import at the worker's next checkpoint. */
+  private cancelLoad(): void {
+    if (!this.loading) return;
+    this.loadCancel.disabled = true;
+    this.setLoadDetail("Cancelling…", null, null);
+    this.client.cancelLoad();
   }
 
   private hideLoadProgress(): void {
@@ -1179,8 +1661,14 @@ export class App {
   }
 
   private handleProgress(progress: ProgressMessage): void {
-    if (progress.phase === "parse") {
-      this.setLoadingProgress(progress.detail ?? "Parsing…", progress.current, progress.total);
+    if (progress.phase === "read" || progress.phase === "parse" || progress.phase === "infer") {
+      const fallback =
+        progress.phase === "read"
+          ? "Reading file…"
+          : progress.phase === "parse"
+            ? "Parsing…"
+            : "Inferring schema…";
+      this.setLoadingProgress(progress.detail ?? fallback, progress.current, progress.total);
     } else if (progress.phase === "build" || progress.phase === "stats") {
       const fallback = progress.phase === "stats" ? "Computing statistics…" : "Building…";
       this.setLoadingProgress(
@@ -1188,6 +1676,8 @@ export class App {
         progress.current,
         progress.total,
       );
+    } else if (progress.phase === "ready") {
+      this.setLoadingProgress(progress.detail ?? "Ready");
     } else if (progress.phase === "index" && progress.column !== undefined) {
       this.filterPanel?.setStatus(progress.column, progress.active === true ? "Building index…" : "");
     } else if (progress.phase === "sort") {
@@ -1209,9 +1699,23 @@ export class App {
     }
     this.metas = loaded.columns;
     this.rowCount = loaded.rowCount;
+    this.lastLoaded = loaded;
+    if (loaded.type === "loaded") this.archetypeOverride = null;
+    // A new dataset starts with a fresh change history and display formats.
+    this.changesTotal = 0;
+    this.showChanges = false;
+    this.displayFormats.clear();
+    this.displayGrouping.clear();
+    // User-run checks reference filter bits that reset with the data.
+    this.dqUserChecks = [];
+    this.freshnessRule = null;
+    this.syncChangesButton();
+    // Views are definitions over column indexes; a load or transform can change
+    // the schema, so start fresh rather than risk stale references.
+    this.resetViews();
+    const scoreBaselineReset = this.datasetName !== loaded.name;
     this.datasetName = loaded.name;
     this.workspaceTitle.textContent = `${loaded.name} — ${loaded.rowCount.toLocaleString()} rows`;
-    this.stepper?.setDone("load", true);
     this.filters.clear();
     this.renderFilterChips();
     this.cleanedColumns.clear();
@@ -1235,7 +1739,7 @@ export class App {
 
     this.pasteView.classList.add("hidden");
     this.workspace.classList.remove("hidden");
-    this.newButton.classList.remove("hidden");
+    this.updateNewButton();
 
     const columnsWithNulls = loaded.columns.filter((column) => column.stats.nulls > 0).length;
     const emptyText =
@@ -1275,9 +1779,14 @@ export class App {
     this.latestHistograms = {};
 
     this.latestStats = loaded.stats;
-    this.overview?.render(loaded, {
-      sizeLabel: this.sourceBytes === null ? null : formatBytes(this.sourceBytes),
-    });
+    this.refreshScore(scoreBaselineReset);
+    this.overview?.render(
+      loaded,
+      {
+        sizeLabel: this.sourceBytes === null ? null : formatBytes(this.sourceBytes),
+      },
+      this.archetypeOverride,
+    );
     this.refreshMissingness();
     this.renderHealthGroup();
     this.updateCount(loaded.rowCount, 0);
@@ -1303,6 +1812,7 @@ export class App {
     if (this.table !== null) return;
     this.table = new ResultTable(this.tableHost, {
       onSort: (column, dir) => this.changeSort(column, dir),
+      onColumnInspect: (column, anchor) => this.openColumnInspector(column, anchor),
       onTypeChange: (column, type) => this.changeType(column, type),
       onColumnSpecial: (column, kind) => this.toggleColumnSpecial(column, kind),
       onMergeSimilar: (column) => this.openMerge(column),
@@ -1314,13 +1824,18 @@ export class App {
       onRequestRows: (start, end, done) => {
         void this.client
           .getRows(start, end)
-          .then((message) => done(message.start, message.rows, message.groups, message.flags))
+          .then((message) =>
+            done(message.start, message.rows, message.groups, message.flags, message.changed),
+          )
           .catch(() => done(start, []));
       },
     });
     this.table.setColumns(this.metas);
     this.table.setSort(-1, 1);
     this.table.setCount(this.resultCount);
+    this.table.setFormats(this.displayFormats);
+    this.table.setGrouping(this.displayGrouping);
+    this.table.setShowChanges(this.showChanges);
     this.syncColumnQa();
     this.syncPendingDeletes();
   }
@@ -1337,9 +1852,24 @@ export class App {
       requestCrosstab: (input) => this.client.getCrosstab(input),
       requestCorrelation: (columns) => this.client.getCorrelation(columns),
       requestGroupedBins: (input) => this.client.getGroupedBins(input),
+      requestViewAggregate: (source) => this.aggregateForSource(source),
+      requestAggregate: (view) => this.client.getAggregate(view),
+      requestTextProfile: (column) => this.client.getTextProfile(column),
+      requestGridCounts: (xColumn, yColumn, bins, measure, groupColumn) =>
+        this.client.getGridCounts(xColumn, yColumn, bins, measure, groupColumn),
+      requestAnimation: (input) => this.client.getAnimation(input),
+      tableSourceLabel: () =>
+        this.filters.size === 0 &&
+        this.specials.size === 0 &&
+        this.columnSpecials.size === 0
+          ? "Table"
+          : "Table (filtered)",
+      onCardAdded: (label) =>
+        this.setAction(`Added a ${label} chart — it sits at the end of the grid`),
       onFilter: (column, filter, preview) =>
         this.changeFilter(column, filter, preview ?? false),
       currentFilter: (column) => this.filters.get(column) ?? null,
+      onMapBrush: (selection) => this.filterToMapArea(selection),
     });
     if (this.chartRestore !== null) {
       const remapped = remapChartConfigs(this.chartRestore, this.metas);
@@ -1348,16 +1878,26 @@ export class App {
     } else {
       this.chartsPanel.setColumns(this.metas);
     }
+    this.chartsPanel.setSources(this.viewSources());
     this.chartsPanel.setFiltered(this.latestFacets, this.latestHistograms);
     this.chartsPanel.setRowCount(this.resultCount);
+  }
+
+  /** The view list every Source selector offers, alongside the table. */
+  private viewSources(): { id: string; name: string }[] {
+    return this.viewsPanel?.sources() ?? [];
+  }
+
+  private aggregateForSource(source: string): Promise<AggregateMessage | null> {
+    const def = this.viewsPanel?.viewDef(source);
+    if (def === undefined) return Promise.resolve(null);
+    return this.client.getAggregate(def);
   }
 
   private ensureFilters(): void {
     if (this.filterPanel !== null) return;
     this.filterPanel = new FilterPanel(this.filterHost, this.metas, this.filters, {
       onFilter: (column, filter, preview) => this.changeFilter(column, filter, preview ?? false),
-      onTypeChange: (column, type) => this.changeType(column, type),
-      onNumberLocale: (column, locale) => this.changeNumberLocale(column, locale),
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
     });
     this.sidebarEl.classList.remove("hidden");
@@ -1385,7 +1925,12 @@ export class App {
           this.updateCount(message.count, message.queryMs);
           this.applyFacets(message.facets, message.histograms);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -1446,8 +1991,8 @@ export class App {
       title: `Delete ${labels.join(" and ")}?`,
       body:
         positions.length > 0
-          ? "Rows are removed from the working set — counts and exports exclude them, and the deletion is undoable from the Process Log. Columns are removed as tracked transform steps."
-          : "Columns are removed as tracked transform steps, undoable from the Process Log.",
+          ? "Rows are removed from the working set — counts and exports exclude them, and the deletion is undoable from the Recipe. Columns are removed as tracked transform steps."
+          : "Columns are removed as tracked transform steps, undoable from the Recipe.",
       confirmLabel: "Delete",
       danger: true,
     });
@@ -1461,7 +2006,12 @@ export class App {
         this.updateCount(message.count, message.queryMs);
         this.applyFacets(message.facets, message.histograms);
         this.table?.setCount(message.count);
-        this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+        this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
         this.updateStepsButton();
       } catch (error) {
         this.showError(error);
@@ -1482,7 +2032,12 @@ export class App {
       this.updateCount(message.count, message.queryMs);
       this.applyFacets(message.facets, message.histograms);
       this.table?.setCount(message.count);
-      this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+      this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
       this.updateStepsButton();
     } catch (error) {
       this.showError(error);
@@ -1506,7 +2061,12 @@ export class App {
           this.updateCount(message.count, message.queryMs);
           this.applyFacets(message.facets, message.histograms);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -1521,7 +2081,7 @@ export class App {
           this.table?.setSort(-1, 1);
           this.shuffleActive = false;
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, undefined, message.firstFlags);
+          this.table?.setFirstRows(message.firstRows, undefined, message.firstFlags, message.firstChanged);
           this.table?.scrollToTop();
           this.updateCount(message.count, 0);
         })
@@ -1551,6 +2111,25 @@ export class App {
     });
   }
 
+  /** Map rectangle brush: range-filter both coordinate columns to the area. */
+  private filterToMapArea(selection: MapBrushSelection): void {
+    const lat = this.metas[selection.latColumn]?.name ?? "latitude";
+    const lon = this.metas[selection.lonColumn]?.name ?? "longitude";
+    this.changeFilter(selection.lonColumn, {
+      kind: "range",
+      min: selection.lonMin,
+      max: selection.lonMax,
+    });
+    this.changeFilter(selection.latColumn, {
+      kind: "range",
+      min: selection.latMin,
+      max: selection.latMax,
+    });
+    this.setAction(
+      `Map area: ${lon} ${selection.lonMin.toFixed(3)} to ${selection.lonMax.toFixed(3)}, ${lat} ${selection.latMin.toFixed(3)} to ${selection.latMax.toFixed(3)}`,
+    );
+  }
+
   private changeFilter(column: number, filter: ColumnFilter | null, preview = false): void {
     this.shuffleActive = false;
     if (filter === null) this.filters.delete(column);
@@ -1566,7 +2145,12 @@ export class App {
           this.updateCount(message.count, message.queryMs);
           if (!preview) this.applyFacets(message.facets, message.histograms);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -1598,13 +2182,40 @@ export class App {
             });
             this.updateStepsButton();
           }
+          // Decimal display options target real-number columns; a stale
+          // preference must not survive a change to integer (or text/date).
+          if (type !== "number" && this.displayFormats.has(column)) {
+            this.displayFormats.delete(column);
+            this.table?.setFormats(this.displayFormats);
+          }
+          // Tell the user what happened — and when values cannot be
+          // represented in the new type, say how many instead of pretending.
+          if (previous !== undefined && previous !== type) {
+            const nonParsing = message.nonParsing ?? 0;
+            if (nonParsing > 0) {
+              this.showWarning(
+                `“${name}” is now ${TYPE_LABELS[type]} — ${nonParsing.toLocaleString()} value${
+                  nonParsing === 1 ? "" : "s"
+                } don't parse as ${TYPE_LABELS[type].toLowerCase()} and stay as text.`,
+              );
+            } else {
+              this.showToast(
+                `“${name}” is now ${TYPE_LABELS[type]} — display and stats updated.`,
+              );
+            }
+          }
           this.overview?.updateColumn(column, message.meta);
           this.filterPanel?.updateMeta(column, message.meta);
           this.table?.updateColumn(column, message.meta);
           this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -1647,6 +2258,13 @@ export class App {
         ]);
         break;
       }
+      case "time":
+      case "duration": {
+        // The ambiguous value text stays as-is; the column type decides how
+        // ranges, sorting, histograms and exports read it.
+        this.changeType(column, suggestion.kind);
+        break;
+      }
       case "mixedNumber": {
         const existing = this.cleanedColumns.get(column) ?? [];
         this.applyClean([
@@ -1683,7 +2301,12 @@ export class App {
           this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -1700,7 +2323,12 @@ export class App {
           this.table?.setSort(message.column, message.dir);
           this.updateCount(message.count, 0);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -1740,7 +2368,12 @@ export class App {
       this.updateCount(message.count, message.queryMs);
       this.applyFacets(message.facets, message.histograms);
       this.table?.setCount(message.count);
-      this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+      this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
     });
   }
 
@@ -1797,7 +2430,6 @@ export class App {
 
   private openExportDialog(): void {
     if (this.datasetName === "" || this.loading) return;
-    this.setStage("export");
     openExportPanel(
       this.defaultExportName(),
       {
@@ -1824,7 +2456,7 @@ export class App {
             settings.limit,
           );
         },
-        onClose: () => this.setStage(null),
+        onClose: () => undefined,
       },
     );
   }
@@ -1915,28 +2547,382 @@ export class App {
     }, 4000);
   }
 
+  /** After an edit, surface the damage: auto-highlight on the first change. */
+  private noteChangedCells(total: number): void {
+    this.changesTotal = total;
+    if (total > 0 && !this.showChanges) this.showChanges = true;
+    this.syncChangesButton();
+  }
+
+  private syncChangesButton(): void {
+    const has = this.changesTotal > 0;
+    this.changesButton.classList.toggle("hidden", !has);
+    if (!has) this.showChanges = false;
+    this.changesButton.textContent = this.showChanges ? "Hide changes" : "Show changes";
+    this.changesButton.setAttribute("aria-pressed", this.showChanges ? "true" : "false");
+    this.changesButton.title = has
+      ? `${this.changesTotal.toLocaleString()} cells changed since load — highlight them`
+      : "Highlight cells whose value changed since load";
+    this.table?.setShowChanges(this.showChanges);
+  }
+
   private setView(view: ViewId): void {
     this.view = view;
-    if (view === "table" || view === "chart") this.ensureFilters();
+    if (view === "table" || view === "chart" || view === "views") this.ensureFilters();
     if (view === "table") this.ensureTable();
     if (view === "chart") {
+      const existing = this.chartsPanel !== null;
       this.ensureCharts();
-      this.chartsPanel?.refresh();
+      // First open: the panel was just built and already fetched everything,
+      // a second full refresh here caused a visible re-render storm.
+      if (existing) this.chartsPanel?.repaint();
     }
+    if (view === "views") this.ensureViews();
+    if (view === "reports") this.ensureReports();
+    if (view === "quality") this.ensureQuality();
     if (view !== "overview") this.lastLens = view;
     const chart = view === "chart";
     this.chartActive = chart;
     this.workspace.classList.toggle("chart-mode", chart);
     this.workspace.classList.toggle("overview-mode", view === "overview");
     this.overviewHost.classList.toggle("hidden", view !== "overview");
+    this.qualityHost.classList.toggle("hidden", view !== "quality");
     this.tableHost.classList.toggle("hidden", view !== "table");
     this.chartHost.classList.toggle("hidden", view !== "chart");
+    this.viewsHost.classList.toggle("hidden", view !== "views");
+    this.reportsHost.classList.toggle("hidden", view !== "reports");
     this.healthHost.classList.toggle("hidden", view === "overview" || this.healthChipCount === 0);
     this.moreButton.classList.toggle("hidden", view === "overview");
     this.addFilterButton.classList.toggle("hidden", view === "overview");
     this.syncTabs();
     this.syncColumnTiles();
     this.hints?.refresh();
+  }
+
+  /** Runs one parsed command-bar line. */
+  private runCommand(command: ParsedCommand): void {
+    switch (command.kind) {
+      case "clean":
+        this.applyQuickClean(command.column, command.op);
+        break;
+      case "cleanAll": {
+        // "upper all" style: append the same clean op to every column.
+        const updates = this.metas.map((_, column) => ({
+          column,
+          ops: [...(this.cleanedColumns.get(column) ?? []), command.op],
+        }));
+        this.applyClean(updates);
+        break;
+      }
+      case "headerCase": {
+        const headers = normalizeHeaders(
+          this.metas.map((meta) => meta.name),
+          { ...DEFAULT_HEADER_OPTIONS, caseStyle: command.style },
+        );
+        this.applyHeaderRename(headers);
+        break;
+      }
+      case "transform":
+        this.applyTransform([...this.transformOps, ...command.ops], command.label);
+        break;
+      case "dedupe":
+        this.dropDuplicates(command.keep);
+        break;
+      case "quality":
+        this.openQuality();
+        break;
+      case "keyDuplicates": {
+        this.setView("table");
+        const label = command.label;
+        this.queueSend(() =>
+          this.client
+            .checkKeyDuplicates(command.columns)
+            .then((message) => {
+              const tail =
+                message.duplicateRows === 0
+                  ? `no duplicate rows (${message.counted.toLocaleString()} rows with a complete key)`
+                  : `${message.duplicateRows.toLocaleString()} duplicate row${
+                      message.duplicateRows === 1 ? "" : "s"
+                    } in ${message.duplicateGroups.toLocaleString()} group${
+                      message.duplicateGroups === 1 ? "" : "s"
+                    }`;
+              this.setAction(`${label}: ${tail}`);
+              this.showToast(`${label} — ${tail}.`, () => this.toggleSpecial("keyDuplicates"));
+              this.dqUserChecks = [
+                ...this.dqUserChecks.filter((check) => check.id !== "uniqueness.key"),
+                {
+                  id: "uniqueness.key",
+                  dimension: "uniqueness",
+                  label,
+                  detail: `${message.counted.toLocaleString()} rows with a complete key`,
+                  pass: Math.max(0, message.counted - message.duplicateRows),
+                  fail: message.duplicateRows,
+                  na: Math.max(0, this.rowCount - message.counted),
+                  column: null,
+                  filter: "keyDuplicates",
+                  fixLabel: "Show duplicates",
+                },
+              ];
+              this.refreshScore();
+              this.updateCount(message.count, message.queryMs);
+              this.applyFacets(message.facets, message.histograms);
+              this.table?.setCount(message.count);
+              this.table?.setFirstRows(
+                message.firstRows,
+                message.firstGroups,
+                message.firstFlags,
+                message.firstChanged,
+              );
+            })
+            .catch((error: unknown) => this.showError(error)),
+        );
+        break;
+      }
+      case "prepareTimeSeries": {
+        const updates: { column: number; ops: CleanOp[] }[] = [];
+        const existing = (column: number): CleanOp[] =>
+          (this.cleanedColumns.get(column) ?? []).slice();
+        const dateMeta = this.metas[command.dateColumn];
+        if (
+          dateMeta !== undefined &&
+          dateMeta.type !== "date" &&
+          dateMeta.type !== "datetime"
+        ) {
+          updates.push({
+            column: command.dateColumn,
+            ops: [...existing(command.dateColumn), { kind: "toDate", order: command.dateOrder }],
+          });
+        }
+        const valueMeta = this.metas[command.valueColumn];
+        if (
+          valueMeta !== undefined &&
+          valueMeta.type !== "integer" &&
+          valueMeta.type !== "number"
+        ) {
+          updates.push({
+            column: command.valueColumn,
+            ops: [...existing(command.valueColumn), { kind: "toNumber", locale: command.valueLocale }],
+          });
+        }
+        if (updates.length === 0) {
+          this.setAction("Time series ready — the date and measure are already converted.");
+          break;
+        }
+        this.applyClean(updates);
+        this.setAction(
+          `${command.label} — check the sentinel chips, sort by the date, filter the period, then “Chart this”`,
+        );
+        break;
+      }
+      case "openClean":
+        this.openClean(command.column, command.tab ?? "values");
+        break;
+      case "openTransform":
+        this.openTransform();
+        break;
+      case "export":
+        this.openExportDialog();
+        break;
+      case "views":
+        this.setView("views");
+        break;
+      case "error":
+        this.setAction(command.message);
+        break;
+    }
+  }
+
+  private ensureViews(): void {
+    if (this.viewsPanel !== null) {
+      this.viewsPanel.setColumns(this.metas, this.resultCount);
+      return;
+    }
+    this.viewsPanel = new ViewsPanel(this.viewsHost, {
+      requestAggregate: (view) => this.client.getAggregate(view),
+      archetype: () => this.effectiveArchetype(),
+      onDrill: (column, timeStart, timeEnd, label) => {
+        if (timeStart !== null) {
+          this.changeFilter(column, { kind: "range", min: timeStart, max: timeEnd });
+        } else if (label !== "(missing)") {
+          this.changeFilter(column, { kind: "text", mode: "exact", query: label });
+        }
+        this.setView("table");
+      },
+      onChart: (view) => {
+        this.ensureCharts();
+        this.chartsPanel?.addViewChart(view);
+        this.setView("chart");
+      },
+      onUseAsDataset: (view) => this.applyViewAsDataset(view),
+      onCopyPandas: (view) => this.copyViewRecipe(view),
+      onSlickTable: (view, result) =>
+        openSlickTable({
+          datasetName: this.datasetName,
+          sourceRows: this.resultCount,
+          view,
+          result,
+        }),
+      onViewsChanged: () => this.chartsPanel?.setSources(this.viewSources()),
+    });
+    this.viewsPanel.setColumns(this.metas, this.resultCount);
+  }
+
+  /** Views hold column indexes, so a new schema starts with fresh definitions. */
+  private resetViews(): void {
+    this.viewsPanel = null;
+    clear(this.viewsHost);
+    this.reportsPanel = null;
+    clear(this.reportsHost);
+  }
+
+  private ensureReports(): void {
+    const stats = this.latestStats ?? this.lastLoaded?.stats;
+    if (stats === undefined) return;
+    if (this.reportsPanel !== null) {
+      this.reportsPanel.setData(this.metas, stats, this.rowCount);
+      return;
+    }
+    this.reportsPanel = new ReportsPanel(this.reportsHost, {
+      requestCorrelation: () => this.requestReportCorrelation(),
+      requestCoMissingness: () => this.client.getCoMissingness().catch(() => null),
+      requestGroupAnomalies: () => this.client.getGroupAnomalies().catch(() => null),
+      requestDependencies: () => this.client.getDependencies().catch(() => null),
+      requestRelationships: () => this.client.getRelationships().catch(() => null),
+      requestTextProfile: (column) => this.client.getTextProfile(column).catch(() => null),
+      requestDistributionChanges: () => this.client.getDistributionChanges().catch(() => null),
+      requestSimilarClusters: () => this.client.getSimilarClusters().catch(() => null),
+      onAction: (finding) => this.runFinding(finding),
+    });
+    this.reportsPanel.setData(this.metas, stats, this.rowCount);
+  }
+
+  private requestReportCorrelation(): Promise<CorrelationMessage | null> {
+    const numeric: number[] = [];
+    this.metas.forEach((meta, index) => {
+      if ((meta.type === "integer" || meta.type === "number") && numeric.length < 12) {
+        numeric.push(index);
+      }
+    });
+    if (numeric.length < 2) return Promise.resolve(null);
+    return this.client.getCorrelation(numeric).catch(() => null);
+  }
+
+  /** Runs a report finding's action. */
+  private runFinding(finding: Finding): void {
+    const action = finding.action;
+    if (action === undefined) return;
+    switch (action.kind) {
+      case "suggestion":
+        this.applySuggestion(action.column, action.suggestion);
+        break;
+      case "filterSpecial": {
+        const active = this.columnSpecials.get(action.column)?.has(action.special) ?? false;
+        if (!active) this.toggleColumnSpecial(action.column, action.special);
+        this.setAction(finding.title);
+        this.setView("table");
+        this.table?.flashColumn(action.column);
+        break;
+      }
+      case "filterDuplicates": {
+        if (!this.specials.has("duplicates")) this.toggleSpecial("duplicates");
+        this.setView("table");
+        break;
+      }
+      case "filterRange":
+        this.changeFilter(action.column, { kind: "range", min: action.min, max: action.max });
+        this.setView("table");
+        this.table?.flashColumn(action.column);
+        break;
+      case "filterText":
+        this.changeFilter(action.column, { kind: "text", mode: "exact", query: action.query });
+        this.setView("table");
+        this.table?.flashColumn(action.column);
+        break;
+      case "cleanNulls":
+        this.openClean(action.column, "nulls");
+        break;
+      case "merge":
+        this.openMerge(action.column);
+        break;
+      case "flagAnomalies": {
+        const name = this.metas[action.column]?.name ?? "?";
+        this.setView("table");
+        this.applyTransform(
+          [...this.transformOps, { kind: "flagAnomalies", column: action.column }],
+          `Flagged unusual cells in “${name}” (new Yes/No column)`,
+        );
+        break;
+      }
+      case "winsorize": {
+        const name = this.metas[action.column]?.name ?? "?";
+        this.setView("table");
+        this.applyTransform(
+          [
+            ...this.transformOps,
+            { kind: "winsorize", column: action.column, percent: action.percent },
+          ],
+          `Winsorised “${name}” at ${action.percent}% / ${100 - action.percent}%`,
+        );
+        break;
+      }
+    }
+  }
+
+  /** Detected table archetype, unless the user overrode it. */
+  private effectiveArchetype(): ArchetypeId {
+    if (this.archetypeOverride !== null) return this.archetypeOverride;
+    if (this.latestStats === null || this.metas.length === 0) return "general";
+    return detectArchetypes(this.metas, this.latestStats, this.rowCount)[0]?.id ?? "general";
+  }
+
+  private rerenderOverview(): void {
+    if (this.lastLoaded === null) return;
+    this.overview?.render(
+      this.lastLoaded,
+      {
+        sizeLabel: this.sourceBytes === null ? null : formatBytes(this.sourceBytes),
+      },
+      this.archetypeOverride,
+    );
+  }
+
+  /** Triage queue: every suggested fix in one ranked checklist. */
+  private openTriage(): void {
+    const stats = this.latestStats;
+    if (stats === null) return;
+    this.triage?.close();
+    this.triage = openTriagePanel(this.metas, stats, {
+      onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
+      onConvertToken: (column, tokens) => this.convertToken(column, tokens),
+      onOpenClean: (column, tab) => this.openClean(column, tab),
+      onDedupe: (anchor) => openDedupeMenu(anchor, stats, (keep) => this.dropDuplicates(keep)),
+      onClose: () => {
+        this.triage = null;
+      },
+    });
+  }
+
+  private applyViewAsDataset(view: ViewDef): void {
+    this.applyTransform(
+      [
+        ...this.transformOps,
+        {
+          kind: "aggregate",
+          dimensions: view.dimensions,
+          measures: view.measures,
+          fill: view.fill,
+        },
+      ],
+      `Aggregated rows into a dataset (${view.name})`,
+    );
+  }
+
+  private async copyViewRecipe(view: ViewDef): Promise<void> {
+    const recipe = viewToPandas(view, this.metas.map((meta) => meta.name));
+    const copied = await copyText(recipe);
+    this.setAction(
+      copied ? `Copied the pandas recipe for “${view.name}”` : "Copy failed — clipboard unavailable",
+    );
   }
 
   private syncTabs(): void {
@@ -1952,10 +2938,14 @@ export class App {
   /** Refreshes the health group and dataset stats after a worker update. */
   private applyDatasetStats(stats: DatasetStats): void {
     this.latestStats = stats;
+    this.refreshScore();
     this.renderHealthGroup();
     this.overview?.updateHealth(this.metas, stats);
     this.refreshMissingness();
     this.syncColumnTiles();
+    this.reportsPanel?.setData(this.metas, stats, this.rowCount);
+    this.reportsPanel?.invalidate();
+    this.triage?.update(this.metas, stats);
   }
 
   /** Rebuilds the Overview's zoomed-out missingness map. */
@@ -1967,6 +2957,154 @@ export class App {
       .catch(() => {
         // The map is supplementary; the rest of the Overview still stands.
       });
+  }
+
+  /** Recomputes the dataset quality score and refreshes the tile. */
+  private refreshScore(baselineReset = false): void {
+    const stats = this.latestStats;
+    if (stats === null || this.metas.length === 0) {
+      this.dqScore = null;
+      this.scoreTile.classList.add("hidden");
+      return;
+    }
+    const previous = baselineReset ? null : (this.dqScore?.overall ?? null);
+    const score = computeDQScore(this.metas, stats, this.rowCount, this.dqConfig, this.dqUserChecks);
+    this.dqScore = score;
+    this.syncScoreTile(
+      previous === null || score.overall === null ? null : score.overall - previous,
+    );
+    this.renderQualityPage();
+  }
+
+  /** Score tile: number + band colour + delta versus the previous step. */
+  private syncScoreTile(delta: number | null): void {
+    const score = this.dqScore;
+    if (score === null || score.overall === null) {
+      this.scoreTile.classList.add("hidden");
+      return;
+    }
+    const rounded = Math.round(score.overall * 10) / 10;
+    clear(this.scoreTile);
+    this.scoreTile.append(
+      el("span", { class: `score-tile-value band-${score.band}` }, [rounded.toFixed(1)]),
+      el("span", { class: "score-tile-label" }, ["DQ"]),
+    );
+    if (delta !== null && Math.abs(delta) >= 0.05) {
+      this.scoreTile.append(
+        el("span", { class: `score-tile-delta ${delta > 0 ? "up" : "down"}` }, [
+          `${delta > 0 ? "▲ +" : "▼ "}${delta.toFixed(1)}`,
+        ]),
+      );
+    }
+    this.scoreTile.title = `Data quality ${rounded.toFixed(1)} (${score.band}) — click for the full breakdown`;
+    this.scoreTile.classList.remove("hidden");
+  }
+
+  /** The Data Quality page (plan §4.2): the diagnostic QA dashboard. */
+  private openQuality(): void {
+    if (this.dqScore === null) return;
+    this.setView("quality");
+  }
+
+  /** One check's “show failing rows” action, shared by the page. */
+  private handleQualityFilter(check: ScoreCheck): void {
+    if (check.column === null) {
+      if (check.filter === "duplicates" && !this.specials.has("duplicates")) {
+        this.toggleSpecial("duplicates");
+      } else if (
+        check.filter === "keyDuplicates" &&
+        !this.specials.has("keyDuplicates")
+      ) {
+        this.toggleSpecial("keyDuplicates");
+      } else if (check.filter === "pairCheck" && !this.specials.has("pairCheck")) {
+        this.toggleSpecial("pairCheck");
+      }
+      this.setView("table");
+      return;
+    }
+    if (check.filter === "nulls" || check.filter === "pattern" || check.filter === "valueAnomalies") {
+      const active = this.columnSpecials.get(check.column)?.has(check.filter) ?? false;
+      if (!active) this.toggleColumnSpecial(check.column, check.filter);
+    } else if (check.filter === "duplicates" && !this.specials.has("duplicates")) {
+      this.toggleSpecial("duplicates");
+    }
+    this.setView("table");
+    this.table?.flashColumn(check.column);
+  }
+
+  /** Builds the DQ page lazily; first open renders the current score. */
+  private ensureQuality(): void {
+    if (this.qualityPage !== null) return;
+    this.qualityPage = new QualityPage(this.qualityHost, {
+      onExport: (kind) => this.exportQuality(kind),
+      config: this.dqConfig,
+      onConfigChange: (config) => {
+        this.dqConfig = config;
+        saveDQConfig(config);
+        this.refreshScore();
+      },
+      onFilter: (check) => this.handleQualityFilter(check),
+      onConvert: (column, type) => this.changeType(column, type),
+    });
+    this.renderQualityPage();
+  }
+
+  private renderQualityPage(): void {
+    if (this.qualityPage === null) return;
+    const score = this.dqScore;
+    const stats = this.latestStats;
+    if (score === null || stats === null) {
+      this.qualityPage.render(null);
+      return;
+    }
+    this.qualityPage.render({
+      score,
+      rowCount: this.rowCount,
+      stats,
+      columnNames: this.metas.map((meta) => meta.name),
+    });
+  }
+
+  /** DQ report export (plan §6): report file + pipeline-format emitters. */
+  private async exportQuality(kind: DQExportKind): Promise<boolean> {
+    const score = this.dqScore;
+    if (score === null) return false;
+    const report = buildDQReport(
+      score,
+      this.datasetName === "" ? "dataset" : this.datasetName,
+      this.rowCount,
+      this.metas.length,
+    );
+    if (kind === "json") {
+      const blob = new Blob([dqReportJson(report)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${safeFileName(this.datasetName === "" ? "dataset" : this.datasetName)}-dq-report.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      this.setAction("Downloaded the data-quality report (JSON)");
+      return true;
+    }
+    let text: string;
+    if (kind === "markdown") {
+      text = dqReportMarkdown(report);
+    } else {
+      const emitted = emitDQChecks(
+        this.metas,
+        this.datasetName === "" ? "dataset" : this.datasetName,
+      );
+      const body = emitted[kind];
+      text =
+        emitted.support.length === 0
+          ? body
+          : `${body}\n# Support notes — not translated:\n${emitted.support
+              .map((line) => `# - ${line}`)
+              .join("\n")}\n`;
+    }
+    const ok = await copyText(text);
+    this.setAction(ok ? `Copied the DQ ${kind} export` : "Clipboard blocked — copy failed");
+    return ok;
   }
 
   /** Compact Table/Chart replacement for the old summary band. */
@@ -2030,6 +3168,35 @@ export class App {
         `Outliers ${stats.valueAnomalyRows.toLocaleString()}`,
         "Show rows with a value outside the column fence",
       );
+    }
+    // Dataset-level placeholder action, always visible even when the affected
+    // column is scrolled off screen. Per-column chips live in the headers.
+    const tokenTotals = new Map<string, number>();
+    for (const meta of this.metas) {
+      for (const token of meta.nullTokens) {
+        if (token.label !== "" && token.count > 0) {
+          tokenTotals.set(token.label, (tokenTotals.get(token.label) ?? 0) + token.count);
+        }
+      }
+    }
+    if (tokenTotals.size > 0) {
+      const total = [...tokenTotals.values()].reduce((sum, value) => sum + value, 0);
+      const ranked = [...tokenTotals.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([label]) => label);
+      const examples = ranked.slice(0, 3).map((label) => `“${label}”`).join(", ");
+      const convert = el(
+        "button",
+        {
+          class: "ghost small placeholder-action",
+          type: "button",
+          title: `Blank ${total.toLocaleString()} placeholder cells (${examples}) across all columns — undo in the Recipe`,
+        },
+        [`Convert to nulls (${total.toLocaleString()})`],
+      ) as HTMLButtonElement;
+      convert.addEventListener("click", () => this.applyNullPolicyAll(ranked, []));
+      this.healthHost.append(convert);
+      count++;
     }
     this.healthChipCount = count;
     this.healthHost.classList.toggle("hidden", this.view === "overview" || count === 0);
@@ -2238,6 +3405,7 @@ export class App {
     this.latestHistograms = histograms;
     this.filterPanel?.applyResults(facets, histograms);
     this.chartsPanel?.setFiltered(facets, histograms);
+    if (this.view === "views") this.viewsPanel?.markStale();
   }
 
   /** Column metas changed (type/clean/rename) — rebuild chart pickers too. */
@@ -2275,6 +3443,7 @@ export class App {
     const parts: string[] = [];
 
     if (loaded.type === "loaded") {
+      if (this.sampleNote !== null) parts.push(this.sampleNote);
       const { paddedRows, extraCellRows, extraCells } = loaded.ragged;
       if (paddedRows > 0) {
         parts.push(
@@ -2321,30 +3490,67 @@ export class App {
   }
 
   private showPaste(): void {
+    const hasData = this.lastLoaded !== null;
+    this.pasteView.classList.remove("hidden");
+    this.pasteCancel.classList.toggle("hidden", !hasData);
+    this.workspace.classList.toggle("hidden", !hasData);
+    this.updateNewButton();
+  }
+
+  private hidePaste(): void {
+    if (this.lastLoaded === null) return;
+    this.pasteView.classList.add("hidden");
+    this.workspace.classList.remove("hidden");
+    this.updateNewButton();
+  }
+
+  /**
+   * Toolbar button: "New data" opens the load dialog when empty; "Clear data"
+   * asks for confirmation, then closes the table and reopens the load dialog.
+   */
+  private onNewDataClick(): void {
+    if (this.lastLoaded === null) {
+      this.showPaste();
+      return;
+    }
+    void openConfirm({
+      title: "Clear the data?",
+      body: "The current table, filters and steps will be closed. Saved recipes are not affected.",
+      confirmLabel: "Clear data",
+      danger: true,
+    }).then((confirmed) => {
+      if (confirmed) this.clearData();
+    });
+  }
+
+  private updateNewButton(): void {
+    const hasData = this.lastLoaded !== null;
+    this.newButton.textContent = hasData ? "Clear data" : "New data";
+    this.newButton.title = hasData
+      ? "Close the current table and start over (asks first)"
+      : "Load a CSV, Excel, JSON or Parquet file";
+  }
+
+  private clearData(): void {
+    this.lastLoaded = null;
+    this.datasetName = "";
+    this.archetypeOverride = null;
+    this.sampleNote = null;
     this.workspace.classList.add("hidden");
     this.pasteView.classList.remove("hidden");
-    this.newButton.classList.add("hidden");
+    this.pasteCancel.classList.add("hidden");
+    this.updateNewButton();
+    this.setAction("Data cleared — load a file to start again");
   }
 
-  private selectStage(id: StageId): void {
-    switch (id) {
-      case "load":
-        this.showPaste();
-        break;
-      case "clean":
-        this.openClean();
-        break;
-      case "transform":
-        this.openTransform();
-        break;
-      case "export":
-        this.openExportDialog();
-        break;
-    }
-  }
-
-  private setStage(id: StageId | null): void {
-    this.stepper?.setActive(id);
+  /** Worker restart after an out-of-memory crash: reset to the start screen. */
+  private handleWorkerCrash(): void {
+    this.loading = false;
+    this.hideLoadProgress();
+    this.clearData();
+    this.setStatusError(
+      "The file was too large for browser memory — the worker restarted and nothing is loaded. Try the sample option or a smaller file.",
+    );
   }
 
   private openClean(
@@ -2353,7 +3559,6 @@ export class App {
     op?: CleanOp,
   ): void {
     if (this.datasetName === "" || this.loading) return;
-    this.setStage("clean");
     openCleanPanel(
       this.metas,
       this.cleanedColumns,
@@ -2368,14 +3573,16 @@ export class App {
           this.client.previewClean(updates).then((message) => {
             let changed = 0;
             let total = 0;
+            let failed = 0;
             for (const entry of message.columns) {
               changed += entry.changed;
               total += entry.total;
+              failed += entry.failed;
             }
-            return { changed, total };
+            return { changed, total, failed };
           }),
         onOpenMerge: (column) => this.openMerge(column),
-        onClose: () => this.setStage(null),
+        onClose: () => undefined,
       },
       { column, tab, op },
     );
@@ -2391,9 +3598,205 @@ export class App {
       },
       onClose: () => {
         this.table?.refreshHeader();
-        this.setStage(null);
       },
     });
+  }
+
+  /** Header click: profile, issues and the verbs for one column. */
+  private openColumnInspector(column: number, anchor: HTMLElement): void {
+    const meta = this.metas[column];
+    if (meta === undefined) return;
+    openColumnInspector(anchor, meta, column, {
+      displayFormat: this.displayFormats.get(column) ?? null,
+      displayGrouping: this.displayGrouping.has(column),
+      onSort: (dir) => this.changeSort(column, dir),
+      onFilter: () => this.focusFilterColumn(column),
+      onChart: () => {
+        this.ensureCharts();
+        this.chartsPanel?.addCard({ kind: chartKindFor(meta.type) ?? "histogram", column });
+        this.setView("chart");
+      },
+      onQuickClean: (op) => this.applyQuickClean(column, op),
+      onOpenClean: (tab) => this.openClean(column, tab),
+      onOpenTransform: (preset) => this.openTransform(preset),
+      onSuggestion: (suggestion) => this.applySuggestion(column, suggestion),
+      onMerge: () => this.openMerge(column),
+      onAllowedValues: (values) => this.checkAllowedValues(column, values),
+      onCompare: (target, operator, tolerance) =>
+        this.checkPair(column, target, operator, tolerance),
+      onCheckFreshness: (days) => this.checkFreshness(column, days),
+      columns: () => this.metas,
+      onRename: () => void this.renameColumn(column),
+      onDelete: () => void this.confirmDeleteColumn(column),
+      onRound: (decimals) =>
+        this.applyTransform(
+          [...this.transformOps, { kind: "round", column, decimals }],
+          `Rounded “${meta.name}” to ${decimals} decimal place${decimals === 1 ? "" : "s"}`,
+        ),
+      onFillMissing: (strategy) =>
+        this.applyTransform(
+          [...this.transformOps, { kind: "impute", column, strategy, groupColumn: null }],
+          `Filled missing values in “${meta.name}”`,
+        ),
+      onDedupe: (keep) => this.dropDuplicates(keep),
+      onSplit: (pattern, regex) =>
+        this.applyTransform(
+          [
+            ...this.transformOps,
+            {
+              kind: "splitColumn",
+              column,
+              pattern,
+              regex,
+              dropEmpty: true,
+              dropOriginal: false,
+              prefix: meta.name,
+            },
+          ],
+          `Split “${meta.name}” on ${regex ? `/${pattern}/` : `“${pattern}”`}`,
+        ),
+      onDisplayFormat: (decimals) => {
+        if (decimals === null) this.displayFormats.delete(column);
+        else this.displayFormats.set(column, decimals);
+        this.table?.setFormats(this.displayFormats);
+        this.setAction(
+          decimals === null
+            ? `“${meta.name}”: automatic display`
+            : `“${meta.name}”: ${decimals} decimal place${decimals === 1 ? "" : "s"}`,
+        );
+      },
+      onDisplayGrouping: (on) => {
+        if (on) this.displayGrouping.add(column);
+        else this.displayGrouping.delete(column);
+        this.table?.setGrouping(this.displayGrouping);
+        this.setAction(
+          on
+            ? `“${meta.name}”: thousands separators shown (values unchanged)`
+            : `“${meta.name}”: thousands separators off`,
+        );
+      },
+    });
+  }
+
+  /** Freshness rule (plan §6): scores Timeliness against “now”. */
+  private checkFreshness(column: number, days: number): void {
+    const meta = this.metas[column];
+    const latest = meta?.stats.max ?? null;
+    if (meta === undefined || latest === null) return;
+    const ageDays = Math.max(0, (Date.now() - latest) / 86_400_000);
+    const fresh = ageDays <= days;
+    this.freshnessRule = { column, days };
+    this.dqUserChecks = [
+      ...this.dqUserChecks.filter((check) => check.dimension !== "timeliness"),
+      {
+        id: "timeliness.freshness",
+        dimension: "timeliness",
+        label: `“${meta.name}” is fresh (≤ ${days} day${days === 1 ? "" : "s"})`,
+        detail: `newest value ${new Date(latest).toISOString().slice(0, 10)} · ${ageDays.toFixed(
+          1,
+        )} days old`,
+        pass: fresh ? 1 : 0,
+        fail: fresh ? 0 : 1,
+        na: 0,
+        column: null,
+        filter: null,
+        fixLabel: null,
+      },
+    ];
+    this.refreshScore();
+    this.setAction(
+      fresh
+        ? `“${meta.name}”: fresh — newest value is ${ageDays.toFixed(1)} days old`
+        : `“${meta.name}”: stale — newest value is ${ageDays.toFixed(0)} days old (over ${days})`,
+    );
+  }
+
+  /**
+   * Allowed-values check (plan §5.4): compares the column's categories against
+   * the user's list (same normalisation as search) and filters to the values
+   * outside it. Display/filters only — the stored data is never changed.
+   */
+  private checkAllowedValues(column: number, allowed: readonly string[]): void {
+    const meta = this.metas[column];
+    const categories = meta?.categories ?? null;
+    if (meta === undefined || categories === null) return;
+    const allowedSet = new Set(allowed.map((value) => normalize(value)));
+    const offending: number[] = [];
+    let count = 0;
+    categories.labels.forEach((label, code) => {
+      if (!allowedSet.has(normalize(label))) {
+        offending.push(code);
+        count += categories.counts[code] ?? 0;
+      }
+    });
+    if (count === 0) {
+      this.showToast(`“${meta.name}”: every value is in the allowed list.`);
+      return;
+    }
+    this.changeFilter(column, { kind: "values", selected: offending });
+    this.setView("table");
+    this.table?.flashColumn(column);
+    this.showToast(
+      `“${meta.name}”: ${count.toLocaleString()} ${count === 1 ? "cell" : "cells"} outside the allowed list — filtered.`,
+      () => this.changeFilter(column, null),
+    );
+  }
+
+  /** Pair/consistency check (plan §5.3): compare two columns, filter failures. */
+  private checkPair(
+    columnA: number,
+    columnB: number,
+    operator: PairOperator,
+    tolerance: number,
+  ): void {
+    const nameA = this.metas[columnA]?.name ?? `Column ${columnA + 1}`;
+    const nameB = this.metas[columnB]?.name ?? `Column ${columnB + 1}`;
+    const symbol =
+      operator === "gte" ? "≥" : operator === "gt" ? ">" : operator === "eq" ? "=" : "≈";
+    const label = `“${nameA}” ${symbol}${
+      operator === "approx" ? ` (±${tolerance})` : ""
+    } “${nameB}”`;
+    this.setView("table");
+    this.queueSend(() =>
+      this.client
+        .checkPair({ columnA, columnB, operator, tolerance })
+        .then((message) => {
+          const tail =
+            message.violations === 0
+              ? `no failures (${message.compared.toLocaleString()} rows compared)`
+              : `${message.violations.toLocaleString()} row${
+                  message.violations === 1 ? "" : "s"
+                } fail`;
+          this.setAction(`${label}: ${tail}`);
+          this.showToast(`${label}: ${tail}.`, () => this.toggleSpecial("pairCheck"));
+          this.dqUserChecks = [
+            ...this.dqUserChecks.filter((check) => check.dimension !== "consistency"),
+            {
+              id: "consistency.pair",
+              dimension: "consistency",
+              label,
+              detail: `${message.compared.toLocaleString()} rows compared`,
+              pass: Math.max(0, message.compared - message.violations),
+              fail: message.violations,
+              na: 0,
+              column: null,
+              filter: "pairCheck",
+              fixLabel: "Show failing",
+            },
+          ];
+          this.refreshScore();
+          this.updateCount(message.count, message.queryMs);
+          this.applyFacets(message.facets, message.histograms);
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(
+            message.firstRows,
+            message.firstGroups,
+            message.firstFlags,
+            message.firstChanged,
+          );
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
   }
 
   /** Right-click column menu: quick actions without leaving the table. */
@@ -2451,6 +3854,13 @@ export class App {
 
     addHeader("Column");
     addItem("Rename column…", () => void this.renameColumn(column));
+    if (meta.type === "integer" || meta.type === "number") {
+      const next: NumberLocale = meta.numberLocale === "comma" ? "dot" : "comma";
+      const current = meta.numberLocale === "comma" ? "1.234,56" : "1,234.56";
+      addItem(`Number format: ${current} — switch`, () =>
+        this.changeNumberLocale(column, next),
+      );
+    }
     if (meta.type === "category") {
       addItem("Merge similar values…", () => this.openMerge(column));
     }
@@ -2485,6 +3895,11 @@ export class App {
     addItem(
       "Convert to date",
       () => this.applyQuickClean(column, { kind: "toDate", order: meta.dateOrder }),
+      { instant: true },
+    );
+    addItem(
+      "Convert to date & time",
+      () => this.applyQuickClean(column, { kind: "toDateTime", order: meta.dateOrder }),
       { instant: true },
     );
     addItem(
@@ -2544,6 +3959,10 @@ export class App {
 
   /** Applies a parameter-free clean straight from the menu, with an undo toast. */
   private applyQuickClean(column: number, op: CleanOp): void {
+    if (op.kind === "toDate" || op.kind === "toDateTime" || op.kind === "toNumber") {
+      void this.applyQuickCast(column, op);
+      return;
+    }
     const existing = this.cleanedColumns.get(column) ?? [];
     this.applyClean([{ column, ops: [...existing, op] }]);
     const name = this.metas[column]?.name ?? `Column ${column + 1}`;
@@ -2562,15 +3981,54 @@ export class App {
     });
   }
 
-  /** One transient toast at a time, with an optional Undo action. */
-  private showToast(message: string, onUndo?: () => void): void {
+  /**
+   * Cast ops (date, date & time, number) pre-flight the worker preview: a
+   * conversion that would change nothing reports how many values don't parse
+   * instead of applying a silent no-op with a success toast.
+   */
+  private async applyQuickCast(column: number, op: CleanOp): Promise<void> {
+    const existing = this.cleanedColumns.get(column) ?? [];
+    const applied = [...existing, op];
+    const name = this.metas[column]?.name ?? `Column ${column + 1}`;
+    const preview = await this.client.previewClean([{ column, ops: applied }]).catch(() => null);
+    const counts = preview?.columns[0];
+    if (counts !== undefined && counts.changed === 0) {
+      this.showToast(
+        `Nothing changed in “${name}” — ${counts.failed.toLocaleString()} of ${counts.total.toLocaleString()} values don't parse.`,
+        () => this.openClean(column, "values"),
+        "Review values",
+      );
+      return;
+    }
+    this.applyClean([{ column, ops: applied }]);
+    const summary =
+      counts !== undefined && counts.failed > 0
+        ? `Converted ${counts.changed.toLocaleString()} cells · ${counts.failed.toLocaleString()} don't parse and were left unchanged`
+        : `${describeCleanOp(op)} applied to “${name}”`;
+    this.showToast(summary, () => {
+      const current = this.cleanedColumns.get(column) ?? [];
+      const key = JSON.stringify(op);
+      let index = -1;
+      for (let i = current.length - 1; i >= 0; i--) {
+        if (JSON.stringify(current[i]) === key) {
+          index = i;
+          break;
+        }
+      }
+      if (index < 0) return;
+      this.applyClean([{ column, ops: current.filter((_, i) => i !== index) }]);
+    });
+  }
+
+  /** One transient toast at a time, with an optional action button (Undo by default). */
+  private showToast(message: string, onUndo?: () => void, actionLabel = "Undo"): void {
     for (const existing of document.querySelectorAll(".toast")) existing.remove();
     const toast = el("div", { class: "toast", role: "status" });
     toast.append(el("span", { class: "toast-text" }, [message]));
     const timer = window.setTimeout(() => toast.remove(), 6000);
     if (onUndo !== undefined) {
-      const undo = el("button", { class: "toast-undo", type: "button" }, ["Undo"]);
-      undo.title = "Reverse this action";
+      const undo = el("button", { class: "toast-undo", type: "button" }, [actionLabel]);
+      undo.title = actionLabel === "Undo" ? "Reverse this action" : actionLabel;
       undo.addEventListener("click", () => {
         window.clearTimeout(timer);
         toast.remove();
@@ -2597,7 +4055,7 @@ export class App {
     const confirmed = await openConfirm({
       title: `Delete column “${meta.name}”?`,
       body:
-        "The column is removed from the dataset as a tracked transform step — you can undo it from the Process Log.",
+        "The column is removed from the dataset as a tracked transform step — you can undo it from the Recipe.",
       confirmLabel: "Delete column",
       danger: true,
     });
@@ -2634,22 +4092,13 @@ export class App {
 
   private updateStepsButton(): void {
     const groups = groupSteps(this.stepEntries());
-    let cleanCount = 0;
-    let transformCount = 0;
-    for (const group of groups) {
-      if (group.entries.some((entry) => entry.kind === "transform")) transformCount++;
-      else cleanCount++;
-    }
-    this.stepper?.setCount("clean", cleanCount);
-    this.stepper?.setCount("transform", transformCount);
     const count = groups.length;
-    this.stepsButton.textContent = count === 0 ? "Process Log" : `Process Log (${count})`;
+    this.stepsButton.textContent = count === 0 ? "Recipe" : `Recipe (${count})`;
     this.stepsButton.disabled = count === 0;
     this.stepsButton.title =
       count === 0
-        ? "No changes yet — clean, fix or transform a column to start the log"
+        ? "No changes yet — clean, fix or transform a column to start the recipe"
         : "Review, undo or export the applied changes";
-    this.stepsButton.classList.toggle("hidden", count === 0);
     this.hints?.refresh();
   }
 
@@ -2796,8 +4245,11 @@ export class App {
         this.typeEdits.length = 0;
         this.updateStepsButton();
       },
-      onCopyRecipe: () => this.copyRecipe(),
-      onClose: () => this.setStage(null),
+      onCopyRecipe: (target) => this.copyRecipe(target),
+      recipeSupport: (target) => supportHint(target, this.recipeScript(target).entries),
+      onSaveRecipe: () => this.saveRecipe(),
+      onReplayRecipe: () => this.pickRecipeFile(),
+      onClose: () => undefined,
     });
   }
 
@@ -2827,23 +4279,229 @@ export class App {
     }
   }
 
-  private async copyRecipe(): Promise<boolean> {
+  /** The canonical recipe contract: applied cleans, null/type edits, transforms. */
+  private recipeInput(): RecipeInput {
     const schema =
       this.transformBaseSchema.length > 0
         ? this.transformBaseSchema
         : this.metas.map((meta) => ({
             name: meta.name,
             numeric: meta.type === "integer" || meta.type === "number",
+            type: meta.type,
           }));
-    const recipe = pandasRecipe({
+    return {
       cleans: [...this.cleanedColumns.entries()].map(([column, ops]) => ({
         name: this.metas[column]?.name ?? `Column ${column + 1}`,
         ops,
       })),
       transforms: this.transformOps,
       schema,
-    });
+      types: this.typeEdits.map((edit) => ({
+        name: this.metas[edit.column]?.name ?? `Column ${edit.column + 1}`,
+        type: this.metas[edit.column]?.type ?? "string",
+      })),
+      nulls: this.metas
+        .map((meta) => ({
+          name: meta.name,
+          extra: [...meta.nullPolicy.extra],
+          keep: [...meta.nullPolicy.keep],
+        }))
+        .filter((entry) => entry.extra.length > 0 || entry.keep.length > 0),
+      deletedRows: this.excludedRowCount > 0 ? this.excludedRowCount : undefined,
+    };
+  }
+
+  /** Runs the selected target generator over the canonical recipe input. */
+  private recipeScript(target: RecipeTarget): RecipeScript {
+    const input = this.recipeInput();
+    return target === "polars" ? polarsRecipeScript(input) : pandasRecipeScript(input);
+  }
+
+  private async copyRecipe(target: RecipeTarget): Promise<boolean> {
+    const recipe = this.recipeScript(target).code;
     return copyText(recipe);
+  }
+
+  /** Builds the replayable pipeline file for the current dataset. */
+  private buildRecipeFile(): RecipeFile {
+    const baseSchema =
+      this.transformBaseSchema.length > 0
+        ? this.transformBaseSchema
+        : this.metas.map((meta) => ({
+            name: meta.name,
+            numeric: meta.type === "integer" || meta.type === "number",
+          }));
+    return {
+      kind: "turbofuzz-recipe",
+      version: 1,
+      name: this.datasetName,
+      savedAt: new Date().toISOString(),
+      columns: this.metas.map((meta) => meta.name),
+      cleans: [...this.cleanedColumns.entries()].map(([column, ops]) => ({
+        name: this.metas[column]?.name ?? `Column ${column + 1}`,
+        ops,
+      })),
+      nulls: this.metas
+        .map((meta) => ({
+          name: meta.name,
+          extra: [...meta.nullPolicy.extra],
+          keep: [...meta.nullPolicy.keep],
+        }))
+        .filter((entry) => entry.extra.length > 0 || entry.keep.length > 0),
+      types: this.typeEdits
+        .map((edit) => ({
+          name: this.metas[edit.column]?.name ?? `Column ${edit.column + 1}`,
+          type: this.metas[edit.column]?.type ?? "string",
+        }))
+        .filter((entry): entry is RecipeFileType => entry.type !== undefined),
+      baseSchema,
+      transforms: JSON.parse(JSON.stringify(this.transformOps)) as TransformOp[],
+      archetype: this.archetypeOverride ?? undefined,
+    };
+  }
+
+  private saveRecipe(): void {
+    const file = this.buildRecipeFile();
+    const blob = new Blob([JSON.stringify(file, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const base = this.datasetName.replace(/\.[^.]+$/, "") || "turbofuzz";
+    anchor.href = url;
+    anchor.download = `${base}-recipe.json`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    this.setAction(`Saved the recipe (${file.cleans.length + file.transforms.length} steps)`);
+  }
+
+  private pickRecipeFile(): void {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (file !== undefined) void this.replayRecipe(file);
+    });
+    input.click();
+  }
+
+  private async replayRecipe(file: File): Promise<void> {
+    let parsed: RecipeFile;
+    try {
+      parsed = parseRecipeFile(await file.text());
+    } catch (error) {
+      this.showWarning(error instanceof Error ? error.message : "Could not read the recipe.");
+      return;
+    }
+    const names = this.metas.map((meta) => meta.name);
+    let plan = planReplay(parsed, names);
+    if (
+      plan.cleans.length === 0 &&
+      plan.nulls.length === 0 &&
+      plan.types.length === 0 &&
+      plan.transforms.length === 0
+    ) {
+      this.showWarning(
+        `Nothing could be replayed — no saved column matched. Skipped: ${plan.skipped.join(", ") || "all steps"}.`,
+      );
+      return;
+    }
+
+    // Saved base columns that do not match this file: offer a mapping step
+    // instead of silently skipping the transforms.
+    if (plan.transformsSkipped && parsed.transforms.length > 0) {
+      const missing = parsed.baseSchema
+        .map((entry) => entry.name)
+        .filter((name) => matchColumns([name], names)[0] === null);
+      if (missing.length > 0) {
+        const mapping = await openRecipeMapping({ names: missing, columns: names });
+        if (mapping !== null && [...mapping.values()].some((value) => value !== null)) {
+          plan = planReplay(parsed, names, mapping);
+        }
+      }
+    }
+    await this.applyReplayPlan(parsed, plan);
+  }
+
+  private async applyReplayPlan(parsed: RecipeFile, plan: ReplayPlan): Promise<void> {
+    if (parsed.archetype !== undefined) {
+      this.archetypeOverride = parsed.archetype as ArchetypeId;
+      this.rerenderOverview();
+    }
+    try {
+      for (const change of plan.types) {
+        const previous = this.metas[change.column]?.type ?? "string";
+        const message = await this.client.setType(change.column, change.type);
+        this.metas[change.column] = message.meta;
+        this.table?.updateColumn(change.column, message.meta);
+        this.overview?.updateColumn(change.column, message.meta);
+        this.typeEdits.push({
+          column: change.column,
+          label: `${message.meta.name}: type → ${message.meta.type} (replayed)`,
+          detail: `type → ${change.type} (replayed)`,
+          previous,
+        });
+      }
+      for (const entry of plan.nulls) {
+        const message = await this.client.setNullPolicy(entry.column, entry.extra, entry.keep);
+        for (const { column, meta } of message.columns) {
+          this.metas[column] = meta;
+          this.table?.updateColumn(column, meta);
+          this.overview?.updateColumn(column, meta);
+        }
+        this.filterPanel?.updateMeta(entry.column, this.metas[entry.column]);
+      }
+      if (plan.cleans.length > 0) {
+        const message = await this.client.cleanColumns(plan.cleans);
+        for (const update of plan.cleans) {
+          this.filters.delete(update.column);
+          this.cleanedColumns.set(update.column, update.ops);
+        }
+        for (const { column, meta } of message.columns) {
+          this.metas[column] = meta;
+          this.table?.updateColumn(column, meta);
+          this.overview?.updateColumn(column, meta);
+        }
+        this.latestFacets = message.facets;
+        this.latestHistograms = message.histograms;
+        this.applyDatasetStats(message.stats);
+        this.updateCount(message.count, message.queryMs);
+        this.table?.setCount(message.count);
+        this.table?.setFirstRows(
+          message.firstRows,
+          message.firstGroups,
+          message.firstFlags,
+          message.firstChanged,
+        );
+        this.noteChangedCells(message.changedTotal);
+      }
+      this.updateStepsButton();
+
+      if (plan.transforms.length > 0) {
+        const message = await this.client.transform(plan.transforms);
+        this.openWorkspace(message);
+      } else if (plan.transformsSkipped) {
+        this.showWarning(
+          `Steps replayed, but the transforms were skipped — the saved base columns ${
+            plan.skipped.join(", ") || "do not"
+          } did not match this file.`,
+        );
+      }
+      const parts = [
+        plan.types.length > 0 ? `${plan.types.length} type` : "",
+        plan.nulls.length > 0 ? `${plan.nulls.length} missing-value` : "",
+        plan.cleans.length > 0 ? `${plan.cleans.length} clean` : "",
+        plan.transforms.length > 0 ? `${plan.transforms.length} transform` : "",
+      ].filter((part) => part !== "");
+      this.setAction(
+        `Replayed ${parts.join(", ")} step${parts.length === 1 ? "" : "s"}${
+          plan.skipped.length > 0 ? ` · skipped ${plan.skipped.join(", ")}` : ""
+        }`,
+      );
+    } catch (error) {
+      this.showError(error);
+    }
   }
 
   private applyHeaderRename(headers: string[]): void {
@@ -2892,12 +4550,22 @@ export class App {
           this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
           const reverted = updates.every((update) => update.ops.length === 0);
           const name = message.columns[0]?.meta.name ?? "";
           const label =
             updates.length === 1 ? name : `${updates.length} columns`;
-          this.setAction(reverted ? `Reverted ${label}` : `Cleaned ${label}`);
+          const changedText =
+            message.changedTotal > 0
+              ? ` · ${message.changedTotal.toLocaleString()} cells changed`
+              : "";
+          this.setAction(reverted ? `Reverted ${label}` : `Cleaned ${label}${changedText}`);
+          this.noteChangedCells(message.changedTotal);
           this.updateStepsButton();
         })
         .catch((error: unknown) => this.showError(error)),
@@ -2954,10 +4622,16 @@ export class App {
           this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
           this.setAction(
             `Nulls resolved - ${(message.columns[0]?.meta.stats.nulls ?? 0).toLocaleString()} blanks in ${message.columns[0]?.meta.name ?? "column"}`,
           );
+          this.noteChangedCells(message.changedTotal);
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -2996,10 +4670,16 @@ export class App {
           this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
           this.table?.setCount(message.count);
-          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags);
+          this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
           this.setAction(
             `Nulls resolved — ${message.stats.totalNullCells.toLocaleString()} blanks`,
           );
+          this.noteChangedCells(message.changedTotal);
         })
         .catch((error: unknown) => this.showError(error)),
     );
@@ -3007,7 +4687,6 @@ export class App {
 
   private openTransform(preset?: { type: string; column?: number }): void {
     if (this.datasetName === "" || this.loading) return;
-    this.setStage("transform");
     const baseSchema =
       this.transformBaseSchema.length > 0
         ? this.transformBaseSchema
@@ -3021,22 +4700,28 @@ export class App {
       {
         onApply: (ops) => this.applyTransform(ops),
         onPreview: (ops) => this.client.previewTransform(ops),
-        onClose: () => this.setStage(null),
+        onClose: () => undefined,
       },
       preset,
     );
   }
 
   private applyTransform(ops: TransformOp[], action?: string): void {
+    const before = this.rowCount;
     this.queueSend(() =>
       this.client
         .transform(ops)
         .then((message) => {
           this.openWorkspace(message);
           const plural = ops.length === 1 ? "" : "s";
+          const rowsText =
+            before !== message.rowCount
+              ? ` · rows ${before.toLocaleString()} → ${message.rowCount.toLocaleString()}`
+              : "";
           this.setAction(
-            action ??
-              (ops.length === 0 ? "Transforms reset" : `Applied ${ops.length} transform step${plural}`),
+            (action ??
+              (ops.length === 0 ? "Transforms reset" : `Applied ${ops.length} transform step${plural}`)) +
+              rowsText,
           );
         })
         .catch((error: unknown) => this.showError(error)),

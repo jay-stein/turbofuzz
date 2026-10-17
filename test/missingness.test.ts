@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { missingnessGrid } from "../src/data/missingness.js";
-import { bucketTooltip, nullityProfile } from "../src/ui/missingness.js";
+import { bucketTooltip, columnTooltip, nullityProfile } from "../src/ui/missingness.js";
 import { BitSet } from "../src/search/bitset.js";
 
 test("missingnessGrid buckets exact missing counts per column", () => {
@@ -89,5 +89,32 @@ test("bucketTooltip collapses single-row blocks", () => {
   assert.equal(
     bucketTooltip(cells, 1, 3, 3, 1),
     "Row 2 · 0 missing cells of 1 · 100% available",
+  );
+});
+
+test("columnTooltip names the column and counts its missing cells", () => {
+  // 4 blocks of 10 rows, 2 columns.
+  const cells = Uint16Array.from([
+    0, 5,
+    0, 0,
+    1, 0,
+    0, 0,
+  ]);
+  assert.equal(
+    columnTooltip(cells, 2, 4, 40, ["Car", "Price"], 0),
+    "“Car” · 1 missing cell of 40 (2.5%)",
+  );
+  assert.equal(
+    columnTooltip(cells, 2, 4, 40, ["Car", "Price"], 1),
+    "“Price” · 5 missing cells of 40 (12.5%)",
+  );
+  assert.equal(
+    columnTooltip(cells, 2, 4, 40, [null, "Price"], 0),
+    "“Column 1” · 1 missing cell of 40 (2.5%)",
+  );
+  const complete = Uint16Array.from([1, 0, 0, 0, 0, 0, 0, 0]);
+  assert.equal(
+    columnTooltip(complete, 2, 4, 40, ["Car", "Price"], 1),
+    "“Price” · complete — no missing cells",
   );
 });

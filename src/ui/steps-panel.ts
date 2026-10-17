@@ -1,5 +1,6 @@
 import { setupDialog } from "./dialog.js";
 import { el, svgIcon } from "./dom.js";
+import type { RecipeTarget } from "../data/recipe-support.js";
 
 export interface StepsPanelEntry {
   kind: "clean" | "transform" | "rows" | "nulls" | "type";
@@ -32,7 +33,13 @@ export interface StepsPanelCallbacks {
   /** Reverses every sub-step of a condensed batch in one action. */
   onUndoBatch: (entries: readonly StepsPanelEntry[]) => void;
   onClearAll: () => void;
-  onCopyRecipe: () => Promise<boolean>;
+  onCopyRecipe: (target: RecipeTarget) => Promise<boolean>;
+  /** One line describing what the recipe exporter can and cannot translate. */
+  recipeSupport?: (target: RecipeTarget) => string;
+  /** Download the recipe as a local JSON file for replay next month. */
+  onSaveRecipe: () => void;
+  /** Pick a saved recipe file and replay it against the current data. */
+  onReplayRecipe: () => void;
   onClose: () => void;
 }
 
@@ -131,7 +138,7 @@ export function groupSteps(entries: readonly StepsPanelEntry[]): StepsGroup[] {
 }
 
 /**
- * Process Log: every clean, missing-value, type and transform change currently
+ * Recipe: every clean, missing-value, type and transform change currently
  * baked into the dataset, each individually reversible, with cleans
  * reorderable within their column and a pandas recipe export of the pipeline.
  * Batches from a single action are condensed under a + toggle.
@@ -145,7 +152,7 @@ export function openStepsPanel(
   const modal = el("div", { class: "modal clean-modal drawer" });
 
   const head = el("div", { class: "modal-head" });
-  head.append(el("h2", {}, [`Process Log (${groups.length})`]));
+  head.append(el("h2", {}, [`Recipe (${groups.length})`]));
   const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close" }, ["×"]);
   head.append(closeButton);
   modal.append(head);
@@ -153,8 +160,25 @@ export function openStepsPanel(
   const hint = el("div", { class: "clean-hint" }, [
     "Changes apply in order. Batches from one action are condensed — click + to show their sub-steps. The undo icon reverses a change; clean operations can be reordered within their column.",
   ]);
+  const targetSelect = el("select", {
+    class: "recipe-target",
+    "aria-label": "Recipe language",
+    title: "Python recipe language",
+  }) as HTMLSelectElement;
+  for (const target of ["pandas", "polars"] as const) {
+    const option = el("option", { value: target }, [target === "pandas" ? "pandas" : "Polars"]) as HTMLOptionElement;
+    targetSelect.append(option);
+  }
+  const supportText = callbacks.recipeSupport?.(targetSelect.value as RecipeTarget) ?? "";
+  const support = el("div", { class: "clean-support" }, [supportText]);
+  if (supportText === "") support.classList.add("hidden");
+  targetSelect.addEventListener("change", () => {
+    const text = callbacks.recipeSupport?.(targetSelect.value as RecipeTarget) ?? "";
+    support.textContent = text;
+    support.classList.toggle("hidden", text === "");
+  });
   const list = el("div", { class: "clean-op-list" });
-  modal.append(hint, list);
+  modal.append(hint, support, list);
 
   const lastTransformIndex = (() => {
     for (let i = entries.length - 1; i >= 0; i--) {
@@ -172,7 +196,10 @@ export function openStepsPanel(
     if (!disabled) {
       button.addEventListener("click", () => {
         action();
-        callbacks.onClose();
+        // Close the drawer so the reverted table (and the status line) is
+        // visible — previously this called the app's no-op onClose and the
+        // panel stayed open with a stale list, looking like nothing happened.
+        close();
       });
     }
     return button;
@@ -192,13 +219,13 @@ export function openStepsPanel(
       up.disabled = entry.opIndex === 0;
       up.addEventListener("click", () => {
         callbacks.onMoveClean(entry.column, entry.opIndex, -1);
-        callbacks.onClose();
+        close();
       });
       const down = el("button", { class: "icon-btn", type: "button", title: "Move down" }, ["↓"]);
       down.disabled = entry.opIndex >= entry.groupSize - 1;
       down.addEventListener("click", () => {
         callbacks.onMoveClean(entry.column, entry.opIndex, 1);
-        callbacks.onClose();
+        close();
       });
       row.append(
         up,
@@ -219,6 +246,8 @@ export function openStepsPanel(
       );
     } else {
       const index = indexOf.get(entry) ?? -1;
+      info.title =
+        "Transforms run in order: a step can only be removed from the end so later steps keep their inputs.";
       row.append(
         undo(
           index === lastTransformIndex
@@ -282,19 +311,26 @@ export function openStepsPanel(
   undoAll.disabled = entries.length === 0;
   undoAll.addEventListener("click", () => {
     callbacks.onClearAll();
-    callbacks.onClose();
+    close();
   });
-  const copy = el("button", { class: "ghost", type: "button" }, ["Copy pandas recipe"]);
+  const copy = el("button", { class: "ghost", type: "button" }, ["Copy recipe"]);
   copy.disabled = entries.length === 0;
   copy.addEventListener("click", () => {
-    void callbacks.onCopyRecipe().then((ok) => {
+    void callbacks.onCopyRecipe(targetSelect.value as RecipeTarget).then((ok) => {
       copy.textContent = ok ? "Copied" : "Clipboard blocked";
       window.setTimeout(() => {
-        copy.textContent = "Copy pandas recipe";
+        copy.textContent = "Copy recipe";
       }, 2000);
     });
   });
-  footer.append(undoAll, copy, el("span", { class: "grow" }));
+  const save = el("button", { class: "ghost", type: "button" }, ["Save recipe…"]);
+  save.title = "Download this pipeline as a local JSON file and replay it on next month's export";
+  save.disabled = entries.length === 0;
+  save.addEventListener("click", () => callbacks.onSaveRecipe());
+  const replay = el("button", { class: "ghost", type: "button" }, ["Replay recipe…"]);
+  replay.title = "Load a saved recipe file and re-apply its steps by column name";
+  replay.addEventListener("click", () => callbacks.onReplayRecipe());
+  footer.append(undoAll, replay, save, targetSelect, copy, el("span", { class: "grow" }));
   modal.append(footer);
 
   function close(): void {
@@ -313,5 +349,5 @@ export function openStepsPanel(
 
   overlay.append(modal);
   document.body.append(overlay);
-  setupDialog(overlay, "Process Log");
+  setupDialog(overlay, "Recipe");
 }

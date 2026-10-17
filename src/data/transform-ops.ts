@@ -1,11 +1,19 @@
 import { datasetFromColumns } from "./build.js";
 import { ColumnData } from "./column.js";
+import {
+  computeAggregate,
+  type DimensionSpec,
+  type MeasureSpec,
+  type ViewDef,
+} from "./aggregate.js";
 import { applyCombineDate, type CombineDateOp } from "./date-combine.js";
+import { computeAnomalies } from "./anomalies.js";
 import { formatNumber } from "./format.js";
 import { knnImpute } from "./knn.js";
 import { applySplitColumn, type SplitColumnOp } from "./split-column.js";
 import { hashRows, rowsEqual } from "./stats.js";
 import { parseNumber } from "../parse/numbers.js";
+import type { ColumnType } from "../types.js";
 import type { Dataset } from "./dataset.js";
 
 export type Aggregate = "count" | "sum" | "mean" | "min" | "max" | "median";
@@ -33,12 +41,36 @@ export type TransformOp =
       varName: string;
       valueName: string;
     }
+  | {
+      /** Multi-dimension, multi-measure group-by (the Views "Use as dataset"). */
+      kind: "aggregate";
+      dimensions: DimensionSpec[];
+      measures: MeasureSpec[];
+      fill?: "none" | "zero" | "carry";
+    }
   | CombineDateOp
-  | SplitColumnOp;
+  | SplitColumnOp
+  | {
+      /** Appends a Yes/No column marking outlier cells (value or length). */
+      kind: "flagAnomalies";
+      column: number;
+      name?: string;
+    }
+  | {
+      /** Clamps numeric values at the given symmetric percentile (1 = p1/p99). */
+      kind: "winsorize";
+      column: number;
+      percent: number;
+    };
 
 export interface ColumnSchema {
   name: string;
   numeric: boolean;
+  /**
+   * Logical type when it is known (base schema, combineDate output). Omitted
+   * where a step can only say whether the column is numeric.
+   */
+  type?: ColumnType;
 }
 
 export const AGGREGATES: readonly Aggregate[] = ["count", "sum", "mean", "min", "max", "median"];
@@ -100,11 +132,20 @@ export function applyTransformOps(
       case "melt":
         current = meltColumns(current, op);
         break;
+      case "aggregate":
+        current = aggregateColumns(current, op);
+        break;
       case "combineDate":
         current = applyCombineDate(current, op);
         break;
       case "splitColumn":
         current = applySplitColumn(current, op);
+        break;
+      case "flagAnomalies":
+        current = flagAnomaliesColumn(current, op);
+        break;
+      case "winsorize":
+        current = winsorizeColumn(current, op);
         break;
     }
   }
@@ -144,15 +185,26 @@ function filterRaw(raw: readonly string[], mask: Uint8Array): string[] {
 /**
  * Groups rows by exact content using the same hash-then-compare strategy as
  * duplicate detection, so equality is exact without building row-key strings.
+ * A first counting pass keeps unique rows (the common case) out of the bucket
+ * map entirely — one number per distinct hash instead of one object per row.
  */
 function rowGroups(columns: readonly ColumnData[], rowCount: number): number[][] {
   const hashes = hashRows(columns, rowCount);
+  const counts = new Map<number, number>();
+  for (let row = 0; row < rowCount; row++) {
+    const hash = hashes[row];
+    counts.set(hash, (counts.get(hash) ?? 0) + 1);
+  }
   const buckets = new Map<number, { id: number; rep: number }[]>();
   const groups: number[][] = [];
   const columnCount = columns.length;
 
   for (let row = 0; row < rowCount; row++) {
     const hash = hashes[row];
+    if ((counts.get(hash) ?? 0) < 2) {
+      groups.push([row]);
+      continue;
+    }
     let bucket = buckets.get(hash);
     if (bucket === undefined) {
       bucket = [];
@@ -190,6 +242,63 @@ function dedupeColumns(columns: readonly ColumnData[], keep: DedupeKeep): Column
     }
   }
   return columns.map((column) => rebuildColumn(column, filterRaw(column.raw, mask)));
+}
+
+/** Appends a Yes/No column marking the outlier cells of one column. */
+function flagAnomaliesColumn(
+  columns: readonly ColumnData[],
+  op: TransformOp & { kind: "flagAnomalies" },
+): ColumnData[] {
+  const column = columns[op.column];
+  if (column === undefined) return columns.slice();
+  const rowCount = column.raw.length;
+  const anomalies = computeAnomalies([column], rowCount);
+  const valueBits = anomalies.valueColumnBits[0] ?? null;
+  const lengthBits = anomalies.lengthColumnBits[0] ?? null;
+  const raw = new Array<string>(rowCount);
+  for (let row = 0; row < rowCount; row++) {
+    raw[row] = (valueBits?.get(row) ?? false) || (lengthBits?.get(row) ?? false) ? "Yes" : "No";
+  }
+  const base = op.name?.trim() !== "" && op.name !== undefined ? op.name.trim() : `flag: ${column.name}`;
+  const taken = new Set(columns.map((entry) => entry.name));
+  let name = base;
+  let suffix = 2;
+  while (taken.has(name)) name = `${base} (${suffix++})`;
+  return [...columns, ColumnData.create(name, raw)];
+}
+
+/**
+ * Clamps numeric values to the symmetric percentile fences (1 => p1/p99),
+ * leaving in-range cells and non-numeric text untouched. Values already
+ * inside the fences keep their original spelling.
+ */
+function winsorizeColumn(
+  columns: readonly ColumnData[],
+  op: TransformOp & { kind: "winsorize" },
+): ColumnData[] {
+  const column = columns[op.column];
+  if (column === undefined) return columns.slice();
+  const numbers = column.numbers();
+  const finite: number[] = [];
+  for (let row = 0; row < numbers.length; row++) {
+    if (Number.isFinite(numbers[row])) finite.push(numbers[row]);
+  }
+  if (finite.length < 20) return columns.slice();
+  finite.sort((a, b) => a - b);
+  const percent = Math.max(0.1, Math.min(25, op.percent));
+  const quantile = (q: number): number =>
+    finite[Math.min(finite.length - 1, Math.max(0, Math.round((finite.length - 1) * q)))] ?? 0;
+  const lo = quantile(percent / 100);
+  const hi = quantile(1 - percent / 100);
+  if (!(hi > lo)) return columns.slice();
+  const raw = column.raw.slice();
+  for (let row = 0; row < numbers.length; row++) {
+    const value = numbers[row];
+    if (!Number.isFinite(value)) continue;
+    if (value < lo) raw[row] = formatNumber(lo);
+    else if (value > hi) raw[row] = formatNumber(hi);
+  }
+  return replaceColumn(columns, op.column, column, raw);
 }
 
 function roundColumn(
@@ -296,6 +405,69 @@ function aggregateValue(aggregate: Aggregate, acc: GroupAccumulator): string {
 function aggregateHeader(aggregate: Aggregate, measureName: string | null): string {
   if (measureName === null) return AGGREGATE_LABELS[aggregate];
   return `${AGGREGATE_LABELS[aggregate]}(${measureName})`;
+}
+
+/** Header a dimension produces in an aggregate transform. */
+export function dimensionHeader(
+  spec: DimensionSpec,
+  schema: readonly { name: string }[],
+): string {
+  const base = schema[spec.column]?.name ?? `Column ${spec.column + 1}`;
+  const by = spec.by;
+  if (typeof by === "object" && "time" in by) return `${base} (${by.time})`;
+  if (typeof by === "object" && "datePart" in by) return `${base} (${by.datePart})`;
+  if (typeof by === "object" && "bin" in by) {
+    const suffix =
+      "width" in by.bin ? `bin ${by.bin.width}` : "n" in by.bin ? `${by.bin.n} bins` : "bins";
+    return `${base} (${suffix})`;
+  }
+  return base;
+}
+
+/** Header a measure produces in an aggregate transform. */
+export function measureHeader(
+  measure: MeasureSpec,
+  schema: readonly { name: string }[],
+): string {
+  if (measure.agg === "expr") return measure.expr ?? "expr";
+  const name =
+    measure.column === null ? "rows" : schema[measure.column]?.name ?? `Column ${measure.column + 1}`;
+  return `${measure.agg}(${name})`;
+}
+
+/** The multi-dimension, multi-measure group-by used by "Use as dataset". */
+function aggregateColumns(
+  columns: readonly ColumnData[],
+  op: TransformOp & { kind: "aggregate" },
+): ColumnData[] {
+  const rowCount = columns[0]?.raw.length ?? 0;
+  const ids = Uint32Array.from({ length: rowCount }, (_, index) => index);
+  const view: ViewDef = {
+    id: "transform",
+    name: "Aggregate",
+    dimensions: op.dimensions,
+    measures: op.measures,
+    fill: op.fill ?? "none",
+    sort: { key: "dim0", dir: "asc" },
+    limit: 1_000_000,
+    respectFilters: false,
+  };
+  const result = computeAggregate(view, columns, rowCount, ids);
+  const out: ColumnData[] = [];
+  result.dimensionNames.forEach((name, d) => {
+    out.push(ColumnData.create(name, result.dimensions[d].slice()));
+  });
+  result.measureNames.forEach((name, m) => {
+    const values = result.measures[m];
+    const raw = new Array<string>(values.length);
+    for (let i = 0; i < values.length; i++) {
+      raw[i] = Number.isFinite(values[i]) ? formatNumber(values[i]) : "";
+    }
+    const column = ColumnData.create(name, raw);
+    column.setType("number");
+    out.push(column);
+  });
+  return out;
 }
 
 function imputeColumns(
@@ -547,6 +719,31 @@ export function describeTransformOp(op: TransformOp, headers: readonly string[])
         op.dropOriginal ? " (drop original)" : ""
       }`;
     }
+    case "aggregate": {
+      const dims = op.dimensions.map((spec) => {
+        const name = quoted(nameAt(spec.column));
+        const by = spec.by;
+        if (typeof by === "object" && "time" in by) return `${name} by ${by.time}`;
+        if (typeof by === "object" && "datePart" in by) return `${name} by ${by.datePart}`;
+        return name;
+      });
+      const measures = op.measures
+        .map((measure) =>
+          measure.agg === "expr"
+            ? `“${measure.expr ?? "expr"}”`
+            : `${measure.agg} of ${
+                measure.column === null ? "rows" : quoted(nameAt(measure.column))
+              }`,
+        )
+        .join(", ");
+      return `Aggregate: ${measures} grouped by ${dims.join(", ")}`;
+    }
+    case "flagAnomalies":
+      return `Flag unusual cells in ${quoted(nameAt(op.column))} (Yes/No column)`;
+    case "winsorize":
+      return `Winsorise ${quoted(nameAt(op.column))} at the ${op.percent}% / ${
+        100 - op.percent
+      }% percentiles`;
   }
 }
 
@@ -589,6 +786,20 @@ export function describeTransformOpDetail(op: TransformOp, headers: readonly str
       )}, dropParts=${op.dropParts})`;
     case "splitColumn":
       return `splitColumn(column=${nameAt(op.column)}, pattern=${JSON.stringify(op.pattern)}, regex=${op.regex}, dropEmpty=${op.dropEmpty}, dropOriginal=${op.dropOriginal}, prefix=${JSON.stringify(op.prefix)})`;
+    case "aggregate":
+      return `aggregate(dimensions=[${op.dimensions
+        .map((spec) => nameAt(spec.column))
+        .join(", ")}], measures=[${op.measures
+        .map((measure) =>
+          measure.agg === "expr"
+            ? `expr(${JSON.stringify(measure.expr ?? "")})`
+            : `${measure.agg}(${measure.column === null ? "*" : nameAt(measure.column)})`,
+        )
+        .join(", ")}], fill=${op.fill ?? "none"})`;
+    case "flagAnomalies":
+      return `flagAnomalies(column=${nameAt(op.column)})`;
+    case "winsorize":
+      return `winsorize(column=${nameAt(op.column)}, percent=${op.percent})`;
   }
 }
 
@@ -640,7 +851,7 @@ export function schemaAfter(schema: readonly ColumnSchema[], op: TransformOp): C
       let name = base;
       let suffix = 2;
       while (taken.has(name)) name = `${base} (${suffix++})`;
-      return [...kept, { name, numeric: false }];
+      return [...kept, { name, numeric: false, type: op.output }];
     }
     case "splitColumn": {
       // The number of new columns depends on the data, so schema tracking keeps
@@ -649,5 +860,27 @@ export function schemaAfter(schema: readonly ColumnSchema[], op: TransformOp): C
       if (!op.dropOriginal) return schema.slice();
       return schema.filter((_, index) => index !== op.column);
     }
+    case "aggregate": {
+      const dims = op.dimensions
+        .filter((spec) => schema[spec.column] !== undefined)
+        .map((spec) => ({ name: dimensionHeader(spec, schema), numeric: false }));
+      const measures = op.measures.map((measure) => ({
+        name: measureHeader(measure, schema),
+        numeric: true,
+      }));
+      return [...dims, ...measures];
+    }
+    case "flagAnomalies": {
+      const base = schema[op.column]?.name ?? `Column ${op.column + 1}`;
+      const flagBase =
+        op.name !== undefined && op.name.trim() !== "" ? op.name.trim() : `flag: ${base}`;
+      const taken = new Set(schema.map((entry) => entry.name));
+      let name = flagBase;
+      let suffix = 2;
+      while (taken.has(name)) name = `${flagBase} (${suffix++})`;
+      return [...schema, { name, numeric: false }];
+    }
+    case "winsorize":
+      return schema.slice();
   }
 }

@@ -25,10 +25,18 @@ export type SpecialFilter =
   | "duplicates"
   | "nulls"
   | "valueAnomalies"
-  | "lengthAnomalies";
+  | "lengthAnomalies"
+  | "groupAnomalies"
+  | "keyDuplicates"
+  | "pairCheck";
 
 /** Specials that can be scoped to a single column (duplicates cannot). */
-export type ColumnSpecialKind = "nulls" | "valueAnomalies" | "lengthAnomalies";
+export type ColumnSpecialKind =
+  | "nulls"
+  | "valueAnomalies"
+  | "lengthAnomalies"
+  | "groupAnomalies"
+  | "pattern";
 
 export class QueryEngine {
   private readonly special = new Set<SpecialFilter>();
@@ -104,6 +112,10 @@ export class QueryEngine {
         return this.dataset.valueColumnBits[column] ?? null;
       case "lengthAnomalies":
         return this.dataset.lengthColumnBits[column] ?? null;
+      case "groupAnomalies":
+        return this.dataset.groupColumnBits[column] ?? null;
+      case "pattern":
+        return this.dataset.patternColumnBits[column] ?? null;
     }
   }
 
@@ -117,6 +129,15 @@ export class QueryEngine {
         return this.dataset.valueAnomalyBits;
       case "lengthAnomalies":
         return this.dataset.lengthAnomalyBits;
+      case "groupAnomalies":
+        // Computed lazily by the Reports lens; before that, nothing matches.
+        return this.dataset.groupAnomalyBits ?? new BitSet(this.dataset.rowCount);
+      case "keyDuplicates":
+        // Set by the composite-key check; before that, nothing matches.
+        return this.dataset.keyDuplicateBits ?? new BitSet(this.dataset.rowCount);
+      case "pairCheck":
+        // Set by the inspector's compare check; before that, nothing matches.
+        return this.dataset.pairCheckBits ?? new BitSet(this.dataset.rowCount);
     }
   }
 

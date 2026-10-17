@@ -14,6 +14,8 @@ export interface ParseOptions {
   hasHeaders?: boolean;
   /** Pad/truncate rows to the table width (default true). */
   normalizeRows?: boolean;
+  /** Stop after this many rows (Papaparse preview) for sampling big files. */
+  preview?: number;
 }
 
 /** Counts describing rows that do not match the final table width. */
@@ -90,8 +92,7 @@ export function structureTable(
   return { headers, rows, ragged };
 }
 
-export function parseDelimited(text: string, options: ParseOptions = {}): ParsedTable {
-  const delimiter =
+export function parseDelimited(text: string, options: ParseOptions = {}): ParsedTable {  const delimiter =
     options.delimiter !== undefined && options.delimiter !== "auto"
       ? options.delimiter
       : detectDelimiter(text);
@@ -99,6 +100,7 @@ export function parseDelimited(text: string, options: ParseOptions = {}): Parsed
   const result = Papa.parse<string[]>(text, {
     delimiter,
     skipEmptyLines: "greedy",
+    ...(options.preview === undefined ? {} : { preview: options.preview }),
   });
 
   const data = result.data.filter((row) => Array.isArray(row) && row.length > 0);
@@ -107,4 +109,18 @@ export function parseDelimited(text: string, options: ParseOptions = {}): Parsed
   const { headers, rows, ragged } = structureTable(data, hasHeaders, normalize);
 
   return { headers, rows, delimiter, hasHeaders, ragged };
+}
+
+/**
+ * Two first rows count as identical headers when trimmed and case-folded.
+ * Used by the ZIP "Import all" check before appending files.
+ */
+export function sameHeaderRow(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index++) {
+    if ((a[index] ?? "").trim().toLowerCase() !== (b[index] ?? "").trim().toLowerCase()) {
+      return false;
+    }
+  }
+  return true;
 }

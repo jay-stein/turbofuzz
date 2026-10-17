@@ -1,7 +1,12 @@
 import { el } from "./dom.js";
-import { toDateInputValue } from "../parse/dates.js";
+import {
+  formatDurationMs,
+  toDateInputValue,
+  toDateTimeInputValue,
+  toTimeInputValue,
+} from "../parse/dates.js";
 import type { TopValue } from "../parse/infer.js";
-import { TYPE_LABELS } from "../types.js";
+import { isNumericLikeType, isTemporalType, TYPE_LABELS } from "../types.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 
 const COMPACT = new Intl.NumberFormat(undefined, {
@@ -37,8 +42,7 @@ export function buildColumnCard(
   );
   card.append(head);
 
-  const numeric =
-    meta.type === "integer" || meta.type === "number" || meta.type === "date";
+  const numeric = isNumericLikeType(meta.type);
 
   if (numeric && meta.histogram !== null && meta.histogram.max > meta.histogram.min) {
     card.append(buildMiniHistogram(meta.histogram.bins));
@@ -47,10 +51,7 @@ export function buildColumnCard(
   if (numeric) {
     const main = el("div", { class: "stat-card-main" });
     if (meta.stats.min !== null && meta.stats.max !== null) {
-      const format = (value: number): string =>
-        meta.type === "date"
-          ? toDateInputValue(value)
-          : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      const format = (value: number): string => formatTemporalOrNumber(meta, value);
       main.textContent = `${format(meta.stats.min)} – ${format(meta.stats.max)}`;
     } else {
       main.textContent = "—";
@@ -67,12 +68,12 @@ export function buildColumnCard(
   const parts: string[] = [];
   if (numeric) {
     parts.push(`${meta.stats.distinct.toLocaleString()} distinct`);
-    if (meta.valueFence !== null && meta.type !== "date") {
+    if (meta.valueFence !== null && !isTemporalType(meta.type)) {
       parts.push(
         `median ${meta.valueFence.center.toLocaleString(undefined, { maximumFractionDigits: 1 })}`,
       );
     }
-    if (meta.stats.mean !== null && meta.type !== "date") {
+    if (meta.stats.mean !== null && !isTemporalType(meta.type)) {
       parts.push(`mean ${meta.stats.mean.toLocaleString(undefined, { maximumFractionDigits: 1 })}`);
     }
   } else if (meta.stats.avgLength !== null) {
@@ -82,6 +83,22 @@ export function buildColumnCard(
   card.append(el("div", { class: "stat-card-foot" }, [parts.join(" · ")]));
 
   return card;
+}
+
+/** Min/max text for a card: temporal types get their own format. */
+function formatTemporalOrNumber(meta: ColumnMeta, value: number): string {
+  switch (meta.type) {
+    case "date":
+      return toDateInputValue(value);
+    case "datetime":
+      return toDateTimeInputValue(value);
+    case "time":
+      return toTimeInputValue(value);
+    case "duration":
+      return formatDurationMs(value);
+    default:
+      return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
 }
 
 const MINI_BARS = 32;

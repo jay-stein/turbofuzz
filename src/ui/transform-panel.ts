@@ -21,6 +21,7 @@ export interface TransformPreview {
   nullCells: number;
   columnCount: number;
   columnNames: string[];
+  notes: { op: number; text: string; samples?: { before: string; after: string }[] }[];
 }
 
 export interface TransformPanelCallbacks {
@@ -104,6 +105,7 @@ export function openTransformPanel(
   let readOp: () => TransformOp | null = () => null;
 
   const summary = el("div", { class: "clean-summary" });
+  const previewNotes = el("div", { class: "transform-preview-notes" });
   const opList = el("div", { class: "clean-op-list" });
   const builderHost = el("div", { class: "transform-builder" });
 
@@ -121,7 +123,7 @@ export function openTransformPanel(
   });
   footer.append(clearAll, el("span", { class: "grow" }), apply);
 
-  modal.append(summary, opList, builderHost, footer);
+  modal.append(summary, previewNotes, opList, builderHost, footer);
 
   /** Pending steps plus the configured builder step, when touched. */
   function nextOps(): TransformOp[] {
@@ -167,6 +169,7 @@ export function openTransformPanel(
         ? "No transforms — the data is unchanged."
         : `${ops.length} step${ops.length === 1 ? "" : "s"} ready to apply`;
     summary.textContent = baseText;
+    clear(previewNotes);
     if (ops.length === 0) {
       previewNames = null;
       previewNamesKey = "";
@@ -203,16 +206,37 @@ export function openTransformPanel(
         }
         parts.push(`${preview.columnCount} columns`);
         summary.textContent = `${baseText} · ${parts.join(" · ")}`;
+
+        clear(previewNotes);
+        for (const note of preview.notes ?? []) {
+          const row = el("div", { class: "transform-preview-note" });
+          row.append(
+            el("span", { class: "transform-preview-step" }, [`${note.op + 1}.`]),
+            el("span", {}, [note.text]),
+          );
+          if (note.samples !== undefined && note.samples.length > 0) {
+            const samples = el("div", { class: "transform-preview-samples" });
+            for (const sample of note.samples) {
+              samples.append(
+                el("span", { class: "clean-preview-old", title: sample.before }, [sample.before]),
+                el("span", { class: "clean-preview-arrow" }, ["→"]),
+                el("span", { class: "clean-preview-new", title: sample.after }, [sample.after]),
+                el("span", { class: "transform-preview-sep" }, ["·"]),
+              );
+            }
+            row.append(samples);
+          }
+          previewNotes.append(row);
+        }
       })
       .catch(() => {});
   }
 
   function renderOps(): void {
     clear(opList);
-    if (pending.length === 0) {
-      opList.append(el("div", { class: "clean-empty" }, ["No steps yet."]));
-      return;
-    }
+    // The summary above owns the empty state; the list stays blank so the
+    // panel never shows two "nothing here" messages at once.
+    if (pending.length === 0) return;
     let schema = base.slice();
     pending.forEach((op, index) => {
       const row = el("div", { class: "clean-op" });

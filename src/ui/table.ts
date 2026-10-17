@@ -8,6 +8,7 @@ import {
 import { clusterSimilar, type SimilarCluster } from "../search/similar.js";
 import { dismissedClusterCount, isClusterDismissed } from "./similar-dismissals.js";
 import { isNullToken, isNullWithWire } from "../parse/null-tokens.js";
+import { parseDate, toDateInputValue, toTimeInputValue } from "../parse/dates.js";
 import { parseNumber } from "../parse/numbers.js";
 import { valueLength } from "../parse/value-length.js";
 import { COLUMN_TYPES, TYPE_LABELS, type ColumnType } from "../types.js";
@@ -31,10 +32,17 @@ export interface HighlightRule {
   mode: "contains" | "exact";
 }
 
-export type ColumnQaKind = "nulls" | "valueAnomalies" | "lengthAnomalies";
+export type ColumnQaKind =
+  | "nulls"
+  | "valueAnomalies"
+  | "lengthAnomalies"
+  | "groupAnomalies"
+  | "pattern";
 
 export interface ResultTableOptions {
   onSort: (column: number, dir: 1 | -1 | 0) => void;
+  /** Clicking a column name opens the inspector anchored to it. */
+  onColumnInspect: (column: number, anchor: HTMLElement) => void;
   onTypeChange: (column: number, type: ColumnType) => void;
   onColumnSpecial: (column: number, kind: ColumnQaKind) => void;
   onMergeSimilar: (column: number) => void;
@@ -48,7 +56,13 @@ export interface ResultTableOptions {
   onRequestRows: (
     start: number,
     end: number,
-    done: (start: number, rows: string[][], groups?: boolean[], flags?: Uint8Array) => void,
+    done: (
+      start: number,
+      rows: string[][],
+      groups?: boolean[],
+      flags?: Uint8Array,
+      changed?: Uint8Array,
+    ) => void,
   ) => void;
 }
 
@@ -65,16 +79,26 @@ export class ResultTable {
   private sortColumn = -1;
   private sortDir: 1 | -1 = 1;
   private highlights: HighlightRule[] = [];
+  /** Per-column fixed decimal display formats (display only, not the data). */
+  private formats = new Map<number, number>();
+  /** Per-column thousands-separator display (display only, not the data). */
+  private grouping = new Set<number>();
   private columnQa = new Set<string>();
   private pendingRowDeletes = new Set<number>();
   private pendingColumnDeletes = new Set<number>();
   private readonly groupStarts = new Set<number>();
   private readonly rowFlags = new Map<number, number>();
+  /** Per-row, per-cell 1/0 flags: value changed since load. */
+  private readonly changedRows = new Map<number, Uint8Array>();
+  private showChanges = false;
   private readonly cache = new Map<number, string[]>();
   private pendingStart = -1;
   private pendingEnd = -1;
   private lastStart = -1;
   private lastEnd = -1;
+  /** Column briefly highlighted after a Reports jump; cleared by a timer. */
+  private flashIndex: number | null = null;
+  private flashTimer: number | null = null;
 
   constructor(
     root: HTMLElement,
@@ -92,6 +116,7 @@ export class ResultTable {
 
   dispose(): void {
     window.removeEventListener("resize", this.onResize);
+    if (this.flashTimer !== null) window.clearTimeout(this.flashTimer);
     this.count = 0;
     this.cache.clear();
     this.rowFlags.clear();
@@ -126,6 +151,29 @@ export class ResultTable {
   /** Re-renders the header after column names are mutated in place. */
   refreshHeader(): void {
     this.renderHeader();
+  }
+
+  /**
+   * Briefly highlights a column (header and visible cells) and scrolls it into
+   * view — used after a Reports action jumps to the table.
+   */
+  flashColumn(column: number): void {
+    if (column < 0 || column >= this.columns.length) return;
+    const offset =
+      INDEX_WIDTH + this.widths.slice(0, column).reduce((sum, width) => sum + width, 0);
+    if (typeof this.scroller.scrollTo === "function") {
+      this.scroller.scrollTo({ left: Math.max(0, offset - 120), behavior: "smooth" });
+    }
+    this.flashIndex = column;
+    this.renderHeader();
+    this.render();
+    if (this.flashTimer !== null) window.clearTimeout(this.flashTimer);
+    this.flashTimer = window.setTimeout(() => {
+      this.flashTimer = null;
+      this.flashIndex = null;
+      this.renderHeader();
+      this.render();
+    }, 1700);
   }
 
   setCount(count: number): void {
@@ -186,15 +234,26 @@ export class ResultTable {
   }
 
   /** Seeds the cache with the eagerly shipped first page and repaints. */
-  setFirstRows(rows: string[][], groups?: boolean[], flags?: Uint8Array): void {
+  setFirstRows(
+    rows: string[][],
+    groups?: boolean[],
+    flags?: Uint8Array,
+    changed?: Uint8Array,
+  ): void {
     this.cache.clear();
     this.groupStarts.clear();
     this.rowFlags.clear();
+    this.changedRows.clear();
+    const columnCount = this.columns.length;
     for (let i = 0; i < rows.length; i++) {
       this.cache.set(i, rows[i]);
       if (groups?.[i] === true) this.groupStarts.add(i);
       const flag = flags?.[i] ?? 0;
       if (flag !== 0) this.rowFlags.set(i, flag);
+      if (changed !== undefined && columnCount > 0) {
+        const row = changed.slice(i * columnCount, (i + 1) * columnCount);
+        if (row.some((value) => value !== 0)) this.changedRows.set(i, row);
+      }
     }
     this.pendingStart = -1;
     this.pendingEnd = -1;
@@ -203,12 +262,27 @@ export class ResultTable {
     this.render();
   }
 
-  private toggleSort(column: number): void {
-    let dir: 1 | -1 | 0;
-    if (this.sortColumn !== column) dir = 1;
-    else if (this.sortDir === 1) dir = -1;
-    else dir = 0;
-    this.options.onSort(column, dir);
+  /** Fixed-decimal display for numeric columns (null entries follow "Auto"). */
+  setFormats(formats: ReadonlyMap<number, number>): void {
+    this.formats = new Map(formats);
+    this.repaintRows();
+  }
+
+  /** Per-column thousands-separator display (display only, not the data). */
+  setGrouping(columns: Iterable<number>): void {
+    this.grouping = new Set(columns);
+    this.repaintRows();
+  }
+
+  /**
+   * Rebuild the visible rows even when the scroll window has not changed —
+   * render() skips identical windows, which made display-setting changes look
+   * like they did nothing.
+   */
+  private repaintRows(): void {
+    this.lastStart = -1;
+    this.lastEnd = -1;
+    this.render();
   }
 
   private gridTemplate(): string {
@@ -268,6 +342,10 @@ export class ResultTable {
     this.columns.forEach((column, index) => {
       const name = column.name;
       const cell = el("div", { class: "th" });
+      if (this.flashIndex === index) cell.classList.add("flash-column");
+      if (column.type === "integer" || column.type === "number") {
+        cell.classList.add("num-head");
+      }
       const qa = this.buildQaRow(column, index);
       const top = el("div", { class: "th-top" });
       const number = el("span", { class: "th-index", title: `Column ${index + 1}` }, [
@@ -275,13 +353,13 @@ export class ResultTable {
       ]);
       const label = el(
         "button",
-        { class: "th-label", type: "button", title: `Sort by ${name}` },
+        { class: "th-label", type: "button", title: `Inspect “${name}”` },
         [name],
       );
       if (index === this.sortColumn) {
         label.classList.add(this.sortDir === 1 ? "sort-asc" : "sort-desc");
       }
-      label.addEventListener("click", () => this.toggleSort(index));
+      label.addEventListener("click", () => this.options.onColumnInspect(index, label));
 
       const grip = el("div", {
         class: "col-resize",
@@ -336,37 +414,70 @@ export class ResultTable {
    * Per-column QA indicators above the column name: empty cells, value
    * outliers, long values, mergeable near-duplicates and constant-value
    * flags. Amber when there is something to act on, muted when clean;
-   * clicking a count filters the table to that column's flagged rows.
+   * clicking a count filters the table to that column's flagged rows. Two or
+   * more count issues collapse into one "N issues" chip with a menu so a busy
+   * header can never wrap and push its title below its neighbours'.
    */
   private buildQaRow(column: ColumnMeta, index: number): HTMLElement {
     const row = el("div", { class: "th-qa" });
     const tokenChips = this.buildTokenChips(column, index);
-    const chips = [
-      // Placeholder text replaces the generic empty-cell chip so the header
-      // stays one line and the actionable count wins.
-      tokenChips.length === 0
-        ? this.qaChip(
-            column,
-            index,
-            "nulls",
-            column.stats.nulls,
-            {
-              one: "empty cell",
-              many: "empty cells",
-            },
-            "click to show rows where this column is empty",
-          )
-        : null,
-      this.qaChip(column, index, "valueAnomalies", column.anomalyCounts.values, {
-        one: "value outlier",
-        many: "value outliers",
-      }, "click to show this column's value outliers"),
-      this.qaChip(column, index, "lengthAnomalies", column.anomalyCounts.lengths, {
-        one: "long value",
-        many: "long values",
-      }, "click to show this column's overlong values"),
-    ].filter((chip): chip is HTMLButtonElement => chip !== null);
-    row.append(...chips, ...tokenChips, ...this.buildFixChips(column, index));
+    const issues: {
+      kind: ColumnQaKind;
+      count: number;
+      noun: { one: string; many: string };
+      hint: string;
+    }[] = [];
+    // Placeholder text replaces the generic empty-cell chip so the header
+    // stays one line and the actionable count wins.
+    if (tokenChips.length === 0 && column.stats.nulls > 0) {
+      issues.push({
+        kind: "nulls",
+        count: column.stats.nulls,
+        noun: { one: "empty cell", many: "empty cells" },
+        hint: "click to show rows where this column is empty",
+      });
+    }
+    if (column.anomalyCounts.values > 0) {
+      issues.push({
+        kind: "valueAnomalies",
+        count: column.anomalyCounts.values,
+        noun: { one: "value outlier", many: "value outliers" },
+        hint: "click to show this column's value outliers",
+      });
+    }
+    if (column.anomalyCounts.lengths > 0) {
+      issues.push({
+        kind: "lengthAnomalies",
+        count: column.anomalyCounts.lengths,
+        noun: { one: "long value", many: "long values" },
+        hint: "click to show this column's overlong values",
+      });
+    }
+    const pattern = column.pattern ?? null;
+    if (pattern !== null && pattern.offCount > 0) {
+      issues.push({
+        kind: "pattern",
+        count: pattern.offCount,
+        noun: { one: "off-format value", many: "off-format values" },
+        hint: `click to show values that don't match ${pattern.mask}`,
+      });
+    }
+    if (issues.length <= 1) {
+      for (const issue of issues) {
+        const chip = this.qaChip(
+          column,
+          index,
+          issue.kind,
+          issue.count,
+          issue.noun,
+          issue.hint,
+        );
+        if (chip !== null) row.append(chip);
+      }
+    } else {
+      row.append(this.mergedQaChip(column, index, issues));
+    }
+    row.append(...tokenChips, ...this.buildFixChips(column, index));
     const similarPairs = column.similarGroups - dismissedClusterCount(column.name);
     if (similarPairs > 0 && column.categories !== null) {
       const merge = el(
@@ -393,6 +504,50 @@ export class ResultTable {
       );
     }
     return row;
+  }
+
+  /**
+   * One chip for a column with several count issues; the menu offers each
+   * issue (with its own filter toggle) without making the header taller.
+   */
+  private mergedQaChip(
+    column: ColumnMeta,
+    index: number,
+    issues: readonly {
+      kind: ColumnQaKind;
+      count: number;
+      noun: { one: string; many: string };
+      hint: string;
+    }[],
+  ): HTMLButtonElement {
+    const anyActive = issues.some((issue) => this.columnQa.has(`${index}:${issue.kind}`));
+    const chip = el(
+      "button",
+      { class: "th-qa-chip warn", type: "button" },
+      [`${issues.length} issues`],
+    ) as HTMLButtonElement;
+    chip.classList.toggle("active", anyActive);
+    chip.setAttribute("aria-pressed", anyActive ? "true" : "false");
+    chip.title = `${issues.length} issues in “${column.name}” — click to choose what to show`;
+    chip.addEventListener("click", () => {
+      openMenu(
+        chip,
+        issues.map((issue) => {
+          const label = `${issue.count.toLocaleString()} ${
+            issue.count === 1 ? issue.noun.one : issue.noun.many
+          }`;
+          const active = this.columnQa.has(`${index}:${issue.kind}`);
+          return {
+            label: `${label}${active ? " ✓" : ""}`,
+            title: `${label} in “${column.name}” — ${
+              active ? "click to clear" : issue.hint
+            }`,
+            action: () => this.options.onColumnSpecial(index, issue.kind),
+          };
+        }),
+      );
+    });
+    return chip;
   }
 
   /**
@@ -480,7 +635,7 @@ export class ResultTable {
         : ""
     } — click to blank the placeholder text ${examples}${
       ranked.length > 3 ? ", …" : ""
-    } (undo in the Process Log)`;
+    } (undo in the Recipe)`;
     chip.addEventListener("click", () => this.options.onConvertToken?.(index, ranked));
     return [chip];
   }
@@ -535,11 +690,12 @@ export class ResultTable {
     if (missing && (this.pendingStart !== start || this.pendingEnd !== end)) {
       this.pendingStart = start;
       this.pendingEnd = end;
-      this.options.onRequestRows(start, end, (rowsStart, rows, groups, flags) => {
+      this.options.onRequestRows(start, end, (rowsStart, rows, groups, flags, changed) => {
         if (this.pendingStart === start && this.pendingEnd === end) {
           this.pendingStart = -1;
           this.pendingEnd = -1;
         }
+        const columnCount = this.columns.length;
         for (let i = 0; i < rows.length; i++) {
           const position = rowsStart + i;
           this.cache.set(position, rows[i]);
@@ -548,6 +704,11 @@ export class ResultTable {
           this.rowFlags.delete(position);
           const flag = flags?.[i] ?? 0;
           if (flag !== 0) this.rowFlags.set(position, flag);
+          this.changedRows.delete(position);
+          if (changed !== undefined && columnCount > 0) {
+            const row = changed.slice(i * columnCount, (i + 1) * columnCount);
+            if (row.some((value) => value !== 0)) this.changedRows.set(position, row);
+          }
         }
         this.pruneCache(start);
         this.lastStart = -1;
@@ -580,15 +741,26 @@ export class ResultTable {
     indexCell.append(del, el("span", { class: "row-number" }, [String(index + 1)]));
     tr.append(indexCell);
 
+    const changedRow = this.changedRows.get(index);
     for (let c = 0; c < this.columns.length; c++) {
       const type = this.columns[c]?.type;
       const cell = el("div", { class: "td" });
+      if (this.flashIndex === c) cell.classList.add("flash-column");
       if (type === "integer" || type === "number") cell.classList.add("num-cell");
       else if (type === "boolean") cell.classList.add("bool-cell");
       if (row !== undefined) this.fillCell(cell, row[c] ?? "", c);
+      if (changedRow !== undefined && changedRow[c] === 1) {
+        cell.classList.add("changed-cell");
+      }
       tr.append(cell);
     }
     return tr;
+  }
+
+  /** "Show changes" toggle: reveals cells whose value differs from load. */
+  setShowChanges(show: boolean): void {
+    this.showChanges = show;
+    this.scroller.classList.toggle("show-changes", show);
   }
 
   private pruneCache(center: number): void {
@@ -597,6 +769,7 @@ export class ResultTable {
       if (key < center - CACHE_LIMIT / 2 || key > center + CACHE_LIMIT / 2) {
         this.cache.delete(key);
         this.rowFlags.delete(key);
+        this.changedRows.delete(key);
       }
     }
   }
@@ -620,30 +793,70 @@ export class ResultTable {
     }
     this.applyAnomaly(cell, value, columnIndex);
 
+    // Type-aware display formatting (display only; stored values unchanged):
+    // - integers always render whole values ("1.0" -> 1), honouring grouping
+    // - number columns honour the forced-decimal and grouping preferences
+    // - date/datetime cells render as ISO YYYY-MM-DD [HH:MM]
+    const decimals = this.formats.get(columnIndex);
+    const grouped = this.grouping.has(columnIndex);
+    const numericType = this.columns[columnIndex]?.type;
+    let display = value;
+    if (numericType === "integer") {
+      const parsed = parseNumber(value);
+      if (Number.isFinite(parsed) && Number.isInteger(parsed)) {
+        display = parsed.toLocaleString(undefined, {
+          useGrouping: grouped,
+          maximumFractionDigits: 0,
+        });
+      }
+    } else if (numericType === "number" && (decimals !== undefined || grouped)) {
+      const parsed = parseNumber(value);
+      if (Number.isFinite(parsed)) {
+        display =
+          decimals !== undefined
+            ? parsed.toLocaleString(undefined, {
+                minimumFractionDigits: decimals,
+                maximumFractionDigits: decimals,
+              })
+            : parsed.toLocaleString(undefined, {
+                useGrouping: grouped,
+                maximumFractionDigits: 20,
+              });
+      }
+    } else if (numericType === "date" || numericType === "datetime") {
+      const dateOrder = this.columns[columnIndex]?.dateOrder ?? "dmy";
+      const ms = parseDate(value, dateOrder);
+      if (Number.isFinite(ms)) {
+        const date = toDateInputValue(ms);
+        display = numericType === "datetime" ? `${date} ${toTimeInputValue(ms)}` : date;
+      }
+    }
+    if (display !== value && cell.title === "") cell.title = value;
+
     const rule = this.highlights.find((candidate) => candidate.column === columnIndex);
     if (rule === undefined || rule.query.trim() === "") {
-      cell.textContent = value;
+      cell.textContent = display;
       return;
     }
 
-    const lower = value.toLowerCase();
+    const lower = display.toLowerCase();
     const needle = rule.query.trim().toLowerCase();
 
     if (rule.mode === "exact") {
-      if (lower === needle) cell.append(el("mark", {}, [value]));
-      else cell.textContent = value;
+      if (lower === needle) cell.append(el("mark", {}, [display]));
+      else cell.textContent = display;
       return;
     }
 
     const index = lower.indexOf(needle);
     if (index < 0) {
-      cell.textContent = value;
+      cell.textContent = display;
       return;
     }
     cell.append(
-      document.createTextNode(value.slice(0, index)),
-      el("mark", {}, [value.slice(index, index + needle.length)]),
-      document.createTextNode(value.slice(index + needle.length)),
+      document.createTextNode(display.slice(0, index)),
+      el("mark", {}, [display.slice(index, index + needle.length)]),
+      document.createTextNode(display.slice(index + needle.length)),
     );
   }
 

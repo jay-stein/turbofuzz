@@ -1,4 +1,10 @@
 import type { DatasetStats } from "../data/stats.js";
+import {
+  ARCHETYPE_LABELS,
+  detectArchetypes,
+  type ArchetypeGuess,
+  type ArchetypeId,
+} from "../data/archetype.js";
 import { autoCombineParts, type CombineDateOp } from "../data/date-combine.js";
 import type {
   ColumnMeta,
@@ -27,6 +33,10 @@ export interface OverviewCallbacks {
   onCombineDate?(op: CombineDateOp): void;
   /** Blanks placeholder tokens ("NA", "TBD") that are read as missing. */
   onBlankTokens?(tokens: string[]): void;
+  /** The user corrected the detected table archetype. */
+  onArchetypeChange?(id: ArchetypeId): void;
+  /** Open the triage queue from the health area. */
+  onOpenTriage?(): void;
 }
 
 export type NextStepAction =
@@ -90,6 +100,20 @@ function writeDefaultView(view: "overview" | "table"): void {
 
 function plural(count: number, singular: string, plural = `${singular}s`): string {
   return count === 1 ? singular : plural;
+}
+
+/** Rough count of fixable issues, for the "Review all" entry point. */
+export function countIssues(columns: readonly ColumnMeta[], stats: DatasetStats): number {
+  let count = 0;
+  for (const column of columns) {
+    count += column.suggestions.length;
+    if (column.nullTokens.some((token) => token.label !== "" && token.count > 0)) count++;
+    if (column.stats.nulls > 0) count++;
+    if (column.similarGroups > 0) count++;
+    if (column.stats.distinct === 1) count++;
+  }
+  if (stats.duplicateGroups > 0) count++;
+  return count;
 }
 
 /** Short format label from the file extension, for the dataset badges. */
@@ -170,7 +194,8 @@ export function healthTiles(columns: readonly ColumnMeta[], stats: DatasetStats)
       id: "complete",
       label: "Complete cells",
       value: completePct,
-      warn: complete < 1,
+      // Amber means "needs action": a 99.x% complete column grid does not.
+      warn: complete < 0.99,
     },
     {
       id: "duplicates",
@@ -202,6 +227,7 @@ export function pickNextSteps(
   columns: readonly ColumnMeta[],
   stats: DatasetStats,
   rowCount: number,
+  archetype: ArchetypeId = "general",
 ): NextStep[] {
   const rules: NextStep[] = [];
 
@@ -333,6 +359,23 @@ export function pickNextSteps(
     });
   }
 
+  // The detected archetype re-ranks the rule list: a messy file leads with
+  // repairs, customer records lead with entity-level checks.
+  const boosts: Partial<Record<ArchetypeId, Partial<Record<NextStep["id"], number>>>> = {
+    messy: { fixes: 1.6, empties: 1.3, duplicates: 1.2 },
+    customer: { nearDuplicates: 1.5, fixes: 1.2 },
+    orders: { duplicates: 1.2, fixes: 1.2 },
+    survey: { nearDuplicates: 1.2 },
+    inventory: { duplicates: 1.1 },
+  };
+  const boost = archetype === "general" ? undefined : boosts[archetype];
+  if (boost !== undefined) {
+    for (const rule of rules) {
+      const factor = boost[rule.id];
+      if (factor !== undefined) rule.score = rule.score * factor + 1;
+    }
+  }
+
   rules.sort((a, b) => b.score - a.score);
   const shown = rules.length > 3 ? rules.slice(0, 2) : rules.slice(0, 3);
 
@@ -341,7 +384,9 @@ export function pickNextSteps(
 
 /** The always-present chart slot, preferring dates, then categories, then numerics. */
 export function chartStep(columns: readonly ColumnMeta[]): NextStep {
-  const date = columns.findIndex((column) => column.type === "date");
+  const date = columns.findIndex(
+    (column) => column.type === "date" || column.type === "datetime",
+  );
   const category = columns.findIndex(
     (column) => isCategoryType(column.type) && column.stats.distinct >= 2,
   );
@@ -390,6 +435,7 @@ export function chartStep(columns: readonly ColumnMeta[]): NextStep {
 export class Overview {
   private columns: readonly ColumnMeta[] = [];
   private rowCount = 0;
+  private archetype: ArchetypeId = "general";
   private missingnessChart: MissingnessChart | null = null;
   private missingnessData: MissingnessMessage | null = null;
 
@@ -400,21 +446,75 @@ export class Overview {
     this.root.classList.add("overview");
   }
 
-  render(loaded: LoadedMessage | TransformedMessage, source?: DatasetSourceInfo): void {
+  render(
+    loaded: LoadedMessage | TransformedMessage,
+    source?: DatasetSourceInfo,
+    archetypeOverride?: ArchetypeId | null,
+  ): void {
     this.columns = loaded.columns;
     this.rowCount = loaded.rowCount;
     this.missingnessChart?.dispose();
     this.missingnessChart = null;
     clear(this.root);
 
+    const guesses = detectArchetypes(loaded.columns, loaded.stats, loaded.rowCount);
+    const chosen: ArchetypeGuess =
+      archetypeOverride != null
+        ? {
+            id: archetypeOverride,
+            label: ARCHETYPE_LABELS[archetypeOverride],
+            confidence: 1,
+            evidence: ["your override"],
+          }
+        : (guesses[0] ?? {
+            id: "general",
+            label: ARCHETYPE_LABELS.general,
+            confidence: 0.5,
+            evidence: [],
+          });
+    this.archetype = chosen.id;
+    const datasetLine = this.buildDatasetLine(loaded, source);
+    datasetLine.append(this.buildArchetypeLine(guesses, chosen));
+
+    // Next steps lead: they are the most actionable thing on the screen, and
+    // the missingness map (the largest element) now follows them.
     this.root.append(
-      this.buildDatasetLine(loaded, source),
+      datasetLine,
       this.buildHealthTiles(loaded.columns, loaded.stats),
-      this.buildMissingness(),
       this.buildNextSteps(loaded),
+      this.buildMissingness(),
       this.buildColumns(loaded),
       this.buildActions(),
     );
+  }
+
+  /** "Looks like: Event log · 78% — 2 timestamps, 224k rows … [wrong? change]" */
+  private buildArchetypeLine(
+    guesses: readonly ArchetypeGuess[],
+    chosen: ArchetypeGuess,
+  ): HTMLElement {
+    const line = el("div", { class: "overview-archetype" });
+    const confidence = chosen.confidence >= 0.99 ? "" : ` · ${Math.round(chosen.confidence * 100)}%`;
+    const evidence = chosen.evidence.length > 0 ? ` — ${chosen.evidence.join(", ")}` : "";
+    line.append(
+      el("span", { class: "overview-archetype-text", title: evidence.trim() }, [
+        `Looks like: ${chosen.label}${confidence}${evidence}`,
+      ]),
+    );
+    const change = el(
+      "button",
+      { class: "link overview-archetype-change", type: "button" },
+      [guesses[0]?.id === chosen.id && chosen.confidence >= 0.5 ? "wrong? change" : "change"],
+    ) as HTMLButtonElement;
+    change.addEventListener("click", () => {
+      const items = (Object.keys(ARCHETYPE_LABELS) as ArchetypeId[]).map((id) => ({
+        label: `${id === chosen.id ? "● " : ""}${ARCHETYPE_LABELS[id]}`,
+        action: () => this.callbacks.onArchetypeChange?.(id),
+      }));
+      openMenu(change, items);
+    });
+    line.append(change);
+    return line;
   }
 
   /** Fills in the Missing values map once the worker payload arrives. */
@@ -516,6 +616,20 @@ export class Overview {
       );
       wrap.append(node);
     }
+    const issues = countIssues(columns, stats);
+    if (issues > 0) {
+      const review = el(
+        "button",
+        {
+          class: "ghost small triage-open",
+          type: "button",
+          title: "Open the review checklist — every fix is undoable",
+        },
+        [`${issues} issue${issues === 1 ? "" : "s"} found — Review all`],
+      ) as HTMLButtonElement;
+      review.addEventListener("click", () => this.callbacks.onOpenTriage?.());
+      wrap.append(review);
+    }
     return wrap;
   }
 
@@ -523,7 +637,12 @@ export class Overview {
     const section = el("section", { class: "overview-section" });
     section.append(el("h2", { class: "overview-heading" }, ["Next steps"]));
     const list = el("div", { class: "next-step-list" });
-    for (const step of pickNextSteps(loaded.columns, loaded.stats, loaded.rowCount)) {
+    for (const step of pickNextSteps(
+      loaded.columns,
+      loaded.stats,
+      loaded.rowCount,
+      this.archetype,
+    )) {
       const card = el("div", { class: "next-step-card" });
       card.append(el("span", { class: "next-step-text" }, [step.text]));
       const button = el(

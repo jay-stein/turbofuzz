@@ -1,6 +1,7 @@
 import { BitSet } from "../search/bitset.js";
 import { computeAnomalies, type LengthFence, type ValueFence } from "./anomalies.js";
 import type { ColumnData } from "./column.js";
+import { computePatternProfiles, type PatternProfile } from "./mask-profile.js";
 
 export interface DatasetStats {
   duplicateRows: number;
@@ -26,6 +27,8 @@ export interface IngestStats {
   lengthColumnBits: (BitSet | null)[];
   valueFences: (ValueFence | null)[];
   lengthFences: (LengthFence | null)[];
+  /** Per column: dominant-format profile and off-pattern bits (null when none). */
+  patternProfiles: (PatternProfile | null)[];
 }
 
 /** Row hash progress: called once per column with 1-based progress. */
@@ -85,14 +88,24 @@ export function computeDatasetStats(
 ): IngestStats {
   const started = performance.now();
   const columnCount = columns.length;
-  const buckets = new Map<number, number[]>();
-  const duplicateBuckets = new Set<number>();
   const duplicateBits = new BitSet(rowCount);
   const hashes = hashRows(columns, rowCount, onProgress);
   let duplicateRows = 0;
 
+  // Count hash occurrences first: rows whose hash is unique (the common case
+  // in wide and ID-heavy files) never need a bucket array, so the pass keeps
+  // one number per distinct hash instead of one array per row.
+  const counts = new Map<number, number>();
   for (let row = 0; row < rowCount; row++) {
     const hash = hashes[row];
+    counts.set(hash, (counts.get(hash) ?? 0) + 1);
+  }
+
+  const buckets = new Map<number, number[]>();
+  const duplicateBuckets = new Set<number>();
+  for (let row = 0; row < rowCount; row++) {
+    const hash = hashes[row];
+    if ((counts.get(hash) ?? 0) < 2) continue;
     const bucket = buckets.get(hash);
     if (bucket === undefined) {
       buckets.set(hash, [row]);
@@ -114,6 +127,7 @@ export function computeDatasetStats(
       bucket.push(row);
     }
   }
+  counts.clear();
 
   const duplicateGroups = duplicateBuckets.size;
 
@@ -136,6 +150,12 @@ export function computeDatasetStats(
   for (const column of columns) totalNullCells += column.stats.nulls;
 
   const anomalies = computeAnomalies(columns, rowCount, onProgress);
+  const patternProfiles: (PatternProfile | null)[] = new Array<PatternProfile | null>(
+    columnCount,
+  ).fill(null);
+  for (const profile of computePatternProfiles(columns, rowCount)) {
+    patternProfiles[profile.column] = profile;
+  }
 
   return {
     stats: {
@@ -159,5 +179,6 @@ export function computeDatasetStats(
     lengthColumnBits: anomalies.lengthColumnBits,
     valueFences: anomalies.columns.map((entry) => entry.valueFence),
     lengthFences: anomalies.columns.map((entry) => entry.lengthFence),
+    patternProfiles,
   };
 }

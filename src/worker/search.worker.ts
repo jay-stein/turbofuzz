@@ -1,13 +1,30 @@
 import { ColumnData } from "../data/column.js";
+import { computeAggregate } from "../data/aggregate.js";
+import { coMissingness } from "../data/comissingness.js";
+import { computeDependencies } from "../data/dependencies.js";
+import { computeGroupAnomalies } from "../data/group-anomalies.js";
+import { computeRelationships } from "../data/relationships.js";
+import { textProfile } from "../data/text-profile.js";
+import { computeDistributionChanges } from "../data/distribution.js";
+import { computeSimilarClusters } from "../data/similar-clusters.js";
 import { computeAnomalies } from "../data/anomalies.js";
-import { buildDataset, datasetFromColumns, rebuildDataset } from "../data/build.js";
+import { computeKeyDuplicates } from "../data/key-duplicates.js";
+import { computePairViolations } from "../data/pair-checks.js";
+import { buildDataset, buildDatasetAsync, datasetFromColumns, rebuildDataset } from "../data/build.js";
 import { applyCleanOps } from "../data/clean-ops.js";
 import type { Dataset } from "../data/dataset.js";
 import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
 import { binValues, groupedBinValues } from "../data/chart-bins.js";
 import { missingnessGrid } from "../data/missingness.js";
 import { categoryCodes, computeSeries } from "../data/chart-series.js";
-import { computeBoxStats, computeCorrelation, computeCrossTab } from "../data/chart-stats.js";
+import {
+  computeBoxStats,
+  computeCorrelation,
+  computeCrossTab,
+  computeGridCounts,
+  type GridMeasure,
+} from "../data/chart-stats.js";
+import { computeBarFrames, computeBubbleFrames, computeHistogramFrames } from "../data/chart-frames.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import {
@@ -17,7 +34,8 @@ import {
   type NullPolicy,
 } from "../parse/null-tokens.js";
 import { isParquetName, readParquetGrid } from "../parse/parquet.js";
-import type { NumberLocale } from "../parse/numbers.js";
+import { parseNumber, type NumberLocale } from "../parse/numbers.js";
+import { parseDate } from "../parse/dates.js";
 import { measureRagged, type RaggedInfo } from "../parse/parse.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
 import { BitSet } from "../search/bitset.js";
@@ -27,10 +45,11 @@ import {
   QueryEngine,
   type ColumnFilter,
   type ColumnSpecialKind,
+  type SpecialFilter,
 } from "../search/query-engine.js";
-import type { ColumnType } from "../types.js";
+import { isNumericLikeType, type ColumnType } from "../types.js";
 import { buildCsv } from "./csv.js";
-import { ingestDataset, type IngestResult } from "./ingest.js";
+import { ingestDataset, ingestDatasetAsync, type IngestResult } from "./ingest.js";
 import type {
   CleanColumnsRequest,
   ClearExcludedRowsRequest,
@@ -46,6 +65,16 @@ import type {
   GetBoxStatsRequest,
   GetCrosstabRequest,
   GetCorrelationRequest,
+  GetAggregateRequest,
+  GetCoMissingnessRequest,
+  GetGroupAnomaliesRequest,
+  GetDependenciesRequest,
+  GetRelationshipsRequest,
+  GetTextProfileRequest,
+  GetDistributionChangesRequest,
+  GetSimilarClustersRequest,
+  GetGridCountsRequest,
+  GetAnimationRequest,
   LoadRequest,
   PreviewCleanRequest,
   PreviewTransformRequest,
@@ -55,9 +84,13 @@ import type {
   SetNullPolicyRequest,
   SetNumberLocaleRequest,
   SetTypeRequest,
+  CheckKeyDuplicatesRequest,
+  CheckPairRequest,
   SortRequest,
   SpecialKind,
+  ProgressPhase,
   TransformRequest,
+  TransformPreviewNote,
   WorkerRequest,
   WorkerResponse,
 } from "./protocol.js";
@@ -76,13 +109,68 @@ let rankAsc: Uint32Array | null = null;
 let sortDir: 1 | -1 = 1;
 let exportIds: Uint32Array | null = null;
 let duplicateRank: Uint32Array | null = null;
-const specials = new Set<SpecialKind>();
+// Global specials only; "pattern" is column-only and never joins this set.
+const specials = new Set<SpecialFilter>();
 // Per-column specials (empties/outliers), carried across clean rebuilds too.
 const columnSpecials = new Map<number, Set<ColumnSpecialKind>>();
 // Rows removed via the delete actions, by original dataset row id.
 const excludedIds = new Set<number>();
 let excludedBits: BitSet | null = null;
 const histogramCache = new HistogramCache();
+// Cells whose current value differs from the first-seen value, by column,
+// for the "changed cells" highlight. Masks are keyed by original row id.
+const changeBase = new Map<number, readonly string[]>();
+const changedMasks = new Map<number, BitSet>();
+let changedTotalCells = 0;
+
+/** Records which cells of a column now differ from its first-seen values. */
+function recordChange(column: number, before: readonly string[], after: readonly string[]): void {
+  let base = changeBase.get(column);
+  if (base === undefined || base.length !== after.length) {
+    base = before.slice();
+    changeBase.set(column, base);
+  }
+  const existing = changedMasks.get(column);
+  if (existing !== undefined) changedTotalCells -= existing.count();
+  const mask = new BitSet(after.length);
+  let count = 0;
+  const limit = Math.min(base.length, after.length);
+  for (let i = 0; i < limit; i++) {
+    if (base[i] !== after[i]) {
+      mask.set(i);
+      count++;
+    }
+  }
+  changedMasks.set(column, mask);
+  changedTotalCells += count;
+}
+
+function resetChangedCells(): void {
+  changeBase.clear();
+  changedMasks.clear();
+  changedTotalCells = 0;
+}
+
+/** Row-major change flags for a slice of the current result order, or null. */
+function changedFlagsSlice(start: number, end: number): Uint8Array | null {
+  if (changedMasks.size === 0 || dataset === null) return null;
+  const columnCount = dataset.columnCount;
+  const boundedStart = Math.max(0, start);
+  const boundedEnd = Math.min(end, sortedIds.length);
+  const flags = new Uint8Array((boundedEnd - boundedStart) * columnCount);
+  let any = false;
+  for (let position = boundedStart; position < boundedEnd; position++) {
+    const id = sortedIds[position];
+    for (let c = 0; c < columnCount; c++) {
+      const mask = changedMasks.get(c);
+      if (mask !== undefined && mask.get(id)) {
+        flags[(position - boundedStart) * columnCount + c] = 1;
+        any = true;
+      }
+    }
+  }
+  return any ? flags : null;
+}
 // Non-destructive clean state: the untouched source column per cleaned column.
 const cleanSource = new Map<number, ColumnData>();
 // Per-column null overrides, persisted so value cleans and reverts re-apply them.
@@ -99,8 +187,30 @@ let datasetSource: "paste" | "file" = "paste";
 let datasetEncoding: FileEncoding | null = null;
 let datasetDelimiter: Delimiter | null = null;
 let datasetRagged: RaggedInfo = { paddedRows: 0, extraCellRows: 0, extraCells: 0 };
+// The in-flight load, so cancelLoad can flag it and the build loop can stop.
+let activeLoad: { requestId: number; cancelled: boolean } | null = null;
 
 const FIRST_PAGE_ROWS = 40;
+
+/** Progress tied to one load, so the client can drop messages from old loads. */
+function postLoadProgress(
+  requestId: number,
+  progress: {
+    phase: ProgressPhase;
+    detail?: string;
+    current?: number;
+    total?: number;
+  },
+): void {
+  post({
+    type: "progress",
+    requestId,
+    phase: progress.phase,
+    detail: progress.detail,
+    current: progress.current,
+    total: progress.total,
+  });
+}
 
 function post(message: WorkerResponse, transfer?: Transferable[]): void {
   if (transfer !== undefined && transfer.length > 0) scope.postMessage(message, transfer);
@@ -115,6 +225,8 @@ async function dispatch(message: WorkerRequest): Promise<void> {
   try {
     await handle(message);
   } catch (error) {
+    // cancelLoad is fire-and-forget and has no requestId to answer.
+    if (!("requestId" in message)) return;
     post({
       type: "error",
       requestId: message.requestId,
@@ -127,6 +239,9 @@ async function handle(message: WorkerRequest): Promise<void> {
   switch (message.type) {
     case "load":
       await handleLoad(message);
+      break;
+    case "cancelLoad":
+      handleCancelLoad();
       break;
     case "setFilter":
       handleSetFilter(message);
@@ -155,6 +270,12 @@ async function handle(message: WorkerRequest): Promise<void> {
     case "setType":
       handleSetType(message);
       break;
+    case "checkKeyDuplicates":
+      handleCheckKeyDuplicates(message);
+      break;
+    case "checkPair":
+      handleCheckPair(message);
+      break;
     case "setNumberLocale":
       handleSetNumberLocale(message);
       break;
@@ -181,6 +302,36 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getCorrelation":
       handleGetCorrelation(message);
+      break;
+    case "getAggregate":
+      handleGetAggregate(message);
+      break;
+    case "getCoMissingness":
+      handleGetCoMissingness(message);
+      break;
+    case "getGroupAnomalies":
+      handleGetGroupAnomalies(message);
+      break;
+    case "getDependencies":
+      handleGetDependencies(message);
+      break;
+    case "getRelationships":
+      handleGetRelationships(message);
+      break;
+    case "getTextProfile":
+      handleGetTextProfile(message);
+      break;
+    case "getDistributionChanges":
+      handleGetDistributionChanges(message);
+      break;
+    case "getSimilarClusters":
+      handleGetSimilarClusters(message);
+      break;
+    case "getGridCounts":
+      handleGetGridCounts(message);
+      break;
+    case "getAnimation":
+      handleGetAnimation(message);
       break;
     case "renameHeaders":
       handleRenameHeaders(message);
@@ -344,86 +495,147 @@ function handleShuffle(message: { requestId: number; limit?: number }): void {
     count: sortedIds.length,
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
+}
+
+/** Flags the in-flight load; the build loop stops at its next checkpoint. */
+function handleCancelLoad(): void {
+  if (activeLoad !== null) activeLoad.cancelled = true;
 }
 
 async function handleLoad(message: LoadRequest): Promise<void> {
   const started = performance.now();
+  const active = { requestId: message.requestId, cancelled: false };
+  activeLoad = active;
+  const cancelled = (): boolean => active.cancelled;
+  const cancelNow = (): void => {
+    post({ type: "loadCancelled", requestId: message.requestId });
+  };
 
-  // Parquet is decoded lazily inside the worker; every other format goes through
-  // the shared text/table ingest path, which stays synchronous.
-  let ingested: IngestResult;
-  if (message.buffer !== undefined && isParquetName(message.name)) {
-    post({ type: "progress", phase: "parse", detail: "Reading parquet…" });
-    const grid = await readParquetGrid(message.buffer);
-    const dataset = buildDataset(message.name, grid.headers, grid.rows, (progress) =>
-      post({
-        type: "progress",
-        phase: progress.phase ?? "build",
-        detail: progress.detail,
-        current: progress.current,
-        total: progress.total,
-      }),
-    );
-    ingested = {
-      dataset,
-      encoding: null,
-      delimiter: null,
-      ragged: measureRagged(grid.rows, grid.headers.length),
-    };
-  } else {
-    ingested = ingestDataset({
-      name: message.name,
-      delimiter: message.delimiter,
-      hasHeaders: message.hasHeaders,
-      text: message.text,
-      buffer: message.buffer,
-      table: message.table,
-      onProgress: (progress) =>
-        post({ type: "progress", phase: progress.phase, detail: progress.detail }),
+  try {
+    // Parquet is decoded lazily inside the worker; every other format goes
+    // through the shared text/table ingest path.
+    let ingested: IngestResult | null;
+    if (message.buffer !== undefined && isParquetName(message.name)) {
+      postLoadProgress(message.requestId, { phase: "read", detail: "Reading parquet…" });
+      const grid = await readParquetGrid(message.buffer);
+      if (cancelled()) {
+        cancelNow();
+        return;
+      }
+      postLoadProgress(message.requestId, { phase: "infer", detail: "Inferring schema…" });
+      const dataset = await buildDatasetAsync(
+        message.name,
+        grid.headers,
+        grid.rows,
+        (progress) =>
+          postLoadProgress(message.requestId, {
+            phase: progress.phase ?? "build",
+            detail: progress.detail,
+            current: progress.current,
+            total: progress.total,
+          }),
+        "dot",
+        { shouldCancel: cancelled },
+      );
+      if (dataset === null) {
+        cancelNow();
+        return;
+      }
+      ingested = {
+        dataset,
+        encoding: null,
+        delimiter: null,
+        ragged: measureRagged(grid.rows, grid.headers.length),
+      };
+    } else {
+      // Small synchronous loads complete before a cancel could ever arrive;
+      // file buffers and large pastes/tables use the cancellable chunked path.
+      const tableCells =
+        message.table === undefined
+          ? 0
+          : message.table.rows.length * Math.max(1, message.table.rows[0]?.length ?? 1);
+      const cancellable =
+        message.buffer !== undefined ||
+        tableCells > 50_000 ||
+        (message.text !== undefined && message.text.length > 1_000_000);
+      const options = {
+        name: message.name,
+        delimiter: message.delimiter,
+        hasHeaders: message.hasHeaders,
+        text: message.text,
+        buffer: message.buffer,
+        table: message.table,
+        maxRows: message.maxRows,
+        onProgress: (progress: {
+          phase: ProgressPhase;
+          detail?: string;
+          current?: number;
+          total?: number;
+        }) =>
+          postLoadProgress(message.requestId, {
+            phase: progress.phase,
+            detail: progress.detail,
+            current: progress.current,
+            total: progress.total,
+          }),
+      };
+      ingested = cancellable
+        ? await ingestDatasetAsync(options, { cancelled })
+        : ingestDataset(options);
+    }
+
+    if (ingested === null || cancelled()) {
+      cancelNow();
+      return;
+    }
+
+    const { dataset: next, encoding, ragged, delimiter } = ingested;
+    dataset = next;
+    engine = new QueryEngine(next);
+    filters.clear();
+    rankColumn = -1;
+    rankAsc = null;
+    sortDir = 1;
+    exportIds = null;
+    duplicateRank = null;
+    specials.clear();
+    columnSpecials.clear();
+    clearExclusions();
+    histogramCache.clear();
+    cleanSource.clear();
+    resetChangedCells();
+    nullPolicies.clear();
+    numberLocales.clear();
+    typeOverrides.clear();
+    transformSource = null;
+    transformOps = [];
+    datasetSource = message.buffer !== undefined ? "file" : "paste";
+    datasetEncoding = encoding;
+    datasetDelimiter = delimiter;
+    datasetRagged = ragged;
+    sortedIds = engine.evaluate(filters);
+
+    postLoadProgress(message.requestId, { phase: "ready", detail: "Ready" });
+    post({
+      type: "loaded",
+      requestId: message.requestId,
+      name: next.name,
+      headers: next.columns.map((column) => column.name),
+      rowCount: next.rowCount,
+      columnCount: next.columnCount,
+      columns: next.columns.map((column, index) => metaFor(next, column, index)),
+      stats: next.stats,
+      ingestMs: performance.now() - started,
+      source: datasetSource,
+      encoding: datasetEncoding,
+      delimiter: datasetDelimiter,
+      ragged: datasetRagged,
     });
+  } finally {
+    if (activeLoad === active) activeLoad = null;
   }
-
-  const { dataset: next, encoding, ragged, delimiter } = ingested;
-  dataset = next;
-  engine = new QueryEngine(next);
-  filters.clear();
-  rankColumn = -1;
-  rankAsc = null;
-  sortDir = 1;
-  exportIds = null;
-  duplicateRank = null;
-  specials.clear();
-  columnSpecials.clear();
-  clearExclusions();
-  histogramCache.clear();
-  cleanSource.clear();
-  nullPolicies.clear();
-  numberLocales.clear();
-  typeOverrides.clear();
-  transformSource = null;
-  transformOps = [];
-  datasetSource = message.buffer !== undefined ? "file" : "paste";
-  datasetEncoding = encoding;
-  datasetDelimiter = delimiter;
-  datasetRagged = ragged;
-  sortedIds = engine.evaluate(filters);
-
-  post({
-    type: "loaded",
-    requestId: message.requestId,
-    name: next.name,
-    headers: next.columns.map((column) => column.name),
-    rowCount: next.rowCount,
-    columnCount: next.columnCount,
-    columns: next.columns.map((column, index) => metaFor(next, column, index)),
-    stats: next.stats,
-    ingestMs: performance.now() - started,
-    source: datasetSource,
-    encoding: datasetEncoding,
-    delimiter: datasetDelimiter,
-    ragged: datasetRagged,
-  });
 }
 
 function handleSetFilter(message: SetFilterRequest): void {
@@ -456,6 +668,7 @@ function handleSetFilter(message: SetFilterRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -476,6 +689,7 @@ function handleClearFilters(message: { requestId: number }): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -501,6 +715,10 @@ function handleSetSpecial(message: {
       if (kinds.size === 0) columnSpecials.delete(message.column);
     }
   } else {
+    if (message.kind === "pattern") {
+      // Column-only special: without a column there is nothing to intersect.
+      return;
+    }
     engine.setSpecial(message.kind, message.active);
     if (message.active) specials.add(message.kind);
     else specials.delete(message.kind);
@@ -527,6 +745,7 @@ function handleSetSpecial(message: {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -558,6 +777,7 @@ function handleSort(message: SortRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -585,6 +805,7 @@ function handleGetRows(message: GetRowsRequest): void {
     rows: rowsSlice(start, message.end),
     groups: groupFlags(start, message.end),
     flags: rowFlagsSlice(start, message.end),
+    changed: changedFlagsSlice(start, message.end) ?? undefined,
   });
 }
 
@@ -620,7 +841,96 @@ function handleSetType(message: SetTypeRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
+    nonParsing: countNonParsing(column, message.columnType),
   });
+}
+
+/** Composite-key duplicate check: stores bits and activates the special. */
+function handleCheckKeyDuplicates(message: CheckKeyDuplicatesRequest): void {
+  const { dataset, engine } = state();
+  const result = computeKeyDuplicates(dataset.columns, message.columns, dataset.rowCount);
+  dataset.keyDuplicateBits = result.duplicateBits;
+  engine.setSpecial("keyDuplicates", true);
+  specials.add("keyDuplicates");
+
+  const started = performance.now();
+  const bits = engine.evaluateBits(filters);
+  sortedIds = computeSortedIds(bits);
+  post({
+    type: "keyDuplicates",
+    requestId: message.requestId,
+    columns: message.columns,
+    duplicateRows: result.duplicateRows,
+    duplicateGroups: result.duplicateGroups,
+    counted: result.counted,
+    count: sortedIds.length,
+    queryMs: performance.now() - started,
+    facets: computeFacets(dataset, engine, bits),
+    histograms: computeHistograms(dataset, engine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
+  });
+}
+
+/** Pair/consistency check: stores violation bits and activates the special. */
+function handleCheckPair(message: CheckPairRequest): void {
+  const { dataset, engine } = state();
+  const result = computePairViolations(
+    dataset.columns,
+    message.columnA,
+    message.columnB,
+    message.operator,
+    message.tolerance ?? 0,
+    dataset.rowCount,
+  );
+  dataset.pairCheckBits = result.violationBits;
+  engine.setSpecial("pairCheck", true);
+  specials.add("pairCheck");
+
+  const started = performance.now();
+  const bits = engine.evaluateBits(filters);
+  sortedIds = computeSortedIds(bits);
+  post({
+    type: "pairCheck",
+    requestId: message.requestId,
+    columnA: message.columnA,
+    columnB: message.columnB,
+    operator: message.operator,
+    violations: result.violations,
+    compared: result.compared,
+    count: sortedIds.length,
+    queryMs: performance.now() - started,
+    facets: computeFacets(dataset, engine, bits),
+    histograms: computeHistograms(dataset, engine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
+  });
+}
+
+/** Non-null cells that cannot be represented in the column's (new) type. */
+function countNonParsing(column: ColumnData, type: ColumnType): number {
+  const numeric = type === "integer" || type === "number";
+  const temporal = type === "date" || type === "datetime";
+  if (!numeric && !temporal) return 0;
+  let failures = 0;
+  for (let row = 0; row < column.raw.length; row++) {
+    const value = column.raw[row];
+    if (column.isNull(value)) continue;
+    if (numeric) {
+      const parsed = parseNumber(value, column.numberLocale);
+      if (!Number.isFinite(parsed) || (type === "integer" && !Number.isInteger(parsed))) {
+        failures++;
+      }
+    } else if (!Number.isFinite(parseDate(value, column.dateOrder))) {
+      failures++;
+    }
+  }
+  return failures;
 }
 
 /**
@@ -660,6 +970,7 @@ function handleSetNumberLocale(message: SetNumberLocaleRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -712,7 +1023,7 @@ function handleGetChartBins(message: GetChartBinsRequest): void {
   const column = dataset.columns[message.column];
   if (column === undefined) throw new Error("Unknown column");
   const bins = binValues(column.numbers(), sortedIds, message.options);
-  const numeric = column.type === "integer" || column.type === "number" || column.type === "date";
+  const numeric = isNumericLikeType(column.type);
   post({
     type: "chartBins",
     requestId: message.requestId,
@@ -848,6 +1159,7 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
       limit: message.limit ?? 20_000,
       gridCols: 128,
       gridRows: 72,
+      clip: message.clip,
     },
   );
   const correlation = computeCorrelation([xNumbers, yNumbers], sortedIds).values[1] ?? Number.NaN;
@@ -937,6 +1249,305 @@ function handleGetCrosstab(message: GetCrosstabRequest): void {
   );
 }
 
+/** Aggregate view over the filtered rows (or every row after steps). */
+function handleGetAggregate(message: GetAggregateRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  let ids = sortedIds;
+  if (!message.view.respectFilters) {
+    const all = new BitSet(dataset.rowCount);
+    all.setAll();
+    ids = withoutExcluded(all).toIndices();
+  }
+  const result = computeAggregate(message.view, dataset.columns, dataset.rowCount, ids);
+  const transfer: Transferable[] = [result.totals.buffer];
+  for (const values of result.measures) transfer.push(values.buffer);
+  for (const values of result.dimensionTimes) transfer.push(values.buffer);
+  post(
+    {
+      type: "aggregate",
+      requestId: message.requestId,
+      viewId: message.view.id,
+      labels: result.labels,
+      dimensions: result.dimensions,
+      dimensionNames: result.dimensionNames,
+      dimensionIsTime: result.dimensionIsTime,
+      dimensionTimes: result.dimensionTimes,
+      measures: result.measures,
+      measureNames: result.measureNames,
+      totals: result.totals,
+      groupCount: result.groupCount,
+      totalGroups: result.totalGroups,
+      truncated: result.truncated,
+      partials: result.partials,
+      ms: performance.now() - started,
+    },
+    transfer,
+  );
+}
+
+/** Pairwise co-missingness across the filtered rows (Reports → Quality). */
+function handleGetCoMissingness(message: GetCoMissingnessRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const candidates: number[] = [];
+  dataset.columns.forEach((column, index) => {
+    if (candidates.length < 20 && column.stats.nulls > 0) candidates.push(index);
+  });
+  const result = coMissingness(
+    candidates.map((index) => dataset.columns[index].nullMask),
+    dataset.rowCount,
+    sortedIds,
+  );
+  post({
+    type: "coMissingness",
+    requestId: message.requestId,
+    columns: candidates,
+    labels: candidates.map((index) => dataset.columns[index].name),
+    nullCells: result.nullCells,
+    pairs: result.pairs,
+    ms: performance.now() - started,
+  });
+}
+
+/** Group-relative anomalies: values unusual next to their category peers. */
+function handleGetGroupAnomalies(message: GetGroupAnomaliesRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const result = computeGroupAnomalies(dataset.columns, dataset.rowCount);
+  dataset.applyGroupAnomalies(result.columnBits, result.combined);
+  post({
+    type: "groupAnomalies",
+    requestId: message.requestId,
+    pairs: result.pairs,
+    totalFlagged: result.totalFlagged,
+    ms: performance.now() - started,
+  });
+}
+
+/** Candidate keys and the columns they determine (data integrity/joins). */
+function handleGetDependencies(message: GetDependenciesRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const pairs = computeDependencies(dataset.columns, dataset.rowCount);
+  post({
+    type: "dependencies",
+    requestId: message.requestId,
+    pairs,
+    ms: performance.now() - started,
+  });
+}
+
+/** Ranked relationship discovery over the current rows (Reports → Relationships). */
+function handleGetRelationships(message: GetRelationshipsRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const relationships = computeRelationships(dataset.columns, dataset.rowCount, sortedIds);
+  post({
+    type: "relationships",
+    requestId: message.requestId,
+    relationships,
+    ms: performance.now() - started,
+  });
+}
+
+/** Token frequencies and value shapes for one text column. */
+function handleGetTextProfile(message: GetTextProfileRequest): void {
+  const { dataset } = state();
+  const column = dataset.columns[message.column];
+  if (column === undefined) throw new Error("Unknown column");
+  const started = performance.now();
+  const profile = textProfile(column.raw, column.nullMask, message.limit ?? 30);
+  post({
+    type: "textProfile",
+    requestId: message.requestId,
+    column: message.column,
+    label: column.name,
+    profile,
+    ms: performance.now() - started,
+  });
+}
+
+/** PSI / Cramér's V between the first and second half of the current rows. */
+function handleGetDistributionChanges(message: GetDistributionChangesRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const changes = computeDistributionChanges(dataset.columns, dataset.rowCount, sortedIds);
+  post({
+    type: "distributionChanges",
+    requestId: message.requestId,
+    changes,
+    ms: performance.now() - started,
+  });
+}
+
+/** Near-duplicate value clusters over the current rows (blocked, capped). */
+function handleGetSimilarClusters(message: GetSimilarClustersRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const entries = computeSimilarClusters(dataset.columns, dataset.rowCount, sortedIds);
+  post({
+    type: "similarClusters",
+    requestId: message.requestId,
+    entries,
+    ms: performance.now() - started,
+  });
+}
+
+/** Resolves a wire measure into per-row values for grid aggregation. */
+function gridMeasure(
+  dataset: Dataset,
+  measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
+): GridMeasure | undefined {
+  if (measure === undefined) return undefined;
+  const column = dataset.columns[measure.column];
+  if (column === undefined) return undefined;
+  return { values: column.numbers(), agg: measure.agg };
+}
+
+/** Top category codes (plus Other) for overlaid bubble sets. */
+function bubbleGroups(
+  column: ColumnData,
+  rowCount: number,
+  limit = 10,
+): { codes: Uint16Array; labels: string[] } {
+  const { codes, labels } = categoryCodesFor(column, rowCount);
+  if (labels.length <= limit) return { codes, labels };
+  const counts = new Uint32Array(labels.length);
+  for (const code of codes) counts[code]++;
+  const order = [...labels.keys()].sort((a, b) => counts[b] - counts[a]);
+  const map = new Uint16Array(labels.length).fill(limit);
+  const outLabels: string[] = [];
+  order.slice(0, limit).forEach((code, index) => {
+    map[code] = index;
+    outLabels.push(labels[code] ?? "?");
+  });
+  outLabels.push("Other");
+  const outCodes = new Uint16Array(rowCount);
+  for (let row = 0; row < rowCount; row++) outCodes[row] = map[codes[row]] ?? limit;
+  return { codes: outCodes, labels: outLabels };
+}
+
+/** Row counts per x/y grid cell for the bubble chart. */
+function handleGetGridCounts(message: GetGridCountsRequest): void {
+  const { dataset } = state();
+  const x = dataset.columns[message.xColumn];
+  const y = dataset.columns[message.yColumn];
+  if (x === undefined || y === undefined) throw new Error("Unknown column");
+  const started = performance.now();
+  const groupColumn =
+    message.groupColumn === undefined ? undefined : dataset.columns[message.groupColumn];
+  const result = computeGridCounts(
+    x.numbers(),
+    y.numbers(),
+    sortedIds,
+    message.bins ?? 40,
+    gridMeasure(dataset, message.measure),
+    groupColumn === undefined ? undefined : bubbleGroups(groupColumn, dataset.rowCount),
+  );
+  const transfer: Transferable[] = [result.counts.buffer];
+  if (result.values !== null) transfer.push(result.values.buffer);
+  for (const group of result.groups ?? []) {
+    transfer.push(group.counts.buffer);
+    if (group.values !== null) transfer.push(group.values.buffer);
+  }
+  post(
+    { type: "gridCounts", requestId: message.requestId, result, ms: performance.now() - started },
+    transfer,
+  );
+}
+
+/** Compact category codes without the per-category bitsets. */
+function categoryCodesFor(
+  column: ColumnData,
+  rowCount: number,
+): { codes: Uint16Array; labels: string[] } {
+  const index = new Map<string, number>();
+  const labels: string[] = [];
+  const codes = new Uint16Array(rowCount);
+  for (let row = 0; row < rowCount; row++) {
+    const value = column.nullMask.get(row) ? "(empty)" : (column.raw[row] ?? "").trim();
+    let code = index.get(value);
+    if (code === undefined) {
+      code = labels.length;
+      index.set(value, code);
+      labels.push(value);
+    }
+    codes[row] = code;
+  }
+  return { codes, labels };
+}
+
+/** Per-time-bucket frames for animated bar and bubble charts. */
+function handleGetAnimation(message: GetAnimationRequest): void {
+  const { dataset } = state();
+  const timeColumn = dataset.columns[message.timeColumn];
+  if (timeColumn === undefined) throw new Error("Unknown time column");
+  const started = performance.now();
+  const times = timeColumn.numbers();
+  if (message.chart === "histogram") {
+    const column = dataset.columns[message.column];
+    if (column === undefined) throw new Error("Unknown column");
+    const result = computeHistogramFrames(
+      times,
+      column.numbers(),
+      sortedIds,
+      message.grain,
+      message.bins ?? 32,
+    );
+    post(
+      { type: "animation", requestId: message.requestId, result, ms: performance.now() - started },
+      result.hist === undefined ? [] : [result.hist.counts.buffer],
+    );
+    return;
+  }
+  if (message.chart === "bubble") {
+    const x = dataset.columns[message.column];
+    const y = dataset.columns[message.yColumn];
+    if (x === undefined || y === undefined) throw new Error("Unknown column");
+    const groupColumn =
+      message.groupColumn === undefined ? undefined : dataset.columns[message.groupColumn];
+    const result = computeBubbleFrames(
+      times,
+      x.numbers(),
+      y.numbers(),
+      sortedIds,
+      message.grain,
+      message.bins ?? 40,
+      gridMeasure(dataset, message.measure),
+      groupColumn === undefined ? undefined : bubbleGroups(groupColumn, dataset.rowCount),
+    );
+    const transfer: Transferable[] = [];
+    if (result.bubble !== undefined) {
+      transfer.push(result.bubble.grids.buffer);
+      if (result.bubble.values !== null) transfer.push(result.bubble.values.buffer);
+    }
+    post(
+      { type: "animation", requestId: message.requestId, result, ms: performance.now() - started },
+      transfer,
+    );
+    return;
+  }
+  const column = dataset.columns[message.column];
+  if (column === undefined) throw new Error("Unknown column");
+  const { codes, labels } = categoryCodesFor(column, dataset.rowCount);
+  if (labels.length > 60_000) {
+    throw new Error("Too many distinct categories to animate — try a bubble chart instead");
+  }
+  const result = computeBarFrames(
+    times,
+    codes,
+    labels,
+    sortedIds,
+    message.grain,
+    message.topN ?? 8,
+  );
+  post(
+    { type: "animation", requestId: message.requestId, result, ms: performance.now() - started },
+    result.bar === undefined ? [] : [result.bar.counts.buffer],
+  );
+}
+
 /** Pearson correlation matrix for up to 12 numeric columns (filtered rows). */
 function handleGetCorrelation(message: GetCorrelationRequest): void {
   const { dataset } = state();
@@ -1016,6 +1627,7 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
 
     const policy = nullPolicies.get(column) ?? EMPTY_NULL_POLICY;
     const raw = update.ops.length === 0 ? source.raw : applyCleanOps(source.raw, update.ops);
+    recordChange(column, current.columns[column].raw, raw);
     const rebuilt = ColumnData.create(current.columns[column].name, raw, policy);
     const typeOverride = typeOverrides.get(column);
     if (typeOverride !== undefined) rebuilt.setType(typeOverride, true);
@@ -1059,6 +1671,8 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
+    changedTotal: changedTotalCells,
   });
 }
 
@@ -1101,6 +1715,7 @@ function handleSetNullPolicy(message: SetNullPolicyRequest): void {
 
   const columns = current.columns.slice();
   const rebuilt = blankAndRebuild(column, policy);
+  recordChange(message.column, column.raw, rebuilt.raw);
   const typeOverride = typeOverrides.get(message.column);
   if (typeOverride !== undefined) rebuilt.setType(typeOverride, true);
   const locale = numberLocales.get(message.column);
@@ -1136,6 +1751,8 @@ function handleSetNullPolicy(message: SetNullPolicyRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
+    changedTotal: changedTotalCells,
   });
 }
 
@@ -1149,6 +1766,7 @@ function handleResolveNullsAll(message: ResolveNullsAllRequest): void {
   const policy = createNullPolicy(message.extra, message.keep);
   const columns = current.columns.map((column, index) => {
     const next = blankAndRebuild(column, policy);
+    recordChange(index, column.raw, next.raw);
     const typeOverride = typeOverrides.get(index);
     if (typeOverride !== undefined) next.setType(typeOverride, true);
     const locale = numberLocales.get(index);
@@ -1191,6 +1809,8 @@ function handleResolveNullsAll(message: ResolveNullsAllRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
+    changedTotal: changedTotalCells,
   });
 }
 
@@ -1260,6 +1880,7 @@ function handleDropRows(message: DropRowsRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -1280,6 +1901,7 @@ function handleClearExcludedRows(message: ClearExcludedRowsRequest): void {
     firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
     firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
 
@@ -1322,6 +1944,7 @@ function handleTransform(message: TransformRequest): void {
   const baseSchema = baseColumns.map((column) => ({
     name: column.name,
     numeric: column.type === "integer" || column.type === "number",
+    type: column.type,
   }));
 
   dataset = next;
@@ -1335,6 +1958,8 @@ function handleTransform(message: TransformRequest): void {
   specials.clear();
   columnSpecials.clear();
   histogramCache.clear();
+  // Transforms change the row set, so previous cell-change positions are void.
+  resetChangedCells();
 
   const started = performance.now();
   sortedIds = engine.evaluate(filters);
@@ -1375,7 +2000,151 @@ function handlePreviewTransform(message: PreviewTransformRequest): void {
     nullCells: next.stats.totalNullCells,
     columnCount: next.columnCount,
     columnNames: next.columns.map((column) => column.name),
+    notes: transformPreviewNotes(base, message.ops),
   });
+}
+
+const MAX_PREVIEW_SAMPLES = 3;
+
+/** Human label for an impute strategy, including its group column. */
+function imputeStrategyLabel(
+  op: TransformOp & { kind: "impute" },
+  columns: readonly ColumnData[],
+): string {
+  const strategy =
+    op.strategy.kind === "constant" ? `constant “${op.strategy.value}”` : op.strategy.kind;
+  const group =
+    op.groupColumn === null ? "" : ` within ${columns[op.groupColumn]?.name ?? "group"}`;
+  return `${strategy}${group}`;
+}
+
+/**
+ * Per-op impact notes with before → after samples, computed by applying each
+ * staged op to the result of the previous one so the details describe the
+ * step the user is looking at.
+ */
+function transformPreviewNotes(
+  base: Dataset,
+  ops: readonly TransformOp[],
+): TransformPreviewNote[] {
+  const notes: TransformPreviewNote[] = [];
+  let running = base;
+  for (let index = 0; index < ops.length; index++) {
+    const op = ops[index];
+    const after = applyTransformOps(base.name, running.columns, [op]);
+    switch (op.kind) {
+      case "dedupe": {
+        const removed = running.rowCount - after.rowCount;
+        notes.push({
+          op: index,
+          text: `Removes ${removed.toLocaleString()} identical row${removed === 1 ? "" : "s"} — every column is the key`,
+        });
+        break;
+      }
+      case "drop": {
+        const name = running.columns[op.column]?.name;
+        notes.push({
+          op: index,
+          text: name === undefined ? "Column already gone" : `Drops “${name}” and its cells`,
+        });
+        break;
+      }
+      case "impute": {
+        const before = running.columns[op.column];
+        const filled = after.columns[op.column];
+        if (before === undefined || filled === undefined) break;
+        let replaced = 0;
+        const samples: { before: string; after: string }[] = [];
+        for (let row = 0; row < before.raw.length; row++) {
+          if (!before.isNull(before.raw[row])) continue;
+          if (filled.isNull(filled.raw[row])) continue;
+          replaced++;
+          if (samples.length < MAX_PREVIEW_SAMPLES) {
+            samples.push({ before: "(empty)", after: filled.raw[row] });
+          }
+        }
+        notes.push({
+          op: index,
+          text: `Fills ${replaced.toLocaleString()} missing cell${replaced === 1 ? "" : "s"} (${imputeStrategyLabel(op, running.columns)})`,
+          samples,
+        });
+        break;
+      }
+      case "combineDate": {
+        const output = after.columns[after.columnCount - 1];
+        if (output === undefined) break;
+        let failed = 0;
+        const samples: { before: string; after: string }[] = [];
+        for (let row = 0; row < output.raw.length; row++) {
+          if (!output.isNull(output.raw[row])) continue;
+          let before = "";
+          let allPartsMissing = true;
+          for (const part of op.parts) {
+            const value = running.columns[part.column]?.raw[row] ?? "";
+            before = before === "" ? value : `${before} · ${value}`;
+            if (value !== "" && !running.columns[part.column]?.isNull(value)) allPartsMissing = false;
+          }
+          if (allPartsMissing) continue;
+          failed++;
+          if (samples.length < MAX_PREVIEW_SAMPLES) {
+            samples.push({ before, after: "(could not combine)" });
+          }
+        }
+        notes.push({
+          op: index,
+          text: `Joins ${op.parts.length} part${op.parts.length === 1 ? "" : "s"} into “${output.name}” (${op.output}, ${op.order === "auto" ? "order per column" : `${op.order} order`})` +
+            (failed > 0 ? ` · ${failed.toLocaleString()} row${failed === 1 ? "" : "s"} could not be combined` : ""),
+          samples,
+        });
+        break;
+      }
+      case "flagAnomalies": {
+        const output = after.columns[after.columnCount - 1];
+        if (output === undefined) break;
+        let flagged = 0;
+        for (const value of output.raw) if (value === "Yes") flagged++;
+        notes.push({
+          op: index,
+          text: `Adds “${output.name}”: ${flagged.toLocaleString()} row${flagged === 1 ? "" : "s"} flagged`,
+        });
+        break;
+      }
+      case "splitColumn": {
+        const created = after.columnCount - running.columnCount + (op.dropOriginal ? 1 : 0);
+        notes.push({
+          op: index,
+          text: `Splits into ${created} new column${created === 1 ? "" : "s"}${op.dropEmpty ? " after dropping empty parts" : ""}`,
+        });
+        break;
+      }
+      case "melt": {
+        const added = after.rowCount - running.rowCount;
+        notes.push({
+          op: index,
+          text: `Unpivots to ${after.rowCount.toLocaleString()} rows (+${added.toLocaleString()})`,
+        });
+        break;
+      }
+      case "aggregate": {
+        notes.push({
+          op: index,
+          text: `Aggregates to ${after.rowCount.toLocaleString()} group${after.rowCount === 1 ? "" : "s"} across ${after.columnCount} columns`,
+        });
+        break;
+      }
+      case "groupBy": {
+        notes.push({
+          op: index,
+          text: `Aggregates to ${after.rowCount.toLocaleString()} row${after.rowCount === 1 ? "" : "s"}`,
+        });
+        break;
+      }
+      default:
+        break;
+    }
+    running = after;
+  }
+  return notes;
 }
 
 /**
@@ -1387,20 +2156,35 @@ function handlePreviewClean(message: PreviewCleanRequest): void {
   const columns = message.updates.map((update) => {
     const index = update.column;
     const column = current.columns[index];
-    if (column === undefined) return { column: index, changed: 0, total: 0 };
+    if (column === undefined) return { column: index, changed: 0, total: 0, failed: 0 };
     const source = cleanSource.get(index) ?? column;
     const raw = update.ops.length === 0 ? source.raw : applyCleanOps(source.raw, update.ops);
     let changed = 0;
     for (let i = 0; i < raw.length; i++) if (raw[i] !== source.raw[i]) changed++;
-    return { column: index, changed, total: raw.length };
+    // For the last cast in the op list, count the cells that still do not
+    // parse so the panel can warn before committing ("12 can't be parsed").
+    const cast = [...update.ops].reverse().find(
+      (op) => op.kind === "toNumber" || op.kind === "toDate",
+    );
+    let failed = 0;
+    if (cast !== undefined) {
+      for (let i = 0; i < raw.length; i++) {
+        if (source.isNull(source.raw[i])) continue;
+        const parsed =
+          cast.kind === "toDate" ? parseDate(raw[i], cast.order) : parseNumber(raw[i], cast.locale);
+        if (!Number.isFinite(parsed)) failed++;
+      }
+    }
+    return { column: index, changed, total: raw.length, failed };
   });
   post({ type: "cleanPreview", requestId: message.requestId, columns });
 }
 
 function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMeta {
-  if (column.type === "integer" || column.type === "number" || column.type === "date") {
+  if (isNumericLikeType(column.type)) {
     column.numbers();
   }
+  const patternProfile = dataset.patternProfiles[index] ?? null;
   let categories: ColumnMeta["categories"] = null;
   let similarGroups = 0;
   if (column.type === "category" || column.type === "boolean") {
@@ -1417,6 +2201,7 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     type: column.type,
     numberLocale: column.numberLocale,
     dateOrder: column.dateOrder,
+    ...(column.type === "datetime" ? { timeZoneAware: column.timeZoneAware } : {}),
     stats: column.stats,
     anomalyCounts: {
       values: dataset.valueColumnBits[index]?.count() ?? 0,
@@ -1430,6 +2215,17 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     nullPolicy: { extra: [...column.nullPolicy.extra], keep: [...column.nullPolicy.keep] },
     nullTokens: [...column.nullTokens],
     suggestions: column.suggestions,
+    typeDowngrade: column.typeDowngrade,
+    pattern:
+      patternProfile === null
+        ? null
+        : {
+            mask: patternProfile.mask,
+            share: patternProfile.share,
+            total: patternProfile.total,
+            offCount: patternProfile.offCount,
+            examples: patternProfile.examples,
+          },
   };
 }
 
@@ -1460,8 +2256,7 @@ function computeHistograms(dataset: Dataset, engine: QueryEngine): Record<number
 }
 
 function detailsFor(column: ColumnData): ColumnDetail {
-  const numeric =
-    column.type === "integer" || column.type === "number" || column.type === "date";
+  const numeric = isNumericLikeType(column.type);
   let median: number | null = null;
   if (numeric) {
     column.numbers();

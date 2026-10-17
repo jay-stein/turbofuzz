@@ -42,12 +42,14 @@ export function setupDialog(overlay: HTMLElement, label: string): void {
     }
   });
 
-  const observer = new MutationObserver(() => {
-    if (overlay.isConnected) return;
-    observer.disconnect();
-    previous?.focus();
-  });
-  observer.observe(document.body, { childList: true });
+  if (typeof MutationObserver === "function") {
+    const observer = new MutationObserver(() => {
+      if (overlay.isConnected) return;
+      observer.disconnect();
+      previous?.focus();
+    });
+    observer.observe(document.body, { childList: true });
+  }
 }
 
 export interface PromptOptions {

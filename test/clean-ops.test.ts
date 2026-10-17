@@ -110,6 +110,16 @@ test("converts mixed date text to ISO dates", () => {
   );
 });
 
+test("converts date-times to canonical UTC ISO and keeps the clock", () => {
+  assert.deepEqual(
+    applyCleanOps(
+      ["2013-08-15 00:18:08+00", "2013-08-15T00:18:08+02", "2024-12-31 09:30", "bogus"],
+      [{ kind: "toDateTime", order: "dmy" }],
+    ),
+    ["2013-08-15T00:18:08Z", "2013-08-14T22:18:08Z", "2024-12-31T09:30:00Z", "bogus"],
+  );
+});
+
 test("describeCleanOp summarises operations", () => {
   assert.equal(describeCleanOp({ kind: "trim" }), "Trim whitespace (strip ends, collapse runs)");
   assert.equal(describeCleanOp({ kind: "case", style: "upper" }), "Change case to UPPERCASE");
@@ -118,7 +128,8 @@ test("describeCleanOp summarises operations", () => {
     /Replace text “a” → “b” \(case-insensitive\)/,
   );
   assert.match(describeCleanOp({ kind: "toNumber", locale: "comma" }), /1\.234,56/);
-  assert.match(describeCleanOp({ kind: "toDate", order: "dmy" }), /DD\/MM\/YYYY/);
+  assert.match(describeCleanOp({ kind: "toDate", order: "dmy" }), /date only/);
+  assert.match(describeCleanOp({ kind: "toDateTime", order: "dmy" }), /keeps the clock/);
 });
 
 test("describeCleanOpDetail exposes the technical signature", () => {
@@ -128,4 +139,8 @@ test("describeCleanOpDetail exposes the technical signature", () => {
     'replace(find="a", with="b", ignoreCase=true)',
   );
   assert.equal(describeCleanOpDetail({ kind: "toDate", order: "dmy" }), "toDate(order=dmy)");
+  assert.equal(
+    describeCleanOpDetail({ kind: "toDateTime", order: "mdy" }),
+    "toDateTime(order=mdy)",
+  );
 });

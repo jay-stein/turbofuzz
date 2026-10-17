@@ -1,6 +1,6 @@
 import type { MissingnessMessage } from "../worker/protocol.js";
 import { hexToRgb } from "./chart-utils.js";
-import { el } from "./dom.js";
+import { clear, el } from "./dom.js";
 
 /** Matrix height grows with the number of row blocks, capped like a figure. */
 const MATRIX_MIN_HEIGHT = 96;
@@ -114,27 +114,80 @@ export function bucketTooltip(
 }
 
 /**
+ * Hover text for one column of the map, e.g.
+ * "“Car” · 3 missing cells of 2,000 (0.2%)". The column labels are drawn tiny
+ * (they must fit hundreds of columns), so hovering the band or its label is
+ * the reliable way to read the name.
+ */
+export function columnTooltip(
+  cells: ArrayLike<number>,
+  columns: number,
+  buckets: number,
+  totalRows: number,
+  names: readonly (string | null | undefined)[],
+  column: number,
+): string {
+  const name = names[column] ?? `Column ${column + 1}`;
+  let missing = 0;
+  for (let bucket = 0; bucket < buckets; bucket++) {
+    missing += cells[bucket * columns + column] ?? 0;
+  }
+  if (missing === 0) return `“${name}” · complete — no missing cells`;
+  const percent = totalRows === 0 ? 0 : (missing / totalRows) * 100;
+  const percentText = percent >= 1 ? percent.toFixed(1) : percent.toFixed(2);
+  return `“${name}” · ${missing.toLocaleString()} missing ${
+    missing === 1 ? "cell" : "cells"
+  } of ${totalRows.toLocaleString()} (${percentText}%)`;
+}
+
+/**
  * Missingno-style map: the whole table as a nullity matrix (blue where data
  * is present, darker where a run of rows has missing values) with a
  * completeness sparkline in the right gutter so the rows with the most and
  * least nullity stand out at a glance.
  */
 export class MissingnessChart {
+  private readonly root: HTMLElement;
+  private readonly wrap: HTMLElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly caption: HTMLElement;
+  private readonly summary: HTMLElement;
+  private readonly bars: HTMLElement;
+  private readonly mapToggle: HTMLButtonElement;
   private readonly tooltip: HTMLElement;
   private message: MissingnessMessage | null = null;
   private profile: NullityProfile | null = null;
   private geometry: { matrixW: number; matrixHeight: number } | null = null;
   private hoverBucket: number | null = null;
+  private hoverColumn: number | null = null;
   private observer: ResizeObserver | null = null;
   private queued = false;
   private disposed = false;
+  /** A near-complete dataset starts collapsed to one line plus ranked bars. */
+  private collapsible = false;
+  private expanded = true;
 
-  constructor(private readonly root: HTMLElement) {
+  constructor(root: HTMLElement) {
+    this.root = root;
     root.classList.add("overview-section", "missingness-section");
-    root.append(el("h2", { class: "overview-heading" }, ["Missing values"]));
+    const head = el("div", { class: "overview-heading-row" });
+    head.append(el("h2", { class: "overview-heading" }, ["Missing values"]));
+    this.mapToggle = el(
+      "button",
+      { class: "ghost small", type: "button" },
+      ["Show map"],
+    ) as HTMLButtonElement;
+    this.mapToggle.classList.add("hidden");
+    this.mapToggle.addEventListener("click", () => {
+      this.expanded = !this.expanded;
+      this.syncCollapsed();
+      this.schedule();
+    });
+    head.append(this.mapToggle);
+    this.summary = el("div", { class: "missingness-summary" });
+    this.bars = el("div", { class: "missingness-bars hidden" });
     const wrap = el("div", { class: "missingness-wrap" });
+    this.wrap = wrap;
     this.canvas = el("canvas", {
       class: "missingness-canvas",
       role: "img",
@@ -150,7 +203,7 @@ export class MissingnessChart {
     this.canvas.addEventListener("pointerleave", () => this.clearHover());
     wrap.append(this.canvas, this.tooltip);
     this.caption = el("div", { class: "missingness-caption" }, [""]);
-    root.append(wrap, this.caption);
+    root.append(head, this.summary, this.bars, wrap, this.caption);
     if (typeof ResizeObserver !== "undefined") {
       this.observer = new ResizeObserver(() => this.schedule());
       this.observer.observe(wrap);
@@ -167,8 +220,27 @@ export class MissingnessChart {
     );
     this.profile = profile;
     this.hoverBucket = null;
+    this.hoverColumn = null;
     this.tooltip.classList.add("hidden");
     const affected = this.affectedColumns(message);
+
+    let totalMissing = 0;
+    const columnTotals = new Float64Array(message.columns);
+    for (let bucket = 0; bucket < message.buckets; bucket++) {
+      for (let column = 0; column < message.columns; column++) {
+        const value = message.cells[bucket * message.columns + column] ?? 0;
+        columnTotals[column] += value;
+        totalMissing += value;
+      }
+    }
+    const totalCells = message.columns * message.totalRows;
+    const complete = totalCells === 0 ? 1 : 1 - totalMissing / totalCells;
+    // When the data is essentially complete the full matrix is a wall of one
+    // colour; one line plus the few ranked bars carries the same information.
+    this.collapsible = affected > 0 && complete >= 0.99;
+    this.expanded = !this.collapsible;
+    this.renderSummary(complete, totalMissing, affected, columnTotals);
+
     const parts = [
       `${message.columns.toLocaleString()} columns × ${message.totalRows.toLocaleString()} rows`,
     ];
@@ -196,7 +268,71 @@ export class MissingnessChart {
             ? `; 1 column has missing values${worst}`
             : `; ${affected} columns have missing values${worst}`),
     );
+    this.syncCollapsed();
     this.schedule();
+  }
+
+  /** One-line completeness plus the ranked bars shown in the collapsed state. */
+  private renderSummary(
+    complete: number,
+    totalMissing: number,
+    affected: number,
+    columnTotals: Float64Array,
+  ): void {
+    const message = this.message;
+    if (message === null) return;
+    const pct = complete >= 0.99995 ? "100%" : `${(complete * 100).toFixed(1)}%`;
+    this.summary.textContent =
+      affected === 0
+        ? "100% complete · no missing cells"
+        : `${pct} complete · ${totalMissing.toLocaleString()} missing ${
+            totalMissing === 1 ? "cell" : "cells"
+          } in ${affected.toLocaleString()} of ${message.columns.toLocaleString()} columns`;
+
+    clear(this.bars);
+    if (!this.collapsible) return;
+    const ranked = message.columnNames
+      .map((name, index) => ({
+        name: name ?? `Column ${index + 1}`,
+        count: columnTotals[index] ?? 0,
+      }))
+      .filter((entry) => entry.count > 0)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6);
+    const max = ranked[0]?.count ?? 1;
+    for (const entry of ranked) {
+      const row = el("div", { class: "missingness-bar-row" });
+      row.title = `${entry.name}: ${entry.count.toLocaleString()} missing ${
+        entry.count === 1 ? "cell" : "cells"
+      }`;
+      const track = el("span", { class: "missingness-bar" });
+      const fill = el("span", { class: "missingness-bar-fill" });
+      fill.style.width = `${Math.max(2, (entry.count / max) * 100)}%`;
+      track.append(fill);
+      row.append(
+        el("span", { class: "missingness-bar-name", title: entry.name }, [entry.name]),
+        track,
+        el("span", { class: "missingness-bar-count" }, [entry.count.toLocaleString()]),
+      );
+      this.bars.append(row);
+    }
+    if (ranked.length < message.columnNames.length) {
+      this.bars.append(
+        el("div", { class: "missingness-bar-more" }, [
+          `${(message.columnNames.length - ranked.length).toLocaleString()} other columns are complete`,
+        ]),
+      );
+    }
+  }
+
+  private syncCollapsed(): void {
+    const showMap = !this.collapsible || this.expanded;
+    this.wrap.classList.toggle("hidden", !showMap);
+    this.caption.classList.toggle("hidden", !showMap);
+    this.bars.classList.toggle("hidden", !(this.collapsible && !this.expanded));
+    this.mapToggle.classList.toggle("hidden", !this.collapsible);
+    this.mapToggle.textContent = this.expanded ? "Hide map" : "Show map";
+    if (!showMap) this.clearHover();
   }
 
   dispose(): void {
@@ -290,13 +426,22 @@ export class MissingnessChart {
       ctx.globalAlpha = 1;
     }
 
+    // Ring the hovered column so the tiny label and the tooltip correlate.
+    if (this.hoverColumn !== null && this.hoverColumn < message.columns) {
+      ctx.strokeStyle = cssVar("--accent", "#2563eb");
+      ctx.lineWidth = 1;
+      ctx.strokeRect(this.hoverColumn * cellW + 0.5, 0.5, cellW - 1, matrixHeight - 1);
+    }
+
     this.drawSparkline(ctx, message, matrixW, gutter, matrixHeight);
 
     if (!showLabels) return;
     ctx.font = "10px system-ui, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillStyle = cssVar("--text-dim", "#62707f");
+    const labelColor = cssVar("--text-dim", "#62707f");
     message.columnNames.forEach((name, column) => {
+      ctx.fillStyle =
+        column === this.hoverColumn ? cssVar("--accent", "#2563eb") : labelColor;
       ctx.fillText(
         fit(ctx, name, Math.max(8, cellW - 4)),
         (column + 0.5) * cellW,
@@ -369,14 +514,43 @@ export class MissingnessChart {
     }
   }
 
-  /** Row-block hover in the sparkline gutter: tooltip plus a ringed marker. */
+  /** Column hover (band or label) and row-block hover (gutter) share the tooltip. */
   private onPointerMove(event: PointerEvent): void {
     const message = this.message;
     const geometry = this.geometry;
-    if (message === null || geometry === null) return;
+    if (message === null || geometry === null || message.columns === 0) return;
     const rect = this.canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
+    // Matrix or label strip: name the column — the labels are tiny (they have
+    // to fit hundreds of columns), so hover is the readable path.
+    const inLabels =
+      y > geometry.matrixHeight && y <= geometry.matrixHeight + LABEL_HEIGHT;
+    if (x < geometry.matrixW && y >= 0 && (y <= geometry.matrixHeight || inLabels)) {
+      const cellW = geometry.matrixW / message.columns;
+      const column = Math.max(0, Math.min(message.columns - 1, Math.floor(x / cellW)));
+      this.tooltip.textContent = columnTooltip(
+        message.cells,
+        message.columns,
+        message.buckets,
+        message.totalRows,
+        message.columnNames,
+        column,
+      );
+      this.tooltip.classList.remove("hidden");
+      this.positionTooltip(event);
+      let needsDraw = false;
+      if (this.hoverBucket !== null) {
+        this.hoverBucket = null;
+        needsDraw = true;
+      }
+      if (this.hoverColumn !== column) {
+        this.hoverColumn = column;
+        needsDraw = true;
+      }
+      if (needsDraw) this.schedule();
+      return;
+    }
     if (
       x < geometry.matrixW ||
       y < 0 ||
@@ -399,15 +573,28 @@ export class MissingnessChart {
     );
     this.tooltip.classList.remove("hidden");
     this.positionTooltip(event);
+    let needsDraw = false;
+    if (this.hoverColumn !== null) {
+      this.hoverColumn = null;
+      needsDraw = true;
+    }
     if (this.hoverBucket !== bucket) {
       this.hoverBucket = bucket;
-      this.schedule();
+      needsDraw = true;
     }
+    if (needsDraw) this.schedule();
   }
 
   private clearHover(): void {
-    if (this.hoverBucket === null && this.tooltip.classList.contains("hidden")) return;
+    if (
+      this.hoverColumn === null &&
+      this.hoverBucket === null &&
+      this.tooltip.classList.contains("hidden")
+    ) {
+      return;
+    }
     this.hoverBucket = null;
+    this.hoverColumn = null;
     this.tooltip.classList.add("hidden");
     this.schedule();
   }

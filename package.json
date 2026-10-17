@@ -9,14 +9,19 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "tsx --test test/*.test.ts",
+    "test:e2e": "playwright test",
     "bench": "tsx bench/run.ts",
     "bench:quick": "tsx bench/run.ts --sizes=10000 --iterations=10",
     "bench:app": "tsx bench/app-smoke.ts",
     "bench:real": "tsx bench/real.ts",
+    "bench:latency": "tsx bench/latency.ts",
+    "bench:ingest": "tsx bench/ingest.ts",
+    "parity:cases": "tsx tools/recipe-parity/make_cases.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@leeoniya/ufuzzy": "^1.0.19",
+    "@playwright/test": "^1.64.1",
     "@types/flexsearch": "^0.7.6",
     "@types/node": "^26.6.4",
     "@types/papaparse": "^5.5.2",
@@ -31,8 +36,10 @@
     "bz2": "^1.0.1",
     "double-metaphone": "^2.0.1",
     "fflate": "^0.8.3",
+    "gifenc": "^1.0.3",
     "hyparquet": "^1.31.2",
     "hyparquet-compressors": "^1.1.2",
+    "mp4-muxer": "^5.2.2",
     "papaparse": "^5.7.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }

@@ -186,6 +186,10 @@ test("axis labels drop insignificant digits", () => {
   assert.equal(formatTick(50_000, "histogram"), "50k");
   assert.equal(formatTick(12_800, "histogram"), "12.8k");
   assert.equal(formatTick(1_500_000, "histogram"), "1.5M");
+  // Year-window integers read as labels: bare 4-digit years, never 1.9k/2k.
+  assert.equal(formatTick(1970, "histogram"), "1970");
+  assert.equal(formatTick(2_010, "histogram"), "2010");
+  assert.equal(formatTick(1_900, "histogram"), "1900");
   assert.equal(formatCount(50_000), "50,000");
   assert.equal(formatCount(48780), "48,780");
 });
@@ -235,11 +239,10 @@ test("binValues respects the row subset (current filters)", () => {
   assert.deepEqual(out.bins, [0, 1, 1]);
 });
 
-test("chart titles reference the data source and column", () => {
-  assert.equal(defaultChartTitle("torture_utf8_bom.csv", "Amount"), "torture_utf8_bom — Amount");
-  assert.equal(defaultChartTitle("Pasted data", "Score"), "Pasted data — Score");
-  assert.equal(defaultChartTitle("", "Amount"), "Data — Amount");
-  assert.equal(defaultChartTitle("data.csv", ""), "data");
+test("chart titles name the column, not the file", () => {
+  assert.equal(defaultChartTitle("Amount"), "Amount");
+  assert.equal(defaultChartTitle("Score"), "Score");
+  assert.equal(defaultChartTitle(""), "Data");
 });
 
 test("bin bounds round-trip through comma-formatted inputs", () => {
@@ -326,6 +329,7 @@ test("category series uses filtered facet counts", () => {
 function fullConfig(overrides: Partial<ChartCardConfig> = {}): ChartCardConfig {
   return {
     kind: "histogram",
+    source: "",
     column: -1,
     x: -1,
     y: -1,

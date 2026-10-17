@@ -34,7 +34,7 @@ test("combines year/month/day/hour with auto roles", () => {
   const created = out[out.length - 1];
   assert.equal(created.name, "combined");
   assert.deepEqual(created.raw, ["2024-03-04T14:00:00Z", "2024-12-31T23:00:00Z"]);
-  assert.equal(created.type, "date");
+  assert.equal(created.type, "datetime");
 });
 
 test("combines a date column and a 12-hour clock with AM/PM", () => {

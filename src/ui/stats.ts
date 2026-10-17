@@ -1,6 +1,11 @@
 import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
-import { toDateInputValue } from "../parse/dates.js";
+import {
+  formatDurationMs,
+  toDateInputValue,
+  toDateTimeInputValue,
+  toTimeInputValue,
+} from "../parse/dates.js";
 import { TYPE_LABELS } from "../types.js";
 import type { StatsMessage } from "../worker/protocol.js";
 
@@ -107,6 +112,18 @@ function describe(column: StatsMessage["columns"][number]): string {
   if (column.type === "date") {
     if (column.min === null || column.max === null) return "—";
     return `${toDateInputValue(column.min)} → ${toDateInputValue(column.max)}`;
+  }
+  if (column.type === "datetime") {
+    if (column.min === null || column.max === null) return "—";
+    return `${toDateTimeInputValue(column.min)} → ${toDateTimeInputValue(column.max)}`;
+  }
+  if (column.type === "time") {
+    if (column.min === null || column.max === null) return "—";
+    return `${toTimeInputValue(column.min)} → ${toTimeInputValue(column.max)}`;
+  }
+  if (column.type === "duration") {
+    if (column.min === null || column.max === null) return "—";
+    return `${formatDurationMs(column.min)} → ${formatDurationMs(column.max)}`;
   }
 
   if (column.type === "category" || column.type === "boolean") {

@@ -1,4 +1,4 @@
-import { parseDate, toDateInputValue, type DateOrder } from "../parse/dates.js";
+import { parseDate, toDateInputValue, toDateTimeValue, type DateOrder } from "../parse/dates.js";
 import { escapeFormula } from "./formula.js";
 import { detectDecimalStyle, parseNumber, type NumberLocale } from "../parse/numbers.js";
 
@@ -11,7 +11,8 @@ export type CleanOp =
   | { kind: "toNumber"; locale: NumberLocale }
   | { kind: "repairDecimal"; locale: NumberLocale }
   | { kind: "escapeFormulas" }
-  | { kind: "toDate"; order: DateOrder };
+  | { kind: "toDate"; order: DateOrder }
+  | { kind: "toDateTime"; order: DateOrder };
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -70,6 +71,13 @@ function compileOp(op: CleanOp): (value: string) => string {
         return Number.isFinite(parsed) ? toDateInputValue(parsed) : value;
       };
     }
+    case "toDateTime": {
+      const order = op.order;
+      return (value) => {
+        const parsed = parseDate(value, order);
+        return Number.isFinite(parsed) ? toDateTimeValue(parsed) : value;
+      };
+    }
     case "escapeFormulas":
       return (value) => escapeFormula(value);
   }
@@ -111,7 +119,11 @@ export function describeCleanOp(op: CleanOp): string {
     case "escapeFormulas":
       return "Escape formula-like cells (=1+1 → '=1+1)";
     case "toDate":
-      return `Convert to date (${op.order === "dmy" ? "day first, DD/MM/YYYY" : "month first, MM/DD/YYYY"})`;
+      return `Convert to date (date only, ${op.order === "dmy" ? "day first DD/MM/YYYY" : "month first MM/DD/YYYY"})`;
+    case "toDateTime":
+      return `Convert to date & time (keeps the clock, stored as UTC — ${
+        op.order === "dmy" ? "day first" : "month first"
+      })`;
   }
 }
 
@@ -132,5 +144,7 @@ export function describeCleanOpDetail(op: CleanOp): string {
       return "escapeFormulas()";
     case "toDate":
       return `toDate(order=${op.order})`;
+    case "toDateTime":
+      return `toDateTime(order=${op.order})`;
   }
 }

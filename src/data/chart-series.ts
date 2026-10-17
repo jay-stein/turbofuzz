@@ -11,6 +11,8 @@ export interface SeriesOptions {
   /** Stride used to collect the quantile sample (tests shrink this). */
   sampleStride?: number;
   sampleMax?: number;
+  /** false keeps the full data range (maps); default clips to p1–p99. */
+  clip?: boolean;
 }
 
 export interface SeriesPoints {
@@ -145,7 +147,7 @@ export function computeSeries(
   let xMax = dataXMax;
   let yMin = dataYMin;
   let yMax = dataYMax;
-  if (sampleX.length >= MIN_QUANTILE_SAMPLE) {
+  if (options.clip !== false && sampleX.length >= MIN_QUANTILE_SAMPLE) {
     const sortedX = sampleX.slice().sort((a, b) => a - b);
     const sortedY = sampleY.slice().sort((a, b) => a - b);
     xMin = quantile(sortedX, 0.01);

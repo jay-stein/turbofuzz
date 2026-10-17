@@ -1,7 +1,16 @@
 import { clear, el } from "./dom.js";
 import { RangeSlider } from "./range-slider.js";
-import { COLUMN_TYPES, TYPE_LABELS, type ColumnType, type TextMode } from "../types.js";
-import { parseDate, toDateInputValue } from "../parse/dates.js";
+import { isNumericLikeType, isTemporalType, type TextMode } from "../types.js";
+import {
+  formatDurationMs,
+  fromDateTimeInputValue,
+  parseDate,
+  parseDuration,
+  parseTimeOfDay,
+  toDateInputValue,
+  toDateTimeInputValue,
+  toTimeInputValue,
+} from "../parse/dates.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import {
   describeSuggestion,
@@ -13,8 +22,6 @@ import type { ColumnMeta } from "../worker/protocol.js";
 
 export interface FilterPanelCallbacks {
   onFilter: (column: number, filter: ColumnFilter | null, preview?: boolean) => void;
-  onTypeChange: (column: number, type: ColumnType) => void;
-  onNumberLocale: (column: number, locale: NumberLocale) => void;
   onSuggestion: (column: number, suggestion: ColumnSuggestion) => void;
 }
 
@@ -148,44 +155,14 @@ export class FilterPanel {
     });
     head.append(caret, el("span", { class: "filter-name", title: meta.name }, [meta.name]));
 
-    const typeSelect = el("select", {
-      class: "type-select",
-      title: "Data type — change to re-interpret this column",
-      "aria-label": `Data type for ${meta.name}`,
-    }) as HTMLSelectElement;
-    for (const type of COLUMN_TYPES) {
-      const option = el("option", { value: type }, [TYPE_LABELS[type]]) as HTMLOptionElement;
-      if (type === meta.type) option.selected = true;
-      typeSelect.append(option);
-    }
-    typeSelect.addEventListener("change", () => {
-      this.callbacks.onTypeChange(index, typeSelect.value as ColumnType);
-    });
-    head.append(typeSelect);
-
-    if (meta.type === "integer" || meta.type === "number") {
-      const nextLocale: NumberLocale = meta.numberLocale === "comma" ? "dot" : "comma";
-      const localeButton = el(
-        "button",
-        {
-          class: "locale-btn",
-          type: "button",
-          title: "Number format — click to switch between 1,234.56 and 1.234,56",
-          "aria-label": `Number format for ${meta.name}`,
-        },
-        [meta.numberLocale === "comma" ? "1.234,56" : "1,234.56"],
-      );
-      localeButton.addEventListener("click", () => {
-        this.callbacks.onNumberLocale(index, nextLocale);
-      });
-      head.append(localeButton);
-    }
-
     const clearButton = el(
       "button",
       { class: "icon-btn", type: "button", title: "Clear this filter" },
       ["×"],
     );
+    // The × is a filter action, not a column action: only show it while the
+    // column actually has a filter, so the list is search + names by default.
+    clearButton.classList.toggle("hidden", !this.filters.has(index));
     clearButton.addEventListener("click", () => {
       this.callbacks.onFilter(index, null);
       this.rebuildCard(index);
@@ -230,6 +207,9 @@ export class FilterPanel {
       case "integer":
       case "number":
       case "date":
+      case "datetime":
+      case "time":
+      case "duration":
         return this.buildRangeBody(meta, index);
       default:
         return this.buildTextBody(meta, index);
@@ -284,33 +264,48 @@ export class FilterPanel {
     const body = el("div", { class: "filter-body range-body" });
     const state = this.filters.get(index);
     const current = state?.kind === "range" ? state : null;
-    const isDate = meta.type === "date";
-    const inputType = isDate ? "date" : "number";
+    const inputType =
+      meta.type === "date"
+        ? "date"
+        : meta.type === "datetime"
+          ? "datetime-local"
+          : meta.type === "time"
+            ? "time"
+            : meta.type === "duration"
+              ? "text"
+              : "number";
 
-    const step = isDate ? undefined : meta.type === "integer" ? "1" : "any";
+    const step =
+      meta.type === "integer"
+        ? "1"
+        : meta.type === "number"
+          ? "any"
+          : meta.type === "duration"
+            ? undefined
+            : "any";
     const minInput = el("input", {
       class: "range-input",
       type: inputType,
-      placeholder: "Min",
+      placeholder: meta.type === "duration" ? "H:MM:SS" : "Min",
       ...(step === undefined ? {} : { step }),
     }) as HTMLInputElement;
     const maxInput = el("input", {
       class: "range-input",
       type: inputType,
-      placeholder: "Max",
+      placeholder: meta.type === "duration" ? "H:MM:SS" : "Max",
       ...(step === undefined ? {} : { step }),
     }) as HTMLInputElement;
 
     if (current?.min !== null && current?.min !== undefined) {
-      minInput.value = isDate ? toDateInputValue(current.min) : String(current.min);
+      minInput.value = this.formatRangeValue(current.min, meta);
     }
     if (current?.max !== null && current?.max !== undefined) {
-      maxInput.value = isDate ? toDateInputValue(current.max) : String(current.max);
+      maxInput.value = this.formatRangeValue(current.max, meta);
     }
 
     const emit = (preview: boolean): void => {
-      const min = this.readRangeValue(minInput.value, isDate, meta.numberLocale);
-      const max = this.readRangeValue(maxInput.value, isDate, meta.numberLocale);
+      const min = this.readRangeValue(minInput.value, meta);
+      const max = this.readRangeValue(maxInput.value, meta);
       this.callbacks.onFilter(
         index,
         min === null && max === null ? null : { kind: "range", min, max },
@@ -320,8 +315,8 @@ export class FilterPanel {
     };
 
     const syncInputs = (min: number | null, max: number | null): void => {
-      minInput.value = min === null ? "" : isDate ? toDateInputValue(min) : String(min);
-      maxInput.value = max === null ? "" : isDate ? toDateInputValue(max) : String(max);
+      minInput.value = min === null ? "" : this.formatRangeValue(min, meta);
+      maxInput.value = max === null ? "" : this.formatRangeValue(max, meta);
     };
 
     let slider: RangeSlider | null = null;
@@ -329,7 +324,9 @@ export class FilterPanel {
       slider = new RangeSlider({
         binCount: meta.histogram.bins.length,
         integer: meta.type === "integer",
-        isDate,
+        isDate: meta.type === "date",
+        snapMs:
+          meta.type === "datetime" ? 3_600_000 : meta.type === "time" ? 60_000 : undefined,
         symlog: meta.histogram.symlog,
         onInput: (min, max, preview) => {
           syncInputs(min, max);
@@ -351,8 +348,8 @@ export class FilterPanel {
 
     const syncSlider = (): void => {
       slider?.setRange(
-        this.readRangeValue(minInput.value, isDate, meta.numberLocale),
-        this.readRangeValue(maxInput.value, isDate, meta.numberLocale),
+        this.readRangeValue(minInput.value, meta),
+        this.readRangeValue(maxInput.value, meta),
       );
     };
     minInput.addEventListener("input", () => {
@@ -480,15 +477,13 @@ export class FilterPanel {
     const parts = [`${meta.stats.distinct.toLocaleString()} distinct`];
     if (meta.stats.nulls > 0) parts.push(`${meta.stats.nulls.toLocaleString()} empty`);
 
-    const numeric =
-      meta.type === "integer" || meta.type === "number" || meta.type === "date";
+    const numeric = isNumericLikeType(meta.type);
     if (numeric && meta.stats.min !== null && meta.stats.max !== null) {
-      const format = (value: number): string =>
-        meta.type === "date" ? toDateInputValue(value) : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      const format = (value: number): string => this.formatRangeValue(value, meta);
       parts.push(`${format(meta.stats.min)} … ${format(meta.stats.max)}`);
       // The fence centre is the column median: show it beside mean on the
       // profile card so skewed columns are not read from the mean alone.
-      if (meta.valueFence !== null && meta.type !== "date") {
+      if (meta.valueFence !== null && !isTemporalType(meta.type)) {
         parts.push(`median ${format(meta.valueFence.center)}`);
       }
     } else if (meta.stats.avgLength !== null) {
@@ -499,13 +494,35 @@ export class FilterPanel {
     return stats;
   }
 
-  private readRangeValue(
-    value: string,
-    isDate: boolean,
-    locale: NumberLocale = "dot",
-  ): number | null {
-    if (value.trim() === "") return null;
-    const parsed = isDate ? parseDate(value) : parseNumber(value, locale);
+  /** Input-friendly text for a bound value of the column's type. */
+  private formatRangeValue(value: number, meta: ColumnMeta): string {
+    switch (meta.type) {
+      case "date":
+        return toDateInputValue(value);
+      case "datetime":
+        return toDateTimeInputValue(value);
+      case "time":
+        return toTimeInputValue(value);
+      case "duration":
+        return formatDurationMs(value);
+      default:
+        return String(value);
+    }
+  }
+
+  private readRangeValue(value: string, meta: ColumnMeta): number | null {
+    const raw = value.trim();
+    if (raw === "") return null;
+    const parsed =
+      meta.type === "date"
+        ? parseDate(raw)
+        : meta.type === "datetime"
+          ? fromDateTimeInputValue(raw)
+          : meta.type === "time"
+            ? parseTimeOfDay(raw)
+            : meta.type === "duration"
+              ? parseDuration(raw)
+              : parseNumber(raw, meta.numberLocale);
     return Number.isFinite(parsed) ? parsed : null;
   }
 }

@@ -1,11 +1,16 @@
 import type { Delimiter } from "../parse/delimiter.js";
 import type { NumberLocale } from "../parse/numbers.js";
+import type { TimeGrain, ViewDef } from "../data/aggregate.js";
+import type { PairOperator } from "../data/pair-checks.js";
 import type { ChartBinOptions } from "../data/chart-bins.js";
 import type { SeriesMode } from "../data/chart-series.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { TransformOp } from "../data/transform-ops.js";
 import type { ColumnType } from "../types.js";
 import type {
+  AggregateMessage,
+  AnimationChart,
+  AnimationMessage,
   BoxStatsMessage,
   ChartBinsMessage,
   ChartSeriesMessage,
@@ -14,22 +19,32 @@ import type {
   CleanedMessage,
   CleanPreviewMessage,
   CleanUpdate,
+  CoMissingnessMessage,
   ColumnMetaMessage,
   CsvChunkMessage,
+  DependenciesMessage,
+  DistributionChangesMessage,
+  GridCountsMessage,
+  KeyDuplicatesMessage,
+  PairCheckMessage,
+  SimilarClustersMessage,
   ExportOptions,
   ExportScope,
   ExportStartedMessage,
+  GroupAnomaliesMessage,
   GroupedBinsMessage,
   HeadersRenamedMessage,
   LoadedMessage,
   MissingnessMessage,
   ProgressMessage,
+  RelationshipsMessage,
   ResultsMessage,
   RowsMessage,
   ShuffledMessage,
   SortedMessage,
   SpecialKind,
   StatsMessage,
+  TextProfileMessage,
   TransformedMessage,
   TransformPreviewMessage,
   WorkerRequest,
@@ -51,24 +66,54 @@ export interface LoadOptions {
   text?: string;
   buffer?: ArrayBuffer;
   table?: { rows: string[][]; hasHeaders: boolean };
+  /** Parse only the first N rows (safe path for very large files). */
+  maxRows?: number;
+}
+
+/** The user cancelled an in-flight load; the dataset is unchanged. */
+export class LoadCancelledError extends Error {
+  constructor() {
+    super("Import cancelled");
+    this.name = "LoadCancelledError";
+  }
 }
 
 export class SearchWorkerClient {
-  private readonly worker: Worker;
+  private worker: Worker;
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;
   private progressHandler: ((message: ProgressMessage) => void) | null = null;
+  private crashHandler: (() => void) | null = null;
+  /** The load whose progress the UI may show; prevents stale-load flicker. */
+  private currentLoadId: number | null = null;
 
   constructor() {
-    this.worker = new Worker(new URL("../worker/search.worker.ts", import.meta.url), {
+    this.worker = this.spawn();
+  }
+
+  /** Creates (or recreates) the worker and wires its handlers. */
+  private spawn(): Worker {
+    const worker = new Worker(new URL("../worker/search.worker.ts", import.meta.url), {
       type: "module",
     });
-    this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => this.handle(event.data);
-    this.worker.onerror = (event: ErrorEvent) => {
+    worker.onmessage = (event: MessageEvent<WorkerResponse>) => this.handle(event.data);
+    worker.onerror = (event: ErrorEvent) => {
       const error = new Error(event.message === "" ? "Search worker crashed" : event.message);
       for (const pending of this.pending.values()) pending.reject(error);
       this.pending.clear();
+      this.currentLoadId = null;
+      // An out-of-memory file kills the worker with all its data. Restart it
+      // so the next load works, and let the app explain what happened.
+      worker.terminate();
+      this.worker = this.spawn();
+      this.crashHandler?.();
     };
+    return worker;
+  }
+
+  /** Called once after a worker crash and restart (e.g. browser OOM). */
+  onCrash(handler: () => void): void {
+    this.crashHandler = handler;
   }
 
   onProgress(handler: (message: ProgressMessage) => void): void {
@@ -77,7 +122,20 @@ export class SearchWorkerClient {
 
   load(options: LoadOptions): Promise<LoadedMessage> {
     const transfer = options.buffer === undefined ? [] : [options.buffer];
-    return this.request<LoadedMessage>({ type: "load", ...options }, transfer);
+    const requestId = this.nextId++;
+    return new Promise<LoadedMessage>((resolve, reject) => {
+      this.pending.set(requestId, {
+        resolve: resolve as (value: WorkerResponse) => void,
+        reject,
+      });
+      this.currentLoadId = requestId;
+      this.worker.postMessage({ type: "load", ...options, requestId } as WorkerRequest, transfer);
+    });
+  }
+
+  /** Stops the in-flight load at its next checkpoint; the dataset is unchanged. */
+  cancelLoad(): void {
+    this.worker.postMessage({ type: "cancelLoad" } as WorkerRequest);
   }
 
   setFilter(
@@ -152,6 +210,7 @@ export class SearchWorkerClient {
     sizeColumn?: number;
     mode: SeriesMode;
     limit?: number;
+    clip?: boolean;
   }): Promise<ChartSeriesMessage> {
     return this.request<ChartSeriesMessage>({ type: "getChartSeries", ...input });
   }
@@ -177,6 +236,82 @@ export class SearchWorkerClient {
 
   getCorrelation(columns: number[]): Promise<CorrelationMessage> {
     return this.request<CorrelationMessage>({ type: "getCorrelation", columns });
+  }
+
+  getAggregate(view: ViewDef): Promise<AggregateMessage> {
+    return this.request<AggregateMessage>({ type: "getAggregate", view });
+  }
+
+  getCoMissingness(): Promise<CoMissingnessMessage> {
+    return this.request<CoMissingnessMessage>({ type: "getCoMissingness" });
+  }
+
+  getGroupAnomalies(): Promise<GroupAnomaliesMessage> {
+    return this.request<GroupAnomaliesMessage>({ type: "getGroupAnomalies" });
+  }
+
+  getDependencies(): Promise<DependenciesMessage> {
+    return this.request<DependenciesMessage>({ type: "getDependencies" });
+  }
+
+  checkKeyDuplicates(columns: number[]): Promise<KeyDuplicatesMessage> {
+    return this.request<KeyDuplicatesMessage>({ type: "checkKeyDuplicates", columns });
+  }
+
+  checkPair(input: {
+    columnA: number;
+    columnB: number;
+    operator: PairOperator;
+    tolerance?: number;
+  }): Promise<PairCheckMessage> {
+    return this.request<PairCheckMessage>({ type: "checkPair", ...input });
+  }
+
+  getRelationships(): Promise<RelationshipsMessage> {
+    return this.request<RelationshipsMessage>({ type: "getRelationships" });
+  }
+
+  getTextProfile(column: number, limit?: number): Promise<TextProfileMessage> {
+    return this.request<TextProfileMessage>({ type: "getTextProfile", column, limit });
+  }
+
+  getDistributionChanges(): Promise<DistributionChangesMessage> {
+    return this.request<DistributionChangesMessage>({ type: "getDistributionChanges" });
+  }
+
+  getSimilarClusters(): Promise<SimilarClustersMessage> {
+    return this.request<SimilarClustersMessage>({ type: "getSimilarClusters" });
+  }
+
+  getGridCounts(
+    xColumn: number,
+    yColumn: number,
+    bins?: number,
+    measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
+    groupColumn?: number,
+  ): Promise<GridCountsMessage> {
+    return this.request<GridCountsMessage>({
+      type: "getGridCounts",
+      xColumn,
+      yColumn,
+      bins,
+      measure,
+      groupColumn,
+    });
+  }
+
+  getAnimation(input: {
+    timeColumn: number;
+    grain: TimeGrain;
+    chart: AnimationChart;
+    column: number;
+    yColumn: number;
+    bins?: number;
+    topN?: number;
+    measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
+    groupColumn?: number;
+  }): Promise<AnimationMessage> {
+    return this.request<AnimationMessage>({ type: "getAnimation", ...input });
   }
 
   renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {
@@ -236,13 +371,26 @@ export class SearchWorkerClient {
 
   private handle(message: WorkerResponse): void {
     if (message.type === "progress") {
+      // Drop progress from an earlier load so a cancelled import cannot keep
+      // painting the panel after the next one started.
+      if (message.requestId !== undefined && message.requestId !== this.currentLoadId) return;
       this.progressHandler?.(message);
       return;
     }
     const pending = this.pending.get(message.requestId);
     if (pending === undefined) return;
     this.pending.delete(message.requestId);
-    if (message.type === "error") pending.reject(new Error(message.message));
-    else pending.resolve(message);
+    if (message.type === "loadCancelled") {
+      if (this.currentLoadId === message.requestId) this.currentLoadId = null;
+      pending.reject(new LoadCancelledError());
+    } else if (message.type === "error") {
+      if (this.currentLoadId === message.requestId) this.currentLoadId = null;
+      pending.reject(new Error(message.message));
+    } else {
+      if (this.currentLoadId === message.requestId && message.type === "loaded") {
+        this.currentLoadId = null;
+      }
+      pending.resolve(message);
+    }
   }
 }

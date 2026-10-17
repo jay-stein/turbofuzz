@@ -1,19 +1,27 @@
 import { BitSet } from "../search/bitset.js";
 import { FuzzyIndex } from "../search/fuzzy-index.js";
 import { normalize } from "../search/normalize.js";
-import { detectDateOrder, parseDate, type DateOrder } from "../parse/dates.js";
+import {
+  classifyDateValue,
+  detectDateOrder,
+  parseDate,
+  parseDuration,
+  parseTimeOfDay,
+  type DateOrder,
+} from "../parse/dates.js";
 import {
   inferColumnType,
   stratifiedSample,
   type ColumnStats,
   type InferredType,
+  type TypeDowngrade,
 } from "../parse/infer.js";
 import { isNullWithPolicy, EMPTY_NULL_POLICY, type NullPolicy } from "../parse/null-tokens.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { detectSuggestions, type ColumnSuggestion } from "./suggestions.js";
 import { symlog } from "./symlog.js";
 import { valueLength } from "../parse/value-length.js";
-import type { ColumnType } from "../types.js";
+import { isNumericLikeType, type ColumnType } from "../types.js";
 
 export interface NullTokenCount {
   label: string;
@@ -86,7 +94,11 @@ export class ColumnData {
   type: ColumnType;
   dateOrder: DateOrder;
   numberLocale: NumberLocale;
+  /** A datetime column whose source values carried explicit zone offsets. */
+  timeZoneAware = false;
   suggestions: ColumnSuggestion[] = [];
+  /** Near-miss richer type for a text fallback (null once typed manually). */
+  typeDowngrade: TypeDowngrade | null = null;
   readonly stats: ColumnStats;
   readonly nullMask: BitSet;
 
@@ -140,11 +152,10 @@ export class ColumnData {
     const sample = stratifiedSample(raw, 1000);
 
     // A cheap sample-only inference decides whether exact counts are needed:
-    // numeric/date columns display a histogram, not top values, so a plain
+    // numeric/temporal columns display a histogram, not top values, so a plain
     // distinct Set is enough and saves two hash lookups per cell.
-    const pre = preInfer(sample, nullPolicy, numberPrior);
-    const collectCounts =
-      pre.type !== "integer" && pre.type !== "number" && pre.type !== "date";
+    const pre = preInfer(sample, nullPolicy, numberPrior, name);
+    const collectCounts = !isNumericLikeType(pre.type);
 
     const counts = collectCounts ? new Map<string, number>() : null;
     const distinct = counts === null ? new Set<string>() : null;
@@ -199,6 +210,7 @@ export class ColumnData {
       raw.length,
       (value) => isNullWithPolicy(value, nullPolicy),
       numberPrior,
+      name,
     );
     const nullTokens = [...nullCounts.entries()]
       .map(([label, count]) => ({ label, count }))
@@ -215,6 +227,8 @@ export class ColumnData {
       inferred.numberLocale ?? numberPrior,
     );
     column.suggestions = detectSuggestions(raw, inferred.type, nullPolicy, column.numberLocale);
+    column.timeZoneAware = inferred.timeZoneAware ?? false;
+    column.typeDowngrade = inferred.downgrade ?? null;
     return column;
   }
 
@@ -230,6 +244,7 @@ export class ColumnData {
   setType(type: ColumnType, lock = false): void {
     this.type = type;
     this.typeLocked = lock;
+    this.typeDowngrade = null;
     this.nums = null;
     this.cats = null;
     this.stats.min = null;
@@ -239,8 +254,14 @@ export class ColumnData {
     this.medianValue = null;
     this.medianComputed = false;
     this.histCache = null;
-    if (type === "date") {
-      this.dateOrder = detectDateOrder(stratifiedSample(this.raw, 500));
+    if (type === "date" || type === "datetime") {
+      const sample = stratifiedSample(this.raw, 500);
+      this.dateOrder = detectDateOrder(sample);
+      this.timeZoneAware =
+        type === "datetime" &&
+        sample.some((value) => classifyDateValue(value, this.dateOrder)?.hasOffset === true);
+    } else {
+      this.timeZoneAware = false;
     }
   }
 
@@ -280,7 +301,6 @@ export class ColumnData {
 
   numbers(): Float64Array {
     if (this.nums === null) {
-      const isDate = this.type === "date";
       const checkPolicy = this.nullPolicy.extra.size > 0;
       const out = new Float64Array(this.raw.length);
       let min = Infinity;
@@ -297,9 +317,7 @@ export class ColumnData {
         const parsed =
           checkPolicy && this.isNull(value)
             ? NaN
-            : isDate
-              ? parseDate(value, this.dateOrder)
-              : parseNumber(value, this.numberLocale);
+            : parseColumnNumber(this.type, value, this.dateOrder, this.numberLocale);
         out[i] = parsed;
         if (Number.isFinite(parsed)) {
           if (parsed < min) min = parsed;
@@ -334,14 +352,13 @@ export class ColumnData {
   }
 
   /**
-   * Baseline histogram for numeric/date columns. The linear chart range is
-   * clipped to p1–p99 (extreme values are reported via `below`/`above`), and
-   * columns whose span dwarfs their IQR switch to a signed-log axis so the
-   * bulk of the data is not crushed into a single bin.
+   * Baseline histogram for numeric and temporal columns. The linear chart
+   * range is clipped to p1–p99 (extreme values are reported via
+   * `below`/`above`), and columns whose span dwarfs their IQR switch to a
+   * signed-log axis so the bulk of the data is not crushed into a single bin.
    */
   histogram(binCount = 64): HistogramData | null {
-    const numeric = this.type === "integer" || this.type === "number" || this.type === "date";
-    if (!numeric) return null;
+    if (!isNumericLikeType(this.type)) return null;
     if (this.histCache !== null && this.histCache.bins.length === binCount) return this.histCache;
 
     const numbers = this.numbers();
@@ -497,11 +514,32 @@ export class ColumnData {
   }
 }
 
+/** Parses a cell into the number space of its column type. */
+function parseColumnNumber(
+  type: ColumnType,
+  value: string,
+  order: DateOrder,
+  locale: NumberLocale,
+): number {
+  switch (type) {
+    case "date":
+    case "datetime":
+      return parseDate(value, order);
+    case "time":
+      return parseTimeOfDay(value);
+    case "duration":
+      return parseDuration(value);
+    default:
+      return parseNumber(value, locale);
+  }
+}
+
 /** Sample-only guess used to pick the cheaper ingest path. */
 function preInfer(
   sample: readonly string[],
   policy: NullPolicy,
   numberPrior: NumberLocale,
+  name: string,
 ): InferredType {
   let nulls = 0;
   const seen = new Set<string>();
@@ -532,5 +570,6 @@ function preInfer(
     sample.length,
     (value) => isNullWithPolicy(value, policy),
     numberPrior,
+    name,
   );
 }
