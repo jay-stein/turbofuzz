@@ -11,6 +11,11 @@ export const VIEW_ORDER: readonly ViewId[] = [
   "reports",
 ];
 
+/** Hint text derived from the tabs actually available, not a hardcoded range. */
+export function viewSwitchHint(): string {
+  return `switch anytime with 1–${VIEW_ORDER.length}`;
+}
+
 const LABELS: Record<ViewId, { label: string; title: string }> = {
   overview: {
     label: "Overview",

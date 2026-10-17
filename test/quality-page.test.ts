@@ -98,6 +98,26 @@ test("the Data Quality page shows the score, dims, fixes and matrix", () => {
     (host.querySelector(".qp-fact-label")?.textContent ?? "").includes("rows"),
     "facts start with rows",
   );
+  assert.equal(
+    host.querySelector(".qp-scope")?.textContent,
+    "Whole dataset (100 rows)",
+    "the page states its row scope",
+  );
+  const explanation = host.querySelector(".qp-explain")?.textContent ?? "";
+  assert.match(explanation, /Completeness/);
+  assert.match(explanation, /Adjust weights/);
+  const contributions = [...explanation.matchAll(/\+(\d+\.\d)/g)].map((match) =>
+    Number(match[1]),
+  );
+  const contributionTotal = contributions.reduce((sum, value) => sum + value, 0);
+  assert.ok(
+    Math.abs(contributionTotal - Number(ring)) < 0.15,
+    `contributions ${contributionTotal} add up to ${ring}`,
+  );
+  const matrixTitle = [...host.querySelectorAll(".qp-section-title")].find((title) =>
+    (title.textContent ?? "").includes("by column"),
+  );
+  assert.match(matrixTitle?.textContent ?? "", /Completeness & Validity by column/);
 
   // What to fix first: the email completeness check (50 of 100 empty) leads —
   // weight 30 over a weight sum of 75 → +20.0 points.
@@ -158,6 +178,92 @@ test("show only issues hides passing checks and matrix rows", () => {
   assert.equal(rowsAfter, 1, "only the failing email-style check stays");
   const matrixRows = host.querySelectorAll(".quality-matrix-table tr").length;
   assert.equal(matrixRows, 2, "header + the dirty column only");
+});
+
+test("filtered table scope is shown separately from the dataset scope", () => {
+  const window = setupDom();
+  const columns = [meta({ name: "city" })];
+  const score = computeDQScore(columns, stats(), 100);
+  const host = window.document.createElement("div");
+  const page = new QualityPage(host as unknown as HTMLElement, {
+    onFilter: () => {},
+    onExport: () => Promise.resolve(true),
+  });
+  page.render({
+    score,
+    rowCount: 100,
+    visibleRowCount: 40,
+    stats: stats(),
+    columnNames: ["city"],
+  });
+  assert.match(
+    host.querySelector(".qp-scope")?.textContent ?? "",
+    /Whole dataset \(100 rows\).*Current rows: 40 of 100/,
+  );
+});
+
+test("the empty Data Quality state explains the six dimensions", () => {
+  const window = setupDom();
+  const host = window.document.createElement("div");
+  const page = new QualityPage(host as unknown as HTMLElement, {
+    onFilter: () => {},
+    onExport: () => Promise.resolve(true),
+  });
+  page.render(null);
+  const text = host.textContent ?? "";
+  assert.match(text, /Data quality at a glance/);
+  for (const dimension of [
+    "Completeness",
+    "Validity",
+    "Uniqueness",
+    "Consistency",
+    "Timeliness",
+    "Accuracy",
+  ]) {
+    assert.match(text, new RegExp(dimension));
+  }
+  assert.equal(host.querySelectorAll(".qp-empty-definitions li").length, 6);
+});
+
+test("the score explanation link opens the existing settings panel", () => {
+  const window = setupDom();
+  const host = window.document.createElement("div");
+  const page = new QualityPage(host as unknown as HTMLElement, {
+    onFilter: () => {},
+    onExport: () => Promise.resolve(true),
+  });
+  page.render({
+    score: computeDQScore([meta({ name: "city" })], stats(), 100),
+    rowCount: 100,
+    stats: stats(),
+    columnNames: ["city"],
+  });
+  assert.ok(
+    (host.querySelector(".qp-settings") as unknown as HTMLElement).classList.contains("hidden"),
+    "settings start hidden",
+  );
+  (host.querySelector(".qp-weight-link") as unknown as { click(): void }).click();
+  assert.ok(
+    !(host.querySelector(".qp-settings") as unknown as HTMLElement).classList.contains("hidden"),
+    "the link opens settings",
+  );
+});
+
+test("a What-to-fix-first row is clickable as a whole", () => {
+  const window = setupDom();
+  const columns = [meta({ name: "email", stats: { ...meta().stats, nulls: 50 } })];
+  const score = computeDQScore(columns, stats(), 100);
+  const host = window.document.createElement("div");
+  const filters: string[] = [];
+  const page = new QualityPage(host as unknown as HTMLElement, {
+    onFilter: (check) => filters.push(check.id),
+    onExport: () => Promise.resolve(true),
+  });
+  page.render({ score, rowCount: 100, stats: stats(), columnNames: ["email"] });
+  const row = host.querySelector(".qp-fix-clickable") as unknown as { click(): void };
+  assert.ok(row !== null);
+  row.click();
+  assert.equal(filters.length, 1, "clicking the row runs its check action");
 });
 
 test("a downgrade check converts the column in one click", () => {

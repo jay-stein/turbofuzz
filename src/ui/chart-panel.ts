@@ -23,6 +23,7 @@ import {
   type KindFit,
 } from "./chart-gallery.js";
 import { openChartSetupDialog } from "./chart-setup.js";
+import { openConfirm } from "./dialog.js";
 import {
   CHART_KIND_LABELS,
   DEFAULT_EXPORT_SIZE,
@@ -124,7 +125,15 @@ export interface NamedChartCardConfig
   sizeColumn: string | null;
   groupColumn: string | null;
   correlationColumns: string[];
+  /** Required columns that no longer exist in the table. */
+  missingColumns?: string[];
 }
+
+export type RestoredChartConfig = Partial<ChartCardConfig> & {
+  missingColumns?: string[];
+  /** Original named config, retained for orphaned entries. */
+  namedConfig?: NamedChartCardConfig;
+};
 
 export function configToNames(
   config: ChartCardConfig,
@@ -146,63 +155,114 @@ export function configToNames(
   };
 }
 
+function missingRequiredColumns(
+  named: NamedChartCardConfig,
+  indexOfName: ReadonlyMap<string, number>,
+): string[] {
+  const missing: string[] = [];
+  const require = (name: string | null): void => {
+    if (name !== null && !indexOfName.has(name)) missing.push(name);
+  };
+  if (isPairKind(named.kind)) {
+    require(named.x);
+    require(named.y);
+  } else if (named.kind === "correlation") {
+    const remaining = named.correlationColumns.filter((name) => indexOfName.has(name));
+    if (remaining.length < 2) {
+      const gone = named.correlationColumns.filter((name) => !indexOfName.has(name));
+      if (gone.length > 0) missing.push(...gone);
+    }
+  } else {
+    require(named.column);
+  }
+  return missing;
+}
+
 /**
  * Maps saved card configs onto new column indexes by name. Cards whose
- * required columns are gone (deleted or renamed) are dropped and counted;
+ * required columns are gone become orphaned entries instead of disappearing;
  * a correlation card survives while at least two of its columns remain.
  */
 export function remapChartConfigs(
   configs: readonly NamedChartCardConfig[],
   columns: readonly ColumnMeta[],
 ): {
+  /** Successfully mapped configs only, retained for compatibility. */
   configs: Partial<ChartCardConfig>[];
+  /** Successfully mapped configs by name. */
   kept: NamedChartCardConfig[];
+  /** Configs that could not be mapped and need a rebind. */
+  orphaned: NamedChartCardConfig[];
+  /** All configs in original order, including orphaned entries. */
+  entries: RestoredChartConfig[];
+  /** All configs by name in original order, including orphaned entries. */
+  named: NamedChartCardConfig[];
+  /** Number of orphaned configs. */
   removed: number;
 } {
   const indexOfName = new Map<string, number>();
   columns.forEach((meta, index) => indexOfName.set(meta.name, index));
   const out: Partial<ChartCardConfig>[] = [];
   const kept: NamedChartCardConfig[] = [];
-  let removed = 0;
+  const orphaned: NamedChartCardConfig[] = [];
+  const entries: RestoredChartConfig[] = [];
+  const namedOut: NamedChartCardConfig[] = [];
 
   for (const named of configs) {
     const column = named.column === null ? -1 : indexOfName.get(named.column);
     const x = named.x === null ? -1 : indexOfName.get(named.x);
     const y = named.y === null ? -1 : indexOfName.get(named.y);
-    const needsPrimary = !isPairKind(named.kind) && named.kind !== "correlation";
-    if (needsPrimary && named.column !== null && column === undefined) {
-      removed++;
-      continue;
-    }
-    if (
-      isPairKind(named.kind) &&
-      ((named.x !== null && x === undefined) || (named.y !== null && y === undefined))
-    ) {
-      removed++;
-      continue;
-    }
     const correlationColumns = named.correlationColumns
       .map((name) => indexOfName.get(name))
       .filter((index): index is number => index !== undefined);
-    if (named.kind === "correlation" && correlationColumns.length < 2) {
-      removed++;
+    const missingColumns = missingRequiredColumns(named, indexOfName);
+    if (missingColumns.length > 0) {
+      const orphan = { ...named, missingColumns };
+      orphaned.push(orphan);
+      namedOut.push(orphan);
+      entries.push({
+        ...named,
+        column: column ?? -1,
+        x: x ?? -1,
+        y: y ?? -1,
+        colorColumn:
+          named.colorColumn === null ? -1 : (indexOfName.get(named.colorColumn) ?? -1),
+        sizeColumn:
+          named.sizeColumn === null ? -1 : (indexOfName.get(named.sizeColumn) ?? -1),
+        groupColumn:
+          named.groupColumn === null ? -1 : (indexOfName.get(named.groupColumn) ?? -1),
+        correlationColumns,
+        missingColumns,
+        namedConfig: orphan,
+      });
       continue;
     }
-    kept.push(named);
-    out.push({
-      ...named,
+    const clean = { ...named, missingColumns: undefined };
+    kept.push(clean);
+    namedOut.push(clean);
+    const mapped = {
+      ...clean,
       column: column ?? -1,
       x: x ?? -1,
       y: y ?? -1,
       colorColumn:
-        named.colorColumn === null ? -1 : (indexOfName.get(named.colorColumn) ?? -1),
-      sizeColumn: named.sizeColumn === null ? -1 : (indexOfName.get(named.sizeColumn) ?? -1),
+        clean.colorColumn === null ? -1 : (indexOfName.get(clean.colorColumn) ?? -1),
+      sizeColumn: clean.sizeColumn === null ? -1 : (indexOfName.get(clean.sizeColumn) ?? -1),
       groupColumn:
-        named.groupColumn === null ? -1 : (indexOfName.get(named.groupColumn) ?? -1),
+        clean.groupColumn === null ? -1 : (indexOfName.get(clean.groupColumn) ?? -1),
       correlationColumns,
-    });
+    };
+    out.push(mapped);
+    entries.push(mapped);
   }
-  return { configs: out, kept, removed };
+  return {
+    configs: out,
+    kept,
+    orphaned,
+    entries,
+    named: namedOut,
+    removed: orphaned.length,
+  };
 }
 
 function indexesWhere(columns: ColumnMeta[], allow: (meta: ColumnMeta) => boolean): number[] {
@@ -277,6 +337,10 @@ function readLayout(): number {
   return DEFAULT_LAYOUT;
 }
 
+type ChartEntry =
+  | { type: "card"; card: ChartCard }
+  | { type: "orphan"; root: HTMLElement; named: NamedChartCardConfig };
+
 /**
  * The Chart view: a toolbar (add chart, columns per row, PNG export size) and
  * a responsive grid of independent ChartCards. Every card keeps its own type,
@@ -292,12 +356,13 @@ export class ChartsPanel {
   private railCollapsed = readRailCollapsed();
   private readonly layoutSelect: HTMLSelectElement;
   private readonly sizeSelect: HTMLSelectElement;
-  private cards: ChartCard[] = [];
+  private entries: ChartEntry[] = [];
   private columns: ColumnMeta[] = [];
   private sources: { id: string; name: string }[] = [];
   private facets: Record<number, number[]> = {};
   private histograms: Record<number, number[]> = {};
   private rowCount = 0;
+  private totalRowCount = 0;
   private exportSizeIndex = DEFAULT_EXPORT_SIZE;
   private layoutCols = readLayout();
   /** True while the add-chart setup dialog is open (guards double adds). */
@@ -406,11 +471,20 @@ export class ChartsPanel {
       const icon = el("span", { class: "charts-rail-icon" });
       icon.innerHTML = `<svg viewBox="0 0 72 48" aria-hidden="true">${CHART_KIND_ICONS[kind]}</svg>`;
       tile.append(icon, el("span", { class: "charts-rail-label" }, [CHART_KIND_LABELS[kind]]));
-      tile.disabled = !fit.ok;
+      tile.setAttribute("aria-disabled", fit.ok ? "false" : "true");
       tile.title = fit.ok
         ? `Add a ${CHART_KIND_LABELS[kind].toLowerCase()} chart`
         : `${CHART_KIND_LABELS[kind]} — ${fit.reason}`;
+      if (!fit.ok) {
+        const reason = el("span", {
+          class: "sr-only",
+          id: `chart-rail-reason-${kind}`,
+        }, [fit.reason]);
+        tile.append(reason);
+        tile.setAttribute("aria-describedby", reason.id);
+      }
       tile.addEventListener("click", () => {
+        if (!fit.ok) return;
         void this.openChartSetup(fit.preset);
       });
       this.railList.append(tile);
@@ -458,10 +532,16 @@ export class ChartsPanel {
       : "Collapse to icons";
   }
 
-  addCard(preset?: Partial<ChartCardConfig>): ChartCard {
+  private cards(): ChartCard[] {
+    return this.entries
+      .filter((entry): entry is { type: "card"; card: ChartCard } => entry.type === "card")
+      .map((entry) => entry.card);
+  }
+
+  addCard(preset?: Partial<ChartCardConfig>, before?: HTMLElement | null): ChartCard {
     const used = new Set<number>();
     const kinds = new Set<ChartCardKind>();
-    for (const existing of this.cards) {
+    for (const existing of this.cards()) {
       for (const index of existing.usedColumns()) used.add(index);
       kinds.add(existing.getConfig().kind);
     }
@@ -494,12 +574,27 @@ export class ChartsPanel {
       },
       preset ?? presetFor(this.columns, used, kinds, this.rowCount),
     );
-    this.cards.push(card);
-    this.grid.append(section);
+    const entry: ChartEntry = { type: "card", card };
+    const beforeIndex =
+      before === undefined || before === null
+        ? -1
+        : this.entries.findIndex((candidate) =>
+            candidate.type === "orphan"
+              ? candidate.root === before
+              : candidate.card.root === before,
+          );
+    if (beforeIndex >= 0 && before !== undefined && before !== null) {
+      this.entries.splice(beforeIndex, 0, entry);
+      this.grid.insertBefore(section, before);
+    } else {
+      this.entries.push(entry);
+      this.grid.append(section);
+    }
     card.setColumns(this.columns);
     card.setSources(this.sources);
     card.setFiltered(this.facets, this.histograms);
     card.setRowCount(this.rowCount);
+    card.setTotalRowCount(this.totalRowCount);
     if (card.getConfig().source !== "") card.refreshView();
     this.syncEmpty();
     return card;
@@ -508,7 +603,7 @@ export class ChartsPanel {
   /** Sources every card can bind to: the filtered table plus each saved view. */
   setSources(sources: { id: string; name: string }[]): void {
     this.sources = sources;
-    for (const card of this.cards) card.setSources(sources);
+    for (const card of this.cards()) card.setSources(sources);
   }
 
   /** "Chart this" from the Views lens: a card bound to the view's result. */
@@ -517,9 +612,11 @@ export class ChartsPanel {
   }
 
   removeCard(card: ChartCard): void {
-    const index = this.cards.indexOf(card);
+    const index = this.entries.findIndex(
+      (entry) => entry.type === "card" && entry.card === card,
+    );
     if (index < 0) return;
-    this.cards.splice(index, 1);
+    this.entries.splice(index, 1);
     card.dispose();
     card.root.remove();
     this.syncEmpty();
@@ -534,29 +631,121 @@ export class ChartsPanel {
     this.syncRail();
     if (!this.initialised) {
       this.initialised = true;
-      if (columns.length > 0 && this.cards.length === 0) {
+      if (columns.length > 0 && this.entries.length === 0) {
         this.addCard();
         return;
       }
     }
-    for (const card of this.cards) card.setColumns(columns);
+    for (const card of this.cards()) card.setColumns(columns);
+    this.syncEmpty();
   }
 
-  /** Snapshots every card with its columns stored by name. */
+  /** Snapshots every entry with its columns stored by name. */
   captureConfigs(): NamedChartCardConfig[] {
-    return this.cards.map((card) => configToNames(card.getConfig(), this.columns));
+    return this.entries.map((entry) =>
+      entry.type === "orphan" ? entry.named : configToNames(entry.card.getConfig(), this.columns),
+    );
   }
 
   /**
    * Rebuilds the grid from saved configs (already remapped to indexes). Unlike
    * setColumns this never adds a default card, so a grid the user emptied
-   * stays empty.
+   * stays empty. Entries with unresolved columns render as orphaned cards.
    */
-  restore(configs: readonly Partial<ChartCardConfig>[], columns: ColumnMeta[]): void {
+  restore(configs: readonly RestoredChartConfig[], columns: ColumnMeta[]): void {
     this.columns = columns;
     this.initialised = true;
     this.syncRail();
-    for (const config of configs) this.addCard(config);
+    for (const config of configs) {
+      if ((config.missingColumns?.length ?? 0) > 0) {
+        this.addOrphan(config.namedConfig ?? (config as unknown as NamedChartCardConfig));
+      } else {
+        this.addCard(config);
+      }
+    }
+    this.syncEmpty();
+  }
+
+  private addOrphan(named: NamedChartCardConfig): void {
+    const missing = named.missingColumns ?? [];
+    const section = el("section", { class: "chart-card chart-card-orphan" });
+    const names =
+      missing.length === 1
+        ? `Column “${missing[0]}” is`
+        : `Columns ${missing.map((name) => `“${name}”`).join(", ")} are`;
+    const body = el("div", { class: "chart-card-orphan-body" }, [
+      el("div", { class: "chart-card-orphan-title" }, ["Chart needs a column"]),
+      el("p", {}, [`${names} no longer in this table.`]),
+      el("p", { class: "chart-card-orphan-hint" }, [
+        "Rebind it to another column or remove it. The card stays here until you choose.",
+      ]),
+    ]);
+    const actions = el("div", { class: "chart-card-orphan-actions" });
+    const rebind = el("button", { class: "primary small", type: "button" }, ["Rebind"]) as HTMLButtonElement;
+    rebind.addEventListener("click", () => void this.rebindOrphan(section, named));
+    const remove = el("button", { class: "ghost small", type: "button" }, ["Remove"]) as HTMLButtonElement;
+    remove.addEventListener("click", () => void this.removeOrphan(section));
+    actions.append(rebind, remove);
+    body.append(actions);
+    section.append(body);
+    this.entries.push({ type: "orphan", root: section, named });
+    this.grid.append(section);
+  }
+
+  private async rebindOrphan(root: HTMLElement, named: NamedChartCardConfig): Promise<void> {
+    if (this.setupOpen) return;
+    this.setupOpen = true;
+    const indexByName = new Map(this.columns.map((meta, index) => [meta.name, index]));
+    const index = (name: string | null): number =>
+      name === null ? -1 : (indexByName.get(name) ?? -1);
+    const preset: Partial<ChartCardConfig> = {
+      kind: named.kind,
+      source: named.source,
+      title: named.title,
+      column: index(named.column),
+      x: index(named.x),
+      y: index(named.y),
+      colorColumn: index(named.colorColumn),
+      sizeColumn: index(named.sizeColumn),
+      groupColumn: index(named.groupColumn),
+      correlationColumns: named.correlationColumns
+        .map((name) => indexByName.get(name))
+        .filter((value): value is number => value !== undefined),
+    };
+    try {
+      const config = await openChartSetupDialog(named.kind, this.columns, preset);
+      if (config === null) return;
+      const next = root.nextSibling as HTMLElement | null;
+      const entryIndex = this.entries.findIndex(
+        (entry) => entry.type === "orphan" && entry.root === root,
+      );
+      if (entryIndex < 0) return;
+      this.entries.splice(entryIndex, 1);
+      root.remove();
+      const card = this.addCard(config, next);
+      card.root.classList.add("chart-card-new");
+      window.setTimeout(() => card.root.classList.remove("chart-card-new"), 1500);
+      this.options.onCardAdded?.(CHART_KIND_LABELS[card.getConfig().kind]);
+    } finally {
+      this.setupOpen = false;
+    }
+  }
+
+  private async removeOrphan(root: HTMLElement): Promise<void> {
+    const confirmed = await openConfirm({
+      title: "Remove this chart?",
+      body: "The chart could not find its column. Removing it cannot be undone.",
+      confirmLabel: "Remove chart",
+      danger: true,
+    });
+    if (!confirmed) return;
+    const index = this.entries.findIndex(
+      (entry) => entry.type === "orphan" && entry.root === root,
+    );
+    if (index < 0) return;
+    this.entries.splice(index, 1);
+    root.remove();
+    this.syncEmpty();
   }
 
   setFiltered(
@@ -565,26 +754,31 @@ export class ChartsPanel {
   ): void {
     this.facets = facets;
     this.histograms = histograms;
-    for (const card of this.cards) card.setFiltered(facets, histograms);
+    for (const card of this.cards()) card.setFiltered(facets, histograms);
   }
 
   setRowCount(count: number): void {
     this.rowCount = count;
-    for (const card of this.cards) card.setRowCount(count);
+    for (const card of this.cards()) card.setRowCount(count);
+  }
+
+  setTotalRowCount(count: number): void {
+    this.totalRowCount = count;
+    for (const card of this.cards()) card.setTotalRowCount(count);
   }
 
   refresh(): void {
-    for (const card of this.cards) card.refresh();
+    for (const card of this.cards()) card.refresh();
   }
 
   /** Cheap re-entry: repaint without re-requesting any worker payloads. */
   repaint(): void {
-    for (const card of this.cards) card.repaint();
+    for (const card of this.cards()) card.repaint();
   }
 
   dispose(): void {
-    for (const card of this.cards) card.dispose();
-    this.cards = [];
+    for (const card of this.cards()) card.dispose();
+    this.entries = [];
   }
 
   private syncLayout(): void {
@@ -597,8 +791,43 @@ export class ChartsPanel {
   }
 
   private syncEmpty(): void {
-    const isEmpty = this.cards.length === 0;
+    const isEmpty = this.entries.length === 0;
     this.empty.classList.toggle("hidden", !isEmpty);
     this.grid.classList.toggle("hidden", isEmpty);
+    if (!isEmpty) return;
+    this.empty.replaceChildren();
+    if (this.columns.length === 0) {
+      this.empty.append(
+        el("p", {}, ["No charts yet — load data to see chart types that fit its columns."]),
+      );
+      return;
+    }
+    this.empty.append(el("div", { class: "charts-empty-title" }, ["Start with a chart"]));
+    const suggestions = el("div", { class: "charts-empty-suggestions" });
+    let added = 0;
+    for (const kind of GALLERY_KINDS) {
+      if (added >= 3) break;
+      const fit = fitChartKind(kind, this.columns, this.rowCount);
+      if (!fit.ok) continue;
+      const button = el(
+        "button",
+        {
+          class: "ghost small",
+          type: "button",
+          title: fit.reason,
+        },
+        [CHART_KIND_LABELS[kind]],
+      ) as HTMLButtonElement;
+      button.addEventListener("click", () => void this.openChartSetup(fit.preset));
+      suggestions.append(button);
+      added++;
+    }
+    if (added === 0) {
+      this.empty.append(
+        el("p", {}, ["No chart type fits the current columns yet."]),
+      );
+    } else {
+      this.empty.append(suggestions);
+    }
   }
 }

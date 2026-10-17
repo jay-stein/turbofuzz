@@ -327,14 +327,20 @@ export function openChartGallery(anchor: HTMLElement, options: ChartGalleryOptio
     kind: ChartCardKind,
     preset: Partial<ChartCardConfig>,
     preview: HTMLElement,
+    enabled = true,
   ): HTMLButtonElement => {
     const button = el(
       "button",
-      { class: "chart-tile", type: "button", title: CHART_KIND_LABELS[kind] },
+      {
+        class: "chart-tile",
+        type: "button",
+        title: CHART_KIND_LABELS[kind],
+        "aria-disabled": enabled ? "false" : "true",
+      },
       [],
     ) as HTMLButtonElement;
     button.append(preview, el("span", { class: "chart-tile-label" }, [CHART_KIND_LABELS[kind]]));
-    button.addEventListener("click", () => pick(preset));
+    if (enabled) button.addEventListener("click", () => pick(preset));
     return button;
   };
 
@@ -359,11 +365,15 @@ export function openChartGallery(anchor: HTMLElement, options: ChartGalleryOptio
     const grid = el("div", { class: "chart-gallery-grid" });
     for (const kind of group.kinds) {
       const fit = fitChartKind(kind, options.columns, options.rowCount);
-      const button = tile(kind, fit.preset, svgWrap(ICONS[kind]));
+      const button = tile(kind, fit.preset, svgWrap(ICONS[kind]), fit.ok);
       if (!fit.ok) {
-        button.disabled = true;
         button.title = `${CHART_KIND_LABELS[kind]} — ${fit.reason}`;
-        button.append(el("span", { class: "chart-tile-reason" }, [fit.reason]));
+        const reason = el("span", {
+          class: "chart-tile-reason",
+          id: `chart-gallery-reason-${kind}`,
+        }, [fit.reason]);
+        button.append(reason);
+        button.setAttribute("aria-describedby", reason.id);
       } else {
         button.title = `${CHART_KIND_LABELS[kind]} — add with sensible columns`;
       }

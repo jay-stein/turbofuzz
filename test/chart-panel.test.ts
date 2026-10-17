@@ -410,9 +410,16 @@ test("remapChartConfigs follows reorder, delete and rename", () => {
   assert.equal(reordered.configs[1].y, 0);
   assert.deepEqual(reordered.configs[2].correlationColumns, [4, 3, 2]);
 
-  const deleted = remapChartConfigs(cards, byName(["amount", "c", "b"]));
-  assert.equal(deleted.removed, 1, "the scatter loses its Y column");
-  assert.deepEqual(deleted.kept.map((config) => config.title), ["A", "C"]);
+    const deleted = remapChartConfigs(cards, byName(["amount", "c", "b"]));
+    assert.equal(deleted.removed, 1, "the scatter loses its Y column");
+    assert.deepEqual(deleted.kept.map((config) => config.title), ["A", "C"]);
+    assert.equal(deleted.entries.length, 3, "the deleted card remains as an orphan");
+    assert.deepEqual(deleted.orphaned[0]?.missingColumns, ["when"]);
+    assert.equal(deleted.entries[1]?.missingColumns?.[0], "when");
+
+    const restored = remapChartConfigs(deleted.named, byName(["amount", "c", "b", "when"]));
+    assert.equal(restored.removed, 0, "restoring the column revives the card");
+    assert.equal(restored.entries[1]?.missingColumns, undefined);
 
   const renamed = remapChartConfigs(
     cards,

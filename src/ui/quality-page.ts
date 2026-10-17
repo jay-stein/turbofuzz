@@ -2,7 +2,17 @@ import type { DQScore, ScoreCheck, ScoreDimension } from "../data/score.js";
 import type { DatasetStats } from "../data/stats.js";
 import { clear, el } from "./dom.js";
 import type { DQExportKind } from "./quality-panel.js";
+import { describeScope } from "./scope.js";
 import type { ColumnType } from "../types.js";
+
+const DIMENSION_DEFINITIONS: readonly { label: string; text: string }[] = [
+  { label: "Completeness", text: "Are the cells populated?" },
+  { label: "Validity", text: "Do values match their type and expected format?" },
+  { label: "Uniqueness", text: "Are records and keys free of unwanted duplicates?" },
+  { label: "Consistency", text: "Do related columns and checks agree with each other?" },
+  { label: "Timeliness", text: "Is the data recent enough for its purpose?" },
+  { label: "Accuracy", text: "Does the data match an authoritative reference? (Not available offline.)" },
+];
 
 function formatCount(value: number): string {
   return value.toLocaleString();
@@ -44,6 +54,8 @@ export interface QualityPageCallbacks {
 export interface QualityPageInput {
   score: DQScore;
   rowCount: number;
+  /** Rows currently visible in the table, when a filter is active. */
+  visibleRowCount?: number;
   stats: DatasetStats;
   columnNames: readonly string[];
 }
@@ -59,6 +71,8 @@ export class QualityPage {
   private dimensionFilter: ScoreDimension | null = null;
   private settingsOpen = false;
   private lastInput: QualityPageInput | null = null;
+  private scopeLabel = "";
+  private tableScopeLabel = "";
 
   constructor(
     private readonly root: HTMLElement,
@@ -72,14 +86,29 @@ export class QualityPage {
     this.lastInput = input;
     clear(this.root);
     if (input === null) {
-      this.root.append(
-        el("div", { class: "clean-empty qp-empty" }, [
-          "Load a file to see its data-quality dashboard: score, checks, column matrix and fixes.",
+      const empty = el("div", { class: "clean-empty qp-empty" });
+      empty.append(
+        el("h3", {}, ["Data quality at a glance"]),
+        el("p", {}, [
+          "Load a file to score completeness, validity, uniqueness, consistency, timeliness and accuracy, then review what to fix first.",
         ]),
       );
+      const definitions = el("ul", { class: "qp-empty-definitions" });
+      for (const definition of DIMENSION_DEFINITIONS) {
+        definitions.append(
+          el("li", {}, [el("strong", {}, [definition.label]), ` — ${definition.text}`]),
+        );
+      }
+      empty.append(definitions);
+      this.root.append(empty);
       return;
     }
     const { score, stats, rowCount, columnNames } = input;
+    this.scopeLabel = describeScope({ total: rowCount });
+    this.tableScopeLabel =
+      input.visibleRowCount !== undefined && input.visibleRowCount < rowCount
+        ? describeScope({ total: rowCount, visible: input.visibleRowCount })
+        : "";
     const applicable = score.dimensions.filter((dimension) => dimension.score !== null);
     const checkCount = score.dimensions.reduce((sum, dim) => sum + dim.checks.length, 0);
     const failing = score.dimensions.reduce(
@@ -142,6 +171,8 @@ export class QualityPage {
               applicableCount === 1 ? "" : "s"
             } · ${checkCount} checks · ${failing} with failures · N.A. excluded`,
       ]),
+      this.buildScopeLine(),
+      this.buildExplanation(score),
     );
 
     const populated =
@@ -192,6 +223,51 @@ export class QualityPage {
     hero.append(ring, body, actions);
     hero.append(facts);
     return hero;
+  }
+
+  private buildScopeLine(): HTMLElement {
+    const text =
+      this.tableScopeLabel === ""
+        ? this.scopeLabel
+        : `${this.scopeLabel} · Table view: ${this.tableScopeLabel}`;
+    return el("div", { class: "qp-scope", title: "Which rows the score and checks describe" }, [
+      text,
+    ]);
+  }
+
+  private buildExplanation(score: DQScore): HTMLElement {
+    const line = el("div", { class: "qp-explain" });
+    const applicable = score.dimensions.filter(
+      (dimension) => dimension.score !== null && dimension.weight > 0,
+    );
+    const weightSum = applicable.reduce((sum, dimension) => sum + dimension.weight, 0);
+    if (applicable.length === 0 || weightSum <= 0) {
+      line.append(
+        el("span", { class: "qp-explain-empty" }, [
+          "No weighted, applicable dimensions to explain.",
+        ]),
+      );
+    } else {
+      const parts = applicable.map((dimension) => {
+        const contribution = (dimension.weight / weightSum) * (dimension.score ?? 0);
+        return `${dimension.label} ${(dimension.score ?? 0).toFixed(1)} × ${dimension.weight} → +${contribution.toFixed(1)}`;
+      });
+      line.append(
+        el("span", { class: "qp-explain-label" }, ["Score:"]),
+        el("span", { class: "qp-explain-parts" }, [parts.join(" · ")]),
+      );
+    }
+    const adjust = el(
+      "button",
+      { class: "link qp-weight-link", type: "button" },
+      ["Adjust weights"],
+    ) as HTMLButtonElement;
+    adjust.addEventListener("click", () => {
+      this.settingsOpen = true;
+      this.render(this.lastInput);
+    });
+    line.append(adjust);
+    return line;
   }
 
   // ---------- settings ----------
@@ -269,7 +345,12 @@ export class QualityPage {
 
   private buildDimensions(score: DQScore): HTMLElement {
     const wrap = el("div", { class: "qp-section" });
-    wrap.append(el("h3", { class: "qp-section-title" }, ["Dimensions"]));
+    wrap.append(
+      el("h3", { class: "qp-section-title" }, [
+        "Dimensions",
+        el("span", { class: "qp-section-hint" }, [this.scopeLabel]),
+      ]),
+    );
     const grid = el("div", { class: "qp-dims" });
     for (const dimension of score.dimensions) {
       const pass = dimension.checks.reduce((sum, check) => sum + check.pass, 0);
@@ -355,7 +436,9 @@ export class QualityPage {
     section.append(
       el("h3", { class: "qp-section-title" }, [
         "What to fix first",
-        el("span", { class: "qp-section-hint" }, ["ranked by points gained on the overall score"]),
+        el("span", { class: "qp-section-hint" }, [
+          `ranked by points gained on the overall score · ${this.scopeLabel}`,
+        ]),
       ]),
     );
     if (fixes.length === 0) {
@@ -366,11 +449,27 @@ export class QualityPage {
     }
     const list = el("div", { class: "qp-fixes" });
     for (const fix of fixes.slice(0, 5)) {
-      const row = el("div", { class: "qp-fix" });
+      const row = el("div", {
+        class: "qp-fix qp-fix-clickable",
+        role: "button",
+        tabindex: "0",
+        title: "Open the affected rows or column",
+      });
+      const run = (): void => this.runCheck(fix.check);
+      row.addEventListener("click", run);
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          run();
+        }
+      });
       const action = el("button", { class: "ghost small", type: "button" }, [
         fix.check.fixLabel ?? "Show failing",
       ]) as HTMLButtonElement;
-      action.addEventListener("click", () => this.runCheck(fix.check));
+      action.addEventListener("click", (event) => {
+        event.stopPropagation();
+        run();
+      });
       row.append(
         el("span", { class: "qp-fix-gain" }, [`+${fix.gain.toFixed(1)} pts`]),
         el("span", { class: `qp-chip band-${fix.band}` }, [fix.label]),
@@ -416,8 +515,8 @@ export class QualityPage {
         "Checks",
         el("span", { class: "qp-section-hint" }, [
           this.dimensionFilter === null
-            ? "every check, with exact pass / fail / n-a counts"
-            : `filtered to ${this.dimensionFilter}`,
+            ? `every check, with exact pass / fail / n-a counts · ${this.scopeLabel}`
+            : `filtered to ${this.dimensionFilter} · ${this.scopeLabel}`,
         ]),
       ]),
     );
@@ -488,14 +587,6 @@ export class QualityPage {
 
   private buildMatrix(score: DQScore, columnNames: readonly string[]): HTMLElement {
     const section = el("div", { class: "qp-section" });
-    section.append(
-      el("h3", { class: "qp-section-title" }, [
-        "Column × dimension",
-        el("span", { class: "qp-section-hint" }, [
-          "pass rate per column; click a cell to filter its failing rows",
-        ]),
-      ]),
-    );
     const perColumn = new Map<number, Map<ScoreDimension, ScoreCheck>>();
     for (const dimension of score.dimensions) {
       for (const check of dimension.checks) {
@@ -508,7 +599,24 @@ export class QualityPage {
         entry.set(dimension.dimension, check);
       }
     }
-    const dims: ScoreDimension[] = ["completeness", "validity"];
+    const dims = score.dimensions
+      .map((dimension) => dimension.dimension)
+      .filter((dimension) =>
+        [...perColumn.values()].some((checks) => checks.has(dimension)),
+      );
+    const dimLabels = dims.map(
+      (dimension) =>
+        score.dimensions.find((entry) => entry.dimension === dimension)?.label ??
+        dimension,
+    );
+    section.append(
+      el("h3", { class: "qp-section-title" }, [
+        dimLabels.length > 0 ? `${dimLabels.join(" & ")} by column` : "Column checks",
+        el("span", { class: "qp-section-hint" }, [
+          `pass rate per column; click a cell to filter its failing rows · ${this.scopeLabel}`,
+        ]),
+      ]),
+    );
     const rows = [...perColumn.entries()]
       .sort((a, b) => a[0] - b[0])
       .filter(
@@ -525,7 +633,11 @@ export class QualityPage {
     const head = el("tr");
     head.append(el("th", {}, ["Column"]));
     for (const dimension of dims) {
-      head.append(el("th", {}, [dimension === "completeness" ? "Completeness" : "Validity"]));
+      head.append(
+        el("th", {}, [
+          score.dimensions.find((entry) => entry.dimension === dimension)?.label ?? dimension,
+        ]),
+      );
     }
     table.append(head);
     for (const [column, checks] of rows) {
