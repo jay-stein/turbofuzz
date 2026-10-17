@@ -7,6 +7,7 @@ import {
   PALETTES,
   paletteStops,
   parseCustomColors,
+  parsePaletteJson,
   rampAt,
   samplePalette,
 } from "../src/data/palettes.js";
@@ -64,4 +65,43 @@ test("every named palette has valid stops", () => {
     assert.equal(sampled.length, 16);
     for (const color of sampled) assert.match(color, /^#[0-9a-f]{6}$/);
   }
+});
+
+test("seaborn palettes are available", () => {
+  const names = PALETTES.map((palette) => palette.name);
+  for (const name of [
+    "deep",
+    "muted",
+    "pastel",
+    "bright",
+    "dark",
+    "colorblind",
+    "rocket",
+    "mako",
+    "flare",
+    "crest",
+    "vlag",
+    "icefire",
+  ]) {
+    assert.ok(names.includes(name), name);
+  }
+  assert.deepEqual(samplePalette("colorblind", 2), ["#0173b2", "#de8f05"]);
+  assert.equal(isRampPalette("rocket"), true);
+  assert.equal(isRampPalette("deep"), false);
+});
+
+test("parsePaletteJson reads arrays and objects", () => {
+  assert.deepEqual(parsePaletteJson('["#abc", "#123456"]'), ["#aabbcc", "#123456"]);
+  assert.deepEqual(
+    parsePaletteJson('{"name":"mine","colors":["#f00","#00ff00"]}'),
+    ["#ff0000", "#00ff00"],
+  );
+  assert.deepEqual(parsePaletteJson('{"stops":["#000","#fff"]}'), [
+    "#000000",
+    "#ffffff",
+  ]);
+  assert.equal(parsePaletteJson('{"colors":["#fff"]}'), null);
+  assert.equal(parsePaletteJson("not json"), null);
+  assert.equal(parsePaletteJson('{"colors":[1,2]}'), null);
+  assert.equal(parsePaletteJson('["#fff","junk"]'), null);
 });

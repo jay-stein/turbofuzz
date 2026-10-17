@@ -24,6 +24,14 @@ export const PALETTES: readonly PaletteDef[] = [
   { name: "tab10", kind: "qualitative", colors: ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"] },
   { name: "tab20", kind: "qualitative", colors: ["#1f77b4", "#aec7e8", "#ff7f0e", "#ffbb78", "#2ca02c", "#98df8a", "#d62728", "#ff9896", "#9467bd", "#c5b0d5", "#8c564b", "#c49c94", "#e377c2", "#f7b6d2", "#7f7f7f", "#c7c7c7", "#bcbd22", "#dbdb8d", "#17becf", "#9edae5"] },
 
+  // Seaborn's six categorical palettes (documented hex cycles).
+  { name: "deep", kind: "qualitative", colors: ["#4c72b0", "#dd8452", "#55a868", "#c44e52", "#8172b3", "#937860", "#da8bc3", "#8c8c8c", "#ccb974", "#64b5cd"] },
+  { name: "muted", kind: "qualitative", colors: ["#4878d0", "#ee854a", "#6acc64", "#d65f5f", "#956cb4", "#8c613c", "#dc7ec0", "#797979", "#d5bb67", "#82c6e2"] },
+  { name: "pastel", kind: "qualitative", colors: ["#a1c9f4", "#ffb482", "#8de5a1", "#ff9f9b", "#d0bbff", "#debb9b", "#fab0e4", "#cfcfcf", "#fffea3", "#b9f2f0"] },
+  { name: "bright", kind: "qualitative", colors: ["#023eff", "#ff7c00", "#1ac938", "#e8000b", "#8b2be2", "#9f4800", "#f14cc1", "#a3a3a3", "#ffc400", "#00d7ff"] },
+  { name: "dark", kind: "qualitative", colors: ["#001c7f", "#b1400d", "#12711c", "#8c0800", "#591e71", "#592f0d", "#a23582", "#3c3c3c", "#b8850a", "#006374"] },
+  { name: "colorblind", kind: "qualitative", colors: ["#0173b2", "#de8f05", "#029e73", "#d55e00", "#cc78bc", "#ca9161", "#fbafe4", "#949494", "#ece133", "#56b4e9"] },
+
   { name: "Blues", kind: "sequential", colors: ["#f7fbff", "#deebf7", "#c6dbef", "#9ecae1", "#6baed6", "#4292c6", "#2171b5", "#08519c", "#08306b"] },
   { name: "Greens", kind: "sequential", colors: ["#f7fcf5", "#e5f5e0", "#c7e9c0", "#a1d99b", "#74c476", "#41ab5d", "#238b45", "#006d2c", "#00441b"] },
   { name: "Greys", kind: "sequential", colors: ["#ffffff", "#f0f0f0", "#d9d9d9", "#bdbdbd", "#969696", "#737373", "#525252", "#252525", "#000000"] },
@@ -43,6 +51,12 @@ export const PALETTES: readonly PaletteDef[] = [
   { name: "YlOrBr", kind: "sequential", colors: ["#ffffe5", "#fff7bc", "#fee391", "#fec44f", "#fe9929", "#ec7014", "#cc4c02", "#993404", "#662506"] },
   { name: "YlOrRd", kind: "sequential", colors: ["#ffffcc", "#ffeda0", "#fed976", "#feb24c", "#fd8d3c", "#fc4e2a", "#e31a1c", "#bd0026", "#800026"] },
 
+  // Seaborn's perceptually-uniform sequential maps (sampled stops, light → dark).
+  { name: "rocket", kind: "sequential", colors: ["#faebdd", "#f6c1a0", "#e98a6f", "#d1505e", "#a22a5e", "#6a1e5c", "#3a1652", "#1a0f3d", "#03051a"] },
+  { name: "mako", kind: "sequential", colors: ["#e5f5f1", "#b9ddd6", "#8ec3bd", "#62a5a4", "#43878c", "#2f6b74", "#22505d", "#1b3a49", "#0f1f2d"] },
+  { name: "flare", kind: "sequential", colors: ["#f7e6c4", "#f3b987", "#ea8a6a", "#e05a59", "#c93a60", "#a52b66", "#7a2064", "#4f1856", "#2c113f"] },
+  { name: "crest", kind: "sequential", colors: ["#e6f0d9", "#c8e0b5", "#a5cd96", "#7bb77f", "#559d72", "#3a7f68", "#2b6158", "#234447", "#1c2e36"] },
+
   { name: "BrBG", kind: "diverging", colors: ["#543005", "#8c510a", "#bf812d", "#dfc27d", "#f6e8c3", "#f5f5f5", "#c7eae5", "#80cdc1", "#35978f", "#01665e", "#003c30"] },
   { name: "PiYG", kind: "diverging", colors: ["#8e0152", "#c51b7d", "#de77ae", "#f1b6da", "#fde0ef", "#f7f7f7", "#e6f5d0", "#b8e186", "#7fbc41", "#4d9221", "#276419"] },
   { name: "PRGn", kind: "diverging", colors: ["#40004b", "#762a83", "#9970ab", "#c2a5cf", "#e7d4e8", "#f7f7f7", "#d9f0d3", "#a6dba0", "#5aae61", "#1b7837", "#00441b"] },
@@ -52,6 +66,10 @@ export const PALETTES: readonly PaletteDef[] = [
   { name: "RdYlBu", kind: "diverging", colors: ["#a50026", "#d73027", "#f46d43", "#fdae61", "#fee090", "#ffffbf", "#e0f3f8", "#abd9e9", "#74add1", "#4575b4", "#313695"] },
   { name: "RdYlGn", kind: "diverging", colors: ["#a50026", "#d73027", "#f46d43", "#fdae61", "#fee08b", "#ffffbf", "#d9ef8b", "#a6d96a", "#66bd63", "#1a9850", "#006837"] },
   { name: "Spectral", kind: "diverging", colors: ["#9e0142", "#d53e4f", "#f46d43", "#fdae61", "#fee08b", "#ffffbf", "#e6f598", "#abdda4", "#66c2a5", "#3288bd", "#5e4fa2"] },
+
+  // Seaborn's diverging maps (sampled stops).
+  { name: "vlag", kind: "diverging", colors: ["#a63f45", "#c96e6c", "#dfa4a0", "#f0d9d5", "#eceff4", "#c1d5e5", "#93b8d7", "#5a93c4", "#2369a7"] },
+  { name: "icefire", kind: "diverging", colors: ["#3f5a91", "#6d87b9", "#a3b3d5", "#d5dbe8", "#efe7da", "#f4cba4", "#f2a06a", "#e06a45", "#c03a2b"] },
 ];
 
 export const DEFAULT_PALETTE = "Pastel1";
@@ -69,6 +87,41 @@ export function parseCustomColors(text: string): string[] {
       return match === null ? null : `#${match[1].toLowerCase()}`;
     })
     .filter((value): value is string => value !== null);
+}
+
+/**
+ * Reads a hex palette from JSON text: a plain array of colours, or an object
+ * with `colors` / `palette` / `stops`. Accepts #rgb and #rrggbb; returns null
+ * when the file has no usable palette (fewer than two valid colours).
+ */
+export function parsePaletteJson(text: string): string[] | null {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  let list: unknown = data;
+  if (data !== null && typeof data === "object" && !Array.isArray(data)) {
+    const record = data as Record<string, unknown>;
+    list = record.colors ?? record.palette ?? record.stops;
+  }
+  if (!Array.isArray(list)) return null;
+  const colors: string[] = [];
+  for (const entry of list) {
+    if (typeof entry !== "string") continue;
+    const value = entry.trim();
+    const short = /^#?([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(value);
+    const full = /^#?([0-9a-f]{6})$/i.exec(value);
+    if (short !== null) {
+      colors.push(
+        `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`.toLowerCase(),
+      );
+    } else if (full !== null) {
+      colors.push(`#${full[1].toLowerCase()}`);
+    }
+  }
+  return colors.length >= 2 ? colors : null;
 }
 
 export function paletteByName(name: string): PaletteDef | undefined {

@@ -1045,6 +1045,35 @@ test("the colour map defaults to Pastel1 and can be changed", async () => {
   card.dispose();
 });
 
+test("the colour map can be reversed", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({
+      name: "city",
+      type: "category",
+      categories: { labels: ["a", "b"], counts: [1, 1] },
+    }),
+  ]);
+  await tick();
+  const before = [...host.querySelectorAll(".chart-palette-dot")] as HTMLElement[];
+  const secondBefore = before[1]?.style.background;
+  const reverse = host.querySelector(
+    'input[aria-label="Reverse the colour map"]',
+  ) as HTMLInputElement;
+  assert.ok(reverse !== null, "the Reverse toggle renders");
+  assert.equal(reverse.checked, false);
+  reverse.checked = true;
+  reverse.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(card.getConfig().paletteReversed, true);
+  const after = [...host.querySelectorAll(".chart-palette-dot")] as HTMLElement[];
+  assert.notEqual(after[1]?.style.background, secondBefore, "the preview flips");
+  card.dispose();
+});
+
 test("single-series colour follows the palette until the user picks one", async () => {
   const window = setupDom();
   captureMockContext(window, []);

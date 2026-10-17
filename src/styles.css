@@ -5542,3 +5542,6 @@ label.null-row {
 
 .chart-reset-view:hover { color: var(--text); border-color: var(--accent); }
 .chart-note { line-height: 1.6; }
+
+/* Colour-map controls: reverse + JSON import status */
+.chart-palette-status { font-size: 11px; color: var(--text-dim); }

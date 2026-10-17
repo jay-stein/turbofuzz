@@ -17,6 +17,7 @@ import {
   PALETTES,
   paletteStops,
   parseCustomColors,
+  parsePaletteJson,
   rampAt,
   samplePalette,
 } from "../data/palettes.js";
@@ -207,6 +208,8 @@ export interface ChartCardConfig {
   palette?: string;
   /** Comma/space separated hex stops used when palette is "custom". */
   paletteCustom?: string;
+  /** Flip the colour map (light ↔ dark, series order reversed). */
+  paletteReversed?: boolean;
   topN: number;
   groupOther: boolean;
   binOptions: ChartBinOptions | null;
@@ -595,6 +598,7 @@ function defaultConfig(): ChartCardConfig {
     multiColor: true,
     palette: DEFAULT_PALETTE,
     paletteCustom: "",
+    paletteReversed: false,
     topN: 5,
     groupOther: true,
     binOptions: null,
@@ -749,6 +753,8 @@ export class ChartCard {
   private readonly paletteGroup: HTMLElement;
   private readonly paletteSelect: HTMLSelectElement;
   private readonly palettePreview: HTMLElement;
+  private readonly paletteReverseInput: HTMLInputElement;
+  private readonly paletteStatus: HTMLElement;
   private readonly histogramSettings: HTMLElement;
   private readonly barSettings: HTMLElement;
   private readonly correlationSettings: HTMLElement;
@@ -1417,10 +1423,61 @@ export class ChartCard {
     });
 
     this.palettePreview = el("div", { class: "chart-palette-preview" });
+    this.paletteReverseInput = el("input", {
+      type: "checkbox",
+      "aria-label": "Reverse the colour map",
+    }) as HTMLInputElement;
+    this.paletteReverseInput.checked = this.config.paletteReversed === true;
+    this.paletteReverseInput.addEventListener("change", () => {
+      this.config.paletteReversed = this.paletteReverseInput.checked;
+      this.hexInput.value = this.primaryColor();
+      this.syncSwatches();
+      this.syncPalette();
+      this.render();
+    });
+    const reverseLabel = el("label", { class: "control check clean-check chart-check" }, [
+      this.paletteReverseInput,
+      "Reverse",
+    ]);
+    reverseLabel.title = "Flip the colour map direction (works for ramps and series order)";
+    const paletteFile = el("input", {
+      type: "file",
+      accept: ".json,application/json",
+      class: "hidden",
+    }) as HTMLInputElement;
+    const loadPalette = el(
+      "button",
+      {
+        class: "ghost small",
+        type: "button",
+        title: "Load a palette from a JSON file (an array of hex colours, or {colors: [...]})",
+      },
+      ["Load JSON…"],
+    ) as HTMLButtonElement;
+    loadPalette.addEventListener("click", () => paletteFile.click());
+    paletteFile.addEventListener("change", () => {
+      const file = paletteFile.files?.[0];
+      if (file === undefined) return;
+      void file
+        .text()
+        .then((text) => this.importPaletteJson(text))
+        .catch(() => {
+          this.paletteStatus.textContent = "Could not read that file";
+        });
+      paletteFile.value = "";
+    });
+    this.paletteStatus = el("span", { class: "chart-palette-status" });
     this.paletteGroup = el(
       "div",
       { class: "chart-palette" },
-      [this.paletteSelect, this.palettePreview],
+      [
+        this.paletteSelect,
+        this.palettePreview,
+        reverseLabel,
+        loadPalette,
+        paletteFile,
+        this.paletteStatus,
+      ],
     );
     this.syncPalette();
 
@@ -2525,11 +2582,18 @@ export class ChartCard {
 
   /** Colours sampled from the card's palette for `count` series/buckets. */
   private paletteColors(count: number): string[] {
-    return samplePalette(
+    const colors = samplePalette(
       this.config.palette ?? DEFAULT_PALETTE,
       count,
       parseCustomColors(this.config.paletteCustom ?? ""),
     );
+    return this.config.paletteReversed === true ? [...colors].reverse() : colors;
+  }
+
+  /** Ramp stops for a palette name, flipped when Reverse is on. */
+  private rampStopsFor(name: string): string[] {
+    const stops = paletteStops(name, parseCustomColors(this.config.paletteCustom ?? ""));
+    return this.config.paletteReversed === true ? [...stops].reverse() : stops;
   }
 
   /**
@@ -2548,12 +2612,31 @@ export class ChartCard {
 
   private syncPalette(): void {
     this.paletteSelect.value = this.config.palette ?? DEFAULT_PALETTE;
+    this.paletteReverseInput.checked = this.config.paletteReversed === true;
     clear(this.palettePreview);
     for (const color of this.paletteColors(10)) {
       const dot = el("span", { class: "chart-palette-dot" });
       dot.style.background = color;
       this.palettePreview.append(dot);
     }
+  }
+
+  /** Loads a palette from JSON text: array of hex colours or {colors: [...]}. */
+  private importPaletteJson(text: string): void {
+    const colors = parsePaletteJson(text);
+    if (colors === null) {
+      this.paletteStatus.textContent =
+        "JSON needs an array of 2+ hex colours (or {colors: [...]})";
+      return;
+    }
+    this.config.palette = CUSTOM_PALETTE;
+    this.config.paletteCustom = colors.join(", ");
+    this.paletteSelect.value = CUSTOM_PALETTE;
+    this.paletteStatus.textContent = `Loaded ${colors.length} colours`;
+    this.hexInput.value = this.primaryColor();
+    this.syncSwatches();
+    this.syncPalette();
+    this.render();
   }
 
   /** Picking Custom… asks for hex stops; invalid input keeps the old palette. */
@@ -5198,9 +5281,7 @@ export class ChartCard {
       const values = grid.values;
       const max = Math.max(1, values === null ? grid.maxCount : grid.valueMax);
       const rampName = this.config.palette ?? DEFAULT_PALETTE;
-      const ramp = isRampPalette(rampName)
-        ? paletteStops(rampName, parseCustomColors(this.config.paletteCustom ?? ""))
-        : null;
+      const ramp = isRampPalette(rampName) ? this.rampStopsFor(rampName) : null;
       const colors =
         ramp === null
           ? Array.from({ length: 32 }, (_, index) => rampColor(index / 31))
@@ -6996,9 +7077,7 @@ export class ChartCard {
       if (min === Infinity) return null;
       const buckets = new Uint8Array(n).fill(16);
       const paletteName = this.config.palette ?? DEFAULT_PALETTE;
-      const ramp = isRampPalette(paletteName)
-        ? paletteStops(paletteName, parseCustomColors(this.config.paletteCustom ?? ""))
-        : null;
+      const ramp = isRampPalette(paletteName) ? this.rampStopsFor(paletteName) : null;
       const colors =
         ramp === null
           ? Array.from({ length: 16 }, (_, index) => rampColor(index / 15))
