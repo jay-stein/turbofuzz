@@ -57,6 +57,7 @@ import {
   looksLikeIdName,
   mapBrushBounds,
   niceTicks,
+  zoomPlotBounds,
   parseChartNumber,
   rampColor,
   safeFileName,
@@ -230,6 +231,8 @@ export interface ChartCardConfig {
   bubbleAgg?: "count" | "sum" | "mean" | "min" | "max";
   /** How bubble radius maps from the measure value. */
   bubbleScale?: "area" | "radius" | "log";
+  /** Map display: one dot per row, or an aggregated heat grid. */
+  mapMode?: "points" | "heat";
   /** Card width in the grid: normal cell or the whole row. */
   span?: "auto" | "full";
   /** Time column for frame animation (-1 = off). */
@@ -601,6 +604,7 @@ function defaultConfig(): ChartCardConfig {
     bubbleBins: 40,
     bubbleAgg: "count",
     bubbleScale: "area",
+    mapMode: "points",
     span: "auto",
     animationTimeColumn: -1,
     animationGrain: "day",
@@ -673,6 +677,18 @@ export class ChartCard {
   private readonly focusPlaceholder = document.createComment("chart-focus");
   private readonly animationSetup: HTMLElement;
   private readonly bubbleSettings: HTMLElement;
+  private readonly bubbleTitle: HTMLElement;
+  private readonly bubbleScaleField: HTMLElement;
+  private readonly mapModeSelect: HTMLSelectElement;
+  private readonly mapModeWrap: HTMLElement;
+  /** Map heat grid (count or measure per cell), computed by the worker. */
+  private mapGrid: GridCountsResult | null = null;
+  /** Map viewport in degrees (null = the whole world). */
+  private mapView: { lonMin: number; lonMax: number; latMin: number; latMax: number } | null = null;
+  private mapDrag: { x: number; y: number } | null = null;
+  /** Scatter/density viewport in data units (null = the full series bounds). */
+  private plotView: { xMin: number; xMax: number; yMin: number; yMax: number } | null = null;
+  private plotDrag: { x: number; y: number } | null = null;
   private readonly animationTimeSelect: HTMLSelectElement;
   private readonly animationGrainSelect: HTMLSelectElement;
   private readonly animationBar: HTMLElement;
@@ -901,11 +917,14 @@ export class ChartCard {
     this.xSelect = this.buildSelect("chart-picker", "X column");
     this.xSelect.addEventListener("change", () => {
       this.config.x = Number(this.xSelect.value);
+      this.plotView = null;
+      this.mapView = null;
       this.generation++;
       this.refreshSeries();
       this.refreshBox();
       this.refreshCrosstab();
       this.refreshBubble();
+      this.refreshMapGrid();
       this.refreshAnimation();
       this.render();
     });
@@ -916,11 +935,14 @@ export class ChartCard {
     this.ySelect = this.buildSelect("chart-picker", "Y column");
     this.ySelect.addEventListener("change", () => {
       this.config.y = Number(this.ySelect.value);
+      this.plotView = null;
+      this.mapView = null;
       this.generation++;
       this.refreshSeries();
       this.refreshBox();
       this.refreshCrosstab();
       this.refreshBubble();
+      this.refreshMapGrid();
       this.refreshAnimation();
       this.render();
     });
@@ -940,10 +962,10 @@ export class ChartCard {
     this.sizeSelect = this.buildSelect("chart-picker chart-picker-small", "Size column");
     this.sizeSelect.addEventListener("change", () => {
       this.config.sizeColumn = Number(this.sizeSelect.value);
-      // Picking a column for a bubble means "size by this column": switch the
-      // measure away from count so the choice takes effect immediately, and
-      // back to count when the column is cleared.
-      if (this.config.kind === "bubble") {
+      // Picking a column for a bubble or heat map means "measure by this
+      // column": switch the measure away from count so the choice takes
+      // effect immediately, and back to count when the column is cleared.
+      if (this.config.kind === "bubble" || (this.config.kind === "map" && this.config.mapMode === "heat")) {
         if (this.config.sizeColumn < 0) {
           this.config.bubbleAgg = "count";
           this.bubbleAggSelect.value = "count";
@@ -956,6 +978,7 @@ export class ChartCard {
       this.refreshSeries();
       this.refreshTreemap();
       this.refreshBubble();
+      this.refreshMapGrid();
       this.refreshAnimation();
       this.renderControls();
       this.render();
@@ -1183,6 +1206,7 @@ export class ChartCard {
         this.config.bubbleBins = value;
         this.generation++;
         this.refreshBubble();
+        this.refreshMapGrid();
         this.refreshAnimation();
         this.render();
       }
@@ -1218,6 +1242,7 @@ export class ChartCard {
         | "max";
       this.generation++;
       this.refreshBubble();
+      this.refreshMapGrid();
       this.refreshAnimation();
       this.render();
     });
@@ -1253,9 +1278,29 @@ export class ChartCard {
     );
     this.barSettings = el("div", { class: "chart-settings" }, [topField, otherField, multiField]);
     // Bubble options sit in their own visible row, not inside Settings: the
-    // size measure is the whole point of a bubble chart.
+    // size measure is the whole point of a bubble chart. Map cards reuse the
+    // same row for display mode, grid resolution and the heat/size measure.
+    this.bubbleTitle = el("span", { class: "chart-animate-title" }, ["Bubbles"]);
+    this.mapModeSelect = this.buildSelect("chart-picker chart-picker-small", "Map display mode");
+    for (const [value, label] of [
+      ["points", "One dot per row"],
+      ["heat", "Heat grid"],
+    ] as const) {
+      this.mapModeSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+    }
+    this.mapModeSelect.value = this.config.mapMode ?? "points";
+    this.mapModeSelect.addEventListener("change", () => {
+      this.config.mapMode = this.mapModeSelect.value as "points" | "heat";
+      this.generation++;
+      this.refreshMapGrid();
+      this.syncSourceControls();
+      this.render();
+    });
+    this.mapModeWrap = this.tagged("Show", this.mapModeSelect).wrap;
+    this.bubbleScaleField = bubbleScaleField;
     this.bubbleSettings = el("div", { class: "chart-bubble-settings hidden" }, [
-      el("span", { class: "chart-animate-title" }, ["Bubbles"]),
+      this.bubbleTitle,
+      this.mapModeWrap,
       bubbleField,
       bubbleAggField,
       bubbleScaleField,
@@ -1516,6 +1561,10 @@ export class ChartCard {
     this.canvas.addEventListener("pointerup", (event) =>
       this.endMapBrush(event as PointerEvent),
     );
+    this.canvas.addEventListener("wheel", (event) => this.onWheel(event as WheelEvent), {
+      passive: false,
+    });
+    this.canvas.addEventListener("dblclick", () => this.resetMapZoom());
     if (typeof ResizeObserver !== "undefined") {
       this.resizeObserver = new ResizeObserver(() => this.scheduleRender());
       this.resizeObserver.observe(canvasWrap);
@@ -1640,6 +1689,8 @@ export class ChartCard {
 
   setColumns(columns: ColumnMeta[]): void {
     this.columns = columns;
+    this.plotView = null;
+    this.mapView = null;
     this.generation++;
     this.pickerSignature = "";
     this.syncOptions();
@@ -1653,6 +1704,7 @@ export class ChartCard {
     this.refreshBox();
     this.refreshCrosstab();
     this.refreshBubble();
+    this.refreshMapGrid();
     this.refreshAnimation();
     this.refreshCorrelation();
     this.refreshGroupedBins();
@@ -1862,6 +1914,7 @@ export class ChartCard {
     this.refreshBox();
     this.refreshCrosstab();
     this.refreshBubble();
+    this.refreshMapGrid();
     this.refreshAnimation();
     this.refreshCorrelation();
     this.refreshGroupedBins();
@@ -1882,6 +1935,7 @@ export class ChartCard {
     this.refreshBox();
     this.refreshCrosstab();
     this.refreshBubble();
+    this.refreshMapGrid();
     this.refreshAnimation();
     this.refreshCorrelation();
     this.refreshGroupedBins();
@@ -2032,6 +2086,9 @@ export class ChartCard {
   private setKind(kind: ChartCardKind): void {
     if (kind === this.config.kind) return;
     this.config.kind = kind;
+    this.plotView = null;
+    this.mapView = null;
+    this.mapGrid = null;
     if (isPairKind(kind)) {
       const xAllowed = this.allowedIndexes((meta) => this.allowsX(meta));
       const yAllowed = this.allowedIndexes((meta) => this.allowsY(meta));
@@ -2064,6 +2121,7 @@ export class ChartCard {
     this.refreshBox();
     this.refreshCrosstab();
     this.refreshBubble();
+    this.refreshMapGrid();
     this.refreshAnimation();
     this.refreshCorrelation();
     this.refreshGroupedBins();
@@ -2303,15 +2361,18 @@ export class ChartCard {
     this.xWrap.classList.toggle("hidden", !pair);
     this.yWrap.classList.toggle("hidden", !pair);
     const seriesKind = kind === "scatter" || kind === "density";
-    this.colorWrap.classList.toggle("hidden", !seriesKind);
-    this.sizeTagLabel.textContent = "Size";
+    const mapKind = kind === "map";
+    this.mapModeWrap.classList.toggle("hidden", !mapKind);
+    this.colorWrap.classList.toggle("hidden", !seriesKind && !mapKind);
+    this.sizeTagLabel.textContent =
+      mapKind && this.config.mapMode === "heat" ? "Measure" : "Size";
     this.sizeWrap.classList.toggle(
       "hidden",
-      !seriesKind && kind !== "treemap" && kind !== "bubble",
+      !seriesKind && kind !== "treemap" && kind !== "bubble" && !mapKind,
     );
-    // The size column belongs to the visible Bubbles row, not the Settings
+    // The size column belongs to the visible Bubbles/Map row, not the Settings
     // drawer, so switching what drives the area is one obvious control.
-    if (kind === "bubble") {
+    if (kind === "bubble" || mapKind) {
       this.bubbleSettings.insertBefore(this.sizeWrap, this.bubbleAggField);
     } else if (this.sizeWrap.parentElement !== this.settingsBody) {
       this.settingsBody.append(this.sizeWrap);
@@ -2347,14 +2408,22 @@ export class ChartCard {
       !(animatable && hasDates && this.animationSetupOpen),
     );
     const bubbleOnly = kind === "bubble";
-    this.bubbleSettings.classList.toggle("hidden", !bubbleOnly);
+    this.bubbleSettings.classList.toggle("hidden", !bubbleOnly && !mapKind);
+    this.bubbleTitle.textContent = mapKind ? "Map" : "Bubbles";
+    this.bubbleScaleField.classList.toggle("hidden", mapKind);
+    this.mapModeSelect.value = this.config.mapMode ?? "points";
+    this.bubbleBinsInput.title = mapKind
+      ? "Heat grid resolution per axis (4–120)"
+      : "Bubble grid resolution per axis (4–120)";
     // Reduce stays visible so the option is discoverable; it only becomes
     // usable once a Size column is chosen.
     const reduceEnabled = this.config.sizeColumn >= 0;
     this.bubbleAggSelect.disabled = !reduceEnabled;
     this.bubbleAggField.title = reduceEnabled
-      ? "How the rows in each area combine into one value"
-      : "Pick a numeric column under Size first — then choose how rows combine";
+      ? mapKind
+        ? "How the rows in each grid cell combine into one heat value"
+        : "How the rows in each area combine into one value"
+      : "Pick a numeric column under Size first - then choose how rows combine";
     if (!reduceEnabled) this.bubbleAggSelect.value = "count";
     this.topLabel.parentElement?.classList.toggle("hidden", bubbleOnly);
     this.multiInput.parentElement?.classList.toggle("hidden", bubbleOnly);
@@ -2370,6 +2439,9 @@ export class ChartCard {
     if (seriesKind) {
       this.xTagLabel.textContent = "X";
       this.yTagLabel.textContent = "Y";
+    } else if (kind === "map") {
+      this.xTagLabel.textContent = "Longitude";
+      this.yTagLabel.textContent = "Latitude";
     } else if (kind === "box") {
       this.xTagLabel.textContent = "Value";
       this.yTagLabel.textContent = "Groups";
@@ -3130,6 +3202,48 @@ export class ChartCard {
   }
 
   /**
+   * Map heat grid: counts (or an aggregate of a numeric measure) per cell over
+   * the filtered coordinate rows, computed worker-side so every row counts.
+   */
+  private refreshMapGrid(): void {
+    if (
+      this.config.kind !== "map" ||
+      this.config.mapMode !== "heat" ||
+      this.options.requestGridCounts === undefined
+    ) {
+      this.mapGrid = null;
+      return;
+    }
+    const x = this.meta(this.config.x);
+    const y = this.meta(this.config.y);
+    if (
+      x === undefined ||
+      y === undefined ||
+      !isNumericType(x.type) ||
+      !isNumericType(y.type)
+    ) {
+      this.mapGrid = null;
+      return;
+    }
+    const generation = ++this.generation;
+    void this.options
+      .requestGridCounts(
+        this.config.x,
+        this.config.y,
+        this.config.bubbleBins ?? 40,
+        this.bubbleMeasure(),
+      )
+      .then((message) => {
+        if (generation !== this.generation || this.disposed) return;
+        this.mapGrid = message.result;
+        this.render();
+      })
+      .catch(() => {
+        // Keep the last payload as the fallback.
+      });
+  }
+
+  /**
    * Frames for animated bar and bubble charts: one aggregate per time bucket,
    * computed worker-side in a single pass over the filtered rows.
    */
@@ -3804,12 +3918,63 @@ export class ChartCard {
   /** Coalesces pointer moves into one tooltip update per animation frame. */
   private queuePointer(event: PointerEvent): void {
     const rect = this.canvas.getBoundingClientRect();
+    if (this.config.kind === "map" && this.mapDrag !== null && this.lastFrame !== null) {
+      const frame = this.lastFrame;
+      const dx = (event.clientX - rect.left - this.mapDrag.x) / frame.plotW;
+      const dy = (event.clientY - rect.top - this.mapDrag.y) / frame.plotH;
+      this.mapDrag = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      const view = this.mapView ?? { lonMin: -180, lonMax: 180, latMin: -90, latMax: 90 };
+      const lonSpan = view.lonMax - view.lonMin;
+      const latSpan = view.latMax - view.latMin;
+      const lonMin = Math.min(
+        180 - lonSpan,
+        Math.max(-180, view.lonMin - dx * lonSpan),
+      );
+      const latMin = Math.min(
+        90 - latSpan,
+        Math.max(-90, view.latMin + dy * latSpan),
+      );
+      this.mapView = { lonMin, lonMax: lonMin + lonSpan, latMin, latMax: latMin + latSpan };
+      this.render();
+      return;
+    }
     if (this.config.kind === "map" && this.mapBrushStart !== null) {
       this.mapBrush = {
         x0: this.mapBrushStart.x,
         y0: this.mapBrushStart.y,
         x1: event.clientX - rect.left,
         y1: event.clientY - rect.top,
+      };
+      this.render();
+      return;
+    }
+    if (
+      (this.config.kind === "scatter" || this.config.kind === "density") &&
+      this.plotDrag !== null &&
+      this.seriesResult !== null &&
+      this.lastFrame !== null
+    ) {
+      const frame = this.lastFrame;
+      const result = this.seriesResult;
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const dx = (x - this.plotDrag.x) / frame.plotW;
+      const dy = (y - this.plotDrag.y) / frame.plotH;
+      this.plotDrag = { x, y };
+      const view =
+        this.plotView ?? {
+          xMin: result.xMin,
+          xMax: result.xMax,
+          yMin: result.yMin,
+          yMax: result.yMax,
+        };
+      const spanX = view.xMax - view.xMin;
+      const spanY = view.yMax - view.yMin;
+      this.plotView = {
+        xMin: view.xMin - dx * spanX,
+        xMax: view.xMax - dx * spanX,
+        yMin: view.yMin + dy * spanY,
+        yMax: view.yMax + dy * spanY,
       };
       this.render();
       return;
@@ -3871,7 +4036,13 @@ export class ChartCard {
 
   /** Map cards: the rectangle brush starts on pointerdown. */
   private beginMapBrush(event: PointerEvent): void {
-    if (this.config.kind !== "map" || this.lastFrame === null) return;
+    const kind = this.config.kind;
+    if (
+      (kind !== "map" && kind !== "scatter" && kind !== "density") ||
+      this.lastFrame === null
+    ) {
+      return;
+    }
     const rect = this.canvas.getBoundingClientRect();
     const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
     const frame = this.lastFrame;
@@ -3881,6 +4052,26 @@ export class ChartCard {
       point.y < frame.top ||
       point.y > frame.top + frame.plotH
     ) {
+      return;
+    }
+    if (kind !== "map") {
+      // Scatter/density: drag pans the viewport.
+      this.plotDrag = point;
+      try {
+        this.canvas.setPointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture is best-effort.
+      }
+      return;
+    }
+    if (!event.shiftKey) {
+      // Plain drag pans the viewport; Shift+drag is the rectangle filter.
+      this.mapDrag = point;
+      try {
+        this.canvas.setPointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture is best-effort.
+      }
       return;
     }
     this.mapBrushStart = point;
@@ -3897,7 +4088,12 @@ export class ChartCard {
    * both coordinate columns. Rects smaller than 6 px are treated as clicks.
    */
   private endMapBrush(event: PointerEvent): void {
-    if (this.mapBrushStart === null || this.config.kind !== "map") return;
+    if (this.config.kind !== "map") {
+      this.plotDrag = null;
+      return;
+    }
+    this.mapDrag = null;
+    if (this.mapBrushStart === null) return;
     const rect = this.canvas.getBoundingClientRect();
     const end = { x: event.clientX - rect.left, y: event.clientY - rect.top };
     const frame = this.lastFrame;
@@ -3936,6 +4132,94 @@ export class ChartCard {
     };
     this.render();
     this.options.onMapBrush?.(selection);
+  }
+
+  /** Wheel zoom on the map, anchored at the pointer; clamped to the world. */
+  private onWheel(event: WheelEvent): void {
+    const kind = this.config.kind;
+    if (
+      (kind !== "map" && kind !== "scatter" && kind !== "density") ||
+      this.lastFrame === null
+    ) {
+      return;
+    }
+    const frame = this.lastFrame;
+    const rect = this.canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    if (
+      x < frame.left ||
+      x > frame.left + frame.plotW ||
+      y < frame.top ||
+      y > frame.top + frame.plotH
+    ) {
+      return;
+    }
+    const tx = (x - frame.left) / frame.plotW;
+    const ty = 1 - (y - frame.top) / frame.plotH;
+    const factor = event.deltaY < 0 ? 0.8 : 1.25;
+    if (kind === "map") {
+      event.preventDefault();
+      const view = this.mapView ?? { lonMin: -180, lonMax: 180, latMin: -90, latMax: 90 };
+      const lon = view.lonMin + tx * (view.lonMax - view.lonMin);
+      const lat = view.latMin + ty * (view.latMax - view.latMin);
+      const lonSpan = Math.min(
+        360,
+        Math.max(0.2, (view.lonMax - view.lonMin) * factor),
+      );
+      const latSpan = Math.min(
+        180,
+        Math.max(0.2, (view.latMax - view.latMin) * factor),
+      );
+      const lonMin = Math.min(180 - lonSpan, Math.max(-180, lon - tx * lonSpan));
+      const latMin = Math.min(90 - latSpan, Math.max(-90, lat - ty * latSpan));
+      this.mapView = { lonMin, lonMax: lonMin + lonSpan, latMin, latMax: latMin + latSpan };
+      this.render();
+      return;
+    }
+    const result = this.seriesResult;
+    if (result === null) return;
+    event.preventDefault();
+    const base =
+      this.plotView ?? {
+        xMin: result.xMin,
+        xMax: result.xMax,
+        yMin: result.yMin,
+        yMax: result.yMax,
+      };
+    const minSpan = Math.max(
+      1e-12,
+      Math.min(base.xMax - base.xMin, base.yMax - base.yMin) / 2000,
+    );
+    const zoomed = zoomPlotBounds(base, { x: tx, y: ty }, factor, minSpan);
+    const clamped = {
+      xMin: Math.max(result.xMin, zoomed.xMin),
+      xMax: Math.min(result.xMax, zoomed.xMax),
+      yMin: Math.max(result.yMin, zoomed.yMin),
+      yMax: Math.min(result.yMax, zoomed.yMax),
+    };
+    this.plotView =
+      clamped.xMax - clamped.xMin > 0 && clamped.yMax - clamped.yMin > 0
+        ? clamped
+        : null;
+    this.render();
+  }
+
+  /** Double-click resets the map/scatter viewport to the full data range. */
+  private resetMapZoom(): void {
+    let changed = false;
+    if (this.config.kind === "map" && this.mapView !== null) {
+      this.mapView = null;
+      changed = true;
+    }
+    if (
+      (this.config.kind === "scatter" || this.config.kind === "density") &&
+      this.plotView !== null
+    ) {
+      this.plotView = null;
+      changed = true;
+    }
+    if (changed) this.render();
   }
 
   /** Toggles a category value or sets a range/text filter through the app hook. */
@@ -4587,19 +4871,36 @@ export class ChartCard {
     const y0 = frame.top;
     const w = frame.plotW;
     const h = frame.plotH;
-    const px = (lon: number): number => x0 + projectLon(lon) * w;
-    const py = (lat: number): number => y0 + projectLat(lat) * h;
+    const view =
+      this.mapView ?? { lonMin: -180, lonMax: 180, latMin: -90, latMax: 90 };
+    const lonSpan = view.lonMax - view.lonMin;
+    const latSpan = view.latMax - view.latMin;
+    const px = (lon: number): number => x0 + ((lon - view.lonMin) / lonSpan) * w;
+    const py = (lat: number): number => y0 + ((view.latMax - lat) / latSpan) * h;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x0, y0, w, h);
+    ctx.clip();
 
-    // Graticule every 30 degrees, faint, so empty seas still read as a map.
+    // Graticule: 30° at world scale, finer as the viewport zooms in.
+    const gridStep = lonSpan > 180 ? 30 : lonSpan > 60 ? 10 : lonSpan > 20 ? 5 : 1;
     ctx.strokeStyle = frame.border;
     ctx.lineWidth = 1;
     ctx.globalAlpha = 0.4;
     ctx.beginPath();
-    for (let lon = -150; lon <= 150; lon += 30) {
+    for (
+      let lon = Math.ceil(view.lonMin / gridStep) * gridStep;
+      lon <= view.lonMax;
+      lon += gridStep
+    ) {
       ctx.moveTo(px(lon), y0);
       ctx.lineTo(px(lon), y0 + h);
     }
-    for (let lat = -60; lat <= 60; lat += 30) {
+    for (
+      let lat = Math.ceil(view.latMin / gridStep) * gridStep;
+      lat <= view.latMax;
+      lat += gridStep
+    ) {
       ctx.moveTo(x0, py(lat));
       ctx.lineTo(x0 + w, py(lat));
     }
@@ -4626,12 +4927,64 @@ export class ChartCard {
     ctx.stroke();
     ctx.globalAlpha = 1;
 
+    const ui = frame.ui;
+    if (this.config.mapMode === "heat") {
+      const grid = this.mapGrid;
+      if (grid === null) {
+        this.noteEl.textContent = "Computing the heat grid…";
+        return;
+      }
+      const values = grid.values;
+      const max = Math.max(1, values === null ? grid.maxCount : grid.valueMax);
+      const rampName = this.config.palette ?? DEFAULT_PALETTE;
+      const ramp = isRampPalette(rampName)
+        ? paletteStops(rampName, parseCustomColors(this.config.paletteCustom ?? ""))
+        : null;
+      const colors =
+        ramp === null
+          ? Array.from({ length: 32 }, (_, index) => rampColor(index / 31))
+          : Array.from({ length: 32 }, (_, index) => rampAt(ramp, index / 31));
+      const cellLon = (grid.xMax - grid.xMin) / grid.bins;
+      const cellLat = (grid.yMax - grid.yMin) / grid.bins;
+      for (let cy = 0; cy < grid.bins; cy++) {
+        for (let cx = 0; cx < grid.bins; cx++) {
+          const index = cy * grid.bins + cx;
+          const value =
+            values === null ? (grid.counts[index] ?? 0) : (values[index] ?? Number.NaN);
+          if (!Number.isFinite(value) || value <= 0) continue;
+          const lon0 = grid.xMin + cx * cellLon;
+          const latTop = grid.yMax - cy * cellLat;
+          const lat0 = latTop - cellLat;
+          if (lon0 + cellLon < view.lonMin || lon0 > view.lonMax) continue;
+          if (lat0 + cellLat < view.latMin || lat0 > view.latMax) continue;
+          const t = Math.min(1, value / max);
+          ctx.fillStyle =
+            colors[Math.min(colors.length - 1, Math.floor(t * colors.length))] ??
+            this.primaryColor();
+          ctx.globalAlpha = 0.82;
+          ctx.fillRect(
+            px(lon0),
+            py(latTop),
+            Math.max(1, (cellLon / lonSpan) * w) + 0.5,
+            Math.max(1, (cellLat / latSpan) * h) + 0.5,
+          );
+        }
+      }
+      ctx.globalAlpha = 1;
+      const measureMeta = this.meta(this.config.sizeColumn);
+      const agg = this.config.bubbleAgg ?? "count";
+      const measure =
+        values === null || this.config.sizeColumn < 0 || measureMeta === undefined
+          ? "rows per cell"
+          : `${agg}(${measureMeta.name}) per cell`;
+      this.noteEl.textContent = `heat: ${measure} · ${grid.bins}×${grid.bins} grid · ${grid.total.toLocaleString()} rows · scroll to zoom · drag to pan · double-click resets`;
+      return;
+    }
     const result = this.seriesResult;
     if (result === null) {
       this.noteEl.textContent = "Pick numeric longitude and latitude columns.";
       return;
     }
-    const ui = frame.ui;
     if (result.mode === "density") {
       // Density never applies (map requests points), but keep a sane fallback.
       const spanX = result.xMax - result.xMin;
@@ -4652,35 +5005,37 @@ export class ChartCard {
       this.noteEl.textContent = `${result.total.toLocaleString()} points · ${result.outside.toLocaleString()} outside the world bounds · drag a rectangle to filter to an area`;
       return;
     }
-    // Points: batched per colour code when a category colour is set.
-    const dot = Math.max(1.5, 1.6 * ui);
-    if (result.colorCodes !== null && this.seriesLabels !== null) {
-      const byCode = new Map<number, number[]>();
-      for (let i = 0; i < result.shown; i++) {
-        const code = result.colorCodes[i] ?? 0xffff;
-        const list = byCode.get(code);
-        if (list === undefined) byCode.set(code, [i]);
-        else list.push(i);
+    // Points: sized and coloured by the chosen columns, batched by colour.
+    const sizes = this.pointSizes(result, ui);
+    const buckets = this.colorBuckets(result);
+    const baseRadius = 2.2 * ui;
+    const drawAt = (index: number): void => {
+      const lon = result.x[index] ?? Number.NaN;
+      const lat = result.y[index] ?? Number.NaN;
+      if (
+        !Number.isFinite(lon) ||
+        !Number.isFinite(lat) ||
+        lon < view.lonMin ||
+        lon > view.lonMax ||
+        lat < view.latMin ||
+        lat > view.latMax
+      ) {
+        return;
       }
-      for (const [code, indexes] of byCode) {
-        ctx.fillStyle =
-          code === 0xffff ? this.primaryColor() : this.groupColor(code);
-        ctx.globalAlpha = 0.65;
-        for (const i of indexes) {
-          const lon = result.x[i] ?? Number.NaN;
-          const lat = result.y[i] ?? Number.NaN;
-          if (lon < -180 || lon > 180 || lat < -90 || lat > 90) continue;
-          ctx.fillRect(px(lon) - dot / 2, py(lat) - dot / 2, dot, dot);
-        }
-      }
-    } else {
+      const r = sizes === null ? baseRadius : (sizes[index] ?? baseRadius);
+      ctx.fillRect(px(lon) - r, py(lat) - r, r * 2, r * 2);
+    };
+    if (buckets === null) {
       ctx.fillStyle = this.primaryColor();
       ctx.globalAlpha = 0.6;
-      for (let i = 0; i < result.shown; i++) {
-        const lon = result.x[i] ?? Number.NaN;
-        const lat = result.y[i] ?? Number.NaN;
-        if (lon < -180 || lon > 180 || lat < -90 || lat > 90) continue;
-        ctx.fillRect(px(lon) - dot / 2, py(lat) - dot / 2, dot, dot);
+      for (let i = 0; i < result.shown; i++) drawAt(i);
+    } else {
+      for (let bucket = 0; bucket < buckets.colors.length; bucket++) {
+        ctx.fillStyle = buckets.colors[bucket] ?? this.primaryColor();
+        ctx.globalAlpha = 0.62;
+        for (let i = 0; i < result.shown; i++) {
+          if (buckets.buckets[i] === bucket) drawAt(i);
+        }
       }
     }
     ctx.globalAlpha = 1;
@@ -4700,9 +5055,20 @@ export class ChartCard {
       ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh);
       ctx.globalAlpha = 1;
     }
+    ctx.restore();
 
     const sampled = result.sampled ? " (sampled)" : "";
-    this.noteEl.textContent = `${result.shown.toLocaleString()} of ${result.total.toLocaleString()} points${sampled} · drag a rectangle to filter to an area`;
+    const colorText = this.colorNote(result);
+    const sizeMeta = this.meta(this.config.sizeColumn);
+    const extras = [
+      colorText === null ? "" : `${colorText}`,
+      sizeMeta === undefined || sizes === null ? "" : `size: ${sizeMeta.name}`,
+    ]
+      .filter((part) => part !== "")
+      .join(" · ");
+    this.noteEl.textContent = `${result.shown.toLocaleString()} of ${result.total.toLocaleString()} points${sampled}${
+      extras === "" ? "" : ` · ${extras}`
+    } — scroll to zoom · drag to pan · shift-drag to filter · double-click resets`;
   }
 
   /**
@@ -6180,8 +6546,22 @@ export class ChartCard {
       this.drawPlotMessage(ctx, frame, message);
       return;
     }
-    if (result.mode === "density") this.drawDensity(ctx, frame, result, xMeta, yMeta);
-    else this.drawPoints(ctx, frame, result, xMeta, yMeta);
+    if (result.mode === "density")
+      this.drawDensity(
+        ctx,
+        frame,
+        this.plotView === null ? result : { ...result, ...this.plotView },
+        xMeta,
+        yMeta,
+      );
+    else
+      this.drawPoints(
+        ctx,
+        frame,
+        this.plotView === null ? result : { ...result, ...this.plotView },
+        xMeta,
+        yMeta,
+      );
   }
 
   private drawAxes(
@@ -6347,6 +6727,11 @@ export class ChartCard {
       ctx.fillRect(x - r, y - r, r * 2, r * 2);
     };
 
+    // Zoom/pan can move points past the plot: clip the marks, not the axes.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(frame.left, frame.top, frame.plotW, frame.plotH);
+    ctx.clip();
     ctx.globalAlpha = 0.55;
     if (buckets === null) {
       ctx.fillStyle = this.primaryColor();
@@ -6360,6 +6745,7 @@ export class ChartCard {
       }
     }
     ctx.globalAlpha = 1;
+    ctx.restore();
 
     this.drawCorrelationNote(ctx, frame);
 
@@ -6370,6 +6756,7 @@ export class ChartCard {
     if (colorText !== null) notes.push(colorText);
     const sizeMeta = this.meta(this.config.sizeColumn);
     if (sizes !== null && sizeMeta !== undefined) notes.push(`size: ${sizeMeta.name}`);
+    notes.push("scroll to zoom · drag to pan · double-click resets");
     if (this.seriesMs > 0) notes.push(`${Math.round(this.seriesMs)} ms`);
     this.noteEl.textContent = notes.join(" · ");
   }
@@ -6396,11 +6783,21 @@ export class ChartCard {
     }
 
     if (style !== "contours") {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(frame.left, frame.top, frame.plotW, frame.plotH);
+      ctx.clip();
       this.paintDensityHeat(ctx, frame, result, style === "both" ? 0.45 : 1);
+      ctx.restore();
     }
     if (smooth !== null && smoothMax > 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(frame.left, frame.top, frame.plotW, frame.plotH);
+      ctx.clip();
       if (style === "contours") this.paintDensityBands(ctx, frame, result, smooth, smoothMax);
       this.paintContourLines(ctx, frame, result, smooth, smoothMax);
+      ctx.restore();
     }
 
     this.drawAxes(
@@ -6424,6 +6821,7 @@ export class ChartCard {
       style === "heat" ? "heat" : style === "contours" ? "5 contour levels" : "heat + contour lines",
     );
     if (result.outside > 0) notes.push(`${result.outside.toLocaleString()} outside p1–p99`);
+    notes.push("scroll to zoom · drag to pan · double-click resets");
     if (this.seriesMs > 0) notes.push(`${Math.round(this.seriesMs)} ms`);
     this.noteEl.textContent = notes.join(" · ");
   }

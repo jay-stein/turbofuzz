@@ -2161,6 +2161,67 @@ test("a map card requests unclipped coordinate points", async () => {
   card.dispose();
 });
 
+test("a map heat grid aggregates a measure per cell", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: unknown[][] = [];
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestGridCounts: async (...args: unknown[]) => {
+        calls.push(args);
+        return {
+          type: "gridCounts",
+          requestId: 1,
+          result: {
+            xMin: 144.8,
+            xMax: 145.1,
+            yMin: -37.9,
+            yMax: -37.7,
+            bins: 40,
+            counts: new Uint32Array(1600),
+            maxCount: 0,
+            values: Float64Array.from(Array.from({ length: 1600 }, (_, i) => (i % 7 === 0 ? 1200000 : 0))),
+            valueMax: 1200000,
+            groups: null,
+            total: 100,
+            missing: 0,
+          },
+          ms: 1,
+        };
+      },
+    },
+    {
+      kind: "map",
+      x: 1,
+      y: 0,
+      mapMode: "heat",
+      sizeColumn: 2,
+      bubbleAgg: "sum",
+    },
+  );
+  card.setColumns([
+    meta({ name: "lat", type: "number", stats: { ...meta().stats, min: -37.9, max: -37.7 } }),
+    meta({ name: "lon", type: "number", stats: { ...meta().stats, min: 144.8, max: 145.1 } }),
+    meta({ name: "price", type: "number", stats: { ...meta().stats, min: 100000, max: 4000000 } }),
+  ]);
+  await tick();
+
+  assert.ok(calls.length >= 1, "the heat grid is fetched");
+  const last = calls[calls.length - 1] ?? [];
+  assert.equal(last[0], 1, "longitude column");
+  assert.equal(last[1], 0, "latitude column");
+  assert.equal(last[2], 40, "default grid resolution");
+  assert.deepEqual(last[3], { column: 2, agg: "sum" }, "the measure is the size column");
+
+  const mode = host.querySelector('select[aria-label="Map display mode"]') as HTMLSelectElement;
+  assert.ok(mode !== null, "the display mode control exists");
+  assert.equal(mode.value, "heat");
+  card.dispose();
+});
+
 test("a line card splits its measure into one series per group", async () => {
   setupDom();
   const host = document.createElement("div");

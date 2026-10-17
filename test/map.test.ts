@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fitChartKind } from "../src/ui/chart-gallery.js";
-import { mapBrushBounds, suggestCharts } from "../src/ui/chart-utils.js";
+import { mapBrushBounds, suggestCharts, zoomPlotBounds } from "../src/ui/chart-utils.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
 
 function meta(overrides: Partial<ColumnMeta> = {}): ColumnMeta {
@@ -78,4 +78,29 @@ test("the gallery offers a map when coordinates are detected", () => {
     ideas.some((idea) => idea.preset.kind === "map"),
     "the suggestion strip offers the map",
   );
+});
+
+test("zoomPlotBounds zooms around the pointer and honours minSpan", () => {
+  const base = { xMin: 0, xMax: 100, yMin: 0, yMax: 50 };
+  assert.deepEqual(zoomPlotBounds(base, { x: 0.5, y: 0.5 }, 0.5), {
+    xMin: 25,
+    xMax: 75,
+    yMin: 12.5,
+    yMax: 37.5,
+  });
+  assert.deepEqual(zoomPlotBounds(base, { x: 0, y: 1 }, 0.5), {
+    xMin: 0,
+    xMax: 50,
+    yMin: 25,
+    yMax: 50,
+  });
+  assert.deepEqual(zoomPlotBounds(base, { x: 0.5, y: 0.5 }, 3), {
+    xMin: -100,
+    xMax: 200,
+    yMin: -50,
+    yMax: 100,
+  });
+  const tiny = zoomPlotBounds(base, { x: 0.5, y: 0.5 }, 1e-7, 0.5);
+  assert.equal(tiny.xMax - tiny.xMin, 0.5);
+  assert.equal(tiny.yMax - tiny.yMin, 0.5);
 });

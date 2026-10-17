@@ -539,6 +539,32 @@ export interface MapBrushFrame {
   plotH: number;
 }
 
+export interface PlotBounds {
+  xMin: number;
+  xMax: number;
+  yMin: number;
+  yMax: number;
+}
+
+/**
+ * Zooms a plot viewport around an anchor (0–1 in each axis, y pointing up).
+ * factor < 1 zooms in, > 1 zooms out; spans never drop below minSpan.
+ */
+export function zoomPlotBounds(
+  bounds: PlotBounds,
+  anchor: { x: number; y: number },
+  factor: number,
+  minSpan = 1e-9,
+): PlotBounds {
+  const spanX = Math.max(minSpan, (bounds.xMax - bounds.xMin) * factor);
+  const spanY = Math.max(minSpan, (bounds.yMax - bounds.yMin) * factor);
+  const x = bounds.xMin + anchor.x * (bounds.xMax - bounds.xMin);
+  const y = bounds.yMin + anchor.y * (bounds.yMax - bounds.yMin);
+  const xMin = x - anchor.x * spanX;
+  const yMin = y - anchor.y * spanY;
+  return { xMin, xMax: xMin + spanX, yMin, yMax: yMin + spanY };
+}
+
 export interface MapBrushRect {
   x0: number;
   y0: number;
