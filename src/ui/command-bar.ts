@@ -1108,6 +1108,13 @@ export function commandSuggestions(
   // numbers for "round"), so the base list is not fixated on the first column.
   const pickColumn = (verb: string): string =>
     columns.find((meta) => columnFitsVerb(verb, meta))?.name ?? columns[0]?.name ?? "amount";
+  const pickTextColumn = (): string =>
+    columns.find(
+      (meta) =>
+        meta.type === "string" || meta.type === "category" || meta.type === "identifier",
+    )?.name ??
+    columns[0]?.name ??
+    "notes";
   const specialExample = (name: string): string | null => {
     switch (name) {
       case "keydup":
@@ -1123,19 +1130,19 @@ export function commandSuggestions(
       case "replace":
         return `replace ${pickColumn("replace")} "old" with "new"`;
       case "type":
-        return `type ${pickColumn("type")} number`;
+        return `type ${pickTextColumn()} number`;
       case "rename":
         return `rename ${pickColumn("rename")} renamed`;
       case "sort":
         return `sort ${pickColumn("sort")} desc`;
       case "filter":
-        return `filter ${pickColumn("filter")} active`;
+        return `filter ${pickTextColumn()} active`;
       case "clear":
         return "clear filters";
       case "merge":
         return `merge ${pickColumn("merge")}`;
       case "chart":
-        return `chart ${pickColumn("chart")}`;
+        return `chart ${pickTextColumn()}`;
       case "headercase":
         return "headercase snake";
       case "dropempty":
