@@ -7,6 +7,9 @@ export interface TextShapeCounts {
   phone: number;
   creditCard: number;
   iban: number;
+  taxFileNumber: number;
+  abn: number;
+  acn: number;
   governmentId: number;
   numeric: number;
   dateLike: number;
@@ -34,6 +37,7 @@ const URL = /^(https?:\/\/|www\.)\S+$/i;
 const PHONE = /^[+()\d][\d\s().-]{5,}$/;
 const CARD_CANDIDATE = /^(?:\d[ -]?){12,18}\d$/;
 const IBAN_CANDIDATE = /^[A-Za-z]{2}\d{2}[A-Za-z0-9 ]{11,30}$/;
+const AUSTRALIAN_ID = /^\d(?:[ -]?\d){7,10}$/;
 const GOVERNMENT_ID = /^\d{3}-\d{2}-\d{4}$/;
 const NUMERIC = /^[-+]?\d*\.?\d+$/;
 const DATE_LIKE = /^\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}/;
@@ -68,6 +72,40 @@ function ibanValid(value: string): boolean {
     }
   }
   return remainder === 1;
+}
+
+function digitsOf(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+/** Australian Business Number: 11 digits with the ATO modulus-89 check. */
+function abnValid(value: string): boolean {
+  const digits = digitsOf(value).split("").map(Number);
+  if (digits.length !== 11) return false;
+  const weights = [10, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19];
+  digits[0] -= 1;
+  const sum = digits.reduce((total, digit, index) => total + digit * weights[index], 0);
+  return sum % 89 === 0;
+}
+
+/** Australian Company Number: 9 digits with the ASIC check digit. */
+function acnValid(value: string): boolean {
+  const digits = digitsOf(value).split("").map(Number);
+  if (digits.length !== 9) return false;
+  const weights = [8, 7, 6, 5, 4, 3, 2, 1];
+  const sum = digits
+    .slice(0, 8)
+    .reduce((total, digit, index) => total + digit * weights[index], 0);
+  return (10 - (sum % 10)) % 10 === digits[8];
+}
+
+/** Australian Tax File Number: 8 or 9 digits with the ATO modulus-11 check. */
+function tfnValid(value: string): boolean {
+  const digits = digitsOf(value).split("").map(Number);
+  if (digits.length !== 8 && digits.length !== 9) return false;
+  const weights = digits.length === 9 ? [1, 4, 3, 7, 5, 8, 6, 9, 10] : [4, 3, 7, 5, 8, 6, 9, 10];
+  const sum = digits.reduce((total, digit, index) => total + digit * weights[index], 0);
+  return sum % 11 === 0;
 }
 
 /** Common English function words: noise for keyword mining, cheap to keep. */
@@ -117,6 +155,9 @@ export function textProfile(
     phone: 0,
     creditCard: 0,
     iban: 0,
+    taxFileNumber: 0,
+    abn: 0,
+    acn: 0,
     governmentId: 0,
     numeric: 0,
     dateLike: 0,
@@ -138,6 +179,9 @@ export function textProfile(
     else if (URL.test(trimmed)) shapes.url++;
     else if (CARD_CANDIDATE.test(trimmed) && luhnValid(trimmed)) shapes.creditCard++;
     else if (IBAN_CANDIDATE.test(trimmed) && ibanValid(trimmed)) shapes.iban++;
+    else if (AUSTRALIAN_ID.test(trimmed) && abnValid(trimmed)) shapes.abn++;
+    else if (AUSTRALIAN_ID.test(trimmed) && acnValid(trimmed)) shapes.acn++;
+    else if (AUSTRALIAN_ID.test(trimmed) && tfnValid(trimmed)) shapes.taxFileNumber++;
     else if (GOVERNMENT_ID.test(trimmed)) shapes.governmentId++;
     else if (PHONE.test(trimmed)) shapes.phone++;
     else if (NUMERIC.test(trimmed)) shapes.numeric++;

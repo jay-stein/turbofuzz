@@ -553,6 +553,9 @@ export function textProfileFindings(profiles: readonly TextProfileInput[]): Find
         profile.shapes.phone +
         profile.shapes.creditCard +
         profile.shapes.iban +
+        profile.shapes.taxFileNumber +
+        profile.shapes.abn +
+        profile.shapes.acn +
         profile.shapes.governmentId;
       const shapedShare = profile.rows > 0 ? shaped / profile.rows : 0;
       const mixed = shapedShare >= 0.1 && shapedShare < 0.9 && shaped >= 5;
@@ -585,7 +588,7 @@ export function textProfileFindings(profiles: readonly TextProfileInput[]): Find
             ? [
                 {
                   metric: "shaped values",
-                  value: `${profile.shapes.email.toLocaleString()} email · ${profile.shapes.url.toLocaleString()} URL · ${profile.shapes.phone.toLocaleString()} phone · ${profile.shapes.creditCard.toLocaleString()} card · ${profile.shapes.iban.toLocaleString()} IBAN · ${profile.shapes.governmentId.toLocaleString()} ID`,
+                  value: `${profile.shapes.email.toLocaleString()} email · ${profile.shapes.url.toLocaleString()} URL · ${profile.shapes.phone.toLocaleString()} phone · ${profile.shapes.creditCard.toLocaleString()} card · ${profile.shapes.iban.toLocaleString()} IBAN · ${profile.shapes.taxFileNumber.toLocaleString()} TFN · ${profile.shapes.abn.toLocaleString()} ABN · ${profile.shapes.acn.toLocaleString()} ACN · ${profile.shapes.governmentId.toLocaleString()} ID`,
                   n: shaped,
                 },
               ]

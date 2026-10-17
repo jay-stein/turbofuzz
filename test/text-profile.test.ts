@@ -73,6 +73,21 @@ test("textProfile detects sensitive shapes and can skip term counting", () => {
   assert.equal(profile.totalTokens, 0);
 });
 
+test("textProfile detects Australian business and tax identifiers", () => {
+  const values = [
+    "51 824 753 556",
+    "004 085 616",
+    "123 456 782",
+    "0412 345 678",
+    "(02) 9374 4000",
+  ];
+  const profile = textProfile(values, mask(values), 30, false);
+  assert.equal(profile.shapes.abn, 1);
+  assert.equal(profile.shapes.acn, 1);
+  assert.equal(profile.shapes.taxFileNumber, 1);
+  assert.equal(profile.shapes.phone, 2, "AU mobile and landline formats are phones");
+});
+
 test("textProfile handles numeric-looking text without counting it as terms", () => {
   const values = ["1.5", "2", "3", "north", "south", "north"];
   const profile = textProfile(values, mask(values));

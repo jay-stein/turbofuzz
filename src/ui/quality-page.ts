@@ -474,7 +474,7 @@ export class QualityPage {
       el("h3", { class: "qp-section-title" }, [
         "Sensitive data",
         el("span", { class: "qp-section-hint" }, [
-          "advisory pattern matches in up to 12 text columns — not part of the score",
+          "advisory pattern matches (email, phone, card, IBAN, TFN, ABN, ACN, SSN-like) in up to 12 text columns — not part of the score",
         ]),
       ]),
     );

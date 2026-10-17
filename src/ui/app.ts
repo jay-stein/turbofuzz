@@ -3120,6 +3120,9 @@ export class App {
         { label: "Phone", count: shapes.phone },
         { label: "Card", count: shapes.creditCard },
         { label: "IBAN", count: shapes.iban },
+        { label: "TFN", count: shapes.taxFileNumber },
+        { label: "ABN", count: shapes.abn },
+        { label: "ACN", count: shapes.acn },
         { label: "SSN-like", count: shapes.governmentId },
       ].filter((count) => count.count > 0);
       if (counts.length === 0) continue;
