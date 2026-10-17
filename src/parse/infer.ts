@@ -15,6 +15,23 @@ export interface InferredType {
   numberLocale?: NumberLocale;
   /** True when at least one datetime value carried an explicit zone offset. */
   timeZoneAware?: boolean;
+  /** Set when a richer type was blocked by a minority of values (text fallback). */
+  downgrade?: TypeDowngrade;
+}
+
+/**
+ * A text column whose values mostly fit a richer type: the type inference
+ * threshold (95%) was missed, so the column silently fell back to Text. The
+ * counts come from the inference sample; share carries the ratio.
+ */
+export interface TypeDowngrade {
+  candidate: "boolean" | "integer" | "number" | "date" | "datetime";
+  /** Fraction of sampled non-null values that fit the candidate. */
+  share: number;
+  ok: number;
+  total: number;
+  /** Up to three values that block the candidate type. */
+  examples: string[];
 }
 
 export interface TopValue {
@@ -50,6 +67,82 @@ const CATEGORY_CODE_DISTINCT = 12;
 const CLOCK_NAME_HINT = /(^|[^a-z0-9])(time|times|clock|meridiem)($|[^a-z0-9])/i;
 const MERIDIEM = /[ap]\.?m\.?\s*$/i;
 const DURATION_CLOCK_FORM = /^\d{1,9}:[0-5]\d:[0-5]\d(?:\.\d{1,3})?$/;
+
+/** A text fallback needs this share of values before it reads as a downgrade. */
+const DOWNGRADE_MIN_SHARE = 0.6;
+const DOWNGRADE_MIN_VALUES = 5;
+
+type DowngradeCandidate = TypeDowngrade["candidate"];
+
+function matchesCandidate(
+  value: string,
+  candidate: DowngradeCandidate,
+  dateOrder: DateOrder,
+): boolean {
+  switch (candidate) {
+    case "boolean":
+      return (
+        TRUE_VALUES.has(value.toLowerCase()) || FALSE_VALUES.has(value.toLowerCase())
+      );
+    case "integer":
+      return INTEGER.test(value) || INTEGER_ZERO_TAIL.test(value);
+    case "number":
+      return Number.isFinite(parseNumber(value));
+    case "date":
+    case "datetime":
+      return classifyDateValue(value, dateOrder) !== null;
+  }
+}
+
+/**
+ * Near-miss type detection for a text fallback: which richer type would the
+ * column have been if a minority of values did not block it? Highest share
+ * wins; ties prefer the more specific type (boolean > integer > number >
+ * datetime > date) — matching how type inference itself ranks candidates.
+ */
+function detectDowngrade(
+  values: readonly string[],
+  counts: { boolOk: number; integerOk: number; numberOk: number; dateOk: number; anyTime: boolean },
+  dateOrder: DateOrder,
+): TypeDowngrade | undefined {
+  const total = values.length;
+  if (total < DOWNGRADE_MIN_VALUES) return undefined;
+  const precedence: DowngradeCandidate[] = ["boolean", "integer", "number", "datetime", "date"];
+  const candidates: { candidate: DowngradeCandidate; ok: number }[] = [
+    { candidate: "boolean", ok: counts.boolOk },
+    { candidate: "integer", ok: counts.integerOk },
+    { candidate: "number", ok: counts.numberOk },
+    { candidate: counts.anyTime ? "datetime" : "date", ok: counts.dateOk },
+  ];
+  let best: { candidate: DowngradeCandidate; ok: number; share: number } | null = null;
+  for (const entry of candidates) {
+    const share = entry.ok / total;
+    if (share < DOWNGRADE_MIN_SHARE) continue;
+    if (
+      best === null ||
+      share > best.share + 1e-9 ||
+      (Math.abs(share - best.share) <= 1e-9 &&
+        precedence.indexOf(entry.candidate) < precedence.indexOf(best.candidate))
+    ) {
+      best = { candidate: entry.candidate, ok: entry.ok, share };
+    }
+  }
+  if (best === null) return undefined;
+  const examples: string[] = [];
+  for (const value of values) {
+    if (!matchesCandidate(value, best.candidate, dateOrder)) {
+      examples.push(value);
+      if (examples.length >= 3) break;
+    }
+  }
+  return {
+    candidate: best.candidate,
+    share: best.share,
+    ok: best.ok,
+    total,
+    examples,
+  };
+}
 
 /**
  * Time-of-day and duration are both conservative: an ambiguous `HH:MM` or
@@ -158,6 +251,7 @@ export function inferColumnType(
 
   let integerOk = 0;
   let numberOk = 0;
+  let boolOk = 0;
   let zeroTail = false;
   for (const value of nonNull) {
     if (INTEGER.test(value)) integerOk++;
@@ -166,6 +260,8 @@ export function inferColumnType(
       zeroTail = true;
     }
     if (Number.isFinite(parseNumber(value))) numberOk++;
+    const lower = value.toLowerCase();
+    if (TRUE_VALUES.has(lower) || FALSE_VALUES.has(lower)) boolOk++;
   }
   const total = nonNull.length;
 
@@ -221,5 +317,12 @@ export function inferColumnType(
   if (distinct <= 12) return { type: "category" };
   if (distinct <= 200 && present >= distinct * 5) return { type: "category" };
 
-  return { type: "string" };
+  // Text fallback: remember which richer type a minority of values blocked, so
+  // the DQ report can flag a column that is text only because of a few cells.
+  const downgrade = detectDowngrade(
+    nonNull,
+    { boolOk, integerOk, numberOk, dateOk, anyTime },
+    dateOrder,
+  );
+  return { type: "string", ...(downgrade === undefined ? {} : { downgrade }) };
 }

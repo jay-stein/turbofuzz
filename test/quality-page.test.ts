@@ -159,3 +159,32 @@ test("show only issues hides passing checks and matrix rows", () => {
   const matrixRows = host.querySelectorAll(".quality-matrix-table tr").length;
   assert.equal(matrixRows, 2, "header + the dirty column only");
 });
+
+test("a downgrade check converts the column in one click", () => {
+  const window = setupDom();
+  const columns = [
+    meta({
+      name: "amount",
+      type: "string",
+      typeDowngrade: { candidate: "integer", share: 0.94, ok: 94, total: 100, examples: ["TBC"] },
+    }),
+  ];
+  const score = computeDQScore(columns, stats(), 100);
+  const host = window.document.createElement("div");
+  const converted: string[] = [];
+  const page = new QualityPage(host as unknown as HTMLElement, {
+    onFilter: () => {},
+    onExport: () => Promise.resolve(true),
+    onConvert: (column, type) => converted.push(`${column}:${type}`),
+  });
+  page.render({ score, rowCount: 100, stats: stats(), columnNames: ["amount"] });
+
+  const rows = [...host.querySelectorAll(".qp-check:not(.qp-check-head)")] as unknown as {
+    textContent: string;
+    querySelector(selector: string): { click(): void } | null;
+  }[];
+  const row = rows.find((entry) => (entry.textContent ?? "").includes("stored as Text"));
+  assert.ok(row !== undefined, "the downgrade check is listed");
+  row?.querySelector("button")?.click();
+  assert.deepEqual(converted, ["0:integer"], "the action converts, not filters");
+});

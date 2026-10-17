@@ -14,6 +14,7 @@ import {
   stratifiedSample,
   type ColumnStats,
   type InferredType,
+  type TypeDowngrade,
 } from "../parse/infer.js";
 import { isNullWithPolicy, EMPTY_NULL_POLICY, type NullPolicy } from "../parse/null-tokens.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
@@ -96,6 +97,8 @@ export class ColumnData {
   /** A datetime column whose source values carried explicit zone offsets. */
   timeZoneAware = false;
   suggestions: ColumnSuggestion[] = [];
+  /** Near-miss richer type for a text fallback (null once typed manually). */
+  typeDowngrade: TypeDowngrade | null = null;
   readonly stats: ColumnStats;
   readonly nullMask: BitSet;
 
@@ -225,6 +228,7 @@ export class ColumnData {
     );
     column.suggestions = detectSuggestions(raw, inferred.type, nullPolicy, column.numberLocale);
     column.timeZoneAware = inferred.timeZoneAware ?? false;
+    column.typeDowngrade = inferred.downgrade ?? null;
     return column;
   }
 
@@ -240,6 +244,7 @@ export class ColumnData {
   setType(type: ColumnType, lock = false): void {
     this.type = type;
     this.typeLocked = lock;
+    this.typeDowngrade = null;
     this.nums = null;
     this.cats = null;
     this.stats.min = null;

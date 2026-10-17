@@ -21,7 +21,7 @@ import type { ColumnSchema, TransformOp } from "../data/transform-ops.js";
 import type { DateOrder } from "../parse/dates.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { FileEncoding } from "../parse/encoding.js";
-import type { ColumnStats } from "../parse/infer.js";
+import type { ColumnStats, TypeDowngrade } from "../parse/infer.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { RaggedInfo } from "../parse/parse.js";
 import type { ColumnFilter } from "../search/query-engine.js";
@@ -59,6 +59,8 @@ export interface ColumnMeta {
   nullPolicy: { extra: string[]; keep: string[] };
   nullTokens: NullTokenCount[];
   suggestions: ColumnSuggestion[];
+  /** Text fallback blocked by a minority of values: the near-miss richer type. */
+  typeDowngrade?: TypeDowngrade | null;
   /** Dominant-format check: mask, off-pattern count and examples (null when none). */
   pattern?: ColumnPatternMeta | null;
 }

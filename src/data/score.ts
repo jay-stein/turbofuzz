@@ -1,5 +1,6 @@
 import type { ColumnMeta } from "../worker/protocol.js";
 import type { DatasetStats } from "./stats.js";
+import { TYPE_LABELS, type ColumnType } from "../types.js";
 
 export type ScoreDimension =
   | "completeness"
@@ -32,6 +33,8 @@ export interface ScoreCheck {
   column: number | null;
   filter: ScoreCheckFilter | null;
   fixLabel: string | null;
+  /** When set, the fix converts the column to this type instead of filtering. */
+  convertTo?: ColumnType;
 }
 
 export interface DimensionScore {
@@ -163,6 +166,36 @@ export function computeDQScore(
       filter: patternOff > 0 ? "pattern" : null,
       fixLabel: patternOff > 0 ? "Show off-format" : null,
     });
+
+    // Type downgrade: a text fallback blocked by a minority of values. A
+    // mostly-integer column typed as Text is silent data loss — the score
+    // makes it visible and offers the one-click type conversion.
+    const downgrade = meta.typeDowngrade ?? null;
+    if (meta.type === "string" && downgrade !== null) {
+      const share = Math.min(1, Math.max(0, downgrade.share));
+      const passValues = Math.round(share * nonNull);
+      const candidateLabel = TYPE_LABELS[downgrade.candidate];
+      const blockers =
+        downgrade.examples.length > 0
+          ? downgrade.examples
+              .slice(0, 3)
+              .map((value) => `“${value}”`)
+              .join(", ")
+          : "a minority of values";
+      checks.push({
+        id: `validity.downgrade.${column}`,
+        dimension: "validity",
+        label: `“${meta.name}” is stored as Text — ${Math.round(share * 100)}% of values look like ${candidateLabel}`,
+        detail: `${formatCount(passValues)} of ${formatCount(nonNull)} values fit ${candidateLabel} · blocked by ${blockers} · sampled`,
+        pass: passValues,
+        fail: Math.max(0, nonNull - passValues),
+        na: meta.stats.nulls,
+        column,
+        filter: null,
+        fixLabel: `Convert to ${candidateLabel}`,
+        convertTo: downgrade.candidate,
+      });
+    }
   });
 
   // Uniqueness: exact duplicate rows (null-key hygiene comes with keydup).

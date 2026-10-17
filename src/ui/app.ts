@@ -3044,6 +3044,7 @@ export class App {
         this.refreshScore();
       },
       onFilter: (check) => this.handleQualityFilter(check),
+      onConvert: (column, type) => this.changeType(column, type),
     });
     this.renderQualityPage();
   }

@@ -2215,6 +2215,7 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     nullPolicy: { extra: [...column.nullPolicy.extra], keep: [...column.nullPolicy.keep] },
     nullTokens: [...column.nullTokens],
     suggestions: column.suggestions,
+    typeDowngrade: column.typeDowngrade,
     pattern:
       patternProfile === null
         ? null

@@ -2,6 +2,7 @@ import type { DQScore, ScoreCheck, ScoreDimension } from "../data/score.js";
 import type { DatasetStats } from "../data/stats.js";
 import { clear, el } from "./dom.js";
 import type { DQExportKind } from "./quality-panel.js";
+import type { ColumnType } from "../types.js";
 
 function formatCount(value: number): string {
   return value.toLocaleString();
@@ -22,6 +23,8 @@ function bandWord(band: DQScore["band"]): string {
 export interface QualityPageCallbacks {
   /** Filter the table to the failing rows of a check. */
   onFilter(check: ScoreCheck): void;
+  /** Convert a downgraded text column to its richer type. */
+  onConvert?(column: number, type: ColumnType): void;
   /** Copy/download the DQ report; resolves false when the clipboard blocks. */
   onExport(kind: DQExportKind): Promise<boolean>;
   /** Current weights/bands overrides (prefills the settings). */
@@ -367,7 +370,7 @@ export class QualityPage {
       const action = el("button", { class: "ghost small", type: "button" }, [
         fix.check.fixLabel ?? "Show failing",
       ]) as HTMLButtonElement;
-      action.addEventListener("click", () => this.callbacks.onFilter(fix.check));
+      action.addEventListener("click", () => this.runCheck(fix.check));
       row.append(
         el("span", { class: "qp-fix-gain" }, [`+${fix.gain.toFixed(1)} pts`]),
         el("span", { class: `qp-chip band-${fix.band}` }, [fix.label]),
@@ -392,6 +395,19 @@ export class QualityPage {
   }
 
   // ---------- checks ----------
+
+  /** A check's action: convert the column when it is a downgrade, else filter. */
+  private runCheck(check: ScoreCheck): void {
+    if (
+      check.convertTo !== undefined &&
+      check.column !== null &&
+      this.callbacks.onConvert !== undefined
+    ) {
+      this.callbacks.onConvert(check.column, check.convertTo);
+      return;
+    }
+    this.callbacks.onFilter(check);
+  }
 
   private buildChecks(score: DQScore): HTMLElement {
     const section = el("div", { class: "qp-section" });
@@ -444,11 +460,11 @@ export class QualityPage {
           ]),
           (() => {
             const cell = el("span", { class: "qp-check-action" });
-            if (check.filter !== null && check.fail > 0) {
+            if (check.fail > 0 && (check.filter !== null || check.convertTo !== undefined)) {
               const button = el("button", { class: "ghost small", type: "button" }, [
                 check.fixLabel ?? "Show failing",
               ]) as HTMLButtonElement;
-              button.addEventListener("click", () => this.callbacks.onFilter(check));
+              button.addEventListener("click", () => this.runCheck(check));
               cell.append(button);
             }
             return cell;

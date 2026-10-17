@@ -172,3 +172,25 @@ test("user-run checks score consistency and timeliness", () => {
     "zero-weight dimensions drop out of the overall",
   );
 });
+
+test("a text fallback that could be integer lowers validity", () => {
+  const downgraded = meta({
+    name: "amount",
+    type: "string",
+    typeDowngrade: { candidate: "integer", share: 0.94, ok: 94, total: 100, examples: ["TBC"] },
+  });
+  const score = computeDQScore([downgraded], stats(), 100);
+  const validity = score.dimensions.find((d) => d.dimension === "validity");
+  assert.ok(validity !== undefined);
+  const check = validity.checks.find((c) => c.id === "validity.downgrade.0");
+  assert.ok(check !== undefined, "the downgrade check exists");
+  assert.equal(check.fail, 6, "6% of non-null rows do not fit");
+  assert.equal(check.convertTo, "integer");
+  assert.equal(check.fixLabel, "Convert to Integer");
+  assert.match(check.label, /stored as Text/);
+  assert.ok((validity.score ?? 0) < 100, "validity drops below a clean text column");
+  assert.equal(validity.score, 97, "clean check 100% + downgrade 94% over both check counts");
+
+  const clean = computeDQScore([meta({ name: "amount", type: "string" })], stats(), 100);
+  assert.equal(clean.dimensions.find((d) => d.dimension === "validity")?.score, 100);
+});
