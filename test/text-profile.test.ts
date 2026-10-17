@@ -40,6 +40,20 @@ test("textProfile counts terms, drops stopwords and detects shapes", () => {
   assert.ok(Math.abs(profile.avgLength - profile.characters / 6) < 1e-9);
 });
 
+test("textProfile drops core function words from Top terms", () => {
+  const values = Array.from(
+    { length: 5 },
+    (_, index) => `quality of service is good and it is fast for users ${index}`,
+  );
+  const profile = textProfile(values, mask(values));
+  const terms = profile.topTerms.map((entry) => entry.term);
+  for (const stopword of ["of", "is", "it", "and", "for"]) {
+    assert.equal(terms.includes(stopword), false, `"${stopword}" is filtered`);
+  }
+  assert.ok(terms.includes("quality"));
+  assert.ok(terms.includes("service"));
+});
+
 test("textProfile handles numeric-looking text without counting it as terms", () => {
   const values = ["1.5", "2", "3", "north", "south", "north"];
   const profile = textProfile(values, mask(values));
