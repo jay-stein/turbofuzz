@@ -3492,9 +3492,9 @@ export class App {
         {
           class: "ghost small placeholder-action",
           type: "button",
-          title: `Blank ${total.toLocaleString()} placeholder cells (${examples}) across all columns — undo in the Recipe`,
+          title: `Fix: blank ${total.toLocaleString()} placeholder cells (${examples}) across all columns. Filters and charts then treat them as missing instead of real categories. Undo is in the Recipe.`,
         },
-        [`Convert to nulls (${total.toLocaleString()})`],
+        [`Fix: convert ${total.toLocaleString()} placeholders to missing`],
       ) as HTMLButtonElement;
       convert.addEventListener("click", () => this.applyNullPolicyAll(ranked, []));
       this.healthHost.append(convert);
