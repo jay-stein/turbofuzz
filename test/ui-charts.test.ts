@@ -2268,7 +2268,11 @@ test("axis title overrides and units label the axes; truncated titles stay hover
   );
   await new Promise((resolve) => setTimeout(resolve, 60));
   const tooltip = host2.querySelector("[role=tooltip]") as HTMLElement;
-  assert.equal(tooltip.textContent, long, "hovering the truncated title shows the full text");
+  assert.equal(
+    tooltip.querySelector(".chart-tooltip-title")?.textContent,
+    long,
+    "hovering the truncated title shows the full text",
+  );
   card.dispose();
   card2.dispose();
 });
@@ -2921,5 +2925,59 @@ test("a pivot view source renders a pivot heatmap with level selectors", async (
   rowSelect.value = "0";
   rowSelect.dispatchEvent(new window.Event("change") as unknown as Event);
   assert.match(host.querySelector(".chart-note")?.textContent ?? "", /sum\(amount\) by Year x Region/);
+  card.dispose();
+});
+
+test("chart measures are type-aware and warn about risky sums", () => {
+  const window = setupDom();
+  const host = document.createElement("div") as unknown as HTMLElement;
+  const card = new ChartCard(host, stubCardOptions(), {
+    kind: "barplot",
+    column: 0,
+    valueColumn: 1,
+    valueAgg: "mean",
+  });
+  card.setColumns([
+    meta({
+      name: "region",
+      type: "category",
+      categories: { labels: ["North", "South"], counts: [5, 4] },
+    }),
+    meta({ name: "conversion_rate", type: "number" }),
+  ]);
+  const agg = host.querySelector(
+    'select[aria-label="Aggregation"]',
+  ) as HTMLSelectElement;
+  const labels = [...agg.options].map((option) => option.textContent);
+  assert.ok(labels.includes("Std deviation"));
+  assert.ok(labels.includes("Variance"));
+  assert.ok(labels.includes("90th percentile"));
+  agg.value = "sum";
+  agg.dispatchEvent(new window.Event("change") as unknown as Event);
+  assert.match(
+    host.querySelector(".chart-summary")?.textContent ?? "",
+    /summing this field may be misleading/i,
+  );
+  assert.ok(host.querySelector(".chart-summary")?.classList.contains("warn"));
+  card.dispose();
+});
+
+test("boolean chart measures expose true, false, missing and percent choices", () => {
+  setupDom();
+  const host = document.createElement("div") as unknown as HTMLElement;
+  const card = new ChartCard(host, stubCardOptions(), {
+    kind: "kpi",
+    column: -1,
+    valueColumn: 0,
+    valueAgg: "true",
+  });
+  card.setColumns([meta({ name: "is_active", type: "boolean" })]);
+  const agg = host.querySelector(
+    'select[aria-label="Aggregation"]',
+  ) as HTMLSelectElement;
+  const labels = [...agg.options].map((option) => option.textContent);
+  assert.ok(labels.includes("True count"));
+  assert.ok(labels.includes("True % of rows"));
+  assert.ok(labels.includes("Missing count"));
   card.dispose();
 });

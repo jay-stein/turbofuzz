@@ -145,7 +145,8 @@ export type SpecialKind =
   | "groupAnomalies"
   | "pattern"
   | "keyDuplicates"
-  | "pairCheck";
+  | "pairCheck"
+  | "castFailures";
 
 export type SetSpecialRequest = {
   type: "setSpecial";
@@ -866,6 +867,8 @@ export interface CleanedMessage {
   firstChanged?: Uint8Array;
   /** Cells changed since load, across every tracked column. */
   changedTotal: number;
+  /** Per-column rows that failed the most recent cast. */
+  castFailures: { column: number; count: number }[];
   /** Every requested operation was a no-op; the dataset was not mutated. */
   noop?: boolean;
 }

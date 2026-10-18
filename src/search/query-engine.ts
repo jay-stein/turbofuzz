@@ -34,7 +34,8 @@ export type SpecialFilter =
   | "lengthAnomalies"
   | "groupAnomalies"
   | "keyDuplicates"
-  | "pairCheck";
+  | "pairCheck"
+  | "castFailures";
 
 /** Specials that can be scoped to a single column (duplicates cannot). */
 export type ColumnSpecialKind =
@@ -55,6 +56,7 @@ export class QueryEngine {
     { min: number | null; max: number | null; bits: BitSet }
   >();
   private readonly all: BitSet;
+  private readonly specialOverrides = new Map<SpecialFilter, BitSet>();
 
   constructor(private readonly dataset: Dataset) {
     this.all = new BitSet(dataset.rowCount);
@@ -98,6 +100,11 @@ export class QueryEngine {
     else this.special.delete(kind);
   }
 
+  /** External bits for specials computed outside the engine (cast failures). */
+  setSpecialBits(kind: SpecialFilter, bits: BitSet): void {
+    this.specialOverrides.set(kind, bits);
+  }
+
   setColumnSpecial(column: number, kind: ColumnSpecialKind, active: boolean): void {
     let kinds = this.columnSpecials.get(column);
     if (kinds === undefined) {
@@ -126,6 +133,8 @@ export class QueryEngine {
   }
 
   private specialBits(kind: SpecialFilter): BitSet {
+    const external = this.specialOverrides.get(kind);
+    if (external !== undefined) return external;
     switch (kind) {
       case "duplicates":
         return this.dataset.duplicateBits;
@@ -144,6 +153,8 @@ export class QueryEngine {
       case "pairCheck":
         // Set by the inspector's compare check; before that, nothing matches.
         return this.dataset.pairCheckBits ?? new BitSet(this.dataset.rowCount);
+      case "castFailures":
+        return new BitSet(this.dataset.rowCount);
     }
   }
 

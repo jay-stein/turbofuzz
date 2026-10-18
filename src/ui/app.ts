@@ -20,6 +20,7 @@ import type { ViewDef } from "../data/aggregate.js";
 import { describeCleanOp, describeCleanOpDetail, type CleanOp } from "../data/clean-ops.js";
 import type { CastOptions, CastTarget } from "../data/cast-ops.js";
 import { openCastDialog } from "./cast-dialog.js";
+import { openBatchCastDialog } from "./batch-cast-dialog.js";
 import { pandasRecipeScript, type RecipeInput, viewToPandas } from "../data/recipe.js";
 import { polarsRecipeScript } from "../data/recipe-polars.js";
 import { supportHint, type RecipeScript, type RecipeTarget } from "../data/recipe-support.js";
@@ -395,6 +396,7 @@ export class App {
   private healthChipCount = 0;
   private moreButton!: HTMLButtonElement;
   private readonly specials = new Set<SpecialKind>();
+  private readonly castFailureCounts = new Map<number, number>();
   private readonly columnSpecials = new Map<number, Set<ColumnQaKind>>();
   private readonly pendingRowDeletes = new Set<number>();
   private readonly pendingColumnDeletes = new Set<number>();
@@ -804,6 +806,13 @@ export class App {
       this.sidebarToggle,
       el("span", { class: "sidebar-title" }, ["Filters"]),
     );
+    const typesButton = el(
+      "button",
+      { class: "ghost small", type: "button", title: "Batch convert column types" },
+      ["Types"],
+    ) as HTMLButtonElement;
+    typesButton.addEventListener("click", () => this.openBatchTypes());
+    sidebarHead.append(typesButton);
     const clearAll = el("button", { class: "ghost small", type: "button" }, ["Clear all"]);
     clearAll.addEventListener("click", () => this.clearFilters());
     sidebarHead.append(clearAll);
@@ -1807,6 +1816,7 @@ export class App {
       this.transformCommitSizes = [];
     }
     this.specials.clear();
+    this.castFailureCounts.clear();
     this.columnSpecials.clear();
     this.excludedRowCount = 0;
     this.clearPendingDeletes();
@@ -2147,6 +2157,7 @@ export class App {
 
     // Grouping takes over ordering in the worker, so clear the sort indicator.
     if (kind === "duplicates" && active) this.table?.setSort(-1, 1);
+    this.renderFilterChips();
 
     this.queueSend(() =>
       this.client
@@ -2277,6 +2288,31 @@ export class App {
     }
   }
 
+  /** Batch conversion queue shared by all filter/sidebar entry points. */
+  private async openBatchTypes(): Promise<void> {
+    if (this.metas.length === 0) return;
+    const columns = this.metas.map((meta, index) => ({
+      index,
+      name: meta.name,
+      type: meta.type,
+      suggested:
+        meta.typeDowngrade?.candidate ??
+        (this.castTargetFor(meta.type) !== null ? null : null),
+      locale: meta.numberLocale,
+      order: meta.dateOrder,
+      existing: this.cleanedColumns.get(index) ?? [],
+    }));
+    const result = await openBatchCastDialog({
+      columns,
+      preview: (updates) => this.client.previewClean(updates),
+    }).catch(() => null);
+    if (result === null || result.updates.length === 0) return;
+    this.applyClean(result.updates);
+    this.showToast(
+      `Converted ${result.count} column${result.count === 1 ? "" : "s"}`,
+      () => this.applyClean(result.previous),
+    );
+  }
   /** Confirms a value-rewriting type change before touching the dataset. */
   private async confirmCast(column: number, type: ColumnType): Promise<void> {
     const meta = this.metas[column];
@@ -2536,6 +2572,7 @@ export class App {
 
     this.filters.clear();
     this.specials.clear();
+    this.castFailureCounts.clear();
     this.columnSpecials.clear();
     this.syncColumnQa();
     this.syncHealthChips();
@@ -3631,7 +3668,11 @@ export class App {
   /** Active filters as removable chips in the results bar. */
   private renderFilterChips(): void {
     this.filterChipsEl.replaceChildren();
-    if (this.filters.size === 0) {
+    const failureTotal = [...this.castFailureCounts.values()].reduce(
+      (sum, count) => sum + count,
+      0,
+    );
+    if (this.filters.size === 0 && failureTotal === 0) {
       this.filterChipsEl.classList.add("hidden");
       return;
     }
@@ -3654,6 +3695,20 @@ export class App {
       remove.addEventListener("click", () => this.changeFilter(column, null));
       chip.append(remove);
       this.filterChipsEl.append(chip);
+    }
+    if (failureTotal > 0) {
+      const review = el(
+        "button",
+        {
+          class: "filter-chip cast-failure-chip",
+          type: "button",
+          title: "Show rows whose values failed the most recent type conversion",
+        },
+        [`Review cast mismatches (${failureTotal.toLocaleString()})`],
+      ) as HTMLButtonElement;
+      review.classList.toggle("active", this.specials.has("castFailures"));
+      review.addEventListener("click", () => this.toggleSpecial("castFailures"));
+      this.filterChipsEl.append(review);
     }
     this.filterChipsEl.classList.remove("hidden");
   }
@@ -4878,6 +4933,14 @@ export class App {
           }
           this.refreshCharts();
           this.applyDatasetStats(message.stats);
+          this.castFailureCounts.clear();
+          for (const failure of message.castFailures) {
+            if (failure.count > 0) this.castFailureCounts.set(failure.column, failure.count);
+          }
+          this.renderFilterChips();
+          if (this.castFailureCounts.size === 0 && this.specials.delete("castFailures")) {
+            void this.client.setSpecial("castFailures", false);
+          }
           this.table?.setSort(-1, 1);
           this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);
@@ -4950,6 +5013,14 @@ export class App {
           }
           this.refreshCharts();
           this.applyDatasetStats(message.stats);
+          this.castFailureCounts.clear();
+          for (const failure of message.castFailures) {
+            if (failure.count > 0) this.castFailureCounts.set(failure.column, failure.count);
+          }
+          this.renderFilterChips();
+          if (this.castFailureCounts.size === 0 && this.specials.delete("castFailures")) {
+            void this.client.setSpecial("castFailures", false);
+          }
           this.table?.setSort(-1, 1);
           this.applyFacets(message.facets, message.histograms);
           this.updateCount(message.count, message.queryMs);

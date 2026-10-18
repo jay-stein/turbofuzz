@@ -33,6 +33,8 @@ export interface CastResult {
   values: string[];
   changed: number;
   failed: number;
+  /** 1 for each source row that did not parse under the cast. */
+  failures: Uint8Array;
   examples: string[];
   applied: boolean;
 }
@@ -94,6 +96,7 @@ function castOne(value: string, options: CastOptions): { value: string; ok: bool
  */
 export function castColumn(values: readonly string[], options: CastOptions): CastResult {
   const out = values.slice();
+  const failures = new Uint8Array(values.length);
   let changed = 0;
   let failed = 0;
   const examples: string[] = [];
@@ -104,6 +107,7 @@ export function castColumn(values: readonly string[], options: CastOptions): Cas
     const result = castOne(raw, options);
     if (!result.ok) {
       failed++;
+      failures[index] = 1;
       if (examples.length < 5 && !examples.includes(raw)) examples.push(raw);
       if (options.policy === "coerce") {
         out[index] = "";
@@ -118,7 +122,7 @@ export function castColumn(values: readonly string[], options: CastOptions): Cas
   }
 
   if (options.policy === "reject" && failed > 0) {
-    return { values: values.slice(), changed: 0, failed, examples, applied: false };
+    return { values: values.slice(), changed: 0, failed, failures, examples, applied: false };
   }
-  return { values: out, changed, failed, examples, applied: true };
+  return { values: out, changed, failed, failures, examples, applied: true };
 }

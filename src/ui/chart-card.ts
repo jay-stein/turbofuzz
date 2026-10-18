@@ -21,7 +21,7 @@ import {
   rampAt,
   samplePalette,
 } from "../data/palettes.js";
-import type { TimeGrain, ViewDef } from "../data/aggregate.js";
+import type { Aggregate, MeasureSpec, TimeGrain, ViewDef } from "../data/aggregate.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import { isNumericLikeType, TYPE_LABELS } from "../types.js";
 import {
@@ -311,7 +311,27 @@ export interface ChartCardConfig {
   /** Line cards: plot an aggregate of this numeric column (-1/undefined = row count). */
   valueColumn?: number;
   /** Aggregate used for the value line (default mean). */
-  valueAgg?: "mean" | "sum" | "median" | "min" | "max" | "count" | "distinct";
+  valueAgg?:
+    | "mean"
+    | "sum"
+    | "median"
+    | "min"
+    | "max"
+    | "stddev"
+    | "variance"
+    | "p25"
+    | "p75"
+    | "p90"
+    | "p95"
+    | "count"
+    | "distinct"
+    | "first"
+    | "last"
+    | "mode"
+    | "true"
+    | "false"
+    | "missing"
+    | "truePct";
   /** Bucket grain for the value line; "auto"/undefined derives it from the span. */
   valueGrain?: TimeGrain | "auto";
   /** Non-destructive post-aggregation calculation for the card's measure. */
@@ -321,6 +341,7 @@ export interface ChartCardConfig {
     | "diff"
     | "pctChange"
     | "pctTotal"
+    | "pctRows"
     | "rank"
     | "yoy";
   /** Chart-scoped category filter; -1/undefined means no chart filter. */
@@ -346,6 +367,8 @@ export interface ChartCardConfig {
   /** "Suggested: …" reason shown in the note for rule-picked default cards. */
   suggested: string;
   correlationColumns: number[];
+  /** Aggregate-backed chart ordering; sorting never re-aggregates. */
+  chartSort?: "none" | "valueDesc" | "valueAsc" | "labelAsc" | "labelDesc" | "timeAsc" | "timeDesc";
   /** Pivot heatmap: index level, column level and measure. */
   pivotRowLevel?: number;
   pivotColLevel?: number;
@@ -911,6 +934,8 @@ export class ChartCard {
   private readonly valueGrainWrap: HTMLElement;
   private readonly valueCalcSelect: HTMLSelectElement;
   private readonly valueCalcWrap: HTMLElement;
+  private readonly sortSelect: HTMLSelectElement;
+  private readonly sortWrap: HTMLElement;
   private readonly filterColumnSelect: HTMLSelectElement;
   private readonly filterValueSelect: HTMLSelectElement;
   private readonly filterRespectInput: HTMLInputElement;
@@ -968,6 +993,7 @@ export class ChartCard {
   private readonly yUnitInput: HTMLInputElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly scopeEl: HTMLElement;
+  private readonly summaryEl: HTMLElement;
   private readonly noteEl: HTMLElement;
   private totalRowCount = 0;
   private readonly legendEl: HTMLElement;
@@ -1072,6 +1098,7 @@ export class ChartCard {
     this.valueSelect = this.buildSelect("chart-picker chart-picker-small", "Value column");
     this.valueSelect.addEventListener("change", () => {
       this.config.valueColumn = Number(this.valueSelect.value);
+      this.syncValueAggOptions();
       // A value line and a grouped count line are two different charts, so the
       // value choice clears the group where both cannot coexist. Lines and bars
       // keep the group: that combination is the split-by series chart.
@@ -1139,6 +1166,7 @@ export class ChartCard {
         ["diff", "Difference"],
         ["pctChange", "% change"],
         ["pctTotal", "% of total"],
+        ["pctRows", "% of rows"],
         ["rank", "Rank"],
         ["yoy", "Year-over-year %"],
       ] as const
@@ -1154,6 +1182,27 @@ export class ChartCard {
       this.render();
     });
     this.valueCalcWrap = this.tagged("Calc", this.valueCalcSelect).wrap;
+
+    this.sortSelect = this.buildSelect(
+      "chart-picker chart-picker-small",
+      "Chart sort order",
+    );
+    for (const [value, label] of [
+      ["none", "As computed"],
+      ["valueDesc", "Value high to low"],
+      ["valueAsc", "Value low to high"],
+      ["labelAsc", "Label A-Z"],
+      ["labelDesc", "Label Z-A"],
+      ["timeAsc", "Oldest first"],
+      ["timeDesc", "Newest first"],
+    ] as const) {
+      this.sortSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+    }
+    this.sortSelect.addEventListener("change", () => {
+      this.config.chartSort = this.sortSelect.value as ChartCardConfig["chartSort"];
+      this.render();
+    });
+    this.sortWrap = this.tagged("Order", this.sortSelect).wrap;
 
     this.filterColumnSelect = this.buildSelect(
       "chart-picker chart-picker-small",
@@ -1407,6 +1456,7 @@ export class ChartCard {
       this.valueAggWrap,
       this.valueGrainWrap,
       this.valueCalcWrap,
+      this.sortWrap,
       this.pivotRowWrap,
       this.pivotColWrap,
       this.pivotMeasureWrap,
@@ -2115,6 +2165,7 @@ export class ChartCard {
     ) as HTMLButtonElement;
     this.resetViewButton.addEventListener("click", () => this.resetMapZoom());
     canvasWrap.append(this.resetViewButton);
+    this.summaryEl = el("div", { class: "chart-summary" });
     this.scopeEl = el("div", { class: "chart-scope" });
     this.noteEl = el("div", { class: "chart-note" });
     this.legendEl = el("div", { class: "chart-legend hidden" });
@@ -2213,6 +2264,7 @@ export class ChartCard {
 
     this.root.append(
       head,
+      this.summaryEl,
       this.scopeEl,
       this.animationSetup,
       this.bubbleSettings,
@@ -2495,7 +2547,54 @@ export class ChartCard {
   }
 
   private aggregateResult(): AggregateMessage | null {
-    return this.config.source !== "" ? this.viewResult : this.valueResult;
+    const result = this.config.source !== "" ? this.viewResult : this.valueResult;
+    if (result === null) return null;
+    const order = this.config.chartSort ?? "none";
+    if (order === "none" || result.groupCount < 2) return result;
+    const indexes = Array.from({ length: result.groupCount }, (_, index) => index);
+    const dimension = result.dimensions[0] ?? [];
+    const times = result.dimensionTimes[0];
+    const measure = result.measures[0];
+    const compare = (a: number, b: number): number => {
+      let delta = 0;
+      if (order === "valueDesc" || order === "valueAsc") {
+        const av = measure?.[a] ?? Number.NaN;
+        const bv = measure?.[b] ?? Number.NaN;
+        const af = Number.isFinite(av);
+        const bf = Number.isFinite(bv);
+        delta = !af && !bf ? 0 : !af ? 1 : !bf ? -1 : order === "valueDesc" ? bv - av : av - bv;
+      } else if (order === "timeAsc" || order === "timeDesc") {
+        const at = times?.[a] ?? Number.NaN;
+        const bt = times?.[b] ?? Number.NaN;
+        const af = Number.isFinite(at);
+        const bf = Number.isFinite(bt);
+        delta = !af && !bf ? 0 : !af ? 1 : !bf ? -1 : order === "timeAsc" ? at - bt : bt - at;
+      } else {
+        delta = String(dimension[a] ?? "").localeCompare(String(dimension[b] ?? ""), undefined, {
+          numeric: true,
+        });
+        if (order === "labelDesc") delta = -delta;
+      }
+      return delta === 0 ? a - b : delta;
+    };
+    indexes.sort(compare);
+    return {
+      ...result,
+      labels: indexes.map((index) => result.labels[index] ?? ""),
+      dimensions: result.dimensions.map((values) =>
+        indexes.map((index) => values[index] ?? ""),
+      ),
+      dimensionTimes: result.dimensionTimes.map((values) =>
+        Float64Array.from(indexes, (index) => values[index] ?? Number.NaN),
+      ),
+      measures: result.measures.map((values) =>
+        Float64Array.from(indexes, (index) => values[index] ?? Number.NaN),
+      ),
+      partials:
+        result.partials === null || result.partials === undefined
+          ? result.partials
+          : indexes.map((index) => result.partials?.[index] === true),
+    };
   }
 
   /** Implicit view definition: the measure aggregated over time, categories or bins. */
@@ -2534,7 +2633,35 @@ export class ChartCard {
         : calc === "rolling7"
           ? ([{ op: "rolling", window: 7 }] as const)
           : ([{ op: calc }] as const);
-    return {
+    const valueAgg = this.config.valueAgg ?? "mean";
+    const measure: MeasureSpec =
+      valueAgg === "true" || valueAgg === "false" || valueAgg === "missing"
+        ? {
+            column: null,
+            agg: "count",
+            where:
+              valueAgg === "missing"
+                ? { column, isNull: true }
+                : {
+                    column,
+                    values:
+                      valueAgg === "true"
+                        ? ["true", "yes", "y", "t", "1"]
+                        : ["false", "no", "n", "f", "0"],
+                  },
+          }
+        : valueAgg === "truePct"
+          ? {
+              column: null,
+              agg: "count",
+              where: { column, values: ["true", "yes", "y", "t", "1"] },
+              post: [{ op: "pctRows" }],
+            }
+          : {
+              column,
+              agg: valueAgg as Aggregate,
+              ...(post === undefined ? {} : { post: [...post] }),
+            };    return {
       id: "card-value",
       name: this.config.title.trim() === "" ? this.defaultTitle() : this.config.title.trim(),
       dimensions:
@@ -2555,13 +2682,7 @@ export class ChartCard {
                     { column: this.config.groupColumn, by: "value" },
                   ]
                 : [{ column: this.config.column, by: "value" }],
-      measures: [
-        {
-          column,
-          agg: this.config.valueAgg ?? "mean",
-          ...(post === undefined ? {} : { post: [...post] }),
-        },
-      ],
+      measures: [measure],
       fill: line && !split ? "zero" : "none",
       sort:
         line || overTime || histogram
@@ -2655,6 +2776,52 @@ export class ChartCard {
     this.scopeEl.textContent =
       (view === undefined ? `Table · ${scope}` : scope) + chartFilter + calc;
     this.scopeEl.classList.toggle("hidden", total === 0 && this.rowCount === 0);
+    this.syncSummary();
+  }
+
+  /** Plain-language sentence describing every semantic choice in the card. */
+  private syncSummary(): void {
+    const source =
+      this.config.source === ""
+        ? this.options.tableSourceLabel?.() ?? "Table"
+        : (this.sources.find((entry) => entry.id === this.config.source)?.name ?? "View");
+    if (this.config.kind === "pivotHeatmap") {
+      const data = this.pivotHeatmapData();
+      this.summaryEl.textContent =
+        data === null
+          ? `Pivot heatmap from ${source}`
+          : `Pivot heatmap of ${data.measureName} by ${data.rowName} and ${data.colName} from ${source}`;
+      return;
+    }
+    const kind = CHART_KIND_LABELS[this.config.kind];
+    if (this.config.source !== "") {
+      this.summaryEl.textContent = `${kind} from ${source}`;
+      return;
+    }
+    const name = (index: number): string => this.meta(index)?.name ?? "value";
+    const agg =
+      this.config.valueColumn !== undefined && this.config.valueColumn >= 0
+        ? `${this.valueAggSelect.selectedOptions[0]?.textContent ?? this.config.valueAgg ?? "mean"} of ${name(this.config.valueColumn)}`
+        : "rows";
+    const by =
+      this.config.column >= 0 ? ` by ${name(this.config.column)}` : "";
+    const group =
+      this.config.groupColumn >= 0 ? ` grouped by ${name(this.config.groupColumn)}` : "";
+    const calc =
+      this.config.valueCalc === undefined
+        ? ""
+        : ` with ${this.valueCalcSelect.selectedOptions[0]?.textContent ?? this.config.valueCalc}`;
+    const measureMeta = this.meta(this.config.valueColumn ?? -1);
+    const riskySum =
+      this.config.valueAgg === "sum" &&
+      measureMeta !== undefined &&
+      /(rate|ratio|percent|pct|share|index|temperature|temp|score|price|avg|average)/i.test(
+        measureMeta.name,
+      );
+    this.summaryEl.textContent =
+      `${kind}: ${agg}${by}${group}${calc} from ${source}` +
+      (riskySum ? " - summing this field may be misleading; try Mean or Median." : "");
+    this.summaryEl.classList.toggle("warn", riskySum);
   }
 
   refresh(): void {
@@ -3099,6 +3266,67 @@ export class ChartCard {
     return out;
   }
 
+  /** Type-aware aggregation choices for the bound value column. */
+  private syncValueAggOptions(): void {
+    const meta = this.meta(this.config.valueColumn ?? -1);
+    const options: [NonNullable<ChartCardConfig["valueAgg"]>, string][] =
+      meta === undefined
+        ? [["mean", "Mean"], ["sum", "Sum"]]
+        : meta.type === "boolean"
+          ? [
+              ["true", "True count"],
+              ["false", "False count"],
+              ["truePct", "True % of rows"],
+              ["missing", "Missing count"],
+              ["count", "Count non-null"],
+              ["distinct", "Count distinct"],
+              ["mode", "Mode"],
+            ]
+          : meta.type === "date" || meta.type === "datetime"
+            ? [
+                ["min", "Earliest"],
+                ["max", "Latest"],
+                ["count", "Count non-null"],
+                ["distinct", "Count distinct"],
+                ["mode", "Mode"],
+                ["first", "First (row order)"],
+                ["last", "Last (row order)"],
+              ]
+            : meta.type === "category" || meta.type === "string" || meta.type === "identifier"
+              ? [
+                  ["count", "Count non-null"],
+                  ["distinct", "Count distinct"],
+                  ["mode", "Mode"],
+                ]
+              : [
+                  ["mean", "Mean"],
+                  ["sum", "Sum"],
+                  ["median", "Median"],
+                  ["min", "Min"],
+                  ["max", "Max"],
+                  ["stddev", "Std deviation"],
+                  ["variance", "Variance"],
+                  ["p25", "25th percentile"],
+                  ["p75", "75th percentile"],
+                  ["p90", "90th percentile"],
+                  ["p95", "95th percentile"],
+                  ["count", "Count non-null"],
+                  ["distinct", "Count distinct"],
+                  ["first", "First (row order)"],
+                  ["last", "Last (row order)"],
+                  ["mode", "Mode"],
+                ];
+    const current = this.config.valueAgg ?? options[0]?.[0];
+    this.valueAggSelect.replaceChildren();
+    for (const [value, label] of options) {
+      this.valueAggSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+    }
+    const selected = options.some(([value]) => value === current) ? current : options[0]?.[0];
+    if (selected !== undefined) {
+      this.valueAggSelect.value = selected;
+      this.config.valueAgg = selected;
+    }
+  }
   private defaultCorrelationColumns(): number[] {
     return this.allowedIndexes(
       (meta) =>
@@ -3226,9 +3454,7 @@ export class ChartCard {
     });
     this.groupSelect.value = String(this.config.groupColumn);
 
-    const valueAllowed = this.allowedIndexes(
-      (meta) => isNumericType(meta.type) || meta.type === "time" || meta.type === "duration",
-    );
+    const valueAllowed = this.allowedIndexes((meta) => meta.role !== "provenance");
     if (
       this.config.valueColumn !== undefined &&
       this.config.valueColumn >= 0 &&
@@ -3246,7 +3472,7 @@ export class ChartCard {
     if ((this.config.valueColumn ?? -1) >= 0) {
       this.valueSelect.value = String(this.config.valueColumn);
     }
-    if (this.config.valueAgg !== undefined) this.valueAggSelect.value = this.config.valueAgg;
+    this.syncValueAggOptions();
     this.valueGrainSelect.value = this.config.valueGrain ?? "auto";
     this.valueCalcSelect.value = this.config.valueCalc ?? "";
     this.barStackInput.checked = (this.config.barLayout ?? "group") === "stack";
@@ -3317,6 +3543,12 @@ export class ChartCard {
     });
     this.syncAnimationOptions();
     this.syncChartFilterControls();
+    this.sortSelect.value = this.config.chartSort ?? "none";
+    this.sortWrap.classList.toggle(
+      "hidden",
+      !this.usesAggregate() || this.config.kind === "pivotHeatmap" || this.config.kind === "kpi",
+    );
+    this.syncSummary();
   }
 
   /** Category filter choices for this chart, plus its table-filter scope. */
@@ -5704,7 +5936,37 @@ export class ChartCard {
       this.hideTooltip();
       return;
     }
-    this.tooltipEl.textContent = region.lines.join("\n");
+    clear(this.tooltipEl);
+    const title = el("div", { class: "chart-tooltip-title" }, [region.lines[0] ?? "Value"]);
+    this.tooltipEl.append(title);
+    for (const line of region.lines.slice(1)) {
+      this.tooltipEl.append(el("div", { class: "chart-tooltip-row" }, [line]));
+    }
+    const details: string[] = [];
+    const valueMeta = this.meta(this.config.valueColumn ?? -1);
+    if (valueMeta !== undefined) {
+      details.push(
+        `${this.valueAggSelect.selectedOptions[0]?.textContent ?? this.config.valueAgg ?? "mean"} of ${valueMeta.name}`,
+      );
+    }
+    if (this.config.valueGrain !== undefined && this.config.valueGrain !== "auto") {
+      details.push(`Bucket: ${this.config.valueGrain}`);
+    }
+    if (this.config.binOptions !== null && this.config.kind === "histogram") {
+      details.push(`Bins: ${this.config.binOptions.binCount}`);
+    }
+    if (this.config.groupColumn >= 0) {
+      details.push(`Grouped by ${this.meta(this.config.groupColumn)?.name ?? "group"}`);
+    }
+    details.push(`${this.rowCount.toLocaleString()} rows in scope`);
+    details.push(this.scopeEl.textContent ?? "");
+    this.tooltipEl.append(
+      el(
+        "div",
+        { class: "chart-tooltip-detail" },
+        details.filter((line) => line.trim() !== ""),
+      ),
+    );
     this.tooltipEl.classList.remove("hidden");
     const cardRect = this.root.getBoundingClientRect();
     const left = Math.max(
@@ -6671,7 +6933,27 @@ export class ChartCard {
       }
     }
     const all = [...byGroup.values()].sort((a, b) => b.total - a.total);
-    const shown = all.slice(0, 8);
+    const seriesLimit = Math.max(1, Math.min(12, this.config.topN));
+    let shown = all.slice(0, seriesLimit);
+    if (this.config.groupOther && all.length > seriesLimit) {
+      const other: SplitSeries = {
+        label: "Other",
+        color: this.groupColor(shown.length),
+        total: 0,
+        values: new Float64Array(buckets.length).fill(Number.NaN),
+      };
+      for (const series of all.slice(seriesLimit)) {
+        other.total += series.total;
+        for (let bucket = 0; bucket < buckets.length; bucket++) {
+          const value = series.values[bucket] ?? Number.NaN;
+          if (!Number.isFinite(value)) continue;
+          other.values[bucket] = Number.isFinite(other.values[bucket])
+            ? (other.values[bucket] as number) + value
+            : value;
+        }
+      }
+      shown = [...shown, other];
+    }
     if (shown.length === 0) {
       const message = "The aggregate has no groups to draw yet.";
       this.noteEl.textContent = message;

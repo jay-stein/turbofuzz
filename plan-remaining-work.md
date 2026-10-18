@@ -29,7 +29,7 @@ Already delivered and not to be rebuilt:
 - complete worker-backed Pivot View with drag/drop wells, typed report filters, multi-date hierarchies, pivot heatmap charts and grouped chart sources;
 - typed table header filters sharing the sidebar filter card, with dataset-anchored date bounds.
 
-Baseline test state: **729 tests passing**, typecheck and production build green.
+Baseline test state: **734 tests passing**, typecheck and production build green.
 
 ---
 
@@ -65,6 +65,8 @@ Baseline test state: **729 tests passing**, typecheck and production build green
 ---
 
 ## 4. 10-Day Impact Sprint
+
+**Status:** Complete on 2026-10-19. All selected packages landed; remaining work is in the deferred backlog.
 
 **Budget:** 10 engineer-days, including 0.5 day contingency.
 
@@ -193,8 +195,8 @@ Baseline test state: **729 tests passing**, typecheck and production build green
 
 | ID | Task | Acceptance |
 |---|---|---|
-| W2.1 | **Sprint** — add `castFailures` bitset per column and a `Review mismatches` special filter. | Applying “Keep invalid” records exact failing rows; the filter shows only mismatches; counts match the dialog. |
-| W2.2 | **Sprint** — add batch conversion UI: Types view/table with current/inferred/target types, multi-select, one queue, one worker request, one Undo batch. | 10-column cast performs one request/rebuild; partial failures are reported per column; cancel reverts the queue without mutation. |
+| W2.1 | Complete — add `castFailures` bitset per column and a `Review mismatches` special filter. | Applying “Keep invalid” records exact failing rows; the filter shows only mismatches; counts match the dialog. |
+| W2.2 | Complete — add batch conversion UI: Types view/table with current/inferred/target types, multi-select, one queue, one worker request, one Undo batch. | 10-column cast performs one request/rebuild; partial failures are reported per column; cancel reverts the queue without mutation. |
 | W2.3 | Add an explicit type-lattice module and use it for multi-file reconciliation, cast safety, and dialog explanations. | Lattice covers null/boolean/integer/number, date/datetime, time, duration, category, identifier, string; incompatible mixes fall back to string with reasons. |
 | W2.4 | Implement incremental clean application: append one op to current values; replay only on reorder/removal. | Applying a clean op does not replay the full history; undo/reorder still exact. |
 | W2.5 | Implement type-preserving rebuild for trim/case/replace and explicit-target casts; skip inference/suggestions where safe. | Benchmarks show material improvement; stats that cannot change are not recomputed. |
@@ -218,15 +220,15 @@ Baseline test state: **729 tests passing**, typecheck and production build green
 | ID | Task | Acceptance |
 |---|---|---|
 | W3.1 | Extract one shared chart-builder structure used by Add chart, Edit chart, Duplicate, and Reset to suggested configuration. | Same validation, summary, and field controls across all entry points; chart config remains out of the data Recipe. |
-| W3.2 | **Sprint** — add an always-visible chart summary sentence: measure, aggregation, grouping, breakdown, filters, grain/calculation, source. | Summary updates live and names every semantic choice. |
-| W3.3 | **Sprint** — expand measure menu: stddev, variance, custom percentile, percent of rows, percent of total, boolean true/false/percentage/missing, date earliest/latest. | Only valid operations appear per type; null handling and denominator are documented in tooltips. |
-| W3.4 | **Sprint** — add non-additive/unit warnings when summing rate/ratio/percentage/index/temperature-like fields. | Warning states why summing may be misleading and offers mean/median alternatives. |
-| W3.5 | **Sprint** — add user-facing sorting: value asc/desc, label, chronological time, numeric-bin order, deterministic tie-break. | Sorting updates without re-aggregation; time/numeric ordering is correct. |
+| W3.2 | Complete — add an always-visible chart summary sentence: measure, aggregation, grouping, breakdown, filters, grain/calculation, source. | Summary updates live and names every semantic choice. |
+| W3.3 | Complete — expand measure menu: stddev, variance, custom percentile, percent of rows, percent of total, boolean true/false/percentage/missing, date earliest/latest. | Only valid operations appear per type; null handling and denominator are documented in tooltips. |
+| W3.4 | Complete — add non-additive/unit warnings when summing rate/ratio/percentage/index/temperature-like fields. | Warning states why summing may be misleading and offers mean/median alternatives. |
+| W3.5 | Complete — add user-facing sorting: value asc/desc, label, chronological time, numeric-bin order, deterministic tie-break. | Sorting updates without re-aggregation; time/numeric ordering is correct. |
 | W3.6 | Complete time controls in charts: visible default grain, every-N, 15/30-minute where supported, week start, fiscal calendar, date parts, timezone selection and summary. | Same time-bucket model as Pivot; active timezone and grain visible in the summary. |
 | W3.7 | Complete gap/missing-period controls: drop/zero/carry/interpolate where valid, observed-vs-filled styling, partial-period warning. | Filled periods are visually distinct; absent periods are never silently zero without an explicit policy. |
 | W3.8 | Complete numeric-bin controls: equal width, quantile/equal frequency, custom edges, boundary ownership, under/overflow counts, numeric sorting. | Chart and Pivot use the same bin definition; out-of-range values are reported. |
 | W3.9 | Complete calculations: rolling sum, configurable window, index-to-100/base period, period-over-period absolute comparison, weighted average, reference/target values. | Calculation summary shows ordering/window/denominator/missing behavior; chart data remains non-destructive. |
-| W3.10 | **Sprint** — add category/series controls: default 10, visible limit, Other bucket, “Show all”, 12-series cap, high-cardinality warning. | Limit/Other/cap visible in summary, CSV, and spec; deterministic ordering. |
+| W3.10 | Complete — add category/series controls: default 10, visible limit, Other bucket, “Show all”, 12-series cap, high-cardinality warning. | Limit/Other/cap visible in summary, CSV, and spec; deterministic ordering. |
 
 **Estimate:** 10–14 engineer-days.
 **Exit gate:** a user can build, inspect, and reproduce an aggregated chart without implicit defaults; aggregation, grain, bins, sorting, calculation, limits, and Other are all explicit.
@@ -242,7 +244,7 @@ Baseline test state: **729 tests passing**, typecheck and production build green
 
 | ID | Task | Acceptance |
 |---|---|---|
-| W4.1 | **Sprint** — add a point/bar inspector: label, measure/aggregation, value, row count, non-null count, active table/chart filters, grain/bin, sampled/full disclosure. | Tooltip/inspector stays consistent for aggregated and raw charts. |
+| W4.1 | Complete — add a point/bar inspector: label, measure/aggregation, value, row count, non-null count, active table/chart filters, grain/bin, sampled/full disclosure. | Tooltip/inspector stays consistent for aggregated and raw charts. |
 | W4.2 | Add explicit actions: filter table to group, view underlying rows, drill to finer grain, break down by another field, compare group/period, duplicate, config undo, reset to suggested. | Actions state their scope; chart selection never silently filters the table. |
 | W4.3 | Complete Barplot: time X, error bars (SD/SE/95% normal), order controls, hue order/cap, orientation, weighted measure, negative-value baseline. | Error method disclosed; hover shows n/estimate/error; legacy bar+value configs migrate safely. |
 | W4.4 | Extract a shared colour-scale module: numeric scatter/map, map heat, heatmap, density, correlation; `colorMin`, `colorMax`, `colorCenter`; manual/auto legend. | One scale path; domain never clips data; diverging centre behavior documented and tested. |

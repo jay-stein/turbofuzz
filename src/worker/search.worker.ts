@@ -130,7 +130,52 @@ const histogramCache = new HistogramCache();
 const changeBase = new Map<number, readonly string[]>();
 const changedMasks = new Map<number, BitSet>();
 let changedTotalCells = 0;
+/** Rows that failed the most recent cast for each column. */
+const castFailureMasks = new Map<number, BitSet>();
+let castFailureUnion: BitSet | null = null;
 
+/** Records which cells of a column now differ from its first-seen values. */
+function castFailureMask(
+  source: ColumnData,
+  ops: readonly CleanOp[],
+): BitSet | null {
+  let castIndex = -1;
+  for (let index = ops.length - 1; index >= 0; index--) {
+    if (ops[index]?.kind === "cast") {
+      castIndex = index;
+      break;
+    }
+  }
+  if (castIndex < 0) return null;
+  const cast = ops[castIndex] as Extract<CleanOp, { kind: "cast" }>;
+  const before =
+    castIndex === 0 ? source.raw : applyCleanOps(source.raw, ops.slice(0, castIndex));
+  const result = castColumn(before, {
+    target: cast.target,
+    policy: cast.policy,
+    locale: cast.locale,
+    dateOrder: cast.order,
+  });
+  const mask = new BitSet(before.length);
+  for (let row = 0; row < result.failures.length; row++) {
+    if (result.failures[row] === 1) mask.set(row);
+  }
+  return mask;
+}
+
+function refreshCastFailureUnion(rowCount: number): void {
+  const union = new BitSet(rowCount);
+  for (const mask of castFailureMasks.values()) {
+    mask.forEachRow((row) => union.set(row));
+  }
+  castFailureUnion = union;
+}
+
+function castFailureCounts(): { column: number; count: number }[] {
+  return [...castFailureMasks]
+    .map(([column, mask]) => ({ column, count: mask.count() }))
+    .filter((entry) => entry.count > 0);
+}
 /** Records which cells of a column now differ from its first-seen values. */
 function recordChange(column: number, before: readonly string[], after: readonly string[]): void {
   let base = changeBase.get(column);
@@ -157,6 +202,8 @@ function resetChangedCells(): void {
   changeBase.clear();
   changedMasks.clear();
   changedTotalCells = 0;
+  castFailureMasks.clear();
+  castFailureUnion = null;
 }
 
 /** Row-major change flags for a slice of the current result order, or null. */
@@ -1717,7 +1764,7 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
       const source = cleanSource.get(update.column) ?? current.columns[update.column];
       const raw =
         update.ops.length === 0 ? source.raw : applyCleanOps(source.raw, update.ops);
-      return { update, source, raw };
+      return { update, source, raw, failures: castFailureMask(source, update.ops) };
     });
 
   // A case/trim op that changes nothing should not pay for a full rebuild.
@@ -1747,6 +1794,7 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
       histograms: {},
       firstRows: [],
       changedTotal: changedTotalCells,
+      castFailures: castFailureCounts(),
       noop: true,
     });
     return;
@@ -1776,8 +1824,17 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
     affected.push(column);
   }
 
+  for (const { update, failures } of prepared) {
+    if (failures === null) castFailureMasks.delete(update.column);
+    else castFailureMasks.set(update.column, failures);
+  }
+  refreshCastFailureUnion(current.rowCount);
   const next = rebuildDataset(current, columns);
   const newEngine = new QueryEngine(next);
+  newEngine.setSpecialBits(
+    "castFailures",
+    castFailureUnion ?? new BitSet(next.rowCount),
+  );
   // Special toggles live on the engine, so carry them across the rebuild.
   applySpecials(newEngine);
   dataset = next;
@@ -1810,6 +1867,7 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
     firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
     changedTotal: changedTotalCells,
+    castFailures: castFailureCounts(),
   });
 }
 
@@ -1862,6 +1920,10 @@ function handleSetNullPolicy(message: SetNullPolicyRequest): void {
   const next = rebuildDataset(current, columns);
   const newEngine = new QueryEngine(next);
   applySpecials(newEngine);
+  newEngine.setSpecialBits(
+    "castFailures",
+    castFailureUnion ?? new BitSet(next.rowCount),
+  );
   dataset = next;
   engine = newEngine;
 
@@ -1890,6 +1952,7 @@ function handleSetNullPolicy(message: SetNullPolicyRequest): void {
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
     firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
     changedTotal: changedTotalCells,
+    castFailures: castFailureCounts(),
   });
 }
 
@@ -1917,6 +1980,10 @@ function handleResolveNullsAll(message: ResolveNullsAllRequest): void {
   const next = rebuildDataset(current, columns);
   const newEngine = new QueryEngine(next);
   applySpecials(newEngine);
+  newEngine.setSpecialBits(
+    "castFailures",
+    castFailureUnion ?? new BitSet(next.rowCount),
+  );
   dataset = next;
   engine = newEngine;
 
@@ -1948,6 +2015,7 @@ function handleResolveNullsAll(message: ResolveNullsAllRequest): void {
     firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
     firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
     changedTotal: changedTotalCells,
+    castFailures: castFailureCounts(),
   });
 }
 

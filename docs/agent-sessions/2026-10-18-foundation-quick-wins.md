@@ -390,3 +390,23 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - Audited remaining W2-W8 work against current code.
 - Selected a 10-engineer-day sprint: batch casting/mismatch review, chart summary and measure depth, non-additive warnings, chart sorting, category/series controls and chart inspector.
 - Deferred performance architecture, ChartSpec adoption, multi-file hardening, shared chips and release hardening to an explicit backlog in `plan-remaining-work.md`.
+## 10-Day Impact Sprint (2026-10-19)
+
+### Delivered
+
+- W2.2 batch conversion dialog with suggested targets, multi-select, one preview request, one apply request and one undo.
+- W2.1 persistent cast-failure masks and a **Review cast mismatches** filter chip matching the worker counts.
+- W3.2 always-visible chart summary sentence covering fields, aggregation, grouping, calculation and source.
+- W3.3 type-aware chart measure menu: variance/stddev, percentiles, date earliest/latest, text counts/modes and boolean true/false/missing/percent.
+- W3.4 non-additive sum warnings with Mean/Median guidance.
+- W3.5 chart sorting by value, label or time without re-aggregation.
+- W3.10 visible series limit, Other bucket, 12-series cap and high-cardinality note.
+- W4.1 structured point/bar tooltip inspector with measure, aggregation, grain/bin, grouping, scope and active filters.
+
+### Validation
+
+- `npm run typecheck` passes.
+- `npm test`: 734 tests passing.
+- `npm run build` passes.
+- Added tests for batch conversion, cast-failure filtering, measure-menu typing, risky-sum warnings and pivot-source charts.
+- `plan-remaining-work.md` marks the sprint complete and keeps the remainder in Backlog A/B/C.

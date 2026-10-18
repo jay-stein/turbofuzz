@@ -58,6 +58,7 @@ const PANDAS_AGG: Record<string, string> = {
   max: "max",
   median: "median",
   stddev: "std",
+  variance: "var",
   first: "first",
   last: "last",
   count: "count",
@@ -110,7 +111,7 @@ function translateExpression(
     (match, fn: string, arg: string) => {
       const name = fn.toLowerCase();
       const known =
-        ["count", "distinct", "sum", "mean", "min", "max", "median", "stddev", "first", "last", "mode"].includes(name) ||
+        ["count", "distinct", "sum", "mean", "min", "max", "median", "stddev", "variance", "first", "last", "mode"].includes(name) ||
         /^p\d+(?:\.\d+)?$/.test(name);
       if (!known) {
         failed = true;

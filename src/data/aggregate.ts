@@ -89,6 +89,7 @@ export type Aggregate =
   | "max"
   | "median"
   | "stddev"
+  | "variance"
   | "first"
   | "last"
   | "mode"
@@ -101,6 +102,7 @@ export type PostOp =
   | { op: "diff" }
   | { op: "pctChange" }
   | { op: "pctTotal" }
+  | { op: "pctRows" }
   | { op: "rank" }
   | { op: "yoy" };
 
@@ -690,6 +692,8 @@ function finalise(acc: MeasureAcc, agg: Aggregate, weighted = false): number {
       return acc.count === 0 ? NaN : acc.max;
     case "stddev":
       return acc.count < 2 ? NaN : Math.sqrt(acc.m2 / (acc.count - 1));
+    case "variance":
+      return acc.count < 2 ? NaN : acc.m2 / (acc.count - 1);
     case "first":
       return acc.first;
     case "last":
@@ -749,6 +753,7 @@ function applyPost(
   all: Float64Array,
   index: number,
   times: readonly number[] | null,
+  rowCount: number,
 ): Float64Array {
   let out = values;
   for (const op of post) {
@@ -803,6 +808,13 @@ function applyPost(
         const total = all[index];
         for (let i = 0; i < out.length; i++) {
           next[i] = Number.isFinite(total) && total !== 0 ? out[i] / total : NaN;
+        }
+        break;
+      }
+      case "pctRows": {
+        for (let i = 0; i < out.length; i++) {
+          next[i] =
+            rowCount > 0 && Number.isFinite(out[i]) ? out[i] / rowCount : Number.NaN;
         }
         break;
       }
@@ -1692,7 +1704,7 @@ export function computeAggregate(
     }
   }
   const measuresOut = limited.map((values, m) =>
-    applyPost(values, measures[m].post ?? [], totals, m, shownTimes),
+    applyPost(values, measures[m].post ?? [], totals, m, shownTimes, rowCount),
   );
 
   return {
