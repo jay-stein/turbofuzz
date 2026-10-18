@@ -50,6 +50,12 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Chart-filter coverage is exercised by worker tests for aggregate, series, crosstab, correlation, box, grid, and animation payloads.
 - Geo choropleths report how many loaded regions matched the join and mark unmatched regions in the hover tooltip.
 
+### Pivot resampling
+
+- Time views now expose a `Resample` grain control (hour through year) that rewrites the first time dimension, enables zero-fill, and orders buckets ascending.
+- Existing empty-period and partial-period controls continue to apply, making resampling a one-control operation.
+- Component coverage asserts the request uses the chosen grain and zero fill.
+
 ### Chart calculations
 
 - Aggregate-backed chart cards now expose a `Calc` selector: rolling mean (7), cumulative, difference, % change, % of total, rank, and year-over-year.
@@ -171,6 +177,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `172c4e0` feat(ingest): mark provenance columns and exclude them from stats
 - `51846bc` feat(charts): expose non-null and distinct count aggregates
 - `36f5288` feat(charts): add non-destructive measure calculations
+- `32dced0` feat(pivot): add resample grain control
 - `1580efe` feat(charts): load geojson and zipped shapefile regions
 - `21836d1` feat(charts): join geojson regions to dataset measures
 
