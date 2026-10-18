@@ -44,6 +44,8 @@ export interface ColumnPatternMeta {
 export interface ColumnMeta {
   name: string;
   type: ColumnType;
+  /** Non-data provenance columns are hidden from suggestions and quality checks. */
+  role?: "provenance" | null;
   numberLocale: NumberLocale;
   dateOrder: DateOrder;
   /** Datetime column: at least one source value carried a zone offset. */

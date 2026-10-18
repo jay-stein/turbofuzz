@@ -92,6 +92,8 @@ function countFinite(numbers: Float64Array, bins: number[], bin: number): void {
 
 export class ColumnData {
   type: ColumnType;
+  /** Non-data columns such as multi-file provenance are excluded from row stats. */
+  role: "provenance" | null = null;
   dateOrder: DateOrder;
   numberLocale: NumberLocale;
   /** A datetime column whose source values carried explicit zone offsets. */

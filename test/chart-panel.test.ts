@@ -155,6 +155,22 @@ test("pickDefaultCard skips the row id in an ID-first file", () => {
   assert.equal(numeric.column, 1);
 });
 
+test("pickDefaultCard skips provenance columns", () => {
+  const columns = [
+    typed("_input_filename", "category", 2, { role: "provenance" }),
+    typed("amount", "number", 500),
+  ];
+  const pick = pickDefaultCard(columns, 100);
+  assert.equal(pick.kind, "histogram");
+  assert.equal(pick.column, 1);
+  assert.ok(
+    suggestCharts(columns, 100).every(
+      (idea) => idea.preset.column !== 0 && idea.preset.x !== 0 && idea.preset.y !== 0,
+    ),
+    "provenance never appears in suggested axes",
+  );
+});
+
 test("pickDefaultCard handles a one-row file", () => {
   const oneRow = [
     typed("a", "integer", 1),

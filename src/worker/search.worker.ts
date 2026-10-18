@@ -2313,6 +2313,7 @@ function handlePreviewClean(message: PreviewCleanRequest): void {
 }
 
 function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMeta {
+  const role = column.role ?? undefined;
   if (isNumericLikeType(column.type)) {
     column.numbers();
   }
@@ -2331,6 +2332,7 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
   return {
     name: column.name,
     type: column.type,
+    ...(role === undefined ? {} : { role }),
     numberLocale: column.numberLocale,
     dateOrder: column.dateOrder,
     ...(column.type === "datetime" ? { timeZoneAware: column.timeZoneAware } : {}),
@@ -2346,7 +2348,7 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     lengthFence: dataset.lengthFences[index] ?? null,
     nullPolicy: { extra: [...column.nullPolicy.extra], keep: [...column.nullPolicy.keep] },
     nullTokens: [...column.nullTokens],
-    suggestions: column.suggestions,
+    suggestions: role === undefined ? column.suggestions : [],
     typeDowngrade: column.typeDowngrade,
     pattern:
       patternProfile === null

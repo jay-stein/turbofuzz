@@ -136,7 +136,9 @@ export interface DefaultCardPick {
  * distribution. ID-like columns are never charted by default.
  */
 export function pickDefaultCard(columns: readonly ColumnMeta[], rowCount = 0): DefaultCardPick {
-  const entries = columns.map((meta, index) => ({ meta, index }));
+  const entries = columns
+    .map((meta, index) => ({ meta, index }))
+    .filter((entry) => entry.meta.role !== "provenance");
 
   const dates = entries.filter(
     (entry) =>
@@ -207,7 +209,9 @@ export interface ChartIdea {
  * single card: time series, count plot, distribution, scatter, heatmap in that order.
  */
 export function suggestCharts(columns: readonly ColumnMeta[], rowCount = 0): ChartIdea[] {
-  const entries = columns.map((meta, index) => ({ meta, index }));
+  const entries = columns
+    .map((meta, index) => ({ meta, index }))
+    .filter((entry) => entry.meta.role !== "provenance");
   const ideas: ChartIdea[] = [];
 
   const dates = entries.filter(

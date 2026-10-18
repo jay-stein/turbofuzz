@@ -60,6 +60,7 @@ export function qualityFindings(
   const findings: Finding[] = [];
 
   columns.forEach((meta, column) => {
+    if (meta.role === "provenance") return;
     for (const suggestion of meta.suggestions) {
       if (suggestion.kind === "typeConflict") {
         findings.push({
@@ -748,6 +749,7 @@ export function explainColumn(
 export function anomalyFindings(columns: readonly ColumnMeta[]): Finding[] {
   const findings: Finding[] = [];
   columns.forEach((meta, column) => {
+    if (meta.role === "provenance") return;
     if (meta.anomalyCounts.values > 0 && meta.valueFence !== null) {
       const method =
         meta.valueFence.method === "quantile"

@@ -248,6 +248,21 @@ test("multiple files align columns and add _input_filename", async () => {
   assert.deepEqual(dataset.columns[0].raw, ["1", "2", "3"]);
   assert.deepEqual(dataset.columns[2].raw, ["", "", "new"]);
   assert.deepEqual(dataset.columns[3].raw, ["blah_01.csv", "blah_01.csv", "blah_02.csv"]);
+  assert.equal(dataset.columns[3].role, "provenance");
+});
+
+test("the provenance column does not hide duplicate content rows", async () => {
+  const result = await ingestFilesAsync(
+    [
+      { name: "a.csv", text: "id,value\n1,alpha" },
+      { name: "b.csv", text: "id,value\n1,alpha" },
+    ],
+    { name: "2 files", delimiter: "auto", hasHeaders: true },
+  );
+  assert.ok(result !== null);
+  assert.equal(result.dataset.stats.duplicateRows, 1);
+  assert.equal(result.dataset.stats.duplicateGroups, 1);
+  assert.equal(result.dataset.columns.at(-1)?.role, "provenance");
 });
 
 test("maxRows previews only the first rows of delimited text", () => {

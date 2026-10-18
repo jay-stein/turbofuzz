@@ -76,7 +76,9 @@ function extractColumns(
   const columns: ColumnData[] = [];
   for (let c = 0; c < columnCount; c++) {
     onColumn(c);
-    columns.push(ColumnData.create(headers[c], rawByColumn[c], undefined, numberPrior));
+    const column = ColumnData.create(headers[c], rawByColumn[c], undefined, numberPrior);
+    if (/^_input_filename(?:_\d+)?$/i.test(headers[c])) column.role = "provenance";
+    columns.push(column);
   }
   return columns;
 }
@@ -131,7 +133,16 @@ export async function buildDatasetAsync(
       current: columnIndex + 1,
       total: columnCount,
     });
-    columns.push(ColumnData.create(headers[columnIndex], rawByColumn[columnIndex], undefined, numberPrior));
+    const column = ColumnData.create(
+      headers[columnIndex],
+      rawByColumn[columnIndex],
+      undefined,
+      numberPrior,
+    );
+    if (/^_input_filename(?:_\d+)?$/i.test(headers[columnIndex])) {
+      column.role = "provenance";
+    }
+    columns.push(column);
     if ((columnIndex + 1) % yieldEvery === 0) await yieldTick();
   }
   if (options.shouldCancel?.() === true) return null;

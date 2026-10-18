@@ -385,12 +385,16 @@ export function pickNextSteps(
 /** The always-present chart slot, preferring dates, then categories, then numerics. */
 export function chartStep(columns: readonly ColumnMeta[]): NextStep {
   const date = columns.findIndex(
-    (column) => column.type === "date" || column.type === "datetime",
+    (column) =>
+      column.role !== "provenance" && (column.type === "date" || column.type === "datetime"),
   );
   const category = columns.findIndex(
-    (column) => isCategoryType(column.type) && column.stats.distinct >= 2,
+    (column) =>
+      column.role !== "provenance" && isCategoryType(column.type) && column.stats.distinct >= 2,
   );
-  const numeric = columns.findIndex((column) => isNumericType(column.type));
+  const numeric = columns.findIndex(
+    (column) => column.role !== "provenance" && isNumericType(column.type),
+  );
   if (date >= 0) {
     return {
       id: "chart",

@@ -87,9 +87,11 @@ export function computeDatasetStats(
   onProgress?: ColumnProgress,
 ): IngestStats {
   const started = performance.now();
+  const contentColumns = columns.filter((column) => column.role !== "provenance");
   const columnCount = columns.length;
+  const contentCount = contentColumns.length;
   const duplicateBits = new BitSet(rowCount);
-  const hashes = hashRows(columns, rowCount, onProgress);
+  const hashes = hashRows(contentColumns, rowCount, onProgress);
   let duplicateRows = 0;
 
   // Count hash occurrences first: rows whose hash is unique (the common case
@@ -113,7 +115,7 @@ export function computeDatasetStats(
     }
     let isDuplicate = false;
     for (let i = 0; i < bucket.length; i++) {
-      if (rowsEqual(columns, row, bucket[i], columnCount)) {
+      if (rowsEqual(contentColumns, row, bucket[i], contentCount)) {
         duplicateBits.set(row);
         duplicateBits.set(bucket[i]);
         isDuplicate = true;
@@ -134,8 +136,8 @@ export function computeDatasetStats(
   let emptyRows = 0;
   for (let row = 0; row < rowCount; row++) {
     let empty = true;
-    for (let c = 0; c < columnCount; c++) {
-      if (!columns[c].nullMask.get(row)) {
+    for (let c = 0; c < contentCount; c++) {
+      if (!contentColumns[c].nullMask.get(row)) {
         empty = false;
         break;
       }
@@ -144,10 +146,10 @@ export function computeDatasetStats(
   }
 
   const nullRowBits = new BitSet(rowCount);
-  for (const column of columns) nullRowBits.or(column.nullMask);
+  for (const column of contentColumns) nullRowBits.or(column.nullMask);
 
   let totalNullCells = 0;
-  for (const column of columns) totalNullCells += column.stats.nulls;
+  for (const column of contentColumns) totalNullCells += column.stats.nulls;
 
   const anomalies = computeAnomalies(columns, rowCount, onProgress);
   const patternProfiles: (PatternProfile | null)[] = new Array<PatternProfile | null>(
@@ -165,7 +167,7 @@ export function computeDatasetStats(
       emptyRows,
       rowsWithNulls: nullRowBits.count(),
       totalNullCells,
-      totalCells: rowCount * columnCount,
+      totalCells: rowCount * contentCount,
       valueAnomalyRows: anomalies.valueBits.count(),
       lengthAnomalyRows: anomalies.lengthBits.count(),
       computeMs: performance.now() - started,
