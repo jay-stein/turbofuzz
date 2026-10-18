@@ -4444,6 +4444,7 @@ export class ChartCard {
       this.config.kind === "map" ||
       this.config.kind === "scatter" ||
       this.config.kind === "density" ||
+      this.config.kind === "bubble" ||
       this.config.kind === "line" ||
       this.config.kind === "histogram" ||
       this.config.kind === "bar";
@@ -4538,14 +4539,18 @@ export class ChartCard {
       this.render();
       return;
     }
+    const dragResult =
+      this.config.kind === "bubble" ? this.bubbleResult : this.seriesResult;
     if (
-      (this.config.kind === "scatter" || this.config.kind === "density") &&
+      (this.config.kind === "scatter" ||
+        this.config.kind === "density" ||
+        this.config.kind === "bubble") &&
       this.plotDrag !== null &&
-      this.seriesResult !== null &&
+      dragResult !== null &&
       this.lastFrame !== null
     ) {
       const frame = this.lastFrame;
-      const result = this.seriesResult;
+      const result = dragResult;
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
       const dx = (x - this.plotDrag.x) / frame.plotW;
@@ -4687,6 +4692,7 @@ export class ChartCard {
       (kind !== "map" &&
         kind !== "scatter" &&
         kind !== "density" &&
+        kind !== "bubble" &&
         kind !== "line" &&
         kind !== "histogram" &&
         kind !== "bar") ||
@@ -4805,6 +4811,7 @@ export class ChartCard {
       (kind !== "map" &&
         kind !== "scatter" &&
         kind !== "density" &&
+        kind !== "bubble" &&
         kind !== "line" &&
         kind !== "histogram" &&
         kind !== "bar") ||
@@ -4884,7 +4891,7 @@ export class ChartCard {
       this.render();
       return;
     }
-    const result = this.seriesResult;
+    const result = kind === "bubble" ? this.bubbleResult : this.seriesResult;
     if (result === null) return;
     event.preventDefault();
     const base =
@@ -4921,7 +4928,9 @@ export class ChartCard {
       changed = true;
     }
     if (
-      (this.config.kind === "scatter" || this.config.kind === "density") &&
+      (this.config.kind === "scatter" ||
+        this.config.kind === "density" ||
+        this.config.kind === "bubble") &&
       this.plotView !== null
     ) {
       this.plotView = null;
@@ -6996,11 +7005,17 @@ export class ChartCard {
         });
       });
     }
-    this.drawBubbleGrid(ctx, frame, {
+    const view = this.plotView ?? {
       xMin: result.xMin,
       xMax: result.xMax,
       yMin: result.yMin,
       yMax: result.yMax,
+    };
+    this.drawBubbleGrid(ctx, frame, {
+      xMin: view.xMin,
+      xMax: view.xMax,
+      yMin: view.yMin,
+      yMax: view.yMax,
       bins: result.bins,
       layers,
       maxCount: result.maxCount,
