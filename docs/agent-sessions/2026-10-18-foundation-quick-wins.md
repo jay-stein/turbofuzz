@@ -46,6 +46,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 
 - Bubble charts now share the X/Y pan and zoom viewport used by scatter/density, with reset support.
 - Heatmaps now support category-window zoom and pan on both axes, with reset support.
+- Box plots now support category-window X zoom/pan and numeric Y zoom/pan, with reset support.
 
 ### Chart CSV export
 
@@ -105,6 +106,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `a2e9b62` feat(pivot): export aggregate and pivot results as CSV
 - `c2360ec` feat(charts): zoom and pan heatmap categories
 - `7a1a153` feat(pivot): add worker-computed margins
+- `3814a27` feat(charts): zoom and pan box plots
 
 ## Validation
 
