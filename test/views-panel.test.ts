@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { AggregateMessage, ColumnMeta, PivotMessage } from "../src/worker/protocol.js";
 import type { PivotDef } from "../src/data/pivot.js";
-import { ViewsPanel, starterViews } from "../src/ui/views-panel.js";
+import { ViewsPanel, pivotDefFromView, starterViews } from "../src/ui/views-panel.js";
 import type { ViewDef } from "../src/data/aggregate.js";
 
 function setupDom(): Window {
@@ -390,13 +390,22 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
         colIsTime: [false],
         rowTimes: [Float64Array.from([Number.NaN, Number.NaN, Number.NaN])],
         colTimes: [Float64Array.from([Number.NaN, Number.NaN, Number.NaN])],
-        measures: [{
-          name: "distinct(amount)",
-          values: Float64Array.from([1, 2, 1, 2, 3, 2, 3, 5, 5]),
-          rowTotals: Float64Array.from([3, 5, 5]),
-          colTotals: Float64Array.from([3, 5, 5]),
-          grandTotal: 5,
-        }],
+        measures: [
+          {
+            name: "distinct(amount)",
+            values: Float64Array.from([1, 2, 1, 2, 3, 2, 3, 5, 5]),
+            rowTotals: Float64Array.from([3, 5, 5]),
+            colTotals: Float64Array.from([3, 5, 5]),
+            grandTotal: 5,
+          },
+          {
+            name: "count(*)",
+            values: Float64Array.from([1, 1, 1, 1, 1, 1, 1, 1, 1]),
+            rowTotals: Float64Array.from([3, 3, 3]),
+            colTotals: Float64Array.from([3, 3, 3]),
+            grandTotal: 3,
+          },
+        ],
         groupCount: 3,
         totalGroups: 3,
         truncated: false,
@@ -425,8 +434,9 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
   const pivot = host.querySelector(".views-pivot");
   assert.ok(pivot !== null, "the matrix renders");
   const header = pivot.querySelectorAll("thead th");
-  assert.equal(header.length, 4, "row header + two period columns + All");
-  assert.equal(header[1]?.textContent, "P0");
+  assert.equal(header.length, 8, "values + agg levels and nested period columns");
+  assert.equal(header[1]?.textContent, "city");
+  assert.equal(header[5]?.textContent, "P0");
   assert.match(host.querySelector(".views-pivot-note")?.textContent ?? "", /Spreading/);
   assert.equal(host.querySelectorAll(".views-index-pill").length, 1, "one field sits in the index well");
   assert.equal(host.querySelectorAll(".views-column-pill").length, 1, "one field sits in the columns well");
@@ -554,4 +564,30 @@ test("Only where restricts a measure through the editor menus", async () => {
 
   const view = requests[requests.length - 1];
   assert.deepEqual(view?.measures[0]?.where, { column: 1, values: ["a", "b"] });
+});
+
+test("pivot compilation keeps every value and splits index from columns", () => {
+  const view: ViewDef = {
+    id: "multi-value",
+    name: "Multi value",
+    dimensions: [
+      { column: 1, by: "value" },
+      { column: 2, by: { time: "month" } },
+    ],
+    measures: [
+      { column: 0, agg: "sum" },
+      { column: null, agg: "count" },
+    ],
+    fill: "none",
+    sort: { key: "m0", dir: "desc" },
+    limit: 500,
+    respectFilters: true,
+    pivotColumns: [1],
+    margins: true,
+  };
+  const def = pivotDefFromView(view, [1]);
+  assert.equal(def.values.length, 2);
+  assert.equal(def.index.length, 1);
+  assert.equal(def.columns.length, 1);
+  assert.equal(def.margins, true);
 });

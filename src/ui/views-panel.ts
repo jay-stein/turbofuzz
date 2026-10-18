@@ -163,9 +163,6 @@ export function formatMeasure(value: number, measure: MeasureSpec): string {
 /** Compile the current ViewDef matrix layout into a worker PivotDef. */
 export function pivotDefFromView(view: ViewDef, pivotIndexes: readonly number[]): PivotDef {
   const pivotSet = new Set(pivotIndexes);
-  const measureIndex =
-    view.pivotMeasure === undefined ? 0 : Math.max(0, Math.min(view.measures.length - 1, view.pivotMeasure));
-  const measure = view.measures[measureIndex];
   return {
     id: view.id,
     name: view.name,
@@ -173,7 +170,7 @@ export function pivotDefFromView(view: ViewDef, pivotIndexes: readonly number[])
     columns: pivotIndexes
       .map((index) => view.dimensions[index])
       .filter((spec): spec is DimensionSpec => spec !== undefined),
-    values: measure === undefined ? [] : [measure],
+    values: [...view.measures],
     respectFilters: view.respectFilters,
     margins: view.margins,
     marginsName: view.marginsName,
@@ -1006,30 +1003,7 @@ export class ViewsPanel {
         }),
       );
       dropLabel.append(dropInput, "Drop empty");
-      const valueParts: HTMLElement[] = [];
-      if (entry.def.measures.length > 1) {
-        const valueLabel = el("label", { class: "views-limit" });
-        valueLabel.title = "Choose which measure the pivot matrix shows";
-        const valueSelect = el("select", {
-          class: "chart-picker chart-picker-small",
-          "aria-label": "Pivot measure",
-        }) as HTMLSelectElement;
-        entry.def.measures.forEach((measure, index) => {
-          const option = el("option", { value: String(index) }, [
-            measureDisplay(measure, this.metas),
-          ]) as HTMLOptionElement;
-          if ((entry.def.pivotMeasure ?? 0) === index) option.selected = true;
-          valueSelect.append(option);
-        });
-        valueSelect.addEventListener("change", () =>
-          this.update((view) => {
-            view.pivotMeasure = Number(valueSelect.value);
-          }),
-        );
-        valueLabel.append("Value", valueSelect);
-        valueParts.push(valueLabel);
-      }
-      this.actionsEl.append(...valueParts, marginsLabel, fillLabel, dropLabel);
+      this.actionsEl.append(marginsLabel, fillLabel, dropLabel);
     }
     const below = el(
       "button",
@@ -1049,8 +1023,7 @@ export class ViewsPanel {
   private exportCsv(entry: ViewEntry): void {
     const pivot = entry.pivotResult;
     if (pivot !== null) {
-      const measure = pivot.measures[0];
-      if (measure === undefined) return;
+      if (pivot.measures.length === 0) return;
       const fillValue =
         entry.def.fillValue === undefined || entry.def.fillValue === null
           ? null
@@ -1060,14 +1033,18 @@ export class ViewsPanel {
       const rows: string[][] = [];
       rows.push([
         ...(pivot.rowNames.length === 0 ? ["All"] : pivot.rowNames),
-        ...pivot.colLabels.map((parts) => parts.join(" / ") || "All"),
+        ...pivot.measures.flatMap((measure) =>
+          pivot.colLabels.map((parts) => `${measure.name} / ${parts.join(" / ") || "All"}`),
+        ),
       ]);
       for (let row = 0; row < pivot.rowLabels.length; row++) {
         const label = pivot.rowLabels[row] ?? [];
         rows.push([
           ...(label.length === 0 ? ["All"] : label),
-          ...pivot.colLabels.map((_, col) =>
-            format(measure.values[row * pivot.colLabels.length + col] ?? Number.NaN),
+          ...pivot.measures.flatMap((measure) =>
+            pivot.colLabels.map((_, col) =>
+              format(measure.values[row * pivot.colLabels.length + col] ?? Number.NaN),
+            ),
           ),
         ]);
       }
@@ -1076,8 +1053,7 @@ export class ViewsPanel {
         rows,
       );
       return;
-    }
-    const result = entry.result;
+    }    const result = entry.result;
     if (result === null) return;
     const rows: string[][] = [];
     const pivots = this.pivotIndexes(entry.def);
@@ -2091,21 +2067,15 @@ export class ViewsPanel {
 
   /** Worker-assembled pivot matrix, including margins and nested column levels. */
   private renderWorkerPivot(entry: ViewEntry, pivot: PivotMessage): void {
-    const measure = pivot.measures[0];
-    if (measure === undefined) {
-      this.tableEl.append(el("div", { class: "views-empty" }, ["The pivot has no measure."]));
+    if (pivot.measures.length === 0) {
+      this.tableEl.append(el("div", { class: "views-empty" }, ["The pivot has no values."]));
       return;
     }
-    const measureIndex = Math.max(
-      0,
-      Math.min(entry.def.measures.length - 1, entry.def.pivotMeasure ?? 0),
-    );
-    const measureSpec = entry.def.measures[measureIndex] ?? {
-      column: null,
-      agg: "count" as const,
-    };
     const rowHeaderCount = Math.max(1, pivot.rowNames.length);
     const colHeaderDepth = Math.max(1, pivot.colNames.length);
+    const multipleMeasures = pivot.measures.length > 1;
+    const measureLevels = multipleMeasures ? 2 : 0;
+    const headerDepth = measureLevels + colHeaderDepth;
     const rowCount = pivot.rowLabels.length;
     const colCount = pivot.colLabels.length;
     const fillValue =
@@ -2115,25 +2085,52 @@ export class ViewsPanel {
     const displayValue = (value: number): number =>
       Number.isFinite(value) || fillValue === null ? value : fillValue;
     let max = 0;
-    for (const value of measure.values) {
-      if (Number.isFinite(value)) max = Math.max(max, Math.abs(value));
+    for (const measure of pivot.measures) {
+      for (const value of measure.values) {
+        if (Number.isFinite(value)) max = Math.max(max, Math.abs(value));
+      }
     }
+    const valueLabel = (index: number): string => {
+      const spec = entry.def.measures[index];
+      if (spec === undefined) return pivot.measures[index]?.name ?? `Value ${index + 1}`;
+      if (spec.column === null) return "Rows";
+      return this.metas[spec.column]?.name ?? `Value ${index + 1}`;
+    };
+    const aggLabel = (index: number): string =>
+      entry.def.measures[index]?.agg ?? pivot.measures[index]?.name ?? "value";
     const table = el("table", { class: "views-table views-pivot" });
     const head = el("thead");
-    for (let depth = 0; depth < colHeaderDepth; depth++) {
+    for (let depth = 0; depth < headerDepth; depth++) {
       const headRow = el("tr", { class: "views-pivot-head-row" });
       if (depth === 0) {
         for (let level = 0; level < rowHeaderCount; level++) {
           headRow.append(
-            el("th", { class: "views-dim-head", rowspan: String(colHeaderDepth) }, [
+            el("th", { class: "views-dim-head", rowspan: String(headerDepth) }, [
               pivot.rowNames[level] ?? "All",
             ]),
           );
         }
       }
+      if (multipleMeasures && depth < 2) {
+        pivot.measures.forEach((_, index) => {
+          headRow.append(
+            el(
+              "th",
+              {
+                class: depth === 0 ? "views-value-head" : "views-col-head",
+                colspan: String(colCount),
+              },
+              [depth === 0 ? valueLabel(index) : aggLabel(index)],
+            ),
+          );
+        });
+        head.append(headRow);
+        continue;
+      }
+      const colDepth = depth - measureLevels;
       let start = 0;
       while (start < colCount) {
-        const prefix = (pivot.colLabels[start] ?? []).slice(0, depth + 1);
+        const prefix = (pivot.colLabels[start] ?? []).slice(0, colDepth + 1);
         let end = start + 1;
         while (
           end < colCount &&
@@ -2145,11 +2142,11 @@ export class ViewsPanel {
           el(
             "th",
             {
-              class: depth === colHeaderDepth - 1 ? "views-num-head" : "views-col-head",
+              class: colDepth === colHeaderDepth - 1 ? "views-num-head" : "views-col-head",
               colspan: String(end - start),
               title: prefix.join(" / "),
             },
-            [prefix[depth] || "All"],
+            [prefix[colDepth] || "All"],
           ),
         );
         start = end;
@@ -2164,17 +2161,28 @@ export class ViewsPanel {
       for (let level = 0; level < rowHeaderCount; level++) {
         tr.append(el("td", { class: "views-dim" }, [parts[level] || "All"]));
       }
-      for (let col = 0; col < colCount; col++) {
-        const value = displayValue(measure.values[row * colCount + col] ?? Number.NaN);
-        const td = el("td", { class: "views-num" });
-        if (Number.isFinite(value) && max > 0) {
-          const strength = Math.max(0.05, Math.min(1, Math.abs(value) / max));
-          td.style.background = `color-mix(in srgb, var(--accent) ${Math.round(
-            strength * 48,
-          )}%, transparent)`;
+      for (let measureIndex = 0; measureIndex < pivot.measures.length; measureIndex++) {
+        const measure = pivot.measures[measureIndex]!;
+        const measureSpec = entry.def.measures[measureIndex] ?? {
+          column: null,
+          agg: "count" as const,
+        };
+        for (let col = 0; col < colCount; col++) {
+          const value = displayValue(measure.values[row * colCount + col] ?? Number.NaN);
+          const td = el("td", { class: "views-num" });
+          if (Number.isFinite(value) && max > 0) {
+            const strength = Math.max(0.05, Math.min(1, Math.abs(value) / max));
+            td.style.background = `color-mix(in srgb, var(--accent) ${Math.round(
+              strength * 48,
+            )}%, transparent)`;
+          }
+          td.append(
+            el("span", { class: "views-value" }, [
+              formatMeasure(value, measureSpec),
+            ]),
+          );
+          tr.append(td);
         }
-        td.append(el("span", { class: "views-value" }, [formatMeasure(value, measureSpec)]));
-        tr.append(td);
       }
       body.append(tr);
     }
@@ -2185,7 +2193,7 @@ export class ViewsPanel {
       fillValue === null ? "empty cells stay blank" : `empty cells show ${fillValue}`;
     this.tableEl.append(
       el("div", { class: "views-pivot-note" }, [
-        `Spreading "${spread}" across columns - ${measure.name} - ${emptyNote}${
+        `Spreading "${spread}" across columns - ${pivot.measures.map((measure) => measure.name).join(", ")} - ${emptyNote}${
           entry.def.dropna === true ? " - empty rows and columns hidden" : ""
         }${entry.def.margins === true ? ` - ${entry.def.marginsName ?? "All"} margins computed from raw rows` : ""}.`,
       ]),
