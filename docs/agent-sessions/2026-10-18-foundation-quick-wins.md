@@ -33,6 +33,13 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Barplot aggregates a numeric measure by category, supports mean/sum/median/min/max, and can split into one series per optional group value.
 - Added gallery fit rules, setup-dialog fields, axis labels, CSV export, and tests.
 
+### Custom GeoJSON and zipped Shapefile regions
+
+- Added a `Load regions` control to Map cards. GeoJSON is parsed locally; zipped Shapefiles are parsed by lazily loaded `shpjs` (which handles `.dbf` attributes and `.prj` reprojection to WGS84).
+- GeoJSON with a non-WGS84 legacy CRS is rejected with a clear message instead of being drawn wrong.
+- Loaded regions replace the world basemap, fit the viewport, support reset back to the region bounds, and can be cleared back to the world map.
+- Parser unit tests cover polygon/multipolygon bounds and CRS rejection.
+
 ### Pivot margins
 
 - Added an optional `Margins` toggle to pivoted views. The worker computes the All row, All column, and grand total from raw rows for the active aggregate function, so means/medians are not approximated by summing cells.
@@ -109,13 +116,14 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `7a1a153` feat(pivot): add worker-computed margins
 - `3814a27` feat(charts): zoom and pan box plots
 - `d8aa0a8` feat(charts): zoom and pan correlation matrices
+- `1580efe` feat(charts): load geojson and zipped shapefile regions
 
 ## Validation
 
 Final state after the session:
 
 - `npm run typecheck` passes.
-- `npm test`: 683 tests passing.
+- `npm test`: 685 tests passing.
 - `npm run build` passes.
 - No network or eval paths were introduced.
 - Pre-existing untracked files `DATA_QC_SPEC.md` and `UX_IMPROVEMENT_BACKLOG.md` were left untouched.
@@ -136,6 +144,6 @@ Final state after the session:
 3. Chart aggregation core: ChartSpec, explicit row/non-null/distinct counts, chart-level filters, time grain controls, chart calculations.
 4. Extend the new Barplot with error bars, orientation, dodge/stack, explicit ordering, and hue limits.
 5. Pan/zoom/reset for every chart with axes; density viewport correction.
-6. GeoJSON/Shapefile maps with CRS handling and choropleth joins.
+6. GeoJSON/Shapefile maps: add the choropleth join from a dataset category/measure to feature properties (region loading and CRS handling are now in place).
 7. Full Pivot View: 0–3 index/column fields, multiple values/aggs, margins, fill_value, named pivots, pivot CSV and chart integration, resample-style time.
 8. Batch type conversion UI and remaining table performance work.
