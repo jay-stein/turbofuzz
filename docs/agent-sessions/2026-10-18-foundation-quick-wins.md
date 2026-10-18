@@ -46,7 +46,8 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Aggregate-backed chart cards (value lines/bars/barplots, treemaps, and joined choropleths) now have a category/value chart filter that is independent of the table filters.
 - Each card also has an `Also respect table filters` toggle, default on, so a chart can keep its own scope when the table is filtered.
 - The card scope line names the active chart filter; chart filters survive column renames through the named-config mapping and are included in aggregate tests.
-- Chart filters now also apply to scatter/density and map point requests, heatmap crosstabs, and correlation matrices.
+- Chart filters now also apply to scatter/density and map point requests, heatmap crosstabs, correlation matrices, box plots, bubble/map grids, and animated frames.
+- Chart-filter coverage is exercised by worker tests for aggregate, series, crosstab, correlation, box, grid, and animation payloads.
 - Geo choropleths report how many loaded regions matched the join and mark unmatched regions in the hover tooltip.
 
 ### Pivot margins
@@ -131,6 +132,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `8f14d58` feat(charts): inspect and filter geojson regions
 - `b338aa2` feat(charts): add chart-scoped aggregate filters
 - `292eab1` feat(charts): filter point, crosstab and correlation requests
+- `d021fc1` feat(charts): filter box, grid and animation requests
 - `1580efe` feat(charts): load geojson and zipped shapefile regions
 - `21836d1` feat(charts): join geojson regions to dataset measures
 
@@ -157,7 +159,7 @@ Final state after the session:
 
 1. Provenance role for `_input_filename` so it does not distort duplicate/empty-row/DQ metrics or default chart suggestions.
 2. Remaining chart module extraction (`chart-spec`, `chart-viewport`, `chart-color`).
-3. Chart aggregation core: ChartSpec, explicit row/non-null/distinct counts, chart-scoped filters for box/grid/animation requests, time grain controls, chart calculations.
+3. Chart aggregation core: ChartSpec, explicit row/non-null/distinct counts, chart-scoped filters for remaining bins/text requests, time grain controls, chart calculations.
 4. Extend the new Barplot with error bars, orientation, dodge/stack, explicit ordering, and hue limits.
 5. Pan/zoom/reset for every chart with axes; density viewport correction.
 6. Geo maps polish: remaining hover/click checks and richer unmatched-region inspection.
