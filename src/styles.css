@@ -1742,7 +1742,7 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin: 0 6px 5px 8px;
+  margin: auto 6px 5px 8px;
   padding: 1px 5px;
   border: 1px solid transparent;
   border-radius: 5px;

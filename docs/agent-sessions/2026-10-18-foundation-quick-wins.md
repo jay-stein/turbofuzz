@@ -301,7 +301,7 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 ### Validation
 
 - `npm run typecheck` passes.
-- `npm test`: 726 tests passing.
+- `npm test`: 727 tests passing.
 - `npm run build` passes.
 - New tests cover shelf-column moves and grand-total CSV percentages.
 ### Guards and time grouping
@@ -356,3 +356,10 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - Added compare and blank filter kinds to the query engine with cached, bitset-backed evaluation.
 - Chart source selectors now group options into Table data, Pivot views and Saved views, putting pivot results at the same hierarchy level as the table.
 - Chart cards retain pivot-view sources as first-class bindable data sources.
+## Follow-up: typed table-header filters (2026-10-18)
+
+- Numeric/date/time/duration header quick filters now open a compact operator popover instead of a contains-only text box. It supports the same between/comparison/average/blank operators as the sidebar.
+- The popover shows min/max/average or earliest/latest stats before the controls.
+- Text and category header filters retain the inline contains input.
+- Header filter rows are pinned to the bottom of their grid cells, so their inputs/buttons align vertically even when QA chip rows differ in height.
+- Active typed header filters show a concise operator/value summary and the funnel icon.

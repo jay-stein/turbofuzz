@@ -13,6 +13,14 @@ import { parseNumber } from "../parse/numbers.js";
 import { valueLength } from "../parse/value-length.js";
 import { COLUMN_TYPES, TYPE_LABELS, type ColumnType } from "../types.js";
 import type { ColumnMeta } from "../worker/protocol.js";
+import type { ColumnFilter } from "../search/query-engine.js";
+import {
+  formatDurationMs,
+  fromDateTimeInputValue,
+  parseDuration,
+  parseTimeOfDay,
+  toDateTimeInputValue,
+} from "../parse/dates.js";
 
 const ROW_HEIGHT = 28;
 const DEFAULT_COL_WIDTH = 180;
@@ -52,6 +60,10 @@ export interface ResultTableOptions {
   onQuickFilter?: (column: number, query: string) => void;
   /** Current contains query for a column, used to restore the header input. */
   quickFilterFor?: (column: number) => string;
+  /** Full filter state for a column, used by typed header filters. */
+  columnFilterFor?: (column: number) => ColumnFilter | null;
+  /** Applies a typed header filter. */
+  onColumnFilter?: (column: number, filter: ColumnFilter | null) => void;
   onColumnSpecial: (column: number, kind: ColumnQaKind) => void;
   onMergeSimilar: (column: number) => void;
   onColumnContext: (column: number, x: number, y: number) => void;
@@ -142,6 +154,12 @@ export class ResultTable {
     this.widths = columns.map((column) => previous.get(column.name) ?? DEFAULT_COL_WIDTH);
     this.renderHeader();
     this.invalidateRows();
+  }
+
+  /** Rebuilds header filter state unless the user is typing in a header input. */
+  refreshFilters(): void {
+    if (this.header.contains(document.activeElement)) return;
+    this.renderHeader();
   }
 
   /** Replaces one column's metadata (type/fences) without losing widths. */
@@ -414,41 +432,79 @@ export class ResultTable {
       top.append(number, label, grip, del);
 
       const quickFilter = el("div", { class: "th-filter" });
-      const current = this.options.quickFilterFor?.(index) ?? "";
-      if (current !== "") quickFilter.classList.add("active");
       const filterMark = el("span", { class: "th-filter-icon" });
       filterMark.append(filterIcon());
-      const filterInput = el("input", {
-        class: "th-filter-input",
-        type: "text",
-        value: current,
-        placeholder: "Filter…",
-        title: `Quick contains filter for "${name}"`,
-        "aria-label": `Filter ${name}`,
-      }) as HTMLInputElement;
-      const applyQuickFilter = (): void => {
-        if (this.quickFilterTimer !== null) {
-          window.clearTimeout(this.quickFilterTimer);
-          this.quickFilterTimer = null;
-        }
-        const query = filterInput.value.trim();
-        quickFilter.classList.toggle("active", query !== "");
-        this.options.onQuickFilter?.(index, query);
-      };
-      filterInput.addEventListener("input", () => {
-        if (this.quickFilterTimer !== null) window.clearTimeout(this.quickFilterTimer);
-        this.quickFilterTimer = window.setTimeout(applyQuickFilter, 140);
-      });
-      filterInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
+      const typedFilter = [
+        "integer",
+        "number",
+        "date",
+        "datetime",
+        "time",
+        "duration",
+      ].includes(column.type);
+      if (typedFilter && this.options.onColumnFilter !== undefined) {
+        const activeFilter = this.options.columnFilterFor?.(index) ?? null;
+        quickFilter.classList.add("th-filter-button");
+        if (activeFilter !== null) quickFilter.classList.add("active");
+        const filterLabel = el("span", { class: "th-filter-label" }, [
+          activeFilter === null ? "Filter…" : describeHeaderFilter(activeFilter, column),
+        ]);
+        quickFilter.append(filterMark, filterLabel);
+        quickFilter.setAttribute("role", "button");
+        quickFilter.tabIndex = 0;
+        quickFilter.title =
+          activeFilter === null
+            ? `Filter ${name}`
+            : `${describeHeaderFilter(activeFilter, column)} - click to edit`;
+        const open = (): void => {
+          openHeaderFilterPopover(quickFilter, column, activeFilter, (filter) => {
+            this.options.onColumnFilter?.(index, filter);
+            this.renderHeader();
+          });
+        };
+        quickFilter.addEventListener("click", (event) => {
+          event.stopPropagation();
+          open();
+        });
+        quickFilter.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
           event.preventDefault();
-          applyQuickFilter();
-        }
-      });
-      filterInput.addEventListener("blur", applyQuickFilter);
-      filterInput.addEventListener("click", (event) => event.stopPropagation());
-      quickFilter.append(filterMark, filterInput);
-      cell.append(qa, top, typeSelect, quickFilter);
+          open();
+        });
+      } else {
+        const current = this.options.quickFilterFor?.(index) ?? "";
+        if (current !== "") quickFilter.classList.add("active");
+        const filterInput = el("input", {
+          class: "th-filter-input",
+          type: "text",
+          value: current,
+          placeholder: "Filter…",
+          title: `Quick contains filter for "${name}"`,
+          "aria-label": `Filter ${name}`,
+        }) as HTMLInputElement;
+        const applyQuickFilter = (): void => {
+          if (this.quickFilterTimer !== null) {
+            window.clearTimeout(this.quickFilterTimer);
+            this.quickFilterTimer = null;
+          }
+          const query = filterInput.value.trim();
+          quickFilter.classList.toggle("active", query !== "");
+          this.options.onQuickFilter?.(index, query);
+        };
+        filterInput.addEventListener("input", () => {
+          if (this.quickFilterTimer !== null) window.clearTimeout(this.quickFilterTimer);
+          this.quickFilterTimer = window.setTimeout(applyQuickFilter, 140);
+        });
+        filterInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            applyQuickFilter();
+          }
+        });
+        filterInput.addEventListener("blur", applyQuickFilter);
+        filterInput.addEventListener("click", (event) => event.stopPropagation());
+        quickFilter.append(filterMark, filterInput);
+      }      cell.append(qa, top, typeSelect, quickFilter);
       cell.addEventListener("contextmenu", (event) => {
         event.preventDefault();
         this.options.onColumnContext(index, event.clientX, event.clientY);
@@ -943,4 +999,273 @@ export class ResultTable {
       }
     }
   }
+}
+
+function readHeaderValue(raw: string, meta: ColumnMeta): number | null {
+  const value = raw.trim();
+  if (value === "") return null;
+  const parsed =
+    meta.type === "date"
+      ? parseDate(value, meta.dateOrder)
+      : meta.type === "datetime"
+        ? fromDateTimeInputValue(value)
+        : meta.type === "time"
+          ? parseTimeOfDay(value)
+          : meta.type === "duration"
+            ? parseDuration(value)
+            : parseNumber(value, meta.numberLocale);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatHeaderValue(value: number | null | undefined, meta: ColumnMeta): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "";
+  switch (meta.type) {
+    case "date":
+      return toDateInputValue(value);
+    case "datetime":
+      return toDateTimeInputValue(value);
+    case "time":
+      return toTimeInputValue(value);
+    case "duration":
+      return formatDurationMs(value);
+    default:
+      return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+}
+
+function describeHeaderFilter(filter: ColumnFilter, meta: ColumnMeta): string {
+  if (filter.kind === "range") {
+    const min = formatHeaderValue(filter.min, meta);
+    const max = formatHeaderValue(filter.max, meta);
+    return `${min || "…"} – ${max || "…"}`;
+  }
+  if (filter.kind === "compare") {
+    const label = {
+      eq: "=",
+      ne: "≠",
+      gt: ">",
+      gte: "≥",
+      lt: "<",
+      lte: "≤",
+      aboveAvg: "above avg",
+      belowAvg: "below avg",
+    }[filter.op];
+    const value = formatHeaderValue(filter.value, meta);
+    return value === "" ? label : `${label} ${value}`;
+  }
+  if (filter.kind === "blank") return filter.negate ? "not blank" : "blank";
+  if (filter.kind === "values") return `${filter.selected.length} values`;
+  return "filtered";
+}
+
+function buildHeaderFilterStats(meta: ColumnMeta): HTMLElement {
+  const box = el("div", { class: "th-filter-stats" });
+  const add = (label: string, value: string): void => {
+    box.append(
+      el("div", { class: "th-filter-stat" }, [
+        el("span", { class: "th-filter-stat-label" }, [label]),
+        el("span", { class: "th-filter-stat-value" }, [value]),
+      ]),
+    );
+  };
+  if (meta.type === "date" || meta.type === "datetime") {
+    if (meta.stats.min !== null) add("Earliest", formatHeaderValue(meta.stats.min, meta));
+    if (meta.stats.max !== null) add("Latest", formatHeaderValue(meta.stats.max, meta));
+  } else {
+    if (meta.stats.min !== null) add("Min", formatHeaderValue(meta.stats.min, meta));
+    if (meta.stats.max !== null) add("Max", formatHeaderValue(meta.stats.max, meta));
+    if (meta.stats.mean !== null) add("Average", formatHeaderValue(meta.stats.mean, meta));
+  }
+  return box;
+}
+
+function openHeaderFilterPopover(
+  anchor: HTMLElement,
+  meta: ColumnMeta,
+  current: ColumnFilter | null,
+  onApply: (filter: ColumnFilter | null) => void,
+): void {
+  const dateLike = meta.type === "date" || meta.type === "datetime";
+  const modes = dateLike
+    ? [
+        ["between", "Between"],
+        ["on", "On"],
+        ["before", "Before"],
+        ["onOrBefore", "On or before"],
+        ["after", "After"],
+        ["onOrAfter", "On or after"],
+        ["blank", "Is blank"],
+        ["notBlank", "Is not blank"],
+      ]
+    : [
+        ["between", "Between"],
+        ["eq", "Equals"],
+        ["ne", "Does not equal"],
+        ["gt", "Greater than"],
+        ["gte", "Greater than or equal"],
+        ["lt", "Less than"],
+        ["lte", "Less than or equal"],
+        ["aboveAvg", "Above average"],
+        ["belowAvg", "Below average"],
+        ["blank", "Is blank"],
+        ["notBlank", "Is not blank"],
+      ];
+  const dateToCompare: Record<string, "eq" | "lt" | "lte" | "gt" | "gte"> = {
+    on: "eq",
+    before: "lt",
+    onOrBefore: "lte",
+    after: "gt",
+    onOrAfter: "gte",
+  };
+  let currentMode = "between";
+  if (current?.kind === "compare") {
+    currentMode = dateLike
+      ? (({ eq: "on", lt: "before", lte: "onOrBefore", gt: "after", gte: "onOrAfter" } as Record<
+          string,
+          string
+        >)[current.op] ?? current.op)
+      : current.op;
+  } else if (current?.kind === "blank") {
+    currentMode = current.negate ? "notBlank" : "blank";
+  }
+  const popover = el("div", {
+    class: "th-filter-popover",
+    role: "dialog",
+    "aria-label": `Filter ${meta.name}`,
+  });
+  popover.append(
+    el("div", { class: "th-filter-popover-head" }, [`Filter ${meta.name}`]),
+    buildHeaderFilterStats(meta),
+  );
+  const mode = el("select", {
+    class: "th-filter-mode",
+    "aria-label": `Filter operator for ${meta.name}`,
+  }) as HTMLSelectElement;
+  for (const [value, label] of modes) {
+    const option = el("option", { value }, [label]) as HTMLOptionElement;
+    if (value === currentMode) option.selected = true;
+    mode.append(option);
+  }
+  const inputType =
+    meta.type === "date"
+      ? "date"
+      : meta.type === "datetime"
+        ? "datetime-local"
+        : meta.type === "duration"
+          ? "text"
+          : "number";
+  const first = el("input", {
+    class: "th-filter-input-field",
+    type: inputType,
+    placeholder: "Value",
+    "aria-label": `Filter value for ${meta.name}`,
+  }) as HTMLInputElement;
+  const second = el("input", {
+    class: "th-filter-input-field",
+    type: inputType,
+    placeholder: "And",
+    "aria-label": `Second filter value for ${meta.name}`,
+  }) as HTMLInputElement;
+  if (current?.kind === "range") {
+    first.value = formatHeaderValue(current.min, meta);
+    second.value = formatHeaderValue(current.max, meta);
+  } else if (current?.kind === "compare") {
+    first.value = formatHeaderValue(current.value, meta);
+  }
+  const firstField = el("label", { class: "th-filter-field" }, [
+    el("span", {}, [dateLike ? "Date" : "Value"]),
+    first,
+  ]);
+  const secondField = el("label", { class: "th-filter-field" }, [
+    el("span", {}, ["And"]),
+    second,
+  ]);
+  const footer = el("div", { class: "th-filter-popover-footer" });
+  const clear = el(
+    "button",
+    { class: "ghost small", type: "button" },
+    ["Clear filter"],
+  ) as HTMLButtonElement;
+  clear.disabled = current === null;
+  const apply = el("button", { class: "primary small", type: "button" }, ["Apply"]) as HTMLButtonElement;
+  footer.append(clear, el("span", { class: "grow" }), apply);
+  popover.append(mode, el("div", { class: "th-filter-values" }, [firstField, secondField]), footer);
+
+  const close = (): void => {
+    popover.remove();
+    document.removeEventListener("pointerdown", onPointerDown, true);
+    document.removeEventListener("keydown", onKey);
+  };
+  const onPointerDown = (event: PointerEvent): void => {
+    if (!popover.contains(event.target as Node)) close();
+  };
+  const onKey = (event: KeyboardEvent): void => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+      anchor.focus();
+    }
+  };
+  const needsFirst = (): boolean =>
+    !["aboveAvg", "belowAvg", "blank", "notBlank"].includes(mode.value);
+  const needsSecond = (): boolean => mode.value === "between";
+  const valid = (): boolean => {
+    if (!needsFirst()) return true;
+    if (readHeaderValue(first.value, meta) === null) return false;
+    return !needsSecond() || readHeaderValue(second.value, meta) !== null;
+  };
+  const update = (): void => {
+    firstField.hidden = !needsFirst();
+    secondField.hidden = !needsSecond();
+    apply.disabled = !valid();
+  };
+  const makeFilter = (): ColumnFilter | null => {
+    if (!valid()) return null;
+    if (mode.value === "blank" || mode.value === "notBlank") {
+      return { kind: "blank", negate: mode.value === "notBlank" };
+    }
+    if (mode.value === "between") {
+      return {
+        kind: "range",
+        min: readHeaderValue(first.value, meta),
+        max: readHeaderValue(second.value, meta),
+      };
+    }
+    if (mode.value === "aboveAvg" || mode.value === "belowAvg") {
+      return { kind: "compare", op: mode.value };
+    }
+    return {
+      kind: "compare",
+      op: (dateLike ? dateToCompare[mode.value] : mode.value) as
+        | "eq"
+        | "ne"
+        | "gt"
+        | "gte"
+        | "lt"
+        | "lte",
+      value: readHeaderValue(first.value, meta) ?? undefined,
+    };
+  };
+  const commit = (filter: ColumnFilter | null): void => {
+    close();
+    onApply(filter);
+  };
+  mode.addEventListener("change", update);
+  first.addEventListener("input", update);
+  second.addEventListener("input", update);
+  clear.addEventListener("click", () => commit(null));
+  apply.addEventListener("click", () => commit(makeFilter()));
+  document.addEventListener("pointerdown", onPointerDown, true);
+  document.addEventListener("keydown", onKey);
+  document.body.append(popover);
+  update();
+  const rect = anchor.getBoundingClientRect();
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - popover.offsetWidth - 8));
+  popover.style.left = `${left}px`;
+  const below = rect.bottom + 6;
+  popover.style.top =
+    below + popover.offsetHeight > window.innerHeight - 8
+      ? `${Math.max(8, rect.top - popover.offsetHeight - 6)}px`
+      : `${below}px`;
+  (needsFirst() ? first : apply).focus();
 }

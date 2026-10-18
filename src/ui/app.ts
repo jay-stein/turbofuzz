@@ -1891,6 +1891,8 @@ export class App {
         const filter = this.filters.get(column);
         return filter?.kind === "text" && filter.mode === "contains" ? filter.query : "";
       },
+      columnFilterFor: (column) => this.filters.get(column) ?? null,
+      onColumnFilter: (column, filter) => this.changeFilter(column, filter),
       onQuickFilter: (column, query) =>
         this.changeFilter(
           column,
@@ -2219,6 +2221,7 @@ export class App {
     if (filter === null) this.filters.delete(column);
     else this.filters.set(column, filter);
     this.renderFilterChips();
+    this.table?.refreshFilters();
 
     this.table?.setHighlights(this.highlightRules());
 

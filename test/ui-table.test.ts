@@ -59,6 +59,7 @@ interface Harness {
   converts: { column: number; tokens: string[] }[];
   inspects: number[];
   quick: { column: number; query: string }[];
+  columnFilters: { column: number; filter: unknown }[];
   window: Window;
 }
 
@@ -75,11 +76,14 @@ function buildTable(columns: ColumnMeta[]): Harness {
   const converts: Harness["converts"] = [];
   const inspects: number[] = [];
   const quick: Harness["quick"] = [];
+  const columnFilters: Harness["columnFilters"] = [];
   const table = new ResultTable(host, {
     onSort: () => {},
     onColumnInspect: (column) => inspects.push(column),
     onTypeChange: () => {},
     onQuickFilter: (column, query) => quick.push({ column, query }),
+    columnFilterFor: () => null,
+    onColumnFilter: (column, filter) => columnFilters.push({ column, filter }),
     onColumnSpecial: (column, kind) => clicks.push({ column, kind }),
     onMergeSimilar: (column) => merges.push(column),
     onColumnContext: (column, x, y) => contexts.push({ column, x, y }),
@@ -102,6 +106,7 @@ function buildTable(columns: ColumnMeta[]): Harness {
     converts,
     inspects,
     quick,
+    columnFilters,
     window,
   };
 }
@@ -432,4 +437,27 @@ test("a header text input applies a debounced contains filter", async () => {
   await new Promise((resolve) => setTimeout(resolve, 180));
   assert.deepEqual(quick, [{ column: 0, query: "nor" }]);
   assert.ok(host.querySelector(".th-filter")?.classList.contains("active"));
+});
+test("numeric header filters use the typed operator editor", async () => {
+  const { host, columnFilters, window } = buildTable([
+    meta({ name: "amount", type: "number" }),
+  ]);
+  const button = host.querySelector(".th-filter-button") as unknown as {
+    click(): void;
+  };
+  assert.ok(button !== null);
+  button.click();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const mode = doc.querySelector(".th-filter-mode") as HTMLSelectElement | null;
+  assert.ok(mode !== null);
+  mode.value = "gt";
+  mode.dispatchEvent(new window.Event("change") as unknown as Event);
+  const input = doc.querySelector(".th-filter-input-field") as HTMLInputElement | null;
+  assert.ok(input !== null);
+  input.value = "5";
+  input.dispatchEvent(new window.Event("input") as unknown as Event);
+  (doc.querySelector(".th-filter-popover-footer .primary") as unknown as { click(): void }).click();
+  assert.deepEqual(columnFilters, [
+    { column: 0, filter: { kind: "compare", op: "gt", value: 5 } },
+  ]);
 });
