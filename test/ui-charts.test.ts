@@ -2452,6 +2452,19 @@ test("a barplot aggregates a numeric measure by category", async () => {
   await tick();
   assert.deepEqual(calls.at(-1)?.measures[0]?.post, [{ op: "cumulative" }]);
   calcCard.dispose();
+
+  const stacked = new ChartCard(
+    host,
+    options,
+    { kind: "barplot", column: 1, valueColumn: 0, barLayout: "stack" },
+  );
+  stacked.setColumns([
+    meta({ name: "amount", type: "number" }),
+    meta({ name: "city", type: "category" }),
+  ]);
+  await tick();
+  assert.equal(stacked.getConfig().barLayout, "stack");
+  stacked.dispose();
 });
 
 test("a map card requests unclipped coordinate points", async () => {

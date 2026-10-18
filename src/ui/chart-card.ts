@@ -229,6 +229,8 @@ export interface ChartCardConfig {
   colorMax?: number | null;
   topN: number;
   groupOther: boolean;
+  /** Barplot with a Group: side-by-side bars or one stacked bar per category. */
+  barLayout?: "group" | "stack";
   binOptions: ChartBinOptions | null;
   binClipped: boolean;
   title: string;
@@ -672,6 +674,7 @@ function defaultConfig(): ChartCardConfig {
     colorMax: null,
     topN: 10,
     groupOther: true,
+    barLayout: "group",
     binOptions: null,
     binClipped: false,
     title: "",
@@ -868,6 +871,8 @@ export class ChartCard {
   private readonly colorDomainRow: HTMLElement;
   private readonly histogramSettings: HTMLElement;
   private readonly barSettings: HTMLElement;
+  private readonly barStackField: HTMLElement;
+  private readonly barStackInput: HTMLInputElement;
   private readonly correlationSettings: HTMLElement;
   private readonly topLabel: HTMLElement;
   private readonly minInput: HTMLInputElement;
@@ -980,6 +985,7 @@ export class ChartCard {
       this.refreshBubble();
       this.refreshAnimation();
       this.refreshValue();
+      this.renderControls();
       this.render();
     });
     this.groupWrap = this.tagged("Group", this.groupSelect).wrap;
@@ -1496,7 +1502,21 @@ export class ChartCard {
       el("span", { class: "chart-field-label" }, ["Mapping"]),
       this.bubbleScaleSelect,
     );
-    this.barSettings = el("div", { class: "chart-settings" }, [topField, otherField, multiField]);
+    this.barStackInput = el("input", { type: "checkbox" }) as HTMLInputElement;
+    this.barStackInput.checked = (this.config.barLayout ?? "group") === "stack";
+    this.barStackField = el("label", { class: "control check clean-check chart-check" });
+    this.barStackField.title = "Stack grouped barplot values instead of placing them side by side";
+    this.barStackField.append(this.barStackInput, "Stack groups");
+    this.barStackInput.addEventListener("change", () => {
+      this.config.barLayout = this.barStackInput.checked ? "stack" : "group";
+      this.render();
+    });
+    this.barSettings = el("div", { class: "chart-settings" }, [
+      topField,
+      otherField,
+      multiField,
+      this.barStackField,
+    ]);
     // Bubble options sit in their own visible row, not inside Settings: the
     // size measure is the whole point of a bubble chart. Map cards reuse the
     // same row for display mode, grid resolution and the heat/size measure.
@@ -3008,6 +3028,7 @@ export class ChartCard {
     if (this.config.valueAgg !== undefined) this.valueAggSelect.value = this.config.valueAgg;
     this.valueGrainSelect.value = this.config.valueGrain ?? "auto";
     this.valueCalcSelect.value = this.config.valueCalc ?? "";
+    this.barStackInput.checked = (this.config.barLayout ?? "group") === "stack";
 
     const xAllowed = this.allowedIndexes((meta) => this.allowsX(meta));
     const yAllowed = this.allowedIndexes((meta) => this.allowsY(meta));
@@ -3231,6 +3252,10 @@ export class ChartCard {
     this.colorGroup.classList.toggle("hidden", kind === "correlation");
     this.paletteGroup.classList.toggle("hidden", kind === "correlation");
     this.histogramSettings.classList.toggle("hidden", kind !== "histogram");
+    this.barStackField.classList.toggle(
+      "hidden",
+      kind !== "barplot" || this.config.groupColumn < 0,
+    );
     this.barSettings.classList.toggle(
       "hidden",
       kind !== "bar" &&
@@ -6323,10 +6348,23 @@ export class ChartCard {
       return;
     }
     const ui = frame.ui;
+    const stacked =
+      this.config.kind === "barplot" && (this.config.barLayout ?? "group") === "stack";
     let max = 0;
-    for (const series of shown) {
-      for (const value of series.values) {
-        if (Number.isFinite(value)) max = Math.max(max, value);
+    if (stacked) {
+      for (let bucket = 0; bucket < buckets.length; bucket++) {
+        let total = 0;
+        for (const series of shown) {
+          const value = series.values[bucket] ?? Number.NaN;
+          if (Number.isFinite(value) && value > 0) total += value;
+        }
+        if (total > max) max = total;
+      }
+    } else {
+      for (const series of shown) {
+        for (const value of series.values) {
+          if (Number.isFinite(value)) max = Math.max(max, value);
+        }
       }
     }
     const top = Math.max(1, max);
@@ -6381,6 +6419,27 @@ export class ChartCard {
           }
         }
         ctx.stroke();
+      }
+    } else if (stacked) {
+      for (let b = 0; b < buckets.length; b++) {
+        let base = 0;
+        for (const series of shown) {
+          const value = series.values[b] ?? Number.NaN;
+          if (!Number.isFinite(value) || value <= 0) continue;
+          const height = (value / top) * frame.plotH;
+          ctx.fillStyle = series.color;
+          ctx.globalAlpha = 0.85;
+          this.fillTopRounded(
+            ctx,
+            frame.left + b * slot + slot * 0.1,
+            frame.top + frame.plotH - base - height,
+            Math.max(1, slot * 0.8),
+            height,
+            2 * ui,
+          );
+          base += height;
+        }
+        ctx.globalAlpha = 1;
       }
     } else {
       const barW = Math.max(1, (slot * 0.8) / shown.length);
@@ -6446,7 +6505,7 @@ export class ChartCard {
     );
     this.noteEl.textContent = `${measure} by ${
       result.dimensionNames[1] ?? "group"
-    } · ${shown.length} of ${all.length} series shown · ${
+    } · ${shown.length} of ${all.length} series shown${stacked ? " (stacked)" : ""} · ${
       result.dimensionNames[0] ?? "group"
     } advances left to right`;
   }
