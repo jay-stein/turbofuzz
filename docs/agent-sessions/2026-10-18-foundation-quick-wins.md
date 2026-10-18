@@ -41,6 +41,12 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Parser unit tests cover polygon/multipolygon bounds and CRS rejection.
 - Choropleth join: choose a feature property, match it to a category/string dataset column, and colour regions by row count or a numeric measure with count/sum/mean/median/min/max aggregation. The join respects current table filters and uses the fixed colour-domain controls.
 
+### Chart-scoped filters
+
+- Aggregate-backed chart cards (value lines/bars/barplots, treemaps, and joined choropleths) now have a category/value chart filter that is independent of the table filters.
+- Each card also has an `Also respect table filters` toggle, default on, so a chart can keep its own scope when the table is filtered.
+- The card scope line names the active chart filter; chart filters survive column renames through the named-config mapping and are included in aggregate tests.
+
 ### Pivot margins
 
 - Added an optional `Margins` toggle to pivoted views. The worker computes the All row, All column, and grand total from raw rows for the active aggregate function, so means/medians are not approximated by summing cells.
@@ -121,6 +127,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `d8aa0a8` feat(charts): zoom and pan correlation matrices
 - `17c5ca6` feat(charts): zoom and pan treemaps and terms
 - `8f14d58` feat(charts): inspect and filter geojson regions
+- `b338aa2` feat(charts): add chart-scoped aggregate filters
 - `1580efe` feat(charts): load geojson and zipped shapefile regions
 - `21836d1` feat(charts): join geojson regions to dataset measures
 
@@ -129,7 +136,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 Final state after the session:
 
 - `npm run typecheck` passes.
-- `npm test`: 685 tests passing.
+- `npm test`: 686 tests passing.
 - `npm run build` passes.
 - No network or eval paths were introduced.
 - Pre-existing untracked files `DATA_QC_SPEC.md` and `UX_IMPROVEMENT_BACKLOG.md` were left untouched.
@@ -147,9 +154,9 @@ Final state after the session:
 
 1. Provenance role for `_input_filename` so it does not distort duplicate/empty-row/DQ metrics or default chart suggestions.
 2. Remaining chart module extraction (`chart-spec`, `chart-viewport`, `chart-color`).
-3. Chart aggregation core: ChartSpec, explicit row/non-null/distinct counts, chart-level filters, time grain controls, chart calculations.
+3. Chart aggregation core: ChartSpec, explicit row/non-null/distinct counts, extend chart-scoped filters to series/crosstab/correlation requests, time grain controls, chart calculations.
 4. Extend the new Barplot with error bars, orientation, dodge/stack, explicit ordering, and hue limits.
 5. Pan/zoom/reset for every chart with axes; density viewport correction.
-6. Geo maps polish: feature hover/click inspection and explicit unmatched-region diagnostics.
+6. Geo maps polish: explicit unmatched-region diagnostics and the remaining hover/click checks.
 7. Full Pivot View: 0–3 index/column fields, multiple values/aggs, margins, fill_value, named pivots, pivot CSV and chart integration, resample-style time.
 8. Batch type conversion UI and remaining table performance work.
