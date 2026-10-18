@@ -50,6 +50,13 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Chart-filter coverage is exercised by worker tests for aggregate, series, crosstab, correlation, box, grid, and animation payloads.
 - Geo choropleths report how many loaded regions matched the join and mark unmatched regions in the hover tooltip.
 
+### Stacked Barplot
+
+- Grouped Barplots gain a `Stack groups` option alongside the default side-by-side layout.
+- Stacked scaling uses the per-category positive total, draws segments bottom-up, and labels the note as stacked.
+- The control appears only for Barplots with a Group and resets cleanly to side-by-side.
+- Config coverage asserts the layout survives chart setup.
+
 ### Density viewport correction
 
 - Density heat grids, contour bands, and contour lines now crop to the active pan/zoom viewport instead of stretching the full grid into the visible frame.
@@ -185,6 +192,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `36f5288` feat(charts): add non-destructive measure calculations
 - `32dced0` feat(pivot): add resample grain control
 - `786cbe8` fix(charts): crop density grids to the viewport
+- `d5f963a` feat(charts): add stacked grouped barplots
 - `1580efe` feat(charts): load geojson and zipped shapefile regions
 - `21836d1` feat(charts): join geojson regions to dataset measures
 
