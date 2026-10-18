@@ -77,6 +77,7 @@ import {
   projectLat,
   projectLon,
 } from "../data/topo.js";
+import { parseGeoFile, type GeoDataset } from "../data/geo-file.js";
 
 /** Rectangle brush result: lon/lat bounds for the two coordinate columns. */
 export interface MapBrushSelection {
@@ -696,6 +697,11 @@ export class ChartCard {
   private mapGrid: GridCountsResult | null = null;
   /** Map viewport in degrees (null = the whole world). */
   private mapView: { lonMin: number; lonMax: number; latMin: number; latMax: number } | null = null;
+  /** Optional user-supplied regions (GeoJSON / zipped Shapefile). */
+  private geoDataset: GeoDataset | null = null;
+  private readonly mapLayerRow: HTMLElement;
+  private readonly mapLayerInput: HTMLInputElement;
+  private readonly mapLayerStatus: HTMLElement;
   private mapDrag: { x: number; y: number } | null = null;
   /** True once a drag moved: the release click must not also fire a filter. */
   private dragMoved = false;
@@ -1338,9 +1344,63 @@ export class ChartCard {
       this.render();
     });
     this.mapModeWrap = this.tagged("Show", this.mapModeSelect).wrap;
+    this.mapLayerInput = el("input", {
+      type: "file",
+      accept: ".geojson,.json,.zip",
+      class: "hidden",
+    }) as HTMLInputElement;
+    const loadMapLayer = el(
+      "button",
+      {
+        class: "ghost small",
+        type: "button",
+        title: "Load custom regions from GeoJSON or a zipped Shapefile",
+      },
+      ["Load regions"],
+    ) as HTMLButtonElement;
+    loadMapLayer.addEventListener("click", () => this.mapLayerInput.click());
+    this.mapLayerInput.addEventListener("change", () => {
+      const file = this.mapLayerInput.files?.[0];
+      if (file === undefined) return;
+      this.mapLayerStatus.textContent = "Loading regions...";
+      void file
+        .arrayBuffer()
+        .then((buffer) => parseGeoFile(buffer, file.name))
+        .then((dataset) => {
+          this.geoDataset = dataset;
+          this.mapView = { ...dataset.bounds };
+          this.mapLayerStatus.textContent = `${dataset.features.length.toLocaleString()} regions`;
+          this.render();
+        })
+        .catch((error: unknown) => {
+          this.mapLayerStatus.textContent =
+            error instanceof Error ? error.message : "Could not load regions.";
+        });
+      this.mapLayerInput.value = "";
+    });
+    const clearMapLayer = el(
+      "button",
+      { class: "ghost small", type: "button", title: "Return to the world basemap" },
+      ["Clear regions"],
+    ) as HTMLButtonElement;
+    clearMapLayer.addEventListener("click", () => {
+      this.geoDataset = null;
+      this.mapView = null;
+      this.mapLayerStatus.textContent = "";
+      this.render();
+    });
+    this.mapLayerStatus = el("span", { class: "chart-palette-status" });
+    this.mapLayerRow = el("div", { class: "chart-settings hidden" }, [
+      el("span", { class: "chart-field-label" }, ["Regions"]),
+      loadMapLayer,
+      clearMapLayer,
+      this.mapLayerInput,
+      this.mapLayerStatus,
+    ]);
     this.bubbleScaleField = bubbleScaleField;
     this.bubbleSettings = el("div", { class: "chart-bubble-settings hidden" }, [
       this.bubbleTitle,
+      this.mapLayerRow,
       this.mapModeWrap,
       bubbleField,
       bubbleAggField,
@@ -2833,6 +2893,7 @@ export class ChartCard {
     const seriesKind = kind === "scatter" || kind === "density";
     const mapKind = kind === "map";
     this.mapModeWrap.classList.toggle("hidden", !mapKind);
+    this.mapLayerRow.classList.toggle("hidden", !mapKind);
     this.colorWrap.classList.toggle("hidden", !seriesKind && !mapKind);
     this.sizeTagLabel.textContent =
       mapKind && this.config.mapMode === "heat" ? "Measure" : "Size";
@@ -5143,7 +5204,8 @@ export class ChartCard {
     let changed = false;
     let binsChanged = false;
     if (this.config.kind === "map" && this.mapView !== null) {
-      this.mapView = null;
+      this.mapView =
+        this.geoDataset === null ? null : { ...this.geoDataset.bounds };
       changed = true;
     }
     if (
@@ -5885,30 +5947,32 @@ export class ChartCard {
     ctx.stroke();
     ctx.globalAlpha = 1;
 
-    // Land polygons: one fill path, then one stroke path for the coast.
-    ctx.beginPath();
-    for (const ring of map.land) {
-      for (let i = 0; i < ring.length; i += 2) {
-        const x = px(ring[i] ?? 0);
-        const y = py(ring[i + 1] ?? 0);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+    const custom = this.geoDataset;
+    if (custom !== null) {
+      ctx.beginPath();
+      for (const feature of custom.features) {
+        for (const ring of feature.rings) {
+          for (let i = 0; i < ring.length; i += 2) {
+            const x = px(ring[i] ?? 0);
+            const y = py(ring[i + 1] ?? 0);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.closePath();
+        }
       }
-      ctx.closePath();
-    }
-    ctx.fillStyle = frame.border;
-    ctx.globalAlpha = 0.4;
-    ctx.fill();
-    ctx.globalAlpha = 0.75;
-    ctx.strokeStyle = frame.dim;
-    ctx.lineWidth = 0.75;
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-
-    // Country borders add detail without turning the map into a wireframe.
-    ctx.beginPath();
-    for (const country of map.countries) {
-      for (const ring of country.rings) {
+      ctx.fillStyle = this.primaryColor();
+      ctx.globalAlpha = 0.18;
+      ctx.fill("evenodd");
+      ctx.globalAlpha = 0.8;
+      ctx.strokeStyle = this.primaryColor();
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    } else {
+      // Land polygons: one fill path, then one stroke path for the coast.
+      ctx.beginPath();
+      for (const ring of map.land) {
         for (let i = 0; i < ring.length; i += 2) {
           const x = px(ring[i] ?? 0);
           const y = py(ring[i + 1] ?? 0);
@@ -5917,12 +5981,34 @@ export class ChartCard {
         }
         ctx.closePath();
       }
+      ctx.fillStyle = frame.border;
+      ctx.globalAlpha = 0.4;
+      ctx.fill();
+      ctx.globalAlpha = 0.75;
+      ctx.strokeStyle = frame.dim;
+      ctx.lineWidth = 0.75;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // Country borders add detail without turning the map into a wireframe.
+      ctx.beginPath();
+      for (const country of map.countries) {
+        for (const ring of country.rings) {
+          for (let i = 0; i < ring.length; i += 2) {
+            const x = px(ring[i] ?? 0);
+            const y = py(ring[i + 1] ?? 0);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.closePath();
+        }
+      }
+      ctx.strokeStyle = frame.dim;
+      ctx.globalAlpha = 0.28;
+      ctx.lineWidth = 0.6;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     }
-    ctx.strokeStyle = frame.dim;
-    ctx.globalAlpha = 0.28;
-    ctx.lineWidth = 0.6;
-    ctx.stroke();
-    ctx.globalAlpha = 1;
 
     const ui = frame.ui;
     if (this.config.mapMode === "heat") {
