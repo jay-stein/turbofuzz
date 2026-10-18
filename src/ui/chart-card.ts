@@ -4112,7 +4112,7 @@ export class ChartCard {
           : `Time series of ${name(this.config.column)} by ${group.name}, ${rows} rows shown`;
       }
       case "bar":
-        return `Bar chart of ${name(this.config.column)}, ${rows} rows shown`;
+        return `Count plot of ${name(this.config.column)}, ${rows} rows shown`;
       case "scatter":
         return `Scatter of ${name(this.config.x)} vs ${name(this.config.y)}, ${rows} rows shown`;
       case "density":

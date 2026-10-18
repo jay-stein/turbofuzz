@@ -27,7 +27,7 @@ export type ChartCardKind =
 export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   histogram: "Histogram",
   line: "Time series",
-  bar: "Bars",
+  bar: "Count plot",
   scatter: "Scatter",
   density: "Density",
   box: "Box plot",
@@ -202,7 +202,7 @@ export interface ChartIdea {
 
 /**
  * Up to three ready-made charts for the toolbar strip while the grid holds a
- * single card: time series, bars, distribution, scatter, heatmap in that order.
+ * single card: time series, count plot, distribution, scatter, heatmap in that order.
  */
 export function suggestCharts(columns: readonly ColumnMeta[], rowCount = 0): ChartIdea[] {
   const entries = columns.map((meta, index) => ({ meta, index }));

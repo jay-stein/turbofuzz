@@ -12,13 +12,13 @@ import {
   samplePalette,
 } from "../src/data/palettes.js";
 
-test("Pastel1 is the default and keeps its exact ColorBrewer colours", () => {
-  assert.equal(DEFAULT_PALETTE, "Pastel1");
-  const colors = samplePalette("Pastel1", 4);
-  assert.deepEqual(colors, ["#fbb4ae", "#b3cde3", "#ccebc5", "#decbe4"]);
-  const many = samplePalette("Pastel1", 12);
+test("Set1 is the default and keeps its exact ColorBrewer colours", () => {
+  assert.equal(DEFAULT_PALETTE, "Set1");
+  const colors = samplePalette("Set1", 4);
+  assert.deepEqual(colors, ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3"]);
+  const many = samplePalette("Set1", 12);
   assert.equal(many.length, 12);
-  assert.equal(many[9], "#fbb4ae", "qualitative palettes cycle");
+  assert.equal(many[9], "#e41a1c", "qualitative palettes cycle");
 });
 
 test("sequential ramps interpolate between stops", () => {
@@ -30,7 +30,7 @@ test("sequential ramps interpolate between stops", () => {
   const single = samplePalette("Blues", 1);
   assert.equal(single.length, 1);
   assert.equal(isRampPalette("Blues"), true);
-  assert.equal(isRampPalette("Pastel1"), false);
+  assert.equal(isRampPalette("Set1"), false);
 });
 
 test("diverging ramps keep their midpoint light", () => {
@@ -51,7 +51,7 @@ test("custom colour maps parse hex lists and reject junk", () => {
   assert.equal(sampled[4], "#f97316");
   // Fewer than two custom stops falls back to the default palette.
   const fallback = samplePalette(CUSTOM_PALETTE, 2, ["#123456"]);
-  assert.deepEqual(fallback, ["#fbb4ae", "#b3cde3"]);
+  assert.deepEqual(fallback, ["#e41a1c", "#377eb8"]);
   assert.equal(parseCustomColors("").length, 0);
 });
 

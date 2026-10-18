@@ -13,9 +13,9 @@ export interface PaletteDef {
  * ramps. Charts sample these to any number of series or buckets.
  */
 export const PALETTES: readonly PaletteDef[] = [
+  { name: "Set1", kind: "qualitative", colors: ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00", "#ffff33", "#a65628", "#f781bf", "#999999"] },
   { name: "Pastel1", kind: "qualitative", colors: ["#fbb4ae", "#b3cde3", "#ccebc5", "#decbe4", "#fed9a6", "#ffffcc", "#e5d8bd", "#fddaec", "#f2f2f2"] },
   { name: "Pastel2", kind: "qualitative", colors: ["#b3e2cd", "#fdcdac", "#cbd5e8", "#f4cae4", "#e6f5c9", "#fff2ae", "#f1e2cc", "#cccccc"] },
-  { name: "Set1", kind: "qualitative", colors: ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00", "#ffff33", "#a65628", "#f781bf", "#999999"] },
   { name: "Set2", kind: "qualitative", colors: ["#66c2a5", "#fc8d62", "#8da0cb", "#e78ac3", "#a6d854", "#ffd92f", "#e5c494", "#b3b3b3"] },
   { name: "Set3", kind: "qualitative", colors: ["#8dd3c7", "#ffffb3", "#bebada", "#fb8072", "#80b1d3", "#fdb462", "#b3de69", "#fccde5", "#d9d9d9", "#bc80bd", "#ccebc5", "#ffed6f"] },
   { name: "Paired", kind: "qualitative", colors: ["#a6cee3", "#1f78b4", "#b2df8a", "#33a02c", "#fb9a99", "#e31a1c", "#fdbf6f", "#ff7f00", "#cab2d6", "#6a3d9a", "#ffff99", "#b15928"] },
@@ -72,7 +72,7 @@ export const PALETTES: readonly PaletteDef[] = [
   { name: "icefire", kind: "diverging", colors: ["#3f5a91", "#6d87b9", "#a3b3d5", "#d5dbe8", "#efe7da", "#f4cba4", "#f2a06a", "#e06a45", "#c03a2b"] },
 ];
 
-export const DEFAULT_PALETTE = "Pastel1";
+export const DEFAULT_PALETTE = "Set1";
 export const CUSTOM_PALETTE = "custom";
 
 const HEX = /^#?([0-9a-f]{6})$/i;
@@ -128,7 +128,7 @@ export function paletteByName(name: string): PaletteDef | undefined {
   return PALETTES.find((palette) => palette.name === name);
 }
 
-/** Stops for a palette name; custom takes the parsed list, defaulting to Pastel1. */
+/** Stops for a palette name; custom takes the parsed list, defaulting to Set1. */
 export function paletteStops(name: string, custom: readonly string[] = []): string[] {
   if (name === CUSTOM_PALETTE) {
     return custom.length >= 2 ? [...custom] : [...(paletteByName(DEFAULT_PALETTE)?.colors ?? [])];
