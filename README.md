@@ -57,6 +57,7 @@ npm run typecheck  # tsc --noEmit
 npm run bench:quick
 npm run bench:real
 npm run bench:ingest   # parse/build/preview/filter/sort/export at 100k/500k/1.5M
+npm run bench:clean    # clean/rebuild budgets at 100k/300k rows
 npm run parity:cases   # generate pandas/Polars execution fixtures
 ```
 
@@ -65,6 +66,7 @@ Benchmarks:
 ```bash
 npm run bench:quick
 npm run bench:real
+npm run bench:clean
 ```
 
 ## Deployment

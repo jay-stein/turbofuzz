@@ -16,7 +16,8 @@ const sizes = (sizeArgs?.slice("--sizes=".length) ?? "100000,300000")
   .map((value) => Number.parseInt(value.trim(), 10))
   .filter((value) => Number.isFinite(value) && value > 0);
 const iterationsArg = process.argv.find((arg) => arg.startsWith("--iterations="));
-const iterations = Number.parseInt(iterationsArg?.slice("--iterations=".length) ?? "5", 10);
+const parsedIterations = Number.parseInt(iterationsArg?.slice("--iterations=".length) ?? "5", 10);
+const iterations = Number.isFinite(parsedIterations) && parsedIterations > 0 ? parsedIterations : 5;
 
 const NAMES = [
   "customer_name",

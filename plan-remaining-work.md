@@ -115,7 +115,7 @@ Baseline test state: **757 tests passing**, typecheck and production build green
 **W3 — remaining chart architecture**
 - W3.1 shared chart-builder structure across Add/Edit/Duplicate/Reset is complete in Sprint 2.
 - W3.6–W3.9 are already complete; no backlog work.
-- (W3.2–W3.5 and W3.10 are in the sprint.)
+- W3.2-W3.5 and W3.10 are complete.
 
 **W4 — remaining exploration**
 - W4.2 explicit drill/filter/underlying-rows actions are complete in Sprint 2; dedicated period comparison remains a follow-up.

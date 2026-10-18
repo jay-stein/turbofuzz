@@ -107,8 +107,3 @@ export function castCompatibility(from: ColumnType, target: CastTarget): CastCom
   }
   return { risk: "invalid", reason: "Values are re-parsed; invalid cells follow the failure policy." };
 }
-
-/** Pairs of types that cannot be reconciled without falling back to text. */
-export function incompatibleTypes(types: readonly ColumnType[]): ColumnType[] {
-  return unique(types).filter((type) => type !== "string");
-}
