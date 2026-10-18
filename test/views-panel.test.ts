@@ -445,6 +445,19 @@ test("partial periods are marked and can be excluded from the view", async () =>
   ).click();
   await tick();
   assert.ok(host.querySelector(".views-partial") !== null, "the period marker renders");
+  const resample = host.querySelector(
+    `select[aria-label="Resample time grain"]`,
+  ) as (HTMLSelectElement & { value: string }) | null;
+  assert.ok(resample !== null, "the resample grain control exists");
+  resample.value = "year";
+  resample.dispatchEvent(
+    new (globalThis as unknown as { window: Window }).window.Event("change") as unknown as Event,
+  );
+  await tick();
+  const resampled = requests[requests.length - 1]?.dimensions[0]?.by;
+  assert.ok(typeof resampled === "object" && resampled !== null && "time" in resampled);
+  assert.equal(resampled.time, "year");
+  assert.equal(requests[requests.length - 1]?.fill, "zero");
   assert.match(host.querySelector(".views-note")?.textContent ?? "", /incomplete/);
   const select = host.querySelector('select[aria-label="Incomplete periods"]') as
     | (HTMLSelectElement & { value: string })

@@ -829,6 +829,38 @@ export class ViewsPanel {
 
     this.actionsEl.append(respect, el("span", { class: "grow" }));
     if (isTimeDim && entry !== undefined) {
+      const grainLabel = el("label", { class: "views-limit" });
+      grainLabel.title = "Resample the first time dimension to a regular grain";
+      const grainSelect = el("select", {
+        class: "chart-picker chart-picker-small",
+        "aria-label": "Resample time grain",
+      }) as HTMLSelectElement;
+      const currentGrain =
+        typeof firstDim.by === "object" && "time" in firstDim.by ? firstDim.by.time : "month";
+      for (const grain of ["hour", "day", "week", "month", "quarter", "year"] as const) {
+        const option = el("option", { value: grain }, [
+          grain.charAt(0).toUpperCase() + grain.slice(1),
+        ]) as HTMLOptionElement;
+        if (currentGrain === grain) option.selected = true;
+        grainSelect.append(option);
+      }
+      grainSelect.addEventListener("change", () =>
+        this.update((view) => {
+          const first = view.dimensions[0];
+          if (first === undefined || typeof first.by !== "object" || !("time" in first.by)) {
+            return;
+          }
+          view.dimensions[0] = {
+            ...first,
+            by: { ...first.by, time: grainSelect.value as TimeGrain },
+          };
+          if (view.fill === "none") view.fill = "zero";
+          if (view.sort.key === "dim0") view.sort = { key: "dim0", dir: "asc" };
+        }),
+      );
+      grainLabel.append("Resample", grainSelect);
+      this.actionsEl.append(grainLabel);
+
       const fillLabel = el("label", { class: "views-limit" });
       fillLabel.title = "How periods with no rows appear in the result";
       const fillSelect = el("select", {
