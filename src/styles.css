@@ -1814,6 +1814,155 @@ button:disabled {
 .views-pill-filter:hover {
   color: var(--accent);
 }
+
+.views-filter-icon {
+  width: 13px;
+  height: 13px;
+  display: block;
+}
+
+.views-pill-filter-count {
+  margin-left: 1px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.views-filter-popover {
+  position: fixed;
+  z-index: 70;
+  width: 310px;
+  max-width: calc(100vw - 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.views-filter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.views-filter-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.views-filter-subtitle {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex: none;
+}
+
+.views-filter-search {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.views-filter-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.views-filter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 230px;
+  overflow-y: auto;
+  padding: 2px 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.views-filter-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 5px;
+  border-radius: 5px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.views-filter-option:hover {
+  background: var(--accent-soft);
+}
+
+.views-filter-option input {
+  accent-color: var(--accent);
+  flex: none;
+}
+
+.views-filter-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.views-filter-option-count {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+.views-filter-empty {
+  padding: 10px 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.views-filter-add {
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: left;
+  padding: 6px 7px;
+  border: 1px dashed var(--accent);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.views-filter-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.views-filter-status {
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+
+.views-filter-clear:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .th-index {
   flex: none;
   align-self: center;

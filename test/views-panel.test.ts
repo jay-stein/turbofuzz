@@ -817,3 +817,81 @@ test("shelf date fields auto-group by month and keep exact as an option", () => 
   assert.equal(moved.ok, true);
   assert.deepEqual(view.dimensions[0], { column: 4, by: { time: "month" } });
 });
+test("pivot value filters use a searchable picker and can clear", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const pivotRequests: PivotDef[] = [];
+  const panel = new ViewsPanel(host as unknown as HTMLElement, {
+    requestAggregate: async (view) => aggregateFor(view),
+    requestPivot: async (def) => {
+      pivotRequests.push(def);
+      return {
+        type: "pivot",
+        requestId: 1,
+        pivotId: def.id,
+        rowLabels: [["a"], ["b"]],
+        colLabels: [["Jan"], ["Feb"]],
+        rowNames: ["city"],
+        colNames: ["when"],
+        rowIsTime: [false],
+        colIsTime: [true],
+        rowTimes: [Float64Array.from([Number.NaN, Number.NaN])],
+        colTimes: [Float64Array.from([1, 2])],
+        measures: [
+          {
+            name: "sum(amount)",
+            values: Float64Array.from([1, 2, 3, 4]),
+            rowTotals: Float64Array.from([3, 7]),
+            colTotals: Float64Array.from([4, 6]),
+            grandTotal: 10,
+          },
+        ],
+        groupCount: 4,
+        totalGroups: 4,
+        truncated: false,
+        ms: 1,
+      } satisfies PivotMessage;
+    },
+    onDrill: () => {},
+    onChart: () => {},
+    onUseAsDataset: () => {},
+    onCopyPandas: async () => {},
+  });
+  panel.setColumns(metas, 100);
+  await tick();
+
+  const whenChip = [...host.querySelectorAll(".views-shelf-chip")].find(
+    (chip) => (chip.textContent ?? "").startsWith("when"),
+  );
+  assert.ok(whenChip !== undefined);
+  (whenChip as unknown as { click(): void }).click();
+  const toColumns = [...doc.querySelectorAll(".context-menu .context-item")].find(
+    (item) => item.textContent === "Add to Columns",
+  );
+  assert.ok(toColumns !== undefined);
+  (toColumns as unknown as { click(): void }).click();
+  await tick();
+
+  const filter = host.querySelector(".views-index-pill .views-pill-filter");
+  assert.ok(filter !== null, "the dimension exposes a funnel filter");
+  (filter as unknown as { click(): void }).click();
+  const search = doc.querySelector(".views-filter-search") as HTMLInputElement | null;
+  assert.ok(search !== null);
+  search.value = "a";
+  search.dispatchEvent(new window.Event("input") as unknown as Event);
+  const add = doc.querySelector(".views-filter-add") as unknown as { click(): void };
+  add.click();
+  const apply = doc.querySelector(".views-filter-apply") as unknown as { click(): void };
+  apply.click();
+  await tick();
+  assert.deepEqual(pivotRequests[pivotRequests.length - 1]?.valueFilters, [
+    { column: 1, values: ["a"] },
+  ]);
+
+  (host.querySelector(".views-index-pill .views-pill-filter") as unknown as { click(): void }).click();
+  const clear = doc.querySelector(".views-filter-clear") as unknown as { click(): void };
+  clear.click();
+  await tick();
+  assert.deepEqual(pivotRequests[pivotRequests.length - 1]?.valueFilters, []);
+});

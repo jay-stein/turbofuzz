@@ -21,7 +21,7 @@ import { downloadCsv } from "./chart-export.js";
 import { pivotCsvRows } from "./pivot-export.js";
 import { safeFileName } from "./chart-utils.js";
 import { openPrompt } from "./dialog.js";
-import { clear, el } from "./dom.js";
+import { clear, el, svgIcon } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
 
 export interface ViewsPanelOptions {
@@ -184,6 +184,12 @@ function transposeIcon(): SVGElement {
     <path d="M18.5 14.5 16 17l2.5 2.5" />
   `;
   return svg;
+}
+function filterIcon(): SVGElement {
+  return svgIcon(
+    '<path d="M3 4h18l-7 8v6l-4 2v-8z"/>',
+    "views-filter-icon",
+  );
 }
 export type PivotWell = "index" | "columns" | "values";
 export type PivotDragWell = PivotWell | "shelf";
@@ -2169,6 +2175,7 @@ export class ViewsPanel {
     )?.values;
     const filter =
       spec.by === "value" &&
+      this.pivotIndexes(def).length > 0 &&
       (meta?.type === "category" || meta?.type === "boolean" || meta?.type === "string")
         ? (el(
             "button",
@@ -2179,14 +2186,19 @@ export class ViewsPanel {
               type: "button",
               title:
                 filterValues === undefined || filterValues.length === 0
-                  ? "Filter this field to specific values"
-                  : `Showing: ${filterValues.join(", ")}`,
+                  ? "Filter this field by value"
+                  : `Filtered to ${filterValues.length} values - click to edit`,
               "aria-label": "Filter field values",
             },
-            ["\u2282"],
+            [filterIcon()],
           ) as HTMLButtonElement)
         : null;
-    filter?.addEventListener("click", () => void this.filterDimension(spec, group));
+    if (filter !== null && filterValues !== undefined && filterValues.length > 0) {
+      filter.append(
+        el("span", { class: "views-pill-filter-count" }, [String(filterValues.length)]),
+      );
+    }
+    filter?.addEventListener("click", () => this.openValueFilter(filter, spec, group));
     const toggle = el(
       "button",
       {
@@ -2227,39 +2239,178 @@ export class ViewsPanel {
     pill.append(grip, label, up, down, ...(filter === null ? [] : [filter]), toggle, remove);
     return pill;
   }
-  /** Prompt for exact dimension values and rebuild the pivot around them. */
-  private async filterDimension(
+  /** Searchable value picker for a pivot dimension. */
+  private openValueFilter(
+    anchor: HTMLElement,
     spec: DimensionSpec,
     group: "index" | "columns",
-  ): Promise<void> {
+  ): void {
+    const entry = this.views[this.active];
+    if (entry === undefined) return;
     const meta = this.metas[spec.column];
     const current =
-      this.views[this.active]?.def.pivotValueFilters?.find(
-        (filter) => filter.column === spec.column,
-      )?.values ?? [];
-    const value = await openPrompt({
-      title: `Filter ${meta?.name ?? "field"}`,
-      label: `${group === "index" ? "Index" : "Column"} values (comma-separated, exact match). Leave blank to clear.`,
-      value: current.join(", "),
-      placeholder: "North, South, West",
-      confirmLabel: "Apply filter",
+      entry.def.pivotValueFilters?.find((filter) => filter.column === spec.column)?.values ?? [];
+    const labels = new Map<string, number>();
+    if (meta?.categories !== null && meta?.categories !== undefined) {
+      meta.categories.labels.forEach((label, index) => {
+        labels.set(label, meta.categories?.counts[index] ?? 0);
+      });
+    } else {
+      for (const value of meta?.stats.topValues ?? []) labels.set(value.label, value.count);
+    }
+    for (const value of current) {
+      if (!labels.has(value)) labels.set(value, 0);
+    }
+    const selected = new Set(current);
+
+    const popover = el("div", {
+      class: "views-filter-popover",
+      role: "dialog",
+      "aria-label": `Filter ${meta?.name ?? "field"} values`,
     });
-    if (value === null) return;
-    const values = [
-      ...new Set(
-        value
-          .split(",")
-          .map((part) => part.trim())
-          .filter((part) => part !== ""),
-      ),
-    ];
-    this.update((view) => {
-      const others = (view.pivotValueFilters ?? []).filter(
-        (filter) => filter.column !== spec.column,
+    const head = el("div", { class: "views-filter-head" }, [
+      el("span", { class: "views-filter-title" }, [`Filter ${meta?.name ?? "field"}`]),
+      el("span", { class: "views-filter-subtitle" }, [
+        group === "index" ? "Index values" : "Column values",
+      ]),
+    ]);
+    const search = el("input", {
+      class: "views-filter-search",
+      type: "search",
+      placeholder: "Search values…",
+      "aria-label": "Search filter values",
+    }) as HTMLInputElement;
+    const list = el("div", { class: "views-filter-list" });
+    const footer = el("div", { class: "views-filter-footer" });
+    const status = el("span", { class: "views-filter-status" });
+    const clearButton = el(
+      "button",
+      { class: "ghost small views-filter-clear", type: "button" },
+      ["Clear filter"],
+    ) as HTMLButtonElement;
+    const apply = el(
+      "button",
+      { class: "primary small views-filter-apply", type: "button" },
+      ["Apply"],
+    ) as HTMLButtonElement;
+
+    const close = (): void => {
+      popover.remove();
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!popover.contains(event.target as Node)) close();
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+        anchor.focus();
+      }
+    };
+    const commit = (values: string[]): void => {
+      close();
+      this.update((view) => {
+        const others = (view.pivotValueFilters ?? []).filter(
+          (filter) => filter.column !== spec.column,
+        );
+        view.pivotValueFilters =
+          values.length === 0 ? others : [...others, { column: spec.column, values }];
+      });
+    };
+    const updateFooter = (): void => {
+      status.textContent =
+        selected.size === 0
+          ? "All values"
+          : `${selected.size.toLocaleString()} selected`;
+      apply.textContent = selected.size === 0 ? "Apply" : `Apply (${selected.size})`;
+      clearButton.disabled = selected.size === 0 && current.length === 0;
+    };
+
+    const renderOptions = (): void => {
+      clear(list);
+      const needle = search.value.trim().toLocaleLowerCase();
+      let shown = 0;
+      for (const [label, count] of labels) {
+        if (needle !== "" && !label.toLocaleLowerCase().includes(needle)) continue;
+        addOption(label, count);
+        shown++;
+      }
+      if (shown === 0) {
+        list.append(
+          el("div", { class: "views-filter-empty" }, [
+            needle === "" ? "No suggested values." : "No matching values.",
+          ]),
+        );
+      }
+      const custom = search.value.trim();
+      if (custom !== "" && !labels.has(custom)) {
+        const add = el(
+          "button",
+          { class: "views-filter-add", type: "button" },
+          [`Add exact value “${custom}”`],
+        ) as HTMLButtonElement;
+        add.addEventListener("click", () => {
+          labels.set(custom, 0);
+          selected.add(custom);
+          search.value = "";
+          renderOptions();
+          updateFooter();
+        });
+        list.prepend(add);
+      }
+      updateFooter();
+    };
+    const addOption = (label: string, count: number): void => {
+      const checkbox = el("input", {
+        type: "checkbox",
+        ...(selected.has(label) ? { checked: "checked" } : {}),
+      }) as HTMLInputElement;
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) selected.add(label);
+        else selected.delete(label);
+        updateFooter();
+      });
+      list.append(
+        el("label", { class: "views-filter-option" }, [
+          checkbox,
+          el("span", { class: "views-filter-option-label" }, [label]),
+          el("span", { class: "views-filter-option-count" }, [
+            count.toLocaleString(),
+          ]),
+        ]),
       );
-      view.pivotValueFilters =
-        values.length === 0 ? others : [...others, { column: spec.column, values }];
+    };
+
+    search.addEventListener("input", renderOptions);
+    search.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      const custom = search.value.trim();
+      if (custom !== "" && !labels.has(custom)) {
+        labels.set(custom, 0);
+        selected.add(custom);
+        search.value = "";
+        renderOptions();
+      }
     });
+    clearButton.addEventListener("click", () => commit([]));
+    apply.addEventListener("click", () => commit([...selected]));
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    popover.append(head, search, list, footer);
+    footer.append(status, el("span", { class: "grow" }), clearButton, apply);
+    document.body.append(popover);
+    renderOptions();
+    const rect = anchor.getBoundingClientRect();
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - popover.offsetWidth - 8));
+    popover.style.left = `${left}px`;
+    const below = rect.bottom + 6;
+    popover.style.top =
+      below + popover.offsetHeight > window.innerHeight - 8
+        ? `${Math.max(8, rect.top - popover.offsetHeight - 6)}px`
+        : `${below}px`;
+    search.focus();
   }
   private lambdaPill(
     def: ViewDef,
@@ -3065,6 +3216,29 @@ export class ViewsPanel {
         if (Number.isFinite(value)) max = Math.max(max, Math.abs(value));
       }
     }
+    const baseRowCount = Math.max(
+      0,
+      rowCount - (entry.def.margins === true && pivot.rowNames.length > 0 ? 1 : 0),
+    );
+    const baseColCount = Math.max(
+      0,
+      colCount - (entry.def.margins === true && pivot.colNames.length > 0 ? 1 : 0),
+    );
+    const percentageBases = pivot.measures.map((measure) => {
+      const rows = new Float64Array(rowCount);
+      const cols = new Float64Array(colCount);
+      let grand = 0;
+      for (let row = 0; row < baseRowCount; row++) {
+        for (let col = 0; col < baseColCount; col++) {
+          const value = measure.values[row * colCount + col];
+          if (!Number.isFinite(value)) continue;
+          rows[row] += value;
+          cols[col] += value;
+          grand += value;
+        }
+      }
+      return { rows, cols, grand };
+    });
     const valueLabel = (index: number): string => {
       const spec = entry.def.measures[index];
       if (spec === undefined) return pivot.measures[index]?.name ?? `Value ${index + 1}`;

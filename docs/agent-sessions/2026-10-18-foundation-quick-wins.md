@@ -301,7 +301,7 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 ### Validation
 
 - `npm run typecheck` passes.
-- `npm test`: 719 tests passing.
+- `npm test`: 720 tests passing.
 - `npm run build` passes.
 - New tests cover shelf-column moves and grand-total CSV percentages.
 ### Guards and time grouping
@@ -309,3 +309,11 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - Pivot column groups are capped at 500. Larger spreads are truncated with an inline warning showing the displayed and total column counts.
 - Date/datetime fields dragged from the field shelf or chosen with + Field default to month buckets, with the normal field menu available to switch to exact values, day, quarter, year or other grains.
 - Increased pivot builder, shelf and field text sizes so the drag source and destination wells are easier to scan.
+## Follow-up: percentage bases and pivot value filters (2026-10-18)
+
+### Fixes
+
+- Percentage display now divides by the sum of the displayed base cells for row, column and grand-total modes. This keeps percentages at 100% or below for ordinary positive additive and averaged values, and invalid denominators render blank rather than raw numbers with a % sign.
+- Pivot dimension filters use a proper funnel icon with an active-value count badge.
+- Replaced the exact comma-separated prompt with a searchable value picker: checkboxes, value counts, custom exact values, Apply and a dedicated Clear filter action.
+- Field filters are only offered for genuinely pivoted views, where the worker applies them to raw rows.
