@@ -931,18 +931,22 @@ export class ViewsPanel {
       result.dimensions.length > pivot &&
       result.measures.length > 0
     ) {
-      const rowValues = result.dimensions[0] ?? [];
+      const rowDims = result.dimensions.filter((_, index) => index !== pivot);
+      const rowNames = result.dimensionNames.filter((_, index) => index !== pivot);
       const colValues = result.dimensions[pivot] ?? [];
-      const rowLabels: string[] = [];
+      const rowKeys: string[] = [];
+      const rowParts: string[][] = [];
       const colLabels: string[] = [];
       const rowIndex = new Map<string, number>();
       const colIndex = new Map<string, number>();
       for (let group = 0; group < result.groupCount; group++) {
-        const row = rowValues[group] ?? "";
+        const parts = rowDims.map((dimension) => dimension[group] ?? "");
+        const row = parts.join("\u001f");
         const col = colValues[group] ?? "";
         if (!rowIndex.has(row)) {
-          rowIndex.set(row, rowLabels.length);
-          rowLabels.push(row);
+          rowIndex.set(row, rowKeys.length);
+          rowKeys.push(row);
+          rowParts.push(parts);
         }
         if (!colIndex.has(col)) {
           colIndex.set(col, colLabels.length);
@@ -950,15 +954,17 @@ export class ViewsPanel {
         }
       }
       const measure = result.measures[0];
-      const cells = new Float64Array(rowLabels.length * colLabels.length).fill(Number.NaN);
+      const cells = new Float64Array(rowKeys.length * colLabels.length).fill(Number.NaN);
       if (measure !== undefined) {
         for (let group = 0; group < result.groupCount; group++) {
-          const r = rowIndex.get(rowValues[group] ?? "") ?? 0;
+          const row = rowDims.map((dimension) => dimension[group] ?? "").join("\u001f");
+          const r = rowIndex.get(row) ?? 0;
           const c = colIndex.get(colValues[group] ?? "") ?? 0;
           cells[r * colLabels.length + c] = measure[group] ?? Number.NaN;
         }
       }
-      const margins = entry.def.margins === true ? entry.margins : null;
+      const margins =
+        entry.def.margins === true && rowDims.length === 1 ? entry.margins : null;
       const marginsName = entry.def.marginsName ?? "All";
       const format = (value: number): string =>
         Number.isFinite(value) ? String(value) : "";
@@ -977,15 +983,15 @@ export class ViewsPanel {
       }
       grandTotal = margins?.total?.measures[0]?.[0] ?? Number.NaN;
       rows.push([
-        result.dimensionNames[0] ?? "group",
+        ...(rowNames.length === 0 ? ["group"] : rowNames),
         ...colLabels,
         ...(margins === null ? [] : [marginsName]),
       ]);
-      rowLabels.forEach((label, r) => {
+      rowKeys.forEach((rowKey, r) => {
         rows.push([
-          label,
+          ...(rowParts[r] ?? []),
           ...colLabels.map((_, c) => format(cells[r * colLabels.length + c] ?? Number.NaN)),
-          ...(margins === null ? [] : [format(rowTotals.get(label) ?? Number.NaN)]),
+          ...(margins === null ? [] : [format(rowTotals.get(rowKey) ?? Number.NaN)]),
         ]);
       });
       if (margins !== null) {
@@ -1024,7 +1030,7 @@ export class ViewsPanel {
       ["+ Column"],
     ) as HTMLButtonElement;
     addDim.addEventListener("click", () => this.openDimensionMenu(addDim, def));
-    if (def.dimensions.length < 2) dimZone.append(addDim);
+    if (def.dimensions.length < 4) dimZone.append(addDim);
 
     const measureZone = el("div", { class: "views-zone" });
     measureZone.append(el("span", { class: "views-zone-label" }, ["Measures:"]));
@@ -1061,6 +1067,13 @@ export class ViewsPanel {
       this.update((view) => {
         view.dimensions.splice(index, 1);
         if (view.sort.key === `dim${index}`) view.sort = { key: "m0", dir: "desc" };
+        if (view.pivot !== undefined) {
+          if (view.pivot === index) view.pivot = undefined;
+          else if (view.pivot > index) view.pivot -= 1;
+          if (view.pivot !== undefined && view.pivot >= view.dimensions.length) {
+            view.pivot = view.dimensions.length > 1 ? view.dimensions.length - 1 : undefined;
+          }
+        }
       }),
     );
     pill.append(label, remove);
@@ -1734,37 +1747,43 @@ export class ViewsPanel {
     }
   }
 
-  /** Two-dimension matrix: dim0 down the rows, the pivot dimension across. */
+  /** Matrix with every non-pivot dimension forming the row index. */
   private renderPivot(entry: ViewEntry, pivotIndex: number): void {
     const result = entry.result;
     if (result === null) return;
     const measure = result.measures[0];
-    const rowValues = result.dimensions[0] ?? [];
+    const rowDims = result.dimensions.filter((_, index) => index !== pivotIndex);
+    const rowNames = result.dimensionNames.filter((_, index) => index !== pivotIndex);
     const colValues = result.dimensions[pivotIndex] ?? [];
-    if (measure === undefined || rowValues.length === 0) return;
-    const rowLabels: string[] = [];
+    if (measure === undefined || rowDims.length === 0) return;
+    const rowKeys: string[] = [];
+    const rowParts: string[][] = [];
     const colLabels: string[] = [];
     const rowIndex = new Map<string, number>();
     const colIndex = new Map<string, number>();
     for (let group = 0; group < result.groupCount; group++) {
-      const rowLabel = rowValues[group] ?? "";
+      const parts = rowDims.map((dimension) => dimension[group] ?? "");
+      const rowKey = parts.join("\u001f");
       const colLabel = colValues[group] ?? "";
-      if (!rowIndex.has(rowLabel)) {
-        rowIndex.set(rowLabel, rowLabels.length);
-        rowLabels.push(rowLabel);
+      if (!rowIndex.has(rowKey)) {
+        rowIndex.set(rowKey, rowKeys.length);
+        rowKeys.push(rowKey);
+        rowParts.push(parts);
       }
       if (!colIndex.has(colLabel)) {
         colIndex.set(colLabel, colLabels.length);
         colLabels.push(colLabel);
       }
     }
-    const cells = new Float64Array(rowLabels.length * colLabels.length).fill(Number.NaN);
+    const cells = new Float64Array(rowKeys.length * colLabels.length).fill(Number.NaN);
     for (let group = 0; group < result.groupCount; group++) {
-      const r = rowIndex.get(rowValues[group] ?? "") ?? 0;
+      const rowKey = rowDims.map((dimension) => dimension[group] ?? "").join("\u001f");
+      const r = rowIndex.get(rowKey) ?? 0;
       const c = colIndex.get(colValues[group] ?? "") ?? 0;
       cells[r * colLabels.length + c] = measure[group] ?? Number.NaN;
     }
-    const margins = entry.def.margins === true ? entry.margins : null;
+    const margins =
+      entry.def.margins === true && rowDims.length === 1 ? entry.margins : null;
     const marginsName = entry.def.marginsName ?? "All";
     const rowTotals = new Map<string, number>();
     const colTotals = new Map<string, number>();
@@ -1799,7 +1818,9 @@ export class ViewsPanel {
     const table = el("table", { class: "views-table views-pivot" });
     const head = el("thead");
     const headRow = el("tr");
-    headRow.append(el("th", { class: "views-dim-head" }, [result.dimensionNames[0] ?? "group"]));
+    for (const name of rowNames) {
+      headRow.append(el("th", { class: "views-dim-head" }, [name]));
+    }
     for (const label of colLabels) {
       headRow.append(el("th", { class: "views-num-head" }, [label]));
     }
@@ -1809,9 +1830,11 @@ export class ViewsPanel {
     head.append(headRow);
     table.append(head);
     const body = el("tbody");
-    rowLabels.forEach((label, r) => {
+    rowKeys.forEach((rowKey, r) => {
       const tr = el("tr", { class: "views-row" });
-      tr.append(el("td", { class: "views-dim" }, [label]));
+      for (const part of rowParts[r] ?? []) {
+        tr.append(el("td", { class: "views-dim" }, [part]));
+      }
       colLabels.forEach((_, c) => {
         const value = cells[r * colLabels.length + c] ?? Number.NaN;
         const td = el("td", { class: "views-num" });
@@ -1827,7 +1850,7 @@ export class ViewsPanel {
       if (margins !== null) {
         tr.append(
           el("td", { class: "views-num" }, [
-            formatMeasure(rowTotals.get(label) ?? Number.NaN, measureSpec),
+            formatMeasure(rowTotals.get(rowKey) ?? Number.NaN, measureSpec),
           ]),
         );
       }
