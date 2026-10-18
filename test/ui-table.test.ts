@@ -428,17 +428,23 @@ test("display settings repaint rows already on screen", () => {
   );
 });
 
-test("a header text input applies a debounced contains filter", async () => {
-  const { host, quick, window } = buildTable([meta({ name: "region" })]);
-  const input = host.querySelector(".th-filter-input") as unknown as HTMLInputElement;
-  assert.ok(input);
+test("a header filter opens the shared filter card", async () => {
+  const { host, columnFilters, window } = buildTable([meta({ name: "region" })]);
+  const button = host.querySelector(".th-filter-button") as unknown as { click(): void };
+  assert.ok(button !== null);
+  button.click();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const input = doc.querySelector(
+    ".th-filter-panel-popover .filter-body .text-input",
+  ) as HTMLInputElement | null;
+  assert.ok(input !== null, "the sidebar text filter opens in the popover");
   input.value = "nor";
   input.dispatchEvent(new window.Event("input") as unknown as Event);
-  await new Promise((resolve) => setTimeout(resolve, 180));
-  assert.deepEqual(quick, [{ column: 0, query: "nor" }]);
-  assert.ok(host.querySelector(".th-filter")?.classList.contains("active"));
-});
-test("numeric header filters use the typed operator editor", async () => {
+  assert.deepEqual(columnFilters[columnFilters.length - 1], {
+    column: 0,
+    filter: { kind: "text", mode: "contains", query: "nor" },
+  });
+});test("numeric header filters use the typed operator editor", async () => {
   const { host, columnFilters, window } = buildTable([
     meta({ name: "amount", type: "number" }),
   ]);
@@ -448,16 +454,37 @@ test("numeric header filters use the typed operator editor", async () => {
   assert.ok(button !== null);
   button.click();
   const doc = (globalThis as Record<string, unknown>).document as Window["document"];
-  const mode = doc.querySelector(".th-filter-mode") as HTMLSelectElement | null;
+  assert.ok(doc.querySelector(".th-filter-panel-popover .filter-card") !== null);
+  const mode = doc.querySelector(".th-filter-panel-popover .mode-select") as HTMLSelectElement | null;
   assert.ok(mode !== null);
   mode.value = "gt";
   mode.dispatchEvent(new window.Event("change") as unknown as Event);
-  const input = doc.querySelector(".th-filter-input-field") as HTMLInputElement | null;
+  const input = doc.querySelector(".th-filter-panel-popover .range-input") as HTMLInputElement | null;
   assert.ok(input !== null);
   input.value = "5";
   input.dispatchEvent(new window.Event("input") as unknown as Event);
-  (doc.querySelector(".th-filter-popover-footer .primary") as unknown as { click(): void }).click();
-  assert.deepEqual(columnFilters, [
-    { column: 0, filter: { kind: "compare", op: "gt", value: 5 } },
+  assert.deepEqual(columnFilters[columnFilters.length - 1], {
+    column: 0,
+    filter: { kind: "compare", op: "gt", value: 5 },
+  });
+});
+test("date header filters anchor to the available dataset range", () => {
+  const { host } = buildTable([
+    meta({
+      name: "when",
+      type: "date",
+      stats: {
+        ...meta().stats,
+        min: Date.UTC(2024, 0, 1),
+        max: Date.UTC(2024, 11, 31),
+      },
+    }),
   ]);
+  (host.querySelector(".th-filter-button") as unknown as { click(): void }).click();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const inputs = [...doc.querySelectorAll(".th-filter-panel-popover .range-input")] as unknown as HTMLInputElement[];
+  assert.equal(inputs[0]?.value, "2024-01-01");
+  assert.equal(inputs[1]?.value, "2024-12-31");
+  assert.equal(inputs[0]?.min, "2024-01-01");
+  assert.equal(inputs[1]?.max, "2024-12-31");
 });

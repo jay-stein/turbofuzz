@@ -339,13 +339,15 @@ export class FilterPanel {
     const minInput = el("input", {
       class: "range-input",
       type: inputType,
-      placeholder: meta.type === "duration" ? "H:MM:SS" : "Min",
+      placeholder:
+        meta.type === "duration" ? "H:MM:SS" : dateLike ? "Earliest" : "Min",
       ...(step === undefined ? {} : { step }),
     }) as HTMLInputElement;
     const maxInput = el("input", {
       class: "range-input",
       type: inputType,
-      placeholder: meta.type === "duration" ? "H:MM:SS" : "Max",
+      placeholder:
+        meta.type === "duration" ? "H:MM:SS" : dateLike ? "Latest" : "Max",
       ...(step === undefined ? {} : { step }),
     }) as HTMLInputElement;
     if (state?.kind === "range") {
@@ -353,6 +355,24 @@ export class FilterPanel {
       if (state.max !== null) maxInput.value = this.formatRangeValue(state.max, meta);
     } else if (state?.kind === "compare" && state.value !== undefined) {
       minInput.value = this.formatRangeValue(state.value, meta);
+    }
+    const dateMin =
+      dateLike && meta.stats.min !== null ? this.formatRangeValue(meta.stats.min, meta) : "";
+    const dateMax =
+      dateLike && meta.stats.max !== null ? this.formatRangeValue(meta.stats.max, meta) : "";
+    if (dateLike) {
+      if (dateMin !== "") {
+        minInput.min = dateMin;
+        maxInput.min = dateMin;
+      }
+      if (dateMax !== "") {
+        minInput.max = dateMax;
+        maxInput.max = dateMax;
+      }
+      if (state === undefined) {
+        minInput.value = dateMin;
+        maxInput.value = dateMax;
+      }
     }
     const emit = (preview: boolean): void => {
       const mode = modeSelect.value;
@@ -450,7 +470,20 @@ export class FilterPanel {
     });
     minInput.addEventListener("change", () => emit(false));
     maxInput.addEventListener("change", () => emit(false));
-    modeSelect.addEventListener("change", updateMode);
+    modeSelect.addEventListener("change", () => {
+      if (dateLike && dateMin !== "" && dateMax !== "") {
+        const mode = modeSelect.value;
+        if (mode === "between") {
+          minInput.value = dateMin;
+          maxInput.value = dateMax;
+        } else if (["on", "before", "onOrBefore"].includes(mode)) {
+          minInput.value = dateMax;
+        } else if (mode !== "blank" && mode !== "notBlank") {
+          minInput.value = dateMin;
+        }
+      }
+      updateMode();
+    });
 
     const inputs = el("div", { class: "range-inputs" }, [minInput, separator, maxInput]);
     body.append(modeSelect, inputs);

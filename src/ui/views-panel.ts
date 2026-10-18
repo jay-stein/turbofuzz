@@ -21,7 +21,12 @@ import { compilePivotLambda } from "../data/pivot-lambda.js";
 import { downloadCsv } from "./chart-export.js";
 import { pivotCsvRows } from "./pivot-export.js";
 import { safeFileName } from "./chart-utils.js";
-import { parseDate } from "../parse/dates.js";
+import {
+  fromDateTimeInputValue,
+  parseDate,
+  toDateInputValue,
+  toDateTimeInputValue,
+} from "../parse/dates.js";
 import { openPrompt, setupDialog } from "./dialog.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
@@ -2767,21 +2772,46 @@ export class ViewsPanel {
       initialOp = existing.negate === true ? "notBlank" : "blank";
     }
     opSelect.value = initialOp;
+    const dateText = (value: number): string =>
+      meta?.type === "datetime"
+        ? toDateTimeInputValue(value)
+        : toDateInputValue(value);
     if (existing?.kind === "number" || existing?.kind === "date") {
       first.value =
         existing.value === undefined
           ? ""
           : kind === "date"
-            ? new Date(existing.value).toISOString().slice(0, 10)
+            ? dateText(existing.value)
             : String(existing.value);
       second.value =
         existing.value2 === undefined
           ? ""
           : kind === "date"
-            ? new Date(existing.value2).toISOString().slice(0, 10)
+            ? dateText(existing.value2)
             : String(existing.value2);
     } else if (existing?.kind === "text") {
       first.value = existing.value;
+    }
+    if (kind === "date" && meta?.stats.min !== null && meta?.stats.min !== undefined) {
+      const dateMin = dateText(meta.stats.min);
+      const dateMax =
+        meta.stats.max !== null && meta.stats.max !== undefined
+          ? dateText(meta.stats.max)
+          : dateMin;
+      first.min = dateMin;
+      second.min = dateMin;
+      first.max = dateMax;
+      second.max = dateMax;
+      if (existing === undefined) {
+        if (initialOp === "between") {
+          first.value = dateMin;
+          second.value = dateMax;
+        } else if (["on", "before", "onOrBefore"].includes(initialOp)) {
+          first.value = dateMax;
+        } else {
+          first.value = dateMin;
+        }
+      }
     }
 
     const close = (): void => {

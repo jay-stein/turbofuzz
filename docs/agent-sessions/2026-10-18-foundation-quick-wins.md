@@ -301,7 +301,7 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 ### Validation
 
 - `npm run typecheck` passes.
-- `npm test`: 727 tests passing.
+- `npm test`: 728 tests passing.
 - `npm run build` passes.
 - New tests cover shelf-column moves and grand-total CSV percentages.
 ### Guards and time grouping
@@ -363,3 +363,9 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - Text and category header filters retain the inline contains input.
 - Header filter rows are pinned to the bottom of their grid cells, so their inputs/buttons align vertically even when QA chip rows differ in height.
 - Active typed header filters show a concise operator/value summary and the funnel icon.
+## Follow-up: shared table-header filter panel (2026-10-18)
+
+- Replaced the duplicated header filter popover with the actual left FilterPanel card rendered in a floating panel, preserving its stats, histogram, value search, operator controls and clear behavior.
+- Every header filter spot now opens the shared panel, not just numeric/date columns.
+- Date range inputs are anchored and prefilled to the dataset's earliest/latest dates, with min/max attributes. Changing date operators moves the default value to the relevant bound instead of opening at today's date.
+- Header filter rows stay pinned to the bottom of the header so they remain vertically aligned.
