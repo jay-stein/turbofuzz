@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { AggregateMessage, ColumnMeta, PivotMessage } from "../src/worker/protocol.js";
 import type { PivotDef } from "../src/data/pivot.js";
-import { ViewsPanel, pivotDefFromView, starterViews } from "../src/ui/views-panel.js";
+import {
+  ViewsPanel,
+  pivotDefFromView,
+  remapViewDef,
+  starterViews,
+} from "../src/ui/views-panel.js";
 import type { ViewDef } from "../src/data/aggregate.js";
 
 function setupDom(): Window {
@@ -472,6 +477,11 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
   assert.ok(host.querySelector(
     `select[aria-label="Pivot CSV headers"]`,
   ) !== null);
+  const beforeDuplicate = host.querySelectorAll(".views-card").length;
+  (host.querySelector(".views-duplicate") as unknown as { click(): void }).click();
+  await tick();
+  assert.equal(host.querySelectorAll(".views-card").length, beforeDuplicate + 1);
+  assert.ok((host.textContent ?? "").includes("Copy of"));
 });
 
 test("partial periods are marked and can be excluded from the view", async () => {
@@ -607,4 +617,45 @@ test("pivot compilation keeps every value and splits index from columns", () => 
   assert.equal(def.columns.length, 1);
   assert.equal(def.margins, true);
   assert.equal(def.lambdas?.length, 1);
+});
+test("view remapping follows names across reorder and additions", () => {
+  const oldNames = ["amount", "city", "when"];
+  const newNames = ["city", "amount", "when", "extra"];
+  const view: ViewDef = {
+    id: "v",
+    name: "v",
+    dimensions: [
+      { column: 1, by: "value" },
+      { column: 2, by: { time: "month" } },
+    ],
+    measures: [{ column: 0, agg: "sum" }],
+    fill: "none",
+    sort: { key: "m0", dir: "desc" },
+    limit: 500,
+    respectFilters: true,
+    pivotColumns: [1],
+    pivotLambdas: [{ column: 0, source: "lambda x: mean(x)" }],
+  };
+  const remapped = remapViewDef(view, oldNames, newNames);
+  assert.deepEqual(remapped.missing, []);
+  assert.equal(remapped.def.dimensions[0]?.column, 0);
+  assert.equal(remapped.def.dimensions[1]?.column, 2);
+  assert.equal(remapped.def.measures[0]?.column, 1);
+  assert.equal(remapped.def.pivotLambdas?.[0]?.column, 1);
+  assert.deepEqual(remapped.def.pivotColumns, [1]);
+});
+test("view remapping reports columns that no longer exist", () => {
+  const view: ViewDef = {
+    id: "v",
+    name: "v",
+    dimensions: [{ column: 0, by: "value" }],
+    measures: [{ column: 1, agg: "sum" }],
+    fill: "none",
+    sort: { key: "m0", dir: "desc" },
+    limit: 500,
+    respectFilters: true,
+  };
+  const remapped = remapViewDef(view, ["city", "amount"], ["city"]);
+  assert.deepEqual(remapped.missing, ["amount"]);
+  assert.equal(remapped.def.measures.length, 0);
 });

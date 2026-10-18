@@ -2189,6 +2189,13 @@ export class ChartCard {
     this.renderSourceOptions();
     this.syncSourceControls();
     this.syncScope();
+    if (
+      this.config.source !== "" &&
+      sources.some((source) => source.id === this.config.source)
+    ) {
+      this.generation++;
+      this.refreshView();
+    }
   }
 
   private renderSourceOptions(): void {

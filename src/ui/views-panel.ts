@@ -55,6 +55,8 @@ interface ViewEntry {
   loading: boolean;
   stale: boolean;
   error: string | null;
+  /** Columns referenced by this definition that no longer exist. */
+  missing: string[];
   /** Reads beyond the first VISIBLE_ROWS rows of the table. */
   expanded: boolean;
 }
@@ -184,6 +186,96 @@ export function pivotDefFromView(view: ViewDef, pivotIndexes: readonly number[])
   };
 }
 
+/** Remap a saved view onto a new schema by column name. */
+export function remapViewDef(
+  def: ViewDef,
+  oldNames: readonly string[],
+  newNames: readonly string[],
+): { def: ViewDef; missing: string[] } {
+  const missing = new Set<string>();
+  const nameToNew = new Map(newNames.map((name, index) => [name, index]));
+  const used = new Set<number>();
+  const mapIndex = (oldIndex: number): number => {
+    const name = oldNames[oldIndex];
+    if (name === undefined) return -1;
+    const found = nameToNew.get(name);
+    if (found !== undefined) {
+      used.add(found);
+      return found;
+    }
+    if (
+      oldNames.length === newNames.length &&
+      newNames[oldIndex] !== undefined &&
+      !oldNames.includes(newNames[oldIndex]!) &&
+      !used.has(oldIndex)
+    ) {
+      used.add(oldIndex);
+      return oldIndex;
+    }
+    missing.add(name);
+    return -1;
+  };
+
+  const oldToNewDimension = new Map<number, number>();
+  const dimensions: ViewDef["dimensions"] = [];
+  def.dimensions.forEach((spec, oldIndex) => {
+    const column = mapIndex(spec.column);
+    if (column < 0) return;
+    oldToNewDimension.set(oldIndex, dimensions.length);
+    dimensions.push({ ...spec, column });
+  });
+  const oldPivots = def.pivotColumns ?? (def.pivot === undefined ? [] : [def.pivot]);
+  const pivotColumns = oldPivots
+    .map((index) => oldToNewDimension.get(index))
+    .filter((index): index is number => index !== undefined)
+    .sort((a, b) => a - b);
+  const measures: MeasureSpec[] = [];
+  def.measures.forEach((measure) => {
+    const column = measure.column === null ? null : mapIndex(measure.column);
+    if (column !== null && column < 0) return;
+    let weight = measure.weight;
+    if (weight !== undefined) {
+      const mapped = mapIndex(weight);
+      weight = mapped < 0 ? undefined : mapped;
+    }
+    let where = measure.where;
+    if (where !== undefined) {
+      const mapped = mapIndex(where.column);
+      where = mapped < 0 ? undefined : { ...where, column: mapped };
+    }
+    measures.push({
+      ...measure,
+      column,
+      ...(weight === undefined ? { weight: undefined } : { weight }),
+      ...(where === undefined ? { where: undefined } : { where }),
+    });
+  });
+  const lambdas = (def.pivotLambdas ?? []).flatMap((lambda) => {
+    const column = mapIndex(lambda.column);
+    return column < 0 ? [] : [{ ...lambda, column }];
+  });
+  let filterColumn = def.filterColumn;
+  if (filterColumn !== undefined && filterColumn >= 0) {
+    const mapped = mapIndex(filterColumn);
+    filterColumn = mapped < 0 ? -1 : mapped;
+  }
+  const next: ViewDef = {
+    ...def,
+    dimensions,
+    measures,
+    pivotColumns,
+    pivot: pivotColumns[0],
+    pivotLambdas: lambdas,
+    pivotMeasure:
+      def.pivotMeasure === undefined
+        ? undefined
+        : Math.max(0, Math.min(measures.length - 1, def.pivotMeasure)),
+    fillValue: pivotColumns.length === 0 ? undefined : def.fillValue,
+    filterColumn,
+    filterCode: filterColumn !== undefined && filterColumn >= 0 ? def.filterCode : -1,
+  };
+  return { def: next, missing: [...missing] };
+}
 /** Up to three one-click starter views derived from column types. */
 export function starterViews(
   columns: readonly ColumnMeta[],
@@ -277,6 +369,7 @@ export class ViewsPanel {
     const sameShape =
       this.metas.length === metas.length &&
       this.metas.every((meta, index) => meta.name === metas[index]?.name);
+    const oldNames = this.metas.map((meta) => meta.name);
     this.metas = metas;
     this.rowCount = rowCount;
     if (!this.started && metas.length > 0) {
@@ -290,13 +383,27 @@ export class ViewsPanel {
         loading: false,
         stale: true,
         error: null,
+        missing: [],
         expanded: false,
       }));
       if (this.views.length === 0) this.views = [this.blankView()];
       this.active = 0;
       this.refresh();
     } else if (!sameShape) {
-      // Columns changed shape (transform): keep definitions, mark for refresh.
+      // Columns changed shape (transform): remap definitions by name, then refresh.
+      const newNames = metas.map((meta) => meta.name);
+      for (const entry of this.views) {
+        const remapped = remapViewDef(entry.def, oldNames, newNames);
+        entry.def = remapped.def;
+        entry.missing = remapped.missing;
+        if (remapped.missing.length > 0) {
+          entry.error = `Missing column${remapped.missing.length === 1 ? "" : "s"}: ${remapped.missing.join(", ")}`;
+          entry.result = null;
+          entry.pivotResult = null;
+          entry.loading = false;
+        }
+      }
+      this.options.onViewsChanged?.();
       this.markStale();
     }
     this.render();
@@ -323,6 +430,12 @@ export class ViewsPanel {
   refresh(): void {
     const entry = this.views[this.active];
     if (entry === undefined || !isCompleteView(entry.def)) {
+      this.render();
+      return;
+    }
+    if (entry.missing.length > 0) {
+      entry.loading = false;
+      entry.error = `Missing column${entry.missing.length === 1 ? "" : "s"}: ${entry.missing.join(", ")}`;
       this.render();
       return;
     }
@@ -439,20 +552,52 @@ export class ViewsPanel {
       loading: false,
       stale: true,
       error: null,
+      missing: [],
       expanded: false,
     };
   }
 
   /** Insert a blank view at `at` (clamped); it opens with the name field focused. */
+  /** Unique display name; renaming appends a numeric suffix instead of colliding. */
+  private uniqueViewName(base: string, excludeIndex = -1): string {
+    const taken = new Set(
+      this.views
+        .filter((_, index) => index !== excludeIndex)
+        .map((view) => view.def.name),
+    );
+    let name = base.trim().slice(0, 80) || "View";
+    let counter = 2;
+    while (taken.has(name)) name = `${base.trim().slice(0, 74)} (${counter++})`;
+    return name;
+  }
+  private duplicateView(): void {
+    const index = this.active;
+    const source = this.views[index];
+    if (source === undefined || this.views.length >= MAX_VIEWS) return;
+    const copy = JSON.parse(JSON.stringify(source.def)) as ViewDef;
+    copy.id = `view-${this.views.length + 1}-${Date.now().toString(36)}`;
+    copy.name = this.uniqueViewName(`Copy of ${source.def.name}`);
+    const entry: ViewEntry = {
+      def: copy,
+      result: null,
+      pivotResult: null,
+      margins: null,
+      loading: false,
+      stale: true,
+      error: null,
+      missing: [],
+      expanded: false,
+    };
+    this.views.splice(index + 1, 0, entry);
+    this.active = index + 1;
+    this.options.onViewsChanged?.();
+    this.refresh();
+  }
   private addView(at?: number): void {
     if (this.views.length >= MAX_VIEWS) return;
     const entry = this.blankView();
     entry.def.id = `view-${this.views.length + 1}-${Date.now().toString(36)}`;
-    const taken = new Set(this.views.map((view) => view.def.name));
-    let counter = this.views.length + 1;
-    let name = `View_${counter}`;
-    while (taken.has(name)) name = `View_${++counter}`;
-    entry.def.name = name;
+    entry.def.name = this.uniqueViewName(`View_${this.views.length + 1}`);
     const index = at === undefined ? this.views.length : Math.max(0, Math.min(at, this.views.length));
     this.views.splice(index, 0, entry);
     this.active = index;
@@ -481,7 +626,7 @@ export class ViewsPanel {
     const commit = (): void => {
       const name = input.value.trim();
       if (name.length > 0 && name !== entry.def.name) {
-        entry.def.name = name.slice(0, 80);
+        entry.def.name = this.uniqueViewName(name, index);
         this.options.onViewsChanged?.();
       }
       this.render();
@@ -515,6 +660,7 @@ export class ViewsPanel {
     this.transientNote = null;
     mutate(entry.def);
     entry.stale = true;
+    this.options.onViewsChanged?.();
     this.refresh();
   }
 
@@ -1077,6 +1223,17 @@ export class ViewsPanel {
         csvHeadersLabel,
       );
     }
+    const duplicate = el(
+      "button",
+      {
+        class: "ghost small views-duplicate",
+        type: "button",
+        title: "Duplicate this view as a new named pivot",
+      },
+      ["Duplicate view"],
+    ) as HTMLButtonElement;
+    duplicate.disabled = this.views.length >= MAX_VIEWS || entry === undefined;
+    duplicate.addEventListener("click", () => this.duplicateView());
     const below = el(
       "button",
       {
@@ -1088,7 +1245,7 @@ export class ViewsPanel {
     ) as HTMLButtonElement;
     below.disabled = this.views.length >= MAX_VIEWS;
     below.addEventListener("click", () => this.addView(this.active + 1));
-    this.actionsEl.append(limitLabel, chart, slick, csv, pandas, dataset, below);
+    this.actionsEl.append(limitLabel, chart, slick, csv, pandas, dataset, duplicate, below);
   }
 
   /** CSV of the current aggregate or pivot matrix. */
