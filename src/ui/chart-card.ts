@@ -6256,12 +6256,21 @@ export class ChartCard {
           : this.config.colorMax;
       const span = Math.max(1e-12, max - min);
       const property = this.geoFeatureSelect.value;
+      const matchColumn = Number(this.geoMatchSelect.value);
       for (const feature of custom.features) {
+        let bx0 = Infinity;
+        let by0 = Infinity;
+        let bx1 = -Infinity;
+        let by1 = -Infinity;
         ctx.beginPath();
         for (const ring of feature.rings) {
           for (let i = 0; i < ring.length; i += 2) {
             const x = px(ring[i] ?? 0);
             const y = py(ring[i + 1] ?? 0);
+            if (x < bx0) bx0 = x;
+            if (x > bx1) bx1 = x;
+            if (y < by0) by0 = y;
+            if (y > by1) by1 = y;
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
           }
@@ -6282,6 +6291,33 @@ export class ChartCard {
         ctx.strokeStyle = Number.isFinite(value) ? frame.dim : this.primaryColor();
         ctx.lineWidth = 0.7;
         ctx.stroke();
+
+        if (bx1 > bx0 && by1 > by0) {
+          const lines = [feature.label];
+          if (property !== "" && raw !== undefined && raw !== null) {
+            lines.push(`${property}: ${String(raw)}`);
+          }
+          if (Number.isFinite(value)) lines.push(formatChartNumber(value));
+          const actions: HitAction[] = [];
+          const matchMeta = this.meta(matchColumn);
+          if (matchColumn >= 0 && matchMeta !== undefined && raw !== undefined && raw !== null) {
+            const text = String(raw);
+            if (isCategoryType(matchMeta.type)) {
+              const code = matchMeta.categories?.labels.indexOf(text) ?? -1;
+              if (code >= 0) actions.push({ kind: "values", column: matchColumn, code });
+            } else if (matchMeta.type === "string") {
+              actions.push({ kind: "text", column: matchColumn, query: text });
+            }
+          }
+          this.hitRegions.push({
+            x: bx0,
+            y: by0,
+            w: bx1 - bx0,
+            h: by1 - by0,
+            lines,
+            actions,
+          });
+        }
       }
       ctx.globalAlpha = 1;
     } else {
