@@ -706,6 +706,13 @@ export class ChartCard {
   private chartXZoom: { min: number; max: number } | null = null;
   /** Bar chart category window: start index and count over the sorted bars. */
   private barWindow: { start: number; count: number } | null = null;
+  /** Heatmap category windows on both axes. */
+  private heatWindow: {
+    xStart: number;
+    xCount: number;
+    yStart: number;
+    yCount: number;
+  } | null = null;
   private readonly animationTimeSelect: HTMLSelectElement;
   private readonly animationGrainSelect: HTMLSelectElement;
   private readonly animationBar: HTMLElement;
@@ -4447,14 +4454,16 @@ export class ChartCard {
       this.config.kind === "bubble" ||
       this.config.kind === "line" ||
       this.config.kind === "histogram" ||
-      this.config.kind === "bar";
+      this.config.kind === "bar" ||
+      this.config.kind === "heatmap";
     this.resetViewButton.classList.toggle(
       "hidden",
       !(
         this.mapView !== null ||
         this.plotView !== null ||
         this.chartXZoom !== null ||
-        this.barWindow !== null
+        this.barWindow !== null ||
+        this.heatWindow !== null
       ),
     );
     this.canvas.style.cursor = zoomable
@@ -4626,6 +4635,43 @@ export class ChartCard {
       }
       return;
     }
+    if (this.config.kind === "heatmap" && this.plotDrag !== null) {
+      const result = this.crossResult;
+      const frame = this.lastFrame;
+      if (result === null || frame === null) return;
+      const totalX = result.xLabels.length;
+      const totalY = result.yLabels.length;
+      const state = this.heatWindow ?? {
+        xStart: 0,
+        xCount: totalX,
+        yStart: 0,
+        yCount: totalY,
+      };
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const cellW = frame.plotW / Math.max(1, state.xCount);
+      const cellH = frame.plotH / Math.max(1, state.yCount);
+      const stepsX = Math.round((x - this.plotDrag.x) / Math.max(1, cellW));
+      const stepsY = Math.round((y - this.plotDrag.y) / Math.max(1, cellH));
+      if ((stepsX !== 0 || stepsY !== 0) && totalX > 0 && totalY > 0) {
+        this.dragMoved = true;
+        this.plotDrag = { x, y };
+        this.heatWindow = {
+          xStart: Math.min(
+            Math.max(0, totalX - state.xCount),
+            Math.max(0, state.xStart - stepsX),
+          ),
+          xCount: state.xCount,
+          yStart: Math.min(
+            Math.max(0, totalY - state.yCount),
+            Math.max(0, state.yStart - stepsY),
+          ),
+          yCount: state.yCount,
+        };
+        this.render();
+      }
+      return;
+    }
     this.pointerAt = {
       x: event.clientX - rect.left,
       y: event.clientY - rect.top,
@@ -4695,7 +4741,8 @@ export class ChartCard {
         kind !== "bubble" &&
         kind !== "line" &&
         kind !== "histogram" &&
-        kind !== "bar") ||
+        kind !== "bar" &&
+        kind !== "heatmap") ||
       this.lastFrame === null
     ) {
       return;
@@ -4814,7 +4861,8 @@ export class ChartCard {
         kind !== "bubble" &&
         kind !== "line" &&
         kind !== "histogram" &&
-        kind !== "bar") ||
+        kind !== "bar" &&
+        kind !== "heatmap") ||
       this.lastFrame === null
     ) {
       return;
@@ -4869,6 +4917,38 @@ export class ChartCard {
         Math.max(0, Math.round(center - count / 2)),
       );
       this.barWindow = { start, count };
+      this.render();
+      return;
+    }
+    if (kind === "heatmap") {
+      const result = this.crossResult;
+      if (result === null) return;
+      const totalX = result.xLabels.length;
+      const totalY = result.yLabels.length;
+      if (totalX === 0 || totalY === 0) return;
+      event.preventDefault();
+      const current = this.heatWindow ?? {
+        xStart: 0,
+        xCount: totalX,
+        yStart: 0,
+        yCount: totalY,
+      };
+      const nextX = Math.max(1, Math.min(totalX, Math.round(current.xCount * factor)));
+      const nextY = Math.max(1, Math.min(totalY, Math.round(current.yCount * factor)));
+      const anchorX = current.xStart + tx * current.xCount;
+      const anchorY = current.yStart + (1 - ty) * current.yCount;
+      const xStart = Math.max(
+        0,
+        Math.min(totalX - nextX, Math.round(anchorX - tx * nextX)),
+      );
+      const yStart = Math.max(
+        0,
+        Math.min(totalY - nextY, Math.round(anchorY - (1 - ty) * nextY)),
+      );
+      this.heatWindow =
+        nextX >= totalX && nextY >= totalY
+          ? null
+          : { xStart, xCount: nextX, yStart, yCount: nextY };
       this.render();
       return;
     }
@@ -4945,6 +5025,10 @@ export class ChartCard {
     }
     if (this.config.kind === "bar" && this.barWindow !== null) {
       this.barWindow = null;
+      changed = true;
+    }
+    if (this.config.kind === "heatmap" && this.heatWindow !== null) {
+      this.heatWindow = null;
       changed = true;
     }
     if (binsChanged) this.refreshBins();
@@ -8030,14 +8114,35 @@ export class ChartCard {
     const ui = frame.ui;
     const xMeta = this.meta(this.config.x);
     const yMeta = this.meta(this.config.y);
+    const totalX = result.xLabels.length;
+    const totalY = result.yLabels.length;
+    const state = this.heatWindow ?? {
+      xStart: 0,
+      xCount: totalX,
+      yStart: 0,
+      yCount: totalY,
+    };
+    const xStart = Math.max(0, Math.min(totalX - 1, state.xStart));
+    const yStart = Math.max(0, Math.min(totalY - 1, state.yStart));
+    const xCount = Math.max(1, Math.min(state.xCount, totalX - xStart));
+    const yCount = Math.max(1, Math.min(state.yCount, totalY - yStart));
+    const xLabels = result.xLabels.slice(xStart, xStart + xCount);
+    const yLabels = result.yLabels.slice(yStart, yStart + yCount);
+    const counts = new Uint32Array(xCount * yCount);
+    for (let y = 0; y < yCount; y++) {
+      for (let x = 0; x < xCount; x++) {
+        counts[y * xCount + x] =
+          result.counts[(yStart + y) * totalX + (xStart + x)] ?? 0;
+      }
+    }
     const codeOf = (meta: ColumnMeta | undefined, label: string): number =>
       meta?.categories?.labels.indexOf(label) ?? -1;
     this.hitRegions = heatmapHitRegions(
       { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
       {
-        xLabels: result.xLabels,
-        yLabels: result.yLabels,
-        counts: result.counts,
+        xLabels,
+        yLabels,
+        counts,
         total: result.total,
         xColumn: this.config.x,
         yColumn: this.config.y,
@@ -8045,19 +8150,17 @@ export class ChartCard {
         codeOfY: (label) => codeOf(yMeta, label),
       },
     );
-    const xCount = result.xLabels.length;
-    const yCount = result.yLabels.length;
     const cellW = frame.plotW / xCount;
     const cellH = frame.plotH / yCount;
     let max = 0;
-    for (const count of result.counts) if (count > max) max = count;
+    for (const count of counts) if (count > max) max = count;
     const [r, g, b] = hexToRgb(this.primaryColor());
     const showText = cellW >= 26 * ui && cellH >= 15 * ui;
 
     this.font(ctx, ui, 10);
     for (let y = 0; y < yCount; y++) {
       for (let x = 0; x < xCount; x++) {
-        const count = result.counts[y * xCount + x];
+        const count = counts[y * xCount + x] ?? 0;
         const t = max > 0 ? count / max : 0;
         const alpha = count === 0 ? 0.06 : 0.1 + 0.8 * Math.sqrt(t);
         ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
@@ -8079,7 +8182,7 @@ export class ChartCard {
       }
     }
     ctx.textAlign = "center";
-    result.xLabels.forEach((label, x) => {
+    xLabels.forEach((label, x) => {
       ctx.fillText(
         this.fit(ctx, label, Math.max(8, cellW - 4 * ui)),
         frame.left + (x + 0.5) * cellW,
@@ -8087,7 +8190,7 @@ export class ChartCard {
       );
     });
     ctx.textAlign = "right";
-    result.yLabels.forEach((label, y) => {
+    yLabels.forEach((label, y) => {
       ctx.fillText(
         this.fit(ctx, label, Math.max(8, frame.left - frame.labelPad - 8 * ui)),
         frame.left - frame.labelPad - 4 * ui,
@@ -8101,7 +8204,7 @@ export class ChartCard {
       `${result.total.toLocaleString()} rows`,
       `peak ${max.toLocaleString()}`,
     ];
-    if (result.xLabels.includes("Other") || result.yLabels.includes("Other")) {
+    if (xLabels.includes("Other") || yLabels.includes("Other")) {
       notes.push("rest grouped as Other");
     }
     if (this.statsMs > 0) notes.push(`${Math.round(this.statsMs)} ms`);
