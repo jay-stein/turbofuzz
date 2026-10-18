@@ -713,6 +713,9 @@ export class ChartCard {
     yStart: number;
     yCount: number;
   } | null = null;
+  /** Box plot category window and optional numeric Y window. */
+  private boxWindow: { start: number; count: number } | null = null;
+  private boxY: { min: number; max: number } | null = null;
   private readonly animationTimeSelect: HTMLSelectElement;
   private readonly animationGrainSelect: HTMLSelectElement;
   private readonly animationBar: HTMLElement;
@@ -4455,7 +4458,8 @@ export class ChartCard {
       this.config.kind === "line" ||
       this.config.kind === "histogram" ||
       this.config.kind === "bar" ||
-      this.config.kind === "heatmap";
+      this.config.kind === "heatmap" ||
+      this.config.kind === "box";
     this.resetViewButton.classList.toggle(
       "hidden",
       !(
@@ -4463,7 +4467,9 @@ export class ChartCard {
         this.plotView !== null ||
         this.chartXZoom !== null ||
         this.barWindow !== null ||
-        this.heatWindow !== null
+        this.heatWindow !== null ||
+        this.boxWindow !== null ||
+        this.boxY !== null
       ),
     );
     this.canvas.style.cursor = zoomable
@@ -4635,6 +4641,50 @@ export class ChartCard {
       }
       return;
     }
+    if (this.config.kind === "box" && this.plotDrag !== null) {
+      const result = this.boxResult;
+      const frame = this.lastFrame;
+      if (result === null || frame === null || result.groups.length === 0) return;
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const total = result.groups.length;
+      const state = this.boxWindow ?? { start: 0, count: total };
+      const slot = frame.plotW / Math.max(1, state.count);
+      const steps = Math.round((x - this.plotDrag.x) / Math.max(1, slot));
+      let yMin = Infinity;
+      let yMax = -Infinity;
+      for (const group of result.groups) {
+        if (group.min < yMin) yMin = group.min;
+        if (group.max > yMax) yMax = group.max;
+      }
+      const spanY = yMax - yMin;
+      const dy = spanY > 0 ? ((y - this.plotDrag.y) / frame.plotH) * spanY : 0;
+      const base = this.boxY ?? { min: yMin, max: yMax };
+      const nextY = {
+        min: Math.max(yMin, base.min + dy),
+        max: Math.min(yMax, base.max + dy),
+      };
+      if (steps !== 0 || dy !== 0) {
+        this.dragMoved = true;
+        this.plotDrag = { x, y };
+        this.boxWindow =
+          state.count >= total
+            ? null
+            : {
+                count: state.count,
+                start: Math.min(
+                  Math.max(0, total - state.count),
+                  Math.max(0, state.start - steps),
+                ),
+              };
+        this.boxY =
+          nextY.max - nextY.min > 0 && (nextY.min > yMin || nextY.max < yMax)
+            ? nextY
+            : null;
+        this.render();
+      }
+      return;
+    }
     if (this.config.kind === "heatmap" && this.plotDrag !== null) {
       const result = this.crossResult;
       const frame = this.lastFrame;
@@ -4742,7 +4792,8 @@ export class ChartCard {
         kind !== "line" &&
         kind !== "histogram" &&
         kind !== "bar" &&
-        kind !== "heatmap") ||
+        kind !== "heatmap" &&
+        kind !== "box") ||
       this.lastFrame === null
     ) {
       return;
@@ -4862,7 +4913,8 @@ export class ChartCard {
         kind !== "line" &&
         kind !== "histogram" &&
         kind !== "bar" &&
-        kind !== "heatmap") ||
+        kind !== "heatmap" &&
+        kind !== "box") ||
       this.lastFrame === null
     ) {
       return;
@@ -4917,6 +4969,43 @@ export class ChartCard {
         Math.max(0, Math.round(center - count / 2)),
       );
       this.barWindow = { start, count };
+      this.render();
+      return;
+    }
+    if (kind === "box") {
+      const result = this.boxResult;
+      if (result === null || result.groups.length === 0) return;
+      event.preventDefault();
+      const total = result.groups.length;
+      const current = this.boxWindow ?? { start: 0, count: total };
+      const count = Math.min(total, Math.max(1, Math.round(current.count * factor)));
+      const center = current.start + current.count / 2;
+      const start = Math.min(
+        Math.max(0, total - count),
+        Math.max(0, Math.round(center - count / 2)),
+      );
+      let yMin = Infinity;
+      let yMax = -Infinity;
+      for (const group of result.groups) {
+        if (group.min < yMin) yMin = group.min;
+        if (group.max > yMax) yMax = group.max;
+      }
+      if (!(yMax > yMin)) {
+        yMin -= 1;
+        yMax += 1;
+      }
+      const base = this.boxY ?? { min: yMin, max: yMax };
+      const zoomed = zoomPlotBounds(
+        { xMin: 0, xMax: 1, yMin: base.min, yMax: base.max },
+        { x: 0.5, y: ty },
+        factor,
+        Math.max(1e-9, (yMax - yMin) / 1000),
+      );
+      this.boxWindow = count >= total ? null : { start, count };
+      this.boxY = {
+        min: Math.max(yMin, zoomed.yMin),
+        max: Math.min(yMax, zoomed.yMax),
+      };
       this.render();
       return;
     }
@@ -5029,6 +5118,11 @@ export class ChartCard {
     }
     if (this.config.kind === "heatmap" && this.heatWindow !== null) {
       this.heatWindow = null;
+      changed = true;
+    }
+    if (this.config.kind === "box" && (this.boxWindow !== null || this.boxY !== null)) {
+      this.boxWindow = null;
+      this.boxY = null;
       changed = true;
     }
     if (binsChanged) this.refreshBins();
@@ -7931,7 +8025,15 @@ export class ChartCard {
       return;
     }
     const ui = frame.ui;
-    const groups = result.groups;
+    const state = this.boxWindow ?? { start: 0, count: result.groups.length };
+    const start = Math.max(
+      0,
+      Math.min(result.groups.length - 1, state.start),
+    );
+    const groups = result.groups.slice(
+      start,
+      start + Math.max(1, Math.min(state.count, result.groups.length - start)),
+    );
     // Categories whose value column is entirely missing do not appear in the
     // stats; give each one a slot so it is visible as "no values" instead of
     // silently vanishing from the chart.
@@ -7955,6 +8057,10 @@ export class ChartCard {
     if (!(yMax > yMin)) {
       yMin -= 1;
       yMax += 1;
+    }
+    if (this.boxY !== null) {
+      yMin = this.boxY.min;
+      yMax = this.boxY.max;
     }
     const yOf = (value: number): number =>
       frame.top + frame.plotH - ((value - yMin) / (yMax - yMin)) * frame.plotH;
