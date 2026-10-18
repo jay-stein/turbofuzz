@@ -14,6 +14,8 @@ import {
   type ViewDef,
 } from "../data/aggregate.js";
 import { isNumericLikeType } from "../types.js";
+import { downloadCsv } from "./chart-export.js";
+import { safeFileName } from "./chart-utils.js";
 import { openPrompt } from "./dialog.js";
 import { clear, el } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
@@ -731,6 +733,20 @@ export class ViewsPanel {
       }
     });
 
+    const csv = el(
+      "button",
+      {
+        class: "ghost small",
+        type: "button",
+        title: "Download the current pivot or aggregate result as CSV",
+      },
+      ["Export CSV"],
+    ) as HTMLButtonElement;
+    csv.disabled = entry === undefined || entry.result === null;
+    csv.addEventListener("click", () => {
+      if (entry !== undefined && entry.result !== null) this.exportCsv(entry);
+    });
+
     const firstDim = entry?.def.dimensions[0];
     const isTimeDim =
       firstDim !== undefined && typeof firstDim.by === "object" && "time" in firstDim.by;
@@ -821,7 +837,75 @@ export class ViewsPanel {
     ) as HTMLButtonElement;
     below.disabled = this.views.length >= MAX_VIEWS;
     below.addEventListener("click", () => this.addView(this.active + 1));
-    this.actionsEl.append(limitLabel, chart, slick, pandas, dataset, below);
+    this.actionsEl.append(limitLabel, chart, slick, csv, pandas, dataset, below);
+  }
+
+  /** CSV of the current aggregate or pivot matrix. */
+  private exportCsv(entry: ViewEntry): void {
+    const result = entry.result;
+    if (result === null) return;
+    const rows: string[][] = [];
+    const pivot = entry.def.pivot;
+    if (
+      pivot !== undefined &&
+      pivot > 0 &&
+      result.dimensions.length > pivot &&
+      result.measures.length > 0
+    ) {
+      const rowValues = result.dimensions[0] ?? [];
+      const colValues = result.dimensions[pivot] ?? [];
+      const rowLabels: string[] = [];
+      const colLabels: string[] = [];
+      const rowIndex = new Map<string, number>();
+      const colIndex = new Map<string, number>();
+      for (let group = 0; group < result.groupCount; group++) {
+        const row = rowValues[group] ?? "";
+        const col = colValues[group] ?? "";
+        if (!rowIndex.has(row)) {
+          rowIndex.set(row, rowLabels.length);
+          rowLabels.push(row);
+        }
+        if (!colIndex.has(col)) {
+          colIndex.set(col, colLabels.length);
+          colLabels.push(col);
+        }
+      }
+      const measure = result.measures[0];
+      const cells = new Float64Array(rowLabels.length * colLabels.length).fill(Number.NaN);
+      if (measure !== undefined) {
+        for (let group = 0; group < result.groupCount; group++) {
+          const r = rowIndex.get(rowValues[group] ?? "") ?? 0;
+          const c = colIndex.get(colValues[group] ?? "") ?? 0;
+          cells[r * colLabels.length + c] = measure[group] ?? Number.NaN;
+        }
+      }
+      rows.push([
+        result.dimensionNames[0] ?? "group",
+        ...colLabels,
+      ]);
+      rowLabels.forEach((label, r) => {
+        rows.push([
+          label,
+          ...colLabels.map((_, c) => {
+            const value = cells[r * colLabels.length + c] ?? Number.NaN;
+            return Number.isFinite(value) ? String(value) : "";
+          }),
+        ]);
+      });
+    } else {
+      rows.push([...result.dimensionNames, ...result.measureNames]);
+      for (let group = 0; group < result.groupCount; group++) {
+        rows.push([
+          ...result.dimensions.map((dimension) => dimension[group] ?? ""),
+          ...result.measures.map((measure) => {
+            const value = measure[group] ?? Number.NaN;
+            return Number.isFinite(value) ? String(value) : "";
+          }),
+        ]);
+      }
+    }
+    if (rows.length < 2) return;
+    downloadCsv(`${safeFileName(entry.def.name) || "pivot-view"}.csv`, rows);
   }
 
   private renderBuilder(def: ViewDef): void {
