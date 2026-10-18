@@ -50,6 +50,14 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Chart-filter coverage is exercised by worker tests for aggregate, series, crosstab, correlation, box, grid, and animation payloads.
 - Geo choropleths report how many loaded regions matched the join and mark unmatched regions in the hover tooltip.
 
+### Multi-column pivot layouts and fill controls
+
+- Pivot builder now shows an R/C layout bar: click a field to move it between the row index and nested column headers, with a live active state and an explicit `R = row index, C = column field` hint.
+- Multiple spread dimensions render as grouped, `colspan`-aware header rows; CSV export flattens them with ` / ` separators.
+- Empty pivot cells can display a chosen fill value or stay blank, and `Drop empty` hides rows/columns with no values.
+- Margins now compute from all row and column fields, not just the first one.
+- Pill styling, focus/hover states, fill input, and nested header styling were added to the pivot UI.
+
 ### Multi-field pivot rows
 
 - Pivot View now accepts up to four dimensions; every dimension except the spread dimension forms the row index.
@@ -140,6 +148,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `292eab1` feat(charts): filter point, crosstab and correlation requests
 - `d021fc1` feat(charts): filter box, grid and animation requests
 - `b9084de` feat(pivot): support multi-field row indexes
+- `622787a` feat(pivot): add multi-column layouts and fill controls
 - `1580efe` feat(charts): load geojson and zipped shapefile regions
 - `21836d1` feat(charts): join geojson regions to dataset measures
 
