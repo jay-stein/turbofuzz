@@ -39,6 +39,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - GeoJSON with a non-WGS84 legacy CRS is rejected with a clear message instead of being drawn wrong.
 - Loaded regions replace the world basemap, fit the viewport, support reset back to the region bounds, and can be cleared back to the world map.
 - Parser unit tests cover polygon/multipolygon bounds and CRS rejection.
+- Choropleth join: choose a feature property, match it to a category/string dataset column, and colour regions by row count or a numeric measure with count/sum/mean/median/min/max aggregation. The join respects current table filters and uses the fixed colour-domain controls.
 
 ### Pivot margins
 
@@ -117,6 +118,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `3814a27` feat(charts): zoom and pan box plots
 - `d8aa0a8` feat(charts): zoom and pan correlation matrices
 - `1580efe` feat(charts): load geojson and zipped shapefile regions
+- `21836d1` feat(charts): join geojson regions to dataset measures
 
 ## Validation
 
@@ -144,6 +146,6 @@ Final state after the session:
 3. Chart aggregation core: ChartSpec, explicit row/non-null/distinct counts, chart-level filters, time grain controls, chart calculations.
 4. Extend the new Barplot with error bars, orientation, dodge/stack, explicit ordering, and hue limits.
 5. Pan/zoom/reset for every chart with axes; density viewport correction.
-6. GeoJSON/Shapefile maps: add the choropleth join from a dataset category/measure to feature properties (region loading and CRS handling are now in place).
+6. Geo maps polish: feature hover/click inspection and explicit unmatched-region diagnostics.
 7. Full Pivot View: 0–3 index/column fields, multiple values/aggs, margins, fill_value, named pivots, pivot CSV and chart integration, resample-style time.
 8. Batch type conversion UI and remaining table performance work.
