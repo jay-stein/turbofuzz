@@ -17,8 +17,10 @@ API, no network requests — everything is parsed and processed on your device.
 ## What it does
 
 - **Load:** drag or paste CSV/TSV/PSV/TXT/JSON, Excel (.xlsx/.xls), Parquet,
-  and ZIP/GZ/BZ2 archives. BOM and encodings (UTF-8/UTF-16/windows-1252) are
-  detected; messy headers, title rows and multi-level headers are handled.
+  and ZIP/GZ/BZ2 archives. Select multiple CSV/TSV/PSV/TXT/DAT files to append
+  them into one dataset with an `_input_filename` provenance column. BOM and
+  encodings (UTF-8/UTF-16/windows-1252) are detected; messy headers, title rows
+  and multi-level headers are handled.
 - **Review:** per-column profiles with histograms and top values; QA chips for
   empties, outliers, long values, duplicates and constant columns; a
   suggestion engine for missing-value sentinels (`TBC`, `00/00/0000`, `-999`),
@@ -26,7 +28,8 @@ API, no network requests — everything is parsed and processed on your device.
   (`high` in an integer column) and formula-like cells.
 - **Clean:** trim/case/replace, convert numbers and dates, repair mixed
   decimals, treat tokens as missing (per column, reversible), merge similar
-  values, escape formula-like cells for Excel.
+  values, escape formula-like cells for Excel. Type changes confirm the target
+  and preview mismatches, with pandas-style coerce/keep/reject policies.
 - **Transform:** dedupe, drop/round columns, group-by aggregates, impute
   (mean/median/mode/forward/backward/KNN), melt, combine date/time columns
   (timezone-aware) and split a column into new columns on a delimiter or
@@ -34,8 +37,9 @@ API, no network requests — everything is parsed and processed on your device.
 - **Search:** text (contains/exact/fuzzy/phonetic), value sets, numeric and
   date ranges, live facet counts and filtered histograms.
 - **Visualise:** a grid of independent chart cards — histogram, time series,
-  bars, scatter, density/contours, box plots, heatmap and correlation — with
-  PNG export.
+  count plots, scatter, density/contours, box plots, heatmap and correlation —
+  with Set1 by default, fixed colour-scale bounds, CSV data export and PNG
+  export.
 - **Export:** CSV with scope choice (all rows after steps vs. filtered) and an
   optional first-N subset, a BOM for Excel, optional formula escaping, plus
   clipboard copy and a pandas or Polars recipe of the applied steps (with a
