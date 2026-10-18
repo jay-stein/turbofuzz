@@ -115,6 +115,8 @@ export interface ViewDef {
   pivotColumns?: number[];
   /** Measure shown in the pivot matrix (0 = first measure). */
   pivotMeasure?: number;
+  /** Pivot key ordering: label ascending (default) or first-seen source order. */
+  pivotSort?: "label" | "source";
   /** Value used for pivot cells with no rows (null/undefined = blank). */
   fillValue?: number | null;
   /** Drop pivot rows and columns that contain no finite values. */
@@ -1538,6 +1540,7 @@ export function computeAggregate(
     }
   }
   const compare = (a: number, b: number): number => {
+    if (view.sort.key === "source") return 0;
     if (measureRanks !== null) return (measureRanks[a] - measureRanks[b]) * direction;
     if (dimensionRanks !== null) return (dimensionRanks[a] - dimensionRanks[b]) * direction;
     let comparison = 0;

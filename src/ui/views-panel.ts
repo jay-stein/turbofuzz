@@ -176,8 +176,10 @@ export function pivotDefFromView(view: ViewDef, pivotIndexes: readonly number[])
     marginsName: view.marginsName,
     fillValue: view.fillValue,
     dropna: view.dropna,
+    sort: view.pivotSort,
   };
 }
+
 /** Up to three one-click starter views derived from column types. */
 export function starterViews(
   columns: readonly ColumnMeta[],
@@ -1003,7 +1005,52 @@ export class ViewsPanel {
         }),
       );
       dropLabel.append(dropInput, "Drop empty");
-      this.actionsEl.append(marginsLabel, fillLabel, dropLabel);
+
+      const orderLabel = el("label", { class: "views-limit" });
+      orderLabel.title = "Sort index and column keys by label or by first appearance";
+      const orderSelect = el("select", {
+        class: "chart-picker chart-picker-small",
+        "aria-label": "Pivot key order",
+      }) as HTMLSelectElement;
+      for (const [value, label] of [
+        ["label", "Label"],
+        ["source", "Source order"],
+      ] as const) {
+        const option = el("option", { value }, [label]) as HTMLOptionElement;
+        if ((entry.def.pivotSort ?? "label") === value) option.selected = true;
+        orderSelect.append(option);
+      }
+      orderSelect.addEventListener("change", () =>
+        this.update((view) => {
+          view.pivotSort = orderSelect.value === "source" ? "source" : "label";
+        }),
+      );
+      orderLabel.append("Order", orderSelect);
+
+      const marginsNameLabel = el("label", { class: "views-limit views-fill" });
+      marginsNameLabel.title = "Label used for the All margin row and column";
+      const marginsNameInput = el("input", {
+        class: "views-fill-input",
+        type: "text",
+        maxlength: "24",
+        "aria-label": "Pivot margins name",
+        value: entry.def.marginsName ?? "All",
+      }) as HTMLInputElement;
+      marginsNameInput.addEventListener("change", () =>
+        this.update((view) => {
+          const name = marginsNameInput.value.trim();
+          view.marginsName = name === "" ? undefined : name;
+        }),
+      );
+      marginsNameLabel.append("All label", marginsNameInput);
+
+      this.actionsEl.append(
+        marginsLabel,
+        fillLabel,
+        dropLabel,
+        orderLabel,
+        marginsNameLabel,
+      );
     }
     const below = el(
       "button",

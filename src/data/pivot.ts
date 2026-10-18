@@ -20,6 +20,8 @@ export interface PivotDef {
   marginsName?: string;
   fillValue?: number | null;
   dropna?: boolean;
+  /** Key ordering: label ascending or first-seen source order. */
+  sort?: "label" | "source";
 }
 
 export interface PivotMeasureResult {
@@ -68,7 +70,7 @@ function baseView(
     dimensions,
     measures: def.values,
     fill: "none",
-    sort: { key: "dim0", dir: "asc" },
+    sort: { key: def.sort === "source" ? "source" : "dim0", dir: "asc" },
     limit: PIVOT_LIMIT + 1,
     respectFilters: def.respectFilters,
     partial: "show",
@@ -108,7 +110,12 @@ function compareParts(a: KeyedParts, b: KeyedParts, isTime: readonly boolean[]):
   return 0;
 }
 
-function sortKeys(keys: KeyedParts[], isTime: readonly boolean[]): KeyedParts[] {
+function sortKeys(
+  keys: KeyedParts[],
+  isTime: readonly boolean[],
+  mode: "label" | "source",
+): KeyedParts[] {
+  if (mode === "source") return keys;
   return [...keys].sort((a, b) => compareParts(a, b, isTime));
 }
 
@@ -228,8 +235,8 @@ export function computePivot(
 
   const rowIsTime = base.dimensionIsTime.slice(0, indexCount);
   const colIsTime = base.dimensionIsTime.slice(indexCount, indexCount + columnCount);
-  const sortedRows = sortKeys(rowKeys, rowIsTime);
-  const sortedCols = sortKeys(colKeys, colIsTime);
+  const sortedRows = sortKeys(rowKeys, rowIsTime, def.sort ?? "label");
+  const sortedCols = sortKeys(colKeys, colIsTime, def.sort ?? "label");
   const rowOrder = new Map(sortedRows.map((entry, index) => [entry.key, index]));
   const colOrder = new Map(sortedCols.map((entry, index) => [entry.key, index]));
 

@@ -457,6 +457,12 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
     ),
     "empty rows and columns can be dropped",
   );
+  assert.ok(host.querySelector(
+    `select[aria-label="Pivot key order"]`,
+  ) !== null);
+  assert.ok(host.querySelector(
+    `input[aria-label="Pivot margins name"]`,
+  ) !== null);
 });
 
 test("partial periods are marked and can be excluded from the view", async () => {

@@ -88,3 +88,25 @@ test("pivot carries multiple values and aggregations independently", () => {
   assert.equal(result.rowLabels.length, 3);
   assert.equal(result.colLabels.length, 2);
 });
+
+test("pivot key order can follow source order", () => {
+  const result = computePivot(
+    pivot({ sort: "source" }),
+    SALES.columns,
+    SALES.rowCount,
+    ids,
+  );
+  assert.deepEqual(result.rowLabels, [["North"], ["South"], ["East"], ["All"]]);
+  assert.deepEqual(result.colLabels, [["A"], ["B"], ["All"]]);
+});
+
+test("pivot margin labels are configurable", () => {
+  const result = computePivot(
+    pivot({ marginsName: "Total" }),
+    SALES.columns,
+    SALES.rowCount,
+    ids,
+  );
+  assert.deepEqual(result.rowLabels.at(-1), ["Total"]);
+  assert.deepEqual(result.colLabels.at(-1), ["Total"]);
+});
