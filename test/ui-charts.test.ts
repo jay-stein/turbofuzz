@@ -2385,6 +2385,27 @@ test("a barplot aggregates a numeric measure by category", async () => {
   assert.deepEqual(calls[0]?.sort, { key: "m0", dir: "desc" });
   assert.equal(calls[0]?.respectFilters, true);
   card.dispose();
+
+  for (const agg of ["count", "distinct"] as const) {
+    const countCard = new ChartCard(
+      host,
+      {
+        ...options,
+        requestAggregate: (view: ViewDef) => {
+          calls.push(view);
+          return Promise.resolve(aggregate(view));
+        },
+      },
+      { kind: "barplot", column: 1, valueColumn: 0, valueAgg: agg },
+    );
+    countCard.setColumns([
+      meta({ name: "amount", type: "number" }),
+      meta({ name: "city", type: "category" }),
+    ]);
+    await tick();
+    assert.deepEqual(calls.at(-1)?.measures, [{ column: 0, agg }]);
+    countCard.dispose();
+  }
 });
 
 test("a map card requests unclipped coordinate points", async () => {

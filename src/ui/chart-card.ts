@@ -242,7 +242,7 @@ export interface ChartCardConfig {
   /** Line cards: plot an aggregate of this numeric column (-1/undefined = row count). */
   valueColumn?: number;
   /** Aggregate used for the value line (default mean). */
-  valueAgg?: "mean" | "sum" | "median" | "min" | "max";
+  valueAgg?: "mean" | "sum" | "median" | "min" | "max" | "count" | "distinct";
   /** Bucket grain for the value line; "auto"/undefined derives it from the span. */
   valueGrain?: TimeGrain | "auto";
   /** Chart-scoped category filter; -1/undefined means no chart filter. */
@@ -964,6 +964,8 @@ export class ChartCard {
         ["median", "Median"],
         ["min", "Min"],
         ["max", "Max"],
+        ["count", "Count non-null"],
+        ["distinct", "Count distinct"],
       ] as const
     ).forEach(([value, label]) => {
       this.valueAggSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
