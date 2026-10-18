@@ -108,6 +108,10 @@ export interface ViewDef {
   partial?: "show" | "exclude";
   /** Dimension index spread across columns when rendered as a matrix. */
   pivot?: number;
+  /** Add an "All" row and column to a pivot, computed from raw rows. */
+  margins?: boolean;
+  /** Label used for the margin row/column. */
+  marginsName?: string;
 }
 
 export interface AggregateResult {

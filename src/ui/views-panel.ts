@@ -38,6 +38,12 @@ export interface ViewsPanelOptions {
 interface ViewEntry {
   def: ViewDef;
   result: AggregateMessage | null;
+  /** Pivot margins computed by the worker over raw rows. */
+  margins: {
+    rows: AggregateMessage | null;
+    cols: AggregateMessage | null;
+    total: AggregateMessage | null;
+  } | null;
   loading: boolean;
   stale: boolean;
   error: string | null;
@@ -246,6 +252,7 @@ export class ViewsPanel {
       this.views = starters.map((def) => ({
         def,
         result: null,
+        margins: null,
         loading: false,
         stale: true,
         error: null,
@@ -287,13 +294,59 @@ export class ViewsPanel {
     }
     entry.loading = true;
     entry.error = null;
+    entry.margins = null;
     this.render();
     const generation = ++this.generation;
-    void this.options
-      .requestAggregate(entry.def)
-      .then((message) => {
+    const def = entry.def;
+    const marginViews: ViewDef[] = [];
+    const pivot = def.pivot;
+    if (
+      def.margins === true &&
+      pivot !== undefined &&
+      pivot > 0 &&
+      def.dimensions.length > pivot
+    ) {
+      const base = {
+        fill: "none" as const,
+        sort: { key: "dim0", dir: "asc" as const },
+        limit: 100_000,
+        respectFilters: def.respectFilters,
+      };
+      marginViews.push(
+        {
+          ...base,
+          id: `${def.id}-margin-rows`,
+          name: `${def.name} rows`,
+          dimensions: [def.dimensions[0]!],
+          measures: def.measures,
+        },
+        {
+          ...base,
+          id: `${def.id}-margin-cols`,
+          name: `${def.name} columns`,
+          dimensions: [def.dimensions[pivot]!],
+          measures: def.measures,
+        },
+        {
+          ...base,
+          id: `${def.id}-margin-total`,
+          name: `${def.name} total`,
+          dimensions: [],
+          measures: def.measures,
+        },
+      );
+    }
+    void Promise.all([
+      this.options.requestAggregate(def),
+      ...marginViews.map((view) => this.options.requestAggregate(view)),
+    ])
+      .then(([message, rows, cols, total]) => {
         if (generation !== this.generation) return;
         entry.result = message;
+        entry.margins =
+          marginViews.length === 3
+            ? { rows: rows ?? null, cols: cols ?? null, total: total ?? null }
+            : null;
         entry.loading = false;
         entry.stale = false;
         this.render();
@@ -324,7 +377,15 @@ export class ViewsPanel {
       limit: DEFAULT_LIMIT,
       respectFilters: true,
     };
-    return { def, result: null, loading: false, stale: true, error: null, expanded: false };
+    return {
+      def,
+      result: null,
+      margins: null,
+      loading: false,
+      stale: true,
+      error: null,
+      expanded: false,
+    };
   }
 
   /** Insert a blank view at `at` (clamped); it opens with the name field focused. */
@@ -825,6 +886,24 @@ export class ViewsPanel {
       );
       pivotLabel.append("Spread", pivotSelect);
       this.actionsEl.append(pivotLabel);
+      if (entry.def.pivot !== undefined) {
+        const marginsLabel = el("label", {
+          class: "control check clean-check",
+        });
+        marginsLabel.title = "Add an All row and column computed from the raw rows";
+        const marginsInput = el("input", {
+          type: "checkbox",
+          "aria-label": "Pivot margins",
+        }) as HTMLInputElement;
+        marginsInput.checked = entry.def.margins === true;
+        marginsInput.addEventListener("change", () =>
+          this.update((view) => {
+            view.margins = marginsInput.checked;
+          }),
+        );
+        marginsLabel.append(marginsInput, "Margins");
+        this.actionsEl.append(marginsLabel);
+      }
     }
     const below = el(
       "button",
@@ -879,19 +958,43 @@ export class ViewsPanel {
           cells[r * colLabels.length + c] = measure[group] ?? Number.NaN;
         }
       }
+      const margins = entry.def.margins === true ? entry.margins : null;
+      const marginsName = entry.def.marginsName ?? "All";
+      const format = (value: number): string =>
+        Number.isFinite(value) ? String(value) : "";
+      const rowTotals = new Map<string, number>();
+      const colTotals = new Map<string, number>();
+      let grandTotal = Number.NaN;
+      if (margins?.rows?.dimensions[0] !== undefined) {
+        const labels = margins.rows.dimensions[0];
+        const values = margins.rows.measures[0];
+        labels.forEach((label, index) => rowTotals.set(label, values?.[index] ?? Number.NaN));
+      }
+      if (margins?.cols?.dimensions[0] !== undefined) {
+        const labels = margins.cols.dimensions[0];
+        const values = margins.cols.measures[0];
+        labels.forEach((label, index) => colTotals.set(label, values?.[index] ?? Number.NaN));
+      }
+      grandTotal = margins?.total?.measures[0]?.[0] ?? Number.NaN;
       rows.push([
         result.dimensionNames[0] ?? "group",
         ...colLabels,
+        ...(margins === null ? [] : [marginsName]),
       ]);
       rowLabels.forEach((label, r) => {
         rows.push([
           label,
-          ...colLabels.map((_, c) => {
-            const value = cells[r * colLabels.length + c] ?? Number.NaN;
-            return Number.isFinite(value) ? String(value) : "";
-          }),
+          ...colLabels.map((_, c) => format(cells[r * colLabels.length + c] ?? Number.NaN)),
+          ...(margins === null ? [] : [format(rowTotals.get(label) ?? Number.NaN)]),
         ]);
       });
+      if (margins !== null) {
+        rows.push([
+          marginsName,
+          ...colLabels.map((label) => format(colTotals.get(label) ?? Number.NaN)),
+          format(grandTotal),
+        ]);
+      }
     } else {
       rows.push([...result.dimensionNames, ...result.measureNames]);
       for (let group = 0; group < result.groupCount; group++) {
@@ -1661,10 +1764,37 @@ export class ViewsPanel {
       const c = colIndex.get(colValues[group] ?? "") ?? 0;
       cells[r * colLabels.length + c] = measure[group] ?? Number.NaN;
     }
+    const margins = entry.def.margins === true ? entry.margins : null;
+    const marginsName = entry.def.marginsName ?? "All";
+    const rowTotals = new Map<string, number>();
+    const colTotals = new Map<string, number>();
+    let grandTotal = Number.NaN;
+    if (margins?.rows?.dimensions[0] !== undefined) {
+      const labels = margins.rows.dimensions[0];
+      const values = margins.rows.measures[0];
+      labels.forEach((label, index) => {
+        rowTotals.set(label, values?.[index] ?? Number.NaN);
+      });
+    }
+    if (margins?.cols?.dimensions[0] !== undefined) {
+      const labels = margins.cols.dimensions[0];
+      const values = margins.cols.measures[0];
+      labels.forEach((label, index) => {
+        colTotals.set(label, values?.[index] ?? Number.NaN);
+      });
+    }
+    grandTotal = margins?.total?.measures[0]?.[0] ?? Number.NaN;
     let max = 0;
     for (const value of cells) {
       if (Number.isFinite(value)) max = Math.max(max, Math.abs(value));
     }
+    for (const value of rowTotals.values()) {
+      if (Number.isFinite(value)) max = Math.max(max, Math.abs(value));
+    }
+    for (const value of colTotals.values()) {
+      if (Number.isFinite(value)) max = Math.max(max, Math.abs(value));
+    }
+    if (Number.isFinite(grandTotal)) max = Math.max(max, Math.abs(grandTotal));
     const measureSpec = entry.def.measures[0] ?? { column: null, agg: "count" as const };
     const table = el("table", { class: "views-table views-pivot" });
     const head = el("thead");
@@ -1672,6 +1802,9 @@ export class ViewsPanel {
     headRow.append(el("th", { class: "views-dim-head" }, [result.dimensionNames[0] ?? "group"]));
     for (const label of colLabels) {
       headRow.append(el("th", { class: "views-num-head" }, [label]));
+    }
+    if (margins !== null) {
+      headRow.append(el("th", { class: "views-num-head" }, [marginsName]));
     }
     head.append(headRow);
     table.append(head);
@@ -1691,13 +1824,35 @@ export class ViewsPanel {
         td.append(el("span", { class: "views-value" }, [formatMeasure(value, measureSpec)]));
         tr.append(td);
       });
+      if (margins !== null) {
+        tr.append(
+          el("td", { class: "views-num" }, [
+            formatMeasure(rowTotals.get(label) ?? Number.NaN, measureSpec),
+          ]),
+        );
+      }
       body.append(tr);
     });
+    if (margins !== null) {
+      const totalRow = el("tr", { class: "views-total" });
+      totalRow.append(el("td", { class: "views-dim" }, [marginsName]));
+      for (const label of colLabels) {
+        totalRow.append(
+          el("td", { class: "views-num" }, [
+            formatMeasure(colTotals.get(label) ?? Number.NaN, measureSpec),
+          ]),
+        );
+      }
+      totalRow.append(
+        el("td", { class: "views-num" }, [formatMeasure(grandTotal, measureSpec)]),
+      );
+      body.append(totalRow);
+    }
     table.append(body);
     this.tableEl.append(table);
     this.tableEl.append(
       el("div", { class: "views-pivot-note" }, [
-        `Spreading “${result.dimensionNames[pivotIndex] ?? "?"}” across columns · ${result.measureNames[0] ?? "measure 1"} · blank cells have no rows.`,
+        `Spreading “${result.dimensionNames[pivotIndex] ?? "?"}” across columns · ${result.measureNames[0] ?? "measure 1"} · blank cells have no rows${margins === null ? "" : ` - ${marginsName} margins computed from raw rows`}.`,
       ]),
     );
   }
