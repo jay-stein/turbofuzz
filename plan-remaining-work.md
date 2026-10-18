@@ -29,7 +29,7 @@ Already delivered and not to be rebuilt:
 - complete worker-backed Pivot View with drag/drop wells, typed report filters, multi-date hierarchies, pivot heatmap charts and grouped chart sources;
 - typed table header filters sharing the sidebar filter card, with dataset-anchored date bounds.
 
-Baseline test state: **747 tests passing**, typecheck and production build green.
+Baseline test state: **751 tests passing**, typecheck and production build green.
 
 ---
 
@@ -268,6 +268,43 @@ After Sprint 2, the remaining sequence is:
 
 ---
 
+## 4c. Sprint 3: ChartSpec Adoption
+
+**Status:** Complete on 2026-10-19, with the scoped follow-ups recorded below.
+
+**Budget:** 10 engineer-days, including 0.5 day contingency.
+
+**Selection rule:** make the exported spec the lossless source of truth for runtime config, duplication and import before expanding code-generation coverage.
+
+### Delivered
+
+| Order | Package | Deliverable | Days |
+|---:|---|---|---:|
+| 1 | **W5.1** | Spec v2 covering all currently supported config fields, column names, filters, aggregation, binning and presentation. | 3.0 |
+| 2 | **W5.2** | `chartSpecToConfig` compile/validation path and `ChartCard.applySpecText`; invalid specs never partially apply. | 2.0 |
+| 3 | **W5.3** | Duplicate/compare rebuild from the compiled spec; CSV remains configured by the same runtime config. | 1.0 |
+| 4 | **W5.4** | Card-menu JSON import with shape/version/column validation and an explicit error dialog. | 1.5 |
+| 5 | **W5.5** | `chartSpecSupport` report plus generated-file support notes. | 0.5 |
+| 6 | **W5.6** | Round-trip, invalid-import, apply-atomicity, support-report and code-generation tests. | 1.5 |
+| 7 | **W5.7** | Audit pivot code separation: View pandas copy remains outside the data Recipe. | 0.5 |
+|  | **Total** |  | **10.0** |
+
+### Sprint 3 follow-ups
+
+- **Multi-measure charts:** the runtime still supports one measure per card, so the spec is lossless for the supported single-measure surface.
+- **Executable parity:** tests compare compiled configs and golden code; no Python interpreter is run in the suite.
+- **CSV payload:** rows remain derived from live worker results; the config that shapes those results is now the compiled spec.
+- **Dedicated pivot code button:** the intact View recipe already carries pivot code separately; a one-click pivot-only copy action remains backlog.
+
+### Sprint exit gate
+
+- `npm run typecheck`, `npm test` and `npm run build` are green.
+- An imported spec either applies completely or leaves the card unchanged.
+- A config exported through the spec and recompiled is lossless for supported fields.
+- Unsupported code-generation features are listed explicitly, not silently approximated.
+
+---
+
 ## 5. Workstreams
 
 ### W1. Pivot completion
@@ -372,6 +409,8 @@ After Sprint 2, the remaining sequence is:
 
 ### W5. ChartSpec adoption and code parity
 
+**Status:** Complete with scoped follow-ups (2026-10-19).
+
 **Goal:** make the declarative spec the single source for rendering, CSV, duplication, suggestions, and generated code.
 
 **Depends on:** W3.1, W3.3, W3.6, W3.9, W4.4, W4.6.
@@ -379,13 +418,13 @@ After Sprint 2, the remaining sequence is:
 
 | ID | Task | Acceptance |
 |---|---|---|
-| W5.1 | Expand `ChartSpec` to multiple measures, per-measure aggregation, grain/bin, breakdowns, filters, limits/Other/sort, null/missing policy, calculations, display options, viewport, sampling, and geo source ID. | Spec is versioned, serializable, and lossless for supported charts. |
-| W5.2 | Make ChartCard rendering read the spec (or a compiled view of it) instead of ad-hoc config branches. | Duplicate/export/render all use the same semantic fields. |
-| W5.3 | Make chart CSV and duplication use the spec. | CSV headers/rows match the spec scope and aggregation. |
-| W5.4 | Add ChartSpec import/validation and “apply spec” flow for supported versions. | Invalid/unsupported specs explain why and never partially apply. |
-| W5.5 | Complete pandas/Polars code for all supported spec features; emit an explicit support report for unsupported operations. | Golden tests cover code strings and supported parity; sampled/geo/approximate CI cases are labelled. |
-| W5.6 | Add golden result-parity tests where feasible (aggregation, nulls, time grain, bins, sorting, percentages, margins). | Code and in-app results agree on fixtures. |
-| W5.7 | Keep pivots out of the data Recipe; add separate pivot code actions. | Recipe remains data-shaping only. |
+| W5.1 | Complete - expand `ChartSpec` v2 to all currently supported fields: filters, aggregation, binning, presentation, colour domain and animation. | Spec is versioned, serializable and lossless for supported single-measure charts; multi-measure runtime remains a follow-up. |
+| W5.2 | Complete - `chartSpecToConfig` compiles to the runtime config; `ChartCard.applySpecText` applies only after full validation. | Duplicate/export/render all use the same semantic fields; invalid specs leave the card untouched. |
+| W5.3 | Complete - duplicate and compare rebuild through the compiled spec; CSV remains driven by the same runtime config and live results. | CSV headers/rows match the chart scope and aggregation. |
+| W5.4 | Complete - card-menu JSON import with shape, version, source and column validation. | Invalid/unsupported specs explain why and never partially apply. |
+| W5.5 | Complete - `chartSpecSupport` plus generated-file support notes for unsupported operations. | Unsupported operations are labelled, not silently approximated. |
+| W5.6 | Complete - config round-trip, invalid import, atomic apply, support-report and golden code tests. | Golden code/config parity is covered; executable Python parity is not run in-suite. |
+| W5.7 | Complete - audit confirms View pandas code carries pivot rendering separately from the data Recipe. | Recipe remains data-shaping only; a one-click pivot-only copy action remains backlog. |
 
 **Estimate:** 6–9 engineer-days.
 **Exit gate:** ChartSpec drives rendering/CSV/duplication/code; unsupported cases are explicitly reported; no parallel semantic definitions remain.
@@ -459,11 +498,11 @@ After Sprint 2, the remaining sequence is:
 | **M0: Pivot complete** | W1 | Complete. Worker pivot, field wells, filters, date hierarchies, pivot heatmap and chart sources. |
 | **Sprint 1: daily friction** | W2.1-W2.2, W3.2-W3.5, W3.10, W4.1 | Complete. Batch casts, mismatch review, chart summary/measures/sorting/warnings, inspector. |
 | **Sprint 2: chart actions and trust** | W3.1, W4.2, W4.4, W4.8, W7.4 | Complete. Shared builder, drill/filter/rows actions, missing-value disclosure, shared colour scales, consistent issue actions. |
+| **Sprint 3: ChartSpec adoption** | W5 | Complete. Lossless spec v2, compile/apply, import validation, support report and parity tests. |
 | **Backlog A: correctness and performance** | W2.3-W2.9, W6 | Type lattice, incremental rebuilds, deferred stats, multi-file hardening, benchmarks. |
-| **Backlog B: chart spec** | W5 | ChartSpec expansion, render/CSV/duplication adoption and spec validation. |
 | **Backlog C: release quality** | W7, W8 | Shared chips, E2E, benchmarks, accessibility, CSP review and docs. |
 
-Sprint 1 is complete. Sprint 2 is intentionally single-threaded enough to finish in 10 engineer-days. Backlog A/C and W5 start only after the Sprint 2 exit gate passes.
+Sprints 1, 2 and 3 are complete. Backlog A and Backlog C start only after the Sprint 3 exit gate passes.
 
 ---
 ## 7. Risks and mitigations

@@ -32,6 +32,7 @@ import {
 } from "./chart-gallery.js";
 import { openChartSetupDialog } from "./chart-setup.js";
 import { nextFinerGrain, suggestedChartConfig } from "./chart-builder.js";
+import { chartSpecToConfig } from "./chart-spec.js";
 import { openConfirm } from "./dialog.js";
 import {
   CHART_KIND_LABELS,
@@ -690,7 +691,8 @@ export class ChartsPanel {
   }
 
   duplicateCard(card: ChartCard): void {
-    this.addCard(card.getConfig());
+    const compiled = chartSpecToConfig(card.getSpec(), this.columns);
+    this.addCard(compiled.config ?? card.getConfig());
   }
 
   /** Shared setup dialog in edit mode; Cancel is a true no-op. */
@@ -765,7 +767,8 @@ export class ChartsPanel {
 
   /** Explicit duplicate for side-by-side comparison; both charts stay editable. */
   private compareCard(card: ChartCard): void {
-    const config = card.getConfig();
+    const config =
+      chartSpecToConfig(card.getSpec(), this.columns).config ?? card.getConfig();
     this.addCard({
       ...config,
       title: config.title === "" ? "Comparison" : `${config.title} (comparison)`,

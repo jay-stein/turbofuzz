@@ -13,6 +13,7 @@ import {
 } from "../src/ui/chart-card.js";
 import type { ViewDef } from "../src/data/aggregate.js";
 import type { SeriesGrid } from "../src/data/chart-series.js";
+import { chartSpecJson } from "../src/ui/chart-spec.js";
 import type {
   AggregateMessage,
   BoxStatsMessage,
@@ -3165,4 +3166,34 @@ test("chart card menu opens the shared edit dialog and reset path", async () => 
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(doc.querySelector(".chart-setup-modal"), null);
   panel.dispose();
+});
+test("chart cards validate and apply a lossless spec atomically", async () => {
+  setupDom();
+  const host = document.createElement("div") as unknown as HTMLElement;
+  const card = new ChartCard(host, stubCardOptions(), {
+    kind: "bar",
+    column: 0,
+    title: "Cities",
+  });
+  card.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [3, 2] } }),
+    meta({ name: "score", type: "number" }),
+  ]);
+  const valid = card.getSpec();
+  valid.kind = "barplot";
+  valid.fields.value = "score";
+  valid.title = "Average score";
+  valid.presentation.colorCenter = 0;
+  assert.deepEqual(card.applySpecText(chartSpecJson(valid)), []);
+  assert.equal(card.getConfig().kind, "barplot");
+  assert.equal(card.getConfig().valueColumn, 1);
+  assert.equal(card.getConfig().title, "Average score");
+  assert.equal(card.getConfig().colorCenter, 0);
+
+  const before = card.getConfig();
+  const invalid = { ...valid, fields: { ...valid.fields, value: "missing" } };
+  const issues = card.applySpecText(JSON.stringify(invalid));
+  assert.ok(issues.length > 0);
+  assert.deepEqual(card.getConfig(), before, "an invalid spec leaves the card untouched");
+  card.dispose();
 });

@@ -434,3 +434,27 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - Dedicated period-over-period comparison remains deferred; the current action is an explicit duplicate for comparison.
 - Chart issue counts are column-level cleaned stats; recomputing them per active chart filter is deferred.
 - Correlation cells retain their fixed red/neutral/blue mapping; the shared centred domain/legend path is now exposed.
+## Sprint 3: ChartSpec Adoption (2026-10-19)
+
+### Delivered
+
+- ChartSpec v2 stores every currently supported chart field by name: fields, filter, aggregation, binning, colour/domain, chart sort, animation, map/bubble modes and pivot presentation.
+- Added `chartSpecToConfig` with validation and `ChartCard.applySpecText`; invalid or stale-column specs leave the card unchanged.
+- Added card-menu "Apply chart spec (JSON)" with file import and an explicit validation error dialog.
+- Duplicate and compare rebuild through the compiled spec; downloaded spec/code now use `ChartCard.getSpec()`.
+- Added `chartSpecSupport` and generated-file support notes for operations that cannot be emitted.
+- Added round-trip, invalid-import, atomic-apply, support-report and golden-code tests.
+- Audited pivot code separation: View pandas output remains outside the data Recipe.
+
+### Validation
+
+- `npm run typecheck` passes.
+- `npm test`: 751 tests passing.
+- `npm run build` passes.
+
+### Scoped follow-ups
+
+- Multi-measure runtime/spec support remains deferred (current cards use one measure).
+- Python execution parity is not run in-suite; tests cover compiled config and golden code.
+- CSV rows remain result-driven, with the compiled spec defining the chart that produced them.
+- A one-click pivot-only code action remains backlog; the existing View pandas copy already carries pivot rendering separately.

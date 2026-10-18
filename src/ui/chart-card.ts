@@ -29,6 +29,8 @@ import {
   chartSpecJson,
   chartSpecToPandas,
   chartSpecToPolars,
+  parseChartSpec,
+  type ChartSpec,
 } from "./chart-spec.js";
 import { chartConfigWithDefaults } from "./chart-builder.js";
 import {
@@ -3080,6 +3082,67 @@ export class ChartCard {
     };
   }
 
+  private specSourceName(): string {
+    return this.config.source === ""
+      ? this.options.tableSourceLabel?.() ?? "Table"
+      : (this.sources.find((source) => source.id === this.config.source)?.name ??
+        this.config.source);
+  }
+
+  /** Lossless, serialisable description of this card. */
+  getSpec(): ChartSpec {
+    return chartSpecFromConfig(this.config, this.columns, this.specSourceName());
+  }
+
+  /**
+   * Validate and apply an imported spec in one step. Returns issues instead of
+   * partially applying anything when the spec is invalid or uses stale columns.
+   */
+  applySpecText(text: string): string[] {
+    const parsed = parseChartSpec(text, this.columns);
+    if (parsed.spec === null || parsed.config === null) return parsed.issues;
+    if (
+      parsed.config.source !== "" &&
+      !this.sources.some((source) => source.id === parsed.config?.source)
+    ) {
+      return [`Source "${parsed.config.source}" is not available.`];
+    }
+    this.applyConfig(parsed.config);
+    return [];
+  }
+
+  /** Hidden file picker for importing a previously downloaded ChartSpec. */
+  private importChartSpecFile(): void {
+    const input = el("input", {
+      type: "file",
+      accept: ".json,application/json",
+      class: "hidden",
+    }) as HTMLInputElement;
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (file === undefined) return;
+      void file
+        .text()
+        .then((text) => {
+          const issues = this.applySpecText(text);
+          if (issues.length === 0) {
+            this.noteEl.textContent = "Applied chart spec.";
+            return;
+          }
+          this.noteEl.textContent = issues[0] ?? "The chart spec could not be applied.";
+          void openConfirm({
+            title: "Cannot apply chart spec",
+            body: issues.join("\n"),
+            confirmLabel: "Close",
+          });
+        })
+        .catch((error: unknown) => {
+          this.noteEl.textContent =
+            error instanceof Error ? error.message : "Could not read the chart spec.";
+        });
+    });
+    input.click();
+  }
   /** Column indexes this card currently charts, used to pick fresh defaults. */
   usedColumns(): number[] {
     const out = [this.config.column];
@@ -4400,6 +4463,12 @@ export class ChartCard {
           action: () => this.downloadChartSpec(),
         },
         {
+          label: "Apply chart spec (JSON)",
+          title: "Validate and apply a previously downloaded chart spec",
+          disabled: pivotHeatmap,
+          action: () => this.importChartSpecFile(),
+        },
+        {
           label: "Download pandas code",
           title: "Download Python that rebuilds the supported chart aggregation",
           disabled: pivotHeatmap,
@@ -5500,12 +5569,7 @@ export class ChartCard {
   /** Versioned ChartSpec JSON: portable across config changes and code export. */
   private downloadChartSpec(): void {
     if (typeof URL.createObjectURL !== "function") return;
-    const sourceName =
-      this.config.source === ""
-        ? this.options.tableSourceLabel?.() ?? "Table"
-        : (this.sources.find((source) => source.id === this.config.source)?.name ??
-          this.config.source);
-    const spec = chartSpecFromConfig(this.config, this.columns, sourceName);
+    const spec = this.getSpec();
     const url = URL.createObjectURL(
       new Blob([chartSpecJson(spec)], { type: "application/json" }),
     );
@@ -5523,17 +5587,15 @@ export class ChartCard {
   /** Python code for the supported subset of the current ChartSpec. */
   private downloadChartCode(pandas: boolean): void {
     if (typeof URL.createObjectURL !== "function") return;
-    const sourceName =
-      this.config.source === ""
-        ? this.options.tableSourceLabel?.() ?? "Table"
-        : (this.sources.find((source) => source.id === this.config.source)?.name ??
-          this.config.source);
-    const spec = chartSpecFromConfig(this.config, this.columns, sourceName);
+    const spec = this.getSpec();
     const generated = pandas ? chartSpecToPandas(spec) : chartSpecToPolars(spec);
     if (generated.code === "") {
       this.noteEl.textContent =
         generated.warnings[0] ?? "No code can be generated for this chart yet.";
       return;
+    }
+    if (generated.warnings.length > 0) {
+      this.noteEl.textContent = `${generated.warnings.length} support note${generated.warnings.length === 1 ? "" : "s"} included in the file.`;
     }
     const header = generated.warnings
       .map((warning) => `# Note: ${warning}`)
