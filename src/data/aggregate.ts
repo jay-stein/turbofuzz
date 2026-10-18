@@ -2,7 +2,15 @@ import type { ColumnData } from "./column.js";
 import { resolveZoneSpec, zoneOffsetMinutes } from "./timezone.js";
 
 /** Dimension transform: raw value, a time bucket, a date part or a numeric bin. */
-export type TimeGrain = "minute" | "hour" | "day" | "week" | "month" | "quarter" | "year";
+export type TimeGrain =
+  | "second"
+  | "minute"
+  | "hour"
+  | "day"
+  | "week"
+  | "month"
+  | "quarter"
+  | "year";
 export type DatePart = "dow" | "hour" | "month" | "dom" | "week";
 
 /** Numeric binning: equal width, N quantile groups, or explicit edges. */
@@ -167,6 +175,7 @@ export interface AggregateResult {
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
+const SECOND = 1_000;
 const DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTH_LABELS = [
   "Jan",
@@ -408,6 +417,8 @@ export function timeBucket(ms: number, grain: TimeGrain, options: BucketOptions 
       ? options.fiscalStartMonth
       : 1;
   switch (grain) {
+    case "second":
+      return Math.floor(ms / SECOND) * SECOND;
     case "minute":
       return Math.floor(ms / MINUTE) * MINUTE;
     case "hour":
@@ -484,6 +495,7 @@ export function timeLabel(ms: number, grain: TimeGrain, options: BucketOptions =
   const day = pad(date.getUTCDate(), 2);
   const hour = pad(date.getUTCHours(), 2);
   const minute = pad(date.getUTCMinutes(), 2);
+  const second = pad(date.getUTCSeconds(), 2);
   const fiscalStartMonth =
     options.fiscalStartMonth !== undefined &&
     options.fiscalStartMonth >= 1 &&
@@ -491,6 +503,8 @@ export function timeLabel(ms: number, grain: TimeGrain, options: BucketOptions =
       ? options.fiscalStartMonth
       : 1;
   switch (grain) {
+    case "second":
+      return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
     case "minute":
       return `${year}-${month}-${day} ${hour}:${minute}`;
     case "hour":
@@ -1043,6 +1057,8 @@ function dimensionInto(
 /** Iterates the regular calendar step of a time grain after `ms`. */
 function nextBucket(ms: number, grain: TimeGrain, options: BucketOptions = {}): number {
   switch (grain) {
+    case "second":
+      return ms + SECOND;
     case "minute":
       return ms + MINUTE;
     case "hour":
@@ -1069,6 +1085,8 @@ function nextBucket(ms: number, grain: TimeGrain, options: BucketOptions = {}): 
 /** Periods between two bucket starts at the same grain (0 when equal). */
 export function periodIndex(from: number, to: number, grain: TimeGrain): number {
   switch (grain) {
+    case "second":
+      return Math.round((to - from) / SECOND);
     case "minute":
       return Math.round((to - from) / MINUTE);
     case "hour":

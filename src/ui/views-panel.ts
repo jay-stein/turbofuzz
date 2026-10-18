@@ -20,7 +20,7 @@ import { compilePivotLambda } from "../data/pivot-lambda.js";
 import { downloadCsv } from "./chart-export.js";
 import { pivotCsvRows } from "./pivot-export.js";
 import { safeFileName } from "./chart-utils.js";
-import { openPrompt } from "./dialog.js";
+import { openPrompt, setupDialog } from "./dialog.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
 
@@ -91,7 +91,26 @@ const DATE_PARTS: readonly { value: DatePart; label: string }[] = [
   { value: "week", label: "Week of year" },
 ];
 
+const DATE_GROUP_CHOICES: { value: TimeGrain; label: string }[] = [
+  { value: "second", label: "Seconds" },
+  { value: "minute", label: "Minutes" },
+  { value: "hour", label: "Hours" },
+  { value: "day", label: "Days" },
+  { value: "month", label: "Months" },
+  { value: "quarter", label: "Quarters" },
+  { value: "year", label: "Years" },
+];
+const DATE_GROUP_ORDER: TimeGrain[] = [
+  "year",
+  "quarter",
+  "month",
+  "day",
+  "hour",
+  "minute",
+  "second",
+];
 const GRAIN_LABELS: Record<TimeGrain, string> = {
+  second: "Second",
   minute: "Minute",
   hour: "Hour",
   day: "Day",
@@ -1957,6 +1976,22 @@ export class ViewsPanel {
         action: () => this.applyPivotFieldMove(source, "values", def.measures.length),
       },
     ];
+    const meta = this.metas[column];
+    if (meta?.type === "date" || meta?.type === "datetime") {
+      const dateSpec: DimensionSpec = { column, by: { time: "month" } };
+      items.unshift(
+        {
+          label: "Date groups in Index…",
+          title: `Choose Years, Quarters, Months and more as nested ${name} fields`,
+          action: () => this.openDateGroups(dateSpec, "index"),
+        },
+        {
+          label: "Date groups in Columns…",
+          title: `Spread nested ${name} date groups across columns`,
+          action: () => this.openDateGroups(dateSpec, "columns"),
+        },
+      );
+    }
     openMenu(anchor, items);
   }
   /** Wire one builder well as a drag/drop target for pivot fields. */
@@ -2541,7 +2576,24 @@ export class ViewsPanel {
     };
     items.push({ label: "Exact value", action: () => setBy("value") });
     if (meta.type === "date" || meta.type === "datetime") {
-      for (const grain of ["day", "week", "month", "quarter", "year", "hour", "minute"] as TimeGrain[]) {
+      const group = this.pivotIndexes(def).includes(index) ? "columns" : "index";
+      items.push({
+        label: "Group by several date parts…",
+        title: "Add nested date fields such as Year then Month",
+        action: () => this.openDateGroups(spec, group),
+      });
+    }
+    if (meta.type === "date" || meta.type === "datetime") {
+      for (const grain of [
+        "day",
+        "week",
+        "month",
+        "quarter",
+        "year",
+        "hour",
+        "minute",
+        "second",
+      ] as TimeGrain[]) {
         items.push({
           label: `Time · ${GRAIN_LABELS[grain]}`,
           action: () => setBy({ time: grain }),
@@ -2660,6 +2712,167 @@ export class ViewsPanel {
     openMenu(anchor, items);
   }
 
+  /** Excel-style date hierarchy picker for an existing date field. */
+  private openDateGroups(spec: DimensionSpec, group: "index" | "columns"): void {
+    const entry = this.views[this.active];
+    if (entry === undefined) return;
+    const meta = this.metas[spec.column];
+    const pivots = new Set(this.pivotIndexes(entry.def));
+    const existing = new Set<TimeGrain>();
+    entry.def.dimensions.forEach((dimension, index) => {
+      if (dimension.column !== spec.column) return;
+      const inTarget = group === "columns" ? pivots.has(index) : !pivots.has(index);
+      if (inTarget && typeof dimension.by === "object" && "time" in dimension.by) {
+        existing.add(dimension.by.time);
+      }
+    });
+    const selected = new Set<TimeGrain>(existing.size === 0 ? ["month"] : existing);
+
+    const overlay = el("div", { class: "modal-overlay" });
+    const modal = el("div", { class: "modal confirm-modal date-group-modal" });
+    const head = el("div", { class: "modal-head" });
+    head.append(el("h2", {}, [`Group ${meta?.name ?? "date"} by`]));
+    const closeButton = el(
+      "button",
+      { class: "icon-btn", type: "button", title: "Close" },
+      ["×"],
+    ) as HTMLButtonElement;
+    head.append(closeButton);
+    modal.append(head);
+
+    const body = el("div", { class: "date-group-body" });
+    body.append(
+      el("p", { class: "date-group-note" }, [
+        `Choose one or more parts to nest in ${group === "index" ? "Index" : "Columns"}.`,
+      ]),
+    );
+    const list = el("div", { class: "date-group-list" });
+    for (const choice of DATE_GROUP_CHOICES) {
+      const checkbox = el("input", {
+        type: "checkbox",
+        ...(selected.has(choice.value) ? { checked: "checked" } : {}),
+      }) as HTMLInputElement;
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) selected.add(choice.value);
+        else selected.delete(choice.value);
+        apply.disabled = selected.size === 0;
+      });
+      list.append(
+        el("label", { class: "date-group-option" }, [
+          checkbox,
+          el("span", {}, [choice.label]),
+        ]),
+      );
+    }
+    body.append(list);
+    if (group === "columns") {
+      body.append(
+        el("p", { class: "date-group-note" }, [
+          "Column hierarchies are capped at 500 displayed column groups.",
+        ]),
+      );
+    }
+    modal.append(body);
+
+    const footer = el("div", { class: "clean-footer" });
+    const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
+    const apply = el(
+      "button",
+      { class: "primary", type: "button" },
+      ["Apply"],
+    ) as HTMLButtonElement;
+    apply.disabled = selected.size === 0;
+    footer.append(cancel, el("span", { class: "grow" }), apply);
+    modal.append(footer);
+
+    const close = (): void => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKey);
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+      }
+    };
+    closeButton.addEventListener("click", close);
+    cancel.addEventListener("click", close);
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close();
+    });
+    apply.addEventListener("click", () => {
+      const grains = DATE_GROUP_ORDER.filter((grain) => selected.has(grain));
+      close();
+      this.applyDateGroups(spec, group, grains);
+    });
+    document.addEventListener("keydown", onKey);
+    overlay.append(modal);
+    document.body.append(overlay);
+    setupDialog(overlay, `Group ${meta?.name ?? "date"} by`);
+  }
+
+  /** Replace a field's date grains in one well with the selected hierarchy. */
+  private applyDateGroups(
+    spec: DimensionSpec,
+    group: "index" | "columns",
+    grains: TimeGrain[],
+  ): void {
+    if (grains.length === 0) return;
+    this.update((view) => {
+      const pivots = new Set(this.pivotIndexes(view));
+      const inTarget = (index: number): boolean =>
+        group === "columns" ? pivots.has(index) : !pivots.has(index);
+      const isTime = (dimension: DimensionSpec): boolean =>
+        typeof dimension.by === "object" && "time" in dimension.by;
+      const targetOrder = view.dimensions
+        .map((_, index) => index)
+        .filter((index) => inTarget(index));
+      const first = targetOrder.find((index) => {
+        const dimension = view.dimensions[index]!;
+        return dimension.column === spec.column && isTime(dimension);
+      });
+      const position = first === undefined ? targetOrder.length : targetOrder.indexOf(first);
+      const columnSpecs = new Set(
+        this.pivotIndexes(view).map((index) => view.dimensions[index]!),
+      );
+      const removed = new Set<DimensionSpec>();
+      view.dimensions = view.dimensions.filter((dimension, index) => {
+        if (!inTarget(index)) return true;
+        if (dimension.column === spec.column && isTime(dimension)) {
+          removed.add(dimension);
+          return false;
+        }
+        return true;
+      });
+      const targetAfter = view.dimensions
+        .map((_, index) => index)
+        .filter((index) =>
+          group === "columns"
+            ? columnSpecs.has(view.dimensions[index]!)
+            : !columnSpecs.has(view.dimensions[index]!),
+        );
+      const before = targetAfter[Math.min(position, targetAfter.length)];
+      const beforeSpec = before === undefined ? undefined : view.dimensions[before];
+      const specs = grains.map(
+        (grain): DimensionSpec => ({ column: spec.column, by: { time: grain } }),
+      );
+      const insertAt =
+        beforeSpec === undefined
+          ? view.dimensions.length
+          : view.dimensions.indexOf(beforeSpec);
+      view.dimensions.splice(insertAt, 0, ...specs);
+      for (const dimension of removed) columnSpecs.delete(dimension);
+      if (group === "columns") {
+        for (const dimension of specs) columnSpecs.add(dimension);
+      }
+      view.pivotColumns = view.dimensions
+        .map((dimension, index) => (columnSpecs.has(dimension) ? index : -1))
+        .filter((index) => index >= 0);
+      view.pivot = view.pivotColumns[0];
+      if (view.pivotColumns.length === 0) view.fillValue = undefined;
+      if (view.fill === "none") view.fill = "zero";
+    });
+  }
   /** Step one of adding a measure: pick the column (or rows/expression). */
   private openMeasureMenu(anchor: HTMLElement, def: ViewDef): void {
     const items: MenuItem[] = [

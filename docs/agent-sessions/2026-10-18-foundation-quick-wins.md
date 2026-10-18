@@ -301,7 +301,7 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 ### Validation
 
 - `npm run typecheck` passes.
-- `npm test`: 720 tests passing.
+- `npm test`: 721 tests passing.
 - `npm run build` passes.
 - New tests cover shelf-column moves and grand-total CSV percentages.
 ### Guards and time grouping
@@ -322,3 +322,10 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - Removed the "Use as dataset" action and its callback/application path from Views.
 - Replaced the view expand/collapse glyph with a 34px top-left plus/minus icon button.
 - Doubled view title size to 26px. Collapsed cards keep the title visible alongside the summary.
+## Follow-up: Excel-style multi-date hierarchies (2026-10-18)
+
+- Date and datetime fields can now add a nested hierarchy of Seconds, Minutes, Hours, Days, Months, Quarters and Years in one action.
+- The hierarchy dialog is available from a date field's grain menu and directly from the field shelf as Index or Columns groups.
+- Applying a hierarchy replaces existing time-grain fields for that column in the same well, preserving the well position and avoiding duplicate grains.
+- Added second-grain bucketing, labels, stepping and period indexes to the aggregation engine.
+- The existing 500-column cap remains the safeguard for date hierarchies placed in Columns.

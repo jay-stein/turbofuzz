@@ -200,6 +200,8 @@ test("time helpers handle weeks and labels", () => {
   assert.equal(datePartLabel(Date.UTC(2024, 0, 1), "month"), "Jan");
   assert.equal(isoWeek(Date.UTC(2024, 0, 1)), 1);
   assert.equal(timeLabel(Date.UTC(2024, 4, 15, 13, 30), "hour"), "2024-05-15 13:00");
+  assert.equal(timeBucket(Date.UTC(2024, 4, 15, 13, 30, 45, 900), "second"), Date.UTC(2024, 4, 15, 13, 30, 45));
+  assert.equal(timeLabel(Date.UTC(2024, 4, 15, 13, 30, 45), "second"), "2024-05-15 13:30:45");
 });
 
 test("expression measures combine aggregates into ratios", () => {

@@ -891,3 +891,56 @@ test("pivot value filters use a searchable picker and can clear", async () => {
   await tick();
   assert.deepEqual(pivotRequests[pivotRequests.length - 1]?.valueFilters, []);
 });
+test("date fields can add a multi-level Year and Month hierarchy", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const requests: ViewDef[] = [];
+  const panel = new ViewsPanel(host as unknown as HTMLElement, {
+    requestAggregate: async (view) => {
+      requests.push(view);
+      return aggregateFor(view);
+    },
+    onDrill: () => {},
+    onChart: () => {},
+    onCopyPandas: async () => {},
+  });
+  panel.setColumns(metas, 100);
+  await tick();
+
+  const whenChip = [...host.querySelectorAll(".views-shelf-chip")].find(
+    (chip) => (chip.textContent ?? "").startsWith("when"),
+  );
+  assert.ok(whenChip !== undefined);
+  (whenChip as unknown as { click(): void }).click();
+  const toIndex = [...doc.querySelectorAll(".context-menu .context-item")].find(
+    (item) => item.textContent === "Add to Index",
+  );
+  assert.ok(toIndex !== undefined);
+  (toIndex as unknown as { click(): void }).click();
+  await tick();
+
+  const monthPill = [...host.querySelectorAll(".views-index-pill .views-pill-label")].find(
+    (pill) => (pill.textContent ?? "").includes("Month"),
+  );
+  assert.ok(monthPill !== undefined);
+  (monthPill as unknown as { click(): void }).click();
+  const groupItem = [...doc.querySelectorAll(".context-menu .context-item")].find(
+    (item) => (item.textContent ?? "").includes("Group by several date parts"),
+  );
+  assert.ok(groupItem !== undefined);
+  (groupItem as unknown as { click(): void }).click();
+
+  const years = [...doc.querySelectorAll(".date-group-option")].find((option) =>
+    (option.textContent ?? "").includes("Years"),
+  ) as unknown as { querySelector(selector: string): HTMLInputElement | null };
+  assert.ok(years !== undefined);
+  years.querySelector("input")?.click();
+  (doc.querySelector(".date-group-modal .primary") as unknown as { click(): void }).click();
+  await tick();
+
+  assert.deepEqual(
+    requests[requests.length - 1]?.dimensions.map((dimension) => dimension.by),
+    ["value", { time: "year" }, { time: "month" }],
+  );
+});
