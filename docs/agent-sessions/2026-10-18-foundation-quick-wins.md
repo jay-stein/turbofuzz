@@ -50,6 +50,13 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Chart-filter coverage is exercised by worker tests for aggregate, series, crosstab, correlation, box, grid, and animation payloads.
 - Geo choropleths report how many loaded regions matched the join and mark unmatched regions in the hover tooltip.
 
+### Generated chart code
+
+- Added idiomatic pandas and Polars generators for count/aggregate barplots, time series, KPIs, correlations, heatmaps, and scatter-like charts.
+- Card menus now download `.py` files for pandas and Polars; unsupported chart kinds explain why instead of emitting misleading code.
+- Generated code includes chart filters and warns when table filters were intentionally ignored; time series map grains to `resample`/`group_by_dynamic`.
+- Tests cover barplot aggregation, top-N, time resampling, and unsupported-kind warnings.
+
 ### ChartSpec export
 
 - Added a versioned `ChartSpec` model that stores fields by name, source, aggregation/calculation, chart filters, table-filter scope, and presentation settings.
@@ -201,6 +208,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `786cbe8` fix(charts): crop density grids to the viewport
 - `d5f963a` feat(charts): add stacked grouped barplots
 - `fc4339e` feat(charts): add portable chart spec export
+- `18affde` feat(charts): generate pandas and polars chart code
 - `1580efe` feat(charts): load geojson and zipped shapefile regions
 - `21836d1` feat(charts): join geojson regions to dataset measures
 
@@ -209,7 +217,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 Final state after the session:
 
 - `npm run typecheck` passes.
-- `npm test`: 690 tests passing.
+- `npm test`: 692 tests passing.
 - `npm run build` passes.
 - No network or eval paths were introduced.
 - Pre-existing untracked files `DATA_QC_SPEC.md` and `UX_IMPROVEMENT_BACKLOG.md` were left untouched.
