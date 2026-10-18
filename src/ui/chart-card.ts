@@ -245,6 +245,15 @@ export interface ChartCardConfig {
   valueAgg?: "mean" | "sum" | "median" | "min" | "max" | "count" | "distinct";
   /** Bucket grain for the value line; "auto"/undefined derives it from the span. */
   valueGrain?: TimeGrain | "auto";
+  /** Non-destructive post-aggregation calculation for the card's measure. */
+  valueCalc?:
+    | "rolling7"
+    | "cumulative"
+    | "diff"
+    | "pctChange"
+    | "pctTotal"
+    | "rank"
+    | "yoy";
   /** Chart-scoped category filter; -1/undefined means no chart filter. */
   filterColumn?: number;
   filterCode?: number;
@@ -781,6 +790,8 @@ export class ChartCard {
   private readonly valueAggWrap: HTMLElement;
   private readonly valueGrainSelect: HTMLSelectElement;
   private readonly valueGrainWrap: HTMLElement;
+  private readonly valueCalcSelect: HTMLSelectElement;
+  private readonly valueCalcWrap: HTMLElement;
   private readonly filterColumnSelect: HTMLSelectElement;
   private readonly filterValueSelect: HTMLSelectElement;
   private readonly filterRespectInput: HTMLInputElement;
@@ -992,6 +1003,34 @@ export class ChartCard {
       this.render();
     });
     this.valueGrainWrap = this.tagged("Bucket", this.valueGrainSelect).wrap;
+
+    this.valueCalcSelect = this.buildSelect(
+      "chart-picker chart-picker-small",
+      "Chart calculation",
+    );
+    (
+      [
+        ["", "None"],
+        ["rolling7", "Rolling mean (7)"],
+        ["cumulative", "Cumulative"],
+        ["diff", "Difference"],
+        ["pctChange", "% change"],
+        ["pctTotal", "% of total"],
+        ["rank", "Rank"],
+        ["yoy", "Year-over-year %"],
+      ] as const
+    ).forEach(([value, label]) => {
+      this.valueCalcSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+    });
+    this.valueCalcSelect.addEventListener("change", () => {
+      this.config.valueCalc =
+        (this.valueCalcSelect.value as ChartCardConfig["valueCalc"]) || undefined;
+      this.generation++;
+      this.refreshValue();
+      this.syncScope();
+      this.render();
+    });
+    this.valueCalcWrap = this.tagged("Calc", this.valueCalcSelect).wrap;
 
     this.filterColumnSelect = this.buildSelect(
       "chart-picker chart-picker-small",
@@ -1217,6 +1256,7 @@ export class ChartCard {
       this.valueWrap,
       this.valueAggWrap,
       this.valueGrainWrap,
+      this.valueCalcWrap,
       this.axesPanel,
       el("span", { class: "grow" }),
       this.focusButton,
@@ -2145,6 +2185,7 @@ export class ChartCard {
     this.valueWrap.classList.toggle("hidden", bound || !measureKinds);
     this.valueAggWrap.classList.toggle("hidden", bound || !measureKinds || !valueOn);
     this.valueGrainWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn);
+    this.valueCalcWrap.classList.toggle("hidden", bound || !valueOn);
     this.xWrap.classList.toggle("hidden", bound || !pair);
     this.yWrap.classList.toggle("hidden", bound || !pair);
     this.axesPanel.classList.toggle("hidden", bound || kind === "correlation");
@@ -2222,6 +2263,13 @@ export class ChartCard {
       1,
       Math.min(256, Math.floor(this.config.binOptions?.binCount ?? DEFAULT_BIN_COUNT) || 32),
     );
+    const calc = this.config.valueCalc;
+    const post =
+      calc === undefined
+        ? undefined
+        : calc === "rolling7"
+          ? ([{ op: "rolling", window: 7 }] as const)
+          : ([{ op: calc }] as const);
     return {
       id: "card-value",
       name: this.config.title.trim() === "" ? this.defaultTitle() : this.config.title.trim(),
@@ -2243,7 +2291,13 @@ export class ChartCard {
                     { column: this.config.groupColumn, by: "value" },
                   ]
                 : [{ column: this.config.column, by: "value" }],
-      measures: [{ column, agg: this.config.valueAgg ?? "mean" }],
+      measures: [
+        {
+          column,
+          agg: this.config.valueAgg ?? "mean",
+          ...(post === undefined ? {} : { post: [...post] }),
+        },
+      ],
       fill: line && !split ? "zero" : "none",
       sort:
         line || overTime || histogram
@@ -2330,8 +2384,12 @@ export class ChartCard {
       filterLabel === undefined
         ? ""
         : ` · chart: ${this.meta(filterColumn)?.name ?? "value"} = ${filterLabel}`;
+    const calc =
+      this.config.valueCalc === undefined
+        ? ""
+        : ` · calc: ${this.valueCalcSelect.selectedOptions[0]?.textContent ?? this.config.valueCalc}`;
     this.scopeEl.textContent =
-      (view === undefined ? `Table · ${scope}` : scope) + chartFilter;
+      (view === undefined ? `Table · ${scope}` : scope) + chartFilter + calc;
     this.scopeEl.classList.toggle("hidden", total === 0 && this.rowCount === 0);
   }
 
@@ -2911,6 +2969,7 @@ export class ChartCard {
     }
     if (this.config.valueAgg !== undefined) this.valueAggSelect.value = this.config.valueAgg;
     this.valueGrainSelect.value = this.config.valueGrain ?? "auto";
+    this.valueCalcSelect.value = this.config.valueCalc ?? "";
 
     const xAllowed = this.allowedIndexes((meta) => this.allowsX(meta));
     const yAllowed = this.allowedIndexes((meta) => this.allowsY(meta));
@@ -3088,6 +3147,7 @@ export class ChartCard {
     this.valueWrap.classList.toggle("hidden", !measureKinds || !unbound);
     this.valueAggWrap.classList.toggle("hidden", !measureKinds || !unbound || !valueOn);
     this.valueGrainWrap.classList.toggle("hidden", !grainKinds || !unbound || !valueOn);
+    this.valueCalcWrap.classList.toggle("hidden", !unbound || !valueOn);
     this.xWrap.classList.toggle("hidden", !pair);
     this.yWrap.classList.toggle("hidden", !pair);
     const seriesKind = kind === "scatter" || kind === "density";
