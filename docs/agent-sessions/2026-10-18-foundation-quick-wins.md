@@ -33,6 +33,11 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Barplot aggregates a numeric measure by category, supports mean/sum/median/min/max, and can split into one series per optional group value.
 - Added gallery fit rules, setup-dialog fields, axis labels, CSV export, and tests.
 
+### Pivot margins
+
+- Added an optional `Margins` toggle to pivoted views. The worker computes the All row, All column, and grand total from raw rows for the active aggregate function, so means/medians are not approximated by summing cells.
+- Margins are included in the pivot display and CSV export.
+
 ### Pivot/aggregate CSV export
 
 - Added `Export CSV` to the Pivot View actions. Normal aggregates export one row per group; the current pivot matrix exports row headers plus one column per spread value.
@@ -99,6 +104,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `28ae6e0` feat(charts): add pan and zoom to bubble charts
 - `a2e9b62` feat(pivot): export aggregate and pivot results as CSV
 - `c2360ec` feat(charts): zoom and pan heatmap categories
+- `7a1a153` feat(pivot): add worker-computed margins
 
 ## Validation
 
