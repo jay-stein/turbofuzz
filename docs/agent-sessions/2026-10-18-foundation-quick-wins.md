@@ -385,3 +385,8 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - Chart-source selectors group Table data, Pivot views and Saved views; filter changes refresh view-bound cards.
 - Removed the legacy client-side aggregate pivot assembly path: pivoted views now require the worker pivot result.
 - Updated `plan-remaining-work.md`: W1 complete, W1.11 complete, baseline 729 tests.
+## Planning: 10-day impact sprint (2026-10-19)
+
+- Audited remaining W2-W8 work against current code.
+- Selected a 10-engineer-day sprint: batch casting/mismatch review, chart summary and measure depth, non-additive warnings, chart sorting, category/series controls and chart inspector.
+- Deferred performance architecture, ChartSpec adoption, multi-file hardening, shared chips and release hardening to an explicit backlog in `plan-remaining-work.md`.
