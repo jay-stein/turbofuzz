@@ -410,3 +410,27 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - `npm run build` passes.
 - Added tests for batch conversion, cast-failure filtering, measure-menu typing, risky-sum warnings and pivot-source charts.
 - `plan-remaining-work.md` marks the sprint complete and keeps the remainder in Backlog A/B/C.
+## Sprint 2: Chart Actions and Trust (2026-10-19)
+
+### Delivered
+
+- W3.1 shared chart-builder defaults (`chart-builder.ts`), edit mode in the existing setup dialog, `ChartCard.applyConfig`, Edit chart and Reset to suggested card-menu actions.
+- W4.2 chart selection bridge (`tableFiltersForHitActions`) and explicit menu actions: filter table, show underlying rows, drill, breakdown, duplicate-for-comparison, Edit and Reset.
+- W4.2 drill moves aggregate charts to the next finer time grain and otherwise opens the shared breakdown builder.
+- W4.3 (follow-through) atomic multi-filter application via a new worker `setFilters` request, so heatmap/map selections apply every filter in one rebuild.
+- W4.8 column-level data-issue bar for missing values, placeholder tokens and sentinel suggestions, with Filter:/Fix: chips and existing undo paths.
+- W4.4 `color-scale.ts` shared domains/ramps/legends, `colorCenter`, auto/manual domains, map heat/map points/scatter/pivot/correlation legends, and visible Min/Max for numeric colour.
+- W7.4 chart issue actions use Filter:/Fix: labels, counts, `aria-pressed` and the existing conversion/undo actions.
+
+### Validation
+
+- `npm run typecheck` passes.
+- `npm test`: 747 tests passing.
+- `npm run build` passes.
+- Added tests for shared builder/reset, edit dialog, chart-selection filters, chart menu actions, data-issue chips, colour domains and batch filters.
+
+### Scoped follow-ups
+
+- Dedicated period-over-period comparison remains deferred; the current action is an explicit duplicate for comparison.
+- Chart issue counts are column-level cleaned stats; recomputing them per active chart filter is deferred.
+- Correlation cells retain their fixed red/neutral/blue mapping; the shared centred domain/legend path is now exposed.

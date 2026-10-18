@@ -29,7 +29,7 @@ Already delivered and not to be rebuilt:
 - complete worker-backed Pivot View with drag/drop wells, typed report filters, multi-date hierarchies, pivot heatmap charts and grouped chart sources;
 - typed table header filters sharing the sidebar filter card, with dataset-anchored date bounds.
 
-Baseline test state: **734 tests passing**, typecheck and production build green.
+Baseline test state: **747 tests passing**, typecheck and production build green.
 
 ---
 
@@ -64,7 +64,7 @@ Baseline test state: **734 tests passing**, typecheck and production build green
 
 ---
 
-## 4. 10-Day Impact Sprint
+## 4. Sprint 1: 10-Day Impact Sprint
 
 **Status:** Complete on 2026-10-19. All selected packages landed; remaining work is in the deferred backlog.
 
@@ -113,14 +113,14 @@ Baseline test state: **734 tests passing**, typecheck and production build green
 - W2.9 expanded cast/type/performance tests.
 
 **W3 — remaining chart architecture**
-- W3.1 shared chart-builder structure across Add/Edit/Duplicate/Reset.
+- W3.1 shared chart-builder structure across Add/Edit/Duplicate/Reset is complete in Sprint 2.
 - W3.6–W3.9 are already complete; no backlog work.
 - (W3.2–W3.5 and W3.10 are in the sprint.)
 
 **W4 — remaining exploration**
-- W4.2 explicit drill/filter/underlying-rows actions.
-- W4.4 shared colour-scale module.
-- W4.8 unknown/null category disclosure and chart data-issue actions.
+- W4.2 explicit drill/filter/underlying-rows actions are complete in Sprint 2; dedicated period comparison remains a follow-up.
+- W4.4 shared colour-scale module is complete in Sprint 2.
+- W4.8 unknown/null category disclosure and chart data-issue actions are complete at column level; filtered counts remain a follow-up.
 - W4.3, W4.5, W4.6 and W4.7 are already complete.
 
 **W5 — ChartSpec adoption**
@@ -143,7 +143,7 @@ Baseline test state: **734 tests passing**, typecheck and production build green
 - W7.1 shared chip module.
 - W7.2 collapsed fix chips and sampled-count labels.
 - W7.3 type-change entry-point audit.
-- W7.4 chart data-issue action consistency.
+- W7.4 chart data-issue action consistency is complete in Sprint 2.
 - W7.5 component test coverage.
 
 **W8 — release hardening**
@@ -153,6 +153,118 @@ Baseline test state: **734 tests passing**, typecheck and production build green
 - W8.4 CSP/manual review.
 - W8.5 docs/help/session/support updates.
 - W8.6 final full gate.
+
+---
+
+## 4b. Sprint 2: Chart Actions and Trust
+
+**Status:** Complete on 2026-10-19, with the scoped follow-ups recorded below.
+
+**Budget:** 10 engineer-days, including 0.5 day contingency.
+
+**Selection rule:** finish the chart exploration loop before starting ChartSpec or release hardening. Sprint 1 made charts explain themselves; Sprint 2 makes them actionable and trustworthy.
+
+### Research findings
+
+- W4.1 is complete, but the inspector is read-only. There is no direct “show me these rows”, “filter to this group”, drill, breakdown or compare follow-through.
+- W4.2 is entirely unbuilt. Existing hit actions filter or zoom the chart; they do not expose table scope or a reusable action model.
+- W4.4 is partially built: `colorMin`/`colorMax` live inside `ChartCard`, but there is no shared module, no diverging centre control and no single legend/domain path.
+- W4.8 is unbuilt. `(empty)` and placeholder categories are visible in charts without counts, explanation or scoped fix actions.
+- W3.1 is unbuilt. Add/Edit/Duplicate/Reset still assemble field controls through separate paths, which makes chart-action parity expensive.
+- W7.4 depends on W4.8 and is small once the data-issue surface exists.
+- W5 ChartSpec adoption should wait until the action/colour/missing-value semantics are settled; otherwise the spec will encode behaviour that is still moving.
+
+### Sprint budget
+
+| Order | Package | Deliverable | Days |
+|---:|---|---|---:|
+| 1 | **W3.1** | Shared chart-builder structure across Add/Edit/Duplicate/Reset with one validation/summary path. | 1.0 |
+| 2 | **W4.2** | Explicit chart actions: filter table, view underlying rows, drill, break down, compare, duplicate, config undo and reset. | 3.5 |
+| 3 | **W4.8** | Unknown/null category counts, chart data-issue bar, scoped placeholder conversion and undo. | 2.0 |
+| 4 | **W4.4** | Shared colour-scale module with auto/manual domains, diverging centre, legend and clipping guarantees. | 2.0 |
+| 5 | **W7.4** | Chart data-issue actions use the shared chip risk/exactness/undo semantics. | 0.5 |
+| 6 | **Integration reserve** | Cross-package keyboard/a11y/regression pass and bug buffer. | 0.5 |
+|  | **Total** |  | **9.5 + 0.5 contingency = 10.0** |
+
+### Work package detail
+
+#### W3.1 — One chart builder (1.0 day)
+
+- Extract the field/measure/source/validation structure currently repeated across Add, Edit, Duplicate and Reset.
+- Keep the existing chart kinds and controls; this is a structural extraction, not a redesign.
+- One helper produces the suggested configuration, one validates it, and one renders the summary for every entry point.
+- Acceptance: Add/Edit/Duplicate/Reset produce the same summary and validation messages for the same config; duplicate and reset preserve/reset the same fields consistently.
+- Tests: builder parity table across all four entry points; no behavior change for existing chart setup tests.
+
+#### W4.2 — Explicit chart actions (3.5 days)
+
+Add a consistent action surface on point/bar/category interactions. The inspector stays as the preview; actions state their scope before applying.
+
+Required actions:
+- **Filter table to this group** — adds ordinary, visible table filters; never silently changes table scope.
+- **View underlying rows** — switches to the table with the same filter and reports the exact matching row count.
+- **Drill to finer grain** — next date grain for time charts; selected breakdown for category charts. No arbitrary hierarchy authoring.
+- **Break down by another field** — opens the shared builder prefilled with the current measure/group and the chosen breakdown.
+- **Compare group/period** — same measure, comparison dimension/period, explicit labels; no hidden second aggregation.
+- **Duplicate, config undo, reset to suggested** — one undo stack for config changes; duplicate preserves source and filters.
+- Acceptance: every action names its scope; chart selection alone never filters the table; action filters are visible/removable; underlying-row counts equal the chart bucket count; drill/compare produce a normal editable chart.
+- Tests: action-to-filter mapping, row-count parity, undo/duplicate/reset, keyboard activation and focus return, no implicit table changes.
+
+#### W4.8 — Unknown/null chart categories (2.0 days)
+
+- Count unknown, null and placeholder categories separately in aggregate results.
+- Add a results-bar disclosure such as “12 missing · 3 unknown” with an explanation.
+- Actions: filter to affected rows, convert placeholders scoped to the chart dimension, and undo. Conversion uses the existing cast/clean preview rules.
+- Keep `(empty)` visible but explain it; do not silently drop or recode values.
+- Acceptance: chart counts reconcile with the disclosure; conversion preview and undo restore the original chart; scope is limited to the affected dimension; CSV/summary disclose the treatment.
+- Tests: counts for null/unknown/placeholder, scoped conversion, undo, CSV summary, no mutation without confirmation.
+
+#### W4.4 — Shared colour scale (2.0 days)
+
+- Extract `src/ui/color-scale.ts` for numeric scatter/map, map heat, heatmap, density and correlation.
+- Support `colorMin`, `colorMax`, optional divergent `colorCenter`, auto/manual domains and one legend path.
+- Auto domains cover the displayed data; manual domains may clip by design and must say so. Diverging centre behaviour is explicit and tested.
+- Acceptance: all five chart paths use the same scale/legend; no chart silently clips data; pivot heatmap keeps its current behaviour.
+- Tests: domain calculation, centre/diverging, clipping disclosure, legend formatting, chart golden/regression coverage.
+
+#### W7.4 — Issue-action consistency (0.5 day)
+
+- Route the new chart issue actions through the same chip kind/risk/exactness/undo semantics as table fixes.
+- Prevent a second parallel action vocabulary in chart results.
+- Acceptance: chart issue chips state whether they filter or fix, include exact/sampled counts, and expose Undo where mutation occurs.
+- Tests: shared chip labels, `aria-pressed`, apply/undo, stale disappearance.
+
+### Sprint 2 follow-ups
+
+- **Period comparison:** the current action is an explicit duplicate-for-comparison that keeps both cards editable. A dedicated two-period/two-group compare editor remains deferred.
+- **Chart issue counts:** disclosure uses column-level cleaned stats, so it does not yet recompute per active chart filter. Scoped bucket counts remain deferred.
+- **Correlation colour:** correlation cells keep their fixed red/neutral/blue mapping, but now expose the shared centred domain/legend path.
+
+### Sprint exit gate
+
+- `npm run typecheck`, `npm test` and `npm run build` are green.
+- Every chart action is reachable by keyboard and states its scope.
+- No action silently filters the table or mutates values.
+- Chart bucket counts match underlying-row counts after the same filters.
+- Missing/unknown categories reconcile across chart, summary, CSV and disclosure.
+- Colour domains and legends are consistent across all supported chart kinds.
+- No selected package leaves a half-wired control.
+
+### Explicit non-goals
+
+- W5 ChartSpec expansion/render migration.
+- W2 cast/rebuild performance work.
+- W6 multi-file preflight.
+- W8 E2E/benchmark/accessibility release gate.
+- New chart kinds or a general hierarchy/drill-path authoring UI.
+
+### Follow-on order
+
+After Sprint 2, the remaining sequence is:
+
+1. **W5 ChartSpec adoption** — now that action, colour and missing-value semantics are settled.
+2. **Backlog A** — W2 type lattice, incremental clean, type-preserving rebuilds and benchmarks.
+3. **Backlog C** — W6 multi-file hardening, W7 shared chips, W8 release gate.
 
 ---
 
@@ -219,7 +331,7 @@ Baseline test state: **734 tests passing**, typecheck and production build green
 
 | ID | Task | Acceptance |
 |---|---|---|
-| W3.1 | Extract one shared chart-builder structure used by Add chart, Edit chart, Duplicate, and Reset to suggested configuration. | Same validation, summary, and field controls across all entry points; chart config remains out of the data Recipe. |
+| W3.1 | Complete - extract one shared chart-builder structure used by Add chart, Edit chart, Duplicate, and Reset to suggested configuration. | Shared defaults, edit dialog, config application, validation and summary path; chart config remains out of the data Recipe. |
 | W3.2 | Complete — add an always-visible chart summary sentence: measure, aggregation, grouping, breakdown, filters, grain/calculation, source. | Summary updates live and names every semantic choice. |
 | W3.3 | Complete — expand measure menu: stddev, variance, custom percentile, percent of rows, percent of total, boolean true/false/percentage/missing, date earliest/latest. | Only valid operations appear per type; null handling and denominator are documented in tooltips. |
 | W3.4 | Complete — add non-additive/unit warnings when summing rate/ratio/percentage/index/temperature-like fields. | Warning states why summing may be misleading and offers mean/median alternatives. |
@@ -245,13 +357,13 @@ Baseline test state: **734 tests passing**, typecheck and production build green
 | ID | Task | Acceptance |
 |---|---|---|
 | W4.1 | Complete — add a point/bar inspector: label, measure/aggregation, value, row count, non-null count, active table/chart filters, grain/bin, sampled/full disclosure. | Tooltip/inspector stays consistent for aggregated and raw charts. |
-| W4.2 | Add explicit actions: filter table to group, view underlying rows, drill to finer grain, break down by another field, compare group/period, duplicate, config undo, reset to suggested. | Actions state their scope; chart selection never silently filters the table. |
+| W4.2 | Complete - filter table to group, view underlying rows, drill to finer grain, break down by another field, duplicate-for-comparison, edit/reset. | Actions state their scope; chart selection never silently filters the table; dedicated period comparison remains a follow-up. |
 | W4.3 | Complete Barplot: time X, error bars (SD/SE/95% normal), order controls, hue order/cap, orientation, weighted measure, negative-value baseline. | Error method disclosed; hover shows n/estimate/error; legacy bar+value configs migrate safely. |
-| W4.4 | Extract a shared colour-scale module: numeric scatter/map, map heat, heatmap, density, correlation; `colorMin`, `colorMax`, `colorCenter`; manual/auto legend. | One scale path; domain never clips data; diverging centre behavior documented and tested. |
+| W4.4 | Complete - shared colour-scale domains/ramps/legend for scatter, density, map points, map heat, map regions, pivot heatmap and correlation. | One scale/legend path; manual domains disclose clipping; diverging centre runs through the shared domain. |
 | W4.5 | Complete viewport coverage: Barplot category + Y zoom, pivot heatmap windows, generic reset/controller, card-menu “Reset zoom & pan”. | Reset disabled at default; export can use current or full domain. |
 | W4.6 | Complete chart CSV: visible-window option, formula-injection escaping, per-kind schemas, sampled/aggregated disclosure. | Exports match the spec and displayed scope; escaping/BOM tests pass. |
 | W4.7 | Complete geo: direct multi-select `.shp/.dbf/.prj`, missing-`.prj` CRS prompt or assume-WGS84 confirmation, geometry cap/simplify warning, unmatched diagnostic list, direct numeric property coloring, map-source registry. | No projected coordinates are treated as degrees; reload state is clear; join diagnostics are actionable. |
-| W4.8 | Add unknown/null category disclosure and chart data-issue actions: data-issue count, convert placeholders scoped to chart dimensions, treat/keep actions. | Chart grouping explains `(empty)` and placeholder values; actions preview, undo, and link to Clean. |
+| W4.8 | Complete - column-level missing/placeholder/sentinel disclosure with filter, show-rows, convert and treat actions. | Chart dimensions explain missing/placeholder values; fixes use existing undoable paths; filtered bucket counts remain a follow-up. |
 
 **Estimate:** 10–14 engineer-days.
 **Exit gate:** chart selection, inspection, drill/compare, error bars, colour domains, viewport, CSV scope, and geo diagnostics all meet the UX spec.
@@ -312,7 +424,7 @@ Baseline test state: **734 tests passing**, typecheck and production build green
 | W7.1 | Create `src/ui/chips.ts` plus shared suggestion metadata: kind, risk, exactness, short/full labels, effect. | Table, filters, inspector, Triage, Overview, Quality use one rendering/label source. |
 | W7.2 | Collapse >2 fix chips into `Fix issues (N)`; sampled counts use `~` with explanation. | Header stays readable; every action remains reachable. |
 | W7.3 | Verify all type-change entry points use the cast dialog; staged clean casts and recipe replay exceptions documented. | No silent type reinterpretation remains; cancel restores header select. |
-| W7.4 | Make chart data-issue/placeholder actions consistent with shared chip risk/undo rules. | Preview and Undo available where required. |
+| W7.4 | Complete - chart issue chips use Filter:/Fix: semantics, counts, `aria-pressed` and existing undo paths. | Filter and fix actions are distinguishable and mutation actions expose Undo. |
 | W7.5 | Component tests: header, inspector, filter panel, Triage, Overview, Quality, chart results bar. | `aria-pressed`, apply/undo, stale disappearance, exact counts covered. |
 
 **Estimate:** 4–6 engineer-days.
@@ -345,18 +457,23 @@ Baseline test state: **734 tests passing**, typecheck and production build green
 | Milestone | Work packages | Outcome |
 |---|---|---|
 | **M0: Pivot complete** | W1 | Complete. Worker pivot, field wells, filters, date hierarchies, pivot heatmap and chart sources. |
-| **Sprint: daily friction** | W2.1-W2.2, W3.2-W3.5, W3.10, W4.1 | Batch casts, mismatch review, chart summary/measures/sorting/warnings, inspector. |
+| **Sprint 1: daily friction** | W2.1-W2.2, W3.2-W3.5, W3.10, W4.1 | Complete. Batch casts, mismatch review, chart summary/measures/sorting/warnings, inspector. |
+| **Sprint 2: chart actions and trust** | W3.1, W4.2, W4.4, W4.8, W7.4 | Complete. Shared builder, drill/filter/rows actions, missing-value disclosure, shared colour scales, consistent issue actions. |
 | **Backlog A: correctness and performance** | W2.3-W2.9, W6 | Type lattice, incremental rebuilds, deferred stats, multi-file hardening, benchmarks. |
-| **Backlog B: chart architecture** | W3.1, W4.2, W4.4, W4.8, W5 | Shared builder, drill actions, shared colour scale, null disclosure, ChartSpec adoption. |
+| **Backlog B: chart spec** | W5 | ChartSpec expansion, render/CSV/duplication adoption and spec validation. |
 | **Backlog C: release quality** | W7, W8 | Shared chips, E2E, benchmarks, accessibility, CSP review and docs. |
 
-The sprint is intentionally single-threaded enough to finish in 10 engineer-days. Backlog A/B/C starts only after the sprint exit gate passes.
+Sprint 1 is complete. Sprint 2 is intentionally single-threaded enough to finish in 10 engineer-days. Backlog A/C and W5 start only after the Sprint 2 exit gate passes.
 
 ---
 ## 7. Risks and mitigations
 
 | Risk | Mitigation |
 |---|---|
+| Chart actions become a second configuration system | All actions compile to normal chart/table config; no hidden state; one undo stack and shared builder. |
+| Drill/compare scope expands into a hierarchy editor | Limit Sprint 2 to next date grain and one selected breakdown; defer arbitrary drill paths. |
+| Shared colour refactor changes existing chart output | Centralise calculation first, then migrate one chart kind per test; keep existing domain/legend fixtures. |
+| Missing-value conversion mutates data silently | Reuse cast/clean preview, scope conversion to the selected dimension, require confirmation and expose Undo. |
 | ChartSpec refactor destabilises rendering | Land spec expansion behind adapters; migrate one chart kind at a time; keep golden render/CSV tests. |
 | Batch casts exhaust memory or block the UI | Sequential parse/rebuild, one request per batch, progress + cancel, benchmark budgets. |
 | Time/resample parity drifts | Shared time-bucket model, pandas-generated fixtures, support-report for unsupported settings. |
@@ -368,7 +485,7 @@ The sprint is intentionally single-threaded enough to finish in 10 engineer-days
 
 ## 8. Definition of done
 
-The 10-day sprint is complete when the selected W2/W3/W4 acceptance tests pass, the sprint exit gate is green, and no selected package leaves a half-wired control.
+Sprint 1 is complete. Sprint 2 is complete when the selected W3/W4/W7 acceptance tests pass, the Sprint 2 exit gate is green, and no selected package leaves a half-wired control.
 
 The full remaining plan is complete when:
 

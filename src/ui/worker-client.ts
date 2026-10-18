@@ -154,6 +154,12 @@ export class SearchWorkerClient {
     return this.request<ResultsMessage>({ type: "setFilter", column, filter, preview });
   }
 
+  setFilters(
+    filters: { column: number; filter: ColumnFilter | null }[],
+    preview = false,
+  ): Promise<ResultsMessage> {
+    return this.request<ResultsMessage>({ type: "setFilters", filters, preview });
+  }
   clearFilters(): Promise<ResultsMessage> {
     return this.request<ResultsMessage>({ type: "clearFilters" });
   }

@@ -112,3 +112,32 @@ test("setup errors name the conflicting field", async () => {
     /Rows\/Columns: pick two different columns/,
   );
 });
+
+test("the edit dialog uses the same validation and keeps frame fields", async () => {
+  setupDom();
+  const columns = [meta("a", "number"), meta("b", "number"), meta("c", "number")];
+  const pending = openChartSetupDialog(
+    "correlation",
+    columns,
+    {
+      kind: "correlation",
+      source: "view-1",
+      title: "Numeric",
+      correlationColumns: [0, 1],
+    },
+    { mode: "edit" },
+  );
+  const modal = document.querySelector(".chart-setup-modal");
+  assert.ok(modal !== null);
+  assert.match(modal.textContent ?? "", /Edit correlation chart/);
+  assert.match(modal.textContent ?? "", /Cancel leaves it unchanged/);
+  const picker = document.querySelector(
+    'select[aria-label="Setup correlation columns"]',
+  ) as HTMLSelectElement;
+  picker.options[2]!.selected = true;
+  (modal.querySelector(".primary") as unknown as { click(): void }).click();
+  const config = await pending;
+  assert.equal(config?.source, "view-1");
+  assert.equal(config?.title, "Numeric");
+  assert.deepEqual(config?.correlationColumns, [0, 1, 2]);
+});

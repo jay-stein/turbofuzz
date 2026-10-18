@@ -7,6 +7,7 @@ import {
   ChartCard,
   cropDensityGrid,
   fitMapView,
+  tableFiltersForHitActions,
   type ChartCardConfig,
   type ChartCardOptions,
 } from "../src/ui/chart-card.js";
@@ -337,6 +338,9 @@ test("chart text stays legible and date labels fit the left margin", () => {
       return { data: new Uint8ClampedArray(width * height * 4), width, height };
     }
     putImageData(): void {}
+    createLinearGradient(): { addColorStop(): void } {
+      return { addColorStop(): void {} };
+    }
   }
   const proto = window.HTMLCanvasElement.prototype as unknown as {
     getContext(): unknown;
@@ -769,6 +773,9 @@ function captureMockContext(window: Window, drawn: string[]): void {
       return { data: new Uint8ClampedArray(width * height * 4), width, height };
     }
     putImageData(): void {}
+    createLinearGradient(): { addColorStop(): void } {
+      return { addColorStop(): void {} };
+    }
   }
   const proto = window.HTMLCanvasElement.prototype as unknown as { getContext(): unknown };
   proto.getContext = (): unknown => new MockContext();
@@ -828,6 +835,52 @@ test("bar clicks toggle their category through onFilter", async () => {
   card.dispose();
 });
 
+test("chart menu can filter the table or show rows for the hovered bar", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const applied: { column: number; filter: ColumnFilter }[][] = [];
+  const shown: string[] = [];
+  const host = document.createElement("div") as unknown as HTMLElement;
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      onFilterTable: (filters) => applied.push([...filters]),
+      onShowRows: (filters, label) => {
+        applied.push([...filters]);
+        shown.push(label);
+      },
+    },
+    { kind: "bar", column: 0 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({ name: "region", type: "category", categories: { labels: ["Perth", "Sydney"], counts: [10, 5] } }),
+  ]);
+  await tick();
+  const canvas = host.querySelector("canvas") as HTMLCanvasElement;
+  (canvas as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(
+    new window.MouseEvent("pointermove", { clientX: 200, clientY: 200 }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const menuItem = (label: string): { click(): void } => {
+    (host.querySelector(".chart-more") as unknown as { click(): void }).click();
+    const item = [...doc.querySelectorAll(".context-menu .context-item")].find(
+      (button) => button.textContent === label,
+    ) as unknown as { click(): void } | undefined;
+    assert.ok(item !== undefined, `expected menu item ${label}`);
+    return item;
+  };
+  menuItem("Filter table to selection").click();
+  menuItem("Show underlying rows").click();
+  assert.equal(applied.length, 2);
+  assert.deepEqual(applied[0], [{ column: 0, filter: { kind: "values", selected: [0] } }]);
+  assert.deepEqual(applied[1], [{ column: 0, filter: { kind: "values", selected: [0] } }]);
+  assert.match(shown[0] ?? "", /Perth/);
+  card.dispose();
+});
 test("hovering a chart fills the role=tooltip element", async () => {
   const window = setupDom();
   captureMockContext(window, []);
@@ -2980,4 +3033,136 @@ test("boolean chart measures expose true, false, missing and percent choices", (
   assert.ok(labels.includes("True % of rows"));
   assert.ok(labels.includes("Missing count"));
   card.dispose();
+});
+test("chart selections become ordinary table filters", () => {
+  assert.deepEqual(
+    tableFiltersForHitActions([
+      { kind: "values", column: 2, code: 4 },
+      { kind: "range", column: 1, min: 0, max: 10 },
+      { kind: "text", column: 3, query: "north" },
+    ]),
+    [
+      { column: 2, filter: { kind: "values", selected: [4] } },
+      { column: 1, filter: { kind: "range", min: 0, max: 10 } },
+      { column: 3, filter: { kind: "text", mode: "contains", query: "north" } },
+    ],
+  );
+});
+
+test("chart data issues expose filter, rows and scoped fixes", async () => {
+  setupDom();
+  const filters: { column: number; filter: ColumnFilter }[][] = [];
+  const converted: string[][] = [];
+  const suggestions: string[] = [];
+  const host = document.createElement("div") as unknown as HTMLElement;
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      onFilterTable: (items) => filters.push([...items]),
+      onShowRows: (items) => filters.push([...items]),
+      onConvertToken: (_column, tokens) => converted.push(tokens),
+      onSuggestion: (_column, suggestion) => suggestions.push(suggestion.kind),
+    },
+    { kind: "bar", column: 0 },
+  );
+  card.setColumns([
+    meta({
+      name: "city",
+      type: "category",
+      categories: { labels: ["north", "(empty)"], counts: [4, 3] },
+      stats: {
+        nulls: 3,
+        distinct: 2,
+        samples: [],
+        topValues: [],
+        min: null,
+        max: null,
+        mean: null,
+        stddev: null,
+        minLength: null,
+        maxLength: null,
+        avgLength: null,
+      },
+      nullTokens: [{ label: "n/a", count: 2 }],
+      suggestions: [{ kind: "sentinel", value: "TBC", count: 2, ratio: 0.1, sampled: 20 }],
+    }),
+  ]);
+  const bar = host.querySelector(".chart-data-issues") as HTMLElement;
+  assert.ok(bar !== null);
+  assert.match(bar.textContent ?? "", /3 missing/);
+  assert.match(bar.textContent ?? "", /2 placeholders/);
+  assert.match(bar.textContent ?? "", /TBC/);
+  const chips = [...bar.querySelectorAll(".chart-issue-chip")] as HTMLButtonElement[];
+  assert.ok(chips.some((chip) => /^Filter:/.test(chip.textContent ?? "")));
+  assert.ok(chips.some((chip) => /^Fix: convert/.test(chip.textContent ?? "")));
+  assert.ok(chips.some((chip) => /^Fix: treat/.test(chip.textContent ?? "")));
+  (chips.find((chip) => /^Filter:/.test(chip.textContent ?? "")) as HTMLButtonElement).click();
+  (chips.find((chip) => /^Fix: convert/.test(chip.textContent ?? "")) as HTMLButtonElement).click();
+  (chips.find((chip) => /^Fix: treat/.test(chip.textContent ?? "")) as HTMLButtonElement).click();
+  assert.deepEqual(filters[0], [{ column: 0, filter: { kind: "blank", negate: false } }]);
+  assert.deepEqual(converted, [["n/a"]]);
+  assert.deepEqual(suggestions, ["sentinel"]);
+  card.dispose();
+});
+
+test("edit and reset share the card config path", async () => {
+  setupDom();
+  const host = document.createElement("div") as unknown as HTMLElement;
+  const card = new ChartCard(host, stubCardOptions(), {
+    kind: "bar",
+    column: 0,
+    title: "Cities",
+    colorMin: 1,
+    colorMax: 9,
+    colorCenter: 5,
+  });
+  card.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [3, 2] } }),
+    meta({ name: "score", type: "number" }),
+  ]);
+  card.applyConfig({ kind: "barplot", column: 0, valueColumn: 1, colorMin: null, colorMax: null, colorCenter: null });
+  assert.equal(card.getConfig().kind, "barplot");
+  assert.equal(card.getConfig().valueColumn, 1);
+  assert.equal(card.getConfig().title, "Cities");
+  assert.equal(card.getConfig().colorCenter, null);
+  card.dispose();
+});
+test("chart card menu opens the shared edit dialog and reset path", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const messages: string[] = [];
+  const host = document.createElement("div") as unknown as HTMLElement;
+  const panel = new ChartsPanel(host, {
+    ...stubOptions(),
+    onCardEdited: (message) => messages.push(message),
+  });
+  panel.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [3, 2] } }),
+    meta({ name: "score", type: "number" }),
+  ]);
+  await tick();
+  const card = panel.addCard({ kind: "bar", column: 0, title: "Cities" });
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const openMenuItem = (label: string): { click(): void } => {
+    (card.root.querySelector(".chart-more") as unknown as { click(): void }).click();
+    const item = [...doc.querySelectorAll(".context-menu .context-item")].find(
+      (button) => button.textContent === label,
+    ) as unknown as { click(): void } | undefined;
+    assert.ok(item !== undefined, `expected menu item ${label}`);
+    return item;
+  };
+  openMenuItem("Reset to suggested").click();
+  assert.equal(card.getConfig().title, "Cities");
+  assert.equal(card.getConfig().kind, "bar");
+  assert.match(messages.at(-1) ?? "", /reset to suggested/i);
+  openMenuItem("Edit chart").click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const modal = doc.querySelector(".chart-setup-modal");
+  assert.ok(modal !== null);
+  assert.match(modal.textContent ?? "", /Edit count plot chart/);
+  (modal.querySelector(".ghost") as unknown as { click(): void }).click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(doc.querySelector(".chart-setup-modal"), null);
+  panel.dispose();
 });

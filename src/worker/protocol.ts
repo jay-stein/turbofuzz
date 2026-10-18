@@ -135,6 +135,13 @@ export type SetFilterRequest = {
   preview?: boolean;
 };
 
+export type SetFiltersRequest = {
+  type: "setFilters";
+  requestId: number;
+  filters: { column: number; filter: ColumnFilter | null }[];
+  preview?: boolean;
+};
+
 export type ClearFiltersRequest = { type: "clearFilters"; requestId: number };
 
 export type SpecialKind =
@@ -688,6 +695,7 @@ export type WorkerRequest =
   | LoadRequest
   | CancelLoadRequest
   | SetFilterRequest
+  | SetFiltersRequest
   | ClearFiltersRequest
   | SetSpecialRequest
   | DropRowsRequest

@@ -1,6 +1,7 @@
 import type { ChartBinOptions } from "../data/chart-bins.js";
 import type { TimeGrain, ViewDef } from "../data/aggregate.js";
 import type { ColumnFilter } from "../search/query-engine.js";
+import type { ColumnSuggestion } from "../data/suggestions.js";
 import type {
   AggregateMessage,
   BoxStatsMessage,
@@ -15,7 +16,13 @@ import type {
   TextProfileMessage,
   PivotMessage,
 } from "../worker/protocol.js";
-import { ChartCard, type ChartCardConfig, type MapBrushSelection, type SeriesRequestInput } from "./chart-card.js";
+import {
+  ChartCard,
+  type ChartCardConfig,
+  type ChartTableFilter,
+  type MapBrushSelection,
+  type SeriesRequestInput,
+} from "./chart-card.js";
 import {
   CHART_KIND_ICONS,
   GALLERY_KINDS,
@@ -24,6 +31,7 @@ import {
   type KindFit,
 } from "./chart-gallery.js";
 import { openChartSetupDialog } from "./chart-setup.js";
+import { nextFinerGrain, suggestedChartConfig } from "./chart-builder.js";
 import { openConfirm } from "./dialog.js";
 import {
   CHART_KIND_LABELS,
@@ -112,10 +120,20 @@ export interface ChartsPanelOptions {
   tableSourceLabel?(): string;
   /** Applied when a card lands in the grid (status feedback in the app). */
   onCardAdded?(label: string): void;
+  /** Applied when an existing card is edited or reset. */
+  onCardEdited?(message: string): void;
   /** Applies a filter from a click on a chart region (bars, bins, cells). */
   onFilter?(column: number, filter: ColumnFilter | null, preview?: boolean): void;
   /** Reads the app's current filter for a column, so clicks can toggle. */
   currentFilter?(column: number): ColumnFilter | null;
+  /** Apply visible table filters without leaving the chart lens. */
+  onFilterTable?(filters: readonly ChartTableFilter[], label: string): void;
+  /** Apply filters and switch to the table. */
+  onShowRows?(filters: readonly ChartTableFilter[], label: string): void;
+  /** Convert placeholder tokens through the existing null-policy path. */
+  onConvertToken?(column: number, tokens: string[]): void;
+  /** Apply an existing suggestion through the shared fix path. */
+  onSuggestion?(column: number, suggestion: ColumnSuggestion): void;
   /** Map card rectangle brush: filter both coordinate columns to the area. */
   onMapBrush?(selection: MapBrushSelection): void;
 }
@@ -594,6 +612,16 @@ export class ChartsPanel {
         onMapBrush: this.options.onMapBrush,
         onRemove: (target) => this.removeCard(target),
         onDuplicate: (target) => this.duplicateCard(target),
+        onEdit: (target) => void this.editCard(target),
+        onResetSuggested: (target) => this.resetCard(target),
+        onFilterTable: this.options.onFilterTable,
+        onShowRows: this.options.onShowRows,
+        onDrill: (target, filters, label) =>
+          void this.drillCard(target, filters, label),
+        onBreakDown: (target) => void this.breakDownCard(target),
+        onCompare: (target) => this.compareCard(target),
+        onConvertToken: this.options.onConvertToken,
+        onSuggestion: this.options.onSuggestion,
         onExport: (target) => {
           const size = EXPORT_SIZES[this.exportSizeIndex] ?? EXPORT_SIZES[DEFAULT_EXPORT_SIZE];
           target.exportPng(size.width, size.height);
@@ -663,6 +691,96 @@ export class ChartsPanel {
 
   duplicateCard(card: ChartCard): void {
     this.addCard(card.getConfig());
+  }
+
+  /** Shared setup dialog in edit mode; Cancel is a true no-op. */
+  private async editCard(card: ChartCard): Promise<void> {
+    if (this.setupOpen) return;
+    this.setupOpen = true;
+    const config = card.getConfig();
+    try {
+      const next = await openChartSetupDialog(config.kind, this.columns, config, {
+        mode: "edit",
+      });
+      if (next === null) return;
+      card.applyConfig(next);
+      this.options.onCardEdited?.("Chart updated");
+    } finally {
+      this.setupOpen = false;
+    }
+  }
+
+  /** Rebuild the kind-specific fields while keeping the card's source/frame. */
+  /** Drill an aggregate to the next finer time grain; otherwise break it down. */
+  private async drillCard(
+    card: ChartCard,
+    _filters: readonly ChartTableFilter[],
+    _label: string,
+  ): Promise<void> {
+    const config = card.getConfig();
+    const grain = nextFinerGrain(config.valueGrain);
+    if (
+      grain !== null &&
+      (config.valueColumn ?? -1) >= 0 &&
+      (config.kind === "line" || config.kind === "bar" || config.kind === "barplot")
+    ) {
+      this.addCard({
+        ...config,
+        valueGrain: grain,
+        title: config.title === "" ? "" : `${config.title} (${grain})`,
+        suggested: "",
+      });
+      this.options.onCardAdded?.(`${CHART_KIND_LABELS[config.kind]} drill`);
+      return;
+    }
+    await this.breakDownCard(card);
+  }
+
+  /** Reuse the add-chart builder to create a breakdown without hidden state. */
+  private async breakDownCard(card: ChartCard): Promise<void> {
+    if (this.setupOpen) return;
+    this.setupOpen = true;
+    const config = card.getConfig();
+    const numericMeasure =
+      config.valueColumn !== undefined && config.valueColumn >= 0
+        ? { valueColumn: config.valueColumn, valueAgg: config.valueAgg ?? "mean" }
+        : {};
+    const kind: ChartCardKind = config.valueColumn !== undefined && config.valueColumn >= 0
+      ? "barplot"
+      : "bar";
+    try {
+      const next = await openChartSetupDialog(kind, this.columns, {
+        kind,
+        source: config.source,
+        respectFilters: config.respectFilters,
+        ...numericMeasure,
+      });
+      if (next === null) return;
+      this.addCard(next);
+      this.options.onCardAdded?.(CHART_KIND_LABELS[kind]);
+    } finally {
+      this.setupOpen = false;
+    }
+  }
+
+  /** Explicit duplicate for side-by-side comparison; both charts stay editable. */
+  private compareCard(card: ChartCard): void {
+    const config = card.getConfig();
+    this.addCard({
+      ...config,
+      title: config.title === "" ? "Comparison" : `${config.title} (comparison)`,
+      suggested: "",
+    });
+    this.options.onCardAdded?.(CHART_KIND_LABELS[config.kind]);
+  }
+  private resetCard(card: ChartCard): void {
+    const next = suggestedChartConfig(card.getConfig(), this.columns, this.rowCount);
+    if (next === null) {
+      this.options.onCardEdited?.("No suggested configuration fits this chart type");
+      return;
+    }
+    card.applyConfig(next);
+    this.options.onCardEdited?.("Chart reset to suggested settings");
   }
 
   setColumns(columns: ColumnMeta[]): void {

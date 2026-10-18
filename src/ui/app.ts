@@ -1961,10 +1961,15 @@ export class App {
           ? "Table"
           : "Table (filtered)",
       onCardAdded: (label) =>
-        this.setAction(`Added a ${label} chart — it sits at the end of the grid`),
+        this.setAction(`Added a ${label} chart - it sits at the end of the grid`),
+      onCardEdited: (message) => this.setAction(message),
       onFilter: (column, filter, preview) =>
         this.changeFilter(column, filter, preview ?? false),
       currentFilter: (column) => this.filters.get(column) ?? null,
+      onFilterTable: (filters, label) => this.applyChartFilters(filters, label, false),
+      onShowRows: (filters, label) => this.applyChartFilters(filters, label, true),
+      onConvertToken: (column, tokens) => this.convertToken(column, tokens),
+      onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
       onMapBrush: (selection) => this.filterToMapArea(selection),
     });
     if (this.chartRestore !== null) {
@@ -2216,6 +2221,44 @@ export class App {
     });
   }
 
+  /** Chart actions apply ordinary, removable filters; only "show rows" navigates. */
+  private applyChartFilters(
+    filters: readonly { column: number; filter: ColumnFilter }[],
+    label: string,
+    showRows: boolean,
+  ): void {
+    if (filters.length === 0) return;
+    for (const item of filters) this.filters.set(item.column, item.filter);
+    this.renderFilterChips();
+    this.table?.refreshFilters();
+    this.table?.setHighlights(this.highlightRules());
+    this.queueSend(() =>
+      this.client
+        .setFilters([...filters])
+        .then((message) => {
+          this.updateCount(message.count, message.queryMs);
+          this.applyFacets(message.facets, message.histograms);
+          this.chartsPanel?.refreshBoundViews();
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(
+            message.firstRows,
+            message.firstGroups,
+            message.firstFlags,
+            message.firstChanged,
+          );
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
+    if (showRows) {
+      this.setView("table");
+      this.table?.scrollToTop();
+      const column = filters[0]?.column;
+      if (column !== undefined) this.table?.flashColumn(column);
+    }
+    this.setAction(
+      `${showRows ? "Showing rows for" : "Filtered table to"} ${label} (${filters.length} filter${filters.length === 1 ? "" : "s"})`,
+    );
+  }
   /** Map rectangle brush: range-filter both coordinate columns to the area. */
   private filterToMapArea(selection: MapBrushSelection): void {
     const lat = this.metas[selection.latColumn]?.name ?? "latitude";

@@ -90,6 +90,17 @@ test("search worker handles the full request lifecycle", async () => {
   assert.equal(find("results", 8).count, 3);
 
   send({
+    type: "setFilters",
+    requestId: 85,
+    filters: [
+      { column: 0, filter: { kind: "text", mode: "contains", query: "a" } },
+      { column: 1, filter: { kind: "range", min: 30, max: 45 } },
+    ],
+  });
+  assert.equal(find("results", 85).count, 1);
+  send({ type: "clearFilters", requestId: 86 });
+
+  send({
     type: "setFilter",
     requestId: 9,
     column: 1,

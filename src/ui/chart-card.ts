@@ -10,6 +10,7 @@ import type { AnimationResult } from "../data/chart-frames.js";
 import { encodeGif, type GifFrameInput } from "../data/gif.js";
 import { contourLevels, marchingSquares, smoothGrid, smoothSeries } from "../data/kde.js";
 import { squarifyLayout } from "../data/treemap.js";
+import type { ColumnSuggestion } from "../data/suggestions.js";
 import {
   CUSTOM_PALETTE,
   DEFAULT_PALETTE,
@@ -18,7 +19,6 @@ import {
   paletteStops,
   parseCustomColors,
   parsePaletteJson,
-  rampAt,
   samplePalette,
 } from "../data/palettes.js";
 import type { Aggregate, MeasureSpec, TimeGrain, ViewDef } from "../data/aggregate.js";
@@ -30,6 +30,14 @@ import {
   chartSpecToPandas,
   chartSpecToPolars,
 } from "./chart-spec.js";
+import { chartConfigWithDefaults } from "./chart-builder.js";
+import {
+  colorForFraction,
+  colorFraction,
+  colorRamp,
+  describeColorDomain,
+  resolveColorDomain,
+} from "./color-scale.js";
 import type {
   AggregateMessage,
   BoxStatsMessage,
@@ -268,6 +276,29 @@ export interface ChartCardOptions {
   onRemove(card: ChartCard): void;
   onDuplicate(card: ChartCard): void;
   onExport(card: ChartCard): void;
+  /** Edit this card through the shared setup dialog. */
+  onEdit?(card: ChartCard): void;
+  /** Rebuild this card from the gallery fit policy. */
+  onResetSuggested?(card: ChartCard): void;
+  /** Apply ordinary, visible table filters from a chart selection. */
+  onFilterTable?(filters: readonly ChartTableFilter[], label: string): void;
+  /** Apply filters, switch to the table, and show the matching rows. */
+  onShowRows?(filters: readonly ChartTableFilter[], label: string): void;
+  /** Drill the selected chart to a finer time grain or a new breakdown. */
+  onDrill?(card: ChartCard, filters: readonly ChartTableFilter[], label: string): void;
+  /** Open the shared setup dialog for a new breakdown chart. */
+  onBreakDown?(card: ChartCard): void;
+  /** Duplicate the current chart as an explicit comparison. */
+  onCompare?(card: ChartCard): void;
+  /** Apply the existing null-policy conversion for placeholder tokens. */
+  onConvertToken?(column: number, tokens: string[]): void;
+  /** Apply an existing column suggestion (for example a sentinel code). */
+  onSuggestion?(column: number, suggestion: ColumnSuggestion): void;
+}
+
+export interface ChartTableFilter {
+  column: number;
+  filter: ColumnFilter;
 }
 
 export interface ChartCardConfig {
@@ -294,6 +325,8 @@ export interface ChartCardConfig {
   paletteReversed?: boolean;
   colorMin?: number | null;
   colorMax?: number | null;
+  /** Optional centre for diverging domains (usually zero). */
+  colorCenter?: number | null;
   topN: number;
   groupOther: boolean;
   /** Barplot with a Group: side-by-side bars or one stacked bar per category. */
@@ -490,6 +523,28 @@ export function hitTest(
   return null;
 }
 
+/** Convert a chart selection into ordinary table filters. */
+export function tableFiltersForHitActions(
+  actions: readonly HitAction[],
+): ChartTableFilter[] {
+  const filters: ChartTableFilter[] = [];
+  for (const action of actions) {
+    if (action.kind === "values") {
+      filters.push({ column: action.column, filter: { kind: "values", selected: [action.code] } });
+    } else if (action.kind === "range") {
+      filters.push({
+        column: action.column,
+        filter: { kind: "range", min: action.min, max: action.max },
+      });
+    } else {
+      filters.push({
+        column: action.column,
+        filter: { kind: "text", mode: "contains", query: action.query },
+      });
+    }
+  }
+  return filters;
+}
 export interface SeriesHitInput {
   column: number;
   bins: readonly number[];
@@ -747,46 +802,8 @@ function focusIcon(): SVGElement {
   );
 }
 
-function defaultConfig(): ChartCardConfig {
-  return {
-    kind: "histogram",
-    source: "",
-    column: -1,
-    x: -1,
-    y: -1,
-    colorColumn: -1,
-    sizeColumn: -1,
-    mode: "auto",
-    densityStyle: "both",
-    kde: true,
-    color: CHART_COLORS[0],
-    multiColor: true,
-    palette: DEFAULT_PALETTE,
-    paletteCustom: "",
-    paletteReversed: false,
-    colorMin: null,
-    colorMax: null,
-    topN: 10,
-    groupOther: true,
-    barLayout: "group",
-    binOptions: null,
-    binClipped: false,
-    title: "",
-    groupColumn: -1,
-    bubbleBins: 40,
-    bubbleAgg: "count",
-    bubbleScale: "area",
-    mapMode: "points",
-    span: "auto",
-    animationTimeColumn: -1,
-    animationGrain: "day",
-    animationSpeed: 1,
-    suggested: "",
-    correlationColumns: [],
-    filterColumn: -1,
-    filterCode: -1,
-    respectFilters: true,
-  };
+function missingOrTokens(missing: number, tokens: number): boolean {
+  return missing > 0 || tokens > 0;
 }
 
 /**
@@ -799,7 +816,7 @@ function defaultConfig(): ChartCardConfig {
 export class ChartCard {
   readonly root: HTMLElement;
 
-  private config = defaultConfig();
+  private config = chartConfigWithDefaults();
   private columns: ColumnMeta[] = [];
   private facets: Record<number, number[]> = {};
   private histograms: Record<number, number[]> = {};
@@ -971,6 +988,7 @@ export class ChartCard {
   private readonly paletteStatus: HTMLElement;
   private readonly colorMinInput: HTMLInputElement;
   private readonly colorMaxInput: HTMLInputElement;
+  private readonly colorCenterInput: HTMLInputElement;
   private readonly colorDomainRow: HTMLElement;
   private readonly histogramSettings: HTMLElement;
   private readonly barSettings: HTMLElement;
@@ -994,6 +1012,8 @@ export class ChartCard {
   private readonly canvas: HTMLCanvasElement;
   private readonly scopeEl: HTMLElement;
   private readonly summaryEl: HTMLElement;
+  private readonly dataIssueEl: HTMLElement;
+  private issueSignature = "";
   private readonly noteEl: HTMLElement;
   private totalRowCount = 0;
   private readonly legendEl: HTMLElement;
@@ -1001,6 +1021,8 @@ export class ChartCard {
   private readonly settingsBody: HTMLElement;
   private hitRegions: HitRegion[] = [];
   private pointerAt: { x: number; y: number; clientX: number; clientY: number } | null = null;
+  /** Last hovered/clicked region, retained while the card menu is open. */
+  private lastActionRegion: HitRegion | null = null;
   private pointerFrame: number | null = null;
 
   private readonly onResize = (): void => this.scheduleRender();
@@ -1020,7 +1042,7 @@ export class ChartCard {
   ) {
     this.root = root;
     this.root.classList.add("chart-card");
-    this.config = { ...defaultConfig(), ...preset };
+    this.config = chartConfigWithDefaults(preset);
 
     const head = el("div", { class: "chart-card-head" });
     const removeButton = el(
@@ -1946,6 +1968,13 @@ export class ChartCard {
       placeholder: "Auto",
       "aria-label": "Colour scale maximum",
     }) as HTMLInputElement;
+    this.colorCenterInput = el("input", {
+      class: "text-input chart-color-bound",
+      type: "number",
+      step: "any",
+      placeholder: "Auto",
+      "aria-label": "Colour scale centre",
+    }) as HTMLInputElement;
     const applyColorDomain = (): void => {
       const min =
         this.colorMinInput.value.trim() === ""
@@ -1955,17 +1984,23 @@ export class ChartCard {
         this.colorMaxInput.value.trim() === ""
           ? null
           : parseChartNumber(this.colorMaxInput.value);
+      const center =
+        this.colorCenterInput.value.trim() === ""
+          ? null
+          : parseChartNumber(this.colorCenterInput.value);
       if (min !== null && max !== null && !(max > min)) {
         this.paletteStatus.textContent = "Colour max must be greater than min";
         return;
       }
       this.config.colorMin = min;
       this.config.colorMax = max;
+      this.config.colorCenter = center;
       this.paletteStatus.textContent = "";
       this.render();
     };
     this.colorMinInput.addEventListener("change", applyColorDomain);
     this.colorMaxInput.addEventListener("change", applyColorDomain);
+    this.colorCenterInput.addEventListener("change", applyColorDomain);
     this.colorDomainRow = el("div", { class: "chart-color-domain" }, [
       el("label", { class: "chart-tag" }, [
         el("span", { class: "chart-tag-label" }, ["Min"]),
@@ -1974,6 +2009,10 @@ export class ChartCard {
       el("label", { class: "chart-tag" }, [
         el("span", { class: "chart-tag-label" }, ["Max"]),
         this.colorMaxInput,
+      ]),
+      el("label", { class: "chart-tag", title: "Centre for diverging scales; ignored when outside Min/Max" }, [
+        el("span", { class: "chart-tag-label" }, ["Centre"]),
+        this.colorCenterInput,
       ]),
     ]);
     const paletteFile = el("input", {
@@ -2166,6 +2205,7 @@ export class ChartCard {
     this.resetViewButton.addEventListener("click", () => this.resetMapZoom());
     canvasWrap.append(this.resetViewButton);
     this.summaryEl = el("div", { class: "chart-summary" });
+    this.dataIssueEl = el("div", { class: "chart-data-issues hidden" });
     this.scopeEl = el("div", { class: "chart-scope" });
     this.noteEl = el("div", { class: "chart-note" });
     this.legendEl = el("div", { class: "chart-legend hidden" });
@@ -2265,6 +2305,7 @@ export class ChartCard {
     this.root.append(
       head,
       this.summaryEl,
+      this.dataIssueEl,
       this.scopeEl,
       this.animationSetup,
       this.bubbleSettings,
@@ -2338,6 +2379,15 @@ export class ChartCard {
     this.render();
   }
 
+  /**
+   * Apply a full config through the same normalisation/refresh path as a
+   * column change. Edit and reset both use this instead of ad-hoc setters.
+   */
+  applyConfig(config: Partial<ChartCardConfig>): void {
+    this.config = chartConfigWithDefaults({ ...this.config, ...config });
+    this.hiddenGroups.clear();
+    this.setColumns(this.columns);
+  }
   /** The sources a card can bind to (the table plus each saved view). */
   setSources(sources: { id: string; name: string; kind?: "pivot" | "view" }[]): void {
     this.sources = sources;
@@ -2824,6 +2874,178 @@ export class ChartCard {
     this.summaryEl.classList.toggle("warn", riskySum);
   }
 
+  /** Columns whose missing/placeholder state can affect this chart. */
+  private issueColumns(): number[] {
+    if (this.config.source !== "" || this.config.kind === "pivotHeatmap") return [];
+    const indexes = new Set<number>();
+    const add = (index: number | undefined): void => {
+      if (index !== undefined && index >= 0) indexes.add(index);
+    };
+    switch (this.config.kind) {
+      case "scatter":
+      case "density":
+      case "bubble":
+        add(this.config.x);
+        add(this.config.y);
+        add(this.config.colorColumn);
+        add(this.config.sizeColumn);
+        break;
+      case "heatmap":
+      case "box":
+        add(this.config.x);
+        add(this.config.y);
+        break;
+      case "map":
+        add(this.config.x);
+        add(this.config.y);
+        add(this.config.colorColumn);
+        break;
+      case "kpi":
+      case "barplot":
+        add(this.config.valueColumn);
+        add(this.config.column);
+        break;
+      case "correlation":
+        for (const index of this.config.correlationColumns) add(index);
+        break;
+      case "line":
+        add(this.config.groupColumn);
+        add(this.config.valueColumn);
+        add(this.config.column);
+        break;
+      default:
+        add(this.config.column);
+        break;
+    }
+    return [...indexes].filter((index) => this.meta(index)?.role !== "provenance");
+  }
+
+  /** Explain missing/unknown categories and offer filter/fix actions. */
+  private syncDataIssues(): void {
+    const issues = this.issueColumns()
+      .map((index) => {
+        const meta = this.meta(index);
+        if (meta === undefined) return null;
+        const missing = meta.stats.nulls;
+        const tokens = meta.nullTokens.filter(
+          (token) => token.label !== "" && token.count > 0,
+        );
+        const sentinels = meta.suggestions.filter(
+          (suggestion): suggestion is Extract<ColumnSuggestion, { kind: "sentinel" }> =>
+            suggestion.kind === "sentinel",
+        );
+        if (missing === 0 && tokens.length === 0 && sentinels.length === 0) return null;
+        const active =
+          this.options.currentFilter?.(index)?.kind === "blank" &&
+          (this.options.currentFilter?.(index) as { negate?: boolean } | null)?.negate === false;
+        return { index, meta, missing, tokens, sentinels, active };
+      })
+      .filter((issue): issue is NonNullable<typeof issue> => issue !== null);
+    const signature = issues
+      .map((issue) => `${issue.meta.name}:${issue.missing}:${issue.tokens.length}:${issue.active}`)
+      .join("|");
+    if (signature === this.issueSignature) return;
+    this.issueSignature = signature;
+    clear(this.dataIssueEl);
+    this.dataIssueEl.classList.toggle("hidden", issues.length === 0);
+    if (issues.length === 0) return;
+    this.dataIssueEl.append(
+      el("span", { class: "chart-issue-heading" }, ["Data issues"]),
+    );
+    for (const issue of issues.slice(0, 2)) {
+      const row = el("div", { class: "chart-issue-row" });
+      const tokenCount = issue.tokens.reduce((sum, token) => sum + token.count, 0);
+      const details = [`${issue.missing.toLocaleString()} missing`];
+      if (tokenCount > 0) details.push(`${tokenCount.toLocaleString()} placeholders`);
+      if (issue.sentinels.length > 0) {
+        details.push(
+          issue.sentinels
+            .map((suggestion) => `"${suggestion.value}" in ${suggestion.count.toLocaleString()}`)
+            .join(", "),
+        );
+      }
+      row.append(
+        el("span", { class: "chart-issue-label", title: details.join(" - ") }, [
+          `${issue.meta.name}: ${details.join(" - ")}`,
+        ]),
+      );
+      if (missingOrTokens(issue.missing, tokenCount) && this.options.onFilterTable !== undefined) {
+        const filter = el(
+          "button",
+          {
+            class: "chart-issue-chip warn",
+            type: "button",
+            "aria-pressed": issue.active ? "true" : "false",
+            title: `Filter the table to rows where ${issue.meta.name} is blank`,
+          },
+          [`Filter: ${issue.missing.toLocaleString()} missing`],
+        ) as HTMLButtonElement;
+        filter.addEventListener("click", () =>
+          this.options.onFilterTable?.(
+            [{ column: issue.index, filter: { kind: "blank", negate: false } }],
+            `${issue.meta.name} is blank`,
+          ),
+        );
+        row.append(filter);
+      }
+      if (this.options.onShowRows !== undefined) {
+        const show = el(
+          "button",
+          { class: "chart-issue-chip", type: "button", title: "Show the affected rows" },
+          ["Show rows"],
+        ) as HTMLButtonElement;
+        show.addEventListener("click", () =>
+          this.options.onShowRows?.(
+            [{ column: issue.index, filter: { kind: "blank", negate: false } }],
+            `${issue.meta.name} is blank`,
+          ),
+        );
+        row.append(show);
+      }
+      if (tokenCount > 0 && this.options.onConvertToken !== undefined) {
+        const fix = el(
+          "button",
+          {
+            class: "chart-issue-chip fix",
+            type: "button",
+            title: "Preview-free null-policy change; undo is available in the status bar",
+          },
+          [`Fix: convert ${tokenCount.toLocaleString()} placeholders`],
+        ) as HTMLButtonElement;
+        fix.addEventListener("click", () =>
+          this.options.onConvertToken?.(
+            issue.index,
+            issue.tokens.map((token) => token.label),
+          ),
+        );
+        row.append(fix);
+      }
+      const sentinel = issue.sentinels[0];
+      if (sentinel !== undefined && this.options.onSuggestion !== undefined) {
+        const fix = el(
+          "button",
+          {
+            class: "chart-issue-chip fix",
+            type: "button",
+            title: "Use the existing null-policy action; undo is available in the status bar",
+          },
+          [`Fix: treat "${sentinel.value}" as missing`],
+        ) as HTMLButtonElement;
+        fix.addEventListener("click", () =>
+          this.options.onSuggestion?.(issue.index, sentinel),
+        );
+        row.append(fix);
+      }
+      this.dataIssueEl.append(row);
+    }
+    if (issues.length > 2) {
+      this.dataIssueEl.append(
+        el("span", { class: "chart-issue-more" }, [
+          `+${issues.length - 2} more column${issues.length - 2 === 1 ? "" : "s"}`,
+        ]),
+      );
+    }
+  }
   refresh(): void {
     this.generation++;
     this.refreshBins();
@@ -3988,9 +4210,16 @@ export class ChartCard {
       dot.style.background = color;
       this.palettePreview.append(dot);
     }
+    const colorMeta = this.meta(this.config.colorColumn);
+    const numericColor =
+      colorMeta !== undefined &&
+      this.config.colorColumn >= 0 &&
+      !isCategoryType(colorMeta.type) &&
+      colorMeta.type !== "boolean";
     const ramp =
       isRampPalette(this.config.palette ?? DEFAULT_PALETTE) ||
-      this.config.kind === "pivotHeatmap";
+      this.config.kind === "pivotHeatmap" ||
+      numericColor;
     this.colorDomainRow.classList.toggle("hidden", !ramp);
     this.colorMinInput.value =
       this.config.colorMin === null || this.config.colorMin === undefined
@@ -4000,6 +4229,10 @@ export class ChartCard {
       this.config.colorMax === null || this.config.colorMax === undefined
         ? ""
         : String(this.config.colorMax);
+    this.colorCenterInput.value =
+      this.config.colorCenter === null || this.config.colorCenter === undefined
+        ? ""
+        : String(this.config.colorCenter);
   }
 
   /** Loads a palette from JSON text: array of hex colours or {colors: [...]}. */
@@ -4097,9 +4330,54 @@ export class ChartCard {
   /** Duplicate, PNG and remove live behind one ⋯ menu, plus the red ×. */
   private openCardMenu(anchor: HTMLElement): void {
     const pivotHeatmap = this.config.kind === "pivotHeatmap";
+    const region = this.lastActionRegion;
+    const filters = region === null ? [] : tableFiltersForHitActions(region.actions);
+    const selectionLabel = region?.lines[0] ?? "the current selection";
     openMenu(
       anchor,
       [
+        {
+          label: "Edit chart",
+          title: "Edit this chart in the shared setup dialog",
+          disabled: this.options.onEdit === undefined,
+          action: () => this.options.onEdit?.(this),
+        },
+        {
+          label: "Reset to suggested",
+          title: "Rebuild this card from the suggested fields for its chart type",
+          disabled: this.options.onResetSuggested === undefined || pivotHeatmap,
+          action: () => this.options.onResetSuggested?.(this),
+        },
+        {
+          label: "Filter table to selection",
+          title: `Add visible table filters for ${selectionLabel}`,
+          disabled: filters.length === 0 || this.options.onFilterTable === undefined,
+          action: () => this.options.onFilterTable?.(filters, selectionLabel),
+        },
+        {
+          label: "Show underlying rows",
+          title: `Switch to the table with rows filtered to ${selectionLabel}`,
+          disabled: filters.length === 0 || this.options.onShowRows === undefined,
+          action: () => this.options.onShowRows?.(filters, selectionLabel),
+        },
+        {
+          label: "Drill to finer grain",
+          title: "Add a finer-grained or broken-down version of this selection",
+          disabled: region === null || this.options.onDrill === undefined,
+          action: () => this.options.onDrill?.(this, filters, selectionLabel),
+        },
+        {
+          label: "Break down by another field",
+          title: "Open the chart builder for a new breakdown",
+          disabled: this.options.onBreakDown === undefined,
+          action: () => this.options.onBreakDown?.(this),
+        },
+        {
+          label: "Duplicate for comparison",
+          title: "Add an editable copy of this chart for side-by-side comparison",
+          disabled: this.options.onCompare === undefined,
+          action: () => this.options.onCompare?.(this),
+        },
         {
           label: "Duplicate",
           title: "Duplicate this chart",
@@ -5563,6 +5841,7 @@ export class ChartCard {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.drawChart(ctx, cssWidth, cssHeight);
+    this.syncDataIssues();
     this.syncLegend();
     this.syncAnimationBar();
     const zoomable =
@@ -5936,6 +6215,7 @@ export class ChartCard {
       this.hideTooltip();
       return;
     }
+    this.lastActionRegion = region;
     clear(this.tooltipEl);
     const title = el("div", { class: "chart-tooltip-title" }, [region.lines[0] ?? "Value"]);
     this.tooltipEl.append(title);
@@ -5996,6 +6276,7 @@ export class ChartCard {
       event.clientY - rect.top,
     );
     if (region === null) return;
+    this.lastActionRegion = region;
     for (const action of region.actions) this.applyHitAction(action);
   }
 
@@ -7191,15 +7472,13 @@ export class ChartCard {
     if (custom !== null) {
       const rampName = this.config.palette ?? DEFAULT_PALETTE;
       const ramp = isRampPalette(rampName) ? this.rampStopsFor(rampName) : null;
-      const min =
-        this.config.colorMin === null || this.config.colorMin === undefined
-          ? (Number.isFinite(this.geoJoinMin) ? this.geoJoinMin : 0)
-          : this.config.colorMin;
-      const max =
-        this.config.colorMax === null || this.config.colorMax === undefined
-          ? (Number.isFinite(this.geoJoinMax) ? this.geoJoinMax : 1)
-          : this.config.colorMax;
-      const span = Math.max(1e-12, max - min);
+      const domain = resolveColorDomain({
+        autoMin: Number.isFinite(this.geoJoinMin) ? this.geoJoinMin : 0,
+        autoMax: Number.isFinite(this.geoJoinMax) ? this.geoJoinMax : 1,
+        min: this.config.colorMin,
+        max: this.config.colorMax,
+        center: this.config.colorCenter,
+      });
       const property = this.geoFeatureSelect.value;
       const matchColumn = Number(this.geoMatchSelect.value);
       for (const feature of custom.features) {
@@ -7228,7 +7507,7 @@ export class ChartCard {
             : this.geoJoinValues.get(this.joinKey(String(raw))) ?? Number.NaN;
         ctx.fillStyle =
           ramp !== null && Number.isFinite(value)
-            ? rampAt(ramp, Math.min(1, Math.max(0, (value - min) / span)))
+            ? colorForFraction(colorFraction(value, domain), ramp, rampColor)
             : this.primaryColor();
         ctx.globalAlpha = Number.isFinite(value) ? 0.72 : 0.18;
         ctx.fill("evenodd");
@@ -7316,21 +7595,16 @@ export class ChartCard {
       }
       const values = grid.values;
       const dataMax = Math.max(1, values === null ? grid.maxCount : grid.valueMax);
-      const max =
-        this.config.colorMax === null || this.config.colorMax === undefined
-          ? dataMax
-          : this.config.colorMax;
-      const min =
-        this.config.colorMin === null || this.config.colorMin === undefined
-          ? 0
-          : this.config.colorMin;
-      const span = Math.max(1e-12, max - min);
+      const domain = resolveColorDomain({
+        autoMin: 0,
+        autoMax: dataMax,
+        min: this.config.colorMin,
+        max: this.config.colorMax,
+        center: this.config.colorCenter,
+      });
       const rampName = this.config.palette ?? DEFAULT_PALETTE;
       const ramp = isRampPalette(rampName) ? this.rampStopsFor(rampName) : null;
-      const colors =
-        ramp === null
-          ? Array.from({ length: 32 }, (_, index) => rampColor(index / 31))
-          : Array.from({ length: 32 }, (_, index) => rampAt(ramp, index / 31));
+      const colors = colorRamp(ramp, 32, rampColor);
       const cellLon = (grid.xMax - grid.xMin) / grid.bins;
       const cellLat = (grid.yMax - grid.yMin) / grid.bins;
       for (let cy = 0; cy < grid.bins; cy++) {
@@ -7344,7 +7618,7 @@ export class ChartCard {
           const lat0 = latTop - cellLat;
           if (lon0 + cellLon < view.lonMin || lon0 > view.lonMax) continue;
           if (lat0 + cellLat < view.latMin || lat0 > view.latMax) continue;
-          const t = Math.min(1, Math.max(0, (value - min) / span));
+          const t = colorFraction(value, domain);
           ctx.fillStyle =
             colors[Math.min(colors.length - 1, Math.floor(t * colors.length))] ??
             this.primaryColor();
@@ -7358,34 +7632,7 @@ export class ChartCard {
         }
       }
       ctx.globalAlpha = 1;
-      // Compact colour scale so heat values read quantitatively.
-      const barW = Math.min(160 * ui, w * 0.45);
-      const barH = 7 * ui;
-      const barX = x0 + 12 * ui;
-      const barY = y0 + h - 20 * ui;
-      ctx.fillStyle = frame.text;
-      ctx.globalAlpha = 0.1;
-      ctx.fillRect(barX - 6 * ui, barY - 14 * ui, barW + 12 * ui, barH + 22 * ui);
-      ctx.globalAlpha = 1;
-      const gradient = ctx.createLinearGradient(barX, 0, barX + barW, 0);
-      colors.forEach((color, index) =>
-        gradient.addColorStop(index / Math.max(1, colors.length - 1), color),
-      );
-      ctx.fillStyle = gradient;
-      ctx.fillRect(barX, barY, barW, barH);
-      ctx.strokeStyle = frame.dim;
-      ctx.globalAlpha = 0.5;
-      ctx.strokeRect(barX + 0.5, barY + 0.5, barW, barH);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = frame.dim;
-      this.font(ctx, ui, 9);
-      ctx.fillText(formatTick(min, null), barX, barY - 4 * ui);
-      const maxLabel = formatTick(max, null);
-      ctx.fillText(
-        maxLabel,
-        barX + barW - ctx.measureText(maxLabel).width,
-        barY - 4 * ui,
-      );
+      this.drawColorBar(ctx, frame, colors, domain);
       const measureMeta = this.meta(this.config.sizeColumn);
       const agg = this.config.bubbleAgg ?? "count";
       const measure =
@@ -7477,6 +7724,9 @@ export class ChartCard {
       ctx.globalAlpha = 1;
     }
     ctx.restore();
+    if (buckets?.domain !== undefined) {
+      this.drawColorBar(ctx, frame, buckets.colors, buckets.domain);
+    }
 
     const sampled = result.sampled ? " (sampled)" : "";
     const colorText = this.colorNote(result);
@@ -9109,7 +9359,11 @@ export class ChartCard {
     return sizes;
   }
 
-  private colorBuckets(result: SeriesPoints): { buckets: Uint8Array; colors: string[] } | null {
+  private colorBuckets(result: SeriesPoints): {
+    buckets: Uint8Array;
+    colors: string[];
+    domain?: ReturnType<typeof resolveColorDomain>;
+  } | null {
     const n = result.shown;
     if (result.colorCodes !== null) {
       const colors = this.paletteColors(12);
@@ -9127,36 +9381,69 @@ export class ChartCard {
         if (value > max) max = value;
       }
       if (min === Infinity) return null;
-      const scaleMin =
-        this.config.colorMin === null || this.config.colorMin === undefined
-          ? min
-          : this.config.colorMin;
-      const scaleMax =
-        this.config.colorMax === null || this.config.colorMax === undefined
-          ? max
-          : this.config.colorMax;
+      const domain = resolveColorDomain({
+        autoMin: min,
+        autoMax: max,
+        min: this.config.colorMin,
+        max: this.config.colorMax,
+        center: this.config.colorCenter,
+      });
       const buckets = new Uint8Array(n).fill(16);
       const paletteName = this.config.palette ?? DEFAULT_PALETTE;
       const ramp = isRampPalette(paletteName) ? this.rampStopsFor(paletteName) : null;
-      const colors =
-        ramp === null
-          ? Array.from({ length: 16 }, (_, index) => rampColor(index / 15))
-          : Array.from({ length: 16 }, (_, index) => rampAt(ramp, index / 15));
+      const colors = colorRamp(ramp, 16, rampColor);
       colors.push(this.primaryColor());
       for (let i = 0; i < n; i++) {
         const value = result.colorValues[i];
         if (!Number.isFinite(value)) continue;
-        const t =
-          scaleMax > scaleMin
-            ? Math.min(1, Math.max(0, (value - scaleMin) / (scaleMax - scaleMin)))
-            : 0.5;
-        buckets[i] = Math.round(t * 15);
+        buckets[i] = Math.round(colorFraction(value, domain) * 15);
       }
-      return { buckets, colors };
+      return { buckets, colors, domain };
     }
     return null;
   }
 
+  /** One compact gradient legend used by every numeric colour path. */
+  private drawColorBar(
+    ctx: CanvasRenderingContext2D,
+    frame: Frame,
+    colors: readonly string[],
+    domain: ReturnType<typeof resolveColorDomain>,
+  ): void {
+    const ui = frame.ui;
+    const barW = Math.min(150 * ui, frame.plotW * 0.42);
+    const barH = 6 * ui;
+    const barX = frame.left + frame.plotW - barW - 10 * ui;
+    const barY = frame.top + 10 * ui;
+    ctx.fillStyle = frame.text;
+    ctx.globalAlpha = 0.1;
+    ctx.fillRect(barX - 5 * ui, barY - 12 * ui, barW + 10 * ui, barH + 19 * ui);
+    ctx.globalAlpha = 1;
+    const gradient = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+    colors.forEach((color, index) =>
+      gradient.addColorStop(index / Math.max(1, colors.length - 1), color),
+    );
+    ctx.fillStyle = gradient;
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.strokeStyle = frame.dim;
+    ctx.globalAlpha = 0.5;
+    ctx.strokeRect(barX + 0.5, barY + 0.5, barW, barH);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = frame.dim;
+    this.font(ctx, ui, 9);
+    const minLabel = formatTick(domain.min, null);
+    const maxLabel = formatTick(domain.max, null);
+    ctx.fillText(minLabel, barX, barY - 3 * ui);
+    ctx.fillText(maxLabel, barX + barW - ctx.measureText(maxLabel).width, barY - 3 * ui);
+    if (domain.centered) {
+      const centerLabel = formatTick((domain.min + domain.max) / 2, null);
+      ctx.fillText(
+        centerLabel,
+        barX + barW / 2 - ctx.measureText(centerLabel).width / 2,
+        barY - 3 * ui,
+      );
+    }
+  }
   private colorNote(result: SeriesPoints): string | null {
     const meta = this.meta(this.config.colorColumn);
     if (meta === undefined || this.config.colorColumn < 0) return null;
@@ -9174,23 +9461,16 @@ export class ChartCard {
         if (value > max) max = value;
       }
       if (min !== Infinity) {
-        const scaleMin =
-          this.config.colorMin === null || this.config.colorMin === undefined
-            ? min
-            : this.config.colorMin;
-        const scaleMax =
-          this.config.colorMax === null || this.config.colorMax === undefined
-            ? max
-            : this.config.colorMax;
-        const fixed =
-          this.config.colorMin !== null && this.config.colorMin !== undefined ||
-          this.config.colorMax !== null && this.config.colorMax !== undefined
-            ? " fixed"
-            : "";
-        return `colour: ${meta.name} (${formatTick(scaleMin, null)} - ${formatTick(
-          scaleMax,
-          null,
-        )}${fixed})`;
+        const domain = resolveColorDomain({
+          autoMin: min,
+          autoMax: max,
+          min: this.config.colorMin,
+          max: this.config.colorMax,
+          center: this.config.colorCenter,
+        });
+        return `colour: ${meta.name} (${describeColorDomain(domain, (value) =>
+          formatTick(value, null),
+        )})`;
       }
     }
     return null;
@@ -9261,6 +9541,9 @@ export class ChartCard {
     ctx.restore();
 
     this.drawCorrelationNote(ctx, frame);
+    if (buckets?.domain !== undefined) {
+      this.drawColorBar(ctx, frame, buckets.colors, buckets.domain);
+    }
 
     const notes: string[] = [`${result.shown.toLocaleString()} points`];
     if (result.sampled) notes.push(`sampled from ${result.total.toLocaleString()}`);
@@ -9760,22 +10043,20 @@ export class ChartCard {
       this.drawPlotMessage(ctx, frame, message);
       return;
     }
-    const domainMin =
-      this.config.colorMin !== null && this.config.colorMin !== undefined
-        ? this.config.colorMin
-        : min;
-    const domainMax =
-      this.config.colorMax !== null && this.config.colorMax !== undefined
-        ? this.config.colorMax
-        : max;
-    const span = domainMax - domainMin;
+    const domain = resolveColorDomain({
+      autoMin: min,
+      autoMax: max,
+      min: this.config.colorMin,
+      max: this.config.colorMax,
+      center: this.config.colorCenter,
+    });
     const cellW = frame.plotW / colCount;
     const cellH = frame.plotH / rowCount;
     const showText = cellW >= 30 * frame.ui && cellH >= 16 * frame.ui;
     const rampName = this.config.palette ?? DEFAULT_PALETTE;
     const rampStops = isRampPalette(rampName) ? this.rampStopsFor(rampName) : null;
-    const colorFor = (t: number): string =>
-      rampStops === null ? rampColor(t) : rampAt(rampStops, t);
+    const colorFor = (t: number): string => colorForFraction(t, rampStops, rampColor);
+    const legendColors = colorRamp(rampStops, 16, rampColor);
     this.font(ctx, frame.ui, 9);
     for (let row = 0; row < rowCount; row++) {
       for (let col = 0; col < colCount; col++) {
@@ -9789,7 +10070,7 @@ export class ChartCard {
           ctx.globalAlpha = 1;
           continue;
         }
-        const t = span === 0 ? 0.5 : (value - domainMin) / span;
+        const t = colorFraction(value, domain);
         ctx.fillStyle = colorFor(t);
         ctx.fillRect(x + 0.5, y + 0.5, Math.max(1, cellW - 1), Math.max(1, cellH - 1));
         if (showText) {
@@ -9803,6 +10084,7 @@ export class ChartCard {
         }
       }
     }
+    this.drawColorBar(ctx, frame, legendColors, domain);
     ctx.textAlign = "center";
     colLabels.forEach((label, col) => {
       ctx.fillStyle = frame.dim;
@@ -10006,6 +10288,14 @@ export class ChartCard {
         }
       }
     }
+    const corrDomain = resolveColorDomain({ autoMin: -1, autoMax: 1, center: 0 });
+    const corrStops = ["#ef4444", zeroColor, "#2563eb"];
+    this.drawColorBar(
+      ctx,
+      frame,
+      colorRamp(corrStops, 16, rampColor),
+      corrDomain,
+    );
     const labelWidth = Math.max(24, sizeX - 2 * ui);
     const abbreviate = (label: string): string => {
       if (ctx.measureText(label).width <= labelWidth) return label;

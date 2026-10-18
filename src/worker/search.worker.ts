@@ -89,6 +89,7 @@ import type {
   RenameHeadersRequest,
   ResolveNullsAllRequest,
   SetFilterRequest,
+  SetFiltersRequest,
   SetNullPolicyRequest,
   SetNumberLocaleRequest,
   SetTypeRequest,
@@ -300,6 +301,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "setFilter":
       handleSetFilter(message);
+      break;
+    case "setFilters":
+      handleSetFilters(message);
       break;
     case "clearFilters":
       handleClearFilters(message);
@@ -750,6 +754,39 @@ function handleSetFilter(message: SetFilterRequest): void {
   });
 }
 
+function handleSetFilters(message: SetFiltersRequest): void {
+  const { dataset, engine } = state();
+  for (const entry of message.filters) {
+    const filter = entry.filter;
+    if (filter !== null && filter.kind === "text" && filter.mode === "fuzzy") {
+      const column = dataset.columns[entry.column];
+      if (column !== undefined && !column.fuzzyBuilt) {
+        post({ type: "progress", phase: "index", column: entry.column, active: true });
+        column.fuzzyIndex();
+        post({ type: "progress", phase: "index", column: entry.column, active: false });
+      }
+    }
+    if (filter === null) filters.delete(entry.column);
+    else filters.set(entry.column, filter);
+  }
+  const started = performance.now();
+  const bits = engine.evaluateBits(filters);
+  sortedIds = computeSortedIds(bits);
+  const queryMs = performance.now() - started;
+  const preview = message.preview === true;
+  post({
+    type: "results",
+    requestId: message.requestId,
+    count: sortedIds.length,
+    queryMs,
+    facets: preview ? {} : computeFacets(dataset, engine, bits),
+    histograms: preview ? {} : computeHistograms(dataset, engine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
+  });
+}
 function handleClearFilters(message: { requestId: number }): void {
   const { dataset, engine } = state();
   filters.clear();

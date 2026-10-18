@@ -47,17 +47,28 @@ function select(
  * lets the columns be adjusted before the card lands in the grid, so a click
  * never adds something invisible by accident.
  */
+export interface ChartSetupOptions {
+  /** Edit an existing card with the same field validation as Add. */
+  mode?: "add" | "edit";
+}
+
 export function openChartSetupDialog(
   kind: ChartCardKind,
   columns: readonly ColumnMeta[],
   preset: Partial<ChartCardConfig>,
+  setupOptions: ChartSetupOptions = {},
 ): Promise<Partial<ChartCardConfig> | null> {
+  const editing = setupOptions.mode === "edit";
   return new Promise((resolve) => {
     const overlay = el("div", { class: "modal-overlay" });
     const modal = el("div", { class: "modal chart-setup-modal" });
 
     const head = el("div", { class: "modal-head" });
-    head.append(el("h2", {}, [`Add a ${CHART_KIND_LABELS[kind].toLowerCase()} chart`]));
+    head.append(
+      el("h2", {}, [
+        `${editing ? "Edit" : "Add a"} ${CHART_KIND_LABELS[kind].toLowerCase()}${editing ? " chart" : " chart"}`,
+      ]),
+    );
     const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close" }, ["×"]);
     head.append(closeButton);
     modal.append(head);
@@ -101,7 +112,7 @@ export function openChartSetupDialog(
           .filter((option) => option.selected)
           .map((option) => Number(option.value));
         return picked.length >= 2
-          ? { config: { kind, correlationColumns: picked }, error: null }
+          ? { config: { ...preset, kind, correlationColumns: picked }, error: null }
           : {
               config: null,
               error: "Columns: pick at least two numeric columns for correlation.",
@@ -271,7 +282,9 @@ export function openChartSetupDialog(
 
     body.append(
       el("p", { class: "confirm-body" }, [
-        "The card is added at the end of the grid and briefly highlighted; Cancel adds nothing.",
+        editing
+          ? "Changes update this card in place; Cancel leaves it unchanged."
+          : "The card is added at the end of the grid and briefly highlighted; Cancel adds nothing.",
       ]),
     );
     const errorEl = el("div", { class: "chart-setup-error", role: "alert" });
@@ -282,7 +295,7 @@ export function openChartSetupDialog(
 
     const footer = el("div", { class: "clean-footer" });
     const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
-    const confirm = el("button", { class: "primary", type: "button" }, ["Add chart"]);
+    const confirm = el("button", { class: "primary", type: "button" }, [editing ? "Apply changes" : "Add chart"]);
     footer.append(cancel, el("span", { class: "grow" }), confirm);
     modal.append(footer);
 
@@ -314,6 +327,6 @@ export function openChartSetupDialog(
 
     overlay.append(modal);
     document.body.append(overlay);
-    setupDialog(overlay, `Add a ${CHART_KIND_LABELS[kind]} chart`);
+    setupDialog(overlay, `${editing ? "Edit" : "Add a"} ${CHART_KIND_LABELS[kind]} chart`);
   });
 }
