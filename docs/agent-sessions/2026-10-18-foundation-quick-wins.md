@@ -55,6 +55,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Pivot builder now shows an R/C layout bar: click a field to move it between the row index and nested column headers, with a live active state and an explicit `R = row index, C = column field` hint.
 - Multiple spread dimensions render as grouped, `colspan`-aware header rows; CSV export flattens them with ` / ` separators.
 - Empty pivot cells can display a chosen fill value or stay blank, and `Drop empty` hides rows/columns with no values.
+- Multi-measure pivots expose a `Value` selector; the matrix, margins, note and CSV all follow the selected measure.
 - Margins now compute from all row and column fields, not just the first one.
 - Pill styling, focus/hover states, fill input, and nested header styling were added to the pivot UI.
 
@@ -149,6 +150,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `d021fc1` feat(charts): filter box, grid and animation requests
 - `b9084de` feat(pivot): support multi-field row indexes
 - `622787a` feat(pivot): add multi-column layouts and fill controls
+- `644779e` feat(pivot): let multi-measure pivots switch values
 - `1580efe` feat(charts): load geojson and zipped shapefile regions
 - `21836d1` feat(charts): join geojson regions to dataset measures
 
