@@ -24,7 +24,12 @@ import {
 import type { TimeGrain, ViewDef } from "../data/aggregate.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import { isNumericLikeType, TYPE_LABELS } from "../types.js";
-import { chartSpecFromConfig, chartSpecJson } from "./chart-spec.js";
+import {
+  chartSpecFromConfig,
+  chartSpecJson,
+  chartSpecToPandas,
+  chartSpecToPolars,
+} from "./chart-spec.js";
 import type {
   AggregateMessage,
   BoxStatsMessage,
@@ -3660,6 +3665,16 @@ export class ChartCard {
           action: () => this.downloadChartSpec(),
         },
         {
+          label: "Download pandas code",
+          title: "Download Python that rebuilds the supported chart aggregation",
+          action: () => this.downloadChartCode(true),
+        },
+        {
+          label: "Download Polars code",
+          title: "Download Polars code that rebuilds the supported chart aggregation",
+          action: () => this.downloadChartCode(false),
+        },
+        {
           label: `${this.config.span === "full" ? "● " : ""}Full row width`,
           title: "Span the whole row, or return to the normal grid cell",
           action: () => this.toggleSpan(),
@@ -4762,6 +4777,37 @@ export class ChartCard {
     anchor.download = `${safeFileName(this.options.datasetName())}-${safeFileName(
       this.chartName(),
     )}-chart-spec.json`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  /** Python code for the supported subset of the current ChartSpec. */
+  private downloadChartCode(pandas: boolean): void {
+    if (typeof URL.createObjectURL !== "function") return;
+    const sourceName =
+      this.config.source === ""
+        ? this.options.tableSourceLabel?.() ?? "Table"
+        : (this.sources.find((source) => source.id === this.config.source)?.name ??
+          this.config.source);
+    const spec = chartSpecFromConfig(this.config, this.columns, sourceName);
+    const generated = pandas ? chartSpecToPandas(spec) : chartSpecToPolars(spec);
+    if (generated.code === "") {
+      this.noteEl.textContent =
+        generated.warnings[0] ?? "No code can be generated for this chart yet.";
+      return;
+    }
+    const header = generated.warnings
+      .map((warning) => `# Note: ${warning}`)
+      .join("\n");
+    const content = header === "" ? generated.code : `${header}\n${generated.code}`;
+    const url = URL.createObjectURL(new Blob([content], { type: "text/x-python" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${safeFileName(this.options.datasetName())}-${safeFileName(
+      this.chartName(),
+    )}-${pandas ? "pandas" : "polars"}.py`;
     document.body.append(anchor);
     anchor.click();
     anchor.remove();

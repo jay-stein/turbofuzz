@@ -1119,6 +1119,18 @@ test("the chart menu downloads the data behind the chart as CSV", async () => {
       ),
       "the card menu offers a chart spec",
     );
+    assert.ok(
+      [...document.querySelectorAll(".context-menu .context-item")].some(
+        (item) => item.textContent === "Download pandas code",
+      ),
+      "the card menu offers pandas code",
+    );
+    assert.ok(
+      [...document.querySelectorAll(".context-menu .context-item")].some(
+        (item) => item.textContent === "Download Polars code",
+      ),
+      "the card menu offers Polars code",
+    );
     (menu as unknown as { click(): void }).click();
     await tick();
     assert.equal(blobs.length, 1, "a CSV blob was created");

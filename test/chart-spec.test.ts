@@ -2,7 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ColumnMeta } from "../src/worker/protocol.js";
 import type { ChartCardConfig } from "../src/ui/chart-card.js";
-import { chartSpecFromConfig, chartSpecJson } from "../src/ui/chart-spec.js";
+import {
+  chartSpecFromConfig,
+  chartSpecJson,
+  chartSpecToPandas,
+  chartSpecToPolars,
+} from "../src/ui/chart-spec.js";
 
 function meta(name: string, overrides: Partial<ColumnMeta> = {}): ColumnMeta {
   return {
@@ -100,4 +105,50 @@ test("the chart spec stores fields by name and includes filters and calculations
   const parsed = JSON.parse(chartSpecJson(spec)) as { title: string; version: number };
   assert.equal(parsed.version, 1);
   assert.equal(parsed.title, "Revenue");
+});
+
+test("generated pandas and Polars code rebuilds the chart aggregation", () => {
+  const spec = chartSpecFromConfig(config({ respectFilters: true }), [
+    meta("amount"),
+    meta("city", {
+      type: "category",
+      categories: { labels: ["Perth", "Sydney"], counts: [3, 2] },
+    }),
+    meta("revenue"),
+  ]);
+  const pandas = chartSpecToPandas(spec);
+  assert.match(pandas.code, /groupby\("city"/);
+  assert.match(pandas.code, /\.sum\(\)/);
+  assert.match(pandas.code, /\.head\(10\)/);
+  assert.deepEqual(pandas.warnings, []);
+
+  const polars = chartSpecToPolars(spec);
+  assert.match(polars.code, /group_by\("city"\)/);
+  assert.match(polars.code, /\.sum\(\)/);
+  assert.match(polars.code, /\.head\(10\)/);
+
+  const unsupported = chartSpecToPandas({ ...spec, kind: "treemap" });
+  assert.equal(unsupported.code, "");
+  assert.match(unsupported.warnings[0] ?? "", /No pandas generator/);
+});
+
+test("time charts generate resample/group_by_dynamic code", () => {
+  const spec = chartSpecFromConfig(
+    config({
+      kind: "line",
+      column: 1,
+      valueColumn: 2,
+      valueGrain: "month",
+      valueCalc: undefined,
+      filterColumn: -1,
+      filterCode: -1,
+    }),
+    [
+      meta("amount"),
+      meta("when", { type: "date" }),
+      meta("revenue"),
+    ],
+  );
+  assert.match(chartSpecToPandas(spec).code, /resample\("ME"\)/);
+  assert.match(chartSpecToPolars(spec).code, /group_by_dynamic\("when", every="1mo"\)/);
 });
