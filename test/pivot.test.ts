@@ -154,3 +154,13 @@ test("pivot value filters restrict raw rows and keep percentage totals", () => {
   assert.deepEqual([...result.measures[0].colTotals], [10, 5]);
   assert.equal(result.groupCount, 2);
 });
+test("grand-total percentages keep raw totals available", () => {
+  const result = computePivot(
+    pivot({ margins: false, marginPct: "grand" }),
+    SALES.columns,
+    SALES.rowCount,
+    ids,
+  );
+  assert.equal(result.measures[0]?.grandTotal, 52);
+  assert.deepEqual([...result.measures[0]!.rowTotals], [7, 15, 30]);
+});

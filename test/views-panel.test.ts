@@ -118,6 +118,8 @@ test("views panel renders the active view, drills and charts", async () => {
   const cards = host.querySelectorAll(".views-card");
   assert.ok(cards.length >= 3, "one card per starter view");
   assert.ok(host.querySelector(".views-card.expanded") !== null, "the first card starts expanded");
+  assert.equal(host.querySelectorAll(".views-shelf-chip").length, metas.length);
+  assert.ok(host.querySelector(".views-pivot-top .views-transpose") !== null);
   const rows = host.querySelectorAll(".views-row");
   assert.equal(rows.length, 2);
   const total = host.querySelector(".views-total");
@@ -767,4 +769,34 @@ test("dragging guards the row index and custom measures", () => {
     false,
   );
   assert.equal(blocked.ok, false);
+});
+test("dragging a shelf column adds or moves it by column", () => {
+  const view = dragView();
+  const moved = movePivotField(
+    view,
+    { kind: "column", index: 2, well: "shelf" },
+    "index",
+    0,
+    false,
+  );
+  assert.equal(moved.ok, true);
+  assert.deepEqual(
+    view.dimensions.map((dimension) => dimension.column),
+    [2, 0, 1],
+  );
+  assert.deepEqual(view.pivotColumns, [2]);
+
+  const added = movePivotField(
+    view,
+    { kind: "column", index: 3, well: "shelf" },
+    "columns",
+    1,
+    true,
+  );
+  assert.equal(added.ok, true);
+  assert.deepEqual(
+    view.dimensions.map((dimension) => dimension.column),
+    [2, 0, 1, 3],
+  );
+  assert.deepEqual(view.pivotColumns, [2, 3]);
 });

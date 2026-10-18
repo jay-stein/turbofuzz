@@ -15,13 +15,13 @@ import {
   type TimeGrain,
   type ViewDef,
 } from "../data/aggregate.js";
-import { isNumericLikeType } from "../types.js";
+import { isNumericLikeType, TYPE_LABELS } from "../types.js";
 import { compilePivotLambda } from "../data/pivot-lambda.js";
 import { downloadCsv } from "./chart-export.js";
 import { pivotCsvRows } from "./pivot-export.js";
 import { safeFileName } from "./chart-utils.js";
 import { openPrompt } from "./dialog.js";
-import { clear, el } from "./dom.js";
+import { clear, el, svgIcon } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
 
 export interface ViewsPanelOptions {
@@ -165,12 +165,19 @@ export function formatMeasure(value: number, measure: MeasureSpec): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+function transposeIcon(): SVGElement {
+  return svgIcon(
+    '<path d="M7 3v13"/><path d="M3 12l4 4 4-4"/><path d="M3 19h13"/><path d="M12 15l4 4-4 4"/>',
+    "transpose-icon",
+  );
+}
 export type PivotWell = "index" | "columns" | "values";
+export type PivotDragWell = PivotWell | "shelf";
 
 export interface PivotDragSource {
-  kind: "dimension" | "measure";
+  kind: "dimension" | "measure" | "column";
   index: number;
-  well: PivotWell;
+  well: PivotDragWell;
 }
 
 export interface PivotMoveResult {
@@ -199,6 +206,78 @@ export function movePivotField(
 ): PivotMoveResult {
   const selected =
     view.pivotMeasure === undefined ? undefined : view.measures[view.pivotMeasure];
+  if (source.kind === "column") {
+    const column = source.index;
+    const existingDim = view.dimensions.findIndex((dimension) => dimension.column === column);
+    if (target === "values") {
+      if (existingDim >= 0) {
+        if (view.dimensions[existingDim]?.by !== "value") {
+          return {
+            ok: false,
+            reason: "Change the grouped field back to Exact value before moving it to Values.",
+          };
+        }
+        const sourceWell = thisPivotIndexes(view).includes(existingDim) ? "columns" : "index";
+        return movePivotField(
+          view,
+          { kind: "dimension", index: existingDim, well: sourceWell },
+          target,
+          position,
+          numericSource,
+        );
+      }
+      const agg = numericSource ? "mean" : "count";
+      const duplicate = view.measures.some(
+        (measure) =>
+          measure.column === column &&
+          measure.agg === agg &&
+          measure.weight === undefined &&
+          measure.where === undefined &&
+          (measure.post?.length ?? 0) === 0,
+      );
+      if (duplicate) return { ok: true };
+      const measure: MeasureSpec = { column, agg };
+      view.measures.splice(Math.max(0, Math.min(view.measures.length, position)), 0, measure);
+      keepPivotMeasure(view, selected);
+      return { ok: true };
+    }
+    if (existingDim >= 0) {
+      if (view.dimensions[existingDim]?.by !== "value") {
+        return {
+          ok: false,
+          reason: "Change the grouped field back to Exact value before moving it.",
+        };
+      }
+      const sourceWell = thisPivotIndexes(view).includes(existingDim) ? "columns" : "index";
+      return movePivotField(
+        view,
+        { kind: "dimension", index: existingDim, well: sourceWell },
+        target,
+        position,
+        numericSource,
+      );
+    }
+    const oldColumns = thisPivotIndexes(view);
+    const columnSpecs = new Set(oldColumns.map((index) => view.dimensions[index]!));
+    const targetOrder = view.dimensions
+      .map((_, index) => index)
+      .filter((index) =>
+        target === "columns"
+          ? columnSpecs.has(view.dimensions[index]!)
+          : !columnSpecs.has(view.dimensions[index]!),
+      );
+    const before = targetOrder[Math.max(0, Math.min(targetOrder.length, position))];
+    const beforeSpec = before === undefined ? undefined : view.dimensions[before];
+    const spec: DimensionSpec = { column, by: "value" };
+    if (beforeSpec === undefined) view.dimensions.push(spec);
+    else view.dimensions.splice(view.dimensions.indexOf(beforeSpec), 0, spec);
+    if (target === "columns") columnSpecs.add(spec);
+    view.pivotColumns = view.dimensions
+      .map((dimension, index) => (columnSpecs.has(dimension) ? index : -1))
+      .filter((index) => index >= 0);
+    view.pivot = view.pivotColumns[0];
+    return { ok: true };
+  }
   if (source.kind === "dimension") {
     const spec = view.dimensions[source.index];
     if (spec === undefined) return { ok: false, reason: "That field is no longer present." };
@@ -515,6 +594,7 @@ export class ViewsPanel {
   private started = false;
   private transientNote: string | null = null;
   private pivotDrag: PivotDragSource | null = null;
+  private fieldSearch = "";
   /** Index of a just-added view whose name field should open for editing. */
   private pendingRename: number | null = null;
 
@@ -1277,7 +1357,7 @@ export class ViewsPanel {
       const marginsLabel = el("label", {
         class: "control check clean-check",
       });
-      marginsLabel.title = "Add All totals computed from the raw rows";
+      marginsLabel.title = "Add an All row and All column of totals computed from the raw rows";
       const marginsInput = el("input", {
         type: "checkbox",
         "aria-label": "Pivot margins",
@@ -1288,7 +1368,7 @@ export class ViewsPanel {
           view.margins = marginsInput.checked;
         }),
       );
-      marginsLabel.append(marginsInput, "Margins");
+      marginsLabel.append(marginsInput, "All totals");
 
       const fillLabel = el("label", { class: "views-limit views-fill" });
       fillLabel.title = "Value shown where a row and column combination has no rows";
@@ -1382,15 +1462,17 @@ export class ViewsPanel {
       csvHeadersLabel.append("CSV", csvHeadersSelect);
 
       const marginPctLabel = el("label", { class: "views-limit" });
-      marginPctLabel.title = "Show cells as a share of their row or column total";
+      marginPctLabel.title =
+        "Convert displayed values to a percentage of their row, column or grand total";
       const marginPctSelect = el("select", {
         class: "chart-picker chart-picker-small",
-        "aria-label": "Pivot margin percentage",
+        "aria-label": "Pivot value display",
       }) as HTMLSelectElement;
       for (const [value, label] of [
         ["none", "Absolute"],
-        ["row", "% of row"],
-        ["column", "% of column"],
+        ["row", "% of row total"],
+        ["column", "% of column total"],
+        ["grand", "% of grand total"],
       ] as const) {
         const option = el("option", { value }, [label]) as HTMLOptionElement;
         if ((entry.def.pivotMarginPct ?? "none") === value) option.selected = true;
@@ -1398,10 +1480,17 @@ export class ViewsPanel {
       }
       marginPctSelect.addEventListener("change", () =>
         this.update((view) => {
-          view.pivotMarginPct = marginPctSelect.value === "row" ? "row" : marginPctSelect.value === "column" ? "column" : "none";
+          view.pivotMarginPct =
+            marginPctSelect.value === "row"
+              ? "row"
+              : marginPctSelect.value === "column"
+                ? "column"
+                : marginPctSelect.value === "grand"
+                  ? "grand"
+                  : "none";
         }),
       );
-      marginPctLabel.append("Margin %", marginPctSelect);
+      marginPctLabel.append("Show as", marginPctSelect);
 
       const heatmapLabel = el("label", { class: "views-limit" });
       heatmapLabel.title = "Shade pivot cells with the coolwarm ramp";
@@ -1425,19 +1514,6 @@ export class ViewsPanel {
       );
       heatmapLabel.append("Heatmap", heatmapSelect);
 
-      const transpose = el(
-        "button",
-        {
-          class: "ghost small views-transpose",
-          type: "button",
-          title: "Swap the index and column fields",
-        },
-        ["Transpose"],
-      ) as HTMLButtonElement;
-      const transposePivots = this.pivotIndexes(entry.def);
-      transpose.disabled =
-        transposePivots.length === 0 || transposePivots.length >= entry.def.dimensions.length;
-      transpose.addEventListener("click", () => this.transposePivot());
       this.actionsEl.append(
         marginsLabel,
         fillLabel,
@@ -1447,7 +1523,6 @@ export class ViewsPanel {
         csvHeadersLabel,
         marginPctLabel,
         heatmapLabel,
-        transpose,
       );
     }
     const duplicate = el(
@@ -1728,9 +1803,137 @@ export class ViewsPanel {
     this.wireDropZone(indexZone, "index");
     this.wireDropZone(columnZone, "columns");
     this.wireDropZone(measureZone, "values");
-    this.builderEl.append(indexZone, columnZone, measureZone);
+    this.builderEl.append(
+      this.pivotTools(def),
+      indexZone,
+      columnZone,
+      measureZone,
+      this.fieldShelf(def),
+    );
   }
 
+  /** Top-of-pivot controls, led by the transpose action. */
+  private pivotTools(def: ViewDef): HTMLElement {
+    const tools = el("div", { class: "views-pivot-top" });
+    const copy = el("div", { class: "views-pivot-top-copy" }, [
+      el("span", { class: "views-pivot-top-title" }, ["Pivot layout"]),
+      el("span", { class: "views-pivot-top-hint" }, [
+        "Drag fields into Index, Columns or Values",
+      ]),
+    ]);
+    const pivots = this.pivotIndexes(def);
+    const transpose = el(
+      "button",
+      {
+        class: "views-transpose",
+        type: "button",
+        title: "Transpose - swap the Index and Columns fields",
+        "aria-label": "Transpose Index and Columns fields",
+      },
+      [],
+    ) as HTMLButtonElement;
+    transpose.append(transposeIcon());
+    transpose.disabled =
+      pivots.length === 0 || pivots.length >= def.dimensions.length;
+    transpose.addEventListener("click", () => this.transposePivot());
+    tools.append(copy, transpose);
+    return tools;
+  }
+
+  /** Persistent draggable shelf showing every dataset column. */
+  private fieldShelf(def: ViewDef): HTMLElement {
+    const shelf = el("div", { class: "views-field-shelf" });
+    const head = el("div", { class: "views-shelf-head" });
+    const title = el("span", { class: "views-shelf-title" }, [
+      `All columns (${this.metas.length})`,
+    ]);
+    const search = el("input", {
+      class: "views-shelf-search",
+      type: "search",
+      placeholder: "Find a column…",
+      "aria-label": "Find a pivot field",
+      value: this.fieldSearch,
+    }) as HTMLInputElement;
+    head.append(title, search);
+    const list = el("div", { class: "views-shelf-list" });
+    const pivotSet = new Set(this.pivotIndexes(def));
+    const dimensionColumns = new Set(def.dimensions.map((dimension) => dimension.column));
+    const measureColumns = new Set(
+      def.measures
+        .map((measure) => measure.column)
+        .filter((column): column is number => column !== null),
+    );
+    const chips: HTMLElement[] = [];
+    this.metas.forEach((meta, column) => {
+      const usedDimension = dimensionColumns.has(column);
+      const asColumn = def.dimensions.some(
+        (dimension, index) => dimension.column === column && pivotSet.has(index),
+      );
+      const usedMeasure = measureColumns.has(column);
+      const chip = el(
+        "button",
+        {
+          class: `views-shelf-chip${usedDimension ? " used-index" : ""}${
+            asColumn ? " used-column" : ""
+          }${usedMeasure ? " used-value" : ""}`,
+          type: "button",
+          title: `Drag "${meta.name}" into Index, Columns or Values`,
+        },
+        [
+          el("span", { class: "views-shelf-name" }, [meta.name]),
+          el("span", { class: "views-shelf-type" }, [TYPE_LABELS[meta.type]]),
+        ],
+      ) as HTMLButtonElement;
+      chip.dataset.search = meta.name.toLocaleLowerCase();
+      chip.draggable = true;
+      this.makePillDraggable(chip, { kind: "column", index: column, well: "shelf" });
+      chip.addEventListener("click", () =>
+        this.openShelfMenu(chip, column, meta.name, def),
+      );
+      chips.push(chip);
+      list.append(chip);
+    });
+    search.addEventListener("input", () => {
+      this.fieldSearch = search.value.trim().toLocaleLowerCase();
+      for (const chip of chips) {
+        chip.hidden = !(chip.dataset.search ?? "").includes(this.fieldSearch);
+      }
+    });
+    for (const chip of chips) {
+      chip.hidden = !(chip.dataset.search ?? "").includes(this.fieldSearch);
+    }
+    shelf.append(head, list);
+    return shelf;
+  }
+
+  private openShelfMenu(
+    anchor: HTMLElement,
+    column: number,
+    name: string,
+    def: ViewDef,
+  ): void {
+    const pivots = this.pivotIndexes(def);
+    const source: PivotDragSource = { kind: "column", index: column, well: "shelf" };
+    const items: MenuItem[] = [
+      {
+        label: "Add to Index",
+        title: `Group rows by ${name}`,
+        action: () =>
+          this.applyPivotFieldMove(source, "index", def.dimensions.length - pivots.length),
+      },
+      {
+        label: "Add to Columns",
+        title: `Spread ${name} across columns`,
+        action: () => this.applyPivotFieldMove(source, "columns", pivots.length),
+      },
+      {
+        label: "Add to Values",
+        title: `Aggregate ${name} as a value`,
+        action: () => this.applyPivotFieldMove(source, "values", def.measures.length),
+      },
+    ];
+    openMenu(anchor, items);
+  }
   /** Wire one builder well as a drag/drop target for pivot fields. */
   private wireDropZone(zone: HTMLElement, well: PivotWell): void {
     zone.dataset.pivotWell = well;
@@ -1750,33 +1953,45 @@ export class ViewsPanel {
       if (source === null) return;
       event.preventDefault();
       this.clearPivotDrag();
-      const entry = this.views[this.active];
-      if (entry === undefined) return;
       const position = this.pivotDropPosition(zone, well, source, event);
-      const trial: ViewDef = {
-        ...entry.def,
-        dimensions: [...entry.def.dimensions],
-        measures: [...entry.def.measures],
-        pivotColumns: [...(entry.def.pivotColumns ?? [])],
-      };
-      const meta =
-        source.kind === "dimension"
-          ? this.metas[entry.def.dimensions[source.index]?.column ?? -1]
-          : undefined;
-      const result = movePivotField(
-        trial,
-        source,
-        well,
-        position,
-        meta !== undefined && isNumericLikeType(meta.type),
-      );
-      if (!result.ok) {
-        this.transientNote = result.reason ?? "That field cannot move there.";
-        this.render();
-        return;
-      }
-      this.update((view) => Object.assign(view, trial));
+      this.applyPivotFieldMove(source, well, position);
     });
+  }
+
+  /** Apply a field move on a trial copy, then commit it to the active view. */
+  private applyPivotFieldMove(
+    source: PivotDragSource,
+    target: PivotWell,
+    position: number,
+  ): void {
+    const entry = this.views[this.active];
+    if (entry === undefined) return;
+    const trial: ViewDef = {
+      ...entry.def,
+      dimensions: [...entry.def.dimensions],
+      measures: [...entry.def.measures],
+      pivotColumns: [...(entry.def.pivotColumns ?? [])],
+    };
+    const column =
+      source.kind === "column"
+        ? source.index
+        : source.kind === "dimension"
+          ? entry.def.dimensions[source.index]?.column
+          : undefined;
+    const meta = column === undefined ? undefined : this.metas[column];
+    const result = movePivotField(
+      trial,
+      source,
+      target,
+      position,
+      meta !== undefined && isNumericLikeType(meta.type),
+    );
+    if (!result.ok) {
+      this.transientNote = result.reason ?? "That field cannot move there.";
+      this.render();
+      return;
+    }
+    this.update((view) => Object.assign(view, trial));
   }
 
   /** Insertion slot from the pointer position among the well's field pills. */
@@ -2891,19 +3106,46 @@ export class ViewsPanel {
           agg: "count" as const,
         };
         for (let col = 0; col < colCount; col++) {
-          const value = displayValue(measure.values[row * colCount + col] ?? Number.NaN);
+          const raw = displayValue(measure.values[row * colCount + col] ?? Number.NaN);
+          const base =
+            marginPct === "row"
+              ? (measure.rowTotals[row] ?? Number.NaN)
+              : marginPct === "column"
+                ? (measure.colTotals[col] ?? Number.NaN)
+                : marginPct === "grand"
+                  ? measure.grandTotal
+                  : Number.NaN;
+          const value =
+            marginPct !== "none" && Number.isFinite(raw) && Number.isFinite(base) && base !== 0
+              ? raw / base
+              : raw;
           const td = el("td", { class: "views-num" });
-          if (Number.isFinite(value) && max > 0) {
-            const strength = Math.max(0.05, Math.min(1, Math.abs(value) / max));
-            td.style.background = `color-mix(in srgb, var(--accent) ${Math.round(
-              strength * 48,
+          if (Number.isFinite(raw) && max > 0) {
+            const strength = Math.max(0.05, Math.min(1, Math.abs(raw) / max));
+            const positive = raw >= 0;
+            const reversed = heatmap === "coolwarm-reversed";
+            const color =
+              heatmap === "none"
+                ? "var(--accent)"
+                : positive
+                  ? reversed
+                    ? "#3b4cc0"
+                    : "#b40426"
+                  : reversed
+                    ? "#b40426"
+                    : "#3b4cc0";
+            td.style.background = `color-mix(in srgb, ${color} ${Math.round(
+              heatmap === "none" ? strength * 48 : 10 + strength * 62,
             )}%, transparent)`;
           }
-          td.append(
-            el("span", { class: "views-value" }, [
-              formatMeasure(value, measureSpec),
-            ]),
-          );
+          const text =
+            marginPct !== "none" && Number.isFinite(value)
+              ? `${(value * 100).toFixed(1)}%`
+              : formatMeasure(value, measureSpec);
+          td.append(el("span", { class: "views-value" }, [text]));
+          if (Number.isFinite(raw) && marginPct !== "none") {
+            td.title = formatMeasure(raw, measureSpec);
+          }
           tr.append(td);
         }
       }
@@ -2923,7 +3165,9 @@ export class ViewsPanel {
             ? " - cells are % of row total"
             : marginPct === "column"
               ? " - cells are % of column total"
-              : ""
+              : marginPct === "grand"
+                ? " - cells are % of grand total"
+                : ""
         }${heatmap === "none" ? "" : " - coolwarm shading"}.`,
       ]),
     );

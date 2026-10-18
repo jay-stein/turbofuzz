@@ -10,7 +10,7 @@ export interface PivotCsvOptions {
   /** Maximum cells (rows * columns) allowed in one export. */
   cellCap?: number;
   /** Export cells as a share of their row or column total. */
-  marginPct?: "none" | "row" | "column";
+  marginPct?: "none" | "row" | "column" | "grand";
 }
 
 const FORMULA_LIKE = /^[=+\-@\t\r]/;
@@ -52,14 +52,16 @@ export function pivotCsvRows(
         ? result?.rowTotals[row]
         : options.marginPct === "column"
           ? result?.colTotals[col]
-          : undefined;
+          : options.marginPct === "grand"
+            ? result?.grandTotal
+            : undefined;
     if (
       options.marginPct !== undefined &&
       options.marginPct !== "none" &&
       Number.isFinite(total) &&
       total !== 0
     ) {
-      return `${((raw as number) / (total as number) * 100).toFixed(2)}%`;
+      return `${((raw as number) / (total as number) * 100).toFixed(1)}%`;
     }
     return String(raw);
   };

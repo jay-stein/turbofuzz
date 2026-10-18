@@ -26,7 +26,7 @@ export interface PivotDef {
   sort?: "label" | "source";
   /** Safe custom lambda values, appended after ordinary values. */
   lambdas?: PivotLambdaSpec[];
-  marginPct?: "none" | "row" | "column";
+  marginPct?: "none" | "row" | "column" | "grand";
   valueFilters?: { column: number; values: string[] }[];
 }
 

@@ -82,6 +82,15 @@ test("pivot CSV can export percentage margins", () => {
     formulaSafe: true,
     marginPct: "row",
   });
-  assert.deepEqual(rows[1]?.slice(1, 3), ["66.67%", "33.33%"]);
-  assert.deepEqual(rows[2]?.slice(1, 3), ["74.07%", "25.93%"]);
+  assert.deepEqual(rows[1]?.slice(1, 3), ["66.7%", "33.3%"]);
+  assert.deepEqual(rows[2]?.slice(1, 3), ["74.1%", "25.9%"]);
+});
+test("pivot CSV can export a share of the grand total", () => {
+  const { rows } = pivotCsvRows(pivot(), {
+    headers: "flat",
+    formulaSafe: true,
+    marginPct: "grand",
+  });
+  assert.deepEqual(rows[1]?.slice(1, 3), ["23.8%", "11.9%"]);
+  assert.deepEqual(rows[2]?.slice(1, 3), ["47.6%", "16.7%"]);
 });

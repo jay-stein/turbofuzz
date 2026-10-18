@@ -130,7 +130,7 @@ export interface ViewDef {
   /** Pivot CSV headers: flat for Excel, or pandas-style repeated multi-row. */
   pivotCsvHeaders?: "flat" | "multi";
   /** Pivot margin display: raw, % of row total, or % of column total. */
-  pivotMarginPct?: "none" | "row" | "column";
+  pivotMarginPct?: "none" | "row" | "column" | "grand";
   /** Coolwarm pivot cell shading, optionally reversed. */
   pivotHeatmap?: "none" | "coolwarm" | "coolwarm-reversed";
   /** Exact raw-value filters on pivot dimension columns. */
