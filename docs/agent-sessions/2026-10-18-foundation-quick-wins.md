@@ -37,9 +37,10 @@ Start the approved implementation plan with low-risk, high-value slices before t
 
 - Added `Export CSV` to the Pivot View actions. Normal aggregates export one row per group; the current pivot matrix exports row headers plus one column per spread value.
 
-### Bubble viewport
+### Bubble and heatmap viewports
 
 - Bubble charts now share the X/Y pan and zoom viewport used by scatter/density, with reset support.
+- Heatmaps now support category-window zoom and pan on both axes, with reset support.
 
 ### Chart CSV export
 
@@ -97,6 +98,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `1d9206f` feat(charts): add aggregate barplot
 - `28ae6e0` feat(charts): add pan and zoom to bubble charts
 - `a2e9b62` feat(pivot): export aggregate and pivot results as CSV
+- `c2360ec` feat(charts): zoom and pan heatmap categories
 
 ## Validation
 
