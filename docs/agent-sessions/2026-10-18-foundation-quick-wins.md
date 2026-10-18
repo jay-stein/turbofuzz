@@ -50,6 +50,12 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Chart-filter coverage is exercised by worker tests for aggregate, series, crosstab, correlation, box, grid, and animation payloads.
 - Geo choropleths report how many loaded regions matched the join and mark unmatched regions in the hover tooltip.
 
+### Multi-field pivot rows
+
+- Pivot View now accepts up to four dimensions; every dimension except the spread dimension forms the row index.
+- The pivot matrix and CSV export render one header/cell per row-index field, so three or four dimensions can be inspected as a nested row hierarchy.
+- Margins stay single-index for now; the UI suppresses them when more than one row field is active rather than showing a misleading total.
+
 ### Pivot margins
 
 - Added an optional `Margins` toggle to pivoted views. The worker computes the All row, All column, and grand total from raw rows for the active aggregate function, so means/medians are not approximated by summing cells.
@@ -133,6 +139,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `b338aa2` feat(charts): add chart-scoped aggregate filters
 - `292eab1` feat(charts): filter point, crosstab and correlation requests
 - `d021fc1` feat(charts): filter box, grid and animation requests
+- `b9084de` feat(pivot): support multi-field row indexes
 - `1580efe` feat(charts): load geojson and zipped shapefile regions
 - `21836d1` feat(charts): join geojson regions to dataset measures
 
