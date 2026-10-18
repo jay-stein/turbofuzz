@@ -329,3 +329,10 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - Applying a hierarchy replaces existing time-grain fields for that column in the same well, preserving the well position and avoiding duplicate grains.
 - Added second-grain bucketing, labels, stepping and period indexes to the aggregation engine.
 - The existing 500-column cap remains the safeguard for date hierarchies placed in Columns.
+## Follow-up: pivot report filters (2026-10-18)
+
+- Added a Filters well to pivoted views. Any dataset column can be filtered, including fields not present in Index, Columns or Values.
+- Active report filters appear as chips with a funnel, value count and individual clear button; a Clear all action removes every pivot filter.
+- The field shelf menu now offers "Filter values..." for any field, opening the same searchable value picker.
+- Report filters are only shown when the view is actually pivoted, so filters cannot silently do nothing in aggregate-only views.
+- Extended the filter UI test to assert a report filter on a column absent from the pivot layout.

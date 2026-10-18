@@ -1836,11 +1836,14 @@ export class ViewsPanel {
     this.wireDropZone(indexZone, "index");
     this.wireDropZone(columnZone, "columns");
     this.wireDropZone(measureZone, "values");
+    const filterZone =
+      this.pivotIndexes(def).length > 0 ? this.filterZone(def) : null;
     this.builderEl.append(
       this.pivotTools(),
       indexZone,
       columnZone,
       measureZone,
+      ...(filterZone === null ? [] : [filterZone]),
       this.fieldShelf(def),
       this.transposeControl(def),
     );
@@ -1879,6 +1882,88 @@ export class ViewsPanel {
     return row;
   }
 
+  /** Filters over any dataset column, whether or not it is in the layout. */
+  private filterZone(def: ViewDef): HTMLElement {
+    const zone = el("div", { class: "views-zone views-filter-zone" });
+    zone.append(el("span", { class: "views-zone-label" }, ["Filters:"]));
+    const filters = (def.pivotValueFilters ?? []).filter(
+      (filter) => this.metas[filter.column] !== undefined,
+    );
+    for (const filter of filters) {
+      const meta = this.metas[filter.column]!;
+      const pill = el("span", { class: "views-pill views-report-filter-pill" });
+      const edit = el(
+        "button",
+        {
+          class: "views-pill-label",
+          type: "button",
+          title: `Filtered to: ${filter.values.join(", ")}`,
+        },
+        [
+          filterIcon(),
+          el("span", {}, [meta.name]),
+          el("span", { class: "views-filter-chip-count" }, [
+            String(filter.values.length),
+          ]),
+        ],
+      ) as HTMLButtonElement;
+      edit.addEventListener("click", () =>
+        this.openValueFilter(edit, filter.column, "Report filter"),
+      );
+      const remove = el(
+        "button",
+        { class: "views-pill-remove", type: "button", title: "Clear this filter" },
+        ["×"],
+      ) as HTMLButtonElement;
+      remove.addEventListener("click", () =>
+        this.update((view) => {
+          view.pivotValueFilters = (view.pivotValueFilters ?? []).filter(
+            (entry) => entry.column !== filter.column,
+          );
+        }),
+      );
+      pill.append(edit, remove);
+      zone.append(pill);
+    }
+    if (filters.length === 0) {
+      zone.append(
+        el("span", { class: "views-layout-hint" }, [
+          "Filter rows by any column - it does not need to be in the layout.",
+        ]),
+      );
+    }
+    const add = el(
+      "button",
+      { class: "views-pill add", type: "button", title: "Filter any column" },
+      ["+ Filter"],
+    ) as HTMLButtonElement;
+    add.addEventListener("click", () => this.openFilterColumnMenu(add, def));
+    zone.append(add);
+    if (filters.length > 0) {
+      const clear = el(
+        "button",
+        { class: "ghost small views-filter-clear-all", type: "button" },
+        ["Clear all"],
+      ) as HTMLButtonElement;
+      clear.addEventListener("click", () =>
+        this.update((view) => {
+          view.pivotValueFilters = [];
+        }),
+      );
+      zone.append(clear);
+    }
+    return zone;
+  }
+
+  private openFilterColumnMenu(anchor: HTMLElement, def: ViewDef): void {
+    const active = new Set((def.pivotValueFilters ?? []).map((filter) => filter.column));
+    const items: MenuItem[] = this.metas.map((meta, column) => ({
+      label: `${meta.name}${active.has(column) ? " (filtered)" : ""}`,
+      title: `Filter pivot rows by ${meta.name}`,
+      action: () => this.openValueFilter(anchor, column, "Report filter"),
+    }));
+    openMenu(anchor, items);
+  }
   /** Persistent draggable shelf showing every dataset column. */
   private fieldShelf(def: ViewDef): HTMLElement {
     const shelf = el("div", { class: "views-field-shelf" });
@@ -1991,6 +2076,13 @@ export class ViewsPanel {
           action: () => this.openDateGroups(dateSpec, "columns"),
         },
       );
+    }
+    if (this.pivotIndexes(def).length > 0) {
+      items.push({
+        label: "Filter values...",
+        title: `Filter pivot rows by ${name}`,
+        action: () => this.openValueFilter(anchor, column, "Report filter"),
+      });
     }
     openMenu(anchor, items);
   }
@@ -2224,7 +2316,13 @@ export class ViewsPanel {
         el("span", { class: "views-pill-filter-count" }, [String(filterValues.length)]),
       );
     }
-    filter?.addEventListener("click", () => this.openValueFilter(filter, spec, group));
+    filter?.addEventListener("click", () =>
+      this.openValueFilter(
+        filter,
+        spec.column,
+        group === "index" ? "Index values" : "Column values",
+      ),
+    );
     const toggle = el(
       "button",
       {
@@ -2265,17 +2363,17 @@ export class ViewsPanel {
     pill.append(grip, label, up, down, ...(filter === null ? [] : [filter]), toggle, remove);
     return pill;
   }
-  /** Searchable value picker for a pivot dimension. */
+  /** Searchable value picker for any pivot filter column. */
   private openValueFilter(
     anchor: HTMLElement,
-    spec: DimensionSpec,
-    group: "index" | "columns",
+    column: number,
+    subtitle: string,
   ): void {
     const entry = this.views[this.active];
     if (entry === undefined) return;
-    const meta = this.metas[spec.column];
+    const meta = this.metas[column];
     const current =
-      entry.def.pivotValueFilters?.find((filter) => filter.column === spec.column)?.values ?? [];
+      entry.def.pivotValueFilters?.find((filter) => filter.column === column)?.values ?? [];
     const labels = new Map<string, number>();
     if (meta?.categories !== null && meta?.categories !== undefined) {
       meta.categories.labels.forEach((label, index) => {
@@ -2296,9 +2394,7 @@ export class ViewsPanel {
     });
     const head = el("div", { class: "views-filter-head" }, [
       el("span", { class: "views-filter-title" }, [`Filter ${meta?.name ?? "field"}`]),
-      el("span", { class: "views-filter-subtitle" }, [
-        group === "index" ? "Index values" : "Column values",
-      ]),
+      el("span", { class: "views-filter-subtitle" }, [subtitle]),
     ]);
     const search = el("input", {
       class: "views-filter-search",
@@ -2339,10 +2435,10 @@ export class ViewsPanel {
       close();
       this.update((view) => {
         const others = (view.pivotValueFilters ?? []).filter(
-          (filter) => filter.column !== spec.column,
+          (filter) => filter.column !== column,
         );
         view.pivotValueFilters =
-          values.length === 0 ? others : [...others, { column: spec.column, values }];
+          values.length === 0 ? others : [...others, { column, values }];
       });
     };
     const updateFooter = (): void => {

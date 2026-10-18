@@ -890,6 +890,42 @@ test("pivot value filters use a searchable picker and can clear", async () => {
   clear.click();
   await tick();
   assert.deepEqual(pivotRequests[pivotRequests.length - 1]?.valueFilters, []);
+
+  const showAs = host.querySelector(
+    'select[aria-label="Pivot value display"]',
+  ) as HTMLSelectElement | null;
+  assert.ok(showAs !== null);
+  showAs.value = "grand";
+  showAs.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.deepEqual(
+    [...host.querySelectorAll(".views-pivot .views-num .views-value")].map(
+      (cell) => cell.textContent,
+    ),
+    ["10.0%", "20.0%", "30.0%", "40.0%"],
+  );
+
+  const addFilter = [...host.querySelectorAll(".views-filter-zone .views-pill.add")].find(
+    (button) => button.textContent === "+ Filter",
+  ) as unknown as { click(): void };
+  assert.ok(addFilter !== undefined);
+  addFilter.click();
+  const amountFilter = [...doc.querySelectorAll(".context-menu .context-item")].find(
+    (item) => item.textContent === "amount",
+  );
+  assert.ok(amountFilter !== undefined);
+  (amountFilter as unknown as { click(): void }).click();
+  const reportSearch = doc.querySelector(".views-filter-search") as HTMLInputElement | null;
+  assert.ok(reportSearch !== null);
+  reportSearch.value = "5";
+  reportSearch.dispatchEvent(new window.Event("input") as unknown as Event);
+  (doc.querySelector(".views-filter-add") as unknown as { click(): void }).click();
+  (doc.querySelector(".views-filter-apply") as unknown as { click(): void }).click();
+  await tick();
+  assert.deepEqual(pivotRequests[pivotRequests.length - 1]?.valueFilters, [
+    { column: 0, values: ["5"] },
+  ]);
+  assert.match(host.querySelector(".views-report-filter-pill")?.textContent ?? "", /amount/);
 });
 test("date fields can add a multi-level Year and Month hierarchy", async () => {
   setupDom();

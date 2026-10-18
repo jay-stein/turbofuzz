@@ -2869,6 +2869,43 @@ mark {
   color: var(--text);
 }
 
+.views-filter-zone {
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel-2) 35%, transparent);
+}
+
+.views-report-filter-pill {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: var(--accent-soft);
+}
+
+.views-report-filter-pill .views-pill-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.views-report-filter-pill .views-filter-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.views-filter-chip-count {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.views-filter-zone .views-filter-clear-all {
+  margin-left: auto;
+}
 .views-lambda-pill {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   background: color-mix(in srgb, var(--accent) 8%, var(--panel-2));
