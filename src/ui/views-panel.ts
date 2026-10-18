@@ -18,6 +18,7 @@ import {
 import { isNumericLikeType } from "../types.js";
 import { compilePivotLambda } from "../data/pivot-lambda.js";
 import { downloadCsv } from "./chart-export.js";
+import { pivotCsvRows } from "./pivot-export.js";
 import { safeFileName } from "./chart-utils.js";
 import { openPrompt } from "./dialog.js";
 import { clear, el } from "./dom.js";
@@ -1047,12 +1048,33 @@ export class ViewsPanel {
       );
       marginsNameLabel.append("All label", marginsNameInput);
 
+      const csvHeadersLabel = el("label", { class: "views-limit" });
+      csvHeadersLabel.title = "CSV header style for this pivot";
+      const csvHeadersSelect = el("select", {
+        class: "chart-picker chart-picker-small",
+        "aria-label": "Pivot CSV headers",
+      }) as HTMLSelectElement;
+      for (const [value, label] of [
+        ["flat", "Flat CSV"],
+        ["multi", "Multi-row CSV"],
+      ] as const) {
+        const option = el("option", { value }, [label]) as HTMLOptionElement;
+        if ((entry.def.pivotCsvHeaders ?? "flat") === value) option.selected = true;
+        csvHeadersSelect.append(option);
+      }
+      csvHeadersSelect.addEventListener("change", () =>
+        this.update((view) => {
+          view.pivotCsvHeaders = csvHeadersSelect.value === "multi" ? "multi" : "flat";
+        }),
+      );
+      csvHeadersLabel.append("CSV", csvHeadersSelect);
       this.actionsEl.append(
         marginsLabel,
         fillLabel,
         dropLabel,
         orderLabel,
         marginsNameLabel,
+        csvHeadersLabel,
       );
     }
     const below = el(
@@ -1074,33 +1096,19 @@ export class ViewsPanel {
     const pivot = entry.pivotResult;
     if (pivot !== null) {
       if (pivot.measures.length === 0) return;
-      const fillValue =
-        entry.def.fillValue === undefined || entry.def.fillValue === null
-          ? null
-          : entry.def.fillValue;
-      const format = (value: number): string =>
-        Number.isFinite(value) ? String(value) : fillValue === null ? "" : String(fillValue);
-      const rows: string[][] = [];
-      rows.push([
-        ...(pivot.rowNames.length === 0 ? ["All"] : pivot.rowNames),
-        ...pivot.measures.flatMap((measure) =>
-          pivot.colLabels.map((parts) => `${measure.name} / ${parts.join(" / ") || "All"}`),
-        ),
-      ]);
-      for (let row = 0; row < pivot.rowLabels.length; row++) {
-        const label = pivot.rowLabels[row] ?? [];
-        rows.push([
-          ...(label.length === 0 ? ["All"] : label),
-          ...pivot.measures.flatMap((measure) =>
-            pivot.colLabels.map((_, col) =>
-              format(measure.values[row * pivot.colLabels.length + col] ?? Number.NaN),
-            ),
-          ),
-        ]);
+      const exported = pivotCsvRows(pivot, {
+        headers: entry.def.pivotCsvHeaders === "multi" ? "multi" : "flat",
+        formulaSafe: true,
+      });
+      if (exported.tooLarge) {
+        this.transientNote = "Pivot CSV is too large to export at once. Filter the data or reduce the fields.";
+        this.render();
+        return;
       }
+      if (exported.rows.length < 2) return;
       downloadCsv(
         `${safeFileName(entry.def.name) || "pivot-view"}.csv`,
-        rows,
+        exported.rows,
       );
       return;
     }    const result = entry.result;

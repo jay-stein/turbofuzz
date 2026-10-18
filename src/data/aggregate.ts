@@ -127,6 +127,8 @@ export interface ViewDef {
   pivotSort?: "label" | "source";
   /** Safe custom lambda values shown after the ordinary measures. */
   pivotLambdas?: PivotLambdaSpec[];
+  /** Pivot CSV headers: flat for Excel, or pandas-style repeated multi-row. */
+  pivotCsvHeaders?: "flat" | "multi";
   /** Value used for pivot cells with no rows (null/undefined = blank). */
   fillValue?: number | null;
   /** Drop pivot rows and columns that contain no finite values. */
