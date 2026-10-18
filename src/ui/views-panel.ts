@@ -630,6 +630,11 @@ export class ViewsPanel {
     return def.pivot !== undefined && valid(def.pivot) ? [def.pivot] : [];
   }
 
+  private pivotMeasureIndex(def: ViewDef, result: AggregateMessage): number {
+    const index = def.pivotMeasure ?? 0;
+    return index >= 0 && index < result.measures.length ? index : 0;
+  }
+
   private dimensionSuffix(spec: DimensionSpec): string {
     const by = spec.by;
     if (by === "value") return "";
@@ -918,7 +923,30 @@ export class ViewsPanel {
         }),
       );
       dropLabel.append(dropInput, "Drop empty");
-      this.actionsEl.append(marginsLabel, fillLabel, dropLabel);
+      const valueParts: HTMLElement[] = [];
+      if (entry.def.measures.length > 1) {
+        const valueLabel = el("label", { class: "views-limit" });
+        valueLabel.title = "Choose which measure the pivot matrix shows";
+        const valueSelect = el("select", {
+          class: "chart-picker chart-picker-small",
+          "aria-label": "Pivot measure",
+        }) as HTMLSelectElement;
+        entry.def.measures.forEach((measure, index) => {
+          const option = el("option", { value: String(index) }, [
+            measureDisplay(measure, this.metas),
+          ]) as HTMLOptionElement;
+          if ((entry.def.pivotMeasure ?? 0) === index) option.selected = true;
+          valueSelect.append(option);
+        });
+        valueSelect.addEventListener("change", () =>
+          this.update((view) => {
+            view.pivotMeasure = Number(valueSelect.value);
+          }),
+        );
+        valueLabel.append("Value", valueSelect);
+        valueParts.push(valueLabel);
+      }
+      this.actionsEl.append(...valueParts, marginsLabel, fillLabel, dropLabel);
     }
     const below = el(
       "button",
@@ -978,7 +1006,8 @@ export class ViewsPanel {
       colParts = ordered.map((index) => colParts[index]!);
       colIndex.clear();
       colKeys.forEach((key, index) => colIndex.set(key, index));
-      const measure = result.measures[0];
+      const measureIndex = this.pivotMeasureIndex(entry.def, result);
+      const measure = result.measures[measureIndex];
       let cells = new Float64Array(rowKeys.length * colKeys.length).fill(Number.NaN);
       if (measure !== undefined) {
         for (let group = 0; group < result.groupCount; group++) {
@@ -1024,7 +1053,7 @@ export class ViewsPanel {
       let grandTotal = Number.NaN;
       if (margins?.rows !== null && margins?.rows !== undefined) {
         const dims = margins.rows.dimensions;
-        const values = margins.rows.measures[0];
+        const values = margins.rows.measures[measureIndex];
         for (let group = 0; group < margins.rows.groupCount; group++) {
           const key = dims.map((dimension) => dimension[group] ?? "").join("\u001f");
           rowTotals.set(key, values?.[group] ?? Number.NaN);
@@ -1032,13 +1061,13 @@ export class ViewsPanel {
       }
       if (margins?.cols !== null && margins?.cols !== undefined) {
         const dims = margins.cols.dimensions;
-        const values = margins.cols.measures[0];
+        const values = margins.cols.measures[measureIndex];
         for (let group = 0; group < margins.cols.groupCount; group++) {
           const key = dims.map((dimension) => dimension[group] ?? "").join("\u001f");
           colTotals.set(key, values?.[group] ?? Number.NaN);
         }
       }
-      grandTotal = margins?.total?.measures[0]?.[0] ?? Number.NaN;
+      grandTotal = margins?.total?.measures[measureIndex]?.[0] ?? Number.NaN;
       rows.push([
         ...(rowNames.length === 0 ? ["group"] : rowNames),
         ...colParts.map((parts) => parts.join(" / ")),
@@ -1855,7 +1884,8 @@ export class ViewsPanel {
   private renderPivot(entry: ViewEntry, pivots: number[]): void {
     const result = entry.result;
     if (result === null) return;
-    const measure = result.measures[0];
+    const measureIndex = this.pivotMeasureIndex(entry.def, result);
+    const measure = result.measures[measureIndex];
     const pivotSet = new Set(pivots);
     const rowDims = result.dimensions.filter((_, index) => !pivotSet.has(index));
     const rowNames = result.dimensionNames.filter((_, index) => !pivotSet.has(index));
@@ -1934,7 +1964,7 @@ export class ViewsPanel {
     let grandTotal = Number.NaN;
     if (margins?.rows !== null && margins?.rows !== undefined) {
       const dims = margins.rows.dimensions;
-      const values = margins.rows.measures[0];
+      const values = margins.rows.measures[measureIndex];
       for (let group = 0; group < margins.rows.groupCount; group++) {
         const key = dims.map((dimension) => dimension[group] ?? "").join("\u001f");
         rowTotals.set(key, values?.[group] ?? Number.NaN);
@@ -1942,13 +1972,13 @@ export class ViewsPanel {
     }
     if (margins?.cols !== null && margins?.cols !== undefined) {
       const dims = margins.cols.dimensions;
-      const values = margins.cols.measures[0];
+      const values = margins.cols.measures[measureIndex];
       for (let group = 0; group < margins.cols.groupCount; group++) {
         const key = dims.map((dimension) => dimension[group] ?? "").join("\u001f");
         colTotals.set(key, values?.[group] ?? Number.NaN);
       }
     }
-    grandTotal = margins?.total?.measures[0]?.[0] ?? Number.NaN;
+    grandTotal = margins?.total?.measures[measureIndex]?.[0] ?? Number.NaN;
     let max = 0;
     for (const value of cells) {
       if (Number.isFinite(value)) max = Math.max(max, Math.abs(value));
@@ -1960,7 +1990,7 @@ export class ViewsPanel {
       if (Number.isFinite(value)) max = Math.max(max, Math.abs(value));
     }
     if (Number.isFinite(grandTotal)) max = Math.max(max, Math.abs(grandTotal));
-    const measureSpec = entry.def.measures[0] ?? { column: null, agg: "count" as const };
+    const measureSpec = entry.def.measures[measureIndex] ?? { column: null, agg: "count" as const };
     const table = el("table", { class: "views-table views-pivot" });
     const head = el("thead");
     for (let depth = 0; depth < colNames.length; depth++) {
@@ -2052,7 +2082,7 @@ export class ViewsPanel {
     this.tableEl.append(table);
     this.tableEl.append(
       el("div", { class: "views-pivot-note" }, [
-        `Spreading “${pivots.map((index) => result.dimensionNames[index] ?? "?").join(" + ")}” across columns · ${result.measureNames[0] ?? "measure 1"} · blank cells have no rows${margins === null ? "" : ` - ${marginsName} margins computed from raw rows`}.`,
+        `Spreading “${pivots.map((index) => result.dimensionNames[index] ?? "?").join(" + ")}” across columns · ${result.measureNames[measureIndex] ?? "measure 1"} · blank cells have no rows${margins === null ? "" : ` - ${marginsName} margins computed from raw rows`}.`,
       ]),
     );
   }

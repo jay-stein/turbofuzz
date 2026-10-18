@@ -113,6 +113,8 @@ export interface ViewDef {
   pivot?: number;
   /** Multiple dimensions spread across nested column headers (preferred over pivot). */
   pivotColumns?: number[];
+  /** Measure shown in the pivot matrix (0 = first measure). */
+  pivotMeasure?: number;
   /** Value used for pivot cells with no rows (null/undefined = blank). */
   fillValue?: number | null;
   /** Drop pivot rows and columns that contain no finite values. */
