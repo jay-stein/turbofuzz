@@ -58,7 +58,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Open “Enter a command” in the toolbar or press Ctrl/⌘+K. Start typing to filter suggestions, use the arrow keys to choose, and Enter to run. Data-changing commands ask for confirmation and land in Recipe.",
       ),
       list(
-        "Navigation — overview, table, views, reports, quality, chart, help.",
+        "Navigation — overview, table, pivot view, reports, quality, chart, help.",
         "Columns — rename notes memo · type amount number · drop notes · dropempty · merge region · headercase snake.",
         "Clean — upper/lower/title/trim (or “all”), number, date, datetime, repair, replace notes \"old\" with \"new\", escape.",
         "Transform — round amount 2 · fill amount median · knn amount 5 · split notes on , · splitregex notes on \\d+ · group region sum amount · dedupe last · melt keep region, year · combine dates · winsorize amount 1 · flag amount.",
@@ -231,7 +231,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Colour map: Set1 is the default; ColorBrewer and the seaborn palettes are included (deep, muted, pastel, bright, dark, colorblind, rocket, mako, flare, crest, vlag, icefire). Reverse flips the map in one click. Load JSON opens a palette file: an array of hex colours or an object with colors/palette/stops, e.g. [\"#2563eb\",\"#f97316\"] — #abc and #aabbcc both work, two or more colours. The custom palette is saved with the card.",
         "Legends toggle series by click or keyboard (each entry is a button with a pressed state); empty charts explain what to pick instead of rendering blank axes.",
         "Numeric: Start/End default to the column's full range, but when a few extreme values dwarf the rest the End is clipped to the 95th percentile with the “> Max” bar switched on (Full range restores everything). Bounds accept thousands commas and the Bins count is free. “KDE curve” overlays a smooth density line and the median is marked with a dashed line.",
-        "Categories: set any number of top bars (default 5) and optionally group the rest as “Other”; every bar shows its count and share above it.",
+        "Categories: set any number of top bars (default 10) and optionally group the rest as “Other”; every bar shows its count and share above it.",
         "Colours: choose a ColourBrewer/matplotlib colour map (qualitative, sequential, diverging, or a custom hex list) — the default Set1 applies to multi-series charts immediately; single-series charts use the palette's first colour until you pick a swatch or type a hex code.",
         "Title: defaults to “source — column” with the type, rows shown and distinct count underneath; type your own title to override it.",
         "Export PNG per card at 1280×720, 1920×1080 (default) or 2560×1440; charts are drawn in logical coordinates so every size keeps the same 16:9 layout.",

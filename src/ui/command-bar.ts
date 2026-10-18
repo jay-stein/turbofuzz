@@ -88,7 +88,7 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
   { name: "nulls", aliases: ["missing"], hint: "Open the missing-value review" },
   { name: "transform", aliases: [], hint: "Open the Transform panel" },
   { name: "export", aliases: ["download"], hint: "Open the Export dialog" },
-  { name: "views", aliases: ["view", "aggregate view"], hint: "Open the Views lens" },
+  { name: "views", aliases: ["view", "pivot", "pivot view", "aggregate view"], hint: "Open Pivot View" },
   {
     name: "quality",
     aliases: ["score", "dq", "data quality"],
@@ -660,7 +660,7 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
     case "export":
       return { kind: "export", label: "Opened Export" };
     case "views":
-      return { kind: "views", label: "Opened Views" };
+      return { kind: "views", label: "Opened Pivot View" };
     case "timeseries": {
       const dateType = columns.findIndex(
         (meta) => meta.type === "date" || meta.type === "datetime",

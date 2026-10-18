@@ -471,7 +471,7 @@ export class App {
     this.hints = new Hints([
       {
         id: "tabs",
-        text: `Overview, Table, Views, Chart and Reports are lenses — ${viewSwitchHint()}.`,
+        text: `Overview, Table, Pivot View, Chart and Reports are lenses — ${viewSwitchHint()}.`,
         target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
       },
       {

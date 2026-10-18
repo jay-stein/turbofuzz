@@ -601,7 +601,7 @@ function defaultConfig(): ChartCardConfig {
     palette: DEFAULT_PALETTE,
     paletteCustom: "",
     paletteReversed: false,
-    topN: 5,
+    topN: 10,
     groupOther: true,
     binOptions: null,
     binClipped: false,

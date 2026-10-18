@@ -27,8 +27,8 @@ const LABELS: Record<ViewId, { label: string; title: string }> = {
   },
   table: { label: "Table", title: "Show the row table" },
   views: {
-    label: "Views",
-    title: "Saved aggregate views — group the filtered rows without changing them",
+    label: "Pivot View",
+    title: "Build pivot tables - index, columns, values and aggregations",
   },
   chart: { label: "Chart", title: "Show a chart of the current result set" },
   reports: {
