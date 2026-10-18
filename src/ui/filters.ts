@@ -190,7 +190,7 @@ export class FilterPanel {
           type: "button",
           title: describeSuggestion(suggestion),
         },
-        [suggestionLabel(suggestion)],
+        [`Fix: ${suggestionLabel(suggestion)}`],
       );
       chip.addEventListener("click", () => this.callbacks.onSuggestion(index, suggestion));
       row.append(chip);

@@ -148,8 +148,8 @@ test("header shows one-click fix chips for column suggestions", () => {
   const cells = host.querySelectorAll(".th");
   const chips = cells[1].querySelectorAll(".th-qa-chip.fix");
   assert.equal(chips.length, 2);
-  assert.equal(chips[0].textContent, "repair 55 mixed decimals");
-  assert.equal(chips[1].textContent, "treat “-999” as missing");
+  assert.equal(chips[0].textContent, "Fix: repair 55 mixed decimals");
+  assert.equal(chips[1].textContent, "Fix: treat “-999” as missing");
 
   (chips[0] as unknown as { click(): void }).click();
   assert.equal(fixes.length, 1);

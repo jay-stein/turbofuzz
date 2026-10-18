@@ -177,7 +177,7 @@ export function openColumnInspector(
   for (const suggestion of meta.suggestions) {
     issues.append(
       action(
-        `${suggestionLabel(suggestion)}`,
+        `Fix: ${suggestionLabel(suggestion)}`,
         "Apply this fix — undo is offered in the Recipe",
         () => {
           close();

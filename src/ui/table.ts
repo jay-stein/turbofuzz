@@ -652,7 +652,7 @@ export class ResultTable {
       const chip = el(
         "button",
         { class: "th-qa-chip fix", type: "button" },
-        [suggestionShortLabel(suggestion)],
+        [`Fix: ${suggestionShortLabel(suggestion)}`],
       ) as HTMLButtonElement;
       chip.title = `${describeSuggestion(suggestion)} — click to fix`;
       chip.addEventListener("click", () => this.options.onSuggestion?.(index, suggestion));
