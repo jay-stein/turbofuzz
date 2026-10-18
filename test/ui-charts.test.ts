@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { ColumnFilter } from "../src/search/query-engine.js";
 import { ChartsPanel, type ChartsPanelOptions } from "../src/ui/chart-panel.js";
-import { ChartCard, type ChartCardConfig, type ChartCardOptions } from "../src/ui/chart-card.js";
+import { ChartCard, cropDensityGrid, type ChartCardConfig, type ChartCardOptions } from "../src/ui/chart-card.js";
 import type { ViewDef } from "../src/data/aggregate.js";
+import type { SeriesGrid } from "../src/data/chart-series.js";
 import type {
   AggregateMessage,
   BoxStatsMessage,
@@ -387,6 +388,32 @@ test("chart text stays legible and date labels fit the left margin", () => {
     .filter((size) => size > 0);
   assert.ok(sizes.length > 0);
   assert.ok(Math.min(...sizes) >= 11, `smallest on-screen text was ${Math.min(...sizes)}px`);
+});
+
+test("density viewport cropping keeps only visible cells", () => {
+  const grid: SeriesGrid = {
+    mode: "density",
+    counts: Uint32Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]),
+    cols: 4,
+    rows: 4,
+    xMin: 0,
+    xMax: 4,
+    yMin: 0,
+    yMax: 4,
+    total: 136,
+    outside: 0,
+    max: 16,
+  };
+  const cropped = cropDensityGrid(grid, { xMin: 0, xMax: 2, yMin: 0, yMax: 2 });
+  assert.equal(cropped.cols, 2);
+  assert.equal(cropped.rows, 2);
+  assert.deepEqual([...cropped.counts], [1, 2, 5, 6]);
+  assert.equal(cropped.max, 6);
+  assert.deepEqual(
+    { xMin: cropped.xMin, xMax: cropped.xMax, yMin: cropped.yMin, yMax: cropped.yMax },
+    { xMin: 0, xMax: 2, yMin: 0, yMax: 2 },
+  );
+  assert.equal(cropped.counts.reduce((sum, count) => sum + count, 0), 14);
 });
 
 test("chart cards draw scatter points and density grids", async () => {

@@ -336,6 +336,44 @@ export interface HitRegion {
   actions: HitAction[];
 }
 
+/** Crop a density grid to the visible X/Y viewport, preserving cell counts. */
+export function cropDensityGrid(
+  result: SeriesGrid,
+  view: { xMin: number; xMax: number; yMin: number; yMax: number },
+): SeriesGrid {
+  const xStep = (result.xMax - result.xMin) / Math.max(1, result.cols);
+  const yStep = (result.yMax - result.yMin) / Math.max(1, result.rows);
+  const clamp = (value: number, max: number): number =>
+    Math.max(0, Math.min(max, value));
+  const c0 = clamp(Math.floor((view.xMin - result.xMin) / xStep), result.cols - 1);
+  const c1 = clamp(Math.ceil((view.xMax - result.xMin) / xStep) - 1, result.cols - 1);
+  const r0 = clamp(Math.floor((view.yMin - result.yMin) / yStep), result.rows - 1);
+  const r1 = clamp(Math.ceil((view.yMax - result.yMin) / yStep) - 1, result.rows - 1);
+  const cols = Math.max(1, c1 - c0 + 1);
+  const rows = Math.max(1, r1 - r0 + 1);
+  const counts = new Uint32Array(cols * rows);
+  let max = 0;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const count =
+        result.counts[(r0 + row) * result.cols + (c0 + col)] ?? 0;
+      counts[row * cols + col] = count;
+      if (count > max) max = count;
+    }
+  }
+  return {
+    ...result,
+    counts,
+    cols,
+    rows,
+    xMin: view.xMin,
+    xMax: view.xMax,
+    yMin: view.yMin,
+    yMax: view.yMax,
+    max,
+  };
+}
+
 /** Topmost region containing the point, or null. Regions are drawn in order. */
 export function hitTest(
   regions: readonly HitRegion[],
@@ -8303,13 +8341,7 @@ export class ChartCard {
       return;
     }
     if (result.mode === "density")
-      this.drawDensity(
-        ctx,
-        frame,
-        this.plotView === null ? result : { ...result, ...this.plotView },
-        xMeta,
-        yMeta,
-      );
+      this.drawDensity(ctx, frame, result, xMeta, yMeta, this.plotView);
     else
       this.drawPoints(
         ctx,
@@ -8576,7 +8608,9 @@ export class ChartCard {
     result: SeriesGrid,
     xMeta: ColumnMeta,
     yMeta: ColumnMeta,
+    viewport: { xMin: number; xMax: number; yMin: number; yMax: number } | null = null,
   ): void {
+    if (viewport !== null) result = cropDensityGrid(result, viewport);
     if (result.max === 0) {
       const message = "No matching X/Y value pairs in the current rows.";
       this.noteEl.textContent = message;
