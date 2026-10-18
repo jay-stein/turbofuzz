@@ -69,9 +69,11 @@ export function maskFor(value: string): string {
 export function computePatternProfiles(
   columns: readonly ColumnData[],
   rowCount: number,
+  only?: ReadonlySet<number>,
 ): PatternProfile[] {
   const profiles: PatternProfile[] = [];
   for (let column = 0; column < columns.length; column++) {
+    if (only !== undefined && !only.has(column)) continue;
     const data = columns[column];
     if (data === undefined || !PATTERN_TYPES.has(data.type)) continue;
     const total = rowCount - data.stats.nulls;

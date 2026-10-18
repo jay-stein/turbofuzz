@@ -115,6 +115,46 @@ export function applyCleanOps(values: readonly string[], ops: readonly CleanOp[]
   return out;
 }
 
+const opKey = (op: CleanOp): string => JSON.stringify(op);
+
+/** True when `next` keeps the exact prefix the worker already applied. */
+export function isCleanOpPrefix(
+  prior: readonly CleanOp[],
+  next: readonly CleanOp[],
+): boolean {
+  if (prior.length > next.length) return false;
+  for (let index = 0; index < prior.length; index++) {
+    if (opKey(prior[index]) !== opKey(next[index])) return false;
+  }
+  return true;
+}
+
+export interface IncrementalCleanResult {
+  values: string[];
+  /** False when only the suffix was applied to the current values. */
+  replayed: boolean;
+}
+
+/**
+ * Apply a new clean list without replaying the prefix the worker already
+ * applied. Reorder/removal/policy changes still replay from the pristine
+ * source, so the result is byte-identical to a full pass.
+ */
+export function applyCleanOpsIncremental(
+  current: readonly string[],
+  source: readonly string[],
+  prior: readonly CleanOp[],
+  next: readonly CleanOp[],
+): IncrementalCleanResult {
+  if (isCleanOpPrefix(prior, next)) {
+    const suffix = next.slice(prior.length);
+    return {
+      values: suffix.length === 0 ? current.slice() : applyCleanOps(current, suffix),
+      replayed: false,
+    };
+  }
+  return { values: applyCleanOps(source, next), replayed: true };
+}
 const CAST_TARGET_LABELS: Record<CastTarget, string> = {
   integer: "integer",
   number: "number",

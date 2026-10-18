@@ -1,5 +1,10 @@
 import { BitSet } from "../search/bitset.js";
-import { computeAnomalies, type LengthFence, type ValueFence } from "./anomalies.js";
+import {
+  computeAnomalies,
+  type Anomalies,
+  type LengthFence,
+  type ValueFence,
+} from "./anomalies.js";
 import type { ColumnData } from "./column.js";
 import { computePatternProfiles, type PatternProfile } from "./mask-profile.js";
 
@@ -33,6 +38,12 @@ export interface IngestStats {
 
 /** Row hash progress: called once per column with 1-based progress. */
 export type ColumnProgress = (phase: string, current: number, total: number) => void;
+
+export interface DatasetStatsReuse {
+  previous: IngestStats;
+  /** Columns whose values changed; all others reuse prior bits/fences. */
+  affected: readonly number[];
+}
 
 /**
  * Row hashes are accumulated column by column so each column's string array
@@ -85,6 +96,7 @@ export function computeDatasetStats(
   columns: readonly ColumnData[],
   rowCount: number,
   onProgress?: ColumnProgress,
+  reuse?: DatasetStatsReuse,
 ): IngestStats {
   const started = performance.now();
   const contentColumns = columns.filter((column) => column.role !== "provenance");
@@ -151,11 +163,34 @@ export function computeDatasetStats(
   let totalNullCells = 0;
   for (const column of contentColumns) totalNullCells += column.stats.nulls;
 
-  const anomalies = computeAnomalies(columns, rowCount, onProgress);
-  const patternProfiles: (PatternProfile | null)[] = new Array<PatternProfile | null>(
-    columnCount,
-  ).fill(null);
-  for (const profile of computePatternProfiles(columns, rowCount)) {
+  const affectedSet = reuse === undefined ? null : new Set(reuse.affected);
+  const previousAnomalies: Anomalies | null =
+    reuse === undefined
+      ? null
+      : {
+          valueBits: reuse.previous.valueAnomalyBits,
+          lengthBits: reuse.previous.lengthAnomalyBits,
+          valueColumnBits: reuse.previous.valueColumnBits,
+          lengthColumnBits: reuse.previous.lengthColumnBits,
+          columns: reuse.previous.valueFences.map((valueFence, index) => ({
+            valueFence,
+            lengthFence: reuse.previous.lengthFences[index] ?? null,
+          })),
+        };
+  const anomalies = computeAnomalies(
+    columns,
+    rowCount,
+    onProgress,
+    previousAnomalies === null || affectedSet === null
+      ? undefined
+      : { previous: previousAnomalies, affected: affectedSet },
+  );
+  const patternProfiles: (PatternProfile | null)[] =
+    reuse === undefined
+      ? new Array<PatternProfile | null>(columnCount).fill(null)
+      : reuse.previous.patternProfiles.slice(0, columnCount);
+  const only = reusedAffected(reuse, columnCount);
+  for (const profile of computePatternProfiles(columns, rowCount, only)) {
     patternProfiles[profile.column] = profile;
   }
 
@@ -183,4 +218,12 @@ export function computeDatasetStats(
     lengthFences: anomalies.columns.map((entry) => entry.lengthFence),
     patternProfiles,
   };
+}
+
+function reusedAffected(
+  reuse: DatasetStatsReuse | undefined,
+  columnCount: number,
+): ReadonlySet<number> | undefined {
+  if (reuse === undefined) return undefined;
+  return new Set(reuse.affected.filter((index) => index >= 0 && index < columnCount));
 }

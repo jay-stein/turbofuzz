@@ -198,10 +198,16 @@ function lengthFenceFor(column: ColumnData): LengthFence | null {
  * One-time O(cells) pass producing row-level outlier masks plus the per-column
  * fences the UI uses to tint the offending cells.
  */
+export interface AnomalyReuse {
+  previous: Anomalies;
+  affected: ReadonlySet<number>;
+}
+
 export function computeAnomalies(
   columns: readonly ColumnData[],
   rowCount: number,
   onProgress?: (phase: string, current: number, total: number) => void,
+  reuse?: AnomalyReuse,
 ): Anomalies {
   const valueBits = new BitSet(rowCount);
   const lengthBits = new BitSet(rowCount);
@@ -212,6 +218,16 @@ export function computeAnomalies(
   for (let index = 0; index < columns.length; index++) {
     onProgress?.("Checking outliers", index + 1, columns.length);
     const column = columns[index];
+    if (reuse !== undefined && !reuse.affected.has(index)) {
+      const value = reuse.previous.valueColumnBits[index] ?? null;
+      const length = reuse.previous.lengthColumnBits[index] ?? null;
+      if (value !== null) valueBits.or(value);
+      if (length !== null) lengthBits.or(length);
+      valueColumnBits.push(value);
+      lengthColumnBits.push(length);
+      perColumn.push(reuse.previous.columns[index] ?? { valueFence: null, lengthFence: null });
+      continue;
+    }
     const sparse = rowCount > 0 && column.stats.nulls / rowCount > MAX_NULL_RATIO;
     const valueFence = sparse ? null : numericFence(column);
     let columnValueBits: BitSet | null = null;

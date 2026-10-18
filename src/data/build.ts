@@ -1,6 +1,6 @@
 import { ColumnData } from "./column.js";
 import { Dataset } from "./dataset.js";
-import { computeDatasetStats } from "./stats.js";
+import { computeDatasetStats, type IngestStats } from "./stats.js";
 import type { NumberLocale } from "../parse/numbers.js";
 
 /** Fine-grained build progress, forwarded to the load panel in the UI. */
@@ -202,9 +202,13 @@ function finishDataset(
  * change the row count or the column set (dedupe, group-by) and by rebuilds
  * after a column changed.
  */
-export function datasetFromColumns(name: string, columns: ColumnData[]): Dataset {
+export function datasetFromColumns(
+  name: string,
+  columns: ColumnData[],
+  reuse?: { previous: IngestStats; affected: readonly number[] },
+): Dataset {
   const rowCount = columns.length > 0 ? columns[0].raw.length : 0;
-  const result = computeDatasetStats(columns, rowCount);
+  const result = computeDatasetStats(columns, rowCount, undefined, reuse);
   return new Dataset(
     name,
     rowCount,
@@ -228,6 +232,27 @@ export function datasetFromColumns(name: string, columns: ColumnData[]): Dataset
  * returns a fresh Dataset. Column objects that were not affected are reused, so
  * their lazy caches stay warm; only the shared row-level pass is redone.
  */
-export function rebuildDataset(current: Dataset, columns: ColumnData[]): Dataset {
-  return datasetFromColumns(current.name, columns);
+export function rebuildDataset(
+  current: Dataset,
+  columns: ColumnData[],
+  affected?: readonly number[],
+): Dataset {
+  const previous: IngestStats = {
+    stats: current.stats,
+    duplicateBits: current.duplicateBits,
+    nullRowBits: current.nullRowBits,
+    rowHashes: current.rowHashes,
+    valueAnomalyBits: current.valueAnomalyBits,
+    lengthAnomalyBits: current.lengthAnomalyBits,
+    valueColumnBits: current.valueColumnBits,
+    lengthColumnBits: current.lengthColumnBits,
+    valueFences: current.valueFences,
+    lengthFences: current.lengthFences,
+    patternProfiles: current.patternProfiles,
+  };
+  return datasetFromColumns(
+    current.name,
+    columns,
+    affected === undefined ? undefined : { previous, affected },
+  );
 }

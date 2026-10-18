@@ -458,3 +458,25 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - Python execution parity is not run in-suite; tests cover compiled config and golden code.
 - CSV rows remain result-driven, with the compiled spec defining the chart that produced them.
 - A one-click pivot-only code action remains backlog; the existing View pandas copy already carries pivot rendering separately.
+## Sprint 4: Cleaning Correctness and Performance (2026-10-19)
+
+### Delivered
+
+- Added `type-lattice.ts`: lossless common-type promotions, explicit text fallbacks and cast risk/reason metadata.
+- Batch cast target pickers now expose cast compatibility through title/`aria-description`.
+- Added suffix-only `applyCleanOpsIncremental`; the worker tracks the applied op prefix and replays only on reorder/removal/policy change.
+- `ColumnData.create` accepts known type/locale/date-order hints and can skip suggestion detection for clean rebuilds.
+- Added selective dataset rebuild: unaffected anomaly bits, fences and pattern profiles are reused.
+- Added `bench/clean.ts` and `npm run bench:clean` with 100k/300k/10-column/undo budgets.
+
+### Validation
+
+- `npm run typecheck` passes.
+- `npm test`: 757 tests passing.
+- `npm run build` passes.
+- `bench:clean` 100k p95 ~108 ms vs 250 ms; 100k 10-column ~374 ms vs 2 s; 300k ~342 ms vs 600 ms.
+
+### Scoped follow-ups
+
+- Multi-file per-column conflict diagnostics still require W6 preflight; append currently infers after concatenation.
+- W2.6 deferred metrics and W2.7 progress/cancel polish remain deferred.

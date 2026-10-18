@@ -15,6 +15,7 @@
     "bench:app": "tsx bench/app-smoke.ts",
     "bench:real": "tsx bench/real.ts",
     "bench:latency": "tsx bench/latency.ts",
+    "bench:clean": "tsx bench/clean.ts",
     "bench:ingest": "tsx bench/ingest.ts",
     "parity:cases": "tsx tools/recipe-parity/make_cases.ts",
     "typecheck": "tsc --noEmit"

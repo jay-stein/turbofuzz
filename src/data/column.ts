@@ -90,6 +90,15 @@ function countFinite(numbers: Float64Array, bins: number[], bin: number): void {
   }
 }
 
+export interface ColumnCreateOptions {
+  /** Known target type from a cast or a type-preserving clean. */
+  type?: ColumnType;
+  /** Skip suggestion detection when the clean cannot change the type. */
+  skipSuggestions?: boolean;
+  dateOrder?: DateOrder;
+  numberLocale?: NumberLocale;
+}
+
 export class ColumnData {
   type: ColumnType;
   /** Non-data columns such as multi-file provenance are excluded from row stats. */
@@ -136,6 +145,7 @@ export class ColumnData {
     raw: string[],
     nullPolicy: NullPolicy = EMPTY_NULL_POLICY,
     numberPrior: NumberLocale = "dot",
+    options: ColumnCreateOptions = {},
   ): ColumnData {
     const stats: ColumnStats = {
       nulls: 0,
@@ -156,8 +166,8 @@ export class ColumnData {
     // A cheap sample-only inference decides whether exact counts are needed:
     // numeric/temporal columns display a histogram, not top values, so a plain
     // distinct Set is enough and saves two hash lookups per cell.
-    const pre = preInfer(sample, nullPolicy, numberPrior, name);
-    const collectCounts = !isNumericLikeType(pre.type);
+    const pre = options.type === undefined ? preInfer(sample, nullPolicy, numberPrior, name) : null;
+    const collectCounts = !isNumericLikeType(options.type ?? pre?.type ?? "string");
 
     const counts = collectCounts ? new Map<string, number>() : null;
     const distinct = counts === null ? new Set<string>() : null;
@@ -206,14 +216,21 @@ export class ColumnData {
     }
     stats.topValues = top;
 
-    const inferred = inferColumnType(
-      sample,
-      stats,
-      raw.length,
-      (value) => isNullWithPolicy(value, nullPolicy),
-      numberPrior,
-      name,
-    );
+    const inferred =
+      options.type === undefined
+        ? inferColumnType(
+            sample,
+            stats,
+            raw.length,
+            (value) => isNullWithPolicy(value, nullPolicy),
+            numberPrior,
+            name,
+          )
+        : {
+            type: options.type,
+            ...(options.dateOrder !== undefined ? { dateOrder: options.dateOrder } : {}),
+            ...(options.numberLocale !== undefined ? { numberLocale: options.numberLocale } : {}),
+          };
     const nullTokens = [...nullCounts.entries()]
       .map(([label, count]) => ({ label, count }))
       .sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
@@ -228,8 +245,13 @@ export class ColumnData {
       nullTokens,
       inferred.numberLocale ?? numberPrior,
     );
-    column.suggestions = detectSuggestions(raw, inferred.type, nullPolicy, column.numberLocale);
-    column.timeZoneAware = inferred.timeZoneAware ?? false;
+    column.suggestions = options.skipSuggestions
+      ? []
+      : detectSuggestions(raw, inferred.type, nullPolicy, column.numberLocale);
+    column.timeZoneAware =
+      inferred.timeZoneAware ??
+      (inferred.type === "datetime" &&
+        sample.some((value) => classifyDateValue(value, column.dateOrder)?.hasOffset === true));
     column.typeDowngrade = inferred.downgrade ?? null;
     return column;
   }

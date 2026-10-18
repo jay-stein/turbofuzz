@@ -12,7 +12,11 @@ import { computeAnomalies } from "../data/anomalies.js";
 import { computeKeyDuplicates } from "../data/key-duplicates.js";
 import { computePairViolations } from "../data/pair-checks.js";
 import { buildDataset, buildDatasetAsync, datasetFromColumns, rebuildDataset } from "../data/build.js";
-import { applyCleanOps, type CleanOp } from "../data/clean-ops.js";
+import {
+  applyCleanOps,
+  applyCleanOpsIncremental,
+  type CleanOp,
+} from "../data/clean-ops.js";
 import { castColumn } from "../data/cast-ops.js";
 import type { Dataset } from "../data/dataset.js";
 import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
@@ -229,6 +233,8 @@ function changedFlagsSlice(start: number, end: number): Uint8Array | null {
 }
 // Non-destructive clean state: the untouched source column per cleaned column.
 const cleanSource = new Map<number, ColumnData>();
+// The op prefix already represented by the current column raw values.
+const cleanOpsApplied = new Map<number, CleanOp[]>();
 // Per-column null overrides, persisted so value cleans and reverts re-apply them.
 const nullPolicies = new Map<number, NullPolicy>();
 // Explicit number-locale overrides, re-applied whenever a column is rebuilt.
@@ -684,6 +690,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
     clearExclusions();
     histogramCache.clear();
     cleanSource.clear();
+    cleanOpsApplied.clear();
     resetChangedCells();
     nullPolicies.clear();
     numberLocales.clear();
@@ -1785,6 +1792,45 @@ function handleRenameHeaders(message: RenameHeadersRequest): void {
   });
 }
 
+function cleanTarget(
+  ops: readonly CleanOp[],
+  current: ColumnData,
+): { type: ColumnType | undefined; dateOrder: ColumnData["dateOrder"]; numberLocale: NumberLocale } {
+  let type: ColumnType | undefined = current.type;
+  let dateOrder = current.dateOrder;
+  let numberLocale = current.numberLocale;
+  for (const op of ops) {
+    switch (op.kind) {
+      case "cast":
+        // Casts may keep invalid text or blank it, so let inference decide.
+        type = undefined;
+        if (op.locale !== undefined) numberLocale = op.locale;
+        if (op.order !== undefined) dateOrder = op.order;
+        break;
+      case "toNumber":
+        type = undefined;
+        numberLocale = op.locale;
+        break;
+      case "repairDecimal":
+        numberLocale = op.locale;
+        break;
+      case "toDate":
+        type = undefined;
+        dateOrder = op.order;
+        break;
+      case "toDateTime":
+        type = undefined;
+        dateOrder = op.order;
+        break;
+      case "trim":
+      case "case":
+      case "replace":
+      case "escapeFormulas":
+        break;
+    }
+  }
+  return { type, dateOrder, numberLocale };
+}
 /**
  * Applies (or reverts) non-destructive value cleans for one or more columns in
  * a single rebuild. An empty op list restores that column's untouched source
@@ -1799,9 +1845,23 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
     .filter((update) => update.column >= 0 && update.column < current.columns.length)
     .map((update) => {
       const source = cleanSource.get(update.column) ?? current.columns[update.column];
-      const raw =
-        update.ops.length === 0 ? source.raw : applyCleanOps(source.raw, update.ops);
-      return { update, source, raw, failures: castFailureMask(source, update.ops) };
+      const prior = cleanOpsApplied.get(update.column) ?? [];
+      const application =
+        update.ops.length === 0
+          ? { values: source.raw, replayed: true }
+          : applyCleanOpsIncremental(
+              current.columns[update.column].raw,
+              source.raw,
+              prior,
+              update.ops,
+            );
+      return {
+        update,
+        source,
+        raw: application.values,
+        replayed: application.replayed,
+        failures: castFailureMask(source, update.ops),
+      };
     });
 
   // A case/trim op that changes nothing should not pay for a full rebuild.
@@ -1847,12 +1907,21 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
   for (const { update, source, raw } of prepared) {
     const column = update.column;
     cleanSource.set(column, source);
+    if (update.ops.length === 0) cleanOpsApplied.delete(column);
+    else cleanOpsApplied.set(column, update.ops.map((op) => ({ ...op })));
 
     const policy = nullPolicies.get(column) ?? EMPTY_NULL_POLICY;
-    recordChange(column, current.columns[column].raw, raw);
-    const rebuilt = ColumnData.create(current.columns[column].name, raw, policy);
-    const typeOverride = typeOverrides.get(column);
-    if (typeOverride !== undefined) rebuilt.setType(typeOverride, true);
+    const previous = current.columns[column];
+    const target = cleanTarget(update.ops, previous);
+    recordChange(column, previous.raw, raw);
+    const explicitType = typeOverrides.get(column);
+    const rebuilt = ColumnData.create(previous.name, raw, policy, target.numberLocale, {
+      type: explicitType ?? target.type,
+      skipSuggestions: true,
+      dateOrder: target.dateOrder,
+      numberLocale: target.numberLocale,
+    });
+    if (explicitType !== undefined) rebuilt.setType(explicitType, true);
     const locale = numberLocales.get(column);
     if (locale !== undefined) rebuilt.setNumberLocale(locale);
     columns[column] = rebuilt;
@@ -1866,7 +1935,7 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
     else castFailureMasks.set(update.column, failures);
   }
   refreshCastFailureUnion(current.rowCount);
-  const next = rebuildDataset(current, columns);
+  const next = rebuildDataset(current, columns, affected);
   const newEngine = new QueryEngine(next);
   newEngine.setSpecialBits(
     "castFailures",
@@ -2156,6 +2225,7 @@ function handleClearExcludedRows(message: ClearExcludedRowsRequest): void {
 function handleTransform(message: TransformRequest): void {
   const { dataset: current } = state();
   cleanSource.clear();
+  cleanOpsApplied.clear();
   numberLocales.clear();
   typeOverrides.clear();
 

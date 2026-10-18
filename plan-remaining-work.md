@@ -29,7 +29,7 @@ Already delivered and not to be rebuilt:
 - complete worker-backed Pivot View with drag/drop wells, typed report filters, multi-date hierarchies, pivot heatmap charts and grouped chart sources;
 - typed table header filters sharing the sidebar filter card, with dataset-anchored date bounds.
 
-Baseline test state: **751 tests passing**, typecheck and production build green.
+Baseline test state: **757 tests passing**, typecheck and production build green.
 
 ---
 
@@ -305,6 +305,91 @@ After Sprint 2, the remaining sequence is:
 
 ---
 
+## 4d. Sprint 4: Cleaning Correctness and Performance
+
+**Status:** Complete on 2026-10-19, with the scoped follow-ups recorded below.
+
+**Budget:** 10 engineer-days, including 0.5 day contingency.
+
+**Selection rule:** make the clean/cast path faster and more explainable before adding multi-file preflight or release mechanics.
+
+### Research findings
+
+- `handleCleanColumns` replays the complete op list from `cleanSource` on every clean, even when the previous result is already in memory.
+- `rebuildDataset` calls `datasetFromColumns`/`computeDatasetStats`, redoing the shared row-level pass even when one column changed.
+- Type promotion logic is spread across inference, build/append reconciliation and cast handling; there is no single lattice with user-facing reasons.
+- `bench/latency.ts` already covers queries and rebuild paths, but there is no clean-specific 100k/300k/10-column benchmark gate.
+- W2.6 deferred stats and W2.7 progress/cancel states remain deferred; the current load progress/cancel path is already in place.
+
+### Sprint budget
+
+| Order | Package | Deliverable | Days |
+|---:|---|---|---:|
+| 1 | **W2.3** | Explicit type-lattice module used by cast safety, explanations and multi-file reconciliation. | 2.0 |
+| 2 | **W2.4** | Incremental clean application: append one op to current values; replay only on reorder/removal. | 2.0 |
+| 3 | **W2.5** | Type-preserving rebuild for trim/case/replace and explicit-target casts; skip unaffected stats. | 2.0 |
+| 4 | **W2.8** | Clean benchmarks and latency guards for 100k one-column, 300k and 100k 10-column cases. | 1.5 |
+| 5 | **W2.9** | Type-lattice, incremental-clean, rebuild-parity and benchmark tests. | 1.5 |
+| 6 | **Integration reserve** | Regression pass, stale-cache checks and budget buffer. | 0.5 |
+|  | **Total** |  | **9.5 + 0.5 contingency = 10.0** |
+
+### Work package detail
+
+#### W2.3 - Type lattice (2.0 days)
+
+- Add one lattice for null/boolean/integer/number, date/datetime, time, duration, category, identifier and string.
+- Use it for cast compatibility, multi-file column reconciliation and dialog explanations.
+- Incompatible mixes fall back to string with a reason naming the conflicting types.
+- Acceptance: no silent type reinterpretation; every fallback has a stable explanation.
+- Tests: pairwise matrix, multi-file mixed types, cast/keep/coerce and recipe parity.
+
+#### W2.4 - Incremental clean application (2.0 days)
+
+- Keep the current post-clean values as the next source when appending an op.
+- Replay from the pristine source only on reorder, removal or policy change.
+- Preserve undo, exact changed-cell flags and mutation masks.
+- Acceptance: applying a clean op does not replay the full history; undo/reorder still produces the same bytes.
+- Tests: append/reorder/remove parity, undo, no-op cleans and changed-cell masks.
+
+#### W2.5 - Type-preserving rebuild (2.0 days)
+
+- Skip inference/suggestions for trim/case/replace and explicit-target casts where the type cannot change.
+- Recompute only stats that can be affected; reuse unaffected column caches.
+- Keep dataset-level duplicate/null/anomaly bitsets correct after partial stats updates.
+- Acceptance: clean benchmarks improve materially; stats that cannot change are not recomputed.
+- Tests: exact stat parity against a full rebuild, cache reuse, revert and post-transform cleans.
+
+#### W2.8 - Clean benchmarks (1.5 days)
+
+- Add `bench/clean.ts` with 100k one-column, 300k and 100k 10-column batch cases.
+- Cover coerce and keep policies, plus an undo/rebuild case.
+- Budgets: p95 <=250 ms, <=600 ms and <=2 s respectively, with no avoidable >100 ms main-thread task.
+- Acceptance: benchmark output is deterministic enough for CI and failures name the budget.
+- Tests: benchmark smoke run and budget assertion helpers.
+
+#### W2.9 - Coverage (1.5 days)
+
+- Type-lattice matrix and fallback-reason tests.
+- Incremental clean parity and performance guards.
+- Worker batch cast/clean integration and recipe replay.
+- Full gate: typecheck, unit suite, build and `bench:quick`.
+
+### Sprint exit gate
+
+- `npm run typecheck`, `npm test`, `npm run build` and `npm run bench:quick` are green.
+- Clean performance budgets pass.
+- No silent type changes or stale stats after incremental rebuild.
+- Undo/reorder/removal produce byte-identical values to a full replay.
+
+### Sprint 4 follow-ups
+
+- W2.6 deferred/chunked dataset metrics.
+- W2.7 long-operation progress/stale/cancel polish.
+- W2.3 multi-file diagnostics: the lattice is wired to cast explanations; append still infers after concatenation, so per-file conflict reporting moves with W6.
+- W6 multi-file preflight/metadata hardening moves to Sprint 5.
+
+---
+
 ## 5. Workstreams
 
 ### W1. Pivot completion
@@ -342,17 +427,19 @@ After Sprint 2, the remaining sequence is:
 **Depends on:** none.
 **Blocks:** W7 (chip risk semantics), W9 (performance gates).
 
+**Sprint 4 scope:** W2.3-W2.5 and W2.8-W2.9. W2.6 and W2.7 remain deferred.
+
 | ID | Task | Acceptance |
 |---|---|---|
 | W2.1 | Complete — add `castFailures` bitset per column and a `Review mismatches` special filter. | Applying “Keep invalid” records exact failing rows; the filter shows only mismatches; counts match the dialog. |
 | W2.2 | Complete — add batch conversion UI: Types view/table with current/inferred/target types, multi-select, one queue, one worker request, one Undo batch. | 10-column cast performs one request/rebuild; partial failures are reported per column; cancel reverts the queue without mutation. |
-| W2.3 | Add an explicit type-lattice module and use it for multi-file reconciliation, cast safety, and dialog explanations. | Lattice covers null/boolean/integer/number, date/datetime, time, duration, category, identifier, string; incompatible mixes fall back to string with reasons. |
-| W2.4 | Implement incremental clean application: append one op to current values; replay only on reorder/removal. | Applying a clean op does not replay the full history; undo/reorder still exact. |
-| W2.5 | Implement type-preserving rebuild for trim/case/replace and explicit-target casts; skip inference/suggestions where safe. | Benchmarks show material improvement; stats that cannot change are not recomputed. |
+| W2.3 | Complete - add `type-lattice.ts` for lossless promotions, text fallback reasons and cast compatibility. | Cast dialog explains risk; multi-file append still relies on combined inference, with per-file diagnostics deferred to W6. |
+| W2.4 | Complete - incremental clean applies only the new op suffix; reorder/removal replays from source. | Undo/reorder returns byte-identical values and changed-cell masks remain exact. |
+| W2.5 | Complete - type-preserving column rebuilds skip suggestions and selective stats reuse unaffected bits/fences/patterns. | Full-rebuild parity tests pass; unaffected columns and caches are reused. |
 | W2.6 | Defer or chunk dataset-level stats with an “Updating dataset metrics…” state; patch only the affected header/visible rows. | Table rows render before health/DQ metrics complete; no avoidable main-thread task exceeds 100 ms. |
 | W2.7 | Add progress, stale, cancel, and error states for long batch casts/rebuilds. | Large casts show determinate progress and can be cancelled without losing the prior dataset. |
-| W2.8 | Add `bench/clean.ts` and latency guards: 100k one-column case, 300k case, 100k 10-column batch, coerce/keep. | Budgets: p95 ≤250 ms, ≤600 ms, ≤2 s respectively, with no avoidable >100 ms main-thread task. |
-| W2.9 | Tests for cast policies, failure filter, batch apply/cancel/undo, type lattice, recipe parity, and performance guards. | All new paths covered; existing cast dialog/recipe tests remain green. |
+| W2.8 | Complete - add `bench/clean.ts`, `bench:clean` and clean budgets for 100k/300k/10-column/undo cases. | Measured p95 is inside the 250 ms/600 ms/2 s budgets. |
+| W2.9 | Complete - lattice, incremental-clean, selective-rebuild and clean benchmark tests. | Full suite and clean budgets are green. |
 
 **Estimate:** 8–12 engineer-days.
 **Exit gate:** batch casts are one request/one rebuild/one undo; mismatch review is exact; clean performance budgets pass.
@@ -499,10 +586,11 @@ After Sprint 2, the remaining sequence is:
 | **Sprint 1: daily friction** | W2.1-W2.2, W3.2-W3.5, W3.10, W4.1 | Complete. Batch casts, mismatch review, chart summary/measures/sorting/warnings, inspector. |
 | **Sprint 2: chart actions and trust** | W3.1, W4.2, W4.4, W4.8, W7.4 | Complete. Shared builder, drill/filter/rows actions, missing-value disclosure, shared colour scales, consistent issue actions. |
 | **Sprint 3: ChartSpec adoption** | W5 | Complete. Lossless spec v2, compile/apply, import validation, support report and parity tests. |
-| **Backlog A: correctness and performance** | W2.3-W2.9, W6 | Type lattice, incremental rebuilds, deferred stats, multi-file hardening, benchmarks. |
+| **Sprint 4: cleaning correctness and performance** | W2.3, W2.4, W2.5, W2.8, W2.9 | Complete. Type lattice/cast explanations, incremental clean, selective rebuild and clean benchmarks. |
+| **Backlog A: remaining correctness and performance** | W2.6-W2.7, W6 | Deferred stats, progress/cancel polish, multi-file preflight and provenance hardening. |
 | **Backlog C: release quality** | W7, W8 | Shared chips, E2E, benchmarks, accessibility, CSP review and docs. |
 
-Sprints 1, 2 and 3 are complete. Backlog A and Backlog C start only after the Sprint 3 exit gate passes.
+Sprints 1-4 are complete. The remaining Backlog A/C work starts after the Sprint 4 exit gate.
 
 ---
 ## 7. Risks and mitigations

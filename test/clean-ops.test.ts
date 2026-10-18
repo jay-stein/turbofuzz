@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyCleanOps, describeCleanOp, describeCleanOpDetail } from "../src/data/clean-ops.js";
+import {
+  applyCleanOps,
+  applyCleanOpsIncremental,
+  describeCleanOp,
+  describeCleanOpDetail,
+} from "../src/data/clean-ops.js";
 
 test("trims and collapses whitespace", () => {
   assert.deepEqual(applyCleanOps(["  a   b ", " c "], [{ kind: "trim" }]), ["a b", "c"]);
@@ -172,5 +177,34 @@ test("describeCleanOpDetail exposes the technical signature", () => {
       locale: "comma",
     }),
     "cast(target=number, policy=coerce, locale=comma, order=auto)",
+  );
+});
+
+test("incremental clean applies only the new suffix and matches full replay", () => {
+  const source = ["  a  ", " b "];
+  const first = [{ kind: "trim" }] as const;
+  const second = [
+    { kind: "trim" },
+    { kind: "case", style: "upper" },
+  ] as const;
+  const current = applyCleanOps(source, first);
+  const incremental = applyCleanOpsIncremental(current, source, first, second);
+  assert.equal(incremental.replayed, false);
+  assert.deepEqual(incremental.values, applyCleanOps(source, second));
+
+  const removed = applyCleanOpsIncremental(incremental.values, source, second, first);
+  assert.equal(removed.replayed, true);
+  assert.deepEqual(removed.values, current);
+
+  const reordered = applyCleanOpsIncremental(
+    incremental.values,
+    source,
+    second,
+    [{ kind: "case", style: "upper" }, { kind: "trim" }],
+  );
+  assert.equal(reordered.replayed, true);
+  assert.deepEqual(
+    reordered.values,
+    applyCleanOps(source, [{ kind: "case", style: "upper" }, { kind: "trim" }]),
   );
 });

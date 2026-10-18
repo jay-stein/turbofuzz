@@ -96,6 +96,30 @@ test("cleanColumns applies value cleans, rebuilds stats and can revert", async (
   assert.equal(noop.firstRows.length, 0, "no rebuild payload is sent");
   assert.equal(noop.stats.duplicateRows, 1);
 
+  // Extending the op list applies only the new suffix to the current values.
+  send({
+    type: "cleanColumns",
+    requestId: 41,
+    updates: [{
+      column: 0,
+      ops: [
+        { kind: "trim" },
+        { kind: "case", style: "upper" },
+        { kind: "replace", find: "ALICE", replacement: "AL", ignoreCase: false },
+      ],
+    }],
+  });
+  assert.equal((find("cleaned", 41) as unknown as { noop?: boolean }).noop, undefined);
+  send({ type: "getRows", requestId: 42, start: 0, end: 3 });
+  const extended = find("rows", 42) as unknown as { rows: string[][] };
+  assert.deepEqual(extended.rows.map((row) => row[0]), ["AL", "AL"]);
+  send({
+    type: "cleanColumns",
+    requestId: 43,
+    updates: [{ column: 0, ops: [{ kind: "trim" }, { kind: "case", style: "upper" }] }],
+  });
+  assert.equal((find("cleaned", 43) as unknown as { noop?: boolean }).noop, undefined);
+
   // An empty op list restores the untouched source values exactly.
   send({
     type: "cleanColumns",

@@ -1,5 +1,6 @@
 import type { CastOptions, CastPolicy, CastTarget } from "../data/cast-ops.js";
 import type { CleanOp } from "../data/clean-ops.js";
+import { castCompatibility } from "../data/type-lattice.js";
 import { TYPE_LABELS, type ColumnType } from "../types.js";
 import type { CleanPreviewMessage, CleanUpdate, ColumnMeta } from "../worker/protocol.js";
 import { setupDialog } from "./dialog.js";
@@ -147,11 +148,24 @@ export function openBatchCastDialog(
         target,
         failures,
       ]);
+      const updateCompatibility = (): void => {
+        if (target.value === "") {
+          target.title = "Keep the current type";
+          target.removeAttribute("aria-description");
+          return;
+        }
+        const compatibility = castCompatibility(column.type, target.value as CastTarget);
+        target.title = compatibility.reason;
+        target.dataset.risk = compatibility.risk;
+        target.setAttribute("aria-description", compatibility.reason);
+      };
       checkbox.addEventListener("change", () => schedulePreview());
       target.addEventListener("change", () => {
         if (target.value !== "") checkbox.checked = true;
+        updateCompatibility();
         schedulePreview();
       });
+      updateCompatibility();
       rows.set(column.index, { input: column, checkbox, target, failures });
       table.append(row);
     }
