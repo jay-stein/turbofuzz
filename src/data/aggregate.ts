@@ -111,6 +111,12 @@ export interface ViewDef {
   partial?: "show" | "exclude";
   /** Dimension index spread across columns when rendered as a matrix. */
   pivot?: number;
+  /** Multiple dimensions spread across nested column headers (preferred over pivot). */
+  pivotColumns?: number[];
+  /** Value used for pivot cells with no rows (null/undefined = blank). */
+  fillValue?: number | null;
+  /** Drop pivot rows and columns that contain no finite values. */
+  dropna?: boolean;
   /** Add an "All" row and column to a pivot, computed from raw rows. */
   margins?: boolean;
   /** Label used for the margin row/column. */

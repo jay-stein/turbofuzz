@@ -224,7 +224,7 @@ test("a measure can be weighted by a numeric column", async () => {
   requests.length = 0;
 
   const doc = (globalThis as Record<string, unknown>).document as Window["document"];
-  const measureZone = host.querySelectorAll(".views-zone")[1];
+  const measureZone = host.querySelector(".views-measure-zone")!;
   assert.ok(measureZone !== undefined, "the measures zone exists");
   (
     measureZone.querySelector(".views-pill .views-pill-label") as unknown as { click(): void }
@@ -399,6 +399,16 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
   assert.equal(header.length, 3, "row header + two period columns");
   assert.equal(header[1]?.textContent, "P0");
   assert.match(host.querySelector(".views-pivot-note")?.textContent ?? "", /Spreading/);
+  const layout = host.querySelectorAll(".views-layout-pill");
+  assert.equal(layout.length, 2, "both dimensions appear in the pivot layout");
+  assert.ok(layout[1]?.classList.contains("active"), "the spread field is marked C");
+  assert.ok(host.querySelector(".views-fill-input") !== null, "fill value is configurable");
+  assert.ok(
+    [...host.querySelectorAll(".views-actions label")].some(
+      (label) => label.textContent === "Drop empty",
+    ),
+    "empty rows and columns can be dropped",
+  );
 });
 
 test("partial periods are marked and can be excluded from the view", async () => {
@@ -465,7 +475,7 @@ test("Only where restricts a measure through the editor menus", async () => {
   requests.length = 0;
 
   const doc = (globalThis as Record<string, unknown>).document as Window["document"];
-  const measureZone = host.querySelectorAll(".views-zone")[1];
+  const measureZone = host.querySelector(".views-measure-zone")!;
   assert.ok(measureZone !== undefined);
   (measureZone.querySelector(".views-pill .views-pill-label") as unknown as { click(): void }).click();
   const whereItem = [...doc.querySelectorAll(".context-menu .context-item")].find(

@@ -299,13 +299,13 @@ export class ViewsPanel {
     const generation = ++this.generation;
     const def = entry.def;
     const marginViews: ViewDef[] = [];
-    const pivot = def.pivot;
-    if (
-      def.margins === true &&
-      pivot !== undefined &&
-      pivot > 0 &&
-      def.dimensions.length > pivot
-    ) {
+    const pivots = this.pivotIndexes(def);
+    const pivotSet = new Set(pivots);
+    const rowDims = def.dimensions.filter((_, index) => !pivotSet.has(index));
+    const colDims = pivots
+      .map((index) => def.dimensions[index])
+      .filter((spec): spec is DimensionSpec => spec !== undefined);
+    if (def.margins === true && pivots.length > 0 && rowDims.length > 0) {
       const base = {
         fill: "none" as const,
         sort: { key: "dim0", dir: "asc" as const },
@@ -317,14 +317,14 @@ export class ViewsPanel {
           ...base,
           id: `${def.id}-margin-rows`,
           name: `${def.name} rows`,
-          dimensions: [def.dimensions[0]!],
+          dimensions: rowDims,
           measures: def.measures,
         },
         {
           ...base,
           id: `${def.id}-margin-cols`,
           name: `${def.name} columns`,
-          dimensions: [def.dimensions[pivot]!],
+          dimensions: colDims,
           measures: def.measures,
         },
         {
@@ -620,6 +620,16 @@ export class ViewsPanel {
   }
 
   /** " · Month" / " · Day of week" / " · bins of 10" suffix for a dimension. */
+  /** Spread dimensions, preferring the multi-column list over the legacy single index. */
+  private pivotIndexes(def: ViewDef): number[] {
+    const valid = (index: number): boolean =>
+      Number.isInteger(index) && index >= 0 && index < def.dimensions.length;
+    const columns = (def.pivotColumns ?? []).filter(valid);
+    const unique = [...new Set(columns)].sort((a, b) => a - b);
+    if (unique.length > 0) return unique;
+    return def.pivot !== undefined && valid(def.pivot) ? [def.pivot] : [];
+  }
+
   private dimensionSuffix(spec: DimensionSpec): string {
     const by = spec.by;
     if (by === "value") return "";
@@ -860,50 +870,55 @@ export class ViewsPanel {
       partialLabel.append("Partial periods", partialSelect);
       this.actionsEl.append(partialLabel);
     }
-    if (entry !== undefined && entry.def.dimensions.length >= 2) {
-      const pivotLabel = el("label", { class: "views-limit" });
-      pivotLabel.title = "Spread one dimension across columns as a matrix";
-      const pivotSelect = el("select", {
-        class: "chart-picker chart-picker-small",
-        "aria-label": "Pivot dimension",
-      }) as HTMLSelectElement;
-      const none = el("option", { value: "" }, ["None"]) as HTMLOptionElement;
-      if (entry.def.pivot === undefined) none.selected = true;
-      pivotSelect.append(none);
-      entry.def.dimensions.forEach((spec, index) => {
-        if (index === 0) return;
-        const option = el("option", { value: String(index) }, [
-          this.metas[spec.column]?.name ?? `dim ${index + 1}`,
-        ]) as HTMLOptionElement;
-        if (entry.def.pivot === index) option.selected = true;
-        pivotSelect.append(option);
+    if (entry !== undefined && this.pivotIndexes(entry.def).length > 0) {
+      const marginsLabel = el("label", {
+        class: "control check clean-check",
       });
-      pivotSelect.addEventListener("change", () =>
+      marginsLabel.title = "Add All totals computed from the raw rows";
+      const marginsInput = el("input", {
+        type: "checkbox",
+        "aria-label": "Pivot margins",
+      }) as HTMLInputElement;
+      marginsInput.checked = entry.def.margins === true;
+      marginsInput.addEventListener("change", () =>
         this.update((view) => {
-          const value = Number(pivotSelect.value);
-          view.pivot = pivotSelect.value === "" || !Number.isFinite(value) ? undefined : value;
+          view.margins = marginsInput.checked;
         }),
       );
-      pivotLabel.append("Spread", pivotSelect);
-      this.actionsEl.append(pivotLabel);
-      if (entry.def.pivot !== undefined) {
-        const marginsLabel = el("label", {
-          class: "control check clean-check",
-        });
-        marginsLabel.title = "Add an All row and column computed from the raw rows";
-        const marginsInput = el("input", {
-          type: "checkbox",
-          "aria-label": "Pivot margins",
-        }) as HTMLInputElement;
-        marginsInput.checked = entry.def.margins === true;
-        marginsInput.addEventListener("change", () =>
-          this.update((view) => {
-            view.margins = marginsInput.checked;
-          }),
-        );
-        marginsLabel.append(marginsInput, "Margins");
-        this.actionsEl.append(marginsLabel);
-      }
+      marginsLabel.append(marginsInput, "Margins");
+
+      const fillLabel = el("label", { class: "views-limit views-fill" });
+      fillLabel.title = "Value shown where a row and column combination has no rows";
+      const fillInput = el("input", {
+        class: "views-fill-input",
+        type: "number",
+        placeholder: "blank",
+        "aria-label": "Pivot fill value",
+        value:
+          typeof entry.def.fillValue === "number" ? String(entry.def.fillValue) : "",
+      }) as HTMLInputElement;
+      fillInput.addEventListener("change", () =>
+        this.update((view) => {
+          const value = fillInput.value.trim();
+          view.fillValue = value === "" || !Number.isFinite(Number(value)) ? null : Number(value);
+        }),
+      );
+      fillLabel.append("Fill empty", fillInput);
+
+      const dropLabel = el("label", { class: "control check clean-check" });
+      dropLabel.title = "Hide pivot rows and columns that contain no values";
+      const dropInput = el("input", {
+        type: "checkbox",
+        "aria-label": "Drop empty pivot rows and columns",
+      }) as HTMLInputElement;
+      dropInput.checked = entry.def.dropna === true;
+      dropInput.addEventListener("change", () =>
+        this.update((view) => {
+          view.dropna = dropInput.checked;
+        }),
+      );
+      dropLabel.append(dropInput, "Drop empty");
+      this.actionsEl.append(marginsLabel, fillLabel, dropLabel);
     }
     const below = el(
       "button",
@@ -924,80 +939,123 @@ export class ViewsPanel {
     const result = entry.result;
     if (result === null) return;
     const rows: string[][] = [];
-    const pivot = entry.def.pivot;
+    const pivots = this.pivotIndexes(entry.def);
     if (
-      pivot !== undefined &&
-      pivot > 0 &&
-      result.dimensions.length > pivot &&
+      pivots.length > 0 &&
+      result.dimensions.length > pivots.length &&
       result.measures.length > 0
     ) {
-      const rowDims = result.dimensions.filter((_, index) => index !== pivot);
-      const rowNames = result.dimensionNames.filter((_, index) => index !== pivot);
-      const colValues = result.dimensions[pivot] ?? [];
-      const rowKeys: string[] = [];
-      const rowParts: string[][] = [];
-      const colLabels: string[] = [];
+      const pivotSet = new Set(pivots);
+      const rowDims = result.dimensions.filter((_, index) => !pivotSet.has(index));
+      const rowNames = result.dimensionNames.filter((_, index) => !pivotSet.has(index));
+      const colDims = pivots.map((index) => result.dimensions[index] ?? []);
+      let rowKeys: string[] = [];
+      let rowParts: string[][] = [];
+      let colKeys: string[] = [];
+      let colParts: string[][] = [];
       const rowIndex = new Map<string, number>();
       const colIndex = new Map<string, number>();
       for (let group = 0; group < result.groupCount; group++) {
         const parts = rowDims.map((dimension) => dimension[group] ?? "");
         const row = parts.join("\u001f");
-        const col = colValues[group] ?? "";
+        const cparts = colDims.map((dimension) => dimension[group] ?? "");
+        const col = cparts.join("\u001f");
         if (!rowIndex.has(row)) {
           rowIndex.set(row, rowKeys.length);
           rowKeys.push(row);
           rowParts.push(parts);
         }
         if (!colIndex.has(col)) {
-          colIndex.set(col, colLabels.length);
-          colLabels.push(col);
+          colIndex.set(col, colKeys.length);
+          colKeys.push(col);
+          colParts.push(cparts);
         }
       }
+      const ordered = colKeys
+        .map((_, index) => index)
+        .sort((a, b) => (colParts[a] ?? []).join("\u001f").localeCompare((colParts[b] ?? []).join("\u001f")));
+      colKeys = ordered.map((index) => colKeys[index]!);
+      colParts = ordered.map((index) => colParts[index]!);
+      colIndex.clear();
+      colKeys.forEach((key, index) => colIndex.set(key, index));
       const measure = result.measures[0];
-      const cells = new Float64Array(rowKeys.length * colLabels.length).fill(Number.NaN);
+      let cells = new Float64Array(rowKeys.length * colKeys.length).fill(Number.NaN);
       if (measure !== undefined) {
         for (let group = 0; group < result.groupCount; group++) {
           const row = rowDims.map((dimension) => dimension[group] ?? "").join("\u001f");
+          const col = colDims.map((dimension) => dimension[group] ?? "").join("\u001f");
           const r = rowIndex.get(row) ?? 0;
-          const c = colIndex.get(colValues[group] ?? "") ?? 0;
-          cells[r * colLabels.length + c] = measure[group] ?? Number.NaN;
+          const c = colIndex.get(col) ?? 0;
+          cells[r * colKeys.length + c] = measure[group] ?? Number.NaN;
         }
       }
-      const margins =
-        entry.def.margins === true && rowDims.length === 1 ? entry.margins : null;
+      if (entry.def.dropna === true) {
+        const keepRows = rowKeys
+          .map((_, row) => (colKeys.some((_, col) => Number.isFinite(cells[row * colKeys.length + col])) ? row : -1))
+          .filter((row) => row >= 0);
+        const keepCols = colKeys
+          .map((_, col) => (rowKeys.some((_, row) => Number.isFinite(cells[row * colKeys.length + col])) ? col : -1))
+          .filter((col) => col >= 0);
+        if (keepRows.length !== rowKeys.length || keepCols.length !== colKeys.length) {
+          const oldCells = cells;
+          const oldCols = colKeys.length;
+          cells = new Float64Array(keepRows.length * keepCols.length).fill(Number.NaN);
+          keepRows.forEach((row, r) => {
+            keepCols.forEach((col, c) => {
+              cells[r * keepCols.length + c] = oldCells[row * oldCols + col] ?? Number.NaN;
+            });
+          });
+          rowKeys = keepRows.map((row) => rowKeys[row]!);
+          rowParts = keepRows.map((row) => rowParts[row]!);
+          colKeys = keepCols.map((col) => colKeys[col]!);
+          colParts = keepCols.map((col) => colParts[col]!);
+        }
+      }
+      const margins = entry.def.margins === true ? entry.margins : null;
       const marginsName = entry.def.marginsName ?? "All";
+      const fillValue =
+        entry.def.fillValue === undefined || entry.def.fillValue === null
+          ? null
+          : entry.def.fillValue;
       const format = (value: number): string =>
-        Number.isFinite(value) ? String(value) : "";
+        Number.isFinite(value) ? String(value) : fillValue === null ? "" : String(fillValue);
       const rowTotals = new Map<string, number>();
       const colTotals = new Map<string, number>();
       let grandTotal = Number.NaN;
-      if (margins?.rows?.dimensions[0] !== undefined) {
-        const labels = margins.rows.dimensions[0];
+      if (margins?.rows !== null && margins?.rows !== undefined) {
+        const dims = margins.rows.dimensions;
         const values = margins.rows.measures[0];
-        labels.forEach((label, index) => rowTotals.set(label, values?.[index] ?? Number.NaN));
+        for (let group = 0; group < margins.rows.groupCount; group++) {
+          const key = dims.map((dimension) => dimension[group] ?? "").join("\u001f");
+          rowTotals.set(key, values?.[group] ?? Number.NaN);
+        }
       }
-      if (margins?.cols?.dimensions[0] !== undefined) {
-        const labels = margins.cols.dimensions[0];
+      if (margins?.cols !== null && margins?.cols !== undefined) {
+        const dims = margins.cols.dimensions;
         const values = margins.cols.measures[0];
-        labels.forEach((label, index) => colTotals.set(label, values?.[index] ?? Number.NaN));
+        for (let group = 0; group < margins.cols.groupCount; group++) {
+          const key = dims.map((dimension) => dimension[group] ?? "").join("\u001f");
+          colTotals.set(key, values?.[group] ?? Number.NaN);
+        }
       }
       grandTotal = margins?.total?.measures[0]?.[0] ?? Number.NaN;
       rows.push([
         ...(rowNames.length === 0 ? ["group"] : rowNames),
-        ...colLabels,
+        ...colParts.map((parts) => parts.join(" / ")),
         ...(margins === null ? [] : [marginsName]),
       ]);
       rowKeys.forEach((rowKey, r) => {
         rows.push([
           ...(rowParts[r] ?? []),
-          ...colLabels.map((_, c) => format(cells[r * colLabels.length + c] ?? Number.NaN)),
+          ...colKeys.map((_, c) => format(cells[r * colKeys.length + c] ?? Number.NaN)),
           ...(margins === null ? [] : [format(rowTotals.get(rowKey) ?? Number.NaN)]),
         ]);
       });
       if (margins !== null) {
         rows.push([
           marginsName,
-          ...colLabels.map((label) => format(colTotals.get(label) ?? Number.NaN)),
+          ...rowNames.slice(1).map(() => ""),
+          ...colKeys.map((colKey) => format(colTotals.get(colKey) ?? Number.NaN)),
           format(grandTotal),
         ]);
       }
@@ -1032,11 +1090,58 @@ export class ViewsPanel {
     addDim.addEventListener("click", () => this.openDimensionMenu(addDim, def));
     if (def.dimensions.length < 4) dimZone.append(addDim);
 
-    const measureZone = el("div", { class: "views-zone" });
+    const measureZone = el("div", { class: "views-zone views-measure-zone" });
     measureZone.append(el("span", { class: "views-zone-label" }, ["Measures:"]));
     def.measures.forEach((measure, index) => {
       measureZone.append(this.measurePill(def, measure, index));
     });
+    const layoutZone = el("div", { class: "views-zone views-layout-zone" });
+    layoutZone.append(el("span", { class: "views-zone-label" }, ["Pivot:"]));
+    if (def.dimensions.length >= 2) {
+      const pivots = new Set(this.pivotIndexes(def));
+      def.dimensions.forEach((spec, index) => {
+        const active = pivots.has(index);
+        const button = el(
+          "button",
+          {
+            class: `views-layout-pill${active ? " active" : ""}`,
+            type: "button",
+            "aria-pressed": active ? "true" : "false",
+            title: active
+              ? "Move this field back to the row index"
+              : "Spread this field across the columns",
+          },
+          [
+            el("span", { class: "views-layout-mark" }, [active ? "C" : "R"]),
+            `${this.metas[spec.column]?.name ?? "?"}${this.dimensionSuffix(spec)}`,
+          ],
+        ) as HTMLButtonElement;
+        button.addEventListener("click", () =>
+          this.update((view) => {
+            const next = new Set(this.pivotIndexes(view));
+            if (next.has(index)) next.delete(index);
+            else if (next.size < view.dimensions.length - 1) next.add(index);
+            view.pivotColumns = [...next].sort((a, b) => a - b);
+            view.pivot = view.pivotColumns[0];
+            if (view.pivotColumns.length === 0) view.pivot = undefined;
+            if (view.pivotColumns.length === 0) view.fillValue = undefined;
+          }),
+        );
+        layoutZone.append(button);
+      });
+      layoutZone.append(
+        el("span", { class: "views-layout-hint" }, [
+          "R = row index, C = column field",
+        ]),
+      );
+    } else {
+      layoutZone.append(
+        el("span", { class: "views-layout-hint" }, [
+          "Add a second field to build a pivot",
+        ]),
+      );
+    }
+
     const addMeasure = el(
       "button",
       { class: "views-pill add", type: "button", title: "Add a measure" },
@@ -1045,7 +1150,7 @@ export class ViewsPanel {
     addMeasure.addEventListener("click", () => this.openMeasureMenu(addMeasure, def));
     measureZone.append(addMeasure);
 
-    this.builderEl.append(dimZone, measureZone);
+    this.builderEl.append(dimZone, layoutZone, measureZone);
   }
 
   private dimensionPill(def: ViewDef, spec: DimensionSpec, index: number): HTMLElement {
@@ -1594,14 +1699,13 @@ export class ViewsPanel {
       }
       return;
     }
-    const pivotIndex = entry.def.pivot;
+    const pivots = this.pivotIndexes(entry.def);
     if (
-      pivotIndex !== undefined &&
-      pivotIndex > 0 &&
-      result.dimensions[pivotIndex] !== undefined &&
-      result.dimensionNames.length >= 2
+      pivots.length > 0 &&
+      pivots.every((index) => result.dimensions[index] !== undefined) &&
+      result.dimensionNames.length > pivots.length
     ) {
-      this.renderPivot(entry, pivotIndex);
+      this.renderPivot(entry, pivots);
       return;
     }
     const table = el("table", { class: "views-table" });
@@ -1748,59 +1852,101 @@ export class ViewsPanel {
   }
 
   /** Matrix with every non-pivot dimension forming the row index. */
-  private renderPivot(entry: ViewEntry, pivotIndex: number): void {
+  private renderPivot(entry: ViewEntry, pivots: number[]): void {
     const result = entry.result;
     if (result === null) return;
     const measure = result.measures[0];
-    const rowDims = result.dimensions.filter((_, index) => index !== pivotIndex);
-    const rowNames = result.dimensionNames.filter((_, index) => index !== pivotIndex);
-    const colValues = result.dimensions[pivotIndex] ?? [];
-    if (measure === undefined || rowDims.length === 0) return;
-    const rowKeys: string[] = [];
-    const rowParts: string[][] = [];
-    const colLabels: string[] = [];
+    const pivotSet = new Set(pivots);
+    const rowDims = result.dimensions.filter((_, index) => !pivotSet.has(index));
+    const rowNames = result.dimensionNames.filter((_, index) => !pivotSet.has(index));
+    const colDims = pivots.map((index) => result.dimensions[index] ?? []);
+    const colNames = pivots.map((index) => result.dimensionNames[index] ?? "?");
+    if (measure === undefined || rowDims.length === 0 || colDims.length === 0) return;
+    let rowKeys: string[] = [];
+    let rowParts: string[][] = [];
+    let colKeys: string[] = [];
+    let colParts: string[][] = [];
     const rowIndex = new Map<string, number>();
     const colIndex = new Map<string, number>();
     for (let group = 0; group < result.groupCount; group++) {
       const parts = rowDims.map((dimension) => dimension[group] ?? "");
       const rowKey = parts.join("\u001f");
-      const colLabel = colValues[group] ?? "";
+      const cparts = colDims.map((dimension) => dimension[group] ?? "");
+      const colKey = cparts.join("\u001f");
       if (!rowIndex.has(rowKey)) {
         rowIndex.set(rowKey, rowKeys.length);
         rowKeys.push(rowKey);
         rowParts.push(parts);
       }
-      if (!colIndex.has(colLabel)) {
-        colIndex.set(colLabel, colLabels.length);
-        colLabels.push(colLabel);
+      if (!colIndex.has(colKey)) {
+        colIndex.set(colKey, colKeys.length);
+        colKeys.push(colKey);
+        colParts.push(cparts);
       }
     }
-    const cells = new Float64Array(rowKeys.length * colLabels.length).fill(Number.NaN);
+    const ordered = colKeys
+      .map((_, index) => index)
+      .sort((a, b) => (colParts[a] ?? []).join("\u001f").localeCompare((colParts[b] ?? []).join("\u001f")));
+    colKeys = ordered.map((index) => colKeys[index]!);
+    colParts = ordered.map((index) => colParts[index]!);
+    colIndex.clear();
+    colKeys.forEach((key, index) => colIndex.set(key, index));
+    let cells = new Float64Array(rowKeys.length * colKeys.length).fill(Number.NaN);
     for (let group = 0; group < result.groupCount; group++) {
       const rowKey = rowDims.map((dimension) => dimension[group] ?? "").join("\u001f");
+      const colKey = colDims.map((dimension) => dimension[group] ?? "").join("\u001f");
       const r = rowIndex.get(rowKey) ?? 0;
-      const c = colIndex.get(colValues[group] ?? "") ?? 0;
-      cells[r * colLabels.length + c] = measure[group] ?? Number.NaN;
+      const c = colIndex.get(colKey) ?? 0;
+      cells[r * colKeys.length + c] = measure[group] ?? Number.NaN;
     }
-    const margins =
-      entry.def.margins === true && rowDims.length === 1 ? entry.margins : null;
+    if (entry.def.dropna === true) {
+      const keepRows = rowKeys
+        .map((_, row) => (colKeys.some((_, col) => Number.isFinite(cells[row * colKeys.length + col])) ? row : -1))
+        .filter((row) => row >= 0);
+      const keepCols = colKeys
+        .map((_, col) => (rowKeys.some((_, row) => Number.isFinite(cells[row * colKeys.length + col])) ? col : -1))
+        .filter((col) => col >= 0);
+      if (keepRows.length !== rowKeys.length || keepCols.length !== colKeys.length) {
+        const oldCells = cells;
+        const oldCols = colKeys.length;
+        cells = new Float64Array(keepRows.length * keepCols.length).fill(Number.NaN);
+        keepRows.forEach((row, r) => {
+          keepCols.forEach((col, c) => {
+            cells[r * keepCols.length + c] = oldCells[row * oldCols + col] ?? Number.NaN;
+          });
+        });
+        rowKeys = keepRows.map((row) => rowKeys[row]!);
+        rowParts = keepRows.map((row) => rowParts[row]!);
+        colKeys = keepCols.map((col) => colKeys[col]!);
+        colParts = keepCols.map((col) => colParts[col]!);
+      }
+    }
+    const fillValue =
+      entry.def.fillValue === undefined || entry.def.fillValue === null
+        ? null
+        : entry.def.fillValue;
+    const displayValue = (value: number): number =>
+      Number.isFinite(value) || fillValue === null ? value : fillValue;
+    const margins = entry.def.margins === true ? entry.margins : null;
     const marginsName = entry.def.marginsName ?? "All";
     const rowTotals = new Map<string, number>();
     const colTotals = new Map<string, number>();
     let grandTotal = Number.NaN;
-    if (margins?.rows?.dimensions[0] !== undefined) {
-      const labels = margins.rows.dimensions[0];
+    if (margins?.rows !== null && margins?.rows !== undefined) {
+      const dims = margins.rows.dimensions;
       const values = margins.rows.measures[0];
-      labels.forEach((label, index) => {
-        rowTotals.set(label, values?.[index] ?? Number.NaN);
-      });
+      for (let group = 0; group < margins.rows.groupCount; group++) {
+        const key = dims.map((dimension) => dimension[group] ?? "").join("\u001f");
+        rowTotals.set(key, values?.[group] ?? Number.NaN);
+      }
     }
-    if (margins?.cols?.dimensions[0] !== undefined) {
-      const labels = margins.cols.dimensions[0];
+    if (margins?.cols !== null && margins?.cols !== undefined) {
+      const dims = margins.cols.dimensions;
       const values = margins.cols.measures[0];
-      labels.forEach((label, index) => {
-        colTotals.set(label, values?.[index] ?? Number.NaN);
-      });
+      for (let group = 0; group < margins.cols.groupCount; group++) {
+        const key = dims.map((dimension) => dimension[group] ?? "").join("\u001f");
+        colTotals.set(key, values?.[group] ?? Number.NaN);
+      }
     }
     grandTotal = margins?.total?.measures[0]?.[0] ?? Number.NaN;
     let max = 0;
@@ -1817,17 +1963,46 @@ export class ViewsPanel {
     const measureSpec = entry.def.measures[0] ?? { column: null, agg: "count" as const };
     const table = el("table", { class: "views-table views-pivot" });
     const head = el("thead");
-    const headRow = el("tr");
-    for (const name of rowNames) {
-      headRow.append(el("th", { class: "views-dim-head" }, [name]));
+    for (let depth = 0; depth < colNames.length; depth++) {
+      const headRow = el("tr", { class: "views-pivot-head-row" });
+      if (depth === 0) {
+        for (const name of rowNames) {
+          headRow.append(
+            el("th", { class: "views-dim-head", rowspan: String(colNames.length) }, [name]),
+          );
+        }
+      }
+      let start = 0;
+      while (start < colKeys.length) {
+        const prefix = (colParts[start] ?? []).slice(0, depth + 1);
+        let end = start + 1;
+        while (
+          end < colKeys.length &&
+          prefix.every((part, index) => (colParts[end]?.[index] ?? "") === part)
+        ) {
+          end++;
+        }
+        const label = prefix[depth] ?? "";
+        const isLeaf = depth === colNames.length - 1;
+        const header = el(
+          "th",
+          {
+            class: isLeaf ? "views-num-head" : "views-col-head",
+            colspan: String(end - start),
+            title: prefix.join(" / "),
+          },
+          [label],
+        );
+        headRow.append(header);
+        start = end;
+      }
+      if (depth === 0 && margins !== null) {
+        headRow.append(
+          el("th", { class: "views-num-head", rowspan: String(colNames.length) }, [marginsName]),
+        );
+      }
+      head.append(headRow);
     }
-    for (const label of colLabels) {
-      headRow.append(el("th", { class: "views-num-head" }, [label]));
-    }
-    if (margins !== null) {
-      headRow.append(el("th", { class: "views-num-head" }, [marginsName]));
-    }
-    head.append(headRow);
     table.append(head);
     const body = el("tbody");
     rowKeys.forEach((rowKey, r) => {
@@ -1835,8 +2010,8 @@ export class ViewsPanel {
       for (const part of rowParts[r] ?? []) {
         tr.append(el("td", { class: "views-dim" }, [part]));
       }
-      colLabels.forEach((_, c) => {
-        const value = cells[r * colLabels.length + c] ?? Number.NaN;
+      colKeys.forEach((_, c) => {
+        const value = displayValue(cells[r * colKeys.length + c] ?? Number.NaN);
         const td = el("td", { class: "views-num" });
         if (Number.isFinite(value) && max > 0) {
           const strength = Math.max(0.05, Math.min(1, Math.abs(value) / max));
@@ -1858,11 +2033,13 @@ export class ViewsPanel {
     });
     if (margins !== null) {
       const totalRow = el("tr", { class: "views-total" });
-      totalRow.append(el("td", { class: "views-dim" }, [marginsName]));
-      for (const label of colLabels) {
+      totalRow.append(
+        el("td", { class: "views-dim", colspan: String(rowNames.length) }, [marginsName]),
+      );
+      for (const colKey of colKeys) {
         totalRow.append(
           el("td", { class: "views-num" }, [
-            formatMeasure(colTotals.get(label) ?? Number.NaN, measureSpec),
+            formatMeasure(colTotals.get(colKey) ?? Number.NaN, measureSpec),
           ]),
         );
       }
@@ -1875,7 +2052,7 @@ export class ViewsPanel {
     this.tableEl.append(table);
     this.tableEl.append(
       el("div", { class: "views-pivot-note" }, [
-        `Spreading “${result.dimensionNames[pivotIndex] ?? "?"}” across columns · ${result.measureNames[0] ?? "measure 1"} · blank cells have no rows${margins === null ? "" : ` - ${marginsName} margins computed from raw rows`}.`,
+        `Spreading “${pivots.map((index) => result.dimensionNames[index] ?? "?").join(" + ")}” across columns · ${result.measureNames[0] ?? "measure 1"} · blank cells have no rows${margins === null ? "" : ` - ${marginsName} margins computed from raw rows`}.`,
       ]),
     );
   }
