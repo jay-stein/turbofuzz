@@ -33,6 +33,14 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Barplot aggregates a numeric measure by category, supports mean/sum/median/min/max, and can split into one series per optional group value.
 - Added gallery fit rules, setup-dialog fields, axis labels, CSV export, and tests.
 
+### Pivot/aggregate CSV export
+
+- Added `Export CSV` to the Pivot View actions. Normal aggregates export one row per group; the current pivot matrix exports row headers plus one column per spread value.
+
+### Bubble viewport
+
+- Bubble charts now share the X/Y pan and zoom viewport used by scatter/density, with reset support.
+
 ### Chart CSV export
 
 - Added `src/ui/chart-export.ts` with CSV escaping and BOM download helpers.
@@ -87,6 +95,8 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `b5904e5` fix(chips): clarify placeholder cleanup action
 - `2a194a2` docs(readme): document multi-file load cast safety and chart updates
 - `1d9206f` feat(charts): add aggregate barplot
+- `28ae6e0` feat(charts): add pan and zoom to bubble charts
+- `a2e9b62` feat(pivot): export aggregate and pivot results as CSV
 
 ## Validation
 
