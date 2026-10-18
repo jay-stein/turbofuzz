@@ -1919,7 +1919,7 @@ export class ViewsPanel {
       el("div", { class: "views-pivot-top-copy" }, [
         el("span", { class: "views-pivot-top-title" }, ["Pivot layout"]),
         el("span", { class: "views-pivot-top-hint" }, [
-          "Drag fields into Index, Columns or Values",
+          "Drag fields into Index, Columns, Values or Filters",
         ]),
       ]),
     ]);
@@ -1992,7 +1992,7 @@ export class ViewsPanel {
     if (filters.length === 0) {
       zone.append(
         el("span", { class: "views-layout-hint" }, [
-          "Filter rows by any column - it does not need to be in the layout.",
+          "Drag any field here to filter it - it does not need to be in the layout.",
         ]),
       );
     }
@@ -2037,7 +2037,7 @@ export class ViewsPanel {
         `All fields (${this.metas.length})`,
       ]),
       el("span", { class: "views-shelf-hint" }, [
-        "↑ Drag a field up into Index, Columns or Values",
+        "↑ Drag a field up into Index, Columns, Values or Filters",
       ]),
     ]);
     const search = el("input", {
@@ -2425,6 +2425,42 @@ export class ViewsPanel {
     pill.append(grip, label, up, down, ...(filter === null ? [] : [filter]), toggle, remove);
     return pill;
   }
+  /** Compact summary values to help choose a filter threshold. */
+  private filterStats(meta: ColumnMeta): HTMLElement {
+    const box = el("div", { class: "views-filter-stats" });
+    const add = (label: string, value: string): void => {
+      box.append(
+        el("div", { class: "views-filter-stat" }, [
+          el("span", { class: "views-filter-stat-label" }, [label]),
+          el("span", { class: "views-filter-stat-value" }, [value]),
+        ]),
+      );
+    };
+    const number = (value: number): string =>
+      value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    const date = (value: number): string => new Date(value).toISOString().slice(0, 10);
+    const nonNull = this.rowCount - meta.stats.nulls;
+    if (meta.type === "date" || meta.type === "datetime") {
+      if (meta.stats.min !== null) add("Earliest", date(meta.stats.min));
+      if (meta.stats.max !== null) add("Latest", date(meta.stats.max));
+      add("Non-null", nonNull.toLocaleString());
+    } else if (isNumericLikeType(meta.type)) {
+      if (meta.stats.min !== null) add("Min", number(meta.stats.min));
+      if (meta.stats.max !== null) add("Max", number(meta.stats.max));
+      if (meta.stats.mean !== null) add("Average", number(meta.stats.mean));
+      add("Non-null", nonNull.toLocaleString());
+    } else if (meta.type === "category" || meta.type === "boolean") {
+      add("Distinct", meta.stats.distinct.toLocaleString());
+      add("Non-null", nonNull.toLocaleString());
+      add("Blank", meta.stats.nulls.toLocaleString());
+    } else {
+      add("Distinct", meta.stats.distinct.toLocaleString());
+      add("Non-null", nonNull.toLocaleString());
+      if (meta.stats.minLength !== null) add("Min length", String(meta.stats.minLength));
+      if (meta.stats.maxLength !== null) add("Max length", String(meta.stats.maxLength));
+    }
+    return box;
+  }
   /** Typed filter editors selected by the column's data type. */
   private openFilterForColumn(
     anchor: HTMLElement,
@@ -2636,7 +2672,7 @@ export class ViewsPanel {
     apply.addEventListener("click", () => commit(currentFilter()));
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKey);
-    popover.append(head, mode, search, list, footer);
+    popover.append(head, this.filterStats(meta!), mode, search, list, footer);
     footer.append(status, el("span", { class: "grow" }), clearButton, apply);
     document.body.append(popover);
     renderOptions();
@@ -2814,6 +2850,7 @@ export class ViewsPanel {
     document.addEventListener("keydown", onKey);
     popover.append(
       head,
+      this.filterStats(meta!),
       opSelect,
       el("div", { class: "views-filter-values" }, [firstField, secondField]),
       footer,

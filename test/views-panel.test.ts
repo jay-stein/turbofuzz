@@ -915,6 +915,7 @@ test("pivot value filters use a searchable picker and can clear", async () => {
   );
   assert.ok(amountFilter !== undefined);
   (amountFilter as unknown as { click(): void }).click();
+  assert.ok(doc.querySelector(".views-filter-stats") !== null, "filter stats are shown");
   const reportOperator = doc.querySelector(".views-filter-mode") as HTMLSelectElement | null;
   assert.ok(reportOperator !== null);
   reportOperator.value = "gt";

@@ -344,3 +344,8 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - Category/boolean fields use a checkbox picker for up to 20 values with Is one of, Is not one of, Is blank and Is not blank. Larger categories switch to the fuzzy text filter editor.
 - Report filters and dimension funnels share the same type-aware editor. Active filter descriptions and counts now handle all operator kinds.
 - Pivot filter definitions support typed number, date, text, value-set and blank filters; the worker evaluates them against raw rows before aggregation.
+## Follow-up: draggable filters and filter stats (2026-10-18)
+
+- The Filters well now accepts field-shelf drops, just like Index/Columns/Values. Dropping any field opens its type-aware filter editor; dropping a dimension or measure reuses its source column.
+- Filter popovers show a compact stats strip before the controls: Min/Max/Average/Non-null for numeric fields, Earliest/Latest/Non-null for dates, and Distinct/Non-null/blank or length ranges for text and categories.
+- The shelf hint now names Filters as a drop destination.
