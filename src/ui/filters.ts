@@ -22,6 +22,8 @@ import type { ColumnMeta } from "../worker/protocol.js";
 
 export interface FilterPanelCallbacks {
   onFilter: (column: number, filter: ColumnFilter | null, preview?: boolean) => void;
+  /** Text filters opened from a header default to Contains. */
+  defaultTextMode?: TextMode;
   onSuggestion: (column: number, suggestion: ColumnSuggestion) => void;
 }
 
@@ -226,7 +228,8 @@ export class FilterPanel {
       title: "Match mode",
       "aria-label": `Match mode for ${meta.name}`,
     }) as HTMLSelectElement;
-    const defaultMode: TextMode = meta.type === "identifier" ? "exact" : "contains";
+    const defaultMode: TextMode =
+      this.callbacks.defaultTextMode ?? (meta.type === "identifier" ? "exact" : "contains");
     for (const mode of TEXT_MODES) {
       const option = el("option", { value: mode.value }, [mode.label]) as HTMLOptionElement;
       if (mode.value === (current?.mode ?? defaultMode)) option.selected = true;
@@ -369,10 +372,22 @@ export class FilterPanel {
         minInput.max = dateMax;
         maxInput.max = dateMax;
       }
-      if (state === undefined) {
-        minInput.value = dateMin;
-        maxInput.value = dateMax;
-      }
+      const anchorDate = (forMax: boolean): void => {
+        if (minInput.value !== "" || maxInput.value !== "") return;
+        const mode = modeSelect.value;
+        if (mode === "between") {
+          minInput.value = dateMin;
+          maxInput.value = dateMax;
+        } else if (["on", "before", "onOrBefore"].includes(mode)) {
+          minInput.value = dateMax;
+        } else if (mode !== "blank" && mode !== "notBlank") {
+          minInput.value = forMax ? dateMax : dateMin;
+        }
+      };
+      minInput.addEventListener("focus", () => anchorDate(false));
+      maxInput.addEventListener("focus", () => {
+        if (maxInput.value === "" && modeSelect.value === "between") maxInput.value = dateMax;
+      });
     }
     const emit = (preview: boolean): void => {
       const mode = modeSelect.value;
@@ -470,20 +485,7 @@ export class FilterPanel {
     });
     minInput.addEventListener("change", () => emit(false));
     maxInput.addEventListener("change", () => emit(false));
-    modeSelect.addEventListener("change", () => {
-      if (dateLike && dateMin !== "" && dateMax !== "") {
-        const mode = modeSelect.value;
-        if (mode === "between") {
-          minInput.value = dateMin;
-          maxInput.value = dateMax;
-        } else if (["on", "before", "onOrBefore"].includes(mode)) {
-          minInput.value = dateMax;
-        } else if (mode !== "blank" && mode !== "notBlank") {
-          minInput.value = dateMin;
-        }
-      }
-      updateMode();
-    });
+    modeSelect.addEventListener("change", updateMode);
 
     const inputs = el("div", { class: "range-inputs" }, [minInput, separator, maxInput]);
     body.append(modeSelect, inputs);

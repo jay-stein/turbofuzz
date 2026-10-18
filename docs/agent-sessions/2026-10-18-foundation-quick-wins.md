@@ -369,3 +369,9 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - Every header filter spot now opens the shared panel, not just numeric/date columns.
 - Date range inputs are anchored and prefilled to the dataset's earliest/latest dates, with min/max attributes. Changing date operators moves the default value to the relevant bound instead of opening at today's date.
 - Header filter rows stay pinned to the bottom of the header so they remain vertically aligned.
+## Follow-up: header filter polish (2026-10-18)
+
+- Enlarged the floating header filter card to 1.5x width and scaled its text/controls up.
+- Unfiltered date filters now start blank. Focusing a date input anchors it to the dataset's earliest/latest bounds, so the native picker no longer starts at today.
+- Text filters autofocus when opened and default to Contains for immediate typing. Filtering still applies per keystroke.
+- Header filter panels pulse with an accent ring on open so users can spot where the panel appeared.

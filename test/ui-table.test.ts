@@ -483,8 +483,11 @@ test("date header filters anchor to the available dataset range", () => {
   (host.querySelector(".th-filter-button") as unknown as { click(): void }).click();
   const doc = (globalThis as Record<string, unknown>).document as Window["document"];
   const inputs = [...doc.querySelectorAll(".th-filter-panel-popover .range-input")] as unknown as HTMLInputElement[];
-  assert.equal(inputs[0]?.value, "2024-01-01");
-  assert.equal(inputs[1]?.value, "2024-12-31");
+  assert.equal(inputs[0]?.value, "", "an unfiltered date starts blank");
+  assert.equal(inputs[1]?.value, "");
   assert.equal(inputs[0]?.min, "2024-01-01");
   assert.equal(inputs[1]?.max, "2024-12-31");
+  inputs[0]?.dispatchEvent(new window.Event("focus") as unknown as Event);
+  assert.equal(inputs[0]?.value, "2024-01-01", "focus anchors to the earliest date");
+  assert.equal(inputs[1]?.value, "2024-12-31", "between pairs anchor to the latest date");
 });
