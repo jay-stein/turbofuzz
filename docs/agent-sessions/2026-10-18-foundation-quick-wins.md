@@ -57,6 +57,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Box plots now support category-window X zoom/pan and numeric Y zoom/pan, with reset support.
 - Correlation matrices now support a shared row/column zoom window and pan, with reset support.
 - Treemaps and top-terms charts now support item-window zoom/pan over their ranked categories/terms, with reset support.
+- GeoJSON/Shapefile regions now show their label, join property and measure on hover; clicking a matched category filters to it.
 
 ### Chart CSV export
 
@@ -119,6 +120,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `3814a27` feat(charts): zoom and pan box plots
 - `d8aa0a8` feat(charts): zoom and pan correlation matrices
 - `17c5ca6` feat(charts): zoom and pan treemaps and terms
+- `8f14d58` feat(charts): inspect and filter geojson regions
 - `1580efe` feat(charts): load geojson and zipped shapefile regions
 - `21836d1` feat(charts): join geojson regions to dataset measures
 
