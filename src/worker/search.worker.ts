@@ -50,7 +50,12 @@ import {
 } from "../search/query-engine.js";
 import { isNumericLikeType, type ColumnType } from "../types.js";
 import { buildCsv } from "./csv.js";
-import { ingestDataset, ingestDatasetAsync, type IngestResult } from "./ingest.js";
+import {
+  ingestDataset,
+  ingestDatasetAsync,
+  ingestFilesAsync,
+  type IngestResult,
+} from "./ingest.js";
 import type {
   CleanColumnsRequest,
   ClearExcludedRowsRequest,
@@ -518,7 +523,24 @@ async function handleLoad(message: LoadRequest): Promise<void> {
     // Parquet is decoded lazily inside the worker; every other format goes
     // through the shared text/table ingest path.
     let ingested: IngestResult | null;
-    if (message.buffer !== undefined && isParquetName(message.name)) {
+    if (message.files !== undefined && message.files.length > 1) {
+      ingested = await ingestFilesAsync(
+        message.files,
+        {
+          name: message.name,
+          delimiter: message.delimiter,
+          hasHeaders: message.hasHeaders,
+          onProgress: (progress) =>
+            postLoadProgress(message.requestId, {
+              phase: progress.phase,
+              detail: progress.detail,
+              current: progress.current,
+              total: progress.total,
+            }),
+        },
+        { cancelled },
+      );
+    } else if (message.buffer !== undefined && isParquetName(message.name)) {
       postLoadProgress(message.requestId, { phase: "read", detail: "Reading parquet…" });
       const grid = await readParquetGrid(message.buffer);
       if (cancelled()) {
@@ -612,7 +634,10 @@ async function handleLoad(message: LoadRequest): Promise<void> {
     typeOverrides.clear();
     transformSource = null;
     transformOps = [];
-    datasetSource = message.buffer !== undefined ? "file" : "paste";
+    datasetSource =
+      message.buffer !== undefined || (message.files !== undefined && message.files.length > 0)
+        ? "file"
+        : "paste";
     datasetEncoding = encoding;
     datasetDelimiter = delimiter;
     datasetRagged = ragged;

@@ -115,6 +115,8 @@ export type LoadRequest = {
   text?: string;
   buffer?: ArrayBuffer;
   table?: { rows: string[][]; hasHeaders: boolean };
+  /** Several files concatenated with an `_input_filename` column. */
+  files?: { name: string; text?: string; buffer?: ArrayBuffer }[];
   /** Parse only the first N rows: the safe path offered for giant files. */
   maxRows?: number;
 };

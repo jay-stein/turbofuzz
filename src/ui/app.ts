@@ -141,6 +141,7 @@ function readColumnTilesPreference(): boolean {
 }
 const FILE_ACCEPT =
   ".csv,.tsv,.psv,.txt,.dat,.json,.jsonl,.ndjson,.parquet,.xlsx,.xls,.zip,.gz,.bz2";
+const MULTI_FILE_EXTENSIONS = [".csv", ".tsv", ".psv", ".txt", ".dat"];
 const WORKBOOK_EXTENSIONS = [".xlsx", ".xls"];
 const UNSUPPORTED_COMPRESSION = [".xz", ".zst", ".7z", ".rar", ".tar", ".lz4"];
 const UNSUPPORTED_FORMATS: { extensions: string[]; message: string }[] = [
@@ -662,6 +663,7 @@ export class App {
       type: "file",
       accept: FILE_ACCEPT,
       class: "hidden",
+      multiple: "multiple",
     }) as HTMLInputElement;
     const openPicker = (): void => fileInput.click();
     dropzone.addEventListener("click", openPicker);
@@ -672,8 +674,9 @@ export class App {
       }
     });
     fileInput.addEventListener("change", () => {
-      const file = fileInput.files?.[0];
-      if (file !== undefined) void this.loadFile(file);
+      const files = [...(fileInput.files ?? [])];
+      if (files.length > 0) void this.loadFiles(files);
+      fileInput.value = "";
     });
 
     card.addEventListener("dragover", (event) => {
@@ -687,11 +690,11 @@ export class App {
       dropzone.classList.remove("dragging");
     });
     card.addEventListener("drop", (event) => {
-      const file = event.dataTransfer?.files?.[0];
-      if (file === undefined) return;
+      const files = [...(event.dataTransfer?.files ?? [])];
+      if (files.length === 0) return;
       event.preventDefault();
       dropzone.classList.remove("dragging");
-      void this.loadFile(file);
+      void this.loadFiles(files);
     });
     card.append(fileInput);
 
@@ -1055,6 +1058,7 @@ export class App {
   private async load(options: {
     text?: string;
     buffer?: ArrayBuffer;
+    files?: { name: string; buffer?: ArrayBuffer }[];
     name: string;
     source: "paste" | "file";
     maxRows?: number;
@@ -1064,11 +1068,17 @@ export class App {
     this.generation++;
     this.pendingSend = null;
     this.hideTablePicker();
-    this.setLoadingText("Parsing…");
+    this.setLoadingText(
+      options.files !== undefined && options.files.length > 1
+        ? `Parsing ${options.files.length} files.`
+        : "Parsing.",
+    );
     this.sourceBytes =
       options.text !== undefined
         ? new TextEncoder().encode(options.text).byteLength
-        : (options.buffer?.byteLength ?? null);
+        : options.files !== undefined
+          ? options.files.reduce((sum, file) => sum + (file.buffer?.byteLength ?? 0), 0)
+          : (options.buffer?.byteLength ?? null);
 
     try {
       const loaded = await this.client.load({
@@ -1077,11 +1087,17 @@ export class App {
         hasHeaders: this.headersCheckbox.checked,
         text: options.text,
         buffer: options.buffer,
+        files: options.files,
         maxRows: options.maxRows,
       });
       this.statusEl.textContent = "";
       this.hideLoadProgress();
       this.openWorkspace(loaded);
+      if (options.files !== undefined && options.files.length > 1) {
+        this.setAction(
+          `${options.files.length} files appended - ${loaded.rowCount.toLocaleString()} rows with _input_filename.`,
+        );
+      }
     } catch (error) {
       if (error instanceof LoadCancelledError) {
         this.hideLoadProgress();
@@ -1145,6 +1161,48 @@ export class App {
 
     this.tablePickerEl.classList.remove("hidden");
     this.tablePickerEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  private async loadFiles(files: File[]): Promise<void> {
+    if (files.length === 1) {
+      await this.loadFile(files[0]);
+      return;
+    }
+    const unsupported = files.find(
+      (file) => !MULTI_FILE_EXTENSIONS.includes(extensionOf(file.name)),
+    );
+    if (unsupported !== undefined) {
+      this.setStatusError(
+        "Multiple-file import supports CSV, TSV, PSV, TXT and DAT files. Select one file for other formats.",
+      );
+      return;
+    }
+    const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name));
+    const names = sorted.slice(0, 5).map((file) => file.name).join(", ");
+    const more = sorted.length > 5 ? ` and ${sorted.length - 5} more` : "";
+    const confirmed = await openConfirm({
+      title: `Append ${sorted.length} files?`,
+      body: `${names}${more} will be loaded as one dataset. Columns are matched by header name, and an _input_filename column records each file.`,
+      confirmLabel: "Append rows",
+    }).catch(() => false);
+    if (!confirmed) return;
+    this.showLoadProgress(
+      `${sorted.length} files`,
+      sorted.reduce((sum, file) => sum + file.size, 0),
+    );
+    try {
+      const payload: { name: string; buffer: ArrayBuffer }[] = [];
+      for (const file of sorted) {
+        payload.push({ name: file.name, buffer: await file.arrayBuffer() });
+      }
+      await this.load({
+        files: payload,
+        name: `${sorted.length} files`,
+        source: "file",
+      });
+    } catch (error) {
+      this.setStatusError(error instanceof Error ? error.message : "Could not read files");
+    }
   }
 
   private async loadFile(file: File): Promise<void> {

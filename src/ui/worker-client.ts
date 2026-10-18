@@ -66,6 +66,8 @@ export interface LoadOptions {
   text?: string;
   buffer?: ArrayBuffer;
   table?: { rows: string[][]; hasHeaders: boolean };
+  /** Several files concatenated with an `_input_filename` column. */
+  files?: { name: string; text?: string; buffer?: ArrayBuffer }[];
   /** Parse only the first N rows (safe path for very large files). */
   maxRows?: number;
 }
@@ -121,7 +123,11 @@ export class SearchWorkerClient {
   }
 
   load(options: LoadOptions): Promise<LoadedMessage> {
-    const transfer = options.buffer === undefined ? [] : [options.buffer];
+    const transfer: ArrayBuffer[] = [];
+    if (options.buffer !== undefined) transfer.push(options.buffer);
+    for (const file of options.files ?? []) {
+      if (file.buffer !== undefined) transfer.push(file.buffer);
+    }
     const requestId = this.nextId++;
     return new Promise<LoadedMessage>((resolve, reject) => {
       this.pending.set(requestId, {

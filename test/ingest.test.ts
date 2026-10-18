@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ingestDataset } from "../src/worker/ingest.js";
+import { ingestDataset, ingestFilesAsync } from "../src/worker/ingest.js";
 
 test("ingestDataset parses text and reports progress", () => {
   const phases: string[] = [];
@@ -228,6 +228,26 @@ test("ingestDataset sniffs pasted JSON", () => {
     ["a"],
   );
   assert.equal(dataset.rowCount, 2);
+});
+
+test("multiple files align columns and add _input_filename", async () => {
+  const result = await ingestFilesAsync(
+    [
+      { name: "blah_01.csv", text: "id,value\n1,alpha\n2,beta" },
+      { name: "blah_02.csv", text: "value,id,extra\ngamma,3,new" },
+    ],
+    { name: "2 files", delimiter: "auto", hasHeaders: true },
+  );
+  assert.ok(result !== null);
+  const { dataset } = result;
+  assert.equal(dataset.rowCount, 3);
+  assert.deepEqual(
+    dataset.columns.map((column) => column.name),
+    ["id", "value", "extra", "_input_filename"],
+  );
+  assert.deepEqual(dataset.columns[0].raw, ["1", "2", "3"]);
+  assert.deepEqual(dataset.columns[2].raw, ["", "", "new"]);
+  assert.deepEqual(dataset.columns[3].raw, ["blah_01.csv", "blah_01.csv", "blah_02.csv"]);
 });
 
 test("maxRows previews only the first rows of delimited text", () => {

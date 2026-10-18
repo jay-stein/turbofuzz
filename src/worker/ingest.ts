@@ -46,6 +46,12 @@ export interface IngestControl {
   cancelled?: () => boolean;
 }
 
+export interface IngestFile {
+  name: string;
+  text?: string;
+  buffer?: ArrayBuffer;
+}
+
 /** The decoded/parsed grid plus everything the column build needs. */
 interface PreparedGrid {
   headers: string[];
@@ -208,6 +214,106 @@ export async function ingestDatasetAsync(
     delimiter: prepared.delimiter,
     ragged: prepared.ragged,
   };
+}
+
+function headerKey(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/**
+ * Parses several files, aligns their columns by normalised header name and
+ * appends one `_input_filename` cell per row. Column order follows the first
+ * file; later files append any new columns at the end.
+ */
+export async function ingestFilesAsync(
+  files: readonly IngestFile[],
+  options: Omit<IngestOptions, "text" | "buffer" | "table" | "name"> & { name: string },
+  control: IngestControl = {},
+): Promise<IngestResult | null> {
+  if (files.length === 0) throw new Error("No files to import");
+  const prepared: PreparedGrid[] = [];
+  for (let index = 0; index < files.length; index++) {
+    const file = files[index];
+    options.onProgress?.({
+      phase: "read",
+      detail: `Reading ${file.name} (${index + 1} of ${files.length}).`,
+      current: index,
+      total: files.length,
+    });
+    prepared.push(
+      prepareGrid({
+        name: file.name,
+        delimiter: options.delimiter,
+        hasHeaders: options.hasHeaders,
+        text: file.text,
+        buffer: file.buffer,
+        onProgress: options.onProgress,
+      }),
+    );
+    if (control.cancelled?.() === true) return null;
+  }
+
+  const headers = [...prepared[0].headers];
+  const targets = new Map<string, number>();
+  headers.forEach((header, index) => {
+    if (!targets.has(headerKey(header))) targets.set(headerKey(header), index);
+  });
+  for (const grid of prepared.slice(1)) {
+    for (const header of grid.headers) {
+      const key = headerKey(header);
+      if (targets.has(key)) continue;
+      targets.set(key, headers.length);
+      headers.push(header);
+    }
+  }
+
+  let filenameHeader = "_input_filename";
+  for (let suffix = 2; targets.has(headerKey(filenameHeader)); suffix++) {
+    filenameHeader = `_input_filename_${suffix}`;
+  }
+  const filenameIndex = headers.length;
+  headers.push(filenameHeader);
+
+  const rows: string[][] = [];
+  let ragged: RaggedInfo = { paddedRows: 0, extraCellRows: 0, extraCells: 0 };
+  for (let fileIndex = 0; fileIndex < prepared.length; fileIndex++) {
+    const grid = prepared[fileIndex];
+    const mapping = grid.headers.map((header) => targets.get(headerKey(header)) ?? -1);
+    for (const row of grid.rows) {
+      const out = new Array<string>(headers.length).fill("");
+      for (let column = 0; column < row.length && column < mapping.length; column++) {
+        const target = mapping[column];
+        if (target >= 0) out[target] = row[column];
+      }
+      out[filenameIndex] = files[fileIndex].name;
+      rows.push(out);
+    }
+    ragged = {
+      paddedRows: ragged.paddedRows + grid.ragged.paddedRows,
+      extraCellRows: ragged.extraCellRows + grid.ragged.extraCellRows,
+      extraCells: ragged.extraCells + grid.ragged.extraCells,
+    };
+    if (control.cancelled?.() === true) return null;
+  }
+
+  options.onProgress?.({ phase: "infer", detail: "Inferring schema." });
+  const dataset = await buildDatasetAsync(
+    options.name,
+    headers,
+    rows,
+    buildProgress({ ...options, name: options.name }),
+    prepared[0].numberPrior,
+    { shouldCancel: control.cancelled },
+  );
+  if (dataset === null) return null;
+
+  const encoding = prepared.every((grid) => grid.encoding === prepared[0].encoding)
+    ? prepared[0].encoding
+    : null;
+  const delimiter = prepared.every((grid) => grid.delimiter === prepared[0].delimiter)
+    ? prepared[0].delimiter
+    : null;
+  return { dataset, encoding, delimiter, ragged };
 }
 
 /** Sniff pasted text: only when the delimiter is auto and it starts like JSON. */
