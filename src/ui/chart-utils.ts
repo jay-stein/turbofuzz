@@ -537,6 +537,11 @@ export interface MapBrushFrame {
   top: number;
   plotW: number;
   plotH: number;
+  /** Current map viewport; omitted = the whole world. */
+  lonMin?: number;
+  lonMax?: number;
+  latMin?: number;
+  latMax?: number;
 }
 
 export interface PlotBounds {
@@ -588,8 +593,14 @@ export function mapBrushBounds(
   const x1 = clampX(Math.max(brush.x0, brush.x1));
   const y0 = clampY(Math.min(brush.y0, brush.y1));
   const y1 = clampY(Math.max(brush.y0, brush.y1));
-  const toLon = (x: number): number => ((x - frame.left) / frame.plotW) * 360 - 180;
-  const toLat = (y: number): number => 90 - ((y - frame.top) / frame.plotH) * 180;
+  const lonMin = frame.lonMin ?? -180;
+  const lonMax = frame.lonMax ?? 180;
+  const latMin = frame.latMin ?? -90;
+  const latMax = frame.latMax ?? 90;
+  const toLon = (x: number): number =>
+    lonMin + ((x - frame.left) / frame.plotW) * (lonMax - lonMin);
+  const toLat = (y: number): number =>
+    latMax - ((y - frame.top) / frame.plotH) * (latMax - latMin);
   return {
     lonMin: Math.max(-180, toLon(x0)),
     lonMax: Math.min(180, toLon(x1)),

@@ -4746,8 +4746,18 @@ export class ChartCard {
       this.render();
       return;
     }
+    const view = this.mapView ?? { lonMin: -180, lonMax: 180, latMin: -90, latMax: 90 };
     const bounds = mapBrushBounds(
-      { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
+      {
+        left: frame.left,
+        top: frame.top,
+        plotW: frame.plotW,
+        plotH: frame.plotH,
+        lonMin: view.lonMin,
+        lonMax: view.lonMax,
+        latMin: view.latMin,
+        latMax: view.latMax,
+      },
       drag,
     );
     const selection: MapBrushSelection = {

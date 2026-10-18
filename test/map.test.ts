@@ -57,6 +57,25 @@ test("mapBrushBounds converts a rectangle to lon/lat bounds", () => {
   assert.equal(clamped.lonMin, -180);
   assert.equal(clamped.latMax, 90);
   assert.ok(clamped.lonMax < -150, "a small top-left rectangle is a small slice");
+
+  // A zoomed viewport maps pixels into that view, not the whole world.
+  const zoomed = mapBrushBounds(
+    {
+      left: 60,
+      top: 40,
+      plotW: 720,
+      plotH: 360,
+      lonMin: 140,
+      lonMax: 150,
+      latMin: -40,
+      latMax: -30,
+    },
+    { x0: 60 + 360, y0: 40 + 180, x1: 780, y1: 400 },
+  );
+  assert.equal(zoomed.lonMin, 145);
+  assert.equal(zoomed.lonMax, 150);
+  assert.equal(zoomed.latMin, -40);
+  assert.equal(zoomed.latMax, -35);
 });
 
 test("the gallery offers a map when coordinates are detected", () => {
