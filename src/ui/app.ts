@@ -48,6 +48,7 @@ import type {
   AggregateMessage,
   CleanUpdate,
   ColumnMeta,
+  DatasetStatsMessage,
   PivotMessage,
   CorrelationMessage,
   ExportScope,
@@ -151,6 +152,7 @@ const FILE_ACCEPT =
   ".csv,.tsv,.psv,.txt,.dat,.json,.jsonl,.ndjson,.parquet,.xlsx,.xls,.zip,.gz,.bz2";
 const MULTI_FILE_EXTENSIONS = [".csv", ".tsv", ".psv", ".txt", ".dat"];
 const PREFLIGHT_BYTES = 256 * 1024;
+const DEFER_STATS_BYTES = 2_000_000;
 const WORKBOOK_EXTENSIONS = [".xlsx", ".xls"];
 const UNSUPPORTED_COMPRESSION = [".xz", ".zst", ".7z", ".rar", ".tar", ".lz4"];
 const UNSUPPORTED_FORMATS: { extensions: string[]; message: string }[] = [
@@ -1079,6 +1081,7 @@ export class App {
     name: string;
     source: "paste" | "file";
     maxRows?: number;
+    deferStats?: boolean;
   }): Promise<void> {
     if (this.loading) return;
     this.loading = true;
@@ -1106,10 +1109,15 @@ export class App {
         buffer: options.buffer,
         files: options.files,
         maxRows: options.maxRows,
+        deferStats:
+          options.deferStats ??
+          ((options.buffer !== undefined || options.files !== undefined) &&
+            (this.sourceBytes ?? 0) >= DEFER_STATS_BYTES),
       });
       this.statusEl.textContent = "";
       this.hideLoadProgress();
       this.openWorkspace(loaded);
+      if (loaded.statsPending === true) void this.finalizeDatasetMetrics(loaded);
       if (options.files !== undefined && options.files.length > 1) {
         this.setAction(
           `${options.files.length} files appended - ${loaded.rowCount.toLocaleString()} rows with _input_filename.`,
@@ -1935,6 +1943,45 @@ export class App {
     this.setView(this.view);
   }
 
+  /** Finish heavy metrics after the table is already interactive. */
+  private async finalizeDatasetMetrics(loaded: LoadedMessage): Promise<void> {
+    const name = loaded.name;
+    this.setAction("Updating dataset metrics in the background.");
+    try {
+      const message = await this.client.finalizeStats();
+      if (this.datasetName !== name) return;
+      this.metas = message.columns;
+      this.latestStats = message.stats;
+      if (this.lastLoaded !== null) {
+        this.lastLoaded = {
+          ...this.lastLoaded,
+          columns: message.columns,
+          stats: message.stats,
+        };
+      }
+      this.table?.setColumns(this.metas);
+      this.table?.setCount(message.count);
+      this.table?.setFirstRows(
+        message.firstRows,
+        message.firstGroups,
+        message.firstFlags,
+        message.firstChanged,
+      );
+      for (let index = 0; index < this.metas.length; index++) {
+        this.filterPanel?.updateMeta(index, this.metas[index] as ColumnMeta);
+      }
+      this.applyDatasetStats(message.stats);
+      this.updateCount(message.count, message.queryMs);
+      this.chartsPanel?.setColumns(this.metas);
+      this.setAction("Dataset metrics ready.");
+    } catch (error) {
+      this.setAction(
+        error instanceof Error
+          ? `Dataset metrics could not be completed: ${error.message}`
+          : "Dataset metrics could not be completed.",
+      );
+    }
+  }
   private ensureTable(): void {
     if (this.table !== null) return;
     this.table = new ResultTable(this.tableHost, {

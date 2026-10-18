@@ -29,6 +29,8 @@ export interface IngestOptions {
   table?: { rows: string[][]; hasHeaders: boolean };
   /** Parse only the first N rows of delimited text (large-file sampling). */
   maxRows?: number;
+  /** Build columns now and defer dataset-level metrics to a second request. */
+  deferStats?: boolean;
   onProgress?: (progress: IngestProgress) => void;
 }
 
@@ -41,6 +43,8 @@ export interface IngestResult {
   ragged: RaggedInfo;
   /** Per-file source metadata for multi-file appends. */
   files?: FileImportMeta[];
+  /** True when heavy dataset metrics are still pending. */
+  deferredStats?: boolean;
 }
 
 export interface IngestControl {
@@ -207,7 +211,7 @@ export async function ingestDatasetAsync(
     prepared.rows,
     buildProgress(options),
     prepared.numberPrior,
-    { shouldCancel: control.cancelled },
+    { shouldCancel: control.cancelled, deferStats: options.deferStats },
   );
   if (dataset === null) return null;
   return {
@@ -215,6 +219,7 @@ export async function ingestDatasetAsync(
     encoding: prepared.encoding,
     delimiter: prepared.delimiter,
     ragged: prepared.ragged,
+    deferredStats: options.deferStats === true,
   };
 }
 
@@ -315,10 +320,9 @@ export async function ingestFilesAsync(
     rows,
     buildProgress({ ...options, name: options.name }),
     prepared[0].numberPrior,
-    { shouldCancel: control.cancelled },
+    { shouldCancel: control.cancelled, deferStats: options.deferStats },
   );
   if (dataset === null) return null;
-
   const encoding = prepared.every((grid) => grid.encoding === prepared[0].encoding)
     ? prepared[0].encoding
     : null;
@@ -330,6 +334,7 @@ export async function ingestFilesAsync(
     encoding,
     delimiter,
     ragged,
+    deferredStats: options.deferStats === true,
     files: prepared.map((grid, index) => ({
       name: files[index]?.name ?? `File ${index + 1}`,
       rowCount: grid.rows.length,

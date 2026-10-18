@@ -529,3 +529,23 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 
 - W2.6 deferred dataset metrics and W2.7 progress/cancel polish.
 - E2E coverage can expand to the full chart-kind/geo matrix.
+## Sprint 7: Post-release Performance Polish (2026-10-19)
+
+### Delivered
+
+- Preliminary dataset path for large file/multi-file loads: rows open before duplicate/null/anomaly metrics finish.
+- New `finalizeStats` worker request and `datasetStats` response; metrics refresh column QA chips, health/DQ, score, charts and table in place.
+- Stale-response guard ignores metrics from a previous dataset; errors surface in the action bar.
+- Existing load progress/cancel remains the long-operation cancellation path; clean actions remain undoable and inside their benchmark budgets.
+
+### Validation
+
+- `npm run typecheck` passes.
+- `npm test`: 770 tests.
+- `npm run test:e2e`: 7 tests.
+- `npm run build` passes.
+- New worker test covers deferred load rows plus finalization.
+
+### Notes
+
+- Batch/clean actions stay below their 250 ms/600 ms/2 s budgets, so they use Recipe Undo rather than a separate cancel dialog.

@@ -29,7 +29,7 @@ Already delivered and not to be rebuilt:
 - complete worker-backed Pivot View with drag/drop wells, typed report filters, multi-date hierarchies, pivot heatmap charts and grouped chart sources;
 - typed table header filters sharing the sidebar filter card, with dataset-anchored date bounds.
 
-Baseline test state: **769 tests passing + 7 Playwright E2E tests**, typecheck and production build green.
+Baseline test state: **770 tests passing + 7 Playwright E2E tests**, typecheck and production build green.
 
 ---
 
@@ -416,7 +416,7 @@ After Sprint 2, the remaining sequence is:
 
 ### Sprint 5 follow-ups
 
-- W2.6 deferred metrics and W2.7 progress/cancel polish remain for a later performance pass.
+- W2.6/W2.7 are complete in Sprint 7.
 - Preflight row/cell estimates use the sampled byte ratio, not an exact row scan.
 - Sampled-count `~` labels are available but not applied to every suggestion count yet.
 - W8 release hardening remains the final stream.
@@ -433,7 +433,7 @@ After Sprint 2, the remaining sequence is:
 
 ## 4f. Sprint 6: Release Hardening
 
-**Status:** Complete on 2026-10-19. Release gate green; W2.6/W2.7 remain post-release performance work.
+**Status:** Complete on 2026-10-19. Release gate green; W2.6/W2.7 completed in Sprint 7.
 
 **Budget:** 10 engineer-days, including 0.5 day contingency.
 
@@ -454,7 +454,7 @@ After Sprint 2, the remaining sequence is:
 
 ### Sprint 6 follow-ups
 
-- W2.6 deferred dataset metrics and W2.7 progress/cancel polish remain post-release performance work.
+- W2.6/W2.7 are complete in Sprint 7.
 - E2E covers representative flows (load, multi-file, batch cast, table, quality, chart, a11y); the full chart-kind/geo matrix remains post-release coverage.
 
 ### Sprint exit gate
@@ -464,6 +464,28 @@ After Sprint 2, the remaining sequence is:
 - No blocking accessibility findings.
 - CSP remains `connect-src 'none'` with no `eval` or `new Function`.
 - README/help/session docs match the shipped surface.
+
+---
+
+## 4g. Sprint 7: Post-release Performance Polish
+
+**Status:** Complete on 2026-10-19.
+
+**Delivered**
+
+- Large file/multi-file loads over 2 MB open a preliminary dataset so rows are interactive before duplicate/null/anomaly metrics finish.
+- Added `finalizeStats` worker request and `datasetStats` response; columns, QA chips, score, health, charts and filters refresh after metrics land.
+- Stale metric responses are ignored when the dataset name changes; failures surface in the action bar.
+- Existing load progress/cancel remains the cancellation path; clean operations use the Recipe Undo as recovery and stay inside their benchmark budgets.
+
+**Validation**
+
+- `npm run typecheck`, `npm test` (770 tests), `npm run test:e2e` (7 tests) and `npm run build` are green.
+- Deferred metrics worker test covers rows-first load plus finalization.
+
+**Scope note**
+
+- Batch/clean operations are under 250 ms/600 ms/2 s budgets, so they do not expose a separate cancel dialog; the existing load cancellation and Recipe Undo cover recovery.
 
 ---
 
@@ -504,7 +526,7 @@ After Sprint 2, the remaining sequence is:
 **Depends on:** none.
 **Blocks:** W7 (chip risk semantics), W9 (performance gates).
 
-**Sprint 4 scope:** W2.3-W2.5 and W2.8-W2.9. W2.6 and W2.7 remain deferred.
+**Sprint 4 scope:** W2.3-W2.5 and W2.8-W2.9. W2.6/W2.7 completed later in Sprint 7.
 
 | ID | Task | Acceptance |
 |---|---|---|
@@ -513,8 +535,8 @@ After Sprint 2, the remaining sequence is:
 | W2.3 | Complete - add `type-lattice.ts` for lossless promotions, text fallback reasons and cast compatibility. | Cast dialog explains risk; multi-file append still relies on combined inference, with per-file diagnostics deferred to W6. |
 | W2.4 | Complete - incremental clean applies only the new op suffix; reorder/removal replays from source. | Undo/reorder returns byte-identical values and changed-cell masks remain exact. |
 | W2.5 | Complete - type-preserving column rebuilds skip suggestions and selective stats reuse unaffected bits/fences/patterns. | Full-rebuild parity tests pass; unaffected columns and caches are reused. |
-| W2.6 | Defer or chunk dataset-level stats with an “Updating dataset metrics…” state; patch only the affected header/visible rows. | Table rows render before health/DQ metrics complete; no avoidable main-thread task exceeds 100 ms. |
-| W2.7 | Add progress, stale, cancel, and error states for long batch casts/rebuilds. | Large casts show determinate progress and can be cancelled without losing the prior dataset. |
+| W2.6 | Complete - large loads open a preliminary dataset and finalize metrics in a second worker request. | Table rows render before health/DQ metrics; finalized columns, QA chips, score and charts refresh in place. |
+| W2.7 | Complete - load/deferred-metrics progress, stale guard, error state and existing load cancel; clean actions remain undoable and within budget. | Long loads can be cancelled; metrics never overwrite a newer dataset; clean recovery uses Recipe Undo. |
 | W2.8 | Complete - add `bench/clean.ts`, `bench:clean` and clean budgets for 100k/300k/10-column/undo cases. | Measured p95 is inside the 250 ms/600 ms/2 s budgets. |
 | W2.9 | Complete - lattice, incremental-clean, selective-rebuild and clean benchmark tests. | Full suite and clean budgets are green. |
 
@@ -670,10 +692,11 @@ After Sprint 2, the remaining sequence is:
 | **Sprint 4: cleaning correctness and performance** | W2.3, W2.4, W2.5, W2.8, W2.9 | Complete. Type lattice/cast explanations, incremental clean, selective rebuild and clean benchmarks. |
 | **Sprint 5: multi-file and shared chips** | W6, W7 | Complete. Preflight, proportional sampling, metadata/provenance, shared chips and fix collapse. |
 | **Sprint 6: release hardening** | W8 | Complete. E2E, benchmarks, accessibility, security guard, docs and full gate. |
-| **Backlog A: remaining performance** | W2.6-W2.7 | Deferred metrics and progress/cancel polish. |
+| **Sprint 7: post-release performance** | W2.6, W2.7 | Complete. Deferred dataset metrics, stale/error handling and load cancellation. |
+| **Backlog A: performance** | W2.6-W2.7 | Complete in Sprint 7. |
 | **Release complete** | W8 | Complete. 769 unit tests, 7 E2E flows, build and all benchmark budgets green. |
 
-Sprints 1-6 are complete. W2.6/W2.7 remain post-release performance work.
+Sprints 1-7 are complete. All planned release and performance work is done.
 
 ---
 ## 7. Risks and mitigations

@@ -1,6 +1,7 @@
 import { ColumnData } from "./column.js";
 import { Dataset } from "./dataset.js";
 import { computeDatasetStats, type IngestStats } from "./stats.js";
+import { BitSet } from "../search/bitset.js";
 import type { NumberLocale } from "../parse/numbers.js";
 
 /** Fine-grained build progress, forwarded to the load panel in the UI. */
@@ -88,6 +89,8 @@ export interface AsyncBuildOptions {
   yieldEvery?: number;
   /** Checked between columns and before the stats pass; true aborts. */
   shouldCancel?: () => boolean;
+  /** Return a usable table immediately and compute heavy metrics later. */
+  deferStats?: boolean;
 }
 
 const yieldTick = (): Promise<void> =>
@@ -148,6 +151,10 @@ export async function buildDatasetAsync(
   if (options.shouldCancel?.() === true) return null;
   await yieldTick();
   if (options.shouldCancel?.() === true) return null;
+  if (options.deferStats === true) {
+    onProgress?.({ detail: "Dataset metrics deferred.", phase: "stats" });
+    return preliminaryDataset(name, columns, rowCount);
+  }
   return finishDataset(name, columns, rowCount, onProgress);
 }
 
@@ -197,6 +204,71 @@ function finishDataset(
   );
 }
 
+/** A usable dataset with cheap placeholder metrics, replaced after load. */
+export function preliminaryDataset(
+  name: string,
+  columns: ColumnData[],
+  rowCount: number,
+): Dataset {
+  const content = columns.filter((column) => column.role !== "provenance");
+  const totalNullCells = content.reduce((sum, column) => sum + column.stats.nulls, 0);
+  const empty = (): BitSet => new BitSet(rowCount);
+  const nulls = (): (BitSet | null)[] => columns.map(() => null);
+  return new Dataset(
+    name,
+    rowCount,
+    columns,
+    {
+      duplicateRows: 0,
+      duplicateGroups: 0,
+      rowsInDuplicateGroups: 0,
+      emptyRows: 0,
+      rowsWithNulls: 0,
+      totalNullCells,
+      totalCells: rowCount * content.length,
+      valueAnomalyRows: 0,
+      lengthAnomalyRows: 0,
+      computeMs: 0,
+    },
+    empty(),
+    empty(),
+    new Uint32Array(rowCount),
+    empty(),
+    empty(),
+    nulls(),
+    nulls(),
+    columns.map(() => null),
+    columns.map(() => null),
+    columns.map(() => null),
+  );
+}
+
+/** Finalize deferred metrics without rebuilding the columns. */
+export function recomputeDatasetStats(
+  current: Dataset,
+  onProgress?: (phase: string, current: number, total: number) => void,
+): { dataset: Dataset; result: IngestStats } {
+  const result = computeDatasetStats(current.columns, current.rowCount, onProgress);
+  return {
+    dataset: new Dataset(
+      current.name,
+      current.rowCount,
+      current.columns,
+      result.stats,
+      result.duplicateBits,
+      result.nullRowBits,
+      result.rowHashes,
+      result.valueAnomalyBits,
+      result.lengthAnomalyBits,
+      result.valueColumnBits,
+      result.lengthColumnBits,
+      result.valueFences,
+      result.lengthFences,
+      result.patternProfiles,
+    ),
+    result,
+  };
+}
 /**
  * Builds a Dataset from already-materialised columns. Used by transforms that
  * change the row count or the column set (dedupe, group-by) and by rebuilds

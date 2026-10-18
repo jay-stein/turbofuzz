@@ -11,7 +11,13 @@ import { computeSimilarClusters } from "../data/similar-clusters.js";
 import { computeAnomalies } from "../data/anomalies.js";
 import { computeKeyDuplicates } from "../data/key-duplicates.js";
 import { computePairViolations } from "../data/pair-checks.js";
-import { buildDataset, buildDatasetAsync, datasetFromColumns, rebuildDataset } from "../data/build.js";
+import {
+  buildDataset,
+  buildDatasetAsync,
+  datasetFromColumns,
+  rebuildDataset,
+  recomputeDatasetStats,
+} from "../data/build.js";
 import {
   applyCleanOps,
   applyCleanOpsIncremental,
@@ -68,6 +74,7 @@ import type {
   ColumnMeta,
   FileImportMeta,
   DropRowsRequest,
+  FinalizeStatsRequest,
   GetRowsRequest,
   GetStatsRequest,
   GetChartBinsRequest,
@@ -312,6 +319,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "setFilters":
       handleSetFilters(message);
+      break;
+    case "finalizeStats":
+      handleFinalizeStats(message);
       break;
     case "clearFilters":
       handleClearFilters(message);
@@ -595,6 +605,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
           delimiter: message.delimiter,
           hasHeaders: message.hasHeaders,
           maxRows: message.maxRows,
+          deferStats: message.deferStats,
           onProgress: (progress) =>
             postLoadProgress(message.requestId, {
               phase: progress.phase,
@@ -625,7 +636,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
             total: progress.total,
           }),
         "dot",
-        { shouldCancel: cancelled },
+        { shouldCancel: cancelled, deferStats: message.deferStats },
       );
       if (dataset === null) {
         cancelNow();
@@ -656,6 +667,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
         buffer: message.buffer,
         table: message.table,
         maxRows: message.maxRows,
+        deferStats: message.deferStats,
         onProgress: (progress: {
           phase: ProgressPhase;
           detail?: string;
@@ -722,6 +734,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
       columnCount: next.columnCount,
       columns: next.columns.map((column, index) => metaFor(next, column, index)),
       stats: next.stats,
+      statsPending: ingested.deferredStats === true,
       ingestMs: performance.now() - started,
       source: datasetSource,
       files: datasetFiles.length > 0 ? datasetFiles : undefined,
@@ -734,6 +747,44 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   }
 }
 
+function handleFinalizeStats(message: FinalizeStatsRequest): void {
+  const { dataset: current } = state();
+  const started = performance.now();
+  const finalized = recomputeDatasetStats(current, (phase, currentStep, total) => {
+    post({
+      type: "progress",
+      requestId: message.requestId,
+      phase: "stats",
+      detail: `${phase} (${currentStep}/${total}).`,
+      current: currentStep,
+      total,
+    });
+  });
+  dataset = finalized.dataset;
+  engine = new QueryEngine(finalized.dataset);
+  applySpecials(engine);
+  duplicateRank = null;
+  histogramCache.clear();
+  const bits = engine.evaluateBits(filters);
+  sortedIds = computeSortedIds(bits);
+  const queryMs = performance.now() - started;
+  post({
+    type: "datasetStats",
+    requestId: message.requestId,
+    stats: finalized.result.stats,
+    columns: finalized.dataset.columns.map((column, index) =>
+      metaFor(finalized.dataset, column, index),
+    ),
+    count: sortedIds.length,
+    queryMs,
+    facets: computeFacets(finalized.dataset, engine, bits),
+    histograms: computeHistograms(finalized.dataset, engine),
+    firstRows: rowsSlice(0, FIRST_PAGE_ROWS),
+    firstGroups: groupFlags(0, FIRST_PAGE_ROWS),
+    firstFlags: rowFlagsSlice(0, FIRST_PAGE_ROWS),
+    firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
+  });
+}
 function handleSetFilter(message: SetFilterRequest): void {
   const { dataset, engine } = state();
 

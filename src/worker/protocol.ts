@@ -122,6 +122,8 @@ export type LoadRequest = {
   files?: { name: string; text?: string; buffer?: ArrayBuffer }[];
   /** Parse only the first N rows: the safe path offered for giant files. */
   maxRows?: number;
+  /** Open the table first and compute heavy dataset metrics in a second request. */
+  deferStats?: boolean;
 };
 
 /** Stops the in-flight load at its next cancellation checkpoint. */
@@ -143,6 +145,23 @@ export type SetFiltersRequest = {
 };
 
 export type ClearFiltersRequest = { type: "clearFilters"; requestId: number };
+
+export type FinalizeStatsRequest = { type: "finalizeStats"; requestId: number };
+
+export interface DatasetStatsMessage {
+  type: "datasetStats";
+  requestId: number;
+  stats: DatasetStats;
+  columns: ColumnMeta[];
+  count: number;
+  queryMs: number;
+  facets: Record<number, number[]>;
+  histograms: Record<number, number[]>;
+  firstRows: string[][];
+  firstGroups?: boolean[];
+  firstFlags?: Uint8Array;
+  firstChanged?: Uint8Array;
+}
 
 export type SpecialKind =
   | "duplicates"
@@ -697,6 +716,7 @@ export type WorkerRequest =
   | SetFilterRequest
   | SetFiltersRequest
   | ClearFiltersRequest
+  | FinalizeStatsRequest
   | SetSpecialRequest
   | DropRowsRequest
   | ClearExcludedRowsRequest
@@ -766,6 +786,8 @@ export interface DatasetMessage {
 
 export interface LoadedMessage extends DatasetMessage {
   type: "loaded";
+  /** True when health/DQ/anomaly metrics are still being computed. */
+  statsPending?: boolean;
 }
 
 /** The in-flight load was cancelled before it swapped the dataset. */
@@ -939,6 +961,7 @@ export type WorkerResponse =
   | LoadedMessage
   | LoadCancelledMessage
   | TransformedMessage
+  | DatasetStatsMessage
   | ResultsMessage
   | SortedMessage
   | ShuffledMessage

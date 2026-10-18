@@ -23,6 +23,7 @@ import type {
   CoMissingnessMessage,
   ColumnMetaMessage,
   CsvChunkMessage,
+  DatasetStatsMessage,
   DependenciesMessage,
   DistributionChangesMessage,
   GridCountsMessage,
@@ -72,6 +73,8 @@ export interface LoadOptions {
   files?: { name: string; text?: string; buffer?: ArrayBuffer }[];
   /** Parse only the first N rows (safe path for very large files). */
   maxRows?: number;
+  /** Open the table first and finalize metrics separately. */
+  deferStats?: boolean;
 }
 
 /** The user cancelled an in-flight load; the dataset is unchanged. */
@@ -162,6 +165,10 @@ export class SearchWorkerClient {
   }
   clearFilters(): Promise<ResultsMessage> {
     return this.request<ResultsMessage>({ type: "clearFilters" });
+  }
+
+  finalizeStats(): Promise<DatasetStatsMessage> {
+    return this.request<DatasetStatsMessage>({ type: "finalizeStats" });
   }
 
   setSpecial(kind: SpecialKind, active: boolean, column?: number): Promise<ResultsMessage> {
