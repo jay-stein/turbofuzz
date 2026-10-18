@@ -1059,6 +1059,47 @@ test("the colour map defaults to Set1 and can be changed", async () => {
   card.dispose();
 });
 
+test("the chart menu downloads the data behind the chart as CSV", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const blobs: Blob[] = [];
+  const originalCreate = URL.createObjectURL;
+  const originalRevoke = URL.revokeObjectURL;
+  (URL as unknown as { createObjectURL: (blob: Blob) => string }).createObjectURL = (blob) => {
+    blobs.push(blob);
+    return "blob:test";
+  };
+  (URL as unknown as { revokeObjectURL: (url: string) => void }).revokeObjectURL = () => {};
+  try {
+    const host = document.createElement("div");
+    const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+    card.setColumns([
+      meta({
+        name: "city",
+        type: "category",
+        categories: { labels: ["Adelaide", "Brisbane"], counts: [3, 2] },
+      }),
+    ]);
+    await tick();
+    (host.querySelector(".chart-more") as unknown as { click(): void }).click();
+    const menu = [...document.querySelectorAll(".context-menu .context-item")].find(
+      (item) => item.textContent === "Download data (CSV)",
+    );
+    assert.ok(menu !== undefined, "the card menu offers CSV");
+    (menu as unknown as { click(): void }).click();
+    await tick();
+    assert.equal(blobs.length, 1, "a CSV blob was created");
+    const text = new TextDecoder().decode(await blobs[0].arrayBuffer());
+    assert.match(text, /^category,count,percent,is_other/);
+    assert.match(text, /Adelaide,3,60\.0000,false/);
+    assert.match(text, /Brisbane,2,40\.0000,false/);
+    card.dispose();
+  } finally {
+    URL.createObjectURL = originalCreate;
+    URL.revokeObjectURL = originalRevoke;
+  }
+});
+
 test("the colour map can be reversed", async () => {
   const window = setupDom();
   captureMockContext(window, []);

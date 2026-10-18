@@ -64,6 +64,7 @@ import {
   safeFileName,
   suggestedBinRange,
 } from "./chart-utils.js";
+import { downloadCsv } from "./chart-export.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openConfirm, openPrompt } from "./dialog.js";
 import { describeScope } from "./scope.js";
@@ -2098,6 +2099,279 @@ export class ChartCard {
     }, "image/png");
   }
 
+  /** Download the data already behind this chart, not a re-query of the table. */
+  private exportCsv(): void {
+    const rows = this.chartCsvRows();
+    if (rows.length < 2) {
+      this.noteEl.textContent = "No chart data is available to export yet.";
+      return;
+    }
+    const name = `${safeFileName(this.options.datasetName())}-${safeFileName(
+      this.chartName(),
+    )}.csv`;
+    if (!downloadCsv(name, rows)) {
+      this.noteEl.textContent = "This browser cannot download the chart data.";
+      return;
+    }
+    this.noteEl.textContent = `Exported ${(rows.length - 1).toLocaleString()} chart data rows to ${name}`;
+  }
+
+  private chartCsvRows(): string[][] {
+    const number = (value: number): string =>
+      Number.isFinite(value) ? String(value) : "";
+    const aggregate = this.aggregateResult();
+    const aggregateKinds = new Set<ChartCardKind>(["line", "bar", "kpi", "histogram"]);
+    if (
+      aggregate !== null &&
+      aggregate.groupCount > 0 &&
+      aggregateKinds.has(this.config.kind) &&
+      (this.config.source !== "" || (this.config.valueColumn ?? -1) >= 0)
+    ) {
+      const names = [
+        ...aggregate.dimensionNames,
+        ...aggregate.measureNames,
+      ];
+      const rows: string[][] = [names];
+      for (let index = 0; index < aggregate.groupCount; index++) {
+        rows.push([
+          ...aggregate.dimensions.map((dimension) => dimension[index] ?? ""),
+          ...aggregate.measures.map((measure) => number(measure[index] ?? Number.NaN)),
+        ]);
+      }
+      return rows;
+    }
+
+    if (this.config.kind === "bar") {
+      const bars = this.allCategoryBars();
+      if (bars.length === 0) return [];
+      return [
+        ["category", "count", "percent", "is_other"],
+        ...bars.map((bar) => [
+          bar.label,
+          String(bar.count),
+          bar.pct.toFixed(4),
+          bar.other === true ? "true" : "false",
+        ]),
+      ];
+    }
+
+    if (this.config.kind === "line" || this.config.kind === "histogram") {
+      const grouped = this.groupResult;
+      if (grouped !== null && grouped.groups.length > 0) {
+        const range = this.binRangeFor(this.config.kind);
+        const step = range === null ? 0 : (range.max - range.min) / Math.max(1, grouped.bins);
+        const rows: string[][] = [["group", "bin_start", "bin_end", "count"]];
+        for (let series = 0; series < grouped.groups.length; series++) {
+          const counts = grouped.groups[series] ?? [];
+          for (let bin = 0; bin < grouped.bins; bin++) {
+            rows.push([
+              grouped.labels[series] ?? "",
+              number(range === null ? bin : range.min + bin * step),
+              number(range === null ? bin + 1 : range.min + (bin + 1) * step),
+              String(counts[bin] ?? 0),
+            ]);
+          }
+        }
+        return rows;
+      }
+      const bins = this.config.kind === "line" ? this.lineBinResult : this.binResult;
+      const range = this.binRangeFor(this.config.kind);
+      if (bins === null || range === null) return [];
+      const step = (range.max - range.min) / Math.max(1, bins.bins.length);
+      const rows: string[][] = [["bin_start", "bin_end", "count"]];
+      for (let bin = 0; bin < bins.bins.length; bin++) {
+        rows.push([
+          number(range.min + bin * step),
+          number(range.min + (bin + 1) * step),
+          String(bins.bins[bin] ?? 0),
+        ]);
+      }
+      if (bins.overflow > 0) {
+        rows.push([`> ${number(range.max)}`, "", String(bins.overflow)]);
+      }
+      return rows;
+    }
+
+    if (this.config.kind === "scatter" || this.config.kind === "density" || this.config.kind === "map") {
+      const grid = this.config.kind === "map" && this.config.mapMode === "heat"
+        ? this.mapGrid
+        : null;
+      if (grid !== null) return this.gridCsvRows(grid);
+      const result = this.seriesResult;
+      if (result === null) return [];
+      if (result.mode === "points") {
+        const rows: string[][] = [["x", "y", "color", "size"]];
+        for (let index = 0; index < result.x.length; index++) {
+          const color =
+            result.colorValues !== null
+              ? number(result.colorValues[index] ?? Number.NaN)
+              : result.colorCodes !== null
+                ? this.seriesLabels?.[result.colorCodes[index] ?? -1] ?? ""
+                : "";
+          rows.push([
+            number(result.x[index] ?? Number.NaN),
+            number(result.y[index] ?? Number.NaN),
+            color,
+            result.size === null ? "" : number(result.size[index] ?? Number.NaN),
+          ]);
+        }
+        return rows;
+      }
+      const stepX = (result.xMax - result.xMin) / Math.max(1, result.cols);
+      const stepY = (result.yMax - result.yMin) / Math.max(1, result.rows);
+      const rows: string[][] = [["x_center", "y_center", "count"]];
+      for (let y = 0; y < result.rows; y++) {
+        for (let x = 0; x < result.cols; x++) {
+          const count = result.counts[y * result.cols + x] ?? 0;
+          if (count === 0) continue;
+          rows.push([
+            String(result.xMin + (x + 0.5) * stepX),
+            String(result.yMin + (y + 0.5) * stepY),
+            String(count),
+          ]);
+        }
+      }
+      return rows;
+    }
+
+    if (this.config.kind === "bubble") {
+      return this.bubbleResult === null ? [] : this.gridCsvRows(this.bubbleResult);
+    }
+
+    if (this.config.kind === "box") {
+      const result = this.boxResult;
+      if (result === null) return [];
+      return [
+        [
+          "group",
+          "count",
+          "min",
+          "q1",
+          "median",
+          "q3",
+          "max",
+          "whisker_low",
+          "whisker_high",
+          "outlier_count",
+        ],
+        ...result.groups.map((group) => [
+          group.label,
+          String(group.count),
+          number(group.min),
+          number(group.q1),
+          number(group.median),
+          number(group.q3),
+          number(group.max),
+          number(group.whiskerLow),
+          number(group.whiskerHigh),
+          String(group.outliers.length),
+        ]),
+      ];
+    }
+
+    if (this.config.kind === "heatmap") {
+      const result = this.crossResult;
+      if (result === null) return [];
+      const rows: string[][] = [["x", "y", "count", "percent"]];
+      for (let y = 0; y < result.yLabels.length; y++) {
+        for (let x = 0; x < result.xLabels.length; x++) {
+          const count = result.counts[y * result.xLabels.length + x] ?? 0;
+          rows.push([
+            result.xLabels[x] ?? "",
+            result.yLabels[y] ?? "",
+            String(count),
+            result.total === 0 ? "" : ((count / result.total) * 100).toFixed(4),
+          ]);
+        }
+      }
+      return rows;
+    }
+
+    if (this.config.kind === "correlation") {
+      const result = this.correlationResult;
+      if (result === null) return [];
+      const rows: string[][] = [["column_a", "column_b", "r", "n"]];
+      for (let a = 0; a < result.labels.length; a++) {
+        for (let b = a + 1; b < result.labels.length; b++) {
+          rows.push([
+            result.labels[a] ?? "",
+            result.labels[b] ?? "",
+            number(result.values[a * result.labels.length + b] ?? Number.NaN),
+            String(result.counts[a * result.labels.length + b] ?? 0),
+          ]);
+        }
+      }
+      return rows;
+    }
+
+    if (this.config.kind === "treemap") {
+      const result = this.treemapResult;
+      if (result !== null) {
+        return [
+          ["label", "value"],
+          ...result.labels.map((label, index) => [label, number(result.values[index] ?? Number.NaN)]),
+        ];
+      }
+      const bars = this.allCategoryBars();
+      return bars.length === 0
+        ? []
+        : [["label", "value"], ...bars.map((bar) => [bar.label, String(bar.count)])];
+    }
+
+    if (this.config.kind === "terms") {
+      const terms = this.textResult?.profile.topTerms ?? [];
+      return terms.length === 0
+        ? []
+        : [["term", "count"], ...terms.map((term) => [term.term, String(term.count)])];
+    }
+
+    const bars = this.allCategoryBars();
+    return bars.length === 0
+      ? []
+      : [
+          ["category", "count", "percent"],
+          ...bars.map((bar) => [bar.label, String(bar.count), bar.pct.toFixed(4)]),
+        ];
+  }
+
+  private binRangeFor(kind: ChartCardKind): { min: number; max: number } | null {
+    if (kind === "histogram") return this.config.binOptions;
+    return this.lineBinRange;
+  }
+
+  private gridCsvRows(grid: GridCountsResult): string[][] {
+    const stepX = (grid.xMax - grid.xMin) / Math.max(1, grid.bins);
+    const stepY = (grid.yMax - grid.yMin) / Math.max(1, grid.bins);
+    const rows: string[][] = [["x_center", "y_center", "group", "count", "value"]];
+    const append = (
+      counts: Uint32Array,
+      values: Float64Array | null,
+      label: string,
+    ): void => {
+      for (let y = 0; y < grid.bins; y++) {
+        for (let x = 0; x < grid.bins; x++) {
+          const index = y * grid.bins + x;
+          const count = counts[index] ?? 0;
+          const value = values?.[index];
+          if (count === 0 && (value === undefined || value === 0)) continue;
+          rows.push([
+            String(grid.xMin + (x + 0.5) * stepX),
+            String(grid.yMin + (y + 0.5) * stepY),
+            label,
+            String(count),
+            value === undefined || !Number.isFinite(value) ? "" : String(value),
+          ]);
+        }
+      }
+    };
+    if (grid.groups !== null) {
+      for (const group of grid.groups) append(group.counts, group.values, group.label);
+    } else {
+      append(grid.counts, grid.values, "");
+    }
+    return rows;
+  }
+
   private buildSelect(className: string, label: string): HTMLSelectElement {
     return el("select", { class: className, "aria-label": label }) as HTMLSelectElement;
   }
@@ -2744,6 +3018,11 @@ export class ChartCard {
           label: "Download PNG",
           title: "Download this chart as a PNG",
           action: () => this.options.onExport(this),
+        },
+        {
+          label: "Download data (CSV)",
+          title: "Download the data behind this chart as a CSV",
+          action: () => this.exportCsv(),
         },
         {
           label: `${this.config.span === "full" ? "● " : ""}Full row width`,
