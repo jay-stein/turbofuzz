@@ -110,3 +110,30 @@ test("pivot margin labels are configurable", () => {
   assert.deepEqual(result.rowLabels.at(-1), ["Total"]);
   assert.deepEqual(result.colLabels.at(-1), ["Total"]);
 });
+test("pivot computes safe lambda values per group", () => {
+  const result = computePivot(
+    pivot({
+      lambdas: [
+        {
+          column: 2,
+          source: "lambda x: sum(x) / size(x)",
+          label: "Average",
+        },
+      ],
+      margins: false,
+    }),
+    SALES.columns,
+    SALES.rowCount,
+    ids,
+  );
+  assert.equal(result.measures.length, 2);
+  assert.equal(result.measures[1].name, "Average");
+  assert.deepEqual([...result.measures[1].values], [
+    Number.NaN,
+    7,
+    10,
+    5,
+    15,
+    Number.NaN,
+  ]);
+});

@@ -2446,6 +2446,15 @@ mark {
   color: var(--text);
 }
 
+.views-lambda-pill {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel-2));
+}
+
+.views-lambda-pill .views-pill-label {
+  color: var(--accent);
+}
+
 .views-pill.add {
   font: inherit;
   font-size: 12px;

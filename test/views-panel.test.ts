@@ -450,6 +450,12 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
     ),
     "the values well offers Add all numeric",
   );
+  assert.ok(
+    [...host.querySelectorAll(".views-measure-zone button")].some(
+      (button) => button.textContent === "+ Lambda",
+    ),
+    "the values well offers safe lambdas",
+  );
   assert.ok(host.querySelector(".views-fill-input") !== null, "fill value is configurable");
   assert.ok(
     [...host.querySelectorAll(".views-actions label")].some(
@@ -589,6 +595,7 @@ test("pivot compilation keeps every value and splits index from columns", () => 
     limit: 500,
     respectFilters: true,
     pivotColumns: [1],
+    pivotLambdas: [{ column: 0, source: "lambda x: mean(x)" }],
     margins: true,
   };
   const def = pivotDefFromView(view, [1]);
@@ -596,4 +603,5 @@ test("pivot compilation keeps every value and splits index from columns", () => 
   assert.equal(def.index.length, 1);
   assert.equal(def.columns.length, 1);
   assert.equal(def.margins, true);
+  assert.equal(def.lambdas?.length, 1);
 });

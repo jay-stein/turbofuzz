@@ -2,9 +2,11 @@ import {
   computeAggregate,
   type DimensionSpec,
   type MeasureSpec,
+  type PivotLambdaSpec,
   type ViewDef,
 } from "./aggregate.js";
 import type { ColumnData } from "./column.js";
+import { compilePivotLambda } from "./pivot-lambda.js";
 
 export interface PivotDef {
   id: string;
@@ -22,6 +24,8 @@ export interface PivotDef {
   dropna?: boolean;
   /** Key ordering: label ascending or first-seen source order. */
   sort?: "label" | "source";
+  /** Safe custom lambda values, appended after ordinary values. */
+  lambdas?: PivotLambdaSpec[];
 }
 
 export interface PivotMeasureResult {
@@ -63,12 +67,13 @@ function baseView(
   def: PivotDef,
   dimensions: DimensionSpec[],
   suffix: string,
+  measures: MeasureSpec[] = def.values,
 ): ViewDef {
   return {
     id: `${def.id}-${suffix}`,
     name: def.name,
     dimensions,
-    measures: def.values,
+    measures,
     fill: "none",
     sort: { key: def.sort === "source" ? "source" : "dim0", dir: "asc" },
     limit: PIVOT_LIMIT + 1,
@@ -174,26 +179,32 @@ export function computePivot(
   const started = performance.now();
   const indexCount = def.index.length;
   const columnCount = def.columns.length;
+  const lambdaValues = (def.lambdas ?? []).map((lambda) => {
+    const columnName = columns[lambda.column]?.name;
+    if (columnName === undefined) throw new Error("Unknown lambda column.");
+    const compiled = compilePivotLambda(lambda.source, columnName);
+    if (!compiled.ok) throw new Error(compiled.error);
+    return {
+      measure: { column: null, agg: "expr", expr: compiled.expression } as MeasureSpec,
+      label: lambda.label?.trim() || lambda.source.trim(),
+    };
+  });
+  const measureDefs: MeasureSpec[] = [
+    ...def.values,
+    ...lambdaValues.map((value) => value.measure),
+  ];
+  const measureCount = measureDefs.length;
   const base = computeAggregate(
-    baseView(def, [...def.index, ...def.columns], "base"),
+    baseView(def, [...def.index, ...def.columns], "base", measureDefs),
     columns,
     rowCount,
     ids,
   );
-  const measureCount = def.values.length;
 
   const rowMap = new Map<string, number>();
   const colMap = new Map<string, number>();
   const rowKeys: KeyedParts[] = [];
   const colKeys: KeyedParts[] = [];
-  const rowValues: Float64Array[] = Array.from(
-    { length: measureCount },
-    () => new Float64Array(0),
-  );
-  const colValues: Float64Array[] = Array.from(
-    { length: measureCount },
-    () => new Float64Array(0),
-  );
   const baseGroups = base.groupCount;
   const groupMeasures = measureValues(base, measureCount);
   const rowTimes: Float64Array[] = Array.from(
@@ -319,19 +330,19 @@ export function computePivot(
 
   if (margins) {
     const rowMargin = computeAggregate(
-      baseView(def, def.index, "margin-rows"),
+      baseView(def, def.index, "margin-rows", measureDefs),
       columns,
       rowCount,
       ids,
     );
     const colMargin = computeAggregate(
-      baseView(def, def.columns, "margin-cols"),
+      baseView(def, def.columns, "margin-cols", measureDefs),
       columns,
       rowCount,
       ids,
     );
     const total = computeAggregate(
-      baseView(def, [], "margin-total"),
+      baseView(def, [], "margin-total", measureDefs),
       columns,
       rowCount,
       ids,
@@ -418,7 +429,10 @@ export function computePivot(
   }
 
   const measures: PivotMeasureResult[] = [];
-  const names = base.measureNames;
+  const names = [...base.measureNames];
+  lambdaValues.forEach((value, index) => {
+    names[def.values.length + index] = value.label;
+  });
   for (let measure = 0; measure < measureCount; measure++) {
     measures.push({
       name: names[measure] ?? `measure ${measure + 1}`,

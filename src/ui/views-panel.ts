@@ -10,11 +10,13 @@ import {
   isCompleteView,
   type MeasureCondition,
   type MeasureSpec,
+  type PivotLambdaSpec,
   type PostOp,
   type TimeGrain,
   type ViewDef,
 } from "../data/aggregate.js";
 import { isNumericLikeType } from "../types.js";
+import { compilePivotLambda } from "../data/pivot-lambda.js";
 import { downloadCsv } from "./chart-export.js";
 import { safeFileName } from "./chart-utils.js";
 import { openPrompt } from "./dialog.js";
@@ -177,6 +179,7 @@ export function pivotDefFromView(view: ViewDef, pivotIndexes: readonly number[])
     fillValue: view.fillValue,
     dropna: view.dropna,
     sort: view.pivotSort,
+    lambdas: view.pivotLambdas,
   };
 }
 
@@ -1290,6 +1293,9 @@ export class ViewsPanel {
     def.measures.forEach((measure, index) => {
       measureZone.append(this.measurePill(def, measure, index));
     });
+    (def.pivotLambdas ?? []).forEach((lambda, index) => {
+      measureZone.append(this.lambdaPill(def, lambda, index));
+    });
     const addMeasure = el(
       "button",
       { class: "views-pill add", type: "button", title: "Add a value" },
@@ -1317,6 +1323,14 @@ export class ViewsPanel {
       }),
     );
     measureZone.append(addAllNumeric);
+    const addLambda = el(
+      "button",
+      { class: "views-pill add", type: "button", title: "Add a safe custom lambda value" },
+      ["+ Lambda"],
+    ) as HTMLButtonElement;
+    addLambda.disabled = !this.metas.some((meta) => isNumericLikeType(meta.type));
+    addLambda.addEventListener("click", () => this.openLambdaMenu(addLambda));
+    measureZone.append(addLambda);
 
     this.builderEl.append(indexZone, columnZone, measureZone);
   }
@@ -1434,6 +1448,95 @@ export class ViewsPanel {
     );
     pill.append(label, up, down, toggle, remove);
     return pill;
+  }
+  private lambdaPill(
+    def: ViewDef,
+    lambda: PivotLambdaSpec,
+    index: number,
+  ): HTMLElement {
+    const meta = this.metas[lambda.column];
+    const labelText = lambda.label?.trim() || lambda.source;
+    const pill = el("span", { class: "views-pill views-lambda-pill" });
+    const label = el(
+      "button",
+      {
+        class: "views-pill-label",
+        type: "button",
+        title: `${labelText}\nClick to edit this lambda`,
+      },
+      [`λ ${this.fitText(labelText, 30)}`],
+    ) as HTMLButtonElement;
+    label.addEventListener(
+      "click",
+      () => void this.promptLambda(lambda.column, meta?.name ?? "value", index),
+    );
+    const remove = el(
+      "button",
+      { class: "views-pill-remove", type: "button", title: "Remove this lambda" },
+      ["×"],
+    ) as HTMLButtonElement;
+    remove.addEventListener("click", () =>
+      this.update((view) => {
+        view.pivotLambdas = (view.pivotLambdas ?? []).filter((_, at) => at !== index);
+      }),
+    );
+    pill.append(label, remove);
+    return pill;
+  }
+
+  private openLambdaMenu(anchor: HTMLElement): void {
+    const items: MenuItem[] = [];
+    this.metas.forEach((meta, column) => {
+      if (!isNumericLikeType(meta.type)) return;
+      items.push({
+        label: meta.name,
+        title: `Use ${meta.name} as x in a safe lambda`,
+        action: () => void this.promptLambda(column, meta.name),
+      });
+    });
+    if (items.length === 0) {
+      this.transientNote = "Custom lambdas need a numeric column.";
+      this.render();
+      return;
+    }
+    openMenu(anchor, items);
+  }
+
+  private async promptLambda(
+    column: number,
+    columnName: string,
+    replaceIndex?: number,
+  ): Promise<void> {
+    const current =
+      replaceIndex === undefined
+        ? ""
+        : (this.views[this.active]?.def.pivotLambdas?.[replaceIndex]?.source ?? "");
+    const value = await openPrompt({
+      title: "Safe lambda value",
+      label: `lambda x: ... over ${columnName.trim()} - mean, median, sum, min, max, count, size, nunique, std, var, first, last, quantile(p)`,
+      value: current === "" ? "lambda x: mean(x)" : current,
+      placeholder: "lambda x: sum(x) / size(x)",
+      confirmLabel: replaceIndex === undefined ? "Add lambda" : "Save",
+    });
+    if (value === null || value.trim() === "") return;
+    const source = value.trim();
+    const compiled = compilePivotLambda(source, columnName);
+    if (!compiled.ok) {
+      this.transientNote = compiled.error;
+      this.render();
+      return;
+    }
+    this.update((view) => {
+      const entry: PivotLambdaSpec = { column, source, label: source };
+      const lambdas = [...(view.pivotLambdas ?? [])];
+      if (replaceIndex === undefined) lambdas.push(entry);
+      else lambdas[replaceIndex] = entry;
+      view.pivotLambdas = lambdas;
+    });
+  }
+
+  private fitText(value: string, max: number): string {
+    return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
   }
   private measurePill(def: ViewDef, measure: MeasureSpec, index: number): HTMLElement {
     const name = measureDisplay(measure, this.metas);

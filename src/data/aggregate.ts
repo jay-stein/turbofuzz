@@ -93,6 +93,14 @@ export interface MeasureSpec {
   post?: PostOp[];
 }
 
+export interface PivotLambdaSpec {
+  /** Value column bound to the lambda variable x. */
+  column: number;
+  /** Source text, including the `lambda x:` prefix. */
+  source: string;
+  label?: string;
+}
+
 export interface ViewDef {
   id: string;
   name: string;
@@ -117,6 +125,8 @@ export interface ViewDef {
   pivotMeasure?: number;
   /** Pivot key ordering: label ascending (default) or first-seen source order. */
   pivotSort?: "label" | "source";
+  /** Safe custom lambda values shown after the ordinary measures. */
+  pivotLambdas?: PivotLambdaSpec[];
   /** Value used for pivot cells with no rows (null/undefined = blank). */
   fillValue?: number | null;
   /** Drop pivot rows and columns that contain no finite values. */
