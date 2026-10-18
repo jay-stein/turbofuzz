@@ -733,6 +733,8 @@ export class ChartCard {
   private boxY: { min: number; max: number } | null = null;
   /** Correlation matrix row/column window. */
   private corrWindow: { start: number; count: number } | null = null;
+  /** Treemap / top-terms item window. */
+  private itemWindow: { start: number; count: number } | null = null;
   private readonly animationTimeSelect: HTMLSelectElement;
   private readonly animationGrainSelect: HTMLSelectElement;
   private readonly animationBar: HTMLElement;
@@ -3704,11 +3706,23 @@ export class ChartCard {
 
     entries.sort((a, b) => b.value - a.value);
     const cap = Math.max(6, this.config.topN);
-    const shown = entries.slice(0, cap);
-    const rest = entries.slice(cap);
-    if (rest.length > 0) {
-      const value = rest.reduce((sum, entry) => sum + entry.value, 0);
-      shown.push({ label: `Other (${rest.length})`, value, code: -1 });
+    const state =
+      this.itemWindow ?? { start: 0, count: Math.min(entries.length, cap) };
+    const windowed = this.itemWindow !== null;
+    const windowStart = Math.max(0, Math.min(entries.length - 1, state.start));
+    const windowCount = Math.max(
+      1,
+      Math.min(state.count, entries.length - windowStart),
+    );
+    const shown = windowed
+      ? entries.slice(windowStart, windowStart + windowCount)
+      : entries.slice(0, cap);
+    if (!windowed) {
+      const rest = entries.slice(cap);
+      if (rest.length > 0) {
+        const value = rest.reduce((sum, entry) => sum + entry.value, 0);
+        shown.push({ label: `Other (${rest.length})`, value, code: -1 });
+      }
     }
     const total = shown.reduce((sum, entry) => sum + entry.value, 0);
     const rects = squarifyLayout(
@@ -3792,7 +3806,12 @@ export class ChartCard {
         ? `Σ ${formatChartNumber(total)}`
         : `${formatCount(total)} rows`,
     );
-    if (rest.length > 0) notes.push(`${rest.length} rest as Other`);
+    if (windowed) {
+      notes.push(`${shown.length} of ${entries.length} tiles shown`);
+    } else {
+      const restCount = Math.max(0, entries.length - Math.min(entries.length, cap));
+      if (restCount > 0) notes.push(`${restCount} rest as Other`);
+    }
     if (this.statsMs > 0) notes.push(`${Math.round(this.statsMs)} ms`);
     this.noteEl.textContent = notes.join(" · ");
   }
@@ -3842,7 +3861,14 @@ export class ChartCard {
       return;
     }
     const profile = result.profile;
-    const terms = profile.topTerms.slice(0, Math.max(8, this.config.topN));
+    const baseTerms = profile.topTerms.slice(0, Math.max(8, this.config.topN));
+    const state =
+      this.itemWindow ?? { start: 0, count: Math.min(baseTerms.length, Math.max(8, this.config.topN)) };
+    const start = Math.max(0, Math.min(baseTerms.length - 1, state.start));
+    const terms = baseTerms.slice(
+      start,
+      start + Math.max(1, Math.min(state.count, baseTerms.length - start)),
+    );
     if (terms.length === 0) {
       const message =
         "No terms found — the column may be mostly numbers, single letters or stopwords.";
@@ -4717,7 +4743,9 @@ export class ChartCard {
       this.config.kind === "bar" ||
       this.config.kind === "heatmap" ||
       this.config.kind === "box" ||
-      this.config.kind === "correlation";
+      this.config.kind === "correlation" ||
+      this.config.kind === "treemap" ||
+      this.config.kind === "terms";
     this.resetViewButton.classList.toggle(
       "hidden",
       !(
@@ -4728,7 +4756,8 @@ export class ChartCard {
         this.heatWindow !== null ||
         this.boxWindow !== null ||
         this.boxY !== null ||
-        this.corrWindow !== null
+        this.corrWindow !== null ||
+        this.itemWindow !== null
       ),
     );
     this.canvas.style.cursor = zoomable
@@ -4896,6 +4925,46 @@ export class ChartCard {
           Math.max(0, state.start - steps),
         );
         this.barWindow = { start, count: state.count };
+        this.render();
+      }
+      return;
+    }
+    if (
+      (this.config.kind === "treemap" || this.config.kind === "terms") &&
+      this.plotDrag !== null
+    ) {
+      const frame = this.lastFrame;
+      if (frame === null) return;
+      const total =
+        this.config.kind === "treemap"
+          ? (this.treemapResult?.labels.length ??
+            this.meta(this.config.column)?.categories?.labels.length ??
+            0)
+          : (this.textResult?.profile.topTerms.length ?? 0);
+      if (total === 0) return;
+      const base =
+        this.config.kind === "treemap"
+          ? Math.max(6, this.config.topN)
+          : Math.max(8, this.config.topN);
+      const state = this.itemWindow ?? { start: 0, count: Math.min(total, base) };
+      const slot = frame.plotW / Math.max(1, state.count);
+      const steps = Math.round((event.clientX - rect.left - this.plotDrag.x) / Math.max(1, slot));
+      if (steps !== 0) {
+        this.dragMoved = true;
+        this.plotDrag = {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        };
+        this.itemWindow =
+          state.count >= total
+            ? null
+            : {
+                count: state.count,
+                start: Math.min(
+                  Math.max(0, total - state.count),
+                  Math.max(0, state.start - steps),
+                ),
+              };
         this.render();
       }
       return;
@@ -5081,7 +5150,9 @@ export class ChartCard {
         kind !== "bar" &&
         kind !== "heatmap" &&
         kind !== "box" &&
-        kind !== "correlation") ||
+        kind !== "correlation" &&
+        kind !== "treemap" &&
+        kind !== "terms") ||
       this.lastFrame === null
     ) {
       return;
@@ -5203,7 +5274,9 @@ export class ChartCard {
         kind !== "bar" &&
         kind !== "heatmap" &&
         kind !== "box" &&
-        kind !== "correlation") ||
+        kind !== "correlation" &&
+        kind !== "treemap" &&
+        kind !== "terms") ||
       this.lastFrame === null
     ) {
       return;
@@ -5258,6 +5331,27 @@ export class ChartCard {
         Math.max(0, Math.round(center - count / 2)),
       );
       this.barWindow = { start, count };
+      this.render();
+      return;
+    }
+    if (kind === "treemap" || kind === "terms") {
+      const total =
+        kind === "treemap"
+          ? (this.treemapResult?.labels.length ??
+            this.meta(this.config.column)?.categories?.labels.length ??
+            0)
+          : (this.textResult?.profile.topTerms.length ?? 0);
+      if (total === 0) return;
+      event.preventDefault();
+      const base = kind === "treemap" ? Math.max(6, this.config.topN) : Math.max(8, this.config.topN);
+      const current = this.itemWindow ?? { start: 0, count: Math.min(total, base) };
+      const count = Math.min(total, Math.max(2, Math.round(current.count * factor)));
+      const center = current.start + current.count / 2;
+      const start = Math.min(
+        Math.max(0, total - count),
+        Math.max(0, Math.round(center - count / 2)),
+      );
+      this.itemWindow = count >= total ? null : { start, count };
       this.render();
       return;
     }
@@ -5433,6 +5527,13 @@ export class ChartCard {
     }
     if (this.config.kind === "correlation" && this.corrWindow !== null) {
       this.corrWindow = null;
+      changed = true;
+    }
+    if (
+      (this.config.kind === "treemap" || this.config.kind === "terms") &&
+      this.itemWindow !== null
+    ) {
+      this.itemWindow = null;
       changed = true;
     }
     if (binsChanged) this.refreshBins();
