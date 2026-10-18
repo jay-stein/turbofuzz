@@ -21,7 +21,7 @@ import { downloadCsv } from "./chart-export.js";
 import { pivotCsvRows } from "./pivot-export.js";
 import { safeFileName } from "./chart-utils.js";
 import { openPrompt } from "./dialog.js";
-import { clear, el, svgIcon } from "./dom.js";
+import { clear, el } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
 
 export interface ViewsPanelOptions {
@@ -166,10 +166,28 @@ export function formatMeasure(value: number, measure: MeasureSpec): string {
 }
 
 function transposeIcon(): SVGElement {
-  return svgIcon(
-    '<path d="M7 3v13"/><path d="M3 12l4 4 4-4"/><path d="M3 19h13"/><path d="M12 15l4 4-4 4"/>',
-    "transpose-icon",
-  );
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "transpose-icon");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.4");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.innerHTML = `
+    <rect x="2.5" y="2.5" width="19" height="19" rx="2" opacity=".45" />
+    <path d="M8.5 2.5v19M2.5 8.5h19" stroke-width="1" opacity=".3" />
+    <text x="15.3" y="6.9" text-anchor="middle" font-size="4.7" font-weight="700"
+      font-family="ui-sans-serif, system-ui, sans-serif" fill="currentColor" stroke="none">Y</text>
+    <text x="5.5" y="16.4" text-anchor="middle" font-size="4.7" font-weight="700"
+      font-family="ui-sans-serif, system-ui, sans-serif" fill="currentColor" stroke="none">X</text>
+    <path d="M11 19l7-7" />
+    <path d="M15 12h3v3" />
+    <path d="M12.5 11.5l7 7" />
+    <path d="M16.5 18.5h3v-3" />
+  `;
+  return svg;
 }
 export type PivotWell = "index" | "columns" | "values";
 export type PivotDragWell = PivotWell | "shelf";
@@ -1804,23 +1822,30 @@ export class ViewsPanel {
     this.wireDropZone(columnZone, "columns");
     this.wireDropZone(measureZone, "values");
     this.builderEl.append(
-      this.pivotTools(def),
+      this.pivotTools(),
       indexZone,
       columnZone,
       measureZone,
       this.fieldShelf(def),
+      this.transposeControl(def),
     );
   }
 
-  /** Top-of-pivot controls, led by the transpose action. */
-  private pivotTools(def: ViewDef): HTMLElement {
-    const tools = el("div", { class: "views-pivot-top" });
-    const copy = el("div", { class: "views-pivot-top-copy" }, [
-      el("span", { class: "views-pivot-top-title" }, ["Pivot layout"]),
-      el("span", { class: "views-pivot-top-hint" }, [
-        "Drag fields into Index, Columns or Values",
+  /** Top-of-pivot heading and drag hint. */
+  private pivotTools(): HTMLElement {
+    return el("div", { class: "views-pivot-top" }, [
+      el("div", { class: "views-pivot-top-copy" }, [
+        el("span", { class: "views-pivot-top-title" }, ["Pivot layout"]),
+        el("span", { class: "views-pivot-top-hint" }, [
+          "Drag fields into Index, Columns or Values",
+        ]),
       ]),
     ]);
+  }
+
+  /** Large transpose action below the field shelf. */
+  private transposeControl(def: ViewDef): HTMLElement {
+    const row = el("div", { class: "views-transpose-row" });
     const pivots = this.pivotIndexes(def);
     const transpose = el(
       "button",
@@ -1830,14 +1855,13 @@ export class ViewsPanel {
         title: "Transpose - swap the Index and Columns fields",
         "aria-label": "Transpose Index and Columns fields",
       },
-      [],
+      [transposeIcon(), el("span", { class: "views-transpose-label" }, ["Transpose"])],
     ) as HTMLButtonElement;
-    transpose.append(transposeIcon());
     transpose.disabled =
       pivots.length === 0 || pivots.length >= def.dimensions.length;
     transpose.addEventListener("click", () => this.transposePivot());
-    tools.append(copy, transpose);
-    return tools;
+    row.append(transpose);
+    return row;
   }
 
   /** Persistent draggable shelf showing every dataset column. */

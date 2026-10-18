@@ -119,7 +119,11 @@ test("views panel renders the active view, drills and charts", async () => {
   assert.ok(cards.length >= 3, "one card per starter view");
   assert.ok(host.querySelector(".views-card.expanded") !== null, "the first card starts expanded");
   assert.equal(host.querySelectorAll(".views-shelf-chip").length, metas.length);
-  assert.ok(host.querySelector(".views-pivot-top .views-transpose") !== null);
+  const shelf = host.querySelector(".views-field-shelf");
+  const transposeRow = host.querySelector(".views-transpose-row");
+  assert.ok(transposeRow !== null);
+  assert.equal(shelf?.nextElementSibling, transposeRow);
+  assert.match(transposeRow?.textContent ?? "", /Transpose/);
   const rows = host.querySelectorAll(".views-row");
   assert.equal(rows.length, 2);
   const total = host.querySelector(".views-total");

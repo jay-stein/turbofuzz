@@ -294,7 +294,7 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - Added an always-visible "All columns" shelf with every dataset field, type labels, a search box and used-in-view indicators.
 - Shelf chips are draggable into Index, Columns or Values. Clicking a chip offers the same three destinations.
 - Dropping a shelf column that is already grouped moves that field instead of duplicating it. Dropping it on Values converts or adds the appropriate mean/count value.
-- Moved Transpose to a prominent icon button at the top of the pivot builder. The icon uses down/right arrows to suggest swapping axes.
+- Transpose sits in a full-width action row directly below the All columns shelf and above the result-status line, with a large grid/X/Y swap icon plus the word Transpose. The icon uses a subtle cell grid, X/Y axis labels and crossing exchange arrows.
 - Renamed the percentage control to "Show as" and added "% of grand total" alongside row/column. Values use 1 decimal place on screen and in CSV.
 - Renamed the margins checkbox to "All totals" so it is clearly separate from percentage conversion.
 
