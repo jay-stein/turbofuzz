@@ -50,6 +50,12 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Chart-filter coverage is exercised by worker tests for aggregate, series, crosstab, correlation, box, grid, and animation payloads.
 - Geo choropleths report how many loaded regions matched the join and mark unmatched regions in the hover tooltip.
 
+### Provenance columns
+
+- `_input_filename` (and suffixed variants) is now marked as a `provenance` role on both the worker column and `ColumnMeta`.
+- Duplicate detection, empty-row counts, completeness/null totals, quality findings, anomaly findings, and default chart suggestions skip provenance columns.
+- Tests assert the role survives multi-file ingest and that identical content from different files still counts as duplicate rows.
+
 ### Multi-column pivot layouts and fill controls
 
 - Pivot builder now shows an R/C layout bar: click a field to move it between the row index and nested column headers, with a live active state and an explicit `R = row index, C = column field` hint.
@@ -151,6 +157,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `b9084de` feat(pivot): support multi-field row indexes
 - `622787a` feat(pivot): add multi-column layouts and fill controls
 - `644779e` feat(pivot): let multi-measure pivots switch values
+- `172c4e0` feat(ingest): mark provenance columns and exclude them from stats
 - `1580efe` feat(charts): load geojson and zipped shapefile regions
 - `21836d1` feat(charts): join geojson regions to dataset measures
 
@@ -159,7 +166,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 Final state after the session:
 
 - `npm run typecheck` passes.
-- `npm test`: 686 tests passing.
+- `npm test`: 688 tests passing.
 - `npm run build` passes.
 - No network or eval paths were introduced.
 - Pre-existing untracked files `DATA_QC_SPEC.md` and `UX_IMPROVEMENT_BACKLOG.md` were left untouched.
