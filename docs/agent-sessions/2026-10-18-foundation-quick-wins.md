@@ -56,6 +56,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Heatmaps now support category-window zoom and pan on both axes, with reset support.
 - Box plots now support category-window X zoom/pan and numeric Y zoom/pan, with reset support.
 - Correlation matrices now support a shared row/column zoom window and pan, with reset support.
+- Treemaps and top-terms charts now support item-window zoom/pan over their ranked categories/terms, with reset support.
 
 ### Chart CSV export
 
@@ -117,6 +118,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `7a1a153` feat(pivot): add worker-computed margins
 - `3814a27` feat(charts): zoom and pan box plots
 - `d8aa0a8` feat(charts): zoom and pan correlation matrices
+- `17c5ca6` feat(charts): zoom and pan treemaps and terms
 - `1580efe` feat(charts): load geojson and zipped shapefile regions
 - `21836d1` feat(charts): join geojson regions to dataset measures
 
