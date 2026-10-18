@@ -264,3 +264,22 @@ Act on live-site feedback: reduce map disorientation, make pivot values easier t
 - `npm run build` passes.
 - No network or eval paths introduced.
 - Pre-existing untracked files were left untouched.
+## Follow-up: draggable pivot fields (2026-10-18)
+
+### Goal
+
+Make pivot field layout feel direct: drag fields between Index, Columns and Values instead of relying on menus.
+
+### Changes
+
+- Pivot field pills show a grip and are draggable. Index/Columns fields can be reordered within a well or moved between wells; Values can be reordered.
+- A dimension dropped on Values becomes a measure (mean for numeric columns, count for text/category/boolean columns). A simple measure dropped on Index/Columns becomes a dimension.
+- The drag target well is outlined while hovering, the source pill dims, and invalid moves explain themselves in the status line.
+- Index invariants are preserved: the final Index field cannot be moved to Columns. Custom/calculated/conditional measures and grouped time/bin dimensions are not silently converted.
+- The existing arrow buttons, well toggles and remove controls remain as keyboard/click fallbacks.
+
+### Validation
+
+- `npm run typecheck` passes.
+- `npx tsx --test test/views-panel.test.ts`: 17 tests passing.
+- Drag conversion and guard cases are covered by pure `movePivotField` tests.

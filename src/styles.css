@@ -2452,6 +2452,24 @@ mark {
   overflow: hidden;
 }
 
+.views-pill[draggable="true"] {
+  cursor: grab;
+}
+
+.views-pill[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.views-pill.dragging {
+  opacity: 0.35;
+}
+
+.views-zone.pivot-drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 3px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+}
 .views-pill-label {
   font: inherit;
   font-size: 12px;

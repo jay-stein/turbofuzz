@@ -165,6 +165,164 @@ export function formatMeasure(value: number, measure: MeasureSpec): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+export type PivotWell = "index" | "columns" | "values";
+
+export interface PivotDragSource {
+  kind: "dimension" | "measure";
+  index: number;
+  well: PivotWell;
+}
+
+export interface PivotMoveResult {
+  ok: boolean;
+  reason?: string;
+}
+
+/** Preserve the selected measure by identity across a values reorder. */
+function keepPivotMeasure(view: ViewDef, selected: MeasureSpec | undefined): void {
+  view.pivotMeasure =
+    selected === undefined || view.measures.length === 0
+      ? undefined
+      : Math.max(0, view.measures.indexOf(selected));
+}
+
+/**
+ * Move or convert a pivot field between the Index, Columns and Values wells.
+ * Position is the insertion slot in the target well's displayed order.
+ */
+export function movePivotField(
+  view: ViewDef,
+  source: PivotDragSource,
+  target: PivotWell,
+  position: number,
+  numericSource: boolean,
+): PivotMoveResult {
+  const selected =
+    view.pivotMeasure === undefined ? undefined : view.measures[view.pivotMeasure];
+  if (source.kind === "dimension") {
+    const spec = view.dimensions[source.index];
+    if (spec === undefined) return { ok: false, reason: "That field is no longer present." };
+    if (target === "values") {
+      if (spec.by !== "value") {
+        return {
+          ok: false,
+          reason: "Change the field back to Exact value before moving it to Values.",
+        };
+      }
+      const columnSpecs = new Set(
+        thisPivotIndexes(view).map((index) => view.dimensions[index]!),
+      );
+      columnSpecs.delete(spec);
+      view.dimensions.splice(source.index, 1);
+      if (view.sort.key === `dim${source.index}`) view.sort = { key: "m0", dir: "desc" };
+      const measure: MeasureSpec = {
+        column: spec.column,
+        agg: numericSource ? "mean" : "count",
+      };
+      view.measures.splice(Math.max(0, Math.min(view.measures.length, position)), 0, measure);
+      keepPivotMeasure(view, selected);
+      view.pivotColumns = view.dimensions
+        .map((dimension, index) => (columnSpecs.has(dimension) ? index : -1))
+        .filter((index) => index >= 0);
+      view.pivot = view.pivotColumns[0];
+      if (view.pivotColumns.length === 0) view.fillValue = undefined;
+      return { ok: true };
+    }
+
+    const oldColumns = thisPivotIndexes(view);
+    const wasColumn = oldColumns.includes(source.index);
+    if (target === "columns" && !wasColumn) {
+      const indexCount = view.dimensions.length - oldColumns.length;
+      if (indexCount <= 1) {
+        return { ok: false, reason: "Keep at least one Index field." };
+      }
+    }
+    const columnSpecs = new Set(oldColumns.map((index) => view.dimensions[index]!));
+    const targetOrder = view.dimensions
+      .map((_, index) => index)
+      .filter((index) => index !== source.index)
+      .filter((index) =>
+        target === "columns" ? columnSpecs.has(view.dimensions[index]!) : !columnSpecs.has(view.dimensions[index]!),
+      );
+    const before = targetOrder[Math.max(0, Math.min(targetOrder.length, position))];
+    const beforeSpec = before === undefined ? undefined : view.dimensions[before];
+    view.dimensions.splice(source.index, 1);
+    const insertAt =
+      beforeSpec === undefined
+        ? view.dimensions.length
+        : view.dimensions.indexOf(beforeSpec);
+    view.dimensions.splice(Math.max(0, insertAt), 0, spec);
+    if (target === "columns") columnSpecs.add(spec);
+    else columnSpecs.delete(spec);
+    view.pivotColumns = view.dimensions
+      .map((dimension, index) => (columnSpecs.has(dimension) ? index : -1))
+      .filter((index) => index >= 0);
+    view.pivot = view.pivotColumns[0];
+    if (view.pivotColumns.length === 0) view.fillValue = undefined;
+    return { ok: true };
+  }
+
+  const measure = view.measures[source.index];
+  if (measure === undefined) return { ok: false, reason: "That value is no longer present." };
+  if (target === "values") {
+    view.measures.splice(source.index, 1);
+    view.measures.splice(
+      Math.max(0, Math.min(view.measures.length, position)),
+      0,
+      measure,
+    );
+    keepPivotMeasure(view, selected);
+    return { ok: true };
+  }
+  if (
+    measure.column === null ||
+    measure.agg === "expr" ||
+    measure.weight !== undefined ||
+    measure.where !== undefined ||
+    (measure.post?.length ?? 0) > 0
+  ) {
+    return {
+      ok: false,
+      reason: "Only a simple value can become an Index or Columns field.",
+    };
+  }
+  if (
+    view.dimensions.some(
+      (dimension) => dimension.column === measure.column && dimension.by === "value",
+    )
+  ) {
+    return { ok: false, reason: "That column is already an Index or Columns field." };
+  }
+  const oldColumns = thisPivotIndexes(view);
+  const columnSpecs = new Set(oldColumns.map((index) => view.dimensions[index]!));
+  const targetOrder = view.dimensions
+    .map((_, index) => index)
+    .filter((index) =>
+      target === "columns" ? columnSpecs.has(view.dimensions[index]!) : !columnSpecs.has(view.dimensions[index]!),
+    );
+  const before = targetOrder[Math.max(0, Math.min(targetOrder.length, position))];
+  const beforeSpec = before === undefined ? undefined : view.dimensions[before];
+  const spec: DimensionSpec = { column: measure.column, by: "value" };
+  if (beforeSpec === undefined) view.dimensions.push(spec);
+  else view.dimensions.splice(view.dimensions.indexOf(beforeSpec), 0, spec);
+  if (target === "columns") columnSpecs.add(spec);
+  view.measures.splice(source.index, 1);
+  keepPivotMeasure(view, selected);
+  view.pivotColumns = view.dimensions
+    .map((dimension, index) => (columnSpecs.has(dimension) ? index : -1))
+    .filter((index) => index >= 0);
+  view.pivot = view.pivotColumns[0];
+  return { ok: true };
+}
+
+/** The current column-field indexes; kept local to avoid class coupling. */
+function thisPivotIndexes(view: ViewDef): number[] {
+  const valid = (index: number): boolean =>
+    Number.isInteger(index) && index >= 0 && index < view.dimensions.length;
+  const columns = (view.pivotColumns ?? []).filter(valid);
+  if (columns.length > 0) return columns;
+  return view.pivot !== undefined && valid(view.pivot) ? [view.pivot] : [];
+}
 /** Compile the current ViewDef matrix layout into a worker PivotDef. */
 export function pivotDefFromView(view: ViewDef, pivotIndexes: readonly number[]): PivotDef {
   const pivotSet = new Set(pivotIndexes);
@@ -356,6 +514,7 @@ export class ViewsPanel {
   private rowCount = 0;
   private started = false;
   private transientNote: string | null = null;
+  private pivotDrag: PivotDragSource | null = null;
   /** Index of a just-added view whose name field should open for editing. */
   private pendingRename: number | null = null;
 
@@ -1566,9 +1725,107 @@ export class ViewsPanel {
     addLambda.addEventListener("click", () => this.openLambdaMenu(addLambda));
     measureZone.append(addLambda);
 
+    this.wireDropZone(indexZone, "index");
+    this.wireDropZone(columnZone, "columns");
+    this.wireDropZone(measureZone, "values");
     this.builderEl.append(indexZone, columnZone, measureZone);
   }
 
+  /** Wire one builder well as a drag/drop target for pivot fields. */
+  private wireDropZone(zone: HTMLElement, well: PivotWell): void {
+    zone.dataset.pivotWell = well;
+    zone.addEventListener("dragover", (event) => {
+      if (this.pivotDrag === null) return;
+      event.preventDefault();
+      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "move";
+      zone.classList.add("pivot-drop-target");
+    });
+    zone.addEventListener("dragleave", (event) => {
+      if (event.relatedTarget === null || !zone.contains(event.relatedTarget as Node)) {
+        zone.classList.remove("pivot-drop-target");
+      }
+    });
+    zone.addEventListener("drop", (event) => {
+      const source = this.pivotDrag;
+      if (source === null) return;
+      event.preventDefault();
+      this.clearPivotDrag();
+      const entry = this.views[this.active];
+      if (entry === undefined) return;
+      const position = this.pivotDropPosition(zone, well, source, event);
+      const trial: ViewDef = {
+        ...entry.def,
+        dimensions: [...entry.def.dimensions],
+        measures: [...entry.def.measures],
+        pivotColumns: [...(entry.def.pivotColumns ?? [])],
+      };
+      const meta =
+        source.kind === "dimension"
+          ? this.metas[entry.def.dimensions[source.index]?.column ?? -1]
+          : undefined;
+      const result = movePivotField(
+        trial,
+        source,
+        well,
+        position,
+        meta !== undefined && isNumericLikeType(meta.type),
+      );
+      if (!result.ok) {
+        this.transientNote = result.reason ?? "That field cannot move there.";
+        this.render();
+        return;
+      }
+      this.update((view) => Object.assign(view, trial));
+    });
+  }
+
+  /** Insertion slot from the pointer position among the well's field pills. */
+  private pivotDropPosition(
+    zone: HTMLElement,
+    well: PivotWell,
+    source: PivotDragSource,
+    event: DragEvent,
+  ): number {
+    const selector = well === "values" ? "[data-measure-index]" : "[data-dimension-index]";
+    const items = [...zone.querySelectorAll<HTMLElement>(selector)].filter((item) => {
+      if (source.well !== well) return true;
+      return well === "values"
+        ? item.dataset.measureIndex !== String(source.index)
+        : item.dataset.dimensionIndex !== String(source.index);
+    });
+    for (let index = 0; index < items.length; index++) {
+      const rect = items[index]!.getBoundingClientRect();
+      if (event.clientY < rect.top) return index;
+      if (event.clientY <= rect.bottom && event.clientX < rect.left + rect.width / 2) {
+        return index;
+      }
+    }
+    return items.length;
+  }
+
+  private makePillDraggable(pill: HTMLElement, source: PivotDragSource): void {
+    pill.draggable = true;
+    pill.title = `${pill.title ? `${pill.title} - ` : ""}Drag to move between Index, Columns and Values`;
+    pill.addEventListener("dragstart", (event) => {
+      this.pivotDrag = source;
+      pill.classList.add("dragging");
+      if (event.dataTransfer !== null) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", "pivot-field");
+      }
+    });
+    pill.addEventListener("dragend", () => {
+      pill.classList.remove("dragging");
+      this.clearPivotDrag();
+    });
+  }
+
+  private clearPivotDrag(): void {
+    this.pivotDrag = null;
+    this.builderEl
+      .querySelectorAll(".pivot-drop-target")
+      .forEach((zone) => zone.classList.remove("pivot-drop-target"));
+  }
   /** Swap the current index and column wells and recompute the pivot. */
   private transposePivot(): void {
     this.update((view) => {
@@ -1625,6 +1882,9 @@ export class ViewsPanel {
       "span",
       { class: `views-pill ${group === "index" ? "views-index-pill" : "views-column-pill"}` },
     );
+    pill.dataset.dimensionIndex = String(index);
+    this.makePillDraggable(pill, { kind: "dimension", index, well: group });
+    const grip = el("span", { class: "views-pill-grip", "aria-hidden": "true" }, ["\u2807"]);
     const label = el(
       "button",
       { class: "views-pill-label", type: "button", title: "Change how this column is grouped" },
@@ -1720,7 +1980,7 @@ export class ViewsPanel {
         if (view.pivotColumns.length === 0) view.fillValue = undefined;
       }),
     );
-    pill.append(label, up, down, ...(filter === null ? [] : [filter]), toggle, remove);
+    pill.append(grip, label, up, down, ...(filter === null ? [] : [filter]), toggle, remove);
     return pill;
   }
   /** Prompt for exact dimension values and rebuild the pivot around them. */
@@ -1851,6 +2111,9 @@ export class ViewsPanel {
     const post = measure.post ?? [];
     const postText = post.length > 0 ? ` ${post.map((op) => `→${op.op}`).join("")}` : "";
     const pill = el("span", { class: "views-pill" });
+    pill.dataset.measureIndex = String(index);
+    this.makePillDraggable(pill, { kind: "measure", index, well: "values" });
+    const grip = el("span", { class: "views-pill-grip", "aria-hidden": "true" }, ["\u2807"]);
     const label = el(
       "button",
       {
@@ -1871,7 +2134,7 @@ export class ViewsPanel {
         view.measures.splice(index, 1);
       }),
     );
-    pill.append(label, remove);
+    pill.append(grip, label, remove);
     return pill;
   }
 

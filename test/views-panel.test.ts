@@ -5,6 +5,7 @@ import type { AggregateMessage, ColumnMeta, PivotMessage } from "../src/worker/p
 import type { PivotDef } from "../src/data/pivot.js";
 import {
   ViewsPanel,
+  movePivotField,
   pivotDefFromView,
   remapViewDef,
   starterViews,
@@ -658,4 +659,112 @@ test("view remapping reports columns that no longer exist", () => {
   const remapped = remapViewDef(view, ["city", "amount"], ["city"]);
   assert.deepEqual(remapped.missing, ["amount"]);
   assert.equal(remapped.def.measures.length, 0);
+});
+function dragView(): ViewDef {
+  return {
+    id: "drag",
+    name: "Drag",
+    dimensions: [
+      { column: 0, by: "value" },
+      { column: 1, by: "value" },
+      { column: 2, by: "value" },
+    ],
+    measures: [{ column: 3, agg: "sum" }],
+    fill: "none",
+    sort: { key: "m0", dir: "desc" },
+    limit: 500,
+    respectFilters: true,
+    pivotColumns: [1],
+    pivot: 1,
+    pivotMeasure: 0,
+  };
+}
+
+test("dragging a dimension reorders and changes wells", () => {
+  const view = dragView();
+  const moved = movePivotField(
+    view,
+    { kind: "dimension", index: 2, well: "index" },
+    "index",
+    0,
+    false,
+  );
+  assert.equal(moved.ok, true);
+  assert.deepEqual(
+    view.dimensions.map((dimension) => dimension.column),
+    [2, 0, 1],
+  );
+  assert.deepEqual(view.pivotColumns, [2]);
+
+  const toIndex = movePivotField(
+    view,
+    { kind: "dimension", index: 2, well: "columns" },
+    "index",
+    1,
+    false,
+  );
+  assert.equal(toIndex.ok, true);
+  assert.deepEqual(
+    view.dimensions.map((dimension) => dimension.column),
+    [2, 1, 0],
+  );
+  assert.deepEqual(view.pivotColumns, []);
+});
+
+test("dragging between dimensions and values converts the field", () => {
+  const view = dragView();
+  const toValues = movePivotField(
+    view,
+    { kind: "dimension", index: 0, well: "index" },
+    "values",
+    0,
+    true,
+  );
+  assert.equal(toValues.ok, true);
+  assert.deepEqual(
+    view.dimensions.map((dimension) => dimension.column),
+    [1, 2],
+  );
+  assert.deepEqual(view.measures[0], { column: 0, agg: "mean" });
+
+  const toColumns = movePivotField(
+    view,
+    { kind: "measure", index: 0, well: "values" },
+    "columns",
+    0,
+    false,
+  );
+  assert.equal(toColumns.ok, true);
+  assert.deepEqual(
+    view.dimensions.map((dimension) => dimension.column),
+    [0, 1, 2],
+  );
+  assert.deepEqual(view.pivotColumns, [0, 1]);
+  assert.equal(view.measures.length, 1);
+});
+
+test("dragging guards the row index and custom measures", () => {
+  const view = dragView();
+  view.dimensions = view.dimensions.filter((dimension) => dimension.column !== 2);
+  const lastIndex = movePivotField(
+    view,
+    { kind: "dimension", index: 0, well: "index" },
+    "columns",
+    0,
+    false,
+  );
+  assert.equal(lastIndex.ok, false);
+
+  const custom = dragView();
+  custom.measures = [
+    { column: 3, agg: "sum", where: { column: 1, values: ["a"] } },
+  ];
+  const blocked = movePivotField(
+    custom,
+    { kind: "measure", index: 0, well: "values" },
+    "index",
+    0,
+    false,
+  );
+  assert.equal(blocked.ok, false);
 });
