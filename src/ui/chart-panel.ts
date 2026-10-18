@@ -55,6 +55,8 @@ export interface ChartsPanelOptions {
     categoryColumn: number;
     topN: number;
     groupOther: boolean;
+    chartFilter?: { column: number; code: number };
+    respectFilters?: boolean;
   }): Promise<BoxStatsMessage>;
   requestCrosstab(input: {
     xColumn: number;
@@ -87,6 +89,7 @@ export interface ChartsPanelOptions {
     bins?: number,
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
     groupColumn?: number,
+    scope?: { chartFilter?: { column: number; code: number }; respectFilters?: boolean },
   ): Promise<GridCountsMessage>;
   /** Per-time-bucket frames for animated bar, bubble, histogram and treemap charts. */
   requestAnimation?(input: {
@@ -99,6 +102,8 @@ export interface ChartsPanelOptions {
     topN?: number;
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
     groupColumn?: number;
+    chartFilter?: { column: number; code: number };
+    respectFilters?: boolean;
   }): Promise<AnimationMessage>;
   /** Label for the filtered-table source: "Table" when no filters apply. */
   tableSourceLabel?(): string;

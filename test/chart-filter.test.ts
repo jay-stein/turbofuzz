@@ -104,4 +104,53 @@ test("a chart-level aggregate filter narrows to one category", async () => {
   };
   assert.equal(correlation.result.counts[1], 2);
   assert.equal(correlation.result.values[1], 1);
+
+  send({
+    type: "getBoxStats",
+    requestId: 6,
+    valueColumn: 2,
+    categoryColumn: 1,
+    topN: 10,
+    groupOther: false,
+    chartFilter: { column: 0, code: 0 },
+    respectFilters: true,
+  });
+  const box = find("boxStats", 6) as unknown as { result: { total: number } };
+  assert.equal(box.result.total, 2);
+
+  send({
+    type: "getGridCounts",
+    requestId: 7,
+    xColumn: 2,
+    yColumn: 3,
+    bins: 8,
+    chartFilter: { column: 0, code: 0 },
+    respectFilters: true,
+  });
+  const grid = find("gridCounts", 7) as unknown as { result: { counts: Uint32Array } };
+  assert.equal([...grid.result.counts].reduce((sum, count) => sum + count, 0), 2);
+
+  send({
+    type: "load",
+    requestId: 10,
+    name: "timed.csv",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: "when,team,amount\n2024-01-01,Alpha,10\n2024-01-02,Beta,20\n2024-01-01,Alpha,30",
+  });
+  find("loaded", 10);
+  send({
+    type: "getAnimation",
+    requestId: 11,
+    timeColumn: 0,
+    grain: "day",
+    chart: "bar",
+    column: 1,
+    yColumn: -1,
+    topN: 10,
+    chartFilter: { column: 1, code: 0 },
+    respectFilters: true,
+  });
+  const animation = find("animation", 11) as unknown as { result: { total: number } };
+  assert.equal(animation.result.total, 2);
 });

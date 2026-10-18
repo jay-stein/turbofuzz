@@ -1249,10 +1249,16 @@ function handleGetBoxStats(message: GetBoxStatsRequest): void {
   const categories = categoryColumn.categories();
   const codes = categoryCodes(categories.bits, dataset.rowCount);
   const started = performance.now();
-  const result = computeBoxStats(valueColumn.numbers(), codes, categories.labels, sortedIds, {
-    topN: message.topN,
-    groupOther: message.groupOther,
-  });
+  const result = computeBoxStats(
+    valueColumn.numbers(),
+    codes,
+    categories.labels,
+    chartScopedIds(message.respectFilters, message.chartFilter),
+    {
+      topN: message.topN,
+      groupOther: message.groupOther,
+    },
+  );
   const transfer: Transferable[] = [];
   for (const group of result.groups) transfer.push(group.outliers.buffer);
   post(
@@ -1503,7 +1509,7 @@ function handleGetGridCounts(message: GetGridCountsRequest): void {
   const result = computeGridCounts(
     x.numbers(),
     y.numbers(),
-    sortedIds,
+    chartScopedIds(message.respectFilters, message.chartFilter),
     message.bins ?? 40,
     gridMeasure(dataset, message.measure),
     groupColumn === undefined ? undefined : bubbleGroups(groupColumn, dataset.rowCount),
@@ -1548,13 +1554,14 @@ function handleGetAnimation(message: GetAnimationRequest): void {
   if (timeColumn === undefined) throw new Error("Unknown time column");
   const started = performance.now();
   const times = timeColumn.numbers();
+  const ids = chartScopedIds(message.respectFilters, message.chartFilter);
   if (message.chart === "histogram") {
     const column = dataset.columns[message.column];
     if (column === undefined) throw new Error("Unknown column");
     const result = computeHistogramFrames(
       times,
       column.numbers(),
-      sortedIds,
+      ids,
       message.grain,
       message.bins ?? 32,
     );
@@ -1574,7 +1581,7 @@ function handleGetAnimation(message: GetAnimationRequest): void {
       times,
       x.numbers(),
       y.numbers(),
-      sortedIds,
+      ids,
       message.grain,
       message.bins ?? 40,
       gridMeasure(dataset, message.measure),
@@ -1601,7 +1608,7 @@ function handleGetAnimation(message: GetAnimationRequest): void {
     times,
     codes,
     labels,
-    sortedIds,
+    ids,
     message.grain,
     message.topN ?? 8,
   );

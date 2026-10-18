@@ -1928,8 +1928,8 @@ export class App {
       requestViewAggregate: (source) => this.aggregateForSource(source),
       requestAggregate: (view) => this.client.getAggregate(view),
       requestTextProfile: (column) => this.client.getTextProfile(column),
-      requestGridCounts: (xColumn, yColumn, bins, measure, groupColumn) =>
-        this.client.getGridCounts(xColumn, yColumn, bins, measure, groupColumn),
+      requestGridCounts: (xColumn, yColumn, bins, measure, groupColumn, scope) =>
+        this.client.getGridCounts(xColumn, yColumn, bins, measure, groupColumn, scope),
       requestAnimation: (input) => this.client.getAnimation(input),
       tableSourceLabel: () =>
         this.filters.size === 0 &&

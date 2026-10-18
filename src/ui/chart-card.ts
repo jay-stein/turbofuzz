@@ -140,6 +140,8 @@ export interface ChartCardOptions {
     categoryColumn: number;
     topN: number;
     groupOther: boolean;
+    chartFilter?: { column: number; code: number };
+    respectFilters?: boolean;
   }): Promise<BoxStatsMessage>;
   requestCrosstab(input: {
     xColumn: number;
@@ -174,6 +176,7 @@ export interface ChartCardOptions {
     bins?: number,
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
     groupColumn?: number,
+    scope?: { chartFilter?: { column: number; code: number }; respectFilters?: boolean },
   ): Promise<GridCountsMessage>;
   /** Per-time-bucket frames for animated bar, bubble, histogram and treemap charts. */
   requestAnimation?(input: {
@@ -186,6 +189,8 @@ export interface ChartCardOptions {
     topN?: number;
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
     groupColumn?: number;
+    chartFilter?: { column: number; code: number };
+    respectFilters?: boolean;
   }): Promise<AnimationMessage>;
   /** Label for the filtered-table source: "Table" when no filters apply. */
   tableSourceLabel?(): string;
@@ -3116,6 +3121,8 @@ export class ChartCard {
       kind === "treemap" ||
       kind === "heatmap" ||
       kind === "correlation" ||
+      kind === "box" ||
+      kind === "bubble" ||
       seriesKind ||
       mapKind;
     this.chartFilterRow.classList.toggle("hidden", !chartFilterable);
@@ -4115,6 +4122,7 @@ export class ChartCard {
         categoryColumn: this.config.y,
         topN: this.config.topN,
         groupOther: this.config.groupOther,
+        ...this.chartScope(),
       })
       .then((message) => {
         if (generation !== this.generation || this.disposed) return;
@@ -4205,6 +4213,7 @@ export class ChartCard {
         this.config.bubbleBins ?? 40,
         this.bubbleMeasure(),
         this.bubbleGroupColumn(),
+        this.chartScope(),
       )
       .then((message) => {
         if (generation !== this.generation || this.disposed) return;
@@ -4248,6 +4257,8 @@ export class ChartCard {
         this.config.y,
         this.config.bubbleBins ?? 40,
         this.bubbleMeasure(),
+        undefined,
+        this.chartScope(),
       )
       .then((message) => {
         if (generation !== this.generation || this.disposed) return;
@@ -4338,6 +4349,7 @@ export class ChartCard {
       // Density is a single aggregate heat map, so grouping is ignored there;
       // bubble charts carry the group dimension.
       groupColumn: kind === "bubble" ? this.bubbleGroupColumn() : undefined,
+      ...this.chartScope(),
     })
       .then((message) => {
         if (generation !== this.generation || this.disposed) return;

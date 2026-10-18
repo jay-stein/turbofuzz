@@ -228,6 +228,8 @@ export class SearchWorkerClient {
     categoryColumn: number;
     topN: number;
     groupOther: boolean;
+    chartFilter?: { column: number; code: number };
+    respectFilters?: boolean;
   }): Promise<BoxStatsMessage> {
     return this.request<BoxStatsMessage>({ type: "getBoxStats", ...input });
   }
@@ -306,6 +308,7 @@ export class SearchWorkerClient {
     bins?: number,
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
     groupColumn?: number,
+    scope?: { chartFilter?: { column: number; code: number }; respectFilters?: boolean },
   ): Promise<GridCountsMessage> {
     return this.request<GridCountsMessage>({
       type: "getGridCounts",
@@ -314,6 +317,7 @@ export class SearchWorkerClient {
       bins,
       measure,
       groupColumn,
+      ...scope,
     });
   }
 
@@ -327,6 +331,8 @@ export class SearchWorkerClient {
     topN?: number;
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
     groupColumn?: number;
+    chartFilter?: { column: number; code: number };
+    respectFilters?: boolean;
   }): Promise<AnimationMessage> {
     return this.request<AnimationMessage>({ type: "getAnimation", ...input });
   }

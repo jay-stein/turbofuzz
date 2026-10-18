@@ -302,6 +302,8 @@ export type GetBoxStatsRequest = {
   categoryColumn: number;
   topN: number;
   groupOther: boolean;
+  chartFilter?: { column: number; code: number };
+  respectFilters?: boolean;
 };
 
 export interface BoxStatsMessage {
@@ -555,6 +557,8 @@ export type GetGridCountsRequest = {
   measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
   /** Optional category column splitting the bubbles into one set per group. */
   groupColumn?: number;
+  chartFilter?: { column: number; code: number };
+  respectFilters?: boolean;
 };
 
 export interface GridCountsMessage {
@@ -585,6 +589,8 @@ export type GetAnimationRequest = {
   measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
   /** bubble: optional category column splitting the bubbles into sets. */
   groupColumn?: number;
+  chartFilter?: { column: number; code: number };
+  respectFilters?: boolean;
 };
 
 export interface AnimationMessage {
