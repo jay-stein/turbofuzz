@@ -27,6 +27,12 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - User-facing `Bars` renamed to `Count plot`; internal kind remains `"bar"` for compatibility.
 - Updated aria labels, help copy, tests, and the default category limit from 5 to 10.
 
+### Aggregate Barplot
+
+- Added a new `Barplot` chart kind alongside `Count plot`.
+- Barplot aggregates a numeric measure by category, supports mean/sum/median/min/max, and can split into one series per optional group value.
+- Added gallery fit rules, setup-dialog fields, axis labels, CSV export, and tests.
+
 ### Chart CSV export
 
 - Added `src/ui/chart-export.ts` with CSV escaping and BOM download helpers.
@@ -80,13 +86,14 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `9d2bb38` fix(charts): map brush follows the zoomed viewport
 - `b5904e5` fix(chips): clarify placeholder cleanup action
 - `2a194a2` docs(readme): document multi-file load cast safety and chart updates
+- `1d9206f` feat(charts): add aggregate barplot
 
 ## Validation
 
 Final state after the session:
 
 - `npm run typecheck` passes.
-- `npm test`: 682 tests passing.
+- `npm test`: 683 tests passing.
 - `npm run build` passes.
 - No network or eval paths were introduced.
 - Pre-existing untracked files `DATA_QC_SPEC.md` and `UX_IMPROVEMENT_BACKLOG.md` were left untouched.
@@ -105,7 +112,7 @@ Final state after the session:
 1. Provenance role for `_input_filename` so it does not distort duplicate/empty-row/DQ metrics or default chart suggestions.
 2. Remaining chart module extraction (`chart-spec`, `chart-viewport`, `chart-color`).
 3. Chart aggregation core: ChartSpec, explicit row/non-null/distinct counts, chart-level filters, time grain controls, chart calculations.
-4. Proper Seaborn-style Barplot with error bars, orientation, dodge/stack, and hue.
+4. Extend the new Barplot with error bars, orientation, dodge/stack, explicit ordering, and hue limits.
 5. Pan/zoom/reset for every chart with axes; density viewport correction.
 6. GeoJSON/Shapefile maps with CRS handling and choropleth joins.
 7. Full Pivot View: 0–3 index/column fields, multiple values/aggs, margins, fill_value, named pivots, pivot CSV and chart integration, resample-style time.
