@@ -50,6 +50,11 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Chart-filter coverage is exercised by worker tests for aggregate, series, crosstab, correlation, box, grid, and animation payloads.
 - Geo choropleths report how many loaded regions matched the join and mark unmatched regions in the hover tooltip.
 
+### Explicit count aggregates
+
+- Chart aggregation now offers `Count non-null` and `Count distinct` alongside mean/sum/median/min/max; row counts remain the count plot / no-measure path.
+- Both selections flow through the shared aggregate engine, CSV export, axis labels and chart tests.
+
 ### Provenance columns
 
 - `_input_filename` (and suffixed variants) is now marked as a `provenance` role on both the worker column and `ColumnMeta`.
@@ -158,6 +163,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `622787a` feat(pivot): add multi-column layouts and fill controls
 - `644779e` feat(pivot): let multi-measure pivots switch values
 - `172c4e0` feat(ingest): mark provenance columns and exclude them from stats
+- `51846bc` feat(charts): expose non-null and distinct count aggregates
 - `1580efe` feat(charts): load geojson and zipped shapefile regions
 - `21836d1` feat(charts): join geojson regions to dataset measures
 
