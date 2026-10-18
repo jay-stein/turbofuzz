@@ -58,6 +58,11 @@ npm run bench:quick
 npm run bench:real
 npm run bench:ingest   # parse/build/preview/filter/sort/export at 100k/500k/1.5M
 npm run bench:clean    # clean/rebuild budgets at 100k/300k rows
+npm run bench:pivot    # pivot matrix + margins budget
+npm run bench:multifile # four-file append budget
+npm run bench:chartspec # ChartSpec round-trip budget
+npm run test:e2e       # Playwright browser flows
+npm run gate           # final typecheck/unit/E2E/build/bench gate
 npm run parity:cases   # generate pandas/Polars execution fixtures
 ```
 
@@ -67,6 +72,9 @@ Benchmarks:
 npm run bench:quick
 npm run bench:real
 npm run bench:clean
+npm run bench:pivot
+npm run bench:multifile
+npm run bench:chartspec
 ```
 
 ## Deployment

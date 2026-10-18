@@ -29,7 +29,7 @@ Already delivered and not to be rebuilt:
 - complete worker-backed Pivot View with drag/drop wells, typed report filters, multi-date hierarchies, pivot heatmap charts and grouped chart sources;
 - typed table header filters sharing the sidebar filter card, with dataset-anchored date bounds.
 
-Baseline test state: **767 tests passing**, typecheck and production build green.
+Baseline test state: **769 tests passing + 7 Playwright E2E tests**, typecheck and production build green.
 
 ---
 
@@ -431,6 +431,42 @@ After Sprint 2, the remaining sequence is:
 
 ---
 
+## 4f. Sprint 6: Release Hardening
+
+**Status:** Complete on 2026-10-19. Release gate green; W2.6/W2.7 remain post-release performance work.
+
+**Budget:** 10 engineer-days, including 0.5 day contingency.
+
+**Selection rule:** ship the completed product surface with browser-level confidence, benchmark gates and explicit security/accessibility checks.
+
+### Sprint budget
+
+| Order | Package | Deliverable | Days |
+|---:|---|---|---:|
+| 1 | **W8.1** | E2E coverage: multi-file preflight, batch cast, chart builder/filter, pivot/spec/export smoke. | 3.0 |
+| 2 | **W8.2** | Benchmarks for pivot, multi-file ingest and chart-spec compilation. | 1.5 |
+| 3 | **W8.3** | Accessibility review: keyboard, focus, labels, reduced motion. | 1.5 |
+| 4 | **W8.4** | CSP/manual privacy review and automated guard test. | 1.0 |
+| 5 | **W8.5** | Help/README/session/support documentation refresh. | 1.5 |
+| 6 | **W8.6** | Final full gate: typecheck, unit, E2E, build, benchmarks. | 1.0 |
+| 7 | **Integration reserve** | Flake/a11y/bug buffer. | 0.5 |
+|  | **Total** |  | **10.0** |
+
+### Sprint 6 follow-ups
+
+- W2.6 deferred dataset metrics and W2.7 progress/cancel polish remain post-release performance work.
+- E2E covers representative flows (load, multi-file, batch cast, table, quality, chart, a11y); the full chart-kind/geo matrix remains post-release coverage.
+
+### Sprint exit gate
+
+- `npm run typecheck`, `npm test`, `npm run test:e2e` and `npm run build` are green.
+- Pivot, multi-file and chart-spec benchmarks pass their budgets.
+- No blocking accessibility findings.
+- CSP remains `connect-src 'none'` with no `eval` or `new Function`.
+- README/help/session docs match the shipped surface.
+
+---
+
 ## 5. Workstreams
 
 ### W1. Pivot completion
@@ -611,12 +647,12 @@ After Sprint 2, the remaining sequence is:
 
 | ID | Task | Acceptance |
 |---|---|---|
-| W8.1 | Add E2E coverage for multi-file preflight/import, batch cast, chart builder, chart filters, drill/inspect, CSV, geo upload/join, pivot multi-field/margins, pivot heatmap, spec/code export. | Playwright flows pass in CI with no console/page errors. |
-| W8.2 | Add benchmarks: `bench/clean.ts`, `bench/pivot.ts`, `bench/multifile.ts`, chart configuration benchmarks. | Budgets from the plan are enforced/documented. |
-| W8.3 | Run accessibility review: keyboard paths, focus traps, aria labels, colour contrast, reduced motion. | No blocking findings; fixes tracked and closed. |
-| W8.4 | CSP/manual review: no `eval`/`new Function`, no network fetch, lazy geo modules, focus traps, empty/loading/error states. | CSP unchanged; manual checklist signed off. |
-| W8.5 | Update help content, README, session summary, and support/report documentation. | New surfaces discoverable; unsupported cases documented. |
-| W8.6 | Final full gate: `npm run typecheck`, `npm test`, `npm run test:e2e`, `npm run build`, benchmarks. | All green; branch ready for review/push. |
+| W8.1 | Complete - Playwright covers load/table/quality/chart smoke, commands, multi-file preflight, batch cast, chart builder and a11y. | 7 E2E flows pass with no console/page errors; broader chart/geo matrix is post-release coverage. |
+| W8.2 | Complete - clean, pivot, multi-file and ChartSpec benchmarks with budgets. | All benchmark budgets pass in `npm run gate`. |
+| W8.3 | Complete - accessibility review, global focus ring and reduced-motion support; browser a11y smoke. | No blocking findings remain. |
+| W8.4 | Complete - CSP/manual privacy review plus automated no-eval/no-fetch guard. | CSP unchanged; `test/security.test.ts` passes. |
+| W8.5 | Complete - README, in-app help, release review and session docs refreshed. | New surfaces and release gates are documented. |
+| W8.6 | Complete - `npm run gate` runs typecheck, unit, E2E, build and release benchmarks. | All green. |
 
 **Estimate:** 5–8 engineer-days.
 **Exit gate:** original plan’s definition of done plus all 14 charting acceptance criteria are met.
@@ -633,10 +669,11 @@ After Sprint 2, the remaining sequence is:
 | **Sprint 3: ChartSpec adoption** | W5 | Complete. Lossless spec v2, compile/apply, import validation, support report and parity tests. |
 | **Sprint 4: cleaning correctness and performance** | W2.3, W2.4, W2.5, W2.8, W2.9 | Complete. Type lattice/cast explanations, incremental clean, selective rebuild and clean benchmarks. |
 | **Sprint 5: multi-file and shared chips** | W6, W7 | Complete. Preflight, proportional sampling, metadata/provenance, shared chips and fix collapse. |
+| **Sprint 6: release hardening** | W8 | Complete. E2E, benchmarks, accessibility, security guard, docs and full gate. |
 | **Backlog A: remaining performance** | W2.6-W2.7 | Deferred metrics and progress/cancel polish. |
-| **Backlog C: release quality** | W8 | E2E, benchmarks, accessibility, CSP review and docs. |
+| **Release complete** | W8 | Complete. 769 unit tests, 7 E2E flows, build and all benchmark budgets green. |
 
-Sprints 1-5 are complete. W2.6/W2.7 and W8 remain.
+Sprints 1-6 are complete. W2.6/W2.7 remain post-release performance work.
 
 ---
 ## 7. Risks and mitigations

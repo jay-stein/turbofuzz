@@ -37,7 +37,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Drop a file on the start screen, click to browse, or paste rows. Supported formats: CSV/TSV/PSV/TXT, JSON, Excel (.xlsx/.xls), Parquet and ZIP/GZ/BZ2 archives. Everything is parsed on your device — the file is never uploaded. Files estimated above about 8 million cells ask how to proceed first: take the first 100,000 rows as a sample, load everything anyway, or cancel — and if a file still exhausts browser memory the worker restarts cleanly with an explanation instead of hanging the tab.",
       ),
       p(
-        "After loading you land in the workspace: filters on the left, the table in the middle, and the Data QA strip on top. Fix chips appear above columns and in the left sidebar when the app spots a likely problem.",
+        "After loading you land in the workspace: filters on the left, the table in the middle, and the Data QA strip on top. Chips above columns and in the sidebar say Filter: when they narrow the table and Fix: when they change data. When a header has more than two fixes they collapse into a Fix issues menu.",
       ),
       list(
         "Click a chip to apply its fix — every fix is reversible from the Recipe.",

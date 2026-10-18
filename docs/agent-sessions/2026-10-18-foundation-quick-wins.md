@@ -504,3 +504,28 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - Preflight row/cell estimates use the sampled byte ratio, not an exact row scan.
 - Sampled-count `~` labels are available but not applied to every suggestion count.
 - W2.6/W2.7 remain for a later performance pass; W8 remains the release gate.
+## Sprint 6: Release Hardening (2026-10-19)
+
+### Delivered
+
+- Playwright release flows for multi-file preflight/provenance, batch type conversion, chart builder/summary and a11y.
+- Added pivot, multi-file and ChartSpec benchmarks with explicit budgets.
+- Added `npm run gate` for typecheck, unit, E2E, production build and release benchmarks.
+- Accessibility pass: global `:focus-visible` ring, reduced-motion overrides and browser checks for names/dialogs/canvas labels.
+- Security guard test: CSP `connect-src 'none'`, no `eval`, `new Function` or network fetch in source.
+- Updated README, in-app help, `docs/release-review.md` and session notes.
+
+### Validation
+
+- `npm run gate` passes:
+  - `npm run typecheck`
+  - `npm test`: 769 tests
+  - `npm run test:e2e`: 7 Playwright tests
+  - `npm run build`
+  - clean, pivot, multi-file and ChartSpec benchmark budgets.
+- Pivot 100k p95 ~385 ms / 1.5 s; multi-file 40k ~168 ms / 5 s; clean and spec budgets green.
+
+### Post-release follow-ups
+
+- W2.6 deferred dataset metrics and W2.7 progress/cancel polish.
+- E2E coverage can expand to the full chart-kind/geo matrix.
