@@ -1,5 +1,6 @@
 import { ColumnData } from "../data/column.js";
 import { computeAggregate } from "../data/aggregate.js";
+import { computePivot } from "../data/pivot.js";
 import { coMissingness } from "../data/comissingness.js";
 import { computeDependencies } from "../data/dependencies.js";
 import { computeGroupAnomalies } from "../data/group-anomalies.js";
@@ -72,6 +73,7 @@ import type {
   GetCrosstabRequest,
   GetCorrelationRequest,
   GetAggregateRequest,
+  GetPivotRequest,
   GetCoMissingnessRequest,
   GetGroupAnomaliesRequest,
   GetDependenciesRequest,
@@ -311,6 +313,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getAggregate":
       handleGetAggregate(message);
+      break;
+    case "getPivot":
+      handleGetPivot(message);
       break;
     case "getCoMissingness":
       handleGetCoMissingness(message);
@@ -1350,6 +1355,34 @@ function handleGetAggregate(message: GetAggregateRequest): void {
   );
 }
 
+/** Worker-side pivot matrix over the filtered rows. */
+function handleGetPivot(message: GetPivotRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  let ids = sortedIds;
+  if (!message.pivot.respectFilters) {
+    const all = new BitSet(dataset.rowCount);
+    all.setAll();
+    ids = withoutExcluded(all).toIndices();
+  }
+  const result = computePivot(message.pivot, dataset.columns, dataset.rowCount, ids);
+  const transfer: Transferable[] = [];
+  for (const measure of result.measures) {
+    transfer.push(measure.values.buffer, measure.rowTotals.buffer, measure.colTotals.buffer);
+  }
+  for (const times of result.rowTimes) transfer.push(times.buffer);
+  for (const times of result.colTimes) transfer.push(times.buffer);
+  post(
+    {
+      type: "pivot",
+      requestId: message.requestId,
+      pivotId: message.pivot.id,
+      ...result,
+      ms: performance.now() - started,
+    },
+    transfer,
+  );
+}
 /** Pairwise co-missingness across the filtered rows (Reports → Quality). */
 function handleGetCoMissingness(message: GetCoMissingnessRequest): void {
   const { dataset } = state();

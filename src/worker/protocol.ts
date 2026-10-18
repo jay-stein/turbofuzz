@@ -1,5 +1,6 @@
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
 import type { ViewDef } from "../data/aggregate.js";
+import type { PivotDef, PivotResult } from "../data/pivot.js";
 import type { PairOperator } from "../data/pair-checks.js";
 import type { DependencyPair } from "../data/dependencies.js";
 import type { GroupAnomalyPair } from "../data/group-anomalies.js";
@@ -430,6 +431,18 @@ export type GetAggregateRequest = {
   view: ViewDef;
 };
 
+export type GetPivotRequest = {
+  type: "getPivot";
+  requestId: number;
+  pivot: PivotDef;
+};
+
+export interface PivotMessage extends PivotResult {
+  type: "pivot";
+  requestId: number;
+  pivotId: string;
+}
+
 export interface AggregateMessage {
   type: "aggregate";
   requestId: number;
@@ -701,6 +714,7 @@ export type WorkerRequest =
   | SetNullPolicyRequest
   | ResolveNullsAllRequest
   | GetAggregateRequest
+  | GetPivotRequest
   | GetCoMissingnessRequest
   | GetGroupAnomaliesRequest
   | GetDependenciesRequest
@@ -917,6 +931,7 @@ export type WorkerResponse =
   | CrosstabMessage
   | CorrelationMessage
   | AggregateMessage
+  | PivotMessage
   | CoMissingnessMessage
   | GroupAnomaliesMessage
   | DependenciesMessage

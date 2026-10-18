@@ -1,6 +1,7 @@
 import type { Delimiter } from "../parse/delimiter.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { TimeGrain, ViewDef } from "../data/aggregate.js";
+import type { PivotDef } from "../data/pivot.js";
 import type { PairOperator } from "../data/pair-checks.js";
 import type { ChartBinOptions } from "../data/chart-bins.js";
 import type { SeriesMode } from "../data/chart-series.js";
@@ -27,6 +28,7 @@ import type {
   GridCountsMessage,
   KeyDuplicatesMessage,
   PairCheckMessage,
+  PivotMessage,
   SimilarClustersMessage,
   ExportOptions,
   ExportScope,
@@ -255,6 +257,10 @@ export class SearchWorkerClient {
 
   getAggregate(view: ViewDef): Promise<AggregateMessage> {
     return this.request<AggregateMessage>({ type: "getAggregate", view });
+  }
+
+  getPivot(pivot: PivotDef): Promise<PivotMessage> {
+    return this.request<PivotMessage>({ type: "getPivot", pivot });
   }
 
   getCoMissingness(): Promise<CoMissingnessMessage> {
