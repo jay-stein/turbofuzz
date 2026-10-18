@@ -164,3 +164,25 @@ test("grand-total percentages keep raw totals available", () => {
   assert.equal(result.measures[0]?.grandTotal, 52);
   assert.deepEqual([...result.measures[0]!.rowTotals], [7, 15, 30]);
 });
+test("pivot caps spread columns at 500 with a truncation flag", () => {
+  const rows = Array.from({ length: 501 }, (_, index) => [`key-${index}`, "1"]);
+  const wide = buildDataset("wide", ["key", "amount"], rows);
+  const wideIds = Uint32Array.from({ length: wide.rowCount }, (_, index) => index);
+  const result = computePivot(
+    {
+      id: "wide",
+      name: "Wide pivot",
+      index: [],
+      columns: [{ column: 0, by: "value" }],
+      values: [{ column: 1, agg: "sum" }],
+      respectFilters: true,
+    },
+    wide.columns,
+    wide.rowCount,
+    wideIds,
+  );
+  assert.equal(result.columnLimit, 500);
+  assert.equal(result.totalColumnCount, 501);
+  assert.equal(result.truncatedColumns, true);
+  assert.equal(result.colLabels.length, 500);
+});

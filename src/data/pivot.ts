@@ -53,10 +53,15 @@ export interface PivotResult {
   groupCount: number;
   totalGroups: number;
   truncated: boolean;
+  /** Column cap applied to keep the matrix bounded. */
+  columnLimit?: number;
+  totalColumnCount?: number;
+  truncatedColumns?: boolean;
   ms: number;
 }
 
-const PIVOT_LIMIT = 250_000;
+export const PIVOT_LIMIT = 250_000;
+export const PIVOT_COLUMN_LIMIT = 500;
 const SEP = "\u001f";
 
 interface KeyedParts {
@@ -263,7 +268,10 @@ export function computePivot(
   const rowIsTime = base.dimensionIsTime.slice(0, indexCount);
   const colIsTime = base.dimensionIsTime.slice(indexCount, indexCount + columnCount);
   const sortedRows = sortKeys(rowKeys, rowIsTime, def.sort ?? "label");
-  const sortedCols = sortKeys(colKeys, colIsTime, def.sort ?? "label");
+  let sortedCols = sortKeys(colKeys, colIsTime, def.sort ?? "label");
+  const totalColumnCount = sortedCols.length;
+  const truncatedColumns = totalColumnCount > PIVOT_COLUMN_LIMIT;
+  if (truncatedColumns) sortedCols = sortedCols.slice(0, PIVOT_COLUMN_LIMIT);
   const rowOrder = new Map(sortedRows.map((entry, index) => [entry.key, index]));
   const colOrder = new Map(sortedCols.map((entry, index) => [entry.key, index]));
 
@@ -472,6 +480,9 @@ export function computePivot(
     groupCount: base.groupCount,
     totalGroups: base.totalGroups,
     truncated: base.truncated,
+    columnLimit: PIVOT_COLUMN_LIMIT,
+    totalColumnCount,
+    truncatedColumns,
     ms: performance.now() - started,
   };
 }

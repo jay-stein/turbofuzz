@@ -172,20 +172,16 @@ function transposeIcon(): SVGElement {
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("fill", "none");
   svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "1.4");
+  svg.setAttribute("stroke-width", "1.8");
   svg.setAttribute("stroke-linecap", "round");
   svg.setAttribute("stroke-linejoin", "round");
   svg.innerHTML = `
-    <rect x="2.5" y="2.5" width="19" height="19" rx="2" opacity=".45" />
-    <path d="M8.5 2.5v19M2.5 8.5h19" stroke-width="1" opacity=".3" />
-    <text x="15.3" y="6.9" text-anchor="middle" font-size="4.7" font-weight="700"
-      font-family="ui-sans-serif, system-ui, sans-serif" fill="currentColor" stroke="none">Y</text>
-    <text x="5.5" y="16.4" text-anchor="middle" font-size="4.7" font-weight="700"
-      font-family="ui-sans-serif, system-ui, sans-serif" fill="currentColor" stroke="none">X</text>
-    <path d="M11 19l7-7" />
-    <path d="M15 12h3v3" />
-    <path d="M12.5 11.5l7 7" />
-    <path d="M16.5 18.5h3v-3" />
+    <path d="M2.5 5h13" stroke-width="3.2" />
+    <path d="M9 5v16" stroke-width="3.2" />
+    <path d="M16 8h5" />
+    <path d="M18.5 5.5 21 8l-2.5 2.5" />
+    <path d="M21 17h-5" />
+    <path d="M18.5 14.5 16 17l2.5 2.5" />
   `;
   return svg;
 }
@@ -221,6 +217,7 @@ export function movePivotField(
   target: PivotWell,
   position: number,
   numericSource: boolean,
+  dateSource = false,
 ): PivotMoveResult {
   const selected =
     view.pivotMeasure === undefined ? undefined : view.measures[view.pivotMeasure];
@@ -242,6 +239,7 @@ export function movePivotField(
           target,
           position,
           numericSource,
+          dateSource,
         );
       }
       const agg = numericSource ? "mean" : "count";
@@ -260,12 +258,6 @@ export function movePivotField(
       return { ok: true };
     }
     if (existingDim >= 0) {
-      if (view.dimensions[existingDim]?.by !== "value") {
-        return {
-          ok: false,
-          reason: "Change the grouped field back to Exact value before moving it.",
-        };
-      }
       const sourceWell = thisPivotIndexes(view).includes(existingDim) ? "columns" : "index";
       return movePivotField(
         view,
@@ -273,6 +265,7 @@ export function movePivotField(
         target,
         position,
         numericSource,
+        dateSource,
       );
     }
     const oldColumns = thisPivotIndexes(view);
@@ -286,7 +279,10 @@ export function movePivotField(
       );
     const before = targetOrder[Math.max(0, Math.min(targetOrder.length, position))];
     const beforeSpec = before === undefined ? undefined : view.dimensions[before];
-    const spec: DimensionSpec = { column, by: "value" };
+    const spec: DimensionSpec = {
+      column,
+      by: dateSource ? { time: "month" } : "value",
+    };
     if (beforeSpec === undefined) view.dimensions.push(spec);
     else view.dimensions.splice(view.dimensions.indexOf(beforeSpec), 0, spec);
     if (target === "columns") columnSpecs.add(spec);
@@ -399,7 +395,10 @@ export function movePivotField(
     );
   const before = targetOrder[Math.max(0, Math.min(targetOrder.length, position))];
   const beforeSpec = before === undefined ? undefined : view.dimensions[before];
-  const spec: DimensionSpec = { column: measure.column, by: "value" };
+  const spec: DimensionSpec = {
+    column: measure.column,
+    by: dateSource ? { time: "month" } : "value",
+  };
   if (beforeSpec === undefined) view.dimensions.push(spec);
   else view.dimensions.splice(view.dimensions.indexOf(beforeSpec), 0, spec);
   if (target === "columns") columnSpecs.add(spec);
@@ -1868,17 +1867,22 @@ export class ViewsPanel {
   private fieldShelf(def: ViewDef): HTMLElement {
     const shelf = el("div", { class: "views-field-shelf" });
     const head = el("div", { class: "views-shelf-head" });
-    const title = el("span", { class: "views-shelf-title" }, [
-      `All columns (${this.metas.length})`,
+    const heading = el("div", { class: "views-shelf-heading" }, [
+      el("span", { class: "views-shelf-title" }, [
+        `All fields (${this.metas.length})`,
+      ]),
+      el("span", { class: "views-shelf-hint" }, [
+        "↑ Drag a field up into Index, Columns or Values",
+      ]),
     ]);
     const search = el("input", {
       class: "views-shelf-search",
       type: "search",
-      placeholder: "Find a column…",
+      placeholder: "Find a field…",
       "aria-label": "Find a pivot field",
       value: this.fieldSearch,
     }) as HTMLInputElement;
-    head.append(title, search);
+    head.append(heading, search);
     const list = el("div", { class: "views-shelf-list" });
     const pivotSet = new Set(this.pivotIndexes(def));
     const dimensionColumns = new Set(def.dimensions.map((dimension) => dimension.column));
@@ -2009,6 +2013,7 @@ export class ViewsPanel {
       target,
       position,
       meta !== undefined && isNumericLikeType(meta.type),
+      meta?.type === "date" || meta?.type === "datetime",
     );
     if (!result.ok) {
       this.transientNote = result.reason ?? "That field cannot move there.";
@@ -3031,7 +3036,15 @@ export class ViewsPanel {
       this.tableEl.append(el("div", { class: "views-empty" }, ["The pivot has no values."]));
       return;
     }
-    const rowHeaderCount = Math.max(1, pivot.rowNames.length);
+    if (pivot.truncatedColumns === true) {
+      this.tableEl.append(
+        el("div", { class: "views-pivot-warning", role: "status" }, [
+          `Too many column values. Showing the first ${pivot.columnLimit ?? 500} of ${(
+            pivot.totalColumnCount ?? 0
+          ).toLocaleString()} columns. Move a field to Index or filter the data to see the rest.`,
+        ]),
+      );
+    }    const rowHeaderCount = Math.max(1, pivot.rowNames.length);
     const colHeaderDepth = Math.max(1, pivot.colNames.length);
     const multipleMeasures = pivot.measures.length > 1;
     const measureLevels = multipleMeasures ? 2 : 0;

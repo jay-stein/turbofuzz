@@ -2438,7 +2438,7 @@ mark {
 }
 
 .views-zone-label {
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--text-dim);
   min-width: 68px;
 }
@@ -2555,7 +2555,7 @@ mark {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
-  max-height: 124px;
+  max-height: 160px;
   overflow-y: auto;
   padding: 2px;
 }
@@ -2639,7 +2639,7 @@ mark {
 }
 .views-pill-label {
   font: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
   border: none;
   background: transparent;
   color: var(--text);
@@ -2781,7 +2781,7 @@ mark {
 }
 
 .views-layout-hint {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-dim);
   opacity: 0.8;
 }
@@ -2948,6 +2948,16 @@ mark {
   border-radius: 4px;
 }
 
+.views-pivot-warning {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--qa-warn-border);
+  border-radius: 8px;
+  background: var(--qa-warn-soft);
+  color: var(--qa-warn-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
 .views-pivot-note {
   margin-top: 6px;
   font-size: 12px;

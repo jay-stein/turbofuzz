@@ -291,16 +291,21 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 
 ### Changes
 
-- Added an always-visible "All columns" shelf with every dataset field, type labels, a search box and used-in-view indicators.
+- Added an always-visible bounded "All fields" drag box with larger text, every dataset field, type labels, a search box and used-in-view indicators.
 - Shelf chips are draggable into Index, Columns or Values. Clicking a chip offers the same three destinations.
 - Dropping a shelf column that is already grouped moves that field instead of duplicating it. Dropping it on Values converts or adds the appropriate mean/count value.
-- Transpose sits in a full-width action row directly below the All columns shelf and above the result-status line, with a large grid/X/Y swap icon plus the word Transpose. The icon uses a subtle cell grid, X/Y axis labels and crossing exchange arrows.
+- Transpose sits in a full-width action row directly below the All columns shelf and above the result-status line, with a large letter T plus exchange arrows and the word Transpose.
 - Renamed the percentage control to "Show as" and added "% of grand total" alongside row/column. Values use 1 decimal place on screen and in CSV.
 - Renamed the margins checkbox to "All totals" so it is clearly separate from percentage conversion.
 
 ### Validation
 
 - `npm run typecheck` passes.
-- `npm test`: 717 tests passing.
+- `npm test`: 719 tests passing.
 - `npm run build` passes.
 - New tests cover shelf-column moves and grand-total CSV percentages.
+### Guards and time grouping
+
+- Pivot column groups are capped at 500. Larger spreads are truncated with an inline warning showing the displayed and total column counts.
+- Date/datetime fields dragged from the field shelf or chosen with + Field default to month buckets, with the normal field menu available to switch to exact values, day, quarter, year or other grains.
+- Increased pivot builder, shelf and field text sizes so the drag source and destination wells are easier to scan.

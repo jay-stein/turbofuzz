@@ -804,3 +804,16 @@ test("dragging a shelf column adds or moves it by column", () => {
   );
   assert.deepEqual(view.pivotColumns, [2, 3]);
 });
+test("shelf date fields auto-group by month and keep exact as an option", () => {
+  const view = dragView();
+  const moved = movePivotField(
+    view,
+    { kind: "column", index: 4, well: "shelf" },
+    "index",
+    0,
+    false,
+    true,
+  );
+  assert.equal(moved.ok, true);
+  assert.deepEqual(view.dimensions[0], { column: 4, by: { time: "month" } });
+});
