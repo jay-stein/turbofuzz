@@ -2,6 +2,7 @@ import {
   computeAggregate,
   type DimensionSpec,
   type MeasureSpec,
+  type PivotFilter,
   type PivotLambdaSpec,
   type ViewDef,
 } from "./aggregate.js";
@@ -27,7 +28,7 @@ export interface PivotDef {
   /** Safe custom lambda values, appended after ordinary values. */
   lambdas?: PivotLambdaSpec[];
   marginPct?: "none" | "row" | "column" | "grand";
-  valueFilters?: { column: number; values: string[] }[];
+  valueFilters?: PivotFilter[];
 }
 
 export interface PivotMeasureResult {
@@ -187,16 +188,123 @@ export function computePivot(
   const filters = (def.valueFilters ?? []).filter(
     (filter) => columns[filter.column] !== undefined,
   );
-  if (filters.length > 0) {
-    const sets = filters.map((filter) => ({
-      column: filter.column,
-      values: new Set(filter.values.map((value) => value.trim().toLowerCase())),
-    }));
-    ids = ids.filter((id) =>
-      sets.every((filter) =>
-        filter.values.has((columns[filter.column]?.raw[id] ?? "").trim().toLowerCase()),
-      ),
-    );
+  for (const filter of filters) {
+    const column = columns[filter.column]!;
+    const kind = filter.kind;
+    if (kind === "values") {
+      const values = new Set(filter.values.map((value) => value.trim().toLowerCase()));
+      ids = ids.filter((id) => {
+        const has = values.has((column.raw[id] ?? "").trim().toLowerCase());
+        return filter.negate === true ? !has : has;
+      });
+      continue;
+    }
+    if (kind === "blank") {
+      ids = ids.filter((id) => {
+        const blank = column.isNull(column.raw[id] ?? "");
+        return filter.negate === true ? !blank : blank;
+      });
+      continue;
+    }
+    if (kind === "text") {
+      const needle = filter.value.trim().toLowerCase();
+      ids = ids.filter((id) => {
+        const value = (column.raw[id] ?? "").trim().toLowerCase();
+        switch (filter.op) {
+          case "eq":
+            return value === needle;
+          case "ne":
+            return value !== needle;
+          case "contains":
+            return value.includes(needle);
+          case "notContains":
+            return !value.includes(needle);
+          case "begins":
+            return value.startsWith(needle);
+          case "ends":
+            return value.endsWith(needle);
+        }
+      });
+      continue;
+    }
+    const numbers = column.numbers();
+    if (kind === "number" && (filter.op === "aboveAvg" || filter.op === "belowAvg")) {
+      let sum = 0;
+      let count = 0;
+      for (const id of ids) {
+        const value = numbers[id] ?? Number.NaN;
+        if (!Number.isFinite(value)) continue;
+        sum += value;
+        count++;
+      }
+      if (count === 0) {
+        ids = new Uint32Array(0);
+        continue;
+      }
+      const average = sum / count;
+      ids = ids.filter((id) => {
+        const value = numbers[id] ?? Number.NaN;
+        if (!Number.isFinite(value)) return false;
+        return filter.op === "aboveAvg" ? value > average : value < average;
+      });
+      continue;
+    }
+    const first = filter.value;
+    const second = filter.value2;
+    if (!Number.isFinite(first)) {
+      ids = new Uint32Array(0);
+      continue;
+    }
+    if (kind === "date") {
+      const firstDay = Math.floor(first! / 86_400_000);
+      const secondDay = Number.isFinite(second) ? Math.floor(second! / 86_400_000) : firstDay;
+      const low = Math.min(firstDay, secondDay);
+      const high = Math.max(firstDay, secondDay);
+      ids = ids.filter((id) => {
+        const value = numbers[id] ?? Number.NaN;
+        if (!Number.isFinite(value)) return false;
+        const day = Math.floor(value / 86_400_000);
+        switch (filter.op) {
+          case "on":
+            return day === firstDay;
+          case "before":
+            return day < firstDay;
+          case "after":
+            return day > firstDay;
+          case "onOrBefore":
+            return day <= firstDay;
+          case "onOrAfter":
+            return day >= firstDay;
+          case "between":
+            return day >= low && day <= high;
+        }
+      });
+      continue;
+    }
+    const low = Number.isFinite(second) ? Math.min(first!, second!) : first!;
+    const high = Number.isFinite(second) ? Math.max(first!, second!) : first!;
+    ids = ids.filter((id) => {
+      const value = numbers[id] ?? Number.NaN;
+      if (!Number.isFinite(value)) return false;
+      switch (filter.op) {
+        case "eq":
+          return value === first;
+        case "ne":
+          return value !== first;
+        case "gt":
+          return value > first!;
+        case "gte":
+          return value >= first!;
+        case "lt":
+          return value < first!;
+        case "lte":
+          return value <= first!;
+        case "between":
+          return value >= low && value <= high;
+        default:
+          return false;
+      }
+    });
   }
   const indexCount = def.index.length;
   const columnCount = def.columns.length;

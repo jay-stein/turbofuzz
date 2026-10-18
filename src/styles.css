@@ -1867,6 +1867,57 @@ button:disabled {
   flex: none;
 }
 
+.views-filter-mode {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.views-filter-mode:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.views-filter-values {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.views-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+
+.views-filter-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.views-filter-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.views-filter-field[hidden],
+.views-filter-search[hidden],
+.views-filter-list[hidden] {
+  display: none;
+}
 .views-filter-search {
   width: 100%;
   border: 1px solid var(--border);

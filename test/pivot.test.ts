@@ -142,7 +142,7 @@ test("pivot value filters restrict raw rows and keep percentage totals", () => {
     pivot({
       margins: false,
       marginPct: "row",
-      valueFilters: [{ column: 0, values: ["north"] }],
+      valueFilters: [{ column: 0, kind: "values", values: ["north"] }],
     }),
     SALES.columns,
     SALES.rowCount,
@@ -185,4 +185,95 @@ test("pivot caps spread columns at 500 with a truncation flag", () => {
   assert.equal(result.totalColumnCount, 501);
   assert.equal(result.truncatedColumns, true);
   assert.equal(result.colLabels.length, 500);
+});
+test("numeric pivot filters support comparison ranges and averages", () => {
+  const greater = computePivot(
+    pivot({
+      margins: false,
+      valueFilters: [{ column: 2, kind: "number", op: "gt", value: 12 }],
+    }),
+    SALES.columns,
+    SALES.rowCount,
+    ids,
+  );
+  assert.deepEqual(greater.rowLabels, [["South"]]);
+  assert.deepEqual([...greater.measures[0]!.values], [20]);
+
+  const range = computePivot(
+    pivot({
+      margins: false,
+      valueFilters: [{ column: 2, kind: "number", op: "between", value: 7, value2: 10 }],
+    }),
+    SALES.columns,
+    SALES.rowCount,
+    ids,
+  );
+  assert.equal(
+    [...range.measures[0]!.values].filter(Number.isFinite).reduce((sum, value) => sum + value, 0),
+    27,
+  );
+
+  const above = computePivot(
+    pivot({
+      margins: false,
+      valueFilters: [{ column: 2, kind: "number", op: "aboveAvg" }],
+    }),
+    SALES.columns,
+    SALES.rowCount,
+    ids,
+  );
+  assert.deepEqual(above.rowLabels, [["South"]]);
+});
+
+test("date and text pivot filters match the requested day and text", () => {
+  const dated = buildDataset("dated", ["when", "amount"], [
+    ["2024-01-01", "1"],
+    ["2024-02-15", "2"],
+    ["2024-03-01", "3"],
+  ]);
+  const datedIds = Uint32Array.from({ length: dated.rowCount }, (_, index) => index);
+  const before = computePivot(
+    {
+      id: "dated",
+      name: "Dated",
+      index: [{ column: 0, by: "value" }],
+      columns: [],
+      values: [{ column: 1, agg: "sum" }],
+      respectFilters: true,
+      valueFilters: [
+        { column: 0, kind: "date", op: "before", value: Date.UTC(2024, 1, 1) },
+      ],
+    },
+    dated.columns,
+    dated.rowCount,
+    datedIds,
+  );
+  assert.deepEqual(before.rowLabels, [["2024-01-01"]]);
+
+  const text = computePivot(
+    pivot({
+      margins: false,
+      valueFilters: [
+        { column: 0, kind: "text", op: "contains", value: "sou" },
+      ],
+    }),
+    SALES.columns,
+    SALES.rowCount,
+    ids,
+  );
+  assert.deepEqual(text.rowLabels, [["South"]]);
+});
+test("category filters can exclude selected values", () => {
+  const result = computePivot(
+    pivot({
+      margins: false,
+      valueFilters: [
+        { column: 0, kind: "values", values: ["north"], negate: true },
+      ],
+    }),
+    SALES.columns,
+    SALES.rowCount,
+    ids,
+  );
+  assert.deepEqual(result.rowLabels, [["East"], ["South"]]);
 });

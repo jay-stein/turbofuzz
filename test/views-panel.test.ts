@@ -882,7 +882,7 @@ test("pivot value filters use a searchable picker and can clear", async () => {
   apply.click();
   await tick();
   assert.deepEqual(pivotRequests[pivotRequests.length - 1]?.valueFilters, [
-    { column: 1, values: ["a"] },
+    { column: 1, kind: "values", values: ["a"] },
   ]);
 
   (host.querySelector(".views-index-pill .views-pill-filter") as unknown as { click(): void }).click();
@@ -915,15 +915,18 @@ test("pivot value filters use a searchable picker and can clear", async () => {
   );
   assert.ok(amountFilter !== undefined);
   (amountFilter as unknown as { click(): void }).click();
-  const reportSearch = doc.querySelector(".views-filter-search") as HTMLInputElement | null;
-  assert.ok(reportSearch !== null);
-  reportSearch.value = "5";
-  reportSearch.dispatchEvent(new window.Event("input") as unknown as Event);
-  (doc.querySelector(".views-filter-add") as unknown as { click(): void }).click();
+  const reportOperator = doc.querySelector(".views-filter-mode") as HTMLSelectElement | null;
+  assert.ok(reportOperator !== null);
+  reportOperator.value = "gt";
+  reportOperator.dispatchEvent(new window.Event("change") as unknown as Event);
+  const reportValue = doc.querySelector(".views-filter-input") as HTMLInputElement | null;
+  assert.ok(reportValue !== null);
+  reportValue.value = "5";
+  reportValue.dispatchEvent(new window.Event("input") as unknown as Event);
   (doc.querySelector(".views-filter-apply") as unknown as { click(): void }).click();
   await tick();
   assert.deepEqual(pivotRequests[pivotRequests.length - 1]?.valueFilters, [
-    { column: 0, values: ["5"] },
+    { column: 0, kind: "number", op: "gt", value: 5 },
   ]);
   assert.match(host.querySelector(".views-report-filter-pill")?.textContent ?? "", /amount/);
 });

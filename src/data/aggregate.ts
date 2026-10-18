@@ -48,6 +48,38 @@ export type DimensionSpec =
   | { column: number; by: { since: CohortSpec } };
 
 /** Basic aggregates plus `pN` percentiles, `distinct` counts and `expr`. */
+export type PivotFilter =
+  | { column: number; kind: "values"; values: string[]; negate?: boolean }
+  | {
+      column: number;
+      kind: "number";
+      op:
+        | "eq"
+        | "ne"
+        | "gt"
+        | "gte"
+        | "lt"
+        | "lte"
+        | "between"
+        | "aboveAvg"
+        | "belowAvg";
+      value?: number;
+      value2?: number;
+    }
+  | {
+      column: number;
+      kind: "date";
+      op: "on" | "before" | "after" | "onOrBefore" | "onOrAfter" | "between";
+      value?: number;
+      value2?: number;
+    }
+  | {
+      column: number;
+      kind: "text";
+      op: "eq" | "ne" | "contains" | "notContains" | "begins" | "ends";
+      value: string;
+    }
+  | { column: number; kind: "blank"; negate?: boolean };
 export type Aggregate =
   | "count"
   | "distinct"
@@ -141,8 +173,8 @@ export interface ViewDef {
   pivotMarginPct?: "none" | "row" | "column" | "grand";
   /** Coolwarm pivot cell shading, optionally reversed. */
   pivotHeatmap?: "none" | "coolwarm" | "coolwarm-reversed";
-  /** Exact raw-value filters on pivot dimension columns. */
-  pivotValueFilters?: { column: number; values: string[] }[];
+  /** Raw-row filters; any dataset column, not only pivot dimensions. */
+  pivotValueFilters?: PivotFilter[];
   /** Value used for pivot cells with no rows (null/undefined = blank). */
   fillValue?: number | null;
   /** Drop pivot rows and columns that contain no finite values. */

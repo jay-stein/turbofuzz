@@ -301,7 +301,7 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 ### Validation
 
 - `npm run typecheck` passes.
-- `npm test`: 721 tests passing.
+- `npm test`: 724 tests passing.
 - `npm run build` passes.
 - New tests cover shelf-column moves and grand-total CSV percentages.
 ### Guards and time grouping
@@ -336,3 +336,11 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - The field shelf menu now offers "Filter values..." for any field, opening the same searchable value picker.
 - Report filters are only shown when the view is actually pivoted, so filters cannot silently do nothing in aggregate-only views.
 - Extended the filter UI test to assert a report filter on a column absent from the pivot layout.
+## Follow-up: typed pivot filters (2026-10-18)
+
+- Numeric fields now filter with Equals, Does not equal, Greater/Less than, Greater/Less than or equal, Between, Above average, Below average, Is blank and Is not blank.
+- Date/datetime fields use On, Before, After, On or before, On or after, Between, Is blank and Is not blank.
+- Free-text fields use Equals, Does not equal, Contains, Does not contain, Begins with, Ends with, Is blank and Is not blank.
+- Category/boolean fields use a checkbox picker for up to 20 values with Is one of, Is not one of, Is blank and Is not blank. Larger categories switch to the fuzzy text filter editor.
+- Report filters and dimension funnels share the same type-aware editor. Active filter descriptions and counts now handle all operator kinds.
+- Pivot filter definitions support typed number, date, text, value-set and blank filters; the worker evaluates them against raw rows before aggregation.

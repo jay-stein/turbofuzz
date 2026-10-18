@@ -10,6 +10,7 @@ import {
   isCompleteView,
   type MeasureCondition,
   type MeasureSpec,
+  type PivotFilter,
   type PivotLambdaSpec,
   type PostOp,
   type TimeGrain,
@@ -20,6 +21,7 @@ import { compilePivotLambda } from "../data/pivot-lambda.js";
 import { downloadCsv } from "./chart-export.js";
 import { pivotCsvRows } from "./pivot-export.js";
 import { safeFileName } from "./chart-utils.js";
+import { parseDate } from "../parse/dates.js";
 import { openPrompt, setupDialog } from "./dialog.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
@@ -202,6 +204,68 @@ function transposeIcon(): SVGElement {
     <path d="M18.5 14.5 16 17l2.5 2.5" />
   `;
   return svg;
+}
+const NUMBER_FILTER_OPS = [
+  ["eq", "Equals"],
+  ["ne", "Does not equal"],
+  ["gt", "Greater than"],
+  ["gte", "Greater than or equal"],
+  ["lt", "Less than"],
+  ["lte", "Less than or equal"],
+  ["between", "Between"],
+  ["aboveAvg", "Above average"],
+  ["belowAvg", "Below average"],
+  ["blank", "Is blank"],
+  ["notBlank", "Is not blank"],
+] as const;
+const DATE_FILTER_OPS = [
+  ["on", "On"],
+  ["before", "Before"],
+  ["after", "After"],
+  ["onOrBefore", "On or before"],
+  ["onOrAfter", "On or after"],
+  ["between", "Between"],
+  ["blank", "Is blank"],
+  ["notBlank", "Is not blank"],
+] as const;
+const TEXT_FILTER_OPS = [
+  ["eq", "Equals"],
+  ["ne", "Does not equal"],
+  ["contains", "Contains"],
+  ["notContains", "Does not contain"],
+  ["begins", "Begins with"],
+  ["ends", "Ends with"],
+  ["blank", "Is blank"],
+  ["notBlank", "Is not blank"],
+] as const;
+
+function filterValueCount(filter: PivotFilter): number {
+  if (filter.kind === undefined || filter.kind === "values") return filter.values.length;
+  if (filter.kind === "blank") return 1;
+  if (filter.kind === "text") return 1;
+  return filter.op === "between" ? 2 : 1;
+}
+
+function filterDescription(filter: PivotFilter): string {
+  if (filter.kind === undefined || filter.kind === "values") {
+    const mode = filter.negate === true ? "Is not one of" : "Is one of";
+    return `${mode}: ${filter.values.join(", ")}`;
+  }
+  if (filter.kind === "blank") return filter.negate === true ? "Is not blank" : "Is blank";
+  if (filter.kind === "text") {
+    const label = TEXT_FILTER_OPS.find(([op]) => op === filter.op)?.[1] ?? filter.op;
+    return `${label}: ${filter.value}`;
+  }
+  if (filter.kind === "date") {
+    const label = DATE_FILTER_OPS.find(([op]) => op === filter.op)?.[1] ?? filter.op;
+    const date = (value: number | undefined): string =>
+      value === undefined ? "" : new Date(value).toISOString().slice(0, 10);
+    return filter.op === "between"
+      ? `${label}: ${date(filter.value)} - ${date(filter.value2)}`
+      : `${label}: ${date(filter.value)}`;
+  }
+  const label = NUMBER_FILTER_OPS.find(([op]) => op === filter.op)?.[1] ?? filter.op;
+  return filter.value === undefined ? label : `${label}: ${filter.value}`;
 }
 function filterIcon(): SVGElement {
   return svgIcon(
@@ -1897,18 +1961,18 @@ export class ViewsPanel {
         {
           class: "views-pill-label",
           type: "button",
-          title: `Filtered to: ${filter.values.join(", ")}`,
+          title: filterDescription(filter),
         },
         [
           filterIcon(),
           el("span", {}, [meta.name]),
           el("span", { class: "views-filter-chip-count" }, [
-            String(filter.values.length),
+            String(filterValueCount(filter)),
           ]),
         ],
       ) as HTMLButtonElement;
       edit.addEventListener("click", () =>
-        this.openValueFilter(edit, filter.column, "Report filter"),
+        this.openFilterForColumn(edit, filter.column, "Report filter"),
       );
       const remove = el(
         "button",
@@ -1960,7 +2024,7 @@ export class ViewsPanel {
     const items: MenuItem[] = this.metas.map((meta, column) => ({
       label: `${meta.name}${active.has(column) ? " (filtered)" : ""}`,
       title: `Filter pivot rows by ${meta.name}`,
-      action: () => this.openValueFilter(anchor, column, "Report filter"),
+      action: () => this.openFilterForColumn(anchor, column, "Report filter"),
     }));
     openMenu(anchor, items);
   }
@@ -2081,7 +2145,7 @@ export class ViewsPanel {
       items.push({
         label: "Filter values...",
         title: `Filter pivot rows by ${name}`,
-        action: () => this.openValueFilter(anchor, column, "Report filter"),
+        action: () => this.openFilterForColumn(anchor, column, "Report filter"),
       });
     }
     openMenu(anchor, items);
@@ -2288,39 +2352,37 @@ export class ViewsPanel {
     down.addEventListener("click", () =>
       this.update((view) => this.moveDimension(view, group, position, 1)),
     );
-    const filterValues = def.pivotValueFilters?.find(
+    const activeFilter = def.pivotValueFilters?.find(
       (filter) => filter.column === spec.column,
-    )?.values;
+    );
     const filter =
-      spec.by === "value" &&
-      this.pivotIndexes(def).length > 0 &&
-      (meta?.type === "category" || meta?.type === "boolean" || meta?.type === "string")
+      spec.by === "value" && this.pivotIndexes(def).length > 0
         ? (el(
             "button",
             {
-              class: `views-pill-filter${
-                filterValues === undefined || filterValues.length === 0 ? "" : " active"
-              }`,
+              class: `views-pill-filter${activeFilter === undefined ? "" : " active"}`,
               type: "button",
               title:
-                filterValues === undefined || filterValues.length === 0
-                  ? "Filter this field by value"
-                  : `Filtered to ${filterValues.length} values - click to edit`,
+                activeFilter === undefined
+                  ? "Filter this field"
+                  : `${filterDescription(activeFilter)} - click to edit`,
               "aria-label": "Filter field values",
             },
             [filterIcon()],
           ) as HTMLButtonElement)
         : null;
-    if (filter !== null && filterValues !== undefined && filterValues.length > 0) {
+    if (filter !== null && activeFilter !== undefined) {
       filter.append(
-        el("span", { class: "views-pill-filter-count" }, [String(filterValues.length)]),
+        el("span", { class: "views-pill-filter-count" }, [
+          String(filterValueCount(activeFilter)),
+        ]),
       );
     }
     filter?.addEventListener("click", () =>
-      this.openValueFilter(
+      this.openFilterForColumn(
         filter,
         spec.column,
-        group === "index" ? "Index values" : "Column values",
+        group === "index" ? "Index filter" : "Column filter",
       ),
     );
     const toggle = el(
@@ -2363,8 +2425,32 @@ export class ViewsPanel {
     pill.append(grip, label, up, down, ...(filter === null ? [] : [filter]), toggle, remove);
     return pill;
   }
-  /** Searchable value picker for any pivot filter column. */
-  private openValueFilter(
+  /** Typed filter editors selected by the column's data type. */
+  private openFilterForColumn(
+    anchor: HTMLElement,
+    column: number,
+    subtitle: string,
+  ): void {
+    const meta = this.metas[column];
+    if (meta === undefined) return;
+    const distinct = meta.categories?.labels.length ?? meta.stats.distinct;
+    if ((meta.type === "category" || meta.type === "boolean") && distinct <= 20) {
+      this.openCategoryFilter(anchor, column, subtitle);
+      return;
+    }
+    if (meta.type === "date" || meta.type === "datetime") {
+      this.openTypedFilter(anchor, column, subtitle, "date");
+      return;
+    }
+    if (meta.type === "string" || meta.type === "category") {
+      this.openTypedFilter(anchor, column, subtitle, "text");
+      return;
+    }
+    this.openTypedFilter(anchor, column, subtitle, "number");
+  }
+
+  /** Up to 20 category values as include/exclude checkboxes. */
+  private openCategoryFilter(
     anchor: HTMLElement,
     column: number,
     subtitle: string,
@@ -2372,8 +2458,8 @@ export class ViewsPanel {
     const entry = this.views[this.active];
     if (entry === undefined) return;
     const meta = this.metas[column];
-    const current =
-      entry.def.pivotValueFilters?.find((filter) => filter.column === column)?.values ?? [];
+    const existing = entry.def.pivotValueFilters?.find((filter) => filter.column === column);
+    const current = existing?.kind === "values" ? existing.values : [];
     const labels = new Map<string, number>();
     if (meta?.categories !== null && meta?.categories !== undefined) {
       meta.categories.labels.forEach((label, index) => {
@@ -2386,6 +2472,14 @@ export class ViewsPanel {
       if (!labels.has(value)) labels.set(value, 0);
     }
     const selected = new Set(current);
+    const initialMode =
+      existing?.kind === "blank"
+        ? existing.negate === true
+          ? "notBlank"
+          : "blank"
+        : existing?.kind === "values" && existing.negate === true
+          ? "notIn"
+          : "in";
 
     const popover = el("div", {
       class: "views-filter-popover",
@@ -2396,10 +2490,24 @@ export class ViewsPanel {
       el("span", { class: "views-filter-title" }, [`Filter ${meta?.name ?? "field"}`]),
       el("span", { class: "views-filter-subtitle" }, [subtitle]),
     ]);
+    const mode = el("select", {
+      class: "views-filter-mode",
+      "aria-label": "Filter mode",
+    }) as HTMLSelectElement;
+    for (const [value, label] of [
+      ["in", "Is one of"],
+      ["notIn", "Is not one of"],
+      ["blank", "Is blank"],
+      ["notBlank", "Is not blank"],
+    ] as const) {
+      const option = el("option", { value }, [label]) as HTMLOptionElement;
+      if (initialMode === value) option.selected = true;
+      mode.append(option);
+    }
     const search = el("input", {
       class: "views-filter-search",
       type: "search",
-      placeholder: "Search values…",
+      placeholder: "Search values.",
       "aria-label": "Search filter values",
     }) as HTMLInputElement;
     const list = el("div", { class: "views-filter-list" });
@@ -2431,25 +2539,52 @@ export class ViewsPanel {
         anchor.focus();
       }
     };
-    const commit = (values: string[]): void => {
+    const currentFilter = (): PivotFilter | null => {
+      if (mode.value === "blank" || mode.value === "notBlank") {
+        return { column, kind: "blank", negate: mode.value === "notBlank" };
+      }
+      if (selected.size === 0) return null;
+      return {
+        column,
+        kind: "values",
+        values: [...selected],
+        ...(mode.value === "notIn" ? { negate: true } : {}),
+      };
+    };
+    const commit = (filter: PivotFilter | null): void => {
       close();
-      this.update((view) => {
-        const others = (view.pivotValueFilters ?? []).filter(
-          (filter) => filter.column !== column,
-        );
-        view.pivotValueFilters =
-          values.length === 0 ? others : [...others, { column, values }];
-      });
+      this.applyPivotFilter(column, filter);
     };
     const updateFooter = (): void => {
-      status.textContent =
-        selected.size === 0
+      const blank = mode.value === "blank" || mode.value === "notBlank";
+      search.hidden = blank;
+      list.hidden = blank;
+      status.textContent = blank
+        ? "Blankness filter"
+        : selected.size === 0
           ? "All values"
           : `${selected.size.toLocaleString()} selected`;
       apply.textContent = selected.size === 0 ? "Apply" : `Apply (${selected.size})`;
-      clearButton.disabled = selected.size === 0 && current.length === 0;
+      clearButton.disabled = existing === undefined;
     };
-
+    const addOption = (label: string, count: number): void => {
+      const checkbox = el("input", {
+        type: "checkbox",
+        ...(selected.has(label) ? { checked: "checked" } : {}),
+      }) as HTMLInputElement;
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) selected.add(label);
+        else selected.delete(label);
+        updateFooter();
+      });
+      list.append(
+        el("label", { class: "views-filter-option" }, [
+          checkbox,
+          el("span", { class: "views-filter-option-label" }, [label]),
+          el("span", { class: "views-filter-option-count" }, [count.toLocaleString()]),
+        ]),
+      );
+    };
     const renderOptions = (): void => {
       clear(list);
       const needle = search.value.trim().toLocaleLowerCase();
@@ -2471,7 +2606,7 @@ export class ViewsPanel {
         const add = el(
           "button",
           { class: "views-filter-add", type: "button" },
-          [`Add exact value “${custom}”`],
+          [`Add exact value "${custom}"`],
         ) as HTMLButtonElement;
         add.addEventListener("click", () => {
           labels.set(custom, 0);
@@ -2484,27 +2619,8 @@ export class ViewsPanel {
       }
       updateFooter();
     };
-    const addOption = (label: string, count: number): void => {
-      const checkbox = el("input", {
-        type: "checkbox",
-        ...(selected.has(label) ? { checked: "checked" } : {}),
-      }) as HTMLInputElement;
-      checkbox.addEventListener("change", () => {
-        if (checkbox.checked) selected.add(label);
-        else selected.delete(label);
-        updateFooter();
-      });
-      list.append(
-        el("label", { class: "views-filter-option" }, [
-          checkbox,
-          el("span", { class: "views-filter-option-label" }, [label]),
-          el("span", { class: "views-filter-option-count" }, [
-            count.toLocaleString(),
-          ]),
-        ]),
-      );
-    };
 
+    mode.addEventListener("change", updateFooter);
     search.addEventListener("input", renderOptions);
     search.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
@@ -2516,11 +2632,11 @@ export class ViewsPanel {
         renderOptions();
       }
     });
-    clearButton.addEventListener("click", () => commit([]));
-    apply.addEventListener("click", () => commit([...selected]));
+    clearButton.addEventListener("click", () => commit(null));
+    apply.addEventListener("click", () => commit(currentFilter()));
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKey);
-    popover.append(head, search, list, footer);
+    popover.append(head, mode, search, list, footer);
     footer.append(status, el("span", { class: "grow" }), clearButton, apply);
     document.body.append(popover);
     renderOptions();
@@ -2533,6 +2649,196 @@ export class ViewsPanel {
         ? `${Math.max(8, rect.top - popover.offsetHeight - 6)}px`
         : `${below}px`;
     search.focus();
+  }
+
+  /** Number, date and free-text operator filters. */
+  private openTypedFilter(
+    anchor: HTMLElement,
+    column: number,
+    subtitle: string,
+    kind: "number" | "date" | "text",
+  ): void {
+    const entry = this.views[this.active];
+    if (entry === undefined) return;
+    const meta = this.metas[column];
+    const existing = entry.def.pivotValueFilters?.find((filter) => filter.column === column);
+    const ops = kind === "number" ? NUMBER_FILTER_OPS : kind === "date" ? DATE_FILTER_OPS : TEXT_FILTER_OPS;
+    const popover = el("div", {
+      class: "views-filter-popover",
+      role: "dialog",
+      "aria-label": `Filter ${meta?.name ?? "field"}`,
+    });
+    const head = el("div", { class: "views-filter-head" }, [
+      el("span", { class: "views-filter-title" }, [`Filter ${meta?.name ?? "field"}`]),
+      el("span", { class: "views-filter-subtitle" }, [subtitle]),
+    ]);
+    const opSelect = el("select", {
+      class: "views-filter-mode",
+      "aria-label": "Filter operator",
+    }) as HTMLSelectElement;
+    for (const [value, label] of ops) {
+      opSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+    }
+    const first = el("input", {
+      class: "views-filter-input",
+      type: kind === "number" ? "number" : kind === "date" ? "date" : "text",
+      ...(kind === "number" ? { step: "any" } : {}),
+      "aria-label": "Filter value",
+    }) as HTMLInputElement;
+    const second = el("input", {
+      class: "views-filter-input",
+      type: kind === "number" ? "number" : kind === "date" ? "date" : "text",
+      ...(kind === "number" ? { step: "any" } : {}),
+      "aria-label": "Second filter value",
+    }) as HTMLInputElement;
+    const firstField = el("label", { class: "views-filter-field" }, [
+      el("span", {}, [kind === "date" ? "Date" : "Value"]),
+      first,
+    ]);
+    const secondField = el("label", { class: "views-filter-field" }, [
+      el("span", {}, ["And"]),
+      second,
+    ]);
+    const footer = el("div", { class: "views-filter-footer" });
+    const status = el("span", { class: "views-filter-status" });
+    const clearButton = el(
+      "button",
+      { class: "ghost small views-filter-clear", type: "button" },
+      ["Clear filter"],
+    ) as HTMLButtonElement;
+    const apply = el(
+      "button",
+      { class: "primary small views-filter-apply", type: "button" },
+      ["Apply"],
+    ) as HTMLButtonElement;
+
+    let initialOp: string =
+      kind === "number" ? "eq" : kind === "date" ? "on" : "contains";
+    if (existing?.kind === kind) initialOp = existing.op;
+    else if (existing?.kind === "blank") {
+      initialOp = existing.negate === true ? "notBlank" : "blank";
+    }
+    opSelect.value = initialOp;
+    if (existing?.kind === "number" || existing?.kind === "date") {
+      first.value =
+        existing.value === undefined
+          ? ""
+          : kind === "date"
+            ? new Date(existing.value).toISOString().slice(0, 10)
+            : String(existing.value);
+      second.value =
+        existing.value2 === undefined
+          ? ""
+          : kind === "date"
+            ? new Date(existing.value2).toISOString().slice(0, 10)
+            : String(existing.value2);
+    } else if (existing?.kind === "text") {
+      first.value = existing.value;
+    }
+
+    const close = (): void => {
+      popover.remove();
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!popover.contains(event.target as Node)) close();
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+        anchor.focus();
+      }
+    };
+    const needsFirst = (): boolean =>
+      !["aboveAvg", "belowAvg", "blank", "notBlank"].includes(opSelect.value);
+    const needsSecond = (): boolean => opSelect.value === "between";
+    const numberValue = (input: HTMLInputElement): number =>
+      kind === "date" ? parseDate(input.value, meta?.dateOrder ?? "dmy") : Number(input.value);
+    const valid = (): boolean => {
+      if (!needsFirst()) return true;
+      if (kind === "text") return first.value.trim() !== "";
+      if (!Number.isFinite(numberValue(first))) return false;
+      return !needsSecond() || Number.isFinite(numberValue(second));
+    };
+    const updateFields = (): void => {
+      firstField.hidden = !needsFirst();
+      secondField.hidden = !needsSecond();
+      apply.disabled = !valid();
+      status.textContent = needsFirst() ? "" : "No value needed";
+    };
+    const currentFilter = (): PivotFilter | null => {
+      const op = opSelect.value;
+      if (op === "blank" || op === "notBlank") {
+        return { column, kind: "blank", negate: op === "notBlank" };
+      }
+      if (!valid()) return null;
+      if (kind === "text") {
+        return {
+          column,
+          kind: "text",
+          op: op as Extract<PivotFilter, { kind: "text" }>["op"],
+          value: first.value.trim(),
+        };
+      }
+      const value = numberValue(first);
+      const value2 = needsSecond() ? numberValue(second) : undefined;
+      if (kind === "date") {
+        return {
+          column,
+          kind: "date",
+          op: op as Extract<PivotFilter, { kind: "date" }>["op"],
+          value,
+          ...(value2 === undefined ? {} : { value2 }),
+        };
+      }
+      return {
+        column,
+        kind: "number",
+        op: op as Extract<PivotFilter, { kind: "number" }>["op"],
+        ...(op === "aboveAvg" || op === "belowAvg" ? {} : { value }),
+        ...(value2 === undefined ? {} : { value2 }),
+      };
+    };
+    const commit = (filter: PivotFilter | null): void => {
+      close();
+      this.applyPivotFilter(column, filter);
+    };
+    opSelect.addEventListener("change", updateFields);
+    first.addEventListener("input", updateFields);
+    second.addEventListener("input", updateFields);
+    clearButton.addEventListener("click", () => commit(null));
+    apply.addEventListener("click", () => commit(currentFilter()));
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    popover.append(
+      head,
+      opSelect,
+      el("div", { class: "views-filter-values" }, [firstField, secondField]),
+      footer,
+    );
+    footer.append(status, el("span", { class: "grow" }), clearButton, apply);
+    document.body.append(popover);
+    updateFields();
+    const rect = anchor.getBoundingClientRect();
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - popover.offsetWidth - 8));
+    popover.style.left = `${left}px`;
+    const below = rect.bottom + 6;
+    popover.style.top =
+      below + popover.offsetHeight > window.innerHeight - 8
+        ? `${Math.max(8, rect.top - popover.offsetHeight - 6)}px`
+        : `${below}px`;
+    (needsFirst() ? first : apply).focus();
+  }
+
+  private applyPivotFilter(column: number, filter: PivotFilter | null): void {
+    this.update((view) => {
+      const others = (view.pivotValueFilters ?? []).filter(
+        (entry) => entry.column !== column,
+      );
+      view.pivotValueFilters = filter === null ? others : [...others, filter];
+    });
   }
   private lambdaPill(
     def: ViewDef,
