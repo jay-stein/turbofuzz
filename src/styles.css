@@ -3830,6 +3830,18 @@ select.chart-number {
   flex-wrap: wrap;
 }
 
+.chart-color-domain {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chart-color-bound {
+  width: 72px;
+  min-width: 0;
+}
+
 .chart-palette-select {
   max-width: 150px;
 }

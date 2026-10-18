@@ -212,6 +212,8 @@ export interface ChartCardConfig {
   paletteCustom?: string;
   /** Flip the colour map (light ↔ dark, series order reversed). */
   paletteReversed?: boolean;
+  colorMin?: number | null;
+  colorMax?: number | null;
   topN: number;
   groupOther: boolean;
   binOptions: ChartBinOptions | null;
@@ -601,6 +603,8 @@ function defaultConfig(): ChartCardConfig {
     palette: DEFAULT_PALETTE,
     paletteCustom: "",
     paletteReversed: false,
+    colorMin: null,
+    colorMax: null,
     topN: 10,
     groupOther: true,
     binOptions: null,
@@ -757,6 +761,9 @@ export class ChartCard {
   private readonly palettePreview: HTMLElement;
   private readonly paletteReverseInput: HTMLInputElement;
   private readonly paletteStatus: HTMLElement;
+  private readonly colorMinInput: HTMLInputElement;
+  private readonly colorMaxInput: HTMLInputElement;
+  private readonly colorDomainRow: HTMLElement;
   private readonly histogramSettings: HTMLElement;
   private readonly barSettings: HTMLElement;
   private readonly correlationSettings: HTMLElement;
@@ -1444,6 +1451,50 @@ export class ChartCard {
       "Reverse",
     ]);
     reverseLabel.title = "Flip the colour map direction (works for ramps and series order)";
+    this.colorMinInput = el("input", {
+      class: "text-input chart-color-bound",
+      type: "number",
+      step: "any",
+      placeholder: "Auto",
+      "aria-label": "Colour scale minimum",
+    }) as HTMLInputElement;
+    this.colorMaxInput = el("input", {
+      class: "text-input chart-color-bound",
+      type: "number",
+      step: "any",
+      placeholder: "Auto",
+      "aria-label": "Colour scale maximum",
+    }) as HTMLInputElement;
+    const applyColorDomain = (): void => {
+      const min =
+        this.colorMinInput.value.trim() === ""
+          ? null
+          : parseChartNumber(this.colorMinInput.value);
+      const max =
+        this.colorMaxInput.value.trim() === ""
+          ? null
+          : parseChartNumber(this.colorMaxInput.value);
+      if (min !== null && max !== null && !(max > min)) {
+        this.paletteStatus.textContent = "Colour max must be greater than min";
+        return;
+      }
+      this.config.colorMin = min;
+      this.config.colorMax = max;
+      this.paletteStatus.textContent = "";
+      this.render();
+    };
+    this.colorMinInput.addEventListener("change", applyColorDomain);
+    this.colorMaxInput.addEventListener("change", applyColorDomain);
+    this.colorDomainRow = el("div", { class: "chart-color-domain" }, [
+      el("label", { class: "chart-tag" }, [
+        el("span", { class: "chart-tag-label" }, ["Min"]),
+        this.colorMinInput,
+      ]),
+      el("label", { class: "chart-tag" }, [
+        el("span", { class: "chart-tag-label" }, ["Max"]),
+        this.colorMaxInput,
+      ]),
+    ]);
     const paletteFile = el("input", {
       type: "file",
       accept: ".json,application/json",
@@ -1478,6 +1529,7 @@ export class ChartCard {
         this.paletteSelect,
         this.palettePreview,
         reverseLabel,
+        this.colorDomainRow,
         loadPalette,
         paletteFile,
         this.paletteStatus,
@@ -2916,6 +2968,16 @@ export class ChartCard {
       dot.style.background = color;
       this.palettePreview.append(dot);
     }
+    const ramp = isRampPalette(this.config.palette ?? DEFAULT_PALETTE);
+    this.colorDomainRow.classList.toggle("hidden", !ramp);
+    this.colorMinInput.value =
+      this.config.colorMin === null || this.config.colorMin === undefined
+        ? ""
+        : String(this.config.colorMin);
+    this.colorMaxInput.value =
+      this.config.colorMax === null || this.config.colorMax === undefined
+        ? ""
+        : String(this.config.colorMax);
   }
 
   /** Loads a palette from JSON text: array of hex colours or {colors: [...]}. */
@@ -5582,7 +5644,16 @@ export class ChartCard {
         return;
       }
       const values = grid.values;
-      const max = Math.max(1, values === null ? grid.maxCount : grid.valueMax);
+      const dataMax = Math.max(1, values === null ? grid.maxCount : grid.valueMax);
+      const max =
+        this.config.colorMax === null || this.config.colorMax === undefined
+          ? dataMax
+          : this.config.colorMax;
+      const min =
+        this.config.colorMin === null || this.config.colorMin === undefined
+          ? 0
+          : this.config.colorMin;
+      const span = Math.max(1e-12, max - min);
       const rampName = this.config.palette ?? DEFAULT_PALETTE;
       const ramp = isRampPalette(rampName) ? this.rampStopsFor(rampName) : null;
       const colors =
@@ -5602,7 +5673,7 @@ export class ChartCard {
           const lat0 = latTop - cellLat;
           if (lon0 + cellLon < view.lonMin || lon0 > view.lonMax) continue;
           if (lat0 + cellLat < view.latMin || lat0 > view.latMax) continue;
-          const t = Math.min(1, value / max);
+          const t = Math.min(1, Math.max(0, (value - min) / span));
           ctx.fillStyle =
             colors[Math.min(colors.length - 1, Math.floor(t * colors.length))] ??
             this.primaryColor();
@@ -5637,7 +5708,7 @@ export class ChartCard {
       ctx.globalAlpha = 1;
       ctx.fillStyle = frame.dim;
       this.font(ctx, ui, 9);
-      ctx.fillText(formatTick(0, null), barX, barY - 4 * ui);
+      ctx.fillText(formatTick(min, null), barX, barY - 4 * ui);
       const maxLabel = formatTick(max, null);
       ctx.fillText(
         maxLabel,
@@ -7378,6 +7449,14 @@ export class ChartCard {
         if (value > max) max = value;
       }
       if (min === Infinity) return null;
+      const scaleMin =
+        this.config.colorMin === null || this.config.colorMin === undefined
+          ? min
+          : this.config.colorMin;
+      const scaleMax =
+        this.config.colorMax === null || this.config.colorMax === undefined
+          ? max
+          : this.config.colorMax;
       const buckets = new Uint8Array(n).fill(16);
       const paletteName = this.config.palette ?? DEFAULT_PALETTE;
       const ramp = isRampPalette(paletteName) ? this.rampStopsFor(paletteName) : null;
@@ -7389,7 +7468,10 @@ export class ChartCard {
       for (let i = 0; i < n; i++) {
         const value = result.colorValues[i];
         if (!Number.isFinite(value)) continue;
-        const t = max > min ? (value - min) / (max - min) : 0.5;
+        const t =
+          scaleMax > scaleMin
+            ? Math.min(1, Math.max(0, (value - scaleMin) / (scaleMax - scaleMin)))
+            : 0.5;
         buckets[i] = Math.round(t * 15);
       }
       return { buckets, colors };
@@ -7414,7 +7496,23 @@ export class ChartCard {
         if (value > max) max = value;
       }
       if (min !== Infinity) {
-        return `colour: ${meta.name} (${formatTick(min, null)} – ${formatTick(max, null)})`;
+        const scaleMin =
+          this.config.colorMin === null || this.config.colorMin === undefined
+            ? min
+            : this.config.colorMin;
+        const scaleMax =
+          this.config.colorMax === null || this.config.colorMax === undefined
+            ? max
+            : this.config.colorMax;
+        const fixed =
+          this.config.colorMin !== null && this.config.colorMin !== undefined ||
+          this.config.colorMax !== null && this.config.colorMax !== undefined
+            ? " fixed"
+            : "";
+        return `colour: ${meta.name} (${formatTick(scaleMin, null)} - ${formatTick(
+          scaleMax,
+          null,
+        )}${fixed})`;
       }
     }
     return null;

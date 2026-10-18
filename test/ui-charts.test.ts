@@ -1100,6 +1100,43 @@ test("the chart menu downloads the data behind the chart as CSV", async () => {
   }
 });
 
+test("a ramp palette exposes fixed colour min and max", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), {
+    kind: "scatter",
+    x: 0,
+    y: 1,
+    colorColumn: 2,
+  });
+  card.setColumns([
+    meta({ name: "x", type: "number", stats: { ...meta().stats, min: 0, max: 10 } }),
+    meta({ name: "y", type: "number", stats: { ...meta().stats, min: 0, max: 10 } }),
+    meta({ name: "score", type: "number", stats: { ...meta().stats, min: 0, max: 100 } }),
+  ]);
+  await tick();
+  const palette = host.querySelector(".chart-palette-select") as HTMLSelectElement;
+  palette.value = "Blues";
+  palette.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  const min = host.querySelector('input[aria-label="Colour scale minimum"]') as HTMLInputElement;
+  const max = host.querySelector('input[aria-label="Colour scale maximum"]') as HTMLInputElement;
+  assert.equal(min.closest(".chart-color-domain")?.classList.contains("hidden"), false);
+  min.value = "20";
+  max.value = "80";
+  min.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(card.getConfig().colorMin, 20);
+  assert.equal(card.getConfig().colorMax, 80);
+  min.value = "90";
+  min.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(card.getConfig().colorMin, 20, "invalid bounds are ignored");
+  assert.match(host.querySelector(".chart-palette-status")?.textContent ?? "", /greater than min/);
+  card.dispose();
+});
+
 test("the colour map can be reversed", async () => {
   const window = setupDom();
   captureMockContext(window, []);
