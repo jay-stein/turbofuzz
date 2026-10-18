@@ -24,6 +24,7 @@ import {
 import type { TimeGrain, ViewDef } from "../data/aggregate.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import { isNumericLikeType, TYPE_LABELS } from "../types.js";
+import { chartSpecFromConfig, chartSpecJson } from "./chart-spec.js";
 import type {
   AggregateMessage,
   BoxStatsMessage,
@@ -3654,6 +3655,11 @@ export class ChartCard {
           action: () => this.exportCsv(),
         },
         {
+          label: "Download chart spec (JSON)",
+          title: "Download a versioned, portable description of this chart",
+          action: () => this.downloadChartSpec(),
+        },
+        {
           label: `${this.config.span === "full" ? "● " : ""}Full row width`,
           title: "Span the whole row, or return to the normal grid cell",
           action: () => this.toggleSpan(),
@@ -4737,6 +4743,29 @@ export class ChartCard {
       this.render();
     }
     return { frames, width: offscreen.width, height: offscreen.height };
+  }
+
+  /** Versioned ChartSpec JSON: portable across config changes and code export. */
+  private downloadChartSpec(): void {
+    if (typeof URL.createObjectURL !== "function") return;
+    const sourceName =
+      this.config.source === ""
+        ? this.options.tableSourceLabel?.() ?? "Table"
+        : (this.sources.find((source) => source.id === this.config.source)?.name ??
+          this.config.source);
+    const spec = chartSpecFromConfig(this.config, this.columns, sourceName);
+    const url = URL.createObjectURL(
+      new Blob([chartSpecJson(spec)], { type: "application/json" }),
+    );
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${safeFileName(this.options.datasetName())}-${safeFileName(
+      this.chartName(),
+    )}-chart-spec.json`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   }
 
   private downloadBlob(blob: Blob, extension: string): void {
