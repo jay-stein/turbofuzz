@@ -2963,6 +2963,7 @@ export class App {
     }
     this.viewsPanel = new ViewsPanel(this.viewsHost, {
       requestAggregate: (view) => this.client.getAggregate(view),
+      requestPivot: (pivot) => this.client.getPivot(pivot),
       archetype: () => this.effectiveArchetype(),
       onDrill: (column, timeStart, timeEnd, label) => {
         if (timeStart !== null) {

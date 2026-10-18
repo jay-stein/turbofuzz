@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import type { AggregateMessage, ColumnMeta } from "../src/worker/protocol.js";
+import type { AggregateMessage, ColumnMeta, PivotMessage } from "../src/worker/protocol.js";
+import type { PivotDef } from "../src/data/pivot.js";
 import { ViewsPanel, starterViews } from "../src/ui/views-panel.js";
 import type { ViewDef } from "../src/data/aggregate.js";
 
@@ -359,13 +360,14 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
   setupDom();
   const host = document.createElement("div");
   const requests: ViewDef[] = [];
+  const pivotRequests: PivotDef[] = [];
   const panel = new ViewsPanel(host as unknown as HTMLElement, {
     requestAggregate: async (view) => {
       requests.push(view);
       return aggregateOf(view, {
-        labels: ["2024-01 · P0", "2024-01 · P1", "2024-02 · P0"],
+        labels: ["2024-01 � P0", "2024-01 � P1", "2024-02 � P0"],
         dimensions: [["2024-01", "2024-01", "2024-02"], ["P0", "P1", "P0"]],
-        dimensionNames: ["when · cohort by city", "periods since first city"],
+        dimensionNames: ["when � cohort by city", "periods since first city"],
         dimensionIsTime: [false, false],
         dimensionTimes: [Float64Array.from([Number.NaN, Number.NaN, Number.NaN]), Float64Array.from([Number.NaN, Number.NaN, Number.NaN])],
         measures: [Float64Array.from([1, 2, 1])],
@@ -373,6 +375,33 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
         groupCount: 3,
         totalGroups: 3,
       });
+    },
+    requestPivot: async (def) => {
+      pivotRequests.push(def);
+      return {
+        type: "pivot",
+        requestId: 1,
+        pivotId: def.id,
+        rowLabels: [["C0"], ["C1"], ["All"]],
+        colLabels: [["P0"], ["P1"], ["All"]],
+        rowNames: ["when - cohort by city"],
+        colNames: ["periods since first city"],
+        rowIsTime: [false],
+        colIsTime: [false],
+        rowTimes: [Float64Array.from([Number.NaN, Number.NaN, Number.NaN])],
+        colTimes: [Float64Array.from([Number.NaN, Number.NaN, Number.NaN])],
+        measures: [{
+          name: "distinct(amount)",
+          values: Float64Array.from([1, 2, 1, 2, 3, 2, 3, 5, 5]),
+          rowTotals: Float64Array.from([3, 5, 5]),
+          colTotals: Float64Array.from([3, 5, 5]),
+          grandTotal: 5,
+        }],
+        groupCount: 3,
+        totalGroups: 3,
+        truncated: false,
+        ms: 1,
+      } satisfies PivotMessage;
     },
     onDrill: () => {},
     onChart: () => {},
@@ -387,16 +416,16 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
   assert.ok(cohortButton !== undefined, "the cohort starter appears for date + entity data");
   (cohortButton as unknown as { click(): void }).click();
   await tick();
-  const definition = requests[requests.length - 1];
-  assert.equal(definition?.pivot, 1);
-  assert.deepEqual(definition?.dimensions[0], {
+  const definition = pivotRequests[pivotRequests.length - 1];
+  assert.ok(definition !== undefined);
+  assert.deepEqual(definition.index[0], {
     column: 2,
     by: { cohort: { entity: 1, grain: "month" } },
   });
   const pivot = host.querySelector(".views-pivot");
   assert.ok(pivot !== null, "the matrix renders");
   const header = pivot.querySelectorAll("thead th");
-  assert.equal(header.length, 3, "row header + two period columns");
+  assert.equal(header.length, 4, "row header + two period columns + All");
   assert.equal(header[1]?.textContent, "P0");
   assert.match(host.querySelector(".views-pivot-note")?.textContent ?? "", /Spreading/);
   const layout = host.querySelectorAll(".views-layout-pill");

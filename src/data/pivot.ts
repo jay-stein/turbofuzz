@@ -254,6 +254,22 @@ export function computePivot(
     }
   }
 
+  const visibleRows =
+    def.dropna === true
+      ? sortedRows.filter((_, row) =>
+          matrices.some((values) =>
+            sortedCols.some((_, col) => Number.isFinite(values[row * sortedCols.length + col])),
+          ),
+        )
+      : sortedRows;
+  const visibleCols =
+    def.dropna === true
+      ? sortedCols.filter((_, col) =>
+          matrices.some((values) =>
+            sortedRows.some((_, row) => Number.isFinite(values[row * sortedCols.length + col])),
+          ),
+        )
+      : sortedCols;
   const margins = def.margins === true;
   const marginsName = def.marginsName?.trim() || "All";
   const addRowMargin = margins && indexCount > 0;
@@ -277,14 +293,19 @@ export function computePivot(
     { length: measureCount },
     () => new Float64Array(rowCountOut * colCountOut).fill(Number.NaN),
   );
+  const sourceRowIndex = new Map(sortedRows.map((entry, index) => [entry.key, index]));
+  const sourceColIndex = new Map(sortedCols.map((entry, index) => [entry.key, index]));
   for (let measure = 0; measure < measureCount; measure++) {
     const source = matrices[measure];
     const target = finalMatrices[measure];
     if (source === undefined || target === undefined) continue;
-    for (let row = 0; row < sortedRows.length; row++) {
-      for (let col = 0; col < sortedCols.length; col++) {
+    for (let row = 0; row < visibleRows.length; row++) {
+      const sourceRow = sourceRowIndex.get(visibleRows[row]?.key ?? "") ?? -1;
+      for (let col = 0; col < visibleCols.length; col++) {
+        const sourceCol = sourceColIndex.get(visibleCols[col]?.key ?? "") ?? -1;
+        if (sourceRow < 0 || sourceCol < 0) continue;
         target[row * colCountOut + col] =
-          source[row * sortedCols.length + col] ?? Number.NaN;
+          source[sourceRow * sortedCols.length + sourceCol] ?? Number.NaN;
       }
     }
   }
@@ -356,7 +377,7 @@ export function computePivot(
         }
       }
       if (addRowMargin && addColMargin) {
-        finalMatrices[measure]![sortedRows.length * colCountOut + sortedCols.length] =
+        finalMatrices[measure]![visibleRows.length * colCountOut + visibleCols.length] =
           grand;
       }
     }

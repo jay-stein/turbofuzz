@@ -1,4 +1,5 @@
-import type { ColumnMeta, AggregateMessage } from "../worker/protocol.js";
+import type { ColumnMeta, AggregateMessage, PivotMessage } from "../worker/protocol.js";
+import type { PivotDef } from "../data/pivot.js";
 import type { ArchetypeId } from "../data/archetype.js";
 import {
   type Aggregate,
@@ -22,6 +23,8 @@ import { openMenu, type MenuItem } from "./menu.js";
 
 export interface ViewsPanelOptions {
   requestAggregate(view: ViewDef): Promise<AggregateMessage>;
+  /** Worker-assembled pivot matrix (preferred for pivoted views). */
+  requestPivot?(pivot: PivotDef): Promise<PivotMessage>;
   /** Detected table archetype, used to pick smarter starter views. */
   archetype?(): ArchetypeId;
   /** Clicking a group row: value dimensions pass the label, time dims the bucket. */
@@ -38,6 +41,8 @@ export interface ViewsPanelOptions {
 interface ViewEntry {
   def: ViewDef;
   result: AggregateMessage | null;
+  /** Worker pivot payload when requestPivot is available. */
+  pivotResult: PivotMessage | null;
   /** Pivot margins computed by the worker over raw rows. */
   margins: {
     rows: AggregateMessage | null;
@@ -49,6 +54,10 @@ interface ViewEntry {
   error: string | null;
   /** Reads beyond the first VISIBLE_ROWS rows of the table. */
   expanded: boolean;
+}
+
+function hasResult(entry: { result: AggregateMessage | null; pivotResult: PivotMessage | null }): boolean {
+  return entry.result !== null || entry.pivotResult !== null;
 }
 
 const MAX_VIEWS = 5;
@@ -151,6 +160,27 @@ export function formatMeasure(value: number, measure: MeasureSpec): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+/** Compile the current ViewDef matrix layout into a worker PivotDef. */
+export function pivotDefFromView(view: ViewDef, pivotIndexes: readonly number[]): PivotDef {
+  const pivotSet = new Set(pivotIndexes);
+  const measureIndex =
+    view.pivotMeasure === undefined ? 0 : Math.max(0, Math.min(view.measures.length - 1, view.pivotMeasure));
+  const measure = view.measures[measureIndex];
+  return {
+    id: view.id,
+    name: view.name,
+    index: view.dimensions.filter((_, index) => !pivotSet.has(index)),
+    columns: pivotIndexes
+      .map((index) => view.dimensions[index])
+      .filter((spec): spec is DimensionSpec => spec !== undefined),
+    values: measure === undefined ? [] : [measure],
+    respectFilters: view.respectFilters,
+    margins: view.margins,
+    marginsName: view.marginsName,
+    fillValue: view.fillValue,
+    dropna: view.dropna,
+  };
+}
 /** Up to three one-click starter views derived from column types. */
 export function starterViews(
   columns: readonly ColumnMeta[],
@@ -252,6 +282,7 @@ export class ViewsPanel {
       this.views = starters.map((def) => ({
         def,
         result: null,
+        pivotResult: null,
         margins: null,
         loading: false,
         stale: true,
@@ -295,11 +326,31 @@ export class ViewsPanel {
     entry.loading = true;
     entry.error = null;
     entry.margins = null;
+    entry.pivotResult = null;
     this.render();
     const generation = ++this.generation;
     const def = entry.def;
     const marginViews: ViewDef[] = [];
     const pivots = this.pivotIndexes(def);
+    if (pivots.length > 0 && this.options.requestPivot !== undefined) {
+      entry.result = null;
+      void this.options
+        .requestPivot(pivotDefFromView(def, pivots))
+        .then((message) => {
+          if (generation !== this.generation) return;
+          entry.pivotResult = message;
+          entry.loading = false;
+          entry.stale = false;
+          this.render();
+        })
+        .catch((error: unknown) => {
+          if (generation !== this.generation) return;
+          entry.loading = false;
+          entry.error = error instanceof Error ? error.message : String(error);
+          this.render();
+        });
+      return;
+    }
     const pivotSet = new Set(pivots);
     const rowDims = def.dimensions.filter((_, index) => !pivotSet.has(index));
     const colDims = pivots
@@ -380,6 +431,7 @@ export class ViewsPanel {
     return {
       def,
       result: null,
+      pivotResult: null,
       margins: null,
       loading: false,
       stale: true,
@@ -541,7 +593,7 @@ export class ViewsPanel {
     head.append(toggle, name, rename);
     if (!expanded) {
       head.append(el("span", { class: "views-card-summary" }, [this.summarise(entry)]));
-      if (entry.stale && entry.result !== null) {
+      if (entry.stale && hasResult(entry)) {
         head.append(
           el(
             "span",
@@ -592,7 +644,7 @@ export class ViewsPanel {
     }
     this.active = index;
     const entry = this.views[index];
-    if (entry !== undefined && (entry.stale || entry.result === null)) this.refresh();
+    if (entry !== undefined && (entry.stale || !hasResult(entry))) this.refresh();
     else this.render();
   }
 
@@ -605,11 +657,10 @@ export class ViewsPanel {
     if (dims !== "") parts.push(dims);
     const measures = entry.def.measures.map((measure) => measureSymbol(measure)).join(", ");
     if (measures !== "") parts.push(measures);
-    if (entry.result !== null) {
+    const groupCount = entry.result?.groupCount ?? entry.pivotResult?.groupCount;
+    if (groupCount !== undefined) {
       parts.push(
-        `${entry.result.groupCount.toLocaleString()} ${
-          entry.result.groupCount === 1 ? "group" : "groups"
-        }`,
+        `${groupCount.toLocaleString()} ${groupCount === 1 ? "group" : "groups"}`,
       );
     } else if (entry.loading) {
       parts.push("aggregating…");
@@ -818,9 +869,9 @@ export class ViewsPanel {
       },
       ["Export CSV"],
     ) as HTMLButtonElement;
-    csv.disabled = entry === undefined || entry.result === null;
+    csv.disabled = entry === undefined || !hasResult(entry);
     csv.addEventListener("click", () => {
-      if (entry !== undefined && entry.result !== null) this.exportCsv(entry);
+      if (entry !== undefined && hasResult(entry)) this.exportCsv(entry);
     });
 
     const firstDim = entry?.def.dimensions[0];
@@ -996,6 +1047,36 @@ export class ViewsPanel {
 
   /** CSV of the current aggregate or pivot matrix. */
   private exportCsv(entry: ViewEntry): void {
+    const pivot = entry.pivotResult;
+    if (pivot !== null) {
+      const measure = pivot.measures[0];
+      if (measure === undefined) return;
+      const fillValue =
+        entry.def.fillValue === undefined || entry.def.fillValue === null
+          ? null
+          : entry.def.fillValue;
+      const format = (value: number): string =>
+        Number.isFinite(value) ? String(value) : fillValue === null ? "" : String(fillValue);
+      const rows: string[][] = [];
+      rows.push([
+        ...(pivot.rowNames.length === 0 ? ["All"] : pivot.rowNames),
+        ...pivot.colLabels.map((parts) => parts.join(" / ") || "All"),
+      ]);
+      for (let row = 0; row < pivot.rowLabels.length; row++) {
+        const label = pivot.rowLabels[row] ?? [];
+        rows.push([
+          ...(label.length === 0 ? ["All"] : label),
+          ...pivot.colLabels.map((_, col) =>
+            format(measure.values[row * pivot.colLabels.length + col] ?? Number.NaN),
+          ),
+        ]);
+      }
+      downloadCsv(
+        `${safeFileName(entry.def.name) || "pivot-view"}.csv`,
+        rows,
+      );
+      return;
+    }
     const result = entry.result;
     if (result === null) return;
     const rows: string[][] = [];
@@ -1753,6 +1834,17 @@ export class ViewsPanel {
 
   private renderTable(entry: ViewEntry): void {
     clear(this.tableEl);
+    const pivot = entry.pivotResult;
+    if (pivot !== null) {
+      if (pivot.groupCount === 0) {
+        if (isCompleteView(entry.def) && !entry.loading) {
+          this.tableEl.append(el("div", { class: "views-empty" }, ["No groups match."]));
+        }
+        return;
+      }
+      this.renderWorkerPivot(entry, pivot);
+      return;
+    }
     const result = entry.result;
     if (result === null || result.groupCount === 0) {
       if (isCompleteView(entry.def) && !entry.loading) {
@@ -1912,6 +2004,108 @@ export class ViewsPanel {
     }
   }
 
+  /** Worker-assembled pivot matrix, including margins and nested column levels. */
+  private renderWorkerPivot(entry: ViewEntry, pivot: PivotMessage): void {
+    const measure = pivot.measures[0];
+    if (measure === undefined) {
+      this.tableEl.append(el("div", { class: "views-empty" }, ["The pivot has no measure."]));
+      return;
+    }
+    const measureIndex = Math.max(
+      0,
+      Math.min(entry.def.measures.length - 1, entry.def.pivotMeasure ?? 0),
+    );
+    const measureSpec = entry.def.measures[measureIndex] ?? {
+      column: null,
+      agg: "count" as const,
+    };
+    const rowHeaderCount = Math.max(1, pivot.rowNames.length);
+    const colHeaderDepth = Math.max(1, pivot.colNames.length);
+    const rowCount = pivot.rowLabels.length;
+    const colCount = pivot.colLabels.length;
+    const fillValue =
+      entry.def.fillValue === undefined || entry.def.fillValue === null
+        ? null
+        : entry.def.fillValue;
+    const displayValue = (value: number): number =>
+      Number.isFinite(value) || fillValue === null ? value : fillValue;
+    let max = 0;
+    for (const value of measure.values) {
+      if (Number.isFinite(value)) max = Math.max(max, Math.abs(value));
+    }
+    const table = el("table", { class: "views-table views-pivot" });
+    const head = el("thead");
+    for (let depth = 0; depth < colHeaderDepth; depth++) {
+      const headRow = el("tr", { class: "views-pivot-head-row" });
+      if (depth === 0) {
+        for (let level = 0; level < rowHeaderCount; level++) {
+          headRow.append(
+            el("th", { class: "views-dim-head", rowspan: String(colHeaderDepth) }, [
+              pivot.rowNames[level] ?? "All",
+            ]),
+          );
+        }
+      }
+      let start = 0;
+      while (start < colCount) {
+        const prefix = (pivot.colLabels[start] ?? []).slice(0, depth + 1);
+        let end = start + 1;
+        while (
+          end < colCount &&
+          prefix.every((part, index) => (pivot.colLabels[end]?.[index] ?? "") === part)
+        ) {
+          end++;
+        }
+        headRow.append(
+          el(
+            "th",
+            {
+              class: depth === colHeaderDepth - 1 ? "views-num-head" : "views-col-head",
+              colspan: String(end - start),
+              title: prefix.join(" / "),
+            },
+            [prefix[depth] || "All"],
+          ),
+        );
+        start = end;
+      }
+      head.append(headRow);
+    }
+    table.append(head);
+    const body = el("tbody");
+    for (let row = 0; row < rowCount; row++) {
+      const tr = el("tr", { class: "views-row" });
+      const parts = pivot.rowLabels[row] ?? [];
+      for (let level = 0; level < rowHeaderCount; level++) {
+        tr.append(el("td", { class: "views-dim" }, [parts[level] || "All"]));
+      }
+      for (let col = 0; col < colCount; col++) {
+        const value = displayValue(measure.values[row * colCount + col] ?? Number.NaN);
+        const td = el("td", { class: "views-num" });
+        if (Number.isFinite(value) && max > 0) {
+          const strength = Math.max(0.05, Math.min(1, Math.abs(value) / max));
+          td.style.background = `color-mix(in srgb, var(--accent) ${Math.round(
+            strength * 48,
+          )}%, transparent)`;
+        }
+        td.append(el("span", { class: "views-value" }, [formatMeasure(value, measureSpec)]));
+        tr.append(td);
+      }
+      body.append(tr);
+    }
+    table.append(body);
+    this.tableEl.append(table);
+    const spread = pivot.colNames.length > 0 ? pivot.colNames.join(" + ") : "All";
+    const emptyNote =
+      fillValue === null ? "empty cells stay blank" : `empty cells show ${fillValue}`;
+    this.tableEl.append(
+      el("div", { class: "views-pivot-note" }, [
+        `Spreading "${spread}" across columns - ${measure.name} - ${emptyNote}${
+          entry.def.dropna === true ? " - empty rows and columns hidden" : ""
+        }${entry.def.margins === true ? ` - ${entry.def.marginsName ?? "All"} margins computed from raw rows` : ""}.`,
+      ]),
+    );
+  }
   /** Matrix with every non-pivot dimension forming the row index. */
   private renderPivot(entry: ViewEntry, pivots: number[]): void {
     const result = entry.result;
