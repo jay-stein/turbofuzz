@@ -166,6 +166,42 @@ export function openChartSetupDialog(
           error: null,
         };
       };
+    } else if (kind === "barplot") {
+      const categoryPick = select(
+        "Category",
+        category,
+        preset.column ?? null,
+        "Setup barplot category",
+      );
+      const measure = select(
+        "Measure",
+        numeric,
+        preset.valueColumn ?? null,
+        "Setup barplot measure",
+      );
+      body.append(categoryPick.field, measure.field);
+      collect = () => {
+        if (category.length === 0 || numeric.length === 0) {
+          return {
+            config: null,
+            error: "Category/Measure: pick a category and a numeric column.",
+          };
+        }
+        const column = Number(categoryPick.select.value);
+        const valueColumn = Number(measure.select.value);
+        return Number.isFinite(column) && Number.isFinite(valueColumn)
+          ? {
+              config: {
+                ...preset,
+                kind,
+                column,
+                valueColumn,
+                valueAgg: preset.valueAgg ?? "mean",
+              },
+              error: null,
+            }
+          : { config: null, error: "Category/Measure: pick both columns." };
+      };
     } else if (kind === "box") {
       const value = select("Values", numeric, preset.x ?? null, "Setup value column");
       const group = select("Group by", category, preset.y ?? null, "Setup group column");

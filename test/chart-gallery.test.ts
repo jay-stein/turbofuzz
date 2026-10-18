@@ -50,6 +50,10 @@ test("gallery tiles enable only when the columns fit", () => {
   assert.equal(fitChartKind("line", columns, 100).ok, true);
   assert.equal(fitChartKind("line", columns, 100).preset.column, 3);
   assert.equal(fitChartKind("bar", columns, 100).preset.column, 1);
+  const barplot = fitChartKind("barplot", columns, 100);
+  assert.equal(barplot.ok, true);
+  assert.equal(barplot.preset.column, 1);
+  assert.ok((barplot.preset.valueColumn ?? -1) >= 0);
   assert.equal(fitChartKind("scatter", columns, 100).ok, true);
   assert.equal(fitChartKind("box", columns, 100).ok, true);
   assert.equal(fitChartKind("heatmap", columns, 100).ok, true);
@@ -83,6 +87,7 @@ test("the gallery groups every chart type by the question it answers", () => {
     [...kinds].sort(),
     [
       "bar",
+      "barplot",
       "box",
       "bubble",
       "correlation",

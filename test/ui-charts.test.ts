@@ -1815,7 +1815,7 @@ test("the chart rail lists every type, adds cards and collapses", async () => {
   ]);
   await tick();
   const tiles = [...host.querySelectorAll(".charts-rail-tile")] as HTMLButtonElement[];
-  assert.equal(tiles.length, 13, "one rail tile per chart type");
+  assert.equal(tiles.length, 14, "one rail tile per chart type");
   const bubbleTile = tiles.find((tile) => (tile.textContent ?? "").includes("Bubble"));
   assert.ok(bubbleTile !== undefined, "the rail offers Bubble");
   assert.equal(bubbleTile.disabled, false);
@@ -2336,6 +2336,54 @@ test("a bar card plots a measure per category without a view", async () => {
   assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
   assert.equal(tagWrap("Agg")?.classList.contains("hidden"), false);
   assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), true, "no grain for bars");
+  card.dispose();
+});
+
+test("a barplot aggregates a numeric measure by category", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const calls: ViewDef[] = [];
+  const aggregate = (view: ViewDef): AggregateMessage => ({
+    type: "aggregate",
+    requestId: 1,
+    viewId: view.id,
+    labels: ["Portland", "Salem"],
+    dimensions: [["Portland", "Salem"]],
+    dimensionNames: ["city (value)"],
+    dimensionIsTime: [false],
+    dimensionTimes: [Float64Array.from([Number.NaN, Number.NaN])],
+    measures: [Float64Array.from([30, 10])],
+    measureNames: ["sum(amount)"],
+    totals: Float64Array.from([40]),
+    groupCount: 2,
+    totalGroups: 2,
+    truncated: false,
+    partials: null,
+    ms: 1,
+  });
+  const options = stubCardOptions();
+  const card = new ChartCard(
+    host,
+    {
+      ...options,
+      requestAggregate: (view: ViewDef) => {
+        calls.push(view);
+        return Promise.resolve(aggregate(view));
+      },
+    },
+    { kind: "barplot", column: 1, valueColumn: 0, valueAgg: "sum" },
+  );
+  card.setColumns([
+    meta({ name: "amount", type: "number" }),
+    meta({ name: "city", type: "category" }),
+  ]);
+  await tick();
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0]?.dimensions, [{ column: 1, by: "value" }]);
+  assert.deepEqual(calls[0]?.measures, [{ column: 0, agg: "sum" }]);
+  assert.deepEqual(calls[0]?.sort, { key: "m0", dir: "desc" });
+  assert.equal(calls[0]?.respectFilters, true);
   card.dispose();
 });
 

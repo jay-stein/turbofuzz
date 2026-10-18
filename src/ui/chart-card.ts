@@ -1886,7 +1886,11 @@ export class ChartCard {
     const pair = isPairKind(kind);
     const groupable = this.columns.some((meta) => isCategoryType(meta.type));
     const measureKinds =
-      kind === "line" || kind === "bar" || kind === "kpi" || kind === "histogram";
+      kind === "line" ||
+      kind === "bar" ||
+      kind === "barplot" ||
+      kind === "kpi" ||
+      kind === "histogram";
     const grainKinds =
       kind === "line" || (kind === "kpi" && this.isDateLike(this.meta(this.config.column)));
     const valueOn =
@@ -1894,7 +1898,8 @@ export class ChartCard {
     this.kindSelect.classList.toggle("hidden", bound);
     const kpiPrimaryHidden =
       kind === "kpi" && !this.columns.some((meta) => this.isDateLike(meta));
-    const groupedValue = valueOn && (kind === "line" || kind === "bar");
+    const groupedValue =
+      valueOn && (kind === "line" || kind === "bar" || kind === "barplot");
     this.primaryWrap.classList.toggle(
       "hidden",
       bound || pair || kind === "correlation" || kpiPrimaryHidden,
@@ -1902,7 +1907,11 @@ export class ChartCard {
     this.groupWrap.classList.toggle(
       "hidden",
       bound ||
-        (kind !== "line" && kind !== "histogram" && kind !== "bubble" && kind !== "bar") ||
+      (kind !== "line" &&
+        kind !== "histogram" &&
+        kind !== "bubble" &&
+        kind !== "bar" &&
+        kind !== "barplot") ||
         !groupable ||
         (valueOn && !groupedValue),
     );
@@ -1941,6 +1950,7 @@ export class ChartCard {
       this.config.source === "" &&
       (this.config.kind === "line" ||
         this.config.kind === "bar" ||
+        this.config.kind === "barplot" ||
         this.config.kind === "kpi" ||
         this.config.kind === "histogram") &&
       (this.config.valueColumn ?? -1) >= 0
@@ -1977,7 +1987,7 @@ export class ChartCard {
     // (dimension 2); the renderer pivots the returned groups into series.
     const groupType = this.meta(this.config.groupColumn)?.type;
     const split =
-      (line || this.config.kind === "bar") &&
+      (line || this.config.kind === "bar" || this.config.kind === "barplot") &&
       this.config.groupColumn >= 0 &&
       groupType !== undefined &&
       isCategoryType(groupType);
@@ -2172,7 +2182,13 @@ export class ChartCard {
     const number = (value: number): string =>
       Number.isFinite(value) ? String(value) : "";
     const aggregate = this.aggregateResult();
-    const aggregateKinds = new Set<ChartCardKind>(["line", "bar", "kpi", "histogram"]);
+    const aggregateKinds = new Set<ChartCardKind>([
+      "line",
+      "bar",
+      "barplot",
+      "kpi",
+      "histogram",
+    ]);
     if (
       aggregate !== null &&
       aggregate.groupCount > 0 &&
@@ -2454,6 +2470,7 @@ export class ChartCard {
         // The primary column is the KPI's optional date axis.
         return meta.type === "date" || meta.type === "datetime";
       case "bar":
+      case "barplot":
       case "treemap":
         return isCategoryType(meta.type);
       case "terms":
@@ -2778,12 +2795,17 @@ export class ChartCard {
                 : "Column";
     const groupable = this.columns.some((meta) => isCategoryType(meta.type));
     const measureKinds =
-      kind === "line" || kind === "bar" || kind === "kpi" || kind === "histogram";
+      kind === "line" ||
+      kind === "bar" ||
+      kind === "barplot" ||
+      kind === "kpi" ||
+      kind === "histogram";
     const grainKinds =
       kind === "line" || (kind === "kpi" && this.isDateLike(this.meta(this.config.column)));
     const valueOn =
       measureKinds && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
-    const groupedValue = valueOn && (kind === "line" || kind === "bar");
+    const groupedValue =
+      valueOn && (kind === "line" || kind === "bar" || kind === "barplot");
     this.groupWrap.classList.toggle(
       "hidden",
       (kind !== "line" && kind !== "histogram" && kind !== "bubble" && kind !== "bar") ||
@@ -4454,6 +4476,10 @@ export class ChartCard {
       }
       case "bar":
         return `Count plot of ${name(this.config.column)}, ${rows} rows shown`;
+      case "barplot":
+        return `Barplot of ${this.config.valueAgg ?? "mean"}(${name(
+          this.config.valueColumn ?? -1,
+        )}) by ${name(this.config.column)}, ${rows} rows shown`;
       case "scatter":
         return `Scatter of ${name(this.config.x)} vs ${name(this.config.y)}, ${rows} rows shown`;
       case "density":
@@ -5006,6 +5032,16 @@ export class ChartCard {
       }
       case "line":
         return count((meta) => this.isDateLike(meta)) > 0;
+      case "barplot": {
+        const category = this.meta(this.config.column);
+        const measure = this.meta(this.config.valueColumn ?? -1);
+        return (
+          category !== undefined &&
+          measure !== undefined &&
+          isCategoryType(category.type) &&
+          (isNumericType(measure.type) || measure.type === "duration")
+        );
+      }
       case "bar":
       case "treemap": {
         const meta = this.meta(this.config.column);
@@ -5333,7 +5369,8 @@ export class ChartCard {
       case "map":
         this.drawMap(ctx, frame);
         break;
-      case "kpi": {
+      case "kpi":
+      case "barplot": {
         const message = "Pick a numeric measure in the card settings.";
         this.noteEl.textContent = message;
         this.drawPlotMessage(ctx, frame, message);
@@ -7105,11 +7142,18 @@ export class ChartCard {
    * would be noise (treemaps label their tiles, correlation its cells).
    */
   private axisLabels(): { x: string | null; y: string | null } {
+    const name = (index: number): string | null =>
+      index >= 0 ? (this.meta(index)?.name ?? null) : null;
+    if (this.config.kind === "barplot") {
+      const measure = name(this.config.valueColumn ?? -1);
+      return {
+        x: name(this.config.column),
+        y: measure === null ? null : `${this.config.valueAgg ?? "mean"}(${measure})`,
+      };
+    }
     // Aggregate cards (bound views and own value lines) draw from the
     // aggregate; their own column picks do not describe those axes.
     if (this.usesAggregate()) return { x: null, y: null };
-    const name = (index: number): string | null =>
-      index >= 0 ? (this.meta(index)?.name ?? null) : null;
     switch (this.config.kind) {
       case "histogram":
         // Grouped histograms draw each group's share per bin, not raw counts.

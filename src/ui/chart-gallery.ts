@@ -81,6 +81,29 @@ export function fitChartKind(
         return { kind, ok: true, reason: "", preset: { kind, column: categories[0].index } };
       }
       return { kind, ok: false, reason: "needs a category column", preset: {} };
+    case "barplot":
+      if (categories.length >= 1 && numeric.length >= 1) {
+        return {
+          kind,
+          ok: true,
+          reason: "",
+          preset: {
+            kind,
+            column: categories[0].index,
+            valueColumn: numeric[0].index,
+            valueAgg: "mean",
+          },
+        };
+      }
+      return {
+        kind,
+        ok: false,
+        reason:
+          categories.length === 0
+            ? "needs a category column"
+            : "needs a numeric measure",
+        preset: {},
+      };
     case "treemap":
       if (categories.length >= 1) {
         return {
@@ -206,7 +229,7 @@ export const QUESTION_GROUPS: readonly { question: string; kinds: readonly Chart
   { question: "Where is it?", kinds: ["map"] },
   { question: "How is it distributed?", kinds: ["histogram", "box", "density"] },
   { question: "How does it change over time?", kinds: ["line"] },
-  { question: "How do groups compare?", kinds: ["bar", "treemap", "heatmap"] },
+  { question: "How do groups compare?", kinds: ["bar", "barplot", "treemap", "heatmap"] },
   { question: "How are two things related?", kinds: ["scatter", "bubble", "correlation"] },
   { question: "What is the text about?", kinds: ["terms"] },
 ];
@@ -222,6 +245,8 @@ const ICONS: Record<ChartCardKind, string> = {
     '<circle cx="24" cy="20" r="12" fill="currentColor" opacity="0.25"/><circle cx="44" cy="20" r="14" fill="currentColor" opacity="0.45"/><circle cx="56" cy="18" r="9" fill="currentColor" opacity="0.3"/>',
   line: '<path d="M6 30l12-8 10 5 12-14 10 6 12-10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 34h64" stroke="currentColor" stroke-width="1.5" opacity="0.5"/>',
   bar: '<path d="M10 34V22h8v12zM26 34V12h8v22zM42 34V26h8v8zM58 34V16h8v18z" fill="currentColor" opacity="0.8"/>',
+  barplot:
+    '<path d="M10 34V18h10v16zM28 34V10h10v24zM46 34V22h10v12zM10 38h48" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 34V18h10v16zM28 34V10h10v24zM46 34V22h10v12z" fill="currentColor" opacity="0.7"/>',
   treemap:
     '<rect x="8" y="8" width="34" height="32" fill="currentColor" opacity="0.8"/><rect x="44" y="8" width="20" height="14" fill="currentColor" opacity="0.55"/><rect x="44" y="24" width="20" height="16" fill="currentColor" opacity="0.35"/><rect x="10" y="10" width="16" height="12" fill="currentColor" opacity="0.35"/>',
   terms:

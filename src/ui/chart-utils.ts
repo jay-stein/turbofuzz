@@ -13,6 +13,7 @@ export type ChartCardKind =
   | "histogram"
   | "line"
   | "bar"
+  | "barplot"
   | "scatter"
   | "density"
   | "box"
@@ -28,6 +29,7 @@ export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   histogram: "Histogram",
   line: "Time series",
   bar: "Count plot",
+  barplot: "Barplot",
   scatter: "Scatter",
   density: "Density",
   box: "Box plot",
