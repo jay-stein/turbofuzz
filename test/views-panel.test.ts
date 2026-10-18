@@ -186,7 +186,7 @@ test("adding a measure chooses the aggregate before adding", async () => {
 
   const doc = (globalThis as Record<string, unknown>).document as Window["document"];
   const addMeasure = [...host.querySelectorAll(".views-pill.add")].find(
-    (button) => button.textContent === "+ Measure",
+    (button) => button.textContent === "+ Value",
   );
   assert.ok(addMeasure !== undefined);
   (addMeasure as unknown as { click(): void }).click();
@@ -428,9 +428,18 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
   assert.equal(header.length, 4, "row header + two period columns + All");
   assert.equal(header[1]?.textContent, "P0");
   assert.match(host.querySelector(".views-pivot-note")?.textContent ?? "", /Spreading/);
-  const layout = host.querySelectorAll(".views-layout-pill");
-  assert.equal(layout.length, 2, "both dimensions appear in the pivot layout");
-  assert.ok(layout[1]?.classList.contains("active"), "the spread field is marked C");
+  assert.equal(host.querySelectorAll(".views-index-pill").length, 1, "one field sits in the index well");
+  assert.equal(host.querySelectorAll(".views-column-pill").length, 1, "one field sits in the columns well");
+  assert.ok(
+    host.querySelector(".views-column-pill .views-pill-group-toggle") !== null,
+    "a field can move back from columns to index",
+  );
+  assert.ok(
+    [...host.querySelectorAll(".views-measure-zone button")].some(
+      (button) => button.textContent === "+ All numeric",
+    ),
+    "the values well offers Add all numeric",
+  );
   assert.ok(host.querySelector(".views-fill-input") !== null, "fill value is configurable");
   assert.ok(
     [...host.querySelectorAll(".views-actions label")].some(

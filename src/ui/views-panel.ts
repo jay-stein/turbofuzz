@@ -1219,114 +1219,199 @@ export class ViewsPanel {
 
   private renderBuilder(def: ViewDef): void {
     clear(this.builderEl);
-    const dimZone = el("div", { class: "views-zone" });
-    dimZone.append(el("span", { class: "views-zone-label" }, ["Group by:"]));
-    def.dimensions.forEach((spec, index) => {
-      dimZone.append(this.dimensionPill(def, spec, index));
+    const pivotSet = new Set(this.pivotIndexes(def));
+    const indexFields = def.dimensions
+      .map((_, index) => index)
+      .filter((index) => !pivotSet.has(index));
+    const columnFields = def.dimensions
+      .map((_, index) => index)
+      .filter((index) => pivotSet.has(index));
+
+    const indexZone = el("div", { class: "views-zone views-index-zone" });
+    indexZone.append(el("span", { class: "views-zone-label" }, ["Index:"]));
+    indexFields.forEach((index, position) => {
+      indexZone.append(
+        this.dimensionPill(def, def.dimensions[index]!, index, "index", position, indexFields.length),
+      );
     });
+    if (indexFields.length === 0) {
+      indexZone.append(
+        el("span", { class: "views-layout-hint" }, ["Add a field for the row index."]),
+      );
+    }
     const addDim = el(
       "button",
-      { class: "views-pill add", type: "button", title: "Add a group-by column" },
-      ["+ Column"],
+      { class: "views-pill add", type: "button", title: "Add a row index field" },
+      ["+ Field"],
     ) as HTMLButtonElement;
     addDim.addEventListener("click", () => this.openDimensionMenu(addDim, def));
-    if (def.dimensions.length < 4) dimZone.append(addDim);
+    if (def.dimensions.length < 6) indexZone.append(addDim);
 
-    const measureZone = el("div", { class: "views-zone views-measure-zone" });
-    measureZone.append(el("span", { class: "views-zone-label" }, ["Measures:"]));
-    def.measures.forEach((measure, index) => {
-      measureZone.append(this.measurePill(def, measure, index));
-    });
-    const layoutZone = el("div", { class: "views-zone views-layout-zone" });
-    layoutZone.append(el("span", { class: "views-zone-label" }, ["Pivot:"]));
-    if (def.dimensions.length >= 2) {
-      const pivots = new Set(this.pivotIndexes(def));
-      def.dimensions.forEach((spec, index) => {
-        const active = pivots.has(index);
-        const button = el(
-          "button",
-          {
-            class: `views-layout-pill${active ? " active" : ""}`,
-            type: "button",
-            "aria-pressed": active ? "true" : "false",
-            title: active
-              ? "Move this field back to the row index"
-              : "Spread this field across the columns",
-          },
-          [
-            el("span", { class: "views-layout-mark" }, [active ? "C" : "R"]),
-            `${this.metas[spec.column]?.name ?? "?"}${this.dimensionSuffix(spec)}`,
-          ],
-        ) as HTMLButtonElement;
-        button.addEventListener("click", () =>
-          this.update((view) => {
-            const next = new Set(this.pivotIndexes(view));
-            if (next.has(index)) next.delete(index);
-            else if (next.size < view.dimensions.length - 1) next.add(index);
-            view.pivotColumns = [...next].sort((a, b) => a - b);
-            view.pivot = view.pivotColumns[0];
-            if (view.pivotColumns.length === 0) view.pivot = undefined;
-            if (view.pivotColumns.length === 0) view.fillValue = undefined;
-          }),
-        );
-        layoutZone.append(button);
-      });
-      layoutZone.append(
-        el("span", { class: "views-layout-hint" }, [
-          "R = row index, C = column field",
-        ]),
+    const columnZone = el("div", { class: "views-zone views-column-zone" });
+    columnZone.append(el("span", { class: "views-zone-label" }, ["Columns:"]));
+    columnFields.forEach((index, position) => {
+      columnZone.append(
+        this.dimensionPill(def, def.dimensions[index]!, index, "columns", position, columnFields.length),
       );
-    } else {
-      layoutZone.append(
+    });
+    if (columnFields.length === 0) {
+      columnZone.append(
         el("span", { class: "views-layout-hint" }, [
-          "Add a second field to build a pivot",
+          "Optional: move a field here to spread it across columns.",
         ]),
       );
     }
 
+    const measureZone = el("div", { class: "views-zone views-measure-zone" });
+    measureZone.append(el("span", { class: "views-zone-label" }, ["Values:"]));
+    def.measures.forEach((measure, index) => {
+      measureZone.append(this.measurePill(def, measure, index));
+    });
     const addMeasure = el(
       "button",
-      { class: "views-pill add", type: "button", title: "Add a measure" },
-      ["+ Measure"],
+      { class: "views-pill add", type: "button", title: "Add a value" },
+      ["+ Value"],
     ) as HTMLButtonElement;
     addMeasure.addEventListener("click", () => this.openMeasureMenu(addMeasure, def));
     measureZone.append(addMeasure);
+    const addAllNumeric = el(
+      "button",
+      { class: "views-pill add", type: "button", title: "Add every numeric column as a mean value" },
+      ["+ All numeric"],
+    ) as HTMLButtonElement;
+    addAllNumeric.disabled = !this.metas.some((meta) => isNumericLikeType(meta.type));
+    addAllNumeric.addEventListener("click", () =>
+      this.update((view) => {
+        const used = new Set(
+          view.measures
+            .map((measure) => measure.column)
+            .filter((column): column is number => column !== null),
+        );
+        this.metas.forEach((meta, index) => {
+          if (!isNumericLikeType(meta.type) || used.has(index)) return;
+          view.measures.push({ column: index, agg: "mean" });
+        });
+      }),
+    );
+    measureZone.append(addAllNumeric);
 
-    this.builderEl.append(dimZone, layoutZone, measureZone);
+    this.builderEl.append(indexZone, columnZone, measureZone);
   }
 
-  private dimensionPill(def: ViewDef, spec: DimensionSpec, index: number): HTMLElement {
+  /** Swap a field with its neighbour inside the same well. */
+  private moveDimension(
+    view: ViewDef,
+    group: "index" | "columns",
+    position: number,
+    delta: -1 | 1,
+  ): void {
+    const pivots = new Set(this.pivotIndexes(view));
+    const positions = view.dimensions
+      .map((_, index) => index)
+      .filter((index) => (group === "index" ? !pivots.has(index) : pivots.has(index)));
+    const from = positions[position];
+    const to = positions[position + delta];
+    if (from === undefined || to === undefined) return;
+    const left = view.dimensions[from];
+    const right = view.dimensions[to];
+    if (left === undefined || right === undefined) return;
+    view.dimensions[from] = right;
+    view.dimensions[to] = left;
+    view.pivotColumns = (view.pivotColumns ?? [])
+      .map((index) => (index === from ? to : index === to ? from : index))
+      .sort((a, b) => a - b);
+    view.pivot = view.pivotColumns[0];
+  }
+
+  private dimensionPill(
+    def: ViewDef,
+    spec: DimensionSpec,
+    index: number,
+    group: "index" | "columns",
+    position: number,
+    count: number,
+  ): HTMLElement {
     const meta = this.metas[spec.column];
     const suffix = this.dimensionSuffix(spec);
-    const pill = el("span", { class: "views-pill" });
+    const pill = el(
+      "span",
+      { class: `views-pill ${group === "index" ? "views-index-pill" : "views-column-pill"}` },
+    );
     const label = el(
       "button",
       { class: "views-pill-label", type: "button", title: "Change how this column is grouped" },
       [`${meta?.name ?? "?"}${suffix}`],
     ) as HTMLButtonElement;
     label.addEventListener("click", () => this.openGrainMenu(label, def, spec, index));
+
+    const up = el(
+      "button",
+      {
+        class: "views-pill-move",
+        type: "button",
+        title: "Move earlier in this well",
+        "aria-label": "Move earlier",
+      },
+      ["▲"],
+    ) as HTMLButtonElement;
+    up.disabled = position === 0;
+    up.addEventListener("click", () =>
+      this.update((view) => this.moveDimension(view, group, position, -1)),
+    );
+    const down = el(
+      "button",
+      {
+        class: "views-pill-move",
+        type: "button",
+        title: "Move later in this well",
+        "aria-label": "Move later",
+      },
+      ["▼"],
+    ) as HTMLButtonElement;
+    down.disabled = position === count - 1;
+    down.addEventListener("click", () =>
+      this.update((view) => this.moveDimension(view, group, position, 1)),
+    );
+    const toggle = el(
+      "button",
+      {
+        class: "views-pill-group-toggle",
+        type: "button",
+        title: group === "index" ? "Move to Columns" : "Move to Index",
+        "aria-label": group === "index" ? "Move to Columns" : "Move to Index",
+      },
+      [group === "index" ? "→" : "←"],
+    ) as HTMLButtonElement;
+    toggle.disabled = group === "index" && count === 1;
+    toggle.addEventListener("click", () =>
+      this.update((view) => {
+        const next = new Set(this.pivotIndexes(view));
+        if (group === "index") next.add(index);
+        else next.delete(index);
+        view.pivotColumns = [...next].sort((a, b) => a - b);
+        view.pivot = view.pivotColumns[0];
+        if (view.pivotColumns.length === 0) view.fillValue = undefined;
+      }),
+    );
     const remove = el(
       "button",
-      { class: "views-pill-remove", type: "button", title: "Remove this dimension" },
+      { class: "views-pill-remove", type: "button", title: "Remove this field" },
       ["×"],
     ) as HTMLButtonElement;
     remove.addEventListener("click", () =>
       this.update((view) => {
         view.dimensions.splice(index, 1);
         if (view.sort.key === `dim${index}`) view.sort = { key: "m0", dir: "desc" };
-        if (view.pivot !== undefined) {
-          if (view.pivot === index) view.pivot = undefined;
-          else if (view.pivot > index) view.pivot -= 1;
-          if (view.pivot !== undefined && view.pivot >= view.dimensions.length) {
-            view.pivot = view.dimensions.length > 1 ? view.dimensions.length - 1 : undefined;
-          }
-        }
+        view.pivotColumns = (view.pivotColumns ?? [])
+          .filter((column) => column !== index)
+          .map((column) => (column > index ? column - 1 : column));
+        view.pivot = view.pivotColumns[0];
+        if (view.pivotColumns.length === 0) view.fillValue = undefined;
       }),
     );
-    pill.append(label, remove);
+    pill.append(label, up, down, toggle, remove);
     return pill;
   }
-
   private measurePill(def: ViewDef, measure: MeasureSpec, index: number): HTMLElement {
     const name = measureDisplay(measure, this.metas);
     const post = measure.post ?? [];
