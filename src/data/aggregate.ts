@@ -104,6 +104,9 @@ export interface ViewDef {
   sort: { key: string; dir: "asc" | "desc" };
   limit: number;
   respectFilters: boolean;
+  /** Optional chart-scoped category filter, applied after the table scope. */
+  filterColumn?: number;
+  filterCode?: number;
   /** Incomplete first/last periods: shown (hatched) or excluded. */
   partial?: "show" | "exclude";
   /** Dimension index spread across columns when rendered as a matrix. */

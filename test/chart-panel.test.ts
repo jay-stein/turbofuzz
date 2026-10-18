@@ -361,6 +361,7 @@ function named(overrides: Partial<NamedChartCardConfig> = {}): NamedChartCardCon
     colorColumn: null,
     sizeColumn: null,
     groupColumn: null,
+    filterColumn: null,
     correlationColumns: [],
     ...overrides,
   };

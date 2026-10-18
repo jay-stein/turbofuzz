@@ -1285,6 +1285,15 @@ function handleGetAggregate(message: GetAggregateRequest): void {
     all.setAll();
     ids = withoutExcluded(all).toIndices();
   }
+  const filterColumn = message.view.filterColumn ?? -1;
+  const filterCode = message.view.filterCode ?? -1;
+  if (filterColumn >= 0 && filterCode >= 0 && filterColumn < dataset.columnCount) {
+    const column = dataset.columns[filterColumn];
+    if (column.type === "category" || column.type === "boolean") {
+      const codes = categoryCodes(column.categories().bits, dataset.rowCount);
+      ids = ids.filter((id) => codes[id] === filterCode);
+    }
+  }
   const result = computeAggregate(message.view, dataset.columns, dataset.rowCount, ids);
   const transfer: Transferable[] = [result.totals.buffer];
   for (const values of result.measures) transfer.push(values.buffer);

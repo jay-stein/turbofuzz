@@ -233,6 +233,11 @@ export interface ChartCardConfig {
   valueAgg?: "mean" | "sum" | "median" | "min" | "max";
   /** Bucket grain for the value line; "auto"/undefined derives it from the span. */
   valueGrain?: TimeGrain | "auto";
+  /** Chart-scoped category filter; -1/undefined means no chart filter. */
+  filterColumn?: number;
+  filterCode?: number;
+  /** Aggregate-backed cards: include the current table filters (default true). */
+  respectFilters?: boolean;
   /** Bubble grid resolution per axis. */
   bubbleBins?: number;
   /** Bubble size measure: rows per cell or an aggregate of a numeric column. */
@@ -622,6 +627,9 @@ function defaultConfig(): ChartCardConfig {
     animationSpeed: 1,
     suggested: "",
     correlationColumns: [],
+    filterColumn: -1,
+    filterCode: -1,
+    respectFilters: true,
   };
 }
 
@@ -761,6 +769,10 @@ export class ChartCard {
   private readonly valueAggWrap: HTMLElement;
   private readonly valueGrainSelect: HTMLSelectElement;
   private readonly valueGrainWrap: HTMLElement;
+  private readonly filterColumnSelect: HTMLSelectElement;
+  private readonly filterValueSelect: HTMLSelectElement;
+  private readonly filterRespectInput: HTMLInputElement;
+  private readonly chartFilterRow: HTMLElement;
   /** Aggregate result for the card's own value-over-time line. */
   private valueResult: AggregateMessage | null = null;
   private readonly xSelect: HTMLSelectElement;
@@ -966,6 +978,55 @@ export class ChartCard {
       this.render();
     });
     this.valueGrainWrap = this.tagged("Bucket", this.valueGrainSelect).wrap;
+
+    this.filterColumnSelect = this.buildSelect(
+      "chart-picker chart-picker-small",
+      "Chart filter column",
+    );
+    this.filterValueSelect = this.buildSelect(
+      "chart-picker chart-picker-small",
+      "Chart filter value",
+    );
+    this.filterColumnSelect.addEventListener("change", () => {
+      this.config.filterColumn = Number(this.filterColumnSelect.value);
+      this.config.filterCode = -1;
+      this.generation++;
+      this.syncChartFilterControls();
+      this.syncScope();
+      this.refreshValue();
+      this.refreshTreemap();
+      this.refreshGeoJoin();
+      this.render();
+    });
+    this.filterValueSelect.addEventListener("change", () => {
+      this.config.filterCode = Number(this.filterValueSelect.value);
+      this.generation++;
+      this.syncScope();
+      this.refreshValue();
+      this.refreshTreemap();
+      this.refreshGeoJoin();
+      this.render();
+    });
+    this.filterRespectInput = el("input", { type: "checkbox" }) as HTMLInputElement;
+    this.filterRespectInput.checked = true;
+    const filterRespectField = el("label", { class: "control check clean-check chart-check" });
+    filterRespectField.title = "Include the current table filters in this chart";
+    filterRespectField.append(this.filterRespectInput, "Also respect table filters");
+    this.filterRespectInput.addEventListener("change", () => {
+      this.config.respectFilters = this.filterRespectInput.checked;
+      this.generation++;
+      this.syncScope();
+      this.refreshValue();
+      this.refreshTreemap();
+      this.refreshGeoJoin();
+      this.render();
+    });
+    this.chartFilterRow = el("div", { class: "chart-settings" }, [
+      el("span", { class: "chart-field-label" }, ["Chart filter"]),
+      this.filterColumnSelect,
+      this.filterValueSelect,
+      filterRespectField,
+    ]);
 
     this.xSelect = this.buildSelect("chart-picker", "X column");
     this.xSelect.addEventListener("change", () => {
@@ -1793,6 +1854,7 @@ export class ChartCard {
       this.sizeWrap,
       this.modeWrap,
       this.densityStyleWrap,
+      this.chartFilterRow,
       this.histogramSettings,
       this.barSettings,
       this.correlationSettings,
@@ -2165,7 +2227,9 @@ export class ChartCard {
           ? { key: "dim0", dir: "asc" }
           : { key: "m0", dir: "desc" },
       limit: 5000,
-      respectFilters: true,
+      respectFilters: this.config.respectFilters !== false,
+      filterColumn: this.config.filterColumn ?? -1,
+      filterCode: this.config.filterCode ?? -1,
     };
   }
 
@@ -2233,7 +2297,18 @@ export class ChartCard {
       visible: this.rowCount,
       viewName: view?.name ?? null,
     });
-    this.scopeEl.textContent = view === undefined ? `Table · ${scope}` : scope;
+    const filterColumn = this.config.filterColumn ?? -1;
+    const filterCode = this.config.filterCode ?? -1;
+    const filterLabel =
+      filterColumn >= 0 && filterCode >= 0
+        ? this.meta(filterColumn)?.categories?.labels[filterCode]
+        : undefined;
+    const chartFilter =
+      filterLabel === undefined
+        ? ""
+        : ` · chart: ${this.meta(filterColumn)?.name ?? "value"} = ${filterLabel}`;
+    this.scopeEl.textContent =
+      (view === undefined ? `Table · ${scope}` : scope) + chartFilter;
     this.scopeEl.classList.toggle("hidden", total === 0 && this.rowCount === 0);
   }
 
@@ -2879,6 +2954,37 @@ export class ChartCard {
       this.correlationSelect.append(option);
     });
     this.syncAnimationOptions();
+    this.syncChartFilterControls();
+  }
+
+  /** Category filter choices for this chart, plus its table-filter scope. */
+  private syncChartFilterControls(): void {
+    const categoryIndexes = this.allowedIndexes((meta) => isCategoryType(meta.type));
+    let column = this.config.filterColumn ?? -1;
+    if (!categoryIndexes.includes(column)) column = -1;
+    this.config.filterColumn = column;
+    this.filterColumnSelect.replaceChildren(this.option("-1", "No chart filter"));
+    for (const index of categoryIndexes) {
+      this.filterColumnSelect.append(this.option(String(index), this.columns[index].name));
+    }
+    this.filterColumnSelect.value = String(column);
+
+    this.filterValueSelect.replaceChildren();
+    const labels = column >= 0 ? (this.meta(column)?.categories?.labels ?? []) : [];
+    labels.forEach((label, code) => {
+      this.filterValueSelect.append(this.option(String(code), label || "(empty)"));
+    });
+    let code = this.config.filterCode ?? -1;
+    if (column < 0 || code < 0 || code >= labels.length) code = labels.length > 0 ? 0 : -1;
+    this.config.filterCode = code;
+    if (code >= 0) this.filterValueSelect.value = String(code);
+    this.filterValueSelect.disabled = column < 0;
+    this.filterRespectInput.checked = this.config.respectFilters !== false;
+    const aggregateBacked =
+      this.usesValueAggregate() ||
+      this.config.kind === "treemap" ||
+      (this.config.kind === "map" && this.geoDataset !== null);
+    this.chartFilterRow.classList.toggle("hidden", !aggregateBacked);
   }
 
   /** Date and datetime columns available as animation time axes. */
@@ -2989,6 +3095,12 @@ export class ChartCard {
     else if (this.colorWrap.parentElement === this.bubbleSettings) {
       this.settingsBody.append(this.colorWrap);
     }
+    this.chartFilterRow.classList.toggle(
+      "hidden",
+      !(measureKinds && valueOn) &&
+        kind !== "treemap" &&
+        !(mapKind && this.geoDataset !== null),
+    );
     this.modeWrap.classList.toggle("hidden", kind !== "scatter");
     this.densityStyleWrap.classList.toggle("hidden", !seriesKind);
     this.colorGroup.classList.toggle("hidden", kind === "correlation");
@@ -3224,7 +3336,9 @@ export class ChartCard {
       fill: "none",
       sort: { key: "m0", dir: "desc" },
       limit: 100_000,
-      respectFilters: true,
+      respectFilters: this.config.respectFilters !== false,
+      filterColumn: this.config.filterColumn ?? -1,
+      filterCode: this.config.filterCode ?? -1,
     };
     void this.options
       .requestAggregate(def)
@@ -3644,7 +3758,9 @@ export class ChartCard {
       fill: "none",
       sort: { key: "m0", dir: "desc" },
       limit: 64,
-      respectFilters: true,
+      respectFilters: this.config.respectFilters !== false,
+      filterColumn: this.config.filterColumn ?? -1,
+      filterCode: this.config.filterCode ?? -1,
     };
     void this.options
       .requestAggregate(view)

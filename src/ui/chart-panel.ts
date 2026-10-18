@@ -116,7 +116,14 @@ const DEFAULT_LAYOUT = 2;
 export interface NamedChartCardConfig
   extends Omit<
     ChartCardConfig,
-    "column" | "x" | "y" | "colorColumn" | "sizeColumn" | "groupColumn" | "correlationColumns"
+    | "column"
+    | "x"
+    | "y"
+    | "colorColumn"
+    | "sizeColumn"
+    | "groupColumn"
+    | "filterColumn"
+    | "correlationColumns"
   > {
   column: string | null;
   x: string | null;
@@ -124,6 +131,7 @@ export interface NamedChartCardConfig
   colorColumn: string | null;
   sizeColumn: string | null;
   groupColumn: string | null;
+  filterColumn: string | null;
   correlationColumns: string[];
   /** Required columns that no longer exist in the table. */
   missingColumns?: string[];
@@ -149,6 +157,7 @@ export function configToNames(
     colorColumn: nameOf(config.colorColumn),
     sizeColumn: nameOf(config.sizeColumn),
     groupColumn: nameOf(config.groupColumn),
+    filterColumn: nameOf(config.filterColumn ?? -1),
     correlationColumns: config.correlationColumns
       .map((index) => columns[index]?.name)
       .filter((name): name is string => name !== undefined),
@@ -231,6 +240,9 @@ export function remapChartConfigs(
           named.sizeColumn === null ? -1 : (indexOfName.get(named.sizeColumn) ?? -1),
         groupColumn:
           named.groupColumn === null ? -1 : (indexOfName.get(named.groupColumn) ?? -1),
+        filterColumn:
+          named.filterColumn === null ? -1 : (indexOfName.get(named.filterColumn) ?? -1),
+        filterCode: named.filterCode,
         correlationColumns,
         missingColumns,
         namedConfig: orphan,
@@ -250,6 +262,9 @@ export function remapChartConfigs(
       sizeColumn: clean.sizeColumn === null ? -1 : (indexOfName.get(clean.sizeColumn) ?? -1),
       groupColumn:
         clean.groupColumn === null ? -1 : (indexOfName.get(clean.groupColumn) ?? -1),
+      filterColumn:
+        clean.filterColumn === null ? -1 : (indexOfName.get(clean.filterColumn) ?? -1),
+      filterCode: clean.filterCode,
       correlationColumns,
     };
     out.push(mapped);
