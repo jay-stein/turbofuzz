@@ -50,6 +50,12 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Chart-filter coverage is exercised by worker tests for aggregate, series, crosstab, correlation, box, grid, and animation payloads.
 - Geo choropleths report how many loaded regions matched the join and mark unmatched regions in the hover tooltip.
 
+### Density viewport correction
+
+- Density heat grids, contour bands, and contour lines now crop to the active pan/zoom viewport instead of stretching the full grid into the visible frame.
+- Cropping preserves cell counts and recomputes the visible peak; axes, notes, and sampling labels match the visible cells.
+- Unit coverage verifies cropped dimensions, counts, bounds, and peak.
+
 ### Pivot resampling
 
 - Time views now expose a `Resample` grain control (hour through year) that rewrites the first time dimension, enables zero-fill, and orders buckets ascending.
@@ -178,6 +184,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `51846bc` feat(charts): expose non-null and distinct count aggregates
 - `36f5288` feat(charts): add non-destructive measure calculations
 - `32dced0` feat(pivot): add resample grain control
+- `786cbe8` fix(charts): crop density grids to the viewport
 - `1580efe` feat(charts): load geojson and zipped shapefile regions
 - `21836d1` feat(charts): join geojson regions to dataset measures
 
@@ -186,7 +193,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 Final state after the session:
 
 - `npm run typecheck` passes.
-- `npm test`: 688 tests passing.
+- `npm test`: 689 tests passing.
 - `npm run build` passes.
 - No network or eval paths were introduced.
 - Pre-existing untracked files `DATA_QC_SPEC.md` and `UX_IMPROVEMENT_BACKLOG.md` were left untouched.
