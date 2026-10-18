@@ -50,6 +50,13 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - Chart-filter coverage is exercised by worker tests for aggregate, series, crosstab, correlation, box, grid, and animation payloads.
 - Geo choropleths report how many loaded regions matched the join and mark unmatched regions in the hover tooltip.
 
+### ChartSpec export
+
+- Added a versioned `ChartSpec` model that stores fields by name, source, aggregation/calculation, chart filters, table-filter scope, and presentation settings.
+- Every chart card menu now offers `Download chart spec (JSON)`.
+- Unit coverage verifies named fields, filter labels, calculations, and JSON round-trip; the menu test verifies discoverability.
+- The spec is the foundation for generated chart code and future re-import.
+
 ### Stacked Barplot
 
 - Grouped Barplots gain a `Stack groups` option alongside the default side-by-side layout.
@@ -193,6 +200,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 - `32dced0` feat(pivot): add resample grain control
 - `786cbe8` fix(charts): crop density grids to the viewport
 - `d5f963a` feat(charts): add stacked grouped barplots
+- `fc4339e` feat(charts): add portable chart spec export
 - `1580efe` feat(charts): load geojson and zipped shapefile regions
 - `21836d1` feat(charts): join geojson regions to dataset measures
 
@@ -201,7 +209,7 @@ Start the approved implementation plan with low-risk, high-value slices before t
 Final state after the session:
 
 - `npm run typecheck` passes.
-- `npm test`: 689 tests passing.
+- `npm test`: 690 tests passing.
 - `npm run build` passes.
 - No network or eval paths were introduced.
 - Pre-existing untracked files `DATA_QC_SPEC.md` and `UX_IMPROVEMENT_BACKLOG.md` were left untouched.
