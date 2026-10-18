@@ -125,6 +125,8 @@ export interface SeriesRequestInput {
   limit?: number;
   /** false keeps the full data range; the map card sets this. */
   clip?: boolean;
+  chartFilter?: { column: number; code: number };
+  respectFilters?: boolean;
 }
 
 export interface ChartCardOptions {
@@ -145,8 +147,13 @@ export interface ChartCardOptions {
     topX: number;
     topY: number;
     groupOther: boolean;
+    chartFilter?: { column: number; code: number };
+    respectFilters?: boolean;
   }): Promise<CrosstabMessage>;
-  requestCorrelation(columns: number[]): Promise<CorrelationMessage>;
+  requestCorrelation(
+    columns: number[],
+    scope?: { chartFilter?: { column: number; code: number }; respectFilters?: boolean },
+  ): Promise<CorrelationMessage>;
   /** Bins split by a category column, for grouped time series. */
   requestGroupedBins?(input: {
     column: number;
@@ -996,6 +1003,9 @@ export class ChartCard {
       this.refreshValue();
       this.refreshTreemap();
       this.refreshGeoJoin();
+      this.refreshSeries();
+      this.refreshCrosstab();
+      this.refreshCorrelation();
       this.render();
     });
     this.filterValueSelect.addEventListener("change", () => {
@@ -1005,6 +1015,9 @@ export class ChartCard {
       this.refreshValue();
       this.refreshTreemap();
       this.refreshGeoJoin();
+      this.refreshSeries();
+      this.refreshCrosstab();
+      this.refreshCorrelation();
       this.render();
     });
     this.filterRespectInput = el("input", { type: "checkbox" }) as HTMLInputElement;
@@ -1019,6 +1032,9 @@ export class ChartCard {
       this.refreshValue();
       this.refreshTreemap();
       this.refreshGeoJoin();
+      this.refreshSeries();
+      this.refreshCrosstab();
+      this.refreshCorrelation();
       this.render();
     });
     this.chartFilterRow = el("div", { class: "chart-settings" }, [
@@ -3095,12 +3111,14 @@ export class ChartCard {
     else if (this.colorWrap.parentElement === this.bubbleSettings) {
       this.settingsBody.append(this.colorWrap);
     }
-    this.chartFilterRow.classList.toggle(
-      "hidden",
-      !(measureKinds && valueOn) &&
-        kind !== "treemap" &&
-        !(mapKind && this.geoDataset !== null),
-    );
+    const chartFilterable =
+      (measureKinds && valueOn) ||
+      kind === "treemap" ||
+      kind === "heatmap" ||
+      kind === "correlation" ||
+      seriesKind ||
+      mapKind;
+    this.chartFilterRow.classList.toggle("hidden", !chartFilterable);
     this.modeWrap.classList.toggle("hidden", kind !== "scatter");
     this.densityStyleWrap.classList.toggle("hidden", !seriesKind);
     this.colorGroup.classList.toggle("hidden", kind === "correlation");
@@ -3357,6 +3375,18 @@ export class ChartCard {
         });
         this.geoJoinMin = min === Infinity ? Number.NaN : min;
         this.geoJoinMax = max === -Infinity ? Number.NaN : max;
+        let matched = 0;
+        for (const item of this.geoDataset?.features ?? []) {
+          const raw = item.properties[feature];
+          if (raw !== undefined && raw !== null && this.geoJoinValues.has(this.joinKey(String(raw)))) {
+            matched++;
+          }
+        }
+        const total = this.geoDataset?.features.length ?? 0;
+        const unmatched = total - matched;
+        this.mapLayerStatus.textContent =
+          `${total.toLocaleString()} regions · ${matched.toLocaleString()} matched` +
+          (unmatched > 0 ? ` · ${unmatched.toLocaleString()} unmatched` : "");
         this.render();
       })
       .catch(() => {
@@ -3689,6 +3719,19 @@ export class ChartCard {
     return null;
   }
 
+  /** Worker scope for the card's own category filter and table-filter toggle. */
+  private chartScope(): {
+    chartFilter?: { column: number; code: number };
+    respectFilters: boolean;
+  } {
+    const column = this.config.filterColumn ?? -1;
+    const code = this.config.filterCode ?? -1;
+    return {
+      ...(column >= 0 && code >= 0 ? { chartFilter: { column, code } } : {}),
+      respectFilters: this.config.respectFilters !== false,
+    };
+  }
+
   private refreshSeries(): void {
     if (
       this.config.kind !== "scatter" &&
@@ -3721,6 +3764,7 @@ export class ChartCard {
         mode,
         limit: POINT_LIMIT,
         clip: !map,
+        ...this.chartScope(),
       })
       .then((message) => {
         if (generation !== this.generation || this.disposed) return;
@@ -4107,6 +4151,7 @@ export class ChartCard {
         topX: this.config.topN,
         topY: this.config.topN,
         groupOther: this.config.groupOther,
+        ...this.chartScope(),
       })
       .then((message) => {
         if (generation !== this.generation || this.disposed) return;
@@ -4723,7 +4768,7 @@ export class ChartCard {
     }
     const generation = ++this.generation;
     void this.options
-      .requestCorrelation(columns)
+      .requestCorrelation(columns, this.chartScope())
       .then((message) => {
         if (generation !== this.generation || this.disposed) return;
         this.correlationResult = {
@@ -6414,6 +6459,7 @@ export class ChartCard {
             lines.push(`${property}: ${String(raw)}`);
           }
           if (Number.isFinite(value)) lines.push(formatChartNumber(value));
+          else if (property !== "") lines.push("No matching rows");
           const actions: HitAction[] = [];
           const matchMeta = this.meta(matchColumn);
           if (matchColumn >= 0 && matchMeta !== undefined && raw !== undefined && raw !== null) {

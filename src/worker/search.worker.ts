@@ -1137,6 +1137,28 @@ function handleGetGroupedBins(message: GetGroupedBinsRequest): void {
   });
 }
 
+/** Rows for a chart request: table scope, optionally narrowed by its own filter. */
+function chartScopedIds(
+  respectFilters?: boolean,
+  filter?: { column: number; code: number },
+): Uint32Array {
+  const { dataset } = state();
+  let ids: Uint32Array = sortedIds;
+  if (respectFilters === false) {
+    const all = new BitSet(dataset.rowCount);
+    all.setAll();
+    ids = Uint32Array.from(withoutExcluded(all).toIndices());
+  }
+  if (filter !== undefined && filter.column >= 0 && filter.code >= 0) {
+    const column = dataset.columns[filter.column];
+    if (column !== undefined && (column.type === "category" || column.type === "boolean")) {
+      const codes = categoryCodes(column.categories().bits, dataset.rowCount);
+      ids = Uint32Array.from(ids.filter((id) => codes[id] === filter.code));
+    }
+  }
+  return ids;
+}
+
 /**
  * Scatter sample (<= limit points) or exact density grid for two numeric
  * columns over the current result order, with optional colour and size
@@ -1171,12 +1193,13 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
   }
 
   const started = performance.now();
+  const ids = chartScopedIds(message.respectFilters, message.chartFilter);
   const xNumbers = xColumn.numbers();
   const yNumbers = yColumn.numbers();
   const result = computeSeries(
     xNumbers,
     yNumbers,
-    sortedIds,
+    ids,
     colorValues,
     colorCodes,
     size,
@@ -1188,7 +1211,7 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
       clip: message.clip,
     },
   );
-  const correlation = computeCorrelation([xNumbers, yNumbers], sortedIds).values[1] ?? Number.NaN;
+  const correlation = computeCorrelation([xNumbers, yNumbers], ids).values[1] ?? Number.NaN;
 
   const transfer: Transferable[] = [];
   if (result.mode === "density") {
@@ -1259,7 +1282,7 @@ function handleGetCrosstab(message: GetCrosstabRequest): void {
     categoryCodes(yCategories.bits, dataset.rowCount),
     xCategories.labels,
     yCategories.labels,
-    sortedIds,
+    chartScopedIds(message.respectFilters, message.chartFilter),
     { topX: message.topX, topY: message.topY, groupOther: message.groupOther },
   );
   post(
@@ -1602,7 +1625,7 @@ function handleGetCorrelation(message: GetCorrelationRequest): void {
   const started = performance.now();
   const result = computeCorrelation(
     indexes.map((index) => dataset.columns[index].numbers()),
-    sortedIds,
+    chartScopedIds(message.respectFilters, message.chartFilter),
   );
   post(
     {

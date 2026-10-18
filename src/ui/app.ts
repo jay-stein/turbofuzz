@@ -1923,7 +1923,7 @@ export class App {
       requestSeries: (input) => this.client.getChartSeries(input),
       requestBoxStats: (input) => this.client.getBoxStats(input),
       requestCrosstab: (input) => this.client.getCrosstab(input),
-      requestCorrelation: (columns) => this.client.getCorrelation(columns),
+      requestCorrelation: (columns, scope) => this.client.getCorrelation(columns, scope),
       requestGroupedBins: (input) => this.client.getGroupedBins(input),
       requestViewAggregate: (source) => this.aggregateForSource(source),
       requestAggregate: (view) => this.client.getAggregate(view),

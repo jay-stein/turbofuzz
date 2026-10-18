@@ -217,6 +217,8 @@ export class SearchWorkerClient {
     mode: SeriesMode;
     limit?: number;
     clip?: boolean;
+    chartFilter?: { column: number; code: number };
+    respectFilters?: boolean;
   }): Promise<ChartSeriesMessage> {
     return this.request<ChartSeriesMessage>({ type: "getChartSeries", ...input });
   }
@@ -236,12 +238,17 @@ export class SearchWorkerClient {
     topX: number;
     topY: number;
     groupOther: boolean;
+    chartFilter?: { column: number; code: number };
+    respectFilters?: boolean;
   }): Promise<CrosstabMessage> {
     return this.request<CrosstabMessage>({ type: "getCrosstab", ...input });
   }
 
-  getCorrelation(columns: number[]): Promise<CorrelationMessage> {
-    return this.request<CorrelationMessage>({ type: "getCorrelation", columns });
+  getCorrelation(
+    columns: number[],
+    scope?: { chartFilter?: { column: number; code: number }; respectFilters?: boolean },
+  ): Promise<CorrelationMessage> {
+    return this.request<CorrelationMessage>({ type: "getCorrelation", columns, ...scope });
   }
 
   getAggregate(view: ViewDef): Promise<AggregateMessage> {

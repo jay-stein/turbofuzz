@@ -39,7 +39,7 @@ test("a chart-level aggregate filter narrows to one category", async () => {
     name: "teams.csv",
     delimiter: "auto",
     hasHeaders: true,
-    text: "team,amount\nAlpha,10\nBeta,20\nAlpha,30",
+    text: "team,region,amount,qty\nAlpha,N,10,1\nBeta,S,20,2\nAlpha,S,30,3",
   });
   find("loaded", 1);
 
@@ -47,7 +47,7 @@ test("a chart-level aggregate filter narrows to one category", async () => {
     id: "chart-filter",
     name: "Alpha",
     dimensions: [{ column: 0, by: "value" }],
-    measures: [{ column: 1, agg: "sum" }],
+    measures: [{ column: 2, agg: "sum" }],
     fill: "none",
     sort: { key: "m0", dir: "desc" },
     limit: 10,
@@ -62,4 +62,46 @@ test("a chart-level aggregate filter narrows to one category", async () => {
   };
   assert.deepEqual(aggregate.labels, ["Alpha"]);
   assert.equal(aggregate.measures[0][0], 40);
+
+  send({
+    type: "getChartSeries",
+    requestId: 3,
+    xColumn: 2,
+    yColumn: 3,
+    mode: "points",
+    chartFilter: { column: 0, code: 0 },
+    respectFilters: true,
+  });
+  const series = find("chartSeries", 3) as unknown as {
+    result: { mode: string; x: Float64Array };
+  };
+  assert.equal(series.result.mode, "points");
+  assert.equal(series.result.x.length, 2);
+
+  send({
+    type: "getCrosstab",
+    requestId: 4,
+    xColumn: 0,
+    yColumn: 1,
+    topX: 10,
+    topY: 10,
+    groupOther: false,
+    chartFilter: { column: 0, code: 0 },
+    respectFilters: true,
+  });
+  const crosstab = find("crosstab", 4) as unknown as { result: { total: number } };
+  assert.equal(crosstab.result.total, 2);
+
+  send({
+    type: "getCorrelation",
+    requestId: 5,
+    columns: [2, 3],
+    chartFilter: { column: 0, code: 0 },
+    respectFilters: true,
+  });
+  const correlation = find("correlation", 5) as unknown as {
+    result: { counts: Uint32Array; values: Float64Array };
+  };
+  assert.equal(correlation.result.counts[1], 2);
+  assert.equal(correlation.result.values[1], 1);
 });

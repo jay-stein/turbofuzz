@@ -274,6 +274,10 @@ export type GetChartSeriesRequest = {
   limit?: number;
   /** false keeps the full data range; the map card sets this. */
   clip?: boolean;
+  /** Chart-scoped category filter, applied to the request rows. */
+  chartFilter?: { column: number; code: number };
+  /** false ignores the table's active filters (default true). */
+  respectFilters?: boolean;
 };
 
 export interface ChartSeriesMessage {
@@ -317,6 +321,8 @@ export type GetCrosstabRequest = {
   topX: number;
   topY: number;
   groupOther: boolean;
+  chartFilter?: { column: number; code: number };
+  respectFilters?: boolean;
 };
 
 export interface CrosstabMessage {
@@ -332,6 +338,8 @@ export type GetCorrelationRequest = {
   type: "getCorrelation";
   requestId: number;
   columns: number[];
+  chartFilter?: { column: number; code: number };
+  respectFilters?: boolean;
 };
 
 export interface CorrelationMessage {

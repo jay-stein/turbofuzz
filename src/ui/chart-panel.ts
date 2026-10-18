@@ -63,7 +63,10 @@ export interface ChartsPanelOptions {
     topY: number;
     groupOther: boolean;
   }): Promise<CrosstabMessage>;
-  requestCorrelation(columns: number[]): Promise<CorrelationMessage>;
+  requestCorrelation(
+    columns: number[],
+    scope?: { chartFilter?: { column: number; code: number }; respectFilters?: boolean },
+  ): Promise<CorrelationMessage>;
   /** Bins split by a category column, for grouped time series. */
   requestGroupedBins?(input: {
     column: number;
