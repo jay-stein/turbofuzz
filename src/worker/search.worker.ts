@@ -11,7 +11,8 @@ import { computeAnomalies } from "../data/anomalies.js";
 import { computeKeyDuplicates } from "../data/key-duplicates.js";
 import { computePairViolations } from "../data/pair-checks.js";
 import { buildDataset, buildDatasetAsync, datasetFromColumns, rebuildDataset } from "../data/build.js";
-import { applyCleanOps } from "../data/clean-ops.js";
+import { applyCleanOps, type CleanOp } from "../data/clean-ops.js";
+import { castColumn } from "../data/cast-ops.js";
 import type { Dataset } from "../data/dataset.js";
 import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
 import { binValues, groupedBinValues } from "../data/chart-bins.js";
@@ -2201,20 +2202,48 @@ function handlePreviewClean(message: PreviewCleanRequest): void {
     let changed = 0;
     for (let i = 0; i < raw.length; i++) if (raw[i] !== source.raw[i]) changed++;
     // For the last cast in the op list, count the cells that still do not
-    // parse so the panel can warn before committing ("12 can't be parsed").
-    const cast = [...update.ops].reverse().find(
-      (op) => op.kind === "toNumber" || op.kind === "toDate",
-    );
-    let failed = 0;
-    if (cast !== undefined) {
-      for (let i = 0; i < raw.length; i++) {
-        if (source.isNull(source.raw[i])) continue;
-        const parsed =
-          cast.kind === "toDate" ? parseDate(raw[i], cast.order) : parseNumber(raw[i], cast.locale);
-        if (!Number.isFinite(parsed)) failed++;
+    // parse so the dialog can warn before committing ("12 can't be parsed").
+    let castIndex = -1;
+    for (let i = update.ops.length - 1; i >= 0; i--) {
+      if (update.ops[i].kind === "cast") {
+        castIndex = i;
+        break;
       }
     }
-    return { column: index, changed, total: raw.length, failed };
+    let failed = 0;
+    let examples: string[] | undefined;
+    if (castIndex >= 0) {
+      const cast = update.ops[castIndex] as Extract<CleanOp, { kind: "cast" }>;
+      const before =
+        castIndex === 0 ? source.raw : applyCleanOps(source.raw, update.ops.slice(0, castIndex));
+      const result = castColumn(before, {
+        target: cast.target,
+        policy: cast.policy,
+        locale: cast.locale,
+        dateOrder: cast.order,
+      });
+      failed = result.failed;
+      examples = result.examples;
+    } else {
+      const cast = [...update.ops].reverse().find(
+        (op) => op.kind === "toNumber" || op.kind === "toDate",
+      );
+      if (cast !== undefined) {
+        for (let i = 0; i < raw.length; i++) {
+          if (source.isNull(source.raw[i])) continue;
+          const parsed =
+            cast.kind === "toDate" ? parseDate(raw[i], cast.order) : parseNumber(raw[i], cast.locale);
+          if (!Number.isFinite(parsed)) failed++;
+        }
+      }
+    }
+    return {
+      column: index,
+      changed,
+      total: raw.length,
+      failed,
+      ...(examples === undefined ? {} : { examples }),
+    };
   });
   post({ type: "cleanPreview", requestId: message.requestId, columns });
 }

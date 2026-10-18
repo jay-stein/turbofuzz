@@ -18,6 +18,8 @@ import {
 } from "../data/archetype.js";
 import type { ViewDef } from "../data/aggregate.js";
 import { describeCleanOp, describeCleanOpDetail, type CleanOp } from "../data/clean-ops.js";
+import type { CastOptions, CastTarget } from "../data/cast-ops.js";
+import { openCastDialog } from "./cast-dialog.js";
 import { pandasRecipeScript, type RecipeInput, viewToPandas } from "../data/recipe.js";
 import { polarsRecipeScript } from "../data/recipe-polars.js";
 import { supportHint, type RecipeScript, type RecipeTarget } from "../data/recipe-support.js";
@@ -2172,6 +2174,92 @@ export class App {
   }
 
   private changeType(column: number, type: ColumnType, record = true): void {
+    if (record && this.castTargetFor(type) !== null) {
+      void this.confirmCast(column, type);
+      return;
+    }
+    this.setColumnType(column, type, record);
+  }
+
+  private castTargetFor(type: ColumnType): CastTarget | null {
+    switch (type) {
+      case "integer":
+      case "number":
+      case "date":
+      case "datetime":
+      case "time":
+      case "duration":
+      case "boolean":
+        return type;
+      default:
+        return null;
+    }
+  }
+
+  /** Confirms a value-rewriting type change before touching the dataset. */
+  private async confirmCast(column: number, type: ColumnType): Promise<void> {
+    const meta = this.metas[column];
+    const target = this.castTargetFor(type);
+    if (meta === undefined || target === null || meta.type === type) return;
+    const name = meta.name;
+    const existing = this.cleanedColumns.get(column) ?? [];
+    const initial: CastOptions = {
+      target,
+      policy: "coerce",
+      locale: meta.numberLocale,
+      dateOrder: meta.dateOrder,
+    };
+    const castOp = (options: CastOptions): CleanOp => ({
+      kind: "cast",
+      target: options.target,
+      policy: options.policy,
+      locale: options.locale,
+      order: options.dateOrder,
+    });
+    const result = await openCastDialog({
+      name,
+      fromType: meta.type,
+      target,
+      initial,
+      preview: async (options) => {
+        const preview = await this.client.previewClean([
+          { column, ops: [...existing, castOp(options)] },
+        ]);
+        const counts = preview.columns[0];
+        return {
+          changed: counts?.changed ?? 0,
+          total: counts?.total ?? 0,
+          failed: counts?.failed ?? 0,
+          examples: counts?.examples,
+        };
+      },
+    }).catch(() => null);
+    if (result === null) {
+      this.table?.updateColumn(column, meta);
+      return;
+    }
+    if (result.kind === "reinterpret") {
+      this.setColumnType(column, type);
+      return;
+    }
+    const op = castOp(result.options);
+    this.applyClean([{ column, ops: [...existing, op] }]);
+    const key = JSON.stringify(op);
+    this.showToast(`Converted "${name}" to ${TYPE_LABELS[type]}`, () => {
+      const current = this.cleanedColumns.get(column) ?? [];
+      let index = -1;
+      for (let i = current.length - 1; i >= 0; i--) {
+        if (JSON.stringify(current[i]) === key) {
+          index = i;
+          break;
+        }
+      }
+      if (index < 0) return;
+      this.applyClean([{ column, ops: current.filter((_, i) => i !== index) }]);
+    });
+  }
+
+  private setColumnType(column: number, type: ColumnType, record = true): void {
     const hadFilter = this.filters.has(column);
     const name = this.metas[column]?.name ?? `Column ${column + 1}`;
     const previous = this.metas[column]?.type;

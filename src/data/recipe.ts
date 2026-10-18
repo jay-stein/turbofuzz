@@ -519,6 +519,13 @@ function cleanLines(
         return `${column} = pd.to_datetime(${column}, dayfirst=${op.order === "dmy" ? "True" : "False"}, errors="coerce")`;
       case "toDateTime":
         return `${column} = pd.to_datetime(${column}, dayfirst=${op.order === "dmy" ? "True" : "False"}, utc=True, errors="coerce")`;
+      case "cast":
+        entries[entries.length - 1] = {
+          ...entries[entries.length - 1],
+          status: "manual_step_required",
+          note: `cast to ${op.target} (${op.policy}) needs manual review`,
+        };
+        return `# cast ${column} to ${op.target} (${op.policy}) - review the conversion manually`;
     }
   });
 }

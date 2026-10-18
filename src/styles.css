@@ -3645,6 +3645,34 @@ mark {
   font-size: 12px;
 }
 
+.cast-modal {
+  width: min(560px, 100%);
+}
+
+.cast-summary {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 13px;
+}
+
+.cast-examples {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+
+.cast-examples-label {
+  color: var(--muted);
+}
+
+.cast-example-values {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  word-break: break-word;
+}
+
 @keyframes chart-card-added {
   0% {
     outline: 3px solid color-mix(in srgb, var(--accent) 70%, transparent);

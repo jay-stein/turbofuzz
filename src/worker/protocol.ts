@@ -875,6 +875,8 @@ export interface CleanPreviewMessage {
     total: number;
     /** Non-null cells a cast op could not parse (0 when no cast is staged). */
     failed: number;
+    /** Up to five distinct examples of values that did not parse. */
+    examples?: string[];
   }[];
 }
 

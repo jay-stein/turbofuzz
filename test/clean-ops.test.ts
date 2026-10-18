@@ -132,6 +132,27 @@ test("describeCleanOp summarises operations", () => {
   assert.match(describeCleanOp({ kind: "toDateTime", order: "dmy" }), /keeps the clock/);
 });
 
+test("cast ops apply pandas-style invalid-value policies", () => {
+  assert.deepEqual(
+    applyCleanOps(["1", "2.5", "T", ""], [
+      { kind: "cast", target: "integer", policy: "coerce" },
+    ]),
+    ["1", "", "", ""],
+  );
+  assert.deepEqual(
+    applyCleanOps(["1", "2.5", "T"], [
+      { kind: "cast", target: "integer", policy: "keep" },
+    ]),
+    ["1", "2.5", "T"],
+  );
+  assert.deepEqual(
+    applyCleanOps(["1", "2.5", "T"], [
+      { kind: "cast", target: "integer", policy: "reject" },
+    ]),
+    ["1", "2.5", "T"],
+  );
+});
+
 test("describeCleanOpDetail exposes the technical signature", () => {
   assert.equal(describeCleanOpDetail({ kind: "trim" }), "trim()");
   assert.equal(
@@ -142,5 +163,14 @@ test("describeCleanOpDetail exposes the technical signature", () => {
   assert.equal(
     describeCleanOpDetail({ kind: "toDateTime", order: "mdy" }),
     "toDateTime(order=mdy)",
+  );
+  assert.equal(
+    describeCleanOpDetail({
+      kind: "cast",
+      target: "number",
+      policy: "coerce",
+      locale: "comma",
+    }),
+    "cast(target=number, policy=coerce, locale=comma, order=auto)",
   );
 });

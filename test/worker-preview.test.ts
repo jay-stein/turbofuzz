@@ -106,6 +106,36 @@ test("clean previews count unparseable cast values", async () => {
   assert.equal(preview.columns[0].changed, 0, "parseable values are already canonical");
 });
 
+test("clean previews report cast examples and policy failures", async () => {
+  await ensureWorker();
+  send({
+    type: "load",
+    requestId: 13,
+    name: "cast-preview",
+    delimiter: "auto",
+    hasHeaders: true,
+    text: "amount\n1\n2.5\nT\nNA",
+  });
+  find("loaded", 13);
+
+  send({
+    type: "previewClean",
+    requestId: 14,
+    updates: [
+      {
+        column: 0,
+        ops: [{ kind: "cast", target: "integer", policy: "coerce" }],
+      },
+    ],
+  });
+  const preview = find("cleanPreview", 14) as unknown as {
+    columns: { changed: number; failed: number; examples?: string[] }[];
+  };
+  assert.equal(preview.columns[0].failed, 2);
+  assert.deepEqual(preview.columns[0].examples, ["2.5", "T"]);
+  assert.equal(preview.columns[0].changed, 2);
+});
+
 test("combineDate previews name the output, the order and failed rows", async () => {
   await ensureWorker();
   send({

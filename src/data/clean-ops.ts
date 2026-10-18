@@ -1,6 +1,7 @@
 import { parseDate, toDateInputValue, toDateTimeValue, type DateOrder } from "../parse/dates.js";
 import { escapeFormula } from "./formula.js";
 import { detectDecimalStyle, parseNumber, type NumberLocale } from "../parse/numbers.js";
+import { castColumn, type CastPolicy, type CastTarget } from "./cast-ops.js";
 
 export type CleanCaseStyle = "upper" | "lower" | "title";
 
@@ -12,7 +13,14 @@ export type CleanOp =
   | { kind: "repairDecimal"; locale: NumberLocale }
   | { kind: "escapeFormulas" }
   | { kind: "toDate"; order: DateOrder }
-  | { kind: "toDateTime"; order: DateOrder };
+  | { kind: "toDateTime"; order: DateOrder }
+  | {
+      kind: "cast";
+      target: CastTarget;
+      policy: CastPolicy;
+      locale?: NumberLocale;
+      order?: DateOrder;
+    };
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -80,6 +88,8 @@ function compileOp(op: CleanOp): (value: string) => string {
     }
     case "escapeFormulas":
       return (value) => escapeFormula(value);
+    case "cast":
+      return (value) => value;
   }
 }
 
@@ -88,13 +98,38 @@ function compileOp(op: CleanOp): (value: string) => string {
  * order. The input array is never mutated.
  */
 export function applyCleanOps(values: readonly string[], ops: readonly CleanOp[]): string[] {
-  const out = values.slice();
+  let out = values.slice();
   for (const op of ops) {
+    if (op.kind === "cast") {
+      out = castColumn(out, {
+        target: op.target,
+        policy: op.policy,
+        locale: op.locale,
+        dateOrder: op.order,
+      }).values;
+      continue;
+    }
     const transform = compileOp(op);
     for (let i = 0; i < out.length; i++) out[i] = transform(out[i]);
   }
   return out;
 }
+
+const CAST_TARGET_LABELS: Record<CastTarget, string> = {
+  integer: "integer",
+  number: "number",
+  date: "date",
+  datetime: "date & time",
+  time: "time of day",
+  duration: "duration",
+  boolean: "boolean",
+};
+
+const CAST_POLICY_LABELS: Record<CastPolicy, string> = {
+  coerce: "invalid values become blank",
+  keep: "invalid values stay as text",
+  reject: "cancel if any value fails",
+};
 
 export function describeCleanOp(op: CleanOp): string {
   switch (op.kind) {
@@ -124,6 +159,8 @@ export function describeCleanOp(op: CleanOp): string {
       return `Convert to date & time (keeps the clock, stored as UTC — ${
         op.order === "dmy" ? "day first" : "month first"
       })`;
+    case "cast":
+      return `Convert to ${CAST_TARGET_LABELS[op.target]} (${CAST_POLICY_LABELS[op.policy]})`;
   }
 }
 
@@ -146,5 +183,9 @@ export function describeCleanOpDetail(op: CleanOp): string {
       return `toDate(order=${op.order})`;
     case "toDateTime":
       return `toDateTime(order=${op.order})`;
+    case "cast":
+      return `cast(target=${op.target}, policy=${op.policy}, locale=${op.locale ?? "auto"}, order=${
+        op.order ?? "auto"
+      })`;
   }
 }

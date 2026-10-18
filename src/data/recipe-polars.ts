@@ -138,6 +138,13 @@ function polarsCleanLines(
         return assign(`${column}.str.to_datetime(strict=False)`, name);
       case "toDateTime":
         return assign(`${column}.str.to_datetime(strict=False, utc=True)`, name);
+      case "cast":
+        entries[entries.length - 1] = {
+          ...entries[entries.length - 1],
+          status: "manual_step_required",
+          note: `cast to ${op.target} (${op.policy}) needs manual review`,
+        };
+        return `# cast ${column} to ${op.target} (${op.policy}) - review the conversion manually`;
     }
   });
 }
