@@ -4687,6 +4687,11 @@ export class App {
       this.client
         .cleanColumns(updates)
         .then((message) => {
+          if (message.noop === true) {
+            this.showToast("Nothing changed - the values already match.");
+            this.setAction("Nothing changed");
+            return;
+          }
           this.transformOps = [];
           this.transformBaseSchema = [];
           this.transformCommitSizes = [];

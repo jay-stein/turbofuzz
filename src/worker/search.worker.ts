@@ -1613,6 +1613,47 @@ function handleRenameHeaders(message: RenameHeadersRequest): void {
  */
 function handleCleanColumns(message: CleanColumnsRequest): void {
   const { dataset: current } = state();
+  const prepared = message.updates
+    .filter((update) => update.column >= 0 && update.column < current.columns.length)
+    .map((update) => {
+      const source = cleanSource.get(update.column) ?? current.columns[update.column];
+      const raw =
+        update.ops.length === 0 ? source.raw : applyCleanOps(source.raw, update.ops);
+      return { update, source, raw };
+    });
+
+  // A case/trim op that changes nothing should not pay for a full rebuild.
+  // Bail out before touching transform state so the UI can simply report a no-op.
+  const unchanged =
+    prepared.length > 0 &&
+    prepared.every(({ update, raw }) => {
+      const before = current.columns[update.column].raw;
+      if (raw.length !== before.length) return false;
+      for (let i = 0; i < raw.length; i++) {
+        if (raw[i] !== before[i]) return false;
+      }
+      return true;
+    });
+  if (unchanged) {
+    post({
+      type: "cleaned",
+      requestId: message.requestId,
+      columns: prepared.map(({ update }) => ({
+        column: update.column,
+        meta: metaFor(current, current.columns[update.column], update.column),
+      })),
+      stats: current.stats,
+      count: sortedIds.length,
+      queryMs: 0,
+      facets: {},
+      histograms: {},
+      firstRows: [],
+      changedTotal: changedTotalCells,
+      noop: true,
+    });
+    return;
+  }
+
   // Cleaning after a transform bakes the transforms in: the current (already
   // transformed) column set becomes the new clean source.
   transformSource = null;
@@ -1620,18 +1661,11 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
   const columns = current.columns.slice();
   const affected: number[] = [];
 
-  for (const update of message.updates) {
+  for (const { update, source, raw } of prepared) {
     const column = update.column;
-    if (column < 0 || column >= columns.length) continue;
-
-    let source = cleanSource.get(column);
-    if (source === undefined) {
-      source = current.columns[column];
-      cleanSource.set(column, source);
-    }
+    cleanSource.set(column, source);
 
     const policy = nullPolicies.get(column) ?? EMPTY_NULL_POLICY;
-    const raw = update.ops.length === 0 ? source.raw : applyCleanOps(source.raw, update.ops);
     recordChange(column, current.columns[column].raw, raw);
     const rebuilt = ColumnData.create(current.columns[column].name, raw, policy);
     const typeOverride = typeOverrides.get(column);

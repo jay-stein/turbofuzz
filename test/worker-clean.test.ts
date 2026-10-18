@@ -79,6 +79,23 @@ test("cleanColumns applies value cleans, rebuilds stats and can revert", async (
   assert.deepEqual(rows.rows.map((row) => row[0]), ["ALICE", "ALICE"]);
   assert.deepEqual([...(rows.changed ?? [])], [1, 0, 0, 0]);
 
+  // Re-applying the same clean is a no-op: no rebuild and no state changes.
+  send({
+    type: "cleanColumns",
+    requestId: 40,
+    updates: [{ column: 0, ops: [{ kind: "trim" }, { kind: "case", style: "upper" }] }],
+  });
+  const noop = find("cleaned", 40) as unknown as {
+    noop?: boolean;
+    changedTotal: number;
+    firstRows: string[][];
+    stats: { duplicateRows: number };
+  };
+  assert.equal(noop.noop, true);
+  assert.equal(noop.changedTotal, 2, "the previous changes are preserved");
+  assert.equal(noop.firstRows.length, 0, "no rebuild payload is sent");
+  assert.equal(noop.stats.duplicateRows, 1);
+
   // An empty op list restores the untouched source values exactly.
   send({
     type: "cleanColumns",

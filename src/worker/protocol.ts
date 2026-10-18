@@ -834,6 +834,8 @@ export interface CleanedMessage {
   firstChanged?: Uint8Array;
   /** Cells changed since load, across every tracked column. */
   changedTotal: number;
+  /** Every requested operation was a no-op; the dataset was not mutated. */
+  noop?: boolean;
 }
 
 export interface ErrorMessage {
