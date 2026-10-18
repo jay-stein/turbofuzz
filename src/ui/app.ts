@@ -1887,6 +1887,15 @@ export class App {
       onSort: (column, dir) => this.changeSort(column, dir),
       onColumnInspect: (column, anchor) => this.openColumnInspector(column, anchor),
       onTypeChange: (column, type) => this.changeType(column, type),
+      quickFilterFor: (column) => {
+        const filter = this.filters.get(column);
+        return filter?.kind === "text" && filter.mode === "contains" ? filter.query : "";
+      },
+      onQuickFilter: (column, query) =>
+        this.changeFilter(
+          column,
+          query === "" ? null : { kind: "text", mode: "contains", query },
+        ),
       onColumnSpecial: (column, kind) => this.toggleColumnSpecial(column, kind),
       onMergeSimilar: (column) => this.openMerge(column),
       onColumnContext: (column, x, y) => this.openColumnMenu(column, x, y),

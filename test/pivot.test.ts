@@ -137,3 +137,20 @@ test("pivot computes safe lambda values per group", () => {
     Number.NaN,
   ]);
 });
+test("pivot value filters restrict raw rows and keep percentage totals", () => {
+  const result = computePivot(
+    pivot({
+      margins: false,
+      marginPct: "row",
+      valueFilters: [{ column: 0, values: ["north"] }],
+    }),
+    SALES.columns,
+    SALES.rowCount,
+    ids,
+  );
+  assert.deepEqual(result.rowLabels, [["North"]]);
+  assert.deepEqual([...result.measures[0].values], [10, 5]);
+  assert.deepEqual([...result.measures[0].rowTotals], [15]);
+  assert.deepEqual([...result.measures[0].colTotals], [10, 5]);
+  assert.equal(result.groupCount, 2);
+});

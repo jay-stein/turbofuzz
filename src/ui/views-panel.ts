@@ -183,6 +183,8 @@ export function pivotDefFromView(view: ViewDef, pivotIndexes: readonly number[])
     dropna: view.dropna,
     sort: view.pivotSort,
     lambdas: view.pivotLambdas,
+    marginPct: view.pivotMarginPct,
+    valueFilters: view.pivotValueFilters,
   };
 }
 
@@ -259,6 +261,10 @@ export function remapViewDef(
     const mapped = mapIndex(filterColumn);
     filterColumn = mapped < 0 ? -1 : mapped;
   }
+  const valueFilters = (def.pivotValueFilters ?? []).flatMap((filter) => {
+    const column = mapIndex(filter.column);
+    return column < 0 ? [] : [{ ...filter, column }];
+  });
   const next: ViewDef = {
     ...def,
     dimensions,
@@ -266,6 +272,7 @@ export function remapViewDef(
     pivotColumns,
     pivot: pivotColumns[0],
     pivotLambdas: lambdas,
+    pivotValueFilters: valueFilters,
     pivotMeasure:
       def.pivotMeasure === undefined
         ? undefined
@@ -1214,6 +1221,64 @@ export class ViewsPanel {
         }),
       );
       csvHeadersLabel.append("CSV", csvHeadersSelect);
+
+      const marginPctLabel = el("label", { class: "views-limit" });
+      marginPctLabel.title = "Show cells as a share of their row or column total";
+      const marginPctSelect = el("select", {
+        class: "chart-picker chart-picker-small",
+        "aria-label": "Pivot margin percentage",
+      }) as HTMLSelectElement;
+      for (const [value, label] of [
+        ["none", "Absolute"],
+        ["row", "% of row"],
+        ["column", "% of column"],
+      ] as const) {
+        const option = el("option", { value }, [label]) as HTMLOptionElement;
+        if ((entry.def.pivotMarginPct ?? "none") === value) option.selected = true;
+        marginPctSelect.append(option);
+      }
+      marginPctSelect.addEventListener("change", () =>
+        this.update((view) => {
+          view.pivotMarginPct = marginPctSelect.value === "row" ? "row" : marginPctSelect.value === "column" ? "column" : "none";
+        }),
+      );
+      marginPctLabel.append("Margin %", marginPctSelect);
+
+      const heatmapLabel = el("label", { class: "views-limit" });
+      heatmapLabel.title = "Shade pivot cells with the coolwarm ramp";
+      const heatmapSelect = el("select", {
+        class: "chart-picker chart-picker-small",
+        "aria-label": "Pivot heatmap palette",
+      }) as HTMLSelectElement;
+      for (const [value, label] of [
+        ["none", "Accent"],
+        ["coolwarm", "Coolwarm"],
+        ["coolwarm-reversed", "Coolwarm reversed"],
+      ] as const) {
+        const option = el("option", { value }, [label]) as HTMLOptionElement;
+        if ((entry.def.pivotHeatmap ?? "none") === value) option.selected = true;
+        heatmapSelect.append(option);
+      }
+      heatmapSelect.addEventListener("change", () =>
+        this.update((view) => {
+          view.pivotHeatmap = heatmapSelect.value === "coolwarm" ? "coolwarm" : heatmapSelect.value === "coolwarm-reversed" ? "coolwarm-reversed" : "none";
+        }),
+      );
+      heatmapLabel.append("Heatmap", heatmapSelect);
+
+      const transpose = el(
+        "button",
+        {
+          class: "ghost small views-transpose",
+          type: "button",
+          title: "Swap the index and column fields",
+        },
+        ["Transpose"],
+      ) as HTMLButtonElement;
+      const transposePivots = this.pivotIndexes(entry.def);
+      transpose.disabled =
+        transposePivots.length === 0 || transposePivots.length >= entry.def.dimensions.length;
+      transpose.addEventListener("click", () => this.transposePivot());
       this.actionsEl.append(
         marginsLabel,
         fillLabel,
@@ -1221,6 +1286,9 @@ export class ViewsPanel {
         orderLabel,
         marginsNameLabel,
         csvHeadersLabel,
+        marginPctLabel,
+        heatmapLabel,
+        transpose,
       );
     }
     const duplicate = el(
@@ -1255,6 +1323,7 @@ export class ViewsPanel {
       if (pivot.measures.length === 0) return;
       const exported = pivotCsvRows(pivot, {
         headers: entry.def.pivotCsvHeaders === "multi" ? "multi" : "flat",
+        marginPct: entry.def.pivotMarginPct ?? "none",
         formulaSafe: true,
       });
       if (exported.tooLarge) {
@@ -1500,6 +1569,23 @@ export class ViewsPanel {
     this.builderEl.append(indexZone, columnZone, measureZone);
   }
 
+  /** Swap the current index and column wells and recompute the pivot. */
+  private transposePivot(): void {
+    this.update((view) => {
+      const pivots = new Set(this.pivotIndexes(view));
+      const oldColumns = view.dimensions
+        .map((_, index) => index)
+        .filter((index) => pivots.has(index));
+      if (oldColumns.length === 0) return;
+      const nextColumns = view.dimensions
+        .map((_, index) => index)
+        .filter((index) => !pivots.has(index));
+      if (nextColumns.length === 0) return;
+      view.pivotColumns = nextColumns;
+      view.pivot = nextColumns[0];
+      view.fillValue = undefined;
+    });
+  }
   /** Swap a field with its neighbour inside the same well. */
   private moveDimension(
     view: ViewDef,
@@ -1574,6 +1660,29 @@ export class ViewsPanel {
     down.addEventListener("click", () =>
       this.update((view) => this.moveDimension(view, group, position, 1)),
     );
+    const filterValues = def.pivotValueFilters?.find(
+      (filter) => filter.column === spec.column,
+    )?.values;
+    const filter =
+      spec.by === "value" &&
+      (meta?.type === "category" || meta?.type === "boolean" || meta?.type === "string")
+        ? (el(
+            "button",
+            {
+              class: `views-pill-filter${
+                filterValues === undefined || filterValues.length === 0 ? "" : " active"
+              }`,
+              type: "button",
+              title:
+                filterValues === undefined || filterValues.length === 0
+                  ? "Filter this field to specific values"
+                  : `Showing: ${filterValues.join(", ")}`,
+              "aria-label": "Filter field values",
+            },
+            ["\u2282"],
+          ) as HTMLButtonElement)
+        : null;
+    filter?.addEventListener("click", () => void this.filterDimension(spec, group));
     const toggle = el(
       "button",
       {
@@ -1611,8 +1720,42 @@ export class ViewsPanel {
         if (view.pivotColumns.length === 0) view.fillValue = undefined;
       }),
     );
-    pill.append(label, up, down, toggle, remove);
+    pill.append(label, up, down, ...(filter === null ? [] : [filter]), toggle, remove);
     return pill;
+  }
+  /** Prompt for exact dimension values and rebuild the pivot around them. */
+  private async filterDimension(
+    spec: DimensionSpec,
+    group: "index" | "columns",
+  ): Promise<void> {
+    const meta = this.metas[spec.column];
+    const current =
+      this.views[this.active]?.def.pivotValueFilters?.find(
+        (filter) => filter.column === spec.column,
+      )?.values ?? [];
+    const value = await openPrompt({
+      title: `Filter ${meta?.name ?? "field"}`,
+      label: `${group === "index" ? "Index" : "Column"} values (comma-separated, exact match). Leave blank to clear.`,
+      value: current.join(", "),
+      placeholder: "North, South, West",
+      confirmLabel: "Apply filter",
+    });
+    if (value === null) return;
+    const values = [
+      ...new Set(
+        value
+          .split(",")
+          .map((part) => part.trim())
+          .filter((part) => part !== ""),
+      ),
+    ];
+    this.update((view) => {
+      const others = (view.pivotValueFilters ?? []).filter(
+        (filter) => filter.column !== spec.column,
+      );
+      view.pivotValueFilters =
+        values.length === 0 ? others : [...others, { column: spec.column, values }];
+    });
   }
   private lambdaPill(
     def: ViewDef,
@@ -2399,6 +2542,8 @@ export class ViewsPanel {
         : entry.def.fillValue;
     const displayValue = (value: number): number =>
       Number.isFinite(value) || fillValue === null ? value : fillValue;
+    const marginPct = entry.def.pivotMarginPct ?? "none";
+    const heatmap = entry.def.pivotHeatmap ?? "none";
     let max = 0;
     for (const measure of pivot.measures) {
       for (const value of measure.values) {
@@ -2510,7 +2655,13 @@ export class ViewsPanel {
       el("div", { class: "views-pivot-note" }, [
         `Spreading "${spread}" across columns - ${pivot.measures.map((measure) => measure.name).join(", ")} - ${emptyNote}${
           entry.def.dropna === true ? " - empty rows and columns hidden" : ""
-        }${entry.def.margins === true ? ` - ${entry.def.marginsName ?? "All"} margins computed from raw rows` : ""}.`,
+        }${entry.def.margins === true ? ` - ${entry.def.marginsName ?? "All"} margins computed from raw rows` : ""}${
+          marginPct === "row"
+            ? " - cells are % of row total"
+            : marginPct === "column"
+              ? " - cells are % of column total"
+              : ""
+        }${heatmap === "none" ? "" : " - coolwarm shading"}.`,
       ]),
     );
   }

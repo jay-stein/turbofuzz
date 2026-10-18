@@ -75,3 +75,13 @@ test("pivot CSV refuses outputs above the cell cap", () => {
   assert.equal(result.tooLarge, true);
   assert.deepEqual(result.rows, []);
 });
+
+test("pivot CSV can export percentage margins", () => {
+  const { rows } = pivotCsvRows(pivot(), {
+    headers: "flat",
+    formulaSafe: true,
+    marginPct: "row",
+  });
+  assert.deepEqual(rows[1]?.slice(1, 3), ["66.67%", "33.33%"]);
+  assert.deepEqual(rows[2]?.slice(1, 3), ["74.07%", "25.93%"]);
+});

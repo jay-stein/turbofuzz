@@ -26,6 +26,10 @@ function crossIcon(): SVGElement {
   return svgIcon('<path d="M8 8l8 8"/><path d="M16 8l-8 8"/>', "del-icon");
 }
 
+function filterIcon(): SVGElement {
+  return svgIcon('<path d="M2 3h12l-4.5 5.5V14l-3-1.5V8.5z"/>', "quick-filter-icon");
+}
+
 export interface HighlightRule {
   column: number;
   query: string;
@@ -44,6 +48,10 @@ export interface ResultTableOptions {
   /** Clicking a column name opens the inspector anchored to it. */
   onColumnInspect: (column: number, anchor: HTMLElement) => void;
   onTypeChange: (column: number, type: ColumnType) => void;
+  /** Quick contains filter typed directly in a column header. */
+  onQuickFilter?: (column: number, query: string) => void;
+  /** Current contains query for a column, used to restore the header input. */
+  quickFilterFor?: (column: number) => string;
   onColumnSpecial: (column: number, kind: ColumnQaKind) => void;
   onMergeSimilar: (column: number) => void;
   onColumnContext: (column: number, x: number, y: number) => void;
@@ -72,6 +80,7 @@ export class ResultTable {
   private readonly spacer: HTMLDivElement;
   private readonly rowsHost: HTMLDivElement;
   private readonly onResize = (): void => this.render();
+  private quickFilterTimer: number | null = null;
 
   private columns: ColumnMeta[] = [];
   private widths: number[] = [];
@@ -117,6 +126,7 @@ export class ResultTable {
   dispose(): void {
     window.removeEventListener("resize", this.onResize);
     if (this.flashTimer !== null) window.clearTimeout(this.flashTimer);
+    if (this.quickFilterTimer !== null) window.clearTimeout(this.quickFilterTimer);
     this.count = 0;
     this.cache.clear();
     this.rowFlags.clear();
@@ -168,6 +178,7 @@ export class ResultTable {
     this.renderHeader();
     this.render();
     if (this.flashTimer !== null) window.clearTimeout(this.flashTimer);
+    if (this.quickFilterTimer !== null) window.clearTimeout(this.quickFilterTimer);
     this.flashTimer = window.setTimeout(() => {
       this.flashTimer = null;
       this.flashIndex = null;
@@ -401,7 +412,43 @@ export class ResultTable {
       });
 
       top.append(number, label, grip, del);
-      cell.append(qa, top, typeSelect);
+
+      const quickFilter = el("div", { class: "th-filter" });
+      const current = this.options.quickFilterFor?.(index) ?? "";
+      if (current !== "") quickFilter.classList.add("active");
+      const filterMark = el("span", { class: "th-filter-icon" });
+      filterMark.append(filterIcon());
+      const filterInput = el("input", {
+        class: "th-filter-input",
+        type: "text",
+        value: current,
+        placeholder: "Filter…",
+        title: `Quick contains filter for "${name}"`,
+        "aria-label": `Filter ${name}`,
+      }) as HTMLInputElement;
+      const applyQuickFilter = (): void => {
+        if (this.quickFilterTimer !== null) {
+          window.clearTimeout(this.quickFilterTimer);
+          this.quickFilterTimer = null;
+        }
+        const query = filterInput.value.trim();
+        quickFilter.classList.toggle("active", query !== "");
+        this.options.onQuickFilter?.(index, query);
+      };
+      filterInput.addEventListener("input", () => {
+        if (this.quickFilterTimer !== null) window.clearTimeout(this.quickFilterTimer);
+        this.quickFilterTimer = window.setTimeout(applyQuickFilter, 140);
+      });
+      filterInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          applyQuickFilter();
+        }
+      });
+      filterInput.addEventListener("blur", applyQuickFilter);
+      filterInput.addEventListener("click", (event) => event.stopPropagation());
+      quickFilter.append(filterMark, filterInput);
+      cell.append(qa, top, typeSelect, quickFilter);
       cell.addEventListener("contextmenu", (event) => {
         event.preventDefault();
         this.options.onColumnContext(index, event.clientX, event.clientY);

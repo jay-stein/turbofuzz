@@ -26,6 +26,8 @@ export interface PivotDef {
   sort?: "label" | "source";
   /** Safe custom lambda values, appended after ordinary values. */
   lambdas?: PivotLambdaSpec[];
+  marginPct?: "none" | "row" | "column";
+  valueFilters?: { column: number; values: string[] }[];
 }
 
 export interface PivotMeasureResult {
@@ -177,6 +179,20 @@ export function computePivot(
   ids: Uint32Array,
 ): PivotResult {
   const started = performance.now();
+  const filters = (def.valueFilters ?? []).filter(
+    (filter) => columns[filter.column] !== undefined,
+  );
+  if (filters.length > 0) {
+    const sets = filters.map((filter) => ({
+      column: filter.column,
+      values: new Set(filter.values.map((value) => value.trim().toLowerCase())),
+    }));
+    ids = ids.filter((id) =>
+      sets.every((filter) =>
+        filter.values.has((columns[filter.column]?.raw[id] ?? "").trim().toLowerCase()),
+      ),
+    );
+  }
   const indexCount = def.index.length;
   const columnCount = def.columns.length;
   const lambdaValues = (def.lambdas ?? []).map((lambda) => {
@@ -328,7 +344,7 @@ export function computePivot(
     }
   }
 
-  if (margins) {
+  if (margins || (def.marginPct ?? "none") !== "none") {
     const rowMargin = computeAggregate(
       baseView(def, def.index, "margin-rows", measureDefs),
       columns,

@@ -58,6 +58,7 @@ interface Harness {
   fixes: { column: number; suggestion: ColumnSuggestion }[];
   converts: { column: number; tokens: string[] }[];
   inspects: number[];
+  quick: { column: number; query: string }[];
   window: Window;
 }
 
@@ -73,10 +74,12 @@ function buildTable(columns: ColumnMeta[]): Harness {
   const fixes: Harness["fixes"] = [];
   const converts: Harness["converts"] = [];
   const inspects: number[] = [];
+  const quick: Harness["quick"] = [];
   const table = new ResultTable(host, {
     onSort: () => {},
     onColumnInspect: (column) => inspects.push(column),
     onTypeChange: () => {},
+    onQuickFilter: (column, query) => quick.push({ column, query }),
     onColumnSpecial: (column, kind) => clicks.push({ column, kind }),
     onMergeSimilar: (column) => merges.push(column),
     onColumnContext: (column, x, y) => contexts.push({ column, x, y }),
@@ -98,6 +101,7 @@ function buildTable(columns: ColumnMeta[]): Harness {
     fixes,
     converts,
     inspects,
+    quick,
     window,
   };
 }
@@ -417,4 +421,15 @@ test("display settings repaint rows already on screen", () => {
     "1234567.89",
     "clearing the format restores the raw value",
   );
+});
+
+test("a header text input applies a debounced contains filter", async () => {
+  const { host, quick, window } = buildTable([meta({ name: "region" })]);
+  const input = host.querySelector(".th-filter-input") as unknown as HTMLInputElement;
+  assert.ok(input);
+  input.value = "nor";
+  input.dispatchEvent(new window.Event("input") as unknown as Event);
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  assert.deepEqual(quick, [{ column: 0, query: "nor" }]);
+  assert.ok(host.querySelector(".th-filter")?.classList.contains("active"));
 });

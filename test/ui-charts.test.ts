@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { ColumnFilter } from "../src/search/query-engine.js";
 import { ChartsPanel, type ChartsPanelOptions } from "../src/ui/chart-panel.js";
-import { ChartCard, cropDensityGrid, type ChartCardConfig, type ChartCardOptions } from "../src/ui/chart-card.js";
+import {
+  ChartCard,
+  cropDensityGrid,
+  fitMapView,
+  type ChartCardConfig,
+  type ChartCardOptions,
+} from "../src/ui/chart-card.js";
 import type { ViewDef } from "../src/data/aggregate.js";
 import type { SeriesGrid } from "../src/data/chart-series.js";
 import type {
@@ -2819,4 +2825,18 @@ test("a KPI card with a date column reads the series and shows Bucket", async ()
   assert.match(note, /42\.5/, "the note carries the latest value");
   assert.match(note, /vs previous/, "the change is stated");
   card.dispose();
+});
+test("map auto-fit follows the data percentile bounds", () => {
+  const lons = Array.from({ length: 100 }, (_, index) => -120 + index * 0.4);
+  const lats = Array.from({ length: 100 }, (_, index) => -10 + index * 0.1);
+  lons[0] = -170;
+  lons[99] = 170;
+  lats[0] = -60;
+  lats[99] = 60;
+  const view = fitMapView(lons, lats);
+  assert.ok(view !== null);
+  assert.ok((view?.lonMin ?? -180) > -170);
+  assert.ok((view?.lonMax ?? 180) < 170);
+  assert.ok((view?.latMin ?? -90) > -60);
+  assert.ok((view?.latMax ?? 90) < 60);
 });

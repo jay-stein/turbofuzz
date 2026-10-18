@@ -1738,6 +1738,82 @@ button:disabled {
   outline-offset: -2px;
 }
 
+.th-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 6px 5px 8px;
+  padding: 1px 5px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-dim);
+  background: transparent;
+}
+
+.th-filter:hover,
+.th-filter:focus-within {
+  border-color: var(--border);
+  background: var(--panel);
+}
+
+.th-filter.active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--accent-soft);
+}
+
+.th-filter-icon {
+  display: none;
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+.th-filter.active .th-filter-icon {
+  display: inline-flex;
+}
+
+.quick-filter-icon {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+
+.th-filter-input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 10.5px;
+  padding: 0;
+}
+
+.th-filter-input::placeholder {
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.views-pill-filter {
+  font: inherit;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 3px 4px;
+  font-size: 10px;
+}
+
+.views-pill-filter.active {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.views-pill-filter:hover {
+  color: var(--accent);
+}
 .th-index {
   flex: none;
   align-self: center;

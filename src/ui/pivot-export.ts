@@ -9,6 +9,8 @@ export interface PivotCsvOptions {
   formulaSafe: boolean;
   /** Maximum cells (rows * columns) allowed in one export. */
   cellCap?: number;
+  /** Export cells as a share of their row or column total. */
+  marginPct?: "none" | "row" | "column";
 }
 
 const FORMULA_LIKE = /^[=+\-@\t\r]/;
@@ -42,8 +44,24 @@ export function pivotCsvRows(
     return parts.length === 0 ? ["All"] : parts;
   };
   const value = (measure: number, row: number, col: number): string => {
-    const raw = pivot.measures[measure]?.values[row * pivot.colLabels.length + col];
-    return Number.isFinite(raw) ? String(raw) : "";
+    const result = pivot.measures[measure];
+    const raw = result?.values[row * pivot.colLabels.length + col];
+    if (!Number.isFinite(raw)) return "";
+    const total =
+      options.marginPct === "row"
+        ? result?.rowTotals[row]
+        : options.marginPct === "column"
+          ? result?.colTotals[col]
+          : undefined;
+    if (
+      options.marginPct !== undefined &&
+      options.marginPct !== "none" &&
+      Number.isFinite(total) &&
+      total !== 0
+    ) {
+      return `${((raw as number) / (total as number) * 100).toFixed(2)}%`;
+    }
+    return String(raw);
   };
   const rows: string[][] = [];
   if (options.headers === "flat") {

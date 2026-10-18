@@ -86,6 +86,64 @@ import {
 import { parseGeoFile, type GeoDataset } from "../data/geo-file.js";
 
 /** Rectangle brush result: lon/lat bounds for the two coordinate columns. */
+export interface MapViewport {
+  lonMin: number;
+  lonMax: number;
+  latMin: number;
+  latMax: number;
+}
+
+/** Fit a lon/lat viewport to the 1st-99th percentile of the plotted points. */
+export function fitMapView(
+  lons: ArrayLike<number>,
+  lats: ArrayLike<number>,
+): MapViewport | null {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  const step = Math.max(1, Math.floor(Math.max(lons.length, lats.length) / 5000));
+  for (let index = 0; index < Math.min(lons.length, lats.length); index += step) {
+    const lon = lons[index];
+    const lat = lats[index];
+    if (Number.isFinite(lon) && Number.isFinite(lat)) {
+      xs.push(lon);
+      ys.push(lat);
+    }
+  }
+  if (xs.length === 0) return null;
+  xs.sort((a, b) => a - b);
+  ys.sort((a, b) => a - b);
+  const at = (values: number[], q: number): number =>
+    values[Math.max(0, Math.min(values.length - 1, Math.round((values.length - 1) * q)))]!;
+  let lonMin = at(xs, 0.01);
+  let lonMax = at(xs, 0.99);
+  let latMin = at(ys, 0.01);
+  let latMax = at(ys, 0.99);
+  if (!(lonMax > lonMin)) {
+    lonMin -= 0.25;
+    lonMax += 0.25;
+  }
+  if (!(latMax > latMin)) {
+    latMin -= 0.25;
+    latMax += 0.25;
+  }
+  const lonPad = Math.max(0.05, (lonMax - lonMin) * 0.08);
+  const latPad = Math.max(0.05, (latMax - latMin) * 0.08);
+  lonMin = Math.max(-180, lonMin - lonPad);
+  lonMax = Math.min(180, lonMax + lonPad);
+  latMin = Math.max(-85, latMin - latPad);
+  latMax = Math.min(85, latMax + latPad);
+  if (lonMax - lonMin < 0.25) {
+    const center = (lonMin + lonMax) / 2;
+    lonMin = Math.max(-180, center - 0.125);
+    lonMax = Math.min(180, center + 0.125);
+  }
+  if (latMax - latMin < 0.25) {
+    const center = (latMin + latMax) / 2;
+    latMin = Math.max(-85, center - 0.125);
+    latMax = Math.min(85, center + 0.125);
+  }
+  return { lonMin, lonMax, latMin, latMax };
+}
 export interface MapBrushSelection {
   lonColumn: number;
   lonMin: number;
@@ -772,7 +830,7 @@ export class ChartCard {
   /** Map heat grid (count or measure per cell), computed by the worker. */
   private mapGrid: GridCountsResult | null = null;
   /** Map viewport in degrees (null = the whole world). */
-  private mapView: { lonMin: number; lonMax: number; latMin: number; latMax: number } | null = null;
+  private mapView: MapViewport | null = null;
   /** Optional user-supplied regions (GeoJSON / zipped Shapefile). */
   private geoDataset: GeoDataset | null = null;
   private readonly mapLayerRow: HTMLElement;
@@ -5196,7 +5254,7 @@ export class ChartCard {
       const dy = (event.clientY - rect.top - this.mapDrag.y) / frame.plotH;
       this.dragMoved = true;
       this.mapDrag = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-      const view = this.mapView ?? { lonMin: -180, lonMax: 180, latMin: -90, latMax: 90 };
+      const view = this.mapView ?? this.mapViewOrAuto();
       const lonSpan = view.lonMax - view.lonMin;
       const latSpan = view.latMax - view.latMin;
       const lonMin = Math.min(
@@ -5615,7 +5673,7 @@ export class ChartCard {
       this.render();
       return;
     }
-    const view = this.mapView ?? { lonMin: -180, lonMax: 180, latMin: -90, latMax: 90 };
+    const view = this.mapView ?? this.mapViewOrAuto();
     const bounds = mapBrushBounds(
       {
         left: frame.left,
@@ -5822,7 +5880,7 @@ export class ChartCard {
     }
     if (kind === "map") {
       event.preventDefault();
-      const view = this.mapView ?? { lonMin: -180, lonMax: 180, latMin: -90, latMax: 90 };
+      const view = this.mapView ?? this.mapViewOrAuto();
       const lon = view.lonMin + tx * (view.lonMax - view.lonMin);
       const lat = view.latMin + ty * (view.latMax - view.latMin);
       const lonSpan = Math.min(
@@ -5868,6 +5926,23 @@ export class ChartCard {
   }
 
   /** Double-click resets the map/scatter viewport to the full data range. */
+  /** Auto viewport: custom regions, then heat grid, then point percentiles. */
+  private mapViewOrAuto(): MapViewport {
+    if (this.geoDataset !== null) return { ...this.geoDataset.bounds };
+    if (this.mapGrid !== null) {
+      return {
+        lonMin: this.mapGrid.xMin,
+        lonMax: this.mapGrid.xMax,
+        latMin: this.mapGrid.yMin,
+        latMax: this.mapGrid.yMax,
+      };
+    }
+    if (this.seriesResult !== null && this.seriesResult.mode === "points") {
+      const fitted = fitMapView(this.seriesResult.x, this.seriesResult.y);
+      if (fitted !== null) return fitted;
+    }
+    return { lonMin: -180, lonMax: 180, latMin: -90, latMax: 90 };
+  }
   private resetMapZoom(): void {
     let changed = false;
     let binsChanged = false;
@@ -6615,7 +6690,7 @@ export class ChartCard {
     const w = frame.plotW;
     const h = frame.plotH;
     const view =
-      this.mapView ?? { lonMin: -180, lonMax: 180, latMin: -90, latMax: 90 };
+      this.mapView ?? this.mapViewOrAuto();
     const lonSpan = view.lonMax - view.lonMin;
     const latSpan = view.latMax - view.latMin;
     const px = (lon: number): number => x0 + ((lon - view.lonMin) / lonSpan) * w;

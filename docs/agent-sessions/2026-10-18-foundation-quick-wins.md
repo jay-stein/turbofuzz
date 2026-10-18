@@ -241,3 +241,26 @@ Final state after the session:
 6. Geo maps polish: remaining hover/click checks and richer unmatched-region inspection.
 7. Full Pivot View: 0–3 index/column fields, multiple values/aggs, margins, fill_value, named pivots, pivot CSV and chart integration, resample-style time.
 8. Batch type conversion UI and remaining table performance work.
+
+## Follow-up: map and pivot UX (2026-10-18)
+
+### Goal
+
+Act on live-site feedback: reduce map disorientation, make pivot values easier to filter, and add quick layout/comparison controls.
+
+### Changes
+
+- Map cards now auto-fit the initial viewport to plotted point percentiles instead of opening on the whole globe. Custom regions and heat grids use their own bounds; Reset returns to the data view.
+- Result-table headers gained an inline free-text contains filter. Typing is debounced, Enter applies immediately, blur flushes, and an active filter shows a funnel icon plus accent styling. It uses the existing filter engine, chips and URL-safe filter state.
+- Pivot fields for text/category/boolean columns gained a value-filter action using exact comma-separated values; filters are applied to raw rows before aggregation, so margins and percentages stay correct.
+- Pivot actions gained Transpose (swap index/column wells), Margin % (absolute / % of row / % of column), and Heatmap (accent / coolwarm / coolwarm reversed).
+- Percentage margins are shared by the on-screen matrix and pivot CSV export. Coolwarm shading uses raw signed values; percentage cells retain raw values in their tooltip.
+- Named-pivot remapping now remaps value-filter columns by name.
+
+### Validation
+
+- `npm run typecheck` passes.
+- `npm test`: 711 tests passing.
+- `npm run build` passes.
+- No network or eval paths introduced.
+- Pre-existing untracked files were left untouched.

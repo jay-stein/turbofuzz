@@ -129,6 +129,12 @@ export interface ViewDef {
   pivotLambdas?: PivotLambdaSpec[];
   /** Pivot CSV headers: flat for Excel, or pandas-style repeated multi-row. */
   pivotCsvHeaders?: "flat" | "multi";
+  /** Pivot margin display: raw, % of row total, or % of column total. */
+  pivotMarginPct?: "none" | "row" | "column";
+  /** Coolwarm pivot cell shading, optionally reversed. */
+  pivotHeatmap?: "none" | "coolwarm" | "coolwarm-reversed";
+  /** Exact raw-value filters on pivot dimension columns. */
+  pivotValueFilters?: { column: number; values: string[] }[];
   /** Value used for pivot cells with no rows (null/undefined = blank). */
   fillValue?: number | null;
   /** Drop pivot rows and columns that contain no finite values. */
