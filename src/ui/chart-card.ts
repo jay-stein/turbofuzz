@@ -716,6 +716,8 @@ export class ChartCard {
   /** Box plot category window and optional numeric Y window. */
   private boxWindow: { start: number; count: number } | null = null;
   private boxY: { min: number; max: number } | null = null;
+  /** Correlation matrix row/column window. */
+  private corrWindow: { start: number; count: number } | null = null;
   private readonly animationTimeSelect: HTMLSelectElement;
   private readonly animationGrainSelect: HTMLSelectElement;
   private readonly animationBar: HTMLElement;
@@ -4459,7 +4461,8 @@ export class ChartCard {
       this.config.kind === "histogram" ||
       this.config.kind === "bar" ||
       this.config.kind === "heatmap" ||
-      this.config.kind === "box";
+      this.config.kind === "box" ||
+      this.config.kind === "correlation";
     this.resetViewButton.classList.toggle(
       "hidden",
       !(
@@ -4469,7 +4472,8 @@ export class ChartCard {
         this.barWindow !== null ||
         this.heatWindow !== null ||
         this.boxWindow !== null ||
-        this.boxY !== null
+        this.boxY !== null ||
+        this.corrWindow !== null
       ),
     );
     this.canvas.style.cursor = zoomable
@@ -4641,6 +4645,34 @@ export class ChartCard {
       }
       return;
     }
+    if (this.config.kind === "correlation" && this.plotDrag !== null) {
+      const result = this.correlationResult;
+      const frame = this.lastFrame;
+      if (result === null || frame === null) return;
+      const total = result.labels.length;
+      const state = this.corrWindow ?? { start: 0, count: total };
+      const slot = frame.plotW / Math.max(1, state.count);
+      const steps = Math.round((event.clientX - rect.left - this.plotDrag.x) / Math.max(1, slot));
+      if (steps !== 0) {
+        this.dragMoved = true;
+        this.plotDrag = {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        };
+        this.corrWindow =
+          state.count >= total
+            ? null
+            : {
+                count: state.count,
+                start: Math.min(
+                  Math.max(0, total - state.count),
+                  Math.max(0, state.start - steps),
+                ),
+              };
+        this.render();
+      }
+      return;
+    }
     if (this.config.kind === "box" && this.plotDrag !== null) {
       const result = this.boxResult;
       const frame = this.lastFrame;
@@ -4793,7 +4825,8 @@ export class ChartCard {
         kind !== "histogram" &&
         kind !== "bar" &&
         kind !== "heatmap" &&
-        kind !== "box") ||
+        kind !== "box" &&
+        kind !== "correlation") ||
       this.lastFrame === null
     ) {
       return;
@@ -4914,7 +4947,8 @@ export class ChartCard {
         kind !== "histogram" &&
         kind !== "bar" &&
         kind !== "heatmap" &&
-        kind !== "box") ||
+        kind !== "box" &&
+        kind !== "correlation") ||
       this.lastFrame === null
     ) {
       return;
@@ -4969,6 +5003,22 @@ export class ChartCard {
         Math.max(0, Math.round(center - count / 2)),
       );
       this.barWindow = { start, count };
+      this.render();
+      return;
+    }
+    if (kind === "correlation") {
+      const result = this.correlationResult;
+      if (result === null || result.labels.length < 2) return;
+      event.preventDefault();
+      const total = result.labels.length;
+      const current = this.corrWindow ?? { start: 0, count: total };
+      const count = Math.min(total, Math.max(2, Math.round(current.count * factor)));
+      const center = current.start + current.count / 2;
+      const start = Math.min(
+        Math.max(0, total - count),
+        Math.max(0, Math.round(center - count / 2)),
+      );
+      this.corrWindow = count >= total ? null : { start, count };
       this.render();
       return;
     }
@@ -5123,6 +5173,10 @@ export class ChartCard {
     if (this.config.kind === "box" && (this.boxWindow !== null || this.boxY !== null)) {
       this.boxWindow = null;
       this.boxY = null;
+      changed = true;
+    }
+    if (this.config.kind === "correlation" && this.corrWindow !== null) {
+      this.corrWindow = null;
       changed = true;
     }
     if (binsChanged) this.refreshBins();
@@ -8332,10 +8386,23 @@ export class ChartCard {
       return;
     }
     const ui = frame.ui;
-    const n = result.labels.length;
+    const total = result.labels.length;
+    const state = this.corrWindow ?? { start: 0, count: total };
+    const start = Math.max(0, Math.min(total - 2, state.start));
+    const n = Math.max(2, Math.min(state.count, total - start));
+    const labels = result.labels.slice(start, start + n);
+    const values = new Float64Array(n * n);
+    const counts = new Uint32Array(n * n);
+    for (let row = 0; row < n; row++) {
+      for (let column = 0; column < n; column++) {
+        const source = (start + row) * total + (start + column);
+        values[row * n + column] = result.values[source] ?? Number.NaN;
+        counts[row * n + column] = result.counts[source] ?? 0;
+      }
+    }
     this.hitRegions = correlationHitRegions(
       { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
-      { labels: result.labels, values: result.values, counts: result.counts },
+      { labels, values, counts },
     );
     const sizeX = frame.plotW / n;
     const sizeY = frame.plotH / n;
@@ -8351,7 +8418,7 @@ export class ChartCard {
     for (let row = 0; row < n; row++) {
       for (let column = 0; column < n; column++) {
         const index = row * n + column;
-        const r = result.values[index];
+        const r = values[index];
         const cell = correlationCell(r, zeroColor);
         ctx.fillStyle = cell.bg;
         ctx.fillRect(left + column * sizeX, top + row * sizeY, sizeX, sizeY);
@@ -8362,7 +8429,7 @@ export class ChartCard {
           ctx.fillText(text, left + (column + 0.5) * sizeX, top + (row + 0.5) * sizeY + 3.5 * ui);
         }
         if (index !== row * n + row) {
-          const count = result.counts[index];
+          const count = counts[index];
           if (count > 0 && count < minCount) minCount = count;
         }
       }
@@ -8378,12 +8445,12 @@ export class ChartCard {
       return this.fit(ctx, label, labelWidth);
     };
     ctx.textAlign = "center";
-    result.labels.forEach((label, column) => {
+    labels.forEach((label, column) => {
       ctx.fillStyle = frame.dim;
       ctx.fillText(abbreviate(label), left + (column + 0.5) * sizeX, top + gridH + 14 * ui);
     });
     ctx.textAlign = "right";
-    result.labels.forEach((label, row) => {
+    labels.forEach((label, row) => {
       ctx.fillStyle = frame.dim;
       ctx.fillText(
         this.fit(ctx, label, Math.max(8, left - frame.left - 6 * ui)),
