@@ -373,6 +373,7 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
   const host = document.createElement("div");
   const requests: ViewDef[] = [];
   const pivotRequests: PivotDef[] = [];
+  const pivotCharts: ViewDef[] = [];
   const panel = new ViewsPanel(host as unknown as HTMLElement, {
     requestAggregate: async (view) => {
       requests.push(view);
@@ -426,6 +427,7 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
     },
     onDrill: () => {},
     onChart: () => {},
+    onPivotChart: (view) => pivotCharts.push(view),
     onCopyPandas: async () => {},
   });
   panel.setColumns(metas, 100);
@@ -483,6 +485,15 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
   assert.ok(host.querySelector(
     `select[aria-label="Pivot CSV headers"]`,
   ) !== null);
+  const pivotHeatmap = [...host.querySelectorAll(".views-actions button")].find(
+    (button) => button.textContent === "Pivot heatmap",
+  ) as unknown as { click(): void };
+  assert.ok(pivotHeatmap !== undefined);
+  assert.equal((pivotHeatmap as unknown as HTMLButtonElement).disabled, false);
+  pivotHeatmap.click();
+  assert.equal(pivotCharts.length, 1);
+  assert.equal(pivotCharts[0]?.pivot, 1);
+
   const beforeDuplicate = host.querySelectorAll(".views-card").length;
   (host.querySelector(".views-duplicate") as unknown as { click(): void }).click();
   await tick();
@@ -819,6 +830,7 @@ test("pivot value filters use a searchable picker and can clear", async () => {
   const host = document.createElement("div");
   const doc = (globalThis as Record<string, unknown>).document as Window["document"];
   const pivotRequests: PivotDef[] = [];
+  const pivotCharts: ViewDef[] = [];
   const panel = new ViewsPanel(host as unknown as HTMLElement, {
     requestAggregate: async (view) => aggregateFor(view),
     requestPivot: async (def) => {

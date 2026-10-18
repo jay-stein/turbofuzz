@@ -210,6 +210,13 @@ export function fitChartKind(
         preset: {},
       };
     }
+    case "pivotHeatmap":
+      return {
+        kind,
+        ok: false,
+        reason: "needs a pivot view source",
+        preset: {},
+      };
     case "correlation":
       if (numeric.length >= 2) {
         return {
@@ -259,6 +266,8 @@ const ICONS: Record<ChartCardKind, string> = {
     '<circle cx="20" cy="26" r="10" fill="currentColor" opacity="0.35"/><circle cx="40" cy="18" r="7" fill="currentColor" opacity="0.55"/><circle cx="52" cy="30" r="5" fill="currentColor" opacity="0.7"/><circle cx="30" cy="34" r="3" fill="currentColor" opacity="0.8"/>',
   correlation:
     '<rect x="10" y="8" width="16" height="16" fill="currentColor" opacity="0.8"/><rect x="28" y="8" width="16" height="16" fill="currentColor" opacity="0.25"/><rect x="46" y="8" width="16" height="16" fill="currentColor" opacity="0.55"/><rect x="10" y="28" width="16" height="16" fill="currentColor" opacity="0.25"/><rect x="28" y="28" width="16" height="16" fill="currentColor" opacity="0.8"/><rect x="46" y="28" width="16" height="16" fill="currentColor" opacity="0.2"/>',
+  pivotHeatmap:
+    '<rect x="8" y="8" width="18" height="10" fill="currentColor" opacity="0.75"/><rect x="28" y="8" width="18" height="10" fill="currentColor" opacity="0.35"/><rect x="48" y="8" width="16" height="10" fill="currentColor" opacity="0.55"/><rect x="8" y="20" width="18" height="10" fill="currentColor" opacity="0.35"/><rect x="28" y="20" width="18" height="10" fill="currentColor" opacity="0.85"/><rect x="48" y="20" width="16" height="10" fill="currentColor" opacity="0.25"/><rect x="8" y="32" width="18" height="8" fill="currentColor" opacity="0.55"/><rect x="28" y="32" width="18" height="8" fill="currentColor" opacity="0.25"/><rect x="48" y="32" width="16" height="8" fill="currentColor" opacity="0.7"/>',
 };
 
 function svgWrap(inner: string): HTMLElement {

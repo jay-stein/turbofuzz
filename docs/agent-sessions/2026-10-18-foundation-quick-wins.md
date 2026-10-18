@@ -375,3 +375,13 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - Unfiltered date filters now start blank. Focusing a date input anchors it to the dataset's earliest/latest bounds, so the native picker no longer starts at today.
 - Text filters autofocus when opened and default to Contains for immediate typing. Filtering still applies per keystroke.
 - Header filter panels pulse with an accent ring on open so users can spot where the panel appeared.
+## W1 completion: pivot heatmap and fallback removal (2026-10-18)
+
+- Added a dedicated `Pivot heatmap` chart kind and a "Pivot heatmap" action in Pivot View.
+- Pivot-bound heatmaps fetch `PivotMessage` directly, with row-level, column-level and measure selectors.
+- Parent-level selections aggregate underlying matrix cells; large matrices are truncated for display with a note.
+- Heatmap colours use the shared ramp scale, respect optional min/max domains and use the active palette ramp when one is chosen.
+- Chart CSV exports the selected pivot heatmap matrix; spec/code actions are disabled for this special source.
+- Chart-source selectors group Table data, Pivot views and Saved views; filter changes refresh view-bound cards.
+- Removed the legacy client-side aggregate pivot assembly path: pivoted views now require the worker pivot result.
+- Updated `plan-remaining-work.md`: W1 complete, W1.11 complete, baseline 729 tests.

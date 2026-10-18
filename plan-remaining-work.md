@@ -27,7 +27,7 @@ Already delivered and not to be rebuilt:
 - Pivot rename, multi-field row indexes, multi-field column headers, margins, fill/drop, measure selector, resample grain, flat CSV;
 - ChartSpec JSON export and pandas/Polars code downloads for supported chart kinds.
 
-Baseline test state: **692 tests passing**, typecheck and production build green.
+Baseline test state: **729 tests passing**, typecheck and production build green.
 
 ---
 
@@ -68,22 +68,24 @@ Baseline test state: **692 tests passing**, typecheck and production build green
 
 **Goal:** replace the remaining client-side/aggregate-derived pivot behavior with a first-class worker pivot model and complete the pandas-style Pivot View.
 
+**Status:** Complete. Pivot drag/drop, typed report filters, date hierarchies, chart-source grouping and pivot heatmaps are delivered; legacy aggregate pivot assembly is removed.
+
 **Depends on:** none; can start immediately.  
 **Blocks:** W5 (pivot recipe parity), W9 (pivot benchmarks).
 
 | ID | Task | Acceptance |
 |---|---|---|
-| W1.1 | Add `PivotRequest`/`PivotMessage` and `computePivot` in the worker; reuse `computeAggregate` internally for base, row-margin, column-margin, and grand-total passes. | Worker returns matrix cells, labels, times, measure names, margins, partial flags, truncation, and a stable level schema. No large long-form payload reaches the UI. |
-| W1.2 | Add `PivotDef` with ordered `values`, `index` (0–3), `columns` (0–3), options, and time settings; compile it to worker requests. | At least one value and at least one index/column field is enforced; duplicate index/column use is either blocked or explicitly warned. |
-| W1.3 | Replace the layout-only pivot builder with Values / Index / Columns field wells: add/remove, up/down reorder, “Add all numeric”, value aggregation chips. | Up to 3 index and 3 column fields render correctly; aggregation changes are visible per value. |
-| W1.4 | Support multiple values and multiple aggregations simultaneously. Column headers use explicit internal level names: values → aggfunc → column fields. | Two values × two aggregations × two column fields renders a stable multi-level header; CSV and generated code use the same level order. |
-| W1.5 | Implement the safe custom aggregate mini-language: `lambda x: ...` over mean/median/sum/min/max/count/size/nunique/std/var/first/last/quantile, arithmetic, and numeric literals. | Parse errors and sample results are shown before apply; no `eval`/`new Function`; pandas output preserves the lambda text. |
+| W1.1 | Complete — add `PivotRequest`/`PivotMessage` and `computePivot` in the worker; reuse `computeAggregate` internally for base, row-margin, column-margin, and grand-total passes. | Worker returns matrix cells, labels, times, measure names, margins, partial flags, truncation, and a stable level schema. No large long-form payload reaches the UI. |
+| W1.2 | Complete — add `PivotDef` with ordered `values`, `index` (0–3), `columns` (0–3), options, and time settings; compile it to worker requests. | At least one value and at least one index/column field is enforced; duplicate index/column use is either blocked or explicitly warned. |
+| W1.3 | Complete — replace the layout-only pivot builder with Values / Index / Columns field wells: add/remove, up/down reorder, “Add all numeric”, value aggregation chips. | Up to 3 index and 3 column fields render correctly; aggregation changes are visible per value. |
+| W1.4 | Complete — support multiple values and multiple aggregations simultaneously. Column headers use explicit internal level names: values → aggfunc → column fields. | Two values × two aggregations × two column fields renders a stable multi-level header; CSV and generated code use the same level order. |
+| W1.5 | Complete — implement the safe custom aggregate mini-language: `lambda x: ...` over mean/median/sum/min/max/count/size/nunique/std/var/first/last/quantile, arithmetic, and numeric literals. | Parse errors and sample results are shown before apply; no `eval`/`new Function`; pandas output preserves the lambda text. |
 | W1.6 | Complete pivot options: sort index/columns, source order, `margins_name`, pandas-compatible `dropna`, fill behavior, and validation against existing labels. | Options are visible in the pivot summary; margins still come from raw rows; behaviors have help text and tests. |
 | W1.7 | Complete time/resample: every-N frequency, closed label/origin/offset, per-combination gap fill with cartesian cap, multiple-time-field warning, timezone/fiscal/week controls. | Sole-time-index resample matches pandas fixtures; multi-dimension gap fill is capped and disclosed; parity fixtures cover DST and fiscal periods. |
 | W1.8 | Complete named pivots: unique-name validation, duplicate action, stable IDs, remap by column name across transforms, reset on new dataset, refresh bound charts on definition edit. | Renames preserve IDs; transforms remap columns; bound charts refetch after edits; missing columns produce an orphan/reload state. |
 | W1.9 | Complete pivot CSV: flat default, optional multi-row headers, margins, fill, measure/agg names, formula escaping, BOM/CRLF, and large-output guard. | Exports match the displayed matrix; >250k-cell outputs warn or stream; formula-like cells are escaped. |
 | W1.10 | Complete pivot code generation: real `pivot_table` for pandas with values/index/columns/aggfunc/fill/margins/dropna/sort/time settings; Polars equivalent or explicit support note; separate “Copy pandas pivot code”. | Golden code tests cover multi-value/multi-agg/margins/fill/dropna/time; unsupported time/agg cases are listed, not silently approximated. |
-| W1.11 | Add a dedicated pivot heatmap chart kind with index/column level selectors and shared colour scale; verify line/bar/KPI bindings. | Pivot heatmap renders, exports CSV, and reacts to pivot definition/filter changes. |
+| W1.11 | Complete — dedicated pivot heatmap chart kind with index/column level selectors, measure selector, shared colour scale, CSV and filter refresh. Legacy aggregate pivot assembly removed. | Pivot heatmap renders, exports CSV, and reacts to pivot definition/filter changes. |
 
 **Estimate:** 10–14 engineer-days.  
 **Exit gate:** pivot matrix, margins, multi-level headers, resample, named artifacts, CSV, code, and pivot heatmap all work without client-side matrix assembly.

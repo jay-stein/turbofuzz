@@ -45,6 +45,7 @@ export interface ViewsPanelOptions {
   /** Clicking a group row: value dimensions pass the label, time dims the bucket. */
   onDrill(column: number, timeStart: number | null, timeEnd: number | null, label: string): void;
   onChart(view: ViewDef): void;
+  onPivotChart?(view: ViewDef): void;
   onCopyPandas(view: ViewDef): Promise<void>;
   /** Publication-style rendering of the current result (PNG/HTML export). */
   onSlickTable?(view: ViewDef, result: AggregateMessage): void;
@@ -794,6 +795,14 @@ export class ViewsPanel {
     return this.views.find((entry) => entry.def.id === id)?.def;
   }
 
+  /** Worker pivot definition for a saved view, when it has a column layout. */
+  pivotDef(id: string): PivotDef | undefined {
+    const def = this.viewDef(id);
+    if (def === undefined) return undefined;
+    const pivots = this.pivotIndexes(def);
+    return pivots.length > 0 ? pivotDefFromView(def, pivots) : undefined;
+  }
+
   /** Filter or data changes: only the active view recomputes immediately. */
   markStale(): void {
     for (const view of this.views) view.stale = true;
@@ -1343,6 +1352,22 @@ export class ViewsPanel {
       if (entry !== undefined) this.options.onChart(entry.def);
     });
 
+    const pivotChart = el(
+      "button",
+      {
+        class: "ghost small",
+        type: "button",
+        title: "Create a pivot-matrix heatmap of this view",
+      },
+      ["Pivot heatmap"],
+    ) as HTMLButtonElement;
+    pivotChart.disabled =
+      entry === undefined ||
+      !isCompleteView(entry.def) ||
+      this.pivotIndexes(entry.def).length === 0;
+    pivotChart.addEventListener("click", () => {
+      if (entry !== undefined) this.options.onPivotChart?.(entry.def);
+    });
     const pandas = el(
       "button",
       { class: "ghost small", type: "button", title: "Copy the pandas groupby recipe" },
@@ -1661,7 +1686,7 @@ export class ViewsPanel {
     ) as HTMLButtonElement;
     below.disabled = this.views.length >= MAX_VIEWS;
     below.addEventListener("click", () => this.addView(this.active + 1));
-    this.actionsEl.append(limitLabel, chart, slick, csv, pandas, duplicate, below);
+    this.actionsEl.append(limitLabel, chart, pivotChart, slick, csv, pandas, duplicate, below);
   }
 
   /** CSV of the current aggregate or pivot matrix. */
@@ -3714,15 +3739,6 @@ export class ViewsPanel {
       }
       return;
     }
-    const pivots = this.pivotIndexes(entry.def);
-    if (
-      pivots.length > 0 &&
-      pivots.every((index) => result.dimensions[index] !== undefined) &&
-      result.dimensionNames.length > pivots.length
-    ) {
-      this.renderPivot(entry, pivots);
-      return;
-    }
     const table = el("table", { class: "views-table" });
     const head = el("thead");
     const headRow = el("tr");
@@ -4069,212 +4085,6 @@ export class ViewsPanel {
     );
   }
   /** Matrix with every non-pivot dimension forming the row index. */
-  private renderPivot(entry: ViewEntry, pivots: number[]): void {
-    const result = entry.result;
-    if (result === null) return;
-    const measureIndex = this.pivotMeasureIndex(entry.def, result);
-    const measure = result.measures[measureIndex];
-    const pivotSet = new Set(pivots);
-    const rowDims = result.dimensions.filter((_, index) => !pivotSet.has(index));
-    const rowNames = result.dimensionNames.filter((_, index) => !pivotSet.has(index));
-    const colDims = pivots.map((index) => result.dimensions[index] ?? []);
-    const colNames = pivots.map((index) => result.dimensionNames[index] ?? "?");
-    if (measure === undefined || rowDims.length === 0 || colDims.length === 0) return;
-    let rowKeys: string[] = [];
-    let rowParts: string[][] = [];
-    let colKeys: string[] = [];
-    let colParts: string[][] = [];
-    const rowIndex = new Map<string, number>();
-    const colIndex = new Map<string, number>();
-    for (let group = 0; group < result.groupCount; group++) {
-      const parts = rowDims.map((dimension) => dimension[group] ?? "");
-      const rowKey = parts.join("\u001f");
-      const cparts = colDims.map((dimension) => dimension[group] ?? "");
-      const colKey = cparts.join("\u001f");
-      if (!rowIndex.has(rowKey)) {
-        rowIndex.set(rowKey, rowKeys.length);
-        rowKeys.push(rowKey);
-        rowParts.push(parts);
-      }
-      if (!colIndex.has(colKey)) {
-        colIndex.set(colKey, colKeys.length);
-        colKeys.push(colKey);
-        colParts.push(cparts);
-      }
-    }
-    const ordered = colKeys
-      .map((_, index) => index)
-      .sort((a, b) => (colParts[a] ?? []).join("\u001f").localeCompare((colParts[b] ?? []).join("\u001f")));
-    colKeys = ordered.map((index) => colKeys[index]!);
-    colParts = ordered.map((index) => colParts[index]!);
-    colIndex.clear();
-    colKeys.forEach((key, index) => colIndex.set(key, index));
-    let cells = new Float64Array(rowKeys.length * colKeys.length).fill(Number.NaN);
-    for (let group = 0; group < result.groupCount; group++) {
-      const rowKey = rowDims.map((dimension) => dimension[group] ?? "").join("\u001f");
-      const colKey = colDims.map((dimension) => dimension[group] ?? "").join("\u001f");
-      const r = rowIndex.get(rowKey) ?? 0;
-      const c = colIndex.get(colKey) ?? 0;
-      cells[r * colKeys.length + c] = measure[group] ?? Number.NaN;
-    }
-    if (entry.def.dropna === true) {
-      const keepRows = rowKeys
-        .map((_, row) => (colKeys.some((_, col) => Number.isFinite(cells[row * colKeys.length + col])) ? row : -1))
-        .filter((row) => row >= 0);
-      const keepCols = colKeys
-        .map((_, col) => (rowKeys.some((_, row) => Number.isFinite(cells[row * colKeys.length + col])) ? col : -1))
-        .filter((col) => col >= 0);
-      if (keepRows.length !== rowKeys.length || keepCols.length !== colKeys.length) {
-        const oldCells = cells;
-        const oldCols = colKeys.length;
-        cells = new Float64Array(keepRows.length * keepCols.length).fill(Number.NaN);
-        keepRows.forEach((row, r) => {
-          keepCols.forEach((col, c) => {
-            cells[r * keepCols.length + c] = oldCells[row * oldCols + col] ?? Number.NaN;
-          });
-        });
-        rowKeys = keepRows.map((row) => rowKeys[row]!);
-        rowParts = keepRows.map((row) => rowParts[row]!);
-        colKeys = keepCols.map((col) => colKeys[col]!);
-        colParts = keepCols.map((col) => colParts[col]!);
-      }
-    }
-    const fillValue =
-      entry.def.fillValue === undefined || entry.def.fillValue === null
-        ? null
-        : entry.def.fillValue;
-    const displayValue = (value: number): number =>
-      Number.isFinite(value) || fillValue === null ? value : fillValue;
-    const margins = entry.def.margins === true ? entry.margins : null;
-    const marginsName = entry.def.marginsName ?? "All";
-    const rowTotals = new Map<string, number>();
-    const colTotals = new Map<string, number>();
-    let grandTotal = Number.NaN;
-    if (margins?.rows !== null && margins?.rows !== undefined) {
-      const dims = margins.rows.dimensions;
-      const values = margins.rows.measures[measureIndex];
-      for (let group = 0; group < margins.rows.groupCount; group++) {
-        const key = dims.map((dimension) => dimension[group] ?? "").join("\u001f");
-        rowTotals.set(key, values?.[group] ?? Number.NaN);
-      }
-    }
-    if (margins?.cols !== null && margins?.cols !== undefined) {
-      const dims = margins.cols.dimensions;
-      const values = margins.cols.measures[measureIndex];
-      for (let group = 0; group < margins.cols.groupCount; group++) {
-        const key = dims.map((dimension) => dimension[group] ?? "").join("\u001f");
-        colTotals.set(key, values?.[group] ?? Number.NaN);
-      }
-    }
-    grandTotal = margins?.total?.measures[measureIndex]?.[0] ?? Number.NaN;
-    let max = 0;
-    for (const value of cells) {
-      if (Number.isFinite(value)) max = Math.max(max, Math.abs(value));
-    }
-    for (const value of rowTotals.values()) {
-      if (Number.isFinite(value)) max = Math.max(max, Math.abs(value));
-    }
-    for (const value of colTotals.values()) {
-      if (Number.isFinite(value)) max = Math.max(max, Math.abs(value));
-    }
-    if (Number.isFinite(grandTotal)) max = Math.max(max, Math.abs(grandTotal));
-    const measureSpec = entry.def.measures[measureIndex] ?? { column: null, agg: "count" as const };
-    const table = el("table", { class: "views-table views-pivot" });
-    const head = el("thead");
-    for (let depth = 0; depth < colNames.length; depth++) {
-      const headRow = el("tr", { class: "views-pivot-head-row" });
-      if (depth === 0) {
-        for (const name of rowNames) {
-          headRow.append(
-            el("th", { class: "views-dim-head", rowspan: String(colNames.length) }, [name]),
-          );
-        }
-      }
-      let start = 0;
-      while (start < colKeys.length) {
-        const prefix = (colParts[start] ?? []).slice(0, depth + 1);
-        let end = start + 1;
-        while (
-          end < colKeys.length &&
-          prefix.every((part, index) => (colParts[end]?.[index] ?? "") === part)
-        ) {
-          end++;
-        }
-        const label = prefix[depth] ?? "";
-        const isLeaf = depth === colNames.length - 1;
-        const header = el(
-          "th",
-          {
-            class: isLeaf ? "views-num-head" : "views-col-head",
-            colspan: String(end - start),
-            title: prefix.join(" / "),
-          },
-          [label],
-        );
-        headRow.append(header);
-        start = end;
-      }
-      if (depth === 0 && margins !== null) {
-        headRow.append(
-          el("th", { class: "views-num-head", rowspan: String(colNames.length) }, [marginsName]),
-        );
-      }
-      head.append(headRow);
-    }
-    table.append(head);
-    const body = el("tbody");
-    rowKeys.forEach((rowKey, r) => {
-      const tr = el("tr", { class: "views-row" });
-      for (const part of rowParts[r] ?? []) {
-        tr.append(el("td", { class: "views-dim" }, [part]));
-      }
-      colKeys.forEach((_, c) => {
-        const value = displayValue(cells[r * colKeys.length + c] ?? Number.NaN);
-        const td = el("td", { class: "views-num" });
-        if (Number.isFinite(value) && max > 0) {
-          const strength = Math.max(0.05, Math.min(1, Math.abs(value) / max));
-          td.style.background = `color-mix(in srgb, var(--accent) ${Math.round(
-            strength * 48,
-          )}%, transparent)`;
-        }
-        td.append(el("span", { class: "views-value" }, [formatMeasure(value, measureSpec)]));
-        tr.append(td);
-      });
-      if (margins !== null) {
-        tr.append(
-          el("td", { class: "views-num" }, [
-            formatMeasure(rowTotals.get(rowKey) ?? Number.NaN, measureSpec),
-          ]),
-        );
-      }
-      body.append(tr);
-    });
-    if (margins !== null) {
-      const totalRow = el("tr", { class: "views-total" });
-      totalRow.append(
-        el("td", { class: "views-dim", colspan: String(rowNames.length) }, [marginsName]),
-      );
-      for (const colKey of colKeys) {
-        totalRow.append(
-          el("td", { class: "views-num" }, [
-            formatMeasure(colTotals.get(colKey) ?? Number.NaN, measureSpec),
-          ]),
-        );
-      }
-      totalRow.append(
-        el("td", { class: "views-num" }, [formatMeasure(grandTotal, measureSpec)]),
-      );
-      body.append(totalRow);
-    }
-    table.append(body);
-    this.tableEl.append(table);
-    this.tableEl.append(
-      el("div", { class: "views-pivot-note" }, [
-        `Spreading “${pivots.map((index) => result.dimensionNames[index] ?? "?").join(" + ")}” across columns · ${result.measureNames[measureIndex] ?? "measure 1"} · blank cells have no rows${margins === null ? "" : ` - ${marginsName} margins computed from raw rows`}.`,
-      ]),
-    );
-  }
-
   private prettyMeasure(result: AggregateMessage, index: number): string {
     const measure = this.views[this.active]?.def.measures[index];
     if (measure === undefined) return result.measureNames[index] ?? "measure";

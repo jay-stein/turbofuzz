@@ -13,6 +13,7 @@ import type {
   GridCountsMessage,
   AnimationMessage,
   TextProfileMessage,
+  PivotMessage,
 } from "../worker/protocol.js";
 import { ChartCard, type ChartCardConfig, type MapBrushSelection, type SeriesRequestInput } from "./chart-card.js";
 import {
@@ -78,6 +79,8 @@ export interface ChartsPanelOptions {
   }): Promise<GroupedBinsMessage>;
   /** Aggregate result for a view-bound card (null when the view is gone). */
   requestViewAggregate?(source: string): Promise<AggregateMessage | null>;
+  /** Pivot result for a pivot-heatmap card. */
+  requestViewPivot?(source: string): Promise<PivotMessage | null>;
   /** Ad-hoc aggregation for the treemap measure. */
   requestAggregate(view: ViewDef): Promise<AggregateMessage>;
   /** Token frequencies for the top-terms chart. */
@@ -580,6 +583,7 @@ export class ChartsPanel {
         requestCorrelation: this.options.requestCorrelation,
         requestGroupedBins: this.options.requestGroupedBins,
         requestViewAggregate: this.options.requestViewAggregate,
+        requestViewPivot: this.options.requestViewPivot,
         requestAggregate: this.options.requestAggregate,
         requestTextProfile: this.options.requestTextProfile,
         requestGridCounts: this.options.requestGridCounts,
@@ -629,9 +633,21 @@ export class ChartsPanel {
     for (const card of this.cards()) card.setSources(sources);
   }
 
+  /** Refetch every view-bound card after filters or underlying data change. */
+  refreshBoundViews(): void {
+    for (const card of this.cards()) {
+      if (card.getConfig().source !== "") card.refreshView();
+    }
+  }
+
   /** "Chart this" from the Views lens: a card bound to the view's result. */
   addViewChart(view: ViewDef): void {
     this.addCard({ kind: "bar", source: view.id, title: view.name });
+  }
+
+  /** Create a pivot-matrix heatmap bound to a pivot view. */
+  addPivotHeatmap(view: ViewDef): void {
+    this.addCard({ kind: "pivotHeatmap", source: view.id, title: view.name });
   }
 
   removeCard(card: ChartCard): void {

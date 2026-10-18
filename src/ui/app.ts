@@ -47,6 +47,7 @@ import type {
   AggregateMessage,
   CleanUpdate,
   ColumnMeta,
+  PivotMessage,
   CorrelationMessage,
   ExportScope,
   LoadedMessage,
@@ -1937,6 +1938,7 @@ export class App {
       requestCorrelation: (columns, scope) => this.client.getCorrelation(columns, scope),
       requestGroupedBins: (input) => this.client.getGroupedBins(input),
       requestViewAggregate: (source) => this.aggregateForSource(source),
+      requestViewPivot: (source) => this.pivotForSource(source),
       requestAggregate: (view) => this.client.getAggregate(view),
       requestTextProfile: (column) => this.client.getTextProfile(column),
       requestGridCounts: (xColumn, yColumn, bins, measure, groupColumn, scope) =>
@@ -1978,6 +1980,12 @@ export class App {
     const def = this.viewsPanel?.viewDef(source);
     if (def === undefined) return Promise.resolve(null);
     return this.client.getAggregate(def);
+  }
+
+  private pivotForSource(source: string): Promise<PivotMessage | null> {
+    const def = this.viewsPanel?.pivotDef(source);
+    if (def === undefined) return Promise.resolve(null);
+    return this.client.getPivot(def);
   }
 
   private ensureFilters(): void {
@@ -2230,7 +2238,10 @@ export class App {
         .setFilter(column, filter, preview)
         .then((message) => {
           this.updateCount(message.count, message.queryMs);
-          if (!preview) this.applyFacets(message.facets, message.histograms);
+          if (!preview) {
+            this.applyFacets(message.facets, message.histograms);
+            this.chartsPanel?.refreshBoundViews();
+          }
           this.table?.setCount(message.count);
           this.table?.setFirstRows(
         message.firstRows,

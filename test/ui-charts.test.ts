@@ -16,6 +16,7 @@ import type {
   AggregateMessage,
   BoxStatsMessage,
   ChartBinsMessage,
+  PivotMessage,
   ChartSeriesMessage,
   ColumnMeta,
   CorrelationMessage,
@@ -2858,4 +2859,67 @@ test("chart sources group pivot views as a first-class source category", () => {
   );
   card.dispose();
   void window;
+});
+test("a pivot view source renders a pivot heatmap with level selectors", async () => {
+  const window = setupDom();
+  const host = document.createElement("div") as unknown as HTMLElement;
+  const pivot: PivotMessage = {
+    type: "pivot",
+    requestId: 1,
+    pivotId: "p1",
+    rowLabels: [["2024", "Jan"], ["2024", "Feb"], ["2025", "Jan"]],
+    colLabels: [["North"], ["South"]],
+    rowNames: ["Year", "Month"],
+    colNames: ["Region"],
+    rowIsTime: [false, false],
+    colIsTime: [false],
+    rowTimes: [
+      Float64Array.from([Number.NaN, Number.NaN, Number.NaN]),
+      Float64Array.from([Number.NaN, Number.NaN, Number.NaN]),
+    ],
+    colTimes: [Float64Array.from([Number.NaN, Number.NaN])],
+    measures: [
+      {
+        name: "sum(amount)",
+        values: Float64Array.from([1, 2, 3, 4, 5, 6]),
+        rowTotals: Float64Array.from([3, 7, 11]),
+        colTotals: Float64Array.from([9, 12]),
+        grandTotal: 21,
+      },
+    ],
+    groupCount: 6,
+    totalGroups: 6,
+    truncated: false,
+    ms: 1,
+  };
+  let requests = 0;
+  const options: ChartCardOptions = {
+    ...stubCardOptions(),
+    requestViewPivot: async () => {
+      requests++;
+      return pivot;
+    },
+  };
+  const card = new ChartCard(host, options, {
+    kind: "pivotHeatmap",
+    source: "p1",
+    title: "Pivot heatmap",
+  });
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  Object.defineProperty(wrap, "clientHeight", { value: 360, configurable: true });
+  card.setColumns([meta({ name: "amount", type: "number" })]);
+  card.setSources([{ id: "p1", name: "Monthly pivot", kind: "pivot" }]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(requests, 1);
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /sum\(amount\) by Month x Region/);
+  const rowSelect = host.querySelector(
+    'select[aria-label="Pivot row level"]',
+  ) as HTMLSelectElement;
+  assert.equal(rowSelect.options.length, 2);
+  assert.equal(rowSelect.value, "1");
+  rowSelect.value = "0";
+  rowSelect.dispatchEvent(new window.Event("change") as unknown as Event);
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /sum\(amount\) by Year x Region/);
+  card.dispose();
 });

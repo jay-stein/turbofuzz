@@ -36,6 +36,7 @@ import type {
   ChartBinsMessage,
   ChartSeriesMessage,
   ColumnMeta,
+  PivotMessage,
   CorrelationMessage,
   CrosstabMessage,
   GroupedBinsMessage,
@@ -229,6 +230,8 @@ export interface ChartCardOptions {
   }): Promise<GroupedBinsMessage>;
   /** Aggregate result for a view-bound card (null when the view is gone). */
   requestViewAggregate?(source: string): Promise<AggregateMessage | null>;
+  /** Worker pivot result for a pivot-bound heatmap card. */
+  requestViewPivot?(source: string): Promise<PivotMessage | null>;
   /** Ad-hoc aggregation for the treemap measure (sum of a numeric column). */
   requestAggregate(view: ViewDef): Promise<AggregateMessage>;
   /** Token frequencies and shapes for the top-terms chart. */
@@ -343,6 +346,10 @@ export interface ChartCardConfig {
   /** "Suggested: …" reason shown in the note for rule-picked default cards. */
   suggested: string;
   correlationColumns: number[];
+  /** Pivot heatmap: index level, column level and measure. */
+  pivotRowLevel?: number;
+  pivotColLevel?: number;
+  pivotMeasure?: number;
 }
 
 /** One overlaid bubble set (a group, or the whole chart when ungrouped). */
@@ -886,6 +893,13 @@ export class ChartCard {
   private readonly sourceWrap: HTMLElement;
   private sources: { id: string; name: string; kind?: "pivot" | "view" }[] = [];
   private viewResult: AggregateMessage | null = null;
+  private pivotResult: PivotMessage | null = null;
+  private readonly pivotRowSelect: HTMLSelectElement;
+  private readonly pivotColSelect: HTMLSelectElement;
+  private readonly pivotMeasureSelect: HTMLSelectElement;
+  private readonly pivotRowWrap: HTMLElement;
+  private readonly pivotColWrap: HTMLElement;
+  private readonly pivotMeasureWrap: HTMLElement;
   private readonly primarySelect: HTMLSelectElement;
   private readonly groupSelect: HTMLSelectElement;
   private readonly groupWrap: HTMLElement;
@@ -1008,6 +1022,7 @@ export class ChartCard {
       this.config.source = this.sourceSelect.value;
       this.generation++;
       this.viewResult = null;
+      this.pivotResult = null;
       this.syncSourceControls();
       if (this.config.source !== "") this.refreshView();
       else this.refreshValue();
@@ -1357,6 +1372,33 @@ export class ChartCard {
     this.animateButton.append(movieIcon(), el("span", {}, ["Animate"]));
     this.animateButton.addEventListener("click", () => this.toggleAnimationSetup());
 
+    this.pivotRowSelect = this.buildSelect(
+      "chart-picker chart-picker-small",
+      "Pivot row level",
+    );
+    this.pivotRowSelect.addEventListener("change", () => {
+      this.config.pivotRowLevel = Number(this.pivotRowSelect.value);
+      this.render();
+    });
+    this.pivotRowWrap = this.tagged("Rows", this.pivotRowSelect).wrap;
+    this.pivotColSelect = this.buildSelect(
+      "chart-picker chart-picker-small",
+      "Pivot column level",
+    );
+    this.pivotColSelect.addEventListener("change", () => {
+      this.config.pivotColLevel = Number(this.pivotColSelect.value);
+      this.render();
+    });
+    this.pivotColWrap = this.tagged("Columns", this.pivotColSelect).wrap;
+    this.pivotMeasureSelect = this.buildSelect(
+      "chart-picker chart-picker-small",
+      "Pivot measure",
+    );
+    this.pivotMeasureSelect.addEventListener("change", () => {
+      this.config.pivotMeasure = Number(this.pivotMeasureSelect.value);
+      this.render();
+    });
+    this.pivotMeasureWrap = this.tagged("Value", this.pivotMeasureSelect).wrap;
     head.append(
       this.sourceWrap,
       this.kindSelect,
@@ -1365,6 +1407,9 @@ export class ChartCard {
       this.valueAggWrap,
       this.valueGrainWrap,
       this.valueCalcWrap,
+      this.pivotRowWrap,
+      this.pivotColWrap,
+      this.pivotMeasureWrap,
       this.axesPanel,
       el("span", { class: "grow" }),
       this.focusButton,
@@ -2280,7 +2325,11 @@ export class ChartCard {
       }
       this.sourceSelect.append(group);
     }
-    if (current !== "" && !this.sources.some((source) => source.id === current)) {
+    if (
+      current !== "" &&
+      this.sources.length > 0 &&
+      !this.sources.some((source) => source.id === current)
+    ) {
       this.config.source = "";
     }
     this.sourceSelect.value = this.config.source;
@@ -2332,17 +2381,49 @@ export class ChartCard {
     this.yWrap.classList.toggle("hidden", bound || !pair);
     this.axesPanel.classList.toggle("hidden", bound || kind === "correlation");
     this.settingsBody.classList.toggle("hidden", bound ? false : !this.canDraw());
+    const pivotMode = kind === "pivotHeatmap" && this.isPivotSource();
+    this.pivotRowWrap.classList.toggle("hidden", !pivotMode);
+    this.pivotColWrap.classList.toggle("hidden", !pivotMode);
+    this.pivotMeasureWrap.classList.toggle("hidden", !pivotMode);
   }
 
-  /** Fetches the bound view's aggregate result (generation-guarded). */
+  /** Fetches the bound aggregate or pivot result (generation-guarded). */
   refreshView(): void {
-    if (this.config.source === "" || this.options.requestViewAggregate === undefined) {
+    if (this.config.source === "") {
       this.viewResult = null;
+      this.pivotResult = null;
       this.render();
       return;
     }
     const source = this.config.source;
     const generation = ++this.generation;
+    if (this.config.kind === "pivotHeatmap") {
+      const pivotSource =
+        this.sources.find((entry) => entry.id === source)?.kind === "pivot";
+      if (!pivotSource || this.options.requestViewPivot === undefined) {
+        this.pivotResult = null;
+        this.render();
+        return;
+      }
+      void this.options
+        .requestViewPivot(source)
+        .then((message) => {
+          if (generation !== this.generation || this.config.source !== source) return;
+          this.pivotResult = message;
+          this.syncPivotOptions();
+          this.render();
+        })
+        .catch(() => {
+          this.pivotResult = null;
+          this.render();
+        });
+      return;
+    }
+    if (this.options.requestViewAggregate === undefined) {
+      this.viewResult = null;
+      this.render();
+      return;
+    }
     void this.options
       .requestViewAggregate(source)
       .then((message) => {
@@ -2355,6 +2436,47 @@ export class ChartCard {
       });
   }
 
+  /** Levels and measures exposed by the bound pivot result. */
+  private syncPivotOptions(): void {
+    const pivot = this.pivotResult;
+    if (pivot === null) return;
+    const fill = (
+      select: HTMLSelectElement,
+      labels: string[],
+      selected: number | undefined,
+    ): void => {
+      select.replaceChildren();
+      labels.forEach((label, index) => {
+        select.append(
+          el("option", { value: String(index) }, [
+            label || `Level ${index + 1}`,
+          ]) as HTMLOptionElement,
+        );
+      });
+      const value = Math.max(
+        0,
+        Math.min(labels.length - 1, selected ?? labels.length - 1),
+      );
+      select.value = String(value);
+    };
+    fill(this.pivotRowSelect, pivot.rowNames, this.config.pivotRowLevel);
+    fill(this.pivotColSelect, pivot.colNames, this.config.pivotColLevel);
+    fill(
+      this.pivotMeasureSelect,
+      pivot.measures.map((measure) => measure.name),
+      this.config.pivotMeasure,
+    );
+    this.config.pivotRowLevel = Number(this.pivotRowSelect.value);
+    this.config.pivotColLevel = Number(this.pivotColSelect.value);
+    this.config.pivotMeasure = Number(this.pivotMeasureSelect.value);
+  }
+
+  private isPivotSource(): boolean {
+    return (
+      this.config.source !== "" &&
+      this.sources.find((entry) => entry.id === this.config.source)?.kind === "pivot"
+    );
+  }
   /** True when this card plots its own measure aggregate (line/bar/KPI/bins). */
   private usesValueAggregate(): boolean {    return (
       this.config.source === "" &&
@@ -2620,7 +2742,21 @@ export class ChartCard {
   }
 
   private chartCsvRows(): string[][] {
-    const number = (value: number): string =>
+    if (this.config.kind === "pivotHeatmap") {
+      const data = this.pivotHeatmapData();
+      if (data === null) return [];
+      const rows: string[][] = [[data.rowName, ...data.colLabels]];
+      data.rowLabels.forEach((label, row) => {
+        rows.push([
+          label,
+          ...data.colLabels.map((_, col) => {
+            const value = data.values[row * data.colLabels.length + col];
+            return Number.isFinite(value) ? String(value) : "";
+          }),
+        ]);
+      });
+      return rows;
+    }    const number = (value: number): string =>
       Number.isFinite(value) ? String(value) : "";
     const aggregate = this.aggregateResult();
     const aggregateKinds = new Set<ChartCardKind>([
@@ -3016,6 +3152,7 @@ export class ChartCard {
     this.refreshAnimation();
     this.refreshCorrelation();
     this.refreshGroupedBins();
+    if (this.config.source !== "") this.refreshView();
     this.render();
   }
 
@@ -3619,7 +3756,9 @@ export class ChartCard {
       dot.style.background = color;
       this.palettePreview.append(dot);
     }
-    const ramp = isRampPalette(this.config.palette ?? DEFAULT_PALETTE);
+    const ramp =
+      isRampPalette(this.config.palette ?? DEFAULT_PALETTE) ||
+      this.config.kind === "pivotHeatmap";
     this.colorDomainRow.classList.toggle("hidden", !ramp);
     this.colorMinInput.value =
       this.config.colorMin === null || this.config.colorMin === undefined
@@ -3707,6 +3846,12 @@ export class ChartCard {
       const measure = this.meta(this.config.valueColumn ?? -1)?.name ?? "Count of rows";
       return defaultChartTitle(measure);
     }
+    if (this.config.kind === "pivotHeatmap") {
+      const data = this.pivotHeatmapData();
+      return data === null
+        ? "Pivot heatmap"
+        : defaultChartTitle(`${data.measureName} by ${data.rowName} x ${data.colName}`);
+    }
     if (this.usesAggregate()) return "Aggregate";
     if (isPairKind(this.config.kind)) {
       return defaultChartTitle(this.pairLabel("vs"));
@@ -3719,6 +3864,7 @@ export class ChartCard {
 
   /** Duplicate, PNG and remove live behind one ⋯ menu, plus the red ×. */
   private openCardMenu(anchor: HTMLElement): void {
+    const pivotHeatmap = this.config.kind === "pivotHeatmap";
     openMenu(
       anchor,
       [
@@ -3740,16 +3886,19 @@ export class ChartCard {
         {
           label: "Download chart spec (JSON)",
           title: "Download a versioned, portable description of this chart",
+          disabled: pivotHeatmap,
           action: () => this.downloadChartSpec(),
         },
         {
           label: "Download pandas code",
           title: "Download Python that rebuilds the supported chart aggregation",
+          disabled: pivotHeatmap,
           action: () => this.downloadChartCode(true),
         },
         {
           label: "Download Polars code",
           title: "Download Polars code that rebuilds the supported chart aggregation",
+          disabled: pivotHeatmap,
           action: () => this.downloadChartCode(false),
         },
         {
@@ -6160,6 +6309,8 @@ export class ChartCard {
           isNumericType(y.type)
         );
       }
+      case "pivotHeatmap":
+        return this.config.source !== "";
     }
   }
 
@@ -6307,6 +6458,11 @@ export class ChartCard {
   }
 
   private subtitle(): string {
+    if (this.config.kind === "pivotHeatmap") {
+      const data = this.pivotHeatmapData();
+      if (data === null) return "Pivot view - waiting for the first result";
+      return `${data.measureName} - ${data.rowName} x ${data.colName} - ${data.rowLabels.length}x${data.colLabels.length} cells`;
+    }
     if (this.config.kind === "kpi" && this.usesValueAggregate()) {
       const result = this.aggregateResult();
       const measure = result?.measureNames[0] ?? "measure";
@@ -6400,6 +6556,11 @@ export class ChartCard {
     this.font(ctx, frame.ui, 11);
     ctx.fillStyle = frame.dim;
     ctx.fillText(this.fit(ctx, this.subtitle(), width - frame.left - frame.right), frame.left, 40 * frame.ui);
+
+    if (this.config.kind === "pivotHeatmap") {
+      this.drawPivotHeatmap(ctx, frame);
+      return;
+    }
 
     if (this.usesAggregate()) {
       this.drawViewAggregate(ctx, frame);
@@ -9196,6 +9357,199 @@ export class ChartCard {
     this.noteEl.textContent = notes.join(" · ");
   }
 
+  private pivotHeatmapData(): {
+    rowLabels: string[];
+    colLabels: string[];
+    values: Float64Array;
+    measureName: string;
+    rowName: string;
+    colName: string;
+    rowLevel: number;
+    colLevel: number;
+    truncated: boolean;
+  } | null {
+    const pivot = this.pivotResult;
+    if (pivot === null || pivot.measures.length === 0) return null;
+    const rowLevel =
+      pivot.rowNames.length === 0
+        ? -1
+        : Math.max(
+            0,
+            Math.min(
+              pivot.rowNames.length - 1,
+              this.config.pivotRowLevel ?? pivot.rowNames.length - 1,
+            ),
+          );
+    const colLevel =
+      pivot.colNames.length === 0
+        ? -1
+        : Math.max(
+            0,
+            Math.min(
+              pivot.colNames.length - 1,
+              this.config.pivotColLevel ?? pivot.colNames.length - 1,
+            ),
+          );
+    const measureIndex = Math.max(
+      0,
+      Math.min(
+        pivot.measures.length - 1,
+        this.config.pivotMeasure ?? 0,
+      ),
+    );
+    const measure = pivot.measures[measureIndex]!;
+    const rowFor = (parts: string[]): string =>
+      rowLevel < 0 ? "All" : parts[rowLevel] || "All";
+    const colFor = (parts: string[]): string =>
+      colLevel < 0 ? "All" : parts[colLevel] || "All";
+    const rowSet = new Set<string>();
+    const colSet = new Set<string>();
+    pivot.rowLabels.forEach((parts) => rowSet.add(rowFor(parts)));
+    pivot.colLabels.forEach((parts) => colSet.add(colFor(parts)));
+    const allRows = [...rowSet];
+    const allCols = [...colSet];
+    const rowLimit = 80;
+    const colLimit = 60;
+    const rowLabels = allRows.slice(0, rowLimit);
+    const colLabels = allCols.slice(0, colLimit);
+    const rowIndex = new Map(rowLabels.map((label, index) => [label, index]));
+    const colIndex = new Map(colLabels.map((label, index) => [label, index]));
+    const values = new Float64Array(rowLabels.length * colLabels.length).fill(
+      Number.NaN,
+    );
+    for (let row = 0; row < pivot.rowLabels.length; row++) {
+      const r = rowIndex.get(rowFor(pivot.rowLabels[row] ?? []));
+      if (r === undefined) continue;
+      for (let col = 0; col < pivot.colLabels.length; col++) {
+        const c = colIndex.get(colFor(pivot.colLabels[col] ?? []));
+        if (c === undefined) continue;
+        const value = measure.values[row * pivot.colLabels.length + col];
+        if (!Number.isFinite(value)) continue;
+        const at = r * colLabels.length + c;
+        values[at] = Number.isFinite(values[at])
+          ? (values[at] as number) + value
+          : value;
+      }
+    }
+    return {
+      rowLabels,
+      colLabels,
+      values,
+      measureName: measure.name,
+      rowName: pivot.rowNames[rowLevel] ?? "All",
+      colName: pivot.colNames[colLevel] ?? "All",
+      rowLevel,
+      colLevel,
+      truncated: rowLabels.length < allRows.length || colLabels.length < allCols.length,
+    };
+  }
+
+  private drawPivotHeatmap(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    if (this.config.source === "" || !this.isPivotSource()) {
+      const message = "Choose a pivot view source in the Source menu.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const data = this.pivotHeatmapData();
+    if (
+      data === null ||
+      data.rowLabels.length === 0 ||
+      data.colLabels.length === 0
+    ) {
+      const message = "The pivot has no rows or columns to draw.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const { rowLabels, colLabels, values } = data;
+    const rowCount = rowLabels.length;
+    const colCount = colLabels.length;
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
+    for (const value of values) {
+      if (!Number.isFinite(value)) continue;
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      const message = "The selected pivot measure has no finite values.";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
+    }
+    const domainMin =
+      this.config.colorMin !== null && this.config.colorMin !== undefined
+        ? this.config.colorMin
+        : min;
+    const domainMax =
+      this.config.colorMax !== null && this.config.colorMax !== undefined
+        ? this.config.colorMax
+        : max;
+    const span = domainMax - domainMin;
+    const cellW = frame.plotW / colCount;
+    const cellH = frame.plotH / rowCount;
+    const showText = cellW >= 30 * frame.ui && cellH >= 16 * frame.ui;
+    const rampName = this.config.palette ?? DEFAULT_PALETTE;
+    const rampStops = isRampPalette(rampName) ? this.rampStopsFor(rampName) : null;
+    const colorFor = (t: number): string =>
+      rampStops === null ? rampColor(t) : rampAt(rampStops, t);
+    this.font(ctx, frame.ui, 9);
+    for (let row = 0; row < rowCount; row++) {
+      for (let col = 0; col < colCount; col++) {
+        const value = values[row * colCount + col] ?? Number.NaN;
+        const x = frame.left + col * cellW;
+        const y = frame.top + row * cellH;
+        if (!Number.isFinite(value)) {
+          ctx.fillStyle = frame.border;
+          ctx.globalAlpha = 0.3;
+          ctx.fillRect(x + 0.5, y + 0.5, Math.max(1, cellW - 1), Math.max(1, cellH - 1));
+          ctx.globalAlpha = 1;
+          continue;
+        }
+        const t = span === 0 ? 0.5 : (value - domainMin) / span;
+        ctx.fillStyle = colorFor(t);
+        ctx.fillRect(x + 0.5, y + 0.5, Math.max(1, cellW - 1), Math.max(1, cellH - 1));
+        if (showText) {
+          ctx.fillStyle = t > 0.55 ? "#ffffff" : frame.text;
+          ctx.textAlign = "center";
+          ctx.fillText(
+            formatChartNumber(value),
+            x + cellW / 2,
+            y + cellH / 2 + 3.5 * frame.ui,
+          );
+        }
+      }
+    }
+    ctx.textAlign = "center";
+    colLabels.forEach((label, col) => {
+      ctx.fillStyle = frame.dim;
+      ctx.fillText(
+        this.fit(ctx, label, Math.max(8, cellW - 4 * frame.ui)),
+        frame.left + (col + 0.5) * cellW,
+        frame.top + frame.plotH + 14 * frame.ui,
+      );
+    });
+    ctx.textAlign = "right";
+    rowLabels.forEach((label, row) => {
+      ctx.fillStyle = frame.dim;
+      ctx.fillText(
+        this.fit(ctx, label, Math.max(8, frame.left - frame.labelPad - 8 * frame.ui)),
+        frame.left - frame.labelPad - 4 * frame.ui,
+        frame.top + (row + 0.5) * cellH + 3.5 * frame.ui,
+      );
+    });
+    ctx.textAlign = "left";
+    const notes = [
+      `${data.measureName} by ${data.rowName} x ${data.colName}`,
+      `${rowCount}x${colCount} cells`,
+    ];
+    if (data.truncated) notes.push("large pivot truncated for display");
+    if (Number.isFinite(this.pivotResult?.ms ?? Number.NaN)) {
+      notes.push(`${Math.round(this.pivotResult?.ms ?? 0)} ms`);
+    }
+    this.noteEl.textContent = notes.join(" - ");
+  }
   private drawHeatmap(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const result = this.crossResult;
     if (result === null || result.xLabels.length === 0 || result.yLabels.length === 0) {
