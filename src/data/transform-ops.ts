@@ -42,7 +42,7 @@ export type TransformOp =
       valueName: string;
     }
   | {
-      /** Multi-dimension, multi-measure group-by (the Views "Use as dataset"). */
+      /** Multi-dimension, multi-measure group-by transform. */
       kind: "aggregate";
       dimensions: DimensionSpec[];
       measures: MeasureSpec[];
@@ -435,7 +435,7 @@ export function measureHeader(
   return `${measure.agg}(${name})`;
 }
 
-/** The multi-dimension, multi-measure group-by used by "Use as dataset". */
+/** The multi-dimension, multi-measure group-by transform. */
 function aggregateColumns(
   columns: readonly ColumnData[],
   op: TransformOp & { kind: "aggregate" },

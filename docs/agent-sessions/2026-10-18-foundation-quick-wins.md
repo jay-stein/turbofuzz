@@ -317,3 +317,8 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - Pivot dimension filters use a proper funnel icon with an active-value count badge.
 - Replaced the exact comma-separated prompt with a searchable value picker: checkboxes, value counts, custom exact values, Apply and a dedicated Clear filter action.
 - Field filters are only offered for genuinely pivoted views, where the worker applies them to raw rows.
+## Follow-up: remove dataset materialisation and enlarge view headers (2026-10-18)
+
+- Removed the "Use as dataset" action and its callback/application path from Views.
+- Replaced the view expand/collapse glyph with a 34px top-left plus/minus icon button.
+- Doubled view title size to 26px. Collapsed cards keep the title visible alongside the summary.

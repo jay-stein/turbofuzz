@@ -108,7 +108,6 @@ test("views panel renders the active view, drills and charts", async () => {
     },
     onDrill: (column, _timeStart, _timeEnd, label) => drills.push({ column, label }),
     onChart: (view) => charts.push(view),
-    onUseAsDataset: () => {},
     onCopyPandas: async () => {},
   });
   panel.setColumns(metas, 100);
@@ -141,6 +140,13 @@ test("views panel renders the active view, drills and charts", async () => {
   (chart as unknown as { click(): void }).click();
   assert.equal(charts.length, 1);
   assert.equal(charts[0].name, "Sum of amount by city");
+
+  const toggle = host.querySelector(".views-card.expanded .views-card-toggle");
+  assert.ok(toggle !== null);
+  assert.ok(toggle.querySelector("svg") !== null, "the toggle is an icon button");
+  (toggle as unknown as { click(): void }).click();
+  const collapsedName = host.querySelector(".views-card-name");
+  assert.match(collapsedName?.textContent ?? "", /Sum of amount by city/);
 });
 
 test("views panel switches views and marks the active one stale", async () => {
@@ -154,7 +160,6 @@ test("views panel switches views and marks the active one stale", async () => {
     },
     onDrill: () => {},
     onChart: () => {},
-    onUseAsDataset: () => {},
     onCopyPandas: async () => {},
   });
   panel.setColumns(metas, 100);
@@ -189,7 +194,6 @@ test("adding a measure chooses the aggregate before adding", async () => {
     },
     onDrill: () => {},
     onChart: () => {},
-    onUseAsDataset: () => {},
     onCopyPandas: async () => {},
   });
   panel.setColumns(metas, 100);
@@ -229,7 +233,6 @@ test("a measure can be weighted by a numeric column", async () => {
     },
     onDrill: () => {},
     onChart: () => {},
-    onUseAsDataset: () => {},
     onCopyPandas: async () => {},
   });
   panel.setColumns(metas, 100);
@@ -266,7 +269,6 @@ test("clicking a view name renames it in place", async () => {
     requestAggregate: async (view) => aggregateFor(view),
     onDrill: () => {},
     onChart: () => {},
-    onUseAsDataset: () => {},
     onCopyPandas: async () => {},
     onViewsChanged: () => {
       changed++;
@@ -332,7 +334,6 @@ test("truncated results fold hidden groups into an Other row for summable measur
     }),
     onDrill: () => {},
     onChart: () => {},
-    onUseAsDataset: () => {},
     onCopyPandas: async () => {},
   });
   panel.setColumns(metas, 100);
@@ -357,7 +358,6 @@ test("non-summable measures leave the Other row blank", async () => {
     }),
     onDrill: () => {},
     onChart: () => {},
-    onUseAsDataset: () => {},
     onCopyPandas: async () => {},
   });
   panel.setColumns(metas, 100);
@@ -426,7 +426,6 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
     },
     onDrill: () => {},
     onChart: () => {},
-    onUseAsDataset: () => {},
     onCopyPandas: async () => {},
   });
   panel.setColumns(metas, 100);
@@ -511,7 +510,6 @@ test("partial periods are marked and can be excluded from the view", async () =>
     },
     onDrill: () => {},
     onChart: () => {},
-    onUseAsDataset: () => {},
     onCopyPandas: async () => {},
   });
   panel.setColumns(metas, 100);
@@ -560,7 +558,6 @@ test("Only where restricts a measure through the editor menus", async () => {
     },
     onDrill: () => {},
     onChart: () => {},
-    onUseAsDataset: () => {},
     onCopyPandas: async () => {},
   });
   panel.setColumns(metas, 100);
@@ -855,7 +852,6 @@ test("pivot value filters use a searchable picker and can clear", async () => {
     },
     onDrill: () => {},
     onChart: () => {},
-    onUseAsDataset: () => {},
     onCopyPandas: async () => {},
   });
   panel.setColumns(metas, 100);

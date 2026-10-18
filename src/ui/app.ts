@@ -2987,7 +2987,6 @@ export class App {
         this.chartsPanel?.addViewChart(view);
         this.setView("chart");
       },
-      onUseAsDataset: (view) => this.applyViewAsDataset(view),
       onCopyPandas: (view) => this.copyViewRecipe(view),
       onSlickTable: (view, result) =>
         openSlickTable({
@@ -3134,21 +3133,6 @@ export class App {
         this.triage = null;
       },
     });
-  }
-
-  private applyViewAsDataset(view: ViewDef): void {
-    this.applyTransform(
-      [
-        ...this.transformOps,
-        {
-          kind: "aggregate",
-          dimensions: view.dimensions,
-          measures: view.measures,
-          fill: view.fill,
-        },
-      ],
-      `Aggregated rows into a dataset (${view.name})`,
-    );
   }
 
   private async copyViewRecipe(view: ViewDef): Promise<void> {

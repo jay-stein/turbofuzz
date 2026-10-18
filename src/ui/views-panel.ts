@@ -33,7 +33,6 @@ export interface ViewsPanelOptions {
   /** Clicking a group row: value dimensions pass the label, time dims the bucket. */
   onDrill(column: number, timeStart: number | null, timeEnd: number | null, label: string): void;
   onChart(view: ViewDef): void;
-  onUseAsDataset(view: ViewDef): void;
   onCopyPandas(view: ViewDef): Promise<void>;
   /** Publication-style rendering of the current result (PNG/HTML export). */
   onSlickTable?(view: ViewDef, result: AggregateMessage): void;
@@ -189,6 +188,12 @@ function filterIcon(): SVGElement {
   return svgIcon(
     '<path d="M3 4h18l-7 8v6l-4 2v-8z"/>',
     "views-filter-icon",
+  );
+}
+function viewToggleIcon(expanded: boolean): SVGElement {
+  return svgIcon(
+    expanded ? '<path d="M5 12h14"/>' : '<path d="M12 5v14"/><path d="M5 12h14"/>',
+    "views-card-toggle-icon",
   );
 }
 export type PivotWell = "index" | "columns" | "values";
@@ -976,7 +981,7 @@ export class ViewsPanel {
         "aria-expanded": expanded ? "true" : "false",
         "aria-label": `${expanded ? "Minimise" : "Expand"} ${entry.def.name}`,
       },
-      [expanded ? "▾" : "▸"],
+      [viewToggleIcon(expanded)],
     ) as HTMLButtonElement;
     toggle.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -1246,20 +1251,6 @@ export class ViewsPanel {
     pandas.disabled = entry === undefined || !isCompleteView(entry.def);
     pandas.addEventListener("click", () => {
       if (entry !== undefined) void this.options.onCopyPandas(entry.def);
-    });
-
-    const dataset = el(
-      "button",
-      {
-        class: "ghost small",
-        type: "button",
-        title: "Replace the working dataset with this aggregate (tracked in the Recipe)",
-      },
-      ["Use as dataset"],
-    ) as HTMLButtonElement;
-    dataset.disabled = entry === undefined || !isCompleteView(entry.def);
-    dataset.addEventListener("click", () => {
-      if (entry !== undefined) this.options.onUseAsDataset(entry.def);
     });
 
     const slick = el(
@@ -1570,7 +1561,7 @@ export class ViewsPanel {
     ) as HTMLButtonElement;
     below.disabled = this.views.length >= MAX_VIEWS;
     below.addEventListener("click", () => this.addView(this.active + 1));
-    this.actionsEl.append(limitLabel, chart, slick, csv, pandas, dataset, duplicate, below);
+    this.actionsEl.append(limitLabel, chart, slick, csv, pandas, duplicate, below);
   }
 
   /** CSV of the current aggregate or pivot matrix. */
