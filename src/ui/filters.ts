@@ -263,7 +263,61 @@ export class FilterPanel {
   private buildRangeBody(meta: ColumnMeta, index: number): HTMLElement {
     const body = el("div", { class: "filter-body range-body" });
     const state = this.filters.get(index);
-    const current = state?.kind === "range" ? state : null;
+    const dateLike = meta.type === "date" || meta.type === "datetime";
+    const modes = dateLike
+      ? [
+          ["between", "Between"],
+          ["on", "On"],
+          ["before", "Before"],
+          ["onOrBefore", "On or before"],
+          ["after", "After"],
+          ["onOrAfter", "On or after"],
+          ["blank", "Is blank"],
+          ["notBlank", "Is not blank"],
+        ]
+      : [
+          ["between", "Between"],
+          ["eq", "Equals"],
+          ["ne", "Does not equal"],
+          ["gt", "Greater than"],
+          ["gte", "Greater than or equal"],
+          ["lt", "Less than"],
+          ["lte", "Less than or equal"],
+          ["aboveAvg", "Above average"],
+          ["belowAvg", "Below average"],
+          ["blank", "Is blank"],
+          ["notBlank", "Is not blank"],
+        ];
+    const dateToCompare: Record<string, "eq" | "lt" | "lte" | "gt" | "gte"> = {
+      on: "eq",
+      before: "lt",
+      onOrBefore: "lte",
+      after: "gt",
+      onOrAfter: "gte",
+    };
+    const compareToDate: Record<string, string> = {
+      eq: "on",
+      lt: "before",
+      lte: "onOrBefore",
+      gt: "after",
+      gte: "onOrAfter",
+    };
+    let currentMode = "between";
+    if (state?.kind === "compare") {
+      currentMode = dateLike ? (compareToDate[state.op] ?? state.op) : state.op;
+    } else if (state?.kind === "blank") {
+      currentMode = state.negate ? "notBlank" : "blank";
+    }
+    const modeSelect = el("select", {
+      class: "mode-select range-mode",
+      title: "Filter operator",
+      "aria-label": `Filter operator for ${meta.name}`,
+    }) as HTMLSelectElement;
+    for (const [value, label] of modes) {
+      const option = el("option", { value }, [label]) as HTMLOptionElement;
+      if (value === currentMode) option.selected = true;
+      modeSelect.append(option);
+    }
     const inputType =
       meta.type === "date"
         ? "date"
@@ -274,7 +328,6 @@ export class FilterPanel {
             : meta.type === "duration"
               ? "text"
               : "number";
-
     const step =
       meta.type === "integer"
         ? "1"
@@ -295,25 +348,42 @@ export class FilterPanel {
       placeholder: meta.type === "duration" ? "H:MM:SS" : "Max",
       ...(step === undefined ? {} : { step }),
     }) as HTMLInputElement;
-
-    if (current?.min !== null && current?.min !== undefined) {
-      minInput.value = this.formatRangeValue(current.min, meta);
+    if (state?.kind === "range") {
+      if (state.min !== null) minInput.value = this.formatRangeValue(state.min, meta);
+      if (state.max !== null) maxInput.value = this.formatRangeValue(state.max, meta);
+    } else if (state?.kind === "compare" && state.value !== undefined) {
+      minInput.value = this.formatRangeValue(state.value, meta);
     }
-    if (current?.max !== null && current?.max !== undefined) {
-      maxInput.value = this.formatRangeValue(current.max, meta);
-    }
-
     const emit = (preview: boolean): void => {
-      const min = this.readRangeValue(minInput.value, meta);
-      const max = this.readRangeValue(maxInput.value, meta);
-      this.callbacks.onFilter(
-        index,
-        min === null && max === null ? null : { kind: "range", min, max },
-        preview,
-      );
+      const mode = modeSelect.value;
+      let filter: ColumnFilter | null = null;
+      if (mode === "blank" || mode === "notBlank") {
+        filter = { kind: "blank", negate: mode === "notBlank" };
+      } else if (mode === "aboveAvg" || mode === "belowAvg") {
+        filter = { kind: "compare", op: mode };
+      } else if (mode === "between") {
+        const min = this.readRangeValue(minInput.value, meta);
+        const max = this.readRangeValue(maxInput.value, meta);
+        filter = min === null && max === null ? null : { kind: "range", min, max };
+      } else {
+        const value = this.readRangeValue(minInput.value, meta);
+        if (value !== null) {
+          filter = {
+            kind: "compare",
+            op: (dateLike ? dateToCompare[mode] : mode) as
+              | "eq"
+              | "ne"
+              | "gt"
+              | "gte"
+              | "lt"
+              | "lte",
+            value,
+          };
+        }
+      }
+      this.callbacks.onFilter(index, filter, preview);
       cardActive(body, this.filters.has(index));
     };
-
     const syncInputs = (min: number | null, max: number | null): void => {
       minInput.value = min === null ? "" : this.formatRangeValue(min, meta);
       maxInput.value = max === null ? "" : this.formatRangeValue(max, meta);
@@ -329,6 +399,7 @@ export class FilterPanel {
           meta.type === "datetime" ? 3_600_000 : meta.type === "time" ? 60_000 : undefined,
         symlog: meta.histogram.symlog,
         onInput: (min, max, preview) => {
+          if (modeSelect.value !== "between") return;
           syncInputs(min, max);
           this.callbacks.onFilter(
             index,
@@ -340,7 +411,10 @@ export class FilterPanel {
       });
       slider.setBounds(meta.histogram.min, meta.histogram.max);
       slider.setBins(meta.histogram.bins);
-      slider.setRange(current?.min ?? null, current?.max ?? null);
+      slider.setRange(
+        state?.kind === "range" ? state.min : null,
+        state?.kind === "range" ? state.max : null,
+      );
       this.sliders[index] = slider;
     } else {
       this.sliders[index] = null;
@@ -352,23 +426,34 @@ export class FilterPanel {
         this.readRangeValue(maxInput.value, meta),
       );
     };
+    const updateMode = (): void => {
+      const mode = modeSelect.value;
+      const between = mode === "between";
+      const needsValue = !between && mode !== "aboveAvg" && mode !== "belowAvg" && mode !== "blank" && mode !== "notBlank";
+      minInput.hidden = !between && !needsValue;
+      minInput.placeholder = between ? (meta.type === "duration" ? "H:MM:SS" : "Min") : "Value";
+      maxInput.hidden = !between;
+      separator.hidden = !between;
+      if (slider !== null) slider.el.classList.toggle("hidden", !between);
+      if (!needsValue) emit(false);
+      else if (minInput.value.trim() !== "") emit(false);
+      else this.callbacks.onFilter(index, null);
+    };
+    const separator = el("span", { class: "range-sep" }, ["-"]);
     minInput.addEventListener("input", () => {
-      syncSlider();
+      if (modeSelect.value === "between") syncSlider();
       emit(true);
     });
     maxInput.addEventListener("input", () => {
-      syncSlider();
+      if (modeSelect.value === "between") syncSlider();
       emit(true);
     });
     minInput.addEventListener("change", () => emit(false));
     maxInput.addEventListener("change", () => emit(false));
+    modeSelect.addEventListener("change", updateMode);
 
-    const inputs = el("div", { class: "range-inputs" }, [
-      minInput,
-      el("span", { class: "range-sep" }, ["–"]),
-      maxInput,
-    ]);
-    body.append(inputs);
+    const inputs = el("div", { class: "range-inputs" }, [minInput, separator, maxInput]);
+    body.append(modeSelect, inputs);
     if (slider !== null) body.append(slider.el);
     if (meta.histogram !== null) {
       const outside = meta.histogram.below + meta.histogram.above;
@@ -379,17 +464,16 @@ export class FilterPanel {
             {
               class: "hist-note",
               title:
-                "The chart covers p1–p99 so the shape stays readable; the excluded values are still filterable by typing bounds.",
+                "The chart covers p1-p99 so the shape stays readable; the excluded values are still filterable by typing bounds.",
             },
-            [`${outside.toLocaleString()} values beyond the p1–p99 chart range`],
+            [`${outside.toLocaleString()} values beyond the p1-p99 chart range`],
           ),
         );
       }
     }
-
+    updateMode();
     return body;
   }
-
   private buildValuesBody(meta: ColumnMeta, index: number): HTMLElement {
     const body = el("div", { class: "filter-body values-body" });
     const categories = meta.categories;

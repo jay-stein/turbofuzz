@@ -211,3 +211,33 @@ test("CSV export canonicalises temporal values", () => {
   assert.equal(lines[1], "2026-10-16T09:30:00Z,09:30,1:30:00");
   assert.equal(lines[2], "2026-10-17T00:00:00Z,14:45,0:45:00");
 });
+
+test("table numeric filters support comparisons averages and blanks", () => {
+  const dataset = buildDataset("n", ["value"], [
+    ["1"],
+    ["2"],
+    ["3"],
+    [""],
+  ]);
+  const engine = new QueryEngine(dataset);
+  assert.deepEqual(
+    [...engine.evaluate(new Map([[0, { kind: "compare", op: "gt", value: 1 }]]))],
+    [1, 2],
+  );
+  assert.deepEqual(
+    [...engine.evaluate(new Map([[0, { kind: "compare", op: "ne", value: 2 }]]))],
+    [0, 2],
+  );
+  assert.deepEqual(
+    [...engine.evaluate(new Map([[0, { kind: "compare", op: "aboveAvg" }]]))],
+    [2],
+  );
+  assert.deepEqual(
+    [...engine.evaluate(new Map([[0, { kind: "blank", negate: false }]]))],
+    [3],
+  );
+  assert.deepEqual(
+    [...engine.evaluate(new Map([[0, { kind: "blank", negate: true }]]))],
+    [0, 1, 2],
+  );
+});

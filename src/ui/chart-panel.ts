@@ -381,7 +381,7 @@ export class ChartsPanel {
   private readonly sizeSelect: HTMLSelectElement;
   private entries: ChartEntry[] = [];
   private columns: ColumnMeta[] = [];
-  private sources: { id: string; name: string }[] = [];
+  private sources: { id: string; name: string; kind?: "pivot" | "view" }[] = [];
   private facets: Record<number, number[]> = {};
   private histograms: Record<number, number[]> = {};
   private rowCount = 0;
@@ -624,7 +624,7 @@ export class ChartsPanel {
   }
 
   /** Sources every card can bind to: the filtered table plus each saved view. */
-  setSources(sources: { id: string; name: string }[]): void {
+  setSources(sources: { id: string; name: string; kind?: "pivot" | "view" }[]): void {
     this.sources = sources;
     for (const card of this.cards()) card.setSources(sources);
   }

@@ -114,7 +114,7 @@ import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
 import { ViewTabs, viewSwitchHint, type ViewId } from "./view-tabs.js";
-import { ViewsPanel } from "./views-panel.js";
+import { ViewsPanel, type ViewSource } from "./views-panel.js";
 import { openCommandBar, type ParsedCommand } from "./command-bar.js";
 import { openTriagePanel, type TriagePanelHandle } from "./triage-panel.js";
 import { openColumnInspector } from "./column-inspector.js";
@@ -1968,7 +1968,7 @@ export class App {
   }
 
   /** The view list every Source selector offers, alongside the table. */
-  private viewSources(): { id: string; name: string }[] {
+  private viewSources(): ViewSource[] {
     return this.viewsPanel?.sources() ?? [];
   }
 
@@ -3594,6 +3594,21 @@ export class App {
         return `${filter.min === null ? "−∞" : filter.min.toLocaleString()} – ${
           filter.max === null ? "∞" : filter.max.toLocaleString()
         }`;
+      case "compare": {
+        const op = {
+          eq: "=",
+          ne: "≠",
+          gt: ">",
+          gte: "≥",
+          lt: "<",
+          lte: "≤",
+          aboveAvg: "above average",
+          belowAvg: "below average",
+        }[filter.op];
+        return filter.value === undefined ? op : `${op} ${filter.value.toLocaleString()}`;
+      }
+      case "blank":
+        return filter.negate ? "not blank" : "blank";
       case "values":
         return `${filter.selected.length} value${filter.selected.length === 1 ? "" : "s"}`;
     }

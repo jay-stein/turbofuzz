@@ -884,7 +884,7 @@ export class ChartCard {
   private readonly kindSelect: HTMLSelectElement;
   private readonly sourceSelect: HTMLSelectElement;
   private readonly sourceWrap: HTMLElement;
-  private sources: { id: string; name: string }[] = [];
+  private sources: { id: string; name: string; kind?: "pivot" | "view" }[] = [];
   private viewResult: AggregateMessage | null = null;
   private readonly primarySelect: HTMLSelectElement;
   private readonly groupSelect: HTMLSelectElement;
@@ -2242,7 +2242,7 @@ export class ChartCard {
   }
 
   /** The sources a card can bind to (the table plus each saved view). */
-  setSources(sources: { id: string; name: string }[]): void {
+  setSources(sources: { id: string; name: string; kind?: "pivot" | "view" }[]): void {
     this.sources = sources;
     this.renderSourceOptions();
     this.syncSourceControls();
@@ -2259,13 +2259,26 @@ export class ChartCard {
   private renderSourceOptions(): void {
     const current = this.config.source;
     this.sourceSelect.replaceChildren();
-    this.sourceSelect.append(
+    const tableGroup = el("optgroup", { label: "Table data" });
+    tableGroup.append(
       el("option", { value: "" }, [this.options.tableSourceLabel?.() ?? "Table (filtered)"]) as HTMLOptionElement,
     );
-    for (const source of this.sources) {
-      this.sourceSelect.append(
-        el("option", { value: source.id }, [source.name]) as HTMLOptionElement,
-      );
+    this.sourceSelect.append(tableGroup);
+    const pivots = this.sources.filter((source) => source.kind === "pivot");
+    const views = this.sources.filter((source) => source.kind !== "pivot");
+    if (pivots.length > 0) {
+      const group = el("optgroup", { label: "Pivot views" });
+      for (const source of pivots) {
+        group.append(el("option", { value: source.id }, [source.name]) as HTMLOptionElement);
+      }
+      this.sourceSelect.append(group);
+    }
+    if (views.length > 0) {
+      const group = el("optgroup", { label: "Saved views" });
+      for (const source of views) {
+        group.append(el("option", { value: source.id }, [source.name]) as HTMLOptionElement);
+      }
+      this.sourceSelect.append(group);
     }
     if (current !== "" && !this.sources.some((source) => source.id === current)) {
       this.config.source = "";

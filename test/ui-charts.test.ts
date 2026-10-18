@@ -2840,3 +2840,22 @@ test("map auto-fit follows the data percentile bounds", () => {
   assert.ok((view?.latMin ?? -90) > -60);
   assert.ok((view?.latMax ?? 90) < 60);
 });
+test("chart sources group pivot views as a first-class source category", () => {
+  const window = setupDom();
+  const host = document.createElement("div") as unknown as HTMLElement;
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setSources([
+    { id: "p1", name: "Pivot by month", kind: "pivot" },
+    { id: "v1", name: "Saved aggregate", kind: "view" },
+  ]);
+  const groups = [...host.querySelectorAll(".chart-source optgroup")].map(
+    (group) => group.getAttribute("label"),
+  );
+  assert.deepEqual(groups, ["Table data", "Pivot views", "Saved views"]);
+  assert.equal(
+    host.querySelector('.chart-source optgroup[label="Pivot views"] option')?.textContent,
+    "Pivot by month",
+  );
+  card.dispose();
+  void window;
+});

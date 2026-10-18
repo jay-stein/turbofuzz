@@ -26,6 +26,11 @@ import { openPrompt, setupDialog } from "./dialog.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
 
+export interface ViewSource {
+  id: string;
+  name: string;
+  kind: "pivot" | "view";
+}
 export interface ViewsPanelOptions {
   requestAggregate(view: ViewDef): Promise<AggregateMessage>;
   /** Worker-assembled pivot matrix (preferred for pivoted views). */
@@ -767,10 +772,17 @@ export class ViewsPanel {
   }
 
   /** Complete views that charts can bind to as data sources. */
-  sources(): { id: string; name: string }[] {
+  sources(): ViewSource[] {
     return this.views
       .filter((entry) => isCompleteView(entry.def))
-      .map((entry) => ({ id: entry.def.id, name: entry.def.name }));
+      .map((entry) => ({
+        id: entry.def.id,
+        name: entry.def.name,
+        kind:
+          (entry.def.pivotColumns?.length ?? 0) > 0 || entry.def.pivot !== undefined
+            ? "pivot"
+            : "view",
+      }));
   }
 
   viewDef(id: string): ViewDef | undefined {

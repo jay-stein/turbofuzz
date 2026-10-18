@@ -6,6 +6,12 @@ import type { TextMode } from "../types.js";
 export type ColumnFilter =
   | { kind: "text"; mode: TextMode; query: string }
   | { kind: "range"; min: number | null; max: number | null }
+  | {
+      kind: "compare";
+      op: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "aboveAvg" | "belowAvg";
+      value?: number;
+    }
+  | { kind: "blank"; negate: boolean }
   | { kind: "values"; selected: number[] };
 
 const MAX_PREFIX_DEPTH = 32;
@@ -182,11 +188,74 @@ export class QueryEngine {
       case "range":
         return this.rangeBits(columnIndex, filter.min, filter.max);
 
+      case "compare":
+        return this.compareBits(columnIndex, filter.op, filter.value);
+
+      case "blank":
+        return this.blankBits(columnIndex, filter.negate);
+
       case "values":
         return this.valuesBits(columnIndex, filter.selected);
     }
   }
 
+  private compareBits(
+    columnIndex: number,
+    op: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "aboveAvg" | "belowAvg",
+    value?: number,
+  ): BitSet {
+    const rowCount = this.dataset.rowCount;
+    const numbers = this.dataset.columns[columnIndex].numbers();
+    const bits = new BitSet(rowCount);
+    if (op === "aboveAvg" || op === "belowAvg") {
+      let sum = 0;
+      let count = 0;
+      for (let row = 0; row < rowCount; row++) {
+        const current = numbers[row] ?? Number.NaN;
+        if (!Number.isFinite(current)) continue;
+        sum += current;
+        count++;
+      }
+      if (count === 0) return bits;
+      const average = sum / count;
+      for (let row = 0; row < rowCount; row++) {
+        const current = numbers[row] ?? Number.NaN;
+        if (!Number.isFinite(current)) continue;
+        if (op === "aboveAvg" ? current > average : current < average) bits.set(row);
+      }
+      return bits;
+    }
+    if (!Number.isFinite(value)) return bits;
+    for (let row = 0; row < rowCount; row++) {
+      const current = numbers[row] ?? Number.NaN;
+      if (!Number.isFinite(current)) continue;
+      const match =
+        op === "eq"
+          ? current === value
+          : op === "ne"
+            ? current !== value
+            : op === "gt"
+              ? current > value!
+              : op === "gte"
+                ? current >= value!
+                : op === "lt"
+                  ? current < value!
+                  : current <= value!;
+      if (match) bits.set(row);
+    }
+    return bits;
+  }
+
+  private blankBits(columnIndex: number, negate: boolean): BitSet {
+    const rowCount = this.dataset.rowCount;
+    const column = this.dataset.columns[columnIndex];
+    const bits = new BitSet(rowCount);
+    for (let row = 0; row < rowCount; row++) {
+      const blank = column.isNull(column.raw[row] ?? "");
+      if (negate ? !blank : blank) bits.set(row);
+    }
+    return bits;
+  }
   private textBits(columnIndex: number, query: string, exact: boolean): BitSet {
     const rowCount = this.dataset.rowCount;
     let stack = this.prefixStacks.get(columnIndex);

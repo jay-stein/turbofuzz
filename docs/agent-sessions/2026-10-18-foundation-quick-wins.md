@@ -301,7 +301,7 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 ### Validation
 
 - `npm run typecheck` passes.
-- `npm test`: 724 tests passing.
+- `npm test`: 726 tests passing.
 - `npm run build` passes.
 - New tests cover shelf-column moves and grand-total CSV percentages.
 ### Guards and time grouping
@@ -349,3 +349,10 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 - The Filters well now accepts field-shelf drops, just like Index/Columns/Values. Dropping any field opens its type-aware filter editor; dropping a dimension or measure reuses its source column.
 - Filter popovers show a compact stats strip before the controls: Min/Max/Average/Non-null for numeric fields, Earliest/Latest/Non-null for dates, and Distinct/Non-null/blank or length ranges for text and categories.
 - The shelf hint now names Filters as a drop destination.
+## Follow-up: table operators and chart source hierarchy (2026-10-18)
+
+- Table numeric filters now offer Between, Equals, Does not equal, Greater/Less than, Greater/Less than or equal, Above average, Below average, Is blank and Is not blank.
+- Table date/datetime filters offer Between, On, Before, After, On or before, On or after, Is blank and Is not blank. The histogram slider remains available for Between.
+- Added compare and blank filter kinds to the query engine with cached, bitset-backed evaluation.
+- Chart source selectors now group options into Table data, Pivot views and Saved views, putting pivot results at the same hierarchy level as the table.
+- Chart cards retain pivot-view sources as first-class bindable data sources.
