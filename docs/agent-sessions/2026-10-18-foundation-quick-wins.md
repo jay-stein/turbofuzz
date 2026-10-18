@@ -480,3 +480,27 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 
 - Multi-file per-column conflict diagnostics still require W6 preflight; append currently infers after concatenation.
 - W2.6 deferred metrics and W2.7 progress/cancel polish remain deferred.
+## Sprint 5: Multi-file Hardening and Shared Chips (2026-10-19)
+
+### Delivered
+
+- 256 KB sampled preflight before append: file sizes, estimated rows/cells, header diff and align-vs-identical column modes.
+- Combined sample budget split proportionally by file bytes with a minimum of one row per file.
+- Per-file metadata (`rowCount`, bytes, encoding, delimiter, number prior) on loaded/transformed messages; `source: "multi"`; workspace title reports file count and per-file details.
+- Provenance excluded from anomaly fences, pattern profiles and DQ checks while remaining available to table/filter/export.
+- Added `src/ui/chips.ts` shared filter/fix prefixes, classes and count helpers; wired through table, filters, inspector, Triage, Overview, Quality and chart issue actions.
+- Table headers collapse >2 fixes into `Fix issues (N)` with a menu.
+- Header type changes now wait for confirmation and restore the select on cancel.
+
+### Validation
+
+- `npm run typecheck` passes.
+- `npm test`: 767 tests passing.
+- `npm run build` passes.
+- Added preflight, proportional-sampling, per-file metadata, provenance/DQ, chip-collapse and type-cancel tests.
+
+### Scoped follow-ups
+
+- Preflight row/cell estimates use the sampled byte ratio, not an exact row scan.
+- Sampled-count `~` labels are available but not applied to every suggestion count.
+- W2.6/W2.7 remain for a later performance pass; W8 remains the release gate.

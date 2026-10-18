@@ -80,7 +80,7 @@ test("a resolved fix ticks green and leaves the list on refresh", () => {
   });
 
   const apply = [...doc().querySelectorAll(".triage-item button")].find(
-    (button) => button.textContent === "Apply",
+    (button) => button.textContent === "Fix: Apply",
   );
   assert.ok(apply !== undefined, "the suggestion offers Apply");
   (apply as unknown as { click(): void }).click();
@@ -104,7 +104,7 @@ test("a fix that does not clear the issue loses its tick", () => {
     onDedupe: () => {},
   });
   const apply = [...doc().querySelectorAll(".triage-item button")].find(
-    (button) => button.textContent === "Apply",
+    (button) => button.textContent === "Fix: Apply",
   );
   (apply as unknown as { click(): void }).click();
   assert.ok(doc().querySelector(".triage-done") !== null);
@@ -114,7 +114,7 @@ test("a fix that does not clear the issue loses its tick", () => {
   assert.equal(doc().querySelector(".triage-done"), null);
   assert.equal(doc().querySelector(".triage-fixed-entry"), null);
   const retry = [...doc().querySelectorAll(".triage-item button")].find(
-    (button) => button.textContent === "Apply",
+    (button) => button.textContent === "Fix: Apply",
   );
   assert.ok(retry !== undefined, "Apply is available again");
   handle.close();
@@ -134,7 +134,7 @@ test("null and constant issues open the Clean panel instead of pretending to fix
     },
   );
   const review = [...doc().querySelectorAll(".triage-item button")].find(
-    (button) => button.textContent === "Review…",
+    (button) => button.textContent === "Filter: Review.",
   );
   assert.ok(review !== undefined);
   (review as unknown as { click(): void }).click();

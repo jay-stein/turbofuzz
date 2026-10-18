@@ -218,6 +218,12 @@ export function computeAnomalies(
   for (let index = 0; index < columns.length; index++) {
     onProgress?.("Checking outliers", index + 1, columns.length);
     const column = columns[index];
+    if (column.role === "provenance") {
+      valueColumnBits.push(null);
+      lengthColumnBits.push(null);
+      perColumn.push({ valueFence: null, lengthFence: null });
+      continue;
+    }
     if (reuse !== undefined && !reuse.affected.has(index)) {
       const value = reuse.previous.valueColumnBits[index] ?? null;
       const length = reuse.previous.lengthColumnBits[index] ?? null;

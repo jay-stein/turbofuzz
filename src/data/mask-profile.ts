@@ -75,6 +75,7 @@ export function computePatternProfiles(
   for (let column = 0; column < columns.length; column++) {
     if (only !== undefined && !only.has(column)) continue;
     const data = columns[column];
+    if (data?.role === "provenance") continue;
     if (data === undefined || !PATTERN_TYPES.has(data.type)) continue;
     const total = rowCount - data.stats.nulls;
     if (total < MIN_CELLS) continue;

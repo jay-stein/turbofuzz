@@ -11,7 +11,7 @@ import {
   type RaggedInfo,
 } from "../parse/parse.js";
 import type { Delimiter } from "../parse/delimiter.js";
-import type { ProgressPhase } from "./protocol.js";
+import type { FileImportMeta, ProgressPhase } from "./protocol.js";
 
 export interface IngestProgress {
   phase: ProgressPhase;
@@ -39,6 +39,8 @@ export interface IngestResult {
   delimiter: Delimiter | null;
   /** Rows that were padded or truncated to match the final column set. */
   ragged: RaggedInfo;
+  /** Per-file source metadata for multi-file appends. */
+  files?: FileImportMeta[];
 }
 
 export interface IngestControl {
@@ -232,8 +234,17 @@ export async function ingestFilesAsync(
 ): Promise<IngestResult | null> {
   if (files.length === 0) throw new Error("No files to import");
   const prepared: PreparedGrid[] = [];
+  const totalBytes = files.reduce(
+    (sum, file) => sum + Math.max(1, file.buffer?.byteLength ?? file.text?.length ?? 1),
+    0,
+  );
   for (let index = 0; index < files.length; index++) {
     const file = files[index];
+    const fileBytes = Math.max(1, file.buffer?.byteLength ?? file.text?.length ?? 1);
+    const fileMaxRows =
+      options.maxRows === undefined
+        ? undefined
+        : Math.max(1, Math.floor((options.maxRows * fileBytes) / totalBytes));
     options.onProgress?.({
       phase: "read",
       detail: `Reading ${file.name} (${index + 1} of ${files.length}).`,
@@ -247,6 +258,7 @@ export async function ingestFilesAsync(
         hasHeaders: options.hasHeaders,
         text: file.text,
         buffer: file.buffer,
+        maxRows: fileMaxRows,
         onProgress: options.onProgress,
       }),
     );
@@ -313,7 +325,20 @@ export async function ingestFilesAsync(
   const delimiter = prepared.every((grid) => grid.delimiter === prepared[0].delimiter)
     ? prepared[0].delimiter
     : null;
-  return { dataset, encoding, delimiter, ragged };
+  return {
+    dataset,
+    encoding,
+    delimiter,
+    ragged,
+    files: prepared.map((grid, index) => ({
+      name: files[index]?.name ?? `File ${index + 1}`,
+      rowCount: grid.rows.length,
+      bytes: files[index]?.buffer?.byteLength ?? files[index]?.text?.length ?? 0,
+      encoding: grid.encoding,
+      delimiter: grid.delimiter,
+      numberPrior: grid.numberPrior,
+    })),
+  };
 }
 
 /** Sniff pasted text: only when the delimiter is auto and it starts like JSON. */

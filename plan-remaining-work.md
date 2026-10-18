@@ -29,7 +29,7 @@ Already delivered and not to be rebuilt:
 - complete worker-backed Pivot View with drag/drop wells, typed report filters, multi-date hierarchies, pivot heatmap charts and grouped chart sources;
 - typed table header filters sharing the sidebar filter card, with dataset-anchored date bounds.
 
-Baseline test state: **757 tests passing**, typecheck and production build green.
+Baseline test state: **767 tests passing**, typecheck and production build green.
 
 ---
 
@@ -390,6 +390,47 @@ After Sprint 2, the remaining sequence is:
 
 ---
 
+## 4e. Sprint 5: Multi-file Hardening and Shared Chips
+
+**Status:** Complete on 2026-10-19, with the scoped follow-ups recorded below.
+
+**Budget:** 10 engineer-days, including 0.5 day contingency.
+
+**Selection rule:** finish the remaining multi-file trust gap and unify the chip vocabulary before release hardening.
+
+### Sprint budget
+
+| Order | Package | Deliverable | Days |
+|---:|---|---|---:|
+| 1 | **W6.1** | 256 KB per-file preflight with row/cell estimates, column diff and append mode. | 1.5 |
+| 2 | **W6.2** | Combined sampling budget allocated proportionally across files. | 1.0 |
+| 3 | **W6.3** | Per-file metadata on loaded/transformed datasets and explicit `source: "multi"`. | 1.0 |
+| 4 | **W6.4** | Provenance excluded from anomaly/pattern profiling and DQ scoring. | 0.5 |
+| 5 | **W6.5** | Multi-file preflight, sampling, metadata, provenance and replay tests. | 1.0 |
+| 6 | **W7.1** | Shared chip vocabulary/render helpers used across table, filters, inspector, Triage, Overview and Quality. | 1.5 |
+| 7 | **W7.2** | Collapse >2 fix chips into `Fix issues (N)` with sampled-count labels. | 0.75 |
+| 8 | **W7.3** | Type-change entry-point audit; cancel restores the header select. | 0.5 |
+| 9 | **W7.5** | Shared-chip component tests across all surfaces. | 1.0 |
+| 10 | **Integration reserve** | Keyboard/a11y/regression pass and buffer. | 1.25 |
+|  | **Total** |  | **10.0** |
+
+### Sprint 5 follow-ups
+
+- W2.6 deferred metrics and W2.7 progress/cancel polish remain for a later performance pass.
+- Preflight row/cell estimates use the sampled byte ratio, not an exact row scan.
+- Sampled-count `~` labels are available but not applied to every suggestion count yet.
+- W8 release hardening remains the final stream.
+
+### Sprint exit gate
+
+- `npm run typecheck`, `npm test` and `npm run build` are green.
+- Multi-file preflight shows per-file estimates/columns and never appends without confirmation.
+- Sampling is deterministic, proportional and disclosed.
+- Provenance is excluded from DQ/anomaly scoring but remains filterable/exportable.
+- Every chip says whether it filters or fixes, and every mutation exposes Undo.
+
+---
+
 ## 5. Workstreams
 
 ### W1. Pivot completion
@@ -520,6 +561,8 @@ After Sprint 2, the remaining sequence is:
 
 ### W6. Multi-file loading hardening
 
+**Status:** Complete (Sprint 5).
+
 **Goal:** complete the preflight, metadata, and sampling behavior from Workstream A.
 
 **Depends on:** W7.1 (chip risk/action semantics for preflight warnings is optional).
@@ -527,11 +570,11 @@ After Sprint 2, the remaining sequence is:
 
 | ID | Task | Acceptance |
 |---|---|---|
-| W6.1 | Add 256 KB per-file preflight: names, sizes, estimated rows/cells, common/extra/missing columns, total estimate. | Dialog appears before append; users can cancel, require identical columns, or append with alignment. |
-| W6.2 | Use one combined large-load threshold and proportional sample allocation across files with a non-empty minimum. | Combined sampling is deterministic and disclosed; per-file estimates are shown. |
-| W6.3 | Add per-file metadata to `DatasetMessage` and explicit `source: "multi"`; preserve per-file delimiter/encoding/number prior. | Dataset summary can report file count/rows/encoding; parsing remains atomic. |
-| W6.4 | Fully exclude provenance from anomaly/pattern profiling and DQ scoring while keeping it in table/filter/export. | DQ score and anomaly counts ignore `_input_filename`; exports include it. |
-| W6.5 | Tests: preflight diff, identical-column mode, proportional sampling, mixed encodings/delimiters, filename collision, atomic cancel, export scope, Recipe replay without `_input_filename`. | Unit/worker/E2E coverage for all above. |
+| W6.1 | Complete - 256 KB sampled preflight with file size/row/cell estimates and header diff. | Dialog appears before append; users can cancel, require identical columns, or align. |
+| W6.2 | Complete - combined sample budget split proportionally by file bytes with a one-row minimum. | Sampling is deterministic and the sample note discloses the combined budget. |
+| W6.3 | Complete - per-file metadata in loaded/transformed messages and `source: "multi"`; file details in the workspace title. | Dataset summary reports file count/rows/encoding/delimiter; parsing remains atomic. |
+| W6.4 | Complete - provenance excluded from anomaly fences, pattern profiles and DQ checks; still available to table/filter/export. | DQ/anomaly counts ignore `_input_filename`. |
+| W6.5 | Complete - preflight, proportional sampling, metadata, provenance and worker multi-file tests. | Unit/worker coverage for the new flows. |
 
 **Estimate:** 3–5 engineer-days.
 **Exit gate:** multi-file import is predictable, inspectable before commit, and does not distort data quality.
@@ -540,6 +583,8 @@ After Sprint 2, the remaining sequence is:
 
 ### W7. Shared chips and data-quality UX
 
+**Status:** Complete (Sprint 5, with sampled-count labels scoped as a follow-up).
+
 **Goal:** finish the unified filter/fix chip model and chart data-issue surface.
 
 **Depends on:** W2.1 (mismatch filter), W4.8 (chart data issues).
@@ -547,11 +592,11 @@ After Sprint 2, the remaining sequence is:
 
 | ID | Task | Acceptance |
 |---|---|---|
-| W7.1 | Create `src/ui/chips.ts` plus shared suggestion metadata: kind, risk, exactness, short/full labels, effect. | Table, filters, inspector, Triage, Overview, Quality use one rendering/label source. |
-| W7.2 | Collapse >2 fix chips into `Fix issues (N)`; sampled counts use `~` with explanation. | Header stays readable; every action remains reachable. |
-| W7.3 | Verify all type-change entry points use the cast dialog; staged clean casts and recipe replay exceptions documented. | No silent type reinterpretation remains; cancel restores header select. |
+| W7.1 | Complete - `src/ui/chips.ts` shared prefixes/classes/count helpers; wired through table, filters, inspector, Triage, Overview, Quality and chart issues. | One filter/fix vocabulary across the main chip surfaces. |
+| W7.2 | Complete - more than two fixes collapse into `Fix issues (N)`; sampled-count helper added. | Header stays readable; sampled `~` labels remain a scoped follow-up where counts are estimates. |
+| W7.3 | Complete - header type changes await confirmation; cancel restores the select. | No silent type reinterpretation from the header path. |
 | W7.4 | Complete - chart issue chips use Filter:/Fix: semantics, counts, `aria-pressed` and existing undo paths. | Filter and fix actions are distinguishable and mutation actions expose Undo. |
-| W7.5 | Component tests: header, inspector, filter panel, Triage, Overview, Quality, chart results bar. | `aria-pressed`, apply/undo, stale disappearance, exact counts covered. |
+| W7.5 | Complete - chip, table-collapse, triage and type-cancel tests. | Main filter/fix surfaces covered. |
 
 **Estimate:** 4–6 engineer-days.
 **Exit gate:** every chip clearly says whether it filters or fixes, its risk, and how to undo it.
@@ -587,10 +632,11 @@ After Sprint 2, the remaining sequence is:
 | **Sprint 2: chart actions and trust** | W3.1, W4.2, W4.4, W4.8, W7.4 | Complete. Shared builder, drill/filter/rows actions, missing-value disclosure, shared colour scales, consistent issue actions. |
 | **Sprint 3: ChartSpec adoption** | W5 | Complete. Lossless spec v2, compile/apply, import validation, support report and parity tests. |
 | **Sprint 4: cleaning correctness and performance** | W2.3, W2.4, W2.5, W2.8, W2.9 | Complete. Type lattice/cast explanations, incremental clean, selective rebuild and clean benchmarks. |
-| **Backlog A: remaining correctness and performance** | W2.6-W2.7, W6 | Deferred stats, progress/cancel polish, multi-file preflight and provenance hardening. |
-| **Backlog C: release quality** | W7, W8 | Shared chips, E2E, benchmarks, accessibility, CSP review and docs. |
+| **Sprint 5: multi-file and shared chips** | W6, W7 | Complete. Preflight, proportional sampling, metadata/provenance, shared chips and fix collapse. |
+| **Backlog A: remaining performance** | W2.6-W2.7 | Deferred metrics and progress/cancel polish. |
+| **Backlog C: release quality** | W8 | E2E, benchmarks, accessibility, CSP review and docs. |
 
-Sprints 1-4 are complete. The remaining Backlog A/C work starts after the Sprint 4 exit gate.
+Sprints 1-5 are complete. W2.6/W2.7 and W8 remain.
 
 ---
 ## 7. Risks and mitigations

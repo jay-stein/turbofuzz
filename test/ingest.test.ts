@@ -277,3 +277,27 @@ test("maxRows previews only the first rows of delimited text", () => {
   assert.equal(dataset.rowCount, 10, "only the preview rows are materialised");
   assert.equal(dataset.columnCount, 2);
 });
+
+test("multi-file loads expose per-file metadata and proportional sampling", async () => {
+  const first = Array.from({ length: 50 }, (_, index) => `${index},a-${index}`).join("\n");
+  const second = Array.from({ length: 50 }, (_, index) => `${index},b-${index}`).join("\n");
+  const result = await ingestFilesAsync(
+    [
+      { name: "a.csv", text: `id,value\n${first}` },
+      { name: "b.csv", text: `id,value\n${second}` },
+    ],
+    { name: "2 files", delimiter: "auto", hasHeaders: true, maxRows: 20 },
+  );
+  assert.ok(result !== null);
+  assert.equal(result.files?.length, 2);
+  assert.equal(result.files?.[0]?.name, "a.csv");
+  assert.ok((result.files?.[0]?.rowCount ?? 0) > 0);
+  assert.ok((result.files?.[1]?.rowCount ?? 0) > 0);
+  assert.ok((result.files?.[0]?.rowCount ?? 0) + (result.files?.[1]?.rowCount ?? 0) <= 20);
+  assert.equal(result.files?.[0]?.delimiter, ",");
+  assert.equal(result.files?.[0]?.numberPrior, "dot");
+  assert.ok(result.dataset.rowCount <= 20);
+  const provenance = result.dataset.columns.length - 1;
+  assert.equal(result.dataset.valueColumnBits[provenance], null);
+  assert.equal(result.dataset.patternProfiles[provenance], null);
+});

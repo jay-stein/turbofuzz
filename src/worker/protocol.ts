@@ -736,6 +736,15 @@ export type WorkerRequest =
   | GetGridCountsRequest
   | GetAnimationRequest;
 
+export interface FileImportMeta {
+  name: string;
+  rowCount: number;
+  bytes: number;
+  encoding: FileEncoding | null;
+  delimiter: Delimiter | null;
+  numberPrior: "dot" | "comma";
+}
+
 export interface DatasetMessage {
   requestId: number;
   name: string;
@@ -745,7 +754,9 @@ export interface DatasetMessage {
   columns: ColumnMeta[];
   stats: DatasetStats;
   ingestMs: number;
-  source: "paste" | "file";
+  source: "paste" | "file" | "multi";
+  /** Source-file metadata for multi-file appends. */
+  files?: FileImportMeta[];
   encoding: FileEncoding | null;
   /** Auto-detected delimiter for delimited files (null for JSON, Excel, data grids). */
   delimiter: Delimiter | null;

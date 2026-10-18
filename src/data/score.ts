@@ -112,9 +112,12 @@ export function computeDQScore(
   const bandFair = config.bandFair ?? DEFAULT_DQ_CONFIG.bandFair;
 
   const checks: ScoreCheck[] = [];
+  const scoredColumns = columns
+    .map((meta, column) => ({ meta, column }))
+    .filter(({ meta }) => meta.role !== "provenance");
 
   // Completeness: every column's cells must be populated.
-  columns.forEach((meta, column) => {
+  scoredColumns.forEach(({ meta, column }) => {
     checks.push({
       id: `completeness.${column}`,
       dimension: "completeness",
@@ -130,7 +133,7 @@ export function computeDQScore(
   });
 
   // Validity: cells that parse under the inferred type and any dominant format.
-  columns.forEach((meta, column) => {
+  scoredColumns.forEach(({ meta, column }) => {
     let invalid = 0;
     const reasons: string[] = [];
     for (const suggestion of meta.suggestions) {

@@ -7,6 +7,7 @@ import {
 import type { ColumnMeta } from "../worker/protocol.js";
 import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
+import { chipText } from "./chips.js";
 
 export interface TriageCallbacks {
   onSuggestion(column: number, suggestion: ColumnSuggestion): void;
@@ -22,6 +23,7 @@ interface TriageItem {
   label: string;
   detail: string;
   impact: number;
+  action: "fix" | "filter";
   fixLabel: string;
   /** True when clicking Apply should make the item disappear. */
   resolves: boolean;
@@ -95,6 +97,7 @@ export function openTriagePanel(
           label: `${meta.name}: ${suggestionLabel(suggestion)}`,
           detail: describeSuggestion(suggestion),
           impact: "count" in suggestion ? Number(suggestion.count) || 1 : 1,
+          action: "fix",
           fixLabel: "Apply",
           resolves: true,
           run: () => callbacks.onSuggestion(column, suggestion),
@@ -111,6 +114,7 @@ export function openTriagePanel(
             .map((token) => `“${token.label}”`)
             .join(", ")} are counted as missing but stored as text`,
           impact: total,
+          action: "fix",
           fixLabel: "Convert to nulls",
           resolves: true,
           run: () => callbacks.onConvertToken(column, tokens.map((token) => token.label)),
@@ -122,7 +126,8 @@ export function openTriagePanel(
           label: `${meta.name}: single value`,
           detail: "every non-empty row carries the same value — the column may be droppable",
           impact: 1,
-          fixLabel: "Review…",
+          action: "filter",
+          fixLabel: "Review.",
           resolves: false,
           run: () => callbacks.onOpenClean(column, "values"),
         });
@@ -133,7 +138,8 @@ export function openTriagePanel(
           label: `${meta.name}: ${meta.stats.nulls.toLocaleString()} empty cells`,
           detail: "review the missing values, fill or drop them — applying a null policy cannot create data",
           impact: meta.stats.nulls,
-          fixLabel: "Review…",
+          action: "filter",
+          fixLabel: "Review.",
           resolves: false,
           run: () => callbacks.onOpenClean(column, "nulls"),
         });
@@ -147,7 +153,8 @@ export function openTriagePanel(
           currentStats.duplicateGroups === 1 ? "" : "s"
         } — keep one copy or remove all`,
         impact: currentStats.duplicateRows,
-        fixLabel: "Remove…",
+        action: "fix",
+        fixLabel: "Remove.",
         resolves: true,
         run: (anchor) => callbacks.onDedupe(anchor),
       });
@@ -189,7 +196,7 @@ export function openTriagePanel(
         const fix = el(
           "button",
           { class: "primary small", type: "button", title: item.detail },
-          [item.fixLabel],
+          [chipText(item.action, item.fixLabel)],
         ) as HTMLButtonElement;
         fix.addEventListener("click", () => {
           if (item.resolves) {

@@ -77,6 +77,12 @@ import {
 } from "./theme.js";
 import { ResultTable, type ColumnQaKind, type HighlightRule } from "./table.js";
 import { openStatsModal } from "./stats.js";
+import { chipText } from "./chips.js";
+import {
+  buildMultiFilePreflight,
+  openMultiFilePreflight,
+  type FilePreflightSample,
+} from "./multi-file-preflight.js";
 import { LoadCancelledError, SearchWorkerClient } from "./worker-client.js";
 import { openCleanPanel } from "./clean-panel.js";
 import { openConfirm, openPrompt } from "./dialog.js";
@@ -144,6 +150,7 @@ function readColumnTilesPreference(): boolean {
 const FILE_ACCEPT =
   ".csv,.tsv,.psv,.txt,.dat,.json,.jsonl,.ndjson,.parquet,.xlsx,.xls,.zip,.gz,.bz2";
 const MULTI_FILE_EXTENSIONS = [".csv", ".tsv", ".psv", ".txt", ".dat"];
+const PREFLIGHT_BYTES = 256 * 1024;
 const WORKBOOK_EXTENSIONS = [".xlsx", ".xls"];
 const UNSUPPORTED_COMPRESSION = [".xz", ".zst", ".7z", ".rar", ".tar", ".lz4"];
 const UNSUPPORTED_FORMATS: { extensions: string[]; message: string }[] = [
@@ -1188,14 +1195,49 @@ export class App {
       return;
     }
     const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name));
-    const names = sorted.slice(0, 5).map((file) => file.name).join(", ");
-    const more = sorted.length > 5 ? ` and ${sorted.length - 5} more` : "";
-    const confirmed = await openConfirm({
-      title: `Append ${sorted.length} files?`,
-      body: `${names}${more} will be loaded as one dataset. Columns are matched by header name, and an _input_filename column records each file.`,
-      confirmLabel: "Append rows",
-    }).catch(() => false);
-    if (!confirmed) return;
+    const samples: FilePreflightSample[] = [];
+    for (const file of sorted) {
+      const buffer = await file.slice(0, PREFLIGHT_BYTES).arrayBuffer();
+      const decoded = decodeText(buffer);
+      const parsed = parseDelimited(decoded.text, {
+        delimiter: this.delimiterSelect.value as Delimiter | "auto",
+        hasHeaders: this.headersCheckbox.checked,
+        preview: 500,
+      });
+      samples.push({
+        name: file.name,
+        size: file.size,
+        headers: parsed.headers,
+        sampleRows: parsed.rows.length,
+        sampleBytes: buffer.byteLength,
+        encoding: decoded.encoding,
+        delimiter: parsed.delimiter,
+      });
+    }
+    const preflight = buildMultiFilePreflight(samples);
+    const mode = await openMultiFilePreflight(preflight);
+    if (mode === null) return;
+    if (mode === "identical" && !preflight.identicalColumns) {
+      this.setStatusError("The files do not have identical columns.");
+      return;
+    }
+    this.sampleNote = null;
+    let maxRows: number | undefined;
+    if (preflight.totalCells > LARGE_LOAD_CELLS) {
+      const choice = await openLargeLoadDialog(
+        {
+          rows: preflight.totalRows,
+          cells: preflight.totalCells,
+          columns: preflight.commonColumns.length,
+        },
+        `${sorted.length} files`,
+      );
+      if (choice === null) return;
+      if (choice === "sample") {
+        maxRows = SAMPLE_ROWS;
+        this.sampleNote = `sample: ~${SAMPLE_ROWS.toLocaleString()} rows across ${sorted.length} files`;
+      }
+    }
     this.showLoadProgress(
       `${sorted.length} files`,
       sorted.reduce((sum, file) => sum + file.size, 0),
@@ -1209,6 +1251,7 @@ export class App {
         files: payload,
         name: `${sorted.length} files`,
         source: "file",
+        maxRows,
       });
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not read files");
@@ -2308,12 +2351,16 @@ export class App {
     );
   }
 
-  private changeType(column: number, type: ColumnType, record = true): void {
+  private changeType(
+    column: number,
+    type: ColumnType,
+    record = true,
+  ): boolean | Promise<boolean> {
     if (record && this.castTargetFor(type) !== null) {
-      void this.confirmCast(column, type);
-      return;
+      return this.confirmCast(column, type);
     }
     this.setColumnType(column, type, record);
+    return true;
   }
 
   private castTargetFor(type: ColumnType): CastTarget | null {
@@ -2357,10 +2404,10 @@ export class App {
     );
   }
   /** Confirms a value-rewriting type change before touching the dataset. */
-  private async confirmCast(column: number, type: ColumnType): Promise<void> {
+  private async confirmCast(column: number, type: ColumnType): Promise<boolean> {
     const meta = this.metas[column];
     const target = this.castTargetFor(type);
-    if (meta === undefined || target === null || meta.type === type) return;
+    if (meta === undefined || target === null || meta.type === type) return false;
     const name = meta.name;
     const existing = this.cleanedColumns.get(column) ?? [];
     const initial: CastOptions = {
@@ -2396,11 +2443,11 @@ export class App {
     }).catch(() => null);
     if (result === null) {
       this.table?.updateColumn(column, meta);
-      return;
+      return false;
     }
     if (result.kind === "reinterpret") {
       this.setColumnType(column, type);
-      return;
+      return true;
     }
     const op = castOp(result.options);
     this.applyClean([{ column, ops: [...existing, op] }]);
@@ -2417,6 +2464,7 @@ export class App {
       if (index < 0) return;
       this.applyClean([{ column, ops: current.filter((_, i) => i !== index) }]);
     });
+    return true;
   }
 
   private setColumnType(column: number, type: ColumnType, record = true): void {
@@ -3515,7 +3563,7 @@ export class App {
           title,
           "aria-pressed": this.specials.has(kind) ? "true" : "false",
         },
-        [label],
+        [chipText("filter", label)],
       ) as HTMLButtonElement;
       chip.dataset.kind = kind;
       chip.addEventListener("click", () => this.toggleSpecial(kind));
@@ -3535,7 +3583,7 @@ export class App {
           type: "button",
           title: `Remove duplicate rows — ${stats.duplicateRows.toLocaleString()} redundant rows`,
         },
-        ["Remove duplicates"],
+        [chipText("fix", "Remove duplicates")],
       ) as HTMLButtonElement;
       remove.addEventListener("click", () =>
         openDedupeMenu(remove, stats, (keep) => this.dropDuplicates(keep)),

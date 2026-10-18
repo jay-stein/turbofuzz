@@ -18,6 +18,7 @@ import {
   type ColumnSuggestion,
 } from "../data/suggestions.js";
 import type { ColumnFilter } from "../search/query-engine.js";
+import { chipText } from "./chips.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 
 export interface FilterPanelCallbacks {
@@ -192,7 +193,7 @@ export class FilterPanel {
           type: "button",
           title: describeSuggestion(suggestion),
         },
-        [`Fix: ${suggestionLabel(suggestion)}`],
+        [chipText("fix", suggestionLabel(suggestion))],
       );
       chip.addEventListener("click", () => this.callbacks.onSuggestion(index, suggestion));
       row.append(chip);

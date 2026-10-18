@@ -66,6 +66,7 @@ import type {
   ClearExcludedRowsRequest,
   ColumnDetail,
   ColumnMeta,
+  FileImportMeta,
   DropRowsRequest,
   GetRowsRequest,
   GetStatsRequest,
@@ -245,7 +246,8 @@ const typeOverrides = new Map<number, ColumnType>();
 // transform plus the ordered op list, re-derived from that base on every change.
 let transformSource: Dataset | null = null;
 let transformOps: TransformOp[] = [];
-let datasetSource: "paste" | "file" = "paste";
+let datasetSource: "paste" | "file" | "multi" = "paste";
+let datasetFiles: FileImportMeta[] = [];
 let datasetEncoding: FileEncoding | null = null;
 let datasetDelimiter: Delimiter | null = null;
 let datasetRagged: RaggedInfo = { paddedRows: 0, extraCellRows: 0, extraCells: 0 };
@@ -592,6 +594,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
           name: message.name,
           delimiter: message.delimiter,
           hasHeaders: message.hasHeaders,
+          maxRows: message.maxRows,
           onProgress: (progress) =>
             postLoadProgress(message.requestId, {
               phase: progress.phase,
@@ -698,9 +701,12 @@ async function handleLoad(message: LoadRequest): Promise<void> {
     transformSource = null;
     transformOps = [];
     datasetSource =
-      message.buffer !== undefined || (message.files !== undefined && message.files.length > 0)
-        ? "file"
-        : "paste";
+      message.files !== undefined && message.files.length > 1
+        ? "multi"
+        : message.buffer !== undefined || (message.files !== undefined && message.files.length > 0)
+          ? "file"
+          : "paste";
+    datasetFiles = ingested.files ?? [];
     datasetEncoding = encoding;
     datasetDelimiter = delimiter;
     datasetRagged = ragged;
@@ -718,6 +724,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
       stats: next.stats,
       ingestMs: performance.now() - started,
       source: datasetSource,
+      files: datasetFiles.length > 0 ? datasetFiles : undefined,
       encoding: datasetEncoding,
       delimiter: datasetDelimiter,
       ragged: datasetRagged,
@@ -2286,6 +2293,7 @@ function handleTransform(message: TransformRequest): void {
     stats: next.stats,
     ingestMs: performance.now() - started,
     source: datasetSource,
+    files: datasetFiles.length > 0 ? datasetFiles : undefined,
     encoding: datasetEncoding,
     delimiter: datasetDelimiter,
     ragged: datasetRagged,

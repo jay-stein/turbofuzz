@@ -63,7 +63,10 @@ interface Harness {
   window: Window;
 }
 
-function buildTable(columns: ColumnMeta[]): Harness {
+function buildTable(
+  columns: ColumnMeta[],
+  onTypeChange: (column: number, type: ColumnMeta["type"]) => boolean | Promise<boolean> = () => true,
+): Harness {
   const window = setupDom();
   const document = (globalThis as Record<string, unknown>).document as Window["document"];
   const host = document.createElement("div") as unknown as HTMLElement;
@@ -80,7 +83,7 @@ function buildTable(columns: ColumnMeta[]): Harness {
   const table = new ResultTable(host, {
     onSort: () => {},
     onColumnInspect: (column) => inspects.push(column),
-    onTypeChange: () => {},
+    onTypeChange,
     onQuickFilter: (column, query) => quick.push({ column, query }),
     columnFilterFor: () => null,
     onColumnFilter: (column, filter) => columnFilters.push({ column, filter }),
@@ -142,6 +145,34 @@ test("header shows only actionable QA chips", () => {
   assert.equal(cleanChips.length, 0, "zero-count chips are hidden");
 });
 
+test("cancelling a type change restores the header select", () => {
+  const { host, window } = buildTable([meta({ name: "code", type: "string" })], () => false);
+  const select = host.querySelector(".th-type") as HTMLSelectElement;
+  select.value = "number";
+  select.dispatchEvent(new window.Event("change") as unknown as Event);
+  assert.equal(select.value, "string");
+});
+test("more than two fixes collapse into one Fix issues menu", () => {
+  const { host } = buildTable([
+    meta({
+      name: "Amount",
+      type: "number",
+      suggestions: [
+        { kind: "mixedNumber", locale: "dot", count: 55, ratio: 0.03, sampled: 1951 },
+        { kind: "sentinel", value: "-999", count: 38, ratio: 0.02, sampled: 1951 },
+        { kind: "typeConflict", count: 12, sampled: 1951, example: "high", columnType: "number" },
+      ],
+    }),
+  ]);
+  const fixes = host.querySelectorAll(".th-qa-chip.fix");
+  assert.equal(fixes.length, 1);
+  assert.equal(fixes[0].textContent, "Fix issues (3)");
+  (fixes[0] as unknown as { click(): void }).click();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const items = [...doc.querySelectorAll(".context-menu .context-item")];
+  assert.equal(items.length, 3);
+  assert.ok(items.every((item) => item.textContent?.startsWith("Fix:")));
+});
 test("header shows one-click fix chips for column suggestions", () => {
   const { host, fixes } = buildTable([
     meta({
@@ -304,7 +335,7 @@ test("placeholder tokens get a header chip that blanks them in one column", () =
     title: string;
     click(): void;
   };
-  assert.equal(chip.textContent, "9 placeholders");
+  assert.equal(chip.textContent, "Fix: 9 placeholders");
   assert.match(chip.title, /12 cells in “amount” are missing/);
   assert.match(chip.title, /3 blank \+ 9 placeholder text/);
   assert.match(chip.title, /blank the placeholder text “NA”, “TBD”/);

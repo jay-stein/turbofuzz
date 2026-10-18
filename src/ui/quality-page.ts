@@ -1,6 +1,7 @@
 import type { DQScore, ScoreCheck, ScoreDimension } from "../data/score.js";
 import type { DatasetStats } from "../data/stats.js";
 import { clear, el } from "./dom.js";
+import { chipText } from "./chips.js";
 import type { DQExportKind } from "./quality-panel.js";
 import { describeScope } from "./scope.js";
 import type { ColumnType } from "../types.js";
@@ -581,7 +582,7 @@ export class QualityPage {
         }
       });
       const action = el("button", { class: "ghost small", type: "button" }, [
-        fix.check.fixLabel ?? "Show failing",
+        chipText(fix.check.convertTo === undefined ? "filter" : "fix", fix.check.fixLabel ?? "Show failing"),
       ]) as HTMLButtonElement;
       action.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -678,7 +679,7 @@ export class QualityPage {
             const cell = el("span", { class: "qp-check-action" });
             if (check.fail > 0 && (check.filter !== null || check.convertTo !== undefined)) {
               const button = el("button", { class: "ghost small", type: "button" }, [
-                check.fixLabel ?? "Show failing",
+                chipText(check.convertTo === undefined ? "filter" : "fix", check.fixLabel ?? "Show failing"),
               ]) as HTMLButtonElement;
               button.addEventListener("click", () => this.runCheck(check));
               cell.append(button);

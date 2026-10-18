@@ -7,6 +7,7 @@ import {
   type ColumnSuggestion,
 } from "../data/suggestions.js";
 import { clusterSimilar, type SimilarCluster } from "../search/similar.js";
+import { chipClass, chipText, collapsedFixLabel, suggestionChipLabel } from "./chips.js";
 import { dismissedClusterCount, isClusterDismissed } from "./similar-dismissals.js";
 import { isNullToken, isNullWithWire } from "../parse/null-tokens.js";
 import { parseDate, toDateInputValue, toTimeInputValue } from "../parse/dates.js";
@@ -50,7 +51,7 @@ export interface ResultTableOptions {
   onSort: (column: number, dir: 1 | -1 | 0) => void;
   /** Clicking a column name opens the inspector anchored to it. */
   onColumnInspect: (column: number, anchor: HTMLElement) => void;
-  onTypeChange: (column: number, type: ColumnType) => void;
+  onTypeChange: (column: number, type: ColumnType) => boolean | Promise<boolean>;
   /** Quick contains filter typed directly in a column header. */
   onQuickFilter?: (column: number, query: string) => void;
   /** Current contains query for a column, used to restore the header input. */
@@ -421,7 +422,16 @@ export class ResultTable {
       }
       typeSelect.value = column.type;
       typeSelect.addEventListener("change", () => {
-        this.options.onTypeChange(index, typeSelect.value as ColumnType);
+        const previous = column.type;
+        const applied = this.options.onTypeChange(
+          index,
+          typeSelect.value as ColumnType,
+        );
+        const restore = (ok: boolean): void => {
+          if (!ok) typeSelect.value = previous;
+        };
+        if (applied instanceof Promise) void applied.then(restore);
+        else restore(applied);
       });
 
       top.append(number, label, grip, del);
@@ -567,7 +577,9 @@ export class ResultTable {
     } else {
       row.append(this.mergedQaChip(column, index, issues));
     }
-    row.append(...tokenChips, ...this.buildFixChips(column, index));
+    const fixes = [...tokenChips, ...this.buildFixChips(column, index)];
+    if (fixes.length > 2) row.append(this.mergedFixChip(column, fixes));
+    else row.append(...fixes);
     const similarPairs = column.similarGroups - dismissedClusterCount(column.name);
     if (similarPairs > 0 && column.categories !== null) {
       const merge = el(
@@ -715,7 +727,7 @@ export class ResultTable {
     const chip = el(
       "button",
       { class: "th-qa-chip fix token", type: "button" },
-      [`${total.toLocaleString()} ${total === 1 ? "placeholder" : "placeholders"}`],
+      [chipText("fix", `${total.toLocaleString()} ${total === 1 ? "placeholder" : "placeholders"}`)],
     ) as HTMLButtonElement;
     const examples = ranked.slice(0, 3).map((label) => `“${label}”`).join(", ");
     const blanks = Math.max(0, column.stats.nulls - total);
@@ -742,7 +754,7 @@ export class ResultTable {
       const chip = el(
         "button",
         { class: "th-qa-chip fix", type: "button" },
-        [`Fix: ${suggestionShortLabel(suggestion)}`],
+        [suggestionChipLabel(suggestionShortLabel(suggestion))],
       ) as HTMLButtonElement;
       chip.title = `${describeSuggestion(suggestion)} — click to fix`;
       chip.addEventListener("click", () => this.options.onSuggestion?.(index, suggestion));
@@ -750,6 +762,29 @@ export class ResultTable {
     });
   }
 
+  /** Keep busy headers to one line: >2 fixes collapse into a menu. */
+  private mergedFixChip(
+    column: ColumnMeta,
+    fixes: readonly HTMLButtonElement[],
+  ): HTMLButtonElement {
+    const chip = el(
+      "button",
+      { class: `${chipClass("fix")} merge`, type: "button" },
+      [collapsedFixLabel(fixes.length)],
+    ) as HTMLButtonElement;
+    chip.title = `${fixes.length} fixes in "${column.name}" - choose one; each is undoable`;
+    chip.addEventListener("click", () => {
+      openMenu(
+        chip,
+        fixes.map((fix) => ({
+          label: fix.textContent ?? "Fix",
+          title: fix.title,
+          action: () => fix.click(),
+        })),
+      );
+    });
+    return chip;
+  }
   private render(): void {
     const height = this.scroller.clientHeight || 600;
     const start = Math.max(0, Math.floor(this.scroller.scrollTop / ROW_HEIGHT) - OVERSCAN);

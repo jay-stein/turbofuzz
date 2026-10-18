@@ -6746,3 +6746,93 @@ label.null-row {
   color: var(--qa-warn-text);
   font-weight: 600;
 }
+
+.multi-file-modal {
+  width: min(760px, 94vw);
+}
+
+.multi-file-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.multi-file-lead {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.multi-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.multi-file-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.4fr) minmax(190px, 1fr) auto;
+  gap: 4px 10px;
+  align-items: center;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 12px;
+}
+
+.multi-file-row:last-child {
+  border-bottom: 0;
+}
+
+.multi-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.multi-file-stat {
+  color: var(--text-dim);
+}
+
+.multi-file-extra,
+.multi-file-missing {
+  grid-column: 1 / -1;
+  font-size: 11px;
+}
+
+.multi-file-extra {
+  color: var(--accent);
+}
+
+.multi-file-missing {
+  color: var(--qa-warn-text);
+}
+
+.multi-file-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.multi-file-mode {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  align-items: start;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.multi-file-mode small {
+  grid-column: 2;
+  color: var(--text-dim);
+}
+
+.multi-file-mode:has(input:disabled) {
+  opacity: 0.55;
+}

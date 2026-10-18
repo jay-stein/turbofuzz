@@ -194,3 +194,17 @@ test("a text fallback that could be integer lowers validity", () => {
   const clean = computeDQScore([meta({ name: "amount", type: "string" })], stats(), 100);
   assert.equal(clean.dimensions.find((d) => d.dimension === "validity")?.score, 100);
 });
+
+test("provenance columns are excluded from the quality score", () => {
+  const score = computeDQScore(
+    [
+      meta({ name: "value", stats: { ...meta().stats, nulls: 0 } }),
+      meta({ name: "_input_filename", role: "provenance", stats: { ...meta().stats, nulls: 50 } }),
+    ],
+    stats({ totalCells: 200 }),
+    100,
+  );
+  const checks = score.dimensions.flatMap((dimension) => dimension.checks);
+  assert.ok(checks.some((check) => check.label.includes("value")));
+  assert.equal(checks.some((check) => check.label.includes("_input_filename")), false);
+});

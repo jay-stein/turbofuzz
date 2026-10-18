@@ -12,6 +12,7 @@ import { isNumericLikeType, isTemporalType } from "../types.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import { openPrompt } from "./dialog.js";
 import { el } from "./dom.js";
+import { chipText } from "./chips.js";
 import { openMenu, type MenuItem } from "./menu.js";
 
 export interface ColumnInspectorCallbacks {
@@ -177,7 +178,7 @@ export function openColumnInspector(
   for (const suggestion of meta.suggestions) {
     issues.append(
       action(
-        `Fix: ${suggestionLabel(suggestion)}`,
+        chipText("fix", suggestionLabel(suggestion)),
         "Apply this fix — undo is offered in the Recipe",
         () => {
           close();
@@ -192,7 +193,7 @@ export function openColumnInspector(
   if (tokens.length > 0) {
     issues.append(
       action(
-        `${tokens.reduce((sum, token) => sum + token.count, 0).toLocaleString()} placeholder cells`,
+        chipText("fix", `${tokens.reduce((sum, token) => sum + token.count, 0).toLocaleString()} placeholder cells`),
         `Values like ${tokens
           .slice(0, 3)
           .map((token) => `“${token.label}”`)
@@ -209,7 +210,7 @@ export function openColumnInspector(
   if (meta.anomalyCounts.values > 0) {
     issues.append(
       action(
-        `${meta.anomalyCounts.values.toLocaleString()} value outliers`,
+        chipText("filter", `${meta.anomalyCounts.values.toLocaleString()} value outliers`),
         "Show the rows outside this column's robust fence",
         () => {
           close();
@@ -223,7 +224,7 @@ export function openColumnInspector(
   if (meta.anomalyCounts.lengths > 0) {
     issues.append(
       action(
-        `${meta.anomalyCounts.lengths.toLocaleString()} overlong values`,
+        chipText("filter", `${meta.anomalyCounts.lengths.toLocaleString()} overlong values`),
         "Show the rows with unusually long text",
         () => {
           close();
@@ -237,7 +238,7 @@ export function openColumnInspector(
   if (meta.similarGroups > 0) {
     issues.append(
       action(
-        `${meta.similarGroups.toLocaleString()} similar pair${meta.similarGroups === 1 ? "" : "s"}`,
+        chipText("fix", `${meta.similarGroups.toLocaleString()} similar pair${meta.similarGroups === 1 ? "" : "s"}`),
         "Review and merge near-identical values",
         () => {
           close();
