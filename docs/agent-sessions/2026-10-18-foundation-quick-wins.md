@@ -549,3 +549,25 @@ Make the pivot builder feel like a field-list pivot UI and clarify percentage di
 ### Notes
 
 - Batch/clean actions stay below their 250 ms/600 ms/2 s budgets, so they use Recipe Undo rather than a separate cancel dialog.
+## Post-release: Chart suggestion quality (2026-10-19)
+
+### Root causes
+
+- Suggestions picked the highest-cardinality category, so measures like `quantity` beat `region`.
+- ID detection only rejected columns where every row was distinct; `order_id` with repeats was charted.
+- Equal-cardinality categories broke ties by the **last** column (`notes` over `region`).
+- Date/numeric picks used column order, not field quality.
+- Map suggestions were appended last and dropped by the three-idea cap.
+
+### Fixes
+
+- Shared field ranking for dates, categories and measures.
+- Identifier names and all-distinct string columns are excluded; unique numeric measures remain chartable.
+- Category score prefers real categories, semantic names, 2-8 distinct values, low null rates and healthy distribution; ties break first.
+- Measure-aware ideas now offer e.g. `revenue over time` and `revenue by region` instead of row counts.
+- Coordinate maps are reserved before the three-idea cap.
+
+### Validation
+
+- `npm run typecheck`, 774 unit tests, 7 E2E tests and `npm run build` pass.
+- Added tests for ID exclusion, category tie-breaking, meaningful measures, map priority and unique numeric measures.

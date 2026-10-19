@@ -103,3 +103,13 @@ test("the gallery groups every chart type by the question it answers", () => {
     ],
   );
 });
+
+test("unique numeric measures are chartable while named identifiers are not", () => {
+  const unique = [
+    meta({ name: "revenue", type: "number", stats: { ...meta().stats, distinct: 500 } }),
+    meta({ name: "order_id", type: "integer", stats: { ...meta().stats, distinct: 500 } }),
+  ];
+  assert.equal(fitChartKind("histogram", unique, 500).ok, true);
+  assert.equal(fitChartKind("histogram", unique, 500).preset.column, 0);
+  assert.equal(fitChartKind("correlation", unique, 500).ok, false);
+});

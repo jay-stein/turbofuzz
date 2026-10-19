@@ -108,9 +108,15 @@ test("pickDefaultCard follows the sales file's date and categories", () => {
 
   const ideas = suggestCharts(sales, 6015);
   assert.equal(ideas.length, 3);
-  assert.equal(ideas[0].label, "Rows over time");
-  assert.deepEqual(ideas[0].preset, { kind: "line", column: 1 });
-  assert.match(ideas[1].label, /^Rows by /);
+  assert.equal(ideas[0].label, "revenue over time");
+  assert.deepEqual(ideas[0].preset, {
+    kind: "line",
+    column: 1,
+    valueColumn: 8,
+    valueAgg: "sum",
+  });
+  assert.equal(ideas[1].label, "revenue by region");
+  assert.equal(ideas[1].preset.kind, "barplot");
   assert.match(ideas[2].label, /^Distribution of revenue$/);
 });
 
@@ -453,4 +459,51 @@ test("remapChartConfigs drops a correlation with fewer than two columns left", (
   );
   assert.equal(thin.removed, 1);
   assert.equal(thin.configs.length, 0);
+});
+
+test("suggestions prefer meaningful groups and exclude identifier-like measures", () => {
+  const columns = [
+    typed("order_id", "integer", 5000),
+    typed("region", "category", 6),
+    typed("quantity", "integer", 12),
+    typed("revenue", "number", 4200),
+  ];
+  const ideas = suggestCharts(columns, 12000);
+  assert.equal(ideas[0]?.label, "revenue by region");
+  assert.equal(ideas[0]?.preset.kind, "barplot");
+  assert.ok(
+    ideas.every(
+      (idea) =>
+        idea.preset.column !== 0 &&
+        idea.preset.x !== 0 &&
+        idea.preset.y !== 0 &&
+        idea.preset.valueColumn !== 0,
+    ),
+    "order_id never appears as an axis or measure",
+  );
+});
+
+test("equal-cardinality categories break ties by the first useful column", () => {
+  const columns = [
+    typed("region", "category", 6),
+    typed("product", "category", 6),
+    typed("notes", "category", 6),
+  ];
+  const pick = pickDefaultCard(columns, 100);
+  assert.deepEqual({ kind: pick.kind, column: pick.column }, { kind: "bar", column: 0 });
+  assert.equal(suggestCharts(columns, 100)[0]?.label, "Rows by region");
+});
+
+test("coordinate data reserves a map suggestion before the three-idea cap", () => {
+  const columns = [
+    typed("created_at", "datetime", 4000),
+    typed("region", "category", 6),
+    typed("amount", "number", 4000),
+    typed("lat", "number", 4000),
+    typed("lon", "number", 4000),
+  ];
+  const ideas = suggestCharts(columns, 12000);
+  assert.equal(ideas[0]?.label, "Map of coordinates");
+  assert.equal(ideas[0]?.preset.kind, "map");
+  assert.equal(ideas.length, 3);
 });

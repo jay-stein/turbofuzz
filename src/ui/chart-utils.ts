@@ -92,31 +92,38 @@ export function isCategoryType(type: ColumnType): boolean {
   return type === "category" || type === "boolean";
 }
 
+/** Identifier-like names, including common record/business identifiers. */
+const ID_NAME = /(^|[^a-z0-9])(id|uuid|guid|key)s?($|[^a-z0-9])/i;
+const IDENTIFIER_NAME = /(^|[^a-z0-9])(zip|postal|postcode|phone|mobile|ssn|abn|acn|iban|barcode|nmi)([^a-z0-9]|$)/i;
+const NON_ID_WORDS = /(paid|valid|void|grid|solid|fluid|rapid|humid|arid|android)$/;
+
+/** Names that read as identifiers add no value to charts. */
+export function looksLikeIdName(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (ID_NAME.test(lower) || IDENTIFIER_NAME.test(lower)) return true;
+  const compact = lower.replace(/[^a-z0-9]/g, "");
+  return compact.length > 3 && compact.endsWith("id") && !NON_ID_WORDS.test(compact);
+}
+
 /**
- * ID-like columns make poor chart axes: identifiers, or string/integer columns
- * where every row is distinct (the row id in a big file).
+ * ID-like columns make poor chart axes. Names are the strongest signal; a
+ * string column that is entirely distinct is also an identifier. Numeric
+ * measures are allowed to be unique (revenue, price, timestamp-like counts).
  */
 export function isIdLikeColumn(meta: ColumnMeta, rowCount: number): boolean {
   if (meta.type === "identifier") return true;
+  if (looksLikeIdName(meta.name)) return true;
   if (rowCount <= 12) return false;
-  if (!(meta.type === "string" || meta.type === "integer" || meta.type === "number")) {
-    return false;
+  if (meta.type === "string") return meta.stats.distinct === rowCount;
+  if (
+    meta.type === "integer" &&
+    meta.stats.distinct === rowCount &&
+    meta.stats.min === 1 &&
+    meta.stats.max === rowCount
+  ) {
+    return true;
   }
-  return meta.stats.distinct === rowCount;
-}
-
-const ID_NAME = /(^|[^a-z0-9])(id|uuid|guid|key)s?($|[^a-z0-9])/i;
-const NON_ID_WORDS = /(paid|valid|void|grid|solid|fluid|rapid|humid|arid|android)$/;
-
-/**
- * Names that read as identifiers ("start station id", "bikeid") add no value
- * to charts and never join a correlation matrix by default.
- */
-export function looksLikeIdName(name: string): boolean {
-  const lower = name.toLowerCase();
-  if (ID_NAME.test(lower)) return true;
-  const compact = lower.replace(/[^a-z0-9]/g, "");
-  return compact.length > 3 && compact.endsWith("id") && !NON_ID_WORDS.test(compact);
+  return false;
 }
 
 /** A numeric column with few distinct values charts better as categories. */
@@ -125,61 +132,136 @@ export function isChartCategory(meta: ColumnMeta): boolean {
   return isNumericType(meta.type) && meta.stats.distinct > 0 && meta.stats.distinct <= 12;
 }
 
+const CATEGORY_HINT = /(region|country|state|province|county|city|segment|status|category|product|type|channel|group|department|team|industry|plan|tier|class|gender|band)/i;
+const DATE_HINT = /(date|time|created|updated|event|timestamp|when|period|month|year|day)/i;
+const MEASURE_HINT = /(amount|revenue|sales|total|price|cost|profit|spend|income|value|qty|quantity|count|score|usage|balance|weight|size|duration|rate|percent|pct|margin|discount|units)/i;
+
+interface ChartEntry {
+  meta: ColumnMeta;
+  index: number;
+}
+
+function nullRatio(meta: ColumnMeta, rowCount: number): number {
+  return rowCount > 0 ? meta.stats.nulls / rowCount : 0;
+}
+
+function dominantShare(meta: ColumnMeta): number | null {
+  const counts = meta.categories?.counts;
+  if (counts !== undefined && counts.length > 0) {
+    const total = counts.reduce((sum, count) => sum + count, 0);
+    return total > 0 ? Math.max(...counts) / total : null;
+  }
+  const top = meta.stats.topValues[0]?.count;
+  const total = meta.stats.topValues.reduce((sum, entry) => sum + entry.count, 0);
+  return top !== undefined && total > 0 ? top / total : null;
+}
+
+function categoryScore(entry: ChartEntry, rowCount: number): number {
+  const meta = entry.meta;
+  if (!isChartCategory(meta) || isIdLikeColumn(meta, rowCount)) return Number.NEGATIVE_INFINITY;
+  const distinct = meta.stats.distinct;
+  if (distinct < 2 || distinct > 12) return Number.NEGATIVE_INFINITY;
+  let score = isCategoryType(meta.type) ? 40 : 10;
+  if (distinct <= 8) score += 30;
+  else score += 10;
+  if (CATEGORY_HINT.test(meta.name)) score += 25;
+  if (/(code|number|num|no)$/i.test(meta.name)) score -= 12;
+  score -= nullRatio(meta, rowCount) * 30;
+  const share = dominantShare(meta);
+  if (share !== null) {
+    if (share > 0.9) score -= 20;
+    else if (share >= 0.1) score += 5;
+  }
+  return score - entry.index * 0.01;
+}
+
+function dateScore(entry: ChartEntry, rowCount: number): number {
+  const meta = entry.meta;
+  if (meta.type !== "date" && meta.type !== "datetime") return Number.NEGATIVE_INFINITY;
+  if (meta.stats.distinct < 8 || isIdLikeColumn(meta, rowCount)) return Number.NEGATIVE_INFINITY;
+  let score = 40 + Math.min(30, Math.log2(meta.stats.distinct) * 5);
+  if (DATE_HINT.test(meta.name)) score += 20;
+  score -= nullRatio(meta, rowCount) * 20;
+  return score - entry.index * 0.01;
+}
+
+function measureScore(entry: ChartEntry, rowCount: number): number {
+  const meta = entry.meta;
+  if (!isNumericType(meta.type) || meta.stats.distinct < 13) return Number.NEGATIVE_INFINITY;
+  if (isIdLikeColumn(meta, rowCount)) return Number.NEGATIVE_INFINITY;
+  let score = 40;
+  if (MEASURE_HINT.test(meta.name)) score += 25;
+  if (/(code|number|num|no|year|month|day)$/i.test(meta.name)) score -= 30;
+  score -= nullRatio(meta, rowCount) * 20;
+  return score - entry.index * 0.01;
+}
+
+function bestBy(
+  entries: readonly ChartEntry[],
+  scorer: (entry: ChartEntry) => number,
+): { entry: ChartEntry; score: number } | null {
+  let best: { entry: ChartEntry; score: number } | null = null;
+  for (const entry of entries) {
+    const score = scorer(entry);
+    if (!Number.isFinite(score)) continue;
+    if (best === null || score > best.score) best = { entry, score };
+  }
+  return best;
+}
+
+function aggregateForMeasure(meta: ColumnMeta): "sum" | "mean" {
+  return /(rate|ratio|percent|pct|margin|score|price|temperature|avg|average|index|discount)/i.test(
+    meta.name,
+  )
+    ? "mean"
+    : "sum";
+}
+
+function aggregateTitle(meta: ColumnMeta, agg: "sum" | "mean"): string {
+  return agg === "mean" ? `Average ${meta.name}` : meta.name;
+}
+
 export interface DefaultCardPick {
   kind: ChartCardKind;
   column: number;
-  /** Plain-language reason, shown as "Suggested: …" in the card note. */
+  /** Plain-language reason, shown as "Suggested: ." in the card note. */
   reason: string;
 }
 
 /**
  * The first card should answer the most useful question the file can answer:
  * a date over time, otherwise rows by category, otherwise a numeric
- * distribution. ID-like columns are never charted by default.
+ * distribution. ID-like columns and low-information categories are skipped.
  */
 export function pickDefaultCard(columns: readonly ColumnMeta[], rowCount = 0): DefaultCardPick {
   const entries = columns
     .map((meta, index) => ({ meta, index }))
     .filter((entry) => entry.meta.role !== "provenance");
 
-  const dates = entries.filter(
-    (entry) =>
-      (entry.meta.type === "date" || entry.meta.type === "datetime") &&
-      entry.meta.stats.distinct >= 8 &&
-      !isIdLikeColumn(entry.meta, rowCount),
-  );
-  if (dates.length > 0) {
-    const best = dates.reduce((a, b) =>
-      b.meta.stats.distinct > a.meta.stats.distinct ? b : a,
-    );
-    return { kind: "line", column: best.index, reason: `rows over time by ${best.meta.name}` };
+  const date = bestBy(entries, (entry) => dateScore(entry, rowCount));
+  if (date !== null) {
+    return {
+      kind: "line",
+      column: date.entry.index,
+      reason: `rows over time by ${date.entry.meta.name}`,
+    };
   }
 
-  const categories = entries.filter(
-    (entry) =>
-      isChartCategory(entry.meta) &&
-      entry.meta.stats.distinct >= 2 &&
-      entry.meta.stats.distinct <= 12 &&
-      !isIdLikeColumn(entry.meta, rowCount),
-  );
-  if (categories.length > 0) {
-    const best = categories.reduce((a, b) =>
-      b.meta.stats.distinct >= a.meta.stats.distinct ? b : a,
-    );
-    return { kind: "bar", column: best.index, reason: `rows by ${best.meta.name}` };
+  const category = bestBy(entries, (entry) => categoryScore(entry, rowCount));
+  if (category !== null) {
+    return {
+      kind: "bar",
+      column: category.entry.index,
+      reason: `rows by ${category.entry.meta.name}`,
+    };
   }
 
-  const numerics = entries.filter(
-    (entry) =>
-      isNumericType(entry.meta.type) &&
-      entry.meta.stats.distinct >= 13 &&
-      !isIdLikeColumn(entry.meta, rowCount),
-  );
-  if (numerics.length > 0) {
+  const measure = bestBy(entries, (entry) => measureScore(entry, rowCount));
+  if (measure !== null) {
     return {
       kind: "histogram",
-      column: numerics[0].index,
-      reason: `distribution of ${numerics[0].meta.name}`,
+      column: measure.entry.index,
+      reason: `distribution of ${measure.entry.meta.name}`,
     };
   }
 
@@ -203,71 +285,20 @@ export interface ChartIdea {
     column: number;
     x: number;
     y: number;
+    valueColumn: number;
+    valueAgg: "sum" | "mean";
   }>;
 }
 
 /**
- * Up to three ready-made charts for the toolbar strip while the grid holds a
- * single card: time series, count plot, distribution, scatter, heatmap in that order.
+ * Up to three useful charts, ranked by semantic field quality and measures.
+ * Maps are reserved first when real coordinates exist.
  */
 export function suggestCharts(columns: readonly ColumnMeta[], rowCount = 0): ChartIdea[] {
   const entries = columns
     .map((meta, index) => ({ meta, index }))
     .filter((entry) => entry.meta.role !== "provenance");
   const ideas: ChartIdea[] = [];
-
-  const dates = entries.filter(
-    (entry) =>
-      (entry.meta.type === "date" || entry.meta.type === "datetime") &&
-      entry.meta.stats.distinct >= 8,
-  );
-  if (dates.length > 0) {
-    ideas.push({ label: "Rows over time", preset: { kind: "line", column: dates[0].index } });
-  }
-
-  const categories = entries.filter(
-    (entry) =>
-      isChartCategory(entry.meta) &&
-      entry.meta.stats.distinct >= 2 &&
-      entry.meta.stats.distinct <= 12 &&
-      !isIdLikeColumn(entry.meta, rowCount),
-  );
-  if (categories.length > 0) {
-    const best = categories.reduce((a, b) =>
-      b.meta.stats.distinct >= a.meta.stats.distinct ? b : a,
-    );
-    ideas.push({ label: `Rows by ${best.meta.name}`, preset: { kind: "bar", column: best.index } });
-  }
-
-  const numerics = entries.filter(
-    (entry) =>
-      isNumericType(entry.meta.type) &&
-      entry.meta.stats.distinct >= 13 &&
-      !isIdLikeColumn(entry.meta, rowCount),
-  );
-  if (numerics.length > 0) {
-    ideas.push({
-      label: `Distribution of ${numerics[0].meta.name}`,
-      preset: { kind: "histogram", column: numerics[0].index },
-    });
-  }
-  if (numerics.length >= 2) {
-    ideas.push({
-      label: `${numerics[0].meta.name} vs ${numerics[1].meta.name}`,
-      preset: { kind: "scatter", x: numerics[0].index, y: numerics[1].index },
-    });
-  }
-
-  const categoryPool = entries.filter(
-    (entry) => isChartCategory(entry.meta) && !isIdLikeColumn(entry.meta, rowCount),
-  );
-  if (categoryPool.length >= 2) {
-    ideas.push({
-      label: `${categoryPool[0].meta.name} × ${categoryPool[1].meta.name}`,
-      preset: { kind: "heatmap", x: categoryPool[0].index, y: categoryPool[1].index },
-    });
-  }
-
   const geo = detectGeoPair(columns, rowCount);
   if (geo !== null) {
     ideas.push({
@@ -276,9 +307,83 @@ export function suggestCharts(columns: readonly ColumnMeta[], rowCount = 0): Cha
     });
   }
 
+  const date = bestBy(entries, (entry) => dateScore(entry, rowCount))?.entry;
+  const category = bestBy(entries, (entry) => categoryScore(entry, rowCount))?.entry;
+  const measures = entries
+    .map((entry) => ({ entry, score: measureScore(entry, rowCount) }))
+    .filter((item) => Number.isFinite(item.score))
+    .sort((a, b) => b.score - a.score || a.entry.index - b.entry.index)
+    .map((item) => item.entry);
+  const measure = measures[0];
+  const secondMeasure = measures[1];
+
+  if (date !== undefined) {
+    if (measure !== undefined) {
+      const agg = aggregateForMeasure(measure.meta);
+      ideas.push({
+        label: `${aggregateTitle(measure.meta, agg)} over time`,
+        preset: {
+          kind: "line",
+          column: date.index,
+          valueColumn: measure.index,
+          valueAgg: agg,
+        },
+      });
+    } else {
+      ideas.push({ label: "Rows over time", preset: { kind: "line", column: date.index } });
+    }
+  }
+
+  if (category !== undefined) {
+    if (measure !== undefined) {
+      const agg = aggregateForMeasure(measure.meta);
+      ideas.push({
+        label: `${aggregateTitle(measure.meta, agg)} by ${category.meta.name}`,
+        preset: {
+          kind: "barplot",
+          column: category.index,
+          valueColumn: measure.index,
+          valueAgg: agg,
+        },
+      });
+    } else {
+      ideas.push({
+        label: `Rows by ${category.meta.name}`,
+        preset: { kind: "bar", column: category.index },
+      });
+    }
+  }
+
+  if (measure !== undefined) {
+    ideas.push({
+      label: `Distribution of ${measure.meta.name}`,
+      preset: { kind: "histogram", column: measure.index },
+    });
+  }
+
+  if (secondMeasure !== undefined) {
+    ideas.push({
+      label: `${measure?.meta.name ?? secondMeasure.meta.name} vs ${secondMeasure.meta.name}`,
+      preset: { kind: "scatter", x: (measure ?? secondMeasure).index, y: secondMeasure.index },
+    });
+  }
+
+  const heatCategories = entries
+    .filter((entry) => categoryScore(entry, rowCount) > Number.NEGATIVE_INFINITY)
+    .sort((a, b) => categoryScore(b, rowCount) - categoryScore(a, rowCount));
+  if (heatCategories.length >= 2) {
+    ideas.push({
+      label: `${heatCategories[0]?.meta.name} x ${heatCategories[1]?.meta.name}`,
+      preset: {
+        kind: "heatmap",
+        x: heatCategories[0]?.index ?? -1,
+        y: heatCategories[1]?.index ?? -1,
+      },
+    });
+  }
+
   return ideas.slice(0, 3);
 }
-
 /** Axis tick formatting: temporal types get their own tick text. */
 export type AxisFormat = "line" | "datetime" | "time" | "duration";
 
