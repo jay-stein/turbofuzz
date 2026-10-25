@@ -821,9 +821,24 @@ export class App {
     ) as HTMLButtonElement;
     this.exportButton.addEventListener("click", () => this.openExportDialog());
 
+    // Lives in the top bar so it is reachable on every page, including
+    // Overview (which has no filter sidebar) and with the sidebar collapsed.
+    this.convertTypesButton = el(
+      "button",
+      {
+        class: "ghost small convert-types-button",
+        type: "button",
+        title: "Change how columns are read: integer, number, date, text, identifier…",
+        "aria-label": "Convert column types",
+      },
+      ["Convert types"],
+    ) as HTMLButtonElement;
+    this.convertTypesButton.addEventListener("click", () => this.openBatchTypes());
+
     const navRow = el("div", { class: "nav-row" }, [
       tabHost,
       el("span", { class: "grow" }),
+      this.convertTypesButton,
       this.stepsButton,
       this.exportButton,
     ]);
@@ -845,7 +860,7 @@ export class App {
     );
     const typesButton = el(
       "button",
-      { class: "ghost small", type: "button", title: "Batch convert column types" },
+      { class: "ghost small", type: "button", title: "Convert column types" },
       ["Types"],
     ) as HTMLButtonElement;
     typesButton.addEventListener("click", () => this.openBatchTypes());
@@ -964,17 +979,6 @@ export class App {
     ) as HTMLButtonElement;
     this.statsButton.addEventListener("click", () => this.openStats());
 
-    this.convertTypesButton = el(
-      "button",
-      {
-        class: "ghost small convert-types-button",
-        type: "button",
-        title: "Change how columns are read: integer, number, date, text, identifier…",
-      },
-      ["Convert column types"],
-    ) as HTMLButtonElement;
-    this.convertTypesButton.addEventListener("click", () => this.openBatchTypes());
-
     resultsRow.append(
       this.countEl,
       this.filterChipsEl,
@@ -985,7 +989,6 @@ export class App {
       this.changesButton,
       el("span", { class: "grow" }),
       this.actionEl,
-      this.convertTypesButton,
       this.shuffleButton,
       this.copyButton,
       this.moreButton,
@@ -3220,7 +3223,6 @@ export class App {
     this.healthHost.classList.toggle("hidden", view === "overview" || this.healthChipCount === 0);
     this.moreButton.classList.toggle("hidden", view === "overview");
     this.statsButton.classList.toggle("hidden", view !== "table");
-    this.convertTypesButton.classList.toggle("hidden", view !== "table");
     this.addFilterButton.classList.toggle("hidden", view === "overview");
     this.syncTabs();
     this.syncColumnTiles();
@@ -4467,6 +4469,7 @@ export class App {
     this.countEl.title = `${count.toLocaleString()} matching rows out of ${total.toLocaleString()} (${columnCount} columns)`;
     this.copyButton.disabled = count === 0;
     this.exportButton.disabled = count === 0;
+    this.convertTypesButton.disabled = columnCount === 0;
   }
 
   private updateGuardrail(loaded: LoadedMessage | TransformedMessage, fromFile: boolean): void {

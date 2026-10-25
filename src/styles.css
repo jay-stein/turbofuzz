@@ -8337,3 +8337,18 @@ label.null-row {
   margin-left: 2px;
   color: var(--text-dim);
 }
+
+/* Collapsed filter sidebar: just the expand button, never clipped buttons. */
+.sidebar.collapsed .sidebar-head > :not(.sidebar-toggle) {
+  display: none;
+}
+
+.sidebar.collapsed .sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar.collapsed {
+  overflow: hidden;
+}
