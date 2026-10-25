@@ -116,11 +116,45 @@ test("an outlier quick fix clips the contributing column and returns to the tabl
   await page.locator(".outliers-row").first().click();
   await expect(page.locator(".outliers-detail-likely")).toContainText("Likely:");
   await page.getByRole("button", { name: /^Clip “/ }).click();
+  const confirm = page.locator(".confirm-modal");
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole("button", { name: "Clip values" }).click();
   await expect(page.getByRole("tab", { name: "Table" })).toHaveAttribute(
     "aria-selected",
     "true",
   );
   await expect(page.locator(".table-host")).toBeVisible();
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test("a view chip ignores other filters", async ({ page }) => {
+  const { consoleErrors, pageErrors } = collectErrors(page);
+  const lines = ["amount"];
+  for (let row = 0; row < 40; row++) {
+    lines.push(row === 20 ? "18000" : `${10 + (row % 9)}`);
+  }
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "isolated-view.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(lines.join("\n")),
+  });
+  await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
+
+  await page.getByRole("button", { name: /Enter a command/ }).click();
+  const input = page.getByRole("textbox", { name: "Command" });
+  await input.fill("filter amount 10..15");
+  await input.press("Enter");
+
+  const rows = page.locator(".table-rows .tr");
+  await expect(rows).toHaveCount(27);
+  await expect(page.locator(".filter-chip")).toHaveCount(1);
+
+  await page.locator(".health-chip", { hasText: "View outliers" }).click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText("18000");
+  await expect(page.locator(".filter-chip")).toHaveCount(0);
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
 });

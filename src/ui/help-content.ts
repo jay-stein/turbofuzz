@@ -37,10 +37,10 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Drop a file on the start screen, click to browse, or paste rows. Supported formats: CSV/TSV/PSV/TXT, JSON, Excel (.xlsx/.xls), Parquet and ZIP/GZ/BZ2 archives. Everything is parsed on your device — the file is never uploaded. Files estimated above about 8 million cells ask how to proceed first: take the first 100,000 rows as a sample, load everything anyway, or cancel — and if a file still exhausts browser memory the worker restarts cleanly with an explanation instead of hanging the tab.",
       ),
       p(
-        "After loading you land in the workspace: filters on the left, the table in the middle, and the Data QA strip on top. Chips above columns and in the sidebar say Filter: when they narrow the table and Fix: when they change data. When a header has more than two fixes they collapse into a Fix issues menu.",
+        "After loading you land in the workspace: filters on the left, the table in the middle, and the Data QA strip on top. Chips above columns and in the sidebar say View: when they narrow the table and Fix: when they change data. View chips replace any current filters with just that issue; fixes ask for confirmation first. When a header has more than two fixes they collapse into a Fix issues menu.",
       ),
       list(
-        "Click a chip to apply its fix — every fix is reversible from the Recipe.",
+        "Click a View chip to isolate that issue, then confirm a Fix action to apply it — every fix is reversible from the Recipe.",
         "Columns carry a logical type — Text, Category, Integer, Number, Date, Date & time, Time of day, Duration, Boolean, ID — inferred from the values and changeable from the header dropdown. Date stays a calendar date; a timestamp keeps its time-of-day (and any zone offset); ambiguous clock text such as 09:30 stays text until you choose an interpretation.",
         "Click a column name to inspect it — profile, issues and one-click fixes (sort, filter, chart, trim, case, convert, split, round, fill missing, remove duplicates, display format). Right-click a header for the full grouped Column / Clean / Transform menu. Parameter-free cleans (Trim, UPPERCASE, lowercase, Title Case, Convert to number/date, formula escaping) apply instantly with an Undo toast; configurable operations open their panel with that column (and operation) already selected. Drag the divider on a header's right edge to resize it (double-click the divider to reset).",
         "Use Export… when you are done; the dialog states exactly which rows will be written, with an optional first-N subset.",
@@ -131,7 +131,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     summary: "One-click fixes for sentinel values, mixed decimals, type conflicts and formulas.",
     blocks: [
       p(
-        "Chips appear above a column header and in its sidebar card when the data shows a recognisable problem. Clicking one applies the fix as a logged, reversible change.",
+        "Chips appear above a column header and in its sidebar card when the data shows a recognisable problem. Clicking one asks for confirmation, then applies the fix as a logged, reversible change.",
       ),
       list(
         "treat “TBC” as missing — repeated placeholder words (TBC) or repeated-digit codes (-999, 9999) are added to the column's missing-value rules. Click again in Clean → Nulls to remove the rule.",

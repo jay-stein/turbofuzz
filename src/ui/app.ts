@@ -32,7 +32,7 @@ import {
   type RecipeFileType,
   type ReplayPlan,
 } from "../data/recipe-file.js";
-import type { ColumnSuggestion } from "../data/suggestions.js";
+import { suggestionLabel, type ColumnSuggestion } from "../data/suggestions.js";
 import {
   describeTransformOp,
   describeTransformOpDetail,
@@ -54,6 +54,7 @@ import type {
   ExportScope,
   LoadedMessage,
   ProgressMessage,
+  ResultsMessage,
   SpecialKind,
   TransformedMessage,
 } from "../worker/protocol.js";
@@ -999,7 +1000,15 @@ export class App {
       onOpenStats: () => this.openStats(),
       onCombineDate: (op) =>
         this.applyTransform([...this.transformOps, op], "Combined the date columns"),
-      onBlankTokens: (tokens) => this.applyNullPolicyAll(tokens, []),
+      onBlankTokens: (tokens) => {
+        const examples = tokens.slice(0, 3).map((token) => `“${token}”`).join(", ");
+        this.confirmFix(
+          `Blank placeholder values ${examples}?`,
+          "Matching placeholder text becomes empty cells in every affected column. This is recorded in the Recipe and can be undone.",
+          "Blank placeholders",
+          () => this.applyNullPolicyAll(tokens, []),
+        );
+      },
       onArchetypeChange: (id) => {
         this.archetypeOverride = id;
         this.rerenderOverview();
@@ -2014,27 +2023,15 @@ export class App {
           column,
           query === "" ? null : { kind: "text", mode: "contains", query },
         ),
-      onColumnSpecial: (column, kind) => this.toggleColumnSpecial(column, kind),
+      onColumnSpecial: (column, kind) => this.viewColumnSpecial(column, kind),
       onMergeSimilar: (column) => this.openMerge(column),
       onColumnContext: (column, x, y) => this.openColumnMenu(column, x, y),
       onToggleColumnDelete: (column) => this.toggleColumnDelete(column),
       onToggleRowDelete: (position) => this.toggleRowDelete(position),
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
       onConvertToken: (column, tokens) => this.convertToken(column, tokens),
-      onWinsorize: (column, percent) => {
-        const name = this.metas[column]?.name ?? "?";
-        this.applyTransform(
-          [...this.transformOps, { kind: "winsorize", column, percent }],
-          `Winsorised "${name}" at ${percent}% / ${100 - percent}%`,
-        );
-      },
-      onFlagAnomalies: (column) => {
-        const name = this.metas[column]?.name ?? "?";
-        this.applyTransform(
-          [...this.transformOps, { kind: "flagAnomalies", column }],
-          `Flagged unusual cells in "${name}" (new Yes/No column)`,
-        );
-      },
+      onWinsorize: (column, percent) => this.winsorizeColumn(column, percent),
+      onFlagAnomalies: (column) => this.flagAnomaliesColumn(column),
       onOpenClean: (column, tab) => this.openClean(column, tab),
       onRequestRows: (start, end, done) => {
         void this.client
@@ -2266,6 +2263,93 @@ export class App {
         message.firstChanged,
       );
       this.updateStepsButton();
+    } catch (error) {
+      this.showError(error);
+    }
+  }
+
+  /**
+   * A View chip shows one issue in isolation: clear every other filter and
+   * special first so the result is exactly the rows the chip describes.
+   */
+  private viewSpecial(kind: SpecialKind): void {
+    if (this.specials.has(kind)) {
+      this.toggleSpecial(kind);
+      return;
+    }
+    const activeSpecials = [...this.specials];
+    const activeColumns = [...this.columnSpecials.entries()].map(
+      ([column, kinds]) => [column, [...kinds]] as const,
+    );
+    this.shuffleActive = false;
+    this.filters.clear();
+    this.specials.clear();
+    this.columnSpecials.clear();
+    this.specials.add(kind);
+    this.syncHealthChips();
+    this.renderFilterChips();
+    this.syncColumnQa();
+    this.filterPanel?.rebuild();
+    this.table?.setHighlights([]);
+    if (kind === "duplicates") this.table?.setSort(-1, 1);
+    this.queueSend(() =>
+      this.runIsolatedSpecial(activeSpecials, activeColumns, () =>
+        this.client.setSpecial(kind, true),
+      ),
+    );
+  }
+
+  private viewColumnSpecial(column: number, kind: ColumnQaKind): void {
+    if (this.columnSpecials.get(column)?.has(kind) === true) {
+      this.toggleColumnSpecial(column, kind);
+      return;
+    }
+    const activeSpecials = [...this.specials];
+    const activeColumns = [...this.columnSpecials.entries()].map(
+      ([index, kinds]) => [index, [...kinds]] as const,
+    );
+    this.shuffleActive = false;
+    this.filters.clear();
+    this.specials.clear();
+    this.columnSpecials.clear();
+    this.columnSpecials.set(column, new Set([kind]));
+    this.syncHealthChips();
+    this.renderFilterChips();
+    this.syncColumnQa();
+    this.filterPanel?.rebuild();
+    this.table?.setHighlights([]);
+    this.queueSend(() =>
+      this.runIsolatedSpecial(activeSpecials, activeColumns, () =>
+        this.client.setSpecial(kind, true, column),
+      ),
+    );
+  }
+
+  private async runIsolatedSpecial(
+    activeSpecials: readonly SpecialKind[],
+    activeColumns: readonly (readonly [number, readonly ColumnQaKind[]])[],
+    apply: () => Promise<ResultsMessage>,
+  ): Promise<void> {
+    try {
+      await this.client.clearFilters();
+      for (const active of activeSpecials) {
+        await this.client.setSpecial(active, false);
+      }
+      for (const [column, kinds] of activeColumns) {
+        for (const active of kinds) {
+          await this.client.setSpecial(active, false, column);
+        }
+      }
+      const result = await apply();
+      this.updateCount(result.count, result.queryMs);
+      this.applyFacets(result.facets, result.histograms);
+      this.table?.setCount(result.count);
+      this.table?.setFirstRows(
+        result.firstRows,
+        result.firstGroups,
+        result.firstFlags,
+        result.firstChanged,
+      );
     } catch (error) {
       this.showError(error);
     }
@@ -2607,7 +2691,66 @@ export class App {
     );
   }
 
+  private confirmFix(
+    title: string,
+    body: string,
+    confirmLabel: string,
+    run: () => void,
+  ): void {
+    void openConfirm({ title, body, confirmLabel }).then((confirmed) => {
+      if (confirmed) run();
+    });
+  }
+
+  private winsorizeColumn(column: number, percent: number, switchToTable = false): void {
+    const meta = this.metas[column];
+    const name = meta?.name ?? "?";
+    const count = meta?.anomalyCounts.values ?? 0;
+    this.confirmFix(
+      `Clip “${name}” at ${percent}% / ${100 - percent}%?`,
+      `${count.toLocaleString()} extreme value${count === 1 ? "" : "s"} outside the ${percent}% / ${
+        100 - percent
+      }% fences will move to the boundary. This is recorded in the Recipe and can be undone.`,
+      "Clip values",
+      () => {
+        if (switchToTable) this.setView("table");
+        this.applyTransform(
+          [...this.transformOps, { kind: "winsorize", column, percent }],
+          `Winsorised "${name}" at ${percent}% / ${100 - percent}%`,
+        );
+      },
+    );
+  }
+
+  private flagAnomaliesColumn(column: number, switchToTable = false): void {
+    const meta = this.metas[column];
+    const name = meta?.name ?? "?";
+    const count = meta?.anomalyCounts.values ?? 0;
+    this.confirmFix(
+      `Flag unusual values in “${name}”?`,
+      `${count.toLocaleString()} value${count === 1 ? "" : "s"} outside the column fence will be marked in a new Yes/No column. This is recorded in the Recipe and can be undone.`,
+      "Add flag column",
+      () => {
+        if (switchToTable) this.setView("table");
+        this.applyTransform(
+          [...this.transformOps, { kind: "flagAnomalies", column }],
+          `Flagged unusual cells in "${name}" (new Yes/No column)`,
+        );
+      },
+    );
+  }
+
   private applySuggestion(column: number, suggestion: ColumnSuggestion): void {
+    const name = this.metas[column]?.name ?? `Column ${column + 1}`;
+    this.confirmFix(
+      `Apply this fix to “${name}”?`,
+      `${suggestionLabel(suggestion)}. The change is recorded in the Recipe and can be undone.`,
+      "Apply fix",
+      () => this.applySuggestionNow(column, suggestion),
+    );
+  }
+
+  private applySuggestionNow(column: number, suggestion: ColumnSuggestion): void {
     const meta = this.metas[column];
     switch (suggestion.kind) {
       case "sentinel": {
@@ -3254,22 +3397,8 @@ export class App {
         this.table?.flashColumn(column);
       },
       onFinding: (finding) => this.runFinding(finding),
-      onWinsorize: (column, percent) => {
-        const name = this.metas[column]?.name ?? "?";
-        this.setView("table");
-        this.applyTransform(
-          [...this.transformOps, { kind: "winsorize", column, percent }],
-          `Winsorised "${name}" at ${percent}% / ${100 - percent}%`,
-        );
-      },
-      onFlagAnomalies: (column) => {
-        const name = this.metas[column]?.name ?? "?";
-        this.setView("table");
-        this.applyTransform(
-          [...this.transformOps, { kind: "flagAnomalies", column }],
-          `Flagged unusual cells in "${name}" (new Yes/No column)`,
-        );
-      },
+      onWinsorize: (column, percent) => this.winsorizeColumn(column, percent, true),
+      onFlagAnomalies: (column) => this.flagAnomaliesColumn(column, true),
       onOpenClean: (column) => this.openClean(column, "values"),
     };
   }
@@ -3833,7 +3962,7 @@ export class App {
         [label],
       ) as HTMLButtonElement;
       chip.dataset.kind = kind;
-      chip.addEventListener("click", () => this.toggleSpecial(kind));
+      chip.addEventListener("click", () => this.viewSpecial(kind));
       this.healthHost.append(chip);
       count++;
     };
@@ -3938,22 +4067,12 @@ export class App {
             items.push({
               label: `Clip “${entry.meta.name}” at 1% / 99%`,
               title: `Winsorise “${entry.meta.name}” — ${entry.count.toLocaleString()} unusual values`,
-              action: () => {
-                this.applyTransform(
-                  [...this.transformOps, { kind: "winsorize", column: entry.index, percent: 1 }],
-                  `Winsorised "${entry.meta.name}" at 1% / 99%`,
-                );
-              },
+              action: () => this.winsorizeColumn(entry.index, 1),
             });
             items.push({
               label: `Flag “${entry.meta.name}”`,
               title: `Add a Yes/No outlier column for “${entry.meta.name}”`,
-              action: () => {
-                this.applyTransform(
-                  [...this.transformOps, { kind: "flagAnomalies", column: entry.index }],
-                  `Flagged unusual cells in "${entry.meta.name}" (new Yes/No column)`,
-                );
-              },
+              action: () => this.flagAnomaliesColumn(entry.index),
             });
           }
           items.push({
@@ -3982,7 +4101,14 @@ export class App {
         },
         [`Fix: convert ${placeholderTotal.toLocaleString()} placeholders to missing`],
       ) as HTMLButtonElement;
-      convert.addEventListener("click", () => this.applyNullPolicyAll(ranked, []));
+      convert.addEventListener("click", () =>
+        this.confirmFix(
+          `Convert ${placeholderTotal.toLocaleString()} placeholders to missing?`,
+          `Values such as ${examples} will become empty cells in every affected column. This is recorded in the Recipe and can be undone.`,
+          "Convert to missing",
+          () => this.applyNullPolicyAll(ranked, []),
+        ),
+      );
       this.healthHost.append(convert);
       count++;
     }
@@ -4148,7 +4274,7 @@ export class App {
         [`Review cast mismatches (${failureTotal.toLocaleString()})`],
       ) as HTMLButtonElement;
       review.classList.toggle("active", this.specials.has("castFailures"));
-      review.addEventListener("click", () => this.toggleSpecial("castFailures"));
+      review.addEventListener("click", () => this.viewSpecial("castFailures"));
       this.filterChipsEl.append(review);
     }
     this.filterChipsEl.classList.remove("hidden");
@@ -5413,10 +5539,21 @@ export class App {
   private convertToken(column: number, tokens: string[]): void {
     const meta = this.metas[column];
     if (meta === undefined) return;
-    const extra = [...new Set([...meta.nullPolicy.extra, ...tokens])];
-    this.applyNullPolicy(column, extra, meta.nullPolicy.keep, {
-      label: `${meta.name}: placeholder text treated as missing`,
-    });
+    const total = meta.nullTokens
+      .filter((token) => tokens.includes(token.label))
+      .reduce((sum, token) => sum + token.count, 0);
+    const examples = tokens.slice(0, 3).map((token) => `“${token}”`).join(", ");
+    this.confirmFix(
+      `Convert placeholders in “${meta.name}” to missing?`,
+      `${total.toLocaleString()} cell${total === 1 ? "" : "s"} (${examples}) will become empty. This is recorded in the Recipe and can be undone.`,
+      "Convert to missing",
+      () => {
+        const extra = [...new Set([...meta.nullPolicy.extra, ...tokens])];
+        this.applyNullPolicy(column, extra, meta.nullPolicy.keep, {
+          label: `${meta.name}: placeholder text treated as missing`,
+        });
+      },
+    );
   }
 
   private applyNullPolicy(
@@ -5577,9 +5714,20 @@ export class App {
   private dropDuplicates(keep: DedupeKeep): void {
     const label =
       keep === "first" ? "kept first copy" : keep === "last" ? "kept last copy" : "removed all copies";
-    this.applyTransform(
-      [...this.transformOps, { kind: "dedupe", keep }],
-      `Removed duplicate rows (${label})`,
+    const stats = this.latestStats;
+    const removed =
+      keep === "none" ? (stats?.rowsInDuplicateGroups ?? 0) : (stats?.duplicateRows ?? 0);
+    this.confirmFix(
+      "Remove duplicate rows?",
+      `${removed.toLocaleString()} redundant row${
+        removed === 1 ? "" : "s"
+      } will be removed (${label}). This is recorded in the Recipe and can be undone.`,
+      "Remove duplicates",
+      () =>
+        this.applyTransform(
+          [...this.transformOps, { kind: "dedupe", keep }],
+          `Removed duplicate rows (${label})`,
+        ),
     );
   }
 
