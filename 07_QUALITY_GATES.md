@@ -12,6 +12,7 @@
 - [ ] Manual browser verification for material UX changes.
 - [ ] A change-log entry and updates to relevant inventory/baseline documents.
 - [ ] A record of which test layers are existing automation, proposed automation or manual checks.
+- [ ] A latency check: speed is the project's core goal. Work on a hot path (load, per-column metadata, search, filter, render) is lazy or cached, and any feature touching data volume has a `bench/` script with a p95 budget wired into `npm run gate`. The only exception is the Outliers page deep mode.
 
 ## Current repository baseline
 

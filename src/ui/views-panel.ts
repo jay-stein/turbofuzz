@@ -818,6 +818,17 @@ export class ViewsPanel {
   refresh(): void {
     const entry = this.views[this.active];
     if (entry === undefined || !isCompleteView(entry.def)) {
+      if (entry !== undefined) {
+        // An incomplete layout has nothing to show: drop the old result and
+        // ignore any request still in flight so no stale table lingers.
+        this.generation++;
+        entry.result = null;
+        entry.pivotResult = null;
+        entry.margins = null;
+        entry.loading = false;
+        entry.stale = false;
+        entry.error = null;
+      }
       this.render();
       return;
     }
@@ -1538,7 +1549,7 @@ export class ViewsPanel {
           view.margins = marginsInput.checked;
         }),
       );
-      marginsLabel.append(marginsInput, "Show grand totals");
+      marginsLabel.append(marginsInput, "Show grand total row and column");
 
       const fillLabel = el("label", { class: "views-limit views-fill" });
       fillLabel.title = "Value shown where a row and column combination has no rows";
@@ -3859,9 +3870,12 @@ export class ViewsPanel {
       } else if (!isCompleteView(entry.def) && !entry.loading) {
         this.tableEl.append(
           el("div", { class: "views-empty views-empty-start" }, [
-            el("strong", {}, ["Build your pivot table"]),
+            svgIcon(
+              '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M10 4v16"/>',
+              "views-empty-icon",
+            ),
             el("span", {}, [
-              "Add a field to Rows and a field to Values in the panel on the left. Add a Columns field to spread values across the top.",
+              "Add fields into the rows and values areas to build your pivot table",
             ]),
           ]),
         );

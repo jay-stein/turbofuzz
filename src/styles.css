@@ -7918,3 +7918,83 @@ label.null-row {
 .export-modal .scope-field {
   align-items: flex-start;
 }
+
+/* Pivot sidebar, closer to a flat settings panel: quiet titles, plain "+" icons,
+   tall dashed placeholders. */
+.views-sidebar {
+  border: none;
+  border-radius: 0;
+  background: var(--panel-2);
+  padding: 16px 14px;
+  gap: 18px;
+}
+
+.views-section-title,
+.views-zone-label {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.views-zone-add {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 300;
+  min-width: 28px;
+  height: 28px;
+}
+
+.views-zone-add:hover {
+  background: var(--panel);
+}
+
+.views-zone-box {
+  min-height: 42px;
+  background: var(--panel);
+  border-radius: 6px;
+}
+
+.views-zone-box > .views-layout-hint {
+  font-size: 14px;
+  opacity: 1;
+}
+
+.views-options .control.check,
+.views-options .views-limit {
+  font-size: 14px;
+}
+
+.views-pivot-top-title {
+  display: none;
+}
+
+.views-empty-icon {
+  width: 52px;
+  height: 52px;
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+.views-empty-start {
+  font-size: 14px;
+  padding-top: 120px;
+}
+
+.views-pill.add.views-zone-add {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 1;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0;
+  border-radius: 6px;
+}
+
+.views-pill.add.views-zone-add:hover {
+  background: var(--panel);
+}
