@@ -425,6 +425,7 @@ export class App {
   private healthChipCount = 0;
   private moreButton!: HTMLButtonElement;
   private statsButton!: HTMLButtonElement;
+  private convertTypesButton!: HTMLButtonElement;
   private readonly specials = new Set<SpecialKind>();
   private readonly castFailureCounts = new Map<number, number>();
   private readonly columnSpecials = new Map<number, Set<ColumnQaKind>>();
@@ -962,6 +963,17 @@ export class App {
     ) as HTMLButtonElement;
     this.statsButton.addEventListener("click", () => this.openStats());
 
+    this.convertTypesButton = el(
+      "button",
+      {
+        class: "ghost small convert-types-button",
+        type: "button",
+        title: "Change how columns are read: integer, number, date, text, identifier…",
+      },
+      ["Convert column types"],
+    ) as HTMLButtonElement;
+    this.convertTypesButton.addEventListener("click", () => this.openBatchTypes());
+
     resultsRow.append(
       this.countEl,
       this.filterChipsEl,
@@ -972,6 +984,7 @@ export class App {
       this.changesButton,
       el("span", { class: "grow" }),
       this.actionEl,
+      this.convertTypesButton,
       this.shuffleButton,
       this.copyButton,
       this.moreButton,
@@ -3204,6 +3217,7 @@ export class App {
     this.healthHost.classList.toggle("hidden", view === "overview" || this.healthChipCount === 0);
     this.moreButton.classList.toggle("hidden", view === "overview");
     this.statsButton.classList.toggle("hidden", view !== "table");
+    this.convertTypesButton.classList.toggle("hidden", view !== "table");
     this.addFilterButton.classList.toggle("hidden", view === "overview");
     this.syncTabs();
     this.syncColumnTiles();

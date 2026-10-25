@@ -19,6 +19,7 @@ import {
 import { isNullWithPolicy, EMPTY_NULL_POLICY, type NullPolicy } from "../parse/null-tokens.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { detectSuggestions, type ColumnSuggestion } from "./suggestions.js";
+import { looksLikeRowIndex } from "./identifier.js";
 import { symlog } from "./symlog.js";
 import { valueLength } from "../parse/value-length.js";
 import { isNumericLikeType, type ColumnType } from "../types.js";
@@ -217,7 +218,7 @@ export class ColumnData {
     }
     stats.topValues = top;
 
-    const inferred =
+    let inferred: InferredType =
       options.type === undefined
         ? inferColumnType(
             sample,
@@ -232,6 +233,14 @@ export class ColumnData {
             ...(options.dateOrder !== undefined ? { dateOrder: options.dateOrder } : {}),
             ...(options.numberLocale !== undefined ? { numberLocale: options.numberLocale } : {}),
           };
+    // A row counter is an identifier, not a measure; only the value order shows it.
+    if (
+      options.type === undefined &&
+      inferred.type === "integer" &&
+      looksLikeRowIndex(raw, name, stats.nulls, stats.distinct)
+    ) {
+      inferred = { type: "identifier" };
+    }
     const nullTokens = [...nullCounts.entries()]
       .map(([label, count]) => ({ label, count }))
       .sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));

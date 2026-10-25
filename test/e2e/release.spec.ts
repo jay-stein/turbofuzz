@@ -48,7 +48,7 @@ test("batch type conversion updates the column type", async ({ page }) => {
   await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
   await page.getByRole("tab", { name: "Table" }).click();
 
-  await page.getByRole("button", { name: "Types" }).click();
+  await page.getByRole("button", { name: "Convert column types" }).click();
   await expect(page.locator(".batch-cast-modal")).toBeVisible();
   const row = page.locator(".batch-cast-row").filter({ hasText: "flag" });
   await row.locator("select").selectOption("boolean");
