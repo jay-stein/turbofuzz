@@ -39,11 +39,12 @@ import {
   schemaAfter,
   type ColumnSchema,
   type DedupeKeep,
+  type ImputeStrategy,
   type TransformOp,
 } from "../data/transform-ops.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { WorkBook } from "xlsx";
-import { TYPE_LABELS, type ColumnType } from "../types.js";
+import { TYPE_LABELS, isNumericLikeType, type ColumnType } from "../types.js";
 import type {
   AggregateMessage,
   CleanUpdate,
@@ -2056,6 +2057,7 @@ export class App {
       onWinsorize: (column, percent) => this.winsorizeColumn(column, percent),
       onFlagAnomalies: (column) => this.flagAnomaliesColumn(column),
       onOpenClean: (column, tab) => this.openClean(column, tab),
+      onFillMenu: (anchor, column) => openMenu(anchor, this.fillMenuItems([column])),
       onRequestRows: (start, end, done) => {
         void this.client
           .getRows(start, end)
@@ -4073,20 +4075,14 @@ export class App {
         {
           class: "ghost small",
           type: "button",
-          title: "Open Clean · Nulls for the affected columns and fill or blank them",
+          title:
+            "Fill the empty cells in one click: median or mean for numbers, the most common value for text",
         },
         [chipText("fix", placeholderTotal > 0 ? "placeholder cells…" : "empty cells…")],
       ) as HTMLButtonElement;
-      fix.addEventListener("click", () => {
-        openMenu(
-          fix,
-          columnsWithNulls.slice(0, 8).map((entry) => ({
-            label: `${entry.meta.name} · ${entry.count.toLocaleString()} empty`,
-            title: `Open Clean for “${entry.meta.name}”`,
-            action: () => this.openClean(entry.index, "nulls"),
-          })),
-        );
-      });
+      fix.addEventListener("click", () =>
+        openMenu(fix, this.fillMenuItems(columnsWithNulls.map((entry) => entry.index))),
+      );
       this.healthHost.append(fix);
     }
     if (stats.valueAnomalyRows > 0) {
@@ -4553,6 +4549,130 @@ export class App {
     this.clearData();
     this.setStatusError(
       "The file was too large for browser memory — the worker restarted and nothing is loaded. Try the sample option or a smaller file.",
+    );
+  }
+
+  /**
+   * One-click fills for the "empty cells" chip. Each column gets the choices
+   * that suit its type (median/mean for numbers, most common value or
+   * "Unknown" for text, carry-forward for dates); everything is a recorded
+   * `impute` step, so it shows in the Recipe and can be undone. Clean stays
+   * available as the last entry for null markers and finer control.
+   */
+  private fillMenuItems(candidates: number[]): MenuItem[] {
+    const items: MenuItem[] = [];
+    const ranked = candidates
+      .map((index) => ({ index, meta: this.metas[index] as ColumnMeta }))
+      .filter((entry) => entry.meta !== undefined && entry.meta.stats.nulls > 0)
+      .sort((a, b) => b.meta.stats.nulls - a.meta.stats.nulls);
+    const numeric: number[] = [];
+    const textual: number[] = [];
+    const header = (name: string, count: number): MenuItem => ({
+      label: `${name} · ${count.toLocaleString()} empty`,
+      disabled: true,
+      action: () => undefined,
+    });
+    const fill = (index: number, strategy: ImputeStrategy, label: string): MenuItem => ({
+      label,
+      title: `${label} — recorded in the Recipe and can be undone`,
+      action: () => this.confirmFill([index], strategy, label),
+    });
+    for (const entry of ranked) {
+      const { index, meta } = entry;
+      if (meta.type === "identifier") continue;
+      if (isNumericLikeType(meta.type)) numeric.push(index);
+      else if (meta.type === "string" || meta.type === "category" || meta.type === "boolean") {
+        textual.push(index);
+      }
+    }
+    for (const entry of ranked.slice(0, 6)) {
+      const { index, meta } = entry;
+      items.push(header(meta.name, meta.stats.nulls));
+      if (meta.type === "identifier") {
+        items.push({
+          label: "Identifiers shouldn’t be filled — review in Clean…",
+          action: () => this.openClean(index, "nulls"),
+        });
+      } else if (isNumericLikeType(meta.type)) {
+        items.push(
+          fill(index, { kind: "median" }, "Fill with median"),
+          fill(index, { kind: "mean" }, "Fill with mean"),
+          fill(index, { kind: "constant", value: "0" }, "Fill with 0"),
+        );
+      } else if (meta.type === "date" || meta.type === "datetime") {
+        items.push(
+          fill(index, { kind: "forward" }, "Fill with the previous value"),
+          fill(index, { kind: "backward" }, "Fill with the next value"),
+        );
+      } else {
+        const top = meta.stats.topValues[0]?.label;
+        items.push(
+          fill(
+            index,
+            { kind: "mode" },
+            top === undefined
+              ? "Fill with the most common value"
+              : `Fill with the most common (“${top.length > 20 ? `${top.slice(0, 19)}…` : top}”)`,
+          ),
+          fill(index, { kind: "constant", value: "Unknown" }, "Fill with “Unknown”"),
+        );
+      }
+    }
+    if (ranked.length > 6) {
+      items.push({
+        label: `${(ranked.length - 6).toLocaleString()} more columns — see Clean…`,
+        action: () => this.openClean(ranked[6]?.index, "nulls"),
+      });
+    }
+    if (numeric.length > 1) {
+      items.push({
+        label: `Fill all ${numeric.length} numeric columns with median`,
+        action: () =>
+          this.confirmFill(numeric, { kind: "median" }, `Fill ${numeric.length} numeric columns with median`),
+      });
+    }
+    if (textual.length > 1) {
+      items.push({
+        label: `Fill all ${textual.length} text columns with the most common value`,
+        action: () =>
+          this.confirmFill(
+            textual,
+            { kind: "mode" },
+            `Fill ${textual.length} text columns with the most common value`,
+          ),
+      });
+    }
+    const first = ranked[0];
+    items.push({
+      label: "More options in Clean…",
+      title: "Treat markers like “NA” as empty, or choose other fill methods",
+      action: () => this.openClean(first?.index, "nulls"),
+    });
+    return items;
+  }
+
+  private confirmFill(columns: number[], strategy: ImputeStrategy, label: string): void {
+    const cells = columns.reduce((sum, index) => sum + (this.metas[index]?.stats.nulls ?? 0), 0);
+    const names = columns
+      .slice(0, 3)
+      .map((index) => `“${this.metas[index]?.name ?? "?"}”`)
+      .join(", ");
+    this.confirmFix(
+      `${label}?`,
+      `${cells.toLocaleString()} empty cell${cells === 1 ? "" : "s"} in ${names}${
+        columns.length > 3 ? ` and ${columns.length - 3} more` : ""
+      } will be filled. This is recorded in the Recipe and can be undone.`,
+      "Fill empty cells",
+      () =>
+        this.applyTransform(
+          [
+            ...this.transformOps,
+            ...columns.map(
+              (column): TransformOp => ({ kind: "impute", column, strategy, groupColumn: null }),
+            ),
+          ],
+          label,
+        ),
     );
   }
 

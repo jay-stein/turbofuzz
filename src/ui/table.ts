@@ -75,6 +75,8 @@ export interface ResultTableOptions {
   onFlagAnomalies?: (column: number) => void;
   /** Opens Clean for a column on the requested tab. */
   onOpenClean?: (column: number, tab: "nulls" | "values") => void;
+  /** Opens the one-click fill menu for a column's empty cells, anchored to the chip. */
+  onFillMenu?: (anchor: HTMLElement, column: number) => void;
   onRequestRows: (
     start: number,
     end: number,
@@ -745,14 +747,20 @@ export class ResultTable {
   ): HTMLButtonElement[] {
     const chips: HTMLButtonElement[] = [];
     const nulls = issues.find((issue) => issue.kind === "nulls")?.count ?? 0;
-    if (nulls > 0 && this.options.onOpenClean !== undefined) {
+    if (nulls > 0 && (this.options.onFillMenu !== undefined || this.options.onOpenClean !== undefined)) {
       const fix = el(
         "button",
         { class: `${chipClass("fix")} issue-fix`, type: "button" },
         [chipText("fix", nulls > 1 ? "empty cells…" : "empty cell…")],
       ) as HTMLButtonElement;
-      fix.title = `Open Clean · Nulls for “${column.name}” — fill or blank the empty cells`;
-      fix.addEventListener("click", () => this.options.onOpenClean?.(index, "nulls"));
+      fix.title =
+        this.options.onFillMenu !== undefined
+          ? `Fill the empty cells in “${column.name}” — median, mean, most common value and more`
+          : `Open Clean · Nulls for “${column.name}” — fill or blank the empty cells`;
+      fix.addEventListener("click", () => {
+        if (this.options.onFillMenu !== undefined) this.options.onFillMenu(fix, index);
+        else this.options.onOpenClean?.(index, "nulls");
+      });
       chips.push(fix);
     }
     const longValues = issues.find((issue) => issue.kind === "lengthAnomalies")?.count ?? 0;
