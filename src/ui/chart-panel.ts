@@ -1,4 +1,10 @@
 import type { ChartBinOptions } from "../data/chart-bins.js";
+import {
+  exclusionsFromNames,
+  exclusionsToNames,
+  type ChartExclusion,
+  type NamedExclusion,
+} from "../data/chart-exclusions.js";
 import type { TimeGrain, ViewDef } from "../data/aggregate.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
@@ -62,7 +68,11 @@ function readRailCollapsed(): boolean {
 
 export interface ChartsPanelOptions {
   datasetName(): string;
-  requestBins(column: number, options: ChartBinOptions): Promise<ChartBinsMessage>;
+  requestBins(
+    column: number,
+    options: ChartBinOptions,
+    exclude?: ChartExclusion[],
+  ): Promise<ChartBinsMessage>;
   requestSeries(input: SeriesRequestInput): Promise<ChartSeriesMessage>;
   /** Value lists for groupable non-category columns, fetched only when charts need them. */
   requestChartGroups?(columns: number[]): Promise<Record<number, CategoryMeta>>;
@@ -72,6 +82,7 @@ export interface ChartsPanelOptions {
     topN: number;
     groupOther: boolean;
     chartFilter?: { column: number; code: number };
+    chartExclude?: ChartExclusion[];
     respectFilters?: boolean;
   }): Promise<BoxStatsMessage>;
   requestCrosstab(input: {
@@ -83,7 +94,11 @@ export interface ChartsPanelOptions {
   }): Promise<CrosstabMessage>;
   requestCorrelation(
     columns: number[],
-    scope?: { chartFilter?: { column: number; code: number }; respectFilters?: boolean },
+    scope?: {
+      chartFilter?: { column: number; code: number };
+      chartExclude?: ChartExclusion[];
+      respectFilters?: boolean;
+    },
   ): Promise<CorrelationMessage>;
   /** Bins split by a category column, for grouped time series. */
   requestGroupedBins?(input: {
@@ -91,6 +106,7 @@ export interface ChartsPanelOptions {
     groupColumn: number;
     options: ChartBinOptions;
     topN: number;
+    chartExclude?: ChartExclusion[];
   }): Promise<GroupedBinsMessage>;
   /** Aggregate result for a view-bound card (null when the view is gone). */
   requestViewAggregate?(source: string): Promise<AggregateMessage | null>;
@@ -107,7 +123,11 @@ export interface ChartsPanelOptions {
     bins?: number,
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
     groupColumn?: number,
-    scope?: { chartFilter?: { column: number; code: number }; respectFilters?: boolean },
+    scope?: {
+      chartFilter?: { column: number; code: number };
+      chartExclude?: ChartExclusion[];
+      respectFilters?: boolean;
+    },
   ): Promise<GridCountsMessage>;
   /** Per-time-bucket frames for animated bar, bubble, histogram and treemap charts. */
   requestAnimation?(input: {
@@ -121,6 +141,7 @@ export interface ChartsPanelOptions {
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
     groupColumn?: number;
     chartFilter?: { column: number; code: number };
+    chartExclude?: ChartExclusion[];
     respectFilters?: boolean;
   }): Promise<AnimationMessage>;
   /** Label for the filtered-table source: "Table" when no filters apply. */
@@ -160,7 +181,9 @@ export interface NamedChartCardConfig
     | "groupColumn"
     | "filterColumn"
     | "correlationColumns"
+    | "excludes"
   > {
+  excludes?: NamedExclusion[];
   column: string | null;
   x: string | null;
   y: string | null;
@@ -194,6 +217,7 @@ export function configToNames(
     sizeColumn: nameOf(config.sizeColumn),
     groupColumn: nameOf(config.groupColumn),
     filterColumn: nameOf(config.filterColumn ?? -1),
+    excludes: exclusionsToNames(config.excludes, nameOf),
     correlationColumns: config.correlationColumns
       .map((index) => columns[index]?.name)
       .filter((name): name is string => name !== undefined),
@@ -279,6 +303,7 @@ export function remapChartConfigs(
         filterColumn:
           named.filterColumn === null ? -1 : (indexOfName.get(named.filterColumn) ?? -1),
         filterCode: named.filterCode,
+        excludes: exclusionsFromNames(named.excludes, indexOfName),
         correlationColumns,
         missingColumns,
         namedConfig: orphan,
@@ -301,6 +326,7 @@ export function remapChartConfigs(
       filterColumn:
         clean.filterColumn === null ? -1 : (indexOfName.get(clean.filterColumn) ?? -1),
       filterCode: clean.filterCode,
+      excludes: exclusionsFromNames(clean.excludes, indexOfName),
       correlationColumns,
     };
     out.push(mapped);

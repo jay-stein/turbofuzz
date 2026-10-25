@@ -18,6 +18,7 @@ export function openMenu(
   anchor: HTMLElement,
   items: readonly MenuItem[],
   className = "context-menu",
+  at?: { x: number; y: number },
 ): void {
   const menu = el("div", { class: className, role: "menu" });
   const buttons: HTMLButtonElement[] = [];
@@ -80,7 +81,10 @@ export function openMenu(
   document.addEventListener("keydown", onKey);
   document.body.append(menu);
   const rect = anchor.getBoundingClientRect();
-  menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8))}px`;
-  menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8)}px`;
+  // A pointer position (right-click) wins over the anchor's corner.
+  const left = at !== undefined ? at.x : rect.left;
+  const top = at !== undefined ? at.y : rect.bottom + 4;
+  menu.style.left = `${Math.max(8, Math.min(left, window.innerWidth - menu.offsetWidth - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(top, window.innerHeight - menu.offsetHeight - 8))}px`;
   enabled()[0]?.focus();
 }

@@ -1,4 +1,5 @@
 import type { ColumnData } from "./column.js";
+import type { ChartExclusion } from "./chart-exclusions.js";
 import { resolveZoneSpec, zoneOffsetMinutes } from "./timezone.js";
 
 /** Dimension transform: raw value, a time bucket, a date part or a numeric bin. */
@@ -157,6 +158,8 @@ export interface ViewDef {
   /** Optional chart-scoped category filter, applied after the table scope. */
   filterColumn?: number;
   filterCode?: number;
+  /** Chart-scoped exclusions (see chart-exclusions.ts). */
+  exclude?: ChartExclusion[];
   /** Incomplete first/last periods: shown (hatched) or excluded. */
   partial?: "show" | "exclude";
   /** Dimension index spread across columns when rendered as a matrix. */

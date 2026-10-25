@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test": "tsx --test test/*.test.ts",
     "test:e2e": "playwright test",
-    "gate": "npm run typecheck && npm test && npm run test:e2e && npm run build && npm run bench:clean -- --sizes=10000 --iterations=2 && npm run bench:pivot -- --rows=100000 --iterations=2 && npm run bench:multifile -- --rows=10000 && npm run bench:chartspec && npm run bench:outliers && npm run bench:groups-export",
+    "gate": "npm run typecheck && npm test && npm run test:e2e && npm run build && npm run bench:clean -- --sizes=10000 --iterations=2 && npm run bench:pivot -- --rows=100000 --iterations=2 && npm run bench:multifile -- --rows=10000 && npm run bench:chartspec && npm run bench:outliers && npm run bench:groups-export && npm run bench:chart-exclusions",
     "bench": "tsx bench/run.ts",
     "bench:quick": "tsx bench/run.ts --sizes=10000 --iterations=10",
     "bench:app": "tsx bench/app-smoke.ts",
@@ -22,6 +22,7 @@
     "bench:chartspec": "tsx bench/chartspec.ts",
     "bench:outliers": "tsx bench/outliers.ts",
     "bench:groups-export": "tsx bench/groups-export.ts",
+    "bench:chart-exclusions": "tsx bench/chart-exclusions.ts",
     "bench:ingest": "tsx bench/ingest.ts",
     "parity:cases": "tsx tools/recipe-parity/make_cases.ts",
     "typecheck": "tsc --noEmit"

@@ -384,6 +384,7 @@ function named(overrides: Partial<NamedChartCardConfig> = {}): NamedChartCardCon
     sizeColumn: null,
     groupColumn: null,
     filterColumn: null,
+    excludes: undefined,
     correlationColumns: [],
     ...overrides,
   };
@@ -506,4 +507,32 @@ test("coordinate data reserves a map suggestion before the three-idea cap", () =
   assert.equal(ideas[0]?.label, "Map of coordinates");
   assert.equal(ideas[0]?.preset.kind, "map");
   assert.equal(ideas.length, 3);
+});
+test("chart exclusions are saved by column name and follow a reorder or delete", () => {
+  const columns = byName(["a", "b", "c"]);
+  const config = fullConfig({
+    kind: "box",
+    x: 1,
+    y: 0,
+    excludes: [
+      { kind: "values", column: 0, labels: ["Spain"] },
+      { kind: "range", column: 2, min: 5, max: null },
+    ],
+  });
+  const stored = configToNames(config, columns);
+  assert.deepEqual(stored.excludes, [
+    { kind: "values", column: "a", labels: ["Spain"] },
+    { kind: "range", column: "c", min: 5, max: null },
+  ]);
+  const reordered = remapChartConfigs([stored], byName(["c", "a", "b"]));
+  assert.deepEqual(reordered.configs[0]?.excludes, [
+    { kind: "values", column: 1, labels: ["Spain"] },
+    { kind: "range", column: 0, min: 5, max: null },
+  ]);
+  const deleted = remapChartConfigs([stored], byName(["a", "b"]));
+  assert.deepEqual(
+    deleted.configs[0]?.excludes,
+    [{ kind: "values", column: 0, labels: ["Spain"] }],
+    "an exclusion on a removed column is dropped, the rest stay",
+  );
 });

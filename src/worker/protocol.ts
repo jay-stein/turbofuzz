@@ -1,4 +1,5 @@
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
+import type { ChartExclusion } from "../data/chart-exclusions.js";
 import type { ViewDef } from "../data/aggregate.js";
 import type { PivotDef, PivotResult } from "../data/pivot.js";
 import type { PairOperator } from "../data/pair-checks.js";
@@ -238,6 +239,7 @@ export type GetChartBinsRequest = {
   requestId: number;
   column: number;
   options: ChartBinOptions;
+  chartExclude?: ChartExclusion[];
 };
 
 export interface ChartBinsMessage extends ChartBins {
@@ -255,6 +257,7 @@ export type GetGroupedBinsRequest = {
   groupColumn: number;
   options: ChartBinOptions;
   topN: number;
+  chartExclude?: ChartExclusion[];
 };
 
 export interface GroupedBinsMessage {
@@ -315,6 +318,8 @@ export type GetChartSeriesRequest = {
   clip?: boolean;
   /** Chart-scoped category filter, applied to the request rows. */
   chartFilter?: { column: number; code: number };
+  /** Chart-scoped exclusions applied after the filter above. */
+  chartExclude?: ChartExclusion[];
   /** false ignores the table's active filters (default true). */
   respectFilters?: boolean;
 };
@@ -342,6 +347,8 @@ export type GetBoxStatsRequest = {
   topN: number;
   groupOther: boolean;
   chartFilter?: { column: number; code: number };
+  /** Chart-scoped exclusions applied after the filter above. */
+  chartExclude?: ChartExclusion[];
   respectFilters?: boolean;
 };
 
@@ -363,6 +370,8 @@ export type GetCrosstabRequest = {
   topY: number;
   groupOther: boolean;
   chartFilter?: { column: number; code: number };
+  /** Chart-scoped exclusions applied after the filter above. */
+  chartExclude?: ChartExclusion[];
   respectFilters?: boolean;
 };
 
@@ -380,6 +389,8 @@ export type GetCorrelationRequest = {
   requestId: number;
   columns: number[];
   chartFilter?: { column: number; code: number };
+  /** Chart-scoped exclusions applied after the filter above. */
+  chartExclude?: ChartExclusion[];
   respectFilters?: boolean;
 };
 
@@ -709,6 +720,8 @@ export type GetGridCountsRequest = {
   /** Optional category column splitting the bubbles into one set per group. */
   groupColumn?: number;
   chartFilter?: { column: number; code: number };
+  /** Chart-scoped exclusions applied after the filter above. */
+  chartExclude?: ChartExclusion[];
   respectFilters?: boolean;
 };
 
@@ -741,6 +754,8 @@ export type GetAnimationRequest = {
   /** bubble: optional category column splitting the bubbles into sets. */
   groupColumn?: number;
   chartFilter?: { column: number; code: number };
+  /** Chart-scoped exclusions applied after the filter above. */
+  chartExclude?: ChartExclusion[];
   respectFilters?: boolean;
 };
 

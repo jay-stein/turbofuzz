@@ -3328,3 +3328,82 @@ test("chart cards validate and apply a lossless spec atomically", async () => {
   assert.deepEqual(card.getConfig(), before, "an invalid spec leaves the card untouched");
   card.dispose();
 });
+test("right-clicking a shape offers to leave it out, which re-requests the data without it", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const views: ViewDef[] = [];
+  const host = document.createElement("div");
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestAggregate: (view) => {
+        views.push(view);
+        const leftOut = view.exclude?.some((entry) => entry.kind === "values" && entry.labels.includes("Perth")) === true;
+        const labels = leftOut ? ["Sydney"] : ["Perth", "Sydney"];
+        return Promise.resolve({
+          type: "aggregate",
+          requestId: 1,
+          viewId: "chart-treemap",
+          labels,
+          dimensions: [labels],
+          dimensionNames: ["region"],
+          dimensionIsTime: [false],
+          dimensionTimes: [Float64Array.from(labels.map(() => Number.NaN))],
+          measures: [Float64Array.from(labels.map(() => 5)), Float64Array.from(labels.map(() => 5))],
+          measureNames: ["count(*)", "count(*)"],
+          totals: Float64Array.from(labels.map(() => 5)),
+          groupCount: labels.length,
+          totalGroups: labels.length,
+          truncated: false,
+          partials: null,
+          ms: 1,
+        });
+      },
+      onFilter: () => {},
+      currentFilter: () => null,
+    },
+    { kind: "treemap", column: 0 },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  document.body.append(host);
+  card.setColumns([
+    meta({
+      name: "region",
+      type: "category",
+      categories: { labels: ["Perth", "Sydney"], counts: [10, 5] },
+    }),
+  ]);
+  await tick();
+  const canvas = host.querySelector("canvas") as HTMLCanvasElement;
+  const event = new window.MouseEvent("contextmenu", { clientX: 120, clientY: 120, cancelable: true });
+  (canvas as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(event);
+  assert.equal(event.defaultPrevented, true, "the browser menu is replaced");
+  const items = [...document.querySelectorAll(".context-menu .context-item")].map(
+    (item) => item.textContent,
+  );
+  assert.ok(items.includes("Leave out “Perth”"), `menu was ${JSON.stringify(items)}`);
+  assert.ok(items.includes("Show only “Perth”"));
+  assert.ok(items.includes("Filter the table to “Perth”"));
+
+  const before = views.length;
+  (
+    [...document.querySelectorAll(".context-menu .context-item")].find(
+      (item) => item.textContent === "Leave out “Perth”",
+    ) as unknown as { click(): void }
+  ).click();
+  await tick();
+  assert.ok(views.length > before, "the card asks the worker again");
+  assert.deepEqual(views.at(-1)?.exclude, [{ kind: "values", column: 0, labels: ["Perth"] }]);
+  assert.deepEqual(card.getConfig().excludes, [{ kind: "values", column: 0, labels: ["Perth"] }]);
+  const chip = host.querySelector(".chart-exclusion-chip") as HTMLButtonElement;
+  assert.match(chip.textContent ?? "", /region: Perth/);
+
+  chip.click();
+  await tick();
+  assert.equal(card.getConfig().excludes, undefined, "clicking the chip puts it back");
+  assert.equal(views.at(-1)?.exclude, undefined);
+  card.dispose();
+  host.remove();
+});

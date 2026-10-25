@@ -2099,7 +2099,8 @@ export class App {
     }
     this.chartsPanel = new ChartsPanel(this.chartHost, {
       datasetName: () => this.datasetName,
-      requestBins: (column, options) => this.client.getChartBins(column, options),
+      requestBins: (column, options, exclude) =>
+        this.client.getChartBins(column, options, exclude),
       requestSeries: (input) => this.client.getChartSeries(input),
       requestBoxStats: (input) => this.client.getBoxStats(input),
       requestChartGroups: async (columns) => (await this.client.getChartGroups(columns)).groups,

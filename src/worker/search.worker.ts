@@ -1,5 +1,6 @@
 import { ColumnData } from "../data/column.js";
 import { isGroupableColumn } from "../data/groupable.js";
+import { keepRows, type ChartExclusion } from "../data/chart-exclusions.js";
 import { computeAggregate } from "../data/aggregate.js";
 import { computePivot } from "../data/pivot.js";
 import { coMissingness } from "../data/comissingness.js";
@@ -1226,7 +1227,11 @@ function handleGetChartBins(message: GetChartBinsRequest): void {
   const { dataset } = state();
   const column = dataset.columns[message.column];
   if (column === undefined) throw new Error("Unknown column");
-  const bins = binValues(column.numbers(), sortedIds, message.options);
+  const bins = binValues(
+    column.numbers(),
+    keepRows(sortedIds, message.chartExclude, dataset.columns),
+    message.options,
+  );
   const numeric = isNumericLikeType(column.type);
   post({
     type: "chartBins",
@@ -1274,7 +1279,7 @@ function handleGetGroupedBins(message: GetGroupedBinsRequest): void {
     column.numbers(),
     codes,
     categories.labels.length,
-    sortedIds,
+    keepRows(sortedIds, message.chartExclude, dataset.columns),
     message.options,
     message.topN,
   );
@@ -1319,6 +1324,7 @@ function handleGetGroupedBins(message: GetGroupedBinsRequest): void {
 function chartScopedIds(
   respectFilters?: boolean,
   filter?: { column: number; code: number },
+  exclude?: ChartExclusion[],
 ): Uint32Array {
   const { dataset } = state();
   let ids: Uint32Array = sortedIds;
@@ -1334,7 +1340,7 @@ function chartScopedIds(
       ids = Uint32Array.from(ids.filter((id) => codes[id] === filter.code));
     }
   }
-  return ids;
+  return keepRows(ids, exclude, dataset.columns);
 }
 
 /**
@@ -1371,7 +1377,7 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
   }
 
   const started = performance.now();
-  const ids = chartScopedIds(message.respectFilters, message.chartFilter);
+  const ids = chartScopedIds(message.respectFilters, message.chartFilter, message.chartExclude);
   const xNumbers = xColumn.numbers();
   const yNumbers = yColumn.numbers();
   const result = computeSeries(
@@ -1431,7 +1437,7 @@ function handleGetBoxStats(message: GetBoxStatsRequest): void {
     valueColumn.numbers(),
     codes,
     categories.labels,
-    chartScopedIds(message.respectFilters, message.chartFilter),
+    chartScopedIds(message.respectFilters, message.chartFilter, message.chartExclude),
     {
       topN: message.topN,
       groupOther: message.groupOther,
@@ -1466,7 +1472,7 @@ function handleGetCrosstab(message: GetCrosstabRequest): void {
     categoryCodes(yCategories.bits, dataset.rowCount),
     xCategories.labels,
     yCategories.labels,
-    chartScopedIds(message.respectFilters, message.chartFilter),
+    chartScopedIds(message.respectFilters, message.chartFilter, message.chartExclude),
     { topX: message.topX, topY: message.topY, groupOther: message.groupOther },
   );
   post(
@@ -1817,7 +1823,7 @@ function handleGetGridCounts(message: GetGridCountsRequest): void {
   const result = computeGridCounts(
     x.numbers(),
     y.numbers(),
-    chartScopedIds(message.respectFilters, message.chartFilter),
+    chartScopedIds(message.respectFilters, message.chartFilter, message.chartExclude),
     message.bins ?? 40,
     gridMeasure(dataset, message.measure),
     groupColumn === undefined ? undefined : bubbleGroups(groupColumn, dataset.rowCount),
@@ -1862,7 +1868,7 @@ function handleGetAnimation(message: GetAnimationRequest): void {
   if (timeColumn === undefined) throw new Error("Unknown time column");
   const started = performance.now();
   const times = timeColumn.numbers();
-  const ids = chartScopedIds(message.respectFilters, message.chartFilter);
+  const ids = chartScopedIds(message.respectFilters, message.chartFilter, message.chartExclude);
   if (message.chart === "histogram") {
     const column = dataset.columns[message.column];
     if (column === undefined) throw new Error("Unknown column");
@@ -1940,7 +1946,7 @@ function handleGetCorrelation(message: GetCorrelationRequest): void {
   const started = performance.now();
   const result = computeCorrelation(
     indexes.map((index) => dataset.columns[index].numbers()),
-    chartScopedIds(message.respectFilters, message.chartFilter),
+    chartScopedIds(message.respectFilters, message.chartFilter, message.chartExclude),
   );
   post(
     {

@@ -1,4 +1,5 @@
 import type { Delimiter } from "../parse/delimiter.js";
+import type { ChartExclusion } from "../data/chart-exclusions.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { TimeGrain, ViewDef } from "../data/aggregate.js";
 import type { PivotDef } from "../data/pivot.js";
@@ -217,8 +218,17 @@ export class SearchWorkerClient {
     return this.request<StatsMessage>({ type: "getStats" });
   }
 
-  getChartBins(column: number, options: ChartBinOptions): Promise<ChartBinsMessage> {
-    return this.request<ChartBinsMessage>({ type: "getChartBins", column, options });
+  getChartBins(
+    column: number,
+    options: ChartBinOptions,
+    chartExclude?: ChartExclusion[],
+  ): Promise<ChartBinsMessage> {
+    return this.request<ChartBinsMessage>({
+      type: "getChartBins",
+      column,
+      options,
+      ...(chartExclude === undefined ? {} : { chartExclude }),
+    });
   }
 
   getGroupedBins(input: {
@@ -226,6 +236,7 @@ export class SearchWorkerClient {
     groupColumn: number;
     options: ChartBinOptions;
     topN: number;
+    chartExclude?: ChartExclusion[];
   }): Promise<GroupedBinsMessage> {
     return this.request<GroupedBinsMessage>({ type: "getGroupedBins", ...input });
   }
@@ -243,6 +254,7 @@ export class SearchWorkerClient {
     limit?: number;
     clip?: boolean;
     chartFilter?: { column: number; code: number };
+    chartExclude?: ChartExclusion[];
     respectFilters?: boolean;
   }): Promise<ChartSeriesMessage> {
     return this.request<ChartSeriesMessage>({ type: "getChartSeries", ...input });
@@ -254,6 +266,7 @@ export class SearchWorkerClient {
     topN: number;
     groupOther: boolean;
     chartFilter?: { column: number; code: number };
+    chartExclude?: ChartExclusion[];
     respectFilters?: boolean;
   }): Promise<BoxStatsMessage> {
     return this.request<BoxStatsMessage>({ type: "getBoxStats", ...input });
@@ -266,6 +279,7 @@ export class SearchWorkerClient {
     topY: number;
     groupOther: boolean;
     chartFilter?: { column: number; code: number };
+    chartExclude?: ChartExclusion[];
     respectFilters?: boolean;
   }): Promise<CrosstabMessage> {
     return this.request<CrosstabMessage>({ type: "getCrosstab", ...input });
@@ -273,7 +287,11 @@ export class SearchWorkerClient {
 
   getCorrelation(
     columns: number[],
-    scope?: { chartFilter?: { column: number; code: number }; respectFilters?: boolean },
+    scope?: {
+      chartFilter?: { column: number; code: number };
+      chartExclude?: ChartExclusion[];
+      respectFilters?: boolean;
+    },
   ): Promise<CorrelationMessage> {
     return this.request<CorrelationMessage>({ type: "getCorrelation", columns, ...scope });
   }
@@ -356,7 +374,11 @@ export class SearchWorkerClient {
     bins?: number,
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
     groupColumn?: number,
-    scope?: { chartFilter?: { column: number; code: number }; respectFilters?: boolean },
+    scope?: {
+      chartFilter?: { column: number; code: number };
+      chartExclude?: ChartExclusion[];
+      respectFilters?: boolean;
+    },
   ): Promise<GridCountsMessage> {
     return this.request<GridCountsMessage>({
       type: "getGridCounts",
@@ -380,6 +402,7 @@ export class SearchWorkerClient {
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
     groupColumn?: number;
     chartFilter?: { column: number; code: number };
+    chartExclude?: ChartExclusion[];
     respectFilters?: boolean;
   }): Promise<AnimationMessage> {
     return this.request<AnimationMessage>({ type: "getAnimation", ...input });

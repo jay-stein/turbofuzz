@@ -8302,3 +8302,38 @@ label.null-row {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Chart card: things left out of this chart only. */
+.chart-exclusions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.chart-exclusions-label {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.chart-exclusion-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--danger, #dc2626) 45%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--danger, #dc2626) 8%, var(--panel));
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.chart-exclusion-chip:hover {
+  background: color-mix(in srgb, var(--danger, #dc2626) 16%, var(--panel));
+}
+
+.chart-exclusion-x {
+  margin-left: 2px;
+  color: var(--text-dim);
+}

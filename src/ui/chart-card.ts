@@ -1,4 +1,12 @@
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
+import {
+  addExclusion,
+  describeRange,
+  exclusionChips,
+  removeChip,
+  sanitizeExclusions,
+  type ChartExclusion,
+} from "../data/chart-exclusions.js";
 import type { SeriesGrid, SeriesMode, SeriesPoints } from "../data/chart-series.js";
 import type {
   BoxGroupStats,
@@ -86,7 +94,7 @@ import { downloadCsv } from "./chart-export.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openConfirm, openPrompt } from "./dialog.js";
 import { describeScope } from "./scope.js";
-import { openMenu } from "./menu.js";
+import { openMenu, type MenuItem } from "./menu.js";
 import {
   decodeArcs,
   decodeCountries,
@@ -229,7 +237,11 @@ export interface SeriesRequestInput {
 
 export interface ChartCardOptions {
   datasetName(): string;
-  requestBins(column: number, options: ChartBinOptions): Promise<ChartBinsMessage>;
+  requestBins(
+    column: number,
+    options: ChartBinOptions,
+    exclude?: ChartExclusion[],
+  ): Promise<ChartBinsMessage>;
   requestSeries(input: SeriesRequestInput): Promise<ChartSeriesMessage>;
   /** Map card rectangle brush: filter both coordinate columns to the area. */
   onMapBrush?(selection: MapBrushSelection): void;
@@ -239,6 +251,7 @@ export interface ChartCardOptions {
     topN: number;
     groupOther: boolean;
     chartFilter?: { column: number; code: number };
+    chartExclude?: ChartExclusion[];
     respectFilters?: boolean;
   }): Promise<BoxStatsMessage>;
   requestCrosstab(input: {
@@ -248,11 +261,16 @@ export interface ChartCardOptions {
     topY: number;
     groupOther: boolean;
     chartFilter?: { column: number; code: number };
+    chartExclude?: ChartExclusion[];
     respectFilters?: boolean;
   }): Promise<CrosstabMessage>;
   requestCorrelation(
     columns: number[],
-    scope?: { chartFilter?: { column: number; code: number }; respectFilters?: boolean },
+    scope?: {
+      chartFilter?: { column: number; code: number };
+      chartExclude?: ChartExclusion[];
+      respectFilters?: boolean;
+    },
   ): Promise<CorrelationMessage>;
   /** Bins split by a category column, for grouped time series. */
   requestGroupedBins?(input: {
@@ -260,6 +278,7 @@ export interface ChartCardOptions {
     groupColumn: number;
     options: ChartBinOptions;
     topN: number;
+    chartExclude?: ChartExclusion[];
   }): Promise<GroupedBinsMessage>;
   /** Aggregate result for a view-bound card (null when the view is gone). */
   requestViewAggregate?(source: string): Promise<AggregateMessage | null>;
@@ -276,7 +295,11 @@ export interface ChartCardOptions {
     bins?: number,
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" },
     groupColumn?: number,
-    scope?: { chartFilter?: { column: number; code: number }; respectFilters?: boolean },
+    scope?: {
+      chartFilter?: { column: number; code: number };
+      chartExclude?: ChartExclusion[];
+      respectFilters?: boolean;
+    },
   ): Promise<GridCountsMessage>;
   /** Per-time-bucket frames for animated bar, bubble, histogram and treemap charts. */
   requestAnimation?(input: {
@@ -290,6 +313,7 @@ export interface ChartCardOptions {
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
     groupColumn?: number;
     chartFilter?: { column: number; code: number };
+    chartExclude?: ChartExclusion[];
     respectFilters?: boolean;
   }): Promise<AnimationMessage>;
   /** Label for the filtered-table source: "Table" when no filters apply. */
@@ -405,6 +429,8 @@ export interface ChartCardConfig {
   /** Chart-scoped category filter; -1/undefined means no chart filter. */
   filterColumn?: number;
   filterCode?: number;
+  /** Things this card leaves out (values, ranges, text terms); not applied to the table. */
+  excludes?: ChartExclusion[];
   /** Aggregate-backed cards: include the current table filters (default true). */
   respectFilters?: boolean;
   /** Bubble grid resolution per axis. */
@@ -488,6 +514,11 @@ export interface HitRegion {
   lines: string[];
   /** Empty when the region is hover-only. */
   actions: HitAction[];
+  /**
+   * What right-clicking the region can act on, for shapes whose left click does
+   * nothing (box plots). Used only when `actions` is empty.
+   */
+  contextActions?: HitAction[];
 }
 
 /** Crop a density grid to the visible X/Y viewport, preserving cell counts. */
@@ -1063,6 +1094,7 @@ export class ChartCard {
   private sidebarShown: boolean | null = null;
   private settingsDismiss: (() => void) | null = null;
   private hitRegions: HitRegion[] = [];
+  private exclusionBar!: HTMLElement;
   private pointerAt: { x: number; y: number; clientX: number; clientY: number } | null = null;
   /** Last hovered/clicked region, retained while the card menu is open. */
   private lastActionRegion: HitRegion | null = null;
@@ -2330,12 +2362,14 @@ export class ChartCard {
     this.scopeEl = el("div", { class: "chart-scope" });
     this.noteEl = el("div", { class: "chart-note" });
     this.legendEl = el("div", { class: "chart-legend hidden" });
+    this.exclusionBar = el("div", { class: "chart-exclusions hidden", "aria-label": "Left out of this chart" });
     this.tooltipEl = el("div", { class: "chart-tooltip hidden", role: "tooltip" });
     this.canvas.addEventListener("pointermove", (event) =>
       this.queuePointer(event as PointerEvent),
     );
     this.canvas.addEventListener("pointerleave", () => this.hideTooltip());
     this.canvas.addEventListener("click", (event) => this.handleCanvasClick(event));
+    this.canvas.addEventListener("contextmenu", (event) => this.handleCanvasContextMenu(event));
     this.canvas.addEventListener("pointerdown", (event) =>
       this.beginMapBrush(event as PointerEvent),
     );
@@ -2430,6 +2464,7 @@ export class ChartCard {
       this.scopeEl,
       this.animationSetup,
       this.bubbleSettings,
+      this.exclusionBar,
       canvasWrap,
       this.animationBar,
       this.legendEl,
@@ -2540,6 +2575,8 @@ export class ChartCard {
 
   setColumns(columns: ColumnMeta[]): void {
     this.columns = columns;
+    const kept = sanitizeExclusions(this.config.excludes, columns.length);
+    this.config.excludes = kept.length > 0 ? kept : undefined;
     this.plotView = null;
     this.mapView = null;
     this.chartXZoom = null;
@@ -2931,6 +2968,7 @@ export class ChartCard {
       respectFilters: this.config.respectFilters !== false,
       filterColumn: this.config.filterColumn ?? -1,
       filterCode: this.config.filterCode ?? -1,
+      ...(this.excludes().length > 0 ? { exclude: this.excludes() } : {}),
     };
   }
 
@@ -4429,6 +4467,7 @@ export class ChartCard {
       respectFilters: this.config.respectFilters !== false,
       filterColumn: this.config.filterColumn ?? -1,
       filterCode: this.config.filterCode ?? -1,
+      ...(this.excludes().length > 0 ? { exclude: this.excludes() } : {}),
     };
     void this.options
       .requestAggregate(def)
@@ -4601,6 +4640,12 @@ export class ChartCard {
     openMenu(
       anchor,
       [
+        {
+          label: "Put back everything left out",
+          title: "Right-click a bar, box, bin or legend entry to leave it out of this chart",
+          disabled: this.excludes().length === 0,
+          action: () => this.setExcludes([]),
+        },
         {
           label: "Edit chart",
           title: "Edit this chart in the shared setup dialog",
@@ -4786,13 +4831,17 @@ export class ChartCard {
       const binCount = this.preferredLineBins(max - min);
       // The same column and span produce the same buckets: don't re-request on
       // every filter push (each response used to trigger another repaint).
-      const signature = `${this.config.column}|${binCount}|${min}|${max}`;
+      const signature = `${this.config.column}|${binCount}|${min}|${max}|${JSON.stringify(this.excludes())}`;
       if (this.lineBinSignature === signature && this.lineBinResult !== null) return;
       this.lineBinSignature = signature;
       const generation = ++this.generation;
       this.lineBinRange = { min, max };
       void this.options
-        .requestBins(this.config.column, { min, max, binCount, overflow: false })
+        .requestBins(
+          this.config.column,
+          { min, max, binCount, overflow: false },
+          this.excludes().length > 0 ? this.excludes() : undefined,
+        )
         .then((bins) => {
           if (generation !== this.generation || this.disposed) return;
           this.lineBinResult = bins;
@@ -4827,7 +4876,7 @@ export class ChartCard {
             max: zoom.max,
           };
     void this.options
-      .requestBins(column, binOptions)
+      .requestBins(column, binOptions, this.excludes().length > 0 ? this.excludes() : undefined)
       .then((bins) => {
         if (generation !== this.generation || this.disposed) return;
         this.binResult = bins;
@@ -4845,8 +4894,11 @@ export class ChartCard {
     const categories = meta?.categories ?? null;
     if (meta === undefined || categories === null) return [];
     const counts = this.facets[this.config.column] ?? categories.counts;
+    // Live count bars come straight from the table facets, so excluded values
+    // are simply left out and the shares are recomputed from what remains.
+    const gone = this.excludedLabels(this.config.column);
     const total = categories.labels.reduce(
-      (sum, _, index) => sum + (counts[index] ?? 0),
+      (sum, label, index) => (gone.has(label) ? sum : sum + (counts[index] ?? 0)),
       0,
     );
     return categories.labels
@@ -4858,6 +4910,7 @@ export class ChartCard {
           pct: total > 0 ? (count / total) * 100 : 0,
         };
       })
+      .filter((bar) => !gone.has(bar.label))
       .sort((a, b) => b.count - a.count);
   }
 
@@ -4883,14 +4936,26 @@ export class ChartCard {
   /** Worker scope for the card's own category filter and table-filter toggle. */
   private chartScope(): {
     chartFilter?: { column: number; code: number };
+    chartExclude?: ChartExclusion[];
     respectFilters: boolean;
   } {
     const column = this.config.filterColumn ?? -1;
     const code = this.config.filterCode ?? -1;
     return {
       ...(column >= 0 && code >= 0 ? { chartFilter: { column, code } } : {}),
+      ...this.excludeScope(),
       respectFilters: this.config.respectFilters !== false,
     };
+  }
+
+  private excludes(): ChartExclusion[] {
+    return this.config.excludes ?? [];
+  }
+
+  /** The `chartExclude` field for worker requests (absent when nothing is excluded). */
+  private excludeScope(): { chartExclude?: ChartExclusion[] } {
+    const list = this.excludes();
+    return list.length > 0 ? { chartExclude: list } : {};
   }
 
   private refreshSeries(): void {
@@ -4984,6 +5049,7 @@ export class ChartCard {
       respectFilters: this.config.respectFilters !== false,
       filterColumn: this.config.filterColumn ?? -1,
       filterCode: this.config.filterCode ?? -1,
+      ...(this.excludes().length > 0 ? { exclude: this.excludes() } : {}),
     };
     void this.options
       .requestAggregate(view)
@@ -5217,7 +5283,10 @@ export class ChartCard {
       return;
     }
     const profile = result.profile;
-    const baseTerms = profile.topTerms.slice(0, Math.max(8, this.config.topN));
+    const goneTerms = this.excludedTerms(this.config.column);
+    const baseTerms = profile.topTerms
+      .filter((entry) => !goneTerms.has(entry.term.toLowerCase()))
+      .slice(0, Math.max(8, this.config.topN));
     const state =
       this.itemWindow ?? { start: 0, count: Math.min(baseTerms.length, Math.max(8, this.config.topN)) };
     const start = Math.max(0, Math.min(baseTerms.length - 1, state.start));
@@ -6070,7 +6139,7 @@ export class ChartCard {
     const generation = ++this.generation;
     const column = this.config.column;
     const groupColumn = this.config.groupColumn;
-    void request({ column, groupColumn, options, topN: GROUP_LINE_LIMIT })
+    void request({ column, groupColumn, options, topN: GROUP_LINE_LIMIT, ...this.excludeScope() })
       .then((message) => {
         if (generation !== this.generation || this.disposed) return;
         this.groupResult = message;
@@ -6542,6 +6611,9 @@ export class ChartCard {
     }
     details.push(`${this.rowCount.toLocaleString()} rows in scope`);
     details.push(this.scopeEl.textContent ?? "");
+    if (this.canExclude() && (region.actions.length > 0 || (region.contextActions?.length ?? 0) > 0)) {
+      details.push("Right-click to leave this out of this chart");
+    }
     this.tooltipEl.append(
       el(
         "div",
@@ -7002,6 +7074,317 @@ export class ChartCard {
   }
 
   /** Toggles a category value or sets a range/text filter through the app hook. */
+  // ---------- leaving things out of one chart ----------
+
+  /** Labels this card already leaves out for one column (value exclusions). */
+  private excludedLabels(column: number): Set<string> {
+    const out = new Set<string>();
+    for (const entry of this.excludes()) {
+      if (entry.kind === "values" && entry.column === column) {
+        for (const label of entry.labels) out.add(label);
+      }
+    }
+    return out;
+  }
+
+  private excludedTerms(column: number): Set<string> {
+    const out = new Set<string>();
+    for (const entry of this.excludes()) {
+      if (entry.kind === "text" && entry.column === column) out.add(entry.query.toLowerCase());
+    }
+    return out;
+  }
+
+  /** Zeroes histogram bins whose centre lies inside a range excluded on this column. */
+  private withoutExcludedBins(bins: number[], min: number, max: number): number[] {
+    const ranges = this.excludes().filter(
+      (entry): entry is Extract<ChartExclusion, { kind: "range" }> =>
+        entry.kind === "range" && entry.column === this.config.column,
+    );
+    if (ranges.length === 0 || bins.length === 0 || !(max > min)) return bins;
+    const width = (max - min) / bins.length;
+    return bins.map((count, index) => {
+      const centre = min + (index + 0.5) * width;
+      const inside = ranges.some(
+        (range) =>
+          (range.min === null || centre >= range.min) && (range.max === null || centre <= range.max),
+      );
+      return inside ? 0 : count;
+    });
+  }
+
+  /** Readable range bounds for a column: dates as dates, numbers trimmed. */
+  private boundFormatter(column: number): (value: number) => string {
+    const type = this.meta(column)?.type;
+    if (type === "date" || type === "datetime") {
+      return (value) => {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        const iso = date.toISOString();
+        return type === "date" || iso.endsWith("T00:00:00.000Z")
+          ? iso.slice(0, 10)
+          : `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
+      };
+    }
+    return (value) =>
+      Number(value.toPrecision(6)).toLocaleString("en-US", { maximumFractionDigits: 6 });
+  }
+
+  /** Legend codes index the grouped result's labels; the group column codes are the same list. */
+  private legendCodeToGroupCode(code: number): number {
+    return code;
+  }
+
+  /** True when this card can leave things out (it draws from the table, not a bound view). */
+  private canExclude(): boolean {
+    return this.config.source === "";
+  }
+
+  private setExcludes(next: ChartExclusion[]): void {
+    this.config.excludes = next.length > 0 ? next : undefined;
+    this.syncExclusions();
+    // Re-request every data path with the new scope, then repaint.
+    this.setFiltered(this.facets, this.histograms);
+  }
+
+  /** The row of "Left out: Spain ×" chips above the chart. */
+  private syncExclusions(): void {
+    const list = this.excludes();
+    clear(this.exclusionBar);
+    this.exclusionBar.classList.toggle("hidden", list.length === 0);
+    if (list.length === 0) return;
+    this.exclusionBar.append(el("span", { class: "chart-exclusions-label" }, ["Left out:"]));
+    const chips = exclusionChips(
+      list,
+      (column) => this.meta(column)?.name ?? "column",
+      (column) => this.boundFormatter(column),
+    );
+    for (const chip of chips) {
+      const button = el(
+        "button",
+        {
+          class: "chart-exclusion-chip",
+          type: "button",
+          title: `Put back: ${chip.text}`,
+          "aria-label": `Put back ${chip.text}`,
+        },
+        [chip.text, el("span", { class: "chart-exclusion-x", "aria-hidden": "true" }, [" ×"])],
+      ) as HTMLButtonElement;
+      button.addEventListener("click", () => this.setExcludes(removeChip(this.excludes(), chip)));
+      this.exclusionBar.append(button);
+    }
+    if (chips.length > 1) {
+      const clearAll = el("button", { class: "ghost small", type: "button" }, ["Put all back"]);
+      clearAll.addEventListener("click", () => this.setExcludes([]));
+      this.exclusionBar.append(clearAll);
+    }
+  }
+
+  private handleCanvasContextMenu(event: MouseEvent): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const region = hitTest(
+      this.hitRegions,
+      event.clientX - rect.left,
+      event.clientY - rect.top,
+    );
+    const actions =
+      region === null
+        ? []
+        : region.actions.length > 0
+          ? region.actions
+          : (region.contextActions ?? []);
+    const point = actions.length === 0 ? this.dataPointAt(event.clientX, event.clientY) : null;
+    const hasExclusions = this.excludes().length > 0;
+    if (actions.length === 0 && point === null && !hasExclusions) return;
+    event.preventDefault();
+    this.openExclusionMenu(actions, { x: event.clientX, y: event.clientY }, point);
+  }
+
+  /**
+   * Data coordinates under the pointer for the plots that draw raw points or
+   * cells (scatter, density, bubble), so a right-click can trim everything
+   * beyond that point on either axis.
+   */
+  private dataPointAt(clientX: number, clientY: number): { x: number; y: number } | null {
+    const kind = this.config.kind;
+    if (kind !== "scatter" && kind !== "density" && kind !== "bubble") return null;
+    const result = kind === "bubble" ? this.bubbleResult : this.seriesResult;
+    const frame = this.lastFrame;
+    if (result === null || frame === null || !(frame.plotW > 0) || !(frame.plotH > 0)) return null;
+    const rect = this.canvas.getBoundingClientRect();
+    const px = clientX - rect.left;
+    const py = clientY - rect.top;
+    if (px < frame.left || px > frame.left + frame.plotW) return null;
+    if (py < frame.top || py > frame.top + frame.plotH) return null;
+    const view = this.plotView ?? {
+      xMin: result.xMin,
+      xMax: result.xMax,
+      yMin: result.yMin,
+      yMax: result.yMax,
+    };
+    if (![view.xMin, view.xMax, view.yMin, view.yMax].every(Number.isFinite)) return null;
+    return {
+      x: view.xMin + ((px - frame.left) / frame.plotW) * (view.xMax - view.xMin),
+      y: view.yMax - ((py - frame.top) / frame.plotH) * (view.yMax - view.yMin),
+    };
+  }
+
+  /**
+   * Right-click menu built from what the clicked shape stands for: a category
+   * value, a numeric range or a text term. Every entry is chart-local unless
+   * it says "table"; exclusions never touch the table or other cards.
+   */
+  private openExclusionMenu(
+    actions: readonly HitAction[],
+    at: { x: number; y: number },
+    point: { x: number; y: number } | null = null,
+  ): void {
+    const items: MenuItem[] = [];
+    if (point !== null && this.canExclude()) {
+      const axes: { column: number; value: number; name: string }[] = [
+        { column: this.config.x, value: point.x, name: this.meta(this.config.x)?.name ?? "X" },
+        { column: this.config.y, value: point.y, name: this.meta(this.config.y)?.name ?? "Y" },
+      ];
+      for (const axis of axes) {
+        if (axis.column < 0 || !Number.isFinite(axis.value)) continue;
+        const rounded = Number(axis.value.toPrecision(4));
+        const text = rounded.toLocaleString("en-US", { maximumFractionDigits: 6 });
+        items.push(
+          {
+            label: `Leave out rows where ${axis.name} is above ${text}`,
+            title: "Trim everything beyond this point on this axis, in this chart only",
+            action: () =>
+              this.setExcludes(
+                addExclusion(this.excludes(), {
+                  kind: "range",
+                  column: axis.column,
+                  min: rounded,
+                  max: null,
+                }),
+              ),
+          },
+          {
+            label: `Leave out rows where ${axis.name} is below ${text}`,
+            title: "Trim everything beyond this point on this axis, in this chart only",
+            action: () =>
+              this.setExcludes(
+                addExclusion(this.excludes(), {
+                  kind: "range",
+                  column: axis.column,
+                  min: null,
+                  max: rounded,
+                }),
+              ),
+          },
+        );
+      }
+    }
+    const multiple = actions.length > 1;
+    if (this.canExclude()) {
+      for (const action of actions) {
+        const column = this.meta(action.column);
+        const where = multiple && column !== undefined ? ` (${column.name})` : "";
+        if (action.kind === "values") {
+          const label = column?.categories?.labels[action.code];
+          if (label === undefined) continue;
+          const shown = label === "" ? "(empty)" : label;
+          items.push({
+            label: `Leave out “${shown}”${where}`,
+            title: "Remove these rows from this chart only; click the chip to put them back",
+            action: () =>
+              this.setExcludes(
+                addExclusion(this.excludes(), { kind: "values", column: action.column, labels: [label] }),
+              ),
+          });
+          items.push({
+            label: `Show only “${shown}”${where}`,
+            title: "Keep just these rows in this chart",
+            action: () => {
+              this.config.filterColumn = action.column;
+              this.config.filterCode = action.code;
+              this.setFiltered(this.facets, this.histograms);
+              this.syncChartFilterControls();
+            },
+          });
+        } else if (action.kind === "range") {
+          const text = describeRange(action.min, action.max, this.boundFormatter(action.column));
+          const name = column?.name ?? "values";
+          items.push({
+            label: `Leave out ${name} ${text}`,
+            title: "Remove values in this range from this chart only",
+            action: () =>
+              this.setExcludes(
+                addExclusion(this.excludes(), {
+                  kind: "range",
+                  column: action.column,
+                  min: action.min,
+                  max: action.max,
+                }),
+              ),
+          });
+        } else {
+          items.push({
+            label: `Leave out rows containing “${action.query}”${where}`,
+            title: "Remove matching rows from this chart only",
+            action: () =>
+              this.setExcludes(
+                addExclusion(this.excludes(), {
+                  kind: "text",
+                  column: action.column,
+                  query: action.query,
+                }),
+              ),
+          });
+        }
+      }
+    }
+    // The click behaviour, spelled out, for anyone who wanted the table instead.
+    if (actions.length > 0 && this.options.onFilter !== undefined) {
+      const first = actions[0]!;
+      const described =
+        first.kind === "values"
+          ? `“${this.meta(first.column)?.categories?.labels[first.code] ?? "value"}”`
+          : first.kind === "range"
+            ? describeRange(first.min, first.max, this.boundFormatter(first.column))
+            : `“${first.query}”`;
+      items.push({
+        label: `Filter the table to ${described}`,
+        title: "Same as clicking it: an ordinary table filter you can clear in the filter list",
+        action: () => {
+          for (const action of actions) this.applyHitAction(action);
+        },
+      });
+      if (first.kind === "values") {
+        items.push({
+          label: `Leave ${described} out of the table too`,
+          title: "A table filter that keeps every other value",
+          action: () => this.excludeFromTable(first.column, first.code),
+        });
+      }
+    }
+    if (this.excludes().length > 0) {
+      items.push({
+        label: `Put back everything left out (${exclusionChips(this.excludes(), () => "").length})`,
+        action: () => this.setExcludes([]),
+      });
+    }
+    if (items.length === 0) return;
+    openMenu(this.canvas, items, "context-menu", at);
+  }
+
+  /** Table filter keeping every value of a column except one. */
+  private excludeFromTable(column: number, code: number): void {
+    const onFilter = this.options.onFilter;
+    const total = this.meta(column)?.categories?.labels.length ?? 0;
+    if (onFilter === undefined || total === 0) return;
+    const current = this.options.currentFilter?.(column) ?? null;
+    const base =
+      current?.kind === "values" ? current.selected : Array.from({ length: total }, (_, i) => i);
+    const selected = base.filter((value) => value !== code);
+    if (selected.length === 0) return;
+    onFilter(column, { kind: "values", selected });
+  }
+
   private applyHitAction(action: HitAction): void {
     const onFilter = this.options.onFilter;
     if (onFilter === undefined) return;
@@ -8292,6 +8675,48 @@ export class ChartCard {
     const measure = result.measureNames[0] ?? "value";
     ctx.fillText(measure, frame.left, frame.top - 6 * ui);
 
+    // One hoverable slot per group: a tooltip, and the value/period it stands
+    // for so a right-click can leave it out (click filters the table, as for
+    // count bars). Bound views have no table column to act on.
+    const dimensionColumn = this.config.source === "" ? this.config.column : -1;
+    const dimensionMeta = this.meta(dimensionColumn);
+    const categoryLabels = dimensionMeta?.categories?.labels ?? [];
+    const times = result.dimensionTimes[0];
+    this.hitRegions = [];
+    for (let i = 0; i < n; i++) {
+      const label = result.labels[i] ?? "";
+      const value = values[i];
+      const actions: HitAction[] = [];
+      if (dimensionMeta !== undefined && this.config.kind !== "histogram") {
+        if (isTime && times !== undefined && Number.isFinite(times[i])) {
+          const lo = times[i] as number;
+          const next = times[i + 1];
+          const previous = times[i - 1];
+          const hi =
+            next !== undefined && Number.isFinite(next)
+              ? next - 1
+              : previous !== undefined && Number.isFinite(previous)
+                ? lo + (lo - previous) - 1
+                : lo;
+          actions.push({ kind: "range", column: dimensionColumn, min: lo, max: hi });
+        } else if (!isTime) {
+          const code = categoryLabels.indexOf(label);
+          if (code >= 0) actions.push({ kind: "values", column: dimensionColumn, code });
+        }
+      }
+      this.hitRegions.push({
+        x: frame.left + i * slot,
+        y: frame.top,
+        w: slot,
+        h: frame.plotH,
+        lines: [
+          label === "" ? "(blank)" : label,
+          `${measure}: ${value !== undefined && Number.isFinite(value) ? formatChartNumber(value) : "—"}`,
+        ],
+        actions,
+      });
+    }
+
     const ms = result.ms < 1 ? "<1" : String(Math.round(result.ms));
     const partialNote =
       partialCount > 0
@@ -8328,8 +8753,13 @@ export class ChartCard {
     }
     const automatic = meta.histogram;
     const custom = kind === "histogram" ? this.binResult : this.lineBinResult;
+    const liveBins = this.histograms[this.config.column] ?? automatic?.bins ?? [];
     const bins =
-      custom !== null ? custom.bins : (this.histograms[this.config.column] ?? automatic?.bins ?? []);
+      custom !== null
+        ? custom.bins
+        : automatic === null
+          ? liveBins
+          : this.withoutExcludedBins(liveBins, automatic.min, automatic.max);
     if (bins.length === 0 || automatic === null) {
       const message = "This column has no histogram data yet.";
       this.noteEl.textContent = message;
@@ -8821,6 +9251,15 @@ export class ChartCard {
         if (this.hiddenGroups.has(code)) this.hiddenGroups.delete(code);
         else this.hiddenGroups.add(code);
         this.render();
+      });
+      item.addEventListener("contextmenu", (event) => {
+        const groupColumn = this.config.groupColumn;
+        if (groupColumn < 0) return;
+        event.preventDefault();
+        this.openExclusionMenu(
+          [{ kind: "values", column: groupColumn, code: this.legendCodeToGroupCode(code) }],
+          { x: event.clientX, y: event.clientY },
+        );
       });
       this.legendEl.append(item);
     });
@@ -10089,8 +10528,9 @@ export class ChartCard {
     // silently vanishing from the chart.
     const groupMeta = this.meta(this.config.y);
     const present = new Set(groups.map((group) => group.label));
+    const leftOut = this.excludedLabels(this.config.y);
     const emptyLabels = (groupMeta?.categories?.labels ?? [])
-      .filter((label) => label !== "Other" && !present.has(label))
+      .filter((label) => label !== "Other" && !present.has(label) && !leftOut.has(label))
       .slice(0, 3);
     const slotCount = groups.length + emptyLabels.length;
     this.hitRegions = boxHitRegions(
@@ -10098,6 +10538,14 @@ export class ChartCard {
       groups,
       slotCount,
     );
+    // A box stands for one category value: right-click can leave it out.
+    const boxLabels = groupMeta?.categories?.labels ?? [];
+    this.hitRegions.forEach((region, index) => {
+      const code = boxLabels.indexOf(groups[index]?.label ?? "");
+      if (code >= 0 && groups[index]?.label !== "Other") {
+        region.contextActions = [{ kind: "values", column: this.config.y, code }];
+      }
+    });
     let yMin = Infinity;
     let yMax = -Infinity;
     for (const group of groups) {
