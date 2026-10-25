@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import { OutliersPanel } from "../src/ui/outliers-panel.js";
+import { OutliersPanel, type OutliersPage } from "../src/ui/outliers-panel.js";
 import type { DatasetStats } from "../src/data/stats.js";
 import type {
   ColumnMeta,
@@ -97,8 +97,8 @@ function analysis(
         row: 0,
         score: 0.9,
         contributions: [
-          { column: 0, label: "amount", value: 900, contribution: 0.7 },
-          { column: 1, label: "score", value: 12, contribution: 0.3 },
+          { column: 0, label: "amount", value: 900, median: 20, z: 8.2, contribution: 0.7 },
+          { column: 1, label: "score", value: 12, median: 10, z: 1.2, contribution: 0.3 },
         ],
         values: ["900", "12"],
       },
@@ -117,6 +117,7 @@ function analysis(
 
 function buildPanel(
   onShowOutliers: () => void = () => {},
+  page: OutliersPage = "outliers",
 ): { window: Window; host: HTMLElement; panel: OutliersPanel; calls: string[] } {
   const window = setupDom();
   const host = document.createElement("div");
@@ -192,7 +193,10 @@ function buildPanel(
     onClearOutliers: () => calls.push("clear"),
     onFilterValue: (column, code) => calls.push(`filter:${column}:${code}`),
     onFinding: () => calls.push("finding"),
-  });
+    onWinsorize: (column, percent) => calls.push(`winsorize:${column}:${percent}`),
+    onFlagAnomalies: (column) => calls.push(`flag:${column}`),
+    onOpenClean: (column) => calls.push(`clean:${column}`),
+  }, page);
   panel.setData(
     [
       meta({ name: "amount" }),
@@ -260,9 +264,45 @@ test("showing flagged rows runs the app callback", async () => {
   assert.ok(shown >= 1);
 });
 
-test("the relationships tab renders a heatmap, ranked associations and dependencies", async () => {
-  const { host, panel } = buildPanel();
-  panel.show("relationships");
+test("top outliers explain the likely value and offer quick fixes", async () => {
+  const { host, calls } = buildPanel();
+  const quick = [...host.querySelectorAll("button")].find(
+    (button) => button.textContent === "Run quick scan",
+  ) as HTMLButtonElement;
+  quick.click();
+  await tick();
+  await tick();
+  const row = host.querySelector(".outliers-row") as HTMLButtonElement;
+  assert.match(
+    row.textContent ?? "",
+    /Likely: amount 900 is far above the typical 20 \(≈45× the typical\)/,
+  );
+  row.click();
+  await tick();
+  assert.match(
+    host.querySelector(".outliers-detail-likely")?.textContent ?? "",
+    /Likely: amount 900/,
+  );
+  const findButton = (prefix: string): HTMLButtonElement => {
+    const button = [...host.querySelectorAll(".outliers-detail button")].find((entry) =>
+      (entry.textContent ?? "").startsWith(prefix),
+    );
+    assert.ok(button !== undefined, `expected a ${prefix} button`);
+    return button as HTMLButtonElement;
+  };
+  findButton("Clip “amount”").click();
+  findButton("Flag “amount”").click();
+  findButton("Clean “amount”").click();
+  assert.deepEqual(calls, [
+    "isolationForest:quick:true",
+    "winsorize:0:1",
+    "flag:0",
+    "clean:0",
+  ]);
+});
+
+test("the relationships page renders a heatmap, ranked associations and dependencies", async () => {
+  const { host } = buildPanel(() => {}, "relationships");
   await tick();
   await tick();
   await tick();

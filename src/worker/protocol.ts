@@ -558,6 +558,10 @@ export interface OutlierContributionMessage {
   column: number;
   label: string;
   value: number;
+  /** Typical raw value for this column (sample median). */
+  median: number;
+  /** Robust z-score of the row's value (0 = typical). */
+  z: number;
   contribution: number;
 }
 

@@ -346,7 +346,7 @@ test("sort, filter, view and output commands parse", () => {
   }
   assert.equal(parseCommand("clear filters", columns).kind, "clearFilters");
 
-  for (const view of ["table", "overview", "outliers"] as const) {
+  for (const view of ["table", "overview", "outliers", "relationships"] as const) {
     const command = parseCommand(view, columns);
     assert.equal(command.kind, "openView");
     if (command.kind === "openView") assert.equal(command.view, view);

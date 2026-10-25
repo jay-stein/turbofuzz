@@ -53,6 +53,10 @@ test("Isolation Forest ranks an obvious global outlier at the top", () => {
   assert.ok((result.scores[index] ?? 0) >= result.threshold);
   assert.equal(result.details[0]?.row, planted);
   assert.ok((result.details[0]?.contributions.length ?? 0) > 0);
+  const topContribution = result.details[0]?.contributions[0];
+  assert.ok(Number.isFinite(topContribution?.median));
+  assert.ok(Number.isFinite(topContribution?.z));
+  assert.ok(Math.abs(topContribution?.z ?? 0) > 2, "the planted value is far from typical");
   assert.ok(result.featureImportance.length === 4);
   assert.ok(result.visualRows.length > 0);
   assert.ok(result.visualX.length === result.visualRows.length);

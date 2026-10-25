@@ -1,14 +1,22 @@
 import { el } from "./dom.js";
 
-export type ViewId = "overview" | "quality" | "table" | "views" | "chart" | "outliers";
+export type ViewId =
+  | "overview"
+  | "quality"
+  | "table"
+  | "views"
+  | "outliers"
+  | "relationships"
+  | "chart";
 
 export const VIEW_ORDER: readonly ViewId[] = [
   "overview",
   "quality",
   "table",
   "views",
-  "chart",
   "outliers",
+  "relationships",
+  "chart",
 ];
 
 /** Hint text derived from the tabs actually available, not a hardcoded range. */
@@ -33,7 +41,11 @@ const LABELS: Record<ViewId, { label: string; title: string }> = {
   chart: { label: "Chart", title: "Show a chart of the current result set" },
   outliers: {
     label: "Outliers",
-    title: "Anomaly landscape, method agreement and relationships",
+    title: "Anomaly landscape, method agreement and the rows that stand out",
+  },
+  relationships: {
+    label: "Relationships",
+    title: "How columns move together: correlations, associations and dependencies",
   },
 };
 
@@ -43,9 +55,10 @@ export interface ViewTabsCallbacks {
 }
 
 /**
- * `Overview | Data Quality | Table | Pivot View | Chart | Outliers` lens
- * switcher with the ARIA tabs pattern: role=tablist, aria-selected and roving
- * tabindex. Lenses never alter data; they only change what is on screen.
+ * `Overview | Data Quality | Table | Pivot View | Outliers | Relationships |
+ * Chart` lens switcher with the ARIA tabs pattern: role=tablist, aria-selected
+ * and roving tabindex. Lenses never alter data; they only change what is on
+ * screen.
  */
 export class ViewTabs {
   private readonly buttons = new Map<ViewId, HTMLButtonElement>();

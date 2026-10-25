@@ -1,6 +1,7 @@
 import { valueLength } from "../parse/value-length.js";
 import { BitSet } from "../search/bitset.js";
 import type { ColumnData } from "./column.js";
+import { isLikelyIdentifierColumn } from "./identifier.js";
 
 export interface ValueFence {
   center: number;
@@ -235,7 +236,9 @@ export function computeAnomalies(
       continue;
     }
     const sparse = rowCount > 0 && column.stats.nulls / rowCount > MAX_NULL_RATIO;
-    const valueFence = sparse ? null : numericFence(column);
+    // IDs and surrogate keys are unique by design: a new key is not an outlier.
+    const identifier = isLikelyIdentifierColumn(column, rowCount);
+    const valueFence = sparse || identifier ? null : numericFence(column);
     let columnValueBits: BitSet | null = null;
     if (valueFence !== null) {
       columnValueBits = new BitSet(rowCount);
@@ -249,7 +252,7 @@ export function computeAnomalies(
       }
     }
 
-    const lengthFence = sparse ? null : lengthFenceFor(column);
+    const lengthFence = sparse || identifier ? null : lengthFenceFor(column);
     let columnLengthBits: BitSet | null = null;
     if (lengthFence !== null) {
       columnLengthBits = new BitSet(rowCount);

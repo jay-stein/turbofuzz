@@ -71,6 +71,12 @@ test("worker runs an outlier analysis and filters the table to the flagged rows"
   assert.ok((analysis.flagged as number) >= 1);
   assert.ok(rowIndices.includes(73), "the planted row is analysed");
   assert.ok((analysis.details as unknown[]).length >= 1);
+  const visualRows = analysis.visualRows as Uint32Array;
+  const details = analysis.details as { row: number }[];
+  assert.ok(
+    details.some((detail) => visualRows.includes(detail.row)),
+    "ranked detail rows are included in the landscape sample",
+  );
 
   send({ type: "setSpecial", requestId: 3, kind: "outliers", active: true });
   const filtered = find("results", 3) as unknown as { count: number };

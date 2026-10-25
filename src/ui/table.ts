@@ -69,6 +69,12 @@ export interface ResultTableOptions {
   onSuggestion?: (column: number, suggestion: ColumnSuggestion) => void;
   /** Converts placeholder tokens ("NA", "TBD") to real nulls in one column. */
   onConvertToken?: (column: number, tokens: string[]) => void;
+  /** Clamps a numeric column's extreme values at a percentile. */
+  onWinsorize?: (column: number, percent: number) => void;
+  /** Adds a Yes/No outlier flag column for a numeric column. */
+  onFlagAnomalies?: (column: number) => void;
+  /** Opens Clean for a column on the requested tab. */
+  onOpenClean?: (column: number, tab: "nulls" | "values") => void;
   onRequestRows: (
     start: number,
     end: number,
@@ -525,16 +531,21 @@ export class ResultTable {
       kind: ColumnQaKind;
       count: number;
       noun: { one: string; many: string };
+      action: string;
       hint: string;
     }[] = [];
     // Placeholder text replaces the generic empty-cell chip so the header
     // stays one line and the actionable count wins.
-    if (tokenChips.length === 0 && column.stats.nulls > 0) {
+    const placeholders = tokenChips.length > 0;
+    if (column.stats.nulls > 0) {
       issues.push({
         kind: "nulls",
         count: column.stats.nulls,
         noun: { one: "empty cell", many: "empty cells" },
-        hint: "click to show rows where this column is empty",
+        action: placeholders ? "View placeholders" : "View empty cells",
+        hint: placeholders
+          ? "show the rows where this column is missing or holds placeholder text"
+          : "show rows where this column is empty",
       });
     }
     if (column.anomalyCounts.values > 0) {
@@ -542,7 +553,8 @@ export class ResultTable {
         kind: "valueAnomalies",
         count: column.anomalyCounts.values,
         noun: { one: "value outlier", many: "value outliers" },
-        hint: "click to show this column's value outliers",
+        action: "View outliers",
+        hint: "show this column's value outliers",
       });
     }
     if (column.anomalyCounts.lengths > 0) {
@@ -550,7 +562,8 @@ export class ResultTable {
         kind: "lengthAnomalies",
         count: column.anomalyCounts.lengths,
         noun: { one: "long value", many: "long values" },
-        hint: "click to show this column's overlong values",
+        action: "View long values",
+        hint: "show this column's overlong values",
       });
     }
     const pattern = column.pattern ?? null;
@@ -559,10 +572,11 @@ export class ResultTable {
         kind: "pattern",
         count: pattern.offCount,
         noun: { one: "off-format value", many: "off-format values" },
-        hint: `click to show values that don't match ${pattern.mask}`,
+        action: "View off-pattern",
+        hint: `show values that don't match ${pattern.mask}`,
       });
     }
-    if (issues.length <= 1) {
+    if (issues.length <= 2) {
       for (const issue of issues) {
         const chip = this.qaChip(
           column,
@@ -570,6 +584,7 @@ export class ResultTable {
           issue.kind,
           issue.count,
           issue.noun,
+          issue.action,
           issue.hint,
         );
         if (chip !== null) row.append(chip);
@@ -577,7 +592,11 @@ export class ResultTable {
     } else {
       row.append(this.mergedQaChip(column, index, issues));
     }
-    const fixes = [...tokenChips, ...this.buildFixChips(column, index)];
+    const fixes = [
+      ...tokenChips,
+      ...this.buildIssueFixChips(column, index, issues),
+      ...this.buildFixChips(column, index),
+    ];
     if (fixes.length > 2) row.append(this.mergedFixChip(column, fixes));
     else row.append(...fixes);
     const similarPairs = column.similarGroups - dismissedClusterCount(column.name);
@@ -585,7 +604,7 @@ export class ResultTable {
       const merge = el(
         "button",
         { class: "th-qa-chip warn merge", type: "button" },
-        [`${similarPairs.toLocaleString()} similar ${similarPairs === 1 ? "pair" : "pairs"}`],
+        [`Review similar · ${similarPairs.toLocaleString()}`],
       ) as HTMLButtonElement;
       merge.title = `${similarPairs.toLocaleString()} ${
         similarPairs === 1 ? "pair" : "pairs"
@@ -594,16 +613,19 @@ export class ResultTable {
       row.append(merge);
     }
     if (column.stats.distinct === 1) {
-      row.append(
-        el(
-          "span",
-          {
-            class: "th-qa-chip warn flag",
-            title: `Every non-empty row in “${column.name}” has the same value — this column carries little information and may be droppable`,
-          },
-          ["constant value"],
-        ),
+      const constant = el(
+        "button",
+        {
+          class: "th-qa-chip warn flag",
+          type: "button",
+          title: `Every non-empty row in “${column.name}” has the same value — open the column inspector to review or drop it`,
+        },
+        ["Review constant"],
+      ) as HTMLButtonElement;
+      constant.addEventListener("click", () =>
+        this.options.onColumnInspect(index, constant),
       );
+      row.append(constant);
     }
     return row;
   }
@@ -619,6 +641,7 @@ export class ResultTable {
       kind: ColumnQaKind;
       count: number;
       noun: { one: string; many: string };
+      action: string;
       hint: string;
     }[],
   ): HTMLButtonElement {
@@ -626,24 +649,22 @@ export class ResultTable {
     const chip = el(
       "button",
       { class: "th-qa-chip warn", type: "button" },
-      [`${issues.length} issues`],
+      [`View ${issues.length} issue types`],
     ) as HTMLButtonElement;
     chip.classList.toggle("active", anyActive);
     chip.setAttribute("aria-pressed", anyActive ? "true" : "false");
-    chip.title = `${issues.length} issues in “${column.name}” — click to choose what to show`;
+    chip.title = `${issues.length} issue types in “${column.name}” — choose what to show`;
     chip.addEventListener("click", () => {
       openMenu(
         chip,
         issues.map((issue) => {
-          const label = `${issue.count.toLocaleString()} ${
-            issue.count === 1 ? issue.noun.one : issue.noun.many
-          }`;
+          const label = `${issue.action} · ${issue.count.toLocaleString()}`;
           const active = this.columnQa.has(`${index}:${issue.kind}`);
           return {
             label: `${label}${active ? " ✓" : ""}`,
-            title: `${label} in “${column.name}” — ${
-              active ? "click to clear" : issue.hint
-            }`,
+            title: `${issue.count.toLocaleString()} ${
+              issue.count === 1 ? issue.noun.one : issue.noun.many
+            } in “${column.name}” — ${active ? "click to clear" : issue.hint}`,
             action: () => this.options.onColumnSpecial(index, issue.kind),
           };
         }),
@@ -695,18 +716,98 @@ export class ResultTable {
     kind: ColumnQaKind,
     count: number,
     noun: { one: string; many: string },
+    action: string,
     hint: string,
   ): HTMLButtonElement | null {
     // Zero-count chips are noise: only surface what needs attention.
     if (count === 0) return null;
     const active = this.columnQa.has(`${index}:${kind}`);
-    const text = `${count.toLocaleString()} ${count === 1 ? noun.one : noun.many}`;
-    const chip = el("button", { class: "th-qa-chip warn", type: "button" }, [text]) as HTMLButtonElement;
+    const meaning = `${count.toLocaleString()} ${
+      count === 1 ? noun.one : noun.many
+    } in “${column.name}”`;
+    const chip = el(
+      "button",
+      { class: "th-qa-chip warn", type: "button" },
+      [`${action} · ${count.toLocaleString()}`],
+    ) as HTMLButtonElement;
     chip.classList.toggle("active", active);
     chip.setAttribute("aria-pressed", active ? "true" : "false");
-    chip.title = `${text} in “${column.name}” — ${active ? "click to clear" : hint}`;
+    chip.title = `${meaning} — ${active ? "click to clear" : hint}`;
     chip.addEventListener("click", () => this.options.onColumnSpecial(index, kind));
     return chip;
+  }
+
+  /** Fix actions for count issues; each opens a menu or the Clean drawer. */
+  private buildIssueFixChips(
+    column: ColumnMeta,
+    index: number,
+    issues: readonly { kind: ColumnQaKind; count: number; action: string }[],
+  ): HTMLButtonElement[] {
+    const chips: HTMLButtonElement[] = [];
+    const nulls = issues.find((issue) => issue.kind === "nulls")?.count ?? 0;
+    if (nulls > 0 && this.options.onOpenClean !== undefined) {
+      const fix = el(
+        "button",
+        { class: `${chipClass("fix")} issue-fix`, type: "button" },
+        [chipText("fix", nulls > 1 ? "empty cells…" : "empty cell…")],
+      ) as HTMLButtonElement;
+      fix.title = `Open Clean · Nulls for “${column.name}” — fill or blank the empty cells`;
+      fix.addEventListener("click", () => this.options.onOpenClean?.(index, "nulls"));
+      chips.push(fix);
+    }
+    const longValues = issues.find((issue) => issue.kind === "lengthAnomalies")?.count ?? 0;
+    if (longValues > 0 && this.options.onOpenClean !== undefined) {
+      const fix = el(
+        "button",
+        { class: `${chipClass("fix")} issue-fix`, type: "button" },
+        [chipText("fix", "long values…")],
+      ) as HTMLButtonElement;
+      fix.title = `Open Clean for “${column.name}” to review or trim overlong values`;
+      fix.addEventListener("click", () => this.options.onOpenClean?.(index, "values"));
+      chips.push(fix);
+    }
+    const outliers = issues.find((issue) => issue.kind === "valueAnomalies")?.count ?? 0;
+    if (outliers > 0) {
+      const canFix =
+        this.options.onWinsorize !== undefined ||
+        this.options.onFlagAnomalies !== undefined ||
+        this.options.onOpenClean !== undefined;
+      if (canFix) {
+        const fix = el(
+          "button",
+          { class: `${chipClass("fix")} issue-fix`, type: "button" },
+          [chipText("fix", "outliers…")],
+        ) as HTMLButtonElement;
+        fix.title = `Choose a fix for ${outliers.toLocaleString()} unusual values in “${column.name}”`;
+        fix.addEventListener("click", () => {
+          const items: MenuItem[] = [];
+          if (this.options.onWinsorize !== undefined) {
+            items.push({
+              label: "Clip extremes at 1% / 99%",
+              title: "Winsorise the column — extreme values move to the fence (undoable)",
+              action: () => this.options.onWinsorize?.(index, 1),
+            });
+          }
+          if (this.options.onFlagAnomalies !== undefined) {
+            items.push({
+              label: "Flag unusual values",
+              title: "Add a Yes/No column marking the outlier rows",
+              action: () => this.options.onFlagAnomalies?.(index),
+            });
+          }
+          if (this.options.onOpenClean !== undefined) {
+            items.push({
+              label: "Open Clean…",
+              title: "Review and edit individual values",
+              action: () => this.options.onOpenClean?.(index, "values"),
+            });
+          }
+          openMenu(fix, items);
+        });
+        chips.push(fix);
+      }
+    }
+    return chips;
   }
 
   /**
@@ -727,7 +828,11 @@ export class ResultTable {
     const chip = el(
       "button",
       { class: "th-qa-chip fix token", type: "button" },
-      [chipText("fix", `${total.toLocaleString()} ${total === 1 ? "placeholder" : "placeholders"}`)],
+      [
+        `Fix: Blank ${total.toLocaleString()} ${
+          total === 1 ? "placeholder" : "placeholders"
+        }`,
+      ],
     ) as HTMLButtonElement;
     const examples = ranked.slice(0, 3).map((label) => `“${label}”`).join(", ");
     const blanks = Math.max(0, column.stats.nulls - total);

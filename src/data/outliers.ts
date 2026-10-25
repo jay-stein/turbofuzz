@@ -1,4 +1,5 @@
 import type { ColumnData } from "./column.js";
+import { isLikelyIdentifierColumn } from "./identifier.js";
 
 /**
  * Multivariate outlier analysis for the Outliers lens.
@@ -31,6 +32,10 @@ export interface OutlierContribution {
   label: string;
   /** Raw numeric value for the row. */
   value: number;
+  /** Typical raw value for this column (sample median). */
+  median: number;
+  /** Robust z-score of the row's value (0 = typical). */
+  z: number;
   /** Relative share of this row's anomaly explanation (0-1). */
   contribution: number;
 }
@@ -91,6 +96,8 @@ interface PreparedMatrix {
   dims: number;
   means: Float64Array;
   scales: Float64Array;
+  /** Raw sample median per column, for plain-language reasons. */
+  medians: Float64Array;
   excluded: number;
   sampled: boolean;
   totalRows: number;
@@ -213,6 +220,7 @@ function selectFeatures(
       continue;
     }
     if (column.stats.distinct <= 1) continue;
+    if (isLikelyIdentifierColumn(column, column.raw.length)) continue;
     seen.add(index);
     unique.push(index);
   }
@@ -275,6 +283,7 @@ function prepareMatrix(
   const transforms: ((value: number) => number)[] = [];
   const means = new Float64Array(dims);
   const scales = new Float64Array(dims);
+  const medians = new Float64Array(dims);
   const raw: Float64Array[] = new Array(dims);
   const text: string[][] = new Array(dims);
   const labels: string[] = [];
@@ -290,6 +299,7 @@ function prepareMatrix(
     const stats = robustStats(transformed);
     means[feature] = stats.median;
     scales[feature] = stats.scale;
+    medians[feature] = robustStats(values).median;
     raw[feature] = numbers[feature] ?? new Float64Array(0);
     text[feature] = column?.raw ?? [];
   }
@@ -312,6 +322,7 @@ function prepareMatrix(
     dims,
     means,
     scales,
+    medians,
     excluded: ids.length - valid.length,
     sampled: sampled.sampled,
     totalRows: ids.length,
@@ -373,6 +384,8 @@ function normalizedContributions(
       column: prepared.columns[feature] ?? -1,
       label: prepared.labels[feature] ?? "",
       value: prepared.raw[feature]?.[prepared.rowIndices[index] ?? 0] ?? Number.NaN,
+      median: prepared.medians[feature] ?? Number.NaN,
+      z: prepared.matrix[index * dims + feature] ?? 0,
       contribution: entry.weight / total,
     };
   });
@@ -1057,10 +1070,21 @@ function visualProjection(
   scores: Float32Array,
   threshold: number,
   seed: number,
+  highlightRows: readonly number[],
 ): { rows: Uint32Array; x: Float32Array; y: Float32Array; flagged: Uint8Array } {
   const cap = 5_000;
   const stride = Math.max(1, Math.ceil(prepared.rows / cap));
-  const count = Math.ceil(prepared.rows / stride);
+  const indices: number[] = [];
+  for (let i = 0; i < Math.ceil(prepared.rows / stride); i++) {
+    indices.push(Math.min(prepared.rows - 1, i * stride));
+  }
+  // Keep every ranked detail row in the landscape so selecting the top tile
+  // can always highlight its point.
+  for (const row of highlightRows) {
+    const index = preparedIndexOfRow(prepared, row);
+    if (index >= 0 && !indices.includes(index)) indices.push(index);
+  }
+  const count = indices.length;
   const rows = new Uint32Array(count);
   const x = new Float32Array(count);
   const y = new Float32Array(count);
@@ -1071,7 +1095,7 @@ function visualProjection(
     // covariance pass.
     const sampleMatrix = new Float32Array(count * prepared.dims);
     for (let i = 0; i < count; i++) {
-      const index = Math.min(prepared.rows - 1, i * stride);
+      const index = indices[i] ?? 0;
       sampleMatrix.set(
         prepared.matrix.subarray(
           index * prepared.dims,
@@ -1089,7 +1113,7 @@ function visualProjection(
       1,
     );
     for (let i = 0; i < count; i++) {
-      const index = Math.min(prepared.rows - 1, i * stride);
+      const index = indices[i] ?? 0;
       rows[i] = prepared.rowIndices[index] ?? 0;
       flagged[i] = (scores[index] ?? 0) >= threshold ? 1 : 0;
       for (let component = 0; component < 2; component++) {
@@ -1110,7 +1134,7 @@ function visualProjection(
     }
   } else {
     for (let i = 0; i < count; i++) {
-      const index = Math.min(prepared.rows - 1, i * stride);
+      const index = indices[i] ?? 0;
       rows[i] = prepared.rowIndices[index] ?? 0;
       flagged[i] = (scores[index] ?? 0) >= threshold ? 1 : 0;
       x[i] = prepared.matrix[index * prepared.dims] ?? 0;
@@ -1118,6 +1142,20 @@ function visualProjection(
     }
   }
   return { rows, x, y, flagged };
+}
+
+/** Binary search a sorted rowIndices array (ascending). */
+function preparedIndexOfRow(prepared: PreparedMatrix, row: number): number {
+  let low = 0;
+  let high = prepared.rowIndices.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >>> 1;
+    const value = prepared.rowIndices[middle] ?? 0;
+    if (value === row) return middle;
+    if (value < row) low = middle + 1;
+    else high = middle - 1;
+  }
+  return -1;
 }
 
 export function computeOutlierAnalysis(
@@ -1263,7 +1301,13 @@ export function computeOutlierAnalysis(
 
   let flagged = 0;
   for (const score of scores) if (score >= threshold) flagged++;
-  const visual = visualProjection(prepared, scores, threshold, seed);
+  const visual = visualProjection(
+    prepared,
+    scores,
+    threshold,
+    seed,
+    details.map((detail) => detail.row),
+  );
 
   return {
     method: options.method,

@@ -59,7 +59,7 @@ import type {
 } from "../worker/protocol.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openDedupeMenu } from "./dedupe-menu.js";
-import { openMenu } from "./menu.js";
+import { openMenu, type MenuItem } from "./menu.js";
 import { buildColumnCard } from "./summary-band.js";
 import { Overview, delimiterLabel, readDefaultView } from "./overview.js";
 import type { DatasetStats } from "../data/stats.js";
@@ -129,7 +129,10 @@ import { openTriagePanel, type TriagePanelHandle } from "./triage-panel.js";
 import { openColumnInspector } from "./column-inspector.js";
 import { openSlickTable } from "./slick-table.js";
 import { chartKindFor } from "./chart-utils.js";
-import { OutliersPanel } from "./outliers-panel.js";
+import {
+  OutliersPanel,
+  type OutliersPanelOptions,
+} from "./outliers-panel.js";
 import {
   coMissingnessFindings,
   distributionFindings,
@@ -467,6 +470,7 @@ export class App {
   private viewsHost!: HTMLElement;
   private viewsPanel: ViewsPanel | null = null;
   private outliersHost!: HTMLElement;
+  private relationshipsHost!: HTMLElement;
   private qualityHost!: HTMLElement;
   private qualityPage: QualityPage | null = null;
   private sensitiveProfiles: SensitiveColumn[] = [];
@@ -477,6 +481,7 @@ export class App {
   private advancedLoading = false;
   private advancedToken = 0;
   private outliersPanel: OutliersPanel | null = null;
+  private relationshipsPanel: OutliersPanel | null = null;
   private triage: TriagePanelHandle | null = null;
   private archetypeOverride: ArchetypeId | null = null;
   private lastLoaded: LoadedMessage | TransformedMessage | null = null;
@@ -491,7 +496,7 @@ export class App {
     this.hints = new Hints([
       {
         id: "tabs",
-        text: `Overview, Table, Pivot View, Chart and Outliers are lenses — ${viewSwitchHint()}.`,
+        text: `Overview, Table, Pivot View, Outliers, Relationships and Chart are lenses — ${viewSwitchHint()}.`,
         target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
       },
       {
@@ -963,6 +968,7 @@ export class App {
     this.chartHost = el("div", { class: "chart-host hidden" });
     this.viewsHost = el("div", { class: "views-host hidden" });
     this.outliersHost = el("div", { class: "outliers-host hidden" });
+    this.relationshipsHost = el("div", { class: "outliers-host hidden" });
     this.qualityHost = el("div", { class: "quality-host hidden" });
     this.columnsStrip = el("div", { class: "column-strip hidden" });
     results.append(
@@ -973,6 +979,7 @@ export class App {
       this.chartHost,
       this.viewsHost,
       this.outliersHost,
+      this.relationshipsHost,
     );
 
     this.overviewHost = el("div", { class: "overview-host hidden" });
@@ -1043,8 +1050,9 @@ export class App {
       else if (event.key === "2") this.setView("quality");
       else if (event.key === "3") this.setView("table");
       else if (event.key === "4") this.setView("views");
-      else if (event.key === "5") this.setView("chart");
-      else if (event.key === "6") this.setView("outliers");
+      else if (event.key === "5") this.setView("outliers");
+      else if (event.key === "6") this.setView("relationships");
+      else if (event.key === "7") this.setView("chart");
       else if (
         (event.key === "t" || event.key === "T") &&
         this.view === "table"
@@ -2013,6 +2021,21 @@ export class App {
       onToggleRowDelete: (position) => this.toggleRowDelete(position),
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
       onConvertToken: (column, tokens) => this.convertToken(column, tokens),
+      onWinsorize: (column, percent) => {
+        const name = this.metas[column]?.name ?? "?";
+        this.applyTransform(
+          [...this.transformOps, { kind: "winsorize", column, percent }],
+          `Winsorised "${name}" at ${percent}% / ${100 - percent}%`,
+        );
+      },
+      onFlagAnomalies: (column) => {
+        const name = this.metas[column]?.name ?? "?";
+        this.applyTransform(
+          [...this.transformOps, { kind: "flagAnomalies", column }],
+          `Flagged unusual cells in "${name}" (new Yes/No column)`,
+        );
+      },
+      onOpenClean: (column, tab) => this.openClean(column, tab),
       onRequestRows: (start, end, done) => {
         void this.client
           .getRows(start, end)
@@ -2943,6 +2966,7 @@ export class App {
     }
     if (view === "views") this.ensureViews();
     if (view === "outliers") this.ensureOutliers();
+    if (view === "relationships") this.ensureRelationships();
     if (view === "quality") this.ensureQuality();
     if (view !== "overview") this.lastLens = view;
     const chart = view === "chart";
@@ -2955,6 +2979,7 @@ export class App {
     this.chartHost.classList.toggle("hidden", view !== "chart");
     this.viewsHost.classList.toggle("hidden", view !== "views");
     this.outliersHost.classList.toggle("hidden", view !== "outliers");
+    this.relationshipsHost.classList.toggle("hidden", view !== "relationships");
     this.healthHost.classList.toggle("hidden", view === "overview" || this.healthChipCount === 0);
     this.moreButton.classList.toggle("hidden", view === "overview");
     this.addFilterButton.classList.toggle("hidden", view === "overview");
@@ -3200,16 +3225,12 @@ export class App {
     clear(this.viewsHost);
     this.outliersPanel = null;
     clear(this.outliersHost);
+    this.relationshipsPanel = null;
+    clear(this.relationshipsHost);
   }
 
-  private ensureOutliers(): void {
-    const stats = this.latestStats ?? this.lastLoaded?.stats;
-    if (stats === undefined) return;
-    if (this.outliersPanel !== null) {
-      this.outliersPanel.setData(this.metas, stats, this.rowCount, this.resultCount);
-      return;
-    }
-    this.outliersPanel = new OutliersPanel(this.outliersHost, {
+  private outliersPanelOptions(): OutliersPanelOptions {
+    return {
       requestOutlier: (input) => this.client.getOutlierAnalysis(input),
       requestCorrelation: (respectFilters) =>
         this.requestNumericCorrelation(respectFilters),
@@ -3233,8 +3254,54 @@ export class App {
         this.table?.flashColumn(column);
       },
       onFinding: (finding) => this.runFinding(finding),
-    });
+      onWinsorize: (column, percent) => {
+        const name = this.metas[column]?.name ?? "?";
+        this.setView("table");
+        this.applyTransform(
+          [...this.transformOps, { kind: "winsorize", column, percent }],
+          `Winsorised "${name}" at ${percent}% / ${100 - percent}%`,
+        );
+      },
+      onFlagAnomalies: (column) => {
+        const name = this.metas[column]?.name ?? "?";
+        this.setView("table");
+        this.applyTransform(
+          [...this.transformOps, { kind: "flagAnomalies", column }],
+          `Flagged unusual cells in "${name}" (new Yes/No column)`,
+        );
+      },
+      onOpenClean: (column) => this.openClean(column, "values"),
+    };
+  }
+
+  private ensureOutliers(): void {
+    const stats = this.latestStats ?? this.lastLoaded?.stats;
+    if (stats === undefined) return;
+    if (this.outliersPanel !== null) {
+      this.outliersPanel.setData(this.metas, stats, this.rowCount, this.resultCount);
+      return;
+    }
+    this.outliersPanel = new OutliersPanel(
+      this.outliersHost,
+      this.outliersPanelOptions(),
+      "outliers",
+    );
     this.outliersPanel.setData(this.metas, stats, this.rowCount, this.resultCount);
+  }
+
+  private ensureRelationships(): void {
+    const stats = this.latestStats ?? this.lastLoaded?.stats;
+    if (stats === undefined) return;
+    if (this.relationshipsPanel !== null) {
+      this.relationshipsPanel.setData(this.metas, stats, this.rowCount, this.resultCount);
+      return;
+    }
+    this.relationshipsPanel = new OutliersPanel(
+      this.relationshipsHost,
+      this.outliersPanelOptions(),
+      "relationships",
+    );
+    this.relationshipsPanel.setData(this.metas, stats, this.rowCount, this.resultCount);
   }
 
   private requestNumericCorrelation(
@@ -3367,6 +3434,8 @@ export class App {
     this.syncColumnTiles();
     this.outliersPanel?.setData(this.metas, stats, this.rowCount, this.resultCount);
     this.outliersPanel?.invalidate();
+    this.relationshipsPanel?.setData(this.metas, stats, this.rowCount, this.resultCount);
+    this.relationshipsPanel?.invalidate();
     this.triage?.update(this.metas, stats);
     this.sensitiveKey = "";
     this.advancedKey = "";
@@ -3761,17 +3830,29 @@ export class App {
           title,
           "aria-pressed": this.specials.has(kind) ? "true" : "false",
         },
-        [chipText("filter", label)],
+        [label],
       ) as HTMLButtonElement;
       chip.dataset.kind = kind;
       chip.addEventListener("click", () => this.toggleSpecial(kind));
       this.healthHost.append(chip);
       count++;
     };
+    const tokenTotals = new Map<string, number>();
+    for (const meta of this.metas) {
+      for (const token of meta.nullTokens) {
+        if (token.label !== "" && token.count > 0) {
+          tokenTotals.set(token.label, (tokenTotals.get(token.label) ?? 0) + token.count);
+        }
+      }
+    }
+    const placeholderTotal = [...tokenTotals.values()].reduce(
+      (sum, value) => sum + value,
+      0,
+    );
     if (stats.duplicateRows > 0) {
       addChip(
         "duplicates",
-        `Duplicates ${stats.duplicateRows.toLocaleString()}`,
+        `View duplicates · ${stats.duplicateRows.toLocaleString()}`,
         "Show rows that belong to a duplicate group",
       );
       const remove = el(
@@ -3781,42 +3862,113 @@ export class App {
           type: "button",
           title: `Remove duplicate rows — ${stats.duplicateRows.toLocaleString()} redundant rows`,
         },
-        [chipText("fix", "Remove duplicates")],
+        [chipText("fix", "Remove duplicates…")],
       ) as HTMLButtonElement;
       remove.addEventListener("click", () =>
         openDedupeMenu(remove, stats, (keep) => this.dropDuplicates(keep)),
       );
       this.healthHost.append(remove);
     }
-    const columnsWithNulls = this.metas.filter((meta) => meta.stats.nulls > 0).length;
-    if (columnsWithNulls > 0) {
+    const columnsWithNulls = this.metas
+      .map((meta, index) => ({ meta, index, count: meta.stats.nulls }))
+      .filter((entry) => entry.count > 0);
+    if (columnsWithNulls.length > 0) {
+      const label =
+        placeholderTotal > 0
+          ? `View placeholders · ${placeholderTotal.toLocaleString()}`
+          : `View empty cells · ${columnsWithNulls.length.toLocaleString()} ${
+              columnsWithNulls.length === 1 ? "col" : "cols"
+            }`;
       addChip(
         "nulls",
-        `Empty cells · ${columnsWithNulls.toLocaleString()} ${
-          columnsWithNulls === 1 ? "col" : "cols"
-        }`,
-        "Show rows with at least one empty cell",
+        label,
+        placeholderTotal > 0
+          ? "Show rows with missing cells, including placeholder text like “NA”"
+          : "Show rows with at least one empty cell",
       );
+      const fix = el(
+        "button",
+        {
+          class: "ghost small",
+          type: "button",
+          title: "Open Clean · Nulls for the affected columns and fill or blank them",
+        },
+        [chipText("fix", placeholderTotal > 0 ? "placeholder cells…" : "empty cells…")],
+      ) as HTMLButtonElement;
+      fix.addEventListener("click", () => {
+        openMenu(
+          fix,
+          columnsWithNulls.slice(0, 8).map((entry) => ({
+            label: `${entry.meta.name} · ${entry.count.toLocaleString()} empty`,
+            title: `Open Clean for “${entry.meta.name}”`,
+            action: () => this.openClean(entry.index, "nulls"),
+          })),
+        );
+      });
+      this.healthHost.append(fix);
     }
     if (stats.valueAnomalyRows > 0) {
       addChip(
         "valueAnomalies",
-        `Outliers ${stats.valueAnomalyRows.toLocaleString()}`,
+        `View outliers · ${stats.valueAnomalyRows.toLocaleString()}`,
         "Show rows with a value outside the column fence",
       );
+      const outlierColumns = this.metas
+        .map((meta, index) => ({
+          meta,
+          index,
+          count: meta.anomalyCounts.values,
+        }))
+        .filter((entry) => entry.count > 0)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 3);
+      if (outlierColumns.length > 0) {
+        const fix = el(
+          "button",
+          {
+            class: "ghost small",
+            type: "button",
+            title: "Quick fixes for the columns with the most value outliers",
+          },
+          [chipText("fix", "outliers…")],
+        ) as HTMLButtonElement;
+        fix.addEventListener("click", () => {
+          const items: MenuItem[] = [];
+          for (const entry of outlierColumns) {
+            items.push({
+              label: `Clip “${entry.meta.name}” at 1% / 99%`,
+              title: `Winsorise “${entry.meta.name}” — ${entry.count.toLocaleString()} unusual values`,
+              action: () => {
+                this.applyTransform(
+                  [...this.transformOps, { kind: "winsorize", column: entry.index, percent: 1 }],
+                  `Winsorised "${entry.meta.name}" at 1% / 99%`,
+                );
+              },
+            });
+            items.push({
+              label: `Flag “${entry.meta.name}”`,
+              title: `Add a Yes/No outlier column for “${entry.meta.name}”`,
+              action: () => {
+                this.applyTransform(
+                  [...this.transformOps, { kind: "flagAnomalies", column: entry.index }],
+                  `Flagged unusual cells in "${entry.meta.name}" (new Yes/No column)`,
+                );
+              },
+            });
+          }
+          items.push({
+            label: "Open Outliers lens…",
+            title: "Run multivariate anomaly analysis",
+            action: () => this.setView("outliers"),
+          });
+          openMenu(fix, items);
+        });
+        this.healthHost.append(fix);
+      }
     }
     // Dataset-level placeholder action, always visible even when the affected
     // column is scrolled off screen. Per-column chips live in the headers.
-    const tokenTotals = new Map<string, number>();
-    for (const meta of this.metas) {
-      for (const token of meta.nullTokens) {
-        if (token.label !== "" && token.count > 0) {
-          tokenTotals.set(token.label, (tokenTotals.get(token.label) ?? 0) + token.count);
-        }
-      }
-    }
-    if (tokenTotals.size > 0) {
-      const total = [...tokenTotals.values()].reduce((sum, value) => sum + value, 0);
+    if (placeholderTotal > 0) {
       const ranked = [...tokenTotals.entries()]
         .sort((a, b) => b[1] - a[1])
         .map(([label]) => label);
@@ -3826,9 +3978,9 @@ export class App {
         {
           class: "ghost small placeholder-action",
           type: "button",
-          title: `Fix: blank ${total.toLocaleString()} placeholder cells (${examples}) across all columns. Filters and charts then treat them as missing instead of real categories. Undo is in the Recipe.`,
+          title: `Fix: blank ${placeholderTotal.toLocaleString()} placeholder cells (${examples}) across all columns. Filters and charts then treat them as missing instead of real categories. Undo is in the Recipe.`,
         },
-        [`Fix: convert ${total.toLocaleString()} placeholders to missing`],
+        [`Fix: convert ${placeholderTotal.toLocaleString()} placeholders to missing`],
       ) as HTMLButtonElement;
       convert.addEventListener("click", () => this.applyNullPolicyAll(ranked, []));
       this.healthHost.append(convert);
@@ -4086,6 +4238,7 @@ export class App {
     this.resultCount = count;
     this.chartsPanel?.setRowCount(count);
     this.outliersPanel?.setVisibleRowCount(count);
+    this.relationshipsPanel?.setVisibleRowCount(count);
     if (this.qualityPage !== null && this.lastLoaded !== null) this.renderQualityPage();
     const timeText = queryMs < 1 ? "<1" : String(Math.round(queryMs));
     const total = this.rowCount;

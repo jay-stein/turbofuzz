@@ -1712,7 +1712,7 @@ button:disabled {
 }
 
 .th-qa-chip.flag {
-  cursor: default;
+  cursor: pointer;
 }
 
 .th.row-index-head {
@@ -3641,27 +3641,6 @@ mark {
   gap: 12px;
 }
 
-.outliers-tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.outliers-tab {
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  padding: 7px 12px;
-  border: none;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--text-dim);
-  cursor: pointer;
-}
-
-.outliers-tab:hover { color: var(--text); }
-.outliers-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-
 .outliers-content,
 .outliers-outliers,
 .outliers-relationships {
@@ -3983,6 +3962,15 @@ mark {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.outliers-row-reason {
+  font-size: 11.5px;
+  color: var(--text);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .outliers-fingerprint {
   display: flex;
   width: 100%;
@@ -4027,7 +4015,23 @@ mark {
   letter-spacing: 0.04em;
   color: var(--text-dim);
 }
-.outliers-detail-reasons { display: flex; flex-direction: column; gap: 4px; }
+.outliers-detail-likely {
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.outliers-detail-reasons { display: flex; flex-direction: column; gap: 6px; }
+.outliers-reason-row { display: flex; flex-direction: column; gap: 2px; }
+.outliers-reason-detail {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+  padding-left: 2px;
+}
 .outliers-reason {
   display: grid;
   grid-template-columns: minmax(100px, 160px) 1fr 48px;

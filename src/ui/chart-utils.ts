@@ -6,6 +6,7 @@ import {
 import type { ColumnMeta } from "../worker/protocol.js";
 import type { ColumnType } from "../types.js";
 import { detectGeoPair } from "../data/geo.js";
+import { looksLikeIdName } from "../data/identifier.js";
 
 export type ChartKind = "histogram" | "line" | "bar" | null;
 
@@ -92,18 +93,7 @@ export function isCategoryType(type: ColumnType): boolean {
   return type === "category" || type === "boolean";
 }
 
-/** Identifier-like names, including common record/business identifiers. */
-const ID_NAME = /(^|[^a-z0-9])(id|uuid|guid|key)s?($|[^a-z0-9])/i;
-const IDENTIFIER_NAME = /(^|[^a-z0-9])(zip|postal|postcode|phone|mobile|ssn|abn|acn|iban|barcode|nmi)([^a-z0-9]|$)/i;
-const NON_ID_WORDS = /(paid|valid|void|grid|solid|fluid|rapid|humid|arid|android)$/;
-
-/** Names that read as identifiers add no value to charts. */
-export function looksLikeIdName(name: string): boolean {
-  const lower = name.toLowerCase();
-  if (ID_NAME.test(lower) || IDENTIFIER_NAME.test(lower)) return true;
-  const compact = lower.replace(/[^a-z0-9]/g, "");
-  return compact.length > 3 && compact.endsWith("id") && !NON_ID_WORDS.test(compact);
-}
+export { looksLikeIdName };
 
 /**
  * ID-like columns make poor chart axes. Names are the strongest signal; a
@@ -115,15 +105,15 @@ export function isIdLikeColumn(meta: ColumnMeta, rowCount: number): boolean {
   if (looksLikeIdName(meta.name)) return true;
   if (rowCount <= 12) return false;
   if (meta.type === "string") return meta.stats.distinct === rowCount;
-  if (
-    meta.type === "integer" &&
-    meta.stats.distinct === rowCount &&
-    meta.stats.min === 1 &&
-    meta.stats.max === rowCount
-  ) {
-    return true;
-  }
-  return false;
+  if (meta.type !== "integer") return false;
+  const nonNull = Math.max(1, rowCount - meta.stats.nulls);
+  if (meta.stats.distinct / nonNull < 0.98) return false;
+  if (MEASURE_HINT.test(meta.name)) return false;
+  const min = meta.stats.min;
+  const max = meta.stats.max;
+  if (min === null || max === null) return false;
+  // Surrogate keys run in a compact range (1..N, 0..N-1, or a shifted block).
+  return max - min + 1 <= nonNull * 10;
 }
 
 /** A numeric column with few distinct values charts better as categories. */

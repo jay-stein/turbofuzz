@@ -17,6 +17,7 @@ import type {
   SimilarClustersMessage,
 } from "../worker/protocol.js";
 import {
+  formatChartNumber,
   formatCount,
   isIdLikeColumn,
   isNumericType,
@@ -24,7 +25,7 @@ import {
 import { clear, el } from "./dom.js";
 import { describeScope } from "./scope.js";
 
-export type OutliersTab = "outliers" | "relationships";
+export type OutliersPage = "outliers" | "relationships";
 type SelectedMethod = OutlierMethod | "value" | "group";
 
 export interface OutliersPanelOptions {
@@ -50,20 +51,13 @@ export interface OutliersPanelOptions {
   onFilterValue(column: number, code: number): void;
   /** Runs a finding's existing action (filters, fixes, clean). */
   onFinding(finding: Finding): void;
+  /** Clamp a numeric column's extreme values at a percentile. */
+  onWinsorize(column: number, percent: number): void;
+  /** Add a Yes/No outlier flag column for a numeric column. */
+  onFlagAnomalies(column: number): void;
+  /** Open the Clean drawer for a column. */
+  onOpenClean(column: number): void;
 }
-
-const TABS: readonly { id: OutliersTab; label: string; title: string }[] = [
-  {
-    id: "outliers",
-    label: "Outliers",
-    title: "Anomaly landscape, method agreement and the rows that stand out",
-  },
-  {
-    id: "relationships",
-    label: "Relationships",
-    title: "How columns move together: correlations, associations and dependencies",
-  },
-];
 
 const METHODS: readonly {
   id: OutlierMethod;
@@ -123,6 +117,28 @@ function formatPercent(value: number): string {
   return `${(value * 100).toFixed(value > 0.1 ? 0 : 1)}%`;
 }
 
+/** Plain-language reason: value versus the column's typical value. */
+function contributionReason(
+  entry: OutlierAnalysisMessage["details"][number]["contributions"][number],
+): string {
+  const value = Number.isFinite(entry.value) ? formatChartNumber(entry.value) : "—";
+  const median = Number.isFinite(entry.median) ? formatChartNumber(entry.median) : "—";
+  const direction = entry.z >= 0 ? "above" : "below";
+  const magnitude = Math.abs(entry.z) >= 3 ? "far " : "";
+  const ratio =
+    Number.isFinite(entry.median) &&
+    Math.abs(entry.median) > 1e-9 &&
+    Number.isFinite(entry.value) &&
+    entry.value / entry.median > 0
+      ? entry.value / entry.median
+      : null;
+  const ratioText =
+    ratio !== null && (ratio >= 5 || ratio <= 1 / 5)
+      ? ` (≈${formatChartNumber(ratio >= 1 ? ratio : 1 / ratio)}× the typical)`
+      : "";
+  return `${entry.label} ${value} is ${magnitude}${direction} the typical ${median}${ratioText}`;
+}
+
 function colorForCorrelation(value: number): string {
   const strength = Math.min(1, Math.abs(value));
   return value >= 0
@@ -145,18 +161,17 @@ const NETWORK_WIDTH = 620;
 const NETWORK_HEIGHT = 300;
 
 /**
- * The Outliers lens: a visual anomaly dashboard plus a Relationships tab. The
- * multivariate work happens in the worker; this panel owns selection, cached
- * results, comparison and the story around the numbers.
+ * One top-level analysis page: the visual anomaly dashboard or the
+ * Relationships explorer. The multivariate work happens in the worker; this
+ * panel owns selection, cached results, comparison and the story around the
+ * numbers.
  */
 export class OutliersPanel {
-  private readonly tabsEl: HTMLElement;
   private readonly contentEl: HTMLElement;
   private metas: readonly ColumnMeta[] = [];
   private stats: DatasetStats | null = null;
   private rowCount = 0;
   private visibleRowCount = 0;
-  private active: OutliersTab = "outliers";
   private method: SelectedMethod = "isolationForest";
   private respectFilters = true;
   private contamination = 0.01;
@@ -199,11 +214,11 @@ export class OutliersPanel {
   constructor(
     private readonly root: HTMLElement,
     private readonly options: OutliersPanelOptions,
+    private readonly page: OutliersPage = "outliers",
   ) {
     this.root.classList.add("outliers-panel");
-    this.tabsEl = el("div", { class: "outliers-tabs" });
     this.contentEl = el("div", { class: "outliers-content" });
-    this.root.append(this.tabsEl, this.contentEl);
+    this.root.append(this.contentEl);
   }
 
   setData(
@@ -212,6 +227,7 @@ export class OutliersPanel {
     rowCount = 0,
     visibleRowCount = rowCount,
   ): void {
+    const firstData = this.stats === null;
     const schemaChanged =
       this.metas.length !== metas.length ||
       this.metas.some((meta, index) => meta.name !== metas[index]?.name);
@@ -225,6 +241,7 @@ export class OutliersPanel {
       this.clearResults();
     }
     this.featureSignature = [...this.selectedFeatures].sort((a, b) => a - b).join(",");
+    if (this.page === "relationships" && firstData) this.ensureRelationships();
     this.render();
   }
 
@@ -234,13 +251,7 @@ export class OutliersPanel {
     this.scopeVersion++;
     this.clearResults();
     this.resetRelationshipCache();
-    if (this.active === "relationships") void this.ensureRelationships();
-    this.render();
-  }
-
-  show(tab: OutliersTab = this.active): void {
-    this.active = tab;
-    if (tab === "relationships") this.ensureRelationships();
+    if (this.page === "relationships") void this.ensureRelationships();
     this.render();
   }
 
@@ -254,7 +265,7 @@ export class OutliersPanel {
     this.similarClusters = null;
     this.similarRequested = false;
     this.resetRelationshipCache();
-    if (this.active === "relationships") void this.ensureRelationships();
+    if (this.page === "relationships") void this.ensureRelationships();
     this.render();
   }
 
@@ -426,7 +437,7 @@ export class OutliersPanel {
       this.similarClusters = null;
     }
     this.similarLoading = false;
-    if (this.active === "outliers") this.render();
+    if (this.page === "outliers") this.render();
   }
 
   private async loadGroupAnomalies(): Promise<void> {
@@ -443,20 +454,6 @@ export class OutliersPanel {
   }
 
   private render(): void {
-    clear(this.tabsEl);
-    for (const tab of TABS) {
-      const button = el(
-        "button",
-        {
-          class: `outliers-tab${tab.id === this.active ? " active" : ""}`,
-          type: "button",
-          title: tab.title,
-        },
-        [tab.label],
-      ) as HTMLButtonElement;
-      button.addEventListener("click", () => this.show(tab.id));
-      this.tabsEl.append(button);
-    }
     clear(this.contentEl);
     if (this.stats === null) {
       this.contentEl.append(
@@ -464,7 +461,7 @@ export class OutliersPanel {
       );
       return;
     }
-    if (this.active === "outliers") this.renderOutliers();
+    if (this.page === "outliers") this.renderOutliers();
     else this.renderRelationships();
   }
 
@@ -698,11 +695,13 @@ export class OutliersPanel {
         this.buildRecipe(result),
         this.buildInsightStrip(result),
         this.buildLandscape(result),
+      );
+      if (this.selectedDetail !== null) wrap.append(this.buildDetailPanel());
+      wrap.append(
         this.buildScoreDistribution(result),
         this.buildAgreement(),
         this.buildTopOutliers(result),
       );
-      if (this.selectedDetail !== null) wrap.append(this.buildDetailPanel());
     } else {
       wrap.append(
         el("div", { class: "outliers-empty" }, [
@@ -998,9 +997,30 @@ export class OutliersPanel {
       ctx.lineWidth = 1;
       ctx.stroke();
     }
+    const selectedRow = this.selectedDetail?.row;
+    if (selectedRow !== undefined) {
+      const selectedPoint = this.visualPoints.find((point) => point.row === selectedRow);
+      if (selectedPoint !== undefined) {
+        ctx.strokeStyle = cssVar("--accent", "#2563eb");
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(selectedPoint.x, selectedPoint.y, 9, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(selectedPoint.x, selectedPoint.y, 11, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
     ctx.fillStyle = cssVar("--text-dim", "#62707f");
     ctx.font = "10px system-ui, sans-serif";
     ctx.fillText("projection component 2", 8, 14);
+    if (selectedRow !== undefined) {
+      ctx.fillStyle = cssVar("--accent", "#2563eb");
+      ctx.font = "10px system-ui, sans-serif";
+      ctx.fillText(`highlighted row ${(selectedRow + 1).toLocaleString()}`, 8, height - 6);
+    }
   }
 
   private clickLandscape(event: MouseEvent): void {
@@ -1236,6 +1256,7 @@ export class OutliersPanel {
         .slice(0, 4)
         .map((value, feature) => `${result.labels[feature] ?? "?"}=${value === "" ? "—" : value}`)
         .join(" · ");
+      const top = detail.contributions[0];
       card.append(
         el("span", { class: "outliers-row-rank" }, [`#${index + 1}`]),
         el("span", { class: "outliers-row-main" }, [
@@ -1243,12 +1264,20 @@ export class OutliersPanel {
             `Row ${(detail.row + 1).toLocaleString()} · score ${formatScore(detail.score)}`,
           ]),
           el("span", { class: "outliers-row-values" }, [values]),
+          top === undefined
+            ? el("span", { class: "outliers-row-reason" }, ["No feature reason available."])
+            : el("span", { class: "outliers-row-reason" }, [
+                `Likely: ${contributionReason(top)} · ${formatPercent(
+                  top.contribution,
+                )} of the explanation`,
+              ]),
           this.buildFingerprint(detail.contributions),
         ]),
       );
       card.addEventListener("click", () => {
         this.selectedDetail = { method: result.method, row: detail.row, mode: result.mode };
         this.render();
+        this.revealLandscape();
       });
       list.append(card);
     });
@@ -1257,6 +1286,15 @@ export class OutliersPanel {
     }
     section.append(head, list);
     return section;
+  }
+
+  private revealLandscape(): void {
+    window.setTimeout(() => {
+      const landscape = this.contentEl.querySelector<HTMLElement>(".outliers-landscape");
+      if (landscape !== null && typeof landscape.scrollIntoView === "function") {
+        landscape.scrollIntoView({ block: "start", behavior: "smooth" });
+      }
+    }, 0);
   }
 
   private buildFingerprint(
@@ -1300,6 +1338,14 @@ export class OutliersPanel {
       this.render();
     });
     head.append(close);
+    const topContribution = row.contributions[0];
+    if (topContribution !== undefined) {
+      aside.append(
+        el("p", { class: "outliers-detail-likely" }, [
+          `Likely: ${contributionReason(topContribution)}.`,
+        ]),
+      );
+    }
     const values = el("div", { class: "outliers-detail-values" });
     result.labels.forEach((label, index) => {
       values.append(
@@ -1311,6 +1357,7 @@ export class OutliersPanel {
     });
     const reasons = el("div", { class: "outliers-detail-reasons" });
     for (const entry of row.contributions) {
+      const wrapper = el("div", { class: "outliers-reason-row" });
       const reason = el("div", { class: "outliers-reason" });
       reason.append(
         el("span", { class: "outliers-reason-label" }, [entry.label]),
@@ -1323,15 +1370,54 @@ export class OutliersPanel {
         })(),
         el("span", { class: "outliers-reason-share" }, [formatPercent(entry.contribution)]),
       );
-      reasons.append(reason);
+      wrapper.append(reason, el("span", { class: "outliers-reason-detail" }, [contributionReason(entry)]));
+      reasons.append(wrapper);
+    }
+    aside.append(head, values, el("h4", {}, ["Why this row"]), reasons);
+    const fixColumn = topContribution?.column ?? -1;
+    const fixMeta = this.metas[fixColumn];
+    if (fixMeta !== undefined && isNumericType(fixMeta.type)) {
+      const fixes = el("div", { class: "outliers-detail-actions" });
+      const clip = el(
+        "button",
+        {
+          class: "primary small",
+          type: "button",
+          title: `Winsorise “${fixMeta.name}” at 1% / 99% — extreme values move to the fence`,
+        },
+        [`Clip “${fixMeta.name}” at 1%`],
+      ) as HTMLButtonElement;
+      clip.addEventListener("click", () => this.options.onWinsorize(fixColumn, 1));
+      const flag = el(
+        "button",
+        {
+          class: "ghost small",
+          type: "button",
+          title: `Add a Yes/No column flagging unusual “${fixMeta.name}” values`,
+        },
+        [`Flag “${fixMeta.name}”`],
+      ) as HTMLButtonElement;
+      flag.addEventListener("click", () => this.options.onFlagAnomalies(fixColumn));
+      const clean = el(
+        "button",
+        {
+          class: "ghost small",
+          type: "button",
+          title: `Open Clean for “${fixMeta.name}”`,
+        },
+        [`Clean “${fixMeta.name}”`],
+      ) as HTMLButtonElement;
+      clean.addEventListener("click", () => this.options.onOpenClean(fixColumn));
+      fixes.append(clip, flag, clean);
+      aside.append(el("h4", {}, ["Quick fixes"]), fixes);
     }
     const actions = el("div", { class: "outliers-detail-actions" });
-    const show = el("button", { class: "primary small", type: "button" }, ["Show flagged rows"]);
+    const show = el("button", { class: "ghost small", type: "button" }, ["Show flagged rows"]);
     show.addEventListener("click", () => this.options.onShowOutliers());
     const clearFilter = el("button", { class: "ghost small", type: "button" }, ["Clear outlier filter"]);
     clearFilter.addEventListener("click", () => this.options.onClearOutliers());
     actions.append(show, clearFilter);
-    aside.append(head, values, el("h4", {}, ["Why this row"]), reasons, actions);
+    aside.append(actions);
     return aside;
   }
 

@@ -83,11 +83,44 @@ test("outliers lens runs a quick scan and shows the anomaly landscape", async ({
   await expect(page.locator(".outliers-landscape-canvas")).toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".outliers-recipe")).toContainText("Isolation Forest");
   await expect(page.locator(".outliers-row").first()).toBeVisible();
+  await page.getByRole("tab", { name: "Relationships" }).click();
+  await expect(page.locator(".outliers-heatmap")).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("tab", { name: "Outliers" }).click();
   await page.locator(".outliers-insight.clickable").first().click();
   await expect(page.getByRole("tab", { name: "Table" })).toHaveAttribute(
     "aria-selected",
     "true",
   );
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test("an outlier quick fix clips the contributing column and returns to the table", async ({
+  page,
+}) => {
+  const { consoleErrors, pageErrors } = collectErrors(page);
+  const lines = ["tripduration,fare"];
+  for (let row = 0; row < 120; row++) {
+    lines.push(row === 61 ? "18000,900" : `${300 + (row % 17)},${8 + (row % 5)}`);
+  }
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "quick-fix.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(lines.join("\n")),
+  });
+  await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("tab", { name: "Outliers" }).click();
+  await page.getByRole("button", { name: "Run quick scan" }).click();
+  await expect(page.locator(".outliers-row").first()).toBeVisible({ timeout: 15_000 });
+  await page.locator(".outliers-row").first().click();
+  await expect(page.locator(".outliers-detail-likely")).toContainText("Likely:");
+  await page.getByRole("button", { name: /^Clip “/ }).click();
+  await expect(page.getByRole("tab", { name: "Table" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.locator(".table-host")).toBeVisible();
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
 });

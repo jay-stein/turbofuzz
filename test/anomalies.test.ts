@@ -32,6 +32,31 @@ test("constant numeric columns have no fence", () => {
   assert.equal(dataset.stats.valueAnomalyRows, 0);
 });
 
+test("sequential integer IDs are not treated as value outliers", () => {
+  const rows = Array.from({ length: 100 }, (_, index) => [
+    String(index + 1),
+    String(index % 7),
+  ]);
+  rows.push(["100000", "3"]);
+  const dataset = buildDataset("t", ["customer_id", "amount"], rows);
+  assert.equal(dataset.valueFences[0], null, "the key has no fence");
+  assert.equal(dataset.stats.valueAnomalyRows, 0);
+});
+
+test("shifted surrogate keys are still recognised as identifiers", () => {
+  const rows = Array.from({ length: 120 }, (_, index) => [String(500000 + index)]);
+  const dataset = buildDataset("t", ["record"], rows);
+  assert.equal(dataset.valueFences[0], null);
+});
+
+test("measure-like integer columns are not mistaken for identifiers", () => {
+  const values = Array.from({ length: 100 }, (_, index) => String(index + 1));
+  values.push("5000");
+  const dataset = buildDataset("t", ["tripduration"], values.map((value) => [value]));
+  assert.notEqual(dataset.valueFences[0], null);
+  assert.equal(dataset.stats.valueAnomalyRows, 1);
+});
+
 test("right-skewed positive columns use log fences", () => {
   const values: string[] = [];
   for (let i = 0; i < 40; i++) values.push(String(100 + (i % 10) * 11));

@@ -58,7 +58,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Open “Enter a command” in the toolbar or press Ctrl/⌘+K. Start typing to filter suggestions, use the arrow keys to choose, and Enter to run. Data-changing commands ask for confirmation and land in Recipe.",
       ),
       list(
-        "Navigation — overview, table, pivot view, outliers, quality, chart, help.",
+        "Navigation — overview, table, pivot view, outliers, relationships, quality, chart, help.",
         "Columns — rename notes memo · type amount number · drop notes · dropempty · merge region · headercase snake.",
         "Clean — upper/lower/title/trim (or “all”), number, date, datetime, repair, replace notes \"old\" with \"new\", escape.",
         "Transform — round amount 2 · fill amount median · knn amount 5 · split notes on , · splitregex notes on \\d+ · group region sum amount · dedupe last · melt keep region, year · combine dates · winsorize amount 1 · flag amount.",
@@ -246,7 +246,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       "A visual anomaly dashboard: quick scans, Deep compute, method agreement and column relationships.",
     blocks: [
       p(
-        "The Outliers lens studies the current rows (or the whole dataset) without changing them. Pick two or more numeric features, choose how much of the data to flag, then run a quick scan. A quick scan targets a few seconds; the brain button runs Deep compute with more trees, a larger sample or more neighbours and is aimed at 10–30 seconds. Quick results stay visible while Deep compute runs, and either path reports scope, analysed rows, excluded rows, sampling and elapsed time.",
+        "The Outliers and Relationships lenses are separate top-level pages. Outliers studies the current rows (or the whole dataset) without changing them. Pick two or more numeric features, choose how much of the data to flag, then run a quick scan. A quick scan targets a few seconds; the brain button runs Deep compute with more trees, a larger sample or more neighbours and is aimed at 10–30 seconds. Quick results stay visible while Deep compute runs, and either path reports scope, analysed rows, excluded rows, sampling and elapsed time.",
       ),
       list(
         "Isolation Forest finds global multivariate anomalies. PCA reconstruction finds rows that break the linear correlations between metrics. LOF finds local anomalies where a row is unlike its own neighbourhood, and projects to six components when there are more than ten features.",

@@ -60,6 +60,9 @@ interface Harness {
   inspects: number[];
   quick: { column: number; query: string }[];
   columnFilters: { column: number; filter: unknown }[];
+  winsorized: { column: number; percent: number }[];
+  flagged: number[];
+  cleans: { column: number; tab: string }[];
   window: Window;
 }
 
@@ -80,6 +83,9 @@ function buildTable(
   const inspects: number[] = [];
   const quick: Harness["quick"] = [];
   const columnFilters: Harness["columnFilters"] = [];
+  const winsorized: { column: number; percent: number }[] = [];
+  const flagged: number[] = [];
+  const cleans: { column: number; tab: string }[] = [];
   const table = new ResultTable(host, {
     onSort: () => {},
     onColumnInspect: (column) => inspects.push(column),
@@ -94,6 +100,9 @@ function buildTable(
     onToggleRowDelete: (position) => rowDeletes.push(position),
     onSuggestion: (column, suggestion) => fixes.push({ column, suggestion }),
     onConvertToken: (column, tokens) => converts.push({ column, tokens }),
+    onWinsorize: (column, percent) => winsorized.push({ column, percent }),
+    onFlagAnomalies: (column) => flagged.push(column),
+    onOpenClean: (column, tab) => cleans.push({ column, tab }),
     onRequestRows: () => {},
   });
   table.setColumns(columns);
@@ -110,6 +119,9 @@ function buildTable(
     inspects,
     quick,
     columnFilters,
+    winsorized,
+    flagged,
+    cleans,
     window,
   };
 }
@@ -126,19 +138,12 @@ test("header shows only actionable QA chips", () => {
 
   const cells = host.querySelectorAll(".th");
   // cells[0] is the row-index header; column cells start at 1.
-  const chips = cells[1].querySelectorAll(".th-qa-chip");
-  assert.equal(chips.length, 1);
-  assert.equal(chips[0].textContent, "2 issues");
-  assert.ok(chips[0].classList.contains("warn"));
-
-  (chips[0] as unknown as { click(): void }).click();
-  const document = (globalThis as Record<string, unknown>).document as Window["document"];
-  const items = [...document.querySelectorAll(".context-menu .context-item")];
+  const chips = cells[1].querySelectorAll(".th-qa-chip.warn");
   assert.deepEqual(
-    items.map((item) => item.textContent),
-    ["3 empty cells", "2 long values"],
+    [...chips].map((chip) => chip.textContent),
+    ["View empty cells · 3", "View long values · 2"],
   );
-  (items[1] as unknown as { click(): void }).click();
+  (chips[1] as unknown as { click(): void }).click();
   assert.deepEqual(clicks, [{ column: 0, kind: "lengthAnomalies" }]);
 
   const cleanChips = cells[2].querySelectorAll(".th-qa-chip");
@@ -224,12 +229,62 @@ test("clicking a QA chip reports the column and kind", () => {
   assert.deepEqual(clicks, [{ column: 0, kind: "nulls" }]);
 });
 
+test("issue chips offer both View and Fix actions", () => {
+  const { host, clicks, winsorized, flagged, cleans } = buildTable([
+    meta({
+      name: "tripduration",
+      type: "integer",
+      stats: { ...meta().stats, nulls: 2, distinct: 20 },
+      anomalyCounts: { values: 3, lengths: 0 },
+    }),
+  ]);
+  const warn = [...host.querySelectorAll(".th-qa-chip.warn")];
+  assert.deepEqual(
+    warn.map((chip) => chip.textContent),
+    ["View empty cells · 2", "View outliers · 3"],
+  );
+  const view = warn.find((chip) => chip.textContent?.startsWith("View outliers"));
+  assert.ok(view !== undefined);
+  (view as unknown as { click(): void }).click();
+  assert.deepEqual(clicks, [{ column: 0, kind: "valueAnomalies" }]);
+
+  const fixes = [...host.querySelectorAll(".th-qa-chip.fix")];
+  assert.deepEqual(
+    fixes.map((chip) => chip.textContent),
+    ["Fix: empty cells…", "Fix: outliers…"],
+  );
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const chooseFix = (label: string): void => {
+    const fix = [...host.querySelectorAll(".th-qa-chip.fix")].find((chip) =>
+      chip.textContent?.includes("outliers"),
+    ) as unknown as { click(): void };
+    fix.click();
+    const item = [...document.querySelectorAll(".context-menu .context-item")].find(
+      (entry) => entry.textContent === label,
+    ) as unknown as { click(): void } | undefined;
+    assert.ok(item !== undefined, `expected the ${label} menu item`);
+    item.click();
+  };
+  chooseFix("Clip extremes at 1% / 99%");
+  chooseFix("Flag unusual values");
+  chooseFix("Open Clean…");
+  assert.deepEqual(winsorized, [{ column: 0, percent: 1 }]);
+  assert.deepEqual(flagged, [0]);
+  assert.deepEqual(cleans, [{ column: 0, tab: "values" }]);
+
+  (fixes[0] as unknown as { click(): void }).click();
+  assert.deepEqual(cleans, [
+    { column: 0, tab: "values" },
+    { column: 0, tab: "nulls" },
+  ]);
+});
+
 test("a single-value column is flagged as constant", () => {
   const { host } = buildTable([
     meta({ name: "country", stats: { ...meta().stats, distinct: 1, nulls: 0 } }),
   ]);
   const flag = host.querySelector(".th-qa-chip.flag");
-  assert.equal(flag?.textContent, "constant value");
+  assert.equal(flag?.textContent, "Review constant");
   assert.match(flag?.getAttribute("title") ?? "", /same value/);
 });
 
@@ -246,7 +301,7 @@ test("mergeable categories surface a chip that opens the merge panel", () => {
     click(): void;
     textContent: string | null;
   };
-  assert.equal(chip.textContent, "2 similar pairs");
+  assert.equal(chip.textContent, "Review similar · 2");
   chip.click();
   const document = (globalThis as Record<string, unknown>).document as Window["document"];
   const action = [...document.querySelectorAll(".context-menu .context-item")].find(
@@ -335,15 +390,15 @@ test("placeholder tokens get a header chip that blanks them in one column", () =
     title: string;
     click(): void;
   };
-  assert.equal(chip.textContent, "Fix: 9 placeholders");
+  assert.equal(chip.textContent, "Fix: Blank 9 placeholders");
   assert.match(chip.title, /12 cells in “amount” are missing/);
   assert.match(chip.title, /3 blank \+ 9 placeholder text/);
   assert.match(chip.title, /blank the placeholder text “NA”, “TBD”/);
   assert.doesNotMatch(chip.title, /“”/);
   assert.equal(
-    host.querySelectorAll(".th-qa-chip.warn").length,
-    0,
-    "the generic empty-cell chip is replaced",
+    host.querySelector(".th-qa-chip.warn")?.textContent,
+    "View placeholders · 12",
+    "the missing cells can still be viewed",
   );
   chip.click();
   assert.deepEqual(converts, [{ column: 0, tokens: ["NA", "TBD"] }]);

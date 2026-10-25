@@ -12,6 +12,8 @@ test("core surfaces expose accessible names and focusable controls", async ({ pa
   await expect(page.getByRole("tab", { name: "Table" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Pivot View" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Data Quality" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Outliers" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Relationships" })).toBeVisible();
 
   await page.getByRole("tab", { name: "Table" }).click();
   await page.getByRole("button", { name: "Types" }).click();

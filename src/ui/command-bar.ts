@@ -151,7 +151,12 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
   {
     name: "outliers",
     aliases: ["outlier", "anomalies"],
-    hint: "Open the Outliers lens — anomaly landscape and relationships",
+    hint: "Open the Outliers lens - anomaly landscape and method agreement",
+  },
+  {
+    name: "relationships",
+    aliases: ["correlations", "associations"],
+    hint: "Open the Relationships lens - correlations, associations and dependencies",
   },
   { name: "shuffle", aliases: ["randomise", "randomize"], hint: "Show every row in a random order" },
   { name: "copy", aliases: ["copy rows"], hint: "Copy the filtered rows as CSV" },
@@ -1004,6 +1009,8 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
       return { kind: "openView", view: "overview", label: "Opened Overview" };
     case "outliers":
       return { kind: "openView", view: "outliers", label: "Opened Outliers" };
+    case "relationships":
+      return { kind: "openView", view: "relationships", label: "Opened Relationships" };
     case "shuffle":
       return { kind: "shuffle", label: "Shuffled the rows" };
     case "copy":
