@@ -6,6 +6,7 @@ import { computeDependencies } from "../data/dependencies.js";
 import { computeGroupAnomalies } from "../data/group-anomalies.js";
 import { computeOutlierAnalysis } from "../data/outliers.js";
 import { computeRelationships } from "../data/relationships.js";
+import { computeColumnNetwork } from "../data/column-network.js";
 import { textProfile } from "../data/text-profile.js";
 import { computeDistributionChanges } from "../data/distribution.js";
 import { computeSimilarClusters } from "../data/similar-clusters.js";
@@ -92,6 +93,7 @@ import type {
   GetOutlierAnalysisRequest,
   GetDependenciesRequest,
   GetRelationshipsRequest,
+  GetColumnNetworkRequest,
   GetTextProfileRequest,
   GetDistributionChangesRequest,
   GetSimilarClustersRequest,
@@ -402,6 +404,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getRelationships":
       handleGetRelationships(message);
+      break;
+    case "getColumnNetwork":
+      handleGetColumnNetwork(message);
       break;
     case "getTextProfile":
       handleGetTextProfile(message);
@@ -1676,11 +1681,30 @@ function handleGetRelationships(message: GetRelationshipsRequest): void {
     all.setAll();
     ids = withoutExcluded(all).toIndices();
   }
-  const relationships = computeRelationships(dataset.columns, ids.length, ids);
+  const relationships = computeRelationships(dataset.columns, dataset.rowCount, ids);
   post({
     type: "relationships",
     requestId: message.requestId,
     relationships,
+    ms: performance.now() - started,
+  });
+}
+
+/** Column-level associations including text columns. */
+function handleGetColumnNetwork(message: GetColumnNetworkRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  let ids = sortedIds;
+  if (message.respectFilters === false) {
+    const all = new BitSet(dataset.rowCount);
+    all.setAll();
+    ids = withoutExcluded(all).toIndices();
+  }
+  const result = computeColumnNetwork(dataset.columns, ids, dataset.rowCount);
+  post({
+    type: "columnNetwork",
+    requestId: message.requestId,
+    ...result,
     ms: performance.now() - started,
   });
 }

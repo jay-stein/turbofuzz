@@ -155,8 +155,8 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
   },
   {
     name: "relationships",
-    aliases: ["correlations", "associations"],
-    hint: "Open the Relationships lens - correlations, associations and dependencies",
+    aliases: ["correlations", "associations", "network"],
+    hint: "Open the Relationships lens - text-aware column network, correlations, associations and dependencies",
   },
   { name: "shuffle", aliases: ["randomise", "randomize"], hint: "Show every row in a random order" },
   { name: "copy", aliases: ["copy rows"], hint: "Copy the filtered rows as CSV" },

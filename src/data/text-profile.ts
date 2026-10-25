@@ -109,7 +109,7 @@ function tfnValid(value: string): boolean {
 }
 
 /** Common English function words: noise for keyword mining, cheap to keep. */
-const STOPWORDS = new Set([
+export const STOPWORDS = new Set([
   "a", "about", "above", "after", "again", "against", "all", "am", "an", "and",
   "any", "are", "aren", "as", "at", "be", "because", "been", "before", "being",
   "below", "between", "both", "boy", "but", "by", "call", "came", "can", "cannot",

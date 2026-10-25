@@ -1,3 +1,4 @@
+import type { ColumnNetworkEdge, ColumnNetworkNode } from "../data/column-network.js";
 import type { DatasetStats } from "../data/stats.js";
 import {
   anomalyFindings,
@@ -7,6 +8,7 @@ import {
 } from "../data/findings.js";
 import type {
   ColumnMeta,
+  ColumnNetworkMessage,
   CorrelationMessage,
   DependenciesMessage,
   GroupAnomaliesMessage,
@@ -40,6 +42,7 @@ export interface OutliersPanelOptions {
   }): Promise<OutlierAnalysisMessage>;
   requestCorrelation(respectFilters: boolean): Promise<CorrelationMessage | null>;
   requestRelationships(respectFilters: boolean): Promise<RelationshipsMessage | null>;
+  requestColumnNetwork(respectFilters: boolean): Promise<ColumnNetworkMessage | null>;
   requestDependencies(respectFilters: boolean): Promise<DependenciesMessage | null>;
   requestGroupAnomalies(): Promise<GroupAnomaliesMessage | null>;
   requestSimilarClusters(): Promise<SimilarClustersMessage | null>;
@@ -106,6 +109,7 @@ const RELATIONSHIP_LABELS: Record<string, string> = {
   spearman: "Spearman ρ",
   cramersV: "Cramér's V",
   eta2: "η²",
+  tokenOverlap: "Token overlap",
 };
 
 function formatScore(value: number): string {
@@ -159,6 +163,99 @@ interface Point {
 
 const NETWORK_WIDTH = 620;
 const NETWORK_HEIGHT = 300;
+const COLUMN_NETWORK_WIDTH = 760;
+const COLUMN_NETWORK_HEIGHT = 380;
+const COLUMN_NETWORK_NODE_LIMIT = 14;
+
+function networkEdgeColor(edge: ColumnNetworkEdge): string {
+  if (edge.method === "pearson" || edge.method === "spearman") {
+    return colorForCorrelation(edge.effect);
+  }
+  if (edge.method === "tokenOverlap") return "rgba(13, 148, 136, 0.9)";
+  return "rgba(124, 58, 237, 0.9)";
+}
+
+function networkEdgeTextColor(edge: ColumnNetworkEdge): string {
+  if (edge.method === "pearson" || edge.method === "spearman") {
+    return textColorForCorrelation(edge.effect);
+  }
+  return Math.abs(edge.effect) > 0.55 ? "#fff" : "var(--text)";
+}
+
+function networkRoleColor(role: ColumnNetworkNode["role"]): string {
+  if (role === "text") return "#2563eb";
+  if (role === "category") return "#d97706";
+  return "#7c3aed";
+}
+
+function networkNodeLabel(label: string): string {
+  return label.length > 18 ? `${label.slice(0, 17)}…` : label;
+}
+
+function pairKey(a: number, b: number): string {
+  return a < b ? `${a}:${b}` : `${b}:${a}`;
+}
+
+function matrixCellTitle(
+  edge: ColumnNetworkEdge,
+  dependency?: { determinantLabel: string; dependentLabel: string },
+): string {
+  const base = `${edge.aLabel} × ${edge.bLabel} · ${
+    RELATIONSHIP_LABELS[edge.method] ?? edge.method
+  } ${edge.effect.toFixed(2)} · n = ${edge.n.toLocaleString()}${
+    edge.basis === undefined ? "" : ` · strongest token “${edge.basis}”`
+  }`;
+  if (dependency === undefined) return base;
+  return `${base} · dependency: ${dependency.determinantLabel} → ${dependency.dependentLabel}`;
+}
+
+function networkMethodText(edge: ColumnNetworkEdge): string {
+  switch (edge.method) {
+    case "pearson":
+      return "Pearson measures linear association; it is reported with the pairwise-complete row count.";
+    case "spearman":
+      return "Spearman compares ranks, so it is less sensitive to extreme values than Pearson.";
+    case "cramersV":
+      return edge.basis === undefined
+        ? "Cramér's V compares the category values with the text column's most frequent values, with the rest grouped as Other. It is exploratory, not causal."
+        : "Cramér's V compares the category values with whether the strongest token appears in each row. It is exploratory, not causal.";
+    case "eta2":
+      return edge.basis === undefined
+        ? "η² is the share of numeric variation explained by groups formed from the text column's most frequent values, with the rest grouped as Other."
+        : "η² is the share of numeric variation explained by whether the strongest token appears in each row.";
+    case "tokenOverlap":
+      return "Token overlap is a weighted Jaccard score over non-stopword tokens found in the same row. It measures shared vocabulary, not causation.";
+  }
+}
+
+function drawNetworkArrow(
+  ctx: CanvasRenderingContext2D,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  inset: number,
+): void {
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const endX = x2 - Math.cos(angle) * inset;
+  const endY = y2 - Math.sin(angle) * inset;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(endX, endY);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(endX, endY);
+  ctx.lineTo(
+    endX - Math.cos(angle - 0.4) * 7,
+    endY - Math.sin(angle - 0.4) * 7,
+  );
+  ctx.lineTo(
+    endX - Math.cos(angle + 0.4) * 7,
+    endY - Math.sin(angle + 0.4) * 7,
+  );
+  ctx.closePath();
+  ctx.fill();
+}
 
 /**
  * One top-level analysis page: the visual anomaly dashboard or the
@@ -196,6 +293,12 @@ export class OutliersPanel {
   private relationships: RelationshipsMessage | null = null;
   private relationshipsRequested = false;
   private relationshipsLoading = false;
+  private columnNetwork: ColumnNetworkMessage | null = null;
+  private columnNetworkRequested = false;
+  private columnNetworkLoading = false;
+  private columnNetworkMode: "matrix" | "network" = "matrix";
+  private columnNetworkFocus: number | null = null;
+  private selectedColumnEdge: number | null = null;
   private dependencies: DependenciesMessage | null = null;
   private dependenciesRequested = false;
   private dependenciesLoading = false;
@@ -206,6 +309,18 @@ export class OutliersPanel {
   private visualPoints: Point[] = [];
   private visualTooltip: HTMLElement | null = null;
   private networkEdges: {
+    a: { x: number; y: number };
+    b: { x: number; y: number };
+    index: number;
+  }[] = [];
+  private columnNetworkNodes: {
+    x: number;
+    y: number;
+    column: number;
+    label: string;
+    role: "text" | "category" | "numeric";
+  }[] = [];
+  private columnNetworkEdgeHits: {
     a: { x: number; y: number };
     b: { x: number; y: number };
     index: number;
@@ -314,6 +429,11 @@ export class OutliersPanel {
     this.relationships = null;
     this.relationshipsRequested = false;
     this.relationshipsLoading = false;
+    this.columnNetwork = null;
+    this.columnNetworkRequested = false;
+    this.columnNetworkLoading = false;
+    this.columnNetworkFocus = null;
+    this.selectedColumnEdge = null;
     this.dependencies = null;
     this.dependenciesRequested = false;
     this.dependenciesLoading = false;
@@ -346,6 +466,18 @@ export class OutliersPanel {
         if (token === this.relationshipToken) this.relationships = null;
       }
       if (token === this.relationshipToken) this.relationshipsLoading = false;
+    }
+    if (!this.columnNetworkRequested) {
+      this.columnNetworkRequested = true;
+      this.columnNetworkLoading = true;
+      this.render();
+      try {
+        const message = await this.options.requestColumnNetwork(this.respectFilters);
+        if (token === this.relationshipToken) this.columnNetwork = message;
+      } catch {
+        if (token === this.relationshipToken) this.columnNetwork = null;
+      }
+      if (token === this.relationshipToken) this.columnNetworkLoading = false;
     }
     if (!this.dependenciesRequested) {
       this.dependenciesRequested = true;
@@ -1648,22 +1780,36 @@ export class OutliersPanel {
     const wrap = el("div", { class: "outliers-relationships" });
     wrap.append(this.buildRelationshipScopeBar());
     const loading =
-      this.correlationLoading || this.relationshipsLoading || this.dependenciesLoading;
+      this.correlationLoading ||
+      this.relationshipsLoading ||
+      this.columnNetworkLoading ||
+      this.dependenciesLoading;
     if (loading) {
       wrap.append(
         el("div", { class: "outliers-empty" }, [
           `Computing relationships${this.correlationLoading ? " · correlations" : ""}${
             this.relationshipsLoading ? " · associations" : ""
-          }${this.dependenciesLoading ? " · dependencies" : ""}…`,
+          }${this.columnNetworkLoading ? " · column network" : ""}${
+            this.dependenciesLoading ? " · dependencies" : ""
+          }…`,
         ]),
       );
     }
-    if (this.correlation === null && this.relationships === null && !loading) {
+    const hasNetwork = (this.columnNetwork?.nodes.length ?? 0) >= 2;
+    if (
+      this.correlation === null &&
+      this.relationships === null &&
+      !hasNetwork &&
+      !loading
+    ) {
       wrap.append(
         el("div", { class: "outliers-empty" }, [
-          "Relationships need at least two columns with data. Load a table with numeric or category columns.",
+          "Relationships need at least two columns with data. Load a table with numeric, category or text columns.",
         ]),
       );
+    }
+    if (this.columnNetwork !== null && this.columnNetwork.nodes.length >= 2) {
+      wrap.append(this.buildColumnNetworkSection(this.columnNetwork));
     }
     if (this.relationships !== null && this.relationships.relationships.length > 0) {
       wrap.append(
@@ -1684,6 +1830,539 @@ export class OutliersPanel {
     this.contentEl.append(wrap);
     const canvas = this.contentEl.querySelector<HTMLCanvasElement>(".outliers-network-canvas");
     if (canvas !== null) this.drawNetwork(canvas);
+    const columnCanvas = this.contentEl.querySelector<HTMLCanvasElement>(
+      ".column-network-canvas",
+    );
+    if (columnCanvas !== null) this.drawColumnNetwork(columnCanvas);
+  }
+
+  private buildColumnNetworkSection(network: ColumnNetworkMessage): HTMLElement {
+    const section = el("section", { class: "outliers-section column-network-section" });
+    const canDrawNetwork = network.nodes.length <= COLUMN_NETWORK_NODE_LIMIT;
+    if (this.columnNetworkMode === "network" && !canDrawNetwork) {
+      this.columnNetworkMode = "matrix";
+      this.columnNetworkFocus = null;
+    }
+    const head = el("div", { class: "outliers-section-head column-network-head" });
+    head.append(
+      el("h3", {}, ["Column network"]),
+      el("span", { class: "outliers-hint" }, [
+        "Text ↔ text uses row-level token overlap; text ↔ category/number uses top values or the strongest token for free text.",
+      ]),
+    );
+    const toggle = el("div", { class: "column-network-toggle" });
+    for (const mode of ["matrix", "network"] as const) {
+      const button = el(
+        "button",
+        {
+          class: `outliers-chip${this.columnNetworkMode === mode ? " active" : ""}`,
+          type: "button",
+          "aria-pressed": this.columnNetworkMode === mode ? "true" : "false",
+          title:
+            mode === "network" && !canDrawNetwork
+              ? `Use the matrix for more than ${COLUMN_NETWORK_NODE_LIMIT} columns`
+              : mode === "matrix"
+                ? "Compare every pair in a compact matrix"
+                : "Draw associations as a node-link graph",
+        },
+        [mode === "matrix" ? "Matrix" : "Network"],
+      ) as HTMLButtonElement;
+      if (mode === "network" && !canDrawNetwork) button.disabled = true;
+      button.addEventListener("click", () => {
+        this.columnNetworkMode = mode;
+        if (mode === "matrix") this.columnNetworkFocus = null;
+        this.render();
+      });
+      toggle.append(button);
+    }
+    head.append(toggle);
+    section.append(head);
+
+    const analyzed = network.analyzedRows.toLocaleString();
+    const total = network.totalRows.toLocaleString();
+    const scope = el("div", { class: "column-network-scope" }, [
+      `${network.nodes.length} columns · ${analyzed} rows analysed${
+        network.sampled ? ` (sampled from ${total})` : ""
+      }`,
+    ]);
+    section.append(scope);
+
+    if (this.columnNetworkMode === "network" && canDrawNetwork) {
+      section.append(this.buildColumnNetworkView(network));
+    } else {
+      section.append(this.buildColumnNetworkMatrix(network));
+    }
+    const legend = el("div", { class: "column-network-legend" });
+    for (const [role, label] of [
+      ["text", "Text"],
+      ["category", "Category"],
+      ["numeric", "Number"],
+    ] as const) {
+      const item = el("span", { class: "column-network-legend-item" }, [label]);
+      item.style.setProperty("--node-color", networkRoleColor(role));
+      legend.append(item);
+    }
+    legend.append(
+      el("span", { class: "column-network-legend-item dependency" }, [
+        "D / dashed arrow = functional dependency",
+      ]),
+    );
+    section.append(legend);
+
+    if (this.selectedColumnEdge !== null) {
+      const edge = network.edges[this.selectedColumnEdge];
+      if (edge !== undefined) section.append(this.buildColumnNetworkDetail(edge, network));
+    }
+    section.append(this.buildTextLinkCards(network));
+    return section;
+  }
+
+  private buildColumnNetworkMatrix(network: ColumnNetworkMessage): HTMLElement {
+    const wrap = el("div", { class: "column-matrix-wrap" });
+    const matrix = el("div", { class: "column-matrix" });
+    const nodes = network.nodes;
+    matrix.style.gridTemplateColumns = `minmax(100px, 150px) repeat(${nodes.length}, minmax(34px, 1fr))`;
+    matrix.append(el("span", { class: "column-matrix-corner" }, [""]));
+
+    const edgeIndex = new Map<string, number>();
+    network.edges.forEach((edge, index) => edgeIndex.set(pairKey(edge.aColumn, edge.bColumn), index));
+    const dependencies = new Map<string, NonNullable<DependenciesMessage["pairs"]>[number]>();
+    for (const pair of this.dependencies?.pairs ?? []) {
+      dependencies.set(pairKey(pair.determinantColumn, pair.dependentColumn), pair);
+    }
+    const canFocus = nodes.length <= COLUMN_NETWORK_NODE_LIMIT;
+
+    for (const node of nodes) {
+      const label = el(
+        "button",
+        {
+          class: `column-matrix-label role-${node.role}`,
+          type: "button",
+          title: canFocus
+            ? `Focus “${node.label}” in the network`
+            : `${node.label} · ${node.type}`,
+        },
+        [node.label],
+      ) as HTMLButtonElement;
+      if (!canFocus) label.disabled = true;
+      label.addEventListener("click", () => {
+        if (!canFocus) return;
+        this.columnNetworkFocus = node.column;
+        this.columnNetworkMode = "network";
+        this.render();
+      });
+      matrix.append(label);
+    }
+
+    for (const row of nodes) {
+      const label = el(
+        "button",
+        {
+          class: `column-matrix-label role-${row.role}`,
+          type: "button",
+          title: canFocus
+            ? `Focus “${row.label}” in the network`
+            : `${row.label} · ${row.type}`,
+        },
+        [row.label],
+      ) as HTMLButtonElement;
+      if (!canFocus) label.disabled = true;
+      label.addEventListener("click", () => {
+        if (!canFocus) return;
+        this.columnNetworkFocus = row.column;
+        this.columnNetworkMode = "network";
+        this.render();
+      });
+      matrix.append(label);
+
+      for (const columnNode of nodes) {
+        if (columnNode.column === row.column) {
+          matrix.append(el("span", { class: "column-matrix-cell diagonal" }, ["·"]));
+          continue;
+        }
+        const key = pairKey(row.column, columnNode.column);
+        const index = edgeIndex.get(key);
+        const dependency = dependencies.get(key);
+        if (index !== undefined) {
+          const edge = network.edges[index] as ColumnNetworkEdge;
+          const cell = el(
+            "button",
+            {
+              class: `column-matrix-cell has-edge${
+                this.selectedColumnEdge === index ? " active" : ""
+              }${dependency === undefined ? "" : " has-dependency"}`,
+              type: "button",
+              title: matrixCellTitle(edge, dependency),
+              "aria-label": `${edge.aLabel} and ${edge.bLabel}: ${
+                RELATIONSHIP_LABELS[edge.method] ?? edge.method
+              } ${edge.effect.toFixed(2)}`,
+            },
+            [edge.effect.toFixed(2)],
+          ) as HTMLButtonElement;
+          cell.style.background = networkEdgeColor(edge);
+          cell.style.color = networkEdgeTextColor(edge);
+          cell.addEventListener("click", () => {
+            this.selectedColumnEdge = index;
+            this.render();
+          });
+          matrix.append(cell);
+          continue;
+        }
+        const cell = el("span", {
+          class: `column-matrix-cell${dependency === undefined ? "" : " has-dependency"}`,
+          title:
+            dependency === undefined
+              ? `${row.label} × ${columnNode.label} · no strong association`
+              : `${row.label} × ${columnNode.label} · dependency: ${dependency.determinantLabel} → ${dependency.dependentLabel}`,
+        }, [dependency === undefined ? "" : "D"]);
+        matrix.append(cell);
+      }
+    }
+    wrap.append(matrix);
+    return wrap;
+  }
+
+  private buildColumnNetworkView(network: ColumnNetworkMessage): HTMLElement {
+    const wrap = el("div", { class: "column-network-view" });
+    if (this.columnNetworkFocus !== null) {
+      const node = network.nodes.find((entry) => entry.column === this.columnNetworkFocus);
+      if (node !== undefined) {
+        const bar = el("div", { class: "column-network-focus" }, [
+          el("span", {}, [`Focused on “${node.label}”`]),
+        ]);
+        const clearFocus = el("button", { class: "ghost small", type: "button" }, [
+          "Show all columns",
+        ]);
+        clearFocus.addEventListener("click", () => {
+          this.columnNetworkFocus = null;
+          this.render();
+        });
+        bar.append(clearFocus);
+        wrap.append(bar);
+      }
+    }
+    const canvas = el("canvas", {
+      class: "column-network-canvas",
+      role: "img",
+      "aria-label": `Column network with ${network.nodes.length} columns and ${network.edges.length} associations${
+        network.sampled ? `, sampled from ${network.totalRows.toLocaleString()} rows` : ""
+      }`,
+      title: "Click a column to focus its links; click an edge for detail",
+    }) as HTMLCanvasElement;
+    canvas.width = COLUMN_NETWORK_WIDTH;
+    canvas.height = COLUMN_NETWORK_HEIGHT;
+    canvas.addEventListener("click", (event) =>
+      this.clickColumnNetwork(event as MouseEvent),
+    );
+    wrap.append(canvas);
+    wrap.append(
+      el("p", { class: "outliers-hint column-network-hint" }, [
+        "Node colour shows the column type. Solid lines are associations; dashed arrows are functional dependencies. Click a node to focus its neighbourhood.",
+      ]),
+    );
+    return wrap;
+  }
+
+  private buildColumnNetworkDetail(
+    edge: ColumnNetworkEdge,
+    network: ColumnNetworkMessage,
+  ): HTMLElement {
+    const aside = el("aside", { class: "outliers-detail column-network-detail" });
+    aside.append(
+      el("h3", {}, [`${edge.aLabel} ↔ ${edge.bLabel}`]),
+      el("p", {}, [
+        `${RELATIONSHIP_LABELS[edge.method] ?? edge.method} = ${edge.effect.toFixed(
+          3,
+        )} over ${edge.n.toLocaleString()} ${
+          edge.method === "tokenOverlap" ? "rows with tokens on both sides" : "rows"
+        }.${
+          edge.basis !== undefined
+            ? " Token presence split into present and absent."
+            : edge.groups === undefined
+              ? ""
+              : ` Text grouped into ${edge.groups} values.`
+        }`,
+      ]),
+      el("p", { class: "outliers-hint" }, [
+        edge.basis === undefined
+          ? networkMethodText(edge)
+          : `Strongest token: “${edge.basis}”. ${networkMethodText(edge)}`,
+      ]),
+    );
+    const dependency = this.dependencies?.pairs.find(
+      (pair) =>
+        (pair.determinantColumn === edge.aColumn && pair.dependentColumn === edge.bColumn) ||
+        (pair.determinantColumn === edge.bColumn && pair.dependentColumn === edge.aColumn),
+    );
+    if (dependency !== undefined) {
+      aside.append(
+        el("p", {}, [
+          `Functional dependency: ${dependency.determinantLabel} → ${
+            dependency.dependentLabel
+          } · ${
+            dependency.violations === 0
+              ? "fully consistent"
+              : `${dependency.violations.toLocaleString()} conflicting rows`
+          }.`,
+        ]),
+      );
+    }
+    if (network.sampled) {
+      aside.append(
+        el("p", { class: "outliers-hint" }, [
+          `Sampled ${network.analyzedRows.toLocaleString()} of ${network.totalRows.toLocaleString()} rows.`,
+        ]),
+      );
+    }
+    const close = el("button", { class: "ghost small", type: "button" }, ["Close"]);
+    close.addEventListener("click", () => {
+      this.selectedColumnEdge = null;
+      this.render();
+    });
+    aside.append(close);
+    return aside;
+  }
+
+  private buildTextLinkCards(network: ColumnNetworkMessage): HTMLElement {
+    const textNodes = network.nodes.filter((node) => node.role === "text");
+    const section = el("section", { class: "text-link-section" });
+    section.append(el("h4", {}, ["Text columns"]));
+    if (textNodes.length === 0) {
+      section.append(
+        el("p", { class: "outliers-hint" }, [
+          "No free-text columns were found; category columns appear in the matrix above.",
+        ]),
+      );
+      return section;
+    }
+    const grid = el("div", { class: "text-link-grid" });
+    for (const node of textNodes) {
+      const card = el("div", { class: "text-link-card" });
+      const canFocus = network.nodes.length <= COLUMN_NETWORK_NODE_LIMIT;
+      const title = el(
+        "button",
+        {
+          class: "text-link-title",
+          type: "button",
+          title: canFocus
+            ? `Focus “${node.label}” in the network`
+            : `Use the matrix for more than ${COLUMN_NETWORK_NODE_LIMIT} columns`,
+        },
+        [node.label],
+      ) as HTMLButtonElement;
+      title.disabled = !canFocus;
+      title.style.setProperty("--node-color", networkRoleColor("text"));
+      title.addEventListener("click", () => {
+        if (!canFocus) return;
+        this.columnNetworkFocus = node.column;
+        this.columnNetworkMode = "network";
+        this.render();
+      });
+      card.append(title);
+      const links = network.edges
+        .map((edge, index) => ({ edge, index }))
+        .filter(
+          ({ edge }) => edge.aColumn === node.column || edge.bColumn === node.column,
+        )
+        .sort((a, b) => Math.abs(b.edge.effect) - Math.abs(a.edge.effect))
+        .slice(0, 5);
+      if (links.length === 0) {
+        card.append(el("p", { class: "outliers-hint" }, ["No strong links at this scope."]));
+      } else {
+        const list = el("div", { class: "text-link-list" });
+        for (const { edge, index } of links) {
+          const other = edge.aColumn === node.column ? edge.bLabel : edge.aLabel;
+          const button = el(
+            "button",
+            {
+              class: `text-link${this.selectedColumnEdge === index ? " active" : ""}`,
+              type: "button",
+              title: matrixCellTitle(edge),
+            },
+            [
+              el("span", { class: "text-link-name" }, [other]),
+              el("span", { class: "text-link-method" }, [
+                `${RELATIONSHIP_LABELS[edge.method] ?? edge.method} ${edge.effect.toFixed(2)}`,
+              ]),
+            ],
+          ) as HTMLButtonElement;
+          button.addEventListener("click", () => {
+            this.selectedColumnEdge = index;
+            this.render();
+          });
+          list.append(button);
+        }
+        card.append(list);
+      }
+      grid.append(card);
+    }
+    section.append(grid);
+    return section;
+  }
+
+  private drawColumnNetwork(canvas: HTMLCanvasElement): void {
+    const network = this.columnNetwork;
+    if (network === null) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(COLUMN_NETWORK_WIDTH * dpr);
+    canvas.height = Math.round(COLUMN_NETWORK_HEIGHT * dpr);
+    const ctx = canvas.getContext("2d");
+    if (ctx === null) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    clearCanvas(ctx, COLUMN_NETWORK_WIDTH, COLUMN_NETWORK_HEIGHT);
+
+    const focus = this.columnNetworkFocus;
+    const visible = new Set<number>();
+    if (focus !== null && network.nodes.some((node) => node.column === focus)) {
+      visible.add(focus);
+      for (const edge of network.edges) {
+        if (edge.aColumn === focus) visible.add(edge.bColumn);
+        if (edge.bColumn === focus) visible.add(edge.aColumn);
+      }
+      for (const pair of this.dependencies?.pairs ?? []) {
+        if (pair.determinantColumn === focus) visible.add(pair.dependentColumn);
+        if (pair.dependentColumn === focus) visible.add(pair.determinantColumn);
+      }
+    } else {
+      for (const node of network.nodes) visible.add(node.column);
+    }
+    const entries = network.nodes.filter((node) => visible.has(node.column));
+    const centerX = COLUMN_NETWORK_WIDTH / 2;
+    const centerY = COLUMN_NETWORK_HEIGHT / 2;
+    const positions = new Map<number, { x: number; y: number }>();
+    if (focus !== null && visible.has(focus)) {
+      positions.set(focus, { x: centerX, y: centerY });
+      const rest = entries.filter((node) => node.column !== focus);
+      const radius = Math.min(centerX, centerY) - 58;
+      rest.forEach((node, index) => {
+        const angle = (index / Math.max(1, rest.length)) * Math.PI * 2 - Math.PI / 2;
+        positions.set(node.column, {
+          x: centerX + Math.cos(angle) * radius,
+          y: centerY + Math.sin(angle) * radius,
+        });
+      });
+    } else {
+      const radius = Math.min(centerX, centerY) - 48;
+      entries.forEach((node, index) => {
+        const angle = (index / Math.max(1, entries.length)) * Math.PI * 2 - Math.PI / 2;
+        positions.set(node.column, {
+          x: centerX + Math.cos(angle) * radius,
+          y: centerY + Math.sin(angle) * radius,
+        });
+      });
+    }
+
+    this.columnNetworkEdgeHits = [];
+    for (let index = 0; index < network.edges.length; index++) {
+      const edge = network.edges[index] as ColumnNetworkEdge;
+      if (!visible.has(edge.aColumn) || !visible.has(edge.bColumn)) continue;
+      const a = positions.get(edge.aColumn);
+      const b = positions.get(edge.bColumn);
+      if (a === undefined || b === undefined) continue;
+      this.columnNetworkEdgeHits.push({ a, b, index });
+      const strength = Math.min(1, Math.abs(edge.effect));
+      ctx.strokeStyle =
+        edge.method === "pearson" || edge.method === "spearman"
+          ? edge.effect >= 0
+            ? "#dc2626"
+            : "#2563eb"
+          : edge.method === "tokenOverlap"
+            ? "#0d9488"
+            : "#7c3aed";
+      ctx.globalAlpha = this.selectedColumnEdge === index ? 1 : 0.35 + strength * 0.4;
+      ctx.lineWidth = this.selectedColumnEdge === index ? 3.4 : 1 + strength * 2.4;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // Draw dependencies over associations so the dashed direction stays visible.
+    ctx.setLineDash([5, 4]);
+    ctx.strokeStyle = "#d97706";
+    ctx.fillStyle = "#d97706";
+    ctx.globalAlpha = 0.8;
+    ctx.lineWidth = 1.4;
+    for (const pair of this.dependencies?.pairs ?? []) {
+      if (!visible.has(pair.determinantColumn) || !visible.has(pair.dependentColumn)) continue;
+      const a = positions.get(pair.determinantColumn);
+      const b = positions.get(pair.dependentColumn);
+      if (a === undefined || b === undefined) continue;
+      drawNetworkArrow(ctx, a.x, a.y, b.x, b.y, 14);
+    }
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+
+    const drawn: {
+      x: number;
+      y: number;
+      column: number;
+      label: string;
+      role: "text" | "category" | "numeric";
+    }[] = [];
+    for (const node of entries) {
+      const position = positions.get(node.column);
+      if (position === undefined) continue;
+      drawn.push({ ...position, column: node.column, label: node.label, role: node.role });
+      const isFocus = focus === node.column;
+      ctx.beginPath();
+      ctx.arc(position.x, position.y, isFocus ? 11 : node.role === "text" ? 8 : 6, 0, Math.PI * 2);
+      ctx.fillStyle = networkRoleColor(node.role);
+      ctx.fill();
+      ctx.strokeStyle = isFocus ? cssVar("--text", "#1f2933") : cssVar("--panel", "#fff");
+      ctx.lineWidth = isFocus ? 3 : 1.5;
+      ctx.stroke();
+      ctx.font = `${isFocus ? "600 12px" : "11px"} system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      const label = networkNodeLabel(node.label);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = cssVar("--panel", "#fff");
+      ctx.strokeText(label, position.x, position.y + 22);
+      ctx.fillStyle = cssVar("--text", "#1f2933");
+      ctx.fillText(label, position.x, position.y + 22);
+    }
+    this.columnNetworkNodes = drawn;
+    ctx.textAlign = "left";
+  }
+
+  private clickColumnNetwork(event: MouseEvent): void {
+    const network = this.columnNetwork;
+    if (network === null) return;
+    const canvas = event.currentTarget as HTMLCanvasElement;
+    const rect = canvas.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / Math.max(1, rect.width)) * COLUMN_NETWORK_WIDTH;
+    const y = ((event.clientY - rect.top) / Math.max(1, rect.height)) * COLUMN_NETWORK_HEIGHT;
+    let nearestNode: { column: number; distance: number } | null = null;
+    for (const node of this.columnNetworkNodes) {
+      const distance = Math.hypot(x - node.x, y - node.y);
+      if (nearestNode === null || distance < nearestNode.distance) {
+        nearestNode = { column: node.column, distance };
+      }
+    }
+    if (nearestNode !== null && nearestNode.distance <= 20) {
+      this.columnNetworkFocus =
+        this.columnNetworkFocus === nearestNode.column ? null : nearestNode.column;
+      this.selectedColumnEdge = null;
+      this.render();
+      return;
+    }
+    let nearestEdge: { index: number; distance: number } | null = null;
+    for (const edge of this.columnNetworkEdgeHits) {
+      const distance = distanceToSegment(x, y, edge.a.x, edge.a.y, edge.b.x, edge.b.y);
+      if (nearestEdge === null || distance < nearestEdge.distance) {
+        nearestEdge = { index: edge.index, distance };
+      }
+    }
+    if (nearestEdge !== null && nearestEdge.distance <= 8) {
+      this.selectedColumnEdge = nearestEdge.index;
+      this.render();
+      return;
+    }
+    if (this.columnNetworkFocus !== null) {
+      this.columnNetworkFocus = null;
+      this.render();
+    }
   }
 
   private buildRelationshipInsights(

@@ -243,7 +243,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     id: "outliers",
     title: "Outliers and relationships",
     summary:
-      "A visual anomaly dashboard: quick scans, Deep compute, method agreement and column relationships.",
+      "A visual anomaly dashboard: quick scans, Deep compute, method agreement and a text-aware column network.",
     blocks: [
       p(
         "The Outliers and Relationships lenses are separate top-level pages. Outliers studies the current rows (or the whole dataset) without changing them. Pick two or more numeric features, choose how much of the data to flag, then run a quick scan. A quick scan targets a few seconds; the brain button runs Deep compute with more trees, a larger sample or more neighbours and is aimed at 10–30 seconds. Quick results stay visible while Deep compute runs, and either path reports scope, analysed rows, excluded rows, sampling and elapsed time.",
@@ -253,7 +253,9 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "The anomaly landscape plots a sampled 2-D projection: orange points are flagged. Hover a point for its row, click a ranked row for every value and the reasons behind its score.",
         "The score distribution marks the threshold; Compare methods fills the agreement chart so you can see rows found by two or more methods.",
         "Value outliers reuse the robust single-column fences; Group-relative finds values unusual next to their category peers. Rare categories, unexpected formats and overlong values are listed below as text-friendly coverage.",
-        "The Relationships tab shows a Pearson heatmap, ranked Pearson/Spearman/Cramér's V/η² associations, functional-dependency links and an explain-a-column narrative. Click an association or a dependency edge for detail.",
+        "The Relationships page leads with a column network: a matrix of every selected column, including free text. Text ↔ text uses row-level token overlap; text ↔ category/number uses the text's top values + Other for short repeating text, or the strongest token presence for free text. Switch to Network for a node-link view and click a text column to focus its neighbourhood. Text cards below list each text column's strongest links.",
+        "Below the column network are the Pearson heatmap, ranked Pearson/Spearman/Cramér's V/η² associations, functional-dependency links and an explain-a-column narrative. Click a matrix cell, text link, association or dependency edge for detail.",
+        "The column network uses at most 6 text, 6 category and 8 numeric columns, and samples up to 20,000 rows for the analysis. Sampling and analysed-row counts are stated above the matrix.",
         "Show flagged rows turns the last analysis into a normal table filter; Clear outlier filter removes it. Missing values are excluded from the matrix and counted explicitly, never imputed silently.",
       ),
       note(

@@ -43,6 +43,7 @@ import type {
   LoadedMessage,
   MissingnessMessage,
   ProgressMessage,
+  ColumnNetworkMessage,
   RelationshipsMessage,
   ResultsMessage,
   RowsMessage,
@@ -321,6 +322,10 @@ export class SearchWorkerClient {
 
   getRelationships(respectFilters = true): Promise<RelationshipsMessage> {
     return this.request<RelationshipsMessage>({ type: "getRelationships", respectFilters });
+  }
+
+  getColumnNetwork(respectFilters = true): Promise<ColumnNetworkMessage> {
+    return this.request<ColumnNetworkMessage>({ type: "getColumnNetwork", respectFilters });
   }
 
   getTextProfile(

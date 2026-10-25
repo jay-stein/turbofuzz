@@ -4,6 +4,7 @@ import type { PivotDef, PivotResult } from "../data/pivot.js";
 import type { PairOperator } from "../data/pair-checks.js";
 import type { DependencyPair } from "../data/dependencies.js";
 import type { GroupAnomalyPair } from "../data/group-anomalies.js";
+import type { ColumnNetworkResult } from "../data/column-network.js";
 import type { RelationshipData } from "../data/relationships.js";
 import type { TextProfile } from "../data/text-profile.js";
 import type { DistributionChange } from "../data/distribution.js";
@@ -637,6 +638,19 @@ export interface RelationshipsMessage {
   ms: number;
 }
 
+export type GetColumnNetworkRequest = {
+  type: "getColumnNetwork";
+  requestId: number;
+  /** Analyse the current rows (default true) or the whole dataset. */
+  respectFilters?: boolean;
+};
+
+export interface ColumnNetworkMessage extends ColumnNetworkResult {
+  type: "columnNetwork";
+  requestId: number;
+  ms: number;
+}
+
 export type GetTextProfileRequest = {
   type: "getTextProfile";
   requestId: number;
@@ -830,6 +844,7 @@ export type WorkerRequest =
   | GetOutlierAnalysisRequest
   | GetDependenciesRequest
   | GetRelationshipsRequest
+  | GetColumnNetworkRequest
   | GetTextProfileRequest
   | GetDistributionChangesRequest
   | GetSimilarClustersRequest
@@ -1064,6 +1079,7 @@ export type WorkerResponse =
   | OutlierAnalysisMessage
   | DependenciesMessage
   | RelationshipsMessage
+  | ColumnNetworkMessage
   | TextProfileMessage
   | DistributionChangesMessage
   | SimilarClustersMessage

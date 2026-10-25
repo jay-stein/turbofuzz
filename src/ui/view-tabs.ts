@@ -45,7 +45,7 @@ const LABELS: Record<ViewId, { label: string; title: string }> = {
   },
   relationships: {
     label: "Relationships",
-    title: "How columns move together: correlations, associations and dependencies",
+    title: "How columns — including text — move together: correlations, associations and dependencies",
   },
 };
 

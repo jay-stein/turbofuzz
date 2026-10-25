@@ -3382,6 +3382,8 @@ export class App {
         this.client.getDependencies(respectFilters).catch(() => null),
       requestRelationships: (respectFilters) =>
         this.client.getRelationships(respectFilters).catch(() => null),
+      requestColumnNetwork: (respectFilters) =>
+        this.client.getColumnNetwork(respectFilters).catch(() => null),
       requestSimilarClusters: () => this.client.getSimilarClusters().catch(() => null),
       onShowOutliers: () => {
         if (!this.specials.has("outliers")) this.toggleSpecial("outliers");

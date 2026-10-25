@@ -157,6 +157,64 @@ function buildPanel(
           },
         ],
       }),
+    requestColumnNetwork: () =>
+      Promise.resolve({
+        type: "columnNetwork",
+        requestId: 7,
+        ms: 1,
+        analyzedRows: 100,
+        totalRows: 100,
+        sampled: false,
+        nodes: [
+          { column: 0, label: "amount", type: "number", role: "numeric" },
+          { column: 1, label: "score", type: "number", role: "numeric" },
+          { column: 2, label: "region", type: "category", role: "category" },
+          { column: 3, label: "notes", type: "string", role: "text" },
+          { column: 4, label: "message", type: "string", role: "text" },
+        ],
+        edges: [
+          {
+            aColumn: 0,
+            bColumn: 1,
+            aLabel: "amount",
+            bLabel: "score",
+            method: "pearson",
+            effect: 0.62,
+            n: 100,
+          },
+          {
+            aColumn: 3,
+            bColumn: 0,
+            aLabel: "notes",
+            bLabel: "amount",
+            method: "eta2",
+            effect: 0.71,
+            n: 100,
+            groups: 2,
+            basis: "urgent",
+          },
+          {
+            aColumn: 3,
+            bColumn: 2,
+            aLabel: "notes",
+            bLabel: "region",
+            method: "cramersV",
+            effect: 0.8,
+            n: 100,
+            groups: 2,
+            basis: "urgent",
+          },
+          {
+            aColumn: 3,
+            bColumn: 4,
+            aLabel: "notes",
+            bLabel: "message",
+            method: "tokenOverlap",
+            effect: 0.42,
+            n: 100,
+          },
+        ],
+      }),
     requestDependencies: () =>
       Promise.resolve({
         type: "dependencies",
@@ -312,4 +370,36 @@ test("the relationships page renders a heatmap, ranked associations and dependen
   assert.ok(host.querySelector(".outliers-network-canvas") !== null);
   assert.ok(host.querySelectorAll(".outliers-dependency").length >= 1);
   assert.match(host.textContent ?? "", /Correlation heatmap/);
+});
+
+test("the column network shows text links, detail and an ego focus", async () => {
+  const { host } = buildPanel(() => {}, "relationships");
+  await tick();
+  await tick();
+  await tick();
+  await tick();
+
+  assert.ok(host.querySelector(".column-matrix") !== null);
+  assert.ok(host.querySelector(".column-matrix-label.role-text") !== null);
+  assert.match(host.textContent ?? "", /Text columns/);
+
+  const notesCard = [...host.querySelectorAll(".text-link-card")].find((card) =>
+    (card.textContent ?? "").includes("notes"),
+  );
+  assert.ok(notesCard !== undefined);
+  const amountLink = [...notesCard.querySelectorAll(".text-link")].find((link) =>
+    (link.textContent ?? "").includes("amount"),
+  ) as HTMLButtonElement | undefined;
+  assert.ok(amountLink !== undefined);
+  amountLink.click();
+  assert.match(host.querySelector(".column-network-detail")?.textContent ?? "", /η²/);
+  assert.match(
+    host.querySelector(".column-network-detail")?.textContent ?? "",
+    /Strongest token: “urgent”/,
+  );
+
+  const textLabel = host.querySelector(".column-matrix-label.role-text") as HTMLButtonElement;
+  textLabel.click();
+  assert.ok(host.querySelector(".column-network-canvas") !== null);
+  assert.match(host.querySelector(".column-network-focus")?.textContent ?? "", /notes/);
 });

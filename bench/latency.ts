@@ -4,6 +4,7 @@ import { computeAggregate, type ViewDef } from "../src/data/aggregate.js";
 import { buildDataset, rebuildDataset } from "../src/data/build.js";
 import { applyCleanOps } from "../src/data/clean-ops.js";
 import { ColumnData } from "../src/data/column.js";
+import { computeColumnNetwork } from "../src/data/column-network.js";
 import { computeRelationships } from "../src/data/relationships.js";
 import { textProfile } from "../src/data/text-profile.js";
 import { computeDistributionChanges } from "../src/data/distribution.js";
@@ -143,6 +144,13 @@ function casesFor(size: number): { cases: BenchCase[]; buildMs: number; rssMB: n
         budgetMs: 750,
         run: () => {
           computeRelationships(dataset.columns, dataset.rowCount, allIds);
+        },
+      },
+      {
+        label: "Column network: text-aware associations (lazy)",
+        budgetMs: 750,
+        run: () => {
+          computeColumnNetwork(dataset.columns, allIds, dataset.rowCount);
         },
       },
       {

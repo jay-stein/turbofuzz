@@ -159,6 +159,42 @@ test("a view chip ignores other filters", async ({ page }) => {
   expect(consoleErrors).toEqual([]);
 });
 
+test("relationships compare text columns with other columns", async ({ page }) => {
+  const { consoleErrors, pageErrors } = collectErrors(page);
+  const lines = ["customer_id,amount,region,notes,message"];
+  for (let row = 0; row < 120; row++) {
+    const first = row < 60;
+    lines.push(
+      `${row + 1},${first ? 10 + (row % 5) : 100 + (row % 5)},${first ? "A" : "B"},${
+        first ? `urgent delivery ref ${row}` : `routine pickup ref ${row}`
+      },${first ? `delivery customer ${row}` : `pickup customer ${row}`}`,
+    );
+  }
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "text-network.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(lines.join("\n")),
+  });
+  await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("tab", { name: "Relationships" }).click();
+
+  await expect(page.locator(".column-matrix")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".column-matrix-label.role-text").first()).toContainText("notes");
+  const notesCard = page.locator(".text-link-card").filter({
+    has: page.getByRole("button", { name: "notes", exact: true }),
+  });
+  await notesCard.locator(".text-link", { hasText: "amount" }).click();
+  await expect(page.locator(".column-network-detail")).toContainText("η²");
+  await expect(page.locator(".column-network-detail")).toContainText("Strongest token");
+
+  await page.locator(".column-matrix-label.role-text").first().click();
+  await expect(page.locator(".column-network-canvas")).toBeVisible();
+  await expect(page.locator(".column-network-focus")).toContainText("notes");
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
 test("chart builder adds a barplot and exposes its summary", async ({ page }) => {
   const { consoleErrors, pageErrors } = collectErrors(page);
   await page.goto("/");
