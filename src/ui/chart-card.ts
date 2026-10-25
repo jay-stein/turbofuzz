@@ -1543,9 +1543,9 @@ export class ChartCard {
         type: "button",
         title: "Show or hide chart settings",
         "aria-label": "Show or hide chart settings",
-        "aria-expanded": "false",
+        "aria-expanded": "true",
       },
-      ["⇥ Settings"],
+      ["⇤ Settings"],
     ) as HTMLButtonElement;
     this.sidebarToggle.addEventListener("click", () => this.toggleSidebar());
     head.prepend(this.sidebarToggle);
@@ -2450,9 +2450,8 @@ export class ChartCard {
   }
 
   /**
-   * The sidebar shows by default in a one-per-row grid and starts hidden in
-   * denser grids (CSS decides); the first click flips whichever it is, after
-   * which the choice is explicit.
+   * The sidebar shows by default; the first click flips whatever is showing,
+   * after which the choice is explicit. Narrow cards stack it above the chart.
    */
   private toggleSidebar(): void {
     const shown =

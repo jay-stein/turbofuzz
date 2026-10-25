@@ -7871,15 +7871,6 @@ label.null-row {
   }
 }
 
-/* Dense grids start with the settings hidden; the toggle opens them. */
-.charts-grid:not([data-cols="1"]) .chart-card-layout:not(.sidebar-open) {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.charts-grid:not([data-cols="1"]) .chart-card-layout:not(.sidebar-open) > .chart-sidebar {
-  display: none;
-}
-
 .chart-card-layout.sidebar-open > .chart-sidebar {
   display: flex;
 }
@@ -7997,4 +7988,11 @@ label.null-row {
 
 .views-pill.add.views-zone-add:hover {
   background: var(--panel);
+}
+
+/* Narrow cards (dense grids) keep the settings behind the toggle so the chart stays in view. */
+@container (max-width: 640px) {
+  .chart-card-layout:not(.sidebar-open) > .chart-sidebar {
+    display: none;
+  }
 }

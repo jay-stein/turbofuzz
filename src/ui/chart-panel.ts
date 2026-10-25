@@ -146,7 +146,7 @@ export interface ChartsPanelOptions {
 }
 
 const LAYOUT_KEY = "turbofuzz.charts.columns";
-const DEFAULT_LAYOUT = 2;
+const DEFAULT_LAYOUT = 1;
 
 /** A card config with column references stored by name, for transform safety. */
 export interface NamedChartCardConfig
