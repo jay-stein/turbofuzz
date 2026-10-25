@@ -4,3 +4,6 @@ dist/
 .DS_Store
 test-results/
 playwright-report/
+
+# Reference screenshots from other products; never commit.
+claude_reviews/snowflake_ui/
