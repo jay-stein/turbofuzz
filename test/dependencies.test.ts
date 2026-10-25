@@ -31,6 +31,30 @@ test("computeDependencies finds what a key determines and counts conflicts", () 
   assert.equal(city?.violations, 0);
 });
 
+test("computeDependencies follows an explicit row subset", () => {
+  const dataset = buildDataset(
+    "subset",
+    ["station id", "station name"],
+    [
+      ["A", "Alpha"],
+      ["A", "Alpha"],
+      ["B", "Beta"],
+      ["B", "Beta"],
+      ["C", "Gamma"],
+    ],
+  );
+  const all = computeDependencies(dataset.columns, 5);
+  assert.ok(all.some((pair) => pair.violations === 0));
+  const subset = computeDependencies(
+    dataset.columns,
+    5,
+    {},
+    Uint32Array.from([0, 2]),
+  );
+  assert.equal(subset[0]?.rows, 2, "only the supplied rows are counted");
+  assert.equal(subset[0]?.violations, 0);
+});
+
 test("dependencyFindings distinguishes clean keys from broken mappings", () => {
   const findings = dependencyFindings([
     {

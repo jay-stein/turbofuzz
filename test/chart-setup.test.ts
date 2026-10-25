@@ -64,6 +64,43 @@ test("the add-chart dialog confirms the columns before adding", async () => {
   assert.equal(document.querySelector(".chart-setup-modal"), null, "the dialog closes");
 });
 
+test("treemap setup accepts text groups, a measure and an aggregation", async () => {
+  setupDom();
+  const columns = [
+    meta("description", "string"),
+    meta("population", "number"),
+    meta("country", "category"),
+  ];
+  columns[0]!.stats.distinct = 500;
+  const pending = openChartSetupDialog("treemap", columns, { kind: "treemap", column: 0 });
+  const modal = document.querySelector(".chart-setup-modal");
+  assert.ok(modal !== null);
+  const group = document.querySelector('select[aria-label="Setup group column"]') as HTMLSelectElement;
+  const size = document.querySelector('select[aria-label="Setup size measure"]') as HTMLSelectElement;
+  const agg = document.querySelector(
+    'select[aria-label="Setup treemap aggregation"]',
+  ) as HTMLSelectElement;
+  assert.ok([...group.options].some((option) => option.textContent === "description"));
+  assert.equal(group.value, "0");
+  assert.equal(size.value, "-1", "count of rows is the default measure");
+  assert.equal(agg.disabled, true);
+  size.value = "1";
+  size.dispatchEvent(new window.Event("change") as unknown as Event);
+  assert.equal(agg.disabled, false);
+  assert.equal(agg.value, "sum", "a numeric measure defaults to sum");
+  agg.value = "mean";
+  agg.dispatchEvent(new window.Event("change") as unknown as Event);
+  (modal.querySelector(".primary") as unknown as { click(): void }).click();
+  const config = await pending;
+  assert.deepEqual(config, {
+    kind: "treemap",
+    column: 0,
+    valueColumn: 1,
+    valueAgg: "mean",
+    sizeColumn: -1,
+  });
+});
+
 test("cancelling the add-chart dialog resolves null", async () => {
   setupDom();
   const pending = openChartSetupDialog("bar", [meta("city", "category")], { kind: "bar", column: 0 });

@@ -60,6 +60,38 @@ test("batch type conversion updates the column type", async ({ page }) => {
   expect(consoleErrors).toEqual([]);
 });
 
+test("outliers lens runs a quick scan and shows the anomaly landscape", async ({ page }) => {
+  const { consoleErrors, pageErrors } = collectErrors(page);
+  const lines = ["a,b,c"];
+  for (let row = 0; row < 120; row++) {
+    lines.push(
+      row === 61
+        ? "900,1500,-700"
+        : `${row * 0.5},${row * 1.2 + 2},${row * -0.4 + 3}`,
+    );
+  }
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "outliers.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(lines.join("\n")),
+  });
+  await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("tab", { name: "Outliers" }).click();
+  await expect(page.locator(".outliers-panel")).toBeVisible();
+  await page.getByRole("button", { name: "Run quick scan" }).click();
+  await expect(page.locator(".outliers-landscape-canvas")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".outliers-recipe")).toContainText("Isolation Forest");
+  await expect(page.locator(".outliers-row").first()).toBeVisible();
+  await page.locator(".outliers-insight.clickable").first().click();
+  await expect(page.getByRole("tab", { name: "Table" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
 test("chart builder adds a barplot and exposes its summary", async ({ page }) => {
   const { consoleErrors, pageErrors } = collectErrors(page);
   await page.goto("/");

@@ -1,10 +1,10 @@
 import type { MissingnessMessage } from "../worker/protocol.js";
 import { hexToRgb } from "./chart-utils.js";
-import { clear, el } from "./dom.js";
+import { el } from "./dom.js";
 
 /** Matrix height grows with the number of row blocks, capped like a figure. */
 const MATRIX_MIN_HEIGHT = 96;
-const MATRIX_MAX_HEIGHT = 320;
+const MATRIX_MAX_HEIGHT = 420;
 const BUCKET_HEIGHT = 1.4;
 const LABEL_HEIGHT = 14;
 const SPARK_GAP = 8;
@@ -152,8 +152,6 @@ export class MissingnessChart {
   private readonly canvas: HTMLCanvasElement;
   private readonly caption: HTMLElement;
   private readonly summary: HTMLElement;
-  private readonly bars: HTMLElement;
-  private readonly mapToggle: HTMLButtonElement;
   private readonly tooltip: HTMLElement;
   private message: MissingnessMessage | null = null;
   private profile: NullityProfile | null = null;
@@ -163,29 +161,13 @@ export class MissingnessChart {
   private observer: ResizeObserver | null = null;
   private queued = false;
   private disposed = false;
-  /** A near-complete dataset starts collapsed to one line plus ranked bars. */
-  private collapsible = false;
-  private expanded = true;
 
   constructor(root: HTMLElement) {
     this.root = root;
     root.classList.add("overview-section", "missingness-section");
     const head = el("div", { class: "overview-heading-row" });
     head.append(el("h2", { class: "overview-heading" }, ["Missing values"]));
-    this.mapToggle = el(
-      "button",
-      { class: "ghost small", type: "button" },
-      ["Show map"],
-    ) as HTMLButtonElement;
-    this.mapToggle.classList.add("hidden");
-    this.mapToggle.addEventListener("click", () => {
-      this.expanded = !this.expanded;
-      this.syncCollapsed();
-      this.schedule();
-    });
-    head.append(this.mapToggle);
     this.summary = el("div", { class: "missingness-summary" });
-    this.bars = el("div", { class: "missingness-bars hidden" });
     const wrap = el("div", { class: "missingness-wrap" });
     this.wrap = wrap;
     this.canvas = el("canvas", {
@@ -203,7 +185,7 @@ export class MissingnessChart {
     this.canvas.addEventListener("pointerleave", () => this.clearHover());
     wrap.append(this.canvas, this.tooltip);
     this.caption = el("div", { class: "missingness-caption" }, [""]);
-    root.append(head, this.summary, this.bars, wrap, this.caption);
+    root.append(head, this.summary, wrap, this.caption);
     if (typeof ResizeObserver !== "undefined") {
       this.observer = new ResizeObserver(() => this.schedule());
       this.observer.observe(wrap);
@@ -225,21 +207,14 @@ export class MissingnessChart {
     const affected = this.affectedColumns(message);
 
     let totalMissing = 0;
-    const columnTotals = new Float64Array(message.columns);
     for (let bucket = 0; bucket < message.buckets; bucket++) {
       for (let column = 0; column < message.columns; column++) {
-        const value = message.cells[bucket * message.columns + column] ?? 0;
-        columnTotals[column] += value;
-        totalMissing += value;
+        totalMissing += message.cells[bucket * message.columns + column] ?? 0;
       }
     }
     const totalCells = message.columns * message.totalRows;
     const complete = totalCells === 0 ? 1 : 1 - totalMissing / totalCells;
-    // When the data is essentially complete the full matrix is a wall of one
-    // colour; one line plus the few ranked bars carries the same information.
-    this.collapsible = affected > 0 && complete >= 0.99;
-    this.expanded = !this.collapsible;
-    this.renderSummary(complete, totalMissing, affected, columnTotals);
+    this.renderSummary(complete, totalMissing, affected);
 
     const parts = [
       `${message.columns.toLocaleString()} columns × ${message.totalRows.toLocaleString()} rows`,
@@ -268,17 +243,12 @@ export class MissingnessChart {
             ? `; 1 column has missing values${worst}`
             : `; ${affected} columns have missing values${worst}`),
     );
-    this.syncCollapsed();
+    this.syncVisible();
     this.schedule();
   }
 
-  /** One-line completeness plus the ranked bars shown in the collapsed state. */
-  private renderSummary(
-    complete: number,
-    totalMissing: number,
-    affected: number,
-    columnTotals: Float64Array,
-  ): void {
+  /** One-line completeness; the map itself is shown whenever cells are missing. */
+  private renderSummary(complete: number, totalMissing: number, affected: number): void {
     const message = this.message;
     if (message === null) return;
     const pct = complete >= 0.99995 ? "100%" : `${(complete * 100).toFixed(1)}%`;
@@ -288,51 +258,19 @@ export class MissingnessChart {
         : `${pct} complete · ${totalMissing.toLocaleString()} missing ${
             totalMissing === 1 ? "cell" : "cells"
           } in ${affected.toLocaleString()} of ${message.columns.toLocaleString()} columns`;
-
-    clear(this.bars);
-    if (!this.collapsible) return;
-    const ranked = message.columnNames
-      .map((name, index) => ({
-        name: name ?? `Column ${index + 1}`,
-        count: columnTotals[index] ?? 0,
-      }))
-      .filter((entry) => entry.count > 0)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 6);
-    const max = ranked[0]?.count ?? 1;
-    for (const entry of ranked) {
-      const row = el("div", { class: "missingness-bar-row" });
-      row.title = `${entry.name}: ${entry.count.toLocaleString()} missing ${
-        entry.count === 1 ? "cell" : "cells"
-      }`;
-      const track = el("span", { class: "missingness-bar" });
-      const fill = el("span", { class: "missingness-bar-fill" });
-      fill.style.width = `${Math.max(2, (entry.count / max) * 100)}%`;
-      track.append(fill);
-      row.append(
-        el("span", { class: "missingness-bar-name", title: entry.name }, [entry.name]),
-        track,
-        el("span", { class: "missingness-bar-count" }, [entry.count.toLocaleString()]),
-      );
-      this.bars.append(row);
-    }
-    if (ranked.length < message.columnNames.length) {
-      this.bars.append(
-        el("div", { class: "missingness-bar-more" }, [
-          `${(message.columnNames.length - ranked.length).toLocaleString()} other columns are complete`,
-        ]),
-      );
-    }
   }
 
-  private syncCollapsed(): void {
-    const showMap = !this.collapsible || this.expanded;
+  /** The map is always expanded; hide it only when there is nothing to show. */
+  private syncVisible(): void {
+    const showMap = this.message !== null && this.message.totalRows > 0 && this.hasMissing();
     this.wrap.classList.toggle("hidden", !showMap);
     this.caption.classList.toggle("hidden", !showMap);
-    this.bars.classList.toggle("hidden", !(this.collapsible && !this.expanded));
-    this.mapToggle.classList.toggle("hidden", !this.collapsible);
-    this.mapToggle.textContent = this.expanded ? "Hide map" : "Show map";
     if (!showMap) this.clearHover();
+  }
+
+  private hasMissing(): boolean {
+    const affected = this.message === null ? 0 : this.affectedColumns(this.message);
+    return affected > 0;
   }
 
   dispose(): void {

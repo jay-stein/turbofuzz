@@ -15,9 +15,11 @@ export class Dataset {
   readonly patternProfiles: (PatternProfile | null)[];
   /** Off-pattern bits per column, ready for the "pattern" column special. */
   readonly patternColumnBits: (BitSet | null)[];
-  /** Group-relative anomaly bits, computed lazily by the Reports lens. */
+  /** Group-relative anomaly bits, computed lazily by the Outliers lens. */
   groupColumnBits: (BitSet | null)[] = [];
   groupAnomalyBits: BitSet | null = null;
+  /** Multivariate outlier bits from the Outliers lens (last method run). */
+  outlierBits: BitSet | null = null;
   /** Composite-key duplicate bits, set by the palette's keydup check. */
   keyDuplicateBits: BitSet | null = null;
   /** Pair-check violation bits, set by the inspector's compare check. */

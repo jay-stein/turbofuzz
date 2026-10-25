@@ -13,7 +13,7 @@ import type {
   TransformedMessage,
 } from "../worker/protocol.js";
 import { isCategoryType, isNumericType } from "./chart-utils.js";
-import { clear, el } from "./dom.js";
+import { clear, el, svgIcon } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
 import { MissingnessChart } from "./missingness.js";
 import { buildColumnCard } from "./summary-band.js";
@@ -80,6 +80,9 @@ export interface DatasetSourceInfo {
 }
 
 const VIEW_DEFAULT_KEY = "turbofuzz.view.default";
+
+const STATS_ICON =
+  '<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/><path d="M10 12v6"/><path d="M13 10v8"/><path d="M16 14v4"/>';
 
 export function readDefaultView(): "overview" | "table" {
   try {
@@ -480,15 +483,15 @@ export class Overview {
     const datasetLine = this.buildDatasetLine(loaded, source);
     datasetLine.append(this.buildArchetypeLine(guesses, chosen));
 
-    // Next steps lead: they are the most actionable thing on the screen, and
-    // the missingness map (the largest element) now follows them.
+    // Next steps lead: they are the most actionable thing on the screen. The
+    // missingness map closes the page so it is the last thing the eye meets.
     this.root.append(
       datasetLine,
       this.buildHealthTiles(loaded.columns, loaded.stats),
       this.buildNextSteps(loaded),
-      this.buildMissingness(),
       this.buildColumns(loaded),
       this.buildActions(),
+      this.buildMissingness(),
     );
   }
 
@@ -586,6 +589,18 @@ export class Overview {
     } else if (loaded.encoding === "windows-1252") {
       line.append(el("span", { class: "overview-badge" }, ["windows-1252"]));
     }
+    const stats = el(
+      "button",
+      {
+        class: "primary small stats-report-button",
+        type: "button",
+        title: "Open the per-column stats report",
+      },
+      [svgIcon(STATS_ICON, "stats-report-icon"), "Stats report"],
+    ) as HTMLButtonElement;
+    stats.addEventListener("click", () => this.callbacks.onOpenStats());
+    line.append(stats);
+
     const types = typeMix(loaded.columns);
     if (types !== "") {
       line.append(el("div", { class: "overview-types" }, [types]));
@@ -692,14 +707,7 @@ export class Overview {
     );
     remember.append(checkbox, "Open in Table next time");
 
-    const stats = el(
-      "button",
-      { class: "link stats-link", type: "button" },
-      ["Stats Report"],
-    ) as HTMLButtonElement;
-    stats.addEventListener("click", () => this.callbacks.onOpenStats());
-
-    row.append(explore, remember, el("span", { class: "grow" }), stats);
+    row.append(explore, remember);
     return row;
   }
 

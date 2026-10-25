@@ -58,7 +58,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Open “Enter a command” in the toolbar or press Ctrl/⌘+K. Start typing to filter suggestions, use the arrow keys to choose, and Enter to run. Data-changing commands ask for confirmation and land in Recipe.",
       ),
       list(
-        "Navigation — overview, table, pivot view, reports, quality, chart, help.",
+        "Navigation — overview, table, pivot view, outliers, quality, chart, help.",
         "Columns — rename notes memo · type amount number · drop notes · dropempty · merge region · headercase snake.",
         "Clean — upper/lower/title/trim (or “all”), number, date, datetime, repair, replace notes \"old\" with \"new\", escape.",
         "Transform — round amount 2 · fill amount median · knn amount 5 · split notes on , · splitregex notes on \\d+ · group region sum amount · dedupe last · melt keep region, year · combine dates · winsorize amount 1 · flag amount.",
@@ -236,6 +236,28 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Colours: choose a ColourBrewer/matplotlib colour map (qualitative, sequential, diverging, or a custom hex list) — the default Set1 applies to multi-series charts immediately; single-series charts use the palette's first colour until you pick a swatch or type a hex code.",
         "Title: defaults to “source — column” with the type, rows shown and distinct count underneath; type your own title to override it.",
         "Export PNG per card at 1280×720, 1920×1080 (default) or 2560×1440; charts are drawn in logical coordinates so every size keeps the same 16:9 layout.",
+      ),
+    ],
+  },
+  {
+    id: "outliers",
+    title: "Outliers and relationships",
+    summary:
+      "A visual anomaly dashboard: quick scans, Deep compute, method agreement and column relationships.",
+    blocks: [
+      p(
+        "The Outliers lens studies the current rows (or the whole dataset) without changing them. Pick two or more numeric features, choose how much of the data to flag, then run a quick scan. A quick scan targets a few seconds; the brain button runs Deep compute with more trees, a larger sample or more neighbours and is aimed at 10–30 seconds. Quick results stay visible while Deep compute runs, and either path reports scope, analysed rows, excluded rows, sampling and elapsed time.",
+      ),
+      list(
+        "Isolation Forest finds global multivariate anomalies. PCA reconstruction finds rows that break the linear correlations between metrics. LOF finds local anomalies where a row is unlike its own neighbourhood, and projects to six components when there are more than ten features.",
+        "The anomaly landscape plots a sampled 2-D projection: orange points are flagged. Hover a point for its row, click a ranked row for every value and the reasons behind its score.",
+        "The score distribution marks the threshold; Compare methods fills the agreement chart so you can see rows found by two or more methods.",
+        "Value outliers reuse the robust single-column fences; Group-relative finds values unusual next to their category peers. Rare categories, unexpected formats and overlong values are listed below as text-friendly coverage.",
+        "The Relationships tab shows a Pearson heatmap, ranked Pearson/Spearman/Cramér's V/η² associations, functional-dependency links and an explain-a-column narrative. Click an association or a dependency edge for detail.",
+        "Show flagged rows turns the last analysis into a normal table filter; Clear outlier filter removes it. Missing values are excluded from the matrix and counted explicitly, never imputed silently.",
+      ),
+      note(
+        "No network request is made: the analysis runs in the worker from the loaded data. Results are deterministic for the same rows, features, threshold and seed.",
       ),
     ],
   },

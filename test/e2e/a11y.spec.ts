@@ -23,6 +23,8 @@ test("core surfaces expose accessible names and focusable controls", async ({ pa
   await dialog.getByRole("button", { name: "Cancel" }).click();
 
   await page.getByRole("tab", { name: "Chart" }).click();
+  await page.locator('.charts-rail-tile[aria-disabled="false"]').first().click();
+  await page.locator(".chart-setup-modal .primary").click();
   const canvas = page.locator(".chart-card canvas").first();
   await expect(canvas).toHaveAttribute("role", "img");
   await expect(canvas).toHaveAttribute("aria-label", /rows shown/);

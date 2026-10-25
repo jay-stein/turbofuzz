@@ -148,7 +148,11 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
   { name: "chart", aliases: ["plot"], hint: "Open Chart, or add a chart for a column — “chart region”" },
   { name: "table", aliases: [], hint: "Open the Table lens" },
   { name: "overview", aliases: [], hint: "Open the Overview lens" },
-  { name: "reports", aliases: ["report"], hint: "Open the Reports lens" },
+  {
+    name: "outliers",
+    aliases: ["outlier", "anomalies"],
+    hint: "Open the Outliers lens — anomaly landscape and relationships",
+  },
   { name: "shuffle", aliases: ["randomise", "randomize"], hint: "Show every row in a random order" },
   { name: "copy", aliases: ["copy rows"], hint: "Copy the filtered rows as CSV" },
   { name: "tiles", aliases: ["info tiles"], hint: "Toggle the column summary strip above the table" },
@@ -998,8 +1002,8 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
       return { kind: "openView", view: "table", label: "Opened Table" };
     case "overview":
       return { kind: "openView", view: "overview", label: "Opened Overview" };
-    case "reports":
-      return { kind: "openView", view: "reports", label: "Opened Reports" };
+    case "outliers":
+      return { kind: "openView", view: "outliers", label: "Opened Outliers" };
     case "shuffle":
       return { kind: "shuffle", label: "Shuffled the rows" };
     case "copy":

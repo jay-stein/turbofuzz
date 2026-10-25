@@ -59,7 +59,8 @@ test("loads a small CSV and shows columns and rows", async ({ page }, testInfo) 
 
   await page.getByRole("tab", { name: "Chart" }).click();
   await expect(page.locator(".charts-panel")).toBeVisible();
-  await expect(page.locator(".chart-card").first()).toBeVisible();
+  await expect(page.locator(".charts-empty-title")).toContainText("No charts yet");
+  await expect(page.locator(".chart-card")).toHaveCount(0);
 
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);

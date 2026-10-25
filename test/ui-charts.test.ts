@@ -528,6 +528,7 @@ test("chart cards draw scatter points and density grids", async () => {
   ]);
   panel.setFiltered({}, {});
   panel.setRowCount(10);
+  panel.addCard({ kind: "scatter", x: 0, y: 1 });
   await tick();
 
   const kind = host.querySelector<HTMLSelectElement>(".chart-kind");
@@ -636,7 +637,8 @@ test("charts panel adds, duplicates and removes independent cards", async () => 
   panel.setRowCount(10);
   await tick();
 
-  assert.equal(host.querySelectorAll(".chart-card").length, 1);
+  assert.equal(host.querySelectorAll(".chart-card").length, 0, "no chart is preloaded");
+  panel.addCard({ kind: "bar", column: 2 });
 
   const buttons = [...host.querySelectorAll("button")];
   const add = buttons.find((button) => button.textContent?.includes("Add chart"));
@@ -928,6 +930,50 @@ test("a card with nothing to draw explains itself inside the plot", async () => 
   card.dispose();
 });
 
+test("chart settings close on outside click or Escape and only one stays open", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  panel.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+    meta({ name: "amount", type: "number" }),
+  ]);
+  panel.addCard({ kind: "bar", column: 0 });
+  panel.addCard({ kind: "histogram", column: 1 });
+  await tick();
+  const details = [...host.querySelectorAll<HTMLDetailsElement>(".chart-settings-disclosure")];
+  assert.equal(details.length, 2);
+
+  const open = (target: HTMLDetailsElement): void => {
+    target.open = true;
+    target.dispatchEvent(new window.Event("toggle") as unknown as Event);
+  };
+  open(details[0]);
+  assert.equal(details[0].open, true);
+  open(details[1]);
+  assert.equal(details[0].open, false, "opening one Settings closes the other");
+  assert.equal(details[1].open, true);
+
+  const outside = document.createElement("button");
+  document.body.append(outside);
+  outside.click();
+  assert.equal(details[1].open, false, "outside click closes Settings");
+
+  open(details[0]);
+  document.dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "Escape" }) as unknown as Event,
+  );
+  assert.equal(details[0].open, false, "Escape closes Settings");
+
+  open(details[1]);
+  const close = details[1].querySelector<HTMLButtonElement>(".chart-settings-close");
+  assert.ok(close !== null, "a visible close affordance exists");
+  close.click();
+  assert.equal(details[1].open, false, "the close button closes Settings");
+  panel.dispose();
+});
+
 test("an emptied chart grid stays empty through column changes", async () => {
   const window = setupDom();
   captureMockContext(window, []);
@@ -936,6 +982,9 @@ test("an emptied chart grid stays empty through column changes", async () => {
   const city = (): ColumnMeta =>
     meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } });
   panel.setColumns([city(), meta({ name: "amount", type: "integer" })]);
+  await tick();
+  assert.equal(host.querySelectorAll(".chart-card").length, 0);
+  panel.addCard({ kind: "bar", column: 0 });
   await tick();
   assert.equal(host.querySelectorAll(".chart-card").length, 1);
   (host.querySelector(".chart-more") as unknown as { click(): void }).click();
@@ -1048,6 +1097,25 @@ test("treemap tiles draw and filter their category", async () => {
     host,
     {
       ...stubCardOptions(),
+      requestAggregate: () =>
+        Promise.resolve({
+          type: "aggregate",
+          requestId: 1,
+          viewId: "chart-treemap",
+          labels: ["Perth", "Sydney"],
+          dimensions: [["Perth", "Sydney"]],
+          dimensionNames: ["region"],
+          dimensionIsTime: [false],
+          dimensionTimes: [Float64Array.from([Number.NaN, Number.NaN])],
+          measures: [Float64Array.from([10, 5]), Float64Array.from([10, 5])],
+          measureNames: ["count(*)", "count(*)"],
+          totals: Float64Array.from([10, 5]),
+          groupCount: 2,
+          totalGroups: 2,
+          truncated: false,
+          partials: null,
+          ms: 1,
+        }),
       onFilter: (column, filter) => applied.push([column, filter]),
       currentFilter: () => null,
     },
@@ -1069,6 +1137,56 @@ test("treemap tiles draw and filter their category", async () => {
     new window.MouseEvent("click", { clientX: 120, clientY: 120 }),
   );
   assert.deepEqual(applied, [[0, { kind: "values", selected: [0] }]]);
+  card.dispose();
+});
+
+test("treemap groups text by a numeric measure and shows the aggregation", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const calls: ViewDef[] = [];
+  const host = document.createElement("div");
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestAggregate: (view) => {
+        calls.push(view);
+        return Promise.resolve({
+          type: "aggregate",
+          requestId: 1,
+          viewId: "chart-treemap",
+          labels: ["alpha", "beta"],
+          dimensions: [["alpha", "beta"]],
+          dimensionNames: ["description"],
+          dimensionIsTime: [false],
+          dimensionTimes: [Float64Array.from([Number.NaN, Number.NaN])],
+          measures: [Float64Array.from([30, 10]), Float64Array.from([3, 2])],
+          measureNames: ["sum(amount)", "count(*)"],
+          totals: Float64Array.from([40]),
+          groupCount: 2,
+          totalGroups: 2,
+          truncated: false,
+          partials: null,
+          ms: 1,
+        });
+      },
+    },
+    { kind: "treemap", column: 0, valueColumn: 1, valueAgg: "sum" },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({ name: "description", type: "string", stats: { ...meta().stats, distinct: 40 } }),
+    meta({ name: "amount", type: "number" }),
+  ]);
+  await tick();
+  assert.deepEqual(calls.at(-1)?.dimensions, [{ column: 0, by: "value" }]);
+  assert.deepEqual(calls.at(-1)?.measures, [
+    { column: 1, agg: "sum" },
+    { column: null, agg: "count" },
+  ]);
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /Sum of amount/);
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /40 total/);
   card.dispose();
 });
 
@@ -1107,6 +1225,7 @@ test("the red x removes a chart only after confirmation", async () => {
   panel.setColumns([
     meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
   ]);
+  panel.addCard({ kind: "bar", column: 0 });
   await tick();
   const doc = (globalThis as Record<string, unknown>).document as Window["document"];
   (host.querySelector(".chart-remove") as unknown as { click(): void }).click();
@@ -1982,7 +2101,7 @@ test("chart cards show their table scope and filtered row count", async () => {
   panel.dispose();
 });
 
-test("the empty charts state offers fitting one-click suggestions", async () => {
+test("the empty charts state is one clear message without auto suggestions", async () => {
   const window = setupDom();
   captureMockContext(window, []);
   const host = document.createElement("div");
@@ -1992,12 +2111,18 @@ test("the empty charts state offers fitting one-click suggestions", async () => 
     meta({ name: "amount", type: "number" }),
   ]);
   await tick();
-  const suggestions = host.querySelectorAll(".charts-empty-suggestions button");
-  assert.ok(suggestions.length > 0 && suggestions.length <= 3);
-  (suggestions[0] as unknown as { click(): void }).click();
+  assert.equal(host.querySelectorAll(".charts-empty-suggestions button").length, 0);
+  assert.match(
+    host.querySelector(".charts-empty-title")?.textContent ?? "",
+    /No charts yet/,
+  );
+  const add = [...host.querySelectorAll("button")].find((button) =>
+    (button.textContent ?? "").includes("Add chart"),
+  );
+  assert.ok(add !== undefined);
+  add.click();
   await tick();
-  assert.ok(host.ownerDocument.querySelector(".chart-setup-modal") !== null);
-  (host.ownerDocument.querySelector(".chart-setup-modal .ghost") as unknown as { click(): void }).click();
+  assert.ok(host.ownerDocument.querySelector(".chart-gallery") !== null);
   panel.dispose();
 });
 
@@ -2011,6 +2136,7 @@ test("an orphaned chart stays in the grid and can be rebound", async () => {
     meta({ name: "amount", type: "number" }),
   ];
   source.setColumns(columns);
+  source.addCard({ kind: "bar", column: 0 });
   const original = source.captureConfigs()[0];
   assert.ok(original !== undefined);
   source.dispose();
@@ -2885,6 +3011,31 @@ test("a KPI card with a date column reads the series and shows Bucket", async ()
   assert.match(note, /vs previous/, "the change is stated");
   card.dispose();
 });
+test("map cards expose visible zoom/fit controls and clearer layer labels", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "map", x: 1, y: 0 });
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 640, configurable: true });
+  card.setColumns([
+    meta({ name: "lat", type: "number" }),
+    meta({ name: "lon", type: "number" }),
+  ]);
+  await tick();
+  const controls = host.querySelector(".chart-map-controls");
+  assert.ok(controls !== null);
+  assert.equal(controls.classList.contains("hidden"), false);
+  const labels = [...controls.querySelectorAll("button")].map(
+    (button) => button.getAttribute("aria-label") ?? button.textContent,
+  );
+  assert.deepEqual(labels, ["Zoom the map in", "Zoom the map out", "Fit the map to the data"]);
+  const settings = host.querySelector(".chart-bubble-settings")?.textContent ?? "";
+  assert.match(settings, /Load extra map data/);
+  assert.match(settings, /Clear extra map data/);
+  card.dispose();
+});
+
 test("map auto-fit follows the data percentile bounds", () => {
   const lons = Array.from({ length: 100 }, (_, index) => -120 + index * 0.4);
   const lats = Array.from({ length: 100 }, (_, index) => -10 + index * 0.1);

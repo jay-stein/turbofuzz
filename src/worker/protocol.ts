@@ -169,6 +169,7 @@ export type SpecialKind =
   | "valueAnomalies"
   | "lengthAnomalies"
   | "groupAnomalies"
+  | "outliers"
   | "pattern"
   | "keyDuplicates"
   | "pairCheck"
@@ -530,9 +531,83 @@ export interface GroupAnomaliesMessage {
   ms: number;
 }
 
+export type OutlierMethod = "isolationForest" | "pca" | "lof";
+export type OutlierMode = "quick" | "deep";
+
+export type GetOutlierAnalysisRequest = {
+  type: "getOutlierAnalysis";
+  requestId: number;
+  method: OutlierMethod;
+  /** Numeric feature columns; two or more. */
+  columns: number[];
+  /** Flag the top share of scored rows (0.01 = top 1%). */
+  contamination: number;
+  /** Quick pass or the explicit Deep compute route. */
+  mode: OutlierMode;
+  trees?: number;
+  sampleSize?: number;
+  neighbors?: number;
+  components?: number;
+  /** Deterministic seed; the same input must reproduce the same flags. */
+  seed?: number;
+  /** Fit/score the current filtered rows (default true). */
+  respectFilters?: boolean;
+};
+
+export interface OutlierContributionMessage {
+  column: number;
+  label: string;
+  value: number;
+  contribution: number;
+}
+
+export interface OutlierRowDetailMessage {
+  row: number;
+  score: number;
+  contributions: OutlierContributionMessage[];
+  values: string[];
+}
+
+export interface OutlierFeatureImportanceMessage {
+  column: number;
+  label: string;
+  weight: number;
+}
+
+export interface OutlierAnalysisMessage {
+  type: "outlierAnalysis";
+  requestId: number;
+  method: OutlierMethod;
+  mode: OutlierMode;
+  labels: string[];
+  columns: number[];
+  /** One score per analysed row; rows with missing values are excluded. */
+  scores: Float32Array;
+  rowIndices: Uint32Array;
+  threshold: number;
+  flagged: number;
+  analyzed: number;
+  excluded: number;
+  sampled: boolean;
+  totalRows: number;
+  projected: boolean;
+  projectionComponents: number;
+  omittedFeatures: number;
+  details: OutlierRowDetailMessage[];
+  featureImportance: OutlierFeatureImportanceMessage[];
+  /** Sampled 2-D projection for the anomaly landscape. */
+  visualRows: Uint32Array;
+  visualX: Float32Array;
+  visualY: Float32Array;
+  visualFlagged: Uint8Array;
+  ms: number;
+}
+
 export type GetDependenciesRequest = {
   type: "getDependencies";
   requestId: number;
+  /** Analyse the current rows (default true) or the whole dataset. */
+  respectFilters?: boolean;
 };
 
 export interface DependenciesMessage {
@@ -546,6 +621,8 @@ export interface DependenciesMessage {
 export type GetRelationshipsRequest = {
   type: "getRelationships";
   requestId: number;
+  /** Analyse the current rows (default true) or the whole dataset. */
+  respectFilters?: boolean;
 };
 
 export interface RelationshipsMessage {
@@ -746,6 +823,7 @@ export type WorkerRequest =
   | GetPivotRequest
   | GetCoMissingnessRequest
   | GetGroupAnomaliesRequest
+  | GetOutlierAnalysisRequest
   | GetDependenciesRequest
   | GetRelationshipsRequest
   | GetTextProfileRequest
@@ -979,6 +1057,7 @@ export type WorkerResponse =
   | PivotMessage
   | CoMissingnessMessage
   | GroupAnomaliesMessage
+  | OutlierAnalysisMessage
   | DependenciesMessage
   | RelationshipsMessage
   | TextProfileMessage

@@ -53,7 +53,19 @@ export function defaultChartConfig(): ChartCardConfig {
 export function chartConfigWithDefaults(
   preset: Partial<ChartCardConfig> = {},
 ): ChartCardConfig {
-  return { ...defaultChartConfig(), ...preset };
+  const config = { ...defaultChartConfig(), ...preset };
+  // Older treemap configs stored their sum-only measure in sizeColumn; the
+  // treemap now uses the shared valueColumn/valueAgg measure model.
+  if (
+    config.kind === "treemap" &&
+    config.valueColumn === undefined &&
+    config.sizeColumn >= 0
+  ) {
+    config.valueColumn = config.sizeColumn;
+    config.valueAgg = "sum";
+    config.sizeColumn = -1;
+  }
+  return config;
 }
 
 /**

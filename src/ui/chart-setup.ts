@@ -1,6 +1,12 @@
 import type { ColumnMeta } from "../worker/protocol.js";
 import type { ChartCardConfig } from "./chart-card.js";
-import { CHART_KIND_LABELS, type ChartCardKind, isCategoryType, isNumericType } from "./chart-utils.js";
+import {
+  CHART_KIND_LABELS,
+  type ChartCardKind,
+  isCategoryType,
+  isNumericType,
+  looksLikeIdName,
+} from "./chart-utils.js";
 import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
 
@@ -230,6 +236,88 @@ export function openChartSetupDialog(
             kind,
             x: Number(value.select.value),
             y: Number(group.select.value),
+          },
+          error: null,
+        };
+      };
+    } else if (kind === "treemap") {
+      const groups = optionsFor(
+        columns,
+        (meta) =>
+          meta.role !== "provenance" &&
+          meta.type !== "identifier" &&
+          !looksLikeIdName(meta.name) &&
+          (isCategoryType(meta.type) || meta.type === "string"),
+      );
+      const sizes: FieldOption[] = [{ index: -1, label: "Count of rows" }, ...numeric];
+      const presetMeasure = preset.valueColumn ?? preset.sizeColumn ?? -1;
+      const groupPick = select("Group by", groups, preset.column ?? null, "Setup group column");
+      const sizePick = select("Size by", sizes, presetMeasure, "Setup size measure");
+      const aggField = el("label", { class: "chart-setup-field" });
+      aggField.append(el("span", { class: "chart-field-label" }, ["Aggregation"]));
+      const aggSelect = el("select", {
+        class: "chart-picker",
+        "aria-label": "Setup treemap aggregation",
+      }) as HTMLSelectElement;
+      for (const [value, label] of [
+        ["count", "Count"],
+        ["distinct", "Count distinct"],
+        ["sum", "Sum"],
+        ["mean", "Mean"],
+        ["median", "Median"],
+        ["min", "Min"],
+        ["max", "Max"],
+      ] as const) {
+        aggSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+      }
+      const presetAgg =
+        preset.valueAgg ??
+        (preset.sizeColumn !== undefined && preset.sizeColumn >= 0 ? "sum" : "count");
+      aggSelect.value = presetAgg;
+      aggField.append(aggSelect);
+      const hint = el("p", { class: "chart-setup-hint" });
+      const syncTreemap = (): void => {
+        const measured = Number(sizePick.select.value) >= 0;
+        aggSelect.disabled = !measured;
+        if (!measured) {
+          aggSelect.value = "count";
+        } else if (aggSelect.value === "count") {
+          aggSelect.value = "sum";
+        }
+        const groupIndex = Number(groupPick.select.value);
+        const groupMeta = columns[groupIndex];
+        hint.textContent =
+          groupMeta?.type === "string" && groupMeta.stats.distinct > 200
+            ? `“${groupMeta.name}” is high-cardinality (${groupMeta.stats.distinct.toLocaleString()} values); the treemap shows the top tiles plus Other.`
+            : measured
+              ? "Tile area is the aggregate; hover a tile for its share and row count."
+              : "Count of rows is the default measure. Pick a numeric column to size tiles by a measure.";
+      };
+      sizePick.select.addEventListener("change", syncTreemap);
+      groupPick.select.addEventListener("change", syncTreemap);
+      aggSelect.addEventListener("change", syncTreemap);
+      syncTreemap();
+      body.append(groupPick.field, sizePick.field, aggField, hint);
+      collect = () => {
+        if (groups.length === 0) {
+          return {
+            config: null,
+            error: "Group by: pick a category or text column; none are available.",
+          };
+        }
+        const column = Number(groupPick.select.value);
+        const valueColumn = Number(sizePick.select.value);
+        if (!Number.isFinite(column)) {
+          return { config: null, error: "Group by: pick a column." };
+        }
+        return {
+          config: {
+            ...preset,
+            kind,
+            column,
+            valueColumn,
+            valueAgg: valueColumn >= 0 ? (aggSelect.value as ChartCardConfig["valueAgg"]) : "count",
+            sizeColumn: -1,
           },
           error: null,
         };

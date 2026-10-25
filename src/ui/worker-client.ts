@@ -35,6 +35,9 @@ import type {
   ExportScope,
   ExportStartedMessage,
   GroupAnomaliesMessage,
+  OutlierAnalysisMessage,
+  OutlierMethod,
+  OutlierMode,
   GroupedBinsMessage,
   HeadersRenamedMessage,
   LoadedMessage,
@@ -284,8 +287,23 @@ export class SearchWorkerClient {
     return this.request<GroupAnomaliesMessage>({ type: "getGroupAnomalies" });
   }
 
-  getDependencies(): Promise<DependenciesMessage> {
-    return this.request<DependenciesMessage>({ type: "getDependencies" });
+  getOutlierAnalysis(input: {
+    method: OutlierMethod;
+    columns: number[];
+    contamination: number;
+    mode: OutlierMode;
+    trees?: number;
+    sampleSize?: number;
+    neighbors?: number;
+    components?: number;
+    seed?: number;
+    respectFilters?: boolean;
+  }): Promise<OutlierAnalysisMessage> {
+    return this.request<OutlierAnalysisMessage>({ type: "getOutlierAnalysis", ...input });
+  }
+
+  getDependencies(respectFilters = true): Promise<DependenciesMessage> {
+    return this.request<DependenciesMessage>({ type: "getDependencies", respectFilters });
   }
 
   checkKeyDuplicates(columns: number[]): Promise<KeyDuplicatesMessage> {
@@ -301,8 +319,8 @@ export class SearchWorkerClient {
     return this.request<PairCheckMessage>({ type: "checkPair", ...input });
   }
 
-  getRelationships(): Promise<RelationshipsMessage> {
-    return this.request<RelationshipsMessage>({ type: "getRelationships" });
+  getRelationships(respectFilters = true): Promise<RelationshipsMessage> {
+    return this.request<RelationshipsMessage>({ type: "getRelationships", respectFilters });
   }
 
   getTextProfile(

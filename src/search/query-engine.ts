@@ -33,6 +33,7 @@ export type SpecialFilter =
   | "valueAnomalies"
   | "lengthAnomalies"
   | "groupAnomalies"
+  | "outliers"
   | "keyDuplicates"
   | "pairCheck"
   | "castFailures";
@@ -145,8 +146,10 @@ export class QueryEngine {
       case "lengthAnomalies":
         return this.dataset.lengthAnomalyBits;
       case "groupAnomalies":
-        // Computed lazily by the Reports lens; before that, nothing matches.
+        // Computed lazily by the Outliers lens; before that, nothing matches.
         return this.dataset.groupAnomalyBits ?? new BitSet(this.dataset.rowCount);
+      case "outliers":
+        return this.dataset.outlierBits ?? new BitSet(this.dataset.rowCount);
       case "keyDuplicates":
         // Set by the composite-key check; before that, nothing matches.
         return this.dataset.keyDuplicateBits ?? new BitSet(this.dataset.rowCount);

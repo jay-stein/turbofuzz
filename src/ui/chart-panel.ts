@@ -413,7 +413,7 @@ export class ChartsPanel {
   /** True while the add-chart setup dialog is open (guards double adds). */
   private setupOpen = false;
   /** True once a dataset's columns have been seen; a cleared grid stays clear. */
-  private initialised = false;
+
 
   constructor(
     private readonly root: HTMLElement,
@@ -789,13 +789,6 @@ export class ChartsPanel {
   setColumns(columns: ColumnMeta[]): void {
     this.columns = columns;
     this.syncRail();
-    if (!this.initialised) {
-      this.initialised = true;
-      if (columns.length > 0 && this.entries.length === 0) {
-        this.addCard();
-        return;
-      }
-    }
     for (const card of this.cards()) card.setColumns(columns);
     this.syncEmpty();
   }
@@ -814,7 +807,6 @@ export class ChartsPanel {
    */
   restore(configs: readonly RestoredChartConfig[], columns: ColumnMeta[]): void {
     this.columns = columns;
-    this.initialised = true;
     this.syncRail();
     for (const config of configs) {
       if ((config.missingColumns?.length ?? 0) > 0) {
@@ -962,32 +954,10 @@ export class ChartsPanel {
       );
       return;
     }
-    this.empty.append(el("div", { class: "charts-empty-title" }, ["Start with a chart"]));
-    const suggestions = el("div", { class: "charts-empty-suggestions" });
-    let added = 0;
-    for (const kind of GALLERY_KINDS) {
-      if (added >= 3) break;
-      const fit = fitChartKind(kind, this.columns, this.rowCount);
-      if (!fit.ok) continue;
-      const button = el(
-        "button",
-        {
-          class: "ghost small",
-          type: "button",
-          title: fit.reason,
-        },
-        [CHART_KIND_LABELS[kind]],
-      ) as HTMLButtonElement;
-      button.addEventListener("click", () => void this.openChartSetup(fit.preset));
-      suggestions.append(button);
-      added++;
-    }
-    if (added === 0) {
-      this.empty.append(
-        el("p", {}, ["No chart type fits the current columns yet."]),
-      );
-    } else {
-      this.empty.append(suggestions);
-    }
+    this.empty.append(
+      el("div", { class: "charts-empty-title" }, [
+        "No charts yet — pick a type from the rail or use + Add chart",
+      ]),
+    );
   }
 }

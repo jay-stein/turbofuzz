@@ -38,12 +38,14 @@ export function computeDependencies(
   columns: readonly ColumnData[],
   rowCount: number,
   options: DependencyOptions = {},
+  ids?: Uint32Array,
 ): DependencyPair[] {
   const maxDeterminants = Math.max(1, Math.floor(options.maxDeterminants ?? 4));
   const maxDependents = Math.max(1, Math.floor(options.maxDependents ?? 8));
   const maxRatio = options.maxViolationRatio ?? 0.02;
   const maxPairs = Math.max(1, Math.floor(options.maxPairs ?? 6));
-  const maxViolations = Math.max(1, Math.ceil(rowCount * maxRatio));
+  const scannedRows = ids === undefined ? rowCount : ids.length;
+  const maxViolations = Math.max(1, Math.ceil(scannedRows * maxRatio));
 
   const typeRank = (column: ColumnData): number =>
     column.type === "identifier" ? 0 : column.type === "category" ? 1 : 2;
@@ -90,7 +92,9 @@ export function computeDependencies(
 
       const determinantRaw = determinant.column.raw;
       const dependentRaw = dependent.column.raw;
-      for (let row = 0; row < rowCount; row++) {
+      const total = ids === undefined ? rowCount : ids.length;
+      for (let position = 0; position < total; position++) {
+        const row = ids === undefined ? position : (ids[position] ?? 0);
         if (determinant.column.nullMask.get(row) || dependent.column.nullMask.get(row)) continue;
         const key = determinantRaw[row] ?? "";
         const value = dependentRaw[row] ?? "";

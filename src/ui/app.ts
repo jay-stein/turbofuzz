@@ -129,9 +129,14 @@ import { openTriagePanel, type TriagePanelHandle } from "./triage-panel.js";
 import { openColumnInspector } from "./column-inspector.js";
 import { openSlickTable } from "./slick-table.js";
 import { chartKindFor } from "./chart-utils.js";
-import { ReportsPanel } from "./reports-panel.js";
-import type { Finding } from "../data/findings.js";
-import { suggestCharts } from "./chart-utils.js";
+import { OutliersPanel } from "./outliers-panel.js";
+import {
+  coMissingnessFindings,
+  distributionFindings,
+  similarClusterFindings,
+  textProfileFindings,
+  type Finding,
+} from "../data/findings.js";
 
 const LARGE_PASTE_ROWS = 300_000;
 /** Bytes read from each archive entry for the Import-all header check. */
@@ -433,7 +438,6 @@ export class App {
   private chartActive = false;
   private chartRestore: NamedChartCardConfig[] | null = null;
   private chartRemoved = 0;
-  private chartOpened = false;
   private view: ViewId = "overview";
   private lastLens: ViewId = "table";
   private tabs: ViewTabs | null = null;
@@ -462,13 +466,17 @@ export class App {
   private themePreference: ThemePreference = readThemePreference();
   private viewsHost!: HTMLElement;
   private viewsPanel: ViewsPanel | null = null;
-  private reportsHost!: HTMLElement;
+  private outliersHost!: HTMLElement;
   private qualityHost!: HTMLElement;
   private qualityPage: QualityPage | null = null;
   private sensitiveProfiles: SensitiveColumn[] = [];
   private sensitiveScanned = false;
   private sensitiveKey = "";
-  private reportsPanel: ReportsPanel | null = null;
+  private advancedFindings: Finding[] = [];
+  private advancedKey = "";
+  private advancedLoading = false;
+  private advancedToken = 0;
+  private outliersPanel: OutliersPanel | null = null;
   private triage: TriagePanelHandle | null = null;
   private archetypeOverride: ArchetypeId | null = null;
   private lastLoaded: LoadedMessage | TransformedMessage | null = null;
@@ -483,7 +491,7 @@ export class App {
     this.hints = new Hints([
       {
         id: "tabs",
-        text: `Overview, Table, Pivot View, Chart and Reports are lenses — ${viewSwitchHint()}.`,
+        text: `Overview, Table, Pivot View, Chart and Outliers are lenses — ${viewSwitchHint()}.`,
         target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
       },
       {
@@ -954,7 +962,7 @@ export class App {
     this.tableHost = el("div", { class: "table-host" });
     this.chartHost = el("div", { class: "chart-host hidden" });
     this.viewsHost = el("div", { class: "views-host hidden" });
-    this.reportsHost = el("div", { class: "reports-host hidden" });
+    this.outliersHost = el("div", { class: "outliers-host hidden" });
     this.qualityHost = el("div", { class: "quality-host hidden" });
     this.columnsStrip = el("div", { class: "column-strip hidden" });
     results.append(
@@ -964,7 +972,7 @@ export class App {
       this.tableHost,
       this.chartHost,
       this.viewsHost,
-      this.reportsHost,
+      this.outliersHost,
     );
 
     this.overviewHost = el("div", { class: "overview-host hidden" });
@@ -1036,7 +1044,7 @@ export class App {
       else if (event.key === "3") this.setView("table");
       else if (event.key === "4") this.setView("views");
       else if (event.key === "5") this.setView("chart");
-      else if (event.key === "6") this.setView("reports");
+      else if (event.key === "6") this.setView("outliers");
       else if (
         (event.key === "t" || event.key === "T") &&
         this.view === "table"
@@ -1939,7 +1947,6 @@ export class App {
       const sidebarPreference = this.readSidebarCollapsed();
       this.setSidebarCollapsed(sidebarPreference ?? loaded.columnCount > 8);
     }
-    this.updateChartBadge();
     this.setView(this.view);
   }
 
@@ -2027,8 +2034,6 @@ export class App {
 
   private ensureCharts(): void {
     if (this.chartsPanel !== null) return;
-    this.chartOpened = true;
-    this.updateChartBadge();
     this.chartsPanel = new ChartsPanel(this.chartHost, {
       datasetName: () => this.datasetName,
       requestBins: (column, options) => this.client.getChartBins(column, options),
@@ -2937,7 +2942,7 @@ export class App {
       if (existing) this.chartsPanel?.repaint();
     }
     if (view === "views") this.ensureViews();
-    if (view === "reports") this.ensureReports();
+    if (view === "outliers") this.ensureOutliers();
     if (view === "quality") this.ensureQuality();
     if (view !== "overview") this.lastLens = view;
     const chart = view === "chart";
@@ -2949,7 +2954,7 @@ export class App {
     this.tableHost.classList.toggle("hidden", view !== "table");
     this.chartHost.classList.toggle("hidden", view !== "chart");
     this.viewsHost.classList.toggle("hidden", view !== "views");
-    this.reportsHost.classList.toggle("hidden", view !== "reports");
+    this.outliersHost.classList.toggle("hidden", view !== "outliers");
     this.healthHost.classList.toggle("hidden", view === "overview" || this.healthChipCount === 0);
     this.moreButton.classList.toggle("hidden", view === "overview");
     this.addFilterButton.classList.toggle("hidden", view === "overview");
@@ -3193,32 +3198,48 @@ export class App {
   private resetViews(): void {
     this.viewsPanel = null;
     clear(this.viewsHost);
-    this.reportsPanel = null;
-    clear(this.reportsHost);
+    this.outliersPanel = null;
+    clear(this.outliersHost);
   }
 
-  private ensureReports(): void {
+  private ensureOutliers(): void {
     const stats = this.latestStats ?? this.lastLoaded?.stats;
     if (stats === undefined) return;
-    if (this.reportsPanel !== null) {
-      this.reportsPanel.setData(this.metas, stats, this.rowCount, this.resultCount);
+    if (this.outliersPanel !== null) {
+      this.outliersPanel.setData(this.metas, stats, this.rowCount, this.resultCount);
       return;
     }
-    this.reportsPanel = new ReportsPanel(this.reportsHost, {
-      requestCorrelation: () => this.requestReportCorrelation(),
-      requestCoMissingness: () => this.client.getCoMissingness().catch(() => null),
+    this.outliersPanel = new OutliersPanel(this.outliersHost, {
+      requestOutlier: (input) => this.client.getOutlierAnalysis(input),
+      requestCorrelation: (respectFilters) =>
+        this.requestNumericCorrelation(respectFilters),
       requestGroupAnomalies: () => this.client.getGroupAnomalies().catch(() => null),
-      requestDependencies: () => this.client.getDependencies().catch(() => null),
-      requestRelationships: () => this.client.getRelationships().catch(() => null),
-      requestTextProfile: (column) => this.client.getTextProfile(column).catch(() => null),
-      requestDistributionChanges: () => this.client.getDistributionChanges().catch(() => null),
+      requestDependencies: (respectFilters) =>
+        this.client.getDependencies(respectFilters).catch(() => null),
+      requestRelationships: (respectFilters) =>
+        this.client.getRelationships(respectFilters).catch(() => null),
       requestSimilarClusters: () => this.client.getSimilarClusters().catch(() => null),
-      onAction: (finding) => this.runFinding(finding),
+      onShowOutliers: () => {
+        if (!this.specials.has("outliers")) this.toggleSpecial("outliers");
+        this.setView("table");
+      },
+      onClearOutliers: () => {
+        if (this.specials.has("outliers")) this.toggleSpecial("outliers");
+        else this.setAction("The outlier filter is not active");
+      },
+      onFilterValue: (column, code) => {
+        this.changeFilter(column, { kind: "values", selected: [code] });
+        this.setView("table");
+        this.table?.flashColumn(column);
+      },
+      onFinding: (finding) => this.runFinding(finding),
     });
-    this.reportsPanel.setData(this.metas, stats, this.rowCount, this.resultCount);
+    this.outliersPanel.setData(this.metas, stats, this.rowCount, this.resultCount);
   }
 
-  private requestReportCorrelation(): Promise<CorrelationMessage | null> {
+  private requestNumericCorrelation(
+    respectFilters = true,
+  ): Promise<CorrelationMessage | null> {
     const numeric: number[] = [];
     this.metas.forEach((meta, index) => {
       if ((meta.type === "integer" || meta.type === "number") && numeric.length < 12) {
@@ -3226,10 +3247,10 @@ export class App {
       }
     });
     if (numeric.length < 2) return Promise.resolve(null);
-    return this.client.getCorrelation(numeric).catch(() => null);
+    return this.client.getCorrelation(numeric, { respectFilters }).catch(() => null);
   }
 
-  /** Runs a report finding's action. */
+  /** Runs an Outliers or advanced-quality finding action. */
   private runFinding(finding: Finding): void {
     const action = finding.action;
     if (action === undefined) return;
@@ -3336,12 +3357,6 @@ export class App {
     this.tabs?.setSelected(this.view);
   }
 
-  /** "3 ideas" badge until the Chart lens has been opened once. */
-  private updateChartBadge(): void {
-    const ideas = this.chartOpened ? 0 : suggestCharts(this.metas, this.rowCount).length;
-    this.tabs?.setBadge("chart", ideas > 0 ? `${ideas} ideas` : null);
-  }
-
   /** Refreshes the health group and dataset stats after a worker update. */
   private applyDatasetStats(stats: DatasetStats): void {
     this.latestStats = stats;
@@ -3350,10 +3365,11 @@ export class App {
     this.overview?.updateHealth(this.metas, stats);
     this.refreshMissingness();
     this.syncColumnTiles();
-    this.reportsPanel?.setData(this.metas, stats, this.rowCount, this.resultCount);
-    this.reportsPanel?.invalidate();
+    this.outliersPanel?.setData(this.metas, stats, this.rowCount, this.resultCount);
+    this.outliersPanel?.invalidate();
     this.triage?.update(this.metas, stats);
     this.sensitiveKey = "";
+    this.advancedKey = "";
     if (this.qualityPage !== null) void this.refreshSensitiveColumns();
   }
 
@@ -3548,6 +3564,141 @@ export class App {
       sensitiveScanned: this.sensitiveScanned,
       freshness: this.freshnessColumns(),
     });
+    if (this.view !== "quality") return;
+    const key = [
+      this.datasetName,
+      this.rowCount,
+      this.resultCount,
+      this.metas.map((meta) => `${meta.name}:${meta.type}:${meta.stats.nulls}`).join("|"),
+    ].join("~");
+    if (key !== this.advancedKey) {
+      this.advancedKey = key;
+      void this.loadAdvancedQualitySignals(key);
+    }
+    this.appendAdvancedQualitySection();
+  }
+
+  /**
+   * Unique quality signals that used to live in the Reports Quality tab:
+   * co-missingness, drift between row halves, near-duplicate clusters and text
+   * profiles. Functional dependencies moved to the Outliers Relationships tab.
+   */
+  private async loadAdvancedQualitySignals(key: string): Promise<void> {
+    if (this.advancedLoading) return;
+    this.advancedLoading = true;
+    const token = ++this.advancedToken;
+    this.advancedFindings = [];
+    this.appendAdvancedQualitySection();
+    const textColumns = this.metas
+      .map((meta, index) => ({ meta, index }))
+      .filter((entry) => entry.meta.type === "string")
+      .slice(0, 3);
+    try {
+      const [coMissing, distribution, similar, ...texts] = await Promise.all([
+        this.client.getCoMissingness().catch(() => null),
+        this.client.getDistributionChanges().catch(() => null),
+        this.client.getSimilarClusters().catch(() => null),
+        ...textColumns.map((entry) =>
+          this.client.getTextProfile(entry.index).catch(() => null),
+        ),
+      ]);
+      if (token !== this.advancedToken || key !== this.advancedKey) return;
+      const findings: Finding[] = [];
+      if (coMissing !== null) {
+        findings.push(
+          ...coMissingnessFindings(
+            coMissing.columns,
+            coMissing.labels,
+            coMissing.nullCells,
+            coMissing.pairs,
+          ).map((finding) => ({ ...finding, scope: "rows" as const })),
+        );
+      }
+      if (distribution !== null && distribution.changes.length > 0) {
+        findings.push(
+          ...distributionFindings(distribution.changes).map((finding) => ({
+            ...finding,
+            scope: "rows" as const,
+          })),
+        );
+      }
+      if (similar !== null && similar.entries.length > 0) {
+        findings.push(
+          ...similarClusterFindings(similar.entries).map((finding) => ({
+            ...finding,
+            scope: "rows" as const,
+          })),
+        );
+      }
+      const profiles = texts.filter(
+        (profile): profile is NonNullable<typeof profile> => profile !== null,
+      );
+      if (profiles.length > 0) {
+        findings.push(
+          ...textProfileFindings(
+            profiles.map((profile) => ({
+              column: profile.column,
+              label: profile.label,
+              profile: profile.profile,
+            })),
+          ).map((finding) => ({ ...finding, scope: "dataset" as const })),
+        );
+      }
+      findings.sort(
+        (a, b) =>
+          (b.severity === "fix" ? 2 : b.severity === "review" ? 1 : 0) -
+            (a.severity === "fix" ? 2 : a.severity === "review" ? 1 : 0) ||
+          b.impact.rows - a.impact.rows,
+      );
+      this.advancedFindings = findings;
+    } finally {
+      if (token === this.advancedToken) {
+        this.advancedLoading = false;
+        this.appendAdvancedQualitySection();
+        if (key !== this.advancedKey) void this.loadAdvancedQualitySignals(this.advancedKey);
+      }
+    }
+  }
+
+  private appendAdvancedQualitySection(): void {
+    this.qualityHost.querySelector(".qp-advanced")?.remove();
+    const section = el("section", { class: "qp-advanced" });
+    section.append(
+      el("h2", { class: "overview-heading" }, ["Advanced signals"]),
+      el("p", { class: "qp-advanced-hint" }, [
+        "Missing-together patterns, drift between row halves, near-duplicate values and text profiles. Relationships and functional dependencies live in the Outliers lens.",
+      ]),
+    );
+    if (this.advancedLoading) {
+      section.append(el("div", { class: "qp-advanced-empty" }, ["Checking advanced signals…"]));
+    } else if (this.advancedFindings.length === 0) {
+      section.append(
+        el("div", { class: "qp-advanced-empty" }, ["✓ No additional signals found."]),
+      );
+    } else {
+      for (const finding of this.advancedFindings.slice(0, 12)) {
+        const row = el("div", { class: `advanced-finding severity-${finding.severity}` });
+        const body = el("div", { class: "advanced-finding-body" });
+        body.append(
+          el("span", { class: "advanced-finding-title" }, [finding.title]),
+          el("span", { class: "advanced-finding-evidence" }, [
+            finding.evidence.map((entry) => `${entry.metric}: ${entry.value}`).join(" · "),
+          ]),
+        );
+        row.append(body);
+        if (finding.action !== undefined) {
+          const action = el(
+            "button",
+            { class: "ghost small", type: "button" },
+            [finding.fixLabel ?? "Show rows"],
+          ) as HTMLButtonElement;
+          action.addEventListener("click", () => this.runFinding(finding));
+          row.append(action);
+        }
+        section.append(row);
+      }
+    }
+    this.qualityHost.append(section);
   }
 
   /** DQ report export (plan §6): report file + pipeline-format emitters. */
@@ -3934,7 +4085,7 @@ export class App {
   private updateCount(count: number, queryMs: number): void {
     this.resultCount = count;
     this.chartsPanel?.setRowCount(count);
-    this.reportsPanel?.setVisibleRowCount(count);
+    this.outliersPanel?.setVisibleRowCount(count);
     if (this.qualityPage !== null && this.lastLoaded !== null) this.renderQualityPage();
     const timeText = queryMs < 1 ? "<1" : String(Math.round(queryMs));
     const total = this.rowCount;

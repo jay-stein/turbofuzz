@@ -4,6 +4,7 @@ import { computePivot } from "../data/pivot.js";
 import { coMissingness } from "../data/comissingness.js";
 import { computeDependencies } from "../data/dependencies.js";
 import { computeGroupAnomalies } from "../data/group-anomalies.js";
+import { computeOutlierAnalysis } from "../data/outliers.js";
 import { computeRelationships } from "../data/relationships.js";
 import { textProfile } from "../data/text-profile.js";
 import { computeDistributionChanges } from "../data/distribution.js";
@@ -88,6 +89,7 @@ import type {
   GetPivotRequest,
   GetCoMissingnessRequest,
   GetGroupAnomaliesRequest,
+  GetOutlierAnalysisRequest,
   GetDependenciesRequest,
   GetRelationshipsRequest,
   GetTextProfileRequest,
@@ -391,6 +393,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getGroupAnomalies":
       handleGetGroupAnomalies(message);
+      break;
+    case "getOutlierAnalysis":
+      handleGetOutlierAnalysis(message);
       break;
     case "getDependencies":
       handleGetDependencies(message);
@@ -1571,11 +1576,88 @@ function handleGetGroupAnomalies(message: GetGroupAnomaliesRequest): void {
   });
 }
 
+/**
+ * Multivariate outliers (Isolation Forest, PCA reconstruction, LOF). The
+ * worker stores the flagged rows as a BitSet so the table can filter to them
+ * without returning every row to the UI.
+ */
+function handleGetOutlierAnalysis(message: GetOutlierAnalysisRequest): void {
+  const { dataset, engine } = state();
+  const started = performance.now();
+  let ids = sortedIds;
+  if (message.respectFilters === false) {
+    const all = new BitSet(dataset.rowCount);
+    all.setAll();
+    ids = withoutExcluded(all).toIndices();
+  }
+  const result = computeOutlierAnalysis(dataset.columns, ids, {
+    method: message.method,
+    columns: message.columns,
+    contamination: message.contamination,
+    mode: message.mode,
+    trees: message.trees,
+    sampleSize: message.sampleSize,
+    neighbors: message.neighbors,
+    components: message.components,
+    seed: message.seed,
+  });
+  const bits = new BitSet(dataset.rowCount);
+  for (let i = 0; i < result.rowIndices.length; i++) {
+    if ((result.scores[i] ?? Number.NEGATIVE_INFINITY) >= result.threshold) {
+      bits.set(result.rowIndices[i] ?? 0);
+    }
+  }
+  dataset.outlierBits = bits;
+  engine.setSpecialBits("outliers", bits);
+  post(
+    {
+      type: "outlierAnalysis",
+      requestId: message.requestId,
+      method: result.method,
+      mode: result.mode,
+      labels: result.labels,
+      columns: result.columns,
+      scores: result.scores,
+      rowIndices: result.rowIndices,
+      threshold: result.threshold,
+      flagged: result.flagged,
+      analyzed: result.analyzed,
+      excluded: result.excluded,
+      sampled: result.sampled,
+      totalRows: result.totalRows,
+      projected: result.projected,
+      projectionComponents: result.projectionComponents,
+      omittedFeatures: result.omittedFeatures,
+      details: result.details,
+      featureImportance: result.featureImportance,
+      visualRows: result.visualRows,
+      visualX: result.visualX,
+      visualY: result.visualY,
+      visualFlagged: result.visualFlagged,
+      ms: performance.now() - started,
+    },
+    [
+      result.scores.buffer,
+      result.rowIndices.buffer,
+      result.visualRows.buffer,
+      result.visualX.buffer,
+      result.visualY.buffer,
+      result.visualFlagged.buffer,
+    ],
+  );
+}
+
 /** Candidate keys and the columns they determine (data integrity/joins). */
 function handleGetDependencies(message: GetDependenciesRequest): void {
   const { dataset } = state();
   const started = performance.now();
-  const pairs = computeDependencies(dataset.columns, dataset.rowCount);
+  let ids = sortedIds;
+  if (message.respectFilters === false) {
+    const all = new BitSet(dataset.rowCount);
+    all.setAll();
+    ids = withoutExcluded(all).toIndices();
+  }
+  const pairs = computeDependencies(dataset.columns, dataset.rowCount, {}, ids);
   post({
     type: "dependencies",
     requestId: message.requestId,
@@ -1588,7 +1670,13 @@ function handleGetDependencies(message: GetDependenciesRequest): void {
 function handleGetRelationships(message: GetRelationshipsRequest): void {
   const { dataset } = state();
   const started = performance.now();
-  const relationships = computeRelationships(dataset.columns, dataset.rowCount, sortedIds);
+  let ids = sortedIds;
+  if (message.respectFilters === false) {
+    const all = new BitSet(dataset.rowCount);
+    all.setAll();
+    ids = withoutExcluded(all).toIndices();
+  }
+  const relationships = computeRelationships(dataset.columns, ids.length, ids);
   post({
     type: "relationships",
     requestId: message.requestId,

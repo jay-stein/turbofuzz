@@ -223,6 +223,9 @@ test("overview renders dataset line, tiles, next steps and every column", () => 
   assert.ok(host.querySelectorAll(".next-step-card").length >= 1);
   assert.equal(host.querySelectorAll(".overview-column-grid .stat-card").length, 12);
   assert.ok(host.querySelector(".overview-actions .primary") !== null);
+  assert.ok(host.querySelector(".overview-dataset .stats-report-button") !== null);
+  assert.equal(host.querySelector(".overview-actions .stats-link"), null);
+  assert.equal(host.lastElementChild?.classList.contains("missingness-section"), true);
 
   const checkbox = host.querySelector<HTMLInputElement>(".overview-actions input[type=checkbox]");
   assert.ok(checkbox !== null);
@@ -391,6 +394,56 @@ test("the missing values map reports columns, rows and affected columns", () => 
   assert.match(
     host.querySelector(".missingness-canvas")?.getAttribute("aria-label") ?? "",
     /1 column has missing values/,
+  );
+  assert.equal(
+    host.querySelector(".missingness-wrap")?.classList.contains("hidden"),
+    false,
+    "a nearly complete dataset still shows the map",
+  );
+});
+
+test("a fully complete dataset replaces the map with a one-line state", () => {
+  setupDom();
+  const host = document.createElement("div");
+  const overview = new Overview(host, {
+    onOpenTable: () => {},
+    onOpenChart: () => {},
+    onFilterColumn: () => {},
+    onCleanColumn: () => {},
+    onOpenCleanNulls: () => {},
+    onDedupe: () => {},
+    onOpenMerge: () => {},
+    onReviewColumn: () => {},
+    onDropColumn: () => {},
+    onOpenStats: () => {},
+  });
+  overview.render({
+    type: "loaded",
+    name: "complete.csv",
+    rowCount: 10,
+    columnCount: 2,
+    columns: [meta({ name: "a" }), meta({ name: "b" })],
+    stats: stats({ totalCells: 20 }),
+    encoding: "utf-8",
+    ingestMs: 2,
+  } as unknown as LoadedMessage);
+  overview.setMissingness({
+    type: "missingness",
+    requestId: 1,
+    buckets: 2,
+    columns: 2,
+    cells: Uint16Array.from([0, 0, 0, 0]),
+    totalRows: 10,
+    columnNames: ["a", "b"],
+    ms: 1,
+  });
+  assert.match(
+    host.querySelector(".missingness-summary")?.textContent ?? "",
+    /100% complete · no missing cells/,
+  );
+  assert.equal(
+    host.querySelector(".missingness-wrap")?.classList.contains("hidden"),
+    true,
   );
 });
 

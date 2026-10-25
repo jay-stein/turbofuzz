@@ -104,16 +104,28 @@ export function fitChartKind(
             : "needs a numeric measure",
         preset: {},
       };
-    case "treemap":
-      if (categories.length >= 1) {
+    case "treemap": {
+      const texts = pool(
+        columns,
+        (meta) => meta.type === "string" && meta.stats.distinct >= 2,
+        rowCount,
+      );
+      const group = categories[0] ?? texts[0];
+      if (group !== undefined) {
         return {
           kind,
           ok: true,
           reason: "",
-          preset: { kind, column: categories[0].index, sizeColumn: -1 },
+          preset: { kind, column: group.index, valueAgg: "count" },
         };
       }
-      return { kind, ok: false, reason: "needs a category column", preset: {} };
+      return {
+        kind,
+        ok: false,
+        reason: "needs a category or text column",
+        preset: {},
+      };
+    }
     case "terms": {
       const texts = pool(columns, (meta) => meta.type === "string", rowCount);
       if (texts.length >= 1) {

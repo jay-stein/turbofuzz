@@ -91,6 +91,7 @@ import {
   decodeCountries,
   decodeLand,
   type GeoCountry,
+  type TopoWorld,
   projectLat,
   projectLon,
 } from "../data/topo.js";
@@ -169,24 +170,45 @@ interface Basemap {
   countries: GeoCountry[];
 }
 
-// The decoded 110m basemap is shared by every map card and decoded once per
-// session; the world module itself is code-split and imports lazily.
-let basemapCache: Basemap | null = null;
-let basemapLoading: Promise<Basemap> | null = null;
+type BasemapDetail = "110m" | "50m";
 
-function loadBasemap(): Promise<Basemap> {
-  if (basemapCache !== null) return Promise.resolve(basemapCache);
-  if (basemapLoading === null) {
-    basemapLoading = import("../data/world-110m.js").then(({ WORLD_110M }) => {
-      const arcs = decodeArcs(WORLD_110M);
-      basemapCache = {
-        land: decodeLand(WORLD_110M, arcs),
-        countries: decodeCountries(WORLD_110M, arcs),
-      };
-      return basemapCache;
-    });
+/** A regional viewport (<= 60° of longitude) earns the 50m detail basemap. */
+const DETAIL_LON_SPAN = 60;
+
+// Both basemaps are decoded once per session and shared by every map card;
+// the world modules are code-split and import lazily.
+const basemapCaches = new Map<BasemapDetail, Basemap>();
+const basemapLoads = new Map<BasemapDetail, Promise<Basemap>>();
+
+// Only one card's Settings popover may stay open at a time.
+let openSettingsDisclosure: HTMLDetailsElement | null = null;
+
+function decodeWorld(world: TopoWorld): Basemap {
+  const arcs = decodeArcs(world);
+  return {
+    land: decodeLand(world, arcs),
+    countries: decodeCountries(world, arcs),
+  };
+}
+
+function loadBasemap(detail: BasemapDetail = "110m"): Promise<Basemap> {
+  const cached = basemapCaches.get(detail);
+  if (cached !== undefined) return Promise.resolve(cached);
+  let loading = basemapLoads.get(detail);
+  if (loading === undefined) {
+    loading =
+      detail === "50m"
+        ? import("../data/world-50m.js").then(({ WORLD_50M }) => decodeWorld(WORLD_50M))
+        : import("../data/world-110m.js").then(({ WORLD_110M }) => decodeWorld(WORLD_110M));
+    basemapLoads.set(
+      detail,
+      loading.then((map) => {
+        basemapCaches.set(detail, map);
+        return map;
+      }),
+    );
   }
-  return basemapLoading;
+  return basemapLoads.get(detail) ?? loading;
 }
 
 export type DensityStyle = "heat" | "contours" | "both";
@@ -833,15 +855,26 @@ export class ChartCard {
   private lineBinSignature = "";
   private binMedian: number | null = null;
   private seriesResult: SeriesPoints | SeriesGrid | null = null;
-  /** Decoded basemap for map cards (shared module cache, set on first paint). */
+  /** Decoded 110m basemap for map cards (shared module cache, first paint). */
   private basemap: Basemap | null = null;
+  /** Regional 50m basemap, loaded lazily when the viewport zooms in. */
+  private detailBasemap: Basemap | null = null;
+  private detailBasemapRequested = false;
+  private detailBasemapFailed = false;
+  private detailBasemapLoading = false;
   /** Live map brush rectangle in canvas pixels while dragging. */
   private mapBrush: { x0: number; y0: number; x1: number; y1: number } | null = null;
   private mapBrushStart: { x: number; y: number } | null = null;
   /** Frame of the last paint, used to map brush pixels to lon/lat. */
   private lastFrame: Frame | null = null;
-  /** Treemap tiles: label + value pairs (counts come from facets directly). */
-  private treemapResult: { labels: string[]; values: number[] } | null = null;
+  /** Treemap tiles: group labels, the aggregate and the raw row count. */
+  private treemapResult: {
+    labels: string[];
+    values: number[];
+    rows: number[];
+    totalGroups: number;
+    truncated: boolean;
+  } | null = null;
   /** Top-terms payload: token frequencies plus shape detection. */
   private textResult: TextProfileMessage | null = null;
   private seriesLabels: string[] | null = null;
@@ -1012,6 +1045,7 @@ export class ChartCard {
   private readonly yTitleInput: HTMLInputElement;
   private readonly yUnitInput: HTMLInputElement;
   private readonly canvas: HTMLCanvasElement;
+  private readonly mapControls: HTMLElement;
   private readonly scopeEl: HTMLElement;
   private readonly summaryEl: HTMLElement;
   private readonly dataIssueEl: HTMLElement;
@@ -1021,6 +1055,8 @@ export class ChartCard {
   private readonly legendEl: HTMLElement;
   private readonly tooltipEl: HTMLElement;
   private readonly settingsBody: HTMLElement;
+  private settingsDisclosure: HTMLDetailsElement | null = null;
+  private settingsDismiss: (() => void) | null = null;
   private hitRegions: HitRegion[] = [];
   private pointerAt: { x: number; y: number; clientX: number; clientY: number } | null = null;
   /** Last hovered/clicked region, retained while the card menu is open. */
@@ -1123,6 +1159,11 @@ export class ChartCard {
     this.valueSelect.addEventListener("change", () => {
       this.config.valueColumn = Number(this.valueSelect.value);
       this.syncValueAggOptions();
+      // A numeric treemap measure defaults to sum, matching pivot conventions.
+      if (this.config.kind === "treemap" && (this.config.valueColumn ?? -1) >= 0) {
+        this.config.valueAgg = "sum";
+        this.valueAggSelect.value = "sum";
+      }
       // A value line and a grouped count line are two different charts, so the
       // value choice clears the group where both cannot coexist. Lines and bars
       // keep the group: that combination is the split-by series chart.
@@ -1137,6 +1178,7 @@ export class ChartCard {
       this.syncOptions();
       this.renderControls();
       this.refreshValue();
+      this.refreshTreemap();
       this.render();
     });
     this.valueWrap = this.tagged("Value", this.valueSelect).wrap;
@@ -1159,6 +1201,7 @@ export class ChartCard {
       this.config.valueAgg = this.valueAggSelect.value as ChartCardConfig["valueAgg"];
       this.generation++;
       this.refreshValue();
+      this.refreshTreemap();
       this.render();
     });
     this.valueAggWrap = this.tagged("Agg", this.valueAggSelect).wrap;
@@ -1732,7 +1775,7 @@ export class ChartCard {
         type: "button",
         title: "Load custom regions from GeoJSON or a zipped Shapefile",
       },
-      ["Load regions"],
+      ["Load extra map data"],
     ) as HTMLButtonElement;
     loadMapLayer.addEventListener("click", () => this.mapLayerInput.click());
     this.mapLayerInput.addEventListener("change", () => {
@@ -1759,7 +1802,7 @@ export class ChartCard {
     const clearMapLayer = el(
       "button",
       { class: "ghost small", type: "button", title: "Return to the world basemap" },
-      ["Clear regions"],
+      ["Clear extra map data"],
     ) as HTMLButtonElement;
     clearMapLayer.addEventListener("click", () => {
       this.geoDataset = null;
@@ -2170,7 +2213,24 @@ export class ChartCard {
       ]),
     ]);
 
+    const settingsClose = el(
+      "button",
+      {
+        class: "icon-btn chart-settings-close",
+        type: "button",
+        title: "Close settings",
+        "aria-label": "Close settings",
+      },
+      ["×"],
+    ) as HTMLButtonElement;
+    settingsClose.addEventListener("click", () => {
+      if (this.settingsDisclosure !== null) {
+        this.settingsDisclosure.open = false;
+        this.settingsDisclosure.querySelector<HTMLElement>("summary")?.focus();
+      }
+    });
     const settingsBody = el("div", { class: "chart-settings-body" }, [
+      settingsClose,
       this.colorWrap,
       this.sizeWrap,
       this.modeWrap,
@@ -2183,9 +2243,14 @@ export class ChartCard {
     ]);
     this.settingsBody = settingsBody;
     const settings = el("details", { class: "chart-settings-disclosure" }, [
-      el("summary", { title: "Colours, ranges, titles and other settings" }, ["Settings"]),
+      el("summary", { title: "Colours, ranges, titles and other settings" }, [
+        "Settings",
+        el("span", { class: "chart-settings-chevron", "aria-hidden": "true" }, ["▾"]),
+      ]),
       settingsBody,
-    ]);
+    ]) as HTMLDetailsElement;
+    this.settingsDisclosure = settings;
+    settings.addEventListener("toggle", () => this.syncSettingsOpen());
     head.append(settings);
 
     const canvasWrap = el("div", { class: "chart-canvas-wrap" });
@@ -2205,7 +2270,43 @@ export class ChartCard {
       ["Reset view"],
     ) as HTMLButtonElement;
     this.resetViewButton.addEventListener("click", () => this.resetMapZoom());
-    canvasWrap.append(this.resetViewButton);
+    const mapControls = el("div", { class: "chart-map-controls hidden" });
+    const mapZoomIn = el(
+      "button",
+      {
+        class: "chart-map-control",
+        type: "button",
+        title: "Zoom in",
+        "aria-label": "Zoom the map in",
+      },
+      ["+"],
+    ) as HTMLButtonElement;
+    mapZoomIn.addEventListener("click", () => this.zoomMap(0.8));
+    const mapZoomOut = el(
+      "button",
+      {
+        class: "chart-map-control",
+        type: "button",
+        title: "Zoom out",
+        "aria-label": "Zoom the map out",
+      },
+      ["−"],
+    ) as HTMLButtonElement;
+    mapZoomOut.addEventListener("click", () => this.zoomMap(1.25));
+    const mapFit = el(
+      "button",
+      {
+        class: "chart-map-control chart-map-fit",
+        type: "button",
+        title: "Fit the map to the data",
+        "aria-label": "Fit the map to the data",
+      },
+      ["Fit data"],
+    ) as HTMLButtonElement;
+    mapFit.addEventListener("click", () => this.resetMapZoom());
+    mapControls.append(mapZoomIn, mapZoomOut, mapFit);
+    this.mapControls = mapControls;
+    canvasWrap.append(this.resetViewButton, mapControls);
     this.summaryEl = el("div", { class: "chart-summary" });
     this.dataIssueEl = el("div", { class: "chart-data-issues hidden" });
     this.scopeEl = el("div", { class: "chart-scope" });
@@ -2329,8 +2430,58 @@ export class ChartCard {
     window.addEventListener("themechange", this.onThemeChange);
   }
 
+  /** One open Settings popover at a time; outside click or Escape dismisses it. */
+  private syncSettingsOpen(): void {
+    const settings = this.settingsDisclosure;
+    if (settings === null) return;
+    if (settings.open) {
+      if (openSettingsDisclosure !== null && openSettingsDisclosure !== settings) {
+        openSettingsDisclosure.open = false;
+      }
+      openSettingsDisclosure = settings;
+      this.bindSettingsDismiss(settings);
+    } else {
+      if (openSettingsDisclosure === settings) openSettingsDisclosure = null;
+      this.unbindSettingsDismiss();
+    }
+  }
+
+  private bindSettingsDismiss(settings: HTMLDetailsElement): void {
+    this.unbindSettingsDismiss();
+    const onDocumentClick = (event: Event): void => {
+      if (!settings.open) return;
+      const target = event.target as { closest?: (selector: string) => unknown } | null;
+      if (
+        target !== null &&
+        typeof target.closest === "function" &&
+        target.closest(".chart-settings-disclosure") === settings
+      ) {
+        return;
+      }
+      settings.open = false;
+    };
+    const onKeydown = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape" || !settings.open) return;
+      settings.open = false;
+      settings.querySelector<HTMLElement>("summary")?.focus();
+    };
+    document.addEventListener("click", onDocumentClick);
+    document.addEventListener("keydown", onKeydown);
+    this.settingsDismiss = () => {
+      document.removeEventListener("click", onDocumentClick);
+      document.removeEventListener("keydown", onKeydown);
+    };
+  }
+
+  private unbindSettingsDismiss(): void {
+    this.settingsDismiss?.();
+    this.settingsDismiss = null;
+  }
+
   dispose(): void {
     this.disposed = true;
+    if (openSettingsDisclosure === this.settingsDisclosure) openSettingsDisclosure = null;
+    this.unbindSettingsDismiss();
     this.closeFocus();
     if (this.animationTimer !== null) {
       window.clearInterval(this.animationTimer);
@@ -2452,7 +2603,8 @@ export class ChartCard {
       kind === "bar" ||
       kind === "barplot" ||
       kind === "kpi" ||
-      kind === "histogram";
+      kind === "histogram" ||
+      kind === "treemap";
     const grainKinds =
       kind === "line" || (kind === "kpi" && this.isDateLike(this.meta(this.config.column)));
     const valueOn =
@@ -2480,7 +2632,7 @@ export class ChartCard {
     this.valueWrap.classList.toggle("hidden", bound || !measureKinds);
     this.valueAggWrap.classList.toggle("hidden", bound || !measureKinds || !valueOn);
     this.valueGrainWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn);
-    this.valueCalcWrap.classList.toggle("hidden", bound || !valueOn);
+    this.valueCalcWrap.classList.toggle("hidden", bound || !valueOn || kind === "treemap");
     this.xWrap.classList.toggle("hidden", bound || !pair);
     this.yWrap.classList.toggle("hidden", bound || !pair);
     this.axesPanel.classList.toggle("hidden", bound || kind === "correlation");
@@ -3403,16 +3555,15 @@ export class ChartCard {
 
     if (this.config.kind === "treemap") {
       const result = this.treemapResult;
-      if (result !== null) {
-        return [
-          ["label", "value"],
-          ...result.labels.map((label, index) => [label, number(result.values[index] ?? Number.NaN)]),
-        ];
-      }
-      const bars = this.allCategoryBars();
-      return bars.length === 0
-        ? []
-        : [["label", "value"], ...bars.map((bar) => [bar.label, String(bar.count)])];
+      if (result === null) return [];
+      return [
+        ["label", "value", "rows"],
+        ...result.labels.map((label, index) => [
+          label,
+          number(result.values[index] ?? Number.NaN),
+          String(result.rows[index] ?? 0),
+        ]),
+      ];
     }
 
     if (this.config.kind === "terms") {
@@ -3500,8 +3651,13 @@ export class ChartCard {
         return meta.type === "date" || meta.type === "datetime";
       case "bar":
       case "barplot":
-      case "treemap":
         return isCategoryType(meta.type);
+      case "treemap":
+        if (meta.role === "provenance") return false;
+        return (
+          isCategoryType(meta.type) ||
+          (meta.type === "string" && !isIdLikeColumn(meta, this.rowCount))
+        );
       case "terms":
         return meta.type === "string";
       default:
@@ -3739,7 +3895,13 @@ export class ChartCard {
     });
     this.groupSelect.value = String(this.config.groupColumn);
 
-    const valueAllowed = this.allowedIndexes((meta) => meta.role !== "provenance");
+    const valueAllowed = this.allowedIndexes(
+      (meta) =>
+        meta.role !== "provenance" &&
+        (this.config.kind !== "treemap" ||
+          isNumericType(meta.type) ||
+          meta.type === "duration"),
+    );
     if (
       this.config.valueColumn !== undefined &&
       this.config.valueColumn >= 0 &&
@@ -3916,18 +4078,23 @@ export class ChartCard {
           ? "Date"
           : kind === "kpi"
             ? "Date (optional)"
-            : kind === "bar" || kind === "treemap"
-              ? "Category"
-              : kind === "terms"
-                ? "Text"
-                : "Column";
+            : kind === "treemap"
+              ? "Group by"
+              : kind === "bar"
+                ? "Category"
+                : kind === "terms"
+                  ? "Text"
+                  : "Column";
+    const valueLabel = this.valueWrap.querySelector<HTMLElement>(".chart-tag-label");
+    if (valueLabel !== null) valueLabel.textContent = kind === "treemap" ? "Size by" : "Value";
     const groupable = this.columns.some((meta) => isCategoryType(meta.type));
     const measureKinds =
       kind === "line" ||
       kind === "bar" ||
       kind === "barplot" ||
       kind === "kpi" ||
-      kind === "histogram";
+      kind === "histogram" ||
+      kind === "treemap";
     const grainKinds =
       kind === "line" || (kind === "kpi" && this.isDateLike(this.meta(this.config.column)));
     const valueOn =
@@ -3944,7 +4111,7 @@ export class ChartCard {
     this.valueWrap.classList.toggle("hidden", !measureKinds || !unbound);
     this.valueAggWrap.classList.toggle("hidden", !measureKinds || !unbound || !valueOn);
     this.valueGrainWrap.classList.toggle("hidden", !grainKinds || !unbound || !valueOn);
-    this.valueCalcWrap.classList.toggle("hidden", !unbound || !valueOn);
+    this.valueCalcWrap.classList.toggle("hidden", !unbound || !valueOn || kind === "treemap");
     this.xWrap.classList.toggle("hidden", !pair);
     this.yWrap.classList.toggle("hidden", !pair);
     const seriesKind = kind === "scatter" || kind === "density";
@@ -4739,28 +4906,46 @@ export class ChartCard {
   }
 
   /**
-   * Treemap data: counts come from the facets already on the client; a chosen
-   * measure asks the aggregation engine for a sum per category.
+   * Treemap data: always one aggregation over the group column. The measure is
+   * count(*) unless a numeric column is chosen; a row-count measure rides along
+   * so every tile tooltip can show the rows behind its area.
    */
   private refreshTreemap(): void {
-    if (this.config.kind !== "treemap" || this.config.sizeColumn < 0) {
+    if (this.config.kind !== "treemap") {
       this.treemapResult = null;
       return;
     }
     const meta = this.meta(this.config.column);
-    if (meta === undefined || !isCategoryType(meta.type)) {
+    if (meta === undefined || !this.allowsPrimary(meta)) {
       this.treemapResult = null;
       return;
     }
+    const measureColumn = this.config.valueColumn ?? -1;
+    const requestedAgg = this.config.valueAgg ?? "sum";
+    const agg: Aggregate = [
+      "count",
+      "distinct",
+      "sum",
+      "mean",
+      "median",
+      "min",
+      "max",
+    ].includes(requestedAgg)
+      ? (requestedAgg as Aggregate)
+      : "sum";
+    const measure: MeasureSpec =
+      measureColumn >= 0
+        ? { column: measureColumn, agg }
+        : { column: null, agg: "count" };
     const generation = ++this.generation;
     const view: ViewDef = {
       id: "chart-treemap",
       name: "Treemap",
       dimensions: [{ column: this.config.column, by: "value" }],
-      measures: [{ column: this.config.sizeColumn, agg: "sum" }],
+      measures: [measure, { column: null, agg: "count" }],
       fill: "none",
       sort: { key: "m0", dir: "desc" },
-      limit: 64,
+      limit: 5000,
       respectFilters: this.config.respectFilters !== false,
       filterColumn: this.config.filterColumn ?? -1,
       filterCode: this.config.filterCode ?? -1,
@@ -4772,6 +4957,9 @@ export class ChartCard {
         this.treemapResult = {
           labels: message.labels,
           values: [...(message.measures[0] ?? new Float64Array(0))],
+          rows: [...(message.measures[1] ?? new Float64Array(0))],
+          totalGroups: message.totalGroups,
+          truncated: message.truncated,
         };
         this.render();
       })
@@ -4782,8 +4970,8 @@ export class ChartCard {
 
   private drawTreemap(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const meta = this.meta(this.config.column);
-    if (meta === undefined || !isCategoryType(meta.type)) {
-      const message = "Treemaps need a category column — pick one above.";
+    if (meta === undefined || !this.allowsPrimary(meta)) {
+      const message = "Treemaps need a category or text column — pick one above.";
       this.noteEl.textContent = message;
       this.drawPlotMessage(ctx, frame, message);
       return;
@@ -4793,29 +4981,31 @@ export class ChartCard {
       return;
     }
 
-    let entries: { label: string; value: number; code: number }[];
-    const measured = this.config.sizeColumn >= 0;
-    if (measured) {
-      const result = this.treemapResult;
-      if (result === null) {
-        const message = "Summing the measure…";
-        this.noteEl.textContent = message;
-        this.drawPlotMessage(ctx, frame, message);
-        return;
-      }
-      entries = result.labels
-        .map((label, index) => ({
-          label,
-          value: result.values[index] ?? 0,
-          code: meta.categories?.labels.indexOf(label) ?? -1,
-        }))
-        .filter((entry) => entry.value > 0);
-    } else {
-      const counts = this.facets[this.config.column] ?? meta.categories?.counts ?? [];
-      entries = (meta.categories?.labels ?? [])
-        .map((label, code) => ({ label, value: counts[code] ?? 0, code }))
-        .filter((entry) => entry.value > 0);
+    const measureColumn = this.config.valueColumn ?? -1;
+    const measureMeta = this.meta(measureColumn);
+    const measured = measureColumn >= 0 && measureMeta !== undefined;
+    const measureLabel = measured
+      ? `${
+          this.valueAggSelect.selectedOptions[0]?.textContent ??
+          this.config.valueAgg ??
+          "Sum"
+        } of ${measureMeta.name}`
+      : "Count of rows";
+    const result = this.treemapResult;
+    if (result === null) {
+      const message = "Grouping the rows…";
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return;
     }
+    const entries = result.labels
+      .map((label, index) => ({
+        label,
+        value: result.values[index] ?? 0,
+        rows: result.rows[index] ?? 0,
+        code: meta.categories?.labels.indexOf(label) ?? -1,
+      }))
+      .filter((entry) => entry.value > 0);
     if (entries.length === 0) {
       const message = "No values to plot for this column.";
       this.noteEl.textContent = message;
@@ -4840,7 +5030,8 @@ export class ChartCard {
       const rest = entries.slice(cap);
       if (rest.length > 0) {
         const value = rest.reduce((sum, entry) => sum + entry.value, 0);
-        shown.push({ label: `Other (${rest.length})`, value, code: -1 });
+        const rows = rest.reduce((sum, entry) => sum + entry.rows, 0);
+        shown.push({ label: `Other (${rest.length})`, value, rows, code: -1 });
       }
     }
     const total = shown.reduce((sum, entry) => sum + entry.value, 0);
@@ -4854,7 +5045,7 @@ export class ChartCard {
     const ui = frame.ui;
 
     this.hitRegions = rects.map((rect, index) => {
-      const entry = shown[index] ?? { label: "", value: 0, code: -1 };
+      const entry = shown[index] ?? { label: "", value: 0, rows: 0, code: -1 };
       const share = total > 0 ? (entry.value / total) * 100 : 0;
       return {
         x: rect.x,
@@ -4864,13 +5055,17 @@ export class ChartCard {
         lines: [
           entry.label === "" ? "(blank)" : entry.label,
           measured
-            ? `sum ${formatChartNumber(entry.value)} · ${share.toFixed(1)}%`
-            : `${formatCount(entry.value)} rows · ${share.toFixed(1)}%`,
+            ? `${measureLabel} · ${formatChartNumber(entry.value)} · ${share.toFixed(
+                1,
+              )}% of total · ${formatCount(entry.rows)} rows`
+            : `${formatCount(entry.value)} rows · ${share.toFixed(1)}% of total`,
         ],
         actions:
           entry.code >= 0
             ? [{ kind: "values" as const, column: this.config.column, code: entry.code }]
-            : [],
+            : meta.type === "string"
+              ? [{ kind: "text" as const, column: this.config.column, query: entry.label }]
+              : [],
       };
     });
 
@@ -4919,10 +5114,10 @@ export class ChartCard {
     });
     ctx.textAlign = "left";
 
-    const notes = [`${shown.length} tiles`];
+    const notes = [`${shown.length} tiles`, measureLabel];
     notes.push(
       measured
-        ? `Σ ${formatChartNumber(total)}`
+        ? `${formatChartNumber(total)} total`
         : `${formatCount(total)} rows`,
     );
     if (windowed) {
@@ -4930,6 +5125,13 @@ export class ChartCard {
     } else {
       const restCount = Math.max(0, entries.length - Math.min(entries.length, cap));
       if (restCount > 0) notes.push(`${restCount} rest as Other`);
+    }
+    if (result.truncated) {
+      notes.push(
+        `top ${entries.length.toLocaleString()} of ${result.totalGroups.toLocaleString()} groups — narrow the group column for full coverage`,
+      );
+    } else if (meta.type === "string" && meta.stats.distinct > cap) {
+      notes.push("high-cardinality text · top tiles + Other");
     }
     if (this.statsMs > 0) notes.push(`${Math.round(this.statsMs)} ms`);
     this.noteEl.textContent = notes.join(" · ");
@@ -5919,19 +6121,22 @@ export class ChartCard {
       this.config.kind === "correlation" ||
       this.config.kind === "treemap" ||
       this.config.kind === "terms";
+    const isMap = this.config.kind === "map";
+    this.mapControls.classList.toggle("hidden", !isMap);
     this.resetViewButton.classList.toggle(
       "hidden",
-      !(
-        this.mapView !== null ||
-        this.plotView !== null ||
-        this.chartXZoom !== null ||
-        this.barWindow !== null ||
-        this.heatWindow !== null ||
-        this.boxWindow !== null ||
-        this.boxY !== null ||
-        this.corrWindow !== null ||
-        this.itemWindow !== null
-      ),
+      isMap ||
+        !(
+          this.mapView !== null ||
+          this.plotView !== null ||
+          this.chartXZoom !== null ||
+          this.barWindow !== null ||
+          this.heatWindow !== null ||
+          this.boxWindow !== null ||
+          this.boxY !== null ||
+          this.corrWindow !== null ||
+          this.itemWindow !== null
+        ),
     );
     this.canvas.style.cursor = zoomable
       ? this.mapDrag !== null || this.plotDrag !== null
@@ -6647,21 +6852,7 @@ export class ChartCard {
     }
     if (kind === "map") {
       event.preventDefault();
-      const view = this.mapView ?? this.mapViewOrAuto();
-      const lon = view.lonMin + tx * (view.lonMax - view.lonMin);
-      const lat = view.latMin + ty * (view.latMax - view.latMin);
-      const lonSpan = Math.min(
-        360,
-        Math.max(0.2, (view.lonMax - view.lonMin) * factor),
-      );
-      const latSpan = Math.min(
-        180,
-        Math.max(0.2, (view.latMax - view.latMin) * factor),
-      );
-      const lonMin = Math.min(180 - lonSpan, Math.max(-180, lon - tx * lonSpan));
-      const latMin = Math.min(90 - latSpan, Math.max(-90, lat - ty * latSpan));
-      this.mapView = { lonMin, lonMax: lonMin + lonSpan, latMin, latMax: latMin + latSpan };
-      this.render();
+      this.zoomMap(factor, tx, ty);
       return;
     }
     const result = kind === "bubble" ? this.bubbleResult : this.seriesResult;
@@ -6692,7 +6883,20 @@ export class ChartCard {
     this.render();
   }
 
-  /** Double-click resets the map/scatter viewport to the full data range. */
+  /** Zoom the map around a normalized anchor (0.5, 0.5 = the centre). */
+  private zoomMap(factor: number, tx = 0.5, ty = 0.5): void {
+    if (this.config.kind !== "map") return;
+    const view = this.mapView ?? this.mapViewOrAuto();
+    const lon = view.lonMin + tx * (view.lonMax - view.lonMin);
+    const lat = view.latMin + ty * (view.latMax - view.latMin);
+    const lonSpan = Math.min(360, Math.max(0.2, (view.lonMax - view.lonMin) * factor));
+    const latSpan = Math.min(180, Math.max(0.2, (view.latMax - view.latMin) * factor));
+    const lonMin = Math.min(180 - lonSpan, Math.max(-180, lon - tx * lonSpan));
+    const latMin = Math.min(90 - latSpan, Math.max(-90, lat - ty * latSpan));
+    this.mapView = { lonMin, lonMax: lonMin + lonSpan, latMin, latMax: latMin + latSpan };
+    this.render();
+  }
+
   /** Auto viewport: custom regions, then heat grid, then point percentiles. */
   private mapViewOrAuto(): MapViewport {
     if (this.geoDataset !== null) return { ...this.geoDataset.bounds };
@@ -7472,7 +7676,10 @@ export class ChartCard {
    * coordinate columns to that area (plan §8).
    */
   private drawMap(ctx: CanvasRenderingContext2D, frame: Frame): void {
-    if (this.basemap === null && basemapCache !== null) this.basemap = basemapCache;
+    if (this.basemap === null) {
+      const cached = basemapCaches.get("110m");
+      if (cached !== undefined) this.basemap = cached;
+    }
     if (this.basemap === null) {
       const message = "Loading the offline basemap…";
       this.noteEl.textContent = message;
@@ -7483,7 +7690,6 @@ export class ChartCard {
       });
       return;
     }
-    const map = this.basemap;
     const x0 = frame.left;
     const y0 = frame.top;
     const w = frame.plotW;
@@ -7492,6 +7698,33 @@ export class ChartCard {
       this.mapView ?? this.mapViewOrAuto();
     const lonSpan = view.lonMax - view.lonMin;
     const latSpan = view.latMax - view.latMin;
+
+    // Regional views get the 50m basemap; the 110m version keeps painting
+    // until the detail module is decoded, so zooming never blocks the map.
+    let map = this.basemap;
+    let detailNote = "";
+    if (this.geoDataset === null && lonSpan <= DETAIL_LON_SPAN) {
+      if (this.detailBasemap !== null) {
+        map = this.detailBasemap;
+        detailNote = "50m detail";
+      } else if (!this.detailBasemapRequested && !this.detailBasemapFailed) {
+        this.detailBasemapRequested = true;
+        this.detailBasemapLoading = true;
+        detailNote = "loading map detail…";
+        void loadBasemap("50m")
+          .then((detail) => {
+            this.detailBasemap = detail;
+            this.detailBasemapLoading = false;
+            if (!this.disposed) this.render();
+          })
+          .catch(() => {
+            this.detailBasemapFailed = true;
+            this.detailBasemapLoading = false;
+          });
+      } else if (this.detailBasemapLoading) {
+        detailNote = "loading map detail…";
+      }
+    }
     const px = (lon: number): number => x0 + ((lon - view.lonMin) / lonSpan) * w;
     const py = (lat: number): number => y0 + ((view.latMax - lat) / latSpan) * h;
     ctx.save();
@@ -7701,7 +7934,9 @@ export class ChartCard {
         values === null || this.config.sizeColumn < 0 || measureMeta === undefined
           ? "rows per cell"
           : `${agg}(${measureMeta.name}) per cell`;
-      this.noteEl.textContent = `heat: ${measure} · ${grid.bins}×${grid.bins} grid · ${grid.total.toLocaleString()} rows · scroll to zoom · drag to pan · double-click resets`;
+      this.noteEl.textContent = `heat: ${measure} · ${grid.bins}×${grid.bins} grid · ${grid.total.toLocaleString()} rows${
+        detailNote === "" ? "" : ` · ${detailNote}`
+      } · scroll to zoom · drag to pan · double-click resets`;
       return;
     }
     const result = this.seriesResult;
@@ -7726,7 +7961,9 @@ export class ChartCard {
         }
       }
       ctx.globalAlpha = 1;
-      this.noteEl.textContent = `${result.total.toLocaleString()} points · ${result.outside.toLocaleString()} outside the world bounds · drag a rectangle to filter to an area`;
+      this.noteEl.textContent = `${result.total.toLocaleString()} points · ${result.outside.toLocaleString()} outside the world bounds${
+        detailNote === "" ? "" : ` · ${detailNote}`
+      } · drag a rectangle to filter to an area`;
       return;
     }
     // Points: sized and coloured by the chosen columns, batched by colour.
@@ -7801,7 +8038,7 @@ export class ChartCard {
       .join(" · ");
     this.noteEl.textContent = `${result.shown.toLocaleString()} of ${result.total.toLocaleString()} points${sampled}${
       extras === "" ? "" : ` · ${extras}`
-    } — scroll to zoom · drag to pan · shift-drag to filter · double-click resets`;
+    }${detailNote === "" ? "" : ` · ${detailNote}`} — scroll to zoom · drag to pan · shift-drag to filter · double-click resets`;
   }
 
   /**

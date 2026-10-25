@@ -8,6 +8,7 @@ import {
   projectLon,
 } from "../src/data/topo.js";
 import { WORLD_110M } from "../src/data/world-110m.js";
+import { WORLD_50M } from "../src/data/world-50m.js";
 
 function bbox(rings: readonly Float64Array[]): {
   lonMin: number;
@@ -53,6 +54,20 @@ test("the 110m basemap decodes countries and land", () => {
   const box = bbox(australia.rings);
   assert.ok(box.lonMin >= 110 && box.lonMax <= 156, `lon ${box.lonMin}..${box.lonMax}`);
   assert.ok(box.latMin >= -45 && box.latMax <= -9, `lat ${box.latMin}..${box.latMax}`);
+});
+
+test("the 50m detail basemap decodes and adds resolution", () => {
+  const arcs = decodeArcs(WORLD_50M);
+  const countries = decodeCountries(WORLD_50M, arcs);
+  const land = decodeLand(WORLD_50M, arcs);
+  const points = (rings: readonly Float64Array[]): number =>
+    rings.reduce((sum, ring) => sum + ring.length / 2, 0);
+  assert.ok(countries.length >= 150, `found ${countries.length} countries`);
+  assert.ok(land.length >= 100, `found ${land.length} land rings`);
+  assert.ok(
+    points(land) > points(decodeLand(WORLD_110M, decodeArcs(WORLD_110M))),
+    "50m land has more points than 110m",
+  );
 });
 
 test("quantized arcs decode to absolute degrees", () => {
