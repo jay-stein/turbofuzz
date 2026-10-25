@@ -195,6 +195,8 @@ export type DropRowsRequest = {
   requestId: number;
   /** Positions in the current result order to remove from the working set. */
   positions: number[];
+  /** Dataset row ids to remove, for callers that know the row rather than its position. */
+  rowIds?: number[];
 };
 
 export type ClearExcludedRowsRequest = { type: "clearExcludedRows"; requestId: number };

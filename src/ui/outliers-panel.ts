@@ -31,6 +31,7 @@ import {
   type ForceLayout,
   type ForceOptions,
 } from "../data/force-layout.js";
+import { votesForRow, type RowVotes } from "../data/outlier-votes.js";
 import { clear, el } from "./dom.js";
 import { describeScope } from "./scope.js";
 
@@ -67,7 +68,11 @@ export interface OutliersPanelOptions {
   onFlagAnomalies(column: number): void;
   /** Open the Clean drawer for a column. */
   onOpenClean(column: number): void;
+  /** Removes rows (dataset row ids) from the working set; resolves true when removed. */
+  onRemoveRows?(rows: number[]): Promise<boolean>;
 }
+
+type ReviewState = "kept" | "removed" | "fixed";
 
 const METHODS: readonly {
   id: OutlierMethod;
@@ -121,6 +126,7 @@ const RELATIONSHIP_LABELS: Record<string, string> = {
 
 function formatScore(value: number): string {
   if (!Number.isFinite(value)) return "—";
+  if (value !== 0 && Math.abs(value) < 0.001) return value.toExponential(1);
   return value >= 100 ? formatCount(value) : value.toFixed(value >= 10 ? 1 : 3);
 }
 
@@ -296,6 +302,13 @@ export class OutliersPanel {
   private status = "";
   private error = "";
   private selectedDetail: { method: OutlierMethod; row: number; mode: OutlierMode } | null = null;
+  /** What the user decided for each outlier row (keyed by dataset row id). */
+  private reviewed = new Map<number, ReviewState>();
+  private votesChecking = false;
+  /** Re-run the quick scan once the data changes under a fix made on this page. */
+  private pendingRescan = false;
+  /** After a rescan, jump to the next outlier that has not been reviewed. */
+  private pendingAdvance = false;
   private groupResult: GroupAnomaliesMessage | null = null;
   private groupLoading = false;
   private similarClusters: SimilarClustersMessage | null = null;
@@ -396,6 +409,22 @@ export class OutliersPanel {
     this.resetRelationshipCache();
     if (this.page === "relationships") void this.ensureRelationships();
     this.render();
+    this.rescanIfPending();
+  }
+
+  /** Opening the page shows outliers straight away: the quick scan for the chosen method. */
+  autoStart(): void {
+    if (this.page !== "outliers" || this.stats === null) return;
+    if (this.method === "value" || this.method === "group") return;
+    this.autoQuickScan(this.method);
+  }
+
+  /** After a fix made on this page the old scan is stale; run the quick scan again. */
+  private rescanIfPending(): void {
+    if (!this.pendingRescan || this.page !== "outliers") return;
+    this.pendingRescan = false;
+    if (this.method === "value" || this.method === "group") return;
+    this.autoQuickScan(this.method);
   }
 
   refresh(): void {
@@ -410,6 +439,7 @@ export class OutliersPanel {
     this.resetRelationshipCache();
     if (this.page === "relationships") void this.ensureRelationships();
     this.render();
+    this.rescanIfPending();
   }
 
   private defaultFeatures(): number[] {
@@ -558,6 +588,15 @@ export class OutliersPanel {
       this.method = method;
       this.preferredMode = mode;
       this.status = `${METHOD_LABELS[method]} ${mode} scan finished in ${Math.round(result.ms)} ms.`;
+      if (this.pendingAdvance) {
+        this.pendingAdvance = false;
+        const next = result.details.find((entry) => !this.reviewed.has(entry.row));
+        if (next !== undefined) {
+          this.selectedDetail = { method, row: next.row, mode };
+          this.status = `${result.flagged.toLocaleString()} still flagged after your change — here is the next one to review.`;
+          window.setTimeout(() => void this.ensureVotes(), 0);
+        }
+      }
     } catch (caught) {
       if (token !== this.runToken || scopeVersion !== this.scopeVersion) return;
       this.error = caught instanceof Error ? caught.message : "The analysis could not run.";
@@ -568,6 +607,112 @@ export class OutliersPanel {
         this.render();
       }
     }
+  }
+
+  private selectRow(method: OutlierMethod, row: number, mode: OutlierMode): void {
+    this.selectedDetail = { method, row, mode };
+    this.render();
+    this.revealLandscape();
+    void this.ensureVotes();
+  }
+
+  private votesFor(row: number): RowVotes {
+    const pick = (id: OutlierMethod): OutlierAnalysisMessage | null =>
+      this.resultFor(id, "quick") ?? this.resultFor(id, "deep");
+    return votesForRow(
+      row,
+      { isolationForest: pick("isolationForest"), pca: pick("pca"), lof: pick("lof") },
+      (contribution) => contributionReason(contribution),
+    );
+  }
+
+  /**
+   * Confidence needs every method's opinion, so the first time a row is
+   * inspected the other quick scans run quietly in turn. They never change the
+   * selected method or row, and a scope change cancels them.
+   */
+  private async ensureVotes(): Promise<void> {
+    if (this.votesChecking || this.selectedFeatures.size < 2) return;
+    const missing = METHODS.filter(
+      (entry) => this.resultFor(entry.id, "quick") === null && this.resultFor(entry.id, "deep") === null,
+    ).map((entry) => entry.id);
+    if (missing.length === 0) return;
+    const scopeVersion = this.scopeVersion;
+    const columns = [...this.selectedFeatures].sort((a, b) => a - b);
+    this.votesChecking = true;
+    this.render();
+    for (const id of missing) {
+      if (scopeVersion !== this.scopeVersion) break;
+      try {
+        const result = await this.options.requestOutlier({
+          method: id,
+          columns,
+          contamination: this.contamination,
+          mode: "quick",
+          seed: 42,
+          respectFilters: this.respectFilters,
+        });
+        if (scopeVersion !== this.scopeVersion) break;
+        this.results.set(this.key(id, "quick"), result);
+        this.render();
+      } catch {
+        // A method that cannot run simply does not vote.
+      }
+    }
+    this.votesChecking = false;
+    if (scopeVersion === this.scopeVersion) this.render();
+  }
+
+  private nextUnreviewed(result: OutlierAnalysisMessage, after: number): number | null {
+    const rows = result.details.map((entry) => entry.row);
+    const start = rows.indexOf(after);
+    for (let step = 1; step <= rows.length; step++) {
+      const row = rows[(start + step + rows.length) % rows.length];
+      if (row !== undefined && row !== after && !this.reviewed.has(row)) return row;
+    }
+    return null;
+  }
+
+  private step(result: OutlierAnalysisMessage, from: number, delta: 1 | -1): void {
+    const rows = result.details.map((entry) => entry.row);
+    const index = rows.indexOf(from);
+    const row = rows[(index + delta + rows.length) % rows.length];
+    if (row !== undefined) this.selectRow(result.method, row, result.mode);
+  }
+
+  private keepRow(result: OutlierAnalysisMessage, row: number): void {
+    this.reviewed.set(row, "kept");
+    const next = this.nextUnreviewed(result, row);
+    if (next !== null) {
+      this.status = `Row ${(row + 1).toLocaleString()} kept as genuine.`;
+      this.selectRow(result.method, next, result.mode);
+    } else {
+      this.selectedDetail = null;
+      this.status = "You have reviewed every ranked outlier.";
+      this.render();
+    }
+  }
+
+  private async removeRow(result: OutlierAnalysisMessage, row: number): Promise<void> {
+    const remove = this.options.onRemoveRows;
+    if (remove === undefined) return;
+    if (!(await remove([row]))) return;
+    this.reviewed.set(row, "removed");
+    this.pendingAdvance = true;
+    this.selectedDetail = null;
+    // The row set changed, so earlier scans are stale; score again straight away.
+    this.clearResults();
+    this.status = `Removed row ${(row + 1).toLocaleString()} — re-scanning…`;
+    this.render();
+    if (this.method !== "value" && this.method !== "group") this.autoQuickScan(this.method);
+    else this.pendingAdvance = false;
+  }
+
+  private fixColumn(row: number, apply: () => void): void {
+    this.reviewed.set(row, "fixed");
+    this.pendingRescan = true;
+    this.pendingAdvance = true;
+    apply();
   }
 
   /**
@@ -849,15 +994,15 @@ export class OutliersPanel {
   private renderOutliers(): void {
     void this.loadSimilarClusters();
     const wrap = el("div", { class: "outliers-outliers" });
-    wrap.append(this.buildScopeBar(), this.buildFeaturePicker(), this.buildActions());
-    wrap.append(this.buildMethodCards());
-
     const result =
       this.method === "value" || this.method === "group"
         ? null
         : this.resultFor(this.method, this.preferredMode) ??
           this.resultFor(this.method, "quick") ??
           this.resultFor(this.method, "deep");
+    if (this.method !== "value" && this.method !== "group") wrap.append(this.buildJourney(result));
+    wrap.append(this.buildScopeBar(), this.buildFeaturePicker(), this.buildActions());
+    wrap.append(this.buildMethodCards());
     if (this.status !== "" || this.error !== "") {
       wrap.append(
         el("div", { class: `outliers-status${this.error !== "" ? " error" : ""}`, role: "status" }, [
@@ -973,6 +1118,141 @@ export class OutliersPanel {
     return grid;
   }
 
+  /**
+   * The page as a three-step path with one clear next action: see the
+   * outliers, judge how likely each is a real problem, then decide and fix.
+   */
+  private buildJourney(result: OutlierAnalysisMessage | null): HTMLElement {
+    const reviewedCount = result?.details.filter((entry) => this.reviewed.has(entry.row)).length ?? 0;
+    const total = result?.details.length ?? 0;
+    const selected = this.selectedDetail !== null;
+    const current = result === null ? 0 : !selected && reviewedCount === 0 ? 1 : 2;
+    const steps = [
+      {
+        title: "See the outliers",
+        text:
+          result === null
+            ? "Pick a method — a quick scan runs for you"
+            : `${result.flagged.toLocaleString()} unusual rows found`,
+        done: result !== null,
+      },
+      {
+        title: "Check confidence",
+        text: selected ? "How many methods agree, and why" : "Open a point or a ranked row",
+        done: selected || reviewedCount > 0,
+      },
+      {
+        title: "Decide and fix",
+        text:
+          total > 0 && reviewedCount > 0
+            ? `${reviewedCount} of ${total} reviewed`
+            : "Keep, fix or remove each one",
+        done: total > 0 && reviewedCount === total,
+      },
+    ];
+    const wrap = el("section", { class: "outliers-journey", "aria-label": "Outlier review steps" });
+    const list = el("ol", { class: "outliers-steps" });
+    steps.forEach((step, index) => {
+      const state = step.done ? "done" : index === current ? "current" : "todo";
+      list.append(
+        el("li", { class: `outliers-step ${state}`, "aria-current": index === current ? "step" : "false" }, [
+          el("span", { class: "outliers-step-number" }, [step.done ? "✓" : String(index + 1)]),
+          el("span", { class: "outliers-step-copy" }, [
+            el("strong", {}, [step.title]),
+            el("span", {}, [step.text]),
+          ]),
+        ]),
+      );
+    });
+    wrap.append(list);
+
+    const cta = el("div", { class: "outliers-cta" });
+    const message = el("span", { class: "outliers-cta-text" });
+    const buttons = el("span", { class: "outliers-cta-buttons" });
+    if (result === null) {
+      message.textContent =
+        this.running !== null
+          ? "Scanning… your results appear here in a moment."
+          : "Start here: choose a method below. A quick scan runs automatically.";
+    } else if (result.details.length === 0) {
+      message.textContent = "Nothing cleared the threshold. Try a higher “Flag” percentage.";
+    } else if (!selected) {
+      message.textContent = `Next: check whether these ${result.flagged.toLocaleString()} rows are real problems. Start with the most unusual one.`;
+      const inspect = el("button", { class: "primary small", type: "button" }, [
+        "Inspect the top outlier →",
+      ]) as HTMLButtonElement;
+      const first = result.details.find((entry) => !this.reviewed.has(entry.row)) ?? result.details[0];
+      inspect.addEventListener("click", () => {
+        if (first !== undefined) this.selectRow(result.method, first.row, result.mode);
+      });
+      const show = el("button", { class: "ghost small", type: "button" }, ["Show flagged rows in the table"]);
+      show.addEventListener("click", () => this.options.onShowOutliers());
+      buttons.append(inspect, show);
+    } else {
+      message.textContent = this.votesChecking
+        ? "Checking this row with the other methods…"
+        : "Read the confidence below, then keep, fix or remove this row. Every change is recorded and can be undone.";
+    }
+    cta.append(message, buttons);
+    wrap.append(cta);
+    return wrap;
+  }
+
+  /** How many methods flag one row, and why each does or does not. */
+  private buildConfidence(row: number): HTMLElement {
+    const votes = this.votesFor(row);
+    const section = el("section", {
+      class: `outliers-confidence level-${votes.confidence}`,
+      "aria-label": "Confidence",
+    });
+    const level =
+      votes.confidence === "high"
+        ? "High confidence"
+        : votes.confidence === "medium"
+          ? "Medium confidence"
+          : votes.confidence === "low"
+            ? "Low confidence"
+            : "Checking…";
+    section.append(
+      el("div", { class: "outliers-confidence-head" }, [
+        el("strong", { class: "outliers-confidence-headline" }, [votes.headline]),
+        el("span", { class: "outliers-confidence-pill" }, [level]),
+      ]),
+    );
+    const meter = el("div", { class: "outliers-vote-meter", "aria-hidden": "true" });
+    for (const voter of votes.voters) {
+      meter.append(
+        el("span", {
+          class: `outliers-vote-dot${!voter.ran ? " pending" : voter.flagged ? " flagged" : ""}`,
+          title: voter.label,
+        }),
+      );
+    }
+    section.append(meter, el("p", { class: "outliers-confidence-advice" }, [votes.advice]));
+    const list = el("ul", { class: "outliers-voters" });
+    for (const voter of votes.voters) {
+      const mark = !voter.ran ? "…" : voter.flagged ? "⚑" : "–";
+      const score =
+        voter.ran && voter.score !== null && voter.threshold !== null
+          ? voter.id === "extreme"
+            ? `${voter.score.toFixed(1)}σ vs ${voter.threshold}σ`
+            : `score ${formatScore(voter.score)} vs ${formatScore(voter.threshold)}`
+          : "";
+      list.append(
+        el("li", { class: `outliers-voter${voter.flagged ? " flagged" : ""}${voter.ran ? "" : " pending"}` }, [
+          el("span", { class: "outliers-voter-mark" }, [mark]),
+          el("span", { class: "outliers-voter-copy" }, [
+            el("strong", {}, [voter.label]),
+            el("span", { class: "outliers-voter-score" }, [score]),
+            el("span", { class: "outliers-voter-why" }, [voter.why]),
+          ]),
+        ]),
+      );
+    }
+    section.append(list);
+    return section;
+  }
+
   private buildRecipe(result: OutlierAnalysisMessage): HTMLElement {
     const line = el("div", { class: "outliers-recipe" });
     const parts = [
@@ -1012,12 +1292,6 @@ export class OutliersPanel {
           : `${strongest.label} carries the strongest ${METHOD_LABELS[result.method]} signal.`,
       },
     ];
-    if (this.selectedDetail === null) {
-      cards.push({
-        title: "What next",
-        text: "Click a landscape point or a ranked row to inspect the values behind the score.",
-      });
-    }
     const agreement = this.agreementSummary();
     if (agreement !== null) {
       cards.push({
@@ -1223,8 +1497,7 @@ export class OutliersPanel {
       const result =
         this.resultFor(method, this.preferredMode) ?? this.resultFor(method, "quick");
       if (result?.details.some((detail) => detail.row === nearest.row) === true) {
-        this.selectedDetail = { method, row: nearest.row, mode: result.mode };
-        this.render();
+        this.selectRow(method, nearest.row, result.mode);
         return;
       }
     }
@@ -1438,6 +1711,9 @@ export class OutliersPanel {
         .map((value, feature) => `${result.labels[feature] ?? "?"}=${value === "" ? "—" : value}`)
         .join(" · ");
       const top = detail.contributions[0];
+      const votes = this.votesFor(detail.row);
+      const decision = this.reviewed.get(detail.row);
+      card.classList.toggle("reviewed", decision !== undefined);
       card.append(
         el("span", { class: "outliers-row-rank" }, [`#${index + 1}`]),
         el("span", { class: "outliers-row-main" }, [
@@ -1454,12 +1730,29 @@ export class OutliersPanel {
               ]),
           this.buildFingerprint(detail.contributions),
         ]),
+        el("span", { class: "outliers-row-badges" }, [
+          ...(votes.ran >= 3
+            ? [
+                el(
+                  "span",
+                  {
+                    class: `outliers-badge level-${votes.confidence}`,
+                    title: `${votes.flagged} of ${votes.ran} methods flag this row`,
+                  },
+                  [`${votes.flagged}/${votes.ran} agree`],
+                ),
+              ]
+            : []),
+          ...(decision === undefined
+            ? []
+            : [
+                el("span", { class: `outliers-badge decision-${decision}` }, [
+                  decision === "kept" ? "Kept" : decision === "removed" ? "Removed" : "Fixed",
+                ]),
+              ]),
+        ]),
       );
-      card.addEventListener("click", () => {
-        this.selectedDetail = { method: result.method, row: detail.row, mode: result.mode };
-        this.render();
-        this.revealLandscape();
-      });
+      card.addEventListener("click", () => this.selectRow(result.method, detail.row, result.mode));
       list.append(card);
     });
     if (result.details.length === 0) {
@@ -1554,7 +1847,34 @@ export class OutliersPanel {
       wrapper.append(reason, el("span", { class: "outliers-reason-detail" }, [contributionReason(entry)]));
       reasons.append(wrapper);
     }
-    aside.append(head, values, el("h4", {}, ["Why this row"]), reasons);
+    aside.append(head, this.buildConfidence(row.row), values, el("h4", {}, ["Why this row"]), reasons);
+    aside.append(el("h4", {}, ["Decide"]));
+    const decide = el("div", { class: "outliers-detail-actions outliers-decide" });
+    const keep = el(
+      "button",
+      {
+        class: "ghost small",
+        type: "button",
+        title: "This unusual value is real — leave the data alone and move to the next outlier",
+      },
+      ["Keep — it’s genuine"],
+    ) as HTMLButtonElement;
+    keep.addEventListener("click", () => this.keepRow(result, row.row));
+    decide.append(keep);
+    if (this.options.onRemoveRows !== undefined) {
+      const remove = el(
+        "button",
+        {
+          class: "ghost small danger",
+          type: "button",
+          title: "Remove this row from the working set (recorded, undoable from the Recipe)",
+        },
+        ["Remove this row"],
+      ) as HTMLButtonElement;
+      remove.addEventListener("click", () => void this.removeRow(result, row.row));
+      decide.append(remove);
+    }
+    aside.append(decide);
     const fixColumn = topContribution?.column ?? -1;
     const fixMeta = this.metas[fixColumn];
     if (fixMeta !== undefined && isNumericType(fixMeta.type)) {
@@ -1568,7 +1888,9 @@ export class OutliersPanel {
         },
         [`Clip “${fixMeta.name}” at 1%`],
       ) as HTMLButtonElement;
-      clip.addEventListener("click", () => this.options.onWinsorize(fixColumn, 1));
+      clip.addEventListener("click", () =>
+        this.fixColumn(row.row, () => this.options.onWinsorize(fixColumn, 1)),
+      );
       const flag = el(
         "button",
         {
@@ -1578,7 +1900,9 @@ export class OutliersPanel {
         },
         [`Flag “${fixMeta.name}”`],
       ) as HTMLButtonElement;
-      flag.addEventListener("click", () => this.options.onFlagAnomalies(fixColumn));
+      flag.addEventListener("click", () =>
+        this.fixColumn(row.row, () => this.options.onFlagAnomalies(fixColumn)),
+      );
       const clean = el(
         "button",
         {
@@ -1590,8 +1914,28 @@ export class OutliersPanel {
       ) as HTMLButtonElement;
       clean.addEventListener("click", () => this.options.onOpenClean(fixColumn));
       fixes.append(clip, flag, clean);
-      aside.append(el("h4", {}, ["Quick fixes"]), fixes);
+      aside.append(
+        el("h4", {}, ["Fix the value"]),
+        el("p", { class: "outliers-hint" }, [
+          `These change the whole “${fixMeta.name}” column (every extreme value in it), not just this row.`,
+        ]),
+        fixes,
+      );
     }
+    const reviewedCount = result.details.filter((entry) => this.reviewed.has(entry.row)).length;
+    const nav = el("div", { class: "outliers-detail-actions outliers-review-nav" });
+    const previous = el("button", { class: "ghost small", type: "button" }, ["← Previous"]) as HTMLButtonElement;
+    previous.addEventListener("click", () => this.step(result, row.row, -1));
+    const next = el("button", { class: "ghost small", type: "button" }, ["Next →"]) as HTMLButtonElement;
+    next.addEventListener("click", () => this.step(result, row.row, 1));
+    nav.append(
+      previous,
+      next,
+      el("span", { class: "outliers-hint" }, [
+        `${reviewedCount} of ${result.details.length} top outliers reviewed`,
+      ]),
+    );
+    aside.append(nav);
     const actions = el("div", { class: "outliers-detail-actions" });
     const show = el("button", { class: "ghost small", type: "button" }, ["Show flagged rows"]);
     show.addEventListener("click", () => this.options.onShowOutliers());

@@ -253,6 +253,10 @@ function buildPanel(
     onFinding: () => calls.push("finding"),
     onWinsorize: (column, percent) => calls.push(`winsorize:${column}:${percent}`),
     onFlagAnomalies: (column) => calls.push(`flag:${column}`),
+    onRemoveRows: (rows) => {
+      calls.push(`remove:${rows.join(",")}`);
+      return Promise.resolve(true);
+    },
     onOpenClean: (column) => calls.push(`clean:${column}`),
   }, page);
   panel.setData(
@@ -372,6 +376,9 @@ test("top outliers explain the likely value and offer quick fixes", async () => 
   findButton("Clean “amount”").click();
   assert.deepEqual(calls, [
     "isolationForest:quick:true",
+    // Opening a row quietly runs the other methods so confidence can be shown.
+    "pca:quick:true",
+    "lof:quick:true",
     "winsorize:0:1",
     "flag:0",
     "clean:0",
@@ -421,4 +428,70 @@ test("the column network shows text links, detail and an ego focus", async () =>
   textLabel.click();
   assert.ok(host.querySelector(".column-network-canvas") !== null);
   assert.match(host.querySelector(".column-network-focus")?.textContent ?? "", /notes/);
+});
+
+test("the page guides a three-step path with a call to action", async () => {
+  const { host } = buildPanel();
+  assert.match(host.querySelector(".outliers-cta-text")?.textContent ?? "", /Start here/);
+  const steps = [...host.querySelectorAll(".outliers-step")];
+  assert.equal(steps.length, 3);
+  assert.ok(steps[0]?.classList.contains("current"));
+
+  const quick = [...host.querySelectorAll("button")].find(
+    (button) => button.textContent === "Run quick scan",
+  ) as HTMLButtonElement;
+  quick.click();
+  await tick();
+  await tick();
+  assert.ok(host.querySelectorAll(".outliers-step")[0]?.classList.contains("done"));
+  assert.match(host.querySelector(".outliers-cta-text")?.textContent ?? "", /check whether/);
+  const inspect = [...host.querySelectorAll(".outliers-cta button")].find((button) =>
+    (button.textContent ?? "").startsWith("Inspect the top outlier"),
+  ) as HTMLButtonElement;
+  assert.ok(inspect !== undefined, "the call to action offers the first outlier");
+  inspect.click();
+  await tick();
+  await tick();
+  await tick();
+  assert.ok(host.querySelector(".outliers-detail") !== null, "inspecting opens the review panel");
+  assert.ok(host.querySelector(".outliers-confidence") !== null, "confidence is shown first");
+  assert.match(
+    host.querySelector(".outliers-confidence-headline")?.textContent ?? "",
+    /\d of \d methods? flag this row/,
+  );
+  assert.ok(host.querySelectorAll(".outliers-voter").length >= 3, "each method explains its vote");
+});
+
+test("keeping an outlier records the decision and shows it in the ranked list", async () => {
+  const { host } = buildPanel();
+  (host.querySelector(".outliers-method") as HTMLButtonElement).click();
+  await tick();
+  await tick();
+  (host.querySelector(".outliers-row") as HTMLButtonElement).click();
+  await tick();
+  await tick();
+  const keep = [...host.querySelectorAll(".outliers-decide button")].find((button) =>
+    (button.textContent ?? "").startsWith("Keep"),
+  ) as HTMLButtonElement;
+  keep.click();
+  await tick();
+  assert.match(host.querySelector(".outliers-row")?.textContent ?? "", /Kept/);
+});
+
+test("an outlier can be removed from the review panel", async () => {
+  const { host, calls } = buildPanel();
+  (host.querySelector(".outliers-method") as HTMLButtonElement).click();
+  await tick();
+  await tick();
+  (host.querySelector(".outliers-row") as HTMLButtonElement).click();
+  await tick();
+  await tick();
+  const remove = [...host.querySelectorAll(".outliers-decide button")].find((button) =>
+    (button.textContent ?? "").startsWith("Remove this row"),
+  ) as HTMLButtonElement;
+  assert.ok(remove !== undefined);
+  remove.click();
+  await tick();
+  await tick();
+  assert.ok(calls.some((call) => call.startsWith("remove:")), "the host is asked to remove the row");
 });

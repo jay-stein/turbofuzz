@@ -2360,6 +2360,9 @@ function handleDropRows(message: DropRowsRequest): void {
   for (const position of message.positions) {
     if (position >= 0 && position < sortedIds.length) excludedIds.add(sortedIds[position]);
   }
+  for (const id of message.rowIds ?? []) {
+    if (Number.isInteger(id) && id >= 0 && id < dataset.rowCount) excludedIds.add(id);
+  }
   excludedBits = null;
 
   const started = performance.now();

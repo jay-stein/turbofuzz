@@ -184,6 +184,11 @@ export class SearchWorkerClient {
     return this.request<ResultsMessage>({ type: "dropRows", positions });
   }
 
+  /** Removes specific dataset rows (by id) from the working set. */
+  dropRowsById(rowIds: number[]): Promise<ResultsMessage> {
+    return this.request<ResultsMessage>({ type: "dropRows", positions: [], rowIds });
+  }
+
   clearExcludedRows(): Promise<ResultsMessage> {
     return this.request<ResultsMessage>({ type: "clearExcludedRows" });
   }

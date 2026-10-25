@@ -2257,16 +2257,7 @@ export class App {
       try {
         const message = await this.client.dropRows(positions);
         this.excludedRowCount += positions.length;
-        this.updateCount(message.count, message.queryMs);
-        this.applyFacets(message.facets, message.histograms);
-        this.table?.setCount(message.count);
-        this.table?.setFirstRows(
-        message.firstRows,
-        message.firstGroups,
-        message.firstFlags,
-        message.firstChanged,
-      );
-        this.updateStepsButton();
+        this.applyDropResult(message);
       } catch (error) {
         this.showError(error);
       }
@@ -2276,6 +2267,41 @@ export class App {
         ...this.transformOps,
         ...columns.map((column) => ({ kind: "drop" as const, column })),
       ]);
+    }
+  }
+
+  private applyDropResult(message: ResultsMessage): void {
+    this.updateCount(message.count, message.queryMs);
+    this.applyFacets(message.facets, message.histograms);
+    this.table?.setCount(message.count);
+    this.table?.setFirstRows(
+      message.firstRows,
+      message.firstGroups,
+      message.firstFlags,
+      message.firstChanged,
+    );
+    this.updateStepsButton();
+  }
+
+  /** Removes outlier rows picked on the Outliers page; returns whether anything was removed. */
+  private async removeRowsById(rows: number[]): Promise<boolean> {
+    if (rows.length === 0) return false;
+    const confirmed = await openConfirm({
+      title: rows.length === 1 ? `Remove row ${(rows[0] ?? 0) + 1}?` : `Remove ${rows.length} rows?`,
+      body: "The row is removed from the working set — counts and exports exclude it. This is recorded and undoable from the Recipe (Restore removed rows).",
+      confirmLabel: rows.length === 1 ? "Remove row" : "Remove rows",
+      danger: true,
+    });
+    if (!confirmed) return false;
+    try {
+      const message = await this.client.dropRowsById(rows);
+      this.excludedRowCount += rows.length;
+      this.applyDropResult(message);
+      this.setAction(`Removed ${rows.length.toLocaleString()} row${rows.length === 1 ? "" : "s"}`);
+      return true;
+    } catch (error) {
+      this.showError(error);
+      return false;
     }
   }
 
@@ -3452,9 +3478,11 @@ export class App {
         this.table?.flashColumn(column);
       },
       onFinding: (finding) => this.runFinding(finding),
-      onWinsorize: (column, percent) => this.winsorizeColumn(column, percent, true),
-      onFlagAnomalies: (column) => this.flagAnomaliesColumn(column, true),
+      // Fixes stay on the Outliers page so the review can carry on afterwards.
+      onWinsorize: (column, percent) => this.winsorizeColumn(column, percent, false),
+      onFlagAnomalies: (column) => this.flagAnomaliesColumn(column, false),
       onOpenClean: (column) => this.openClean(column, "values"),
+      onRemoveRows: (rows) => this.removeRowsById(rows),
     };
   }
 
@@ -3463,6 +3491,7 @@ export class App {
     if (stats === undefined) return;
     if (this.outliersPanel !== null) {
       this.outliersPanel.setData(this.metas, stats, this.rowCount, this.resultCount);
+      this.outliersPanel.autoStart();
       return;
     }
     this.outliersPanel = new OutliersPanel(
@@ -3471,6 +3500,7 @@ export class App {
       "outliers",
     );
     this.outliersPanel.setData(this.metas, stats, this.rowCount, this.resultCount);
+    this.outliersPanel.autoStart();
   }
 
   private ensureRelationships(): void {

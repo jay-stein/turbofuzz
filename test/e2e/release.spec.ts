@@ -95,7 +95,7 @@ test("outliers lens runs a quick scan and shows the anomaly landscape", async ({
   expect(consoleErrors).toEqual([]);
 });
 
-test("an outlier quick fix clips the contributing column and returns to the table", async ({
+test("an outlier quick fix clips the contributing column and stays on the Outliers page", async ({
   page,
 }) => {
   const { consoleErrors, pageErrors } = collectErrors(page);
@@ -119,11 +119,13 @@ test("an outlier quick fix clips the contributing column and returns to the tabl
   const confirm = page.locator(".confirm-modal");
   await expect(confirm).toBeVisible();
   await confirm.getByRole("button", { name: "Clip values" }).click();
-  await expect(page.getByRole("tab", { name: "Table" })).toHaveAttribute(
+  // The review continues where it was: still on Outliers, and the data is re-scanned.
+  await expect(page.getByRole("tab", { name: "Outliers" })).toHaveAttribute(
     "aria-selected",
     "true",
   );
-  await expect(page.locator(".table-host")).toBeVisible();
+  await expect(page.locator(".outliers-journey")).toBeVisible();
+  await expect(page.locator(".outliers-status")).toContainText("scan finished", { timeout: 20_000 });
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
 });
