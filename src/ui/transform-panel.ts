@@ -378,8 +378,22 @@ export function openTransformPanel(
             constantField.classList.toggle("hidden", kind !== "constant");
             groupField.classList.toggle("hidden", kind === "forward" || kind === "backward");
           };
-          strategySelect.addEventListener("change", sync);
+          // Start with the sensible method for the column's type instead of an
+          // empty constant; stop suggesting once the user picks one themselves.
+          let strategyTouched = false;
+          const suggestStrategy = (): void => {
+            if (strategyTouched) return;
+            const numeric = schema[Number(columnSelect.value)]?.numeric === true;
+            strategySelect.value = numeric ? "median" : "mode";
+            sync();
+          };
+          strategySelect.addEventListener("change", () => {
+            strategyTouched = true;
+            sync();
+          });
+          columnSelect.addEventListener("change", suggestStrategy);
           sync();
+          suggestStrategy();
           inputHost.append(
             field("Column", columnSelect),
             field("Fill with", strategySelect),

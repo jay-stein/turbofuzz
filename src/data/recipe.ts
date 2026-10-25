@@ -687,6 +687,32 @@ function transformLines(
         lines.push(...viewPandasLines(op.dimensions, op.measures, names, op.fill ?? "none", entries));
         break;
       }
+      case "clip": {
+        const columnName = names[op.column];
+        if (columnName === undefined) {
+          lines.push("# clip skipped in the script: the column is no longer in the schema");
+          entries.push({
+            label: `clip: column ${op.column + 1}`,
+            status: "manual_step_required",
+            note: "the tracked schema no longer has this column",
+          });
+          break;
+        }
+        const column = target(columnName);
+        if (op.outside === "limit") {
+          lines.push(
+            `${column} = pd.to_numeric(${column}, errors="coerce").clip(lower=${op.min ?? "None"}, upper=${op.max ?? "None"})`,
+          );
+        } else {
+          const outside = [
+            ...(op.min === null ? [] : [`(${column} < ${op.min})`]),
+            ...(op.max === null ? [] : [`(${column} > ${op.max})`]),
+          ].join(" | ");
+          lines.push(`${column} = pd.to_numeric(${column}, errors="coerce")`);
+          lines.push(`${column} = ${column}.mask(${outside === "" ? "False" : outside})`);
+        }
+        break;
+      }
       case "winsorize": {
         const columnName = names[op.column];
         if (columnName === undefined) {

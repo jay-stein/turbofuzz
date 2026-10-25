@@ -21,6 +21,7 @@ import { describeCleanOp, describeCleanOpDetail, type CleanOp } from "../data/cl
 import type { CastOptions, CastTarget } from "../data/cast-ops.js";
 import { openCastDialog } from "./cast-dialog.js";
 import { openBatchCastDialog } from "./batch-cast-dialog.js";
+import { formatBound, openRangePrompt } from "./range-prompt.js";
 import { pandasRecipeScript, type RecipeInput, viewToPandas } from "../data/recipe.js";
 import { polarsRecipeScript } from "../data/recipe-polars.js";
 import { supportHint, type RecipeScript, type RecipeTarget } from "../data/recipe-support.js";
@@ -2071,6 +2072,7 @@ export class App {
       onFlagAnomalies: (column) => this.flagAnomaliesColumn(column),
       onOpenClean: (column, tab) => this.openClean(column, tab),
       onFillMenu: (anchor, column) => openMenu(anchor, this.fillMenuItems([column])),
+      onOutlierMenu: (anchor, column) => openMenu(anchor, this.outlierMenuItems([column])),
       onRequestRows: (start, end, done) => {
         void this.client
           .getRows(start, end)
@@ -4154,27 +4156,12 @@ export class App {
           },
           [chipText("fix", "outliers…")],
         ) as HTMLButtonElement;
-        fix.addEventListener("click", () => {
-          const items: MenuItem[] = [];
-          for (const entry of outlierColumns) {
-            items.push({
-              label: `Clip “${entry.meta.name}” at 1% / 99%`,
-              title: `Winsorise “${entry.meta.name}” — ${entry.count.toLocaleString()} unusual values`,
-              action: () => this.winsorizeColumn(entry.index, 1),
-            });
-            items.push({
-              label: `Flag “${entry.meta.name}”`,
-              title: `Add a Yes/No outlier column for “${entry.meta.name}”`,
-              action: () => this.flagAnomaliesColumn(entry.index),
-            });
-          }
-          items.push({
-            label: "Open Outliers lens…",
-            title: "Run multivariate anomaly analysis",
-            action: () => this.setView("outliers"),
-          });
-          openMenu(fix, items);
-        });
+        fix.addEventListener("click", () =>
+          openMenu(
+            fix,
+            this.outlierMenuItems(outlierColumns.map((entry) => entry.index)),
+          ),
+        );
         this.healthHost.append(fix);
       }
     }
@@ -4634,8 +4621,8 @@ export class App {
       items.push(header(meta.name, meta.stats.nulls));
       if (meta.type === "identifier") {
         items.push({
-          label: "Identifiers shouldn’t be filled — review in Clean…",
-          action: () => this.openClean(index, "nulls"),
+          label: "Identifiers shouldn’t be filled — see Fill missing…",
+          action: () => this.openTransform({ type: "impute", column: index }),
         });
       } else if (isNumericLikeType(meta.type)) {
         items.push(
@@ -4664,8 +4651,8 @@ export class App {
     }
     if (ranked.length > 6) {
       items.push({
-        label: `${(ranked.length - 6).toLocaleString()} more columns — see Clean…`,
-        action: () => this.openClean(ranked[6]?.index, "nulls"),
+        label: `${(ranked.length - 6).toLocaleString()} more columns — choose in Fill missing…`,
+        action: () => this.openTransform({ type: "impute", column: ranked[6]?.index }),
       });
     }
     if (numeric.length > 1) {
@@ -4688,11 +4675,112 @@ export class App {
     }
     const first = ranked[0];
     items.push({
-      label: "More options in Clean…",
-      title: "Treat markers like “NA” as empty, or choose other fill methods",
-      action: () => this.openClean(first?.index, "nulls"),
+      label: "More fill methods…",
+      title: "Most common value, previous/next, a constant, KNN, or fill by group",
+      action: () => this.openTransform({ type: "impute", column: first?.index }),
     });
     return items;
+  }
+
+  /**
+   * Fix choices for the "outliers…" chips. The first entry sends you to the
+   * Outliers page to judge the rows; the rest change one column and are all
+   * recorded in the Recipe (undoable): clip at a percentile or a range you
+   * type, empty the outliers so a fill can replace them, or flag them.
+   */
+  private outlierMenuItems(columns: number[]): MenuItem[] {
+    const items: MenuItem[] = [
+      {
+        label: "Review the outliers first…",
+        title: "See how confident each method is, then keep, fix or remove rows one by one",
+        action: () => this.setView("outliers"),
+      },
+    ];
+    for (const index of columns) {
+      const meta = this.metas[index];
+      if (meta === undefined) continue;
+      const count = meta.anomalyCounts.values;
+      items.push({
+        label: `${meta.name} · ${count.toLocaleString()} unusual`,
+        disabled: true,
+        action: () => undefined,
+      });
+      items.push(
+        {
+          label: "Clip at 1% / 99%",
+          title: `Winsorise “${meta.name}” — extreme values move to the 1st/99th percentile`,
+          action: () => this.winsorizeColumn(index, 1),
+        },
+        {
+          label: "Clip at 5% / 95%",
+          title: `A stronger clip: values beyond the 5th/95th percentile move to them`,
+          action: () => this.winsorizeColumn(index, 5),
+        },
+        {
+          label: "Clip to a range I choose…",
+          title: "Type your own lowest and highest allowed values",
+          action: () => void this.clipToRange(index),
+        },
+      );
+      const fence = meta.valueFence;
+      if (fence !== null) {
+        items.push({
+          label: "Empty the outliers (then fill them)…",
+          title: `Blank values outside ${formatBound(fence.lo)} – ${formatBound(fence.hi)}, then use Fix: empty cells to fill them`,
+          action: () => this.blankOutliers(index, fence.lo, fence.hi),
+        });
+      }
+      items.push({
+        label: "Flag unusual values",
+        title: `Add a Yes/No column marking the outlier rows of “${meta.name}”`,
+        action: () => this.flagAnomaliesColumn(index),
+      });
+    }
+    return items;
+  }
+
+  /** Clip (or empty) one column to limits the user types, with the column's span as context. */
+  private async clipToRange(column: number): Promise<void> {
+    const meta = this.metas[column];
+    if (meta === undefined) return;
+    const { min, max } = meta.stats;
+    const fence = meta.valueFence;
+    const span =
+      min !== null && max !== null ? `Currently ${formatBound(min)} to ${formatBound(max)}.` : "";
+    const typical =
+      fence === null ? "" : ` Typical range ${formatBound(fence.lo)} – ${formatBound(fence.hi)}.`;
+    const choice = await openRangePrompt({
+      title: `Clip “${meta.name}” to a range`,
+      hint: `${span}${typical} Leave a side blank for no limit on that side.`.trim(),
+      min: fence === null ? null : Number(fence.lo.toPrecision(6)),
+      max: fence === null ? null : Number(fence.hi.toPrecision(6)),
+      confirmLabel: "Apply",
+    });
+    if (choice === null) return;
+    const verb = choice.outside === "blank" ? "Emptied" : "Clipped";
+    this.applyTransform(
+      [
+        ...this.transformOps,
+        { kind: "clip", column, min: choice.min, max: choice.max, outside: choice.outside },
+      ],
+      `${verb} “${meta.name}” outside ${choice.min ?? "−∞"} … ${choice.max ?? "∞"}`,
+    );
+  }
+
+  private blankOutliers(column: number, lo: number, hi: number): void {
+    const meta = this.metas[column];
+    const name = meta?.name ?? "?";
+    const count = meta?.anomalyCounts.values ?? 0;
+    this.confirmFix(
+      `Empty the outliers in “${name}”?`,
+      `${count.toLocaleString()} value${count === 1 ? "" : "s"} outside ${formatBound(lo)} – ${formatBound(hi)} will become empty cells. Use Fix: empty cells afterwards to fill them with the median, mean or another value. This is recorded in the Recipe and can be undone.`,
+      "Empty the outliers",
+      () =>
+        this.applyTransform(
+          [...this.transformOps, { kind: "clip", column, min: lo, max: hi, outside: "blank" }],
+          `Emptied the outliers in “${name}”`,
+        ),
+    );
   }
 
   private confirmFill(columns: number[], strategy: ImputeStrategy, label: string): void {

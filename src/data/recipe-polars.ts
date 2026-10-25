@@ -749,6 +749,38 @@ function polarsTransformLines(
         lines.push(...polarsAggregateLines(op.dimensions, op.measures, names, op.fill ?? "none", entries));
         break;
       }
+      case "clip": {
+        const columnName = names[op.column];
+        if (columnName === undefined) {
+          lines.push("# clip skipped in the script: the column is no longer in the schema");
+          entries.push({
+            label: `clip: column ${op.column + 1}`,
+            status: "manual_step_required",
+            note: "the tracked schema no longer has this column",
+          });
+          break;
+        }
+        if (op.outside === "limit") {
+          lines.push(
+            assign(
+              `${col(columnName)}.clip(${op.min ?? "None"}, ${op.max ?? "None"})`,
+              columnName,
+            ),
+          );
+        } else {
+          const outside = [
+            ...(op.min === null ? [] : [`(${col(columnName)} < ${op.min})`]),
+            ...(op.max === null ? [] : [`(${col(columnName)} > ${op.max})`]),
+          ].join(" | ");
+          lines.push(
+            assign(
+              `pl.when(${outside === "" ? "pl.lit(False)" : outside}).then(None).otherwise(${col(columnName)})`,
+              columnName,
+            ),
+          );
+        }
+        break;
+      }
       case "winsorize": {
         const columnName = names[op.column];
         if (columnName === undefined) {

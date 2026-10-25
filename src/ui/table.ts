@@ -77,6 +77,8 @@ export interface ResultTableOptions {
   onOpenClean?: (column: number, tab: "nulls" | "values") => void;
   /** Opens the one-click fill menu for a column's empty cells, anchored to the chip. */
   onFillMenu?: (anchor: HTMLElement, column: number) => void;
+  /** Opens the outlier fix menu for a column, anchored to the chip. */
+  onOutlierMenu?: (anchor: HTMLElement, column: number) => void;
   onRequestRows: (
     start: number,
     end: number,
@@ -777,6 +779,7 @@ export class ResultTable {
     const outliers = issues.find((issue) => issue.kind === "valueAnomalies")?.count ?? 0;
     if (outliers > 0) {
       const canFix =
+        this.options.onOutlierMenu !== undefined ||
         this.options.onWinsorize !== undefined ||
         this.options.onFlagAnomalies !== undefined ||
         this.options.onOpenClean !== undefined;
@@ -788,6 +791,10 @@ export class ResultTable {
         ) as HTMLButtonElement;
         fix.title = `Choose a fix for ${outliers.toLocaleString()} unusual values in “${column.name}”`;
         fix.addEventListener("click", () => {
+          if (this.options.onOutlierMenu !== undefined) {
+            this.options.onOutlierMenu(fix, index);
+            return;
+          }
           const items: MenuItem[] = [];
           if (this.options.onWinsorize !== undefined) {
             items.push({

@@ -61,6 +61,18 @@ export type TransformOp =
       kind: "winsorize";
       column: number;
       percent: number;
+    }
+  | {
+      /**
+       * Limits numeric values to a range the user chose. Either bound may be
+       * null (one-sided). `limit` moves outside values to the bound; `blank`
+       * empties them so a fill step can replace them.
+       */
+      kind: "clip";
+      column: number;
+      min: number | null;
+      max: number | null;
+      outside: "limit" | "blank";
     };
 
 export interface ColumnSchema {
@@ -146,6 +158,9 @@ export function applyTransformOps(
         break;
       case "winsorize":
         current = winsorizeColumn(current, op);
+        break;
+      case "clip":
+        current = clipColumn(current, op);
         break;
     }
   }
@@ -297,6 +312,26 @@ function winsorizeColumn(
     if (!Number.isFinite(value)) continue;
     if (value < lo) raw[row] = formatNumber(lo);
     else if (value > hi) raw[row] = formatNumber(hi);
+  }
+  return replaceColumn(columns, op.column, column, raw);
+}
+
+/** Applies a user-chosen range; non-numeric text and in-range cells keep their spelling. */
+function clipColumn(
+  columns: readonly ColumnData[],
+  op: TransformOp & { kind: "clip" },
+): ColumnData[] {
+  const column = columns[op.column];
+  if (column === undefined) return columns.slice();
+  const { min, max } = op;
+  if (min === null && max === null) return columns.slice();
+  const numbers = column.numbers();
+  const raw = column.raw.slice();
+  for (let row = 0; row < numbers.length; row++) {
+    const value = numbers[row];
+    if (!Number.isFinite(value)) continue;
+    if (min !== null && value < min) raw[row] = op.outside === "blank" ? "" : formatNumber(min);
+    else if (max !== null && value > max) raw[row] = op.outside === "blank" ? "" : formatNumber(max);
   }
   return replaceColumn(columns, op.column, column, raw);
 }
@@ -744,6 +779,17 @@ export function describeTransformOp(op: TransformOp, headers: readonly string[])
       return `Winsorise ${quoted(nameAt(op.column))} at the ${op.percent}% / ${
         100 - op.percent
       }% percentiles`;
+    case "clip": {
+      const range =
+        op.min !== null && op.max !== null
+          ? `${formatNumber(op.min)} to ${formatNumber(op.max)}`
+          : op.min !== null
+            ? `at least ${formatNumber(op.min)}`
+            : `at most ${formatNumber(op.max ?? 0)}`;
+      return op.outside === "blank"
+        ? `Empty ${quoted(nameAt(op.column))} values outside ${range}`
+        : `Clip ${quoted(nameAt(op.column))} to ${range}`;
+    }
   }
 }
 
@@ -800,6 +846,8 @@ export function describeTransformOpDetail(op: TransformOp, headers: readonly str
       return `flagAnomalies(column=${nameAt(op.column)})`;
     case "winsorize":
       return `winsorize(column=${nameAt(op.column)}, percent=${op.percent})`;
+    case "clip":
+      return `clip(column=${nameAt(op.column)}, min=${op.min ?? "None"}, max=${op.max ?? "None"}, outside=${op.outside})`;
   }
 }
 
@@ -881,6 +929,7 @@ export function schemaAfter(schema: readonly ColumnSchema[], op: TransformOp): C
       return [...schema, { name, numeric: false }];
     }
     case "winsorize":
+    case "clip":
       return schema.slice();
   }
 }

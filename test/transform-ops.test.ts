@@ -493,3 +493,42 @@ test("the pandas recipe covers winsorize and flags", () => {
   assert.match(recipe, /clip\(lower=.*quantile\(0\.01\)/);
   assert.match(recipe, /outlier flags/);
 });
+
+test("clip limits values to a range the user chose and keeps in-range spellings", () => {
+  const ds = buildDataset("c", ["amount"], [["5"], ["50.50"], ["500"], ["n/a"], ["-20"]]);
+  const out = applyTransformOps("c", ds.columns, [
+    { kind: "clip", column: 0, min: 0, max: 100, outside: "limit" },
+  ]);
+  assert.deepEqual(out.columns[0].raw, ["5", "50.50", "100", "n/a", "0"]);
+});
+
+test("clip can be one-sided and can empty the outside values for a later fill", () => {
+  const ds = buildDataset("c", ["amount"], [["5"], ["50"], ["500"]]);
+  const upper = applyTransformOps("c", ds.columns, [
+    { kind: "clip", column: 0, min: null, max: 100, outside: "limit" },
+  ]);
+  assert.deepEqual(upper.columns[0].raw, ["5", "50", "100"]);
+  const blank = applyTransformOps("c", ds.columns, [
+    { kind: "clip", column: 0, min: null, max: 100, outside: "blank" },
+  ]);
+  assert.deepEqual(blank.columns[0].raw, ["5", "50", ""]);
+  const noop = applyTransformOps("c", ds.columns, [
+    { kind: "clip", column: 0, min: null, max: null, outside: "limit" },
+  ]);
+  assert.deepEqual(noop.columns[0].raw, ["5", "50", "500"]);
+});
+
+test("clip is described in plain words and exported to pandas and Polars", async () => {
+  const op = { kind: "clip" as const, column: 0, min: 0, max: 100, outside: "limit" as const };
+  assert.match(describeTransformOp(op, ["amount"]), /Clip “?"?amount.* to 0 to 100/);
+  const empty = { ...op, outside: "blank" as const, min: null };
+  assert.match(describeTransformOp(empty, ["amount"]), /Empty .*amount.* outside at most 100/);
+  const schema = [{ name: "amount", numeric: true }];
+  const pandas = pandasRecipe({ cleans: [], transforms: [op, empty], schema });
+  assert.match(pandas, /\.clip\(lower=0, upper=100\)/);
+  assert.match(pandas, /\.mask\(\(df\["amount"\] > 100\)\)/);
+  const { polarsRecipeScript } = await import("../src/data/recipe-polars.js");
+  const polars = polarsRecipeScript({ cleans: [], transforms: [op, empty], schema }).code;
+  assert.match(polars, /\.clip\(0, 100\)/);
+  assert.match(polars, /pl\.when\(.*> 100.*\)\.then\(None\)/);
+});

@@ -72,7 +72,8 @@ function remapTransform(
     case "drop":
     case "round":
     case "flagAnomalies":
-    case "winsorize": {
+    case "winsorize":
+    case "clip": {
       const column = map(op.column);
       return column === null ? null : { ...op, column };
     }
