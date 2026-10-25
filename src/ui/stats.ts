@@ -1,3 +1,5 @@
+import { svgIcon } from "./dom.js";
+import { STATS_ICON } from "./overview.js";
 import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
 import {
@@ -24,10 +26,10 @@ const SUMMARY_ITEMS = [
 
 export function openStatsModal(title: string): StatsModal {
   const overlay = el("div", { class: "modal-overlay" });
-  const modal = el("div", { class: "modal" });
+  const modal = el("div", { class: "modal stats-modal" });
 
   const head = el("div", { class: "modal-head" });
-  head.append(el("h2", {}, [`Stats — ${title}`]));
+  head.append(el("h2", { class: "stats-modal-title" }, [svgIcon(STATS_ICON, "stats-modal-icon"), `Stats — ${title}`]));
   const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close" }, ["×"]);
   head.append(closeButton);
   modal.append(head);

@@ -81,7 +81,7 @@ export interface DatasetSourceInfo {
 
 const VIEW_DEFAULT_KEY = "turbofuzz.view.default";
 
-const STATS_ICON =
+export const STATS_ICON =
   '<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/><path d="M10 12v6"/><path d="M13 10v8"/><path d="M16 14v4"/>';
 
 export function readDefaultView(): "overview" | "table" {

@@ -1057,6 +1057,10 @@ export class ChartCard {
   private readonly tooltipEl: HTMLElement;
   private readonly settingsBody: HTMLElement;
   private settingsDisclosure: HTMLDetailsElement | null = null;
+  private sidebar!: HTMLElement;
+  private sidebarToggle!: HTMLButtonElement;
+  private layoutEl!: HTMLElement;
+  private sidebarShown: boolean | null = null;
   private settingsDismiss: (() => void) | null = null;
   private hitRegions: HitRegion[] = [];
   private pointerAt: { x: number; y: number; clientX: number; clientY: number } | null = null;
@@ -1154,7 +1158,7 @@ export class ChartCard {
       this.renderControls();
       this.render();
     });
-    this.groupWrap = this.tagged("Group", this.groupSelect).wrap;
+    this.groupWrap = this.tagged("Group by", this.groupSelect).wrap;
 
     this.valueSelect = this.buildSelect("chart-picker chart-picker-small", "Value column");
     this.valueSelect.addEventListener("change", () => {
@@ -1205,7 +1209,7 @@ export class ChartCard {
       this.refreshTreemap();
       this.render();
     });
-    this.valueAggWrap = this.tagged("Agg", this.valueAggSelect).wrap;
+    this.valueAggWrap = this.tagged("Aggregate", this.valueAggSelect).wrap;
 
     this.valueGrainSelect = this.buildSelect("chart-picker chart-picker-small", "Bucket");
     (["auto", "minute", "hour", "day", "week", "month", "quarter", "year"] as const).forEach(
@@ -1220,7 +1224,7 @@ export class ChartCard {
       this.refreshValue();
       this.render();
     });
-    this.valueGrainWrap = this.tagged("Bucket", this.valueGrainSelect).wrap;
+    this.valueGrainWrap = this.tagged("Time resolution", this.valueGrainSelect).wrap;
 
     this.valueCalcSelect = this.buildSelect(
       "chart-picker chart-picker-small",
@@ -1270,7 +1274,7 @@ export class ChartCard {
       this.config.chartSort = this.sortSelect.value as ChartCardConfig["chartSort"];
       this.render();
     });
-    this.sortWrap = this.tagged("Order", this.sortSelect).wrap;
+    this.sortWrap = this.tagged("Sort", this.sortSelect).wrap;
 
     this.filterColumnSelect = this.buildSelect(
       "chart-picker chart-picker-small",
@@ -1516,19 +1520,36 @@ export class ChartCard {
       this.render();
     });
     this.pivotMeasureWrap = this.tagged("Value", this.pivotMeasureSelect).wrap;
+    // Every control below already shows or hides itself for the chart type;
+    // the sidebar only decides where they live.
+    const sidebarRow = (label: string, control: HTMLElement): HTMLElement =>
+      el("label", { class: "chart-tag chart-side-row" }, [
+        el("span", { class: "chart-tag-label" }, [label]),
+        control,
+      ]);
+    const sideSection = (...children: HTMLElement[]): HTMLElement =>
+      el("div", { class: "chart-side-section" }, children);
+    this.kindSelect.classList.add("chart-picker");
+    this.sidebar = el("aside", { class: "chart-sidebar", "aria-label": "Chart settings" }, [
+      sideSection(sidebarRow("Chart type", this.kindSelect), this.sourceWrap),
+      sideSection(this.axesPanel, this.valueGrainWrap, this.sortWrap),
+      sideSection(this.valueWrap, this.valueAggWrap, this.groupWrap, this.valueCalcWrap),
+      sideSection(this.pivotRowWrap, this.pivotColWrap, this.pivotMeasureWrap),
+    ]);
+    this.sidebarToggle = el(
+      "button",
+      {
+        class: "ghost small chart-sidebar-toggle",
+        type: "button",
+        title: "Show or hide chart settings",
+        "aria-label": "Show or hide chart settings",
+        "aria-expanded": "false",
+      },
+      ["⇥ Settings"],
+    ) as HTMLButtonElement;
+    this.sidebarToggle.addEventListener("click", () => this.toggleSidebar());
+    head.prepend(this.sidebarToggle);
     head.append(
-      this.sourceWrap,
-      this.kindSelect,
-      this.groupWrap,
-      this.valueWrap,
-      this.valueAggWrap,
-      this.valueGrainWrap,
-      this.valueCalcWrap,
-      this.sortWrap,
-      this.pivotRowWrap,
-      this.pivotColWrap,
-      this.pivotMeasureWrap,
-      this.axesPanel,
       el("span", { class: "grow" }),
       this.focusButton,
       this.widthButton,
@@ -2243,16 +2264,12 @@ export class ChartCard {
       lookRow,
     ]);
     this.settingsBody = settingsBody;
-    const settings = el("details", { class: "chart-settings-disclosure" }, [
-      el("summary", { title: "Colours, ranges, titles and other settings" }, [
-        "Settings",
-        el("span", { class: "chart-settings-chevron", "aria-hidden": "true" }, ["▾"]),
+    this.sidebar.append(
+      el("div", { class: "chart-side-section chart-side-settings" }, [
+        el("div", { class: "chart-side-title" }, ["Colour, filter and format"]),
+        settingsBody,
       ]),
-      settingsBody,
-    ]) as HTMLDetailsElement;
-    this.settingsDisclosure = settings;
-    settings.addEventListener("toggle", () => this.syncSettingsOpen());
-    head.append(settings);
+    );
 
     const canvasWrap = el("div", { class: "chart-canvas-wrap" });
     this.canvas = el("canvas", {
@@ -2406,8 +2423,8 @@ export class ChartCard {
       ],
     );
 
-    this.root.append(
-      head,
+    this.root.append(head);
+    const main = el("div", { class: "chart-card-main" }, [
       this.summaryEl,
       this.dataIssueEl,
       this.scopeEl,
@@ -2417,8 +2434,9 @@ export class ChartCard {
       this.animationBar,
       this.legendEl,
       this.noteEl,
-      this.tooltipEl,
-    );
+    ]);
+    this.layoutEl = el("div", { class: "chart-card-layout" }, [this.sidebar, main]);
+    this.root.append(this.layoutEl, this.tooltipEl);
 
     this.syncSwatches();
     this.applySpan();
@@ -2429,6 +2447,23 @@ export class ChartCard {
     if ((this.canvas.parentElement?.clientWidth ?? 0) > 1) this.render();
     window.addEventListener("resize", this.onResize);
     window.addEventListener("themechange", this.onThemeChange);
+  }
+
+  /**
+   * The sidebar shows by default in a one-per-row grid and starts hidden in
+   * denser grids (CSS decides); the first click flips whichever it is, after
+   * which the choice is explicit.
+   */
+  private toggleSidebar(): void {
+    const shown =
+      this.sidebarShown ?? getComputedStyle(this.sidebar).display !== "none";
+    this.sidebarShown = !shown;
+    this.layoutEl.classList.toggle("sidebar-open", this.sidebarShown);
+    this.layoutEl.classList.toggle("sidebar-collapsed", !this.sidebarShown);
+    this.sidebarToggle.setAttribute("aria-expanded", String(this.sidebarShown));
+    this.sidebarToggle.textContent = this.sidebarShown ? "⇤ Settings" : "⇥ Settings";
+    // The canvas width changes, so redraw at the new size.
+    requestAnimationFrame(() => this.render());
   }
 
   /** One open Settings popover at a time; outside click or Escape dismisses it. */

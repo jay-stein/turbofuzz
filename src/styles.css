@@ -6851,8 +6851,48 @@ label.null-row {
 }
 
 .stats-report-icon {
-  width: 15px;
-  height: 15px;
+  width: 22px;
+  height: 22px;
+}
+
+.stats-report-button {
+  padding: 8px 16px;
+  font-size: 14px;
+}
+
+.stats-toolbar-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The Stats Report opens as a near-full-screen sheet so wide tables fit. */
+.modal-overlay:has(.stats-modal) {
+  padding: 2vh 2vw;
+  align-items: stretch;
+}
+
+.stats-modal {
+  width: 100%;
+  max-width: none;
+  max-height: 96vh;
+  overflow: auto;
+}
+
+.stats-modal-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stats-modal-icon {
+  width: 30px;
+  height: 30px;
+  color: var(--accent);
+}
+
+.stats-modal .stats-table td.details {
+  white-space: normal;
 }
 
 /* ---------- responsive ---------- */
@@ -7674,4 +7714,172 @@ label.null-row {
 .views-transpose .transpose-icon {
   width: 16px;
   height: 16px;
+}
+
+/* Chart card: settings sidebar (label left, control right) beside the canvas. */
+.chart-card {
+  container-type: inline-size;
+}
+
+.chart-card-layout {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.chart-card-layout.sidebar-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.chart-card-layout.sidebar-collapsed > .chart-sidebar {
+  display: none;
+}
+
+.chart-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chart-sidebar {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 12px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+.chart-side-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.chart-side-section:last-child,
+.chart-side-section:empty {
+  border-bottom: none;
+}
+
+.chart-side-section:empty {
+  display: none;
+}
+
+.chart-side-title {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.chart-sidebar .chart-tag,
+.chart-sidebar .chart-field,
+.chart-sidebar .chart-settings,
+.chart-sidebar .chart-card-look {
+  display: flex;
+  flex: none;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chart-sidebar .chart-settings,
+.chart-sidebar .chart-card-look {
+  flex-wrap: wrap;
+}
+
+.chart-sidebar .chart-tag.hidden,
+.chart-sidebar .hidden {
+  display: none;
+}
+
+.chart-sidebar .chart-tag-label,
+.chart-sidebar .chart-field-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+  flex: none;
+}
+
+.chart-sidebar .chart-picker,
+.chart-sidebar .chart-picker-small,
+.chart-card .chart-sidebar .chart-picker {
+  flex: 0 1 55%;
+  min-width: 0;
+  max-width: 55%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--border) 45%, var(--panel-2));
+  font-size: 12.5px;
+}
+
+/* Axes sit in the sidebar as plain rows, not a bordered mini toolbar. */
+.chart-sidebar .chart-axes {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.chart-sidebar .chart-axes-label {
+  display: none;
+}
+
+.chart-sidebar .chart-settings-body {
+  position: static;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+
+.chart-sidebar .chart-settings-close {
+  display: none;
+}
+
+.chart-sidebar .chart-source-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chart-sidebar .chart-title,
+.chart-sidebar .chart-axis-title {
+  flex: 0 1 55%;
+  max-width: 55%;
+  min-width: 0;
+}
+
+@container (max-width: 640px) {
+  .chart-card-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .chart-sidebar {
+    max-height: none;
+  }
+}
+
+/* Dense grids start with the settings hidden; the toggle opens them. */
+.charts-grid:not([data-cols="1"]) .chart-card-layout:not(.sidebar-open) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.charts-grid:not([data-cols="1"]) .chart-card-layout:not(.sidebar-open) > .chart-sidebar {
+  display: none;
+}
+
+.chart-card-layout.sidebar-open > .chart-sidebar {
+  display: flex;
 }

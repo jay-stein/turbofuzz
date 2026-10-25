@@ -62,7 +62,7 @@ import { clear, el, svgIcon } from "./dom.js";
 import { openDedupeMenu } from "./dedupe-menu.js";
 import { openMenu, type MenuItem } from "./menu.js";
 import { buildColumnCard } from "./summary-band.js";
-import { Overview, delimiterLabel, readDefaultView } from "./overview.js";
+import { Overview, STATS_ICON, delimiterLabel, readDefaultView } from "./overview.js";
 import type { DatasetStats } from "../data/stats.js";
 import { FilterPanel } from "./filters.js";
 import { ChartsPanel, remapChartConfigs, type NamedChartCardConfig } from "./chart-panel.js";
@@ -413,6 +413,7 @@ export class App {
   private healthHost!: HTMLElement;
   private healthChipCount = 0;
   private moreButton!: HTMLButtonElement;
+  private statsButton!: HTMLButtonElement;
   private readonly specials = new Set<SpecialKind>();
   private readonly castFailureCounts = new Map<number, number>();
   private readonly columnSpecials = new Map<number, Set<ColumnQaKind>>();
@@ -939,12 +940,24 @@ export class App {
     ) as HTMLButtonElement;
     this.moreButton.addEventListener("click", () => this.openMoreMenu(this.moreButton));
 
+    this.statsButton = el(
+      "button",
+      {
+        class: "ghost small stats-toolbar-button",
+        type: "button",
+        title: "Open the full per-column Stats Report",
+      },
+      [svgIcon(STATS_ICON, "stats-report-icon"), "Stats report"],
+    ) as HTMLButtonElement;
+    this.statsButton.addEventListener("click", () => this.openStats());
+
     resultsRow.append(
       this.countEl,
       this.filterChipsEl,
       this.addFilterButton,
       this.healthHost,
       this.tilesButton,
+      this.statsButton,
       this.changesButton,
       el("span", { class: "grow" }),
       this.actionEl,
@@ -3125,6 +3138,7 @@ export class App {
     this.relationshipsHost.classList.toggle("hidden", view !== "relationships");
     this.healthHost.classList.toggle("hidden", view === "overview" || this.healthChipCount === 0);
     this.moreButton.classList.toggle("hidden", view === "overview");
+    this.statsButton.classList.toggle("hidden", view !== "table");
     this.addFilterButton.classList.toggle("hidden", view === "overview");
     this.syncTabs();
     this.syncColumnTiles();

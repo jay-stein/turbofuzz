@@ -930,7 +930,7 @@ test("a card with nothing to draw explains itself inside the plot", async () => 
   card.dispose();
 });
 
-test("chart settings close on outside click or Escape and only one stays open", async () => {
+test("chart settings live in a collapsible sidebar beside the canvas", async () => {
   const window = setupDom();
   captureMockContext(window, []);
   const host = document.createElement("div");
@@ -940,37 +940,17 @@ test("chart settings close on outside click or Escape and only one stays open", 
     meta({ name: "amount", type: "number" }),
   ]);
   panel.addCard({ kind: "bar", column: 0 });
-  panel.addCard({ kind: "histogram", column: 1 });
   await tick();
-  const details = [...host.querySelectorAll<HTMLDetailsElement>(".chart-settings-disclosure")];
-  assert.equal(details.length, 2);
-
-  const open = (target: HTMLDetailsElement): void => {
-    target.open = true;
-    target.dispatchEvent(new window.Event("toggle") as unknown as Event);
-  };
-  open(details[0]);
-  assert.equal(details[0].open, true);
-  open(details[1]);
-  assert.equal(details[0].open, false, "opening one Settings closes the other");
-  assert.equal(details[1].open, true);
-
-  const outside = document.createElement("button");
-  document.body.append(outside);
-  outside.click();
-  assert.equal(details[1].open, false, "outside click closes Settings");
-
-  open(details[0]);
-  document.dispatchEvent(
-    new window.KeyboardEvent("keydown", { key: "Escape" }) as unknown as Event,
-  );
-  assert.equal(details[0].open, false, "Escape closes Settings");
-
-  open(details[1]);
-  const close = details[1].querySelector<HTMLButtonElement>(".chart-settings-close");
-  assert.ok(close !== null, "a visible close affordance exists");
-  close.click();
-  assert.equal(details[1].open, false, "the close button closes Settings");
+  const layout = host.querySelector(".chart-card-layout");
+  assert.ok(layout !== null);
+  assert.ok(layout.querySelector(".chart-sidebar .chart-kind") !== null, "chart type is in the sidebar");
+  assert.ok(layout.querySelector(".chart-card-main .chart-canvas") !== null, "the canvas sits beside it");
+  const toggle = host.querySelector<HTMLButtonElement>(".chart-sidebar-toggle");
+  assert.ok(toggle !== null);
+  toggle.click();
+  assert.equal(layout.classList.contains("sidebar-collapsed"), true);
+  toggle.click();
+  assert.equal(layout.classList.contains("sidebar-collapsed"), false);
   panel.dispose();
 });
 
@@ -2510,8 +2490,8 @@ test("a line card plots its own measure over time without a view", async () => {
       (tag) => tag.querySelector(".chart-tag-label")?.textContent === label,
     ) ?? null;
   assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
-  assert.equal(tagWrap("Agg")?.classList.contains("hidden"), false);
-  assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Aggregate")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Time resolution")?.classList.contains("hidden"), false);
   card.dispose();
 });
 
@@ -2570,8 +2550,8 @@ test("a bar card plots a measure per category without a view", async () => {
       (tag) => tag.querySelector(".chart-tag-label")?.textContent === label,
     ) ?? null;
   assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
-  assert.equal(tagWrap("Agg")?.classList.contains("hidden"), false);
-  assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), true, "no grain for bars");
+  assert.equal(tagWrap("Aggregate")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Time resolution")?.classList.contains("hidden"), true, "no grain for bars");
   card.dispose();
 });
 
@@ -2890,8 +2870,8 @@ test("a histogram card aggregates a measure per bin without a view", async () =>
       (tag) => tag.querySelector(".chart-tag-label")?.textContent === label,
     ) ?? null;
   assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
-  assert.equal(tagWrap("Agg")?.classList.contains("hidden"), false);
-  assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), true);
+  assert.equal(tagWrap("Aggregate")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Time resolution")?.classList.contains("hidden"), true);
   card.dispose();
 });
 
@@ -2944,8 +2924,8 @@ test("a KPI card totals a measure over all rows without a date", async () => {
       (tag) => tag.querySelector(".chart-tag-label")?.textContent === label,
     ) ?? null;
   assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
-  assert.equal(tagWrap("Agg")?.classList.contains("hidden"), false);
-  assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), true);
+  assert.equal(tagWrap("Aggregate")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Time resolution")?.classList.contains("hidden"), true);
   const note = host.querySelector(".chart-note")?.textContent ?? "";
   assert.match(note, /mean\(amount\) = 42\.5/, "the note carries the full value");
   card.dispose();
@@ -3005,7 +2985,7 @@ test("a KPI card with a date column reads the series and shows Bucket", async ()
     ([...host.querySelectorAll(".chart-tag")] as HTMLElement[]).find(
       (tag) => tag.querySelector(".chart-tag-label")?.textContent === label,
     ) ?? null;
-  assert.equal(tagWrap("Bucket")?.classList.contains("hidden"), false);
+  assert.equal(tagWrap("Time resolution")?.classList.contains("hidden"), false);
   const note = host.querySelector(".chart-note")?.textContent ?? "";
   assert.match(note, /42\.5/, "the note carries the latest value");
   assert.match(note, /vs previous/, "the change is stated");
