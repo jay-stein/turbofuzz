@@ -2815,27 +2815,138 @@ mark {
   color: var(--text-dim);
 }
 
+.views-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.views-layout.sidebar-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.views-layout.sidebar-collapsed .views-sidebar {
+  display: none;
+}
+
+.views-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--panel-2);
+  max-height: 78vh;
+  overflow-y: auto;
+}
+
+.views-main {
+  position: relative;
+  min-width: 0;
+}
+
+.views-sidebar-toggle {
+  display: block;
+  margin-bottom: 8px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.views-sidebar-toggle:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
 .views-builder {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  padding: 9px 11px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  gap: 14px;
+}
+
+.views-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.views-section-title,
+.views-zone-label {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.views-options .views-limit,
+.views-options .control.check {
+  justify-content: space-between;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.views-options .control.check {
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.views-zone-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.views-zone-add {
+  min-width: 26px;
+  height: 26px;
+  padding: 0;
+  font-size: 17px;
+  line-height: 1;
+  border-radius: 7px;
+}
+
+.views-zone-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 6px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
   background: var(--panel);
 }
 
-.views-zone {
+.views-zone-quick {
   display: flex;
-  align-items: center;
   gap: 6px;
   flex-wrap: wrap;
 }
 
-.views-zone-label {
+@media (max-width: 900px) {
+  .views-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .views-sidebar {
+    max-height: none;
+  }
+}
+
+.views-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.views-pivot-top-summary {
   font-size: 12.5px;
-  color: var(--text-dim);
-  min-width: 68px;
+  color: var(--text);
 }
 
 .views-pivot-top {
@@ -3088,26 +3199,7 @@ mark {
   cursor: default;
 }
 
-.views-index-zone,
-.views-column-zone {
-  padding: 4px 6px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--panel-2) 45%, transparent);
-}
 
-.views-index-zone .views-zone-label,
-.views-column-zone .views-zone-label {
-  font-weight: 600;
-  color: var(--text);
-}
-
-.views-filter-zone {
-  padding: 5px 6px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--panel-2) 35%, transparent);
-}
 
 .views-report-filter-pill {
   border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
@@ -7526,4 +7618,60 @@ label.null-row {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+.views-empty-start {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.views-empty-start strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.views-shelf-host {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.views-shelf-head {
+  flex-wrap: wrap;
+}
+
+.views-shelf-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 100%;
+}
+
+.views-shelf-search {
+  margin-left: 0;
+  width: 100%;
+}
+
+.views-shelf-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.views-transpose {
+  min-height: 32px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  gap: 6px;
+  background: var(--panel);
+}
+
+.views-transpose .transpose-icon {
+  width: 16px;
+  height: 16px;
 }

@@ -705,6 +705,9 @@ export function starterViews(
 export class ViewsPanel {
   private readonly stackEl: HTMLElement;
   private readonly builderEl: HTMLElement;
+  private readonly optionsEl: HTMLElement;
+  private readonly shelfEl: HTMLElement;
+  private sidebarCollapsed = false;
   private readonly noteEl: HTMLElement;
   private readonly tableEl: HTMLElement;
   private readonly actionsEl: HTMLElement;
@@ -727,6 +730,8 @@ export class ViewsPanel {
     this.root.classList.add("views-panel");
     this.stackEl = el("div", { class: "views-stack" });
     this.builderEl = el("div", { class: "views-builder" });
+    this.optionsEl = el("div", { class: "views-options" });
+    this.shelfEl = el("div", { class: "views-shelf-host" });
     this.noteEl = el("div", { class: "views-note" });
     this.tableEl = el("div", { class: "views-table-host" });
     this.actionsEl = el("div", { class: "views-actions" });
@@ -1062,6 +1067,8 @@ export class ViewsPanel {
     if (entry === undefined) {
       // Every card is minimised: the shared panels stay detached.
       clear(this.builderEl);
+      clear(this.optionsEl);
+      clear(this.shelfEl);
       clear(this.noteEl);
       clear(this.tableEl);
       clear(this.actionsEl);
@@ -1161,7 +1168,30 @@ export class ViewsPanel {
 
     if (expanded) {
       const body = el("div", { class: "views-card-body", id: `views-body-${entry.def.id}` });
-      body.append(this.builderEl, this.noteEl, this.tableEl, this.actionsEl);
+      const layout = el("div", {
+        class: `views-layout${this.sidebarCollapsed ? " sidebar-collapsed" : ""}`,
+      });
+      const sidebar = el("aside", { class: "views-sidebar", "aria-label": "Pivot settings" });
+      sidebar.append(this.builderEl, this.optionsEl, this.shelfEl);
+      const main = el("div", { class: "views-main" });
+      const collapse = el(
+        "button",
+        {
+          class: "views-sidebar-toggle",
+          type: "button",
+          title: this.sidebarCollapsed ? "Show pivot settings" : "Hide pivot settings",
+          "aria-label": this.sidebarCollapsed ? "Show pivot settings" : "Hide pivot settings",
+          "aria-expanded": this.sidebarCollapsed ? "false" : "true",
+        },
+        [this.sidebarCollapsed ? "⇥" : "⇤"],
+      ) as HTMLButtonElement;
+      collapse.addEventListener("click", () => {
+        this.sidebarCollapsed = !this.sidebarCollapsed;
+        this.render();
+      });
+      main.append(collapse, this.noteEl, this.tableEl, this.actionsEl);
+      layout.append(sidebar, main);
+      body.append(layout);
       card.append(body);
     }
     return { card, name };
@@ -1311,6 +1341,7 @@ export class ViewsPanel {
 
   private renderActions(): void {
     clear(this.actionsEl);
+    clear(this.optionsEl);
     const entry = this.views[this.active];
     const respect = el("label", { class: "control check clean-check" });
     respect.title = "Aggregate only rows that match the current filters";
@@ -1507,7 +1538,7 @@ export class ViewsPanel {
           view.margins = marginsInput.checked;
         }),
       );
-      marginsLabel.append(marginsInput, "All totals");
+      marginsLabel.append(marginsInput, "Show grand totals");
 
       const fillLabel = el("label", { class: "views-limit views-fill" });
       fillLabel.title = "Value shown where a row and column combination has no rows";
@@ -1539,7 +1570,7 @@ export class ViewsPanel {
           view.dropna = dropInput.checked;
         }),
       );
-      dropLabel.append(dropInput, "Drop empty");
+      dropLabel.append(dropInput, "Hide empty rows and columns");
 
       const orderLabel = el("label", { class: "views-limit" });
       orderLabel.title = "Sort index and column keys by label or by first appearance";
@@ -1653,15 +1684,23 @@ export class ViewsPanel {
       );
       heatmapLabel.append("Heatmap", heatmapSelect);
 
-      this.actionsEl.append(
+      this.optionsEl.append(
+        el("div", { class: "views-section-title" }, ["Options"]),
         marginsLabel,
-        fillLabel,
         dropLabel,
-        orderLabel,
-        marginsNameLabel,
-        csvHeadersLabel,
         marginPctLabel,
         heatmapLabel,
+        orderLabel,
+        fillLabel,
+        marginsNameLabel,
+        csvHeadersLabel,
+      );
+    } else {
+      this.optionsEl.append(
+        el("div", { class: "views-section-title" }, ["Options"]),
+        el("span", { class: "views-layout-hint" }, [
+          "Totals, percentages and shading appear once a field is in Columns.",
+        ]),
       );
     }
     const duplicate = el(
@@ -1850,6 +1889,41 @@ export class ViewsPanel {
     downloadCsv(`${safeFileName(entry.def.name) || "pivot-view"}.csv`, rows);
   }
 
+  /**
+   * One sidebar section: a title with a "+" button, and a dashed box that
+   * holds the pills (or a placeholder while empty). The whole section is the
+   * drop target.
+   */
+  private zoneSection(
+    zoneClass: string,
+    title: string,
+    tip: string,
+    add: { label: string; onClick: (anchor: HTMLButtonElement) => void } | null,
+    empty: string | null,
+  ): { zone: HTMLElement; box: HTMLElement } {
+    const zone = el("div", { class: `views-zone ${zoneClass}` });
+    const head = el("div", { class: "views-zone-head" });
+    head.append(el("span", { class: "views-zone-label", title: tip }, [title]));
+    if (add !== null) {
+      const button = el(
+        "button",
+        {
+          class: "views-pill add views-zone-add",
+          type: "button",
+          title: add.label,
+          "aria-label": add.label,
+        },
+        ["+"],
+      ) as HTMLButtonElement;
+      button.addEventListener("click", () => add.onClick(button));
+      head.append(button);
+    }
+    const box = el("div", { class: "views-zone-box" });
+    if (empty !== null) box.append(el("span", { class: "views-layout-hint" }, [empty]));
+    zone.append(head, box);
+    return { zone, box };
+  }
+
   private renderBuilder(def: ViewDef): void {
     clear(this.builderEl);
     const pivotSet = new Set(this.pivotIndexes(def));
@@ -1860,56 +1934,64 @@ export class ViewsPanel {
       .map((_, index) => index)
       .filter((index) => pivotSet.has(index));
 
-    const indexZone = el("div", { class: "views-zone views-index-zone" });
-    indexZone.append(el("span", { class: "views-zone-label" }, ["Index:"]));
+    const rowsSection = this.zoneSection(
+      "views-index-zone",
+      "Rows",
+      "Each distinct value becomes a row (the Index)",
+      def.dimensions.length < 6
+        ? {
+            label: "Add a row field",
+            onClick: (anchor) => this.openDimensionMenu(anchor, def),
+          }
+        : null,
+      indexFields.length === 0 ? "Add row fields" : null,
+    );
+    const indexZone = rowsSection.zone;
     indexFields.forEach((index, position) => {
-      indexZone.append(
+      rowsSection.box.append(
         this.dimensionPill(def, def.dimensions[index]!, index, "index", position, indexFields.length),
       );
     });
-    if (indexFields.length === 0) {
-      indexZone.append(
-        el("span", { class: "views-layout-hint" }, ["Add a field for the row index."]),
-      );
-    }
-    const addDim = el(
-      "button",
-      { class: "views-pill add", type: "button", title: "Add a row index field" },
-      ["+ Field"],
-    ) as HTMLButtonElement;
-    addDim.addEventListener("click", () => this.openDimensionMenu(addDim, def));
-    if (def.dimensions.length < 6) indexZone.append(addDim);
 
-    const columnZone = el("div", { class: "views-zone views-column-zone" });
-    columnZone.append(el("span", { class: "views-zone-label" }, ["Columns:"]));
+    const columnsSection = this.zoneSection(
+      "views-column-zone",
+      "Columns",
+      "Each distinct value becomes a column",
+      def.dimensions.length < 6
+        ? {
+            label: "Add a column field",
+            onClick: (anchor) => this.openAddFieldMenu(anchor, def, "columns"),
+          }
+        : null,
+      columnFields.length === 0 ? "Add column fields (optional)" : null,
+    );
+    const columnZone = columnsSection.zone;
     columnFields.forEach((index, position) => {
-      columnZone.append(
+      columnsSection.box.append(
         this.dimensionPill(def, def.dimensions[index]!, index, "columns", position, columnFields.length),
       );
     });
-    if (columnFields.length === 0) {
-      columnZone.append(
-        el("span", { class: "views-layout-hint" }, [
-          "Optional: move a field here to spread it across columns.",
-        ]),
-      );
-    }
 
-    const measureZone = el("div", { class: "views-zone views-measure-zone" });
-    measureZone.append(el("span", { class: "views-zone-label" }, ["Values:"]));
+    const valuesSection = this.zoneSection(
+      "views-measure-zone",
+      "Values",
+      "The numbers filled into each cell",
+      {
+        label: "Add a value",
+        onClick: (anchor) => this.openMeasureMenu(anchor, def),
+      },
+      def.measures.length === 0 && (def.pivotLambdas ?? []).length === 0
+        ? "Add value fields"
+        : null,
+    );
+    const measureZone = valuesSection.zone;
     def.measures.forEach((measure, index) => {
-      measureZone.append(this.measurePill(def, measure, index));
+      valuesSection.box.append(this.measurePill(def, measure, index));
     });
     (def.pivotLambdas ?? []).forEach((lambda, index) => {
-      measureZone.append(this.lambdaPill(def, lambda, index));
+      valuesSection.box.append(this.lambdaPill(def, lambda, index));
     });
-    const addMeasure = el(
-      "button",
-      { class: "views-pill add", type: "button", title: "Add a value" },
-      ["+ Value"],
-    ) as HTMLButtonElement;
-    addMeasure.addEventListener("click", () => this.openMeasureMenu(addMeasure, def));
-    measureZone.append(addMeasure);
+    const quick = el("div", { class: "views-zone-quick" });
     const addAllNumeric = el(
       "button",
       { class: "views-pill add", type: "button", title: "Add every numeric column as a mean value" },
@@ -1929,7 +2011,6 @@ export class ViewsPanel {
         });
       }),
     );
-    measureZone.append(addAllNumeric);
     const addLambda = el(
       "button",
       { class: "views-pill add", type: "button", title: "Add a safe custom lambda value" },
@@ -1937,34 +2018,59 @@ export class ViewsPanel {
     ) as HTMLButtonElement;
     addLambda.disabled = !this.metas.some((meta) => isNumericLikeType(meta.type));
     addLambda.addEventListener("click", () => this.openLambdaMenu(addLambda));
-    measureZone.append(addLambda);
+    quick.append(addAllNumeric, addLambda);
+    measureZone.append(quick);
 
     this.wireDropZone(indexZone, "index");
     this.wireDropZone(columnZone, "columns");
     this.wireDropZone(measureZone, "values");
-    const filterZone =
-      this.pivotIndexes(def).length > 0 ? this.filterZone(def) : null;
+    const filterZone = this.filterZone(def);
     this.builderEl.append(
-      this.pivotTools(),
+      this.pivotTools(def),
       indexZone,
       columnZone,
       measureZone,
-      ...(filterZone === null ? [] : [filterZone]),
-      this.fieldShelf(def),
-      this.transposeControl(def),
+      filterZone,
     );
+    clear(this.shelfEl);
+    this.shelfEl.append(this.fieldShelf(def), this.transposeControl(def));
   }
 
   /** Top-of-pivot heading and drag hint. */
-  private pivotTools(): HTMLElement {
+  private pivotTools(def: ViewDef): HTMLElement {
     return el("div", { class: "views-pivot-top" }, [
       el("div", { class: "views-pivot-top-copy" }, [
         el("span", { class: "views-pivot-top-title" }, ["Pivot layout"]),
+        el("span", { class: "views-pivot-top-summary", "aria-live": "polite" }, [
+          this.pivotSummary(def),
+        ]),
         el("span", { class: "views-pivot-top-hint" }, [
-          "Drag fields into Index, Columns, Values or Filters",
+          "Click a field below, or drag it into Rows, Columns, Values or Filters.",
         ]),
       ]),
     ]);
+  }
+
+  /** One plain-English sentence describing what the current layout produces. */
+  private pivotSummary(def: ViewDef): string {
+    const pivots = new Set(this.pivotIndexes(def));
+    const names = (wantColumns: boolean): string[] =>
+      def.dimensions
+        .map((spec, index) => ({ spec, index }))
+        .filter(({ index }) => pivots.has(index) === wantColumns)
+        .map(({ spec }) => `${this.metas[spec.column]?.name ?? "field"}${this.dimensionSuffix(spec)}`);
+    const rows = names(false);
+    const columns = names(true);
+    const values = def.measures.map((measure) => measureDisplay(measure, this.metas));
+    if (rows.length === 0 && columns.length === 0) {
+      return "Step 1: choose a field to group by.";
+    }
+    if (values.length === 0) {
+      return `Step 2: choose what to calculate for each ${rows.concat(columns).join(" / ")}.`;
+    }
+    const join = (items: string[]): string => items.join(" and ");
+    const columnText = columns.length > 0 ? `, across ${join(columns)}` : "";
+    return `Showing ${join(values)} for each ${join(rows.length > 0 ? rows : columns)}${columnText}.`;
   }
 
   /** Large transpose action below the field shelf. */
@@ -1990,8 +2096,18 @@ export class ViewsPanel {
 
   /** Filters over any dataset column, whether or not it is in the layout. */
   private filterZone(def: ViewDef): HTMLElement {
-    const zone = el("div", { class: "views-zone views-filter-zone" });
-    zone.append(el("span", { class: "views-zone-label" }, ["Filters:"]));
+    const section = this.zoneSection(
+      "views-filter-zone",
+      "Filters",
+      "Limit the rows that feed the pivot, on any column",
+      {
+        label: "Add a filter",
+        onClick: (anchor) => this.openFilterColumnMenu(anchor, def),
+      },
+      null,
+    );
+    const zone = section.zone;
+    const box = section.box;
     const filters = (def.pivotValueFilters ?? []).filter(
       (filter) => this.metas[filter.column] !== undefined,
     );
@@ -2029,22 +2145,11 @@ export class ViewsPanel {
         }),
       );
       pill.append(edit, remove);
-      zone.append(pill);
+      box.append(pill);
     }
     if (filters.length === 0) {
-      zone.append(
-        el("span", { class: "views-layout-hint" }, [
-          "Drag any field here to filter it - it does not need to be in the layout.",
-        ]),
-      );
+      box.append(el("span", { class: "views-layout-hint" }, ["Add fields to filter"]));
     }
-    const add = el(
-      "button",
-      { class: "views-pill add", type: "button", title: "Filter any column" },
-      ["+ Filter"],
-    ) as HTMLButtonElement;
-    add.addEventListener("click", () => this.openFilterColumnMenu(add, def));
-    zone.append(add);
     if (filters.length > 0) {
       const clear = el(
         "button",
@@ -2056,7 +2161,7 @@ export class ViewsPanel {
           view.pivotValueFilters = [];
         }),
       );
-      zone.append(clear);
+      box.append(clear);
     }
     return zone;
   }
@@ -2079,7 +2184,7 @@ export class ViewsPanel {
         `All fields (${this.metas.length})`,
       ]),
       el("span", { class: "views-shelf-hint" }, [
-        "↑ Drag a field up into Index, Columns, Values or Filters",
+        "Click a field for options, or drag it up into a zone",
       ]),
     ]);
     const search = el("input", {
@@ -2183,13 +2288,11 @@ export class ViewsPanel {
         },
       );
     }
-    if (this.pivotIndexes(def).length > 0) {
-      items.push({
-        label: "Filter values...",
-        title: `Filter pivot rows by ${name}`,
-        action: () => this.openFilterForColumn(anchor, column, "Report filter"),
-      });
-    }
+    items.push({
+      label: "Filter values...",
+      title: `Filter pivot rows by ${name}`,
+      action: () => this.openFilterForColumn(anchor, column, "Report filter"),
+    });
     openMenu(anchor, items);
   }
   /** Wire one builder well as a drag/drop target for pivot fields. */
@@ -3218,6 +3321,23 @@ export class ViewsPanel {
     openMenu(anchor, items);
   }
 
+  /** Field picker for the Rows or Columns well, using the same move as the shelf menu. */
+  private openAddFieldMenu(anchor: HTMLElement, def: ViewDef, well: "index" | "columns"): void {
+    const pivots = this.pivotIndexes(def);
+    const items: MenuItem[] = this.metas.map((meta, column) => ({
+      label: meta.name,
+      title: `${meta.name} — ${well === "columns" ? "spread across columns" : "group rows by this column"}`,
+      disabled: def.dimensions.some((spec) => spec.column === column),
+      action: () =>
+        this.applyPivotFieldMove(
+          { kind: "column", index: column, well: "shelf" },
+          well,
+          well === "columns" ? pivots.length : def.dimensions.length - pivots.length,
+        ),
+    }));
+    openMenu(anchor, items);
+  }
+
   /** Excel-style date hierarchy picker for an existing date field. */
   private openDateGroups(spec: DimensionSpec, group: "index" | "columns"): void {
     const entry = this.views[this.active];
@@ -3736,6 +3856,15 @@ export class ViewsPanel {
     if (result === null || result.groupCount === 0) {
       if (isCompleteView(entry.def) && !entry.loading) {
         this.tableEl.append(el("div", { class: "views-empty" }, ["No groups match."]));
+      } else if (!isCompleteView(entry.def) && !entry.loading) {
+        this.tableEl.append(
+          el("div", { class: "views-empty views-empty-start" }, [
+            el("strong", {}, ["Build your pivot table"]),
+            el("span", {}, [
+              "Add a field to Rows and a field to Values in the panel on the left. Add a Columns field to spread values across the top.",
+            ]),
+          ]),
+        );
       }
       return;
     }

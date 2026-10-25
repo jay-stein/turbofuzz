@@ -201,9 +201,7 @@ test("adding a measure chooses the aggregate before adding", async () => {
   requests.length = 0;
 
   const doc = (globalThis as Record<string, unknown>).document as Window["document"];
-  const addMeasure = [...host.querySelectorAll(".views-pill.add")].find(
-    (button) => button.textContent === "+ Value",
-  );
+  const addMeasure = host.querySelector('button[aria-label="Add a value"]');
   assert.ok(addMeasure !== undefined);
   (addMeasure as unknown as { click(): void }).click();
   const columnItem = [...doc.querySelectorAll(".context-menu .context-item")].find(
@@ -471,8 +469,8 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
   );
   assert.ok(host.querySelector(".views-fill-input") !== null, "fill value is configurable");
   assert.ok(
-    [...host.querySelectorAll(".views-actions label")].some(
-      (label) => label.textContent === "Drop empty",
+    [...host.querySelectorAll(".views-options label")].some(
+      (label) => label.textContent === "Hide empty rows and columns",
     ),
     "empty rows and columns can be dropped",
   );
@@ -917,8 +915,8 @@ test("pivot value filters use a searchable picker and can clear", async () => {
     ["10.0%", "20.0%", "30.0%", "40.0%"],
   );
 
-  const addFilter = [...host.querySelectorAll(".views-filter-zone .views-pill.add")].find(
-    (button) => button.textContent === "+ Filter",
+  const addFilter = host.querySelector(
+    '.views-filter-zone button[aria-label="Add a filter"]',
   ) as unknown as { click(): void };
   assert.ok(addFilter !== undefined);
   addFilter.click();
