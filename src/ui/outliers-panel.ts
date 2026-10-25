@@ -24,6 +24,13 @@ import {
   isIdLikeColumn,
   isNumericType,
 } from "./chart-utils.js";
+import {
+  createForceLayout,
+  reheat,
+  stepForceLayout,
+  type ForceLayout,
+  type ForceOptions,
+} from "../data/force-layout.js";
 import { clear, el } from "./dom.js";
 import { describeScope } from "./scope.js";
 
@@ -166,6 +173,13 @@ const NETWORK_HEIGHT = 300;
 const COLUMN_NETWORK_WIDTH = 760;
 const COLUMN_NETWORK_HEIGHT = 380;
 const COLUMN_NETWORK_NODE_LIMIT = 14;
+const NETWORK_FORCE: ForceOptions = {
+  width: COLUMN_NETWORK_WIDTH,
+  height: COLUMN_NETWORK_HEIGHT,
+  margin: 34,
+  floor: 0.02,
+};
+const NODE_HIT_RADIUS = 16;
 
 function networkEdgeColor(edge: ColumnNetworkEdge): string {
   if (edge.method === "pearson" || edge.method === "spearman") {
@@ -320,6 +334,20 @@ export class OutliersPanel {
     label: string;
     role: "text" | "category" | "numeric";
   }[] = [];
+  private networkLayout: ForceLayout | null = null;
+  private networkLayoutKey = "";
+  private networkPositions = new Map<number, { x: number; y: number }>();
+  private networkRaf: number | null = null;
+  private networkTimer: number | null = null;
+  private networkHover:
+    | { kind: "node"; column: number }
+    | { kind: "edge"; index: number }
+    | null = null;
+  private networkDrag: { column: number; moved: boolean; startX: number; startY: number } | null =
+    null;
+  /** True for the click that ends a drag, so a drop never refocuses the graph. */
+  private networkSuppressClick = false;
+  private networkTooltip: HTMLElement | null = null;
   private columnNetworkEdgeHits: {
     a: { x: number; y: number };
     b: { x: number; y: number };
@@ -434,6 +462,10 @@ export class OutliersPanel {
     this.columnNetworkLoading = false;
     this.columnNetworkFocus = null;
     this.selectedColumnEdge = null;
+    this.networkLayout = null;
+    this.networkLayoutKey = "";
+    this.networkPositions.clear();
+    this.networkHover = null;
     this.dependencies = null;
     this.dependenciesRequested = false;
     this.dependenciesLoading = false;
@@ -536,6 +568,22 @@ export class OutliersPanel {
         this.render();
       }
     }
+  }
+
+  /**
+   * Choosing a multivariate method runs its quick scan straight away when
+   * there is no result yet, so the page never greets a click with an empty
+   * panel. Deep compute is never started here; it only runs on its own button.
+   * A quick scan still in flight for another method is superseded.
+   */
+  private autoQuickScan(method: OutlierMethod): void {
+    if (this.selectedFeatures.size < 2) return;
+    if (this.resultFor(method, "quick") !== null || this.resultFor(method, "deep") !== null) return;
+    if (this.running !== null) {
+      if (this.running.mode === "deep" || this.running.method === method) return;
+      this.cancelRun();
+    }
+    void this.analyze(method, "quick");
   }
 
   private async compareMethods(): Promise<void> {
@@ -837,7 +885,7 @@ export class OutliersPanel {
     } else {
       wrap.append(
         el("div", { class: "outliers-empty" }, [
-          "Pick a method and run a quick scan. The page only computes the heavy multivariate pass when you ask.",
+          "Pick a method to run its quick scan automatically. Deep compute only runs when you click it.",
         ]),
       );
     }
@@ -880,6 +928,7 @@ export class OutliersPanel {
       card.addEventListener("click", () => {
         this.method = entry.id;
         this.render();
+        this.autoQuickScan(entry.id);
       });
       grid.append(card);
     }
@@ -1833,7 +1882,10 @@ export class OutliersPanel {
     const columnCanvas = this.contentEl.querySelector<HTMLCanvasElement>(
       ".column-network-canvas",
     );
-    if (columnCanvas !== null) this.drawColumnNetwork(columnCanvas);
+    if (columnCanvas !== null) {
+      this.drawColumnNetwork(columnCanvas);
+      this.startNetworkLoop(columnCanvas);
+    }
   }
 
   private buildColumnNetworkSection(network: ColumnNetworkMessage): HTMLElement {
@@ -2051,13 +2103,24 @@ export class OutliersPanel {
     }) as HTMLCanvasElement;
     canvas.width = COLUMN_NETWORK_WIDTH;
     canvas.height = COLUMN_NETWORK_HEIGHT;
-    canvas.addEventListener("click", (event) =>
-      this.clickColumnNetwork(event as MouseEvent),
-    );
-    wrap.append(canvas);
+    canvas.addEventListener("click", (event) => {
+      if (this.networkSuppressClick) {
+        this.networkSuppressClick = false;
+        return;
+      }
+      this.clickColumnNetwork(event as MouseEvent);
+    });
+    canvas.addEventListener("pointerdown", (event) => this.networkPointerDown(canvas, event));
+    canvas.addEventListener("pointermove", (event) => this.networkPointerMove(canvas, event));
+    canvas.addEventListener("pointerup", (event) => this.networkPointerUp(canvas, event));
+    canvas.addEventListener("pointerleave", () => this.networkPointerLeave(canvas));
+    const stage = el("div", { class: "column-network-stage" });
+    this.networkTooltip = el("div", { class: "column-network-tooltip hidden", role: "status" });
+    stage.append(canvas, this.networkTooltip);
+    wrap.append(stage);
     wrap.append(
       el("p", { class: "outliers-hint column-network-hint" }, [
-        "Node colour shows the column type. Solid lines are associations; dashed arrows are functional dependencies. Click a node to focus its neighbourhood.",
+        "Drag a column to move it; the graph springs back into shape. Hover for details. Node colour shows the column type; solid lines are associations and dashed arrows are functional dependencies. Click a node to focus its neighbourhood.",
       ]),
     );
     return wrap;
@@ -2204,8 +2267,11 @@ export class OutliersPanel {
     const network = this.columnNetwork;
     if (network === null) return;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(COLUMN_NETWORK_WIDTH * dpr);
-    canvas.height = Math.round(COLUMN_NETWORK_HEIGHT * dpr);
+    // Resizing reallocates the backing store, so only do it when the size changed.
+    const pixelWidth = Math.round(COLUMN_NETWORK_WIDTH * dpr);
+    const pixelHeight = Math.round(COLUMN_NETWORK_HEIGHT * dpr);
+    if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+    if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
     const ctx = canvas.getContext("2d");
     if (ctx === null) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2227,29 +2293,17 @@ export class OutliersPanel {
       for (const node of network.nodes) visible.add(node.column);
     }
     const entries = network.nodes.filter((node) => visible.has(node.column));
-    const centerX = COLUMN_NETWORK_WIDTH / 2;
-    const centerY = COLUMN_NETWORK_HEIGHT / 2;
-    const positions = new Map<number, { x: number; y: number }>();
-    if (focus !== null && visible.has(focus)) {
-      positions.set(focus, { x: centerX, y: centerY });
-      const rest = entries.filter((node) => node.column !== focus);
-      const radius = Math.min(centerX, centerY) - 58;
-      rest.forEach((node, index) => {
-        const angle = (index / Math.max(1, rest.length)) * Math.PI * 2 - Math.PI / 2;
-        positions.set(node.column, {
-          x: centerX + Math.cos(angle) * radius,
-          y: centerY + Math.sin(angle) * radius,
-        });
-      });
-    } else {
-      const radius = Math.min(centerX, centerY) - 48;
-      entries.forEach((node, index) => {
-        const angle = (index / Math.max(1, entries.length)) * Math.PI * 2 - Math.PI / 2;
-        positions.set(node.column, {
-          x: centerX + Math.cos(angle) * radius,
-          y: centerY + Math.sin(angle) * radius,
-        });
-      });
+    const positions = this.ensureNetworkLayout(network, entries.map((node) => node.column));
+
+    const hover = this.networkHover;
+    const hoverColumn = hover?.kind === "node" ? hover.column : null;
+    const neighbours = new Set<number>();
+    if (hoverColumn !== null) {
+      neighbours.add(hoverColumn);
+      for (const edge of network.edges) {
+        if (edge.aColumn === hoverColumn) neighbours.add(edge.bColumn);
+        if (edge.bColumn === hoverColumn) neighbours.add(edge.aColumn);
+      }
     }
 
     this.columnNetworkEdgeHits = [];
@@ -2269,8 +2323,21 @@ export class OutliersPanel {
           : edge.method === "tokenOverlap"
             ? "#0d9488"
             : "#7c3aed";
-      ctx.globalAlpha = this.selectedColumnEdge === index ? 1 : 0.35 + strength * 0.4;
-      ctx.lineWidth = this.selectedColumnEdge === index ? 3.4 : 1 + strength * 2.4;
+      const touchesHover =
+        hoverColumn !== null && (edge.aColumn === hoverColumn || edge.bColumn === hoverColumn);
+      const hoveredEdge = hover?.kind === "edge" && hover.index === index;
+      ctx.globalAlpha =
+        this.selectedColumnEdge === index || hoveredEdge
+          ? 1
+          : hoverColumn !== null
+            ? touchesHover
+              ? 0.9
+              : 0.08
+            : 0.35 + strength * 0.4;
+      ctx.lineWidth =
+        this.selectedColumnEdge === index || hoveredEdge || touchesHover
+          ? 3.4
+          : 1 + strength * 2.4;
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
@@ -2306,8 +2373,17 @@ export class OutliersPanel {
       if (position === undefined) continue;
       drawn.push({ ...position, column: node.column, label: node.label, role: node.role });
       const isFocus = focus === node.column;
+      const hovered = hoverColumn === node.column;
+      const dimmed = hoverColumn !== null && !neighbours.has(node.column);
+      ctx.globalAlpha = dimmed ? 0.25 : 1;
       ctx.beginPath();
-      ctx.arc(position.x, position.y, isFocus ? 11 : node.role === "text" ? 8 : 6, 0, Math.PI * 2);
+      ctx.arc(
+        position.x,
+        position.y,
+        (isFocus ? 11 : node.role === "text" ? 8 : 6) + (hovered ? 3 : 0),
+        0,
+        Math.PI * 2,
+      );
       ctx.fillStyle = networkRoleColor(node.role);
       ctx.fill();
       ctx.strokeStyle = isFocus ? cssVar("--text", "#1f2933") : cssVar("--panel", "#fff");
@@ -2321,9 +2397,313 @@ export class OutliersPanel {
       ctx.strokeText(label, position.x, position.y + 22);
       ctx.fillStyle = cssVar("--text", "#1f2933");
       ctx.fillText(label, position.x, position.y + 22);
+      ctx.globalAlpha = 1;
     }
     this.columnNetworkNodes = drawn;
     ctx.textAlign = "left";
+  }
+
+  /**
+   * The force layout persists across re-renders: positions are remembered per
+   * column, and only a change in the visible set (focus) builds a new layout,
+   * starting from where the nodes already were.
+   */
+  private ensureNetworkLayout(
+    network: ColumnNetworkMessage,
+    columns: readonly number[],
+  ): Map<number, { x: number; y: number }> {
+    const key = `${columns.join(",")}|${network.edges.length}|${network.totalRows}`;
+    if (this.networkLayout === null || this.networkLayoutKey !== key) {
+      const set = new Set(columns);
+      const links = network.edges
+        .filter((edge) => set.has(edge.aColumn) && set.has(edge.bColumn))
+        .map((edge) => ({
+          a: edge.aColumn,
+          b: edge.bColumn,
+          strength: Math.min(1, Math.abs(edge.effect)),
+        }));
+      this.networkLayout = createForceLayout(
+        columns,
+        links,
+        NETWORK_FORCE,
+        this.networkPositions.size > 0 ? this.networkPositions : undefined,
+      );
+      this.networkLayoutKey = key;
+    }
+    const positions = new Map<number, { x: number; y: number }>();
+    for (const node of this.networkLayout.nodes) positions.set(node.id, { x: node.x, y: node.y });
+    return positions;
+  }
+
+  /** Steps and repaints the graph every frame while its canvas is on screen. */
+  private startNetworkLoop(canvas: HTMLCanvasElement): void {
+    this.stopNetworkLoop();
+    if (typeof requestAnimationFrame !== "function") return;
+    // No 2D context (non-browser environments): nothing to animate.
+    if (canvas.getContext("2d") === null) return;
+    const reduceMotion =
+      typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const tick = (): void => {
+      this.networkRaf = null;
+      if (!canvas.isConnected || this.columnNetworkMode !== "network") return;
+      if (document.hidden || canvas.offsetParent === null) {
+        // Off screen: poll cheaply instead of burning frames.
+        this.networkTimer = window.setTimeout(() => {
+          this.networkTimer = null;
+          tick();
+        }, 400);
+        return;
+      }
+      const layout = this.networkLayout;
+      if (layout !== null) {
+        stepForceLayout(layout, NETWORK_FORCE);
+        for (const node of layout.nodes) {
+          this.networkPositions.set(node.id, { x: node.x, y: node.y });
+        }
+      }
+      this.drawColumnNetwork(canvas);
+      const settled = layout === null || layout.alpha <= NETWORK_FORCE.floor * 1.5;
+      if (reduceMotion && settled && this.networkDrag === null) return;
+      this.networkRaf = requestAnimationFrame(tick);
+    };
+    this.networkRaf = requestAnimationFrame(tick);
+  }
+
+  private stopNetworkLoop(): void {
+    if (this.networkRaf !== null) {
+      cancelAnimationFrame(this.networkRaf);
+      this.networkRaf = null;
+    }
+    if (this.networkTimer !== null) {
+      clearTimeout(this.networkTimer);
+      this.networkTimer = null;
+    }
+  }
+
+  private networkPoint(canvas: HTMLCanvasElement, event: PointerEvent): { x: number; y: number } {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / Math.max(1, rect.width)) * COLUMN_NETWORK_WIDTH,
+      y: ((event.clientY - rect.top) / Math.max(1, rect.height)) * COLUMN_NETWORK_HEIGHT,
+    };
+  }
+
+  private nodeAt(x: number, y: number): { column: number; distance: number } | null {
+    let nearest: { column: number; distance: number } | null = null;
+    for (const node of this.columnNetworkNodes) {
+      const distance = Math.hypot(x - node.x, y - node.y);
+      if (distance <= NODE_HIT_RADIUS && (nearest === null || distance < nearest.distance)) {
+        nearest = { column: node.column, distance };
+      }
+    }
+    return nearest;
+  }
+
+  private networkPointerDown(canvas: HTMLCanvasElement, event: PointerEvent): void {
+    const point = this.networkPoint(canvas, event);
+    const hit = this.nodeAt(point.x, point.y);
+    if (hit === null || this.networkLayout === null) return;
+    const node = this.networkLayout.nodes.find((entry) => entry.id === hit.column);
+    if (node === undefined) return;
+    node.fixed = true;
+    this.networkDrag = { column: hit.column, moved: false, startX: point.x, startY: point.y };
+    reheat(this.networkLayout, 0.5);
+    try {
+      canvas.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is a nicety; dragging still works inside the canvas.
+    }
+    canvas.style.cursor = "grabbing";
+    if (this.networkRaf === null) this.startNetworkLoop(canvas);
+  }
+
+  private networkPointerMove(canvas: HTMLCanvasElement, event: PointerEvent): void {
+    const point = this.networkPoint(canvas, event);
+    const drag = this.networkDrag;
+    if (drag !== null && this.networkLayout !== null) {
+      const node = this.networkLayout.nodes.find((entry) => entry.id === drag.column);
+      if (node !== undefined) {
+        if (Math.hypot(point.x - drag.startX, point.y - drag.startY) > 4) drag.moved = true;
+        node.x = Math.max(
+          NETWORK_FORCE.margin,
+          Math.min(COLUMN_NETWORK_WIDTH - NETWORK_FORCE.margin, point.x),
+        );
+        node.y = Math.max(
+          NETWORK_FORCE.margin,
+          Math.min(COLUMN_NETWORK_HEIGHT - NETWORK_FORCE.margin, point.y),
+        );
+        reheat(this.networkLayout, 0.3);
+      }
+      this.hideNetworkTooltip();
+      return;
+    }
+    const node = this.nodeAt(point.x, point.y);
+    let next: typeof this.networkHover = null;
+    if (node !== null) {
+      next = { kind: "node", column: node.column };
+    } else {
+      let nearestEdge: { index: number; distance: number } | null = null;
+      for (const edge of this.columnNetworkEdgeHits) {
+        const distance = distanceToSegment(point.x, point.y, edge.a.x, edge.a.y, edge.b.x, edge.b.y);
+        if (distance <= 6 && (nearestEdge === null || distance < nearestEdge.distance)) {
+          nearestEdge = { index: edge.index, distance };
+        }
+      }
+      if (nearestEdge !== null) next = { kind: "edge", index: nearestEdge.index };
+    }
+    const previous = this.networkHover;
+    const changed =
+      (next?.kind ?? null) !== (previous?.kind ?? null) ||
+      (next?.kind === "node" && previous?.kind === "node" && next.column !== previous.column) ||
+      (next?.kind === "edge" && previous?.kind === "edge" && next.index !== previous.index);
+    this.networkHover = next;
+    canvas.style.cursor = next === null ? "default" : next.kind === "node" ? "grab" : "pointer";
+    if (next === null) {
+      this.hideNetworkTooltip();
+    } else {
+      this.showNetworkTooltip(canvas, next, point);
+    }
+    // Reduced-motion users have no running loop; repaint for the highlight.
+    if (changed && this.networkRaf === null) this.drawColumnNetwork(canvas);
+  }
+
+  private networkPointerUp(canvas: HTMLCanvasElement, event: PointerEvent): void {
+    const drag = this.networkDrag;
+    if (drag === null) return;
+    const node = this.networkLayout?.nodes.find((entry) => entry.id === drag.column);
+    if (node !== undefined) node.fixed = false;
+    if (drag.moved) this.networkSuppressClick = true;
+    this.networkDrag = null;
+    try {
+      canvas.releasePointerCapture(event.pointerId);
+    } catch {
+      // Nothing to release.
+    }
+    canvas.style.cursor = "grab";
+  }
+
+  private networkPointerLeave(canvas: HTMLCanvasElement): void {
+    if (this.networkDrag !== null) return;
+    if (this.networkHover !== null) {
+      this.networkHover = null;
+      if (this.networkRaf === null) this.drawColumnNetwork(canvas);
+    }
+    canvas.style.cursor = "default";
+    this.hideNetworkTooltip();
+  }
+
+  private hideNetworkTooltip(): void {
+    this.networkTooltip?.classList.add("hidden");
+  }
+
+  private showNetworkTooltip(
+    canvas: HTMLCanvasElement,
+    hover: NonNullable<typeof this.networkHover>,
+    point: { x: number; y: number },
+  ): void {
+    const tooltip = this.networkTooltip;
+    const network = this.columnNetwork;
+    if (tooltip === null || network === null) return;
+    clear(tooltip);
+    if (hover.kind === "edge") {
+      const edge = network.edges[hover.index];
+      if (edge === undefined) return;
+      tooltip.append(
+        el("strong", {}, [`${edge.aLabel} ↔ ${edge.bLabel}`]),
+        el("span", {}, [
+          `${RELATIONSHIP_LABELS[edge.method] ?? edge.method} ${edge.effect.toFixed(2)} · n = ${edge.n.toLocaleString()}`,
+        ]),
+        ...(edge.basis === undefined
+          ? []
+          : [el("span", {}, [`Strongest token “${edge.basis}”`])]),
+        el("span", { class: "column-network-tooltip-hint" }, ["Click for details"]),
+      );
+    } else {
+      for (const line of this.nodeHoverLines(hover.column, network)) tooltip.append(line);
+    }
+    tooltip.classList.remove("hidden");
+    const scaleX = canvas.clientWidth / COLUMN_NETWORK_WIDTH || 1;
+    const scaleY = canvas.clientHeight / COLUMN_NETWORK_HEIGHT || 1;
+    const left = point.x * scaleX + 16;
+    const flip = left > canvas.clientWidth - 260;
+    tooltip.style.left = `${flip ? Math.max(4, point.x * scaleX - 256) : left}px`;
+    tooltip.style.top = `${Math.max(4, Math.min(point.y * scaleY - 12, canvas.clientHeight - 150))}px`;
+  }
+
+  /** What is interesting about one column: links, dependencies, and its own profile. */
+  private nodeHoverLines(column: number, network: ColumnNetworkMessage): HTMLElement[] {
+    const node = network.nodes.find((entry) => entry.column === column);
+    if (node === undefined) return [];
+    const lines: HTMLElement[] = [
+      el("strong", {}, [node.label]),
+      el("span", { class: "column-network-tooltip-type" }, [
+        `${node.role === "numeric" ? "Number" : node.role === "category" ? "Category" : "Text"} · ${node.type}`,
+      ]),
+    ];
+    const edges = network.edges
+      .filter((edge) => edge.aColumn === column || edge.bColumn === column)
+      .sort((a, b) => Math.abs(b.effect) - Math.abs(a.effect));
+    const strongest = edges[0];
+    if (strongest === undefined) {
+      lines.push(el("span", {}, ["No strong associations with other columns"]));
+    } else {
+      const other = strongest.aColumn === column ? strongest.bLabel : strongest.aLabel;
+      lines.push(
+        el("span", {}, [`${edges.length} link${edges.length === 1 ? "" : "s"}`]),
+        el("span", {}, [
+          `Strongest: ${other} (${RELATIONSHIP_LABELS[strongest.method] ?? strongest.method} ${strongest.effect.toFixed(2)})`,
+        ]),
+      );
+    }
+    const pairs = this.dependencies?.pairs ?? [];
+    const determines = pairs.filter((pair) => pair.determinantColumn === column);
+    const determinedBy = pairs.filter((pair) => pair.dependentColumn === column);
+    if (determines.length > 0) {
+      lines.push(
+        el("span", {}, [`Determines: ${determines.map((pair) => pair.dependentLabel).join(", ")}`]),
+      );
+    }
+    if (determinedBy.length > 0) {
+      lines.push(
+        el("span", {}, [
+          `Determined by: ${determinedBy.map((pair) => pair.determinantLabel).join(", ")}`,
+        ]),
+      );
+    }
+    const meta = this.metas[column];
+    if (meta !== undefined) {
+      const rows = Math.max(1, this.rowCount);
+      const missing = (meta.stats.nulls / rows) * 100;
+      const profile = [
+        `${meta.stats.distinct.toLocaleString()} distinct`,
+        missing === 0 ? "no missing" : `${missing < 0.1 ? "<0.1" : missing.toFixed(1)}% missing`,
+      ];
+      lines.push(el("span", {}, [profile.join(" · ")]));
+      if (node.role === "numeric" && meta.stats.min !== null && meta.stats.max !== null) {
+        const mean =
+          meta.stats.mean === null
+            ? ""
+            : ` · mean ${Number(meta.stats.mean.toPrecision(4)).toLocaleString()}`;
+        lines.push(
+          el("span", {}, [
+            `Range ${Number(meta.stats.min.toPrecision(4)).toLocaleString()} – ${Number(meta.stats.max.toPrecision(4)).toLocaleString()}${mean}`,
+          ]),
+        );
+      } else {
+        const top = meta.stats.topValues[0];
+        const present = Math.max(1, rows - meta.stats.nulls);
+        if (top !== undefined) {
+          const label = top.label.length > 22 ? `${top.label.slice(0, 21)}…` : top.label;
+          lines.push(
+            el("span", {}, [`Top value: “${label}” (${Math.round((top.count / present) * 100)}%)`]),
+          );
+        }
+      }
+    }
+    lines.push(
+      el("span", { class: "column-network-tooltip-hint" }, ["Click to focus · drag to move"]),
+    );
+    return lines;
   }
 
   private clickColumnNetwork(event: MouseEvent): void {

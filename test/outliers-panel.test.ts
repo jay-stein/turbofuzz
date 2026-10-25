@@ -288,6 +288,25 @@ test("the outliers page offers method cards, features, quick and deep routes", a
   assert.ok(host.querySelectorAll(".outliers-row").length === 1);
 });
 
+test("choosing a method runs its quick scan automatically and never starts deep compute", async () => {
+  const { host, calls } = buildPanel();
+  const cards = () => [...host.querySelectorAll<HTMLButtonElement>(".outliers-method")];
+  const pca = cards().find((card) => (card.textContent ?? "").includes("PCA"));
+  assert.ok(pca !== undefined, "a PCA method card exists");
+  pca.click();
+  await tick();
+  await tick();
+  assert.equal(calls.length, 1);
+  assert.match(calls[0] ?? "", /^pca:quick:/, "only the quick scan runs");
+  assert.ok(!calls.some((call) => call.includes(":deep:")));
+
+  const again = cards().find((card) => (card.textContent ?? "").includes("PCA"));
+  again?.click();
+  await tick();
+  await tick();
+  assert.equal(calls.length, 1, "a cached result is not recomputed");
+});
+
 test("deep compute calls the worker with the deep mode", async () => {
   const { host, calls } = buildPanel();
   const deep = [...host.querySelectorAll("button")].find((button) =>
