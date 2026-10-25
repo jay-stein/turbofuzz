@@ -1,4 +1,5 @@
 import { ColumnData } from "../data/column.js";
+import { isGroupableColumn } from "../data/groupable.js";
 import { computeAggregate } from "../data/aggregate.js";
 import { computePivot } from "../data/pivot.js";
 import { coMissingness } from "../data/comissingness.js";
@@ -1315,7 +1316,7 @@ function chartScopedIds(
   }
   if (filter !== undefined && filter.column >= 0 && filter.code >= 0) {
     const column = dataset.columns[filter.column];
-    if (column !== undefined && (column.type === "category" || column.type === "boolean")) {
+    if (column !== undefined && isGroupableColumn(column.type, column.stats.distinct)) {
       const codes = categoryCodes(column.categories().bits, dataset.rowCount);
       ids = Uint32Array.from(ids.filter((id) => codes[id] === filter.code));
     }
@@ -1482,7 +1483,7 @@ function handleGetAggregate(message: GetAggregateRequest): void {
   const filterCode = message.view.filterCode ?? -1;
   if (filterColumn >= 0 && filterCode >= 0 && filterColumn < dataset.columnCount) {
     const column = dataset.columns[filterColumn];
-    if (column.type === "category" || column.type === "boolean") {
+    if (isGroupableColumn(column.type, column.stats.distinct)) {
       const codes = categoryCodes(column.categories().bits, dataset.rowCount);
       ids = ids.filter((id) => codes[id] === filterCode);
     }
@@ -2708,6 +2709,14 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
       ).length;
     }
   }
+  let groups: ColumnMeta["groups"] = null;
+  if (
+    categories === null &&
+    role !== "provenance" &&
+    isGroupableColumn(column.type, column.stats.distinct)
+  ) {
+    groups = column.categorySummary();
+  }
   return {
     name: column.name,
     type: column.type,
@@ -2722,6 +2731,7 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     },
     similarGroups,
     categories,
+    groups,
     histogram: column.histogram(),
     valueFence: dataset.valueFences[index] ?? null,
     lengthFence: dataset.lengthFences[index] ?? null,

@@ -3,7 +3,7 @@ import type { ChartCardConfig } from "./chart-card.js";
 import {
   CHART_KIND_LABELS,
   type ChartCardKind,
-  isCategoryType,
+  isGroupable,
   isNumericType,
   looksLikeIdName,
 } from "./chart-utils.js";
@@ -88,7 +88,7 @@ export function openChartSetupDialog(
       columns,
       (meta) => meta.type === "date" || meta.type === "datetime",
     );
-    const category = optionsFor(columns, (meta) => isCategoryType(meta.type));
+    const category = optionsFor(columns, (meta) => isGroupable(meta));
     const text = optionsFor(columns, (meta) => meta.type === "string");
 
     let collect: () => { config: Partial<ChartCardConfig> | null; error: string | null } = () => ({
@@ -247,7 +247,7 @@ export function openChartSetupDialog(
           meta.role !== "provenance" &&
           meta.type !== "identifier" &&
           !looksLikeIdName(meta.name) &&
-          (isCategoryType(meta.type) || meta.type === "string"),
+          (isGroupable(meta) || meta.type === "string"),
       );
       const sizes: FieldOption[] = [{ index: -1, label: "Count of rows" }, ...numeric];
       const presetMeasure = preset.valueColumn ?? preset.sizeColumn ?? -1;

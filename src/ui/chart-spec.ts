@@ -5,7 +5,7 @@ import type { ChartCardConfig } from "./chart-card.js";
 import { defaultChartConfig } from "./chart-builder.js";
 import {
   CHART_KIND_LABELS,
-  isCategoryType,
+  isGroupable,
   isNumericType,
   type ChartCardKind,
 } from "./chart-utils.js";
@@ -294,7 +294,7 @@ function validateCompiledSpec(
   const category = (name: string | null, label: string): void => {
     const result = indexOf(name, columns);
     if (result.issue !== null) issues.push(result.issue);
-    else if (result.index >= 0 && !isCategoryType(columns[result.index].type)) {
+    else if (result.index >= 0 && !isGroupable(columns[result.index])) {
       issues.push(`${label} must be a category column.`);
     }
   };

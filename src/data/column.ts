@@ -500,6 +500,22 @@ export class ColumnData {
     return this.medianValue;
   }
 
+  /**
+   * Labels and counts in the same order as categories(), without building the
+   * per-value bitsets. Cheap enough to run for every low-cardinality column.
+   */
+  categorySummary(): { labels: string[]; counts: number[] } {
+    if (this.cats !== null) return { labels: this.cats.labels, counts: this.cats.counts };
+    const tally = new Map<string, number>();
+    for (let i = 0; i < this.raw.length; i++) {
+      const value = this.raw[i];
+      const key = this.isNull(value) ? "(empty)" : value.trim();
+      tally.set(key, (tally.get(key) ?? 0) + 1);
+    }
+    const labels = [...tally.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    return { labels, counts: labels.map((label) => tally.get(label) ?? 0) };
+  }
+
   categories(): CategorySet {
     if (this.cats === null) {
       const index = new Map<string, number>();

@@ -40,6 +40,8 @@ import {
   EXPORT_SIZES,
   type ChartCardKind,
   isCategoryType,
+  isGroupable,
+  withChartGroups,
   isNumericType,
   isPairKind,
   pickDefaultCard,
@@ -335,7 +337,9 @@ function presetFor(
         meta.type === "duration",
     );
     const numeric = indexesWhere(columns, (meta) => isNumericType(meta.type));
-    const categories = indexesWhere(columns, (meta) => isCategoryType(meta.type));
+    const categories = indexesWhere(columns, (meta) => isGroupable(meta)).sort(
+      (a, b) => Number(isCategoryType(columns[b].type)) - Number(isCategoryType(columns[a].type)),
+    );
     if (!kinds.has("scatter") && axisAll.length >= 2) {
       const pool = axisAll.filter((index) => !used.has(index));
       const source = pool.length >= 2 ? pool : axisAll;
@@ -787,9 +791,9 @@ export class ChartsPanel {
   }
 
   setColumns(columns: ColumnMeta[]): void {
-    this.columns = columns;
+    this.columns = withChartGroups(columns);
     this.syncRail();
-    for (const card of this.cards()) card.setColumns(columns);
+    for (const card of this.cards()) card.setColumns(this.columns);
     this.syncEmpty();
   }
 
@@ -806,7 +810,7 @@ export class ChartsPanel {
    * stays empty. Entries with unresolved columns render as orphaned cards.
    */
   restore(configs: readonly RestoredChartConfig[], columns: ColumnMeta[]): void {
-    this.columns = columns;
+    this.columns = withChartGroups(columns);
     this.syncRail();
     for (const config of configs) {
       if ((config.missingColumns?.length ?? 0) > 0) {

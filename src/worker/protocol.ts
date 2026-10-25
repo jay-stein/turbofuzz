@@ -57,6 +57,11 @@ export interface ColumnMeta {
   /** Category columns: number of near-duplicate value clusters we can merge. */
   similarGroups: number;
   categories: CategoryMeta | null;
+  /**
+   * Value list for charting a non-category column (integer, text, date...) as
+   * groups. Kept apart from `categories` so filters still treat it by type.
+   */
+  groups?: CategoryMeta | null;
   histogram: HistogramMeta | null;
   valueFence: ValueFence | null;
   lengthFence: LengthFence | null;

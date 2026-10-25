@@ -69,6 +69,7 @@ import {
   formatTick,
   hexToRgb,
   isCategoryType,
+  isGroupable,
   isIdLikeColumn,
   isNumericType,
   isPairKind,
@@ -2597,7 +2598,7 @@ export class ChartCard {
     // blindly unhiding the pair controls would leak X/Y into single-axis kinds.
     const kind = this.config.kind;
     const pair = isPairKind(kind);
-    const groupable = this.columns.some((meta) => isCategoryType(meta.type));
+    const groupable = this.columns.some((meta) => isGroupable(meta));
     const measureKinds =
       kind === "line" ||
       kind === "bar" ||
@@ -2820,12 +2821,12 @@ export class ChartCard {
         : this.config.valueGrain;
     // Split-by: line/bar cards with a Group draw one series per group value
     // (dimension 2); the renderer pivots the returned groups into series.
-    const groupType = this.meta(this.config.groupColumn)?.type;
+    const groupMetaForSplit = this.meta(this.config.groupColumn);
     const split =
       (line || this.config.kind === "bar" || this.config.kind === "barplot") &&
       this.config.groupColumn >= 0 &&
-      groupType !== undefined &&
-      isCategoryType(groupType);
+      groupMetaForSplit !== undefined &&
+      isGroupable(groupMetaForSplit);
     const binCount = Math.max(
       1,
       Math.min(256, Math.floor(this.config.binOptions?.binCount ?? DEFAULT_BIN_COUNT) || 32),
@@ -3651,11 +3652,11 @@ export class ChartCard {
         return meta.type === "date" || meta.type === "datetime";
       case "bar":
       case "barplot":
-        return isCategoryType(meta.type);
+        return isGroupable(meta);
       case "treemap":
         if (meta.role === "provenance") return false;
         return (
-          isCategoryType(meta.type) ||
+          isGroupable(meta) ||
           (meta.type === "string" && !isIdLikeColumn(meta, this.rowCount))
         );
       case "terms":
@@ -3679,7 +3680,7 @@ export class ChartCard {
       case "box":
         return isNumericType(meta.type);
       case "heatmap":
-        return isCategoryType(meta.type);
+        return isGroupable(meta);
       case "correlation":
         return false;
       default:
@@ -3691,7 +3692,7 @@ export class ChartCard {
     switch (this.config.kind) {
       case "box":
       case "heatmap":
-        return isCategoryType(meta.type);
+        return isGroupable(meta);
       case "correlation":
         return false;
       default:
@@ -3884,7 +3885,7 @@ export class ChartCard {
     }
     if (this.config.column >= 0) this.primarySelect.value = String(this.config.column);
 
-    const groupable = this.allowedIndexes((meta) => isCategoryType(meta.type));
+    const groupable = this.allowedIndexes((meta) => isGroupable(meta));
     if (!groupable.includes(this.config.groupColumn)) this.config.groupColumn = -1;
     this.groupSelect.replaceChildren(this.option("-1", "None"));
     groupable.forEach((index) => {
@@ -4000,7 +4001,7 @@ export class ChartCard {
 
   /** Category filter choices for this chart, plus its table-filter scope. */
   private syncChartFilterControls(): void {
-    const categoryIndexes = this.allowedIndexes((meta) => isCategoryType(meta.type));
+    const categoryIndexes = this.allowedIndexes((meta) => isGroupable(meta));
     let column = this.config.filterColumn ?? -1;
     if (!categoryIndexes.includes(column)) column = -1;
     this.config.filterColumn = column;
@@ -4087,7 +4088,7 @@ export class ChartCard {
                   : "Column";
     const valueLabel = this.valueWrap.querySelector<HTMLElement>(".chart-tag-label");
     if (valueLabel !== null) valueLabel.textContent = kind === "treemap" ? "Size by" : "Value";
-    const groupable = this.columns.some((meta) => isCategoryType(meta.type));
+    const groupable = this.columns.some((meta) => isGroupable(meta));
     const measureKinds =
       kind === "line" ||
       kind === "bar" ||
@@ -4327,7 +4328,7 @@ export class ChartCard {
       el("option", { value: "-1" }, ["Choose column"]) as HTMLOptionElement,
     );
     this.columns.forEach((meta, index) => {
-      if (!isCategoryType(meta.type) && meta.type !== "string") return;
+      if (!isGroupable(meta) && meta.type !== "string") return;
       this.geoMatchSelect.append(
         el("option", { value: String(index) }, [meta.name]) as HTMLOptionElement,
       );
@@ -4357,7 +4358,7 @@ export class ChartCard {
         this.geoFeatureSelect.value = feature.value;
         const match = this.columns.findIndex(
           (meta) =>
-            (isCategoryType(meta.type) || meta.type === "string") &&
+            (isGroupable(meta) || meta.type === "string") &&
             this.joinKey(meta.name) === this.joinKey(feature.value),
         );
         if (match >= 0) this.geoMatchSelect.value = String(match);
@@ -5264,7 +5265,7 @@ export class ChartCard {
       value === undefined ||
       category === undefined ||
       !isNumericType(value.type) ||
-      !isCategoryType(category.type)
+      !isGroupable(category)
     ) {
       this.boxResult = null;
       return;
@@ -5299,8 +5300,8 @@ export class ChartCard {
     if (
       x === undefined ||
       y === undefined ||
-      !isCategoryType(x.type) ||
-      !isCategoryType(y.type)
+      !isGroupable(x) ||
+      !isGroupable(y)
     ) {
       this.crossResult = null;
       return;
@@ -5339,7 +5340,7 @@ export class ChartCard {
   private bubbleGroupColumn(): number | undefined {
     if (this.config.groupColumn < 0) return undefined;
     const meta = this.meta(this.config.groupColumn);
-    return meta !== undefined && isCategoryType(meta.type) ? this.config.groupColumn : undefined;
+    return meta !== undefined && isGroupable(meta) ? this.config.groupColumn : undefined;
   }
 
   /** Row counts per x/y grid cell for the bubble chart. */
@@ -5469,7 +5470,7 @@ export class ChartCard {
       }
     } else if (isCategory) {
       const column = this.meta(this.config.column);
-      if (column === undefined || !isCategoryType(column.type)) {
+      if (column === undefined || !isGroupable(column)) {
         this.animationResult = null;
         return;
       }
@@ -6020,7 +6021,7 @@ export class ChartCard {
       !numericAxis ||
       meta.histogram === null ||
       groupMeta === undefined ||
-      !isCategoryType(groupMeta.type)
+      !isGroupable(groupMeta)
     ) {
       this.groupResult = null;
       return;
@@ -7062,14 +7063,14 @@ export class ChartCard {
         return (
           category !== undefined &&
           measure !== undefined &&
-          isCategoryType(category.type) &&
+          isGroupable(category) &&
           (isNumericType(measure.type) || measure.type === "duration")
         );
       }
       case "bar":
       case "treemap": {
         const meta = this.meta(this.config.column);
-        return meta !== undefined && isCategoryType(meta.type);
+        return meta !== undefined && isGroupable(meta);
       }
       case "terms": {
         const meta = this.meta(this.config.column);
@@ -7088,13 +7089,13 @@ export class ChartCard {
       }
       case "box":
         return count((meta) => isNumericType(meta.type)) > 0 &&
-          count((meta) => isCategoryType(meta.type)) > 0;
+          count((meta) => isGroupable(meta)) > 0;
       case "treemap": {
         const meta = this.meta(this.config.column);
-        return meta !== undefined && isCategoryType(meta.type);
+        return meta !== undefined && isGroupable(meta);
       }
       case "heatmap":
-        return count((meta) => isCategoryType(meta.type)) >= 2;
+        return count((meta) => isGroupable(meta)) >= 2;
       case "bubble": {
         const x = this.meta(this.config.x);
         const y = this.meta(this.config.y);
@@ -7135,7 +7136,7 @@ export class ChartCard {
         meta.type === "datetime" ||
         meta.type === "time" ||
         meta.type === "duration" ||
-        isCategoryType(meta.type),
+        isGroupable(meta),
     );
     if (!chartable) {
       return "This file has no numeric, temporal or category columns. Change a column's type in the filter list.";
@@ -7822,7 +7823,7 @@ export class ChartCard {
           const matchMeta = this.meta(matchColumn);
           if (matchColumn >= 0 && matchMeta !== undefined && raw !== undefined && raw !== null) {
             const text = String(raw);
-            if (isCategoryType(matchMeta.type)) {
+            if (isGroupable(matchMeta)) {
               const code = matchMeta.categories?.labels.indexOf(text) ?? -1;
               if (code >= 0) actions.push({ kind: "values", column: matchColumn, code });
             } else if (matchMeta.type === "string") {

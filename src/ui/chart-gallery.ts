@@ -6,6 +6,7 @@ import {
   CHART_KIND_LABELS,
   type ChartIdea,
   isCategoryType,
+  isGroupable,
   isIdLikeColumn,
   isNumericType,
   looksLikeIdName,
@@ -59,11 +60,13 @@ export function fitChartKind(
     (meta) => meta.type === "date" || meta.type === "datetime",
     rowCount,
   );
+  // Any low-cardinality column can be grouped, but true categories lead so
+  // the starting preset is the most natural one.
   const categories = pool(
     columns,
-    (meta) => isCategoryType(meta.type) && meta.stats.distinct >= 2,
+    (meta) => isGroupable(meta) && meta.stats.distinct >= 2,
     rowCount,
-  );
+  ).sort((a, b) => Number(isCategoryType(b.meta.type)) - Number(isCategoryType(a.meta.type)));
 
   switch (kind) {
     case "histogram":
@@ -80,7 +83,7 @@ export function fitChartKind(
       if (categories.length >= 1) {
         return { kind, ok: true, reason: "", preset: { kind, column: categories[0].index } };
       }
-      return { kind, ok: false, reason: "needs a category column", preset: {} };
+      return { kind, ok: false, reason: "needs a grouping column (few distinct values)", preset: {} };
     case "barplot":
       if (categories.length >= 1 && numeric.length >= 1) {
         return {
@@ -100,7 +103,7 @@ export function fitChartKind(
         ok: false,
         reason:
           categories.length === 0
-            ? "needs a category column"
+            ? "needs a grouping column (few distinct values)"
             : "needs a numeric measure",
         preset: {},
       };
@@ -122,7 +125,7 @@ export function fitChartKind(
       return {
         kind,
         ok: false,
-        reason: "needs a category or text column",
+        reason: "needs a text or category column",
         preset: {},
       };
     }
@@ -166,7 +169,7 @@ export function fitChartKind(
         kind,
         ok: false,
         reason:
-          numeric.length === 0 ? "needs a numeric column" : "needs a category column",
+          numeric.length === 0 ? "needs a numeric column" : "needs a grouping column (few distinct values)",
         preset: {},
       };
     case "heatmap":
@@ -178,7 +181,7 @@ export function fitChartKind(
           preset: { kind, x: categories[0].index, y: categories[1].index },
         };
       }
-      return { kind, ok: false, reason: "needs two category columns", preset: {} };
+      return { kind, ok: false, reason: "needs two grouping columns (few distinct values)", preset: {} };
     case "bubble": {
       if (numeric.length >= 2) {
         return {

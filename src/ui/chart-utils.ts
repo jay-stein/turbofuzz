@@ -93,6 +93,25 @@ export function isCategoryType(type: ColumnType): boolean {
   return type === "category" || type === "boolean";
 }
 
+/**
+ * True when a chart can group by this column: real categories, plus any
+ * low-cardinality integer, text, date or time column that carries a value list.
+ */
+export function isGroupable(meta: ColumnMeta): boolean {
+  return isCategoryType(meta.type) || meta.categories !== null || (meta.groups ?? null) !== null;
+}
+
+/**
+ * Exposes the worker's `groups` value list as `categories` so chart code treats
+ * every groupable column alike. Only chart cards see this view; filters and the
+ * table keep the original metadata.
+ */
+export function withChartGroups(columns: ColumnMeta[]): ColumnMeta[] {
+  return columns.map((meta) =>
+    meta.categories === null && meta.groups != null ? { ...meta, categories: meta.groups } : meta,
+  );
+}
+
 export { looksLikeIdName };
 
 /**
@@ -119,7 +138,7 @@ export function isIdLikeColumn(meta: ColumnMeta, rowCount: number): boolean {
 /** A numeric column with few distinct values charts better as categories. */
 export function isChartCategory(meta: ColumnMeta): boolean {
   if (isCategoryType(meta.type)) return true;
-  return isNumericType(meta.type) && meta.stats.distinct > 0 && meta.stats.distinct <= 12;
+  return isGroupable(meta) && meta.stats.distinct > 0 && meta.stats.distinct <= 12;
 }
 
 const CATEGORY_HINT = /(region|country|state|province|county|city|segment|status|category|product|type|channel|group|department|team|industry|plan|tier|class|gender|band)/i;
