@@ -1,6 +1,15 @@
 import type { ExportScope } from "../worker/protocol.js";
 import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
+import {
+  EXPORT_COMPRESSIONS,
+  EXPORT_FORMATS,
+  buildExportFileName,
+  formatInfo,
+  stripExportExtension,
+  type ExportCompression,
+  type ExportFormat,
+} from "./export-formats.js";
 
 export interface ExportSettings {
   nullAsBlank: boolean;
@@ -8,6 +17,10 @@ export interface ExportSettings {
   scope: ExportScope;
   /** null = every row in the selected scope; otherwise the first N. */
   limit: number | null;
+  format?: ExportFormat;
+  compression?: ExportCompression;
+  /** Prefix the file name with the export time as YYYYMMDDHHMMSS_. */
+  datePrefix?: boolean;
 }
 
 export interface ExportScopeInfo {
@@ -51,14 +64,31 @@ export function openExportPanel(
   head.append(closeButton);
   modal.append(head);
 
+  let format: ExportFormat = settings.format ?? "csv";
+  let compression: ExportCompression = settings.compression ?? "none";
+
   const formatField = el("label", { class: "clean-field" });
   formatField.append(el("span", { class: "clean-label" }, ["Format"]));
   const formatSelect = el("select", { "aria-label": "Export format" }) as HTMLSelectElement;
-  formatSelect.append(el("option", { value: "csv" }, ["CSV (.csv)"]) as HTMLOptionElement);
-  const parquet = el("option", { value: "parquet" }, ["Parquet (planned)"]) as HTMLOptionElement;
-  parquet.disabled = true;
-  formatSelect.append(parquet);
-  formatField.append(formatSelect);
+  for (const entry of EXPORT_FORMATS) {
+    const option = el("option", { value: entry.value }, [entry.label]) as HTMLOptionElement;
+    option.selected = entry.value === format;
+    formatSelect.append(option);
+  }
+  const formatHint = el("div", { class: "clean-hint" });
+  const compressionSelect = el("select", {
+    "aria-label": "Export compression",
+  }) as HTMLSelectElement;
+  for (const entry of EXPORT_COMPRESSIONS) {
+    const option = el("option", { value: entry.value }, [entry.label]) as HTMLOptionElement;
+    option.selected = entry.value === compression;
+    compressionSelect.append(option);
+  }
+  const compressionRow = el("div", { class: "export-compression" }, [
+    el("span", {}, ["Compress"]),
+    compressionSelect,
+  ]);
+  formatField.append(formatSelect, formatHint, compressionRow);
 
   let scope: ExportScope = scopeInfo.filtersActive ? settings.scope : "all";
   const scopeField = el("div", { class: "clean-field scope-field" });
@@ -161,11 +191,35 @@ export function openExportPanel(
   const nameInput = el("input", {
     class: "text-input",
     type: "text",
-    value: defaultName,
+    value: stripExportExtension(defaultName),
     spellcheck: "false",
     "aria-label": "Export file name",
   }) as HTMLInputElement;
-  nameField.append(nameInput);
+  const prefixInput = el("input", { type: "checkbox", "aria-label": "Add date-time prefix" }) as HTMLInputElement;
+  prefixInput.checked = settings.datePrefix ?? true;
+  const prefixRow = el("label", { class: "control check clean-check" }, [
+    prefixInput,
+    "Start the name with the export date and time (YYYYMMDDHHMMSS_)",
+  ]);
+  const preview = el("div", { class: "clean-hint export-preview" });
+  const finalName = (): string =>
+    buildExportFileName(nameInput.value, defaultName, format, compression, prefixInput.checked);
+  const syncName = (): void => {
+    formatHint.textContent = formatInfo(format).hint;
+    preview.textContent = `Will save as ${finalName()}`;
+  };
+  formatSelect.addEventListener("change", () => {
+    format = formatSelect.value as ExportFormat;
+    syncName();
+  });
+  compressionSelect.addEventListener("change", () => {
+    compression = compressionSelect.value as ExportCompression;
+    syncName();
+  });
+  nameInput.addEventListener("input", syncName);
+  prefixInput.addEventListener("change", syncName);
+  syncName();
+  nameField.append(nameInput, prefixRow, preview);
 
   const optionsRow = el("label", { class: "control check clean-check" });
   const nullInput = el("input", { type: "checkbox" }) as HTMLInputElement;
@@ -180,7 +234,7 @@ export function openExportPanel(
   formulaRow.append(formulaInput, "Escape formula-like cells (safe for Excel)");
 
   const hint = el("div", { class: "clean-hint" }, [
-    "The file is built in this browser. When your browser supports it, you choose the folder and name in the system save dialog.",
+    "Cleaning steps are always included. The file is built in this browser. When your browser supports it, you choose the folder and name in the system save dialog.",
   ]);
 
   const footer = el("div", { class: "clean-footer" });
@@ -188,9 +242,12 @@ export function openExportPanel(
   cancel.addEventListener("click", close);
   const save = el("button", { class: "primary", type: "button" }, ["Save file"]);
   save.addEventListener("click", () => {
-    const fileName = ensureCsvExtension(nameInput.value, defaultName);
+    const fileName = finalName();
     syncLimit();
     callbacks.onSave(fileName, {
+      format,
+      compression,
+      datePrefix: prefixInput.checked,
       nullAsBlank: nullInput.checked,
       escapeFormulas: formulaInput.checked,
       scope,
@@ -201,6 +258,16 @@ export function openExportPanel(
   footer.append(cancel, el("span", { class: "grow" }), save);
 
   modal.append(formatField, scopeField, limitField, nameField, optionsRow, formulaRow, hint, footer);
+
+  // Null blanking and formula escaping are CSV-family options; JSON and Excel
+  // keep real nulls and numbers.
+  const syncOptions = (): void => {
+    const csvFamily = format === "csv" || format === "csv-semicolon" || format === "tsv";
+    formulaRow.classList.toggle("hidden", !csvFamily);
+    optionsRow.classList.toggle("hidden", format === "json" || format === "jsonl");
+  };
+  formatSelect.addEventListener("change", syncOptions);
+  syncOptions();
 
   function close(): void {
     overlay.remove();

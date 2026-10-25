@@ -15,7 +15,9 @@ import type {
   AnimationMessage,
   TextProfileMessage,
   PivotMessage,
+  CategoryMeta,
 } from "../worker/protocol.js";
+import { isGroupableColumn } from "../data/groupable.js";
 import {
   ChartCard,
   type ChartCardConfig,
@@ -62,6 +64,8 @@ export interface ChartsPanelOptions {
   datasetName(): string;
   requestBins(column: number, options: ChartBinOptions): Promise<ChartBinsMessage>;
   requestSeries(input: SeriesRequestInput): Promise<ChartSeriesMessage>;
+  /** Value lists for groupable non-category columns, fetched only when charts need them. */
+  requestChartGroups?(columns: number[]): Promise<Record<number, CategoryMeta>>;
   requestBoxStats(input: {
     valueColumn: number;
     categoryColumn: number;
@@ -791,10 +795,65 @@ export class ChartsPanel {
   }
 
   setColumns(columns: ColumnMeta[]): void {
-    this.columns = withChartGroups(columns);
+    this.rawColumns = columns;
+    this.columns = withChartGroups(this.withKnownGroups(columns));
+    if (this.groupsWanted) this.fetchMissingGroups(columns);
     this.syncRail();
     for (const card of this.cards()) card.setColumns(this.columns);
     this.syncEmpty();
+  }
+
+  /** Column name → value list, kept across metadata refreshes until the data changes shape. */
+  private groupCache = new Map<string, { distinct: number; groups: CategoryMeta }>();
+  private groupsGeneration = 0;
+  private groupsWanted = false;
+  private rawColumns: ColumnMeta[] = [];
+
+  /** Called when the Chart view opens; value lists are only built from then on. */
+  ensureGroups(): void {
+    this.groupsWanted = true;
+    this.fetchMissingGroups(this.rawColumns);
+  }
+
+  private withKnownGroups(columns: ColumnMeta[]): ColumnMeta[] {
+    return columns.map((meta) => {
+      const hit = this.groupCache.get(meta.name);
+      return meta.groups == null && hit !== undefined && hit.distinct === meta.stats.distinct
+        ? { ...meta, groups: hit.groups }
+        : meta;
+    });
+  }
+
+  /**
+   * Low-cardinality integer/text/date columns become chart groups, but their
+   * value lists are built in the worker on demand so loading and editing never
+   * pay for them. Only runs once a chart exists to use them.
+   */
+  private fetchMissingGroups(columns: ColumnMeta[]): void {
+    const request = this.options.requestChartGroups;
+    if (request === undefined) return;
+    const missing: number[] = [];
+    columns.forEach((meta, index) => {
+      if (meta.categories !== null || (meta.groups ?? null) !== null) return;
+      if (this.groupCache.get(meta.name)?.distinct === meta.stats.distinct) return;
+      if (isGroupableColumn(meta.type, meta.stats.distinct) && meta.role !== "provenance") {
+        missing.push(index);
+      }
+    });
+    if (missing.length === 0) return;
+    const generation = ++this.groupsGeneration;
+    void request(missing).then((groups) => {
+      if (generation !== this.groupsGeneration) return;
+      for (const [key, value] of Object.entries(groups)) {
+        const meta = columns[Number(key)];
+        if (meta !== undefined) {
+          this.groupCache.set(meta.name, { distinct: meta.stats.distinct, groups: value });
+        }
+      }
+      this.columns = withChartGroups(this.withKnownGroups(columns));
+      for (const card of this.cards()) card.setColumns(this.columns);
+      this.syncEmpty();
+    });
   }
 
   /** Snapshots every entry with its columns stored by name. */
@@ -810,7 +869,8 @@ export class ChartsPanel {
    * stays empty. Entries with unresolved columns render as orphaned cards.
    */
   restore(configs: readonly RestoredChartConfig[], columns: ColumnMeta[]): void {
-    this.columns = withChartGroups(columns);
+    this.rawColumns = columns;
+    this.columns = withChartGroups(this.withKnownGroups(columns));
     this.syncRail();
     for (const config of configs) {
       if ((config.missingColumns?.length ?? 0) > 0) {

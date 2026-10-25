@@ -407,6 +407,13 @@ export interface ExportOptions {
   escapeFormulas?: boolean;
 }
 
+/** Value lists for charting non-category columns as groups; computed on demand. */
+export type GetChartGroupsRequest = {
+  type: "getChartGroups";
+  requestId: number;
+  columns: number[];
+};
+
 export type GetCsvRequest = {
   type: "getCsv";
   requestId: number;
@@ -834,6 +841,7 @@ export type WorkerRequest =
   | GetCrosstabRequest
   | GetCorrelationRequest
   | StartExportRequest
+  | GetChartGroupsRequest
   | GetCsvRequest
   | RenameHeadersRequest
   | CleanColumnsRequest
@@ -976,6 +984,12 @@ export interface StatsMessage {
   columns: ColumnDetail[];
 }
 
+export interface ChartGroupsMessage {
+  type: "chartGroups";
+  requestId: number;
+  groups: Record<number, CategoryMeta>;
+}
+
 export interface ExportStartedMessage {
   type: "exportStarted";
   requestId: number;
@@ -1093,6 +1107,7 @@ export type WorkerResponse =
   | GridCountsMessage
   | AnimationMessage
   | ExportStartedMessage
+  | ChartGroupsMessage
   | CsvChunkMessage
   | HeadersRenamedMessage
   | CleanedMessage

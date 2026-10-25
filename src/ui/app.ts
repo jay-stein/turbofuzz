@@ -98,6 +98,13 @@ import {
 import { isParquetName } from "../parse/parquet.js";
 import { openRecipeMapping } from "./recipe-mapping.js";
 import { openExportPanel } from "./export-panel.js";
+import {
+  EXPORT_COMPRESSIONS,
+  encodeExport,
+  formatInfo,
+  type ExportCompression,
+  type ExportFormat,
+} from "./export-formats.js";
 import { openMergePanel } from "./merge-panel.js";
 import { normalize } from "../search/normalize.js";
 import {
@@ -409,6 +416,9 @@ export class App {
   private exportNullAsBlank = true;
   private exportEscapeFormulas = true;
   private exportLimit: number | null = null;
+  private exportFormat: ExportFormat = "csv";
+  private exportCompression: ExportCompression = "none";
+  private exportDatePrefix = true;
   private bannerEl!: HTMLElement;
   private healthHost!: HTMLElement;
   private healthChipCount = 0;
@@ -2066,12 +2076,16 @@ export class App {
   }
 
   private ensureCharts(): void {
-    if (this.chartsPanel !== null) return;
+    if (this.chartsPanel !== null) {
+      this.chartsPanel.ensureGroups();
+      return;
+    }
     this.chartsPanel = new ChartsPanel(this.chartHost, {
       datasetName: () => this.datasetName,
       requestBins: (column, options) => this.client.getChartBins(column, options),
       requestSeries: (input) => this.client.getChartSeries(input),
       requestBoxStats: (input) => this.client.getBoxStats(input),
+      requestChartGroups: async (columns) => (await this.client.getChartGroups(columns)).groups,
       requestCrosstab: (input) => this.client.getCrosstab(input),
       requestCorrelation: (columns, scope) => this.client.getCorrelation(columns, scope),
       requestGroupedBins: (input) => this.client.getGroupedBins(input),
@@ -2112,6 +2126,7 @@ export class App {
     this.chartsPanel.setFiltered(this.latestFacets, this.latestHistograms);
     this.chartsPanel.setRowCount(this.resultCount);
     this.chartsPanel.setTotalRowCount(this.rowCount);
+    this.chartsPanel.ensureGroups();
   }
 
   /** The view list every Source selector offers, alongside the table. */
@@ -2980,6 +2995,9 @@ export class App {
         escapeFormulas: this.exportEscapeFormulas,
         scope: "all",
         limit: this.exportLimit,
+        format: this.exportFormat,
+        compression: this.exportCompression,
+        datePrefix: this.exportDatePrefix,
       },
       {
         allRows: Math.max(0, this.rowCount - this.excludedRowCount),
@@ -2991,12 +3009,17 @@ export class App {
           this.exportNullAsBlank = settings.nullAsBlank;
           this.exportEscapeFormulas = settings.escapeFormulas;
           this.exportLimit = settings.limit;
+          this.exportFormat = settings.format ?? "csv";
+          this.exportCompression = settings.compression ?? "none";
+          this.exportDatePrefix = settings.datePrefix ?? true;
           void this.runExport(
             fileName,
             settings.nullAsBlank,
             settings.escapeFormulas,
             settings.scope,
             settings.limit,
+            this.exportFormat,
+            this.exportCompression,
           );
         },
         onClose: () => undefined,
@@ -3017,7 +3040,7 @@ export class App {
     const hasCleans = this.cleanedColumns.size > 0 || this.transformOps.length > 0;
     const hasFilters = this.filters.size > 0 || this.specials.size > 0 || this.shuffleActive;
     const suffix = hasCleans ? "-cleaned" : hasFilters ? "-filtered" : "";
-    return `${exportFileName(this.datasetName)}${suffix}.csv`;
+    return `${exportFileName(this.datasetName)}${suffix}`;
   }
 
   private async runExport(
@@ -3026,9 +3049,20 @@ export class App {
     escapeFormulas: boolean,
     scope: ExportScope,
     limit: number | null,
+    format: ExportFormat = "csv",
+    compression: ExportCompression = "none",
   ): Promise<void> {
     if (this.datasetName === "" || this.loading) return;
     try {
+      const info = formatInfo(format);
+      const csvFamily = format === "csv" || format === "csv-semicolon" || format === "tsv";
+      const compressionExt = EXPORT_COMPRESSIONS.find((entry) => entry.value === compression)?.ext ?? "";
+      const pickerType: { description: string; accept: Record<string, string[]> } =
+        compression === "none"
+          ? { description: `${info.label} file`, accept: { [info.mime]: [info.ext] } }
+          : compression === "gzip"
+            ? { description: "Gzip archive", accept: { "application/gzip": [compressionExt] } }
+            : { description: "Zip archive", accept: { "application/zip": [compressionExt] } };
       // Ask for the destination up front, while the click is still a user
       // gesture; the chunks are streamed into the chosen file afterwards.
       let handle: FileHandleLike | null = null;
@@ -3037,7 +3071,7 @@ export class App {
         try {
           handle = await picker.call(window, {
             suggestedName: fileName,
-            types: [{ description: "CSV file", accept: { "text/csv": [".csv"] } }],
+            types: [pickerType],
           });
         } catch (error) {
           if ((error as { name?: string }).name === "AbortError") return;
@@ -3052,21 +3086,24 @@ export class App {
       }
       const take = limit === null ? total : Math.min(total, Math.max(1, Math.floor(limit)));
 
-      const parts: string[] = ["\uFEFF"];
+      const parts: string[] = [];
       for (let start = 0; start < take; start += EXPORT_CHUNK_ROWS) {
         this.actionEl.textContent = `Exporting… ${Math.round((start / take) * 100)}%`;
         const end = Math.min(start + EXPORT_CHUNK_ROWS, take);
-        const chunk = await this.client.getCsv(start, end, { nullAsBlank, escapeFormulas });
+        const chunk = await this.client.getCsv(start, end, {
+          nullAsBlank,
+          escapeFormulas: csvFamily && escapeFormulas,
+        });
         parts.push(chunk.text);
       }
-      const text = parts.join("");
+      this.actionEl.textContent = `Encoding ${info.label}…`;
+      const { blob } = await encodeExport(parts.join(""), format, compression, fileName);
 
       if (handle !== null) {
         const writable = await handle.createWritable();
-        await writable.write(new Blob([text], { type: "text/csv;charset=utf-8" }));
+        await writable.write(blob);
         await writable.close();
       } else {
-        const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
         anchor.href = url;

@@ -39,13 +39,18 @@ test("export panel asks for a name and options before saving", () => {
   const input = document.querySelector(".export-modal input[type='text']") as unknown as {
     value: string;
   };
-  assert.equal(input.value, "euro-cleaned.csv");
+  assert.equal(input.value, "euro-cleaned", "the extension comes from the format");
 
   const checkbox = document.querySelector(
-    ".export-modal input[type='checkbox']",
+    ".export-modal input[aria-label='Add date-time prefix']",
   ) as unknown as { checked: boolean };
-  assert.equal(checkbox.checked, true);
+  assert.equal(checkbox.checked, true, "the date-time prefix is on by default");
   checkbox.checked = false;
+  const nullBox = document.querySelectorAll(
+    ".export-modal input[type='checkbox']",
+  )[1] as unknown as { checked: boolean };
+  assert.equal(nullBox.checked, true);
+  nullBox.checked = false;
   input.value = "my data";
 
   (document.querySelector(".export-modal .primary") as unknown as { click(): void }).click();
@@ -135,20 +140,36 @@ test("export panel offers a first-N subset defaulting to all rows", () => {
   assert.deepEqual(saved, { limit: 250 });
 });
 
-test("export panel lists CSV now and marks other formats as planned", () => {
+test("export panel offers several formats and builds the file name from them", () => {
   setupDom();
+  let saved: { name: string; format?: string; compression?: string } | null = null;
   openExportPanel(
-    "data.csv",
-    { nullAsBlank: true, escapeFormulas: true, scope: "all", limit: null },
+    "data",
+    { nullAsBlank: true, escapeFormulas: true, scope: "all", limit: null, datePrefix: false },
     { allRows: 10, filteredRows: 10, filtersActive: false },
-    { onSave: () => {}, onClose: () => {} },
+    {
+      onSave: (name, settings) => {
+        saved = { name, format: settings.format, compression: settings.compression };
+      },
+      onClose: () => {},
+    },
   );
 
   const document = (globalThis as Record<string, unknown>).document as Window["document"];
-  const options = document.querySelectorAll(".export-modal select option");
-  assert.equal(options.length, 2);
-  assert.equal(options[0].textContent, "CSV (.csv)");
-  assert.match(options[1].textContent ?? "", /planned/);
+  const formats = document.querySelectorAll(".export-modal select[aria-label='Export format'] option");
+  assert.deepEqual(
+    [...formats].map((option) => option.getAttribute("value")),
+    ["csv", "csv-semicolon", "tsv", "json", "jsonl", "xlsx"],
+  );
+  const select = document.querySelector(
+    ".export-modal select[aria-label='Export format']",
+  ) as unknown as { value: string; dispatchEvent(event: unknown): void };
+  select.value = "json";
+  select.dispatchEvent(new (document.defaultView as unknown as { Event: typeof Event }).Event("change"));
+  assert.match(document.querySelector(".export-preview")?.textContent ?? "", /Will save as data\.json$/);
+
+  (document.querySelector(".export-modal .primary") as unknown as { click(): void }).click();
+  assert.deepEqual(saved, { name: "data.json", format: "json", compression: "none" });
 });
 
 test("export panel offers the Excel formula escape on by default", () => {
@@ -170,10 +191,10 @@ test("export panel offers the Excel formula escape on by default", () => {
   const checkboxes = document.querySelectorAll(
     ".export-modal input[type='checkbox']",
   ) as unknown as { checked: boolean }[];
-  assert.equal(checkboxes.length, 2);
-  assert.equal(checkboxes[0].checked, true, "nullAsBlank keeps its default");
-  assert.equal(checkboxes[1].checked, true, "formula escape is on by default");
-  checkboxes[1].checked = false;
+  assert.equal(checkboxes.length, 3);
+  assert.equal(checkboxes[1].checked, true, "nullAsBlank keeps its default");
+  assert.equal(checkboxes[2].checked, true, "formula escape is on by default");
+  checkboxes[2].checked = false;
 
   (document.querySelector(".export-modal .primary") as unknown as { click(): void }).click();
   assert.deepEqual(saved, { escapeFormulas: false });

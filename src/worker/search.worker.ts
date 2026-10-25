@@ -456,6 +456,19 @@ async function handle(message: WorkerRequest): Promise<void> {
       }
       post({ type: "exportStarted", requestId: message.requestId, total: exportIds.length });
       break;
+    case "getChartGroups": {
+      const { dataset } = state();
+      const groups: Record<number, { labels: string[]; counts: number[] }> = {};
+      for (const index of message.columns) {
+        const column = dataset.columns[index];
+        if (column === undefined || column.role === "provenance") continue;
+        if (isGroupableColumn(column.type, column.stats.distinct)) {
+          groups[index] = column.categorySummary();
+        }
+      }
+      post({ type: "chartGroups", requestId: message.requestId, groups });
+      break;
+    }
     case "getCsv": {
       const { dataset } = state();
       const ids = exportIds ?? sortedIds;
@@ -2709,14 +2722,6 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
       ).length;
     }
   }
-  let groups: ColumnMeta["groups"] = null;
-  if (
-    categories === null &&
-    role !== "provenance" &&
-    isGroupableColumn(column.type, column.stats.distinct)
-  ) {
-    groups = column.categorySummary();
-  }
   return {
     name: column.name,
     type: column.type,
@@ -2731,7 +2736,6 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     },
     similarGroups,
     categories,
-    groups,
     histogram: column.histogram(),
     valueFence: dataset.valueFences[index] ?? null,
     lengthFence: dataset.lengthFences[index] ?? null,

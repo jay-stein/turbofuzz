@@ -117,6 +117,7 @@ export class ColumnData {
   private fuzzy: FuzzyIndex | null = null;
   private nums: Float64Array | null = null;
   private cats: CategorySet | null = null;
+  private summary: { labels: string[]; counts: number[] } | null = null;
   private medianValue: number | null = null;
   private medianComputed = false;
   private histCache: HistogramData | null = null;
@@ -271,6 +272,7 @@ export class ColumnData {
     this.typeDowngrade = null;
     this.nums = null;
     this.cats = null;
+    this.summary = null;
     this.stats.min = null;
     this.stats.max = null;
     this.stats.mean = null;
@@ -506,6 +508,7 @@ export class ColumnData {
    */
   categorySummary(): { labels: string[]; counts: number[] } {
     if (this.cats !== null) return { labels: this.cats.labels, counts: this.cats.counts };
+    if (this.summary !== null) return this.summary;
     const tally = new Map<string, number>();
     for (let i = 0; i < this.raw.length; i++) {
       const value = this.raw[i];
@@ -513,7 +516,8 @@ export class ColumnData {
       tally.set(key, (tally.get(key) ?? 0) + 1);
     }
     const labels = [...tally.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-    return { labels, counts: labels.map((label) => tally.get(label) ?? 0) };
+    this.summary = { labels, counts: labels.map((label) => tally.get(label) ?? 0) };
+    return this.summary;
   }
 
   categories(): CategorySet {

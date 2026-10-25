@@ -34,6 +34,7 @@ import type {
   ExportOptions,
   ExportScope,
   ExportStartedMessage,
+  ChartGroupsMessage,
   GroupAnomaliesMessage,
   OutlierAnalysisMessage,
   OutlierMethod,
@@ -409,6 +410,10 @@ export class SearchWorkerClient {
 
   startExport(scope: ExportScope = "filtered"): Promise<ExportStartedMessage> {
     return this.request<ExportStartedMessage>({ type: "startExport", scope });
+  }
+
+  getChartGroups(columns: number[]): Promise<ChartGroupsMessage> {
+    return this.request<ChartGroupsMessage>({ type: "getChartGroups", columns });
   }
 
   getCsv(start: number, end: number, options?: ExportOptions): Promise<CsvChunkMessage> {

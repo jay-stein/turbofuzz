@@ -7883,3 +7883,38 @@ label.null-row {
 .chart-card-layout.sidebar-open > .chart-sidebar {
   display: flex;
 }
+
+/* Export dialog: hints, compression and the file-name preview get their own lines. */
+.export-modal .clean-field {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.export-modal .clean-field > .clean-hint,
+.export-modal .clean-field > .export-compression,
+.export-modal .clean-field > .clean-check,
+.export-modal .clean-field > .export-preview {
+  flex: 1 1 100%;
+}
+
+.export-modal .clean-field > select,
+.export-modal .clean-field > input[type="text"] {
+  flex: 1 1 220px;
+}
+
+.export-compression {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.export-preview {
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+.export-modal .scope-field {
+  align-items: flex-start;
+}
