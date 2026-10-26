@@ -859,10 +859,11 @@ export class App {
         { label: "Convert types", action: () => this.convertTypesButton.click() },
         {
           label: this.stepsButton.textContent ?? "Recipe",
+          title: this.stepsButton.title,
           disabled: this.stepsButton.disabled,
           action: () => this.stepsButton.click(),
         },
-        { label: "Export…", disabled: this.exportButton.disabled, action: () => this.exportButton.click() },
+        { label: "Export…", title: this.exportButton.title, disabled: this.exportButton.disabled, action: () => this.exportButton.click() },
       ]),
     );
     const navRow = el("div", { class: "nav-row" }, [
@@ -4526,6 +4527,12 @@ export class App {
     this.countEl.title = `${count.toLocaleString()} matching rows out of ${total.toLocaleString()} (${columnCount} columns)`;
     this.copyButton.disabled = count === 0;
     this.exportButton.disabled = count === 0;
+    this.copyButton.title =
+      count === 0 ? "No rows match the current filters — nothing to copy" : "Copy filtered rows as CSV";
+    this.exportButton.title =
+      count === 0
+        ? "No rows match the current filters — nothing to export"
+        : "Choose a file name and format, then export";
     this.convertTypesButton.disabled = columnCount === 0;
   }
 

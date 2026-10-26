@@ -1290,7 +1290,7 @@ export class ViewsPanel {
     }
     const add = el(
       "button",
-      { class: "ghost small", type: "button", title: "Add an aggregate view at the end" },
+      { class: "primary small", type: "button", title: "Add an aggregate view at the end" },
       ["+ New view"],
     ) as HTMLButtonElement;
     add.addEventListener("click", () => this.addView());

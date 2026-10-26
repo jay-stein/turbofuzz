@@ -326,15 +326,14 @@ textarea:focus {
 
 .paste-view {
   position: fixed;
-  inset: 0;
+  inset: 48px 0 0 0;
   z-index: 45;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: 6vh 20px 20px;
   overflow: auto;
-  background: color-mix(in srgb, var(--bg) 72%, transparent);
-  backdrop-filter: blur(3px);
+  background: var(--bg);
 }
 
 .paste-head {
@@ -348,7 +347,7 @@ textarea:focus {
   width: min(760px, 100%);
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 26px 26px 20px;
   display: flex;
@@ -358,7 +357,7 @@ textarea:focus {
 
 .paste-card h1 {
   margin: 0;
-  font-size: 22px;
+  font-size: var(--fs-2xl);
   letter-spacing: -0.02em;
 }
 
@@ -869,7 +868,7 @@ textarea:focus {
   gap: 7px;
   flex: 1 0 100%;
   padding: 10px 14px;
-  font-size: 13.5px;
+  font-size: var(--fs-md);
   font-weight: 650;
   border-radius: 9px;
 }
@@ -2832,7 +2831,7 @@ mark {
 }
 
 .views-card-name {
-  font-size: 26px;
+  font-size: var(--fs-2xl);
   font-weight: 700;
   line-height: 1.1;
   color: var(--text);
@@ -2914,7 +2913,7 @@ mark {
 
 .views-card-name-input {
   font: inherit;
-  font-size: 26px;
+  font-size: var(--fs-2xl);
   font-weight: 700;
   width: min(32ch, 70vw);
   padding: 3px 6px;
@@ -3134,7 +3133,7 @@ mark {
   background: linear-gradient(180deg, var(--accent-soft), var(--panel-2));
   color: var(--accent);
   font: inherit;
-  font-size: 13.5px;
+  font-size: var(--fs-md);
   font-weight: 700;
   cursor: pointer;
   transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
@@ -8304,7 +8303,7 @@ label.null-row {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  font-size: 13.5px;
+  font-size: var(--fs-md);
 }
 
 .outliers-cta-text {
@@ -8913,4 +8912,42 @@ body:has(.modal-overlay) .hint-callout {
     max-width: none;
     bottom: var(--sp-4);
   }
+}
+
+
+/* ---------- polish: pivot titles, empty states ---------- */
+
+.views-card-toggle,
+.views-card-remove {
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+}
+
+.views-card-head {
+  align-items: center;
+}
+
+.views-card-name {
+  line-height: 1.2;
+}
+
+/* One empty-state layout: 16px title, 13px dim body, one action. */
+.charts-empty,
+.views-empty-start {
+  border-radius: var(--radius);
+  font-size: var(--fs-md);
+  color: var(--text-dim);
+  gap: var(--sp-2);
+}
+
+.charts-empty-title,
+.views-empty-start strong {
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  color: var(--text);
 }
