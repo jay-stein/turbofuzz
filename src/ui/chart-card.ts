@@ -1497,7 +1497,7 @@ export class ChartCard {
     ]);
     this.widthButton = el(
       "button",
-      { class: "ghost small chart-width-btn", type: "button" },
+      { class: "ghost small chart-width-btn", type: "button", "aria-label": "Chart width", title: "Make this chart wider" },
       [],
     ) as HTMLButtonElement;
     this.widthButton.append(widthIcon(), el("span", {}, ["Wide"]));
@@ -1508,6 +1508,7 @@ export class ChartCard {
         class: "ghost small chart-focus-btn",
         type: "button",
         title: "Expand this chart for a closer look (Esc to close)",
+        "aria-label": "Focus chart",
       },
       [],
     ) as HTMLButtonElement;

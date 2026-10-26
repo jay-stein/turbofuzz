@@ -19,6 +19,12 @@ const COMPACT = new Intl.NumberFormat(undefined, {
  * and date columns, top-value bars for categories, length stats for text,
  * followed by distinct/median/mean and empty-cell counts.
  */
+/** Keeps the start and the last 6 characters so long suffixes stay readable. */
+export function middleEllipsis(name: string, max = 22): string {
+  if (name.length <= max) return name;
+  return `${name.slice(0, max - 7)}…${name.slice(-6)}`;
+}
+
 export function buildColumnCard(
   meta: ColumnMeta,
   index: number,
@@ -37,7 +43,7 @@ export function buildColumnCard(
 
   const head = el("div", { class: "stat-card-head" });
   head.append(
-    el("span", { class: "stat-name", title: meta.name }, [meta.name]),
+    el("span", { class: "stat-name", title: meta.name }, [middleEllipsis(meta.name)]),
     el("span", { class: "stat-type" }, [TYPE_LABELS[meta.type]]),
   );
   card.append(head);

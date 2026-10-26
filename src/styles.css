@@ -8779,3 +8779,86 @@ summary:focus-visible,
     white-space: nowrap;
   }
 }
+
+/* ---------- polish: outliers loading, column tiles, matrix ---------- */
+
+.outliers-cta {
+  position: relative;
+  min-height: 44px;
+}
+
+.outliers-cta.scanning::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent) 0 0 / 40% 100% no-repeat;
+  animation: tf-indeterminate 1s linear infinite;
+}
+
+.outliers-cta.scanning .outliers-cta-text {
+  color: var(--text-dim);
+}
+
+@keyframes tf-indeterminate {
+  from { background-position: -40% 0; }
+  to { background-position: 140% 0; }
+}
+
+.overview-column-grid {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+.overview-column-grid .stat-card {
+  min-height: 160px;
+}
+
+.column-matrix-cell {
+  font-size: var(--fs-xs);
+}
+
+/* ---------- polish: chart card ---------- */
+
+.chart-card {
+  min-height: 320px;
+}
+
+.chart-card-head,
+.chart-card .chart-title {
+  scroll-margin-top: 96px;
+}
+
+.chart-summary,
+.chart-note {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Focus / Wide / Animate: 32px icon buttons, label lives in the tooltip. */
+.chart-focus-btn,
+.chart-width-btn {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  min-height: 0;
+  padding: 0;
+}
+
+.chart-focus-btn > span,
+.chart-width-btn > span {
+  display: none;
+}
+
+.chart-focus-btn svg,
+.chart-width-btn svg {
+  width: 16px;
+  height: 16px;
+}

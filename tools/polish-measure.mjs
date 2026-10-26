@@ -14,7 +14,8 @@ for (const [w, h, scheme] of views) {
   await page.goto("http://127.0.0.1:4173/");
   await page.addScriptTag({ path: "test/polish/turbofuzz-test-data.js" });
   await page.evaluate((d) => window.TF_TEST.load(d), ds);
-  await page.waitForTimeout(2500);
+  await page.waitForSelector(".nav-row", { state: "visible", timeout: 60000 });
+  await page.waitForTimeout(1200);
   const tabs = await page.$$eval(".view-tabs button", (b) => b.map((x) => x.innerText.trim()));
   const m = await page.evaluate(() => {
     const hh = (s) => { const e = document.querySelector(s); return e && Math.round(e.getBoundingClientRect().height); };

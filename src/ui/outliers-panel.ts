@@ -191,15 +191,16 @@ function networkEdgeColor(edge: ColumnNetworkEdge): string {
   if (edge.method === "pearson" || edge.method === "spearman") {
     return colorForCorrelation(edge.effect);
   }
-  if (edge.method === "tokenOverlap") return "rgba(13, 148, 136, 0.9)";
-  return "rgba(124, 58, 237, 0.9)";
+  // Magnitude only (no sign): one hue, stronger = more opaque.
+  const strength = Math.min(1, Math.abs(edge.effect));
+  return `color-mix(in srgb, var(--chart-1) ${Math.round(14 + strength * 76)}%, var(--panel))`;
 }
 
 function networkEdgeTextColor(edge: ColumnNetworkEdge): string {
   if (edge.method === "pearson" || edge.method === "spearman") {
     return textColorForCorrelation(edge.effect);
   }
-  return Math.abs(edge.effect) > 0.55 ? "#fff" : "var(--text)";
+  return Math.abs(edge.effect) > 0.55 ? "var(--on-accent)" : "var(--text)";
 }
 
 function networkRoleColor(role: ColumnNetworkNode["role"]): string {
@@ -1193,6 +1194,8 @@ export class OutliersPanel {
         ? "Checking this row with the other methods…"
         : "Read the confidence below, then keep, fix or remove this row. Every change is recorded and can be undone.";
     }
+    // Reserved height plus a thin progress bar so results never shift the page.
+    if (result === null && this.running !== null) cta.classList.add("scanning");
     cta.append(message, buttons);
     wrap.append(cta);
     return wrap;

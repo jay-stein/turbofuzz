@@ -16,7 +16,7 @@ import { isCategoryType, isNumericType } from "./chart-utils.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
 import { MissingnessChart } from "./missingness.js";
-import { buildColumnCard } from "./summary-band.js";
+import { buildColumnCard, middleEllipsis } from "./summary-band.js";
 
 export interface OverviewCallbacks {
   onOpenTable(): void;
@@ -549,7 +549,7 @@ export class Overview {
       if (name === undefined) return;
       const nameEl = card.querySelector<HTMLElement>(".stat-name");
       if (nameEl !== null) {
-        nameEl.textContent = name;
+        nameEl.textContent = middleEllipsis(name);
         nameEl.title = name;
       }
     });
