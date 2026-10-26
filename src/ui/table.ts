@@ -19,6 +19,20 @@ import type { ColumnFilter } from "../search/query-engine.js";
 import { formatDurationMs, toDateTimeInputValue } from "../parse/dates.js";
 
 const ROW_HEIGHT = 28;
+/** Short header glyphs for the column types (the full name is the select's title). */
+const TYPE_GLYPHS: Partial<Record<ColumnType, string>> = {
+  string: "Aa",
+  category: "Cat",
+  integer: "123",
+  number: "1.5",
+  date: "Date",
+  datetime: "D+T",
+  time: "Time",
+  duration: "Dur",
+  boolean: "T/F",
+  identifier: "ID",
+};
+
 const DEFAULT_COL_WIDTH = 180;
 const MIN_COL_WIDTH = 56;
 const MAX_COL_WIDTH = 720;
@@ -431,6 +445,16 @@ export class ResultTable {
         );
       }
       typeSelect.value = column.type;
+      // The select stays the real control; a short glyph shows in the header
+      // so the column name keeps the width.
+      const typeWrap = el("span", {
+        class: "th-type-wrap",
+        "data-glyph": TYPE_GLYPHS[column.type] ?? "",
+      });
+      typeWrap.append(typeSelect);
+      typeSelect.addEventListener("change", () => {
+        typeWrap.dataset.glyph = TYPE_GLYPHS[typeSelect.value as ColumnType] ?? "";
+      });
       typeSelect.addEventListener("change", () => {
         const previous = column.type;
         const applied = this.options.onTypeChange(
@@ -511,7 +535,7 @@ export class ResultTable {
         filterInput.addEventListener("blur", applyQuickFilter);
         filterInput.addEventListener("click", (event) => event.stopPropagation());
         quickFilter.append(filterMark, filterInput);
-      }      cell.append(qa, top, typeSelect, quickFilter);
+      }      cell.append(qa, top, typeWrap, quickFilter);
       cell.addEventListener("contextmenu", (event) => {
         event.preventDefault();
         this.options.onColumnContext(index, event.clientX, event.clientY);

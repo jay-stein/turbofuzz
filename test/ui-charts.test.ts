@@ -1225,7 +1225,7 @@ test("the red x removes a chart only after confirmation", async () => {
   panel.dispose();
 });
 
-test("the colour map defaults to Set1 and can be changed", async () => {
+test("the colour map defaults to tab10 and can be changed", async () => {
   const window = setupDom();
   captureMockContext(window, []);
   const host = document.createElement("div");
@@ -1234,10 +1234,10 @@ test("the colour map defaults to Set1 and can be changed", async () => {
     meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
   ]);
   await tick();
-  assert.equal(card.getConfig().palette, "Set1");
+  assert.equal(card.getConfig().palette, "tab10");
   const select = host.querySelector(".chart-palette-select") as HTMLSelectElement;
   assert.ok(select !== null, "the palette picker renders");
-  assert.equal(select.value, "Set1");
+  assert.equal(select.value, "tab10");
   select.value = "Set2";
   select.dispatchEvent(new window.Event("change") as unknown as Event);
   await tick();
@@ -1388,7 +1388,7 @@ test("single-series colour follows the palette until the user picks one", async 
   ]);
   await tick();
   const hex = host.querySelector(".chart-hex") as HTMLInputElement;
-  assert.equal(hex.value, "#e41a1c", "Set1's first colour shows straight away");
+  assert.equal(hex.value, "#1f77b4", "tab10's first colour shows straight away");
   const palette = host.querySelector(".chart-palette-select") as HTMLSelectElement;
   palette.value = "Set2";
   palette.dispatchEvent(new window.Event("change") as unknown as Event);

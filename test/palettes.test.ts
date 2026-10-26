@@ -12,13 +12,14 @@ import {
   samplePalette,
 } from "../src/data/palettes.js";
 
-test("Set1 is the default and keeps its exact ColorBrewer colours", () => {
-  assert.equal(DEFAULT_PALETTE, "Set1");
-  const colors = samplePalette("Set1", 4);
-  assert.deepEqual(colors, ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3"]);
-  const many = samplePalette("Set1", 12);
+test("tab10 is the default (blue first, red is never the lead colour)", () => {
+  assert.equal(DEFAULT_PALETTE, "tab10");
+  const colors = samplePalette("tab10", 4);
+  assert.deepEqual(colors, ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]);
+  const many = samplePalette("tab10", 12);
   assert.equal(many.length, 12);
-  assert.equal(many[9], "#e41a1c", "qualitative palettes cycle");
+  assert.equal(many[10], "#1f77b4", "qualitative palettes cycle");
+  assert.equal(samplePalette("Set1", 1)[0], "#e41a1c", "Set1 keeps its exact ColorBrewer colours");
 });
 
 test("sequential ramps interpolate between stops", () => {
@@ -51,7 +52,7 @@ test("custom colour maps parse hex lists and reject junk", () => {
   assert.equal(sampled[4], "#f97316");
   // Fewer than two custom stops falls back to the default palette.
   const fallback = samplePalette(CUSTOM_PALETTE, 2, ["#123456"]);
-  assert.deepEqual(fallback, ["#e41a1c", "#377eb8"]);
+  assert.deepEqual(fallback, ["#1f77b4", "#ff7f0e"]);
   assert.equal(parseCustomColors("").length, 0);
 });
 

@@ -592,7 +592,7 @@ export class Overview {
     const stats = el(
       "button",
       {
-        class: "primary small stats-report-button",
+        class: "ghost small stats-report-button",
         type: "button",
         title: "Open the per-column stats report",
       },

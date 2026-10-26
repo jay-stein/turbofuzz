@@ -72,7 +72,7 @@ export const PALETTES: readonly PaletteDef[] = [
   { name: "icefire", kind: "diverging", colors: ["#3f5a91", "#6d87b9", "#a3b3d5", "#d5dbe8", "#efe7da", "#f4cba4", "#f2a06a", "#e06a45", "#c03a2b"] },
 ];
 
-export const DEFAULT_PALETTE = "Set1";
+export const DEFAULT_PALETTE = "tab10";
 export const CUSTOM_PALETTE = "custom";
 
 const HEX = /^#?([0-9a-f]{6})$/i;

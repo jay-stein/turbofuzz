@@ -153,6 +153,9 @@ export class ViewTabs {
       button.classList.toggle("active", selected);
       button.setAttribute("aria-selected", selected ? "true" : "false");
       button.tabIndex = selected ? 0 : -1;
+      if (selected && typeof button.scrollIntoView === "function") {
+        button.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
     }
   }
 }

@@ -607,12 +607,26 @@ export class App {
       [el("span", { class: "palette-button-label" }, ["Enter a command"]), el("span", { class: "kbd" }, ["Ctrl/⌘ K"])],
     ) as HTMLButtonElement;
     paletteButton.addEventListener("click", () => this.openPalette());
-    topbar.append(this.scoreTile, paletteButton, this.themeButton, helpButton);
+    helpButton.classList.add("topbar-wide");
+    this.themeButton.classList.add("topbar-wide");
+    topbar.append(paletteButton, el("span", { class: "grow" }), this.scoreTile, this.themeButton, helpButton);
 
-    this.newButton = el("button", { class: "ghost", type: "button" }, ["New data"]);
+    this.newButton = el("button", { class: "ghost small topbar-wide", type: "button" }, ["New data"]);
     this.newButton.title = "Load a CSV, Excel, JSON or Parquet file";
     this.newButton.addEventListener("click", () => this.onNewDataClick());
-    topbar.append(this.newButton);
+    const overflowButton = el(
+      "button",
+      { class: "ghost small topbar-overflow", type: "button", title: "Theme, help and data", "aria-label": "More" },
+      ["⋯"],
+    ) as HTMLButtonElement;
+    overflowButton.addEventListener("click", () =>
+      openMenu(overflowButton, [
+        { label: this.themeButton.textContent ?? "Theme", action: () => this.themeButton.click() },
+        { label: "Help", action: () => helpButton.click() },
+        { label: this.newButton.textContent ?? "New data", action: () => this.newButton.click() },
+      ]),
+    );
+    topbar.append(this.newButton, overflowButton);
 
     this.pasteView = this.buildPasteView();
     this.workspace = this.buildWorkspace();
@@ -805,7 +819,7 @@ export class App {
 
     this.stepsButton = el(
       "button",
-      { class: "ghost small", type: "button", title: "Review, undo or export the applied changes" },
+      { class: "ghost small nav-action", type: "button", title: "Review, undo or export the applied changes" },
       ["Recipe"],
     ) as HTMLButtonElement;
     this.stepsButton.addEventListener("click", () => this.openSteps());
@@ -813,7 +827,7 @@ export class App {
     this.exportButton = el(
       "button",
       {
-        class: "primary small",
+        class: "ghost small nav-action",
         type: "button",
         title: "Choose a file name and format, then export",
       },
@@ -826,7 +840,7 @@ export class App {
     this.convertTypesButton = el(
       "button",
       {
-        class: "ghost small convert-types-button",
+        class: "ghost small nav-action convert-types-button",
         type: "button",
         title: "Change how columns are read: integer, number, date, text, identifier…",
         "aria-label": "Convert column types",
@@ -835,12 +849,31 @@ export class App {
     ) as HTMLButtonElement;
     this.convertTypesButton.addEventListener("click", () => this.openBatchTypes());
 
+    const actionsMenu = el(
+      "button",
+      { class: "ghost small nav-actions-menu", type: "button", title: "Convert types, recipe and export" },
+      ["Actions ▾"],
+    ) as HTMLButtonElement;
+    actionsMenu.addEventListener("click", () =>
+      openMenu(actionsMenu, [
+        { label: "Convert types", action: () => this.convertTypesButton.click() },
+        {
+          label: this.stepsButton.textContent ?? "Recipe",
+          disabled: this.stepsButton.disabled,
+          action: () => this.stepsButton.click(),
+        },
+        { label: "Export…", disabled: this.exportButton.disabled, action: () => this.exportButton.click() },
+      ]),
+    );
     const navRow = el("div", { class: "nav-row" }, [
       tabHost,
       el("span", { class: "grow" }),
-      this.convertTypesButton,
-      this.stepsButton,
-      this.exportButton,
+      el("div", { class: "nav-actions" }, [
+        this.convertTypesButton,
+        this.stepsButton,
+        this.exportButton,
+        actionsMenu,
+      ]),
     ]);
 
     const sidebar = el("aside", { class: "sidebar hidden" });
@@ -1960,6 +1993,7 @@ export class App {
     const delimiter = delimiterLabel(loaded.delimiter);
     const delimiterText = delimiter === null ? "" : ` · ${delimiter}-separated`;
     const sizeText = this.sourceBytes === null ? "" : ` · ${formatBytes(this.sourceBytes)}`;
+    this.actionEl.textContent = "";
     this.metaEl.textContent =
       `${loaded.name} · ${loaded.rowCount.toLocaleString()} × ${loaded.columnCount.toLocaleString()}`;
     this.metaEl.title =
@@ -2003,7 +2037,9 @@ export class App {
     if (loaded.type === "loaded") {
       this.view = readDefaultView();
       const sidebarPreference = this.readSidebarCollapsed();
-      this.setSidebarCollapsed(sidebarPreference ?? loaded.columnCount > 8);
+      this.setSidebarCollapsed(
+        sidebarPreference ?? (loaded.columnCount > 8 || window.innerWidth < 1100),
+      );
     }
     this.setView(this.view);
   }
@@ -4054,7 +4090,14 @@ export class App {
       return;
     }
     let count = 0;
-    const addChip = (kind: SpecialKind, label: string, title: string): void => {
+    // One split chip per issue: label = issue and count (click = view), the
+    // small "Fix ▾" segment opens the fix. Keeps the strip to a single row.
+    const addChip = (
+      kind: SpecialKind,
+      label: string,
+      title: string,
+      fix?: HTMLButtonElement,
+    ): void => {
       const chip = el(
         "button",
         {
@@ -4067,7 +4110,15 @@ export class App {
       ) as HTMLButtonElement;
       chip.dataset.kind = kind;
       chip.addEventListener("click", () => this.viewSpecial(kind));
-      this.healthHost.append(chip);
+      if (fix === undefined) {
+        this.healthHost.append(chip);
+      } else {
+        fix.classList.add("health-fix");
+        const fixLabel = fix.textContent ?? "Fix";
+        fix.setAttribute("aria-label", fixLabel);
+        fix.textContent = "Fix ▾";
+        this.healthHost.append(el("span", { class: "split-chip" }, [chip, fix]));
+      }
       count++;
     };
     const tokenTotals = new Map<string, number>();
@@ -4083,11 +4134,6 @@ export class App {
       0,
     );
     if (stats.duplicateRows > 0) {
-      addChip(
-        "duplicates",
-        `View duplicates · ${stats.duplicateRows.toLocaleString()}`,
-        "Show rows that belong to a duplicate group",
-      );
       const remove = el(
         "button",
         {
@@ -4100,7 +4146,12 @@ export class App {
       remove.addEventListener("click", () =>
         openDedupeMenu(remove, stats, (keep) => this.dropDuplicates(keep)),
       );
-      this.healthHost.append(remove);
+      addChip(
+        "duplicates",
+        `View duplicates · ${stats.duplicateRows.toLocaleString()}`,
+        "Show rows that belong to a duplicate group",
+        remove,
+      );
     }
     const columnsWithNulls = this.metas
       .map((meta, index) => ({ meta, index, count: meta.stats.nulls }))
@@ -4112,13 +4163,6 @@ export class App {
           : `View empty cells · ${columnsWithNulls.length.toLocaleString()} ${
               columnsWithNulls.length === 1 ? "col" : "cols"
             }`;
-      addChip(
-        "nulls",
-        label,
-        placeholderTotal > 0
-          ? "Show rows with missing cells, including placeholder text like “NA”"
-          : "Show rows with at least one empty cell",
-      );
       const fix = el(
         "button",
         {
@@ -4132,14 +4176,16 @@ export class App {
       fix.addEventListener("click", () =>
         openMenu(fix, this.fillMenuItems(columnsWithNulls.map((entry) => entry.index))),
       );
-      this.healthHost.append(fix);
+      addChip(
+        "nulls",
+        label,
+        placeholderTotal > 0
+          ? "Show rows with missing cells, including placeholder text like “NA”"
+          : "Show rows with at least one empty cell",
+        fix,
+      );
     }
     if (stats.valueAnomalyRows > 0) {
-      addChip(
-        "valueAnomalies",
-        `View outliers · ${stats.valueAnomalyRows.toLocaleString()}`,
-        "Show rows with a value outside the column fence",
-      );
       const outlierColumns = this.metas
         .map((meta, index) => ({
           meta,
@@ -4165,7 +4211,18 @@ export class App {
             this.outlierMenuItems(outlierColumns.map((entry) => entry.index)),
           ),
         );
-        this.healthHost.append(fix);
+        addChip(
+          "valueAnomalies",
+          `View outliers · ${stats.valueAnomalyRows.toLocaleString()}`,
+          "Show rows with a value outside the column fence",
+          fix,
+        );
+      } else {
+        addChip(
+          "valueAnomalies",
+          `View outliers · ${stats.valueAnomalyRows.toLocaleString()}`,
+          "Show rows with a value outside the column fence",
+        );
       }
     }
     // Dataset-level placeholder action, always visible even when the affected

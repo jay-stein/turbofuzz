@@ -47,6 +47,7 @@ function isVisible(target: HTMLElement): boolean {
 export class Hints {
   private current: HTMLElement | null = null;
   private currentId: string | null = null;
+  private timer: number | null = null;
   private readonly seen: Set<string>;
 
   constructor(private readonly specs: readonly HintSpec[]) {
@@ -55,6 +56,8 @@ export class Hints {
   }
 
   dispose(): void {
+    if (this.timer !== null) window.clearTimeout(this.timer);
+    this.timer = null;
     document.removeEventListener("keydown", this.onKey);
     this.current?.remove();
     this.current = null;
@@ -86,9 +89,16 @@ export class Hints {
     document.body.append(callout);
     this.current = callout;
     this.currentId = spec.id;
+    // Auto-dismiss after 6s so a hint never lingers over the data.
+    const id = spec.id;
+    this.timer = window.setTimeout(() => {
+      if (this.currentId === id) this.dismiss();
+    }, 6000);
   }
 
   private dismiss(): void {
+    if (this.timer !== null) window.clearTimeout(this.timer);
+    this.timer = null;
     if (this.currentId !== null) {
       this.seen.add(this.currentId);
       markHintSeen(this.currentId);
