@@ -303,12 +303,14 @@ select,
 input[type="text"],
 input[type="number"],
 input[type="date"],
+input[type="search"],
 textarea {
   font: inherit;
+  font-size: var(--fs-md);
   color: var(--text);
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 6px 9px;
   outline: none;
 }
@@ -8861,4 +8863,54 @@ summary:focus-visible,
 .chart-width-btn svg {
   width: 16px;
   height: 16px;
+}
+
+
+/* ---------- polish: dialogs, drawers, toasts ---------- */
+
+.clean-footer {
+  flex-wrap: wrap;
+  padding-top: var(--sp-3);
+}
+
+.clean-footer button,
+.clean-footer select {
+  white-space: nowrap;
+  min-height: var(--control-h);
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: var(--fs-md);
+  border-radius: var(--radius-sm);
+}
+
+.clean-footer button:not(.ghost) {
+  padding-left: var(--sp-4);
+  padding-right: var(--sp-4);
+}
+
+.clean-footer .ghost {
+  padding-left: var(--sp-3);
+  padding-right: var(--sp-3);
+}
+
+.th-filter-popover input,
+.th-filter-popover select,
+.th-filter-popover button {
+  font-size: var(--fs-md);
+}
+
+/* Toasts and tips never sit on top of an open dialog or drawer. */
+body:has(.modal-overlay) .toast,
+body:has(.modal-overlay) .hint-callout {
+  display: none;
+}
+
+@media (max-width: 560px) {
+  .toast {
+    left: var(--sp-4);
+    right: var(--sp-4);
+    transform: none;
+    max-width: none;
+    bottom: var(--sp-4);
+  }
 }
