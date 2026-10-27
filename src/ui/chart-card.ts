@@ -857,19 +857,27 @@ function movieIcon(): SVGElement {
   );
 }
 
-/** Expand-arrows glyph for the full-row width toggle. */
+/** Arrows pushing out to two side walls: the card fills the whole row. */
 function widthIcon(): SVGElement {
   return svgIcon(
-    '<path d="M4 9V4h5"/><path d="M20 15v5h-5"/><path d="M15 4h5v5"/><path d="M9 20H4v-5"/>',
+    '<path d="M3.5 5v14"/><path d="M20.5 5v14"/><path d="M8 12h8"/><path d="m10.5 9.5-2.5 2.5 2.5 2.5"/><path d="m13.5 9.5 2.5 2.5-2.5 2.5"/>',
     "chart-width-icon",
   );
 }
 
-/** Frame glyph for the expand/focus mode toggle. */
+/** A window with an arrow leaving its corner: pop this chart out to look closer. */
 function focusIcon(): SVGElement {
   return svgIcon(
-    '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
+    '<path d="M10 5H7a3 3 0 0 0-3 3v9a3 3 0 0 0 3 3h9a3 3 0 0 0 3-3v-3"/><path d="M14 4h6v6"/><path d="m20 4-8 8"/>',
     "chart-focus-icon",
+  );
+}
+
+/** A picture with a download arrow: save the chart as an image. */
+function pngIcon(): SVGElement {
+  return svgIcon(
+    '<rect x="3" y="3" width="18" height="12" rx="2.5"/><circle cx="8.5" cy="7.5" r="1.3"/><path d="m3.5 13 4.5-4 4 3.5 2.5-2 6 4.5"/><path d="M12 17.5v4.5"/><path d="m9.7 20 2.3 2.3 2.3-2.3"/>',
+    "chart-png-icon",
   );
 }
 
@@ -951,6 +959,7 @@ export class ChartCard {
   private readonly animateButton: HTMLButtonElement;
   private readonly widthButton: HTMLButtonElement;
   private readonly focusButton: HTMLButtonElement;
+  private readonly pngButton: HTMLButtonElement;
   private focusOverlay: HTMLElement | null = null;
   private readonly focusPlaceholder = document.createComment("chart-focus");
   private readonly animationSetup: HTMLElement;
@@ -1540,6 +1549,18 @@ export class ChartCard {
     ) as HTMLButtonElement;
     this.focusButton.append(focusIcon(), el("span", {}, ["Focus"]));
     this.focusButton.addEventListener("click", () => this.toggleFocus());
+    this.pngButton = el(
+      "button",
+      {
+        class: "ghost small chart-png-btn",
+        type: "button",
+        title: "Download this chart as a PNG",
+        "aria-label": "Download PNG",
+      },
+      [],
+    ) as HTMLButtonElement;
+    this.pngButton.append(pngIcon(), el("span", {}, ["PNG"]));
+    this.pngButton.addEventListener("click", () => this.options.onExport(this));
     this.animateButton = el(
       "button",
       {
@@ -1598,8 +1619,8 @@ export class ChartCard {
         ),
         this.sourceWrap,
       ),
-      sideSection(this.axesPanel, this.valueGrainWrap, this.sortWrap),
-      sideSection(this.valueWrap, this.valueAggWrap, this.groupWrap, this.valueCalcWrap),
+      sideSection(this.axesPanel, this.sortWrap),
+      sideSection(this.valueWrap, this.groupWrap, this.valueCalcWrap),
       sideSection(this.pivotRowWrap, this.pivotColWrap, this.pivotMeasureWrap),
     ]);
     this.sidebarToggle = el(
@@ -1625,6 +1646,7 @@ export class ChartCard {
       el("span", { class: "grow" }),
       this.focusButton,
       this.widthButton,
+      this.pngButton,
       this.animateButton,
       more,
     );
@@ -2498,7 +2520,14 @@ export class ChartCard {
     );
 
     this.root.append(head);
+    // How the numbers are rolled up (Sum, Max, ...) and over which period stay on
+    // the card, not in the Customize drawer; each wrap hides itself when unused.
+    const quickRow = el("div", { class: "chart-quick", role: "group", "aria-label": "Aggregation" }, [
+      this.valueAggWrap,
+      this.valueGrainWrap,
+    ]);
     const main = el("div", { class: "chart-card-main" }, [
+      quickRow,
       this.summaryEl,
       this.lintEl,
       this.dataIssueEl,

@@ -2476,6 +2476,10 @@ test("a line card plots its own measure over time without a view", async () => {
   assert.equal(tagWrap("Value")?.classList.contains("hidden"), false);
   assert.equal(tagWrap("Aggregate")?.classList.contains("hidden"), false);
   assert.equal(tagWrap("Time resolution")?.classList.contains("hidden"), false);
+  for (const label of ["Aggregate", "Time resolution"]) {
+    assert.ok(tagWrap(label)?.closest(".chart-quick"), `${label} stays on the card`);
+    assert.equal(tagWrap(label)?.closest(".chart-sidebar"), null, `${label} is not buried in Customize`);
+  }
   card.dispose();
 });
 

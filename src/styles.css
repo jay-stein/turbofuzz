@@ -5820,6 +5820,22 @@ select.chart-number {
   color: var(--text);
 }
 
+.chart-quick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 4px 0;
+}
+
+.chart-quick:not(:has(.chart-tag:not(.hidden))) {
+  display: none;
+}
+
+.chart-quick .chart-tag {
+  flex: 0 1 auto;
+}
+
 .chart-tag {
   display: inline-flex;
   align-items: center;
@@ -8782,6 +8798,7 @@ body:has(.modal-overlay) .hint-callout {
    class, so these selectors carry `.chart-card button` to win. */
 .chart-card button.chart-focus-btn,
 .chart-card button.chart-width-btn,
+.chart-card button.chart-png-btn,
 .chart-card button.chart-animate-btn,
 .chart-card button.chart-more,
 .chart-card button.chart-remove {
@@ -8808,6 +8825,7 @@ body:has(.modal-overlay) .hint-callout {
 
 .chart-card button.chart-focus-btn:hover,
 .chart-card button.chart-width-btn:hover,
+.chart-card button.chart-png-btn:hover,
 .chart-card button.chart-animate-btn:hover,
 .chart-card button.chart-more:hover {
   background: var(--panel-2);
@@ -8820,6 +8838,7 @@ body:has(.modal-overlay) .hint-callout {
 }
 
 .chart-card button.chart-width-btn.active,
+.chart-card button.chart-png-btn.active,
 .chart-card button.chart-animate-btn.active {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -8828,6 +8847,7 @@ body:has(.modal-overlay) .hint-callout {
 
 .chart-card button.chart-focus-btn:focus-visible,
 .chart-card button.chart-width-btn:focus-visible,
+.chart-card button.chart-png-btn:focus-visible,
 .chart-card button.chart-animate-btn:focus-visible,
 .chart-card button.chart-more:focus-visible,
 .chart-card button.chart-remove:focus-visible {
@@ -8842,12 +8862,14 @@ body:has(.modal-overlay) .hint-callout {
 
 .chart-card button.chart-focus-btn > span,
 .chart-card button.chart-width-btn > span,
+.chart-card button.chart-png-btn > span,
 .chart-card button.chart-animate-btn > span {
   display: none;
 }
 
 .chart-card button.chart-focus-btn svg,
 .chart-card button.chart-width-btn svg,
+.chart-card button.chart-png-btn svg,
 .chart-card button.chart-animate-btn svg {
   width: 16px;
   height: 16px;
@@ -8973,6 +8995,7 @@ body:has(.modal-overlay) .hint-callout {
 @media (max-width: 720px) {
   .chart-card button.chart-focus-btn,
   .chart-card button.chart-width-btn,
+  .chart-card button.chart-png-btn,
   .chart-card button.chart-animate-btn,
   .chart-card button.chart-more,
   .chart-card button.chart-remove {
