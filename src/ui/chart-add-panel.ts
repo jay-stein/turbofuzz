@@ -334,7 +334,7 @@ export class ChartAddPanel {
     for (const option of options) {
       const kind = kindForRecommended(option.chart);
       if (kind === null || option.isNew) continue;
-      const config = configForChart(kind, this.shelf(), this.columns, this.rowCount);
+      const config = configForChart(kind, this.shelf(), this.columns, this.rowCount, { strict: true });
       if (config === null) continue;
       tiles.append(
         this.tile(kind, CHART_KIND_LABELS[kind], option.why, best, config, () =>

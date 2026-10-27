@@ -26,7 +26,12 @@ export type ChartCardKind =
   | "bubble"
   | "kpi"
   | "map"
-  | "pivotHeatmap";
+  | "pivotHeatmap"
+  | "dotplot"
+  | "stacked100"
+  | "smallmultiples"
+  | "slopegraph"
+  | "waterfall";
 
 export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   histogram: "Histogram",
@@ -44,7 +49,39 @@ export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   kpi: "KPI",
   map: "Map",
   pivotHeatmap: "Pivot heatmap",
+  dotplot: "Dot plot",
+  stacked100: "100% stacked bar",
+  smallmultiples: "Small multiples",
+  slopegraph: "Slopegraph",
+  waterfall: "Waterfall",
 };
+
+/** Kinds that plot their own measure aggregate over a column (needs a value column). */
+export const VALUE_AGGREGATE_KINDS: readonly ChartCardKind[] = [
+  "line",
+  "bar",
+  "barplot",
+  "kpi",
+  "histogram",
+  "dotplot",
+  "stacked100",
+  "smallmultiples",
+  "slopegraph",
+  "waterfall",
+];
+
+/** Kinds whose aggregate can carry a second (group) dimension. */
+export const SPLIT_KINDS: readonly ChartCardKind[] = [
+  "line",
+  "bar",
+  "barplot",
+  "stacked100",
+  "smallmultiples",
+  "slopegraph",
+];
+
+/** Kinds that need a Group by to say anything. */
+export const GROUP_REQUIRED_KINDS: readonly ChartCardKind[] = ["stacked100", "smallmultiples", "slopegraph"];
 
 export const PAIR_KINDS: readonly ChartCardKind[] = [
   "scatter",

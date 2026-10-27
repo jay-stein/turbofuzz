@@ -54,8 +54,8 @@ export interface RecProfile {
   canCategory?: boolean;
 }
 
-/** Chart ids the app already has, plus proposed additions that the UI hides until built. */
-export const NEW_TYPES: ReadonlySet<string> = new Set(["dotplot", "stacked100", "slopegraph", "smallmultiples"]);
+/** Recommender ids the app cannot draw yet; the UI hides them until built. */
+export const NEW_TYPES: ReadonlySet<string> = new Set<string>();
 
 const RX = {
   lat: /^(lat|latitude)$|_lat$|latitude/i,
@@ -232,6 +232,9 @@ export function recommend(
       add("boxplot", "alt", `Shows the spread of ${m1.name} inside each ${c1.name}, not just one number.`);
     }
     if (many(c1) && agg(m1) === "sum") add("treemap", "alt", "Area shows each category's share of the total.", { agg: "sum" });
+    if (!many(c1) && agg(m1) === "sum" && c1.distinct >= 3) {
+      add("waterfall", "alt", `Shows how each ${c1.name} adds to the running total.`, { agg: "sum" });
+    }
   } else if (T.length > 0 && C.length === 0 && M.length <= 1) {
     const span = spanOf(t.col);
     const res = t.unit ?? ctx.resolution ?? (span !== null ? autoResolution(span) : "day");
@@ -253,7 +256,10 @@ export function recommend(
     const res = t.unit ?? (span !== null ? autoResolution(span) : "day");
     const cfg = { resolution: res, agg: m1 ? agg(m1) : "count", measure: m1?.name ?? null, groupBy: c1.name };
     const k = c1.distinct;
-    if (k <= 5) add("timeseries", "primary", `One line per ${c1.name} so trends can be compared directly.`, cfg);
+    if (k <= 5) {
+      add("timeseries", "primary", `One line per ${c1.name} so trends can be compared directly.`, cfg);
+      if (k >= 2) add("slopegraph", "alt", `Just the first and last ${res}: who rose, who fell, and by how much.`, cfg);
+    }
     else if (k <= 12) {
       add("smallmultiples", "primary", `${k} lines on one chart tangle; give each ${c1.name} its own small panel.`, cfg);
       add("timeseries", "alt", "All lines together. Highlight one and grey the rest.", { ...cfg, highlight: true });

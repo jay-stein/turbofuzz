@@ -134,6 +134,11 @@ const RECOMMENDED_KIND: Record<string, ChartCardKind> = {
   correlation: "correlation",
   kpi: "kpi",
   map: "map",
+  dotplot: "dotplot",
+  stacked100: "stacked100",
+  smallmultiples: "smallmultiples",
+  slopegraph: "slopegraph",
+  waterfall: "waterfall",
 };
 
 export function kindForRecommended(chart: string): ChartCardKind | null {
@@ -150,6 +155,7 @@ export function configForChart(
   picks: readonly BuilderPick[],
   columns: readonly ColumnMeta[],
   rowCount: number,
+  options: { strict?: boolean } = {},
 ): Partial<ChartCardConfig> | null {
   const fit = fitChartKind(kind, columns, rowCount);
   if (!fit.ok) return null;
@@ -208,11 +214,43 @@ export function configForChart(
     case "kpi":
       if (m0) Object.assign(set, { column: m0.pick.index, valueColumn: m0.pick.index, valueAgg: agg(m0) });
       break;
+    case "dotplot":
+    case "waterfall": {
+      const steps = kind === "waterfall" ? (c0 ?? t0) : c0;
+      if (steps) set.column = steps.pick.index;
+      if (m0 && m0 !== steps) Object.assign(set, { valueColumn: m0.pick.index, valueAgg: agg(m0) });
+      break;
+    }
+    case "stacked100":
+      if (c0) set.column = c0.pick.index;
+      if (c1) set.groupColumn = c1.pick.index;
+      if (m0 && m0 !== c0 && m0 !== c1) Object.assign(set, { valueColumn: m0.pick.index, valueAgg: agg(m0) });
+      break;
+    case "smallmultiples":
+      if (t0) set.column = t0.pick.index;
+      if (cats[0] ?? c0) set.groupColumn = (cats[0] ?? c0).pick.index;
+      if (m0) Object.assign(set, { valueColumn: m0.pick.index, valueAgg: agg(m0) });
+      break;
+    case "slopegraph": {
+      // The point column is a date when there is one; otherwise the first category.
+      const point = t0 ?? c0;
+      const lines = catsAll.find((e) => e !== point);
+      if (point) set.column = point.pick.index;
+      if (lines) set.groupColumn = lines.pick.index;
+      if (m0 && m0 !== point && m0 !== lines) Object.assign(set, { valueColumn: m0.pick.index, valueAgg: agg(m0) });
+      break;
+    }
     case "terms":
       if (texts[0]) set.column = texts[0].pick.index;
       break;
     default:
       break;
+  }
+  // A recommended tile must come from the shelf alone; a type chosen by hand may
+  // fall back to the gallery's default columns for any slot the shelf leaves empty.
+  if (options.strict === true && (kind === "stacked100" || kind === "dotplot" || kind === "waterfall" || kind === "smallmultiples" || kind === "slopegraph")) {
+    if (set.valueColumn === undefined || set.column === undefined) return null;
+    if ((kind === "stacked100" || kind === "smallmultiples" || kind === "slopegraph") && set.groupColumn === undefined) return null;
   }
   return { ...fit.preset, ...set, kind };
 }

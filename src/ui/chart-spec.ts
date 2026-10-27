@@ -300,7 +300,23 @@ function validateCompiledSpec(
   };
   switch (spec.kind) {
     case "barplot":
+    case "dotplot":
       category(spec.fields.column, "Category");
+      numeric(spec.fields.value, "Measure");
+      break;
+    case "waterfall":
+      if (spec.fields.column === null) issues.push("A waterfall needs a column for its steps.");
+      numeric(spec.fields.value, "Measure");
+      break;
+    case "stacked100":
+      category(spec.fields.column, "Rows");
+      category(spec.fields.group, "Segments");
+      numeric(spec.fields.value, "Measure");
+      break;
+    case "smallmultiples":
+    case "slopegraph":
+      if (spec.fields.column === null) issues.push("This chart needs a primary column.");
+      category(spec.fields.group, spec.kind === "slopegraph" ? "Lines" : "Panels");
       numeric(spec.fields.value, "Measure");
       break;
     case "bar":
@@ -584,7 +600,7 @@ export function chartSpecToPandas(spec: ChartSpec): GeneratedChartCode {
     code: `${lines.join("\n")}${code.trim()}\n`,
     warnings,
   });
-  if (spec.kind === "barplot" && category !== null) {
+  if ((spec.kind === "barplot" || spec.kind === "dotplot") && category !== null) {
     const aggregate = pandasAgg(spec);
     lines.push(
       "result = (",
@@ -709,7 +725,7 @@ export function chartSpecToPolars(spec: ChartSpec): GeneratedChartCode {
     code: `${lines.join("\n")}${body.trim()}\n`,
     warnings,
   });
-  if (spec.kind === "barplot" && category !== null) {
+  if ((spec.kind === "barplot" || spec.kind === "dotplot") && category !== null) {
     lines.push(
       "result = (",
       `    df.group_by(${quote(category)})`,

@@ -47,6 +47,23 @@ export const CHARTS: Record<Exclude<ChartCardKind, "pivotHeatmap">, { label: str
   correlation: { label: "Correlation", slots: [slot("Columns", ["measure"])] },
   map: { label: "Map", slots: [slot("Longitude", ["measure"]), slot("Latitude", ["measure"])] },
   terms: { label: "Top terms", slots: [slot("Text", ["text"])] },
+  dotplot: { label: "Dot plot", slots: [slot("Category", ["cat"]), slot("Measure", ["measure"])] },
+  stacked100: {
+    label: "100% stacked bar",
+    slots: [slot("Rows", ["cat"]), slot("Segments", ["cat"]), slot("Measure", ["measure"])],
+  },
+  smallmultiples: {
+    label: "Small multiples",
+    slots: [slot("Date", ["time"]), slot("Panels", ["cat"]), slot("Value", ["measure"])],
+  },
+  slopegraph: {
+    label: "Slopegraph",
+    slots: [slot("Before and after", ["time", "cat"]), slot("Lines", ["cat"]), slot("Measure", ["measure"])],
+  },
+  waterfall: {
+    label: "Waterfall",
+    slots: [slot("Steps", ["cat", "time"]), slot("Measure", ["measure"])],
+  },
 };
 
 type RegistryKind = keyof typeof CHARTS;

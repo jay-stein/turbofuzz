@@ -221,6 +221,117 @@ export function fitChartKind(
         preset: {},
       };
     }
+    case "dotplot":
+      if (categories.length >= 1 && numeric.length >= 1) {
+        return {
+          kind,
+          ok: true,
+          reason: "",
+          preset: {
+            kind,
+            column: categories[0].index,
+            valueColumn: numeric[0].index,
+            valueAgg: "mean",
+          },
+        };
+      }
+      return {
+        kind,
+        ok: false,
+        reason: categories.length === 0 ? "needs a grouping column (few distinct values)" : "needs a numeric measure",
+        preset: {},
+      };
+    case "stacked100":
+      if (categories.length >= 2 && numeric.length >= 1) {
+        return {
+          kind,
+          ok: true,
+          reason: "",
+          preset: {
+            kind,
+            column: categories[0].index,
+            groupColumn: categories[1].index,
+            valueColumn: numeric[0].index,
+            valueAgg: "sum",
+          },
+        };
+      }
+      return {
+        kind,
+        ok: false,
+        reason: categories.length < 2 ? "needs two grouping columns (few distinct values)" : "needs a numeric measure",
+        preset: {},
+      };
+    case "smallmultiples":
+      if (dates.length >= 1 && categories.length >= 1 && numeric.length >= 1) {
+        return {
+          kind,
+          ok: true,
+          reason: "",
+          preset: {
+            kind,
+            column: dates[0].index,
+            groupColumn: categories[0].index,
+            valueColumn: numeric[0].index,
+            valueAgg: "mean",
+          },
+        };
+      }
+      return {
+        kind,
+        ok: false,
+        reason:
+          dates.length === 0
+            ? "needs a date or datetime column"
+            : categories.length === 0
+              ? "needs a grouping column (few distinct values)"
+              : "needs a numeric measure",
+        preset: {},
+      };
+    case "slopegraph": {
+      // Two moments to compare: a date (first vs last period) or a category.
+      const lines = categories.filter((entry) => entry.index !== categories[0]?.index);
+      const point = dates[0] ?? categories.find((entry) => entry.meta.stats.distinct === 2) ?? categories[0];
+      const group = categories.find((entry) => entry.index !== point?.index) ?? lines[0];
+      if (point !== undefined && group !== undefined && numeric.length >= 1) {
+        return {
+          kind,
+          ok: true,
+          reason: "",
+          preset: {
+            kind,
+            column: point.index,
+            groupColumn: group.index,
+            valueColumn: numeric[0].index,
+            valueAgg: "mean",
+          },
+        };
+      }
+      return {
+        kind,
+        ok: false,
+        reason:
+          numeric.length === 0 ? "needs a numeric measure" : "needs a date or category, plus a grouping column",
+        preset: {},
+      };
+    }
+    case "waterfall": {
+      const steps = categories[0] ?? dates[0];
+      if (steps !== undefined && numeric.length >= 1) {
+        return {
+          kind,
+          ok: true,
+          reason: "",
+          preset: { kind, column: steps.index, valueColumn: numeric[0].index, valueAgg: "sum" },
+        };
+      }
+      return {
+        kind,
+        ok: false,
+        reason: numeric.length === 0 ? "needs a numeric measure" : "needs a grouping or date column",
+        preset: {},
+      };
+    }
     case "pivotHeatmap":
       return {
         kind,
@@ -246,8 +357,9 @@ export const QUESTION_GROUPS: readonly { question: string; kinds: readonly Chart
   { question: "What is the headline number?", kinds: ["kpi"] },
   { question: "Where is it?", kinds: ["map"] },
   { question: "How is it distributed?", kinds: ["histogram", "box", "density"] },
-  { question: "How does it change over time?", kinds: ["line"] },
-  { question: "How do groups compare?", kinds: ["bar", "barplot", "treemap", "heatmap"] },
+  { question: "How does it change over time?", kinds: ["line", "smallmultiples", "slopegraph"] },
+  { question: "How do groups compare?", kinds: ["bar", "barplot", "dotplot", "treemap", "heatmap"] },
+  { question: "What makes up the whole?", kinds: ["stacked100", "waterfall"] },
   { question: "How are two things related?", kinds: ["scatter", "bubble", "correlation"] },
   { question: "What is the text about?", kinds: ["terms"] },
 ];
@@ -277,6 +389,16 @@ const ICONS: Record<ChartCardKind, string> = {
     '<circle cx="20" cy="26" r="10" fill="currentColor" opacity="0.35"/><circle cx="40" cy="18" r="7" fill="currentColor" opacity="0.55"/><circle cx="52" cy="30" r="5" fill="currentColor" opacity="0.7"/><circle cx="30" cy="34" r="3" fill="currentColor" opacity="0.8"/>',
   correlation:
     '<rect x="10" y="8" width="16" height="16" fill="currentColor" opacity="0.8"/><rect x="28" y="8" width="16" height="16" fill="currentColor" opacity="0.25"/><rect x="46" y="8" width="16" height="16" fill="currentColor" opacity="0.55"/><rect x="10" y="28" width="16" height="16" fill="currentColor" opacity="0.25"/><rect x="28" y="28" width="16" height="16" fill="currentColor" opacity="0.8"/><rect x="46" y="28" width="16" height="16" fill="currentColor" opacity="0.2"/>',
+  dotplot:
+    '<path d="M10 12h52M10 24h52M10 36h52" stroke="currentColor" stroke-width="1" opacity="0.25"/><circle cx="46" cy="12" r="4" fill="currentColor"/><circle cx="34" cy="24" r="4" fill="currentColor"/><circle cx="20" cy="36" r="4" fill="currentColor"/>',
+  stacked100:
+    '<rect x="8" y="10" width="56" height="9" fill="currentColor" opacity="0.85"/><rect x="8" y="10" width="20" height="9" fill="currentColor"/><rect x="8" y="26" width="56" height="9" fill="currentColor" opacity="0.35"/><rect x="8" y="26" width="38" height="9" fill="currentColor" opacity="0.8"/>',
+  smallmultiples:
+    '<path d="M6 20l7-5 6 3 7-8M40 20l6-2 6 5 8-9M6 42l7-3 6 2 7-6M40 42l7-6 6 3 8-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 24h24M40 24h26M6 44h24M40 44h26" stroke="currentColor" stroke-width="1" opacity="0.4"/>',
+  slopegraph:
+    '<path d="M16 10v30M56 10v30" stroke="currentColor" stroke-width="1.5" opacity="0.4"/><path d="M16 14L56 32M16 24L56 14M16 34L56 38" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="14" r="2.6" fill="currentColor"/><circle cx="56" cy="32" r="2.6" fill="currentColor"/><circle cx="16" cy="24" r="2.6" fill="currentColor"/><circle cx="56" cy="14" r="2.6" fill="currentColor"/>',
+  waterfall:
+    '<rect x="8" y="22" width="9" height="16" fill="currentColor" opacity="0.8"/><rect x="21" y="12" width="9" height="10" fill="currentColor" opacity="0.5"/><rect x="34" y="12" width="9" height="14" fill="currentColor" opacity="0.3"/><rect x="47" y="16" width="9" height="10" fill="currentColor" opacity="0.5"/><rect x="60" y="16" width="6" height="22" fill="currentColor" opacity="0.8"/>',
   pivotHeatmap:
     '<rect x="8" y="8" width="18" height="10" fill="currentColor" opacity="0.75"/><rect x="28" y="8" width="18" height="10" fill="currentColor" opacity="0.35"/><rect x="48" y="8" width="16" height="10" fill="currentColor" opacity="0.55"/><rect x="8" y="20" width="18" height="10" fill="currentColor" opacity="0.35"/><rect x="28" y="20" width="18" height="10" fill="currentColor" opacity="0.85"/><rect x="48" y="20" width="16" height="10" fill="currentColor" opacity="0.25"/><rect x="8" y="32" width="18" height="8" fill="currentColor" opacity="0.55"/><rect x="28" y="32" width="18" height="8" fill="currentColor" opacity="0.25"/><rect x="48" y="32" width="16" height="8" fill="currentColor" opacity="0.7"/>',
 };

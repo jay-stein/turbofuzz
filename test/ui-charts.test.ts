@@ -2023,7 +2023,7 @@ test("the add-chart builder lists every type, explains unfit ones and adds direc
   await tick();
   assert.equal(host.querySelector(".charts-rail"), null, "the duplicate left rail is gone");
   const chips = [...host.querySelectorAll(".chart-add-type")] as HTMLButtonElement[];
-  assert.equal(chips.length, 14, "one chip per chart type");
+  assert.equal(chips.length, 19, "one chip per chart type");
   const bubble = chips.find((chip) => (chip.textContent ?? "").startsWith("Bubble"));
   assert.ok(bubble !== undefined, "the builder offers Bubble");
   const disabled = chips.find((chip) => chip.getAttribute("aria-disabled") === "true");
@@ -3593,4 +3593,149 @@ test("a bar chart with many ungrouped bars gets one short note", () => {
   assert.match(note.textContent ?? "", /40 bars is hard to read\. Show the top 10 and group the rest as Other\./);
   card.dispose();
   void window;
+});
+
+/** An aggregate with `dims` dimensions: rows are (bucket, group?) pairs. */
+function extraAggregate(
+  view: ViewDef,
+  rows: { bucket: string; group?: string; value: number }[],
+  time = false,
+): AggregateMessage {
+  const two = rows.some((row) => row.group !== undefined);
+  return {
+    type: "aggregate",
+    requestId: 1,
+    viewId: view.id,
+    labels: rows.map((row) => row.bucket),
+    dimensions: two
+      ? [rows.map((row) => row.bucket), rows.map((row) => row.group ?? "")]
+      : [rows.map((row) => row.bucket)],
+    dimensionNames: two ? ["period", "region"] : ["region"],
+    dimensionIsTime: two ? [time, false] : [time],
+    dimensionTimes: (two ? [0, 1] : [0]).map(() => new Float64Array(rows.length).fill(Number.NaN)),
+    measures: [Float64Array.from(rows.map((row) => row.value))],
+    measureNames: ["sum(revenue)"],
+    totals: new Float64Array(1),
+    groupCount: rows.length,
+    totalGroups: rows.length,
+    truncated: false,
+    partials: null,
+    ms: 1,
+  };
+}
+
+async function drawExtra(
+  config: Partial<ChartCardConfig>,
+  rows: { bucket: string; group?: string; value: number }[],
+  time = false,
+): Promise<{ texts: string[]; note: string; calls: ViewDef[]; hits: number }> {
+  const window = setupDom();
+  const texts: string[] = [];
+  captureMockContext(window, texts);
+  const host = document.createElement("div") as unknown as HTMLElement;
+  const calls: ViewDef[] = [];
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestAggregate: (view: ViewDef) => {
+        calls.push(view);
+        return Promise.resolve(extraAggregate(view, rows, time));
+      },
+    },
+    { title: "", ...config },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 800, configurable: true });
+  Object.defineProperty(wrap, "clientHeight", { value: 450, configurable: true });
+  card.setColumns([
+    meta({ name: "revenue", type: "number", stats: { ...meta().stats, distinct: 500 } }),
+    meta({ name: "region", type: "category", stats: { ...meta().stats, distinct: 3 }, categories: { labels: ["East", "West", "North"], counts: [3, 2, 1] } }),
+    meta({ name: "product", type: "category", stats: { ...meta().stats, distinct: 2 }, categories: { labels: ["A", "B"], counts: [3, 3] } }),
+    meta({ name: "when", type: "date", stats: { ...meta().stats, distinct: 100 } }),
+  ]);
+  await tick();
+  const note = host.querySelector(".chart-note")?.textContent ?? "";
+  const hits = (card as unknown as { hitRegions: unknown[] }).hitRegions.length;
+  card.dispose();
+  return { texts, note, calls, hits };
+}
+
+test("a dot plot draws one dot per category, largest first, and says when the axis skips zero", async () => {
+  const out = await drawExtra(
+    { kind: "dotplot", column: 1, valueColumn: 0, valueAgg: "sum" },
+    [{ bucket: "North", value: 96 }, { bucket: "East", value: 100 }, { bucket: "West", value: 98 }],
+  );
+  assert.deepEqual(out.calls[0]?.dimensions, [{ column: 1, by: "value" }], "one dimension: the category");
+  assert.ok(out.texts.indexOf("East") < out.texts.indexOf("West") && out.texts.indexOf("West") < out.texts.indexOf("North"), "rows are largest first");
+  assert.match(out.note, /3 groups/);
+  assert.match(out.note, /axis starts at .*not zero/);
+  assert.equal(out.hits, 3, "each dot is hoverable");
+});
+
+test("a 100% stacked bar needs a Group by and then shows shares", async () => {
+  const bare = await drawExtra({ kind: "stacked100", column: 1, valueColumn: 0, valueAgg: "sum" }, [{ bucket: "East", value: 1 }]);
+  assert.match(bare.texts.join(" "), /Pick a Group by column/);
+
+  const out = await drawExtra(
+    { kind: "stacked100", column: 1, groupColumn: 2, valueColumn: 0, valueAgg: "sum" },
+    [
+      { bucket: "East", group: "A", value: 30 },
+      { bucket: "East", group: "B", value: 10 },
+      { bucket: "West", group: "A", value: 20 },
+    ],
+  );
+  assert.deepEqual(out.calls[0]?.dimensions, [{ column: 1, by: "value" }, { column: 2, by: "value" }]);
+  assert.ok(out.texts.includes("75%"), "East is 75% A");
+  assert.ok(out.texts.includes("100%"), "the axis runs to 100%");
+  assert.match(out.note, /Share of sum\(revenue\) by region within each period/);
+});
+
+test("small multiples draw one titled panel per group", async () => {
+  const out = await drawExtra(
+    { kind: "smallmultiples", column: 3, groupColumn: 1, valueColumn: 0, valueAgg: "mean" },
+    [
+      { bucket: "Jan", group: "East", value: 5 },
+      { bucket: "Feb", group: "East", value: 9 },
+      { bucket: "Jan", group: "West", value: 2 },
+      { bucket: "Feb", group: "West", value: 1 },
+    ],
+    true,
+  );
+  assert.equal(out.calls[0]?.dimensions.length, 2, "time plus group");
+  assert.ok(out.texts.includes("East") && out.texts.includes("West"), "each panel is titled");
+  assert.equal(out.hits, 2, "one hover region per panel");
+  assert.match(out.note, /each panel has its own scale/);
+});
+
+test("a slopegraph compares the first and last point of each group", async () => {
+  const out = await drawExtra(
+    { kind: "slopegraph", column: 3, groupColumn: 1, valueColumn: 0, valueAgg: "mean" },
+    [
+      { bucket: "2023", group: "East", value: 10 },
+      { bucket: "2024", group: "East", value: 20 },
+      { bucket: "2025", group: "East", value: 40 },
+      { bucket: "2023", group: "West", value: 30 },
+      { bucket: "2025", group: "West", value: 10 },
+    ],
+    true,
+  );
+  assert.ok(out.texts.includes("2023") && out.texts.includes("2025"), "both moments are headed");
+  assert.ok(!out.texts.includes("2024"), "the middle point is not drawn");
+  assert.ok(out.texts.some((t) => t.includes("East") && t.includes("10")), "left label carries the starting value");
+  assert.match(out.note, /2023 vs 2025 \(3 periods/);
+  assert.equal(out.hits, 4, "a hover region at each end of each line");
+});
+
+test("a waterfall runs a total, colours steps and closes with a Total bar", async () => {
+  const out = await drawExtra(
+    { kind: "waterfall", column: 1, valueColumn: 0, valueAgg: "sum" },
+    [{ bucket: "East", value: 100 }, { bucket: "West", value: -30 }, { bucket: "North", value: 40 }],
+  );
+  assert.deepEqual(out.calls[0]?.dimensions, [{ column: 1, by: "value" }]);
+  assert.ok(out.texts.includes("Total"), "closes with a Total bar");
+  assert.ok(out.texts.includes("110"), "100 - 30 + 40");
+  assert.ok(out.texts.includes("−30"), "a loss reads as a minus");
+  assert.match(out.note, /running total \(green up, red down\)/);
+  assert.equal(out.hits, 4, "three steps plus the total");
 });

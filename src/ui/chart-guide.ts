@@ -219,11 +219,7 @@ export class ChartGuide {
   }
 
   private footer(): HTMLElement {
-    // Links only load when clicked, so the page still makes no requests on its own.
-    return el(
-      "div",
-      { class: "chart-guide-foot" },
-      guide.links.map((link) => el("a", { href: link.href, target: "_blank", rel: "noopener noreferrer" }, [link.label])),
-    );
+    // Plain text only: the app stays self-contained, with no outside links.
+    return el("div", { class: "chart-guide-foot" }, [guide.credit]);
   }
 }

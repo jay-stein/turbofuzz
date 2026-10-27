@@ -59,8 +59,8 @@ test("the guide opens with the selection and an availability tab, with no reques
   (guide.root.querySelectorAll(".chart-guide-tab")[1] as unknown as { click(): void }).click();
   assert.match(guide.root.textContent ?? "", /What makes up the whole\?/);
   assert.match(guide.root.textContent ?? "", /needs a latitude.longitude pair/, "an unavailable chart says what it needs");
-  const links = [...guide.root.querySelectorAll("a")];
-  assert.ok(links.every((a) => a.getAttribute("rel") === "noopener noreferrer"));
+  assert.equal(guide.root.querySelectorAll("a").length, 0, "no outside links");
+  assert.match(text, /Storytelling with Data/, "the inspiration is credited in plain text");
   assert.equal(fetched, 0);
   guide.close();
   assert.equal(guide.isOpen, false);

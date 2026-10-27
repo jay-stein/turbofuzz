@@ -128,5 +128,6 @@ test("configForChart falls back to the fit for empty slots and refuses unfit kin
   assert.equal(bare?.column, 1, "no shelf: the gallery's default columns");
   assert.equal(configForChart("map", [], shop, 1000), null, "no coordinates: no map");
   assert.equal(kindForRecommended("timeseries"), "line");
-  assert.equal(kindForRecommended("smallmultiples"), null);
+  assert.equal(kindForRecommended("smallmultiples"), "smallmultiples");
+  assert.equal(kindForRecommended("pie"), null, "there is no pie chart");
 });

@@ -90,7 +90,7 @@ test('category + measure -> sorted bars from zero; many categories add dot plot'
   assert.equal(o[0].cfg.sort, 'value-desc');
   assert.equal(o[0].cfg.baseline, 0);
   const many = top([{ name: 'suburb', type: 'category', distinct: 45 }, col(A, 'revenue')], A).options;
-  assert.ok(many.some((x) => x.chart === 'dotplot' && x.isNew));
+  assert.ok(many.some((x) => x.chart === 'dotplot' && !x.isNew), 'the dot plot is a real, offered chart now');
   assert.equal(many[0].cfg.topN, 10);
 });
 
@@ -114,6 +114,7 @@ test('structure rules', () => {
   assert.equal(multi[0].cfg.groupBy, 'region');
   const six = top([col(A, 'order_date'), col(A, 'revenue'), { name: 'store', type: 'category', distinct: 8 }], A).options;
   assert.equal(six[0].chart, 'smallmultiples');
+  assert.equal(six[0].isNew, false);
 });
 
 test('IDs are never charted', () => {

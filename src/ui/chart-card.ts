@@ -42,6 +42,14 @@ import {
 } from "./chart-spec.js";
 import { chartConfigWithDefaults } from "./chart-builder.js";
 import { fieldsFor } from "./chart-registry.js";
+import {
+  drawDotPlot,
+  drawSlopegraph,
+  drawSmallMultiples,
+  drawStacked100,
+  drawWaterfall,
+  type Painter,
+} from "./chart-extra-draw.js";
 import { lint, type LintNote, type RecColumn } from "./chart-recommender.js";
 import {
   colorForFraction,
@@ -90,6 +98,9 @@ import {
   parseChartNumber,
   plainMeasureName,
   rampColor,
+  SPLIT_KINDS,
+  GROUP_REQUIRED_KINDS,
+  VALUE_AGGREGATE_KINDS,
   toRecColumn,
   safeFileName,
   suggestedBinRange,
@@ -2703,15 +2714,12 @@ export class ChartCard {
     const kind = this.config.kind;
     const pair = isPairKind(kind);
     const groupable = this.columns.some((meta) => isGroupable(meta));
-    const measureKinds =
-      kind === "line" ||
-      kind === "bar" ||
-      kind === "barplot" ||
-      kind === "kpi" ||
-      kind === "histogram" ||
-      kind === "treemap";
+    const measureKinds = VALUE_AGGREGATE_KINDS.includes(kind) || kind === "treemap";
     const grainKinds =
-      kind === "line" || (kind === "kpi" && this.isDateLike(this.meta(this.config.column)));
+      kind === "line" ||
+      kind === "smallmultiples" ||
+      ((kind === "kpi" || kind === "slopegraph" || kind === "waterfall") &&
+        this.isDateLike(this.meta(this.config.column)));
     const valueOn =
       measureKinds && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
     this.kindSelect.classList.toggle("hidden", bound);
@@ -2719,7 +2727,7 @@ export class ChartCard {
     const kpiPrimaryHidden =
       kind === "kpi" && !this.columns.some((meta) => this.isDateLike(meta));
     const groupedValue =
-      valueOn && (kind === "line" || kind === "bar" || kind === "barplot");
+      valueOn && SPLIT_KINDS.includes(kind);
     this.primaryWrap.classList.toggle(
       "hidden",
       bound || pair || kind === "correlation" || kpiPrimaryHidden,
@@ -2727,11 +2735,7 @@ export class ChartCard {
     this.groupWrap.classList.toggle(
       "hidden",
       bound ||
-      (kind !== "line" &&
-        kind !== "histogram" &&
-        kind !== "bubble" &&
-        kind !== "bar" &&
-        kind !== "barplot") ||
+      (!SPLIT_KINDS.includes(kind) && kind !== "histogram" && kind !== "bubble") ||
         !groupable ||
         (valueOn && !groupedValue),
     );
@@ -2843,11 +2847,7 @@ export class ChartCard {
   /** True when this card plots its own measure aggregate (line/bar/KPI/bins). */
   private usesValueAggregate(): boolean {    return (
       this.config.source === "" &&
-      (this.config.kind === "line" ||
-        this.config.kind === "bar" ||
-        this.config.kind === "barplot" ||
-        this.config.kind === "kpi" ||
-        this.config.kind === "histogram") &&
+      VALUE_AGGREGATE_KINDS.includes(this.config.kind) &&
       (this.config.valueColumn ?? -1) >= 0
     );
   }
@@ -2913,23 +2913,31 @@ export class ChartCard {
     if (!this.usesValueAggregate() || this.options.requestAggregate === undefined) return null;
     const column = this.config.valueColumn ?? -1;
     if (column < 0) return null;
-    const line = this.config.kind === "line";
+    const datedColumn = this.isDateLike(this.meta(this.config.column));
+    // Lines and small multiples run over time; a slopegraph or waterfall does
+    // when its column is a date, and over category values otherwise.
+    const line =
+      this.config.kind === "line" ||
+      this.config.kind === "smallmultiples" ||
+      ((this.config.kind === "slopegraph" || this.config.kind === "waterfall") && datedColumn);
     const kpi = this.config.kind === "kpi";
     const histogram = this.config.kind === "histogram";
-    if (line && !this.isDateLike(this.meta(this.config.column))) return null;
+    if ((this.config.kind === "line" || this.config.kind === "smallmultiples") && !datedColumn) return null;
     // A KPI with a date column reads the series (latest bucket + comparison);
     // without one it is the grand total over every filtered row.
     const overTime = kpi && this.isDateLike(this.meta(this.config.column));
     if (!line && !kpi && this.config.column < 0) return null;
     const grain =
       this.config.valueGrain === undefined || this.config.valueGrain === "auto"
-        ? this.defaultGrainFor(this.config.column)
+        ? this.config.kind === "slopegraph"
+          ? this.slopeGrainFor(this.config.column)
+          : this.defaultGrainFor(this.config.column)
         : this.config.valueGrain;
     // Split-by: line/bar cards with a Group draw one series per group value
     // (dimension 2); the renderer pivots the returned groups into series.
     const groupMetaForSplit = this.meta(this.config.groupColumn);
     const split =
-      (line || this.config.kind === "bar" || this.config.kind === "barplot") &&
+      (line || SPLIT_KINDS.includes(this.config.kind)) &&
       this.config.groupColumn >= 0 &&
       groupMetaForSplit !== undefined &&
       isGroupable(groupMetaForSplit);
@@ -3235,8 +3243,17 @@ export class ChartCard {
         break;
       case "kpi":
       case "barplot":
+      case "dotplot":
+      case "waterfall":
         add(this.config.valueColumn);
         add(this.config.column);
+        break;
+      case "stacked100":
+      case "smallmultiples":
+      case "slopegraph":
+        add(this.config.valueColumn);
+        add(this.config.column);
+        add(this.config.groupColumn);
         break;
       case "correlation":
         for (const index of this.config.correlationColumns) add(index);
@@ -3542,13 +3559,7 @@ export class ChartCard {
     }    const number = (value: number): string =>
       Number.isFinite(value) ? String(value) : "";
     const aggregate = this.aggregateResult();
-    const aggregateKinds = new Set<ChartCardKind>([
-      "line",
-      "bar",
-      "barplot",
-      "kpi",
-      "histogram",
-    ]);
+    const aggregateKinds = new Set<ChartCardKind>(VALUE_AGGREGATE_KINDS);
     if (
       aggregate !== null &&
       aggregate.groupCount > 0 &&
@@ -3830,7 +3841,14 @@ export class ChartCard {
         return meta.type === "date" || meta.type === "datetime";
       case "bar":
       case "barplot":
+      case "dotplot":
+      case "stacked100":
         return isGroupable(meta);
+      case "smallmultiples":
+        return meta.type === "date" || meta.type === "datetime";
+      case "slopegraph":
+      case "waterfall":
+        return isGroupable(meta) || meta.type === "date" || meta.type === "datetime";
       case "treemap":
         if (meta.role === "provenance") return false;
         return (
@@ -4206,6 +4224,16 @@ export class ChartCard {
     this.animationTimeSelect.value = String(this.config.animationTimeColumn ?? -1);
   }
 
+  /** A slopegraph compares whole periods, so it buckets coarser than a time series. */
+  private slopeGrainFor(column: number): TimeGrain {
+    const meta = this.meta(column);
+    const min = meta?.stats.min;
+    const max = meta?.stats.max;
+    if (typeof min !== "number" || typeof max !== "number" || !(max > min)) return "month";
+    const days = (max - min) / 86_400_000;
+    return days > 700 ? "year" : days > 270 ? "quarter" : days > 60 ? "month" : "week";
+  }
+
   /** Sensible default frame length for a date column's span. */
   private defaultGrainFor(column: number): TimeGrain {
     const meta = this.meta(column);
@@ -4286,22 +4314,19 @@ export class ChartCard {
     const valueLabel = this.valueWrap.querySelector<HTMLElement>(".chart-tag-label");
     if (valueLabel !== null) valueLabel.textContent = kind === "treemap" ? "Size by" : "Value";
     const groupable = this.columns.some((meta) => isGroupable(meta));
-    const measureKinds =
-      kind === "line" ||
-      kind === "bar" ||
-      kind === "barplot" ||
-      kind === "kpi" ||
-      kind === "histogram" ||
-      kind === "treemap";
+    const measureKinds = VALUE_AGGREGATE_KINDS.includes(kind) || kind === "treemap";
     const grainKinds =
-      kind === "line" || (kind === "kpi" && this.isDateLike(this.meta(this.config.column)));
+      kind === "line" ||
+      kind === "smallmultiples" ||
+      ((kind === "kpi" || kind === "slopegraph" || kind === "waterfall") &&
+        this.isDateLike(this.meta(this.config.column)));
     const valueOn =
       measureKinds && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
     const groupedValue =
-      valueOn && (kind === "line" || kind === "bar" || kind === "barplot");
+      valueOn && SPLIT_KINDS.includes(kind);
     this.groupWrap.classList.toggle(
       "hidden",
-      (kind !== "line" && kind !== "histogram" && kind !== "bubble" && kind !== "bar") ||
+      (!SPLIT_KINDS.includes(kind) && kind !== "histogram" && kind !== "bubble") ||
         !groupable ||
         (valueOn && !groupedValue),
     );
@@ -6395,6 +6420,16 @@ export class ChartCard {
       }
       case "bar":
         return `Count plot of ${name(this.config.column)}, ${rows} rows shown`;
+      case "dotplot":
+      case "stacked100":
+      case "smallmultiples":
+      case "slopegraph":
+      case "waterfall": {
+        const group = this.meta(this.config.groupColumn);
+        return `${CHART_KIND_LABELS[this.config.kind]} of ${this.config.valueAgg ?? "mean"}(${name(
+          this.config.valueColumn ?? -1,
+        )}) by ${name(this.config.column)}${group === undefined ? "" : ` and ${group.name}`}, ${rows} rows shown`;
+      }
       case "barplot":
         return `Barplot of ${this.config.valueAgg ?? "mean"}(${name(
           this.config.valueColumn ?? -1,
@@ -7669,6 +7704,29 @@ export class ChartCard {
           isNumericType(y.type)
         );
       }
+      case "dotplot":
+      case "stacked100":
+      case "smallmultiples":
+      case "slopegraph":
+      case "waterfall": {
+        const column = this.meta(this.config.column);
+        const measure = this.meta(this.config.valueColumn ?? -1);
+        const kind = this.config.kind;
+        const columnOk =
+          column !== undefined &&
+          (kind === "smallmultiples"
+            ? this.isDateLike(column)
+            : kind === "waterfall" || kind === "slopegraph"
+              ? isGroupable(column) || this.isDateLike(column)
+              : isGroupable(column));
+        const groupOk = !GROUP_REQUIRED_KINDS.includes(kind) || this.meta(this.config.groupColumn) !== undefined;
+        return (
+          columnOk &&
+          groupOk &&
+          measure !== undefined &&
+          (isNumericType(measure.type) || measure.type === "duration")
+        );
+      }
       case "pivotHeatmap":
         return this.config.source !== "";
     }
@@ -7840,9 +7898,10 @@ export class ChartCard {
     if (this.usesAggregate()) {
       const result = this.aggregateResult();
       if (result === null) return "Aggregate · waiting for the first result";
-      return `${result.measureNames[0] ?? "measure"} by ${
-        result.dimensionNames[0] ?? "group"
-      } · ${result.groupCount.toLocaleString()} groups`;
+      const two = result.dimensions.length >= 2;
+      return `${result.measureNames[0] ?? "measure"} by ${result.dimensionNames[0] ?? "group"}${
+        two ? ` and ${result.dimensionNames[1] ?? "group"}` : ""
+      } · ${result.groupCount.toLocaleString()} ${two ? "values" : "groups"}`;
     }
     if (this.config.kind === "scatter" || this.config.kind === "density") {
       const x = this.meta(this.config.x)?.name ?? "X";
@@ -7968,7 +8027,12 @@ export class ChartCard {
         this.drawMap(ctx, frame);
         break;
       case "kpi":
-      case "barplot": {
+      case "barplot":
+      case "dotplot":
+      case "stacked100":
+      case "smallmultiples":
+      case "slopegraph":
+      case "waterfall": {
         const message = "Pick a numeric measure in the card settings.";
         this.noteEl.textContent = message;
         this.drawPlotMessage(ctx, frame, message);
@@ -8692,6 +8756,62 @@ export class ChartCard {
    * value-over-time aggregate) renders it as a line when the first dimension
    * is a time bucket, bars otherwise.
    */
+  /**
+   * The dot plot, 100% stacked bar, small multiples, slopegraph and waterfall
+   * draw from the same aggregate as the other measure charts; their layouts
+   * live in chart-extra-draw. Returns false for every other kind.
+   */
+  private drawExtraKind(
+    ctx: CanvasRenderingContext2D,
+    frame: Frame,
+    result: AggregateMessage,
+    values: Float64Array,
+  ): boolean {
+    const kind = this.config.kind;
+    if (
+      kind !== "dotplot" &&
+      kind !== "stacked100" &&
+      kind !== "smallmultiples" &&
+      kind !== "slopegraph" &&
+      kind !== "waterfall"
+    ) {
+      return false;
+    }
+    if (GROUP_REQUIRED_KINDS.includes(kind) && result.dimensions.length < 2) {
+      const message = `Pick a Group by column in the card settings: a ${CHART_KIND_LABELS[kind].toLowerCase()} compares groups.`;
+      this.noteEl.textContent = message;
+      this.drawPlotMessage(ctx, frame, message);
+      return true;
+    }
+    const column = this.config.column;
+    const meta = this.meta(column);
+    const labels = meta?.categories?.labels ?? [];
+    const painter: Painter = {
+      font: (c, ui, size, weight) => this.font(c, ui, size, weight),
+      fit: (c, text, maxWidth) => this.fit(c, text, maxWidth),
+      groupColor: (index) => this.groupColor(index),
+      primaryColor: () => this.primaryColor(),
+      actionsFor: (label) => {
+        const code = labels.indexOf(label);
+        return meta !== undefined && code >= 0 ? [{ kind: "values", column, code }] : [];
+      },
+    };
+    const limit = Math.max(2, Math.min(12, this.config.topN));
+    const drawn =
+      kind === "dotplot"
+        ? drawDotPlot(ctx, frame, painter, result, values)
+        : kind === "stacked100"
+          ? drawStacked100(ctx, frame, painter, result, values, Math.min(8, limit))
+          : kind === "smallmultiples"
+            ? drawSmallMultiples(ctx, frame, painter, result, values, limit)
+            : kind === "slopegraph"
+              ? drawSlopegraph(ctx, frame, painter, result, values, Math.max(limit, 8))
+              : drawWaterfall(ctx, frame, painter, result, values, 30);
+    this.hitRegions = drawn.hits;
+    this.noteEl.textContent = drawn.note;
+    return true;
+  }
+
   private drawViewAggregate(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const result = this.aggregateResult();
     if (result === null || result.groupCount === 0) {
@@ -8707,6 +8827,7 @@ export class ChartCard {
       this.drawPlotMessage(ctx, frame, message);
       return;
     }
+    if (this.config.source === "" && this.drawExtraKind(ctx, frame, result, values)) return;
     if (this.config.source === "" && result.dimensions.length >= 2) {
       this.drawSplitAggregate(ctx, frame, result, values);
       return;
