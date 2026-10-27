@@ -8957,3 +8957,9 @@ body:has(.modal-overlay) .hint-callout {
   font-weight: 600;
   color: var(--text);
 }
+
+/* The chart canvas height follows its width, so a scrollbar toggling on the
+   workspace would resize the chart in a loop; keep its gutter reserved. */
+.workspace-body:has(.charts-main) {
+  scrollbar-gutter: stable;
+}

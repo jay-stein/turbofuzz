@@ -1108,6 +1108,8 @@ export class ChartCard {
   private plotMessageDrawn = false;
   /** Wrap width of the last paint, used to ignore no-op resize callbacks. */
   private lastWrapWidth = -1;
+  /** The width before the last repaint; a return to it is a scrollbar feedback flip. */
+  private prevWrapWidth = -1;
   private resizeObserver: ResizeObserver | null = null;
 
   constructor(
@@ -6172,6 +6174,9 @@ export class ChartCard {
         const wrap = this.canvas.parentElement;
         const width = Math.round(wrap?.clientWidth ?? 0);
         if (width <= 1 || width === this.lastWrapWidth) return;
+        // A -> B -> A: the canvas height follows its width, so a scrollbar that
+        // appears at one height and vanishes at the other would repaint forever.
+        if (width === this.prevWrapWidth) return;
       }
       this.render();
     };
@@ -6186,13 +6191,18 @@ export class ChartCard {
     this.syncScope();
     this.canvas.setAttribute("aria-label", this.canvasLabel());
     const wrap = this.canvas.parentElement;
+    // Not laid out yet (detached or hidden lens): painting would size the canvas
+    // to 1x1 and blank it. The ResizeObserver repaints once it has a width.
+    if (wrap !== null && wrap.isConnected && wrap.clientWidth <= 1) return;
     let cssWidth = 640;
     if (wrap !== null) {
       const style = getComputedStyle(wrap);
       const padding =
         (Number.parseFloat(style.paddingLeft) || 0) + (Number.parseFloat(style.paddingRight) || 0);
       cssWidth = wrap.clientWidth - padding;
-      this.lastWrapWidth = Math.round(wrap.clientWidth);
+      const wrapWidth = Math.round(wrap.clientWidth);
+      if (wrapWidth !== this.lastWrapWidth) this.prevWrapWidth = this.lastWrapWidth;
+      this.lastWrapWidth = wrapWidth;
     }
     // The canvas follows the card at any width; text has a legibility floor
     // instead of the old 300px minimum that overflowed narrow cards.
