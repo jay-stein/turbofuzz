@@ -24,6 +24,7 @@ import type {
   CorrelationMessage,
   CrosstabMessage,
 } from "../src/worker/protocol.js";
+import { plainMeasureName } from "../src/ui/chart-utils.js";
 
 function setupDom(): Window {
   const window = new Window();
@@ -646,25 +647,22 @@ test("charts panel adds, duplicates and removes independent cards", async () => 
   add.click();
   await tick();
 
-  const galleryDoc = (globalThis as Record<string, unknown>).document as Window["document"];
-  const scatterTile = [...galleryDoc.querySelectorAll(".chart-gallery .chart-tile")].find(
-    (tile) => tile.textContent === "Scatter",
+  const panelEl = host.querySelector(".chart-add-panel");
+  assert.ok(panelEl !== null && !panelEl.classList.contains("hidden"), "Add chart opens the builder panel");
+  const scatterType = [...host.querySelectorAll(".chart-add-type")].find(
+    (chip) => chip.textContent === "Scatter",
   );
-  assert.ok(scatterTile !== undefined, "the gallery offers a Scatter tile");
-  (scatterTile as unknown as { click(): void }).click();
+  assert.ok(scatterType !== undefined, "the builder offers a Scatter type");
+  (scatterType as unknown as { click(): void }).click();
   await tick();
-  const scatterDialog = galleryDoc.querySelector(".chart-setup-modal .primary") as unknown as {
-    click(): void;
-  } | null;
-  assert.ok(scatterDialog !== null, "picking a tile asks for confirmation first");
-  scatterDialog.click();
-  await tick();
+  assert.equal(document.querySelector(".chart-setup-modal"), null, "no modal sits between the click and the chart");
+  assert.ok(host.querySelector(".chart-add-panel")?.classList.contains("hidden"), "the panel collapses once the chart exists");
 
   const cards = host.querySelectorAll(".chart-card");
   assert.equal(cards.length, 2);
   const kinds = host.querySelectorAll<HTMLSelectElement>(".chart-kind");
-  assert.equal(kinds[0].value, "bar", "city is the best default category");
-  assert.equal(kinds[1].value, "scatter", "the Scatter tile adds a scatter card");
+  assert.equal(kinds[0].value, "scatter", "the new Scatter card goes to the top");
+  assert.equal(kinds[1].value, "bar", "city is the best default category");
 
   const doc = (globalThis as Record<string, unknown>).document as Window["document"];
   const openCardMenu = (card: Element): void => {
@@ -678,12 +676,12 @@ test("charts panel adds, duplicates and removes independent cards", async () => 
     return item as unknown as { click(): void };
   };
 
-  openCardMenu(cards[1]);
+  openCardMenu(cards[0]);
   menuItem("Duplicate").click();
   await tick();
   assert.equal(host.querySelectorAll(".chart-card").length, 3);
 
-  openCardMenu(cards[0]);
+  openCardMenu(cards[1]);
   menuItem("Remove chart").click();
   const confirmRemove = [...doc.querySelectorAll(".modal .primary")].pop() as unknown as {
     click(): void;
@@ -930,7 +928,7 @@ test("a card with nothing to draw explains itself inside the plot", async () => 
   card.dispose();
 });
 
-test("chart settings live in a collapsible sidebar beside the canvas", async () => {
+test("chart settings live in a Customize drawer next to the canvas", async () => {
   const window = setupDom();
   captureMockContext(window, []);
   const host = document.createElement("div");
@@ -947,10 +945,14 @@ test("chart settings live in a collapsible sidebar beside the canvas", async () 
   assert.ok(layout.querySelector(".chart-card-main .chart-canvas") !== null, "the canvas sits beside it");
   const toggle = host.querySelector<HTMLButtonElement>(".chart-sidebar-toggle");
   assert.ok(toggle !== null);
+  assert.equal(toggle.textContent, "Customize", "the drawer is called Customize");
+  assert.equal(toggle.getAttribute("aria-expanded"), "false", "settings start closed so the chart keeps the full width");
   toggle.click();
+  assert.equal(layout.classList.contains("sidebar-open"), true);
+  assert.equal(toggle.getAttribute("aria-expanded"), "true");
+  toggle.click();
+  assert.equal(layout.classList.contains("sidebar-open"), false);
   assert.equal(layout.classList.contains("sidebar-collapsed"), true);
-  toggle.click();
-  assert.equal(layout.classList.contains("sidebar-collapsed"), false);
   panel.dispose();
 });
 
@@ -2007,7 +2009,7 @@ test("a grouped bubble chart draws one set per category with a legend", async ()
   card.dispose();
 });
 
-test("the chart rail lists every type, adds cards and collapses", async () => {
+test("the add-chart builder lists every type, explains unfit ones and adds directly", async () => {
   const window = setupDom();
   captureMockContext(window, []);
   const host = document.createElement("div");
@@ -2019,47 +2021,25 @@ test("the chart rail lists every type, adds cards and collapses", async () => {
     meta({ name: "when", type: "date" }),
   ]);
   await tick();
-  const tiles = [...host.querySelectorAll(".charts-rail-tile")] as HTMLButtonElement[];
-  assert.equal(tiles.length, 14, "one rail tile per chart type");
-  const bubbleTile = tiles.find((tile) => (tile.textContent ?? "").includes("Bubble"));
-  assert.ok(bubbleTile !== undefined, "the rail offers Bubble");
-  assert.equal(bubbleTile.disabled, false);
-  const disabled = tiles.find((tile) => tile.getAttribute("aria-disabled") === "true");
+  assert.equal(host.querySelector(".charts-rail"), null, "the duplicate left rail is gone");
+  const chips = [...host.querySelectorAll(".chart-add-type")] as HTMLButtonElement[];
+  assert.equal(chips.length, 14, "one chip per chart type");
+  const bubble = chips.find((chip) => (chip.textContent ?? "").startsWith("Bubble"));
+  assert.ok(bubble !== undefined, "the builder offers Bubble");
+  const disabled = chips.find((chip) => chip.getAttribute("aria-disabled") === "true");
   assert.ok(disabled !== undefined, "at least one type does not fit these columns");
-  assert.equal(disabled.disabled, false, "disabled tiles remain focusable");
-  assert.equal(disabled.tabIndex, 0, "disabled tiles stay in the tab order");
+  assert.equal(disabled.disabled, false, "unfit chips stay focusable");
   const describedBy = disabled.getAttribute("aria-describedby") ?? "";
-  assert.ok(describedBy !== "", "the disabled tile points at its reason");
-  assert.match(
-    host.querySelector(`#${describedBy}`)?.textContent ?? "",
-    /\S/,
-    "the reason is available to assistive technology",
-  );
-  const modalBefore = host.ownerDocument.querySelectorAll(".chart-setup-modal").length;
+  assert.ok(describedBy !== "", "the unfit chip points at its reason");
+  assert.match(host.querySelector(`#${describedBy}`)?.textContent ?? "", /\S/, "the reason is available to assistive technology");
   disabled.click();
-  assert.equal(
-    host.ownerDocument.querySelectorAll(".chart-setup-modal").length,
-    modalBefore,
-    "activating a disabled tile does not open setup",
-  );
-  const before = host.querySelectorAll(".chart-card").length;
-  bubbleTile.click();
+  assert.equal(host.querySelectorAll(".chart-card").length, 0, "an unfit type adds nothing");
+  bubble.click();
   await tick();
-  assert.equal(host.querySelectorAll(".chart-card").length, before, "no card until confirmed");
-  const modal = host.ownerDocument.querySelector(".chart-setup-modal");
-  assert.ok(modal !== null, "the setup dialog opens");
-  // A second click while the dialog is open must not queue another add.
-  bubbleTile.click();
-  assert.equal(host.ownerDocument.querySelectorAll(".chart-setup-modal").length, 1);
-  (modal?.querySelector(".primary") as unknown as { click(): void }).click();
-  await tick();
-  assert.equal(host.querySelectorAll(".chart-card").length, before + 1, "confirming adds one card");
+  assert.equal(host.ownerDocument.querySelectorAll(".chart-setup-modal").length, 0, "no dialog opens");
+  assert.equal(host.querySelectorAll(".chart-card").length, 1, "the chip adds one card directly");
   const kinds = host.querySelectorAll<HTMLSelectElement>(".chart-kind");
   assert.equal(kinds[kinds.length - 1]?.value, "bubble");
-  const rail = host.querySelector(".charts-rail") as HTMLElement;
-  assert.equal(rail.classList.contains("collapsed"), false);
-  (host.querySelector(".charts-rail-toggle") as unknown as { click(): void }).click();
-  assert.ok(rail.classList.contains("collapsed"), "the rail collapses to icons");
   panel.dispose();
 });
 
@@ -2102,7 +2082,11 @@ test("the empty charts state is one clear message without auto suggestions", asy
   assert.ok(add !== undefined);
   add.click();
   await tick();
-  assert.ok(host.ownerDocument.querySelector(".chart-gallery") !== null);
+  assert.ok(
+    !host.querySelector(".chart-add-panel")?.classList.contains("hidden"),
+    "Add chart opens the data-first builder",
+  );
+  assert.ok(host.querySelector(".chart-add-quick-btn") !== null, "quick starts are offered");
   panel.dispose();
 });
 
@@ -3139,11 +3123,16 @@ test("chart measures are type-aware and warn about risky sums", () => {
   assert.ok(labels.includes("90th percentile"));
   agg.value = "sum";
   agg.dispatchEvent(new window.Event("change") as unknown as Event);
-  assert.match(
-    host.querySelector(".chart-summary")?.textContent ?? "",
-    /summing this field may be misleading/i,
-  );
-  assert.ok(host.querySelector(".chart-summary")?.classList.contains("warn"));
+  assert.doesNotMatch(host.querySelector(".chart-summary")?.textContent ?? "", /misleading/i);
+  const note = host.querySelector(".chart-lint") as HTMLElement;
+  assert.equal(note.classList.contains("hidden"), false);
+  assert.match(note.textContent ?? "", /conversion_rate looks like a rate or percentage\. Summing it rarely makes sense; use Average\./);
+  assert.equal(host.querySelectorAll(".chart-lint").length, 1, "one note at a time");
+  (note.querySelector(".chart-lint-x") as unknown as { click(): void }).click();
+  assert.equal(note.classList.contains("hidden"), true, "a dismissed note stays dismissed");
+  agg.value = "mean";
+  agg.dispatchEvent(new window.Event("change") as unknown as Event);
+  assert.equal(note.classList.contains("hidden"), true, "Average needs no note");
   card.dispose();
 });
 
@@ -3406,4 +3395,202 @@ test("right-clicking a shape offers to leave it out, which re-requests the data 
   assert.equal(views.at(-1)?.exclude, undefined);
   card.dispose();
   host.remove();
+});
+
+test("the add-chart builder makes a chart from a quick start in one click", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  panel.setColumns([
+    meta({ name: "order_date", type: "date", stats: { ...meta().stats, distinct: 200, min: 1_700_000_000_000, max: 1_730_000_000_000 } }),
+    meta({ name: "region", type: "category", stats: { ...meta().stats, distinct: 4 }, categories: { labels: ["a", "b"], counts: [3, 2] } }),
+    meta({ name: "revenue", type: "number", stats: { ...meta().stats, distinct: 800 } }),
+  ]);
+  panel.setRowCount(1000);
+  await tick();
+  const add = [...host.querySelectorAll("button")].find((b) => (b.textContent ?? "").includes("Add chart"));
+  (add as unknown as { click(): void }).click();
+  const quick = host.querySelector(".chart-add-quick-btn") as unknown as HTMLButtonElement;
+  assert.match(quick.textContent ?? "", /Total revenue over time/);
+  quick.click();
+  await tick();
+  assert.equal(host.querySelectorAll(".chart-card").length, 1, "one click, one chart");
+  assert.equal(host.querySelector<HTMLSelectElement>(".chart-kind")?.value, "line");
+  panel.dispose();
+});
+
+test("the add-chart builder recommends charts for the picked fields", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  panel.setColumns([
+    meta({ name: "region", type: "category", stats: { ...meta().stats, distinct: 4 }, categories: { labels: ["a", "b"], counts: [3, 2] } }),
+    meta({ name: "revenue", type: "number", stats: { ...meta().stats, distinct: 800 } }),
+  ]);
+  panel.setRowCount(1000);
+  await tick();
+  const add = [...host.querySelectorAll("button")].find((b) => (b.textContent ?? "").includes("Add chart"));
+  (add as unknown as { click(): void }).click();
+  assert.equal(host.querySelectorAll(".chart-add-tile").length, 0, "nothing is recommended before fields are picked");
+  const field = (name: string): HTMLButtonElement =>
+    [...host.querySelectorAll<HTMLButtonElement>(".chart-add-field")].find((b) => b.querySelector(".chart-add-field-name")?.textContent === name) as HTMLButtonElement;
+  field("region").click();
+  field("revenue").click();
+  assert.equal(field("revenue").getAttribute("aria-pressed"), "true");
+  const tiles = [...host.querySelectorAll<HTMLButtonElement>(".chart-add-tile")];
+  assert.ok(tiles.length >= 1);
+  assert.match(tiles[0].textContent ?? "", /Barplot/);
+  assert.match(tiles[0].textContent ?? "", /Best/);
+  assert.match(tiles[0].textContent ?? "", /Bars start at zero/);
+  tiles[0].click();
+  await tick();
+  assert.equal(host.querySelector<HTMLSelectElement>(".chart-kind")?.value, "barplot");
+  assert.equal(document.querySelector(".chart-setup-modal"), null);
+  panel.dispose();
+});
+
+test("new charts land at the top of the grid, are announced and can be undone", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const added: { label: string; undo?: () => void }[] = [];
+  const panel = new ChartsPanel(host, {
+    ...stubOptions(),
+    onCardAdded: (label, undo) => added.push({ label, undo }),
+  });
+  panel.setColumns([
+    meta({ name: "city", type: "category", stats: { ...meta().stats, distinct: 4 }, categories: { labels: ["a", "b"], counts: [3, 2] } }),
+    meta({ name: "amount", type: "number", stats: { ...meta().stats, distinct: 400 } }),
+  ]);
+  panel.setRowCount(100);
+  const first = panel.addCard({ kind: "bar", column: 0 });
+  const second = panel.addChart({ kind: "histogram", column: 1 });
+  const roots = [...host.querySelectorAll(".charts-grid > .chart-card")];
+  assert.equal(roots[0], second.root, "the new chart is first in the grid");
+  assert.equal(roots[1], first.root, "earlier charts keep their order below it");
+  assert.ok(second.root.classList.contains("chart-card-new"), "the new chart is highlighted");
+  assert.equal(added.length, 1);
+  assert.equal(added[0].label, "Histogram");
+  added[0].undo?.();
+  assert.equal(host.querySelectorAll(".chart-card").length, 1, "Undo removes only the new chart");
+  assert.equal(host.querySelector(".chart-card"), first.root);
+  panel.dispose();
+});
+
+function viewResult(measure: string, groups: number): AggregateMessage {
+  return {
+    type: "aggregate",
+    requestId: 1,
+    viewId: "v1",
+    labels: Array.from({ length: groups }, (_, i) => `g${i}`),
+    dimensions: [Array.from({ length: groups }, (_, i) => `g${i}`)],
+    dimensionNames: ["region"],
+    dimensionIsTime: [false],
+    dimensionTimes: [new Float64Array(groups)],
+    measures: [Float64Array.from({ length: groups }, (_, i) => i + 1)],
+    measureNames: [measure],
+    totals: new Float64Array(1),
+    groupCount: groups,
+    totalGroups: groups,
+    truncated: false,
+    partials: null,
+    ms: 1,
+  };
+}
+
+test("a view-bound bar names its real type, source and measure", async () => {
+  const window = setupDom();
+  const host = document.createElement("div") as unknown as HTMLElement;
+  let result = viewResult("sum(units)", 4);
+  const card = new ChartCard(
+    host,
+    { ...stubCardOptions(), requestViewAggregate: async () => result },
+    { kind: "bar", source: "v1", title: "Units by region" },
+  );
+  card.setColumns([meta({ name: "units", type: "number" })]);
+  // Before the views list arrives the select still names the source.
+  assert.equal(host.querySelector<HTMLSelectElement>(".chart-source select, select.chart-source")?.selectedOptions[0]?.textContent, "Units by region");
+  card.setSources([{ id: "v1", name: "Units by region", kind: "view" }]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(
+    host.querySelector(".chart-summary")?.textContent,
+    "Barplot from view: Sum of units by region · 4 groups",
+  );
+  const staticType = host.querySelector(".chart-kind-static");
+  assert.equal(staticType?.textContent, "Barplot", "the type row reads as text, not blank");
+  assert.equal(staticType?.classList.contains("hidden"), false);
+
+  // A count view is still a count plot.
+  result = viewResult("count(*)", 1);
+  card.refreshView();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(host.querySelector(".chart-summary")?.textContent, "Count plot from view: Rows by region · 1 group");
+  card.dispose();
+  void window;
+});
+
+test("plainMeasureName reads aggregates as words", () => {
+  assert.equal(plainMeasureName("sum(units)"), "Sum of units");
+  assert.equal(plainMeasureName("mean(unit price)"), "Average of unit price");
+  assert.equal(plainMeasureName("count(*)"), "Rows");
+  assert.equal(plainMeasureName("sum(x) · weighted by w"), "Sum of x · weighted by w");
+  assert.equal(plainMeasureName("custom expr"), "custom expr");
+});
+
+test("Chart this keeps its view result when sibling refreshes run after the request", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, {
+    ...stubOptions(),
+    requestViewAggregate: async () => viewResult("sum(units)", 4),
+  });
+  panel.setColumns([
+    meta({ name: "region", type: "category", stats: { ...meta().stats, distinct: 4 }, categories: { labels: ["a", "b"], counts: [3, 2] } }),
+    meta({ name: "units", type: "number", stats: { ...meta().stats, distinct: 400 } }),
+  ]);
+  panel.setSources([{ id: "v1", name: "Sum of units by region", kind: "view" }]);
+  panel.setRowCount(100);
+  panel.addViewChart({ id: "v1", name: "Sum of units by region" } as never);
+  panel.setRowCount(100);
+  panel.setFiltered({}, {});
+  // A live refresh (new facets, columns) lands while the view request is in flight.
+  panel.setColumns([
+    meta({ name: "region", type: "category", stats: { ...meta().stats, distinct: 4 }, categories: { labels: ["a", "b"], counts: [3, 2] } }),
+    meta({ name: "units", type: "number", stats: { ...meta().stats, distinct: 400 } }),
+  ]);
+  await tick();
+  assert.equal(
+    host.querySelector(".chart-summary")?.textContent,
+    "Barplot from view: Sum of units by region · 4 groups",
+  );
+  assert.doesNotMatch(host.querySelector(".chart-note")?.textContent ?? "", /no groups/);
+  panel.dispose();
+});
+
+test("a bar chart with many ungrouped bars gets one short note", () => {
+  const window = setupDom();
+  const host = document.createElement("div") as unknown as HTMLElement;
+  const card = new ChartCard(host, stubCardOptions(), {
+    kind: "bar",
+    column: 0,
+    groupOther: false,
+    title: "",
+  });
+  card.setColumns([
+    meta({
+      name: "suburb",
+      type: "category",
+      stats: { ...meta().stats, distinct: 40 },
+      categories: { labels: ["a", "b"], counts: [3, 2] },
+    }),
+  ]);
+  card.setRowCount(500);
+  const note = host.querySelector(".chart-lint") as HTMLElement;
+  assert.equal(note.classList.contains("hidden"), false);
+  assert.match(note.textContent ?? "", /40 bars is hard to read\. Show the top 10 and group the rest as Other\./);
+  card.dispose();
+  void window;
 });

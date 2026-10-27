@@ -108,14 +108,14 @@ test("pickDefaultCard follows the sales file's date and categories", () => {
 
   const ideas = suggestCharts(sales, 6015);
   assert.equal(ideas.length, 3);
-  assert.equal(ideas[0].label, "revenue over time");
+  assert.equal(ideas[0].label, "Total revenue over time");
   assert.deepEqual(ideas[0].preset, {
     kind: "line",
     column: 1,
     valueColumn: 8,
     valueAgg: "sum",
   });
-  assert.equal(ideas[1].label, "revenue by region");
+  assert.equal(ideas[1].label, "Total revenue by region");
   assert.equal(ideas[1].preset.kind, "barplot");
   assert.match(ideas[2].label, /^Distribution of revenue$/);
 });
@@ -470,8 +470,8 @@ test("suggestions prefer meaningful groups and exclude identifier-like measures"
     typed("revenue", "number", 4200),
   ];
   const ideas = suggestCharts(columns, 12000);
-  assert.equal(ideas[0]?.label, "revenue by region");
-  assert.equal(ideas[0]?.preset.kind, "barplot");
+  const byRegion = ideas.find((idea) => idea.preset.kind === "barplot");
+  assert.equal(byRegion?.label, "Total revenue by region");
   assert.ok(
     ideas.every(
       (idea) =>

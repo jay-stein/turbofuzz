@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { fitChartKind } from "../src/ui/chart-gallery.js";
 import {
   chartConfigWithDefaults,
+  configForChart,
+  kindForRecommended,
   defaultChartConfig,
   nextFinerGrain,
   suggestedChartConfig,
@@ -94,4 +96,37 @@ test("drill walks from year to second and never goes finer than second", () => {
   assert.equal(nextFinerGrain("day"), "hour");
   assert.equal(nextFinerGrain("auto"), "day");
   assert.equal(nextFinerGrain("second"), null);
+});
+function sized(name: string, type: ColumnMeta["type"], distinct: number, grouped = false): ColumnMeta {
+  const base = meta(name, type);
+  const categories = grouped ? { labels: ["a", "b"], counts: [3, 2] } : null;
+  return { ...base, stats: { ...base.stats, distinct }, categories };
+}
+
+const shop = [
+  sized("order_date", "date", 300),
+  sized("region", "category", 4, true),
+  sized("revenue", "number", 700),
+  sized("margin_pct", "number", 500),
+];
+
+test("configForChart fills slots from the shelf by role", () => {
+  const line = configForChart("line", [{ index: 0 }, { index: 2 }, { index: 1 }], shop, 1000);
+  assert.deepEqual(
+    { kind: line?.kind, column: line?.column, value: line?.valueColumn, agg: line?.valueAgg, group: line?.groupColumn },
+    { kind: "line", column: 0, value: 2, agg: "sum", group: 1 },
+  );
+  const bars = configForChart("barplot", [{ index: 1 }, { index: 3 }], shop, 1000);
+  assert.equal(bars?.valueAgg, "mean", "a rate-like measure defaults to Average");
+  const chip = configForChart("barplot", [{ index: 1 }, { index: 2, agg: "max" }], shop, 1000);
+  assert.equal(chip?.valueAgg, "max", "the aggregation chip wins");
+  assert.deepEqual(configForChart("scatter", [{ index: 2 }, { index: 3 }], shop, 1000)?.x, 2);
+});
+
+test("configForChart falls back to the fit for empty slots and refuses unfit kinds", () => {
+  const bare = configForChart("barplot", [], shop, 1000);
+  assert.equal(bare?.column, 1, "no shelf: the gallery's default columns");
+  assert.equal(configForChart("map", [], shop, 1000), null, "no coordinates: no map");
+  assert.equal(kindForRecommended("timeseries"), "line");
+  assert.equal(kindForRecommended("smallmultiples"), null);
 });

@@ -1,0 +1,28 @@
+{
+  "charts": {
+    "kpi": { "use": "One headline figure, when the total or average is the whole message.", "watch": "A bare number means little; add a period or a target.", "tips": ["Say what the figure counts", "Round to the precision people need"] },
+    "histogram": { "use": "See how one measure is spread: where most values sit, how skewed, and any stragglers.", "watch": "Bin width changes the shape, so try a couple.", "tips": ["Start with automatic bins", "Compare median and mean to judge skew"] },
+    "box": { "use": "Compare the middle and spread of a measure across groups.", "watch": "It hides how many rows sit behind each box.", "tips": ["Keep to a handful of groups", "Order groups by median"] },
+    "density": { "use": "Show where many points overlap, as shaded regions instead of a blur of dots.", "watch": "Shade shows crowding, not exact values.", "tips": ["Use it from a few thousand rows up", "Switch to scatter to inspect outliers"] },
+    "line": { "use": "Show how a measure moves over time, or compare a few series.", "watch": "A line implies order, so never join unordered categories. Many lines tangle.", "tips": ["Keep to five lines or fewer", "Average rates, total amounts", "Note an incomplete last period"] },
+    "bar": { "use": "Count how many rows fall in each category, largest first.", "watch": "Many categories make a long axis; show the top ones and group the rest.", "tips": ["Sort by size unless the categories have a natural order"] },
+    "barplot": { "use": "Compare a total or average for each category.", "watch": "Bars must start at zero or their lengths mislead.", "tips": ["Sort by value", "Use Average for rates", "Limit to about ten bars"] },
+    "treemap": { "use": "Show each category's share of a whole when there are too many for bars.", "watch": "Area is harder to compare than length, and small labels vanish.", "tips": ["Use it for share, not for precise ranking"] },
+    "heatmap": { "use": "Spot where two categories combine most strongly; darker means more.", "watch": "Colour is approximate. Read exact values from the table.", "tips": ["Order rows and columns meaningfully", "Keep each under about 20 levels"] },
+    "scatter": { "use": "Test whether two measures rise or fall together, and spot outliers.", "watch": "A pattern is not proof of cause, and dense data overplots.", "tips": ["Colour by category sparingly", "Switch to density past a few thousand rows"] },
+    "bubble": { "use": "Add a third measure to a scatter as dot size.", "watch": "People judge area poorly, so keep size differences large.", "tips": ["Label only the dots that matter"] },
+    "correlation": { "use": "A grid of how strongly each pair of measures moves together.", "watch": "It shows straight-line association only.", "tips": ["Keep the measures that matter", "Open a strong pair as a scatter"] },
+    "map": { "use": "Plot rows by latitude and longitude, or shade regions by a value.", "watch": "Dense areas hide points, and large regions look more important than they are.", "tips": ["Zoom to the area of interest"] },
+    "terms": { "use": "See the most frequent words in a text column.", "watch": "Common words and spelling variants can crowd the list.", "tips": ["Tidy case and punctuation first"] },
+    "pivotHeatmap": { "use": "Colour each cell of a pivot to see highs and lows.", "watch": "It only makes sense on an already summarised pivot.", "tips": [] }
+  },
+  "extraQuestions": [
+    { "question": "What makes up the whole?", "kinds": ["treemap", "bar"] }
+  ],
+  "notOffered": "No pie charts: slices are hard to compare. Use bars, or a 100% stacked bar when shares are the point.",
+  "links": [
+    { "label": "Storytelling with Data chart guide", "href": "https://www.storytellingwithdata.com/chartguide" },
+    { "label": "Data to Viz", "href": "https://www.data-to-viz.com/" },
+    { "label": "FT Visual Vocabulary", "href": "https://github.com/Financial-Times/chart-doctor/tree/main/visual-vocabulary" }
+  ]
+}

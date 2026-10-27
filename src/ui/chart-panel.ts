@@ -32,12 +32,9 @@ import {
   type SeriesRequestInput,
 } from "./chart-card.js";
 import {
-  CHART_KIND_ICONS,
-  GALLERY_KINDS,
   fitChartKind,
-  openChartGallery,
-  type KindFit,
 } from "./chart-gallery.js";
+import { ChartAddPanel } from "./chart-add-panel.js";
 import { openChartSetupDialog } from "./chart-setup.js";
 import { nextFinerGrain, suggestedChartConfig } from "./chart-builder.js";
 import { chartSpecToConfig } from "./chart-spec.js";
@@ -55,16 +52,6 @@ import {
   pickDefaultCard,
 } from "./chart-utils.js";
 import { el } from "./dom.js";
-
-const RAIL_KEY = "turbofuzz.charts.rail";
-
-function readRailCollapsed(): boolean {
-  try {
-    return localStorage.getItem(RAIL_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
 
 export interface ChartsPanelOptions {
   datasetName(): string;
@@ -147,7 +134,8 @@ export interface ChartsPanelOptions {
   /** Label for the filtered-table source: "Table" when no filters apply. */
   tableSourceLabel?(): string;
   /** Applied when a card lands in the grid (status feedback in the app). */
-  onCardAdded?(label: string): void;
+  /** `undo` removes the card that was just added. */
+  onCardAdded?(label: string, undo?: () => void): void;
   /** Applied when an existing card is edited or reset. */
   onCardEdited?(message: string): void;
   /** Applies a filter from a click on a chart region (bars, bins, cells). */
@@ -428,11 +416,13 @@ type ChartEntry =
  */
 export class ChartsPanel {
   private readonly grid: HTMLElement;
+  private readonly addPanel: ChartAddPanel;
+  /** The Guide drawer; its code and text load on first open. */
+  private guide: import("./chart-guide.js").ChartGuide | null = null;
+  private guideKey: ((event: KeyboardEvent) => void) | null = null;
+  /** True when the builder opened itself because the grid was empty. */
+  private addPanelAuto = false;
   private readonly empty: HTMLElement;
-  private readonly rail: HTMLElement;
-  private readonly railList: HTMLElement;
-  private readonly railToggle: HTMLButtonElement;
-  private railCollapsed = readRailCollapsed();
   private readonly layoutSelect: HTMLSelectElement;
   private readonly sizeSelect: HTMLSelectElement;
   private entries: ChartEntry[] = [];
@@ -459,13 +449,33 @@ export class ChartsPanel {
       { class: "primary small", type: "button", title: "Add another chart of the current result set" },
       ["+ Add chart"],
     );
-    add.addEventListener("click", () =>
-      openChartGallery(add, {
-        columns: this.columns,
-        rowCount: this.rowCount,
-        onPick: (preset) => void this.openChartSetup(preset),
-      }),
-    );
+    this.addPanel = new ChartAddPanel({
+      onCreate: (config, label) => this.placeNewCard(config, label),
+      onShelfChange: () => this.guide?.refresh(),
+    });
+    const guideButton = el(
+      "button",
+      { class: "small", type: "button", title: "What each chart is for, and what the selected fields need (G)", "aria-keyshortcuts": "G" },
+      ["Guide"],
+    ) as HTMLButtonElement;
+    guideButton.addEventListener("click", () => void this.toggleGuide(guideButton));
+    this.guideKey = (event: KeyboardEvent): void => {
+      if (event.key.toLowerCase() !== "g" || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target !== null && /^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName)) return;
+      if (target?.isContentEditable === true) return;
+      if (this.root.offsetParent === null) return;
+      event.preventDefault();
+      void this.toggleGuide(guideButton);
+    };
+    document.addEventListener("keydown", this.guideKey);
+    add.addEventListener("click", () => {
+      this.addPanel.setColumns(this.columns, this.rowCount);
+      this.addPanel.setSources(this.sources);
+      // With no charts there is nothing to collapse back to, so it stays open.
+      if (this.addPanel.isOpen && this.entries.length > 0) this.addPanel.close();
+      else this.addPanel.open();
+    });
 
     this.layoutSelect = el("select", {
       class: "chart-size",
@@ -500,6 +510,7 @@ export class ChartsPanel {
 
     toolbar.append(
       add,
+      guideButton,
       this.layoutSelect,
       el("span", { class: "grow" }),
       el("span", { class: "chart-toolbar-label" }, ["PNG size"]),
@@ -511,104 +522,51 @@ export class ChartsPanel {
       "No charts yet — use “+ Add chart” to plot the current result set.",
     ]);
 
-    // Left rail: every chart type as an icon tile, collapsible to icons only.
-    this.railToggle = el(
-      "button",
-      { class: "icon-btn charts-rail-toggle", type: "button" },
-      ["⟨"],
-    ) as HTMLButtonElement;
-    this.railToggle.addEventListener("click", () => this.toggleRail());
-    this.railList = el("div", { class: "charts-rail-list" });
-    this.rail = el("div", { class: "charts-rail" }, [
-      el("div", { class: "charts-rail-head" }, [
-        el("span", { class: "charts-rail-title" }, ["Chart types"]),
-        this.railToggle,
-      ]),
-      this.railList,
-    ]);
     this.root.classList.add("charts-panel");
-    const main = el("div", { class: "charts-main" }, [toolbar, this.grid, this.empty]);
-    // The wrapper guarantees the rail sits beside the whole panel (toolbar and
-    // grid), regardless of the host element's own display rules.
-    this.root.append(el("div", { class: "charts-layout" }, [this.rail, main]));
-    this.applyRailState();
-    this.syncRail();
+    const main = el("div", { class: "charts-main" }, [toolbar, this.addPanel.root, this.grid, this.empty]);
+    this.root.append(el("div", { class: "charts-layout" }, [main]));
     this.syncLayout();
     this.syncEmpty();
   }
 
-  /** Rebuilds the rail tiles from the current columns and their fit. */
-  private syncRail(): void {
-    this.railList.replaceChildren();
-    for (const kind of GALLERY_KINDS) {
-      const fit = fitChartKind(kind, this.columns, this.rowCount);
-      const tile = el(
-        "button",
-        { class: "charts-rail-tile", type: "button" },
-        [],
-      ) as HTMLButtonElement;
-      const icon = el("span", { class: "charts-rail-icon" });
-      icon.innerHTML = `<svg viewBox="0 0 72 48" aria-hidden="true">${CHART_KIND_ICONS[kind]}</svg>`;
-      tile.append(icon, el("span", { class: "charts-rail-label" }, [CHART_KIND_LABELS[kind]]));
-      tile.setAttribute("aria-disabled", fit.ok ? "false" : "true");
-      tile.title = fit.ok
-        ? `Add a ${CHART_KIND_LABELS[kind].toLowerCase()} chart`
-        : `${CHART_KIND_LABELS[kind]} — ${fit.reason}`;
-      if (!fit.ok) {
-        const reason = el("span", {
-          class: "sr-only",
-          id: `chart-rail-reason-${kind}`,
-        }, [fit.reason]);
-        tile.append(reason);
-        tile.setAttribute("aria-describedby", reason.id);
-      }
-      tile.addEventListener("click", () => {
-        if (!fit.ok) return;
-        void this.openChartSetup(fit.preset);
-      });
-      this.railList.append(tile);
+  private async toggleGuide(opener: HTMLElement): Promise<void> {
+    if (this.guide === null) {
+      const { ChartGuide } = await import("./chart-guide.js");
+      if (this.guide !== null) return;
+      this.guide = new ChartGuide(() => ({
+        columns: this.columns,
+        rowCount: this.rowCount,
+        picks: () => this.addPanel.picked(),
+      }));
+      this.root.append(this.guide.root);
     }
+    this.guide.toggle(opener);
   }
 
   /**
-   * Confirmation step shared by the rail and the gallery: shows the chart
-   * type and its columns, and only then adds the card, so a stray click can
-   * never add an invisible chart. The new card is scrolled into view and
-   * briefly highlighted.
+   * Adds a card the user just asked for: at the top of the grid, scrolled into
+   * view, outlined briefly and announced with an Undo, so the new chart is
+   * never added out of sight. Restore, duplicate and drill keep their own order.
    */
-  private async openChartSetup(preset: Partial<ChartCardConfig>): Promise<void> {
-    if (this.setupOpen) return;
-    this.setupOpen = true;
-    const kind = preset.kind ?? "histogram";
-    try {
-      const config = await openChartSetupDialog(kind, this.columns, preset);
-      if (config === null) return;
-      const card = this.addCard(config);
-      card.root.classList.add("chart-card-new");
-      card.root.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
-      window.setTimeout(() => card.root.classList.remove("chart-card-new"), 1500);
-      this.options.onCardAdded?.(CHART_KIND_LABELS[kind]);
-    } finally {
-      this.setupOpen = false;
-    }
+  private placeNewCard(config: Partial<ChartCardConfig>, label: string): ChartCard {
+    const first = this.entries[0];
+    const card = this.addCard(
+      config,
+      first === undefined ? null : first.type === "orphan" ? first.root : first.card.root,
+    );
+    card.root.classList.add("chart-card-new");
+    card.root.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    window.setTimeout(() => card.root.classList.remove("chart-card-new"), 1500);
+    this.options.onCardAdded?.(label, () => this.removeCard(card));
+    this.addPanel.reset();
+    this.addPanel.close();
+    return card;
   }
 
-  private toggleRail(): void {
-    this.railCollapsed = !this.railCollapsed;
-    try {
-      localStorage.setItem(RAIL_KEY, this.railCollapsed ? "1" : "0");
-    } catch {
-      // Persisting the preference is best-effort.
-    }
-    this.applyRailState();
-  }
-
-  private applyRailState(): void {
-    this.rail.classList.toggle("collapsed", this.railCollapsed);
-    this.railToggle.textContent = this.railCollapsed ? "⟩" : "⟨";
-    this.railToggle.title = this.railCollapsed
-      ? "Expand the chart type list"
-      : "Collapse to icons";
+  /** Public entry for "Chart this" and column actions: same placement as the builder. */
+  addChart(config: Partial<ChartCardConfig>, label?: string): ChartCard {
+    const kind = config.kind ?? "histogram";
+    return this.placeNewCard(config, label ?? CHART_KIND_LABELS[kind]);
   }
 
   private cards(): ChartCard[] {
@@ -653,7 +611,7 @@ export class ChartsPanel {
         onShowRows: this.options.onShowRows,
         onDrill: (target, filters, label) =>
           void this.drillCard(target, filters, label),
-        onBreakDown: (target) => void this.breakDownCard(target),
+        onBreakDown: (target) => this.breakDownCard(target),
         onCompare: (target) => this.compareCard(target),
         onConvertToken: this.options.onConvertToken,
         onSuggestion: this.options.onSuggestion,
@@ -693,6 +651,7 @@ export class ChartsPanel {
   /** Sources every card can bind to: the filtered table plus each saved view. */
   setSources(sources: { id: string; name: string; kind?: "pivot" | "view" }[]): void {
     this.sources = sources;
+    this.addPanel.setSources(sources);
     for (const card of this.cards()) card.setSources(sources);
   }
 
@@ -705,12 +664,12 @@ export class ChartsPanel {
 
   /** "Chart this" from the Views lens: a card bound to the view's result. */
   addViewChart(view: ViewDef): void {
-    this.addCard({ kind: "bar", source: view.id, title: view.name });
+    this.addChart({ kind: "bar", source: view.id, title: view.name });
   }
 
   /** Create a pivot-matrix heatmap bound to a pivot view. */
   addPivotHeatmap(view: ViewDef): void {
-    this.addCard({ kind: "pivotHeatmap", source: view.id, title: view.name });
+    this.addChart({ kind: "pivotHeatmap", source: view.id, title: view.name });
   }
 
   removeCard(card: ChartCard): void {
@@ -769,34 +728,29 @@ export class ChartsPanel {
       this.options.onCardAdded?.(`${CHART_KIND_LABELS[config.kind]} drill`);
       return;
     }
-    await this.breakDownCard(card);
+    this.breakDownCard(card);
   }
 
-  /** Reuse the add-chart builder to create a breakdown without hidden state. */
-  private async breakDownCard(card: ChartCard): Promise<void> {
-    if (this.setupOpen) return;
-    this.setupOpen = true;
+  /** A breakdown starts from the same defaults as any other new chart. */
+  private breakDownCard(card: ChartCard): void {
     const config = card.getConfig();
-    const numericMeasure =
-      config.valueColumn !== undefined && config.valueColumn >= 0
-        ? { valueColumn: config.valueColumn, valueAgg: config.valueAgg ?? "mean" }
-        : {};
-    const kind: ChartCardKind = config.valueColumn !== undefined && config.valueColumn >= 0
-      ? "barplot"
-      : "bar";
-    try {
-      const next = await openChartSetupDialog(kind, this.columns, {
+    const hasMeasure = config.valueColumn !== undefined && config.valueColumn >= 0;
+    const kind: ChartCardKind = hasMeasure ? "barplot" : "bar";
+    const fit = fitChartKind(kind, this.columns, this.rowCount);
+    if (!fit.ok) {
+      this.options.onCardEdited?.(`No breakdown fits: ${fit.reason}`);
+      return;
+    }
+    this.placeNewCard(
+      {
+        ...fit.preset,
         kind,
         source: config.source,
         respectFilters: config.respectFilters,
-        ...numericMeasure,
-      });
-      if (next === null) return;
-      this.addCard(next);
-      this.options.onCardAdded?.(CHART_KIND_LABELS[kind]);
-    } finally {
-      this.setupOpen = false;
-    }
+        ...(hasMeasure ? { valueColumn: config.valueColumn, valueAgg: config.valueAgg ?? "mean" } : {}),
+      },
+      CHART_KIND_LABELS[kind],
+    );
   }
 
   /** Explicit duplicate for side-by-side comparison; both charts stay editable. */
@@ -824,7 +778,7 @@ export class ChartsPanel {
     this.rawColumns = columns;
     this.columns = withChartGroups(this.withKnownGroups(columns));
     if (this.groupsWanted) this.fetchMissingGroups(columns);
-    this.syncRail();
+    this.addPanel.setColumns(this.columns, this.rowCount);
     for (const card of this.cards()) card.setColumns(this.columns);
     this.syncEmpty();
   }
@@ -897,7 +851,6 @@ export class ChartsPanel {
   restore(configs: readonly RestoredChartConfig[], columns: ColumnMeta[]): void {
     this.rawColumns = columns;
     this.columns = withChartGroups(this.withKnownGroups(columns));
-    this.syncRail();
     for (const config of configs) {
       if ((config.missingColumns?.length ?? 0) > 0) {
         this.addOrphan(config.namedConfig ?? (config as unknown as NamedChartCardConfig));
@@ -1001,6 +954,7 @@ export class ChartsPanel {
 
   setRowCount(count: number): void {
     this.rowCount = count;
+    this.addPanel.setColumns(this.columns, count);
     for (const card of this.cards()) card.setRowCount(count);
   }
 
@@ -1019,6 +973,8 @@ export class ChartsPanel {
   }
 
   dispose(): void {
+    if (this.guideKey !== null) document.removeEventListener("keydown", this.guideKey);
+    this.guide?.root.remove();
     for (const card of this.cards()) card.dispose();
     this.entries = [];
   }
@@ -1036,7 +992,12 @@ export class ChartsPanel {
     const isEmpty = this.entries.length === 0;
     this.empty.classList.toggle("hidden", !isEmpty);
     this.grid.classList.toggle("hidden", isEmpty);
-    if (!isEmpty) return;
+    if (!isEmpty) {
+      // A builder opened for an empty tab folds away once any chart exists.
+      if (this.addPanelAuto) this.addPanel.close();
+      this.addPanelAuto = false;
+      return;
+    }
     this.empty.replaceChildren();
     if (this.columns.length === 0) {
       this.empty.append(
@@ -1044,9 +1005,14 @@ export class ChartsPanel {
       );
       return;
     }
+    // An empty Chart tab starts in the builder: fields and quick starts, no extra click.
+    this.addPanel.setColumns(this.columns, this.rowCount);
+    this.addPanel.setSources(this.sources);
+    this.addPanelAuto = !this.addPanel.isOpen;
+    this.addPanel.open(false);
     this.empty.append(
       el("div", { class: "charts-empty-title" }, [
-        "No charts yet — pick a type from the rail or use + Add chart",
+        "No charts yet — use + Add chart to start from your fields, or choose a chart type there",
       ]),
     );
   }

@@ -7,6 +7,7 @@ import type { ColumnMeta } from "../worker/protocol.js";
 import type { ColumnType } from "../types.js";
 import { detectGeoPair } from "../data/geo.js";
 import { looksLikeIdName } from "../data/identifier.js";
+import { quickStarts, type QuickStart, type RecColumn, type RecType } from "./chart-recommender.js";
 
 export type ChartKind = "histogram" | "line" | "bar" | null;
 
@@ -218,18 +219,6 @@ function bestBy(
   return best;
 }
 
-function aggregateForMeasure(meta: ColumnMeta): "sum" | "mean" {
-  return /(rate|ratio|percent|pct|margin|score|price|temperature|avg|average|index|discount)/i.test(
-    meta.name,
-  )
-    ? "mean"
-    : "sum";
-}
-
-function aggregateTitle(meta: ColumnMeta, agg: "sum" | "mean"): string {
-  return agg === "mean" ? `Average ${meta.name}` : meta.name;
-}
-
 export interface DefaultCardPick {
   kind: ChartCardKind;
   column: number;
@@ -296,17 +285,63 @@ export interface ChartIdea {
     y: number;
     valueColumn: number;
     valueAgg: "sum" | "mean";
+    correlationColumns: number[];
   }>;
 }
 
+/** Describe a column to the recommender: metadata only, never rows. */
+export function toRecColumn(meta: ColumnMeta, index: number, rowCount: number): RecColumn {
+  const distinct = meta.stats.distinct;
+  let type: RecType;
+  if (isIdLikeColumn(meta, rowCount) || meta.type === "identifier") type = "id";
+  else if (meta.type === "string") type = isGroupable(meta) ? "category" : "text";
+  else if (meta.type === "duration") type = "number";
+  else type = meta.type;
+  const dated = meta.type === "date" || meta.type === "datetime";
+  return {
+    name: meta.name,
+    type,
+    distinct,
+    index,
+    nullPct: rowCount > 0 ? (meta.stats.nulls / rowCount) * 100 : 0,
+    min: dated && typeof meta.stats.min === "number" ? meta.stats.min : null,
+    max: dated && typeof meta.stats.max === "number" ? meta.stats.max : null,
+    avgLen: meta.stats.avgLength ?? undefined,
+  };
+}
+
+function ideaFor(start: QuickStart): ChartIdea | null {
+  const [a = -1, b = -1] = start.indexes;
+  if (start.indexes.some((index) => index < 0)) return null;
+  const valueAgg = start.cfg.agg === "mean" ? "mean" : "sum";
+  switch (start.chart) {
+    case "timeseries":
+      // The card buckets time on Auto, so the label names no unit it might not use.
+      return {
+        label: start.title.replace(/ by [a-z]+$/, " over time"),
+        preset: { kind: "line", column: a, ...(b >= 0 ? { valueColumn: b, valueAgg } : {}) },
+      };
+    case "barplot":
+      return { label: start.title, preset: { kind: "barplot", column: a, valueColumn: b, valueAgg } };
+    case "countplot":
+      return { label: start.title, preset: { kind: "bar", column: a } };
+    case "histogram":
+      return { label: start.title, preset: { kind: "histogram", column: a } };
+    case "scatter":
+    case "density":
+      return { label: start.title, preset: { kind: start.chart, x: a, y: b } };
+    case "correlation":
+      return { label: start.title, preset: { kind: "correlation", correlationColumns: start.indexes } };
+    default:
+      return null;
+  }
+}
+
 /**
- * Up to three useful charts, ranked by semantic field quality and measures.
- * Maps are reserved first when real coordinates exist.
+ * Up to three starting charts, chosen by column role and name hints rather
+ * than file order. Maps are reserved first when real coordinates exist.
  */
 export function suggestCharts(columns: readonly ColumnMeta[], rowCount = 0): ChartIdea[] {
-  const entries = columns
-    .map((meta, index) => ({ meta, index }))
-    .filter((entry) => entry.meta.role !== "provenance");
   const ideas: ChartIdea[] = [];
   const geo = detectGeoPair(columns, rowCount);
   if (geo !== null) {
@@ -315,84 +350,38 @@ export function suggestCharts(columns: readonly ColumnMeta[], rowCount = 0): Cha
       preset: { kind: "map", x: geo.lon, y: geo.lat },
     });
   }
-
-  const date = bestBy(entries, (entry) => dateScore(entry, rowCount))?.entry;
-  const category = bestBy(entries, (entry) => categoryScore(entry, rowCount))?.entry;
-  const measures = entries
-    .map((entry) => ({ entry, score: measureScore(entry, rowCount) }))
-    .filter((item) => Number.isFinite(item.score))
-    .sort((a, b) => b.score - a.score || a.entry.index - b.entry.index)
-    .map((item) => item.entry);
-  const measure = measures[0];
-  const secondMeasure = measures[1];
-
-  if (date !== undefined) {
-    if (measure !== undefined) {
-      const agg = aggregateForMeasure(measure.meta);
-      ideas.push({
-        label: `${aggregateTitle(measure.meta, agg)} over time`,
-        preset: {
-          kind: "line",
-          column: date.index,
-          valueColumn: measure.index,
-          valueAgg: agg,
-        },
-      });
-    } else {
-      ideas.push({ label: "Rows over time", preset: { kind: "line", column: date.index } });
-    }
+  const rec: RecColumn[] = [];
+  columns.forEach((meta, index) => {
+    if (meta.role !== "provenance") rec.push(toRecColumn(meta, index, rowCount));
+  });
+  for (const start of quickStarts(rec, rowCount)) {
+    const idea = ideaFor(start);
+    if (idea !== null) ideas.push(idea);
   }
-
-  if (category !== undefined) {
-    if (measure !== undefined) {
-      const agg = aggregateForMeasure(measure.meta);
-      ideas.push({
-        label: `${aggregateTitle(measure.meta, agg)} by ${category.meta.name}`,
-        preset: {
-          kind: "barplot",
-          column: category.index,
-          valueColumn: measure.index,
-          valueAgg: agg,
-        },
-      });
-    } else {
-      ideas.push({
-        label: `Rows by ${category.meta.name}`,
-        preset: { kind: "bar", column: category.index },
-      });
-    }
-  }
-
-  if (measure !== undefined) {
-    ideas.push({
-      label: `Distribution of ${measure.meta.name}`,
-      preset: { kind: "histogram", column: measure.index },
-    });
-  }
-
-  if (secondMeasure !== undefined) {
-    ideas.push({
-      label: `${measure?.meta.name ?? secondMeasure.meta.name} vs ${secondMeasure.meta.name}`,
-      preset: { kind: "scatter", x: (measure ?? secondMeasure).index, y: secondMeasure.index },
-    });
-  }
-
-  const heatCategories = entries
-    .filter((entry) => categoryScore(entry, rowCount) > Number.NEGATIVE_INFINITY)
-    .sort((a, b) => categoryScore(b, rowCount) - categoryScore(a, rowCount));
-  if (heatCategories.length >= 2) {
-    ideas.push({
-      label: `${heatCategories[0]?.meta.name} x ${heatCategories[1]?.meta.name}`,
-      preset: {
-        kind: "heatmap",
-        x: heatCategories[0]?.index ?? -1,
-        y: heatCategories[1]?.index ?? -1,
-      },
-    });
-  }
-
   return ideas.slice(0, 3);
 }
+
+const AGG_WORDS: Record<string, string> = {
+  sum: "Sum",
+  mean: "Average",
+  avg: "Average",
+  median: "Median",
+  min: "Min",
+  max: "Max",
+  count: "Count",
+  distinct: "Distinct count",
+  stddev: "Std dev",
+  variance: "Variance",
+};
+
+/** "sum(units)" -> "Sum of units", "count(*)" -> "Rows"; anything else is left as written. */
+export function plainMeasureName(name: string): string {
+  if (name === "count(*)") return "Rows";
+  const match = /^(\w+)\((.+?)\)(.*)$/.exec(name);
+  const word = match === null ? undefined : AGG_WORDS[match[1]];
+  return match === null || word === undefined ? name : `${word} of ${match[2]}${match[3]}`;
+}
+
 /** Axis tick formatting: temporal types get their own tick text. */
 export type AxisFormat = "line" | "datetime" | "time" | "duration";
 

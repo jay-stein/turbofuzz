@@ -3,7 +3,9 @@ import type { ColumnMeta } from "../worker/protocol.js";
 import { DEFAULT_PALETTE } from "../data/palettes.js";
 import type { ChartCardConfig } from "./chart-card.js";
 import { fitChartKind } from "./chart-gallery.js";
-import { CHART_COLORS } from "./chart-utils.js";
+import { aggFor } from "./chart-names.js";
+import { profile, type RecProfile } from "./chart-recommender.js";
+import { CHART_COLORS, toRecColumn, type ChartCardKind } from "./chart-utils.js";
 
 /** Fresh defaults for every chart entry point: add, edit, duplicate, reset. */
 export function defaultChartConfig(): ChartCardConfig {
@@ -106,4 +108,111 @@ export function nextFinerGrain(grain: TimeGrain | "auto" | undefined): TimeGrain
   if (grain === undefined || grain === "auto") return "day";
   const index = order.indexOf(grain);
   return index > 0 ? order[index - 1] : null;
+}
+export type ValueAgg = NonNullable<ChartCardConfig["valueAgg"]>;
+
+/** One field the user put on the builder shelf. */
+export interface BuilderPick {
+  index: number;
+  /** Aggregation chip for a measure; defaults to the name-based choice. */
+  agg?: ValueAgg;
+}
+
+/** Recommender chart ids that map to one of the card's own kinds. */
+const RECOMMENDED_KIND: Record<string, ChartCardKind> = {
+  timeseries: "line",
+  countplot: "bar",
+  topterms: "terms",
+  boxplot: "box",
+  histogram: "histogram",
+  barplot: "barplot",
+  treemap: "treemap",
+  heatmap: "heatmap",
+  scatter: "scatter",
+  density: "density",
+  bubble: "bubble",
+  correlation: "correlation",
+  kpi: "kpi",
+  map: "map",
+};
+
+export function kindForRecommended(chart: string): ChartCardKind | null {
+  return RECOMMENDED_KIND[chart] ?? null;
+}
+
+/**
+ * Fill a chart kind's slots from the shelf, by role. The same builder serves
+ * a recommended tile and an explicit type choice; slots the shelf leaves empty
+ * fall back to the gallery's own fit. Null when the data cannot support the kind.
+ */
+export function configForChart(
+  kind: ChartCardKind,
+  picks: readonly BuilderPick[],
+  columns: readonly ColumnMeta[],
+  rowCount: number,
+): Partial<ChartCardConfig> | null {
+  const fit = fitChartKind(kind, columns, rowCount);
+  if (!fit.ok) return null;
+  type Entry = { pick: BuilderPick; p: RecProfile };
+  const entries: Entry[] = picks.map((pick) => ({
+    pick,
+    p: profile(toRecColumn(columns[pick.index], pick.index, rowCount), rowCount),
+  }));
+  const usable = entries.filter((e) => e.p.role !== "id");
+  const times = usable.filter((e) => e.p.role === "time");
+  const cats = usable.filter((e) => e.p.role.startsWith("cat") && e.p.canMeasure !== true);
+  const lowNumbers = usable.filter((e) => e.p.canMeasure === true);
+  const measures = [...usable.filter((e) => e.p.role === "measure"), ...lowNumbers];
+  const catsAll = [...cats, ...lowNumbers];
+  const texts = usable.filter((e) => e.p.role === "text");
+  const agg = (e: Entry): ValueAgg => e.pick.agg ?? aggFor(columns[e.pick.index].name);
+  const set: Partial<ChartCardConfig> = {};
+  const [m0, m1, m2] = measures;
+  const [c0, c1] = catsAll;
+  const [t0] = times;
+  switch (kind) {
+    case "histogram":
+      if (m0) set.column = m0.pick.index;
+      break;
+    case "line":
+      if (t0) set.column = t0.pick.index;
+      if (m0) Object.assign(set, { valueColumn: m0.pick.index, valueAgg: agg(m0) });
+      if (cats[0]) set.groupColumn = cats[0].pick.index;
+      break;
+    case "bar":
+      if (c0) set.column = c0.pick.index;
+      break;
+    case "barplot":
+    case "treemap":
+      if (c0) set.column = c0.pick.index;
+      if (m0 && m0 !== c0) Object.assign(set, { valueColumn: m0.pick.index, valueAgg: agg(m0) });
+      break;
+    case "box":
+      if (m0) set.x = m0.pick.index;
+      if (c0 && c0 !== m0) set.y = c0.pick.index;
+      break;
+    case "heatmap":
+      if (c0) set.x = c0.pick.index;
+      if (c1) set.y = c1.pick.index;
+      break;
+    case "scatter":
+    case "density":
+    case "bubble":
+      if (m0) set.x = m0.pick.index;
+      if (m1) set.y = m1.pick.index;
+      if (kind === "bubble" && m2) set.sizeColumn = m2.pick.index;
+      break;
+    case "correlation":
+      if (measures.length >= 2) set.correlationColumns = measures.map((e) => e.pick.index);
+      break;
+    case "kpi":
+      if (m0) Object.assign(set, { column: m0.pick.index, valueColumn: m0.pick.index, valueAgg: agg(m0) });
+      break;
+    case "terms":
+      if (texts[0]) set.column = texts[0].pick.index;
+      break;
+    default:
+      break;
+  }
+  return { ...fit.preset, ...set, kind };
 }

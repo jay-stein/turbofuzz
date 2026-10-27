@@ -5197,113 +5197,21 @@ mark {
   gap: 8px;
 }
 
-.charts-rail {
-  flex: none;
-  width: 172px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  background: var(--panel);
-  position: sticky;
-  top: 45px;
-}
 
-.charts-rail.collapsed {
-  width: 52px;
-  padding: 8px 6px;
-}
 
-.charts-rail-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
-}
 
-.charts-rail-title {
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-dim);
-}
 
-.charts-rail.collapsed .charts-rail-title {
-  display: none;
-}
 
-.charts-rail.collapsed .charts-rail-head {
-  justify-content: center;
-}
 
-.charts-rail-list {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
 
-.charts-rail-tile {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 4px 6px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: var(--fs-sm);
-  text-align: left;
-  cursor: pointer;
-}
 
-.charts-rail-tile:hover:not(:disabled):not([aria-disabled="true"]) {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
 
-.charts-rail-tile:disabled,
-.charts-rail-tile[aria-disabled="true"] {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
 
-.charts-rail-icon {
-  flex: none;
-  display: inline-flex;
-  width: 26px;
-  height: 18px;
-  color: var(--accent);
-}
 
-.charts-rail-icon svg {
-  width: 100%;
-  height: 100%;
-}
 
-.charts-rail-tile:disabled .charts-rail-icon,
-.charts-rail-tile[aria-disabled="true"] .charts-rail-icon {
-  color: var(--text-dim);
-}
 
-.charts-rail-label {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
-.charts-rail.collapsed .charts-rail-tile {
-  justify-content: center;
-  padding: 4px;
-}
 
-.charts-rail.collapsed .charts-rail-label {
-  display: none;
-}
 
 .chart-animation-label {
   font-size: var(--fs-sm);
@@ -5729,7 +5637,7 @@ select.chart-number {
 .charts-toolbar {
   position: sticky;
   top: 45px;
-  z-index: 2;
+  z-index: 5;
   padding: 6px 0;
   margin: -6px 0;
   background: var(--bg);
@@ -6189,55 +6097,6 @@ select.chart-number {
 
 /* ---------- chart type gallery ---------- */
 
-.chart-gallery {
-  width: min(540px, calc(100vw - 24px));
-  padding: 6px 10px 12px;
-  gap: 0;
-}
-
-.chart-gallery-question {
-  font-size: var(--fs-xs);
-  color: var(--text-dim);
-  margin: 2px 0 0;
-}
-
-.chart-gallery .context-header {
-  padding-top: 8px;
-}
-
-.chart-gallery-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(98px, 1fr));
-  gap: 6px;
-  margin: 4px 0 6px;
-}
-
-.chart-tile {
-  font: inherit;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 6px 7px;
-  border-radius: 9px;
-  border: 1px solid var(--border-subtle);
-  background: var(--panel);
-  color: var(--text);
-  cursor: pointer;
-  text-align: center;
-}
-
-.chart-tile:hover:not(:disabled):not([aria-disabled="true"]) {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.chart-tile:disabled,
-.chart-tile[aria-disabled="true"] {
-  opacity: 0.55;
-  cursor: default;
-}
-
 .chart-tile-preview {
   display: block;
   width: 72px;
@@ -6249,15 +6108,6 @@ select.chart-number {
   display: block;
   width: 100%;
   height: 100%;
-}
-
-.chart-tile-label {
-  font-size: var(--fs-sm);
-}
-
-.chart-tile-reason {
-  font-size: var(--fs-xs);
-  color: var(--text-dim);
 }
 
 .chart-source-field {
@@ -7912,18 +7762,18 @@ label.null-row {
   container-type: inline-size;
 }
 
+.chart-card {
+  position: relative;
+  /* Colour swatches and the settings drawer stay inside their card, under the sticky toolbar. */
+  isolation: isolate;
+}
+
+/* The chart takes the whole card; settings open as a drawer over its right edge. */
 .chart-card-layout {
-  display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
+  display: block;
 }
 
-.chart-card-layout.sidebar-collapsed {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.chart-card-layout.sidebar-collapsed > .chart-sidebar {
+.chart-card-layout > .chart-sidebar {
   display: none;
 }
 
@@ -7935,13 +7785,19 @@ label.null-row {
 }
 
 .chart-sidebar {
-  display: flex;
   flex-direction: column;
   padding: 4px 12px;
-  border-radius: 10px;
-  background: var(--panel-2);
-  max-height: 560px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-pop);
+  max-height: min(560px, 70vh);
   overflow-y: auto;
+  position: absolute;
+  top: 44px;
+  right: 8px;
+  width: min(300px, calc(100% - 16px));
+  z-index: 6;
 }
 
 .chart-side-section {
@@ -8051,15 +7907,6 @@ label.null-row {
   flex: 0 1 55%;
   max-width: 55%;
   min-width: 0;
-}
-
-@container (max-width: 640px) {
-  .chart-card-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .chart-sidebar {
-    max-height: none;
-  }
 }
 
 .chart-card-layout.sidebar-open > .chart-sidebar {
@@ -8179,13 +8026,6 @@ label.null-row {
 
 .views-pill.add.views-zone-add:hover {
   background: var(--panel);
-}
-
-/* Narrow cards (dense grids) keep the settings behind the toggle so the chart stays in view. */
-@container (max-width: 640px) {
-  .chart-card-layout:not(.sidebar-open) > .chart-sidebar {
-    display: none;
-  }
 }
 
 /* Column network: draggable nodes and hover cards. */
@@ -8747,44 +8587,16 @@ summary:focus-visible,
 
 /* ---------- polish: narrow chart layout ---------- */
 
-@container (max-width: 640px) {
-  .chart-card-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 @media (max-width: 720px) {
   .charts-layout {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .charts-rail,
-  .charts-rail.collapsed {
-    position: static;
-    width: 100%;
-    padding: 6px 8px;
-  }
 
-  .charts-rail-head {
-    display: none;
-  }
 
-  .charts-rail-list {
-    flex-direction: row;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
 
-  .charts-rail-list::-webkit-scrollbar {
-    display: none;
-  }
 
-  .charts-rail-tile {
-    width: auto;
-    flex: none;
-    white-space: nowrap;
-  }
 }
 
 /* ---------- polish: outliers loading, column tiles, matrix ---------- */
@@ -8962,4 +8774,668 @@ body:has(.modal-overlay) .hint-callout {
    workspace would resize the chart in a loop; keep its gutter reserved. */
 .workspace-body:has(.charts-main) {
   scrollbar-gutter: stable;
+}
+
+/* ---------- polish: chart controls (one size, one weight) ----------
+   Every icon button in a chart card head is a 32px square, with a 16px glyph
+   that never shrinks. `.ghost.small` has higher specificity than a single
+   class, so these selectors carry `.chart-card button` to win. */
+.chart-card button.chart-focus-btn,
+.chart-card button.chart-width-btn,
+.chart-card button.chart-animate-btn,
+.chart-card button.chart-more,
+.chart-card button.chart-remove {
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-sizing: border-box;
+  width: var(--control-h);
+  min-width: var(--control-h);
+  height: var(--control-h);
+  min-height: 0;
+  padding: 0;
+  gap: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--fs-xl);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chart-card button.chart-focus-btn:hover,
+.chart-card button.chart-width-btn:hover,
+.chart-card button.chart-animate-btn:hover,
+.chart-card button.chart-more:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.chart-card button.chart-remove:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+.chart-card button.chart-width-btn.active,
+.chart-card button.chart-animate-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.chart-card button.chart-focus-btn:focus-visible,
+.chart-card button.chart-width-btn:focus-visible,
+.chart-card button.chart-animate-btn:focus-visible,
+.chart-card button.chart-more:focus-visible,
+.chart-card button.chart-remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.chart-card button.chart-focus-btn.hidden,
+.chart-card button.chart-animate-btn.hidden {
+  display: none;
+}
+
+.chart-card button.chart-focus-btn > span,
+.chart-card button.chart-width-btn > span,
+.chart-card button.chart-animate-btn > span {
+  display: none;
+}
+
+.chart-card button.chart-focus-btn svg,
+.chart-card button.chart-width-btn svg,
+.chart-card button.chart-animate-btn svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+/* The remove button joins the row (last) instead of floating over it. */
+.chart-card button.chart-remove {
+  order: 99;
+}
+
+.chart-card .chart-card-head {
+  padding-right: 0;
+  gap: var(--sp-1);
+}
+
+/* Settings column: one control height for selects and text inputs. */
+.chart-sidebar select.chart-picker,
+.chart-sidebar .chart-title,
+.chart-sidebar .chart-axis-title,
+.chart-sidebar .chart-hex {
+  box-sizing: border-box;
+  height: var(--control-h);
+  min-height: 0;
+  border-radius: var(--radius-sm);
+}
+
+.chart-sidebar select.chart-picker:disabled:empty {
+  display: none;
+}
+
+.chart-sidebar {
+  padding-bottom: var(--sp-3, 12px);
+  max-height: 680px;
+}
+
+.chart-sidebar .chart-picker,
+.chart-sidebar .chart-picker-small,
+.chart-card .chart-sidebar .chart-picker {
+  flex-basis: 60%;
+  max-width: 60%;
+}
+
+/* Data issues: a quiet note with pill actions, not raw browser buttons. */
+.chart-data-issues {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2) 10px;
+  border: 1px solid var(--qa-warn-border);
+  border-radius: var(--radius-sm);
+  background: var(--qa-warn-soft);
+  color: var(--qa-warn-text);
+  font-size: var(--fs-sm);
+}
+
+.chart-data-issues.hidden {
+  display: none;
+}
+
+.chart-issue-heading {
+  font-weight: 650;
+  font-size: var(--fs-sm);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.chart-issue-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-issue-label {
+  margin-right: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-issue-chip {
+  box-sizing: border-box;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--qa-warn-border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--qa-warn-text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chart-issue-chip:hover,
+.chart-issue-chip[aria-pressed="true"] {
+  background: var(--qa-warn-border);
+  color: #1c1400;
+}
+
+.chart-issue-chip.fix {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.chart-issue-chip.fix:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.chart-issue-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.chart-issue-more {
+  opacity: 0.8;
+}
+
+/* Phones: 40px tap targets, matching the other toolbars. */
+@media (max-width: 720px) {
+  .chart-card button.chart-focus-btn,
+  .chart-card button.chart-width-btn,
+  .chart-card button.chart-animate-btn,
+  .chart-card button.chart-more,
+  .chart-card button.chart-remove {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+  }
+}
+
+/* Data-first "Add a chart" panel: source, fields, recommended charts. */
+.chart-add-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin: var(--sp-2) 0;
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.chart-add-panel.hidden {
+  display: none;
+}
+
+.chart-add-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.chart-add-head h3 {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+.chart-add-source {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-left: auto;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+.chart-add-block h4,
+.chart-add-body h4 {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.chart-add-quick,
+.chart-add-fields,
+.chart-add-shelf,
+.chart-add-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.chart-add-quick-btn,
+.chart-add-field,
+.chart-add-type,
+.chart-add-tile,
+.chart-add-agg,
+.chart-add-clear {
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.chart-add-quick-btn,
+.chart-add-field,
+.chart-add-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--control-h);
+  padding: 0 var(--sp-2);
+}
+
+.chart-add-quick-btn {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.chart-add-field {
+  max-width: 220px;
+}
+
+.chart-add-field[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.chart-add-field-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-add-field-meta {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+.chart-add-role {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--panel-2);
+}
+
+.chart-add-role.role-id {
+  color: var(--text-dim);
+}
+
+.chart-add-shelf:empty {
+  display: none;
+}
+
+.chart-add-shelf {
+  margin-top: var(--sp-2);
+}
+
+.chart-add-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  font-size: var(--fs-sm);
+}
+
+.chart-add-agg,
+.chart-add-clear {
+  padding: 0 var(--sp-2);
+  min-height: 24px;
+}
+
+.chart-add-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--sp-2);
+}
+
+.chart-add-tile {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  text-align: left;
+}
+
+.chart-add-tile:hover,
+.chart-add-type:hover:not([aria-disabled="true"]),
+.chart-add-field:hover,
+.chart-add-quick-btn:hover {
+  border-color: var(--accent);
+}
+
+.chart-add-tile-icon {
+  flex: none;
+  width: 60px;
+  height: 40px;
+  color: var(--accent);
+}
+
+.chart-add-tile-icon .chart-tile-preview {
+  width: 60px;
+  height: 40px;
+}
+
+.chart-add-tile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chart-add-tile-label {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-weight: 600;
+}
+
+.chart-add-best {
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.chart-add-tile-why,
+.chart-add-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+.chart-add-hint {
+  margin: 0;
+}
+
+.chart-add-type[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.chart-add-message {
+  margin: 0;
+  padding: var(--sp-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  color: var(--qa-warn-text);
+  background: var(--qa-warn-soft);
+}
+
+.chart-add-panel button:focus-visible,
+.chart-add-panel select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+@media (max-width: 720px) {
+  .chart-add-quick-btn,
+  .chart-add-field,
+  .chart-add-type {
+    min-height: 40px;
+  }
+
+  .chart-add-head {
+    flex-wrap: wrap;
+  }
+
+  .chart-add-head h3 {
+    flex: 1;
+  }
+
+  .chart-add-source {
+    order: 3;
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+
+  .chart-add-source select {
+    flex: 1;
+  }
+}
+
+/* View-bound cards show their real chart type as text beside the "Chart type" label. */
+.chart-kind-field {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 60%;
+  min-width: 0;
+}
+
+.chart-kind-field > select {
+  width: 100%;
+}
+
+.chart-kind-static {
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.chart-kind-static.hidden {
+  display: none;
+}
+
+/* Guide drawer: right side from 1280px, bottom sheet below. Loaded on first open. */
+.chart-guide {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  max-height: 60vh;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.chart-guide.hidden {
+  display: none;
+}
+
+@media (min-width: 1280px) {
+  .chart-guide {
+    top: 96px;
+    left: auto;
+    width: 360px;
+    max-height: none;
+    border-radius: var(--radius) 0 0 var(--radius);
+  }
+}
+
+.chart-guide-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.chart-guide-head h3 {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+.chart-guide-tabs {
+  display: flex;
+  gap: var(--sp-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.chart-guide-tab {
+  font: inherit;
+  font-size: var(--fs-sm);
+  min-height: var(--control-h);
+  padding: 0 var(--sp-2);
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.chart-guide-tab[aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.chart-guide-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.chart-guide-entry {
+  font-size: var(--fs-sm);
+}
+
+.chart-guide-entry h4,
+.chart-guide-question {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-md);
+}
+
+.chart-guide-question {
+  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.chart-guide-entry p {
+  margin: 0 0 var(--sp-1);
+}
+
+.chart-guide-entry ul,
+.chart-guide-needs ul {
+  margin: 0;
+  padding-left: var(--sp-4);
+}
+
+.chart-guide-needs li.missing {
+  color: var(--danger);
+}
+
+.chart-guide-hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+.chart-guide-badge {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+}
+
+.chart-guide-badge.ok {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.chart-guide-badge.no {
+  color: var(--qa-warn-text);
+  background: var(--qa-warn-soft);
+}
+
+.chart-guide-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-xs);
+}
+
+.chart-guide button:focus-visible,
+.chart-guide a:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.chart-guide-needs {
+  margin-top: var(--sp-2);
+}
+
+/* One short, dismissible note under a chart's heading. */
+.chart-lint {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: var(--sp-1) 0;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  color: var(--qa-warn-text);
+  background: var(--qa-warn-soft);
+  border: 1px solid var(--qa-warn-border);
+}
+
+.chart-lint.error {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.chart-lint.hidden {
+  display: none;
+}
+
+.chart-lint-x {
+  margin-left: auto;
+  min-width: 24px;
+  min-height: 24px;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
 }

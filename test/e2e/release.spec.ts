@@ -210,10 +210,9 @@ test("chart builder adds a barplot and exposes its summary", async ({ page }) =>
   const before = await page.locator(".chart-card").count();
 
   await page.getByRole("button", { name: "+ Add chart" }).click();
-  await expect(page.locator(".chart-gallery")).toBeVisible();
-  await page.locator(".chart-tile").filter({ hasText: "Barplot" }).first().click();
-  await expect(page.locator(".chart-setup-modal")).toBeVisible();
-  await page.locator(".chart-setup-modal .primary").click();
+  await expect(page.locator(".chart-add-panel")).toBeVisible();
+  await page.locator(".chart-add-type").filter({ hasText: "Barplot" }).first().click();
+  await expect(page.locator(".chart-setup-modal")).toHaveCount(0);
 
   await expect(page.locator(".chart-card")).toHaveCount(before + 1);
   await expect(page.locator(".chart-summary").last()).toContainText("Barplot");

@@ -18,7 +18,7 @@ test("the first time-series chart settles instead of resizing in a loop", async 
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
   await page.locator(".view-tabs button", { hasText: "Chart" }).click();
-  await page.locator(".charts-rail-tile").first().waitFor();
+  await page.locator(".chart-add-type").first().waitFor();
   await page.waitForTimeout(800);
   await page.evaluate(() => {
     const w = window as any;
@@ -29,7 +29,7 @@ test("the first time-series chart settles instead of resizing in a loop", async 
       return (orig as any).apply(this, a);
     };
   });
-  await page.locator(".charts-rail-tile", { hasText: /line|time/i }).first().click();
+  await page.locator(".chart-add-type", { hasText: /time series/i }).first().click();
   await page.waitForTimeout(1200);
   const dialog = page.locator(".modal-overlay");
   if (await dialog.count()) await dialog.getByRole("button", { name: /^(Add|Create|OK)/ }).last().click();

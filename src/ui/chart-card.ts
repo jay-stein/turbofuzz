@@ -41,6 +41,8 @@ import {
   type ChartSpec,
 } from "./chart-spec.js";
 import { chartConfigWithDefaults } from "./chart-builder.js";
+import { fieldsFor } from "./chart-registry.js";
+import { lint, type LintNote, type RecColumn } from "./chart-recommender.js";
 import {
   colorForFraction,
   colorFraction,
@@ -86,7 +88,9 @@ import {
   niceTicks,
   zoomPlotBounds,
   parseChartNumber,
+  plainMeasureName,
   rampColor,
+  toRecColumn,
   safeFileName,
   suggestedBinRange,
 } from "./chart-utils.js";
@@ -872,6 +876,10 @@ function missingOrTokens(missing: number, tokens: number): boolean {
 export class ChartCard {
   readonly root: HTMLElement;
 
+  /** Staleness token for the value-aggregate request only. */
+  private valueGeneration = 0;
+  /** Same for the bound view or pivot request, which sibling refreshes must not discard. */
+  private viewGeneration = 0;
   private config = chartConfigWithDefaults();
   private columns: ColumnMeta[] = [];
   private facets: Record<number, number[]> = {};
@@ -1000,6 +1008,8 @@ export class ChartCard {
   private readonly sourceWrap: HTMLElement;
   private sources: { id: string; name: string; kind?: "pivot" | "view" }[] = [];
   private viewResult: AggregateMessage | null = null;
+  /** A view-bound card cannot change type, so its real type is shown as text. */
+  private readonly kindStatic = el("span", { class: "chart-kind-static hidden" });
   private pivotResult: PivotMessage | null = null;
   private readonly pivotRowSelect: HTMLSelectElement;
   private readonly pivotColSelect: HTMLSelectElement;
@@ -1080,6 +1090,9 @@ export class ChartCard {
   private readonly mapControls: HTMLElement;
   private readonly scopeEl: HTMLElement;
   private readonly summaryEl: HTMLElement;
+  /** One short note under the heading (see lint); dismissed notes stay dismissed. */
+  private readonly lintEl = el("div", { class: "chart-lint hidden", role: "note" });
+  private readonly dismissedNotes = new Set<string>();
   private readonly dataIssueEl: HTMLElement;
   private issueSignature = "";
   private readonly noteEl: HTMLElement;
@@ -1091,7 +1104,7 @@ export class ChartCard {
   private sidebar!: HTMLElement;
   private sidebarToggle!: HTMLButtonElement;
   private layoutEl!: HTMLElement;
-  private sidebarShown: boolean | null = null;
+  private sidebarShown = false;
   private settingsDismiss: (() => void) | null = null;
   private hitRegions: HitRegion[] = [];
   private exclusionBar!: HTMLElement;
@@ -1522,6 +1535,7 @@ export class ChartCard {
         class: "ghost small chart-animate-btn",
         type: "button",
         title: "Step this chart through time",
+        "aria-label": "Animate chart",
       },
       [],
     ) as HTMLButtonElement;
@@ -1566,7 +1580,13 @@ export class ChartCard {
       el("div", { class: "chart-side-section" }, children);
     this.kindSelect.classList.add("chart-picker");
     this.sidebar = el("aside", { class: "chart-sidebar", "aria-label": "Chart settings" }, [
-      sideSection(sidebarRow("Chart type", this.kindSelect), this.sourceWrap),
+      sideSection(
+        sidebarRow(
+          "Chart type",
+          el("span", { class: "chart-kind-field" }, [this.kindSelect, this.kindStatic]),
+        ),
+        this.sourceWrap,
+      ),
       sideSection(this.axesPanel, this.valueGrainWrap, this.sortWrap),
       sideSection(this.valueWrap, this.valueAggWrap, this.groupWrap, this.valueCalcWrap),
       sideSection(this.pivotRowWrap, this.pivotColWrap, this.pivotMeasureWrap),
@@ -1576,13 +1596,19 @@ export class ChartCard {
       {
         class: "ghost small chart-sidebar-toggle",
         type: "button",
-        title: "Show or hide chart settings",
-        "aria-label": "Show or hide chart settings",
-        "aria-expanded": "true",
+        title: "Open the settings drawer: type, fields, colours",
+        "aria-label": "Customize this chart",
+        "aria-expanded": "false",
       },
-      ["⇤ Settings"],
+      ["Customize"],
     ) as HTMLButtonElement;
     this.sidebarToggle.addEventListener("click", () => this.toggleSidebar());
+    this.sidebar.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !this.sidebarShown) return;
+      event.stopPropagation();
+      this.toggleSidebar();
+      this.sidebarToggle.focus();
+    });
     head.prepend(this.sidebarToggle);
     head.append(
       el("span", { class: "grow" }),
@@ -2463,6 +2489,7 @@ export class ChartCard {
     this.root.append(head);
     const main = el("div", { class: "chart-card-main" }, [
       this.summaryEl,
+      this.lintEl,
       this.dataIssueEl,
       this.scopeEl,
       this.animationSetup,
@@ -2488,17 +2515,14 @@ export class ChartCard {
   }
 
   /**
-   * The sidebar shows by default; the first click flips whatever is showing,
-   * after which the choice is explicit. Narrow cards stack it above the chart.
+   * Settings live in a drawer that overlays the card, closed by default so the
+   * chart keeps the full width. Escape closes it and returns focus to Customize.
    */
   private toggleSidebar(): void {
-    const shown =
-      this.sidebarShown ?? getComputedStyle(this.sidebar).display !== "none";
-    this.sidebarShown = !shown;
+    this.sidebarShown = !this.sidebarShown;
     this.layoutEl.classList.toggle("sidebar-open", this.sidebarShown);
     this.layoutEl.classList.toggle("sidebar-collapsed", !this.sidebarShown);
     this.sidebarToggle.setAttribute("aria-expanded", String(this.sidebarShown));
-    this.sidebarToggle.textContent = this.sidebarShown ? "⇤ Settings" : "⇥ Settings";
     // The canvas width changes, so redraw at the new size.
     requestAnimationFrame(() => this.render());
   }
@@ -2662,6 +2686,12 @@ export class ChartCard {
     ) {
       this.config.source = "";
     }
+    if (current !== "" && this.sources.length === 0) {
+      // Views arrive after the card on a restore; keep the select from reading blank.
+      this.sourceSelect.append(
+        el("option", { value: current }, [this.config.title || "View"]) as HTMLOptionElement,
+      );
+    }
     this.sourceSelect.value = this.config.source;
   }
 
@@ -2685,6 +2715,7 @@ export class ChartCard {
     const valueOn =
       measureKinds && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
     this.kindSelect.classList.toggle("hidden", bound);
+    this.kindStatic.classList.toggle("hidden", !bound);
     const kpiPrimaryHidden =
       kind === "kpi" && !this.columns.some((meta) => this.isDateLike(meta));
     const groupedValue =
@@ -2727,7 +2758,7 @@ export class ChartCard {
       return;
     }
     const source = this.config.source;
-    const generation = ++this.generation;
+    const generation = ++this.viewGeneration;
     if (this.config.kind === "pivotHeatmap") {
       const pivotSource =
         this.sources.find((entry) => entry.id === source)?.kind === "pivot";
@@ -2739,7 +2770,7 @@ export class ChartCard {
       void this.options
         .requestViewPivot(source)
         .then((message) => {
-          if (generation !== this.generation || this.config.source !== source) return;
+          if (generation !== this.viewGeneration || this.disposed || this.config.source !== source) return;
           this.pivotResult = message;
           this.syncPivotOptions();
           this.render();
@@ -2758,8 +2789,9 @@ export class ChartCard {
     void this.options
       .requestViewAggregate(source)
       .then((message) => {
-        if (generation !== this.generation || this.config.source !== source) return;
+        if (generation !== this.viewGeneration || this.disposed || this.config.source !== source) return;
         this.viewResult = message;
+        this.syncSummary();
         this.render();
       })
       .catch(() => {
@@ -2979,14 +3011,18 @@ export class ChartCard {
   refreshValue(): void {
     const def = this.valueViewDef();
     if (def === null) {
+      this.valueGeneration++;
       if (this.valueResult !== null) this.valueResult = null;
       return;
     }
-    const generation = ++this.generation;
+    // Own counter: the sibling refreshes (line bins, series, ...) bump
+    // `generation` right after this call and used to discard this response,
+    // leaving a freshly added chart on "no groups to draw yet".
+    const generation = ++this.valueGeneration;
     void this.options
       .requestAggregate(def)
       .then((message) => {
-        if (generation !== this.generation || !this.usesValueAggregate()) return;
+        if (generation !== this.valueGeneration || this.disposed || !this.usesValueAggregate()) return;
         this.valueResult = message;
         this.render();
       })
@@ -3059,8 +3095,75 @@ export class ChartCard {
     this.syncSummary();
   }
 
+  /**
+   * The chart's real type. A view bar that sums or averages a column is a
+   * barplot; "Count plot" would misdescribe it.
+   */
+  private viewKindLabel(): string {
+    const kind = this.config.kind;
+    if (kind === "bar" && this.config.source !== "") {
+      const measure = this.viewResult?.measureNames[0];
+      if (measure !== undefined && measure !== "count(*)") return CHART_KIND_LABELS.barplot;
+    }
+    return CHART_KIND_LABELS[kind];
+  }
+
   /** Plain-language sentence describing every semantic choice in the card. */
   private syncSummary(): void {
+    this.syncSummaryText();
+    this.syncNote();
+  }
+
+  /** The most useful lint note for this chart, if any; errors before warnings. */
+  private syncNote(): void {
+    const note = this.lintNote();
+    this.lintEl.classList.toggle("hidden", note === null);
+    if (note === null) {
+      delete this.lintEl.dataset.msg;
+      this.lintEl.replaceChildren();
+      return;
+    }
+    if (this.lintEl.dataset.msg === note.msg) return;
+    this.lintEl.dataset.msg = note.msg;
+    this.lintEl.className = `chart-lint ${note.level}`;
+    const dismiss = el("button", { class: "chart-lint-x", type: "button", title: "Dismiss this note", "aria-label": "Dismiss this note" }, ["×"]);
+    dismiss.addEventListener("click", () => {
+      this.dismissedNotes.add(note.msg);
+      delete this.lintEl.dataset.msg;
+      this.syncNote();
+    });
+    this.lintEl.replaceChildren(el("span", {}, [note.msg]), dismiss);
+  }
+
+  private lintNote(): LintNote | null {
+    const config = this.config;
+    if (config.kind === "pivotHeatmap" || config.source !== "" || this.columns.length === 0) return null;
+    const type =
+      config.kind === "barplot" ? "barplot" : config.kind === "bar" ? "countplot" : config.kind === "line" ? "timeseries" : null;
+    if (type === null) return null;
+    const rec = (index: number): RecColumn | null => {
+      const meta = this.meta(index);
+      return meta === undefined ? null : toRecColumn(meta, index, this.rowCount);
+    };
+    const fields = [rec(config.valueColumn ?? -1), rec(config.column)].filter((c): c is RecColumn => c !== null);
+    const distinct = this.meta(type === "timeseries" ? config.groupColumn : config.column)?.stats.distinct ?? 0;
+    const notes = lint(
+      {
+        type,
+        cfg: { agg: config.valueAgg, topN: config.groupOther ? config.topN : null },
+        fields,
+        categories: type === "timeseries" ? undefined : distinct,
+        series: type === "timeseries" ? Math.min(distinct, Math.max(6, config.topN)) : undefined,
+      },
+      this.rowCount,
+    ).filter((note) => !this.dismissedNotes.has(note.msg));
+    // A time series is always charted over a date, so the "needs a date" error only
+    // applies when the fields really lack one.
+    notes.sort((a, b) => Number(b.level === "error") - Number(a.level === "error"));
+    return notes[0] ?? null;
+  }
+
+  private syncSummaryText(): void {
     const source =
       this.config.source === ""
         ? this.options.tableSourceLabel?.() ?? "Table"
@@ -3073,9 +3176,19 @@ export class ChartCard {
           : `Pivot heatmap of ${data.measureName} by ${data.rowName} and ${data.colName} from ${source}`;
       return;
     }
-    const kind = CHART_KIND_LABELS[this.config.kind];
+    const kind = this.viewKindLabel();
+    this.kindStatic.textContent = this.config.source === "" ? "" : kind;
     if (this.config.source !== "") {
-      this.summaryEl.textContent = `${kind} from ${source}`;
+      const result = this.viewResult;
+      if (result === null) {
+        this.summaryEl.textContent = `${kind} from view: ${source}`;
+        return;
+      }
+      const dimension = result.dimensionNames.join(" and ") || "group";
+      const groups = result.groupCount;
+      this.summaryEl.textContent =
+        `${kind} from view: ${plainMeasureName(result.measureNames[0] ?? "measure")} by ${dimension}` +
+        ` · ${groups.toLocaleString()} ${groups === 1 ? "group" : "groups"}`;
       return;
     }
     const name = (index: number): string => this.meta(index)?.name ?? "value";
@@ -3091,17 +3204,7 @@ export class ChartCard {
       this.config.valueCalc === undefined
         ? ""
         : ` with ${this.valueCalcSelect.selectedOptions[0]?.textContent ?? this.config.valueCalc}`;
-    const measureMeta = this.meta(this.config.valueColumn ?? -1);
-    const riskySum =
-      this.config.valueAgg === "sum" &&
-      measureMeta !== undefined &&
-      /(rate|ratio|percent|pct|share|index|temperature|temp|score|price|avg|average)/i.test(
-        measureMeta.name,
-      );
-    this.summaryEl.textContent =
-      `${kind}: ${agg}${by}${group}${calc} from ${source}` +
-      (riskySum ? " - summing this field may be misleading; try Mean or Median." : "");
-    this.summaryEl.classList.toggle("warn", riskySum);
+    this.summaryEl.textContent = `${kind}: ${agg}${by}${group}${calc} from ${source}`;
   }
 
   /** Columns whose missing/placeholder state can affect this chart. */
@@ -3948,11 +4051,7 @@ export class ChartCard {
 
     const primary = this.allowedIndexes((meta) => this.allowsPrimary(meta));
     if (!primary.includes(this.config.column)) this.config.column = primary[0] ?? -1;
-    this.primarySelect.replaceChildren();
-    primary.forEach((index) => {
-      const meta = this.columns[index];
-      this.primarySelect.append(this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`));
-    });
+    this.fillColumnSelect(this.primarySelect, primary, this.config.kind === "kpi" ? 1 : 0);
     if (primary.length === 0) {
       const placeholder = this.option("-1", "No matching column");
       placeholder.disabled = true;
@@ -3962,13 +4061,7 @@ export class ChartCard {
 
     const groupable = this.allowedIndexes((meta) => isGroupable(meta));
     if (!groupable.includes(this.config.groupColumn)) this.config.groupColumn = -1;
-    this.groupSelect.replaceChildren(this.option("-1", "None"));
-    groupable.forEach((index) => {
-      const meta = this.columns[index];
-      this.groupSelect.append(
-        this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`),
-      );
-    });
+    this.fillColumnSelect(this.groupSelect, groupable, 2, [this.option("-1", "None")]);
     this.groupSelect.value = String(this.config.groupColumn);
 
     const valueAllowed = this.allowedIndexes(
@@ -4010,11 +4103,7 @@ export class ChartCard {
       [this.xSelect, xAllowed, this.config.x],
       [this.ySelect, yAllowed, this.config.y],
     ] as const) {
-      select.replaceChildren();
-      allowed.forEach((index) => {
-        const meta = this.columns[index];
-        select.append(this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`));
-      });
+      this.fillColumnSelect(select, allowed, select === this.xSelect ? 0 : 1);
       if (allowed.length === 0) {
         const placeholder = this.option("-1", "No numeric column");
         placeholder.disabled = true;
@@ -4128,6 +4217,39 @@ export class ChartCard {
     if (days <= 120) return "day";
     if (days <= 840) return "week";
     return "month";
+  }
+
+  /**
+   * Fills a column select from the registry: columns that suit the slot first,
+   * the rest under "Other" with the reason as a tooltip. Nothing is hidden.
+   */
+  private fillColumnSelect(
+    select: HTMLSelectElement,
+    allowed: readonly number[],
+    slotIndex: number,
+    leading: HTMLOptionElement[] = [],
+  ): void {
+    const fields = fieldsFor(this.config.kind, slotIndex, this.columns, this.rowCount);
+    const reasons = new Map(fields.other.map((entry) => [entry.index, entry.reason]));
+    const suggested = allowed.filter((index) => !reasons.has(index));
+    const other = allowed.filter((index) => reasons.has(index));
+    const make = (index: number): HTMLOptionElement => {
+      const meta = this.columns[index];
+      const option = this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`);
+      const reason = reasons.get(index);
+      if (reason !== undefined) option.title = reason;
+      return option;
+    };
+    select.replaceChildren(...leading);
+    if (suggested.length > 0 && other.length > 0) {
+      const good = el("optgroup", { label: "Suggested" }) as HTMLOptGroupElement;
+      good.append(...suggested.map(make));
+      const rest = el("optgroup", { label: "Other" }) as HTMLOptGroupElement;
+      rest.append(...other.map(make));
+      select.append(good, rest);
+    } else {
+      select.append(...allowed.map(make));
+    }
   }
 
   private option(value: string, label: string): HTMLOptionElement {
@@ -7787,13 +7909,24 @@ export class ChartCard {
       return;
     }
 
-    const title = this.config.title.trim() === "" ? this.defaultTitle() : this.config.title.trim();
-    this.font(ctx, frame.ui, 15, "600");
-    ctx.fillStyle = frame.text;
-    ctx.fillText(this.fit(ctx, title, width - frame.left - frame.right), frame.left, 22 * frame.ui);
-    this.font(ctx, frame.ui, 11);
+    // The card heading above the plot already says what this aggregate is, so a
+    // generic "Aggregate" title is not drawn a second time.
+    const ownTitle = this.config.title.trim();
+    const genericAggregate =
+      ownTitle === "" && this.usesAggregate() && this.config.kind !== "pivotHeatmap" && this.config.kind !== "kpi";
+    if (!genericAggregate) {
+      const title = ownTitle === "" ? this.defaultTitle() : ownTitle;
+      this.font(ctx, frame.ui, 15, "600");
+      ctx.fillStyle = frame.text;
+      ctx.fillText(this.fit(ctx, title, width - frame.left - frame.right), frame.left, 22 * frame.ui);
+    }
+    this.font(ctx, frame.ui, genericAggregate ? 12 : 11);
     ctx.fillStyle = frame.dim;
-    ctx.fillText(this.fit(ctx, this.subtitle(), width - frame.left - frame.right), frame.left, 40 * frame.ui);
+    ctx.fillText(
+      this.fit(ctx, this.subtitle(), width - frame.left - frame.right),
+      frame.left,
+      (genericAggregate ? 24 : 40) * frame.ui,
+    );
 
     if (this.config.kind === "pivotHeatmap") {
       this.drawPivotHeatmap(ctx, frame);

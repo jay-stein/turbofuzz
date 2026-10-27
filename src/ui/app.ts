@@ -2160,8 +2160,11 @@ export class App {
         this.columnSpecials.size === 0
           ? "Table"
           : "Table (filtered)",
-      onCardAdded: (label) =>
-        this.setAction(`Added a ${label} chart - it sits at the end of the grid`),
+      onCardAdded: (label, undo) => {
+        const message = `Added a ${label} chart at the top of the grid`;
+        this.setAction(message);
+        if (undo !== undefined) this.showToast(message, undo);
+      },
       onCardEdited: (message) => this.setAction(message),
       onFilter: (column, filter, preview) =>
         this.changeFilter(column, filter, preview ?? false),
@@ -3407,16 +3410,16 @@ export class App {
         break;
       case "chart":
         this.ensureCharts();
+        this.setView("chart");
         if (command.column !== undefined && command.column >= 0) {
           const meta = this.metas[command.column];
           if (meta !== undefined) {
-            this.chartsPanel?.addCard({
+            this.chartsPanel?.addChart({
               kind: chartKindFor(meta.type) ?? "histogram",
               column: command.column,
             });
           }
         }
-        this.setView("chart");
         break;
       case "openView":
         this.setView(command.view);
@@ -3481,8 +3484,8 @@ export class App {
       },
       onChart: (view) => {
         this.ensureCharts();
-        this.chartsPanel?.addViewChart(view);
         this.setView("chart");
+        this.chartsPanel?.addViewChart(view);
       },
       onCopyPandas: (view) => this.copyViewRecipe(view),
       onSlickTable: (view, result) =>
@@ -4936,8 +4939,8 @@ export class App {
       onFilter: () => this.focusFilterColumn(column),
       onChart: () => {
         this.ensureCharts();
-        this.chartsPanel?.addCard({ kind: chartKindFor(meta.type) ?? "histogram", column });
         this.setView("chart");
+        this.chartsPanel?.addChart({ kind: chartKindFor(meta.type) ?? "histogram", column });
       },
       onQuickClean: (op) => this.applyQuickClean(column, op),
       onOpenClean: (tab) => this.openClean(column, tab),

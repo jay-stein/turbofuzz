@@ -4,15 +4,12 @@ import type { ChartCardConfig } from "./chart-card.js";
 import {
   type ChartCardKind,
   CHART_KIND_LABELS,
-  type ChartIdea,
   isCategoryType,
-  isGroupable,
   isIdLikeColumn,
-  isNumericType,
   looksLikeIdName,
-  suggestCharts,
 } from "./chart-utils.js";
 import { el } from "./dom.js";
+import { fitSlot, type SlotKind } from "./chart-registry.js";
 
 /** What a tile can or cannot do with the current columns. */
 export interface KindFit {
@@ -41,6 +38,15 @@ function pool(
   return out;
 }
 
+/** Columns whose registry role fits one of `kinds`, in column order. */
+function byRole(columns: readonly ColumnMeta[], rowCount: number, kinds: readonly SlotKind[]): Pool[] {
+  const out: Pool[] = [];
+  columns.forEach((meta, index) => {
+    if (meta.role !== "provenance" && fitSlot(meta, rowCount, kinds).ok) out.push({ index, meta });
+  });
+  return out;
+}
+
 /**
  * Can this chart type answer a question with these columns, and which columns
  * should it start with? Disabled tiles explain what they would need.
@@ -50,23 +56,13 @@ export function fitChartKind(
   columns: readonly ColumnMeta[],
   rowCount: number,
 ): KindFit {
-  const numeric = pool(
-    columns,
-    (meta) => isNumericType(meta.type) || meta.type === "duration",
-    rowCount,
-  );
-  const dates = pool(
-    columns,
-    (meta) => meta.type === "date" || meta.type === "datetime",
-    rowCount,
-  );
+  const numeric = byRole(columns, rowCount, ["measure"]);
+  const dates = byRole(columns, rowCount, ["time"]);
   // Any low-cardinality column can be grouped, but true categories lead so
   // the starting preset is the most natural one.
-  const categories = pool(
-    columns,
-    (meta) => isGroupable(meta) && meta.stats.distinct >= 2,
-    rowCount,
-  ).sort((a, b) => Number(isCategoryType(b.meta.type)) - Number(isCategoryType(a.meta.type)));
+  const categories = byRole(columns, rowCount, ["cat"])
+    .filter((entry) => entry.meta.stats.distinct >= 2)
+    .sort((a, b) => Number(isCategoryType(b.meta.type)) - Number(isCategoryType(a.meta.type)));
 
   switch (kind) {
     case "histogram":
@@ -322,7 +318,7 @@ function miniLine(counts: readonly number[]): string {
 }
 
 /** A live preview from the bins/facets already on the client. */
-function previewFor(kind: ChartCardKind, preset: Partial<ChartCardConfig>, columns: readonly ColumnMeta[]): HTMLElement {
+export function previewFor(kind: ChartCardKind, preset: Partial<ChartCardConfig>, columns: readonly ColumnMeta[]): HTMLElement {
   if (preset.column !== undefined && preset.column >= 0) {
     const meta = columns[preset.column];
     if (kind === "histogram" && meta?.histogram !== null && meta?.histogram !== undefined) {
@@ -338,112 +334,6 @@ function previewFor(kind: ChartCardKind, preset: Partial<ChartCardConfig>, colum
   return svgWrap(ICONS[kind]);
 }
 
-export interface ChartGalleryOptions {
-  columns: readonly ColumnMeta[];
-  rowCount: number;
-  onPick: (preset: Partial<ChartCardConfig>) => void;
-}
-
-/**
- * The "+ Add chart" gallery: suggested tiles with live previews drawn from
- * already-computed bins/facets, then every chart type grouped by question.
- * Tiles that do not fit the columns are disabled and say why.
- */
-export function openChartGallery(anchor: HTMLElement, options: ChartGalleryOptions): void {
-  const gallery = el("div", { class: "context-menu chart-gallery", role: "dialog" });
-  let closed = false;
-  const close = (): void => {
-    if (closed) return;
-    closed = true;
-    gallery.remove();
-    document.removeEventListener("pointerdown", onPointerDown, true);
-    document.removeEventListener("keydown", onKey);
-    window.removeEventListener("resize", close);
-  };
-  const onPointerDown = (event: PointerEvent): void => {
-    if (!gallery.contains(event.target as Node)) close();
-  };
-  const onKey = (event: KeyboardEvent): void => {
-    if (event.key === "Escape") close();
-  };
-
-  const pick = (preset: Partial<ChartCardConfig>): void => {
-    close();
-    options.onPick(preset);
-  };
-
-  const tile = (
-    kind: ChartCardKind,
-    preset: Partial<ChartCardConfig>,
-    preview: HTMLElement,
-    enabled = true,
-  ): HTMLButtonElement => {
-    const button = el(
-      "button",
-      {
-        class: "chart-tile",
-        type: "button",
-        title: CHART_KIND_LABELS[kind],
-        "aria-disabled": enabled ? "false" : "true",
-      },
-      [],
-    ) as HTMLButtonElement;
-    button.append(preview, el("span", { class: "chart-tile-label" }, [CHART_KIND_LABELS[kind]]));
-    if (enabled) button.addEventListener("click", () => pick(preset));
-    return button;
-  };
-
-  const ideas = suggestCharts([...options.columns], options.rowCount);
-  if (ideas.length > 0) {
-    gallery.append(el("div", { class: "context-header" }, ["Suggested for your data"]));
-    const grid = el("div", { class: "chart-gallery-grid" });
-    for (const idea of ideas) {
-      const kind = idea.preset.kind ?? "histogram";
-      const preview = previewFor(kind, idea.preset, options.columns);
-      const button = tile(kind, idea.preset, preview);
-      button.title = idea.label;
-      button.querySelector(".chart-tile-label")!.textContent = idea.label;
-      grid.append(button);
-    }
-    gallery.append(grid);
-  }
-
-  gallery.append(el("div", { class: "context-header" }, ["All chart types"]));
-  for (const group of QUESTION_GROUPS) {
-    const label = el("div", { class: "chart-gallery-question" }, [group.question]);
-    const grid = el("div", { class: "chart-gallery-grid" });
-    for (const kind of group.kinds) {
-      const fit = fitChartKind(kind, options.columns, options.rowCount);
-      const button = tile(kind, fit.preset, svgWrap(ICONS[kind]), fit.ok);
-      if (!fit.ok) {
-        button.title = `${CHART_KIND_LABELS[kind]} — ${fit.reason}`;
-        const reason = el("span", {
-          class: "chart-tile-reason",
-          id: `chart-gallery-reason-${kind}`,
-        }, [fit.reason]);
-        button.append(reason);
-        button.setAttribute("aria-describedby", reason.id);
-      } else {
-        button.title = `${CHART_KIND_LABELS[kind]} — add with sensible columns`;
-      }
-      grid.append(button);
-    }
-    gallery.append(label, grid);
-  }
-
-  document.addEventListener("pointerdown", onPointerDown, true);
-  document.addEventListener("keydown", onKey);
-  window.addEventListener("resize", close);
-  document.body.append(gallery);
-  const rect = anchor.getBoundingClientRect();
-  gallery.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - gallery.offsetWidth - 8))}px`;
-  gallery.style.top = `${Math.max(
-    8,
-    Math.min(rect.bottom + 6, window.innerHeight - gallery.offsetHeight - 8),
-  )}px`;
-}
-
-/** Icon markup per kind, reused by the chart rail. */
 export const CHART_KIND_ICONS: Record<ChartCardKind, string> = ICONS;
 
 /** Every kind in the gallery's question order, for the chart rail. */
@@ -451,4 +341,3 @@ export const GALLERY_KINDS: readonly ChartCardKind[] = QUESTION_GROUPS.flatMap(
   (group) => group.kinds,
 );
 
-export type { ChartIdea };
