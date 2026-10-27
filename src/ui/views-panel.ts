@@ -2044,7 +2044,7 @@ export class ViewsPanel {
       filterZone,
     );
     clear(this.shelfEl);
-    this.shelfEl.append(this.fieldShelf(def), this.transposeControl(def));
+    this.shelfEl.append(this.fieldShelf(def));
   }
 
   /** Top-of-pivot heading and drag hint. */
@@ -2059,6 +2059,7 @@ export class ViewsPanel {
           "Click a field below, or drag it into Rows, Columns, Values or Filters.",
         ]),
       ]),
+      this.transposeControl(def),
     ]);
   }
 
@@ -2084,7 +2085,7 @@ export class ViewsPanel {
     return `Showing ${join(values)} for each ${join(rows.length > 0 ? rows : columns)}${columnText}.`;
   }
 
-  /** Large transpose action below the field shelf. */
+  /** Transpose action in the pivot header: swaps every Rows field with every Columns field. */
   private transposeControl(def: ViewDef): HTMLElement {
     const row = el("div", { class: "views-transpose-row" });
     const pivots = this.pivotIndexes(def);
@@ -2093,13 +2094,16 @@ export class ViewsPanel {
       {
         class: "views-transpose",
         type: "button",
-        title: "Transpose - swap the Index and Columns fields",
-        "aria-label": "Transpose Index and Columns fields",
+        title: "Transpose - swap all Rows and Columns fields",
+        "aria-label": "Transpose: swap Rows and Columns fields",
       },
       [transposeIcon(), el("span", { class: "views-transpose-label" }, ["Transpose"])],
     ) as HTMLButtonElement;
     transpose.disabled =
       pivots.length === 0 || pivots.length >= def.dimensions.length;
+    if (transpose.disabled) {
+      transpose.title = "Transpose needs at least one field in Rows and one in Columns";
+    }
     transpose.addEventListener("click", () => this.transposePivot());
     row.append(transpose);
     return row;

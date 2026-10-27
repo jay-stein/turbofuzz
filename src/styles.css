@@ -3091,7 +3091,8 @@ mark {
 
 .views-pivot-top {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 12px;
   padding: 0 0 8px;
   border-bottom: 1px solid var(--border-subtle);
@@ -3118,12 +3119,17 @@ mark {
 
 .views-transpose-row {
   display: flex;
-  padding-top: 2px;
+  flex: none;
+}
+
+.views-transpose-row .views-transpose {
+  width: 100%;
+  justify-content: center;
 }
 
 .views-transpose {
-  width: 100%;
-  min-height: 46px;
+  padding: 0 14px;
+  min-height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -7888,17 +7894,17 @@ label.null-row {
 }
 
 .views-transpose {
-  min-height: 32px;
+  min-height: 36px;
   border-radius: 8px;
   font-size: var(--fs-md);
   font-weight: 600;
-  gap: 6px;
-  background: var(--panel);
+  gap: 8px;
+  background: var(--accent-soft);
 }
 
 .views-transpose .transpose-icon {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 /* Chart card: settings sidebar (label left, control right) beside the canvas. */
