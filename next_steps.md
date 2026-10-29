@@ -662,13 +662,11 @@ time series (CHG-2026-10-30-02). Still open, in suggested order:
 
 1. ~~**Linked highlight, same column**~~ — shipped 2026-10-30 (CHG-2026-10-30-03):
    hovering a slice outlines it in every other card of that column.
-1b. **Linked highlight across columns** — hovering East in a region chart should show
-   East's share inside the time series, histogram and scatter. Plan: re-run each
-   card's request with the hovered slice added through the existing per-card scope
-   (`chartFilter`/`chartExclude`), then draw it as a darker overlay on the full
-   chart (sub-bars, a second line, scatter points recoloured). Needs a debounce
-   (~80 ms), a cache keyed by slice + data generation, and a per-kind overlay
-   renderer; start with bars, histograms and time series.
+1b. ~~**Linked highlight across columns**~~ — shipped 2026-10-30 for count plot,
+   histogram, count time series and aggregated bar/line (CHG-2026-10-30-04).
+   Still to do: overlay for scatter (re-request the sample with the slice and draw
+   the points in the highlight colour), density/heatmap cells, box plots, and
+   split-by series.
 2. **Brush on category charts** — drag across several bars/cells to select a set.
 3. **Lasso** for scatter, and a brush that stays as an editable, movable selection.
 4. **Keyboard access** — arrow keys to step through bars/points, Enter to filter.
@@ -755,6 +753,102 @@ yearly); hourly → 24 (daily), 168 (weekly); weekly → 52; monthly → 12.
    detection, holiday/event calendars, exporting the fitted components and forecast
    as columns or CSV, and the recipe/code export (statsmodels/Prophet-style Python).
 
+### Series prep is a visible pipeline: resample, fill, transform, smooth
+
+Shown as an ordered list of steps the person can toggle, reorder and read (like the
+Process Log), because the order changes the answer (resample *then* smooth, not the
+reverse) and because it doubles as the recipe/code export:
+
+1. **Resample** (arbitrary width, see below)
+2. **Fill / ignore** (gap and NA policy, see below)
+3. **Transform** (log, per-day rate, index to 100, difference, % change, z-score)
+4. **Smooth** (rolling average, exponential, LOESS)
+5. **Model** (decompose, forecast)
+
+### Resampling must be fully flexible, not "weekly/monthly"
+
+Any width in any unit: **3-weekly, 5-hourly, 90-minute, 2-quarter, 10-day**. The
+engine already buckets by any whole width (the Every N control shipped 2026-10-30),
+so the page reuses it and adds what analysis needs on top:
+
+- **Anchor choice.** Today buckets align to the calendar/epoch, so "every 3 weeks"
+  starts on an arbitrary week. For analysis offer **"start from my first
+  observation"** (and "from a date I pick") as well as calendar-aligned. This is an
+  engine follow-up (an `origin` option beside `every`).
+- **Label** each bucket by its start, end or midpoint; make the edge rule explicit
+  (start-inclusive) and say so in the tooltip.
+- **Aggregate per resample, separate from the display.** Daily sum then weekly mean
+  is a legitimate pipeline; allow a two-stage aggregate.
+- **Upsampling** (coarser to finer, e.g. monthly to daily) needs a fill rule
+  (interpolate, carry forward, spread evenly); warn that it invents data.
+- **Auto** picks a round step for the span (already true for short spans) and
+  suggests one from the data's natural cadence.
+- **Business calendars.** Weekends and holidays missing from daily data are
+  structural, not gaps: offer "business days only" so a Friday-to-Monday jump is
+  not a hole and weekly seasonality uses 5, not 7.
+
+### Edge cases the page must handle explicitly (each a visible choice with a default)
+
+Missing data has **two different meanings** and needs two separate policies:
+a **missing period** (no rows at all) and a **missing value** (a row exists but the
+measure is NA/blank/sentinel). Options for each: **ignore (leave the hole)**,
+**zero**, **carry forward**, **carry backward**, **linear interpolate** (time-weighted
+for uneven gaps), **seasonal fill** (same period last cycle), **drop the period**.
+Defaults: sums and counts zero, levels and rates ignore. Always report how many
+periods were filled or ignored, and mark filled points on the chart (hollow marker).
+
+- **Leading and trailing gaps**: never fill outside the observed range.
+- **Partial first/last period**: flag (already hatched on the card) and offer to
+  exclude; a half-finished current week must not read as a collapse in the trend.
+- **Several rows per period** are aggregated; **duplicate timestamps** and unsorted
+  input are handled quietly and noted.
+- **Uneven month lengths**: a monthly *sum* is biased by days in the month; offer a
+  per-day rate. Leap years and 52/53-week years: seasonal period 365.25 days or ISO
+  weeks, not a fixed 52.
+- **Short series**: disable (with the reason) a rolling window longer than the
+  series, and seasonality without two full cycles.
+- **Flat/constant series**: no seasonality or trend to find; say so.
+- **Zeros and negatives** break multiplicative decomposition and log transforms:
+  auto-switch to additive and explain.
+- **Outliers**: option to winsorise or ignore flagged periods before fitting, so one
+  spike does not become a fake seasonal peak (STL's robust mode helps).
+- **Huge series**: decimate by min/max per pixel for drawing and auto-coarsen the
+  grain above a point cap; never freeze.
+- **Many categories**: one series per category as small multiples (top N + Other),
+  not 40 tangled lines.
+- **Text measures and unparsed dates**: reuse the data-quality fixes (number and date
+  conversion) and link to them from the page.
+- Time zones and DST stay out of scope (dates used as stored).
+
+### Quality-of-life features to include (the list people reach for)
+
+- **Rolling (moving) average**: window in periods, any N; mean or median; trailing or
+  centred; minimum periods before it starts; several windows at once (7 and 30);
+  drawn as an overlay on the raw series; optional rolling min/max/std and a
+  volatility band.
+- **Exponential smoothing** (span or alpha) and a **LOESS** smooth, with a slider
+  that redraws instantly (all O(n) on the small aggregated series).
+- **Cumulative sum**, **period-over-period change** (difference, % change), **same
+  period last year** and year-on-year comparison, **index to 100** at a chosen base
+  period, **growth rate** (CAGR) over a selection.
+- **Compare**: overlay years on one axis (seasonal plot), overlay two series (index
+  or dual axis), and a lag/autocorrelation plot (ACF/PACF) for the curious.
+- **Seasonally adjusted series** (observed minus seasonal) as a one-click view, since
+  that is often what people actually want to see.
+- **Trend in plain English** with units: "+3.2 per week (up 12% over the period)",
+  and slope significance, not just a line.
+- **Peaks and troughs** marked and listed; **event markers** (the person adds a dated
+  label such as "price change") drawn as vertical lines and carried into exports.
+- **Zoom and brush on the series** (the Shift+drag select already exists on charts),
+  with "analyse only this range" and a train/test split marker for forecasting.
+- **Summary strip**: periods, missing, filled, range, mean, trend slope, strongest
+  seasonality, forecast error vs naive.
+- **Settings are remembered per dataset**, undoable, and shareable as part of the
+  recipe; **export** the prepared series, the components and the forecast (value,
+  lower, upper) as CSV, the chart as PNG, and the pipeline as pandas/statsmodels code.
+- Every control gets a one-line "what this does" tooltip; defaults are chosen from
+  the data, never blank.
+
 ### Build and risk notes
 
 - Run in the existing worker on the aggregated series; no WebAssembly or numerical
@@ -768,9 +862,40 @@ yearly); hourly → 24 (daily), 168 (weekly); weekly → 52; monthly → 12.
 - Decide early whether this page edits the dataset (adds trend/seasonal/remainder or
   forecast columns as a Transform step) or only reads it. Recommendation: read-only
   first, with an explicit "add as columns" action later.
-- Open question for the owner: should the page start from a Chart card's time series
-  ("Analyse this series" button, carrying column, aggregate, grain and filters) as
-  well as from its own nav entry? Recommendation: yes, both.
+- **Decided (owner, 2026-10-30): two ways in.** The page has its own nav entry, and
+  every Chart card's time series gets an **"Analyse this series"** action (in the card
+  menu and on the card toolbar). It carries over the date column, measure, aggregate,
+  grain and Every N width, week/financial-year options, missing-period policy, the
+  card's own filters/exclusions and the table filters, so the page opens on exactly
+  the series the person was looking at, with those choices still editable. Going back
+  returns to the Chart view with the card untouched.
+
+### Forecast display (owner request, 2026-10-30): confidence band with shading
+
+The forecast view must show the prediction as a **line with a shaded confidence
+band** around it, not a bare line:
+
+- History drawn solid; the forecast continues from the last observed point as a
+  dashed line, with a visual break (a faint vertical "forecast starts" marker).
+- A shaded band between the **lower and upper bound** of the prediction interval
+  (default 80%, with a second lighter, wider 95% band as an option, i.e. a fan that
+  widens with the horizon because uncertainty grows). The fill sits between the two
+  bound lines, same hue as the forecast at ~15-25% opacity, and the bound lines
+  themselves are drawn thin so the band edge is readable.
+- Bounds come from the model's residual spread (seasonal naive and Holt-Winters:
+  analytic or simulated intervals; regression with drivers: residual quantiles
+  scaled by horizon), never from the fit on the history alone. A backtest on a held
+  out final stretch shows the realised coverage ("80% band contained 78% of the
+  held-out points") so the band is checked, not just drawn.
+- The tooltip over a forecast period lists the point forecast and both bounds
+  ("Jun 2025: 1,240 (80%: 1,090 to 1,390)"), the axis keeps the band in range, the
+  legend names the interval level, and the band is included in PNG export and in the
+  exported forecast table (columns forecast, lower, upper).
+- Shading must not rely on colour alone (dashed forecast line plus the band edge
+  lines), and the band must stay readable in light and dark themes.
+- The same band component should serve the trend overlay on the plain Chart card
+  later (a smoothed line with its confidence ribbon), so build it once as a shared
+  draw helper.
 
 ## TODO (logged 2026-10-29)
 
