@@ -138,3 +138,31 @@ test("hovering a category lights its share inside charts of other columns", asyn
   await page.mouse.move(box.x + box.width * 0.5, box.y - 60);
   await expect(hist).toHaveAttribute("data-slice", "0");
 });
+
+test("hovering a histogram bin paints that slice's own points on a scatter", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 800 });
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "grid.csv", mimeType: "text/csv", buffer: Buffer.from(grid()) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator(".view-tabs button", { hasText: "Chart" }).click();
+  await page.locator(".chart-add-type", { hasText: /^Histogram/i }).first().click();
+  await page.getByRole("button", { name: "+ Add chart" }).click();
+  await page.locator(".chart-add-type", { hasText: /^Scatter/i }).first().click();
+  await page.getByRole("combobox").filter({ hasText: "1 per row" }).selectOption({ label: "2 per row" });
+  await page.waitForTimeout(1200);
+  const hist = page.locator(".chart-card", { hasText: /Histogram: rows by/ }).locator("canvas.chart-canvas").first();
+  const scatter = page.locator(".chart-card", { hasText: /points/ }).locator("canvas.chart-canvas").first();
+  const box = (await hist.boundingBox())!;
+  let drawn = "0";
+  for (let step = 0; step < 14 && drawn === "0"; step++) {
+    await page.mouse.move(box.x + box.width * (0.2 + 0.04 * step), box.y + box.height * 0.7);
+    await page.waitForTimeout(250);
+    drawn = (await scatter.getAttribute("data-slice")) ?? "0";
+  }
+  // The scatter now shows only the hovered bin's points, in the highlight colour.
+  expect(Number(drawn)).toBeGreaterThan(0);
+  expect(Number(drawn)).toBeLessThan(1600);
+  await page.mouse.move(box.x + box.width * 0.5, box.y - 60);
+  await expect(scatter).toHaveAttribute("data-slice", "0");
+});

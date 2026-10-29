@@ -177,3 +177,12 @@ Add entries here. Keep unsuccessful attempts too if they reveal useful constrain
 - **Explicit non-goals / known limits:** Scatter, density, bubble, box and heatmap charts do not overlay yet (they need a per-point or per-cell version of the same request); slices of text columns only link by the "contains" action.
 - **Files / components changed:** src/data/slice-breakdown.ts, chart-exclusions.ts, src/worker/protocol.ts, search.worker.ts, src/ui/worker-client.ts, chart-card.ts, chart-panel.ts, app.ts, help-content.ts, test/slice-breakdown.test.ts, test/e2e/chart-brush.spec.ts
 - **Date:** 2026-10-30
+
+### CHG-2026-10-30-05 — Linked highlight on scatter
+
+- **Status:** Verified (1 browser test); owner has not tried it
+- **Problem addressed:** Hovering a slice in one chart (a region, a histogram bin) lit up bars and lines elsewhere, but a scatter over other columns stayed silent.
+- **Scope:** A scatter card now answers a hovered slice by asking for the slice's own points: its normal sample request with the slice kept (an inverted exclusion) under the card's own scope, unclipped, after the usual 70 ms pause with stale answers dropped. The points are drawn in orange over the plot, clipped to the axes the card already shows (so zoom and pan still line up), with the "Highlighted: East" caption. No new worker message and no change to the card's own sample.
+- **Explicit non-goals / known limits:** Density, bubble, box and heatmap charts and split-by series still do not overlay. A slice of more than 20,000 rows is a sample, like the scatter itself.
+- **Files / components changed:** src/ui/chart-card.ts (`scheduleSlicePoints`, `drawSlicePoints`, `SeriesRequestInput.chartExclude`), help-content.ts, test/e2e/chart-brush.spec.ts
+- **Date:** 2026-10-30

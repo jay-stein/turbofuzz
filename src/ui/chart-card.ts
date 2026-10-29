@@ -302,6 +302,7 @@ export interface SeriesRequestInput {
   /** false keeps the full data range; the map card sets this. */
   clip?: boolean;
   chartFilter?: { column: number; code: number };
+  chartExclude?: ChartExclusion[];
   respectFilters?: boolean;
 }
 
@@ -1043,6 +1044,8 @@ export class ChartCard {
   private valueScale: ValueScale | null = null;
   /** The slice's value per mark of this chart (another column's hover), or null. */
   private sliceValues: Float64Array | null = null;
+  /** Scatter cards: the points of the hovered slice (same scope, other column's rows). */
+  private slicePoints: { x: Float64Array; y: Float64Array; shown: number } | null = null;
   private sliceTimer: number | null = null;
   private sliceGeneration = 0;
   /** Whether the last paint outlined anything for the linked slice. */
@@ -7173,7 +7176,10 @@ export class ChartCard {
     if (actions !== null) this.scheduleSliceFetch(actions);
     const matches =
       actions !== null && this.hitRegions.some((region) => actionsOverlap(actions, region.actions));
-    if (actions === null) this.sliceValues = null;
+    if (actions === null) {
+      this.sliceValues = null;
+      this.slicePoints = null;
+    }
     // Nothing to draw before or after: skip the repaint entirely.
     if (!matches && !this.linkedShown) return;
     this.scheduleRender(true);
@@ -7220,6 +7226,10 @@ export class ChartCard {
 
   /** After a short pause on a mark, asks the worker for the slice's share of each mark here. */
   private scheduleSliceFetch(actions: readonly HitAction[]): void {
+    if (this.config.kind === "scatter") {
+      this.scheduleSlicePoints(actions);
+      return;
+    }
     const request = this.options.requestSliceBreakdown;
     const scale = this.valueScale;
     if (request === undefined || scale === null) return;
@@ -7249,6 +7259,84 @@ export class ChartCard {
     }, 70);
   }
 
+  /**
+   * Scatter: asks for the points of the hovered slice. It is the card's own sample
+   * request with the slice kept (an inverted exclusion), unclipped so the points
+   * land on the axes the plot already has.
+   */
+  private scheduleSlicePoints(actions: readonly HitAction[]): void {
+    const request = this.options.requestSeries;
+    const slice = this.sliceEntries(actions);
+    if (this.seriesResult?.mode !== "points" || slice === null) return;
+    const scope = this.chartScope();
+    const generation = this.sliceGeneration;
+    this.sliceTimer = window.setTimeout(() => {
+      this.sliceTimer = null;
+      request({
+        xColumn: this.config.x,
+        yColumn: this.config.y,
+        colorColumn: -1,
+        sizeColumn: -1,
+        mode: "points",
+        limit: POINT_LIMIT,
+        clip: false,
+        ...scope,
+        chartExclude: [...(scope.chartExclude ?? []), ...slice.map((entry) => ({ ...entry, invert: true }))],
+      })
+        .then((message) => {
+          if (this.disposed || generation !== this.sliceGeneration || this.linked === null) return;
+          if (message.result.mode !== "points") return;
+          this.slicePoints = message.result;
+          this.scheduleRender(true);
+        })
+        .catch(() => {
+          // A failed highlight is only a missing overlay.
+        });
+    }, 70);
+  }
+
+  /** The slice's own points over the scatter, in the highlight colour; returns how many were drawn. */
+  private drawSlicePoints(ctx: CanvasRenderingContext2D, space: BrushSpace): number {
+    const points = this.slicePoints;
+    const yMin = space.yMin ?? 0;
+    const yMax = space.yMax ?? 0;
+    if (points === null || space.xMax <= space.xMin || yMax <= yMin) return 0;
+    const accent = "#e8590c";
+    const xScale = space.plotW / (space.xMax - space.xMin);
+    const yScale = space.plotH / (yMax - yMin);
+    const radius = points.shown <= 5000 ? 2.8 : 2.2;
+    let drawn = 0;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(space.left, space.top, space.plotW, space.plotH);
+    ctx.clip();
+    ctx.fillStyle = accent;
+    ctx.globalAlpha = 0.9;
+    for (let i = 0; i < points.shown; i++) {
+      const x = space.left + (points.x[i]! - space.xMin) * xScale;
+      const y = space.top + space.plotH - (points.y[i]! - yMin) * yScale;
+      if (x < space.left || x > space.left + space.plotW || y < space.top || y > space.top + space.plotH) continue;
+      if (points.shown <= 5000) {
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+      }
+      drawn++;
+    }
+    ctx.restore();
+    if (drawn > 0 && this.linkedLabel !== "") {
+      ctx.save();
+      ctx.fillStyle = accent;
+      ctx.font = "600 11px system-ui, sans-serif";
+      ctx.textAlign = "right";
+      ctx.fillText(`Highlighted: ${this.linkedLabel}`, space.left + space.plotW, Math.max(10, space.top - 4));
+      ctx.restore();
+    }
+    return drawn;
+  }
+
   /** Draws the linked slice: outlines on the same column, the slice's share on others. */
   private drawLinkedOverlay(ctx: CanvasRenderingContext2D): void {
     const actions = this.linked;
@@ -7274,6 +7362,9 @@ export class ChartCard {
     let sliced = 0;
     if (actions !== null && values !== null && scale !== null && values.length === this.hitRegions.length) {
       sliced = this.drawSliceShare(ctx, scale, values);
+    }
+    if (actions !== null && this.slicePoints !== null && this.brushSpace !== null && this.config.kind === "scatter") {
+      sliced = this.drawSlicePoints(ctx, this.brushSpace);
     }
     this.linkedShown = shown > 0 || sliced > 0;
     this.canvas.dataset.linked = String(shown);

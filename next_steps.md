@@ -663,10 +663,9 @@ time series (CHG-2026-10-30-02). Still open, in suggested order:
 1. ~~**Linked highlight, same column**~~ — shipped 2026-10-30 (CHG-2026-10-30-03):
    hovering a slice outlines it in every other card of that column.
 1b. ~~**Linked highlight across columns**~~ — shipped 2026-10-30 for count plot,
-   histogram, count time series and aggregated bar/line (CHG-2026-10-30-04).
-   Still to do: overlay for scatter (re-request the sample with the slice and draw
-   the points in the highlight colour), density/heatmap cells, box plots, and
-   split-by series.
+   histogram, count time series and aggregated bar/line (CHG-2026-10-30-04), and
+   for scatter (CHG-2026-10-30-05: the slice's own points are drawn in orange).
+   Still to do: density/heatmap cells, box plots, bubble, and split-by series.
 2. **Brush on category charts** — drag across several bars/cells to select a set.
 3. **Lasso** for scatter, and a brush that stays as an editable, movable selection.
 4. **Keyboard access** — arrow keys to step through bars/points, Enter to filter.
