@@ -741,8 +741,8 @@ yearly); hourly → 24 (daily), 168 (weekly); weekly → 52; monthly → 12.
    (ETS) as the baselines, with prediction intervals and a **backtest** (hold out the
    last cycle, report error vs naive). Always show the naive baseline next to the
    model; a forecast that cannot beat seasonal naive should say so.
-5. **Forecast with dependent variables** (regression with ARIMA-style errors, or
-   gradient boosting on lag + calendar + driver features): pick driver columns from
+5. **Forecast with dependent variables** (regression on lag + calendar + driver
+   features, decided: see "Forecast methods" below; no ARIMA, no boosting): pick driver columns from
    the table (price, promo flag, temperature), aggregated with their own sensible
    aggregate. Needs the drivers' **future values** to forecast, so the UI must ask
    for them (or forecast the drivers first) and flag drivers that are not known in
@@ -751,6 +751,48 @@ yearly); hourly → 24 (daily), 168 (weekly); weekly → 52; monthly → 12.
 6. **Later**: multiple series at once (one per category, small multiples), changepoint
    detection, holiday/event calendars, exporting the fitted components and forecast
    as columns or CSV, and the recipe/code export (statsmodels/Prophet-style Python).
+
+### Forecast methods (decided 2026-10-30): no new dependencies, drivers in release one
+
+Everything runs on the aggregated series (hundreds to a few thousand points) in the
+worker, in pure typed-array TypeScript. Owner decision: **regression with drivers
+ships in the first forecast release**, not as a second pass. Build order and rough size:
+
+1. **Baselines** (~30 lines): naive, seasonal naive, mean, drift. They are also the
+   yardstick; say so on the page when the model cannot beat seasonal naive.
+2. **Exponential smoothing** (~150): simple, Holt, damped Holt (default trend),
+   Holt-Winters additive/multiplicative. Fit by Nelder-Mead on squared error.
+3. **Theta** (~20 on top of 2): simple smoothing plus half the long-run trend.
+4. **Decompose then forecast** (~200): STL, forecast the seasonally adjusted part with
+   Holt or drift, add the seasonal part back. Shares code with the decomposition view.
+5. **Regression with drivers** (~150 + OLS): trend, Fourier terms (several
+   seasonalities at once, long periods such as 365), event/holiday dummies, and the
+   chosen driver columns, optionally lagged. OLS by QR; ridge when columns are
+   collinear. Explains itself with coefficients, which matters more than the last point
+   of accuracy. AR terms (lags of the target) come from the same fit; no ARIMA.
+6. **Ensemble** (~10): average of 2, 3 and 4.
+
+**One band for every model:** rolling-origin backtest, empirical error quantiles per
+horizon step (80% and 95%, widening with horizon), no normality assumption. The same
+backtest chooses the model (lowest MASE) and gives the "band covered X% of held-out
+points" figure. Needs about 3 seasons of history; shorter series fall back to a
+residual band labelled "wide and rough".
+
+**Period choice:** detect, do not ask. Periodogram (small FFT or O(n^2) DFT) plus the
+autocorrelation function over the candidates the grain implies (daily 7 and 365, hourly
+24 and 168, monthly 12); default to the strongest with its strength shown, overridable.
+The backtest answers "daily mean or max" empirically for the aggregate choice.
+
+**Drivers must be usable in the future.** A driver column is accepted only when its
+future values are known (calendar, planned price or promotion, entered in a small grid
+on the page) or it is lagged by at least the horizon. Otherwise the page says the driver
+would have to be forecast too and offers to do that, marked as compounding error.
+The backtest must use only information available at each origin, or it looks great by
+peeking at the future.
+
+**Tests:** fixed fixtures (airline passengers, a synthetic seasonal series with a known
+driver effect) with expected output checked against reference implementations; bench
+budget forecast + backtest under 200 ms for 1,000 periods.
 
 ### Series prep is a visible pipeline: resample, fill, transform, smooth
 
@@ -895,6 +937,193 @@ band** around it, not a bare line:
 - The same band component should serve the trend overlay on the plain Chart card
   later (a smoothed line with its confidence ribbon), so build it once as a shared
   draw helper.
+
+### Commercial-grade bar (owner request, 2026-10-30): beautiful, interactive, instant
+
+The sections above say *what* the page computes. This one says what makes it feel like
+a product people pay for: one clear layout, direct manipulation instead of forms, and
+answers that appear while the pointer is still moving. Speed is the feature, so every
+item below names its latency budget.
+
+#### Layout: one workbench, not a form
+
+- **Series sentence as the header.** The series is described in words, and each word
+  is a control: "Weekly **sum** of **sales** for **East**, **Jan 2023 to Oct 2026**,
+  gaps **filled with zero**". Click a word to change it. This replaces a wall of
+  dropdowns and doubles as the chart title in exports.
+- **Hero chart** (about 60% of the height) with an **overview navigator** strip under
+  it: the whole series in miniature with a draggable window, as in market charts.
+  Range presets beside it (3M, 6M, YTD, 1Y, All, Fit forecast).
+- **Linked panels** under the hero sharing its x axis: trend, seasonal, remainder (the
+  decomposition), and the seasonal plot / weekday-by-month heatmap. One crosshair
+  runs through all of them.
+- **Insight rail** on the right: findings written as sentences, each with a number
+  and a "show me" action that flies the chart to it and rings the marks.
+  "Strong weekly cycle: Saturdays run 34% above the week's average."
+  "Trend turned down in Aug 2025 (changepoint)." "3 unusual weeks." "Forecast beats
+  seasonal naive by 18%." Ranked by strength; nothing shown that did not clear a test.
+- **Pipeline strip** at the bottom: Resample, Fill, Transform, Smooth, Model as chips,
+  each with a tiny before/after sparkline so the effect of a step is visible without
+  opening it. Toggling a chip is instant and undoable.
+- **Modes, not pages:** Explore, Decompose, Forecast as tabs over the same hero chart,
+  so the series, zoom and crosshair stay put while the analysis changes.
+
+#### Visual language
+
+- Reuse the app tokens (`--accent`, `--text-dim`, `--chart-*`) with a dedicated series
+  palette: history in ink, trend in the accent, forecast in a second hue, its band the
+  same hue whose opacity fades with the horizon (uncertainty you can see), anomalies as
+  small rings in the danger colour, filled periods as hollow markers, event markers as
+  thin vertical rules with a flag label.
+- **Direct labels instead of legends:** values at the line ends ("Forecast Dec 2026:
+  1,240", "Trend +3.2 a week"), placed with simple collision avoidance.
+- **Two-level date axis** (days over months over years) that never repeats the year on
+  every tick; tabular numerals everywhere; abbreviated units (1.2k, 3.4M) with the
+  exact value in the readout.
+- Quiet gridlines, generous margins, one accent at a time. Dark mode designed, not
+  inverted. Colour-blind safe hues; nothing encoded by colour alone (dashes, markers).
+- **Motion with meaning, 150 to 200 ms:** when the grain, model or smoothing changes,
+  the line morphs from old to new values (same periods tween, others cross-fade); the
+  forecast band grows out of the last observed point. Off under
+  `prefers-reduced-motion`. Never animate while the user is dragging (instant there).
+- **Designed states:** skeleton panels while loading (never a blank or a spinner over
+  data), an explained empty state ("needs a date column and at least 12 periods"),
+  inline warnings next to the thing they are about, not in a toast.
+
+#### Interaction: direct manipulation
+
+- **Crosshair readout** synced across all panels: period, value, trend, seasonal,
+  remainder, forecast and both bounds, change vs previous period and vs same period
+  last year. Arrow keys step one period; Home/End jump.
+- **Drag the forecast horizon** by its end handle on the chart; the band redraws while
+  dragging.
+- **Drag the train/test split line** to backtest from any date; error and coverage
+  update live. This turns "is this model any good?" into something you can feel.
+- **What-if drivers:** for regression forecasts, each driver gets a slider or a small
+  editable future grid ("price +5% from March"); the forecast and band respond while
+  dragging. **Scenarios** A/B/C can be saved and overlaid with their own bands.
+- **Click a point to see its rows:** every period is backed by real rows, so a click
+  filters the Table to that period (and slice). This is the edge over standalone
+  forecasting tools and reuses the existing filter path.
+- **Click an anomaly** to explain it (which rows drove it), exclude it from fitting,
+  or mark it as an event.
+- **Brush to analyse a range** (Shift+drag already exists), **pin** a period to compare
+  against while hovering others, and annotate any point with a note that travels into
+  exports.
+- **Model leaderboard:** every method with its backtest error vs seasonal naive, a
+  coverage figure and an error sparkline over the backtest origins. Click to switch
+  the hero; hover a row to ghost that model's forecast over the current one.
+- Undo/redo for every change; the whole page state is part of the recipe and is
+  restored per dataset. Command bar entries for the common actions.
+
+#### Speed architecture: how it stays instant
+
+- **Two tiers of compute.** Only the first touches rows: aggregating rows into the
+  series (worker, cached by its key). Everything after runs on the series (n up to a
+  few thousand), where most steps take under a millisecond.
+- **Run small things where the pointer is.** Smoothing sliders, rolling windows,
+  transforms and the crosshair readout run on the main thread on the cached series,
+  skipping the worker round trip, so they redraw in the same frame as the drag.
+  Fitting, backtests and period detection run in the worker.
+- **Progressive results.** Seasonal naive appears at once; exponential smoothing,
+  STL, regression and the ensemble stream in as each finishes, and the leaderboard
+  fills row by row. A generation counter drops stale answers; a new change cancels
+  outstanding work.
+- **Per-stage cache** keyed by the pipeline up to that stage: changing the smoothing
+  does not re-resample, changing the model does not re-fill. Refits warm-start from
+  the previous parameters, so dragging the split line refits in a few iterations.
+- **Layered canvases per panel:** a static layer (axes, grid, history, band) and an
+  interaction layer (crosshair, brush, handles, ghost lines). Hover never redraws the
+  data. Paths cached as `Path2D`; long series decimated min/max per pixel.
+- **Deterministic numbers:** seeded resampling, fixed optimiser starts, so values do not
+  flicker between identical runs.
+- **Budgets (p95, wired into `npm run gate` as benches):**
+  - crosshair, hover, slider drag: under 8 ms per frame (60 fps)
+  - pipeline change to first paint: under 50 ms (1M rows into the series under 100 ms)
+  - one model fit plus forecast, 1,000 periods: under 30 ms
+  - full leaderboard with backtests, 1,000 periods: under 300 ms, streamed
+  - page open from "Analyse this series": under 150 ms to a drawn hero chart
+
+#### Trust: what makes people believe the numbers
+
+- A **model card** for the shown forecast: method, parameters, fitted period, backtest
+  error vs naive, realised band coverage, and the warnings that apply.
+- Every derived number has a "how is this computed" popover in plain words.
+- Honest refusals: too short, no seasonality found, structural break detected ("the
+  series changed in Mar 2024; fit only after it?").
+- Correctness gate: each method checked against statsmodels on fixed fixtures, plus
+  property tests (a pure sine has seasonal strength near 1, a straight line has trend
+  slope equal to its gradient, forecasts of a constant are that constant).
+
+#### Accessibility and export
+
+- Everything reachable by keyboard; a "view as table" for every panel; insights in an
+  ARIA live region; contrast checked in both themes.
+- **Presentation export:** PNG/SVG at 2x with the series sentence as title, a subtitle
+  for the model and interval, a source footnote and the band legend. CSV of the series,
+  components and forecast (value, lower, upper). Python (pandas + statsmodels) that
+  reproduces the pipeline.
+
+#### Code shape
+
+- Pure maths in `src/data/timeseries/` (prep, period, stl, ets, theta, regress,
+  backtest, insights), each unit tested against fixtures. UI in `src/ui/timeseries/`
+  (page, hero chart, navigator, panels, leaderboard, insight rail, pipeline strip).
+  Shared `band-draw.ts` and a time-axis module that the Chart card can adopt later.
+  **Do not grow `chart-card.ts`** (about 12k lines already).
+- Build a **clickable prototype first** (static HTML with a fixed series) to settle the
+  layout, palette and motion before any engine work; then build behind it.
+
+#### Release phases
+
+1. **Explore:** series sentence, hero chart and navigator, rolling and smoothing
+   overlays, crosshair readout, click to rows, insight rail (trend, peaks, partial
+   periods), pipeline strip, budgets in the gate.
+2. **Understand:** decomposition panels, seasonal plot and heatmap, period detection,
+   anomalies and changepoints in the insight rail.
+3. **Predict:** models, leaderboard, band, draggable horizon and split, drivers with
+   what-if sliders and scenarios.
+4. **Polish:** presentation export, small multiples per category, annotations and
+   events, code export.
+
+### Market survey (2026-10-30): what to borrow, and the gap we fill
+
+A quick survey of the leaders. Two families: **code libraries** (Prophet, Nixtla
+StatsForecast/TimeGPT, R fable) with strong methods and no UI, and **BI tools**
+(Tableau, Power BI, Excel, Datadog) with a one-click forecast that is mostly a black box.
+
+| Product | What it does well | Borrow |
+|---|---|---|
+| Meta Prophet | Trend + seasonalities + holidays as one additive regression; changepoints drawn on the plot; components plot; tuning by plain knobs (trend flexibility, seasonality strength); cross-validation with error plotted against horizon; saturating growth (cap/floor) | Components panel incl. holiday/event effects; changepoint lines on the trend; "trend flexibility" slider; error-vs-horizon plot; cap/floor for bounded measures (shares, percentages) |
+| Tableau | Holt-Winters chosen automatically; Describe Forecast shows the model and a GOOD/OK/POOR quality rating against a naive forecast; 90/95/99% intervals; minimum data rules stated | A one-word quality grade against naive, next to the number that backs it |
+| Excel Forecast Sheet | One click; detects season length; exposes timeline completion (zeros vs interpolate), aggregation of duplicates, forecast start date, a stats table | Choosing the forecast start date as the backtest; duplicate aggregation and completion as visible options |
+| Power BI | Anomaly detection with a sensitivity slider; clicking an anomaly gives possible explanations ranked by strength, in words; forecast detects seasonality. Anomalies and forecast cannot share one visual | Sensitivity slider; "why is this point unusual" ranked by which slice drove it; show anomalies and forecast together |
+| Datadog | Anomaly algorithms named by behaviour (basic, agile, robust) rather than by maths; band width as one bounds setting; needs 3x the seasonal period of history | Model choices named by behaviour ("reacts fast", "steady", "ignores spikes"); one band-width control; state the history rule |
+| Nixtla StatsForecast / TimeGPT | Fast auto-selected ETS and ARIMA; conformal prediction intervals at several levels at once; native and conformal bands | Confirms our backtest (conformal-style) band and multi-level fan |
+| R fable / fpp3 | 80% and 95% fan as the default display; trend and seasonal strength features | 80/95 fan as default; strength scores (already planned) |
+
+**Prophet's model is our regression model plus changepoints.** Prophet fits a
+piecewise-linear trend (hinge terms at candidate changepoints, shrunk towards none),
+Fourier seasonalities and holiday dummies. That is plan item 5 with hinge columns and
+a ridge or L1 penalty, so a "Prophet-style" model needs no dependency and lands in the
+first forecast release with drivers. Saturating (logistic) growth is a later option.
+
+**The gap in the market, and the pitch:** the BI tools forecast without showing how
+good the forecast is, and the libraries show it but need code. None of them (in this
+survey) combines:
+- a band whose coverage is checked on held-out data and stated next to it,
+- forecasts, anomalies and decomposition on one chart at the same time,
+- drivers with live what-if sliders,
+- a click from any period to the rows behind it,
+- all of it offline in the browser, redrawing while the pointer moves.
+
+Unchecked: a third-party page says Prophet is in maintenance mode (bug fixes only). It
+does not change what we borrow, since we implement the model ourselves.
+
+Sources: help.tableau.com (forecast_describe), learn.microsoft.com (Power BI anomaly
+detection; Excel CreateForecastSheet), support.microsoft.com (Create a forecast in Excel),
+docs.datadoghq.com (anomaly monitors), nixtlaverse.nixtla.io and nixtla.io (AutoETS,
+prediction intervals), Prophet R reference and course notes.
 
 ## TODO (logged 2026-10-29)
 
