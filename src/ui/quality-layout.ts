@@ -231,9 +231,11 @@ export function buildStrip(
       seg("seg-clean", column.cleanShare),
     );
     card.append(
-      el("span", { class: "qp-col-name" }, [column.name]),
+      el("span", { class: "qp-col-top" }, [
+        el("span", { class: "qp-col-name" }, [column.name]),
+        el("span", { class: "qp-col-score", title: "Column score out of 100" }, [column.score?.score != null ? column.score.score.toFixed(0) : ""]),
+      ]),
       el("span", { class: "qp-col-type" }, [column.type]),
-      el("span", { class: "qp-col-score" }, [column.score?.score != null ? column.score.score.toFixed(0) : ""]),
       bar,
     );
     const chips = el("span", { class: "qp-col-chips" });
@@ -307,6 +309,8 @@ export function buildIssueCard(
     fix: (issue: PageIssue) => void;
     show: (issue: PageIssue) => void;
     optional?: (issue: PageIssue, optional: boolean) => void;
+    /** Open the one-by-one review for an issue that has choices to make. */
+    review?: (issue: PageIssue) => void;
   },
 ): HTMLElement {
   const card = el("article", { class: `issue-card sev-${issue.severity}`, "data-issue": issue.id });
@@ -333,6 +337,13 @@ export function buildIssueCard(
     ]);
     fix.addEventListener("click", () => actions.fix(issue));
     buttons.append(fix);
+  }
+  const standardise = issue.fixes.find((step) => step.kind === "standardise");
+  if (standardise !== undefined && standardise.kind === "standardise" && standardise.groups !== undefined && actions.review !== undefined) {
+    const review = el("button", { class: "ghost outlined", type: "button", "data-qp": "review-spellings" }, ["Review one by one\u2026"]);
+    review.title = "Choose which spelling becomes the standard for each group, or leave a group alone";
+    review.addEventListener("click", () => actions.review?.(issue));
+    buttons.append(review);
   }
   const showable = issue.check !== undefined || issue.finding !== undefined;
   if (showable) {
@@ -373,6 +384,7 @@ export function buildIssuesTab(
     /** Previews and applies every safe fix together; omitted when none is available. */
     applyAllSafe?: () => void;
     safeCount?: number;
+    review?: (issue: PageIssue) => void;
   },
 ): HTMLElement {
   const root = el("div", { class: "qp-issues" });

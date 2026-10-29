@@ -34,7 +34,14 @@ export interface FixPreviewLine {
 }
 
 export type FixStep =
-  | { kind: "standardise"; column: number; pairs: [string, string][]; preview: FixPreviewLine[] }
+  | {
+      kind: "standardise";
+      column: number;
+      pairs: [string, string][];
+      preview: FixPreviewLine[];
+      /** All groups with every spelling, for the one-by-one review. */
+      groups?: { spellings: { value: string; count: number }[] }[];
+    }
   | { kind: "placeholders"; column: number; tokens: string[]; preview: FixPreviewLine[] }
   | { kind: "convert"; column: number; to: ColumnType }
   | { kind: "dateFormat"; column: number; order: "dmy" | "mdy"; preview: FixPreviewLine[] }
@@ -191,6 +198,7 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
             column,
             pairs: variants.mappings.map((m) => [m.from, m.to] as [string, string]),
             preview: [...variants.mappings].sort((a, b) => b.count - a.count).slice(0, 5),
+            ...(variants.detail === undefined ? {} : { groups: variants.detail }),
           },
         ];
         if (cells > 0) {

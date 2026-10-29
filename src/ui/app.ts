@@ -13,7 +13,7 @@ import { detectTable, type HeaderLayout } from "../parse/header-detect.js";
 import { openHeaderRowDialog } from "./header-row-dialog.js";
 import { openProtectDialog, type ProtectMode } from "./protect-dialog.js";
 import { openFixPreview } from "./fix-preview-dialog.js";
-import { buildColumnHealth, buildIssues, type PageIssue } from "../data/dq-issues.js";
+import { buildColumnHealth, buildIssues, type FixStep, type PageIssue } from "../data/dq-issues.js";
 import { columnsIgnoring, idLikeColumns, nearDuplicateFinding } from "../data/near-duplicates.js";
 import { maskValue } from "../data/mask-value.js";
 import { getSensitiveMark, setSensitiveMark } from "./sensitive-marks.js";
@@ -168,6 +168,7 @@ import {
   type Snapshot,
 } from "../data/history.js";
 import { accuracyChecks, candidateKinds } from "../data/reference.js";
+import { openStandardiseReview } from "./standardise-review-dialog.js";
 import { buildRulesPanel } from "./rules-panel.js";
 import { buildHistoryPanel } from "./history-panel.js";
 import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
@@ -4063,6 +4064,7 @@ export class App {
       onProtect: (card, anchor) => this.openProtectMenu(card, anchor),
       onFixIssues: (issues) => this.fixIssues(issues),
       onShowIssue: (issue) => this.showIssue(issue),
+      onReviewIssue: (issue) => this.reviewIssue(issue),
       buildRulesPanel: () => this.rulesPanel(),
       ruleCount: () => this.rules.length,
       buildHistoryPanel: () => this.historyPanel(),
@@ -4267,35 +4269,8 @@ export class App {
     for (const issue of issues.filter((candidate) => chosen.includes(candidate.id))) {
       const undos: (() => void)[] = [];
       for (const step of issue.fixes) {
-        const meta = this.metas[step.column];
-        if (meta === undefined) continue;
-        if (step.kind === "standardise") {
-          const existing = this.cleanedColumns.get(step.column) ?? [];
-          const op: CleanOp = { kind: "recode", pairs: step.pairs };
-          this.applyClean([{ column: step.column, ops: [...existing, op] }]);
-          undos.push(() => this.applyClean([{ column: step.column, ops: existing }]));
-        } else if (step.kind === "numberSymbols") {
-          const existing = this.cleanedColumns.get(step.column) ?? [];
-          const op: CleanOp = { kind: "toNumber", locale: step.locale };
-          this.applyClean([{ column: step.column, ops: [...existing, op] }]);
-          undos.push(() => this.applyClean([{ column: step.column, ops: existing }]));
-        } else if (step.kind === "dateFormat") {
-          const existing = this.cleanedColumns.get(step.column) ?? [];
-          const op: CleanOp = { kind: "toDate", order: step.order };
-          this.applyClean([{ column: step.column, ops: [...existing, op] }]);
-          undos.push(() => this.applyClean([{ column: step.column, ops: existing }]));
-        } else if (step.kind === "placeholders") {
-          const previous = { extra: [...meta.nullPolicy.extra], keep: [...meta.nullPolicy.keep] };
-          const extra = [...new Set([...previous.extra, ...step.tokens])];
-          this.applyNullPolicy(step.column, extra, previous.keep, {
-            label: `${meta.name}: placeholder text treated as missing`,
-          });
-          undos.push(() =>
-            this.applyNullPolicy(step.column, previous.extra, previous.keep, {
-              label: `${meta.name}: placeholder change undone`,
-            }),
-          );
-        }
+        const undo = this.applyFixStep(step);
+        if (undo !== null) undos.push(undo);
       }
       items.push({
         id: issue.id,
@@ -4309,6 +4284,72 @@ export class App {
       "Undo all",
     );
     return { items };
+  }
+
+  /** Applies one fix step as an undoable Recipe step; returns how to undo it, or null if nothing ran. */
+  private applyFixStep(step: FixStep): (() => void) | null {
+    const meta = this.metas[step.column];
+    if (meta === undefined) return null;
+    if (step.kind === "standardise") {
+      const existing = this.cleanedColumns.get(step.column) ?? [];
+      const op: CleanOp = { kind: "recode", pairs: step.pairs };
+      this.applyClean([{ column: step.column, ops: [...existing, op] }]);
+      return () => this.applyClean([{ column: step.column, ops: existing }]);
+    }
+    if (step.kind === "numberSymbols") {
+      const existing = this.cleanedColumns.get(step.column) ?? [];
+      const op: CleanOp = { kind: "toNumber", locale: step.locale };
+      this.applyClean([{ column: step.column, ops: [...existing, op] }]);
+      return () => this.applyClean([{ column: step.column, ops: existing }]);
+    }
+    if (step.kind === "dateFormat") {
+      const existing = this.cleanedColumns.get(step.column) ?? [];
+      const op: CleanOp = { kind: "toDate", order: step.order };
+      this.applyClean([{ column: step.column, ops: [...existing, op] }]);
+      return () => this.applyClean([{ column: step.column, ops: existing }]);
+    }
+    if (step.kind === "placeholders") {
+      const previous = { extra: [...meta.nullPolicy.extra], keep: [...meta.nullPolicy.keep] };
+      const extra = [...new Set([...previous.extra, ...step.tokens])];
+      this.applyNullPolicy(step.column, extra, previous.keep, {
+        label: `${meta.name}: placeholder text treated as missing`,
+      });
+      return () =>
+        this.applyNullPolicy(step.column, previous.extra, previous.keep, {
+          label: `${meta.name}: placeholder change undone`,
+        });
+    }
+    return null;
+  }
+
+  /** One-by-one spelling review: choose each group's standard, then apply as one undoable step. */
+  private async reviewIssue(issue: PageIssue): Promise<FixOutcome | null> {
+    const standardise = issue.fixes.find((step) => step.kind === "standardise");
+    if (standardise === undefined || standardise.kind !== "standardise" || standardise.groups === undefined) return null;
+    const placeholders = issue.fixes.find((step) => step.kind === "placeholders");
+    const placeholderCells =
+      placeholders !== undefined && placeholders.kind === "placeholders"
+        ? placeholders.preview.reduce((sum, line) => sum + line.count, 0)
+        : 0;
+    const result = await openStandardiseReview({
+      columnName: issue.columnName ?? "column",
+      groups: standardise.groups,
+      placeholderCells,
+    });
+    if (result === null) return null;
+    const undos: (() => void)[] = [];
+    if (result.pairs.length > 0) {
+      const undo = this.applyFixStep({ ...standardise, pairs: result.pairs });
+      if (undo !== null) undos.push(undo);
+    }
+    if (result.treatPlaceholders && placeholders !== undefined) {
+      const undo = this.applyFixStep(placeholders);
+      if (undo !== null) undos.push(undo);
+    }
+    if (undos.length === 0) return null;
+    const undo = (): void => [...undos].reverse().forEach((fn) => fn());
+    this.showToast(`Standardised ${result.pairs.length} ${result.pairs.length === 1 ? "spelling" : "spellings"} in \u201c${issue.columnName ?? "column"}\u201d`, undo, "Undo");
+    return { items: [{ id: issue.id, undo }] };
   }
 
   /** Mask / hash / drop for a flagged column. Each is an undoable Recipe step. */

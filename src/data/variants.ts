@@ -17,7 +17,15 @@ export interface VariantSummary {
    * can standardise exactly what the preview showed. Capped at MAX_MAPPINGS pairs.
    */
   mappings: { from: string; to: string; count: number }[];
+  /**
+   * Every group (most affected first) with all its spellings, so the user can pick
+   * a different standard than the most common one. Capped; absent in older data.
+   */
+  detail?: { spellings: { value: string; count: number }[] }[];
 }
+
+const MAX_DETAIL_GROUPS = 300;
+const MAX_DETAIL_SPELLINGS = 20;
 
 const MAX_MAPPINGS = 2000;
 
@@ -40,7 +48,9 @@ export function spellingVariants(
   const examples: { minority: number; spellings: { value: string; count: number }[] }[] = [];
   for (const list of byKey.values()) {
     if (list.length < 2) continue;
-    list.sort((a, b) => b.count - a.count);
+    // Most common first; on a tie prefer Title Case or lower case over SHOUTING.
+    const shout = (value: string): number => (value.length > 1 && value === value.toUpperCase() && value !== value.toLowerCase() ? 1 : 0);
+    list.sort((a, b) => b.count - a.count || shout(a.value) - shout(b.value));
     groups++;
     const minority = list.slice(1).reduce((sum, entry) => sum + entry.count, 0);
     minorityRows += minority;
@@ -58,6 +68,7 @@ export function spellingVariants(
     minorityRows,
     examples: examples.slice(0, 3).map(({ spellings }) => ({ spellings: spellings.slice(0, 8) })),
     mappings,
+    detail: examples.slice(0, MAX_DETAIL_GROUPS).map(({ spellings }) => ({ spellings: spellings.slice(0, MAX_DETAIL_SPELLINGS) })),
   };
 }
 

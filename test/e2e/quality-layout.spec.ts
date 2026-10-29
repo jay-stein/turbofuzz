@@ -265,3 +265,34 @@ test("the HTML report downloads and carries the score", async ({ page }) => {
   expect(text).toContain("Data quality report");
   expect(text).not.toMatch(/<script/);
 });
+
+test("spellings can be reviewed one by one: the suggested option is ticked, another can be chosen, a group can be skipped, apply and undo", async ({ page }) => {
+  await openQuality(page);
+  await page.locator('[data-qp="review-spellings"]').first().click();
+  const dialog = page.getByRole("dialog", { name: "Choose spellings" });
+  await expect(dialog).toBeVisible();
+  const first = dialog.locator(".std-group").first();
+  // Option 1 is the most frequent spelling: highlighted, labelled and ticked.
+  const suggested = first.locator(".std-option.is-suggested");
+  await expect(suggested).toContainText("Option 1");
+  await expect(suggested).toContainText("Suggested");
+  await expect(suggested.locator('input[type="checkbox"]')).toBeChecked();
+  const before = await suggested.locator(".std-to").textContent();
+  // Tick Option 2: the standard moves, and only one option stays ticked.
+  await first.locator(".std-option").nth(1).locator('input[type="checkbox"]').check();
+  await expect(first.locator('.std-option input[type="checkbox"]:checked')).toHaveCount(1);
+  await expect(suggested.locator('input[type="checkbox"]')).not.toBeChecked();
+  expect(await first.locator(".std-option.is-chosen .std-to").textContent()).not.toBe(before);
+  // Untick everything in the second group to leave it alone.
+  if ((await dialog.locator(".std-group").count()) > 1) {
+    const second = dialog.locator(".std-group").nth(1);
+    await second.locator('.std-option input[type="checkbox"]:checked').first().uncheck();
+    await expect(second).toHaveClass(/is-skipped/);
+    await expect(second.locator(".std-cells")).toContainText("left as it is");
+  }
+  await dialog.getByRole("button", { name: /^Apply \d+ group/ }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator(".qp-fixed-row").first()).toBeVisible();
+  await page.locator(".qp-fixed-row").first().getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator(".qp-fixed-row")).toHaveCount(0);
+});

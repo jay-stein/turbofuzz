@@ -104,3 +104,19 @@ Add entries here. Keep unsuccessful attempts too if they reveal useful constrain
 - **Explicit non-goals:** Screenshot baselines; saving optional marks or rules across browser restarts; "sharing" raising sensitive flags to review; leakage/constant-column checks for the machine-learning profile; user-overridable semantic types.
 - **Files / components changed:** src/data/{near-duplicates,rules,history,reference}.ts, reference/*, pair-checks.ts, dq-report.ts, sensitivity.ts, text-profile.ts, semantic-type.ts; src/ui/{rules-panel,history-panel}.ts, app.ts, quality-page.ts, quality-layout.ts; bench/dq.ts; tests.
 - **Date:** 2026-10-29
+
+### CHG-2026-10-29-08 — Review spellings one by one
+
+- **Status:** Verified (unit tests, browser test, screenshot); owner has not tried it
+- **Problem addressed:** "Standardise" applied the most common spelling everywhere, with no way to approve groups individually or to pick a different standard when the most common one is the wrong one.
+- **Scope:** Spelling issue cards keep the one-click fix and gain "Review one by one…". The dialog lists each group of spellings with counts. The most common is preselected; click any spelling to make it the standard, use Swap on a pair, or type your own. Untick a group to leave it alone; find a spelling; approve or skip all; reset to most common. Optional "also treat placeholders as empty". Applies as one undoable Recipe step and shows under Fixed this session. Ties between equally common spellings now prefer Title Case or lower case over capitals.
+- **Files / components changed:** src/data/standardise-review.ts, src/data/variants.ts (all groups, capped at 300), src/data/dq-issues.ts, src/ui/standardise-review-dialog.ts, quality-layout.ts, quality-page.ts, app.ts (fix steps now applied by `applyFixStep`)
+- **Explicit non-goals:** The same review for fuzzy matches (Melb. vs Melbourne), which have their own merge panel; remembering a chosen standard across loads.
+- **Date:** 2026-10-29
+
+### CHG-2026-10-29-09 — Explicit options in the spelling review; readable column cards
+
+- **Status:** Verified (browser tests incl. axe and the 11px text rule, screenshots in both themes); owner has not tried it
+- **Scope:** The spelling review now lists each group as numbered options, each showing exactly what changes and what it becomes ("Option 2: Perth 60, PERTH 60 → perth · 120 cells"). The most frequent spelling is Option 1, highlighted, labelled "Suggested · most frequent" and ticked. Ticking another option moves the choice (one option per group); unticking all leaves the group alone; a last option takes your own typed standard. Swap is no longer a separate control, since Option 2 of a pair is the swap. Column cards in the Data Quality strip no longer clip: the fixed 92px height is gone, the score sits beside the name, text is 12 to 13px and chips wrap.
+- **Files / components changed:** src/ui/standardise-review-dialog.ts, quality-layout.ts, src/styles.css, test/e2e/quality-layout.spec.ts
+- **Date:** 2026-10-29

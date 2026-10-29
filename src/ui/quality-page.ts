@@ -73,6 +73,8 @@ export interface QualityPageCallbacks {
    * Resolves with what was applied and how to undo each, or null when cancelled.
    */
   onFixIssues?(issues: readonly PageIssue[]): Promise<FixOutcome | null>;
+  /** Open the one-by-one review for an issue; resolves with what was applied, or null when cancelled. */
+  onReviewIssue?(issue: PageIssue): Promise<FixOutcome | null>;
   /** Show the rows behind an issue (filters the table or runs its finding action). */
   onShowIssue?(issue: PageIssue): void;
   /** The user marked a column optional (true) or required (false). */
@@ -314,6 +316,7 @@ export class QualityPage {
           ),
           {
             applyAllSafe: () => void this.fix(safe),
+            ...(this.callbacks.onReviewIssue === undefined ? {} : { review: (issue: PageIssue) => void this.review(issue) }),
             safeCount: safe.length,
             fix: (issue) => void this.fixOne(issue),
             show: (issue) => this.callbacks.onShowIssue?.(issue),
@@ -397,6 +400,15 @@ export class QualityPage {
     for (const item of outcome.items) {
       const issue = issues.find((candidate) => candidate.id === item.id);
       if (issue === undefined) continue;
+      this.fixed.push({ id: item.id, title: issue.title, points: issue.points, undo: item.undo });
+    }
+    this.render(this.lastInput);
+  }
+
+  private async review(issue: PageIssue): Promise<void> {
+    const outcome = await this.callbacks.onReviewIssue?.(issue);
+    if (outcome === null || outcome === undefined) return;
+    for (const item of outcome.items) {
       this.fixed.push({ id: item.id, title: issue.title, points: issue.points, undo: item.undo });
     }
     this.render(this.lastInput);
