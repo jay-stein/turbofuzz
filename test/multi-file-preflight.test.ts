@@ -64,3 +64,17 @@ test("preflight disables identical mode when columns differ", async () => {
   confirm.click();
   assert.equal(await pending, "align");
 });
+test("flags files whose columns mostly differ from the first file", () => {
+  const aligned = buildMultiFilePreflight([
+    sample("a.csv", ["id", "value", "extra"], 2000, 100),
+    sample("b.csv", ["value", "id"], 1000, 50),
+  ]);
+  assert.deepEqual(aligned.mismatchedFiles, []);
+
+  const shifted = buildMultiFilePreflight([
+    sample("jan.csv", ["id", "value", "region"], 2000, 100),
+    sample("feb.csv", ["Monthly export", "", ""], 1000, 50),
+    sample("mar.csv", ["id", "value", "region"], 1000, 50),
+  ]);
+  assert.deepEqual(shifted.mismatchedFiles, ["feb.csv"]);
+});

@@ -1,3 +1,4 @@
+import { nameHas } from "./name-hints.js";
 import type { DatasetStats } from "./stats.js";
 import type { DependencyPair } from "./dependencies.js";
 import type { GroupAnomalyPair } from "./group-anomalies.js";
@@ -19,6 +20,7 @@ export type FindingAction =
       special: "nulls" | "valueAnomalies" | "groupAnomalies" | "pattern";
     }
   | { kind: "filterDuplicates" }
+  | { kind: "keyDuplicates"; columns: number[]; label: string }
   | { kind: "filterRange"; column: number; min: number | null; max: number | null }
   | { kind: "filterText"; column: number; query: string }
   | { kind: "cleanNulls"; column: number }
@@ -44,8 +46,6 @@ export interface Finding {
   extraActions?: { label: string; action: FindingAction }[];
 }
 
-const NON_NEGATIVE_NAME = /(qty|quantity|count|stock|units|amount|price|cost|age|duration|distance|weight)/i;
-const MEASUREMENT_NAME = /(length|weight|height|width|distance|duration|size|amount|price|rate|ratio|share|percent)/i;
 
 function percent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
@@ -70,7 +70,7 @@ export function qualityFindings(
           title: `“${meta.name}” is typed ${meta.type} but ${suggestion.count.toLocaleString()} cells do not parse`,
           evidence: [
             { metric: "non-parsing cells", value: suggestion.count.toLocaleString(), n: suggestion.count },
-            { metric: "sampled", value: suggestion.sampled.toLocaleString(), n: suggestion.sampled },
+            { metric: "cells checked", value: suggestion.sampled.toLocaleString(), n: suggestion.sampled },
             { metric: "example", value: `“${suggestion.example}”`, n: 1 },
           ],
           impact: { rows: suggestion.count, columns: [column] },
@@ -89,6 +89,22 @@ export function qualityFindings(
           ],
           impact: { rows: suggestion.count, columns: [column] },
           fixLabel: "Repair values",
+          action: { kind: "suggestion", column, suggestion },
+        });
+      } else if (suggestion.kind === "sentinel") {
+        findings.push({
+          id: `sentinel.${column}.${suggestion.value}`,
+          report: "quality.missingness",
+          severity: "review",
+          title: `“${meta.name}” has ${suggestion.count.toLocaleString()} cells of “${suggestion.value}” that may mean missing${
+            suggestion.hint === undefined ? "" : ` (${suggestion.hint})`
+          }`,
+          evidence: [
+            { metric: `“${suggestion.value}” cells`, value: suggestion.count.toLocaleString(), n: suggestion.count },
+            { metric: "share of values", value: percent(suggestion.ratio), n: 1 },
+          ],
+          impact: { rows: suggestion.count, columns: [column] },
+          fixLabel: "Treat as missing",
           action: { kind: "suggestion", column, suggestion },
         });
       } else if (suggestion.kind === "formula") {
@@ -178,6 +194,24 @@ export function qualityFindings(
       });
     }
 
+    const variants = meta.variants ?? null;
+    if (variants !== null && variants.minorityRows > 0) {
+      const example = variants.examples[0]?.spellings.slice(0, 3).map((s) => `“${s.value}”`).join(", ") ?? "";
+      findings.push({
+        id: `variants.${column}`,
+        report: "quality.categoryConsistency",
+        severity: "fix",
+        title: `“${meta.name}” spells ${variants.groups.toLocaleString()} value${variants.groups === 1 ? "" : "s"} more than one way (${example})`,
+        evidence: [
+          { metric: "rows in a minority spelling", value: variants.minorityRows.toLocaleString(), n: variants.minorityRows },
+          { metric: "values affected", value: variants.groups.toLocaleString(), n: variants.groups },
+        ],
+        impact: { rows: variants.minorityRows, columns: [column] },
+        fixLabel: "Merge spellings",
+        action: { kind: "merge", column },
+      });
+    }
+
     if (meta.similarGroups > 0) {
       findings.push({
         id: `categories.${column}`,
@@ -217,7 +251,7 @@ export function qualityFindings(
 
     // Inferred constraints: negative values where the name implies a count.
     if (
-      NON_NEGATIVE_NAME.test(meta.name) &&
+      nameHas(meta.name, "nonNegative") &&
       meta.stats.min !== null &&
       meta.stats.min < 0
     ) {
@@ -238,7 +272,7 @@ export function qualityFindings(
 
     // Unit inconsistency: mass both below and above 1.0 in a measurement-like
     // column (0.15 vs 15 style mixes).
-    if (MEASUREMENT_NAME.test(meta.name)) {
+    if (nameHas(meta.name, "measurement")) {
       const split = unitSplit(meta);
       if (split !== null) {
         findings.push({
@@ -331,6 +365,28 @@ export function qualityFindings(
   }
 
   return findings.sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || b.impact.rows - a.impact.rows);
+}
+
+/**
+ * Finding ids the Quality page shows under "Worth reviewing": things that may be
+ * fine or may not (probable missing-value codes, impossible negatives, mixed units,
+ * keys with gaps). Everything else in qualityFindings is already a scored check on
+ * the page, and fuzzy near-duplicate clusters stay in Advanced signals with their
+ * dismissals, so neither is repeated here.
+ */
+const REVIEW_PREFIXES = ["sentinel.", "negative.", "units.", "key."];
+
+/** The advisory, unscored findings for the Quality page, most affected first. */
+export function reviewFindings(
+  columns: readonly ColumnMeta[],
+  stats: DatasetStats,
+  rowCount = 0,
+): Finding[] {
+  return qualityFindings(columns, stats, rowCount).filter(
+    (finding) =>
+      finding.severity === "review" &&
+      REVIEW_PREFIXES.some((prefix) => finding.id.startsWith(prefix)),
+  );
 }
 
 /** Histogram mass either side of 1.0, for the unit-inconsistency heuristic. */

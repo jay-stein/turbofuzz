@@ -24,6 +24,8 @@ export class Dataset {
   keyDuplicateBits: BitSet | null = null;
   /** Pair-check violation bits, set by the inspector's compare check. */
   pairCheckBits: BitSet | null = null;
+  /** Rows failing at least one deterministic quality issue (Quality page tile). */
+  affectedRowBits: BitSet | null = null;
 
   constructor(
     readonly name: string,

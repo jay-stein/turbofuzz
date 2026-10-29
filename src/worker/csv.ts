@@ -7,6 +7,7 @@ import {
   toDateTimeValue,
   toTimeInputValue,
 } from "../parse/dates.js";
+import { maskValue } from "../data/mask-value.js";
 import type { ExportOptions } from "./protocol.js";
 
 export function csvEscape(value: string): string {
@@ -66,23 +67,30 @@ export function buildCsv(
   includeHeader: boolean,
   options: ExportOptions = {},
 ): string {
-  const columns = dataset.columns;
   const nullAsBlank = options.nullAsBlank ?? true;
   const escapeFormulas = options.escapeFormulas ?? false;
+  const handling = new Map<number, "mask" | "exclude">();
+  for (const entry of options.columnHandling ?? []) handling.set(entry.column, entry.mode);
+  // Excluded columns are left out of the header and every row.
+  const kept: number[] = [];
+  for (let c = 0; c < dataset.columns.length; c++) {
+    if (handling.get(c) !== "exclude") kept.push(c);
+  }
+  const columns = dataset.columns;
   const lines: string[] = [];
 
   if (includeHeader) {
-    const header: string[] = new Array(columns.length);
-    for (let c = 0; c < columns.length; c++) header[c] = csvEscape(columns[c].name);
-    lines.push(header.join(","));
+    lines.push(kept.map((c) => csvEscape(columns[c].name)).join(","));
   }
 
   for (let i = start; i < end; i++) {
     const row = ids[i];
-    const cells: string[] = new Array(columns.length);
-    for (let c = 0; c < columns.length; c++) {
-      const value = exportCell(columns[c], row, nullAsBlank);
-      cells[c] = csvEscape(escapeFormulas ? escapeFormula(value) : value);
+    const cells: string[] = new Array(kept.length);
+    for (let k = 0; k < kept.length; k++) {
+      const c = kept[k];
+      let value = exportCell(columns[c], row, nullAsBlank);
+      if (value !== "" && handling.get(c) === "mask") value = maskValue(value);
+      cells[k] = csvEscape(escapeFormulas ? escapeFormula(value) : value);
     }
     lines.push(cells.join(","));
   }

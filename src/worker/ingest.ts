@@ -1,7 +1,7 @@
 import { buildDataset, buildDatasetAsync } from "../data/build.js";
 import type { Dataset } from "../data/dataset.js";
 import { decodeText, type FileEncoding } from "../parse/encoding.js";
-import { detectTable } from "../parse/header-detect.js";
+import { detectTable, type HeaderLayout } from "../parse/header-detect.js";
 import { isJsonName, parseJsonGrid } from "../parse/json.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import {
@@ -29,6 +29,8 @@ export interface IngestOptions {
   table?: { rows: string[][]; hasHeaders: boolean };
   /** Parse only the first N rows of delimited text (large-file sampling). */
   maxRows?: number;
+  /** User-chosen header layout; skips automatic header detection. */
+  headerLayout?: HeaderLayout;
   /** Build columns now and defer dataset-level metrics to a second request. */
   deferStats?: boolean;
   onProgress?: (progress: IngestProgress) => void;
@@ -159,9 +161,10 @@ function prepareGrid(options: IngestOptions): PreparedGrid {
   let headers = parsed.headers;
   let rows = parsed.rows;
   let ragged = parsed.ragged;
-  if (options.hasHeaders) {
-    const detected = detectTable(parsed.rows);
-    if (detected.headerRows > 0) {
+  if (options.hasHeaders || options.headerLayout !== undefined) {
+    const detected = detectTable(parsed.rows, options.headerLayout);
+    // headerRows 0 with headers means a header-less table: every record is data.
+    if (detected.headerRows > 0 || detected.headers.length > 0) {
       headers = detected.headers.map((value, index) =>
         value.trim() === "" ? `Column ${index + 1}` : value,
       );
@@ -264,6 +267,8 @@ export async function ingestFilesAsync(
         text: file.text,
         buffer: file.buffer,
         maxRows: fileMaxRows,
+        // One layout for every file: appended files must share a format.
+        headerLayout: options.headerLayout,
         onProgress: options.onProgress,
       }),
     );

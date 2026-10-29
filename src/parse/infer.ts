@@ -62,6 +62,9 @@ const ALL_DIGITS = /^\d+$/;
 /** Upper bound for "small code" integers that default to a category list. */
 const CATEGORY_CODE_MAX = 12;
 const CATEGORY_CODE_DISTINCT = 12;
+/** Share of non-integer numbers that turns an integer column into a number column. */
+const DECIMAL_SHARE = 0.01;
+const DECIMAL_MIN_COUNT = 3;
 
 /** Column-name hints that resolve ambiguous `HH:MM` values as wall clock. */
 const CLOCK_NAME_HINT = /(^|[^a-z0-9])(time|times|clock|meridiem)($|[^a-z0-9])/i;
@@ -265,7 +268,11 @@ export function inferColumnType(
   }
   const total = nonNull.length;
 
-  if (integerOk / total >= 0.95) {
+  // Real decimals mixed into whole numbers (tons: 0, 1, 1.5, 0.25) are values,
+  // not junk: a column with 1%+ of them is a number column, not an integer one.
+  const fractional = numberOk - integerOk;
+  const integerLike = integerOk / total >= 0.95 && (fractional < DECIMAL_MIN_COUNT || fractional / total < DECIMAL_SHARE);
+  if (integerLike) {
     const allLong = nonNull.every((value) => value.replace(/^[+-]/, "").length >= 7);
     if (allLong && present > 0 && distinct / present > 0.9) return { type: "identifier" };
     // Small non-negative code columns (Pclass, ratings, weekday numbers) are

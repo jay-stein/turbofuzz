@@ -1,3 +1,4 @@
+import { nameHas } from "../data/name-hints.js";
 import {
   formatDurationMs,
   toDateInputValue,
@@ -165,7 +166,7 @@ export function isIdLikeColumn(meta: ColumnMeta, rowCount: number): boolean {
   if (meta.type !== "integer") return false;
   const nonNull = Math.max(1, rowCount - meta.stats.nulls);
   if (meta.stats.distinct / nonNull < 0.98) return false;
-  if (MEASURE_HINT.test(meta.name)) return false;
+  if (nameHas(meta.name, "chartMeasure")) return false;
   const min = meta.stats.min;
   const max = meta.stats.max;
   if (min === null || max === null) return false;
@@ -181,7 +182,6 @@ export function isChartCategory(meta: ColumnMeta): boolean {
 
 const CATEGORY_HINT = /(region|country|state|province|county|city|segment|status|category|product|type|channel|group|department|team|industry|plan|tier|class|gender|band)/i;
 const DATE_HINT = /(date|time|created|updated|event|timestamp|when|period|month|year|day)/i;
-const MEASURE_HINT = /(amount|revenue|sales|total|price|cost|profit|spend|income|value|qty|quantity|count|score|usage|balance|weight|size|duration|rate|percent|pct|margin|discount|units)/i;
 
 interface ChartEntry {
   meta: ColumnMeta;
@@ -237,7 +237,7 @@ function measureScore(entry: ChartEntry, rowCount: number): number {
   if (!isNumericType(meta.type) || meta.stats.distinct < 13) return Number.NEGATIVE_INFINITY;
   if (isIdLikeColumn(meta, rowCount)) return Number.NEGATIVE_INFINITY;
   let score = 40;
-  if (MEASURE_HINT.test(meta.name)) score += 25;
+  if (nameHas(meta.name, "chartMeasure")) score += 25;
   if (/(code|number|num|no|year|month|day)$/i.test(meta.name)) score -= 30;
   score -= nullRatio(meta, rowCount) * 20;
   return score - entry.index * 0.01;

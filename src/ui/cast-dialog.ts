@@ -3,6 +3,7 @@ import type { DateOrder } from "../parse/dates.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { ColumnType } from "../types.js";
 import { TYPE_LABELS } from "../types.js";
+import { CAST_LOSS_CONFIRM_SHARE } from "../data/cast-ops.js";
 import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
 
@@ -11,6 +12,10 @@ export interface CastPreviewCounts {
   total: number;
   failed: number;
   examples?: string[];
+  /** Non-empty cells; the base for the loss percentage. */
+  nonEmpty?: number;
+  /** Cells whose digits a number cast would change (leading zeros, 16+ digits). */
+  digitLoss?: number;
 }
 
 export type CastDialogResult =
@@ -121,6 +126,13 @@ export function openCastDialog(input: CastDialogInput): Promise<CastDialogResult
     const examples = el("div", { class: "cast-examples" });
     body.append(summary, examples);
 
+    // Blanking more than 1% of the values needs an explicit yes.
+    const lossBox = el("input", { type: "checkbox" }) as HTMLInputElement;
+    const lossText = el("span", {});
+    const lossConfirm = el("label", { class: "cast-loss-confirm hidden" }, [lossBox, lossText]);
+    const guard = el("div", { class: "chart-setup-error", role: "alert" });
+    body.append(lossConfirm, guard);
+
     const errorEl = el("div", { class: "chart-setup-error", role: "alert" });
     modal.append(body, errorEl);
 
@@ -178,8 +190,31 @@ export function openCastDialog(input: CastDialogInput): Promise<CastDialogResult
           ]),
         );
       }
-      confirm.disabled = policySelect.value === "reject" && counts.failed > 0;
+      guardrails(counts);
     };
+
+    // Refuse outright when digits would change; ask first when many values would blank.
+    const guardrails = (counts: CastPreviewCounts): void => {
+      const digitLoss = counts.digitLoss ?? 0;
+      const nonEmpty = Math.max(1, counts.nonEmpty ?? counts.total);
+      const blanks = policySelect.value === "coerce" ? counts.failed : 0;
+      const share = blanks / nonEmpty;
+      guard.textContent =
+        digitLoss > 0
+          ? `${digitLoss.toLocaleString()} value${digitLoss === 1 ? "" : "s"} start with zeros or have too many digits, so converting would change them. Keep the column as text, or treat it as an identifier.`
+          : "";
+      const needsConfirm = digitLoss === 0 && share > CAST_LOSS_CONFIRM_SHARE;
+      lossConfirm.classList.toggle("hidden", !needsConfirm);
+      lossText.textContent = ` ${blanks.toLocaleString()} values (${(share * 100).toFixed(1)}%) don't parse and will become blank. Tick to confirm.`;
+      if (!needsConfirm) lossBox.checked = false;
+      confirm.disabled =
+        (policySelect.value === "reject" && counts.failed > 0) ||
+        digitLoss > 0 ||
+        (needsConfirm && !lossBox.checked);
+    };
+    lossBox.addEventListener("change", () => {
+      if (latest !== null) guardrails(latest);
+    });
 
     const refresh = (): void => {
       const current = ++generation;

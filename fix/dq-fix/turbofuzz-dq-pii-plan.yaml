@@ -1,0 +1,1056 @@
+# TurboFuzz: Data Quality + sensitive-data (PII) upgrade  |  PLAN v3.2
+# Machine-readable plan for Claude Code. Self-contained; independent of the chart UX brief (they share one task, H0).
+# Repo: jay-stein/turbofuzz   Branch base: agent/text-column-network
+# Rules: do not commit or push unless the owner asks. Extend existing modules; do not build parallel systems.
+#        Everything runs in the browser. No network, no telemetry, no data leaves the machine.
+# Changes from v1: added a commercial bar, a unified issue model, page redesign, column profile and per-column scores,
+#        exception export, rules and contracts, history and drift, reference data, measured PII accuracy, a performance
+#        gate, and the repo's own definition of done. Tasks are regrouped into four milestones.
+# Changes from v3.1 (v3.2): root-cause assessment (turbofuzz-dq-root-cause.md). The main cause is type inference and profiling, not the parser or the
+#        page. New foundation milestone M0 with tasks MEASURE, SEM, WIRE, QUICK; UNIFY premise corrected; G10 and G12 corrected; order re-sequenced.
+# Changes from v3 (v3.1): the CURRENT page was tested on 11 datasets (8 earlier + coffee ratings, US police killings, GDPR fines). Findings are in
+#        test_findings_v31; new tasks SAFE, BAND, OPT, SENT, HDR, FMT, FTX, DUPK, BENCH-REAL close the gaps the v3 plan did not cover.
+# Changes from v2 (v3): page_design rewritten from an owner-approved visual mock-up (dq-after-v3.png / dq-after-v3.html, attached with this
+#        file). New tasks DIST, ROWS, VIS, STATES, COPY. T12, T3, P1 and A11Y updated. See design_refinements_v3. The mock-up is a
+#        VISUAL REFERENCE: build from the design tokens and the spec below, do not copy its markup. Its score (~71) and '+pts'
+#        values are illustrative; counts and examples are real for test dataset B.
+
+verdict_on_v1:
+  summary: >
+    v1 would have made the page an honest checker (score reflects spelling, format and range problems; PII flagged). That is
+    roughly the first 40-60% of the gap. It would NOT have reached the insight and polish of a commercial tool, because commercial
+    tools win on profiling depth, per-column scores, exception handling, reusable rules, history, reference data, a coherent
+    information design, and demonstrated detection accuracy. v2 adds those.
+  gaps_closed_in_v2:
+    - Unified issue model (reuse src/data/findings.ts Finding) instead of a third list.
+    - Page information design with a triage summary, column health strip and progressive loading.
+    - Column profile and per-column health scores (the owner's docs/data-qc-spec.md asks for scores per table AND column).
+    - Row-level exception export (spec 2.1 "exception logging").
+    - Rule recommendations, a rule editor with severities and thresholds, and a saved rules file (spec section 4 "automated discovery").
+    - Local history, trend and schema drift (spec 2.1 "historical trend analysis, schema drift").
+    - Bundled reference data so Accuracy can apply offline (countries, currencies, AU states/postcodes).
+    - PII precision/recall measured against a labelled corpus, with hard negatives, and checksum-collision handling.
+    - Privacy made visible and testable; a latency gate in `npm run gate`; the docs updates the repo's quality gates require.
+
+meta:
+  owner: Quincy (Perth, Australia)
+  product_ethos: Rapid, low-latency, in-browser data cleaning and analysis. Speed and privacy are the top constraints.
+  problem: >
+    The Data Quality page is not very helpful. On test dataset B (planted problems) it scores 95.4 "good" because it effectively
+    checks empty cells and exact duplicate rows. Consistency, Timeliness and Accuracy show n/a. Sensitive-data detection exists
+    but is advisory, capped at 12 columns, has no column-name signal, no actions, and no export warning.
+  goals:
+    - Make the score honest and explainable at dataset, dimension, column and check level.
+    - Turn the page from a report into a fix queue (preview, apply, undo, recorded in the Recipe).
+    - Flag columns that MAY contain sensitive information, clearly separate from "wrong" data, never penalising the score.
+    - Let users keep their expectations as reusable rules and see change over time.
+    - Meet the speed budgets in `constraints`.
+  non_goals:
+    - Legal or compliance verdicts (no "GDPR compliant" claims). Wording stays advisory.
+    - "Any server, upload, webhook, Slack/Jira alerting (impossible under the CSP and against the product ethos). Alternative: a rules file plus the existing pipeline emitters (R2) and an optional headless check (T20)."
+    - Statistical outlier work (has its own page) and ML-based classifiers (cost, size, explainability).
+
+commercial_bar:
+  note: What "commercial quality" means here. Each line is a testable acceptance criterion for the whole programme.
+  criteria:
+    - id: B1
+      rule: Every issue shown has evidence (counts and up to 3 examples), impact (rows and columns), a one-line "why it matters", a fix with preview, and Undo.
+    - id: B2
+      rule: No jargon in visible text. A test renders the page for datasets A-D and fails if it finds raw masks like "A A" or "9-9", internal ids, or "undefined".
+    - id: B3
+      rule: Time to first insight <= 1.5 s on the 250k-row dataset (score tile, top 3 issues). Slower work streams in under skeletons and never blocks the page.
+    - id: B4
+      rule: Full profile and all checks on the 71-column dataset <= 3 s; each column's own result appears as soon as it is ready.
+    - id: B5
+      rule: PII detection precision >= 0.95 and recall >= 0.90 at High confidence on the labelled corpus, zero High false positives on the hard-negative set (see BENCH-PII).
+    - id: B6
+      rule: Dark and light themes; 1440x900, 1024x768 and 390x844; keyboard operable; zero serious axe violations on the page; reduced-motion respected.
+    - id: B7
+      rule: Zero network requests during load and all scans (Playwright asserts it); no fetch, XHR, WebSocket, eval or new Function in new code.
+    - id: B8
+      rule: Numbers are explainable. Clicking any score, dimension, column score or check shows how it was computed and drills to the failing rows.
+    - id: B9
+      rule: Sampled numbers say so ("5,000 of 250,000 values scanned") and offer an exact scan on demand. Nothing approximate is presented as exact.
+    - id: B10
+      rule: The same issue never appears as three different lists (Overview, Reports, Quality page). One issue model, one source of truth.
+
+environment_notes:
+  install: >
+    `npm ci` fails where cdn.sheetjs.com is blocked (package `xlsx`). Workaround: install without it, then stub node_modules/xlsx.
+    Expect only xlsx-related typecheck errors and one xlsx export test failure. Never commit that workaround.
+  build: npx vite build
+  preview: npx vite preview --host 127.0.0.1 --port 4173
+  unit_tests: "npm test   # tsx --test test/*.test.ts (844 tests; only the xlsx stub test fails)"
+  e2e: npx playwright test
+  gate: "npm run gate   # typecheck, tests, e2e, build and bench scripts; add the new DQ bench here (BENCH-PERF)"
+  load_test_data: |
+    await page.addScriptTag({ path: "test/polish/turbofuzz-test-data.js" });
+    await page.evaluate(() => window.TF_TEST.load("B"));   // A sales, B messy customers, C 250k taxi trips, D 71-column assay
+  tabs: [Overview, Data Quality, Table, Pivot View, Outliers, Relationships, Chart]
+  hard_constraint_csp: >
+    public/_headers sets `connect-src 'none'`, `script-src 'self'`, no unsafe-eval. fetch() of any file, even same-origin, is BLOCKED.
+    Ship reference data and dictionaries as JS modules loaded with dynamic import() (Vite emits chunks; script-src 'self' allows them).
+    Never fetch() a JSON file. test/security.test.ts guards no-eval and no-fetch; extend it, do not weaken it.
+
+reality_check_existing_code:
+  note: Reuse these. The gap is that detection exists in several places but is not scored, unified or actionable.
+  score:
+    file: src/data/score.ts
+    facts:
+      - computeDQScore(columns, stats, rowCount, config, userChecks) builds completeness, validity, uniqueness and user checks. Dataset level only.
+      - Validity counts suggestions typeConflict, mixedNumber, formula, meta.pattern.offCount and a typeDowngrade check.
+      - "A header comment says advisory findings (outliers, near-duplicates, drift) are DELIBERATELY absent from the score. See D1."
+      - "Weights: completeness 30, validity 30, uniqueness 15, consistency 15, timeliness 10, accuracy 0. Bands: good >= 90, fair >= 75."
+      - Consistency is scored only via user "Compare with..." pair checks; Timeliness only with a user freshness rule.
+  page:
+    file: src/ui/quality-page.ts
+    facts:
+      - "Sections: hero, dimensions, Freshness, What to fix first, Checks (flat table), Sensitive data, Matrix (column x dimension)."
+      - buildSensitive() lists columns with counts; no actions, no confidence, no name hints, no dismiss.
+      - QualityPageCallbacks has onFilter(check), onConvert, onExport, onConfigChange.
+  findings_engine:
+    file: src/data/findings.ts
+    facts:
+      - "Finding {id, report, severity: fix|review|info, title, evidence[], impact{rows,columns}, fixLabel, action, extraActions} already powers Overview/Reports."
+      - "Producers: qualityFindings, coMissingnessFindings, dependencyFindings, groupAnomalyFindings, relationshipDataFindings, textProfileFindings, similarClusterFindings, distributionFindings, anomalyFindings, explainColumn."
+      - FindingAction already covers suggestion, filterSpecial, filterDuplicates, filterRange, filterText, cleanNulls, merge, flagAnomalies, winsorize.
+      - "BUG to fix in H0: NON_NEGATIVE_NAME and MEASUREMENT_NAME are SUBSTRING regexes (line ~47). 'age' matches percentage, image, package, manage; 'rate' matches generate; 'size' matches resize."
+  pii_scan_today:
+    files: [src/data/text-profile.ts, src/ui/app.ts]
+    facts:
+      - "text-profile.ts classifies whole VALUES: email, url, phone, creditCard (Luhn), iban (checksum), taxFileNumber, abn, acn, governmentId."
+      - app.ts refreshSensitiveColumns() scans only string/category/identifier columns, .slice(0, 12), via client.getTextProfile(column, 1, false).
+      - Results never reach the score, table, charts or exports.
+      - text-profile does not search INSIDE long text (free text with embedded emails is missed).
+  already_detectable_but_not_scored:
+    - what: Near-duplicate / similar-value clusters
+      files: [src/data/similar-clusters.ts, src/search/similar.ts, src/search/normalize.ts, src/ui/similar-dismissals.ts]
+    - what: Dominant-format mask per column and off-pattern rows
+      files: [src/data/mask-profile.ts]
+    - what: Per-column suggestions (sentinel, boolean, number with symbol, date, mixedNumber, typeConflict, formula)
+      files: [src/data/suggestions.ts]
+    - what: Pair and key checks, dependency detection, DQ report, pipeline emitters (sodacl, dbt, gx, dqdl)
+      files: [src/data/pair-checks.ts, src/data/dependencies.ts, src/data/dq-report.ts]
+    - what: Clean ops usable as fixes
+      files: [src/data/clean-ops.ts, src/data/transform-ops.ts]
+    - what: Column inspector (per-column UI to extend, not replace)
+      files: [src/ui/column-inspector.ts]
+  existing_process_docs:
+    - "07_QUALITY_GATES.md: problem statement, evidence, acceptance, preserve-list, rollback point, tests, change log, latency check with a bench p95 budget wired into npm run gate."
+    - "docs/data-qc-spec.md: the owner's enterprise DQ target (profiling, per-table AND per-column 0-100 scores, trend, schema drift, exception logging, alerting, PII/PHI discovery with risk tagging, rule recommendations). v2 maps each item to an offline equivalent (see benchmark_mapping)."
+
+benchmark_mapping:
+  source: docs/data-qc-spec.md
+  rows:
+    - spec: Statistical profiles (counts, null ratios, min/max, types, distinct, frequencies)
+      offline_equivalent: Column profile drawer (C1)
+    - spec: Health scores per table, column, dataset
+      offline_equivalent: Per-column score from its own checks (C1) plus the existing dataset score
+    - spec: Dashboards with trend and schema drift
+      offline_equivalent: Local snapshots, trend sparkline, drift diff (S1)
+    - spec: Exception logging to error tables
+      offline_equivalent: Exceptions export, one row per failing cell with reason (E1)
+    - spec: Alerting webhooks
+      offline_equivalent: NOT possible by design. Rules file + emitters (R2) and optional headless check (T20)
+    - spec: PII/PHI/financial/gov-ID discovery via regex, dictionaries, NLP
+      offline_equivalent: Value shapes + checksums + whole-word name hints + small bundled dictionaries (REF); no ML
+    - spec: Risk tagging and classification tags
+      offline_equivalent: Class and confidence per column, user-set classification label (Public/Internal/Confidential/Restricted), exported in the report
+    - spec: Automated rule recommendations
+      offline_equivalent: Rule recommender from the profile (R1)
+    - spec: Accuracy via reference checks
+      offline_equivalent: Bundled reference lists (REF) make Accuracy applicable for recognised columns
+
+baseline_on_test_dataset_B:
+  score: 95.4 (good)
+  dimensions: {completeness: 91.6, validity: 98.5, uniqueness: 96.8, consistency: n/a, timeliness: n/a, accuracy: n/a}
+  planted_problems_and_current_detection:
+    - problem: "Empty cells, plus 'N/A' and '-' placeholders in status"
+      detected: yes
+    - problem: 40 exact duplicate rows
+      detected: yes
+    - problem: "city spelled Sydney / sydney / SYDNEY / Melb."
+      detected: no on the DQ page (similar-clusters exists, Outliers panel only)
+    - problem: "status in mixed case (active / Active / ACTIVE, inactive / Inactive)"
+      detected: no
+    - problem: "~5% emails contain '@@'"
+      detected: "no. Validity says every value matches. The PII scan finds 1,096 emails of 1,148 non-empty."
+    - problem: "signup_date mixes ISO (2023-03-14) and d/m/2023 (about 30%); d/m ambiguous"
+      detected: no
+    - problem: "balance mixes '$1,234' and plain 1234.56"
+      detected: partially (verify how suggestions reports hasSymbol)
+    - problem: "age 240 and 'unknown'"
+      detected: only Outliers page / type conflict; verify the score counts 'unknown'
+    - problem: "full_name casing / double and leading spaces"
+      detected: "yes but unreadable (155 don't match A A)"
+  expected_sensitive_flags_on_B:
+    email: High (value pattern + name hint)
+    phone: High (value pattern + name hint)
+    full_name: Medium (personal-name hint; no value pattern exists for names)
+    balance: Low (financial name hint)
+    customer_id: none by default (identifier, not personal on its own)
+  expected_no_flags: "Datasets A (sales), C (taxi trips), D (assay). product_name, zone, type, batch, flag_1 must NOT be flagged."
+
+design_decisions:
+  - id: D1
+    question: Should deterministic format, spelling and range problems change the DQ score?
+    recommendation: >
+      Yes for deterministic checks (case/whitespace spelling variants, mixed formats, invalid values for a recognised pattern, impossible ranges).
+      No for fuzzy matches (Melb. vs Melbourne) and for ALL sensitive-data flags: advisory, outside the score.
+    consequence: >
+      Existing datasets will score lower. Add scoreVersion 2 to the report, show a one-time note, and add DQScoreConfig.advisoryOnly (default false)
+      so the owner can revert. With advisoryOnly=true the score on B must still be exactly 95.4.
+    owner_decision_needed: true
+  - id: D2
+    question: Wording for sensitive columns
+    decision: >
+      "May contain" language. A flag is never an error, never red, never in the failing list. Show WHY. Provide "Not sensitive" and "Mark sensitive".
+      Section title "Possibly sensitive columns".
+  - id: D3
+    question: Default behaviour at export for flagged columns
+    decision: Non-blocking one-line notice in the export dialog with Include (default), Mask, Exclude. Never add a mandatory click.
+  - id: D4
+    question: Where dismissals, marks, rules and classification labels are stored
+    decision: >
+      In the Recipe and the rules file (replayable on next month's file), with a sessionStorage mirror like similar-dismissals.ts.
+      Keyed by column name + type, never by position.
+  - id: D5
+    question: History storage and privacy
+    decision: >
+      Opt-in per browser, default ON with a clear first-run note, IndexedDB only, aggregates only (counts, rates, scores, schema). Never values or examples.
+      Category label diffs are stored only for low-cardinality NON-sensitive columns. "Clear history" is one click. Add a switch in settings.
+  - id: D6
+    question: One issue model
+    decision: >
+      Failing scored checks, findings.ts findings and sensitivity flags all render through the Finding shape (severity fix|review|info).
+      Mapping: failing scored check -> fix; fuzzy/advisory -> review; sensitive flag -> info with a neutral style. Dedupe by (column, kind).
+
+sensitivity_model:
+  module: src/data/sensitivity.ts   # new, pure, worker-safe, no DOM
+  classes:
+    - {id: contact, covers: "email, phone, mobile, personal URL, postal address"}
+    - {id: government_id, covers: "TFN, Medicare, passport, licence, SSN-like, national id"}
+    - {id: financial, covers: "card (Luhn), IBAN, BSB/account, salary, income, balance (low confidence)"}
+    - {id: personal_name, covers: person names}
+    - {id: demographic, covers: "date of birth, age (with other signals), gender, ethnicity, religion (name hints only)"}
+    - {id: health, covers: "diagnosis, medication, patient, condition (name hints only)"}
+    - {id: location, covers: "street address, high-precision lat/lon pair, IP address"}
+    - {id: free_text, covers: "long text columns whose values contain embedded email/phone/ID shapes"}
+  signals:
+    value_shapes:
+      source: "Existing TextShapeCounts. Extend with AU Medicare (10 digits, check digit), IPv4/IPv6, lat/lon pairs, dob-like (plausible age 0-110 when a dob hint is present). AU postcode only as corroboration, never alone."
+      embedded_scan: "For long text columns, search INSIDE values (not whole-value match) for email/phone/TFN-like shapes on a sample of at most 2,000 rows; classify as free_text."
+      sampling: "Stratified sample of at most 5,000 non-empty values per column. Report share = matches / sampled and state it (B9). Offer Scan all values."
+      checksum_collisions: >
+        An arbitrary 11-digit number passes the ABN checksum about 1 time in 89, and about 1 in 10 random 16-digit numbers pass Luhn.
+        So a validated shape alone is NOT High. Require a column-level share >= 60% (not a few hits) and, for ABN/TFN/card, a corroborating name hint or >= 90% share.
+    name_hints:
+      module: src/data/name-hints.ts   # shared with findings.ts, chart-utils.ts and the chart recommender (task H0)
+      method: Whole-word token match on the column name split on non-alphanumerics and camelCase. NEVER substring regexes.
+      regression_tests:
+        - '"discount" must not match "count"'
+        - '"duration" must not match "ratio"'
+        - '"percentage", "image", "package" must not match "age"'
+        - '"generate" must not match "rate"'
+        - '"product_name" must not hint personal_name'
+        - '"ip_address" is location/ip, not postal address'
+        - '"zone", "batch", "type", "flag_1" never flag'
+      personal_name_rule: >
+        The token "name" counts only with a person qualifier (first, last, given, sur, full, middle, customer, patient, employee, contact, client, member)
+        or when corroborated by another flagged column (email or phone). Otherwise ignore.
+      hint_tokens_examples: [email, phone, mobile, dob, birth, birthdate, address, street, suburb, postcode, ssn, tfn, abn, medicare, passport, licence, license, salary, income, wage, iban, bsb, account, card, patient, diagnosis, gender, ethnicity, religion, ip, lat, lon, latitude, longitude]
+      note: Hint lists live in one reviewed data table, not scattered regexes.
+    dictionaries:
+      note: "Optional, lazy dynamic-import chunks (<= 25 KB gz in total, see REF): common given names and surnames used only to RAISE confidence of personal_name when the column name is ambiguous. Never the sole reason to flag."
+  confidence:
+    high: "validated shape with share >= 60% plus the checksum rules above, OR shape share >= 30% AND a matching name hint"
+    medium: "name hint matches AND shape share 5-30%, OR a strong name hint (dob, tfn, passport, medicare, ssn, diagnosis) with no value signal"
+    low: "weak name hint only (balance, account, age, address alone). Collapsed by default."
+  classification_labels:
+    note: "User-set tag per column: Public, Internal, Confidential, Restricted. Suggested default from class and confidence (e.g. government_id/health -> Restricted). Stored per D4; shown in the report. Advisory only."
+  output_shape: |
+    interface SensitiveFinding {
+      column: number; name: string;
+      class: SensitiveClass; confidence: "high" | "medium" | "low";
+      reasons: { kind: "value" | "name" | "dictionary"; label: string; share?: number; count?: number }[];
+      sampled: number; scanned: number;          // for B9 transparency
+      label?: "public" | "internal" | "confidential" | "restricted";
+      dismissed?: boolean; confirmed?: boolean;
+    }
+  rules:
+    - Never include raw sample values in the finding. UI examples are masked by default (j***@example.com) with click-to-reveal.
+    - A finding never changes meta.stats, the DQ score or any check pass/fail.
+    - Identifier columns (customer_id) are not flagged unless they carry a shape or a strong name hint.
+  where_it_shows:
+    - Quality page section "Possibly sensitive columns", grouped by confidence, with Why and actions.
+    - A small neutral "Possibly sensitive" chip on the column header in Table and in the column inspector.
+    - 'Overview facts line: "3 columns may contain sensitive data" linking to the section.'
+    - Export dialog notice (T5).
+    - "Reports (JSON/Markdown/CSV/HTML): counts, column names, classes and reasons only; never values."
+
+page_design:
+  note: >
+    Information design for the Quality page (v3, approved from a visual mock-up). Replaces the current flat scroll of eight sections.
+    Keep the existing hero ring and band chip. Reference images: dq-after-v3.png (target) and dq-before.png (current app on dataset B).
+  principles: [triage first, progressive disclosure, one issue list, every number drills down, skeletons not spinners, nothing blocks first paint, show distributions as shapes not prose, one primary action per screen region, restrained colour]
+  first_viewport_1440x900: |
+    +----------------------------------------------------------------------------------------+
+    | [ring ~71 est.]  Data quality  [fair]                                                  |
+    |  "Placeholders (N/A, -, empty) counted as missing - 8 issues - 4 columns possibly       |
+    |   sensitive"   Biggest win: standardise "status" ... -> about +9 pts                    |
+    |  [Fix top 3 issues...] (primary)  [Copy report] [Download JSON] [Score & weights]       |
+    +----------------------------------------------------------------------------------------+
+    | [3 Needs fixing] [4 Worth reviewing] [1,045 of 1,240 Rows affected 84%] [4 Possibly sensitive] |
+    +----------------------------------------------------------------------------------------+
+    | Columns - sorted worst first                         click a column to open its profile |
+    | [status][signup_date][email][city][phone][balance][full_name][age][customer_id]          |
+    |  each: name, type, 3-colour health bar, max 2 chips (+ PII chip), equal card height      |
+    +----------------------------------------------------------------------------------------+
+    | [Issues 8] [Columns] [Sensitive 4] [Rules] [History] [All checks]                        |
+    | (purple banner) 4 columns possibly sensitive - email, phone, full_name, balance  Review->|
+    | Issue card 1 (stripe red):  title  [+9 pts]                          [Standardise...]   |
+    |   NOW (bars per spelling)  ->  AFTER CLEAN (bars per target value)   [Preview rows]     |
+    |   Impact: measurable consequence only                                                   |
+    | Issue cards 2..5 ... then "Show 3 more - 2 to review, 1 info"                           |
+    +----------------------------------------------------------------------------------------+
+    | footer: Computed locally in your browser - No data leaves this tab                      |
+  summary_tiles:
+    Needs fixing: 'count of severity=fix issues. Left border red. Sub-line "wrong or inconsistent values".'
+    Worth reviewing: 'count of severity=review issues. Left border amber. Sub-line "may be fine, may not".'
+    Rows affected: '"N of TOTAL" and a percentage; the number of distinct rows failing at least one deterministic issue (task ROWS). Neutral grey border. Click filters the table to those rows.'
+    Possibly sensitive: 'count of flagged columns (all confidences). Purple border. Sub-line "not counted against score". Click opens the Sensitive tab.'
+    removed_in_v3: A "columns look clean" tile. It was filler. The clean state is shown per column and in the strip instead.
+  column_health_strip:
+    order: "Worst first (most severe, then most affected rows). Clean columns last."
+    card: "Fixed height. Name (semi-bold 12px), type (11px dim), 3-colour proportional bar (green clean, amber review, red fix/empty), then at most 2 chips pinned to the bottom, no wrapping, ellipsis on overflow. A purple PII chip counts toward the 2."
+    clean_column: "Small green dot plus the word clean, no chip."
+    scale: "9 columns fit in one row at 1440. Beyond that: wrap into rows of 9 with a 'Show all N columns' toggle after the first 2 rows; at 71 columns virtualise (C1). Never horizontal scroll inside the card."
+    click: "Opens the column profile drawer (C1)."
+  issue_card_anatomy:
+    stripe: "8px rounded left stripe. red = fix, amber = review, grey = info. Purple is reserved for sensitivity and never used for issues."
+    title: "Plain sentence with the column in quotes and the count, e.g. status has 8 spellings of 3 values, plus 312 placeholders. Right of the title a small grey pill '+9 pts' (tabular-nums). Pill is omitted for review and info items."
+    body: "Either a distribution comparison (DIST) when the issue is spellings, formats or placeholders, or one evidence line, plus up to three masked example chips for validity issues."
+    impact_line: "'Impact:' then ONE measurable consequence the app can compute (see COPY). Optional for review items."
+    actions: "Right column. The first card in the list gets the single primary (solid accent) button. Every other card gets a secondary (outlined) button. Tertiary actions such as Preview or Dismiss are text-only ghost buttons below."
+    progressive_disclosure: "Show the top 5 cards. A centred outlined button reads 'Show N more - X to review, Y info'. Info items (for example duplicates) live behind it by default."
+  visual_rules:
+    colour_budget: "Red and amber for severity, purple for sensitivity only, accent blue for the one primary action and selected tab, grey for info and neutral tiles. Green is only used in bars and the clean marker, not stripes."
+    typography: "Issue title 13.5px semi-bold, body 13px, evidence 12px, meta 11px minimum. All counts use font-variant-numeric: tabular-nums. Example values and spellings use var(--mono)."
+    one_primary: "At most one solid-accent button per card region and one in the hero (Fix top 3 issues). Do not paint every fix button blue."
+    density: "Card padding 12px 14px, 8px gap between cards, max line width about 760px for prose."
+  distribution_comparison:
+    purpose: "Replace prose such as 'ACTIVE 172 - active 165 - Active 164' with a bar comparison. See task DIST."
+    layout: "Two groups with an arrow between: NOW (one row per spelling or format) and AFTER CLEAN (one row per resulting value). Each row: mono label, horizontal bar, right-aligned count. Align the arrow to the first row. Groups align to the top."
+    bar_colours: "red-tint = spellings that will be merged, green = the target value, grey = placeholders that become missing. Shape and label carry meaning as well as colour."
+    cap: "Show at most 8 rows per group, then '+N more'. Row order is by count descending within each class."
+  tabs:
+    Issues: the cleaning queue (T12), grouped by severity, one card per issue with evidence, impact, preview, apply, undo. Starts with a one-line sensitive banner (not a card list).
+    Columns: column cards and the profile drawer (C1)
+    Sensitive: Possibly sensitive columns (T3). The only place the full sensitive list lives; the Issues tab shows a banner only.
+    Rules: recommended and saved rules, editor, severities (R1, R2)
+    History: score trend, drift versus previous load (S1)
+    All checks: the existing flat table, kept for power users and exact counts
+  sensitive_banner: "Purple-tinted single row: dot, bold '4 columns possibly sensitive', dim list of the column names and 'Not an error, and not counted in your score.', and a text button 'Review ->' that switches to the Sensitive tab."
+  states: [empty (no file), loading with skeletons per section, partial (some columns done), sampled vs exact label, error with retry, long-running with Cancel, clean dataset, wide dataset (40+ columns), post-fix, dark theme, phone] # detailed in task STATES
+  responsive: "1024: tabs scroll; column health strip wraps. 390: one column, tabs become a select, issue cards stack with actions beneath, distribution groups stack (NOW above AFTER CLEAN), 40px targets."
+  accessibility: "Tabs follow the ARIA tabs pattern; health strip cells are buttons with text alternatives; colour is never the only signal (labels, chips and bar shapes carry it too); focus visible; reduced-motion respected."
+  copy_rules: "Plain English. Say what is wrong, how many, an example, and what the fix will do. Never show raw masks, ids or the word 'undefined'. Impact lines follow task COPY."
+  footer: "'Computed locally in your browser - No data leaves this tab.' (with the elapsed ms when known) and a Help link explaining the browser-enforced policy (SEC)."
+
+test_findings_v31:
+  note: >
+    Measured on the current shipped page (branch agent/text-column-network), 1440px, real file input, checked against an independent pandas profile.
+    11 datasets: titanic, penguins, pima, chipotle, tips, airquality (public), coffee ratings, US police killings, GDPR fines (public, messy),
+    plus two seeded synthetic files (dirty cafe sales, HR with PII). All 11 scored 'good' (91.9 to 100). 0 console errors, loads under 1 s, render under 100 ms.
+  works_well: [exact counts and drill-downs, clean files left alone with no false alarms (penguins, tips, airquality), placeholders such as NA, Unknown and '-' counted as missing, speed, layout at 43 columns]
+  gaps:
+    - {id: G1, finding: "Offers 'Convert to Integer/Number' for identifier-like text (Titanic Ticket 230 values lost, HR mobile leading zeros lost) and ranks it as a top fix", task: SAFE}
+    - {id: G2, finding: "Score too forgiving: Titanic 95.8 good with Cabin 77% empty; HR 91.9 good with 102 invalid emails and 9 spellings of one department", task: BAND}
+    - {id: G3, finding: "Optional or blank-by-design columns lead the ranking: HR card_number +34.3 pts, coffee lot_number +31.8 pts, chipotle choice_description +10.8 pts", task: OPT}
+    - {id: G4, finding: "PII false positives: ISO dates read as Phone/TFN (cafe 8,016), ticket codes and census geo_id read as Phone/ABN, coffee altitude and ico_number read as Phone/TFN/ACN, DOB read as Phone/TFN", task: "T1 and BENCH-PII hard negatives"}
+    - {id: G5, finding: "PII false negatives: card and phone numbers inside a free-text notes column (777 rows) missed; person names, street addresses, precise lat/long, DOB and salary columns never flagged", task: "FTX and H0/T1 hint tables"}
+    - {id: G6, finding: "Hidden missing values: ERROR sentinel (2,908 cells), zeros meaning missing (Pima Insulin 374, SkinThickness 227; coffee moisture 264), epoch dates 1970-01-01 (GDPR 15 rows), zero fines (GDPR 11)", task: SENT}
+    - {id: G7, finding: "Header detection: all-numeric first row with no header was consumed as the header (Pima 768 rows loaded as 767)", task: HDR}
+    - {id: G8, finding: "Format-mask checks fire on columns where variation is normal: GDPR picture (flag URLs) ranked the number-one fix; police name 55 'off-format' for legitimate 3-part names and suffixes", task: FMT}
+    - {id: G9, finding: "Exact-duplicate check is defeated by a unique id column: GDPR has 16 repeated (name, date, price) rows but reports 0 duplicates", task: DUPK}
+    - {id: G10, finding: "CORRECTED in v3.2: currency text ('$2.39 ', '$100,000') already parses as number. Remaining: mixed forms inside one column are not scored (coffee harvest_year 2014 / 2014/2015 / Spring 2011-2012 / TEST; altitude ranges and units)", task: "T7 plus bench cases"}
+    - {id: G11, finding: "Impossible values unflagged as issues: coffee altitude_mean_meters up to 190,164 m (4 rows over 9,000 m), total_cup_points = 0, HR malformed emails", task: "T8, T9 plus bench cases"}
+    - {id: G12, finding: "CORRECTED in v3.2: case variants ARE detected (clusterSimilar finds FINANCE/finance/Finance, 660 rows) but only shown in Advanced signals at the bottom of the page and never scored or ranked; abbreviations (Eng./Engineering, HR/Human Resources) are not detected", task: "WIRE, T6"}
+    - {id: G13, finding: "Wide-file scaling: coffee (43 columns) page is 6,860 px tall, the Sensitive section starts at 4,806 px and 'What to fix first' shows 5 of 21", task: "P1, STATES (collapse after 5, worst-first strip)"}
+    - {id: G14, finding: "Structurally empty columns lead the ranking in many files: pilot of 60 random public files, 13 had a column at least half empty in 'What to fix first' and 3 had a 100% empty column (+40 pts). A fully empty column should be one 'drop this column' item, not a points-ranked fix", task: OPT}
+    - {id: G15, finding: "Formula-injection check treats a leading minus as formula-like: ISO 8601 durations such as -P1D (264 cells in pharmaversesdtm face_vaccine) are scored as validity failures worth +40 pts and pull the file to 'fair' (src/data/score.ts, suggestion.kind formula)", task: FMT}
+    - {id: G16, finding: "Identifier columns read as PII again in the pilot: clinical USUBJID flagged Phone/TFN/ACN in 5 of 60 files; height, depth and survey-response columns flagged Phone. No true PII was found in the 60 files", task: "T1 and BENCH-PII"}
+    - {id: N1, finding: "Type gating cliff: the inferred type decides which checks run. A 1-5 quantity column with 6% or more ERROR becomes a category and scores 100 with 0 failures; 12% junk still scores 100. More junk can raise the score", task: MEASURE}
+    - {id: N2, finding: "Sampled counts shown as exact: type-conflict counts come from a 2,000-value sample but are scored against all rows (cafe Price Per Unit 420 ERROR cells reported as 59)", task: MEASURE}
+    - {id: N3, finding: "Double counting: the same 411 ERROR cells in cafe Transaction Date fail both 'parses cleanly' and 'stored as Text'", task: MEASURE}
+    - {id: N4, finding: "Four separate issue engines read the same profile: score.ts (Quality page), findings.ts qualityFindings (called only by tests), Advanced signals (bottom of page), toolbar chips", task: WIRE}
+    - {id: N5, finding: "Detectors run where they make no sense: similarity clusters on birth dates (25 clusters), drift on files sorted by date, CSV-injection guard scored as validity (-P1D)", task: "SEM, QUICK"}
+  pilot_60_files:
+    method: "60 random text-heavy files from the public Rdatasets collection (seeded sample), loaded through the real file input, row/column/empty counts compared with pandas"
+    result: "0 crashes, 0 console errors; rows and columns matched pandas on all 57 files pandas could read; the app also loaded 3 files pandas failed on (encoding); empty-cell counts never below pandas. 10 files had sensitive-data flags, all judged false by column name; 57 of 60 scored good."
+    caveat: "These are mostly curated research datasets, so a 'good' score may be correct. A random pile measures false alarms, not misses."
+  root_cause_layers:
+    summary: "Verified by running the app's own modules in Node (scores match the browser exactly on 8 files) and by a controlled junk-injection experiment. Parsing is sound apart from three local bugs. The main cause is type inference (type decides which checks run; sampled counts; double counting) and profiling (no shared semantic type), plus wiring (detectors that never reach the score). Scoring policy and the page are downstream. Full write-up: turbofuzz-dq-root-cause.md."
+    parsing: [G7 header-less fallback (parse/header-detect.ts), ERROR token (parse/null-tokens.ts), dd-Mon-yyyy not parsed (parse/dates.ts)]
+    type_inference: [N1 type gating cliff, N2 sampled counts shown as exact, N3 double counting (parse/infer.ts, data/column.ts, data/suggestions.ts, data/score.ts)]
+    profiling: [G1 identifier knowledge isolated in data/identifier.ts, G4 PII phone-before-date order and TFN checksum on dates (data/text-profile.ts), G5 whole-value PII only and no name hints, G8 masks on URL and names (data/mask-profile.ts), G15 formula guard scored as validity (data/formula.ts via score.ts), N5 similarity on dates, G11 plausible ranges, G10 mixed forms, G6 zeros as missing]
+    wiring: [N4 four engines, G12 variants detected but not scored, G9 near-duplicates ignoring id (data/key-duplicates.ts unused for this)]
+    scoring_and_page: [G2 band, G3 and G14 optional and empty columns, G13 page length]
+  expected_page_behaviour_after_fixes:
+    titanic: "Ticket: no convert-to-integer offer, no Phone flag. Cabin: score band capped, multi-cabin values like 'C23 C25' not an off-format issue. Name: possibly sensitive (Medium)."
+    pima: "Header detected as missing; columns get names or a prompt to name them; zeros in Glucose, BloodPressure, SkinThickness, Insulin, BMI flagged as probable hidden missing (review), not a perfect score."
+    chipotle: "item_price flagged as numbers stored as text with currency symbol and trailing space; choice_description not ranked first."
+    dirty_cafe: "ERROR and UNKNOWN both recognised as placeholders; Transaction Date NOT flagged as Phone/TFN; ISO dates identified as dates."
+    hr_pii: "email invalid 102; department spellings; salary currency text 575; DOB mixed formats; notes: embedded card and phone detected; full_name, DOB, salary flagged possibly sensitive; card_number blank not top fix; mobile never offered Convert to Number."
+    coffee: "harvest_year mixed formats; altitude impossible values and units; lot_number not the top fix; altitude and ico_number not flagged as Phone/TFN."
+    police: "name/address/lat-long possibly sensitive; geo_id not Phone/ABN; 3-part names not off-format; 'Unknown' and '-' placeholders already handled (keep)."
+    gdpr: "picture (URL) and source excluded from format-mask checks; date M/D/YYYY recognised; 1970-01-01 sentinel dates flagged as probable placeholders; 16 near-duplicates ignoring id flagged."
+
+design_refinements_v3:
+  note: Mapping from each v3 refinement to the task that implements it, with the real dataset-B values the mock-up used (use these as fixtures and screenshot expectations).
+  items:
+    - {change: "Mini distribution bars instead of prose", task: DIST}
+    - {change: "Only the top issue gets a primary button", task: VIS}
+    - {change: "'+N pts' kept as a quiet grey pill for ranking", task: T12}
+    - {change: "Rows affected tile replaces the 'columns look clean' tile", task: ROWS}
+    - {change: "Column strip sorted worst first, equal height, max 2 chips", task: P1}
+    - {change: "Collapse after 5 issues with 'Show N more'", task: T12}
+    - {change: "Sensitive is a banner on Issues plus its own tab, never duplicated", task: T3}
+    - {change: "Reduced colour count; purple reserved for sensitivity", task: VIS}
+    - {change: "Impact lines contain only app-computable consequences", task: COPY}
+    - {change: "Designed states beyond the happy path", task: STATES}
+  dataset_b_expected_values:
+    rows: 1240
+    columns: 9
+    status: {spellings: 8, canonical_values: 3, ACTIVE: 172, active: 165, Active: 164, inactive: 147, Inactive: 128, pending: 152, placeholders: {"N/A": 164, "-": 148, total: 312}, after_clean: {Active: 501, Inactive: 275, pending: 152, missing: 312}}
+    signup_date: {iso: 888, day_month_year: 352, ambiguous_either_way: 156}
+    email: {invalid: 52, empty: 92, masked_example: "h*********13@@g*****.com"}
+    city: {Sydney: 143, sydney: 142, SYDNEY: 134, minority_spellings_rows: 276, merged_total: 419, fuzzy_suggestion: "Melb. 136 -> Melbourne 153"}
+    age: {over_120: 15, max: 999, empty: 70}
+    balance: {with_dollar_sign: 56, empty: 123}
+    full_name: {off_shape: 155, empty: 0}
+    duplicates: {rows: 40, groups: 40}
+    rows_affected: {count: 1045, of: 1240, percent: 84, definition: "distinct rows failing at least one of: status not in canonical set (variants plus placeholders), date not ISO, email invalid, city minority spelling or Melb., age over 120, balance containing $"}
+    sensitive_columns: {email: High, phone: High, full_name: Medium, balance: Low}
+    note_on_full_name: "The mock-up shows 155 off-shape (matches the existing check). Earlier analysis cited 794 values off a stricter First Last shape; use whichever shape rule T6 implements and keep the issue at severity review."
+
+constraints:
+  performance:
+    first_insight_ms_max_250k_rows: 1500        # B3, dataset C: score tile + top 3 issues
+    full_profile_ms_max_71_columns: 3000        # B4, dataset D
+    extra_worker_compute_ms_max_250k_rows: 600
+    main_thread_long_task_ms_max: 50
+    scan_cap_per_column_values: 5000            # sampled; exact on demand (B9)
+    remove_12_column_cap: true                  # all text-like columns, one cancellable worker pass
+    new_bundle_gz_kb_max: 40                    # engine, UI, rule editor; dictionaries lazy and counted separately
+    dictionaries_gz_kb_max: 25                  # lazy, loaded only when a rule or column needs them
+    network_requests_added: 0
+  ui:
+    use_tokens: [--control-h, --radius-sm, --fs-sm, --fs-md, --sp-1, --sp-2, --accent, --accent-soft, --qa-warn, --qa-warn-soft, --qa-warn-border, --qa-warn-text, --danger, --border, --panel, --panel-2, --text-dim]
+    sensitive_chip_colour: neutral or info, NOT red/amber. Add a dark-theme variant.
+    control_height: var(--control-h) 32px; 40px at <=720px
+    no_text_smaller_than_px: 11
+  semantics:
+    - Visual and wording changes must not silently change data semantics (06_DESIGN_SYSTEM.md visual change policy).
+    - Fixes are Recipe steps: undoable, replayable, exported in recipe JSON and the Polars recipe export (keep tools/recipe-parity cases passing).
+    - Never mutate data without a preview and an explicit click.
+    - Recipe and rules file formats are versioned and backward compatible (migrate old files; never reject them).
+
+milestones:
+  - id: M0
+    name: Foundations (measurement, semantics, wiring)
+    tasks: [BENCH-REAL, QUICK, MEASURE, SEM, WIRE]
+    exit_gate: "Junk-monotonicity and exact-count property tests pass; one issue list feeds the score; corpus must-not-flag cases for identifiers and dates pass. Nothing on the page is redesigned yet."
+  - id: M1
+    name: Honest score and trustworthy PII
+    tasks: [T0, SAFE, HDR, SENT, H0, T1, T6, T7, T8, T9, FMT, T11, T2]
+    exit_gate: "On B the score reflects spelling, format and range issues in plain English; no unsafe conversion offered on any of the 11 corpus datasets; header and sentinel detection work; sensitive engine passes BENCH-PII; advisoryOnly=true reproduces 95.4; performance within constraints."
+  - id: M2
+    name: Insight and workflow
+    tasks: [T3, UNIFY, P1, VIS, ROWS, DIST, COPY, C1, BAND, OPT, FTX, DUPK, T12, STATES, E1, T4, T5, T10]
+    exit_gate: "Page redesign (v3 spec) shipped with skeletons; one issue model; distribution bars; rows-affected tile; designed states; column profile and per-column scores; exception export; mask/hash/drop with undo; export notice."
+  - id: M3
+    name: Rules, reference data and history
+    tasks: [R1, R2, REF, S1]
+    exit_gate: "Recommended rules accepted and saved; the saved file re-applies on a re-load of the same schema; trend and drift visible across two loads; Accuracy applicable for recognised columns."
+  - id: M4
+    name: Trust and polish
+    tasks: [BENCH-PII, BENCH-PERF, SEC, REP, A11Y, DOCS, FIT, T20]  # BENCH-REAL starts in M1 and gates every milestone
+    exit_gate: "All commercial_bar criteria B1-B10 pass; npm run gate green including the new bench; docs and change log updated."
+milestone_note: "BENCH-PII and BENCH-PERF are listed in M4 for the exit gate, but the corpus and bench scripts should be written EARLY (with T0 and T1) so every task is measured as it lands."
+
+tasks:
+  - id: T0
+    title: Fixtures and baseline
+    priority: P0
+    depends_on: []
+    do:
+      - Create a TypeScript fixture builder reproducing dataset B (and A, C, D shapes) for unit tests; port the seeded generator from test/polish/turbofuzz-test-data.js.
+      - Record the baseline (score 95.4 on B, DQ page worker timings on C and D, bundle size).
+      - Write the problem statement, evidence, acceptance criteria, preserve-list and rollback point in the PR description as 07_QUALITY_GATES.md requires.
+    done_when: Fixtures live under test/fixtures/ and are used by new tests; baseline numbers recorded.
+
+  - id: H0
+    title: Shared whole-word name-hint module (also needed by the chart brief)
+    priority: P0
+    depends_on: [T0]
+    files_new: [src/data/name-hints.ts, test/name-hints.test.ts]
+    files_touched: [src/data/findings.ts (NON_NEGATIVE_NAME, MEASUREMENT_NAME), src/ui/chart-utils.ts (MEASURE_HINT)]
+    do:
+      - Implement the tokenizer (non-alphanumerics, camelCase, digits) and a data table of hint groups (nonNegative, measurement, money, rate, additive, personal, contact, government, financial, health, location, date-of-birth).
+      - Replace the substring regexes in findings.ts and chart-utils.ts with it. Keep behaviour identical for true matches.
+    done_when: "Regression tests pass (age vs percentage/image/package/manage, rate vs generate, count vs discount, ratio vs duration, size vs resize). Existing findings and chart tests still pass."
+
+  - id: T1
+    title: Sensitivity engine (pure module)
+    priority: P0
+    depends_on: [H0]
+    files_new: [src/data/sensitivity.ts, test/sensitivity.test.ts]
+    files_touched: [src/data/text-profile.ts]
+    do:
+      - "Implement sensitivity_model: class, confidence, reasons, checksum-collision rules, corroboration rule for name, classification label defaults."
+      - Extend text-profile (Medicare, IP, lat/lon, dob-like, embedded-in-text scan). Keep existing shapes and tests unchanged.
+      - "Export scoreSensitivity(columnsMeta, perColumnShapes, options): SensitiveFinding[]."
+    done_when: >
+      On fixture B: email=High, phone=High, full_name=Medium, balance=Low, customer_id not flagged. On A, C, D: zero findings.
+      Random 11-digit and 16-digit columns are not High. Pure function <= 5 ms for 71 columns given precomputed shapes.
+
+  - id: T2
+    title: Worker pass for all text-like columns
+    priority: P0
+    depends_on: [T1]
+    files_touched: [src/ui/app.ts (refreshSensitiveColumns), src/ui/worker-client.ts, src/worker/protocol.ts, src/worker/search.worker.ts]
+    do:
+      - Replace the 12-column loop with ONE batched, cancellable worker request profiling every string/category/identifier column from a bounded sample; return shapes and scanned/sampled counts.
+      - Restart on dataset or step change (reuse sensitiveKey). Never block first paint. Stream results per column.
+      - Support "Scan all values" for exact counts on one column.
+    done_when: Dataset D scans fully within budget; dataset C within budget; the 12-column cap is gone; no main-thread long task over 50 ms.
+
+  - id: T3
+    title: '"Possibly sensitive columns" UI, column chips, dismiss/confirm, labels'
+    priority: P0
+    depends_on: [T2, P1]
+    files_touched: [src/ui/quality-page.ts, src/ui/column-inspector.ts, src/ui/table.ts or slick-table.ts (header chip), src/ui/overview.ts, src/styles.css, src/ui/recipe-mapping.ts]
+    do:
+      - "The Issues tab shows only the purple one-line sensitive banner (page_design.sensitive_banner); the full list lives in the Sensitive tab and is never duplicated on Issues."
+      - "Replace buildSensitive() with grouped-by-confidence cards: column, class, classification label picker, Why (e.g. 94% of sampled values look like email; column name contains email), masked examples with reveal, actions Not sensitive / Mark sensitive plus the T4 menu."
+      - Add the neutral chip to the column header and inspector with the same Why in the tooltip.
+      - Persist per D4. Add onSensitiveChange to QualityPageCallbacks.
+      - "Section copy: Possibly sensitive columns. Advisory only; these are not counted against your score."
+    done_when: B shows 3 columns (+1 collapsed low). Dismissing hides the chip everywhere; reload via Recipe restores it. Score unchanged by any flag action. Screenshots at 1440x900 and 390x844.
+
+  - id: T4
+    title: Actions for flagged columns (mask, hash, drop)
+    priority: P1
+    depends_on: [T3]
+    files_touched: [src/data/clean-ops.ts, src/data/transform-ops.ts, src/data/recipe.ts, src/data/recipe-polars.ts, src/data/recipe-support.ts, tools/recipe-parity/cases, "test/*recipe*.test.ts"]
+    do:
+      - Add clean ops mask (first/last N or format-aware) and hash (salted SHA-256 via crypto.subtle; warn that low-entropy values like phone numbers remain re-identifiable). Reuse drop.
+      - Preview with 5 masked before/after rows and the affected row count, then Apply as an undoable Recipe step.
+      - Emit equivalent Polars code or list the op as not translatable in recipe-support with parity cases.
+    done_when: Each op undoes cleanly; recipe round-trips; parity tests pass or the unsupported op is listed honestly.
+
+  - id: T5
+    title: Export notice for flagged columns
+    priority: P1
+    depends_on: [T3]
+    files_touched: [src/ui/export-panel.ts, src/ui/export-formats.ts, src/ui/app.ts]
+    do:
+      - "When a non-dismissed High/Medium (or confirmed) column is in scope, show one line in the export dialog: This export includes 3 columns that may contain sensitive data: email, phone, full_name, with Include (default), Mask, Exclude. No extra click for Include. Ignore Low."
+    done_when: Export with defaults has the same click count; Mask/Exclude produce the expected file; e2e covers it.
+
+  - id: T6
+    title: Spelling variants (deterministic) as a scored Consistency check
+    priority: P0
+    depends_on: [T0]
+    files_touched: [src/data/similar-clusters.ts (or new src/data/variants.ts), src/data/score.ts, src/worker/search.worker.ts, src/ui/quality-page.ts, src/ui/similar-dismissals.ts]
+    do:
+      - Group category-like values by normalize() key (case, whitespace, diacritics, trailing punctuation). A group with more than one distinct spelling is a variant group.
+      - "New check per affected column in consistency: city uses one spelling per value. pass = rows equal to the group's most frequent spelling; fail = rows in minority spellings."
+      - "Fix: Standardise to most common as a Recipe step (existing replace/case ops) with preview. Respect similar-dismissals."
+      - Keep FUZZY matches (Melb. vs Melbourne) advisory (review severity), linked to the existing similar-clusters view; not scored (D1).
+    done_when: B city shows Sydney/sydney/SYDNEY as one variant group; status shows active/Active/ACTIVE and inactive/Inactive; each with row counts and a working fix. Consistency is no longer n/a on B. Free-text and identifier columns excluded.
+
+  - id: T7
+    title: Mixed formats inside one column
+    priority: P0
+    depends_on: [T0]
+    files_touched: [src/data/suggestions.ts, src/data/mask-profile.ts, src/data/score.ts, src/ui/quality-page.ts]
+    do:
+      - Add a mixedDate suggestion: share per detected date pattern (ISO, d/m/y, m/d/y, month names) and an ambiguity flag when day and month are both <= 12 and order cannot be inferred from other values.
+      - Verify and, if missing, add mixedNumberSymbol: currency symbols or thousands separators on part of a numeric column.
+      - "Count both in Validity. Fix buttons Standardise to yyyy-mm-dd (existing toDate op; explicit day-first/month-first choice when ambiguous)."
+    done_when: B signup_date reports the format split with percentages and an ambiguity warning; balance reports the symbol mix; both reduce Validity and each has a working preview and fix.
+
+  - id: T8
+    title: Pattern validity for recognised columns
+    priority: P0
+    depends_on: [T1]
+    files_touched: [src/data/score.ts, src/data/text-profile.ts, src/ui/quality-page.ts]
+    do:
+      - "When a column is recognised as email, URL, phone, ABN, ACN, TFN, IBAN or postcode (shape share >= 60% OR a matching name hint with >= 30% share), count non-empty values that FAIL that shape as Validity failures. Filter to failing rows through the existing pattern path."
+      - Examples are masked (T3 rules).
+    done_when: B email shows about 5% invalid ("@@") in Validity with a Filter button; valid emails are not penalised; a weak-hint, low-share column is NOT scored.
+
+  - id: T9
+    title: Plausible ranges (impossible values) on the shared hint module
+    priority: P1
+    depends_on: [H0]
+    files_new: [src/data/plausibility.ts, test/plausibility.test.ts]
+    files_touched: [src/data/score.ts, src/data/findings.ts, src/ui/quality-page.ts]
+    do:
+      - "Rule table keyed by whole-word hints: age 0-120; pct/percent/rate 0-100 only when values look like percentages; qty/quantity/units/count >= 0; year 1900 to current+1; created/signup/order/birth dates not in the future."
+      - Each rule is a plain sentence, user-editable (override saved per D4) and counted in Validity.
+      - Merge with the existing non-negative and measurement logic in findings.ts so there is ONE rule source.
+    done_when: B age 240 counts as implausible ("unknown" is a type conflict, counted once). Users can change or disable a rule. No rule applies to a column without a hint.
+
+  - id: T10
+    title: Sensible defaults for Consistency and Timeliness
+    priority: P1
+    depends_on: [T6]
+    files_touched: [src/data/score.ts, src/data/pair-checks.ts, src/data/dependencies.ts, src/ui/quality-page.ts]
+    do:
+      - Auto-propose pair checks from name pairs (start/end, created/updated, from/to, open/close, min/max) as scored consistency checks marked "suggested" with a one-click disable.
+      - "Timeliness stays informational unless the user sets a rule. Show Latest value is 1,034 days old as a plain note with a one-click freshness rule. Do not invent a pass/fail threshold."
+    done_when: A pair-check is proposed where a name pair exists; B still shows freshness as a note without altering the score.
+
+  - id: T11
+    title: Plain-English evidence
+    priority: P0
+    depends_on: [T0]
+    files_touched: [src/data/mask-profile.ts, src/data/score.ts, src/ui/quality-page.ts]
+    do:
+      - "Replace mask jargon with a sentence and three examples: 155 names do not follow the usual shape Aaaa Aaaa (e.g. bob smith, Frank Li, Dave  Patel)."
+      - Provide and unit-test a mask-to-words helper (A=letters, 9=digits). Mask examples for sensitive columns (T3).
+      - Add the B2 render test that fails on raw masks.
+    done_when: No raw mask strings in visible text; every failing check shows up to 3 examples.
+
+  - id: UNIFY
+    title: One issue model across Overview, Reports and the Quality page
+    priority: P0
+    depends_on: [WIRE, T6, T7, T8, T9]
+    files_touched: [src/data/findings.ts, src/data/score.ts, src/ui/quality-page.ts, src/ui/overview.ts, src/ui/triage-panel.ts, src/ui/app.ts]
+    do:
+      - "SUPERSEDED IN PART BY WIRE (v3.2): qualityFindings is not used by the UI today, so there is no shared list to reuse. Do WIRE first; UNIFY then only covers presenting that one list on Overview and Reports."
+      - Convert failing scored checks into Findings (severity fix), fuzzy and advisory items into review, sensitivity into info. Dedupe by (column, kind).
+      - The Quality page Issues tab, Overview and Reports read from the same list. FindingAction gains cases for the new fixes (standardise spelling, standardise date format, mask, hash).
+    done_when: "B1 and B10: an issue seen on Overview appears identically (title, evidence, fix) on the Quality page; no duplicates."
+
+  - id: P1
+    title: Quality page redesign (triage, column health strip, tabs, skeletons)
+    priority: P0
+    depends_on: [T0]
+    files_touched: [src/ui/quality-page.ts, src/ui/quality-panel.ts, src/styles.css]
+    do:
+      - "Implement page_design (v3): hero with one primary 'Fix top 3 issues...' button, four summary tiles (Needs fixing, Worth reviewing, Rows affected, Possibly sensitive), column health strip sorted worst first with equal-height cards and max 2 chips, tabs Issues | Columns | Sensitive | Rules | History | All checks, states, responsive and a11y rules, footer line."
+      - "Fix top 3 issues opens ONE combined preview (before/after sample rows per issue, counts) and applies as separate undoable Recipe steps; it never applies silently."
+      - Keep every existing drill-down and export working. The flat checks table moves under "All checks".
+      - First paint must not wait for any scan; sections fill in with skeletons.
+    done_when: Screenshots at 1440x900, 1024x768, 390x844 in both themes for B and D; axe has zero serious violations; keyboard-only path through the tabs works; B3 and B4 timings met.
+
+  - id: C1
+    title: Column profile drawer and per-column health score
+    priority: P1
+    depends_on: [P1, T6, T7, T8]
+    files_touched: [src/ui/column-inspector.ts, src/ui/quality-page.ts, src/data/score.ts]
+    do:
+      - "Per-column score (0-100) from that column's own checks, weighted by the dimension weights. Show it on the column health strip and column cards. Click shows how it was computed (B8)."
+      - "Profile drawer: type and semantic type, completeness / uniqueness / validity bars, distribution (histogram or top values), length stats, percentiles, the dominant format in words, top 10 values with counts, issues, sensitivity chip and label, recommended rules."
+      - "Column cards: one compact row per column. Virtualise for 71+ columns."
+    done_when: Dataset D renders 71 column cards without jank; every number in the drawer drills to rows; per-column scores sum consistently with the dataset score (documented formula, unit-tested).
+
+  - id: T12
+    title: Cleaning queue (the Issues tab)
+    priority: P1
+    depends_on: [UNIFY, P1, T11]
+    files_touched: [src/ui/quality-page.ts, src/ui/clean-panel.ts, src/ui/steps-panel.ts]
+    do:
+      - "Issue cards per issue_card_anatomy: severity stripe, plain title with a quiet '+N pts' pill, DIST comparison or evidence line, a measurable Impact line (COPY), actions (one primary on the first card only, VIS), Preview (5 before/after rows), Apply (Recipe step), Undo. Ranked by points gained. Sensitive columns never appear in the points ranking."
+      - "Show the top 5 cards, then a 'Show N more - X to review, Y info' button; info items collapse by default. Keep expansion state while the user works."
+      - "Apply all safe fixes (whitespace, case, standard formats) with one combined preview."
+    done_when: From loading dataset B to a clean score in under 10 clicks using only the queue; every step undoable and visible in the Recipe.
+
+  - id: DIST
+    title: Distribution comparison component (NOW -> AFTER CLEAN bars)
+    priority: P0
+    depends_on: [T6, T7]
+    files_touched: [src/ui/dist-compare.ts (new), src/ui/quality-page.ts, src/styles.css, test/dist-compare.test.ts]
+    do:
+      - "A small pure render function that takes groups of {label, count, class: variant|target|placeholder} for NOW and for AFTER CLEAN and returns DOM (no chart library). Follows page_design.distribution_comparison."
+      - "Used by spelling/case variants, mixed formats (e.g. ISO vs d/m/y) and placeholder issues. For city show the three Sydney spellings merging into one bar."
+      - "The AFTER CLEAN counts come from the same normaliser the fix will run (T6/T11), so the preview and the applied result cannot disagree."
+      - "Cap at 8 rows per group with '+N more'. Bars have role=img with an aria-label such as 'ACTIVE: 172 rows, will merge into Active'. Respect prefers-reduced-motion (no animation)."
+    done_when: "Status and city issues on B render the NOW and AFTER CLEAN bars with the exact counts in design_refinements_v3.dataset_b_expected_values; AFTER sums equal the row count; screenshots at 1440 and 390 in both themes."
+
+  - id: ROWS
+    title: Rows-affected metric
+    priority: P0
+    depends_on: [T6, T7, T8]
+    files_touched: [src/data/score.ts or src/data/dq-rows.ts (new), src/worker/search.worker.ts, src/ui/quality-page.ts, test/dq-rows.test.ts]
+    do:
+      - "Compute the number of DISTINCT rows failing at least one deterministic issue (the same issues that count toward 'Needs fixing' and 'Worth reviewing', excluding advisory fuzzy suggestions and sensitivity). Return as a row bitmap so the tile click can filter the table to exactly those rows."
+      - "Worker-side, one pass reusing the per-check failing-row sets already needed for exception export (E1); no second scan. Report count, total, percentage."
+      - "Percentage rounds to a whole number; show '<1%' when above zero but under 1%."
+    done_when: "On B the tile reads 1,045 of 1,240 (84%) and clicking filters to 1,045 rows (unit-tested against the definition in dataset_b_expected_values.rows_affected). Within the extra worker budget in constraints.performance."
+
+  - id: VIS
+    title: Visual hierarchy rules and tokens for the Quality page
+    priority: P0
+    depends_on: [P1]
+    files_touched: [src/styles.css, src/ui/quality-page.ts, 06_DESIGN_SYSTEM.md]
+    do:
+      - "Implement page_design.visual_rules: one primary button per region, severity stripe colours (red fix, amber review, grey info), purple only for sensitivity, tabular-nums on counts, mono for values, no text below 11px."
+      - "Add tokens rather than literals: --sev-fix, --sev-review, --sev-info, --sens, --sens-soft, --sens-border (with dark-theme values) and reuse existing --accent, --danger, --qa-warn*. Document them in 06_DESIGN_SYSTEM.md."
+      - "Add a lint-style unit test or e2e assertion that no more than one .btn-primary is rendered inside the Issues list at a time."
+    done_when: "Light and dark screenshots show the restrained palette; contrast of every chip and pill meets WCAG AA; the single-primary assertion passes."
+
+  - id: COPY
+    title: Measurable impact lines and wording rules
+    priority: P0
+    depends_on: [T6, T7, T8]
+    files_touched: [src/data/findings.ts, src/data/dq-copy.ts (new), test/dq-copy.test.ts]
+    do:
+      - "Impact lines are generated from templates over values the app can compute, never from guesses about the user's downstream systems. Allowed: 'a pivot by status shows 8 groups instead of 3', '352 rows are left out of time charts until converted', 'missing is understated by 312 rows', '56 values are read as text so sums and charts skip them'."
+      - "Not allowed: claims about CRMs, mailing, compliance, or intent ('likely a sentinel code'). Use hedged wording where inference is unavoidable ('may be a placeholder code'), and mark fuzzy suggestions 'Suggestion only'."
+      - "Every template has a unit test with counts; plural and zero forms handled ('1 pt', '1 row'); no 'undefined', no raw ids."
+    done_when: "All impact lines on B match dataset_b_expected_values; a snapshot test fails if a template adds an un-computable claim (reviewed by a human when the snapshot changes)."
+
+  - id: STATES
+    title: Design and test the non-happy-path states
+    priority: P1
+    depends_on: [P1, T12, DIST]
+    files_touched: [src/ui/quality-page.ts, src/styles.css, test/e2e/polish.spec.ts, docs or design notes]
+    do:
+      - "Clean dataset (no issues): ring in good band, hero says what was checked, Needs fixing and Worth reviewing tiles show 0 with a calm tone, Issues tab shows an empty state ('No issues found across N checks' with a link to All checks), never a blank panel."
+      - "Wide dataset (40+ columns, dataset D 71 columns): worst-first strip with 'Show all N columns', virtualised column cards, issue list collapsed after 5, sensitive banner lists the first 4 names then '+N more'."
+      - "Post-fix state: after Fix top 3 or any Apply, the card shows 'Applied - Undo' with the points gained, the score animates once (not under reduced motion), the card moves to a 'Fixed this session' group at the bottom, and the Recipe step is visible. Undo restores the card and score."
+      - "Dark theme: every new token has a dark value; bars, chips and the sensitive banner checked."
+      - "Phone (390x844): hero stacks, tiles become a 2x2 grid, strip becomes a horizontally wrapped list of two-chip cards, issue actions stack under the title, DIST groups stack vertically."
+      - "Loading, partial and error states from page_design.states, each with a screenshot."
+    done_when: "Screenshot baselines exist for: B light/dark at 1440 and 390, D light at 1440, a clean dataset, and B after Fix top 3; each reviewed by the owner."
+
+  - id: MEASURE
+    title: Separate intended type from conformance; exact counts; one count per bad cell
+    priority: P0
+    depends_on: [BENCH-REAL]
+    files_touched: [src/parse/infer.ts, src/data/column.ts, src/data/suggestions.ts, src/data/score.ts, src/worker/search.worker.ts, test/measure.test.ts]
+    do:
+      - "Infer an INTENDED type from the majority of non-null values (for example at least 60% fit the type) and keep the storage decision separate. A Quantity column with 12% ERROR is an integer column with 619 non-conforming cells, never a category that hides them."
+      - "Keep sampling for speed of type inference only. Count conforming and non-conforming cells for the intended type in one exact pass over all rows (the pattern profile already does a full pass, so cost is comparable). Label any count that is still sampled with 'sampled' and scale nothing silently."
+      - "Each non-conforming cell is counted once per column. 'Stored as text' becomes a property of the column shown in the evidence line, not a second failing check over the same cells."
+      - "Category inference (12 or fewer distinct values) must not apply when the non-conforming values are the only thing making the column non-numeric."
+      - "Keep Convert actions, but they use the exact non-conforming count and go through SAFE."
+    done_when: "Two property tests pass: (1) on a clean numeric column, injecting more junk never raises the score or lowers the failure count (0 to 20% in 1% steps, integer and decimal); (2) reported counts equal exact counts on the cafe file (Price Per Unit 420). Cafe Item, Quantity, Payment Method and Location report their ERROR cells. No double counting in Transaction Date. Load-time budget in constraints.performance still met."
+
+  - id: SEM
+    title: One semantic type per column, shared by every detector
+    priority: P0
+    depends_on: [H0, MEASURE]
+    files_touched: [src/data/semantic-type.ts (new), src/data/identifier.ts, src/data/name-hints.ts, src/data/text-profile.ts, src/data/mask-profile.ts, src/data/score.ts, src/search/similar.ts, test/semantic-type.test.ts]
+    do:
+      - "Compute once per column from values plus name hints: identifier, phone, email, person name, address, geo coordinate, URL, free text, code, money, date or datetime, duration, category, measure. Store it in ColumnMeta with a confidence and the reason."
+      - "Consumers read it instead of re-deciding: Convert offers (never for identifier, phone, code), PII classes, format masks (skip URL, free text, person name), similarity clustering (skip date, identifier, numeric), outlier and chart code (replace scattered isLikelyIdentifierColumn calls)."
+      - "Fix the PII shape order in text-profile.ts so date-like values are classified before phone, and do not run TFN, ABN or ACN checksums on values that parse as dates."
+      - "The user can override the semantic type per column; the override is a Recipe step."
+    done_when: "On the corpus: Ticket, mobile and USUBJID get no Convert offer and no Phone flag; ISO dates are never Phone or TFN; GDPR picture and police name get no format failure; no similarity clusters on date columns; existing outlier and chart behaviour unchanged (tests stay green)."
+
+  - id: WIRE
+    title: One issue list feeding the score
+    priority: P0
+    depends_on: [MEASURE]
+    files_touched: [src/data/score.ts, src/data/findings.ts, src/ui/app.ts (advanced signals), src/ui/quality-page.ts, test/findings.test.ts, test/score.test.ts]
+    do:
+      - "Make one function produce every column issue (placeholders stored as text, type conflicts, pattern failures, spelling clusters, sentinels, numbers or dates stored as text, keys, constants) with severity fix, review or info. Either extend qualityFindings and call it, or fold it into score.ts; delete the unused path."
+      - "Score from that list: deterministic issues (type conflicts, placeholders, case and whitespace spelling clusters) count toward validity or consistency; fuzzy clusters and sentinels are review; advisory items are info."
+      - "Advanced signals keep only advisory, dataset-level signals (co-missingness, drift, text profiles). Spelling clusters move into the main issue list."
+      - "Toolbar chips read the same list so counts agree everywhere."
+    done_when: "HR department FINANCE/finance/Finance appears in the main issue list and the score; counts on the toolbar, the issue list and the checks table agree on every corpus file; no detector result is shown only in Advanced signals unless it is advisory."
+
+  - id: QUICK
+    title: Local detector and parser fixes
+    priority: P0
+    depends_on: [BENCH-REAL]
+    files_touched: [src/parse/header-detect.ts, src/parse/null-tokens.ts, src/parse/dates.ts, src/data/text-profile.ts, src/data/formula.ts, src/data/score.ts, src/search/similar.ts]
+    do:
+      - "Header: when no row scores as a header and rows are type-consistent, return a header-less table (col_1..col_N) instead of consuming the first record (see HDR)."
+      - "Null tokens: add error and its compact forms; keep the user-editable policy."
+      - "Dates: parse dd-Mon-yyyy and d-Mon-yy (18-Jun-1996)."
+      - "Formula: keep looksLikeFormula for export escaping, but do not count it as a validity failure; at most an info note. Never flag ISO 8601 durations (-P1D)."
+      - "Similarity: skip date and numeric-looking columns."
+    done_when: "Pima keeps 768 rows; cafe ERROR counted as missing; HR date_of_birth parses all three forms; face_vaccine no longer fair because of -P1D; HR date_of_birth shows no similarity clusters."
+
+  - id: SAFE
+    title: Identifier-safe conversions and fix guardrails
+    priority: P0
+    depends_on: [T0]
+    files_touched: [src/parse/infer.ts and src/data/column.ts (where typeDowngrade is produced), src/data/identifier.ts (reuse looksLikeIdName and isLikelyIdentifierColumn, which today only guard outliers and charts), src/data/score.ts (downgrade check, line ~176), src/ui/quality-page.ts, test/safe-conversion.test.ts]
+    do:
+      - "Never suggest Convert to Integer or Number for a column that looks like an identifier: name hints (id, code, ticket, number as in phone, mobile, account, zip, postcode), leading zeros, mixed alphanumeric values, fixed-width digit strings, phone-like or checksum-valid values, or a column where the blocked share exceeds 10%. Offer 'keep as text' or 'mark as identifier' instead."
+      - "Any type-conversion fix must show how many values it would lose or change, and is refused (disabled with reason) when it would null more than 1% of non-empty values unless the user confirms."
+      - "A conversion that would drop leading zeros or change digits is refused outright."
+      - "Remove the +pts claim from refused conversions so they cannot lead the ranking."
+    done_when: "Titanic Ticket and HR mobile show no Convert action; a genuine mixed-type numeric column (for example chipotle item_price after currency stripping) still offers one; unit tests cover leading zeros, phone shapes and the 1% threshold."
+
+  - id: BAND
+    title: Score band cap and column floor
+    priority: P0
+    depends_on: [C1]
+    files_touched: [src/data/score.ts, src/ui/quality-page.ts, test/score.test.ts, 08_DECISION_LOG.md]
+    do:
+      - "Keep the weighted mean as the number, but cap the BAND at fair when any non-optional column has completeness below 50% or any column has a deterministic validity failure above 20% of its populated values, and cap at poor below 25% or above 50%. Show the reason in the hero ('Fair because Cabin is 77% empty')."
+      - "advisoryOnly=true and scoreVersion 1 keep the old band exactly."
+      - "Record as decision D7 (owner decision: thresholds and wording)."
+    done_when: "Titanic reads fair with the Cabin reason; HR and cafe no longer read good; clean datasets (penguins, tips, airquality) keep good; thresholds unit-tested and documented."
+
+  - id: OPT
+    title: Recognise optional or blank-by-design columns
+    priority: P0
+    depends_on: [T6, T11]
+    files_touched: [src/data/score.ts, src/data/optional-columns.ts (new), src/data/findings.ts, src/ui/quality-page.ts, test/optional-columns.test.ts]
+    do:
+      - "Mark a column as probably optional when its name suggests it (notes, comments, description, middle_name, lot_number, card_number, secondary, alt, optional) or it is more than 30% empty while every other column is nearly complete, and let the user toggle 'This column is optional' (stored per D4 in the Recipe and rules file)."
+      - "Optional columns still show their completeness but do not enter the points-gained ranking and do not drive the band cap; Completeness weight for them is reduced (document the factor)."
+      - "Never describe a blank sensitive column (for example card_number) as a defect."
+      - "A 100% empty column is reported once as 'Empty column: nothing to analyse. Drop it?' with a Drop column action; it never receives a points-gained claim and does not drive the band cap beyond one step."
+    done_when: "HR card_number and notes, coffee lot_number, chipotle choice_description no longer lead the fix list; Titanic Cabin still appears because the user has not marked it optional (it is surfaced in the band reason instead); toggling updates the score and the Recipe."
+
+  - id: SENT
+    title: Sentinel and hidden-missing detection
+    priority: P0
+    depends_on: [T6]
+    files_touched: [src/parse/null-tokens.ts (EXACT_NULLS lacks ERROR and similar), src/data/suggestions.ts (sentinel shapes: extend beyond TBC and all-zero dates), src/data/anomalies.ts, test/sentinels.test.ts]
+    do:
+      - "Extend the placeholder set (case-insensitive, trimmed): ERROR, N/A, NA, #N/A, NULL, NONE, NIL, UNKNOWN, UNSPECIFIED, TBD, ?, -, --, n.a., missing, and keep the user-editable list."
+      - "Probable hidden-missing zeros: a numeric column where zero is impossible by name or domain (age, price, weight, glucose, blood pressure, skin thickness, insulin, BMI, moisture) and zero appears more than expected; report as 'review', never silently convert."
+      - "Sentinel numbers (-1, 99, 999, 9999, 99999) and sentinel dates (1970-01-01, 1900-01-01, 9999-12-31, 2999-12-31) flagged as probable placeholders when they repeat far above the column's other values."
+      - "Placeholders inside a numeric or date column (for example ERROR in Quantity) count as failing validity as well as missing, and the column is not silently treated as text."
+    done_when: "Cafe ERROR (2,908 cells) recognised; Pima zeros flagged for Glucose, BloodPressure, SkinThickness, Insulin and BMI with counts; GDPR 1970-01-01 (15 rows) and price 0 (11) flagged for review; coffee moisture 0 (264) flagged for review; none of these change data without a preview."
+
+  - id: HDR
+    title: Header-row detection
+    priority: P0
+    depends_on: [T0]
+    files_touched: [src/parse/header-detect.ts (scoring heuristics), src/worker/ingest.ts (hasHeaders handling), src/ui/app.ts, test/header-detect.test.ts]
+    do:
+      - "When every value in the first row is numeric (or matches the type of the rows below) and the next rows are the same types, treat the file as header-less: name columns col_1..col_N (or Column 1..) and show a dismissible notice 'No header row detected. Columns are named col_1..col_N. Use first row as header?' with a one-click switch."
+      - "Conversely, a first row that is all text over typed numeric columns stays a header. Never silently consume a data row."
+    done_when: "Pima loads 768 rows with generic names and the notice; titanic, penguins, tips, airquality still load as before; both directions covered by tests."
+
+  - id: FMT
+    title: Limit format-mask checks to columns where a dominant format is meaningful
+    priority: P0
+    depends_on: [T8]
+    files_touched: [src/data/mask-profile.ts (pattern and offCount), src/worker/search.worker.ts (~line 2762 where the mask is attached), src/data/name-hints.ts, test/format-mask.test.ts]
+    do:
+      - "Skip the 'parses cleanly' mask check for URL columns, free text (long average length or high distinct ratio), file paths, and personal-name columns; for names, allow 3 or more tokens, initials, hyphens, apostrophes, particles and suffixes (Jr., III)."
+      - "Report a format issue only when one format clearly dominates (above 80% of populated values) and the minority is small (under 20%), and always show the dominant format in words."
+      - "Cabin-style codes with legitimate multi-value forms (C23 C25 C27) are reviewed, not failed."
+      - "Formula-like check (score.ts, suggestion kind formula): only flag a leading minus or plus when the value looks like an arithmetic expression or function call, never for ISO 8601 durations (-P1D), negative numbers, dates, or codes."
+    done_when: "GDPR picture and source and police name no longer appear in the fix ranking; Titanic Cabin multi-cabin values are review at most; format issues on genuine code columns (for example a phone column with one odd value) still appear."
+
+  - id: FTX
+    title: Embedded PII in free-text columns
+    priority: P1
+    depends_on: [T1, T2]
+    files_touched: [src/data/sensitivity.ts, src/worker/search.worker.ts, test/sensitivity-freetext.test.ts]
+    do:
+      - "For text columns with long average length or varied content, scan for embedded email, phone, card (Luhn), TFN and ABN patterns with word boundaries and report 'may contain' with the share of rows affected and masked examples (capped sample per D-scan cap)."
+      - "Include address and coordinate hints in H0 (street address, lat, lon, latitude, longitude, location, postcode) and personal-name columns, DOB and salary as classes in T1, all advisory."
+    done_when: "HR notes reports embedded card and phone numbers (about 777 rows in the seeded file); police streetaddress, name and latitude/longitude flagged as possibly sensitive; no new false positives on the 11-dataset corpus."
+
+  - id: DUPK
+    title: Near-duplicates ignoring key columns
+    priority: P1
+    depends_on: [T6]
+    files_touched: [src/data/key-duplicates.ts (exists; extend or reuse), src/data/score.ts (uniqueness check), src/worker/search.worker.ts, src/ui/quality-page.ts, test/near-duplicates.test.ts]
+    do:
+      - "Detect columns that are unique per row (ids, row numbers) and offer 'duplicates ignoring id' as a review item: group rows equal on all other columns, show counts and a preview. Exact-duplicate check stays as it is."
+      - "Use column subsets only from the user's choice or the detected id columns; no combinatorial search."
+    done_when: "GDPR reports 16 repeated rows when ignoring id (review, with a Show duplicates action); datasets without an id column are unaffected."
+
+  - id: BENCH-REAL
+    title: Real-world regression corpus (runs in npm test, no network, no nightly job)
+    priority: P0
+    depends_on: [T0]
+    files_touched: [test/fixtures/real-world/ (new, one folder per dataset), test/real-world.test.ts, test/e2e/real-world.spec.ts, scripts/corpus-add.mjs (new)]
+    do:
+      - "Layout: test/fixtures/real-world/<name>/data.csv (trimmed to at most 300 rows, keeping the messy rows), expect.json, SOURCE.md (origin and licence). Tests never download anything."
+      - "Initial corpus: the 11 datasets already tested (titanic, penguins, pima, chipotle, tips, airquality, coffee ratings, US police killings, GDPR fines, plus the two seeded synthetic generators) and 10 to 20 messy files supplied by the owner."
+      - "expect.json has three lists: must_flag (issue kind, column, approximate count), must_not_flag (false positives, for example 'no sensitive flag on Ticket', 'no Convert action on mobile'), and band (expected score band or range). Keep each list short and specific."
+      - "Add the pilot false positives as must_not_flag cases: USUBJID not Phone/TFN/ACN; height and depth not Phone; -P1D not formula-like; fully empty column is one drop-column item, not +40 pts."
+      - "scripts/corpus-add.mjs <file.csv>: trims the file, runs the profiler, and writes a DRAFT expect.json listing what the app currently flags, so the owner only edits it to say which flags are right and what is missing."
+      - "test/real-world.test.ts runs every folder through the pure profiling and scoring modules (no browser) and fails on any expect.json violation; the e2e spec loads each file in the page and fails on console errors."
+    done_when: "All corpus folders pass in npm test; adding a dataset is one corpus-add command plus a short edit of its expect.json; the 11 initial datasets and the pilot must_not_flag cases are included."
+    owner_input: "Send 10-20 messy files (CSV, TSV or XLSX under 5 MB each) you are allowed to share; say which ones contain real personal data so they are not committed."
+
+  - id: E1
+    title: Exception export (row-level)
+    priority: P1
+    depends_on: [T6, T7, T8]
+    files_touched: [src/ui/quality-page.ts, src/ui/export-panel.ts, src/data/dq-report.ts, src/worker/search.worker.ts]
+    do:
+      - "Download exceptions.csv: one row per failing cell with source row number, column, check id, dimension, severity, value and reason. Per check and for all checks."
+      - Values for sensitive-flagged columns are masked by default, with an explicit "include raw values" switch. Stream from the worker; warn above 100k rows.
+    done_when: Exceptions for B match the check counts exactly (unit-tested); sensitive values masked by default; 250k-row export stays within the budget.
+
+  - id: R1
+    title: Rule recommender and rule editor
+    priority: P1
+    depends_on: [C1]
+    files_new: [src/data/rules.ts, test/rules.test.ts]
+    files_touched: [src/data/score.ts, src/ui/quality-page.ts]
+    do:
+      - "Recommend rules from the profile: not null when complete, unique for key-like columns, range from percentiles with a margin, allowed values when distinct <= 20 and they cover >= 99%, dominant format when mask share >= 95%, pair rules from name pairs."
+      - "Editor with safe rule types only (not null, unique, range, in-list, regex, length, cross-column comparison). No eval, no new Function; a rule is data interpreted by a pure evaluator. Per-rule severity (critical, major, minor) and an allowed-failure threshold (for example 0.5%)."
+      - Accepted rules become scored checks (D1) and appear in the Issues tab.
+    done_when: On a clean fixture the recommender proposes a sensible set with zero false failures; on B recommended rules surface the planted problems; rules evaluate in <= 300 ms on 250k rows.
+
+  - id: R2
+    title: Rules file, replay on re-load, pipeline export
+    priority: P1
+    depends_on: [R1]
+    files_touched: [src/data/rules.ts, src/data/recipe.ts, src/data/dq-report.ts, src/ui/quality-page.ts]
+    do:
+      - "Download and upload turbofuzz-rules.json (versioned). Store a schema fingerprint (column names + types). On loading a file with the same fingerprint, offer Apply saved rules?"
+      - Extend emitDQChecks (sodacl, dbt, gx, dqdl) to cover the new rule types; list untranslatable rules in `support`.
+    done_when: Round-trip test; loading the same schema re-applies rules with one click; emitted checks validated against the formats' documented syntax.
+
+  - id: REF
+    title: Bundled reference data and semantic types (Accuracy offline)
+    priority: P2
+    depends_on: [T1, R1]
+    files_new: [src/data/reference/*.ts, src/data/semantic-types.ts, test/reference.test.ts]
+    do:
+      - "Lazy dynamic-import modules (NOT fetch): ISO 3166 countries with common aliases, ISO 4217 currencies, AU states and territories, AU postcode to state ranges, US states, weekdays and months, boolean words. Total <= 25 KB gz."
+      - "Semantic type per column (Email, Phone AU, Postcode, Country, Currency, URL, UUID, IP, Date of birth, Name, Gender...), user-overridable, shared with sensitivity and validity."
+      - "Values outside a recognised reference list become Accuracy checks (3 values are not valid countries, e.g. Austrlia; did you mean Australia?) using the existing Jaro-Winkler matcher for suggestions. Accuracy stays weight 0 by default but becomes applicable."
+    done_when: Chunks load only on demand; Accuracy no longer n/a for recognised columns; no network request (B7).
+
+  - id: S1
+    title: Local history, trend and schema drift
+    priority: P1
+    depends_on: [C1, R1]
+    files_new: [src/data/history.ts, test/history.test.ts]
+    files_touched: [src/ui/quality-page.ts, src/ui/app.ts]
+    do:
+      - "Per D5: IndexedDB snapshots keyed by schema fingerprint: timestamp, row count, per-column fill rate and distinct count, dataset and dimension scores, rule pass rates, schema. Never values or examples."
+      - "History tab: score trend sparkline; compared with your previous load diff: columns added/removed/retyped, fill-rate shifts over a threshold, new categories (labels only for low-cardinality non-sensitive columns), row-count change."
+      - First-run note, a settings switch and a one-click Clear history.
+    done_when: Two consecutive loads of B with a changed copy show the drift correctly; clearing history empties IndexedDB; sensitive columns never store labels (unit-tested); works when IndexedDB is blocked (feature simply hides).
+
+  - id: BENCH-PII
+    title: PII accuracy benchmark with a labelled corpus
+    priority: P0
+    depends_on: [T1]
+    files_new: [test/fixtures/pii-corpus.ts, test/pii-benchmark.test.ts]
+    do:
+      - "Synthetic labelled columns. Positives: emails, AU phones (mobile and landline, with spaces and +61), TFN and ABN with valid checksums, Luhn cards, IBANs, Medicare, DOB, names, addresses, IPs, free text with embedded emails. Hard negatives: 11-digit order numbers (include ones that pass the ABN checksum), 10-digit product codes, 16-digit tracking numbers, version strings like 1.2.3.4, sensor lat/lon, dates, postcodes, product_name and similar name hints. Add the real-world false positives seen on the current page: ISO dates (YYYY-MM-DD) and dd-Mon-yyyy dates, ticket codes (A/5 21171, PC 17599), 10 and 11 digit census geo ids, altitude ranges (1950-2200), ICO and lot numbers (03-0-0067 style), URLs ending in .svg."
+      - "Seeded generator so results are deterministic. The test prints a precision/recall table and FAILS below the targets: High confidence precision >= 0.95, recall >= 0.90, zero High false positives on the hard negatives."
+      - Write this early; every later change to the engine is measured by it.
+    done_when: The test is part of `npm test`; the table is pasted in the PR description.
+
+  - id: BENCH-PERF
+    title: Latency bench wired into the gate
+    priority: P0
+    depends_on: [T0]
+    files_new: [bench/dq.ts]
+    files_touched: [package.json (gate and a bench:dq script), bench/baselines]
+    do:
+      - "Per 07_QUALITY_GATES.md: a bench with p95 budgets for the page's worker work on A, B, C and D (first insight, full profile, sensitivity pass, rules evaluation, exceptions export). Add to `npm run gate`."
+    done_when: Budgets from `constraints.performance` enforced; baseline results committed beside the existing bench baselines.
+
+  - id: SEC
+    title: Make privacy visible and tested
+    priority: P1
+    depends_on: [P1]
+    files_touched: [test/security.test.ts, test/e2e/*, src/ui/quality-page.ts, src/ui/help-content.ts]
+    do:
+      - Footer line and help entry explaining the browser-enforced policy (CSP connect-src 'none').
+      - Playwright test records every network request while loading B and running every scan and asserts there are none (B7). Extend security.test.ts to scan new modules for fetch, XMLHttpRequest, WebSocket, eval and new Function.
+    done_when: Tests pass; the help text makes no claim the test does not back.
+
+  - id: REP
+    title: Shareable report
+    priority: P2
+    depends_on: [T12, R1, S1]
+    files_touched: [src/data/dq-report.ts, src/ui/quality-page.ts, test/dq-report.test.ts]
+    do:
+      - "One self-contained, printable HTML page: score, top issues, per-column table, sensitivity summary (no values), rules, trend. Keep JSON, Markdown and CSV, adding scoreVersion and the new sections (fields only added, never removed)."
+      - "Copy summary for data supplier: a short plain-language message listing what failed and how many rows, ready to paste into an email."
+    done_when: The HTML report opens offline, prints cleanly, and contains no raw values for flagged columns.
+
+  - id: A11Y
+    title: Accessibility and visual regression for the page
+    priority: P1
+    depends_on: [P1]
+    files_touched: [test/e2e/a11y.spec.ts, test/e2e/polish.spec.ts]
+    do:
+      - Extend the axe checks to every tab of the Quality page in both themes, including the distribution bars (labelled) and the sensitive banner. Add screenshot baselines for B and D at the three viewports (07_QUALITY_GATES says visual regression is a gap; start small).
+    done_when: Zero serious violations; baselines committed and reviewed.
+
+  - id: DOCS
+    title: Documentation and decision records the repo requires
+    priority: P1
+    depends_on: []
+    files_touched: [03_FEATURE_INVENTORY.md, 08_DECISION_LOG.md, 09_CHANGE_LOG.md, src/ui/help-content.ts, README.md]
+    do:
+      - Record D1-D6 in 08_DECISION_LOG.md, the new features in 03_FEATURE_INVENTORY.md, user-facing help for the Quality page, sensitivity wording and the rules file; change-log entries per milestone.
+      - "Update the stale baseline lines in 07_QUALITY_GATES.md (it says 650 tests and no e2e; the repo now has 844 tests and Playwright specs)."
+    done_when: Docs match behaviour; no feature ships without a change-log line.
+
+  - id: FIT
+    title: Fitness-for-purpose profiles
+    priority: P2
+    depends_on: [R1, T3]
+    do:
+      - "Small presets that change weights, severities and defaults: General analysis (default), Finance reporting (uniqueness and accuracy up), Machine learning (missingness, constants, leakage candidates), Sharing externally (sensitive flags raised to review and the export notice defaults to Mask)."
+    done_when: Switching profile changes the score and the notice default predictably; documented in help.
+
+  - id: T20
+    title: Headless check (optional, later)
+    priority: P3
+    depends_on: [R2]
+    do:
+      - "A Node entry (for example npx turbofuzz-check data.csv --rules rules.json) reusing the pure modules (score, rules, sensitivity) to print pass/fail and write exceptions.csv, for CI and scheduled use. This is the honest substitute for webhook alerting."
+    done_when: Same results as the browser on fixtures A-D (parity test).
+
+verification:
+  per_task: [npm run typecheck, npm test, npx playwright test polish smoke]
+  new_tests_required: [test/name-hints.test.ts, test/sensitivity.test.ts, test/pii-benchmark.test.ts, test/plausibility.test.ts, test/rules.test.ts, test/history.test.ts, test/reference.test.ts, variants and mixed-format tests, quality-page tests, an e2e for the export notice, a network-silence e2e]
+  visual: Quality page screenshots at 1440x900, 1024x768 and 390x844, light and dark, for datasets B and D, before and after; compare B at 1440 against dq-after-v3.png for layout intent (not pixel match). Also the STATES set.
+  performance: Report worker timings for C and D before and after; compare with constraints.performance; `npm run gate` green.
+  expected_outcome_on_B: >
+    Score drops from 95.4 to a lower, honest value (my estimate 70-80; the mock-up's ~71 is illustrative; report the actual number). City and status spellings, mixed date formats,
+    invalid emails and age 240 are visible, explained in plain English and fixable. 4 columns flagged as possibly sensitive (email, phone High; full_name Medium; balance Low), none affecting the score. Rows affected reads 1,045 of 1,240.
+    With advisoryOnly=true the score is exactly 95.4.
+  known_gap: test/e2e/chart-resize-loop.spec.ts launches its own browser; run it where the repo's Playwright browsers are installed.
+
+definition_of_done:
+  note: Taken from 07_QUALITY_GATES.md plus the commercial bar.
+  per_milestone:
+    - Problem statement, evidence, acceptance criteria, preserve-list and a rollback commit recorded.
+    - Tests added at the right layer; new bench with a p95 budget wired into npm run gate.
+    - Manual browser verification at three viewports and both themes, with screenshots.
+    - Change-log entry and updated inventory and decision log.
+    - Commercial bar criteria B1-B10 re-checked for the surfaces touched.
+  preserve:
+    - Existing score formula and bands when advisoryOnly=true.
+    - CSP and test/security.test.ts.
+    - Existing drill-downs, exports (fields only added), Recipe replay and recipe-parity cases.
+    - All currently passing tests.
+
+open_decisions_for_owner:
+  - "D1: Scored vs advisory split (recommendation above), scoreVersion and the advisoryOnly toggle."
+  - "D3: Export notice default (Include / Mask / Exclude). Recommendation: Include."
+  - "D5: History on by default (with a first-run note) or off until enabled. Recommendation: on, aggregates only."
+  - "Hash action: ship it, or mask and drop only? Hashing phone numbers is weak protection."
+  - "Hint tables: confirm the sensitive classes (health, demographic) are in scope for v1, and whether US/UK/NZ/CA identifier packs are wanted later."
+  - "Whether the optional headless check (T20) is worth building."
+  - "D7 (BAND): thresholds for capping the band (50% empty or 20% invalid for fair; 25% or 50% for poor) and the wording of the reason line."
+  - "OPT: default list of optional-looking column names and the reduced Completeness weight for optional columns."
+  - "BENCH-REAL: owner decision made: pinned corpus in npm test using the 11 tested datasets plus 10-20 owner-supplied messy files; no nightly runs. Owner supplies the extra files and flags any with real personal data."
+  - "Fix top 3 issues: confirm it is always one combined preview then separate undoable steps (recommended), never a one-click apply."
+  - "Rows affected definition: confirm it should exclude advisory fuzzy suggestions and sensitivity (recommended)."
+  - "Collapse threshold: top 5 issues shown by default, or a different number."
+
+suggested_order: [T0, BENCH-REAL, BENCH-PERF, QUICK, MEASURE, H0, SEM, WIRE, SAFE, HDR, SENT, T1, BENCH-PII, T6, T7, T11, T8, FMT, T9, T2, BAND, OPT, FTX, DUPK, P1, VIS, UNIFY, ROWS, COPY, DIST, T3, C1, T12, STATES, E1, T4, T5, T10, R1, R2, S1, REF, SEC, A11Y, REP, DOCS, FIT, T20]

@@ -77,3 +77,26 @@ test("escapeFormulas guards formula-like cells but keeps plain numbers", () => {
   // Off by default: values are exported untouched.
   assert.match(buildCsv(dataset, ids, 0, 4, true), /^email,amount\r\n=1\+1,-999/);
 });
+
+test("buildCsv masks or leaves out chosen columns", () => {
+  const dataset = buildDataset("t", ["id", "email", "city"], [
+    ["1", "jane@example.com", "Perth"],
+    ["2", "", "Hobart"],
+  ]);
+  const ids = Uint32Array.from([0, 1]);
+  const masked = buildCsv(dataset, ids, 0, 2, true, {
+    columnHandling: [{ column: 1, mode: "mask" }],
+  });
+  assert.equal(masked, "id,email,city\r\n1,j***@example.com,Perth\r\n2,,Hobart\r\n");
+
+  const excluded = buildCsv(dataset, ids, 0, 2, true, {
+    columnHandling: [{ column: 1, mode: "exclude" }],
+  });
+  assert.equal(excluded, "id,city\r\n1,Perth\r\n2,Hobart\r\n");
+
+  // Chunks without a header still drop the column.
+  assert.equal(
+    buildCsv(dataset, ids, 1, 2, false, { columnHandling: [{ column: 1, mode: "exclude" }] }),
+    "2,Hobart\r\n",
+  );
+});

@@ -50,11 +50,13 @@ test("loads a small CSV and shows columns and rows", async ({ page }, testInfo) 
   await page.keyboard.press("Escape");
 
   await page.getByRole("tab", { name: "Data Quality" }).click();
-  await expect(page.locator(".qp-hero")).toBeVisible();
-  await expect(page.locator(".qp-scope")).toContainText("Whole dataset");
+  await expect(page.locator(".qp-hero2")).toBeVisible();
+  await expect(page.locator(".qp-hero-scope")).toContainText("Whole dataset");
+  await page.getByRole("tab", { name: /^Sensitive/ }).click();
   await expect(page.locator(".qp-sensitive-empty")).toContainText(
-    "No obvious email",
+    "No columns look like they hold personal or sensitive data.",
   );
+  await page.getByRole("tab", { name: "All checks" }).click();
   await expect(page.locator(".qp-explain")).toContainText("Adjust weights");
 
   await page.getByRole("tab", { name: "Chart" }).click();

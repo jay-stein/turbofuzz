@@ -1,0 +1,41 @@
+{
+  "hasHeaders": true,
+  "rows": 299,
+  "columns": 12,
+  "band": {
+    "min": 90,
+    "max": 100
+  },
+  "types": {},
+  "must_flag": [
+    {
+      "kind": "sensitive",
+      "column": "date_of_birth",
+      "value": "demographic",
+      "confidence": "medium"
+    }
+  ],
+  "must_not_flag": [
+    {
+      "kind": "validity",
+      "column": "*"
+    },
+    {
+      "kind": "variants",
+      "column": "*"
+    },
+    {
+      "kind": "sentinel",
+      "column": "*"
+    },
+    {
+      "kind": "convert",
+      "column": "*"
+    },
+    {
+      "kind": "sensitive",
+      "column": "*",
+      "confidence": "high"
+    }
+  ]
+}

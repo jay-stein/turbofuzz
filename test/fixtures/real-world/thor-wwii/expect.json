@@ -1,0 +1,27 @@
+{
+  "hasHeaders": true,
+  "rows": 299,
+  "columns": 19,
+  "band": {
+    "min": 80,
+    "max": 100
+  },
+  "types": {
+    "TOTAL_TONS": "number"
+  },
+  "must_flag": [],
+  "must_not_flag": [
+    {
+      "kind": "sensitive",
+      "column": "*",
+      "confidence": "high"
+    }
+  ],
+  "known_gaps": [
+    {
+      "kind": "validity",
+      "column": "UNIT_ID",
+      "why": "mixed unit-id shapes read as off-format on an identifier column"
+    }
+  ]
+}

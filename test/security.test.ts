@@ -34,3 +34,23 @@ test("source does not use eval, new Function or network fetch", () => {
   }
   assert.deepEqual(offenders, []);
 });
+
+test("source opens no other network channel either", () => {
+  const offenders: string[] = [];
+  for (const file of filesUnder(join(root, "src"))) {
+    const text = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
+    if (/\bXMLHttpRequest\b|\bnew\s+WebSocket\s*\(|\bnew\s+EventSource\s*\(|\bsendBeacon\s*\(/.test(text)) offenders.push(file);
+  }
+  assert.deepEqual(offenders, []);
+});
+
+test("dynamic imports in the data modules only load local reference chunks or bundled packages", () => {
+  const offenders: string[] = [];
+  for (const file of filesUnder(join(root, "src", "data"))) {
+    const text = readFileSync(file, "utf8");
+    for (const match of text.matchAll(/import\(\s*([^)]*)\)/g)) {
+      if (!/^["'](?:\.\/reference\/[\w-]+\.js|[\w@-]+)["']$/.test(match[1].trim())) offenders.push(`${file}: ${match[0]}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});

@@ -1,5 +1,27 @@
 import type { DQScore, ScoreCheck, ScoreDimension } from "../data/score.js";
+import { FITNESS_PROFILES, fitnessProfile, readFitnessId, saveFitnessId } from "../data/fitness.js";
+import type { Finding } from "../data/findings.js";
+import {
+  CLASS_NAMES,
+  LABEL_NAMES,
+  type SensitiveConfidence,
+  type SensitiveFinding,
+  type SensitiveLabel,
+} from "../data/sensitivity.js";
 import type { DatasetStats } from "../data/stats.js";
+import type { ColumnHealth, PageIssue } from "../data/dq-issues.js";
+import {
+  buildHero,
+  buildIssuesTab,
+  buildSensitiveBanner,
+  buildSkeleton,
+  buildStrip,
+  buildTabs,
+  buildTiles,
+  type FixedEntry,
+  type QualityTab,
+  type RowsAffectedTile,
+} from "./quality-layout.js";
 import { clear, el } from "./dom.js";
 import { chipText } from "./chips.js";
 import type { DQExportKind } from "./quality-panel.js";
@@ -14,6 +36,8 @@ const DIMENSION_DEFINITIONS: readonly { label: string; text: string }[] = [
   { label: "Timeliness", text: "Is the data recent enough for its purpose?" },
   { label: "Accuracy", text: "Does the data match an authoritative reference? (Not available offline.)" },
 ];
+
+const REVIEW_LIMIT = 8;
 
 function formatCount(value: number): string {
   return value.toLocaleString();
@@ -36,6 +60,38 @@ export interface QualityPageCallbacks {
   onFilter(check: ScoreCheck): void;
   /** Convert a downgraded text column to its richer type. */
   onConvert?(column: number, type: ColumnType): void;
+  /** Run a "Worth reviewing" finding's action (open the merge panel, filter rows, etc.). */
+  onFinding?(finding: Finding): void;
+  /** The user dismissed, confirmed or relabelled a possibly-sensitive column. */
+  onSensitiveChange?(card: SensitiveCard, change: SensitiveChange): void;
+  /** Rescan one column over every value (exact counts instead of a sample). */
+  onScanExact?(column: number): void;
+  /** Open the mask / hash / drop choices for a flagged column, anchored to its button. */
+  onProtect?(card: SensitiveCard, anchor: HTMLElement): void;
+  /**
+   * Preview and apply the fixes for these issues (each as its own undoable step).
+   * Resolves with what was applied and how to undo each, or null when cancelled.
+   */
+  onFixIssues?(issues: readonly PageIssue[]): Promise<FixOutcome | null>;
+  /** Show the rows behind an issue (filters the table or runs its finding action). */
+  onShowIssue?(issue: PageIssue): void;
+  /** The user marked a column optional (true) or required (false). */
+  onOptionalChange?(columnName: string, optional: boolean): void;
+  /** The Rules tab body, built by the app (which owns the rules). */
+  buildRulesPanel?(): HTMLElement;
+  ruleCount?(): number;
+  /** The History tab body. */
+  buildHistoryPanel?(): HTMLElement;
+  /** Turn off a suggested check (session only). */
+  onDisableSuggestion?(checkId: string): void;
+  /** Download exceptions.csv (one row per failing cell). */
+  onExceptions?(includeRaw: boolean): Promise<void>;
+  /** Columns masked in the exceptions file (sensitive-flagged, not dismissed). */
+  maskedColumns?(): number[];
+  /** Open a column's profile from the health strip. */
+  onOpenColumn?(column: number, anchor: HTMLElement): void;
+  /** Filter the table to the rows that fail at least one check. */
+  onShowAffectedRows?(): void;
   /** Copy/download the DQ report; resolves false when the clipboard blocks. */
   onExport(kind: DQExportKind): Promise<boolean>;
   /** Current weights/bands overrides (prefills the settings). */
@@ -52,11 +108,22 @@ export interface QualityPageCallbacks {
   }): void;
 }
 
-export interface SensitiveColumn {
-  column: number;
-  name: string;
-  rows: number;
-  counts: { label: string; count: number }[];
+/** A possibly-sensitive column as the page shows it: the engine finding plus masked examples. */
+export interface SensitiveCard extends SensitiveFinding {
+  /** Up to three sample values, already masked; the page reveals one on click. */
+  examples: string[];
+  /** The unmasked sample values, shown only when the user clicks to reveal. */
+  revealed: string[];
+}
+
+export interface FixOutcome {
+  items: { id: string; undo: () => void }[];
+}
+
+export interface SensitiveChange {
+  dismissed?: boolean;
+  confirmed?: boolean;
+  label?: SensitiveLabel;
 }
 
 export interface FreshnessColumn {
@@ -72,8 +139,16 @@ export interface QualityPageInput {
   visibleRowCount?: number;
   stats: DatasetStats;
   columnNames: readonly string[];
-  /** Advisory PII-like pattern matches, by column. */
-  sensitive?: readonly SensitiveColumn[];
+  /** The single ranked issue list (fix, review, info). */
+  issues?: readonly PageIssue[];
+  /** One health card per column, worst first. */
+  health?: readonly ColumnHealth[];
+  /** Distinct rows failing a deterministic check; undefined while still counting. */
+  rowsAffected?: RowsAffectedTile | null;
+  /** Changes when a new file is loaded, so "fixed this session" starts empty. */
+  datasetKey?: string;
+  /** Possibly-sensitive columns from the engine, with the user's decisions applied. */
+  sensitive?: readonly SensitiveCard[];
   sensitiveScanned?: boolean;
   /** Date/datetime columns with their latest value (epoch ms). */
   freshness?: readonly FreshnessColumn[];
@@ -88,6 +163,13 @@ export interface QualityPageInput {
  * display-only, every number drills to the failing rows.
  */
 export class QualityPage {
+  private tab: QualityTab = "issues";
+  private showAllColumns = false;
+  private showAllIssues = false;
+  private fixed: FixedEntry[] = [];
+  /** Dataset-level advisory signals from the app, shown under the issue list. */
+  private advanced: HTMLElement | null = null;
+  private datasetKey = "";
   private onlyIssues = false;
   private dimensionFilter: ScoreDimension | null = null;
   private settingsOpen = false;
@@ -125,127 +207,215 @@ export class QualityPage {
       return;
     }
     const { score, stats, rowCount, columnNames } = input;
+    if (input.datasetKey !== undefined && input.datasetKey !== this.datasetKey) {
+      this.datasetKey = input.datasetKey;
+      this.fixed = [];
+      this.showAllIssues = false;
+      this.showAllColumns = false;
+    }
     this.scopeLabel = describeScope({ total: rowCount });
     this.tableScopeLabel =
       input.visibleRowCount !== undefined && input.visibleRowCount < rowCount
         ? describeScope({ total: rowCount, visible: input.visibleRowCount })
         : "";
-    const applicable = score.dimensions.filter((dimension) => dimension.score !== null);
     const checkCount = score.dimensions.reduce((sum, dim) => sum + dim.checks.length, 0);
-    const failing = score.dimensions.reduce(
-      (sum, dim) => sum + dim.checks.filter((check) => check.fail > 0).length,
-      0,
-    );
+    const issues = input.issues ?? [];
+    const health = input.health ?? [];
+    const cards = input.sensitive ?? [];
+    const liveCards = cards.filter((card) => card.dismissed !== true);
+    const scanned = input.sensitiveScanned === true;
+    const fixIssues = issues.filter((issue) => issue.severity === "fix");
+    const reviewIssues = issues.filter((issue) => issue.severity === "review");
+    const safe = fixIssues.filter((issue) => issue.batchSafe && issue.fixes.length > 0);
+    const topWin = fixIssues.find((issue) => issue.points !== null) ?? null;
 
     this.root.append(
-      this.buildHero(
-        score,
-        stats,
-        rowCount,
-        columnNames.length,
-        applicable.length,
-        checkCount,
-        failing,
+      buildHero(
+        {
+          overall: score.overall === null ? null : Math.round(score.overall * 10) / 10,
+          band: score.band,
+          bandWord: bandWord(score.band),
+          bandReason:
+            score.bandCap === null
+              ? null
+              : `${bandWord(score.band).replace(/^./, (c) => c.toUpperCase())} because ${score.bandCap.reason}`,
+          rowCount,
+          columnCount: columnNames.length,
+          checkCount,
+          topWin,
+          fixCount: fixIssues.length,
+          reviewCount: reviewIssues.length,
+          sensitiveCount: liveCards.length,
+          maskedColumns: this.callbacks.maskedColumns?.().length ?? 0,
+          canFixTop: safe.length > 0,
+          scopeLine:
+            this.tableScopeLabel === ""
+              ? this.scopeLabel
+              : `${this.scopeLabel} · Table view: ${this.tableScopeLabel}`,
+        },
+        {
+          fixTop: () => void this.fix(safe.slice(0, 3)),
+          copy: () => void this.callbacks.onExport("markdown"),
+          download: () => void this.callbacks.onExport("json"),
+          ...(this.callbacks.onExceptions === undefined
+            ? {}
+            : { exceptions: (includeRaw: boolean) => void this.callbacks.onExceptions?.(includeRaw) }),
+          html: () => void this.callbacks.onExport("html"),
+          supplier: () => void this.callbacks.onExport("supplier"),
+          weights: () => {
+            this.tab = "checks";
+            this.settingsOpen = !this.settingsOpen;
+            this.render(this.lastInput);
+          },
+        },
       ),
-      this.buildSettings(score),
-      this.buildDimensions(score),
-      this.buildFreshness(input.freshness ?? [], input.now ?? Date.now()),
-      this.buildFixes(score),
-      this.buildChecks(score),
-      this.buildSensitive(input.sensitive ?? [], input.sensitiveScanned === true),
-      this.buildMatrix(score, columnNames),
+      buildTiles(
+        {
+          fix: fixIssues.length,
+          review: reviewIssues.length,
+          sensitive: scanned ? liveCards.length : null,
+          rows: input.rowsAffected === undefined ? null : input.rowsAffected,
+        },
+        {
+          openIssues: () => this.select("issues"),
+          openSensitive: () => this.select("sensitive"),
+          showAffected: () => this.callbacks.onShowAffectedRows?.(),
+        },
+      ),
+      buildStrip(health, this.showAllColumns, {
+        open: (column, anchor) => this.callbacks.onOpenColumn?.(column, anchor),
+        toggle: () => {
+          this.showAllColumns = !this.showAllColumns;
+          this.render(this.lastInput);
+        },
+      }),
+      buildTabs(
+        this.tab,
+        { issues: issues.length, sensitive: scanned ? liveCards.length : null, rules: this.callbacks.ruleCount?.() ?? 0 },
+        (tab) => this.select(tab),
+      ),
     );
+
+    const panel = el("div", {
+      class: "qp-panel",
+      id: "qp-panel",
+      role: "tabpanel",
+      "aria-labelledby": `qp-tab-${this.tab}`,
+    });
+    if (this.tab === "issues") {
+      panel.append(
+        buildIssuesTab(
+          issues,
+          this.fixed,
+          { showAll: this.showAllIssues, checkCount },
+          buildSensitiveBanner(
+            liveCards.map((card) => card.name),
+            () => this.select("sensitive"),
+          ),
+          {
+            applyAllSafe: () => void this.fix(safe),
+            safeCount: safe.length,
+            fix: (issue) => void this.fixOne(issue),
+            show: (issue) => this.callbacks.onShowIssue?.(issue),
+            ...(this.callbacks.onOptionalChange === undefined
+              ? {}
+              : {
+                  optional: (issue: PageIssue, optional: boolean) => {
+                    if (issue.columnName !== null) this.callbacks.onOptionalChange?.(issue.columnName, optional);
+                  },
+                }),
+            toggleAll: () => {
+              this.showAllIssues = !this.showAllIssues;
+              this.render(this.lastInput);
+            },
+            openChecks: () => this.select("checks"),
+            undo: (entry) => this.undoFixed(entry),
+          },
+        ),
+      );
+      if (this.advanced !== null) panel.append(this.advanced);
+    } else if (this.tab === "columns") {
+      panel.append(
+        buildStrip(health, true, { open: (column, anchor) => this.callbacks.onOpenColumn?.(column, anchor), toggle: () => {} }, health.length),
+      );
+    } else if (this.tab === "rules") {
+      const rules = this.callbacks.buildRulesPanel?.();
+      if (rules !== undefined) panel.append(rules);
+    } else if (this.tab === "history") {
+      const history = this.callbacks.buildHistoryPanel?.();
+      if (history !== undefined) panel.append(history);
+    } else if (this.tab === "sensitive") {
+      panel.append(this.buildSensitive(cards, scanned));
+      if (!scanned) panel.append(buildSkeleton(3));
+    } else {
+      const onlyIssues = el(
+        "button",
+        { class: `ghost small ${this.onlyIssues ? "active" : ""}`, type: "button" },
+        [this.onlyIssues ? "Showing issues only" : "Show only issues"],
+      ) as HTMLButtonElement;
+      onlyIssues.addEventListener("click", () => {
+        this.onlyIssues = !this.onlyIssues;
+        this.render(this.lastInput);
+      });
+      panel.append(
+        el("div", { class: "qp-actions" }, [onlyIssues]),
+        this.buildSettings(score),
+        this.buildExplanation(score),
+        this.buildDimensions(score),
+        this.buildFreshness(input.freshness ?? [], input.now ?? Date.now()),
+        this.buildChecks(score),
+        this.buildMatrix(score, columnNames),
+      );
+    }
+    this.root.append(
+      panel,
+      el("footer", { class: "qp-footer" }, [
+        "Computed locally in your browser · No data leaves this tab",
+      ]),
+    );
+    void stats;
   }
 
-  // ---------- hero ----------
+  /** Sets (or replaces) the advisory-signals section shown at the bottom of the Issues tab. */
+  setAdvanced(section: HTMLElement | null): void {
+    this.advanced?.remove();
+    this.advanced = section;
+    const panel = this.root.querySelector("#qp-panel");
+    if (section !== null && panel !== null && this.tab === "issues") panel.append(section);
+  }
 
-  private buildHero(
-    score: DQScore,
-    stats: DatasetStats,
-    rowCount: number,
-    columnCount: number,
-    applicableCount: number,
-    checkCount: number,
-    failing: number,
-  ): HTMLElement {
-    const hero = el("div", { class: "qp-hero" });
-    const overall = score.overall === null ? null : Math.round(score.overall * 10) / 10;
-    const ring = el("div", { class: `qp-ring band-${score.band ?? "na"}` });
-    if (overall !== null) {
-      ring.style.setProperty("--qp-fill", `${(overall / 100) * 360}deg`);
+  private select(tab: QualityTab): void {
+    this.tab = tab;
+    this.render(this.lastInput);
+  }
+
+  /** Previews and applies the fixes for these issues, then remembers them under Fixed this session. */
+  private async fix(issues: readonly PageIssue[]): Promise<void> {
+    if (issues.length === 0 || this.callbacks.onFixIssues === undefined) return;
+    const outcome = await this.callbacks.onFixIssues(issues);
+    if (outcome === null) return;
+    for (const item of outcome.items) {
+      const issue = issues.find((candidate) => candidate.id === item.id);
+      if (issue === undefined) continue;
+      this.fixed.push({ id: item.id, title: issue.title, points: issue.points, undo: item.undo });
     }
-    ring.append(
-      el("div", { class: "qp-ring-inner" }, [
-        el("span", { class: "qp-ring-value" }, [overall === null ? "n/a" : overall.toFixed(1)]),
-        el("span", { class: "qp-ring-label" }, ["/ 100"]),
-      ]),
-    );
+    this.render(this.lastInput);
+  }
 
-    const body = el("div", { class: "qp-hero-body" });
-    body.append(
-      el("div", { class: "qp-hero-title" }, [
-        "Data quality",
-        el("span", { class: `qp-band-chip band-${score.band ?? "na"}` }, [bandWord(score.band)]),
-      ]),
-      el("div", { class: "qp-hero-calc" }, [
-        applicableCount === 0
-          ? "No applicable dimensions for this dataset."
-          : `Weighted mean of ${applicableCount} applicable dimension${
-              applicableCount === 1 ? "" : "s"
-            } · ${checkCount} checks · ${failing} with failures · N.A. excluded`,
-      ]),
-      this.buildScopeLine(),
-      this.buildExplanation(score),
-    );
+  private async fixOne(issue: PageIssue): Promise<void> {
+    const convert = issue.fixes.find((step) => step.kind === "convert");
+    if (convert !== undefined && issue.fixes.length === 1) {
+      // Conversions go through the type dialog, which guards against losing values.
+      this.callbacks.onConvert?.(convert.column, convert.to);
+      return;
+    }
+    await this.fix([issue]);
+  }
 
-    const populated =
-      stats.totalCells === 0
-        ? 100
-        : ((stats.totalCells - stats.totalNullCells) / stats.totalCells) * 100;
-    const facts = el("div", { class: "qp-facts" });
-    const fact = (label: string, value: string): HTMLElement =>
-      el("span", { class: "qp-fact" }, [
-        el("span", { class: "qp-fact-value" }, [value]),
-        el("span", { class: "qp-fact-label" }, [label]),
-      ]);
-    facts.append(
-      fact("rows", formatCount(rowCount)),
-      fact("columns", formatCount(columnCount)),
-      fact("populated", `${populated.toFixed(1)}%`),
-      fact("empty cells", formatCount(stats.totalNullCells)),
-      fact("duplicate rows", formatCount(stats.duplicateRows)),
-      fact("value outliers", formatCount(stats.valueAnomalyRows)),
-      fact("length outliers", formatCount(stats.lengthAnomalyRows)),
-    );
-
-    const actions = el("div", { class: "qp-actions" });
-    const onlyIssues = el(
-      "button",
-      { class: `ghost small ${this.onlyIssues ? "active" : ""}`, type: "button" },
-      [this.onlyIssues ? "Showing issues only" : "Show only issues"],
-    ) as HTMLButtonElement;
-    onlyIssues.addEventListener("click", () => {
-      this.onlyIssues = !this.onlyIssues;
-      this.render(this.lastInput);
-    });
-    const copy = el("button", { class: "ghost small", type: "button" }, ["Copy report"]) as HTMLButtonElement;
-    copy.addEventListener("click", () => void this.callbacks.onExport("markdown"));
-    const download = el("button", { class: "ghost small", type: "button" }, [
-      "Download JSON",
-    ]) as HTMLButtonElement;
-    download.addEventListener("click", () => void this.callbacks.onExport("json"));
-    const settings = el("button", { class: "ghost small", type: "button" }, [
-      this.settingsOpen ? "Hide settings" : "Weights & bands",
-    ]) as HTMLButtonElement;
-    settings.addEventListener("click", () => {
-      this.settingsOpen = !this.settingsOpen;
-      this.render(this.lastInput);
-    });
-    actions.append(onlyIssues, el("span", { class: "grow" }), settings, copy, download);
-
-    hero.append(ring, body, actions);
-    hero.append(facts);
-    return hero;
+  private undoFixed(entry: FixedEntry): void {
+    this.fixed = this.fixed.filter((candidate) => candidate !== entry);
+    entry.undo();
+    this.render(this.lastInput);
   }
 
   private buildScopeLine(): HTMLElement {
@@ -315,6 +485,20 @@ export class QualityPage {
       row.append(el("span", {}, [dimension.label]), input);
       settings.append(row);
     }
+    const profileRow = el("label", { class: "quality-setting" });
+    const profileSelect = el("select", { "aria-label": "Fitness profile" }) as HTMLSelectElement;
+    for (const profile of FITNESS_PROFILES) {
+      profileSelect.append(el("option", { value: profile.id, ...(profile.id === readFitnessId() ? { selected: "selected" } : {}) }, [profile.label]));
+    }
+    const profileNote = el("span", { class: "qp-settings-note" }, [fitnessProfile(readFitnessId()).description]);
+    profileSelect.addEventListener("change", () => {
+      const profile = fitnessProfile(profileSelect.value);
+      saveFitnessId(profile.id);
+      for (const [dimension, input] of weightInputs) input.value = String(profile.weights[dimension]);
+      profileNote.textContent = profile.description;
+    });
+    profileRow.append(el("span", {}, ["Fitness profile"]), profileSelect, profileNote);
+    settings.append(profileRow);
     const bandRow = el("div", { class: "quality-setting" });
     const goodInput = el("input", {
       class: "chart-number",
@@ -466,149 +650,154 @@ export class QualityPage {
 
   // ---------- sensitive data ----------
 
-  private buildSensitive(
-    columns: readonly SensitiveColumn[],
-    scanned: boolean,
-  ): HTMLElement {
-    const section = el("div", { class: "qp-section" });
+  private buildSensitive(cards: readonly SensitiveCard[], scanned: boolean): HTMLElement {
+    const section = el("div", { class: "qp-section qp-sensitive" });
     section.append(
       el("h3", { class: "qp-section-title" }, [
-        "Sensitive data",
+        "Possibly sensitive columns",
         el("span", { class: "qp-section-hint" }, [
-          "advisory pattern matches (email, phone, card, IBAN, TFN, ABN, ACN, SSN-like) in up to 12 text columns — not part of the score",
+          "advisory only — these are not counted against your score",
         ]),
       ]),
     );
-    if (!scanned) {
+    const visible = cards.filter((card) => card.dismissed !== true);
+    const hidden = cards.filter((card) => card.dismissed === true);
+    if (!scanned && visible.length === 0) {
       section.append(
-        el("div", { class: "qp-sensitive-empty" }, [
-          "Scanning text columns for email, phone, card, IBAN and SSN-like patterns…",
-        ]),
+        el("div", { class: "qp-sensitive-empty" }, ["Scanning text columns for personal data…"]),
       );
       return section;
     }
-    if (columns.length === 0) {
+    if (visible.length === 0) {
       section.append(
         el("div", { class: "qp-sensitive-empty" }, [
-          "No obvious email, phone, card, IBAN or SSN-like patterns found.",
+          hidden.length > 0
+            ? "Nothing left to review."
+            : "No columns look like they hold personal or sensitive data.",
         ]),
       );
-      return section;
     }
-    const list = el("div", { class: "qp-sensitive-list" });
-    for (const column of columns) {
-      const card = el("div", { class: "qp-sensitive-card" });
-      const tags = el("div", { class: "qp-sensitive-tags" });
-      for (const count of column.counts) {
-        tags.append(
-          el("span", { class: "qp-sensitive-tag" }, [
-            `${count.label} ${formatCount(count.count)}`,
-          ]),
-        );
+    const groups: { confidence: SensitiveConfidence; title: string }[] = [
+      { confidence: "high", title: "Likely" },
+      { confidence: "medium", title: "Possible" },
+      { confidence: "low", title: "Weak signals" },
+    ];
+    for (const group of groups) {
+      const inGroup = visible.filter((card) => card.confidence === group.confidence);
+      if (inGroup.length === 0) continue;
+      const list = el("div", { class: "qp-sensitive-list" });
+      for (const card of inGroup) list.append(this.buildSensitiveCard(card));
+      if (group.confidence === "low") {
+        const details = el("details", { class: "qp-sensitive-weak" }, [
+          el("summary", {}, [`${group.title} (${inGroup.length}) — show`]),
+          list,
+        ]);
+        section.append(details);
+      } else {
+        section.append(el("h4", { class: "qp-sensitive-group" }, [group.title]), list);
       }
-      card.append(
-        el("div", { class: "qp-sensitive-name", title: column.name }, [column.name]),
-        tags,
-        el("div", { class: "qp-sensitive-meta" }, [
-          `${formatCount(column.rows)} non-empty values scanned`,
-        ]),
-      );
-      list.append(card);
     }
-    section.append(list);
+    if (hidden.length > 0) {
+      const restore = el("details", { class: "qp-sensitive-weak" }, [
+        el("summary", {}, [`${hidden.length} marked not sensitive — show`]),
+      ]);
+      for (const card of hidden) {
+        const row = el("div", { class: "qp-sensitive-hidden" }, [
+          el("span", {}, [card.name]),
+        ]);
+        const undo = el("button", { class: "ghost small", type: "button" }, ["Restore"]);
+        undo.addEventListener("click", () => this.callbacks.onSensitiveChange?.(card, { dismissed: false }));
+        row.append(undo);
+        restore.append(row);
+      }
+      section.append(restore);
+    }
     return section;
   }
 
-  // ---------- what to fix first ----------
-
-  private buildFixes(score: DQScore): HTMLElement {
-    const weightSum = score.dimensions.reduce(
-      (sum, dimension) =>
-        sum + (dimension.score === null || dimension.weight <= 0 ? 0 : dimension.weight),
-      0,
-    );
-    const fixes: {
-      check: ScoreCheck;
-      dimension: ScoreDimension;
-      label: string;
-      band: string;
-      gain: number;
-    }[] = [];
-    for (const dimension of score.dimensions) {
-      for (const check of dimension.checks) {
-        const applicable = check.pass + check.fail;
-        if (check.fail === 0 || applicable === 0 || dimension.weight <= 0) continue;
-        const gain = (check.fail / applicable) * (dimension.weight / Math.max(1, weightSum)) * 100;
-        fixes.push({
-          check,
-          dimension: dimension.dimension,
-          label: dimension.label,
-          band: bandClass(dimension.score),
-          gain,
-        });
-      }
-    }
-    fixes.sort((a, b) => b.gain - a.gain);
-
-    const section = el("div", { class: "qp-section" });
-    section.append(
-      el("h3", { class: "qp-section-title" }, [
-        "What to fix first",
-        el("span", { class: "qp-section-hint" }, [
-          `ranked by points gained on the overall score · ${this.scopeLabel}`,
-        ]),
+  private buildSensitiveCard(card: SensitiveCard): HTMLElement {
+    const root = el("div", { class: "qp-sensitive-card" });
+    root.append(
+      el("div", { class: "qp-sensitive-name", title: card.name }, [card.name]),
+      el("div", { class: "qp-sensitive-tags" }, [
+        el("span", { class: "qp-sensitive-tag" }, [CLASS_NAMES[card.class]]),
+        card.confirmed === true
+          ? el("span", { class: "qp-sensitive-tag confirmed" }, ["Marked sensitive"])
+          : "",
       ]),
     );
-    if (fixes.length === 0) {
-      section.append(
-        el("div", { class: "clean-empty" }, ["Nothing to fix — every check passes."]),
-      );
-      return section;
-    }
-    const list = el("div", { class: "qp-fixes" });
-    for (const fix of fixes.slice(0, 5)) {
-      const row = el("div", {
-        class: "qp-fix qp-fix-clickable",
-        role: "button",
-        tabindex: "0",
-        title: "Open the affected rows or column",
+    const why = el("ul", { class: "qp-sensitive-why" });
+    for (const reason of card.reasons) why.append(el("li", {}, [reason.label]));
+    root.append(why);
+
+    if (card.examples.length > 0) {
+      const examples = el("div", { class: "qp-sensitive-examples", "aria-label": "Masked examples" });
+      card.examples.forEach((masked, index) => {
+        const chip = el("button", {
+          class: "qp-sensitive-example",
+          type: "button",
+          title: "Click to reveal this value",
+        }, [masked]) as HTMLButtonElement;
+        let shown = false;
+        chip.addEventListener("click", () => {
+          shown = !shown;
+          chip.textContent = shown ? (card.revealed[index] ?? masked) : masked;
+          chip.title = shown ? "Click to hide this value" : "Click to reveal this value";
+        });
+        examples.append(chip);
       });
-      const run = (): void => this.runCheck(fix.check);
-      row.addEventListener("click", run);
-      row.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          run();
-        }
-      });
-      const action = el("button", { class: "ghost small", type: "button" }, [
-        chipText(fix.check.convertTo === undefined ? "filter" : "fix", fix.check.fixLabel ?? "Show failing"),
-      ]) as HTMLButtonElement;
-      action.addEventListener("click", (event) => {
-        event.stopPropagation();
-        run();
-      });
-      row.append(
-        el("span", { class: "qp-fix-gain" }, [`+${fix.gain.toFixed(1)} pts`]),
-        el("span", { class: `qp-chip band-${fix.band}` }, [fix.label]),
-        el("div", { class: "qp-fix-body" }, [
-          el("div", { class: "qp-fix-label" }, [fix.check.label]),
-          el("div", { class: "qp-fix-detail" }, [fix.check.detail]),
-        ]),
-        el("span", { class: "qp-fix-fail" }, [`${formatCount(fix.check.fail)} failing`]),
-        action,
-      );
-      list.append(row);
+      root.append(examples);
     }
-    if (fixes.length > 5) {
-      list.append(
-        el("div", { class: "qp-fix-more" }, [
-          `…and ${fixes.length - 5} more in the checks list below.`,
-        ]),
-      );
+
+    const sampledAll = card.sampled >= card.scanned;
+    root.append(
+      el("div", { class: "qp-sensitive-meta" }, [
+        sampledAll
+          ? `${formatCount(card.scanned)} values scanned`
+          : `${formatCount(card.sampled)} of ${formatCount(card.scanned)} values scanned`,
+      ]),
+    );
+    if (!sampledAll && this.callbacks.onScanExact !== undefined) {
+      const scan = el("button", { class: "ghost small", type: "button" }, ["Scan all values"]);
+      scan.addEventListener("click", () => {
+        scan.setAttribute("disabled", "");
+        scan.textContent = "Scanning…";
+        this.callbacks.onScanExact?.(card.column);
+      });
+      root.append(scan);
     }
-    section.append(list);
-    return section;
+
+    const label = el("select", {
+      class: "chart-select qp-sensitive-label",
+      "aria-label": `Handling label for ${card.name}`,
+    }) as HTMLSelectElement;
+    for (const value of ["public", "internal", "confidential", "restricted"] as const) {
+      label.append(el("option", { value }, [LABEL_NAMES[value]]) as HTMLOptionElement);
+    }
+    label.value = card.label;
+    label.addEventListener("change", () =>
+      this.callbacks.onSensitiveChange?.(card, { label: label.value as SensitiveLabel }),
+    );
+    const actions = el("div", { class: "qp-sensitive-actions" });
+    const notSensitive = el("button", { class: "ghost small", type: "button" }, ["Not sensitive"]);
+    notSensitive.addEventListener("click", () =>
+      this.callbacks.onSensitiveChange?.(card, { dismissed: true, confirmed: false }),
+    );
+    const mark = el("button", { class: "ghost small", type: "button" }, [
+      card.confirmed === true ? "Unmark" : "Mark sensitive",
+    ]);
+    mark.addEventListener("click", () =>
+      this.callbacks.onSensitiveChange?.(card, { confirmed: card.confirmed !== true }),
+    );
+    actions.append(label, notSensitive, mark);
+    if (this.callbacks.onProtect !== undefined) {
+      const protect = el("button", { class: "ghost small", type: "button" }, ["Protect ▾"]) as HTMLButtonElement;
+      protect.title = "Mask or hash the values, or drop the column";
+      protect.addEventListener("click", () => this.callbacks.onProtect?.(card, protect));
+      actions.append(protect);
+    }
+    root.append(actions);
+    return root;
   }
 
   // ---------- checks ----------
@@ -683,6 +872,11 @@ export class QualityPage {
               ]) as HTMLButtonElement;
               button.addEventListener("click", () => this.runCheck(check));
               cell.append(button);
+            }
+            if (check.suggested === true && this.callbacks.onDisableSuggestion !== undefined) {
+              const off = el("button", { class: "ghost small", type: "button", title: "Suggested from the column names. Turn it off." }, ["Turn off"]);
+              off.addEventListener("click", () => this.callbacks.onDisableSuggestion?.(check.id));
+              cell.append(off);
             }
             return cell;
           })(),

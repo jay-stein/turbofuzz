@@ -1,9 +1,11 @@
+import type { HeaderLayout } from "../parse/header-detect.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { ChartExclusion } from "../data/chart-exclusions.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { TimeGrain, ViewDef } from "../data/aggregate.js";
 import type { PivotDef } from "../data/pivot.js";
 import type { PairOperator } from "../data/pair-checks.js";
+import type { Rule } from "../data/rules.js";
 import type { ChartBinOptions } from "../data/chart-bins.js";
 import type { SeriesMode } from "../data/chart-series.js";
 import type { ColumnFilter } from "../search/query-engine.js";
@@ -29,7 +31,10 @@ import type {
   DistributionChangesMessage,
   GridCountsMessage,
   KeyDuplicatesMessage,
+  KeyDuplicateCountMessage,
   PairCheckMessage,
+  PairCountMessage,
+  RulesEvaluatedMessage,
   PivotMessage,
   SimilarClustersMessage,
   ExportOptions,
@@ -54,6 +59,10 @@ import type {
   SpecialKind,
   StatsMessage,
   TextProfileMessage,
+  SensitiveColumnMessage,
+  RowsAffectedMessage,
+  ExceptionsMessage,
+  SensitiveDoneMessage,
   TransformedMessage,
   TransformPreviewMessage,
   WorkerRequest,
@@ -81,6 +90,8 @@ export interface LoadOptions {
   maxRows?: number;
   /** Open the table first and finalize metrics separately. */
   deferStats?: boolean;
+  /** User-chosen header layout replacing automatic detection. */
+  headerLayout?: HeaderLayout;
 }
 
 /** The user cancelled an in-flight load; the dataset is unchanged. */
@@ -331,8 +342,20 @@ export class SearchWorkerClient {
     return this.request<DependenciesMessage>({ type: "getDependencies", respectFilters });
   }
 
+  countKeyDuplicates(columns: number[]): Promise<KeyDuplicateCountMessage> {
+    return this.request<KeyDuplicateCountMessage>({ type: "countKeyDuplicates", columns });
+  }
+
   checkKeyDuplicates(columns: number[]): Promise<KeyDuplicatesMessage> {
     return this.request<KeyDuplicatesMessage>({ type: "checkKeyDuplicates", columns });
+  }
+
+  evaluateRules(rules: Rule[]): Promise<RulesEvaluatedMessage> {
+    return this.request<RulesEvaluatedMessage>({ type: "evaluateRules", rules });
+  }
+
+  countPair(columnA: number, columnB: number, operator: PairOperator): Promise<PairCountMessage> {
+    return this.request<PairCountMessage>({ type: "countPair", columnA, columnB, operator });
   }
 
   checkPair(input: {
@@ -350,6 +373,49 @@ export class SearchWorkerClient {
 
   getColumnNetwork(respectFilters = true): Promise<ColumnNetworkMessage> {
     return this.request<ColumnNetworkMessage>({ type: "getColumnNetwork", respectFilters });
+  }
+
+  /**
+   * Scans text-like columns for sensitive content in one cancellable worker pass.
+   * `onColumn` fires per column as results arrive; `done` settles when the pass
+   * ends (or is cancelled). Call `cancel()` when the data changes.
+   */
+  scanSensitive(
+    options: { columns?: number[]; exact?: boolean },
+    onColumn: (message: SensitiveColumnMessage) => void,
+  ): { done: Promise<SensitiveDoneMessage>; cancel: () => void } {
+    const requestId = this.nextId++;
+    this.streams.set(requestId, (message) => onColumn(message as SensitiveColumnMessage));
+    const done = new Promise<SensitiveDoneMessage>((resolve, reject) => {
+      this.pending.set(requestId, {
+        resolve: (value) => {
+          this.streams.delete(requestId);
+          resolve(value as SensitiveDoneMessage);
+        },
+        reject: (error) => {
+          this.streams.delete(requestId);
+          reject(error);
+        },
+      });
+    });
+    this.worker.postMessage({ type: "scanSensitive", requestId, ...options } as WorkerRequest);
+    return {
+      done,
+      cancel: () => this.worker.postMessage({ type: "cancelScan", scanId: requestId } as WorkerRequest),
+    };
+  }
+
+  getExceptions(
+    maskColumns: number[],
+    includeRaw: boolean,
+    optional: number[],
+    checkId: string | null,
+  ): Promise<ExceptionsMessage> {
+    return this.request<ExceptionsMessage>({ type: "getExceptions", maskColumns, includeRaw, optional, checkId });
+  }
+
+  getRowsAffected(): Promise<RowsAffectedMessage> {
+    return this.request<RowsAffectedMessage>({ type: "getRowsAffected" });
   }
 
   getTextProfile(
@@ -467,7 +533,14 @@ export class SearchWorkerClient {
     });
   }
 
+  /** Streamed per-column results, keyed by the request that asked for them. */
+  private streams = new Map<number, (message: WorkerResponse) => void>();
+
   private handle(message: WorkerResponse): void {
+    if (message.type === "sensitiveColumn") {
+      this.streams.get(message.requestId)?.(message);
+      return;
+    }
     if (message.type === "progress") {
       // Drop progress from an earlier load so a cancelled import cannot keep
       // painting the panel after the next one started.

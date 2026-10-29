@@ -1,4 +1,4 @@
-import type { CastOptions, CastPolicy, CastTarget } from "../data/cast-ops.js";
+import { CAST_LOSS_CONFIRM_SHARE, type CastOptions, type CastPolicy, type CastTarget } from "../data/cast-ops.js";
 import type { CleanOp } from "../data/clean-ops.js";
 import { castCompatibility } from "../data/type-lattice.js";
 import { TYPE_LABELS, type ColumnType } from "../types.js";
@@ -175,7 +175,11 @@ export function openBatchCastDialog(
       "Select one or more columns.",
     ]);
     const examples = el("div", { class: "batch-cast-examples" });
-    body.append(summary, examples);
+    const lossBox = el("input", { type: "checkbox" }) as HTMLInputElement;
+    const lossText = el("span", {});
+    const lossConfirm = el("label", { class: "cast-loss-confirm hidden" }, [lossBox, lossText]);
+    lossBox.addEventListener("change", () => schedulePreview());
+    body.append(summary, examples, lossConfirm);
 
     const footer = el("div", { class: "clean-footer" });
     const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
@@ -232,6 +236,8 @@ export function openBatchCastDialog(
         let changed = 0;
         let failed = 0;
         let rejected = false;
+        const digitColumns: string[] = [];
+        const lossyColumns: string[] = [];
         const failedExamples: string[] = [];
         for (const counts of result.columns) {
           const row = rows.get(counts.column);
@@ -241,15 +247,31 @@ export function openBatchCastDialog(
             row.failures.textContent = counts.failed > 0 ? counts.failed.toLocaleString() : "";
             row.failures.title = counts.examples?.join(", ") ?? "";
           }
+          const name = rows.get(counts.column)?.input.name ?? `column ${counts.column + 1}`;
+          if ((counts.digitLoss ?? 0) > 0) digitColumns.push(name);
+          if (
+            policySelect.value === "coerce" &&
+            counts.failed / Math.max(1, counts.nonEmpty ?? counts.total) > CAST_LOSS_CONFIRM_SHARE
+          ) {
+            lossyColumns.push(name);
+          }
           if (counts.failed > 0) {
             rejected = policySelect.value === "reject";
             if (counts.examples !== undefined) failedExamples.push(...counts.examples);
           }
         }
-        latestFailures = rejected;
-        apply.disabled = rejected;
+        // Digits would change: refused. Many values would blank: the box must be ticked.
+        const refusedDigits = digitColumns.length > 0;
+        const needsLossConfirm = !refusedDigits && lossyColumns.length > 0;
+        lossConfirm.classList.toggle("hidden", !needsLossConfirm);
+        if (!needsLossConfirm) lossBox.checked = false;
+        lossText.textContent = ` More than 1% of the values in ${lossyColumns.slice(0, 3).join(", ")} don't parse and will become blank. Tick to confirm.`;
+        latestFailures = rejected || refusedDigits || (needsLossConfirm && !lossBox.checked);
+        apply.disabled = latestFailures;
         apply.textContent = `Convert ${request.count} column${request.count === 1 ? "" : "s"}`;
-        summary.textContent = rejected
+        summary.textContent = refusedDigits
+          ? `Refused: ${digitColumns.slice(0, 3).join(", ")} hold values with leading zeros or too many digits that a number would change. Keep them as text.`
+          : rejected
           ? `Rejected: ${failed.toLocaleString()} values do not parse under this policy.`
           : `${changed.toLocaleString()} cells across ${request.count} column${
               request.count === 1 ? "" : "s"

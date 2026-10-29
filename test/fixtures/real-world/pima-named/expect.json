@@ -1,0 +1,45 @@
+{
+  "hasHeaders": true,
+  "rows": 276,
+  "columns": 9,
+  "band": {
+    "min": 95,
+    "max": 100
+  },
+  "types": {},
+  "must_flag": [
+    {
+      "kind": "sentinel",
+      "column": "BloodPressure",
+      "value": "0",
+      "min": 8
+    },
+    {
+      "kind": "sentinel",
+      "column": "SkinThickness",
+      "value": "0",
+      "min": 81
+    },
+    {
+      "kind": "sentinel",
+      "column": "Insulin",
+      "value": "0",
+      "min": 134
+    }
+  ],
+  "must_not_flag": [
+    {
+      "kind": "convert",
+      "column": "*"
+    },
+    {
+      "kind": "variants",
+      "column": "*"
+    },
+    {
+      "kind": "sensitive",
+      "column": "*",
+      "confidence": "high"
+    }
+  ]
+}

@@ -59,7 +59,7 @@ test("keeps a single header for all-text tables", () => {
   assert.equal(detected.rows.length, 2);
 });
 
-test("falls back to the first non-empty row when nothing looks like a header", () => {
+test("an all-numeric table is header-less and keeps its first record", () => {
   const grid = [
     ["1", "2"],
     ["3", "4"],
@@ -68,8 +68,23 @@ test("falls back to the first non-empty row when nothing looks like a header", (
 
   const detected = detectTable(grid);
   assert.equal(detected.skipRows, 0);
+  assert.equal(detected.headerRows, 0);
+  assert.deepEqual(detected.headers, ["Column 1", "Column 2"]);
+  assert.equal(detected.rows.length, 3);
+  assert.deepEqual(detected.rows[0], ["1", "2"]);
+});
+
+test("falls back to the first non-empty row when nothing looks like a header", () => {
+  const grid = [
+    ["red", "blue"],
+    ["red", "green"],
+    ["blue", "green"],
+  ];
+
+  const detected = detectTable(grid);
+  assert.equal(detected.skipRows, 0);
   assert.equal(detected.headerRows, 1);
-  assert.deepEqual(detected.headers, ["1", "2"]);
+  assert.deepEqual(detected.headers, ["red", "blue"]);
 });
 
 test("de-duplicates values repeated across header levels", () => {
@@ -105,4 +120,29 @@ test("keeps a trailing blank-header column that data populates", () => {
   const detected = detectTable(grid);
   assert.deepEqual(detected.headers, ["id", "name", "legacy", ""]);
   assert.equal(detected.rows[0].length, 4);
+});
+
+test("a user layout overrides the automatic guess", () => {
+  const grid = [
+    ["Quarterly report", "", ""],
+    ["Prepared by finance", "", ""],
+    ["Region", "Sales", "Units"],
+    ["North", "10", "2"],
+    ["South", "20", "3"],
+  ];
+  const auto = detectTable(grid);
+  assert.deepEqual(auto.headers, ["Region", "Sales", "Units"]);
+
+  const manual = detectTable(grid, { skipRows: 1, headerRows: 2 });
+  assert.equal(manual.skipRows, 1);
+  assert.equal(manual.headerRows, 2);
+  assert.equal(manual.rows.length, 2);
+  assert.equal(manual.headers.length, 3);
+
+  const none = detectTable(grid, { skipRows: 3, headerRows: 0 });
+  assert.deepEqual(none.headers, ["Column 1", "Column 2", "Column 3"]);
+  assert.equal(none.rows.length, 2);
+
+  const clamped = detectTable(grid, { skipRows: 99, headerRows: 1 });
+  assert.equal(clamped.rows.length, 0);
 });

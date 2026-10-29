@@ -301,3 +301,46 @@ test("multi-file loads expose per-file metadata and proportional sampling", asyn
   assert.equal(result.dataset.valueColumnBits[provenance], null);
   assert.equal(result.dataset.patternProfiles[provenance], null);
 });
+test("a header layout picks the header row of a delimited file", () => {
+  const text = ["Report", "generated 2021", "id,name", "1,Ann", "2,Bo"].join("\n");
+  const result = ingestDataset({
+    name: "r.csv",
+    delimiter: "auto",
+    hasHeaders: true,
+    text,
+    headerLayout: { skipRows: 2, headerRows: 1 },
+  });
+  assert.deepEqual(
+    result.dataset.columns.map((column) => column.name),
+    ["id", "name"],
+  );
+  assert.equal(result.dataset.rowCount, 2);
+
+  const headerless = ingestDataset({
+    name: "r.csv",
+    delimiter: "auto",
+    hasHeaders: true,
+    text,
+    headerLayout: { skipRows: 3, headerRows: 0 },
+  });
+  assert.equal(headerless.dataset.rowCount, 2);
+  assert.equal(headerless.dataset.columns[0].name, "Column 1");
+});
+
+test("one header layout applies to every appended file", async () => {
+  const jan = ["Monthly export", "id,value", "1,10", "2,20"].join("\n");
+  const feb = ["Monthly export", "id,value", "3,30"].join("\n");
+  const result = await ingestFilesAsync(
+    [
+      { name: "jan.csv", text: jan },
+      { name: "feb.csv", text: feb },
+    ],
+    { name: "2 files", delimiter: "auto", hasHeaders: true, headerLayout: { skipRows: 1, headerRows: 1 } },
+  );
+  assert.ok(result !== null);
+  assert.deepEqual(
+    result.dataset.columns.map((column) => column.name),
+    ["id", "value", "_input_filename"],
+  );
+  assert.equal(result.dataset.rowCount, 3);
+});

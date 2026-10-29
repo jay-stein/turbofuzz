@@ -1,6 +1,8 @@
 export type DateOrder = "dmy" | "mdy";
 
 const DMY_OR_MDY = /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/;
+// Same, followed by a clock time: 4/27/2021 11:02:10, 27.04.2021 09:05.
+const DMY_OR_MDY_TIME = /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})[ T]+(\d.*)$/;
 const ISO = /^(\d{4})-(\d{1,2})-(\d{1,2})/;
 const YMD = /^(\d{4})[/.](\d{1,2})[/.](\d{1,2})$/;
 const ISO_DATETIME =
@@ -54,7 +56,8 @@ const WEEKDAY_NAMES = new Set([
 ]);
 
 const WEEKDAY_PREFIX = /^([A-Za-z]{3,9})\.?,?\s+/;
-const WEEKDAY_FIRST = /^(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?,?\s+(\d{2,4})(?:\s+(.+))?$/i;
+// Also accepts a hyphen between parts: 18-Jun-1996, 3-Mar-96.
+const WEEKDAY_FIRST = /^(\d{1,2})(?:st|nd|rd|th)?(?:\s+|-)([A-Za-z]{3,9})\.?,?(?:\s+|-)(\d{2,4})(?:\s+(.+))?$/i;
 const MONTH_FIRST = /^([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{2,4})(?:\s+(.+))?$/i;
 const TRAILING_TIME =
   /^(\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\s*(?:([ap])\.?m\.?)?\s*(?:(z|utc|gmt)|([+-])(\d{1,2}):?(\d{2})?)?$/i;
@@ -101,6 +104,44 @@ export interface DateValue {
   hasOffset: boolean;
 }
 
+interface Clock {
+  hour: number;
+  minute: number;
+  second: number;
+  millisecond: number;
+  offsetMinutes: number;
+  hasOffset: boolean;
+}
+
+const ZERO_CLOCK: Clock = { hour: 0, minute: 0, second: 0, millisecond: 0, offsetMinutes: 0, hasOffset: false };
+
+/** Parses the time part after a date: 9:05, 11:02:10, 3:04 PM, with optional zone. */
+function parseTrailingTime(trailing: string): Clock | null {
+  const time = trailing.match(TRAILING_TIME);
+  if (time === null) return null;
+  let hour = Number(time[1]);
+  const minute = Number(time[2]);
+  const second = time[3] === undefined ? 0 : Number(time[3]);
+  const millisecond = time[4] === undefined ? 0 : Number(time[4].padEnd(3, "0"));
+  const meridiem = time[5] === undefined ? null : time[5].toLowerCase();
+  if (meridiem !== null) {
+    if (hour < 1 || hour > 12) return null;
+    if (meridiem === "p" && hour !== 12) hour += 12;
+    if (meridiem === "a" && hour === 12) hour = 0;
+  }
+  if (hour > 23 || minute > 59 || second > 59) return null;
+  let offsetMinutes = 0;
+  let hasOffset = false;
+  if (time[7] !== undefined) {
+    const hours = Number(time[8]);
+    const minutes = time[9] === undefined ? 0 : Number(time[9]);
+    if (hours > 14 || minutes > 59) return null;
+    offsetMinutes = (time[7] === "-" ? -1 : 1) * (hours * 60 + minutes);
+    hasOffset = true;
+  }
+  return { hour, minute, second, millisecond, offsetMinutes, hasOffset };
+}
+
 /** Parses `D Mon YYYY` / `Mon D, YYYY`, optionally weekday-prefixed and timed. */
 function parseMonthNameValue(raw: string): DateValue | null {
   let s = raw.trim().replace(/\s+/g, " ");
@@ -136,34 +177,13 @@ function parseMonthNameValue(raw: string): DateValue | null {
   let year = Number(yearText);
   if (yearText.length < 3) year += year >= 70 ? 1900 : 2000;
 
-  let hour = 0;
-  let minute = 0;
-  let second = 0;
-  let millisecond = 0;
-  let offsetMinutes = 0;
-  let hasOffset = false;
+  let clock: Clock = ZERO_CLOCK;
   if (trailing !== undefined) {
-    const time = trailing.match(TRAILING_TIME);
-    if (time === null) return null;
-    hour = Number(time[1]);
-    minute = Number(time[2]);
-    second = time[3] === undefined ? 0 : Number(time[3]);
-    millisecond = time[4] === undefined ? 0 : Number(time[4].padEnd(3, "0"));
-    const meridiem = time[5] === undefined ? null : time[5].toLowerCase();
-    if (meridiem !== null) {
-      if (hour < 1 || hour > 12) return null;
-      if (meridiem === "p" && hour !== 12) hour += 12;
-      if (meridiem === "a" && hour === 12) hour = 0;
-    }
-    if (hour > 23 || minute > 59 || second > 59) return null;
-    if (time[7] !== undefined) {
-      const hours = Number(time[8]);
-      const minutes = time[9] === undefined ? 0 : Number(time[9]);
-      if (hours > 14 || minutes > 59) return null;
-      offsetMinutes = (time[7] === "-" ? -1 : 1) * (hours * 60 + minutes);
-      hasOffset = true;
-    }
+    const parsed = parseTrailingTime(trailing);
+    if (parsed === null) return null;
+    clock = parsed;
   }
+  const { hour, minute, second, millisecond, offsetMinutes, hasOffset } = clock;
 
   const base = strictUtcMs(year, month, day, hour, minute, second, millisecond);
   if (base === null) return null;
@@ -183,7 +203,7 @@ export function detectDateOrder(values: readonly string[]): DateOrder {
   let dmy = 0;
   let mdy = 0;
   for (const value of values) {
-    const m = value.trim().match(DMY_OR_MDY);
+    const m = value.trim().match(DMY_OR_MDY) ?? value.trim().match(DMY_OR_MDY_TIME);
     if (m === null) continue;
     const a = Number(m[1]);
     const b = Number(m[2]);
@@ -252,6 +272,21 @@ export function classifyDateValue(raw: string, order: DateOrder = "dmy"): DateVa
     const month = order === "dmy" ? b : a;
     const ms = strictUtcMs(year, month, day);
     return ms === null ? null : { ms, hasTime: false, hasOffset: false };
+  }
+
+  m = s.match(DMY_OR_MDY_TIME);
+  if (m !== null) {
+    const clock = parseTrailingTime(m[4]);
+    if (clock === null) return null;
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    let year = Number(m[3]);
+    if (year < 100) year += year >= 70 ? 1900 : 2000;
+    const day = order === "dmy" ? a : b;
+    const month = order === "dmy" ? b : a;
+    const base = strictUtcMs(year, month, day, clock.hour, clock.minute, clock.second, clock.millisecond);
+    if (base === null) return null;
+    return { ms: base - clock.offsetMinutes * 60_000, hasTime: true, hasOffset: clock.hasOffset };
   }
 
   return parseMonthNameValue(s);

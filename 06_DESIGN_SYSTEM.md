@@ -60,3 +60,17 @@
 ## Visual change policy
 
 A visual polish change should not silently change data semantics, action placement, keyboard behaviour, responsive layout or workflow steps. If it does, treat it as a functional UX change and test accordingly.
+
+## Data Quality page tokens (2026-10-29)
+
+Defined in `src/styles.css`, each with a dark-theme value. Use these, not literal colours.
+
+| Token | Use |
+|---|---|
+| `--sev-fix` | Severity stripe and count for "needs fixing" (red, `--danger`) |
+| `--sev-review` | Stripe for "worth reviewing" (amber, `--qa-warn`) |
+| `--sev-info` | Stripe for information (grey, `--border`) |
+| `--sens`, `--sens-soft`, `--sens-border`, `--sens-text` | Possibly-sensitive columns only. Purple is used for nothing else |
+| `--ok-text`, `--qa-warn-text` | Text colours for good and fair labels on a tinted background (the plain `--ok` and `--qa-warn` fail AA contrast there) |
+
+Rules: one solid (primary) button per region, and only one in the Issues list; counts use tabular numerals; values are shown in a monospace face; no text below 11px. The axe test in `test/e2e/a11y.spec.ts` checks contrast on every Quality tab in both themes.

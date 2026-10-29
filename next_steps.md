@@ -654,3 +654,20 @@ corner. Density cards gained a **Style** control — Heat (exact), Contours
 iso-lines) and Heat + lines — all computed on the main thread from the
 existing grid payload (`src/data/kde.ts`).
 
+
+## TODO (logged 2026-10-29)
+
+- **Time-series chart review (TODO, owner-flagged).** Time-series charts are not
+  hitting the mark. Do a proper review against
+  `charting_aggregation_ux_spec.md` section 6 (temporal aggregation): time
+  grains (day/week/month/quarter/year), automatic grain choice, calendar
+  options, irregular series and missing periods, time-zone and DST behaviour.
+  The owner cannot see the time-series aggregation that was discussed, so first
+  establish what is and is not wired into the chart builder, then fix the gaps
+  and review the visual design (axes, gaps, tooltips, trend overlay).
+- **Filter any chart on an unrelated column (TODO).** A chart should accept its
+  own row filter on a column that is not plotted. Example: points scored per
+  month by team, restricted to include MJ and Shaq and exclude LeBron. Needs an
+  include/exclude value picker per chart card (chart-local, not the table
+  filter), applied in the worker before aggregation, saved in the chart spec and
+  recipe, and shown on the card so the chart says what it excludes.

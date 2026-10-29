@@ -1,0 +1,40 @@
+{
+  "hasHeaders": true,
+  "rows": 298,
+  "columns": 18,
+  "band": {
+    "min": 90,
+    "max": 100
+  },
+  "types": {
+    "Timestamp": "datetime"
+  },
+  "must_flag": [
+    {
+      "kind": "variants",
+      "column": "Job title",
+      "min": 3
+    },
+    {
+      "kind": "variants",
+      "column": "What country do you work in?",
+      "min": 3
+    },
+    {
+      "kind": "variants",
+      "column": "What city do you work in?",
+      "min": 3
+    }
+  ],
+  "must_not_flag": [
+    {
+      "kind": "validity",
+      "column": "How old are you?"
+    },
+    {
+      "kind": "sensitive",
+      "column": "*",
+      "confidence": "high"
+    }
+  ]
+}

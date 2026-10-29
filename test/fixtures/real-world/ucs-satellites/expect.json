@@ -1,0 +1,34 @@
+{
+  "hasHeaders": true,
+  "rows": 287,
+  "columns": 37,
+  "band": {
+    "min": 85,
+    "max": 100
+  },
+  "types": {},
+  "must_flag": [
+    {
+      "kind": "validity",
+      "column": "Dry Mass (kg.)",
+      "min": 1
+    },
+    {
+      "kind": "validity",
+      "column": "Power (watts)",
+      "min": 2
+    },
+    {
+      "kind": "variants",
+      "column": "Source Used for Orbital Data",
+      "min": 3
+    }
+  ],
+  "must_not_flag": [
+    {
+      "kind": "sensitive",
+      "column": "*",
+      "confidence": "high"
+    }
+  ]
+}

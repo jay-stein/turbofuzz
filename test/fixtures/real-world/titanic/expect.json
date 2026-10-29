@@ -1,0 +1,39 @@
+{
+  "hasHeaders": true,
+  "rows": 245,
+  "columns": 12,
+  "band": {
+    "min": 90,
+    "max": 100
+  },
+  "types": {
+    "Pclass": "category"
+  },
+  "must_flag": [],
+  "must_not_flag": [
+    {
+      "kind": "convert",
+      "column": "Ticket"
+    },
+    {
+      "kind": "sentinel",
+      "column": "Fare"
+    },
+    {
+      "kind": "sensitive",
+      "column": "*",
+      "confidence": "high"
+    },
+    {
+      "kind": "sensitive",
+      "column": "Ticket"
+    }
+  ],
+  "known_gaps": [
+    {
+      "kind": "validity",
+      "column": "Cabin",
+      "why": "multi-cabin values like 'C23 C25' read as off-format (plan G8)"
+    }
+  ]
+}

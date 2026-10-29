@@ -1,4 +1,6 @@
 import { test, expect } from "@playwright/test";
+import { gzipSync } from "node:zlib";
+import { zipSync, strToU8 } from "fflate";
 
 function collectErrors(page: import("@playwright/test").Page): {
   consoleErrors: string[];
@@ -217,6 +219,137 @@ test("chart builder adds a barplot and exposes its summary", async ({ page }) =>
   await expect(page.locator(".chart-card")).toHaveCount(before + 1);
   await expect(page.locator(".chart-summary").last()).toContainText("Barplot");
   await expect(page.locator(".chart-note").last()).not.toContainText("could not");
+
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+test("the header row can be chosen by hand and reloads the table", async ({ page }) => {
+  const { consoleErrors, pageErrors } = collectErrors(page);
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "layout.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(["Quarterly report,", "Region,Sales", "North,10", "South,20", "East,30", ""].join("\n")),
+  });
+  await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("tab", { name: "Table" }).click();
+  await expect(page.locator(".th-label")).toHaveText(["Region", "Sales"]);
+
+  await page.getByRole("button", { name: "Set header row" }).click();
+  await expect(page.locator(".header-row-modal")).toBeVisible();
+  // Treat row 3 (North, 10) as the header instead of the guess.
+  await page.locator(".header-row-line").nth(2).click();
+  await expect(page.locator(".header-row-header")).toHaveCount(1);
+  await page.getByRole("button", { name: "Apply and reload" }).click();
+
+  await expect(page.locator(".header-row-modal")).toHaveCount(0);
+  await page.getByRole("tab", { name: "Table" }).click();
+  await expect(page.locator(".th-label")).toHaveText(["North", "10"]);
+  await expect(page.locator(".table-rows .tr")).toHaveCount(2);
+
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test("appended files share one header-row choice", async ({ page }) => {
+  const { consoleErrors, pageErrors } = collectErrors(page);
+  await page.goto("/");
+  const file = (name: string, rows: string[]) => ({
+    name,
+    mimeType: "text/csv",
+    buffer: Buffer.from(rows.join("\n")),
+  });
+  await page.locator('input[type="file"]').setInputFiles([
+    file("jan.csv", ["Monthly export,", "id,value", "1,10", "2,20", ""]),
+    file("feb.csv", ["Monthly export,", "id,value", "3,30", ""]),
+  ]);
+  await expect(page.locator(".multi-file-modal")).toBeVisible();
+  await page.locator(".multi-file-modal").getByRole("button", { name: "Header row…" }).click();
+  await expect(page.locator(".header-row-modal")).toContainText("every file");
+  await page.locator(".header-row-line").nth(1).click();
+  await page.getByRole("button", { name: "Apply and reload" }).click();
+
+  await expect(page.locator(".multi-file-modal")).toBeVisible();
+  await page.locator(".multi-file-modal .primary").click();
+  await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("tab", { name: "Table" }).click();
+  await expect(page.locator(".th-label")).toHaveText(["id", "value", "_input_filename"]);
+  await expect(page.locator(".table-rows .tr")).toHaveCount(3);
+
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test("the header row can be chosen for a compressed file", async ({ page }) => {
+  const { consoleErrors, pageErrors } = collectErrors(page);
+  await page.goto("/");
+  const csv = ["Quarterly report,", "Region,Sales", "North,10", "South,20", "East,30", ""].join("\n");
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "report.csv.gz",
+    mimeType: "application/gzip",
+    buffer: gzipSync(Buffer.from(csv)),
+  });
+  await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("tab", { name: "Table" }).click();
+  await expect(page.locator(".th-label")).toHaveText(["Region", "Sales"]);
+
+  await page.getByRole("button", { name: "Set header row" }).click();
+  await page.locator(".header-row-line").nth(2).click();
+  await page.getByRole("button", { name: "Apply and reload" }).click();
+  await expect(page.locator(".header-row-modal")).toHaveCount(0);
+  await page.getByRole("tab", { name: "Table" }).click();
+  await expect(page.locator(".th-label")).toHaveText(["North", "10"]);
+
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test("a zip of files can be appended with one shared header-row choice", async ({ page }) => {
+  const { consoleErrors, pageErrors } = collectErrors(page);
+  await page.goto("/");
+  const nl = String.fromCharCode(10);
+  const zip = zipSync({
+    "jan.csv": strToU8(["Monthly export,", "id,value", "1,10", "2,20", ""].join(nl)),
+    "feb.csv": strToU8(["Monthly export,", "id,value", "3,30", ""].join(nl)),
+  });
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "months.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from(zip),
+  });
+  await page.getByRole("button", { name: /Import all 2 files/ }).click();
+  await expect(page.locator(".multi-file-modal")).toBeVisible();
+  await page.locator(".multi-file-modal").getByRole("button", { name: "Header row…" }).click();
+  await page.locator(".header-row-line").nth(1).click();
+  await page.getByRole("button", { name: "Apply and reload" }).click();
+  await page.locator(".multi-file-modal .primary").click();
+
+  await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("tab", { name: "Table" }).click();
+  await expect(page.locator(".th-label")).toHaveText(["id", "value", "_input_filename"]);
+  await expect(page.locator(".table-rows .tr")).toHaveCount(3);
+
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test("the Data Quality page lists probable hidden missing values as a review issue", async ({ page }) => {
+  const { consoleErrors, pageErrors } = collectErrors(page);
+  await page.goto("/");
+  const lines = ["Glucose,Insulin"];
+  for (let row = 0; row < 120; row++) lines.push(`${90 + (row % 40)},${row % 3 === 0 ? 0 : 80 + (row % 50)}`);
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "readings.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(lines.join(String.fromCharCode(10))),
+  });
+  await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("tab", { name: "Data Quality" }).click();
+  const card = page.locator(".issue-card").filter({ hasText: "Insulin" });
+  await expect(card).toContainText("may mean missing");
+  await expect(card).toContainText("may be a placeholder code");
+  await expect(page.locator(".tile-review")).toContainText("Worth reviewing");
+  await expect(card.getByRole("button", { name: "Treat as missing" })).toBeVisible();
 
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);

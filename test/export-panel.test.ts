@@ -199,3 +199,63 @@ test("export panel offers the Excel formula escape on by default", () => {
   (document.querySelector(".export-modal .primary") as unknown as { click(): void }).click();
   assert.deepEqual(saved, { escapeFormulas: false });
 });
+
+test("export panel shows one sensitive-data line, defaulting to Include with no extra click", () => {
+  setupDom();
+  let saved: string | undefined;
+  openExportPanel(
+    "customers.csv",
+    { nullAsBlank: true, escapeFormulas: false, scope: "all", limit: null },
+    { allRows: 100, filteredRows: 100, filtersActive: false },
+    {
+      onSave: (_name, settings) => {
+        saved = settings.sensitiveMode;
+      },
+      onClose: () => {},
+    },
+    ["email", "phone", "full_name"],
+  );
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const row = document.querySelector(".export-sensitive");
+  assert.match(
+    row?.textContent ?? "",
+    /This export includes 3 columns that may contain sensitive data: email, phone, full_name/,
+  );
+  const checked = document.querySelector(".export-sensitive input:checked") as unknown as { value: string };
+  assert.equal(checked.value, "include");
+  (document.querySelector(".export-modal .primary") as unknown as { click(): void }).click();
+  assert.equal(saved, "include", "saving with defaults needs no extra click");
+
+  openExportPanel(
+    "customers.csv",
+    { nullAsBlank: true, escapeFormulas: false, scope: "all", limit: null },
+    { allRows: 100, filteredRows: 100, filtersActive: false },
+    {
+      onSave: (_name, settings) => {
+        saved = settings.sensitiveMode;
+      },
+      onClose: () => {},
+    },
+    ["email"],
+  );
+  const mask = [...document.querySelectorAll(".export-sensitive input")].find(
+    (input) => (input as unknown as { value: string }).value === "mask",
+  ) as unknown as { checked: boolean; dispatchEvent(e: unknown): void };
+  mask.checked = true;
+  mask.dispatchEvent(new (globalThis as unknown as { window: Window }).window.Event("change"));
+  (document.querySelector(".export-modal .primary") as unknown as { click(): void }).click();
+  assert.equal(saved, "mask");
+});
+
+test("export panel has no sensitive line when nothing is flagged", () => {
+  setupDom();
+  openExportPanel(
+    "plain.csv",
+    { nullAsBlank: true, escapeFormulas: false, scope: "all", limit: null },
+    { allRows: 10, filteredRows: 10, filtersActive: false },
+    { onSave: () => {}, onClose: () => {} },
+  );
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const row = document.querySelector(".export-sensitive") as unknown as { classList: { contains(c: string): boolean } };
+  assert.equal(row.classList.contains("hidden"), true);
+});

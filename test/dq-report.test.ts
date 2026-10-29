@@ -109,3 +109,42 @@ test("emitters translate discovered checks and note what they cannot", () => {
   assert.match(support, /“email”: 20 empty cells/);
   assert.match(support, /“phone”: dominant format/);
 });
+
+test("the HTML report is self-contained, escapes text and hides values of flagged columns", async () => {
+  const { buildDQReport, dqReportHtml, supplierMessage } = await import("../src/data/dq-report.js");
+  const score = {
+    overall: 80,
+    band: "fair",
+    dimensions: [
+      {
+        dimension: "validity",
+        label: "Validity",
+        abbreviation: "Val",
+        score: 80,
+        weight: 1,
+        note: null,
+        checks: [
+          { id: "validity.range.2", dimension: "validity", label: "age in range", detail: "2 values outside (e.g. 4111111111111111)", pass: 8, fail: 2, na: 0, column: 2, filter: null, fixLabel: null },
+          { id: "validity.3", dimension: "validity", label: "city ok", detail: "1 odd (e.g. Syd)", pass: 9, fail: 1, na: 0, column: 3, filter: null, fixLabel: null },
+        ],
+      },
+    ],
+  } as unknown as Parameters<typeof buildDQReport>[0];
+  const report = buildDQReport(score, "<b>sales</b>.csv", 10, 4, "2026-10-29T00:00:00.000Z", {
+    sensitiveColumns: new Set([2]),
+    issues: [
+      { severity: "fix", title: "card has odd values", evidence: "4111111111111111", rows: 2, column: 2 },
+      { severity: "fix", title: "city has 2 spellings", evidence: "Syd, Sydney", rows: 3, column: 3 },
+    ],
+    trend: [{ at: 0, overall: 70 }],
+  });
+  const html = dqReportHtml(report);
+  assert.doesNotMatch(html, /4111111111111111/);
+  assert.match(html, /Syd, Sydney/);
+  assert.match(html, /&lt;b&gt;sales&lt;\/b&gt;/);
+  assert.doesNotMatch(html, /<script|<link|src=/);
+  assert.equal(report.scoreVersion, 3);
+  const message = supplierMessage(report);
+  assert.match(message, /city has 2 spellings \(3 rows\)/);
+  assert.match(message, /scored 80\.0 out of 100/);
+});

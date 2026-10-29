@@ -2,10 +2,23 @@ import { detectDateOrder, parseDate, parseDuration, parseTimeOfDay } from "../pa
 import { looksLikeFormula } from "./formula.js";
 import { stratifiedSample } from "../parse/infer.js";
 import { detectDecimalStyle, parseNumber, type NumberLocale } from "../parse/numbers.js";
+import {
+  NUMERIC_SENTINEL_VALUES,
+  placeholderDateLabel,
+  standsApartNumerically,
+} from "./hidden-missing.js";
 import { isNullWithPolicy, EMPTY_NULL_POLICY, type NullPolicy } from "../parse/null-tokens.js";
 
 export type ColumnSuggestion =
-  | { kind: "sentinel"; value: string; count: number; ratio: number; sampled: number }
+  | {
+      kind: "sentinel";
+      value: string;
+      count: number;
+      ratio: number;
+      sampled: number;
+      /** Why this value looks like a missing-value code, when it is not obvious. */
+      hint?: string;
+    }
   | { kind: "boolean"; truthy: string[]; falsy: string[] }
   | { kind: "number"; locale: NumberLocale; ratio: number; hasSymbol: boolean }
   | { kind: "date"; ratio: number; sampled: number }
@@ -34,7 +47,8 @@ const SYMBOL = /[$€£¥%]/;
 // null-token list, so they arrive as suggestions instead of silent nulls.
 const PLACEHOLDER_WORDS = new Set(["tbc"]);
 const ZERO_DATE = /^0{1,4}[/\-.]0{1,2}[/\-.]0{1,4}$/;
-const REPEATED_DIGITS = /^[+-]?(\d)\1{2,}$/;
+// Only runs of 9 (999, -9999) read as "unknown" codes; 111 or 555 are ordinary readings.
+const REPEATED_DIGITS = /^[+-]?9{3,}$/;
 
 /** Short button label for a suggestion chip. */
 export function suggestionLabel(suggestion: ColumnSuggestion): string {
@@ -90,7 +104,7 @@ export function suggestionShortLabel(suggestion: ColumnSuggestion): string {
 export function describeSuggestion(suggestion: ColumnSuggestion): string {
   switch (suggestion.kind) {
     case "sentinel":
-      return `“${suggestion.value}” appears in ${suggestion.count.toLocaleString()} of ${suggestion.sampled.toLocaleString()} sampled cells and may be a missing-value code. Click to treat it as empty.`;
+      return `“${suggestion.value}” appears in ${suggestion.count.toLocaleString()} of ${suggestion.sampled.toLocaleString()} cells and may be a missing-value code${suggestion.hint === undefined ? "" : ` (${suggestion.hint})`}. Click to treat it as empty.`;
     case "boolean":
       return `Mixed yes/no spellings (${[...suggestion.truthy, ...suggestion.falsy].join(", ")}). Click to normalise them to true/false.`;
     case "number":
@@ -122,6 +136,8 @@ export function detectSuggestions(
   type: string,
   policy: NullPolicy = EMPTY_NULL_POLICY,
   locale: NumberLocale = "dot",
+  /** Identifier-like columns (ids, phones, codes) never get a conversion offer. */
+  noConvert = false,
 ): ColumnSuggestion[] {
   const nonNull = stratifiedSample(raw, MAX_SAMPLE)
     .map((value) => value.trim())
@@ -137,7 +153,7 @@ export function detectSuggestions(
   // confirms, never silent nulls, and identifier columns are skipped because
   // digit strings are their normal content.
   if (type !== "identifier") {
-    const candidates: { value: string; count: number }[] = [];
+    const candidates: { value: string; count: number; hint?: string }[] = [];
     for (const [value, count] of counts) {
       if (count < SENTINEL_MIN_COUNT || count / nonNull.length < SENTINEL_MIN_RATIO) {
         continue;
@@ -149,6 +165,21 @@ export function detectSuggestions(
         REPEATED_DIGITS.test(lower)
       ) {
         candidates.push({ value, count });
+      } else if (NUMERIC_SENTINEL_VALUES.has(value)) {
+        const others: number[] = [];
+        for (const [other, otherCount] of counts) {
+          const parsed = parseNumber(other, locale);
+          if (other === value || !Number.isFinite(parsed)) continue;
+          for (let n = 0; n < otherCount && n < 50; n++) others.push(parsed);
+        }
+        if (standsApartNumerically(value, others)) {
+          candidates.push({ value, count, hint: "a code set apart from the real values" });
+        }
+      } else {
+        const dateLabel = placeholderDateLabel(value);
+        if (dateLabel !== null) {
+          candidates.push({ value, count, hint: `${dateLabel} is a common “no date” placeholder` });
+        }
       }
     }
     candidates.sort((a, b) => b.count - a.count);
@@ -159,6 +190,7 @@ export function detectSuggestions(
         count: candidate.count,
         ratio: candidate.count / nonNull.length,
         sampled: nonNull.length,
+        ...(candidate.hint === undefined ? {} : { hint: candidate.hint }),
       });
     }
   }
@@ -183,7 +215,7 @@ export function detectSuggestions(
   }
 
   // Formatted text: only nudge text-ish columns, never IDs or typed columns.
-  if (type === "string" || type === "category") {
+  if (!noConvert && (type === "string" || type === "category")) {
     let numeric = 0;
     let symbol = false;
     for (const value of nonNull) {

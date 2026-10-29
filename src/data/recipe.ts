@@ -516,6 +516,40 @@ function cleanLines(
         // Mirrors looksLikeFormula(): =, @, tab and CR always; a leading sign
         // only when the rest is not a plain number.
         return `${column} = ${column}.map(lambda v: ("'" + v) if isinstance(v, str) and v != "" and (v[0] in "=@\\t\\r" or (v[0] in "+-" and v[1:] != "" and not re.fullmatch(r"[0-9.,\\s]+", v[1:]))) else v)`;
+      case "recode":
+        return [
+          `_tf_recode = {${op.pairs.map(([from, to]) => `${py(from)}: ${py(to)}`).join(", ")}}`,
+          `${column} = ${column}.map(lambda v: _tf_recode.get(v.strip(), v) if isinstance(v, str) else v)`,
+        ].join("\n");
+      case "mask":
+        entries[entries.length - 1] = {
+          ...entries[entries.length - 1],
+          status: "manual_step_required",
+          note: "TurboFuzz also leaves missing-value markers (N/A, null) unmasked; the generated function only skips blanks",
+        };
+        return [
+          "def _tf_mask(v, first, last):",
+          "    if not isinstance(v, str) or v.strip() == \"\":",
+          "        return v",
+          "    s = v.strip()",
+          "    at = s.rfind(\"@\")",
+          "    if at > 0:",
+          "        return s[:max(1, first)] + \"***\" + s[at:]",
+          "    if len(s) <= first + last:",
+          "        return \"*\" * len(s)",
+          "    return s[:first] + \"*\" * min(8, max(3, len(s) - first - last)) + (s[-last:] if last > 0 else \"\")",
+          `${column} = ${column}.map(lambda v: _tf_mask(v, ${op.keepFirst}, ${op.keepLast}))`,
+        ].join("\n");
+      case "hash":
+        entries[entries.length - 1] = {
+          ...entries[entries.length - 1],
+          status: "manual_step_required",
+          note: "TurboFuzz also leaves missing-value markers (N/A, null) unhashed; the generated code only skips blanks",
+        };
+        return [
+          "import hashlib",
+          `${column} = ${column}.map(lambda v: hashlib.sha256((${py(op.salt)} + "\\x00" + v.strip()).encode("utf-8")).hexdigest()[:16] if isinstance(v, str) and v.strip() != "" else v)`,
+        ].join("\n");
       case "toDate":
         return `${column} = pd.to_datetime(${column}, dayfirst=${op.order === "dmy" ? "True" : "False"}, errors="coerce")`;
       case "toDateTime":

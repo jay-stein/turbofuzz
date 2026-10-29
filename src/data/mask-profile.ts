@@ -1,3 +1,4 @@
+import { skipsFormatCheck } from "./semantic-type.js";
 import { BitSet } from "../search/bitset.js";
 import type { ColumnData } from "./column.js";
 
@@ -59,6 +60,8 @@ export function maskFor(value: string): string {
   return out;
 }
 
+const CATEGORY_LABEL_MAX = 30;
+
 /**
  * Dominant-format profiles for text-like columns (string/category/identifier).
  * The mask is discovered from a strided sample; the off-pattern bitset is a
@@ -77,6 +80,10 @@ export function computePatternProfiles(
     const data = columns[column];
     if (data?.role === "provenance") continue;
     if (data === undefined || !PATTERN_TYPES.has(data.type)) continue;
+    // URLs, names, addresses and free text legitimately vary in shape.
+    if (skipsFormatCheck(data.semantic)) continue;
+    // A short value list (age bands, ratings) is a set of labels, not one format.
+    if (data.type === "category" && data.stats.distinct <= CATEGORY_LABEL_MAX) continue;
     const total = rowCount - data.stats.nulls;
     if (total < MIN_CELLS) continue;
 

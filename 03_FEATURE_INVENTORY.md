@@ -72,6 +72,22 @@ No browser verification was performed for this inventory. All discoverability sc
 | F-047 | Existing | Display-only number formatting | Read values with fixed decimals or separators | Column inspector decimal-place and thousands-separator controls | Useful | D0 — not tested | Source-verified. Display only; stored values and Recipe are unchanged. | Browser-unverified; table tests cover formatting logic. |
 | F-048 | Existing | Clear data / restart | Close current work and start over | Topbar “Clear data” when a dataset is loaded → confirmation | Useful | D0 — not tested | Source-verified. Resets the workspace to the start screen; the dialog states saved recipes are not affected. Clearing is not undoable; the file must be reloaded. | Browser-unverified; distinct from “New data” before a load. |
 
+## Data Quality additions (2026-10-29)
+
+| ID | Status | Feature | User job | Entry path | Notes |
+|---|---|---|---|---|---|
+| F-DQ-01 | Existing | Honest score band with a stated reason | Trust the band word | Data Quality hero ("Fair because ...") | Decision DEC-2026-10-29-01. Band caps and optional columns. Verified by unit tests and the corpus. |
+| F-DQ-02 | Existing | Issue queue with previews, apply and undo | Fix what is wrong | Data Quality, Issues tab; "Fix top 3", "Apply all safe fixes" | Each fix is its own undoable Recipe step. Browser tests. |
+| F-DQ-03 | Existing | Mixed formats and impossible values | Catch silent damage | Issues tab | Dates written two ways, `$` on some numbers, age/percent/year ranges. |
+| F-DQ-04 | Existing | Rows affected, exceptions CSV | Hand findings to the data owner | Hero tiles and "Download exceptions CSV" | Sensitive columns masked by default. |
+| F-DQ-05 | Existing | Per-column score and column strip | See the worst columns first | Data Quality, Columns tab | Formula in `columnScore`. |
+| F-DQ-06 | Existing | Sensitive-column advice, mask/hash/drop | Avoid sharing personal data | Sensitive tab | Advisory only; never changes the score. PII benchmark in `test/pii-benchmark.test.ts`. |
+| F-DQ-07 | Existing | Rules (recommend, edit, score, file) | Keep expectations | Rules tab; `turbofuzz-rules.json` | Plain data, no eval. Session-remembered offer to re-apply. Emitters for SodaCL, dbt, GX, DQDL. |
+| F-DQ-08 | Existing | Local history and drift | See change between loads | History tab | IndexedDB, counts and rates only, can be switched off and cleared. |
+| F-DQ-09 | Existing | Offline reference accuracy | Catch misspelt countries and similar | All checks (Accuracy) | Lists load on demand; weight 0 by default. |
+| F-DQ-10 | Existing | Duplicates ignoring an id; suggested pair checks | Find repeats and impossible orderings | Issues tab; All checks | Name-pair checks can be turned off for the session. |
+| F-DQ-11 | Existing | HTML report, supplier message | Share results | Data Quality hero | One self-contained printable page; no values from flagged columns. |
+
 ## Hidden, planned or uncertain capabilities
 
 These are not counted as current user-facing features unless a reachable UI path is confirmed.

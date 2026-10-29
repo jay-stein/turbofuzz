@@ -1,0 +1,58 @@
+/** ISO 3166 short names, plus the aliases people actually type. Loaded on demand. */
+const NAMES =
+  "Afghanistan|Albania|Algeria|American Samoa|Andorra|Angola|Anguilla|Antarctica|Antigua and Barbuda|Argentina|Armenia|Aruba|Australia|Austria|Azerbaijan|Bahamas|Bahrain|Bangladesh|Barbados|Belarus|Belgium|Belize|Benin|Bermuda|Bhutan|Bolivia|Bonaire Sint Eustatius and Saba|Bosnia and Herzegovina|Botswana|Bouvet Island|Brazil|British Indian Ocean Territory|Brunei|Bulgaria|Burkina Faso|Burundi|Cabo Verde|Cambodia|Cameroon|Canada|Cayman Islands|Central African Republic|Chad|Chile|China|Christmas Island|Cocos Islands|Colombia|Comoros|Congo|Democratic Republic of the Congo|Cook Islands|Costa Rica|Cote d'Ivoire|Croatia|Cuba|Curacao|Cyprus|Czechia|Denmark|Djibouti|Dominica|Dominican Republic|Ecuador|Egypt|El Salvador|Equatorial Guinea|Eritrea|Estonia|Eswatini|Ethiopia|Falkland Islands|Faroe Islands|Fiji|Finland|France|French Guiana|French Polynesia|French Southern Territories|Gabon|Gambia|Georgia|Germany|Ghana|Gibraltar|Greece|Greenland|Grenada|Guadeloupe|Guam|Guatemala|Guernsey|Guinea|Guinea-Bissau|Guyana|Haiti|Heard Island and McDonald Islands|Holy See|Honduras|Hong Kong|Hungary|Iceland|India|Indonesia|Iran|Iraq|Ireland|Isle of Man|Israel|Italy|Jamaica|Japan|Jersey|Jordan|Kazakhstan|Kenya|Kiribati|North Korea|South Korea|Kuwait|Kyrgyzstan|Laos|Latvia|Lebanon|Lesotho|Liberia|Libya|Liechtenstein|Lithuania|Luxembourg|Macao|Madagascar|Malawi|Malaysia|Maldives|Mali|Malta|Marshall Islands|Martinique|Mauritania|Mauritius|Mayotte|Mexico|Micronesia|Moldova|Monaco|Mongolia|Montenegro|Montserrat|Morocco|Mozambique|Myanmar|Namibia|Nauru|Nepal|Netherlands|New Caledonia|New Zealand|Nicaragua|Niger|Nigeria|Niue|Norfolk Island|North Macedonia|Northern Mariana Islands|Norway|Oman|Pakistan|Palau|Palestine|Panama|Papua New Guinea|Paraguay|Peru|Philippines|Pitcairn|Poland|Portugal|Puerto Rico|Qatar|Reunion|Romania|Russia|Rwanda|Saint Barthelemy|Saint Helena|Saint Kitts and Nevis|Saint Lucia|Saint Martin|Saint Pierre and Miquelon|Saint Vincent and the Grenadines|Samoa|San Marino|Sao Tome and Principe|Saudi Arabia|Senegal|Serbia|Seychelles|Sierra Leone|Singapore|Sint Maarten|Slovakia|Slovenia|Solomon Islands|Somalia|South Africa|South Georgia and the South Sandwich Islands|South Sudan|Spain|Sri Lanka|Sudan|Suriname|Svalbard and Jan Mayen|Sweden|Switzerland|Syria|Taiwan|Tajikistan|Tanzania|Thailand|Timor-Leste|Togo|Tokelau|Tonga|Trinidad and Tobago|Tunisia|Turkey|Turkmenistan|Turks and Caicos Islands|Tuvalu|Uganda|Ukraine|United Arab Emirates|United Kingdom|United States|Uruguay|Uzbekistan|Vanuatu|Venezuela|Vietnam|Virgin Islands British|Virgin Islands US|Wallis and Futuna|Western Sahara|Yemen|Zambia|Zimbabwe|Aland Islands|Kosovo";
+
+/** Alias -> canonical name. */
+const ALIASES: Record<string, string> = {
+  usa: "United States",
+  us: "United States",
+  "u s": "United States",
+  "u s a": "United States",
+  america: "United States",
+  "united states of america": "United States",
+  uk: "United Kingdom",
+  "u k": "United Kingdom",
+  "great britain": "United Kingdom",
+  britain: "United Kingdom",
+  england: "United Kingdom",
+  scotland: "United Kingdom",
+  wales: "United Kingdom",
+  uae: "United Arab Emirates",
+  emirates: "United Arab Emirates",
+  "russian federation": "Russia",
+  "south korea": "South Korea",
+  "republic of korea": "South Korea",
+  korea: "South Korea",
+  "czech republic": "Czechia",
+  holland: "Netherlands",
+  "the netherlands": "Netherlands",
+  burma: "Myanmar",
+  "ivory coast": "Cote d'Ivoire",
+  swaziland: "Eswatini",
+  macedonia: "North Macedonia",
+  "viet nam": "Vietnam",
+  "hong kong sar": "Hong Kong",
+  "people s republic of china": "China",
+  prc: "China",
+  "cape verde": "Cabo Verde",
+  "east timor": "Timor-Leste",
+  turkiye: "Turkey",
+  "the bahamas": "Bahamas",
+  "the gambia": "Gambia",
+  "dr congo": "Democratic Republic of the Congo",
+  drc: "Democratic Republic of the Congo",
+  "republic of ireland": "Ireland",
+  au: "Australia",
+  aus: "Australia",
+  nz: "New Zealand",
+  ca: "Canada",
+  de: "Germany",
+  fr: "France",
+  gb: "United Kingdom",
+  in: "India",
+  jp: "Japan",
+  cn: "China",
+};
+
+export const countries = { names: NAMES.split("|"), aliases: ALIASES };
+export default countries;

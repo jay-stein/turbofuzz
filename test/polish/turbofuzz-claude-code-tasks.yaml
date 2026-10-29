@@ -1,0 +1,215 @@
+# TurboFuzz chart UX: machine-readable task brief for Claude Code
+# Repo: jay-stein/turbofuzz  Branch: agent/text-column-network (local name text-column-network)
+# Read order: this file -> turbofuzz-chart-ux-spec.md (rationale, wireframes, rules table) -> chart-recommender.mjs
+# Rules: do not commit or push unless the owner asks. Keep every change measurable. Prefer extending existing code to adding parallel systems.
+
+meta:
+  owner: Quincy (Perth, AEST)
+  product: In-browser, low-latency data cleaning and analysis. Fast load and fast response are the top constraint.
+  audience: laptop first (1440x900, 1024x768), phone compliant (390x844, 40px tap targets)
+  attached_files:
+    - file: turbofuzz-chart-ux-spec.md
+      role: Source of truth for flow, rules, copy, test plan. Findings C1-C11, work items CH-0..CH-13, decisions D1-D5.
+    - file: chart-recommender.mjs
+      role: Pure ESM reference implementation. Port it, do not rewrite it. Metadata only, no row access.
+      exports: [NEW_TYPES, profile, aggFor, autoResolution, recommend, quickStarts, CHARTS, fieldsFor, availability, lint]
+      size: 20.6 KB source, 5.1 KB gzip minified
+    - file: chart-recommender.test.mjs
+      role: 16 passing tests. Move into test/ as TypeScript when porting. Run now with `node --test chart-recommender.test.mjs`.
+    - file: chart-controls-polish.patch
+      role: Already-verified fix (see section patch). Apply first.
+    - file: turbofuzz-test-data.js
+      role: Console loader, TF_TEST.load('A'|'B'|'C'|'D'). The repo already has a copy at test/polish/turbofuzz-test-data.js.
+
+environment_notes:
+  install: >
+    `npm ci` fails where cdn.sheetjs.com is blocked (package `xlsx`). Workaround: install without it, then stub
+    node_modules/xlsx. Expect only xlsx-related typecheck errors and one xlsx export test failure in that setup.
+    Never commit that workaround.
+  build: npx vite build
+  preview: npx vite preview --host 127.0.0.1 --port 4173
+  unit_tests: npm test            # tsx --test test/*.test.ts, 844 tests, all pass except xlsx stub
+  e2e: npx playwright test        # config starts the dev server on 4173
+  load_test_data: |
+    await page.addScriptTag({ path: "test/polish/turbofuzz-test-data.js" });
+    await page.evaluate(() => window.TF_TEST.load("B"));   // tabs: Overview, Data Quality, Table, Pivot View, Outliers, Relationships, Chart
+  add_chart_ui: 'Chart tab -> "+ Add chart" -> pick tile -> modal "Add a <kind> chart" -> "Add chart"'
+
+repo_map:
+  chart_card: src/ui/chart-card.ts           # ChartCard class, ~11k lines. Toolbar buttons ~L1495-1530. refreshValue ~L2980.
+  chart_gallery: src/ui/chart-gallery.ts     # fitChartKind, QUESTION_GROUPS, ICONS, previewFor, openChartGallery
+  chart_utils: src/ui/chart-utils.ts         # isGroupable, isIdLikeColumn, ChartIdea, suggestCharts (L306)
+  chart_setup_modal: src/ui/chart-setup.ts   # the modal CH-2 removes
+  chart_builder: src/ui/chart-builder.ts     # defaultChartConfig(), shared by add/edit/duplicate/reset
+  chart_spec: src/ui/chart-spec.ts           # ChartSpec v2, source {kind: table|view, id, name}
+  chart_panel: src/ui/chart-panel.ts         # addCard (L~610), openChartSetup (L579), rail, toolbar
+  pivot_views: src/ui/views-panel.ts
+  column_meta: src/worker/protocol.ts        # ColumnMeta, stats {min,max,distinct,nulls}, role, categories, groups
+  styles: src/styles.css                     # tokens at top (--control-h 32px, --radius-sm 6px, --fs-*, --sp-*); chart blocks ~L5050-6000, ~L7930-8060, ~L8835; polish block appended at end
+  existing_tests: [test/chart-gallery.test.ts, test/chart-setup.test.ts, test/ui-charts.test.ts, test/e2e/polish.spec.ts, test/e2e/chart-resize-loop.spec.ts]
+  design_doc_template: 06_DESIGN_SYSTEM.md  # empty; fill with the real tokens when touching UI
+
+patch:
+  file: chart-controls-polish.patch
+  apply: git apply chart-controls-polish.patch      # from repo root on agent/text-column-network
+  local_commit: c7cbfc9 (unpushed; GitHub App access missing, push was refused with 403)
+  changes:
+    - id: P-1
+      what: Focus, Wide, Animate, more (⋯) and remove (×) chart-head buttons are one size. 32px square, 40px at <=720px, glyph 16px, flex none.
+      root_cause: ".ghost.small padding (specificity 0,2,0) beat the single-class sizing rule, shrinking the Focus icon to 10px; only .chart-width-icon had flex:none."
+      files: [src/styles.css]
+    - id: P-2
+      what: Styled the Data issues note and chips (.chart-data-issues, .chart-issue-*). They had no CSS and rendered as raw browser buttons.
+      files: [src/styles.css]
+    - id: P-3
+      what: Sidebar selects and text inputs 32px; selects 60% width so labels stop truncating; empty disabled filter-value select hidden.
+      files: [src/styles.css]
+    - id: P-4
+      what: Animate button gets aria-label "Animate chart".
+      files: [src/ui/chart-card.ts]
+    - id: P-5
+      what: ChartCard.valueGeneration, a separate staleness counter for the value-aggregate request.
+      root_cause: "refreshValue used the shared this.generation. Sibling refreshes (refreshBins for kind line) bump it right after, so the first aggregate response was discarded and a new line chart stayed on 'no groups to draw yet'."
+      supersedes: spec finding C3 and the explicit-resolution part of CH-0. Do NOT add a forced time resolution; Auto works once the response is kept.
+      files: [src/ui/chart-card.ts]
+  verify:
+    - "At 1440 wide every button in .chart-card-head (focus, width, animate, more, remove) measures 32x32; at 390 wide 40x40."
+    - "svg inside .chart-focus-btn and .chart-width-btn both measure 16x16."
+    - "Dataset B: + Add chart -> first suggestion (balance over time) -> Add chart draws a line with no 'no groups' message."
+    - "npm run typecheck and npm test pass (ignoring xlsx stub); playwright polish and smoke specs pass."
+  caveat: Animate stayed hidden in the test chart; confirm its look on a chart where it is visible.
+
+tasks:
+  - id: T0
+    title: Apply the patch and re-baseline
+    status: ready
+    depends_on: []
+    do:
+      - Apply chart-controls-polish.patch.
+      - Record baselines before further work: bundle size (gz), time from "+ Add chart" click to first paint of a chart, button/control heights.
+    done_when: Verify list under `patch` passes.
+
+  - id: T1
+    spec_item: CH-1
+    title: CHARTS registry with roles and slots, used by gallery availability and field lists
+    status: todo
+    depends_on: [T0]
+    do:
+      - Port `CHARTS`, `fieldsFor`, `availability` from chart-recommender.mjs into src/ui/chart-utils.ts (or a new src/ui/chart-registry.ts), typed against ColumnMeta.
+      - Make fitChartKind in chart-gallery.ts read the registry instead of its own pools. Keep the KindFit shape {kind, ok, reason, preset}.
+      - Reuse isIdLikeColumn, isGroupable, isNumericType, isCategoryType. Do not duplicate them.
+      - "Whole-word name hints only (token sets, not substring regexes). Regression: \"duration\" must not match \"ratio\", \"discount\" must not match \"count\"."
+    done_when: >
+      Barplot Category on dataset A suggests region/product/discount_pct and lists units/revenue under "Other" with a reason.
+      Same for Box plot Group by and Heatmap. Existing chart-gallery and chart-setup tests still pass.
+
+  - id: T2
+    spec_item: CH-5
+    title: Replace formulaic suggestions with the recommender
+    status: todo
+    depends_on: [T1]
+    do:
+      - Back `suggestCharts(columns, rowCount): ChartIdea[]` with `quickStarts()` and `recommend()`. Keep the ChartIdea return shape ({label, preset}) so openChartGallery and callers keep working.
+      - Never suggest ID, email or phone columns. Time series default aggregation: Average for rate-like columns (aggFor).
+      - Port chart-recommender.test.mjs to test/chart-recommender.test.ts (tsx --test). Add the A-D column profiles.
+    done_when: Quick-start table in spec section 5.1 is reproduced on datasets A-D. Recommender <= 2 ms for 100 columns. Bundle growth <= 6 KB gz.
+
+  - id: T3
+    spec_item: CH-2
+    title: Data-first builder replaces the add-chart modal
+    status: todo
+    depends_on: [T1, T2]
+    do:
+      - New panel opened by "+ Add chart": 1) Source (Table default, or a Pivot view), 2) field list grouped by role with an aggregation chip, 3) recommended chart tiles with a one-line reason and live preview, 4) quick starts.
+      - Choosing a chart type is a shortcut that fills the same slots, not a separate path. An explicit type choice locks the type (no auto-switch afterwards).
+      - Build ChartCardConfig through defaultChartConfig() in chart-builder.ts. Add, edit, duplicate and reset must keep using the same builder.
+      - Retire openChartSetupDialog calls in chart-panel.ts (openChartSetup, editCard, duplicateCard, drill) one at a time. Remove chart-setup.ts only when no caller remains.
+      - For a Pivot view source, set agg 'none' (views are already aggregated) and offer only compatible types.
+    done_when: "Chart on screen in <= 2 clicks (quick start), <= 3 clicks (fields + tile). No modal between selecting a tile and seeing the chart. Keyboard operable; focus visible."
+
+  - id: T4
+    spec_item: CH-3
+    title: New cards go to the top and scroll into view
+    status: todo
+    depends_on: [T0]
+    do:
+      - In chart-panel.ts addCard/openChartSetup, insert at the top of the grid, scroll into view, brief highlight (existing chart-card-new class), Undo toast. Same for "Chart this".
+    done_when: After Chart this the new chart is in the viewport without scrolling.
+
+  - id: T5
+    spec_item: CH-4
+    title: Source labelling for view-sourced charts
+    status: todo
+    depends_on: [T0]
+    do:
+      - Source select lists Table and each view and shows the current one. Chart type shows the real type. Heading and badge agree ("Barplot from view: Sum of units by region · 4 groups").
+    done_when: No blank Source/Chart type selects; no "Count plot" label on a sum-by-region bar.
+
+  - id: T6
+    spec_item: CH-6
+    title: Guide drawer (lazy, on demand)
+    status: todo
+    depends_on: [T1]
+    do:
+      - "\"Guide\" opens a drawer with \"For your selection\" (needs vs you have) and \"By question\". Content in guide.json, dynamic-imported on first open only."
+      - Write original wording. Do NOT copy Storytelling with Data text; it informs the principles only.
+    done_when: Opens in <= 50 ms after first load; zero network requests; lazy chunk <= 4 KB gz.
+
+  - id: T7
+    spec_item: CH-8
+    title: Chart notes (lint) and aggregation defaults
+    status: todo
+    depends_on: [T1]
+    do:
+      - Port `lint()`. Show at most one short note per chart under the title, after the chart is drawn.
+    done_when: discount_pct summed shows the percentage note; bars from a non-zero baseline show the baseline note.
+
+  - id: T8
+    spec_item: CH-7
+    title: Card redesign (Customize drawer, single title, wider plot)
+    status: todo
+    depends_on: [T3]
+    do:
+      - Replace the permanent Settings column with a Customize drawer. Remove the generic inner "Aggregate" canvas title. Chart gets >= 80% of card width.
+      - Remove the duplicate caption above the card (e.g. "Barplot: Sum of balance by city from Table") or the canvas title, not both.
+    done_when: Visual check at 1440x900 and 1024x768; title appears once.
+
+  - id: T9
+    spec_item: CH-12, CH-13
+    title: Retire the duplicate left rail; fix swatch overlap
+    status: todo
+    depends_on: [T3]
+
+  - id: T10
+    spec_item: CH-9, CH-10, CH-11
+    title: Later (new chart types, editable takeaway title, view-link semantics)
+    status: deferred
+    note: Needs the owner's decision on D1 (linked vs snapshot view charts) before CH-11.
+
+constraints:
+  performance:
+    recommender_gz_kb_max: 6
+    guide_lazy_gz_kb_max: 4
+    network_requests_added: 0
+    recommend_100_columns_ms_max: 2
+    guide_open_ms_max: 50
+    rule: Measure the baseline first and report before/after. No row scans in the recommender; metadata only.
+  ui:
+    control_height: var(--control-h)    # 32px; 40px at <=720px
+    use_tokens: [--control-h, --radius-sm, --fs-xs, --fs-sm, --fs-md, --fs-xl, --sp-1, --sp-2, --accent, --accent-soft, --danger, --border, --panel, --panel-2, --text-dim, --qa-warn-*]
+    no_new_colours: Reuse existing tokens; support the dark theme (tokens are redefined under prefers-color-scheme).
+    no_text_smaller_than_px: 11
+    no_horizontal_page_scroll: [1440, 622, 375]
+  semantics:
+    - Visual changes must not silently change data semantics, action placement, keyboard behaviour or workflow steps (06_DESIGN_SYSTEM.md visual change policy).
+    - Do not rename the ChartSpec v2 fields or break saved specs; existing round-trip tests must pass.
+
+verification:
+  per_task: [npm run typecheck, npm test, npx playwright test polish smoke]
+  visual: Screenshot the Chart tab at 1440x900, 1024x768 and 390x844 with dataset B and C before and after. Measure control sizes with getBoundingClientRect.
+  datasets: [A, B, C, D]    # loaded with TF_TEST.load
+  known_gap: test/e2e/chart-resize-loop.spec.ts launches its own browser; run it on a machine with the repo's Playwright browsers installed.
+
+open_decisions_for_owner:
+  - "D1: View-sourced charts linked to the view (live) or a snapshot? Default in spec: see section 10."
+  - D2-D5: see spec section 10.

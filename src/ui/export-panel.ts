@@ -1,4 +1,5 @@
 import type { ExportScope } from "../worker/protocol.js";
+import { fitnessProfile, readFitnessId } from "../data/fitness.js";
 import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
 import {
@@ -21,7 +22,11 @@ export interface ExportSettings {
   compression?: ExportCompression;
   /** Prefix the file name with the export time as YYYYMMDDHHMMSS_. */
   datePrefix?: boolean;
+  /** What to do with possibly-sensitive columns: keep them (default), mask them or leave them out. */
+  sensitiveMode?: SensitiveExportMode;
 }
+
+export type SensitiveExportMode = "include" | "mask" | "exclude";
 
 export interface ExportScopeInfo {
   /** Rows after steps/deletes, ignoring filters. */
@@ -54,6 +59,8 @@ export function openExportPanel(
   settings: ExportSettings,
   scopeInfo: ExportScopeInfo,
   callbacks: ExportPanelCallbacks,
+  /** Names of non-dismissed High/Medium (or confirmed) sensitive columns in scope. */
+  sensitiveColumns: readonly string[] = [],
 ): void {
   const overlay = el("div", { class: "modal-overlay" });
   const modal = el("div", { class: "modal export-modal" });
@@ -233,6 +240,40 @@ export function openExportPanel(
     "Prefix =, @ and signed expressions with ' so Excel and Sheets import them as text";
   formulaRow.append(formulaInput, "Escape formula-like cells (safe for Excel)");
 
+  // One line, no extra click: Include is the default and stays selected.
+  // The Sharing fitness profile starts on Mask; the choice is still one click.
+  const startMode: SensitiveExportMode = fitnessProfile(readFitnessId()).exportMaskDefault ? "mask" : "include";
+  let sensitiveMode: SensitiveExportMode = startMode;
+  const sensitiveRow = el("div", { class: "export-sensitive" });
+  if (sensitiveColumns.length > 0) {
+    const shown = sensitiveColumns.slice(0, 4).join(", ");
+    const more = sensitiveColumns.length - 4;
+    sensitiveRow.append(
+      el("span", { class: "export-sensitive-text" }, [
+        `This export includes ${sensitiveColumns.length} column${
+          sensitiveColumns.length === 1 ? "" : "s"
+        } that may contain sensitive data: ${shown}${more > 0 ? `, +${more} more` : ""}.`,
+      ]),
+    );
+    const choices = el("span", { class: "export-sensitive-choices", role: "radiogroup", "aria-label": "Sensitive columns" });
+    for (const [value, label] of [
+      ["include", "Include"],
+      ["mask", "Mask"],
+      ["exclude", "Exclude"],
+    ] as const) {
+      const radio = el("input", { type: "radio", name: "export-sensitive" }) as HTMLInputElement;
+      radio.value = value;
+      radio.checked = value === startMode;
+      radio.addEventListener("change", () => {
+        if (radio.checked) sensitiveMode = value;
+      });
+      choices.append(el("label", { class: "control check clean-check" }, [radio, label]));
+    }
+    sensitiveRow.append(choices);
+  } else {
+    sensitiveRow.classList.add("hidden");
+  }
+
   const hint = el("div", { class: "clean-hint" }, [
     "Cleaning steps are always included. The file is built in this browser. When your browser supports it, you choose the folder and name in the system save dialog.",
   ]);
@@ -252,12 +293,23 @@ export function openExportPanel(
       escapeFormulas: formulaInput.checked,
       scope,
       limit,
+      sensitiveMode,
     });
     close();
   });
   footer.append(cancel, el("span", { class: "grow" }), save);
 
-  modal.append(formatField, scopeField, limitField, nameField, optionsRow, formulaRow, hint, footer);
+  modal.append(
+    formatField,
+    scopeField,
+    limitField,
+    nameField,
+    optionsRow,
+    formulaRow,
+    sensitiveRow,
+    hint,
+    footer,
+  );
 
   // Null blanking and formula escaping are CSV-family options; JSON and Excel
   // keep real nulls and numbers.

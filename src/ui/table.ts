@@ -182,6 +182,14 @@ export class ResultTable {
     this.renderHeader();
   }
 
+  private sensitiveNotes = new Map<number, string>();
+
+  /** Marks columns that may hold sensitive data (index -> why); shown as a small dot. */
+  setSensitive(notes: ReadonlyMap<number, string>): void {
+    this.sensitiveNotes = new Map(notes);
+    this.renderHeader();
+  }
+
   /** Replaces one column's metadata (type/fences) without losing widths. */
   updateColumn(column: number, meta: ColumnMeta): void {
     this.columns[column] = meta;
@@ -409,6 +417,7 @@ export class ResultTable {
         label.classList.add(this.sortDir === 1 ? "sort-asc" : "sort-desc");
       }
       label.addEventListener("click", () => this.options.onColumnInspect(index, label));
+      const sensitiveNote = this.sensitiveNotes.get(index);
 
       const grip = el("div", {
         class: "col-resize",
@@ -468,7 +477,17 @@ export class ResultTable {
         else restore(applied);
       });
 
-      top.append(number, label, grip, del);
+      if (sensitiveNote !== undefined) {
+        const dot = el("span", {
+          class: "th-sensitive-dot",
+          role: "img",
+          "aria-label": `Possibly sensitive: ${sensitiveNote}`,
+          title: `Possibly sensitive — ${sensitiveNote}`,
+        });
+        top.append(number, label, dot, grip, del);
+      } else {
+        top.append(number, label, grip, del);
+      }
 
       const quickFilter = el("div", { class: "th-filter" });
       const filterMark = el("span", { class: "th-filter-icon" });

@@ -57,6 +57,8 @@ const EXACT_NULLS = new Set([
   "#num!",
   "#null!",
   "#error!",
+  "error",
+  "#error",
 ]);
 
 // Compact forms: punctuation, separators and spacing are stripped, so
@@ -85,6 +87,7 @@ const COMPACT_NULLS = new Set([
   "noresponse",
   "nullvalue",
   "nonesupplied",
+  "error",
 ]);
 
 const ZERO_WIDTH = new Set([0x200b, 0x200c, 0x200d, 0x2060, 0xfeff]);

@@ -107,21 +107,29 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
   {
     id: "data-quality",
     title: "Data Quality page",
-    summary: "The QA dashboard: score, dimensions, what to fix first, checks and the column matrix.",
+    summary: "Score, what to fix first, previews and undo, rules, history and the privacy guarantee.",
     blocks: [
       p(
         "The Data Quality page (the DQ tile in the topbar, the “quality” palette command, or the tab between Overview and Table) scores the whole dataset — not the filtered rows — across six dimensions: Completeness, Validity, Uniqueness, Consistency, Timeliness and Accuracy.",
       ),
       list(
-        "The ring shows the overall score: a weighted mean of the applicable dimensions. Bands: ≥ 90 good, ≥ 75 fair, below needs work.",
-        "Dimension cards show each score, its weight and how many checks fail. Click one to filter the checks list; click again to clear.",
-        "What to fix first ranks failing checks by the points they would add back (+x.x pts), so the biggest win is always at the top.",
-        "Checks lists every check with exact pass · fail · n-a counts; a ● dot colours its pass rate. “Show failing” filters the table to those rows (undo via the toast).",
-        "Column × dimension is the heat matrix — click a cell to filter that column's failures.",
-        "Weights & bands opens the settings: change how much each dimension moves the score and where the band thresholds sit. Saved in this browser.",
+        "The ring shows the overall score, a weighted mean of the dimensions that apply. The band word (good, fair, poor) follows the number, but one badly broken column holds it down: a required column more than half empty, or any column with more than a fifth of its values invalid, caps the band at fair; three-quarters empty or half invalid caps it at poor. The line under the title says which column and why.",
+        "Needs fixing and Worth reviewing count the same issues the Issues tab lists. Rows affected is the number of distinct rows failing at least one check; click it to see them.",
+        "Issues are ranked by the points they would add back (+x.x pts). Each card shows what is wrong with exact counts, a Now / After cleaning comparison where one applies, and a Preview before any change. Every fix lands in the Recipe and can be undone. “Fix top 3 issues” and “Apply all safe fixes” open one combined preview first.",
+        "Optional columns: a column named like notes, comment or middle name, or the only incomplete column in an otherwise complete table, counts its blanks at a quarter weight and never caps the band. Use “This column is optional” on its empty-cells card to change that; the choice lasts for the session.",
+        "Mixed formats are flagged: a date column written two ways, a number column with $ on some values, thousands separators beside plain numbers. Impossible values are flagged for columns named age (0 to 120), percent (0 to 100) and year (1900 to next year).",
+        "Columns shows every column worst first with its own 0 to 100 score; hover for how it was worked out.",
+        "Sensitive lists columns that may hold personal data. It is advice only and never changes the score. Mask, hash or drop a column from there, and the exceptions file masks flagged columns unless you tick “Include raw values”.",
+        "Rules: accept suggested rules (not empty, unique, number range, one of a list, end after start) or add your own. Rules are plain data, never code. Each becomes a scored check with a severity and an allowed share of failures. Download turbofuzz-rules.json to keep them; the same columns next time offer to apply them again.",
+        "History keeps a small record of each load of a file on this device: scores, row counts and fill rates, never cell values. It shows the trend and what changed since the last load. It can be switched off and cleared.",
+        "Download exceptions CSV gives one row per failing cell (row, column, check, value, reason) to send to whoever owns the source.",
+        "All checks lists every check with exact pass · fail · n-a counts and a heat matrix. Copy report and Download JSON export the breakdown.",
       ),
       note(
-        "Accuracy stays n/a offline (no reference data) and advisory findings (outliers, near-duplicates) never move the score. Copy report and Download JSON export the full breakdown; consistency and timeliness score once you run Compare-with, keydup or a freshness check.",
+        "Accuracy applies offline to columns named like country, currency, state, weekday or month, using lists bundled with the app (loaded only when needed). Accuracy carries zero weight by default, so it never moves the score unless you give it weight.",
+      ),
+      note(
+        "Privacy: TurboFuzz runs in your browser. The page's content security policy blocks every outgoing connection and every dynamic-code call, and the test suite loads a file, opens each tab, runs the scans, rules and exports, and checks that no request leaves your machine. Rules, history and marks stay on this device unless you download them.",
       ),
     ],
   },

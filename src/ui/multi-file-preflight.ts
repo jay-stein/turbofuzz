@@ -31,7 +31,15 @@ export interface MultiFilePreflight {
   totalRows: number;
   totalCells: number;
   identicalColumns: boolean;
+  /**
+   * Files whose column names mostly differ from the first file's, which usually
+   * means the header sits on a different row (or the file is a different table).
+   */
+  mismatchedFiles: string[];
 }
+
+/** Below this share of shared column names a file is flagged as a likely layout mismatch. */
+const MISMATCH_SHARE = 0.5;
 
 const headerKey = (value: string): string =>
   value.trim().replace(/\s+/g, " ").toLowerCase();
@@ -46,6 +54,7 @@ export function buildMultiFilePreflight(
       totalRows: 0,
       totalCells: 0,
       identicalColumns: true,
+      mismatchedFiles: [],
     };
   }
   const columnSets = samples.map((sample) => new Set(sample.headers.map(headerKey)));
@@ -61,6 +70,15 @@ export function buildMultiFilePreflight(
       if (!union.has(key)) union.set(key, header.trim());
     }
   }
+  const mismatchedFiles = samples
+    .filter((sample, index) => {
+      if (index === 0 || baselineKeys.size === 0) return false;
+      const set = columnSets[index] ?? new Set<string>();
+      let shared = 0;
+      for (const key of set) if (baselineKeys.has(key)) shared++;
+      return shared / Math.max(set.size, baselineKeys.size) < MISMATCH_SHARE;
+    })
+    .map((sample) => sample.name);
   const files = samples.map((sample, index) => {
     const set = columnSets[index] ?? new Set<string>();
     const extraColumns = [...set]
@@ -94,6 +112,7 @@ export function buildMultiFilePreflight(
     identicalColumns: files.every(
       (file) => file.extraColumns.length === 0 && file.missingColumns.length === 0,
     ),
+    mismatchedFiles,
   };
 }
 
@@ -105,10 +124,13 @@ const fileSize = (bytes: number): string => {
 
 export type MultiFileAppendMode = "align" | "identical";
 
+/** The dialog also hands back "headerRow" so the caller can re-preview with a new layout. */
+export type MultiFilePreflightChoice = MultiFileAppendMode | "headerRow";
+
 /** Preflight summary and append-mode choice; null cancels the import. */
 export function openMultiFilePreflight(
   preflight: MultiFilePreflight,
-): Promise<MultiFileAppendMode | null> {
+): Promise<MultiFilePreflightChoice | null> {
   return new Promise((resolve) => {
     const overlay = el("div", { class: "modal-overlay" });
     const modal = el("div", { class: "modal multi-file-modal" });
@@ -124,6 +146,18 @@ export function openMultiFilePreflight(
         `${preflight.totalRows.toLocaleString()} estimated rows · ${preflight.totalCells.toLocaleString()} cells · ${preflight.commonColumns.length} shared columns`,
       ]),
     );
+    if (preflight.mismatchedFiles.length > 0) {
+      const names = preflight.mismatchedFiles.slice(0, 3).join(", ");
+      const more = preflight.mismatchedFiles.length - 3;
+      body.append(
+        el("p", { class: "multi-file-warning", role: "alert" }, [
+          `${names}${more > 0 ? ` and ${more} more` : ""} share${
+            preflight.mismatchedFiles.length === 1 && more <= 0 ? "s" : ""
+          } few column names with ${preflight.files[0]?.name ?? "the first file"}. ` +
+            "One header-row setting applies to every file, so if the header sits on a different row in some files, load them separately.",
+        ]),
+      );
+    }
     const list = el("div", { class: "multi-file-list" });
     for (const file of preflight.files) {
       const row = el("div", { class: "multi-file-row" });
@@ -187,11 +221,13 @@ export function openMultiFilePreflight(
     const footer = el("div", { class: "clean-footer" });
     const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
     const confirm = el("button", { class: "primary", type: "button" }, ["Append rows"]);
-    footer.append(cancel, el("span", { class: "grow" }), confirm);
+    const headerRow = el("button", { class: "ghost", type: "button" }, ["Header row…"]);
+    headerRow.title = "Choose where the header is. One setting applies to every file.";
+    footer.append(cancel, headerRow, el("span", { class: "grow" }), confirm);
     modal.append(body, footer);
 
     let settled = false;
-    const finish = (value: MultiFileAppendMode | null): void => {
+    const finish = (value: MultiFilePreflightChoice | null): void => {
       if (settled) return;
       settled = true;
       overlay.remove();
@@ -203,6 +239,7 @@ export function openMultiFilePreflight(
     };
     close.addEventListener("click", () => finish(null));
     cancel.addEventListener("click", () => finish(null));
+    headerRow.addEventListener("click", () => finish("headerRow"));
     confirm.addEventListener("click", () => finish(align.checked ? "align" : "identical"));
     overlay.addEventListener("click", (event) => {
       if (event.target === overlay) finish(null);

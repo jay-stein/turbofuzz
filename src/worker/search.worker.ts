@@ -9,11 +9,15 @@ import { computeGroupAnomalies } from "../data/group-anomalies.js";
 import { computeOutlierAnalysis } from "../data/outliers.js";
 import { computeRelationships } from "../data/relationships.js";
 import { computeColumnNetwork } from "../data/column-network.js";
-import { textProfile } from "../data/text-profile.js";
+import { embeddedShapes, textProfile } from "../data/text-profile.js";
+import { scansForSensitivity } from "../data/sensitivity.js";
+import { computeRowsAffected } from "../data/dq-rows.js";
+import { collectExceptions } from "../data/dq-exceptions.js";
 import { computeDistributionChanges } from "../data/distribution.js";
 import { computeSimilarClusters } from "../data/similar-clusters.js";
 import { computeAnomalies } from "../data/anomalies.js";
 import { computeKeyDuplicates } from "../data/key-duplicates.js";
+import { evaluateRule } from "../data/rules.js";
 import { computePairViolations } from "../data/pair-checks.js";
 import {
   buildDataset,
@@ -57,6 +61,8 @@ import { filteredHistogram, filtersSignature, HistogramCache } from "../search/a
 import { BitSet } from "../search/bitset.js";
 import { buildRank, orderIds } from "../search/order.js";
 import { clusterSimilar } from "../search/similar.js";
+import { skipsSimilarity } from "../data/semantic-type.js";
+import { spellingVariants } from "../data/variants.js";
 import {
   QueryEngine,
   type ColumnFilter,
@@ -97,6 +103,9 @@ import type {
   GetRelationshipsRequest,
   GetColumnNetworkRequest,
   GetTextProfileRequest,
+  ScanSensitiveRequest,
+  GetRowsAffectedRequest,
+  GetExceptionsRequest,
   GetDistributionChangesRequest,
   GetSimilarClustersRequest,
   GetGridCountsRequest,
@@ -112,7 +121,10 @@ import type {
   SetNumberLocaleRequest,
   SetTypeRequest,
   CheckKeyDuplicatesRequest,
+  CountKeyDuplicatesRequest,
   CheckPairRequest,
+  EvaluateRulesRequest,
+  CountPairRequest,
   SortRequest,
   SpecialKind,
   ProgressPhase,
@@ -353,12 +365,36 @@ async function handle(message: WorkerRequest): Promise<void> {
     case "setType":
       handleSetType(message);
       break;
+    case "countKeyDuplicates": {
+      const result = computeKeyDuplicates(state().dataset.columns, message.columns, state().dataset.rowCount);
+      post({
+        type: "keyDuplicateCount",
+        requestId: message.requestId,
+        duplicateRows: result.duplicateRows,
+        duplicateGroups: result.duplicateGroups,
+        counted: result.counted,
+      });
+      break;
+    }
     case "checkKeyDuplicates":
       handleCheckKeyDuplicates(message);
       break;
     case "checkPair":
       handleCheckPair(message);
       break;
+    case "evaluateRules": {
+      const { dataset } = state();
+      const started = performance.now();
+      const results = (message as EvaluateRulesRequest).rules.map((rule) => evaluateRule(rule, dataset.columns, dataset.rowCount));
+      post({ type: "rulesEvaluated", requestId: message.requestId, results, ms: performance.now() - started });
+      break;
+    }
+    case "countPair": {
+      const { dataset } = state();
+      const result = computePairViolations(dataset.columns, message.columnA, message.columnB, message.operator, 0, dataset.rowCount);
+      post({ type: "pairCount", requestId: message.requestId, violations: result.violations, compared: result.compared });
+      break;
+    }
     case "setNumberLocale":
       handleSetNumberLocale(message);
       break;
@@ -409,6 +445,18 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getColumnNetwork":
       handleGetColumnNetwork(message);
+      break;
+    case "scanSensitive":
+      await handleScanSensitive(message);
+      break;
+    case "getRowsAffected":
+      handleGetRowsAffected(message);
+      break;
+    case "getExceptions":
+      handleGetExceptions(message);
+      break;
+    case "cancelScan":
+      cancelledScans.add(message.scanId);
       break;
     case "getTextProfile":
       handleGetTextProfile(message);
@@ -630,6 +678,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
           delimiter: message.delimiter,
           hasHeaders: message.hasHeaders,
           maxRows: message.maxRows,
+          headerLayout: message.headerLayout,
           deferStats: message.deferStats,
           onProgress: (progress) =>
             postLoadProgress(message.requestId, {
@@ -692,6 +741,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
         buffer: message.buffer,
         table: message.table,
         maxRows: message.maxRows,
+        headerLayout: message.headerLayout,
         deferStats: message.deferStats,
         onProgress: (progress: {
           phase: ProgressPhase;
@@ -1730,6 +1780,141 @@ function handleGetColumnNetwork(message: GetColumnNetworkRequest): void {
 }
 
 /** Token frequencies and value shapes for one text column. */
+/** Distinct rows failing a deterministic check; the bits back the "Rows affected" filter. */
+function handleGetRowsAffected(message: GetRowsAffectedRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const variantSources = variantSourcesFor(dataset.columns);
+  const result = computeRowsAffected(
+    dataset.columns,
+    dataset.rowCount,
+    dataset.patternColumnBits,
+    variantSources,
+  );
+  dataset.affectedRowBits = result.bits;
+  post({
+    type: "rowsAffected",
+    requestId: message.requestId,
+    count: result.count,
+    total: result.total,
+    ms: performance.now() - started,
+  });
+}
+
+/** exceptions.csv: one row per failing cell, sensitive columns masked unless asked for. */
+function handleGetExceptions(message: GetExceptionsRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const result = collectExceptions(dataset.columns, dataset.rowCount, {
+    maskColumns: new Set(message.maskColumns),
+    includeRaw: message.includeRaw,
+    optional: new Set(message.optional),
+    checkId: message.checkId,
+    variantSources: variantSourcesFor(dataset.columns),
+  });
+  post({
+    type: "exceptions",
+    requestId: message.requestId,
+    csv: result.csv,
+    count: result.count,
+    ms: performance.now() - started,
+  });
+}
+
+/** Per column, the values that are spelling variants of another value (null when none). */
+function variantSourcesFor(columns: readonly ColumnData[]): (ReadonlySet<string> | null)[] {
+  return columns.map((column) => {
+    if (skipsSimilarity(column.semantic)) return null;
+    let variants: ReturnType<typeof spellingVariants> = null;
+    if (column.type === "category" || column.type === "boolean") {
+      const built = column.categories();
+      variants = spellingVariants(built.labels, built.counts);
+    } else if (column.type === "string" && column.semantic?.type !== "free_text") {
+      variants = column.spellingVariants();
+    }
+    return variants === null || variants.mappings.length === 0
+      ? null
+      : new Set(variants.mappings.map((pair) => pair.from));
+  });
+}
+
+/** Values per column the sensitive scan reads unless the user asks for all of them. */
+const SENSITIVE_SAMPLE = 5000;
+/** Scans the client asked to stop; checked between columns. */
+const cancelledScans = new Set<number>();
+
+/**
+ * One pass over every text-like column: whole-value shapes on a bounded, evenly
+ * spaced sample (or all values when `exact`), plus a search inside long text. Yields to
+ * the event loop between columns so a cancel, or any other request, is never stuck
+ * behind it, and stops early if the dataset was replaced meanwhile.
+ */
+async function handleScanSensitive(message: ScanSensitiveRequest): Promise<void> {
+  const started = performance.now();
+  const { dataset } = state();
+  const wanted =
+    message.columns ??
+    dataset.columns.flatMap((column, index) =>
+      column.role !== "provenance" && scansForSensitivity(column.type, column.name)
+        ? [index]
+        : [],
+    );
+  let scanned = 0;
+  let cancelled = false;
+  for (const index of wanted) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    if (cancelledScans.delete(message.requestId) || state().dataset !== dataset) {
+      cancelled = true;
+      break;
+    }
+    const column = dataset.columns[index];
+    if (column === undefined) continue;
+    const columnStarted = performance.now();
+    const present = dataset.rowCount - column.stats.nulls;
+    const exact = message.exact === true || present <= SENSITIVE_SAMPLE;
+    // A sample is gathered into a small array so the profile reads only what it needs.
+    const values: string[] = [];
+    const step = exact ? 1 : present / SENSITIVE_SAMPLE;
+    let next = 0;
+    let seen = 0;
+    for (let row = 0; row < column.raw.length; row++) {
+      if (column.nullMask.get(row)) continue;
+      if (exact || seen >= next) {
+        values.push(column.raw[row]);
+        next += step;
+      }
+      seen++;
+    }
+    const mask = new BitSet(values.length);
+    const profile = textProfile(values, mask, 1, false);
+    post({
+      type: "sensitiveColumn",
+      requestId: message.requestId,
+      exact,
+      ms: performance.now() - columnStarted,
+      input: {
+        column: index,
+        name: column.name,
+        type: column.type,
+        semantic: column.semantic,
+        shapes: profile.shapes,
+        sampled: profile.rows,
+        scanned: present,
+        embedded: profile.avgLength > 40 ? embeddedShapes(values, mask) : null,
+      },
+    });
+    scanned++;
+  }
+  cancelledScans.delete(message.requestId);
+  post({
+    type: "sensitiveDone",
+    requestId: message.requestId,
+    columnsScanned: scanned,
+    cancelled,
+    ms: performance.now() - started,
+  });
+}
+
 function handleGetTextProfile(message: GetTextProfileRequest): void {
   const { dataset } = state();
   const column = dataset.columns[message.column];
@@ -2003,6 +2188,12 @@ function cleanTarget(
         break;
       case "repairDecimal":
         numberLocale = op.locale;
+        break;
+      case "mask":
+      case "hash":
+        type = undefined;
+        break;
+      case "recode":
         break;
       case "toDate":
         type = undefined;
@@ -2677,6 +2868,8 @@ function handlePreviewClean(message: PreviewCleanRequest): void {
       }
     }
     let failed = 0;
+    let nonEmpty = 0;
+    let digitLoss = 0;
     let examples: string[] | undefined;
     if (castIndex >= 0) {
       const cast = update.ops[castIndex] as Extract<CleanOp, { kind: "cast" }>;
@@ -2690,6 +2883,8 @@ function handlePreviewClean(message: PreviewCleanRequest): void {
       });
       failed = result.failed;
       examples = result.examples;
+      nonEmpty = result.nonEmpty;
+      digitLoss = result.digitLoss;
     } else {
       const cast = [...update.ops].reverse().find(
         (op) => op.kind === "toNumber" || op.kind === "toDate",
@@ -2708,6 +2903,7 @@ function handlePreviewClean(message: PreviewCleanRequest): void {
       changed,
       total: raw.length,
       failed,
+      ...(castIndex >= 0 ? { nonEmpty, digitLoss } : {}),
       ...(examples === undefined ? {} : { examples }),
     };
   });
@@ -2722,14 +2918,19 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
   const patternProfile = dataset.patternProfiles[index] ?? null;
   let categories: ColumnMeta["categories"] = null;
   let similarGroups = 0;
+  let variants: ColumnMeta["variants"] = null;
   if (column.type === "category" || column.type === "boolean") {
     const built = column.categories();
     categories = { labels: built.labels, counts: built.counts };
-    if (column.type === "category") {
+    if (!skipsSimilarity(column.semantic)) variants = spellingVariants(built.labels, built.counts);
+    if (column.type === "category" && !skipsSimilarity(column.semantic)) {
       similarGroups = clusterSimilar(
         built.labels.map((label, i) => ({ value: label, count: built.counts[i] })),
       ).length;
     }
+  } else if (column.type === "string" && !skipsSimilarity(column.semantic)) {
+    // Free text is never "one spelling per value"; everything else is checked.
+    if (column.semantic?.type !== "free_text") variants = column.spellingVariants();
   }
   return {
     name: column.name,
@@ -2752,6 +2953,12 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     nullTokens: [...column.nullTokens],
     suggestions: role === undefined ? column.suggestions : [],
     typeDowngrade: column.typeDowngrade,
+    conformance: column.conformance,
+    dateFormats: column.dateFormats,
+    numberSymbols: column.numberSymbols,
+    rangeViolation: column.rangeViolation,
+    semantic: column.semantic,
+    variants,
     pattern:
       patternProfile === null
         ? null

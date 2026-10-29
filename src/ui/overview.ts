@@ -37,6 +37,10 @@ export interface OverviewCallbacks {
   onArchetypeChange?(id: ArchetypeId): void;
   /** Open the triage queue from the health area. */
   onOpenTriage?(): void;
+  /** The Quality page's issue counts, so the Overview and the Quality page always agree. */
+  issueSummary?(): { fix: number; review: number } | null;
+  /** Open the Quality page on its Issues tab. */
+  onOpenQuality?(): void;
 }
 
 export type NextStepAction =
@@ -634,6 +638,26 @@ export class Overview {
         el("span", { class: "health-label" }, [tile.label]),
       );
       wrap.append(node);
+    }
+    const unified = this.callbacks.issueSummary?.() ?? null;
+    if (unified !== null) {
+      const total = unified.fix + unified.review;
+      if (total > 0) {
+        const review = el(
+          "button",
+          {
+            class: "ghost small triage-open",
+            type: "button",
+            title: "Open the Data Quality page — the same list, with previews and undo",
+          },
+          [
+            `${unified.fix} ${plural(unified.fix, "issue needs", "issues need")} fixing · ${unified.review} worth reviewing — Review all`,
+          ],
+        ) as HTMLButtonElement;
+        review.addEventListener("click", () => this.callbacks.onOpenQuality?.());
+        wrap.append(review);
+      }
+      return wrap;
     }
     const issues = countIssues(columns, stats);
     if (issues > 0) {

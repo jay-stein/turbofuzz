@@ -1,3 +1,4 @@
+import { getOptionalMarks, setOptionalMark } from "./optional-marks.js";
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
 import {
   listArchiveEntries,
@@ -7,8 +8,20 @@ import {
 } from "../parse/archive.js";
 import { decompressBzip2 } from "../parse/bz2.js";
 import { decodeText } from "../parse/encoding.js";
-import { parseDelimited, sameHeaderRow } from "../parse/parse.js";
-import { detectTable } from "../parse/header-detect.js";
+import { parseDelimited } from "../parse/parse.js";
+import { detectTable, type HeaderLayout } from "../parse/header-detect.js";
+import { openHeaderRowDialog } from "./header-row-dialog.js";
+import { openProtectDialog, type ProtectMode } from "./protect-dialog.js";
+import { openFixPreview } from "./fix-preview-dialog.js";
+import { buildColumnHealth, buildIssues, type PageIssue } from "../data/dq-issues.js";
+import { columnsIgnoring, idLikeColumns, nearDuplicateFinding } from "../data/near-duplicates.js";
+import { maskValue } from "../data/mask-value.js";
+import { getSensitiveMark, setSensitiveMark } from "./sensitive-marks.js";
+import {
+  scoreSensitivity,
+  type ColumnSensitivityInput,
+  type SensitiveFinding,
+} from "../data/sensitivity.js";
 import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
 import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
 import type { ColumnFilter } from "../search/query-engine.js";
@@ -86,6 +99,8 @@ import {
   buildMultiFilePreflight,
   openMultiFilePreflight,
   type FilePreflightSample,
+  type MultiFileAppendMode,
+  type MultiFilePreflight,
 } from "./multi-file-preflight.js";
 import { LoadCancelledError, SearchWorkerClient } from "./worker-client.js";
 import { openCleanPanel } from "./clean-panel.js";
@@ -119,6 +134,9 @@ import {
   buildDQReport,
   dqReportJson,
   dqReportMarkdown,
+  dqReportHtml,
+  supplierMessage,
+  type DQReport,
   emitDQChecks,
 } from "../data/dq-report.js";
 import { safeFileName } from "./chart-utils.js";
@@ -126,9 +144,32 @@ import type { DQExportKind } from "./quality-panel.js";
 import {
   QualityPage,
   type FreshnessColumn,
-  type SensitiveColumn,
+  type FixOutcome,
+  type SensitiveCard,
+  type SensitiveChange,
 } from "./quality-page.js";
-import type { PairOperator } from "../data/pair-checks.js";
+import { suggestPairs, type PairOperator } from "../data/pair-checks.js";
+import {
+  describeRule,
+  parseRulesFile,
+  recommendRules,
+  ruleToCheck,
+  schemaFingerprint,
+  serialiseRules,
+  type Rule,
+  type RuleResult,
+} from "../data/rules.js";
+import {
+  buildSnapshot,
+  historyKey,
+  isDuplicateLoad,
+  openIndexedDbStore,
+  type HistoryStore,
+  type Snapshot,
+} from "../data/history.js";
+import { accuracyChecks, candidateKinds } from "../data/reference.js";
+import { buildRulesPanel } from "./rules-panel.js";
+import { buildHistoryPanel } from "./history-panel.js";
 import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
@@ -147,15 +188,12 @@ import {
   coMissingnessFindings,
   distributionFindings,
   similarClusterFindings,
+  reviewFindings,
   textProfileFindings,
   type Finding,
 } from "../data/findings.js";
 
 const LARGE_PASTE_ROWS = 300_000;
-/** Bytes read from each archive entry for the Import-all header check. */
-const HEADER_PREFIX_BYTES = 131_072;
-/** Estimated cells (rows x columns) above which Import all is refused. */
-const MAX_APPEND_CELLS = 20_000_000;
 const SIDEBAR_COLLAPSED_KEY = "turbofuzz.filters.collapsed";
 const COLUMN_TILES_KEY = "turbofuzz.table.tiles";
 
@@ -220,13 +258,6 @@ function sameTokens(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false;
   const set = new Set(a);
   return b.every((value) => set.has(value));
-}
-
-/** Compact row estimate for the Import-all label: 3.7M, 480k, 950. */
-function formatApproxRows(rows: number): string {
-  if (rows >= 1_000_000) return `${(rows / 1_000_000).toFixed(1)}M`;
-  if (rows >= 1_000) return `${Math.round(rows / 1_000)}k`;
-  return String(Math.max(0, Math.round(rows)));
 }
 
 function formatBytes(size: number): string {
@@ -367,6 +398,38 @@ async function copyText(text: string): Promise<boolean> {
   return ok;
 }
 
+/** One delimited file to append: a loose file or an archive entry. */
+interface AppendSource {
+  name: string;
+  size: number;
+  /** Reads roughly the first `bytes` bytes (enough for header detection). */
+  prefix: (bytes: number) => Promise<ArrayBuffer>;
+  /** Reads the whole file; called again on reload, so it must return a fresh buffer. */
+  all: () => Promise<ArrayBuffer>;
+}
+
+interface ImportSource {
+  name: string;
+  /** The chosen header layout, or null while the automatic guess is in use. */
+  layout: HeaderLayout | null;
+  /** Shown in the header-row chooser, e.g. that one layout covers several files. */
+  note?: string;
+  /** First rows as parsed, before any header handling. */
+  readPreview: () => Promise<string[][]>;
+  /** Re-reads the source with a new layout (null = automatic) and rebuilds the table. */
+  reload: (layout: HeaderLayout | null) => Promise<void>;
+}
+
+const HEADER_PREVIEW_ROWS = 60;
+
+/** Copies bytes into a standalone ArrayBuffer that can be transferred to the worker. */
+function bytesToBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+const MULTI_FILE_HEADER_NOTE =
+  "Shown for the first file. The same rows to skip and header rows apply to every file, so they need a consistent layout.";
+const HEADER_PREVIEW_BYTES = 1_000_000;
+
 export class App {
   private readonly client = new SearchWorkerClient();
   private metas: ColumnMeta[] = [];
@@ -427,6 +490,9 @@ export class App {
   private moreButton!: HTMLButtonElement;
   private statsButton!: HTMLButtonElement;
   private convertTypesButton!: HTMLButtonElement;
+  private headerRowButton!: HTMLButtonElement;
+  /** How the current table was read, so the header row can be re-chosen and reloaded. */
+  private importSource: ImportSource | null = null;
   private readonly specials = new Set<SpecialKind>();
   private readonly castFailureCounts = new Map<number, number>();
   private readonly columnSpecials = new Map<number, Set<ColumnQaKind>>();
@@ -488,7 +554,29 @@ export class App {
   private relationshipsHost!: HTMLElement;
   private qualityHost!: HTMLElement;
   private qualityPage: QualityPage | null = null;
-  private sensitiveProfiles: SensitiveColumn[] = [];
+  /** Engine output for the current data: one finding per possibly-sensitive column. */
+  private sensitiveFindings: SensitiveFinding[] = [];
+  /** Worker-scanned shape counts per text-like column, filled as results stream in. */
+  private sensitiveInputs = new Map<number, ColumnSensitivityInput>();
+  private sensitiveScan: { cancel: () => void } | null = null;
+  private sensitiveRenderTimer: number | null = null;
+  private sensitiveNotes = new Map<number, string>();
+  /** Distinct rows failing a deterministic check; undefined while counting. */
+  private rowsAffected: { count: number; total: number } | null | undefined = undefined;
+  private rowsAffectedKey = "";
+  private nearDuplicate: Finding | null = null;
+  private nearDuplicateKey = "";
+  private suggestedPairsKey = "";
+  private accuracyKey = "";
+  private rules: Rule[] = [];
+  private ruleResults = new Map<string, RuleResult>();
+  private ruleKey = "";
+  private ruleSuggestions: Rule[] = [];
+  private savedRulesOffered = false;
+  private historyStore: HistoryStore | null | undefined = undefined;
+  private historySnapshots: Snapshot[] = [];
+  private historyKeyRecorded = "";
+  private disabledSuggestions = new Set<string>();
   private sensitiveScanned = false;
   private sensitiveKey = "";
   private advancedFindings: Finding[] = [];
@@ -849,6 +937,19 @@ export class App {
     ) as HTMLButtonElement;
     this.convertTypesButton.addEventListener("click", () => this.openBatchTypes());
 
+    this.headerRowButton = el(
+      "button",
+      {
+        class: "ghost small nav-action header-row-button",
+        type: "button",
+        title: "Choose which row holds the column names, or how many rows to skip",
+        "aria-label": "Set header row",
+      },
+      ["Header row…"],
+    ) as HTMLButtonElement;
+    this.headerRowButton.disabled = true;
+    this.headerRowButton.addEventListener("click", () => void this.openHeaderRowOverride());
+
     const actionsMenu = el(
       "button",
       { class: "ghost small nav-actions-menu", type: "button", title: "Convert types, recipe and export" },
@@ -857,6 +958,12 @@ export class App {
     actionsMenu.addEventListener("click", () =>
       openMenu(actionsMenu, [
         { label: "Convert types", action: () => this.convertTypesButton.click() },
+        {
+          label: "Header row…",
+          title: this.headerRowButton.title,
+          disabled: this.headerRowButton.disabled,
+          action: () => this.headerRowButton.click(),
+        },
         {
           label: this.stepsButton.textContent ?? "Recipe",
           title: this.stepsButton.title,
@@ -871,6 +978,7 @@ export class App {
       el("span", { class: "grow" }),
       el("div", { class: "nav-actions" }, [
         this.convertTypesButton,
+        this.headerRowButton,
         this.stepsButton,
         this.exportButton,
         actionsMenu,
@@ -1089,6 +1197,8 @@ export class App {
         this.rerenderOverview();
       },
       onOpenTriage: () => this.openTriage(),
+      onOpenQuality: () => this.setView("quality"),
+      issueSummary: () => this.issueSummary(),
     });
     const body = el("div", { class: "workspace-body" }, [sidebar, results]);
     workspace.append(navRow, this.overviewHost, body);
@@ -1171,7 +1281,33 @@ export class App {
         this.sampleNote = `sample: first ${SAMPLE_ROWS.toLocaleString()} rows of ≈${estimate.rows.toLocaleString()}`;
       }
     }
-    void this.load({ text, name: "Pasted data", source: "paste", maxRows });
+    const importSource = (layout: HeaderLayout | null): ImportSource => ({
+      name: "Pasted data",
+      layout,
+      readPreview: async () =>
+        parseDelimited(text.slice(0, HEADER_PREVIEW_BYTES), {
+          delimiter: this.delimiterSelect.value as Delimiter | "auto",
+          hasHeaders: false,
+          normalizeRows: false,
+          preview: HEADER_PREVIEW_ROWS,
+        }).rows,
+      reload: (next) =>
+        this.load({
+          text,
+          name: "Pasted data",
+          source: "paste",
+          maxRows,
+          headerLayout: next ?? undefined,
+          importSource: importSource(next),
+        }),
+    });
+    void this.load({
+      text,
+      name: "Pasted data",
+      source: "paste",
+      maxRows,
+      importSource: importSource(null),
+    });
   }
 
   private async load(options: {
@@ -1182,6 +1318,8 @@ export class App {
     source: "paste" | "file";
     maxRows?: number;
     deferStats?: boolean;
+    headerLayout?: HeaderLayout;
+    importSource?: ImportSource;
   }): Promise<void> {
     if (this.loading) return;
     this.loading = true;
@@ -1209,6 +1347,7 @@ export class App {
         buffer: options.buffer,
         files: options.files,
         maxRows: options.maxRows,
+        headerLayout: options.headerLayout,
         deferStats:
           options.deferStats ??
           ((options.buffer !== undefined || options.files !== undefined) &&
@@ -1217,6 +1356,7 @@ export class App {
       this.statusEl.textContent = "";
       this.hideLoadProgress();
       this.openWorkspace(loaded);
+      this.setImportSource(options.importSource ?? null);
       if (loaded.statsPending === true) void this.finalizeDatasetMetrics(loaded);
       if (options.files !== undefined && options.files.length > 1) {
         this.setAction(
@@ -1302,29 +1442,64 @@ export class App {
       );
       return;
     }
-    const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name));
-    const samples: FilePreflightSample[] = [];
-    for (const file of sorted) {
-      const buffer = await file.slice(0, PREFLIGHT_BYTES).arrayBuffer();
-      const decoded = decodeText(buffer);
-      const parsed = parseDelimited(decoded.text, {
-        delimiter: this.delimiterSelect.value as Delimiter | "auto",
-        hasHeaders: this.headersCheckbox.checked,
-        preview: 500,
-      });
-      samples.push({
+    await this.appendSources(
+      files.map((file) => ({
         name: file.name,
         size: file.size,
-        headers: parsed.headers,
-        sampleRows: parsed.rows.length,
-        sampleBytes: buffer.byteLength,
-        encoding: decoded.encoding,
-        delimiter: parsed.delimiter,
-      });
+        prefix: (bytes) => file.slice(0, bytes).arrayBuffer(),
+        all: () => file.arrayBuffer(),
+      })),
+      `${files.length} files`,
+    );
+  }
+
+  /**
+   * Appends several delimited sources (loose files or archive entries) into one
+   * table: preflight with a shared header-row choice, then one worker load that
+   * aligns columns by name. Every source gets the same layout.
+   */
+  private async appendSources(unsorted: readonly AppendSource[], label: string): Promise<void> {
+    const sorted = [...unsorted].sort((a, b) => a.name.localeCompare(b.name));
+    // One header layout for every file: appended files must share a format.
+    let layout: HeaderLayout | null = null;
+    let preflight: MultiFilePreflight;
+    let mode: MultiFileAppendMode;
+    for (;;) {
+      const samples: FilePreflightSample[] = [];
+      for (const file of sorted) {
+        const buffer = await file.prefix(PREFLIGHT_BYTES);
+        const decoded = decodeText(buffer);
+        const delimiter = this.delimiterSelect.value as Delimiter | "auto";
+        const detect = layout !== null || this.headersCheckbox.checked;
+        const parsed = parseDelimited(decoded.text, {
+          delimiter,
+          hasHeaders: false,
+          normalizeRows: false,
+          preview: 500,
+        });
+        // Same header handling as the real load, so the preview matches it.
+        const table = detect ? detectTable(parsed.rows, layout ?? undefined) : null;
+        const fallback = table === null ? parseDelimited(decoded.text, { delimiter, hasHeaders: false, preview: 500 }) : null;
+        samples.push({
+          name: file.name,
+          size: file.size,
+          headers: table?.headers ?? fallback?.headers ?? [],
+          sampleRows: table?.rows.length ?? fallback?.rows.length ?? 0,
+          sampleBytes: buffer.byteLength,
+          encoding: decoded.encoding,
+          delimiter: parsed.delimiter,
+        });
+      }
+      preflight = buildMultiFilePreflight(samples);
+      const choice = await openMultiFilePreflight(preflight);
+      if (choice === null) return;
+      if (choice !== "headerRow") {
+        mode = choice;
+        break;
+      }
+      const picked = await this.chooseMultiFileHeader(sorted, layout);
+      if (picked !== undefined) layout = picked;
     }
-    const preflight = buildMultiFilePreflight(samples);
-    const mode = await openMultiFilePreflight(preflight);
-    if (mode === null) return;
     if (mode === "identical" && !preflight.identicalColumns) {
       this.setStatusError("The files do not have identical columns.");
       return;
@@ -1338,7 +1513,7 @@ export class App {
           cells: preflight.totalCells,
           columns: preflight.commonColumns.length,
         },
-        `${sorted.length} files`,
+        label,
       );
       if (choice === null) return;
       if (choice === "sample") {
@@ -1347,23 +1522,76 @@ export class App {
       }
     }
     this.showLoadProgress(
-      `${sorted.length} files`,
+      label,
       sorted.reduce((sum, file) => sum + file.size, 0),
     );
     try {
       const payload: { name: string; buffer: ArrayBuffer }[] = [];
       for (const file of sorted) {
-        payload.push({ name: file.name, buffer: await file.arrayBuffer() });
+        payload.push({ name: file.name, buffer: await file.all() });
       }
+      const importSource = (current: HeaderLayout | null): ImportSource => ({
+        name: label,
+        layout: current,
+        note: MULTI_FILE_HEADER_NOTE,
+        readPreview: () => this.readFilePreview(sorted[0]),
+        reload: async (next) => {
+          const again: { name: string; buffer: ArrayBuffer }[] = [];
+          for (const file of sorted) again.push({ name: file.name, buffer: await file.all() });
+          await this.load({
+            files: again,
+            name: label,
+            source: "file",
+            maxRows,
+            headerLayout: next ?? undefined,
+            importSource: importSource(next),
+          });
+        },
+      });
       await this.load({
         files: payload,
-        name: `${sorted.length} files`,
+        name: label,
         source: "file",
         maxRows,
+        headerLayout: layout ?? undefined,
+        importSource: importSource(layout),
       });
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not read files");
     }
+  }
+
+  /** First rows of a delimited file exactly as parsed, for the header-row chooser. */
+  private async readFilePreview(file: AppendSource): Promise<string[][]> {
+    return parseDelimited(decodeText(await file.prefix(HEADER_PREVIEW_BYTES)).text, {
+      delimiter: this.delimiterSelect.value as Delimiter | "auto",
+      hasHeaders: false,
+      normalizeRows: false,
+      preview: HEADER_PREVIEW_ROWS,
+    }).rows;
+  }
+
+  /**
+   * Asks for the header layout using the first file as the example. The result
+   * applies to every file; undefined means the user cancelled, null means
+   * "back to the automatic guess".
+   */
+  private async chooseMultiFileHeader(
+    files: readonly AppendSource[],
+    current: HeaderLayout | null,
+  ): Promise<HeaderLayout | null | undefined> {
+    const preview = await this.readFilePreview(files[0]);
+    if (preview.length === 0) return undefined;
+    const auto = detectTable(preview);
+    const result = await openHeaderRowDialog({
+      name: files[0].name,
+      preview,
+      current: current ?? { skipRows: auto.skipRows, headerRows: auto.headerRows },
+      overridden: current !== null,
+      note: MULTI_FILE_HEADER_NOTE,
+    });
+    if (result === null) return undefined;
+    return result.kind === "auto" ? null : result.layout;
   }
 
   private async loadFile(file: File): Promise<void> {
@@ -1403,11 +1631,34 @@ export class App {
       const buffer = await file.arrayBuffer();
       const maxRows = await this.confirmLargeBuffer(buffer, file.name);
       if (maxRows === "cancel") return;
+      const sampleRows = maxRows === "sample" ? SAMPLE_ROWS : undefined;
+      // The buffer is handed to the worker, so a reload re-reads the file.
+      const importSource = (layout: HeaderLayout | null): ImportSource => ({
+        name: file.name,
+        layout,
+        readPreview: async () =>
+          parseDelimited(decodeText(await file.slice(0, HEADER_PREVIEW_BYTES).arrayBuffer()).text, {
+            delimiter: this.delimiterSelect.value as Delimiter | "auto",
+            hasHeaders: false,
+            normalizeRows: false,
+            preview: HEADER_PREVIEW_ROWS,
+          }).rows,
+        reload: async (next) =>
+          this.load({
+            buffer: await file.arrayBuffer(),
+            name: file.name,
+            source: "file",
+            maxRows: sampleRows,
+            headerLayout: next ?? undefined,
+            importSource: importSource(next),
+          }),
+      });
       await this.load({
         buffer,
         name: file.name,
         source: "file",
-        maxRows: maxRows === "sample" ? SAMPLE_ROWS : undefined,
+        maxRows: sampleRows,
+        importSource: importSource(null),
       });
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not read file");
@@ -1465,47 +1716,27 @@ export class App {
           void this.openArchiveEntry(entry, fileName, buffer);
         },
       }));
-      // Delimited files can be appended into one table when every file's
-      // first row matches; workbooks still need a single pick.
+      // Delimited files can be appended into one table. The preflight shows how
+      // well the columns line up and lets the user choose one header row for all.
       const allDelimited = entries.every(
         (entry) => !WORKBOOK_EXTENSIONS.includes(extensionOf(entry.name)),
       );
       if (allDelimited) {
-        const check = await this.checkArchiveHeaders(entries, buffer);
-        this.setLoadingText("");
-        if (check.ok) {
-          const estimatedCells = check.estimatedRows * check.headers.length;
-          const tooBig = estimatedCells > MAX_APPEND_CELLS;
-          const sizeNote = `~${formatApproxRows(check.estimatedRows)} rows × ${check.headers.length.toLocaleString()} columns`;
-          this.showPicker(
-            `${entries.length} files in ${fileName} — pick one, or append them all`,
-            pickItems,
-            {
-              label: `Import all ${entries.length} files (append rows)`,
-              title: tooBig
-                ? `${sizeNote} — over the in-browser append limit; load one file at a time instead`
-                : "The first row matches in every file — concatenate them into one table",
-              note: tooBig
-                ? `${sizeNote} — too large to append in the browser; pick one file instead`
-                : `${sizeNote} · first row identical in all ${entries.length} files`,
-              disabled: tooBig,
-              onSelect: () => {
-                this.hideTablePicker();
-                void this.importArchiveTables(entries, buffer, fileName, check.headers);
-              },
-            },
-          );
-          return;
-        }
+        const totalBytes = entries.reduce((sum, entry) => sum + entry.size, 0);
         this.showPicker(
           `${entries.length} files in ${fileName} — pick one, or append them all`,
           pickItems,
           {
             label: `Import all ${entries.length} files (append rows)`,
-            title: check.reason,
-            note: check.reason,
-            disabled: true,
-            onSelect: () => undefined,
+            title: "Append every file into one table. You can check the columns and choose the header row first.",
+            note: `${formatBytes(totalBytes)} · header row can be chosen`,
+            onSelect: () => {
+              this.hideTablePicker();
+              void this.appendSources(
+                entries.map((entry) => this.archiveSource(entry, buffer)),
+                `${fileName.replace(/\.zip$/i, "")} — ${entries.length} files`,
+              );
+            },
           },
         );
         return;
@@ -1533,118 +1764,29 @@ export class App {
         return;
       }
       this.setLoadingText("");
-      await this.load({
-        buffer: data,
-        name: `${fileName.replace(/\.zip$/i, "")}/${entry.path}`,
-        source: "file",
-      });
+      await this.loadWithHeaderSource(
+        data,
+        `${fileName.replace(/\.zip$/i, "")}/${entry.path}`,
+        async () => bytesToBuffer(await readArchiveEntry(archive, entry.path)),
+      );
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not extract file");
     }
   }
 
-  /**
-   * Tests whether every delimited archive entry's first row matches, reading
-   * only a prefix of each entry so huge ZIPs stay fast and memory-bounded.
-   * The estimated row count guards Import all against the browser's limits.
-   */
-  private async checkArchiveHeaders(
-    entries: readonly ArchiveEntry[],
-    archive: ArrayBuffer,
-  ): Promise<
-    { ok: true; headers: string[]; estimatedRows: number } | { ok: false; reason: string }
-  > {
-    try {
-      this.setLoadingText(`Checking headers… 0/${entries.length}`);
-      const prefixes = await readArchivePrefixes(
-        archive,
-        entries.map((entry) => entry.path),
-        HEADER_PREFIX_BYTES,
-        {
-          onProgress: (done, total) => this.setLoadingText(`Checking headers… ${done}/${total}`),
-        },
-      );
-      let headers: string[] | null = null;
-      let bytesPerRow = 0;
-      for (let index = 0; index < entries.length; index++) {
-        const entry = entries[index];
-        if (entry === undefined) continue;
-        const prefix = prefixes.get(entry.path);
-        if (prefix === undefined) {
-          return { ok: false, reason: `“${entry.name}” could not be read` };
-        }
-        const data = prefix.buffer.slice(
-          prefix.byteOffset,
-          prefix.byteOffset + prefix.byteLength,
-        ) as ArrayBuffer;
-        const parsed = parseDelimited(decodeText(data).text, {
-          hasHeaders: true,
-          normalizeRows: false,
-        });
-        if (parsed.headers.length === 0) {
-          return { ok: false, reason: `“${entry.name}” has no first row to compare` };
-        }
-        if (headers === null) {
-          headers = parsed.headers;
-          const lines = parsed.rows.length + 1;
-          bytesPerRow = Math.max(1, prefix.byteLength / Math.max(1, lines));
-        } else if (!sameHeaderRow(headers, parsed.headers)) {
-          return {
-            ok: false,
-            reason: `“${entry.name}” has different columns — pick a single file instead`,
-          };
-        }
-        this.setLoadingText(`Checking headers… ${index + 1}/${entries.length}`);
-      }
-      if (headers === null) return { ok: false, reason: "No readable files found" };
-      const totalBytes = entries.reduce((sum, entry) => sum + entry.size, 0);
-      return { ok: true, headers, estimatedRows: Math.round(totalBytes / bytesPerRow) };
-    } catch (error) {
-      return {
-        ok: false,
-        reason: error instanceof Error ? error.message : "Could not check the files",
-      };
-    }
-  }
-
-  /**
-   * Vertically concatenates the checked archive entries into one dataset.
-   * Each file is parsed and appended in turn so only one file plus the final
-   * grid live in memory; header detection is skipped because the first row
-   * was already verified identical in every file.
-   */
-  private async importArchiveTables(
-    entries: readonly ArchiveEntry[],
-    archive: ArrayBuffer,
-    fileName: string,
-    headers: readonly string[],
-  ): Promise<void> {
-    try {
-      const hasHeaders = this.headersCheckbox.checked;
-      const grid: string[][] = hasHeaders ? [[...headers]] : [];
-      for (let index = 0; index < entries.length; index++) {
-        const entry = entries[index];
-        if (entry === undefined) continue;
-        this.setLoadingText(`Appending “${entry.name}”… (${index + 1}/${entries.length})`);
-        const bytes = await readArchiveEntry(archive, entry.path);
-        const data = bytes.buffer.slice(
-          bytes.byteOffset,
-          bytes.byteOffset + bytes.byteLength,
-        ) as ArrayBuffer;
-        const parsed = parseDelimited(decodeText(data).text, { hasHeaders: true });
-        if (!hasHeaders) grid.push([...parsed.headers]);
-        for (const row of parsed.rows) grid.push(row);
-        if (index % 4 === 3) await new Promise((resolve) => setTimeout(resolve, 0));
-      }
-      this.setLoadingText("");
-      const base = fileName.replace(/\.zip$/i, "");
-      await this.loadTable(grid, `${base} — ${entries.length} files`, hasHeaders);
-      this.setAction(
-        `Imported ${entries.length} files · ${(hasHeaders ? grid.length - 1 : grid.length).toLocaleString()} rows`,
-      );
-    } catch (error) {
-      this.setStatusError(error instanceof Error ? error.message : "Could not import the files");
-    }
+  /** An archive entry as an append source; reads only the bytes asked for. */
+  private archiveSource(entry: ArchiveEntry, archive: ArrayBuffer): AppendSource {
+    return {
+      name: entry.name,
+      size: entry.size,
+      prefix: async (bytes) => {
+        const prefixes = await readArchivePrefixes(archive, [entry.path], bytes);
+        const data = prefixes.get(entry.path);
+        if (data === undefined) throw new Error(`“${entry.name}” could not be read`);
+        return bytesToBuffer(data);
+      },
+      all: async () => bytesToBuffer(await readArchiveEntry(archive, entry.path)),
+    };
   }
 
   /** Decompresses a .gz and routes the inner file (data, workbook or zip). */
@@ -1654,7 +1796,9 @@ export class App {
     try {
       const { gunzipSync } = await import("fflate");
       const inner = gunzipSync(new Uint8Array(buffer));
-      await this.routeDecompressed(inner, fileName.replace(/\.gz$/i, ""));
+      await this.routeDecompressed(inner, fileName.replace(/\.gz$/i, ""), async () =>
+        bytesToBuffer(gunzipSync(new Uint8Array(buffer))),
+      );
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not decompress file");
     }
@@ -1668,14 +1812,21 @@ export class App {
       // Let the status paint before the synchronous decode blocks the thread.
       await new Promise((resolve) => setTimeout(resolve, 30));
       const inner = await decompressBzip2(buffer);
-      await this.routeDecompressed(inner, fileName.replace(/\.bz2$/i, ""));
+      await this.routeDecompressed(inner, fileName.replace(/\.bz2$/i, ""), async () =>
+        bytesToBuffer(await decompressBzip2(buffer)),
+      );
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not decompress file");
     }
   }
 
   /** Routes a freshly decompressed buffer to the right loader. */
-  private async routeDecompressed(inner: Uint8Array, innerName: string): Promise<void> {
+  private async routeDecompressed(
+    inner: Uint8Array,
+    innerName: string,
+    /** Produces the decompressed bytes again, so the header row can be re-chosen. */
+    reopen?: () => Promise<ArrayBuffer>,
+  ): Promise<void> {
     const data = inner.buffer.slice(
       inner.byteOffset,
       inner.byteOffset + inner.byteLength,
@@ -1698,7 +1849,42 @@ export class App {
       return;
     }
     this.setLoadingText("");
-    await this.load({ buffer: data, name: innerName, source: "file" });
+    if (reopen === undefined) {
+      await this.load({ buffer: data, name: innerName, source: "file" });
+      return;
+    }
+    await this.loadWithHeaderSource(data, innerName, reopen);
+  }
+
+  /**
+   * Loads a delimited buffer that came out of an archive or compressed file and
+   * remembers how to re-extract it, so the header row can be chosen afterwards.
+   */
+  private async loadWithHeaderSource(
+    data: ArrayBuffer,
+    name: string,
+    reopen: () => Promise<ArrayBuffer>,
+  ): Promise<void> {
+    const importSource = (layout: HeaderLayout | null): ImportSource => ({
+      name,
+      layout,
+      readPreview: async () =>
+        parseDelimited(decodeText((await reopen()).slice(0, HEADER_PREVIEW_BYTES)).text, {
+          delimiter: this.delimiterSelect.value as Delimiter | "auto",
+          hasHeaders: false,
+          normalizeRows: false,
+          preview: HEADER_PREVIEW_ROWS,
+        }).rows,
+      reload: async (next) =>
+        this.load({
+          buffer: await reopen(),
+          name,
+          source: "file",
+          headerLayout: next ?? undefined,
+          importSource: importSource(next),
+        }),
+    });
+    await this.load({ buffer: data, name, source: "file", importSource: importSource(null) });
   }
 
   /** Lists worksheets (biggest first) and either loads the only one or shows a picker. */
@@ -1769,18 +1955,26 @@ export class App {
    * Applies header detection to a raw grid (skipping title rows and merging
    * multi-level headers) when "first row is header" is enabled.
    */
-  private async loadGrid(grid: string[][], name: string): Promise<void> {
-    if (!this.headersCheckbox.checked) {
+  private async loadGrid(grid: string[][], name: string, layout?: HeaderLayout): Promise<void> {
+    const source: ImportSource = {
+      name,
+      layout: layout ?? null,
+      readPreview: async () => grid.slice(0, HEADER_PREVIEW_ROWS),
+      reload: (next) => this.loadGrid(grid, name, next ?? undefined),
+    };
+    if (layout === undefined && !this.headersCheckbox.checked) {
       await this.loadTable(grid, name, false);
+      this.setImportSource(source);
       return;
     }
 
-    const detected = detectTable(grid);
+    const detected = detectTable(grid, layout);
     const combined =
       detected.headerRows > 0 ? [detected.headers, ...detected.rows] : detected.rows;
     if (combined.length === 0) throw new Error("That table has no data");
 
     await this.loadTable(combined, name, detected.headerRows > 0);
+    this.setImportSource(source);
 
     if (detected.skipRows > 0 || detected.headerRows > 1) {
       const skipped =
@@ -1802,6 +1996,7 @@ export class App {
     this.generation++;
     this.pendingSend = null;
     this.setLoadingText("Building table…");
+    this.setImportSource(null);
 
     try {
       const hasHeaders = hasHeadersOverride ?? this.headersCheckbox.checked;
@@ -1942,7 +2137,10 @@ export class App {
     // User-run checks reference filter bits that reset with the data.
     this.dqUserChecks = [];
     this.freshnessRule = null;
-    this.sensitiveProfiles = [];
+    this.sensitiveScan?.cancel();
+    this.sensitiveScan = null;
+    this.sensitiveInputs.clear();
+    this.sensitiveFindings = [];
     this.sensitiveScanned = false;
     this.sensitiveKey = "";
     this.syncChangesButton();
@@ -1950,6 +2148,15 @@ export class App {
     // the schema, so start fresh rather than risk stale references.
     this.resetViews();
     const scoreBaselineReset = this.datasetName !== loaded.name;
+    if (scoreBaselineReset) {
+      // Rules and history belong to one file; a different file starts clean.
+      this.rules = [];
+      this.ruleResults = new Map();
+      this.ruleKey = "";
+      this.savedRulesOffered = false;
+      this.historyKeyRecorded = "";
+      this.historySnapshots = [];
+    }
     this.datasetName = loaded.name;
     this.workspaceTitle.textContent = `${loaded.name} — ${loaded.rowCount.toLocaleString()} rows`;
     this.filters.clear();
@@ -2123,6 +2330,7 @@ export class App {
       },
     });
     this.table.setColumns(this.metas);
+    this.table.setSensitive(this.sensitiveNotes);
     this.table.setSort(-1, 1);
     this.table.setCount(this.resultCount);
     this.table.setFormats(this.displayFormats);
@@ -2712,6 +2920,8 @@ export class App {
           total: counts?.total ?? 0,
           failed: counts?.failed ?? 0,
           examples: counts?.examples,
+          nonEmpty: counts?.nonEmpty,
+          digitLoss: counts?.digitLoss,
         };
       },
     }).catch(() => null);
@@ -3107,10 +3317,24 @@ export class App {
             settings.limit,
             this.exportFormat,
             this.exportCompression,
+            settings.sensitiveMode ?? "include",
           );
         },
         onClose: () => undefined,
       },
+      this.exportSensitiveColumns().map((card) => card.name),
+    );
+  }
+
+  /**
+   * Possibly-sensitive columns worth a heads-up at export: likely or possible
+   * (High or Medium) and not dismissed, or any column the user marked sensitive.
+   * Weak signals are ignored so the notice stays rare.
+   */
+  private exportSensitiveColumns(): SensitiveCard[] {
+    return this.sensitiveCards().filter(
+      (card) =>
+        card.dismissed !== true && (card.confirmed === true || card.confidence !== "low"),
     );
   }
 
@@ -3138,8 +3362,13 @@ export class App {
     limit: number | null,
     format: ExportFormat = "csv",
     compression: ExportCompression = "none",
+    sensitiveMode: "include" | "mask" | "exclude" = "include",
   ): Promise<void> {
     if (this.datasetName === "" || this.loading) return;
+    const columnHandling =
+      sensitiveMode === "include"
+        ? []
+        : this.exportSensitiveColumns().map((card) => ({ column: card.column, mode: sensitiveMode }));
     try {
       const info = formatInfo(format);
       const csvFamily = format === "csv" || format === "csv-semicolon" || format === "tsv";
@@ -3180,6 +3409,7 @@ export class App {
         const chunk = await this.client.getCsv(start, end, {
           nullAsBlank,
           escapeFormulas: csvFamily && escapeFormulas,
+          ...(columnHandling.length > 0 ? { columnHandling } : {}),
         });
         parts.push(chunk.text);
       }
@@ -3606,6 +3836,9 @@ export class App {
         this.table?.flashColumn(action.column);
         break;
       }
+      case "keyDuplicates":
+        this.runCommand({ kind: "keyDuplicates", columns: action.columns, label: action.label });
+        break;
       case "filterDuplicates": {
         if (!this.specials.has("duplicates")) this.toggleSpecial("duplicates");
         this.setView("table");
@@ -3712,7 +3945,9 @@ export class App {
     this.triage?.update(this.metas, stats);
     this.sensitiveKey = "";
     this.advancedKey = "";
-    if (this.qualityPage !== null) void this.refreshSensitiveColumns();
+    // Scan whether or not the Quality page is open, so the header dots are there too.
+    void this.refreshSensitiveColumns();
+    void this.refreshRowsAffected();
   }
 
   /** Rebuilds the Overview's zoomed-out missingness map. */
@@ -3735,7 +3970,13 @@ export class App {
       return;
     }
     const previous = baselineReset ? null : (this.dqScore?.overall ?? null);
-    const score = computeDQScore(this.metas, stats, this.rowCount, this.dqConfig, this.dqUserChecks);
+    const score = computeDQScore(
+      this.metas,
+      stats,
+      this.rowCount,
+      { ...this.dqConfig, optional: getOptionalMarks() },
+      this.dqUserChecks,
+    );
     this.dqScore = score;
     this.syncScoreTile(
       previous === null || score.overall === null ? null : score.overall - previous,
@@ -3789,6 +4030,10 @@ export class App {
       this.setView("table");
       return;
     }
+    if (check.filter === "merge") {
+      this.openMerge(check.column);
+      return;
+    }
     if (check.filter === "nulls" || check.filter === "pattern" || check.filter === "valueAnomalies") {
       const active = this.columnSpecials.get(check.column)?.has(check.filter) ?? false;
       if (!active) this.toggleColumnSpecial(check.column, check.filter);
@@ -3812,6 +4057,28 @@ export class App {
       },
       onFilter: (check) => this.handleQualityFilter(check),
       onConvert: (column, type) => this.changeType(column, type),
+      onFinding: (finding) => this.runFinding(finding),
+      onSensitiveChange: (card, change) => this.onSensitiveChange(card, change),
+      onScanExact: (column) => void this.scanSensitiveExact(column),
+      onProtect: (card, anchor) => this.openProtectMenu(card, anchor),
+      onFixIssues: (issues) => this.fixIssues(issues),
+      onShowIssue: (issue) => this.showIssue(issue),
+      buildRulesPanel: () => this.rulesPanel(),
+      ruleCount: () => this.rules.length,
+      buildHistoryPanel: () => this.historyPanel(),
+      onDisableSuggestion: (id) => {
+        this.disabledSuggestions.add(id);
+        this.dqUserChecks = this.dqUserChecks.filter((check) => check.id !== id);
+        this.refreshScore();
+      },
+      onExceptions: (includeRaw) => this.downloadExceptions(includeRaw),
+      maskedColumns: () => this.maskedColumns(),
+      onOptionalChange: (name, optional) => {
+        setOptionalMark(name, optional);
+        this.refreshScore();
+      },
+      onOpenColumn: (column, anchor) => this.openColumnInspector(column, anchor),
+      onShowAffectedRows: () => this.showAffectedRows(),
     });
     this.renderQualityPage();
     void this.refreshSensitiveColumns();
@@ -3830,62 +4097,540 @@ export class App {
     return out;
   }
 
+  /**
+   * Scans every text-like column for sensitive content in ONE cancellable worker
+   * pass. Results stream in per column, so the page fills in as they arrive and
+   * first paint is never blocked. A new load, step or edit restarts the scan.
+   */
   private async refreshSensitiveColumns(): Promise<void> {
-    const candidates = this.metas
-      .map((meta, column) => ({ meta, column }))
-      .filter((entry) =>
-        entry.meta.type === "string" ||
-        entry.meta.type === "category" ||
-        entry.meta.type === "identifier",
-      )
-      .slice(0, 12);
     const key = `${this.generation}:${this.metas.map((meta) => meta.name).join("|")}`;
     if (key === this.sensitiveKey) return;
     this.sensitiveKey = key;
+    this.sensitiveScan?.cancel();
+    this.sensitiveScan = null;
+    this.sensitiveInputs.clear();
     this.sensitiveScanned = false;
+    this.recomputeSensitive();
     this.renderQualityPage();
-    if (candidates.length === 0) {
-      this.sensitiveProfiles = [];
+    const hasText = this.metas.some(
+      (meta) => meta.type === "string" || meta.type === "category" || meta.type === "identifier",
+    );
+    if (!hasText) {
       this.sensitiveScanned = true;
       this.renderQualityPage();
       return;
     }
-    const results = await Promise.all(
-      candidates.map(async (entry) => {
-        try {
-          const message = await this.client.getTextProfile(entry.column, 1, false);
-          return { entry, message };
-        } catch {
-          return null;
+    const scan = this.client.scanSensitive({}, (message) => {
+      if (key !== this.sensitiveKey) return;
+      this.sensitiveInputs.set(message.input.column, message.input);
+      this.recomputeSensitive();
+      this.scheduleSensitiveRender();
+    });
+    this.sensitiveScan = scan;
+    try {
+      const done = await scan.done;
+      if (key !== this.sensitiveKey || done.cancelled) return;
+    } catch {
+      return;
+    }
+    this.sensitiveScanned = true;
+    this.flushSensitiveRender();
+  }
+
+  /** Rescans one column over every value, replacing its sampled counts with exact ones. */
+  private async scanSensitiveExact(column: number): Promise<void> {
+    const key = this.sensitiveKey;
+    const scan = this.client.scanSensitive({ columns: [column], exact: true }, (message) => {
+      if (key !== this.sensitiveKey) return;
+      this.sensitiveInputs.set(message.input.column, message.input);
+      this.recomputeSensitive();
+    });
+    try {
+      await scan.done;
+    } catch {
+      return;
+    }
+    if (key === this.sensitiveKey) this.flushSensitiveRender();
+  }
+
+  /** Rebuilds the findings (cheap, pure) from the shapes received so far plus column names. */
+  private recomputeSensitive(): void {
+    const inputs: ColumnSensitivityInput[] = this.metas.map((meta, column) => {
+      const scanned = this.sensitiveInputs.get(column);
+      return (
+        scanned ?? {
+          column,
+          name: meta.name,
+          type: meta.type,
+          semantic: meta.semantic ?? null,
+          shapes: null,
+          sampled: 0,
+          scanned: Math.max(0, this.rowCount - meta.stats.nulls),
         }
-      }),
-    );
-    if (key !== this.sensitiveKey) return;
-    const profiles: SensitiveColumn[] = [];
-    for (const result of results) {
-      if (result === null) continue;
-      const shapes = result.message.profile.shapes;
-      const counts = [
-        { label: "Email", count: shapes.email },
-        { label: "Phone", count: shapes.phone },
-        { label: "Card", count: shapes.creditCard },
-        { label: "IBAN", count: shapes.iban },
-        { label: "TFN", count: shapes.taxFileNumber },
-        { label: "ABN", count: shapes.abn },
-        { label: "ACN", count: shapes.acn },
-        { label: "SSN-like", count: shapes.governmentId },
-      ].filter((count) => count.count > 0);
-      if (counts.length === 0) continue;
-      profiles.push({
-        column: result.entry.column,
-        name: result.entry.meta.name,
-        rows: result.message.profile.rows,
-        counts,
+      );
+    });
+    this.sensitiveFindings = scoreSensitivity(inputs);
+    this.syncSensitiveMarkers();
+  }
+
+  /** The findings with the user's earlier decisions applied (not sensitive, marked, label). */
+  private sensitiveCards(): SensitiveCard[] {
+    return this.sensitiveFindings.map((finding) => {
+      const meta = this.metas[finding.column];
+      const mark = getSensitiveMark(finding.name, meta?.type ?? "");
+      const samples = (meta?.stats.samples ?? []).filter((value) => value.trim() !== "").slice(0, 3);
+      return {
+        ...finding,
+        ...(mark.dismissed === true ? { dismissed: true } : {}),
+        ...(mark.confirmed === true ? { confirmed: true } : {}),
+        label: mark.label ?? finding.label,
+        examples: samples.map(maskValue),
+        revealed: samples,
+      };
+    });
+  }
+
+  /** Small dot on the header (and a line in the inspector) for columns still flagged. */
+  private syncSensitiveMarkers(): void {
+    const notes = new Map<number, string>();
+    for (const card of this.sensitiveCards()) {
+      if (card.dismissed === true) continue;
+      if (card.confidence === "low" && card.confirmed !== true) continue;
+      notes.set(card.column, card.reasons.map((reason) => reason.label).join("; "));
+    }
+    this.sensitiveNotes = notes;
+    this.table?.setSensitive(notes);
+  }
+
+  /** The table drill-down behind an issue: its check's rows, or its finding's action. */
+  private showIssue(issue: PageIssue): void {
+    if (issue.finding !== undefined) {
+      this.runFinding(issue.finding);
+      return;
+    }
+    if (issue.check === undefined) return;
+    if (issue.kind === "variants" && issue.column !== null) {
+      this.openMerge(issue.column);
+      return;
+    }
+    if (issue.kind === "empty" && issue.column !== null) {
+      this.openClean(issue.column, "nulls");
+      return;
+    }
+    if (issue.kind === "unreadable" && issue.column !== null) {
+      this.setView("table");
+      this.table?.flashColumn(issue.column);
+      return;
+    }
+    this.handleQualityFilter(issue.check);
+  }
+
+  /** Counts the distinct rows that fail a check (worker pass) and shows them on the tile. */
+  private async refreshRowsAffected(): Promise<void> {
+    const key = `${this.generation}:${this.rowCount}:${this.metas.map((meta) => `${meta.name}:${meta.stats.nulls}:${meta.type}`).join("|")}`;
+    if (key === this.rowsAffectedKey) return;
+    this.rowsAffectedKey = key;
+    this.rowsAffected = undefined;
+    void this.refreshNearDuplicates();
+    void this.refreshSuggestedPairs();
+    void this.refreshRules();
+    void this.refreshAccuracy();
+    void this.recordHistory();
+    try {
+      const message = await this.client.getRowsAffected();
+      if (key !== this.rowsAffectedKey) return;
+      this.rowsAffected = { count: message.count, total: message.total };
+    } catch {
+      if (key === this.rowsAffectedKey) this.rowsAffected = null;
+    }
+    this.renderQualityPage();
+  }
+
+  /** Filters the table to the rows counted by the Rows affected tile. */
+  private showAffectedRows(): void {
+    if (!this.specials.has("affectedRows")) this.toggleSpecial("affectedRows");
+    this.setView("table");
+    const count = this.rowsAffected?.count ?? 0;
+    this.showToast(`Showing the ${count.toLocaleString()} rows that fail a check.`, () => {
+      if (this.specials.has("affectedRows")) this.toggleSpecial("affectedRows");
+    });
+  }
+
+  /**
+   * One preview, then each ticked issue is applied as its own undoable Recipe
+   * step. The returned undo functions put each column back exactly as it was.
+   */
+  private async fixIssues(issues: readonly PageIssue[]): Promise<FixOutcome | null> {
+    const chosen = await openFixPreview(issues);
+    if (chosen === null || chosen.length === 0) return null;
+    const items: FixOutcome["items"] = [];
+    for (const issue of issues.filter((candidate) => chosen.includes(candidate.id))) {
+      const undos: (() => void)[] = [];
+      for (const step of issue.fixes) {
+        const meta = this.metas[step.column];
+        if (meta === undefined) continue;
+        if (step.kind === "standardise") {
+          const existing = this.cleanedColumns.get(step.column) ?? [];
+          const op: CleanOp = { kind: "recode", pairs: step.pairs };
+          this.applyClean([{ column: step.column, ops: [...existing, op] }]);
+          undos.push(() => this.applyClean([{ column: step.column, ops: existing }]));
+        } else if (step.kind === "numberSymbols") {
+          const existing = this.cleanedColumns.get(step.column) ?? [];
+          const op: CleanOp = { kind: "toNumber", locale: step.locale };
+          this.applyClean([{ column: step.column, ops: [...existing, op] }]);
+          undos.push(() => this.applyClean([{ column: step.column, ops: existing }]));
+        } else if (step.kind === "dateFormat") {
+          const existing = this.cleanedColumns.get(step.column) ?? [];
+          const op: CleanOp = { kind: "toDate", order: step.order };
+          this.applyClean([{ column: step.column, ops: [...existing, op] }]);
+          undos.push(() => this.applyClean([{ column: step.column, ops: existing }]));
+        } else if (step.kind === "placeholders") {
+          const previous = { extra: [...meta.nullPolicy.extra], keep: [...meta.nullPolicy.keep] };
+          const extra = [...new Set([...previous.extra, ...step.tokens])];
+          this.applyNullPolicy(step.column, extra, previous.keep, {
+            label: `${meta.name}: placeholder text treated as missing`,
+          });
+          undos.push(() =>
+            this.applyNullPolicy(step.column, previous.extra, previous.keep, {
+              label: `${meta.name}: placeholder change undone`,
+            }),
+          );
+        }
+      }
+      items.push({
+        id: issue.id,
+        // Undo in reverse order so stacked steps unwind cleanly.
+        undo: () => [...undos].reverse().forEach((undo) => undo()),
       });
     }
-    this.sensitiveProfiles = profiles;
-    this.sensitiveScanned = true;
+    this.showToast(
+      items.length === 1 ? "Applied 1 fix" : `Applied ${items.length} fixes`,
+      () => items.forEach((item) => item.undo()),
+      "Undo all",
+    );
+    return { items };
+  }
+
+  /** Mask / hash / drop for a flagged column. Each is an undoable Recipe step. */
+  private openProtectMenu(card: SensitiveCard, anchor: HTMLElement): void {
+    openMenu(anchor, [
+      { label: "Mask values…", action: () => void this.protectColumn(card.column, "mask") },
+      { label: "Hash values…", action: () => void this.protectColumn(card.column, "hash") },
+      { label: "Drop column…", action: () => void this.confirmDeleteColumn(card.column) },
+    ]);
+  }
+
+  private async protectColumn(column: number, mode: ProtectMode): Promise<void> {
+    const meta = this.metas[column];
+    if (meta === undefined) return;
+    const op = await openProtectDialog({
+      name: meta.name,
+      mode,
+      samples: meta.stats.samples,
+      affected: Math.max(0, this.rowCount - meta.stats.nulls),
+    });
+    if (op === null) return;
+    const existing = this.cleanedColumns.get(column) ?? [];
+    this.applyClean([{ column, ops: [...existing, op] }]);
+    const key = JSON.stringify(op);
+    this.showToast(`${mode === "mask" ? "Masked" : "Hashed"} “${meta.name}”`, () => {
+      const current = this.cleanedColumns.get(column) ?? [];
+      const index = current.findIndex((entry) => JSON.stringify(entry) === key);
+      if (index < 0) return;
+      this.applyClean([{ column, ops: current.filter((_, i) => i !== index) }]);
+    });
+  }
+
+  private onSensitiveChange(card: SensitiveCard, change: SensitiveChange): void {
+    const meta = this.metas[card.column];
+    if (meta === undefined) return;
+    setSensitiveMark(card.name, meta.type, change);
+    this.syncSensitiveMarkers();
+    this.flushSensitiveRender();
+  }
+
+  /** Streaming results repaint at most a few times a second. */
+  private scheduleSensitiveRender(): void {
+    if (this.sensitiveRenderTimer !== null) return;
+    this.sensitiveRenderTimer = window.setTimeout(() => this.flushSensitiveRender(), 150);
+  }
+
+  private flushSensitiveRender(): void {
+    if (this.sensitiveRenderTimer !== null) {
+      window.clearTimeout(this.sensitiveRenderTimer);
+      this.sensitiveRenderTimer = null;
+    }
     this.renderQualityPage();
+  }
+
+  /** Name-pair consistency checks (end after start, ...), counted off the table filter. */
+  private async refreshSuggestedPairs(): Promise<void> {
+    const pairs = suggestPairs(this.metas);
+    const key = `${this.generation}:${this.rowCount}:${pairs.map((pair) => `${pair.a}-${pair.b}`).join(",")}`;
+    if (key === this.suggestedPairsKey) return;
+    this.suggestedPairsKey = key;
+    const checks: ScoreCheck[] = [];
+    for (const pair of pairs) {
+      const id = `consistency.suggested.${pair.a}.${pair.b}`;
+      if (this.disabledSuggestions.has(id)) continue;
+      try {
+        const message = await this.client.countPair(pair.a, pair.b, pair.operator);
+        if (key !== this.suggestedPairsKey) return;
+        checks.push({
+          id,
+          dimension: "consistency",
+          label: `${pair.label} (suggested)`,
+          detail: `${message.compared.toLocaleString()} rows compared · proposed from the column names`,
+          pass: Math.max(0, message.compared - message.violations),
+          fail: message.violations,
+          na: 0,
+          column: null,
+          filter: null,
+          fixLabel: null,
+          suggested: true,
+        });
+      } catch {
+        return;
+      }
+    }
+    this.dqUserChecks = [...this.dqUserChecks.filter((check) => check.suggested !== true), ...checks];
+    this.refreshScore();
+  }
+
+  /** Offline Accuracy: columns that name a country, currency, state, weekday or month are checked against bundled lists. */
+  private async refreshAccuracy(): Promise<void> {
+    if (!this.metas.some((meta) => meta.categories !== null && candidateKinds(meta.name).length > 0)) return;
+    const key = `${this.generation}:${this.rowCount}`;
+    if (key === this.accuracyKey) return;
+    this.accuracyKey = key;
+    let checks: ScoreCheck[];
+    try {
+      checks = await accuracyChecks(this.metas);
+    } catch {
+      return;
+    }
+    if (key !== this.accuracyKey) return;
+    this.dqUserChecks = [...this.dqUserChecks.filter((check) => !check.id.startsWith("accuracy.")), ...checks];
+    this.refreshScore();
+  }
+
+  private rulesStorageKey(): string {
+    return `turbofuzz.rules.${schemaFingerprint(this.metas)}`;
+  }
+
+  private saveRulesSession(): void {
+    try {
+      sessionStorage.setItem(this.rulesStorageKey(), JSON.stringify(this.rules.map(({ suggested: _s, ...rule }) => rule)));
+    } catch {
+      // Session storage may be blocked; the rules still work for this load.
+    }
+  }
+
+  private savedRules(): Rule[] {
+    try {
+      const text = sessionStorage.getItem(this.rulesStorageKey());
+      if (text === null) return [];
+      const parsed = parseRulesFile(JSON.stringify({ version: 1, rules: JSON.parse(text) }));
+      return "error" in parsed ? [] : parsed.file.rules;
+    } catch {
+      return [];
+    }
+  }
+
+  /** Evaluates the accepted rules in the worker and feeds them to the score as checks. */
+  private async refreshRules(): Promise<void> {
+    if (this.metas.length === 0) return;
+    const key = `${this.generation}:${this.rowCount}:${this.rules.map((rule) => JSON.stringify(rule)).join("|")}`;
+    if (key === this.ruleKey) return;
+    this.ruleKey = key;
+    this.ruleSuggestions = recommendRules(this.metas, this.rowCount).filter(
+      (candidate) =>
+        !this.rules.some(
+          (rule) => rule.type === candidate.type && rule.column === candidate.column && (rule.other ?? "") === (candidate.other ?? ""),
+        ),
+    );
+    if (this.rules.length === 0) {
+      this.ruleResults = new Map();
+      this.dqUserChecks = this.dqUserChecks.filter((check) => !check.id.startsWith("rule."));
+      this.refreshScore();
+      return;
+    }
+    try {
+      const message = await this.client.evaluateRules(this.rules);
+      if (key !== this.ruleKey) return;
+      this.ruleResults = new Map(message.results.map((result) => [result.id, result]));
+    } catch {
+      return;
+    }
+    const checks = this.rules.map((rule) => {
+      const result = this.ruleResults.get(rule.id);
+      const column = this.metas.findIndex((meta) => meta.name === rule.column);
+      return ruleToCheck(rule, result ?? { id: rule.id, fail: 0, compared: 0, examples: [], error: null }, column === -1 ? null : column);
+    });
+    this.dqUserChecks = [...this.dqUserChecks.filter((check) => !check.id.startsWith("rule.")), ...checks];
+    this.refreshScore();
+  }
+
+  private setRules(rules: Rule[]): void {
+    this.rules = rules;
+    this.saveRulesSession();
+    void this.refreshRules();
+    this.renderQualityPage();
+  }
+
+  private rulesPanel(): HTMLElement {
+    const saved = this.savedRules();
+    const offer = !this.savedRulesOffered && this.rules.length === 0 && saved.length > 0 ? { count: saved.length } : null;
+    return buildRulesPanel(
+      {
+        accepted: this.rules,
+        suggested: this.ruleSuggestions,
+        results: this.ruleResults,
+        columnNames: this.metas.map((meta) => meta.name),
+        savedOffer: offer,
+      },
+      {
+        accept: (rule) => {
+          const { suggested: _s, ...kept } = rule;
+          this.setRules([...this.rules, kept]);
+        },
+        acceptAll: () => this.setRules([...this.rules, ...this.ruleSuggestions.map(({ suggested: _s, ...kept }) => kept)]),
+        remove: (id) => this.setRules(this.rules.filter((rule) => rule.id !== id)),
+        update: (rule) => this.setRules(this.rules.map((existing) => (existing.id === rule.id ? rule : existing))),
+        download: () => {
+          const blob = new Blob([serialiseRules(this.rules, this.metas)], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement("a");
+          anchor.href = url;
+          anchor.download = "turbofuzz-rules.json";
+          anchor.click();
+          URL.revokeObjectURL(url);
+          this.setAction("Downloaded the rules file");
+        },
+        load: (text) => {
+          const parsed = parseRulesFile(text);
+          if ("error" in parsed) {
+            this.showError(new Error(parsed.error));
+            return;
+          }
+          this.setRules([...this.rules, ...parsed.file.rules]);
+          const matches = parsed.file.fingerprint === schemaFingerprint(this.metas);
+          this.showToast(
+            `Loaded ${parsed.file.rules.length} rule${parsed.file.rules.length === 1 ? "" : "s"}${parsed.dropped > 0 ? `, skipped ${parsed.dropped} invalid` : ""}${matches ? "" : ". The columns differ from the file the rules were made for; rules for missing columns will show an error."}`,
+          );
+        },
+        applySaved: () => {
+          this.savedRulesOffered = true;
+          this.setRules(this.savedRules());
+        },
+      },
+    );
+  }
+
+  private historyEnabled(): boolean {
+    try {
+      return localStorage.getItem("turbofuzz.history.enabled") !== "false";
+    } catch {
+      return true;
+    }
+  }
+
+  /** One snapshot per load (rates and counts only), compared with the previous load of this file. */
+  private async recordHistory(): Promise<void> {
+    if (!this.historyEnabled() || this.datasetName === "" || this.dqScore === null) return;
+    const key = `${this.generation}:${this.rowCount}`;
+    if (key === this.historyKeyRecorded) return;
+    this.historyKeyRecorded = key;
+    if (this.historyStore === undefined) this.historyStore = await openIndexedDbStore();
+    const store = this.historyStore;
+    if (store === null || this.dqScore === null) return;
+    const flagged = new Set(this.sensitiveCards().filter((card) => card.dismissed !== true).map((card) => card.name));
+    // Until the sensitive scan has run, no category labels are stored at all.
+    const metas = this.sensitiveScanned ? this.metas : this.metas.map((meta) => ({ ...meta, categories: null }));
+    const rates: Record<string, number> = {};
+    for (const [id, result] of this.ruleResults) rates[id] = result.compared === 0 ? 1 : 1 - result.fail / result.compared;
+    const snapshot = buildSnapshot(this.datasetName, metas, this.rowCount, this.dqScore, flagged, rates);
+    try {
+      const existing = await store.list(historyKey(this.datasetName));
+      if (!isDuplicateLoad(existing[existing.length - 1], snapshot)) await store.add(snapshot);
+      this.historySnapshots = await store.list(historyKey(this.datasetName));
+    } catch {
+      return;
+    }
+    this.renderQualityPage();
+  }
+
+  private historyPanel(): HTMLElement {
+    return buildHistoryPanel(
+      { snapshots: this.historySnapshots, enabled: this.historyEnabled() },
+      {
+        setEnabled: (enabled) => {
+          try {
+            localStorage.setItem("turbofuzz.history.enabled", String(enabled));
+          } catch {
+            // Preference only.
+          }
+          this.renderQualityPage();
+        },
+        clear: () => {
+          void (async () => {
+            try {
+              await this.historyStore?.clear();
+            } catch {
+              // Nothing to clear.
+            }
+            this.historySnapshots = [];
+            this.historyKeyRecorded = "";
+            this.setAction("Cleared the local history");
+            this.renderQualityPage();
+          })();
+        },
+      },
+    );
+  }
+
+  /** Worth-reviewing findings: the metadata ones plus the worker-counted near duplicates. */
+  private reviewList(stats: DatasetStats): Finding[] {
+    const list = reviewFindings(this.metas, stats, this.rowCount);
+    if (this.nearDuplicate !== null) list.push(this.nearDuplicate);
+    return list;
+  }
+
+  /** Rows equal on every column except an id column; counted once per load, off the main thread. */
+  private async refreshNearDuplicates(): Promise<void> {
+    const ids = idLikeColumns(this.metas, this.rowCount);
+    const compared = columnsIgnoring(this.metas, ids);
+    const key = `${this.generation}:${this.rowCount}:${ids.join(",")}`;
+    if (key === this.nearDuplicateKey) return;
+    this.nearDuplicateKey = key;
+    this.nearDuplicate = null;
+    if (ids.length === 0 || compared.length === 0) return;
+    try {
+      const message = await this.client.countKeyDuplicates(compared);
+      if (key !== this.nearDuplicateKey) return;
+      this.nearDuplicate = nearDuplicateFinding(this.metas, ids, compared, message.duplicateRows, message.duplicateGroups);
+    } catch {
+      return;
+    }
+    this.renderQualityPage();
+  }
+
+  /** The Quality page's own counts (null until the score exists), shared with the Overview. */
+  private issueSummary(): { fix: number; review: number } | null {
+    const score = this.dqScore;
+    const stats = this.latestStats;
+    if (score === null || stats === null) return null;
+    const issues = buildIssues({
+      score,
+      metas: this.metas,
+      rowCount: this.rowCount,
+      review: this.reviewList(stats),
+      sensitiveColumns: new Set(),
+    });
+    return {
+      fix: issues.filter((issue) => issue.severity === "fix").length,
+      review: issues.filter((issue) => issue.severity === "review").length,
+    };
   }
 
   private renderQualityPage(): void {
@@ -3896,16 +4641,33 @@ export class App {
       this.qualityPage.render(null);
       return;
     }
+    const sensitiveColumns = new Set(
+      this.sensitiveCards()
+        .filter((card) => card.dismissed !== true && (card.confirmed === true || card.confidence !== "low"))
+        .map((card) => card.column),
+    );
+    const issues = buildIssues({
+      score,
+      metas: this.metas,
+      rowCount: this.rowCount,
+      review: this.reviewList(stats),
+      sensitiveColumns,
+    });
     this.qualityPage.render({
       score,
       rowCount: this.rowCount,
       visibleRowCount: this.resultCount,
       stats,
       columnNames: this.metas.map((meta) => meta.name),
-      sensitive: this.sensitiveProfiles,
+      issues,
+      health: buildColumnHealth(this.metas, issues, this.rowCount, sensitiveColumns, score),
+      rowsAffected: this.rowsAffected,
+      datasetKey: `${this.datasetName}:${this.generation}`,
+      sensitive: this.sensitiveCards(),
       sensitiveScanned: this.sensitiveScanned,
       freshness: this.freshnessColumns(),
     });
+    void this.refreshRowsAffected();
     if (this.view !== "quality") return;
     const key = [
       this.datasetName,
@@ -3965,8 +4727,17 @@ export class App {
         );
       }
       if (similar !== null && similar.entries.length > 0) {
+        const covered = similar.entries.filter((entry) => {
+          const variants = this.metas[entry.column]?.variants;
+          return (
+            variants !== null &&
+            variants !== undefined &&
+            (this.metas[entry.column]?.similarGroups ?? 0) <= variants.groups
+          );
+        });
+        const entries = similar.entries.filter((entry) => !covered.includes(entry));
         findings.push(
-          ...similarClusterFindings(similar.entries).map((finding) => ({
+          ...similarClusterFindings(entries).map((finding) => ({
             ...finding,
             scope: "rows" as const,
           })),
@@ -4003,7 +4774,6 @@ export class App {
   }
 
   private appendAdvancedQualitySection(): void {
-    this.qualityHost.querySelector(".qp-advanced")?.remove();
     const section = el("section", { class: "qp-advanced" });
     section.append(
       el("h2", { class: "overview-heading" }, ["Advanced signals"]),
@@ -4040,19 +4810,108 @@ export class App {
         section.append(row);
       }
     }
-    this.qualityHost.append(section);
+    this.qualityPage?.setAdvanced(section);
+  }
+
+  /** The report with its extra sections; flagged columns contribute counts only. */
+  private buildReport(score: DQScore): DQReport {
+    const stats = this.latestStats;
+    const sensitiveCards = this.sensitiveCards().filter((card) => card.dismissed !== true);
+    const flagged = new Set(sensitiveCards.map((card) => card.column));
+    const issues =
+      stats === null
+        ? []
+        : buildIssues({
+            score,
+            metas: this.metas,
+            rowCount: this.rowCount,
+            review: this.reviewList(stats),
+            sensitiveColumns: flagged,
+          });
+    const health = buildColumnHealth(this.metas, issues, this.rowCount, flagged, score);
+    return buildDQReport(
+      score,
+      this.datasetName === "" ? "dataset" : this.datasetName,
+      this.rowCount,
+      this.metas.length,
+      new Date().toISOString(),
+      {
+        bandReason: score.bandCap === null ? null : `${score.bandCap.band} because ${score.bandCap.reason}`,
+        sensitiveColumns: flagged,
+        issues: issues.map((issue) => ({
+          severity: issue.severity,
+          title: issue.title,
+          evidence: issue.evidence,
+          rows: issue.rows,
+          column: issue.column,
+        })),
+        columnTable: health.map((entry) => ({
+          column: entry.column,
+          name: entry.name,
+          type: entry.type,
+          score: entry.score?.score ?? null,
+          fill: this.rowCount === 0 ? 0 : (this.rowCount - (this.metas[entry.column]?.stats.nulls ?? 0)) / this.rowCount,
+        })),
+        sensitive: sensitiveCards.map((card) => ({ name: card.name, class: card.class, label: card.label })),
+        rules: this.rules.map((rule) => {
+          const result = this.ruleResults.get(rule.id);
+          return { text: describeRule(rule), severity: rule.severity, fail: result?.fail ?? 0, compared: result?.compared ?? 0 };
+        }),
+        trend: this.historySnapshots.map((snapshot) => ({ at: snapshot.at, overall: snapshot.overall })),
+      },
+    );
+  }
+
+  private maskedColumns(): number[] {
+    return this.sensitiveCards()
+      .filter((card) => card.dismissed !== true)
+      .map((card) => card.column);
+  }
+
+  /** exceptions.csv from the worker: one row per failing cell; sensitive values masked by default. */
+  private async downloadExceptions(includeRaw: boolean): Promise<void> {
+    if (this.rowCount > 100_000 && !window.confirm(`This is a large file (${this.rowCount.toLocaleString()} rows). Building the exceptions file may take a few seconds. Continue?`)) return;
+    try {
+      const message = await this.client.getExceptions(
+        this.maskedColumns(),
+        includeRaw,
+        this.dqScore?.optionalColumns ?? [],
+        null,
+      );
+      const blob = new Blob([message.csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${safeFileName(this.datasetName === "" ? "dataset" : this.datasetName)}-exceptions.csv`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      this.setAction(`Downloaded ${message.count.toLocaleString()} exceptions`);
+    } catch {
+      this.setAction("Could not build the exceptions file");
+    }
   }
 
   /** DQ report export (plan §6): report file + pipeline-format emitters. */
   private async exportQuality(kind: DQExportKind): Promise<boolean> {
     const score = this.dqScore;
     if (score === null) return false;
-    const report = buildDQReport(
-      score,
-      this.datasetName === "" ? "dataset" : this.datasetName,
-      this.rowCount,
-      this.metas.length,
-    );
+    const report = this.buildReport(score);
+    if (kind === "html") {
+      const blob = new Blob([dqReportHtml(report)], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${safeFileName(this.datasetName === "" ? "dataset" : this.datasetName)}-dq-report.html`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      this.setAction("Downloaded the data-quality report (HTML)");
+      return true;
+    }
+    if (kind === "supplier") {
+      const ok = await copyText(supplierMessage(report));
+      this.setAction(ok ? "Copied a message for the data supplier" : "Clipboard blocked — copy failed");
+      return ok;
+    }
     if (kind === "json") {
       const blob = new Blob([dqReportJson(report)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
@@ -4632,7 +5491,46 @@ export class App {
       : "Load a CSV, Excel, JSON or Parquet file";
   }
 
+  private setImportSource(source: ImportSource | null): void {
+    this.importSource = source;
+    this.headerRowButton.disabled = source === null;
+  }
+
+  /** Opens the header-row chooser for the current table and reloads with the choice. */
+  private async openHeaderRowOverride(): Promise<void> {
+    const source = this.importSource;
+    if (source === null || this.loading) return;
+    let preview: string[][];
+    try {
+      preview = await source.readPreview();
+    } catch {
+      this.setStatusError("Could not read the file again to preview its rows.");
+      return;
+    }
+    if (preview.length === 0) return;
+    const auto = detectTable(preview);
+    const result = await openHeaderRowDialog({
+      name: source.name,
+      preview,
+      current: source.layout ?? { skipRows: auto.skipRows, headerRows: auto.headerRows },
+      overridden: source.layout !== null,
+      ...(source.note === undefined ? {} : { note: source.note }),
+    });
+    if (result === null) return;
+    if (this.stepEntries().length > 0) {
+      const confirmed = await openConfirm({
+        title: "Reload with a different header row?",
+        body: "Reloading re-reads the file, so the changes in the Recipe will be discarded.",
+        confirmLabel: "Reload",
+      });
+      if (!confirmed) return;
+    }
+    await source.reload(result.kind === "auto" ? null : result.layout);
+  }
+
   private clearData(): void {
+    this.importSource = null;
+    this.headerRowButton.disabled = true;
     this.lastLoaded = null;
     this.datasetName = "";
     this.archetypeOverride = null;
@@ -4935,6 +5833,9 @@ export class App {
     openColumnInspector(anchor, meta, column, {
       displayFormat: this.displayFormats.get(column) ?? null,
       displayGrouping: this.displayGrouping.has(column),
+      sensitiveWhy: this.sensitiveNotes.has(column)
+        ? [this.sensitiveNotes.get(column) ?? ""]
+        : [],
       onSort: (dir) => this.changeSort(column, dir),
       onFilter: () => this.focusFilterColumn(column),
       onChart: () => {
@@ -5096,7 +5997,7 @@ export class App {
           this.setAction(`${label}: ${tail}`);
           this.showToast(`${label}: ${tail}.`, () => this.toggleSpecial("pairCheck"));
           this.dqUserChecks = [
-            ...this.dqUserChecks.filter((check) => check.dimension !== "consistency"),
+            ...this.dqUserChecks.filter((check) => check.id !== "consistency.pair"),
             {
               id: "consistency.pair",
               dimension: "consistency",

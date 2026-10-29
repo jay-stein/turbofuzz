@@ -1,6 +1,9 @@
 import { parseDate, toDateInputValue, toDateTimeValue, type DateOrder } from "../parse/dates.js";
 import { escapeFormula } from "./formula.js";
 import { detectDecimalStyle, parseNumber, type NumberLocale } from "../parse/numbers.js";
+import { maskEdges } from "./mask-value.js";
+import { sha256Hex } from "./sha256.js";
+import { isNullToken } from "../parse/null-tokens.js";
 import { castColumn, type CastPolicy, type CastTarget } from "./cast-ops.js";
 
 export type CleanCaseStyle = "upper" | "lower" | "title";
@@ -12,6 +15,12 @@ export type CleanOp =
   | { kind: "toNumber"; locale: NumberLocale }
   | { kind: "repairDecimal"; locale: NumberLocale }
   | { kind: "escapeFormulas" }
+  /** Hides the middle of each value, keeping the first and last few characters. */
+  | { kind: "mask"; keepFirst: number; keepLast: number }
+  /** Replaces each value with a salted SHA-256 pseudonym (16 hex characters). */
+  | { kind: "hash"; salt: string }
+  /** Replaces whole cell values (after trimming) using exact matches, e.g. active/ACTIVE to Active. */
+  | { kind: "recode"; pairs: [from: string, to: string][] }
   | { kind: "toDate"; order: DateOrder }
   | { kind: "toDateTime"; order: DateOrder }
   | {
@@ -88,6 +97,17 @@ function compileOp(op: CleanOp): (value: string) => string {
     }
     case "escapeFormulas":
       return (value) => escapeFormula(value);
+    // Missing-value markers (blank, N/A, null) stay as they are: protecting a
+    // gap would turn it into a value.
+    case "mask":
+      return (value) => (isNullToken(value) ? value : maskEdges(value, op.keepFirst, op.keepLast));
+    case "recode": {
+      const map = new Map(op.pairs);
+      return (value) => map.get(value.trim()) ?? value;
+    }
+    case "hash":
+      return (value) =>
+        isNullToken(value) ? value : sha256Hex(`${op.salt}\u0000${value.trim()}`).slice(0, 16);
     case "cast":
       return (value) => value;
   }
@@ -199,6 +219,12 @@ export function describeCleanOp(op: CleanOp): string {
       return `Convert to date & time (keeps the clock, stored as UTC — ${
         op.order === "dmy" ? "day first" : "month first"
       })`;
+    case "mask":
+      return `Mask values (keep the first ${op.keepFirst} and last ${op.keepLast} characters)`;
+    case "hash":
+      return "Replace values with a salted SHA-256 hash";
+    case "recode":
+      return `Standardise ${op.pairs.length} spelling${op.pairs.length === 1 ? "" : "s"} to the most common one`;
     case "cast":
       return `Convert to ${CAST_TARGET_LABELS[op.target]} (${CAST_POLICY_LABELS[op.policy]})`;
   }
@@ -219,6 +245,12 @@ export function describeCleanOpDetail(op: CleanOp): string {
       return `repairDecimal(locale=${op.locale})`;
     case "escapeFormulas":
       return "escapeFormulas()";
+    case "mask":
+      return `mask(keepFirst=${op.keepFirst}, keepLast=${op.keepLast})`;
+    case "hash":
+      return `hash(sha256, salt=${op.salt.length} chars)`;
+    case "recode":
+      return `recode(${op.pairs.length} pairs)`;
     case "toDate":
       return `toDate(order=${op.order})`;
     case "toDateTime":

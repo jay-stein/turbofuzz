@@ -1,0 +1,256 @@
+diff --git a/src/styles.css b/src/styles.css
+index 650a3a5..766180b 100644
+--- a/src/styles.css
++++ b/src/styles.css
+@@ -8963,3 +8963,209 @@ body:has(.modal-overlay) .hint-callout {
+ .workspace-body:has(.charts-main) {
+   scrollbar-gutter: stable;
+ }
++
++/* ---------- polish: chart controls (one size, one weight) ----------
++   Every icon button in a chart card head is a 32px square, with a 16px glyph
++   that never shrinks. `.ghost.small` has higher specificity than a single
++   class, so these selectors carry `.chart-card button` to win. */
++.chart-card button.chart-focus-btn,
++.chart-card button.chart-width-btn,
++.chart-card button.chart-animate-btn,
++.chart-card button.chart-more,
++.chart-card button.chart-remove {
++  position: static;
++  display: inline-flex;
++  align-items: center;
++  justify-content: center;
++  flex: none;
++  box-sizing: border-box;
++  width: var(--control-h);
++  min-width: var(--control-h);
++  height: var(--control-h);
++  min-height: 0;
++  padding: 0;
++  gap: 0;
++  border: 1px solid transparent;
++  border-radius: var(--radius-sm);
++  background: transparent;
++  color: var(--text-dim);
++  font-size: var(--fs-xl);
++  line-height: 1;
++  cursor: pointer;
++}
++
++.chart-card button.chart-focus-btn:hover,
++.chart-card button.chart-width-btn:hover,
++.chart-card button.chart-animate-btn:hover,
++.chart-card button.chart-more:hover {
++  background: var(--panel-2);
++  color: var(--text);
++}
++
++.chart-card button.chart-remove:hover {
++  background: color-mix(in srgb, var(--danger) 14%, transparent);
++  color: var(--danger);
++}
++
++.chart-card button.chart-width-btn.active,
++.chart-card button.chart-animate-btn.active {
++  border-color: var(--accent);
++  background: var(--accent-soft);
++  color: var(--accent);
++}
++
++.chart-card button.chart-focus-btn:focus-visible,
++.chart-card button.chart-width-btn:focus-visible,
++.chart-card button.chart-animate-btn:focus-visible,
++.chart-card button.chart-more:focus-visible,
++.chart-card button.chart-remove:focus-visible {
++  outline: 2px solid var(--accent);
++  outline-offset: 1px;
++}
++
++.chart-card button.chart-focus-btn.hidden,
++.chart-card button.chart-animate-btn.hidden {
++  display: none;
++}
++
++.chart-card button.chart-focus-btn > span,
++.chart-card button.chart-width-btn > span,
++.chart-card button.chart-animate-btn > span {
++  display: none;
++}
++
++.chart-card button.chart-focus-btn svg,
++.chart-card button.chart-width-btn svg,
++.chart-card button.chart-animate-btn svg {
++  width: 16px;
++  height: 16px;
++  flex: none;
++}
++
++/* The remove button joins the row (last) instead of floating over it. */
++.chart-card button.chart-remove {
++  order: 99;
++}
++
++.chart-card .chart-card-head {
++  padding-right: 0;
++  gap: var(--sp-1);
++}
++
++/* Settings column: one control height for selects and text inputs. */
++.chart-sidebar select.chart-picker,
++.chart-sidebar .chart-title,
++.chart-sidebar .chart-axis-title,
++.chart-sidebar .chart-hex {
++  box-sizing: border-box;
++  height: var(--control-h);
++  min-height: 0;
++  border-radius: var(--radius-sm);
++}
++
++.chart-sidebar select.chart-picker:disabled:empty {
++  display: none;
++}
++
++.chart-sidebar {
++  padding-bottom: var(--sp-3, 12px);
++  max-height: 680px;
++}
++
++.chart-sidebar .chart-picker,
++.chart-sidebar .chart-picker-small,
++.chart-card .chart-sidebar .chart-picker {
++  flex-basis: 60%;
++  max-width: 60%;
++}
++
++/* Data issues: a quiet note with pill actions, not raw browser buttons. */
++.chart-data-issues {
++  display: flex;
++  flex-direction: column;
++  gap: var(--sp-1);
++  padding: var(--sp-2) 10px;
++  border: 1px solid var(--qa-warn-border);
++  border-radius: var(--radius-sm);
++  background: var(--qa-warn-soft);
++  color: var(--qa-warn-text);
++  font-size: var(--fs-sm);
++}
++
++.chart-data-issues.hidden {
++  display: none;
++}
++
++.chart-issue-heading {
++  font-weight: 650;
++  font-size: var(--fs-sm);
++  letter-spacing: 0.02em;
++  text-transform: uppercase;
++}
++
++.chart-issue-row {
++  display: flex;
++  flex-wrap: wrap;
++  align-items: center;
++  gap: 6px;
++}
++
++.chart-issue-label {
++  margin-right: auto;
++  min-width: 0;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.chart-issue-chip {
++  box-sizing: border-box;
++  height: 24px;
++  padding: 0 10px;
++  border: 1px solid var(--qa-warn-border);
++  border-radius: 999px;
++  background: var(--panel);
++  color: var(--qa-warn-text);
++  font: inherit;
++  font-size: var(--fs-sm);
++  cursor: pointer;
++  white-space: nowrap;
++}
++
++.chart-issue-chip:hover,
++.chart-issue-chip[aria-pressed="true"] {
++  background: var(--qa-warn-border);
++  color: #1c1400;
++}
++
++.chart-issue-chip.fix {
++  border-color: var(--accent);
++  color: var(--accent);
++}
++
++.chart-issue-chip.fix:hover {
++  background: var(--accent-soft);
++  color: var(--accent);
++}
++
++.chart-issue-chip:focus-visible {
++  outline: 2px solid var(--accent);
++  outline-offset: 1px;
++}
++
++.chart-issue-more {
++  opacity: 0.8;
++}
++
++/* Phones: 40px tap targets, matching the other toolbars. */
++@media (max-width: 720px) {
++  .chart-card button.chart-focus-btn,
++  .chart-card button.chart-width-btn,
++  .chart-card button.chart-animate-btn,
++  .chart-card button.chart-more,
++  .chart-card button.chart-remove {
++    width: 40px;
++    min-width: 40px;
++    height: 40px;
++  }
++}
+diff --git a/src/ui/chart-card.ts b/src/ui/chart-card.ts
+index 9ce0cf0..0333b46 100644
+--- a/src/ui/chart-card.ts
++++ b/src/ui/chart-card.ts
+@@ -872,6 +872,8 @@ function missingOrTokens(missing: number, tokens: number): boolean {
+ export class ChartCard {
+   readonly root: HTMLElement;
+ 
++  /** Staleness token for the value-aggregate request only. */
++  private valueGeneration = 0;
+   private config = chartConfigWithDefaults();
+   private columns: ColumnMeta[] = [];
+   private facets: Record<number, number[]> = {};
+@@ -1522,6 +1524,7 @@ export class ChartCard {
+         class: "ghost small chart-animate-btn",
+         type: "button",
+         title: "Step this chart through time",
++        "aria-label": "Animate chart",
+       },
+       [],
+     ) as HTMLButtonElement;
+@@ -2979,14 +2982,18 @@ export class ChartCard {
+   refreshValue(): void {
+     const def = this.valueViewDef();
+     if (def === null) {
++      this.valueGeneration++;
+       if (this.valueResult !== null) this.valueResult = null;
+       return;
+     }
+-    const generation = ++this.generation;
++    // Own counter: the sibling refreshes (line bins, series, ...) bump
++    // `generation` right after this call and used to discard this response,
++    // leaving a freshly added chart on "no groups to draw yet".
++    const generation = ++this.valueGeneration;
+     void this.options
+       .requestAggregate(def)
+       .then((message) => {
+-        if (generation !== this.generation || !this.usesValueAggregate()) return;
++        if (generation !== this.valueGeneration || this.disposed || !this.usesValueAggregate()) return;
+         this.valueResult = message;
+         this.render();
+       })

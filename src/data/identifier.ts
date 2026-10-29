@@ -1,14 +1,11 @@
 import type { ColumnData } from "./column.js";
+import { nameHas } from "./name-hints.js";
 
 /** Identifier-like names, including common record/business identifiers. */
 const ID_NAME = /(^|[^a-z0-9])(id|uuid|guid|key|ref|row_id|rowid|record_id)s?($|[^a-z0-9])/i;
 const IDENTIFIER_NAME =
   /(^|[^a-z0-9])(zip|postal|postcode|phone|mobile|ssn|abn|acn|iban|barcode|nmi|isbn|vin|imei)([^a-z0-9]|$)/i;
 const NON_ID_WORDS = /(paid|valid|void|grid|solid|fluid|rapid|humid|arid|android)$/;
-
-/** Measures that are often unique integers but are not identifiers. */
-const MEASURE_NAME =
-  /(amount|revenue|sales|total|price|cost|profit|spend|income|value|qty|quantity|count|score|usage|balance|weight|size|duration|distance|fare|age|year|time|date|epoch|timestamp|rate|percent|pct|margin|discount|units|population|area|temperature|temp|speed|elevation|latitude|longitude|lat|lon|humidity|pressure|volume|capacity|height|width|length|depth)/i;
 
 /** Names that read as identifiers add no value to charts or outlier checks. */
 export function looksLikeIdName(name: string): boolean {
@@ -30,7 +27,7 @@ export function isLikelyIdentifierColumn(
 ): boolean {
   if (column.type === "identifier") return true;
   if (looksLikeIdName(column.name)) return true;
-  if (MEASURE_NAME.test(column.name)) return false;
+  if (nameHas(column.name, "identifierMeasure")) return false;
   if (rowCount <= 20) return false;
   const nonNull = rowCount - column.stats.nulls;
   if (nonNull <= 20) return false;
@@ -78,7 +75,7 @@ export function looksLikeRowIndex(
   if (present < 8 || nulls > rows * 0.005) return false;
   if (distinct < present * 0.999) return false;
   const label = name.trim();
-  if (MEASURE_NAME.test(label)) return false;
+  if (nameHas(label, "identifierMeasure")) return false;
   const named = INDEX_NAME.test(label);
   // Without a telling header, only a long, clean run is convincing, and never
   // one named like an axis or step number.

@@ -19,6 +19,13 @@ import {
 import { isNullWithPolicy, EMPTY_NULL_POLICY, type NullPolicy } from "../parse/null-tokens.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { detectSuggestions, type ColumnSuggestion } from "./suggestions.js";
+import { detectHiddenZeros } from "./hidden-missing.js";
+import { spellingVariantsFromRaw, type VariantSummary } from "./variants.js";
+import { measureConformance, type Conformance } from "./conformance.js";
+import { summariseDateFormats, type DateFormatSummary } from "./date-formats.js";
+import { summariseNumberSymbols, type NumberSymbolSummary } from "./number-symbols.js";
+import { checkPlausibility, type RangeViolation } from "./plausibility.js";
+import { blocksConversion, inferSemanticType, type Semantic } from "./semantic-type.js";
 import { looksLikeRowIndex } from "./identifier.js";
 import { symlog } from "./symlog.js";
 import { valueLength } from "../parse/value-length.js";
@@ -100,6 +107,9 @@ export interface ColumnCreateOptions {
   numberLocale?: NumberLocale;
 }
 
+/** Above this many distinct values a text column is not checked for spelling variants. */
+const MAX_VARIANT_DISTINCT = 50_000;
+
 export class ColumnData {
   type: ColumnType;
   /** Non-data columns such as multi-file provenance are excluded from row stats. */
@@ -111,6 +121,17 @@ export class ColumnData {
   suggestions: ColumnSuggestion[] = [];
   /** Near-miss richer type for a text fallback (null once typed manually). */
   typeDowngrade: TypeDowngrade | null = null;
+  /** Exact conformance against the majority-intended type (null when none). */
+  conformance: Conformance | null = null;
+  /** Text formats inside a date column when it mixes more than one; otherwise null. */
+  dateFormats: DateFormatSummary | null = null;
+  /** Currency symbols or thousands separators on only part of a numeric column; otherwise null. */
+  numberSymbols: NumberSymbolSummary | null = null;
+  /** Values outside the plausible range the column name implies (age, percent, year); otherwise null. */
+  rangeViolation: RangeViolation | null = null;
+  /** One semantic type shared by every detector (null until inferred). */
+  semantic: Semantic | null = null;
+  private variantMemo: { value: VariantSummary | null } | null = null;
   readonly stats: ColumnStats;
   readonly nullMask: BitSet;
 
@@ -255,15 +276,96 @@ export class ColumnData {
       nullTokens,
       inferred.numberLocale ?? numberPrior,
     );
+    column.semantic = inferSemanticType(
+      name,
+      inferred.type,
+      sample.filter((value) => !isNullWithPolicy(value, nullPolicy)),
+      { distinct: stats.distinct, nulls: stats.nulls, avgLength: stats.avgLength },
+      raw.length,
+    );
+    const noConvert = blocksConversion(column.semantic);
     column.suggestions = options.skipSuggestions
       ? []
-      : detectSuggestions(raw, inferred.type, nullPolicy, column.numberLocale);
+      : detectSuggestions(raw, inferred.type, nullPolicy, column.numberLocale, noConvert);
     column.timeZoneAware =
       inferred.timeZoneAware ??
       (inferred.type === "datetime" &&
         sample.some((value) => classifyDateValue(value, column.dateOrder)?.hasOffset === true));
-    column.typeDowngrade = inferred.downgrade ?? null;
+    column.typeDowngrade = noConvert ? null : (inferred.downgrade ?? null);
+    column.conformance = noConvert ? null : measureConformance(
+      raw,
+      inferred.type,
+      nullPolicy,
+      column.numberLocale,
+      column.dateOrder,
+    );
+    column.dateFormats =
+      !options.skipSuggestions && inferred.type === "date"
+        ? summariseDateFormats(raw, (value) => isNullWithPolicy(value, nullPolicy))
+        : null;
+    column.numberSymbols =
+      !options.skipSuggestions && (inferred.type === "number" || inferred.type === "integer")
+        ? summariseNumberSymbols(raw, (value) => isNullWithPolicy(value, nullPolicy), column.numberLocale)
+        : null;
+    column.rangeViolation = options.skipSuggestions
+      ? null
+      : checkPlausibility(
+          name,
+          inferred.type,
+          raw,
+          (value) => isNullWithPolicy(value, nullPolicy),
+          column.numberLocale,
+        );
+    if (!options.skipSuggestions) {
+      // Sentinel counts come from a sample; make them exact, then add the
+      // name-gated hidden zeros (counted exactly over every row already).
+      for (const suggestion of column.suggestions) {
+        if (suggestion.kind !== "sentinel" || raw.length <= 2000) continue;
+        let exact = 0;
+        for (let i = 0; i < raw.length; i++) if (raw[i].trim() === suggestion.value) exact++;
+        suggestion.count = exact;
+        suggestion.sampled = raw.length - stats.nulls;
+        suggestion.ratio = exact / Math.max(1, suggestion.sampled);
+      }
+      const zeros = detectHiddenZeros(
+        name,
+        inferred.type,
+        raw,
+        (value) => isNullWithPolicy(value, nullPolicy),
+        column.numberLocale,
+      );
+      if (zeros !== null && !column.suggestions.some((s) => s.kind === "sentinel" && s.value === zeros.value)) {
+        column.suggestions.push(zeros);
+      }
+    }
+    // Suggestion counts come from a sample; make the type-conflict count exact.
+    if (column.conformance !== null) {
+      const exact = column.conformance;
+      for (const suggestion of column.suggestions) {
+        if (suggestion.kind === "typeConflict") {
+          suggestion.count = exact.nonConforming;
+          suggestion.sampled = exact.conforming + exact.nonConforming;
+        }
+      }
+    }
     return column;
+  }
+
+  /**
+   * Case/space/accent spelling variants for a text column, from one pass over the
+   * values. Computed once and remembered, so repeated meta refreshes stay cheap.
+   */
+  spellingVariants(): VariantSummary | null {
+    if (this.variantMemo === null) {
+      this.variantMemo = {
+        // Mostly-unique columns (names, ids) rarely hold variants and cost the most to scan.
+        value:
+          this.stats.distinct > MAX_VARIANT_DISTINCT
+            ? null
+            : spellingVariantsFromRaw(this.raw, (value) => this.isNull(value), MAX_VARIANT_DISTINCT),
+      };
+    }
+    return this.variantMemo.value;
   }
 
   /** True when this column treats the exact cell value as missing. */
@@ -279,6 +381,12 @@ export class ColumnData {
     this.type = type;
     this.typeLocked = lock;
     this.typeDowngrade = null;
+    this.conformance = null;
+    this.dateFormats = null;
+    this.numberSymbols = null;
+    this.rangeViolation = null;
+    this.semantic = null;
+    this.variantMemo = null;
     this.nums = null;
     this.cats = null;
     this.summary = null;

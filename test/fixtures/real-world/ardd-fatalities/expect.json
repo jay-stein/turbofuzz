@@ -1,0 +1,34 @@
+{
+  "hasHeaders": true,
+  "rows": 299,
+  "columns": 23,
+  "band": {
+    "min": 85,
+    "max": 100
+  },
+  "types": {},
+  "must_flag": [
+    {
+      "kind": "variants",
+      "column": "National Road Type",
+      "min": 3
+    },
+    {
+      "kind": "sentinel",
+      "column": "Speed Limit",
+      "value": "-9",
+      "min": 10
+    }
+  ],
+  "must_not_flag": [
+    {
+      "kind": "validity",
+      "column": "Age Group"
+    },
+    {
+      "kind": "sensitive",
+      "column": "*",
+      "confidence": "high"
+    }
+  ]
+}

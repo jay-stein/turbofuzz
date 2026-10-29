@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import { computeDQScore } from "../src/data/score.js";
 import { QualityPage } from "../src/ui/quality-page.js";
+import { buildIssues } from "../src/data/dq-issues.js";
 import type { DatasetStats } from "../src/data/stats.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
 
@@ -14,6 +15,15 @@ function setupDom(): Window {
   globals.HTMLElement = window.HTMLElement;
   globals.MutationObserver = window.MutationObserver;
   return window;
+}
+
+/** Opens a tab by its label; the page re-renders, so callers re-query afterwards. */
+function openTab(host: HTMLElement, label: string): void {
+  const tab = ([...host.querySelectorAll("button.qp-tab")] as unknown as HTMLButtonElement[]).find((button) =>
+    (button.textContent ?? "").startsWith(label),
+  );
+  assert.ok(tab !== undefined, `tab ${label}`);
+  tab.click();
 }
 
 function meta(overrides: Partial<ColumnMeta> = {}): ColumnMeta {
@@ -64,7 +74,7 @@ function stats(overrides: Partial<DatasetStats> = {}): DatasetStats {
   };
 }
 
-test("the Data Quality page shows the score, dims, fixes and matrix", () => {
+test("the Data Quality page shows the score, tiles, strip and the checks behind them", () => {
   const window = setupDom();
   const columns = [
     meta({ name: "city" }),
@@ -93,22 +103,20 @@ test("the Data Quality page shows the score, dims, fixes and matrix", () => {
 
   const ring = host.querySelector(".qp-ring-value")?.textContent ?? "";
   assert.match(ring, /^\d+\.\d$/, "the ring shows the overall score");
-  assert.ok(host.querySelectorAll(".qp-dim").length === 6, "one card per dimension");
-  assert.ok(
-    (host.querySelector(".qp-fact-label")?.textContent ?? "").includes("rows"),
-    "facts start with rows",
-  );
+  assert.equal(host.querySelectorAll(".qp-tile").length, 4, "four summary tiles");
   assert.equal(
-    host.querySelector(".qp-scope")?.textContent,
+    host.querySelector(".qp-hero-scope")?.textContent,
     "Whole dataset (100 rows)",
     "the page states its row scope",
   );
+  assert.match(host.querySelector(".qp-footer")?.textContent ?? "", /No data leaves this tab/);
+
+  openTab(host as unknown as HTMLElement, "All checks");
+  assert.ok(host.querySelectorAll(".qp-dim").length === 6, "one card per dimension");
   const explanation = host.querySelector(".qp-explain")?.textContent ?? "";
   assert.match(explanation, /Completeness/);
   assert.match(explanation, /Adjust weights/);
-  const contributions = [...explanation.matchAll(/\+(\d+\.\d)/g)].map((match) =>
-    Number(match[1]),
-  );
+  const contributions = [...explanation.matchAll(/\+(\d+\.\d)/g)].map((match) => Number(match[1]));
   const contributionTotal = contributions.reduce((sum, value) => sum + value, 0);
   assert.ok(
     Math.abs(contributionTotal - Number(ring)) < 0.15,
@@ -118,20 +126,6 @@ test("the Data Quality page shows the score, dims, fixes and matrix", () => {
     (title.textContent ?? "").includes("by column"),
   );
   assert.match(matrixTitle?.textContent ?? "", /Completeness & Validity by column/);
-
-  // What to fix first: the email completeness check (50 of 100 empty) leads —
-  // weight 30 over a weight sum of 75 → +20.0 points.
-  const firstFix = host.querySelector(".qp-fix .qp-fix-label")?.textContent ?? "";
-  assert.match(firstFix, /email/, "the biggest loser ranks first");
-  const firstGain = host.querySelector(".qp-fix .qp-fix-gain")?.textContent ?? "";
-  assert.match(firstGain, /\+20\.0 pts/);
-
-  const fixButton = host.querySelector(".qp-fix .qp-check-action button, .qp-fix button") as
-    | { click(): void }
-    | null;
-  assert.ok(fixButton !== null, "fix rows carry an action button");
-  fixButton?.click();
-  assert.ok(filters.length >= 1, "the fix action reports the check");
 
   // Dimension card click filters the checks list down to that dimension.
   const dims = [...host.querySelectorAll(".qp-dim")] as unknown as { click(): void; textContent: string }[];
@@ -150,7 +144,7 @@ test("the Data Quality page shows the score, dims, fixes and matrix", () => {
   const cells = host.querySelectorAll(".quality-matrix-table button.quality-cell");
   assert.ok(cells.length >= 6, "matrix cells for every column");
   (cells[2] as unknown as { click(): void }).click();
-  assert.ok(filters.length >= 2, "matrix cells filter their failures");
+  assert.ok(filters.length >= 1, "matrix cells filter their failures");
 });
 
 test("show only issues hides passing checks and matrix rows", () => {
@@ -163,6 +157,7 @@ test("show only issues hides passing checks and matrix rows", () => {
     onExport: () => Promise.resolve(true),
   });
   page.render({ score, rowCount: 100, stats: stats(), columnNames: ["clean", "dirty"] });
+  openTab(host as unknown as HTMLElement, "All checks");
 
   const rowsBefore = host.querySelectorAll(".qp-check:not(.qp-check-head)").length;
   assert.equal(rowsBefore, 2 + 2 + 1, "two completeness + two validity + uniqueness rows");
@@ -197,7 +192,7 @@ test("filtered table scope is shown separately from the dataset scope", () => {
     columnNames: ["city"],
   });
   assert.match(
-    host.querySelector(".qp-scope")?.textContent ?? "",
+    host.querySelector(".qp-hero-scope")?.textContent ?? "",
     /Whole dataset \(100 rows\).*Current rows: 40 of 100/,
   );
 });
@@ -238,6 +233,7 @@ test("the score explanation link opens the existing settings panel", () => {
     stats: stats(),
     columnNames: ["city"],
   });
+  openTab(host as unknown as HTMLElement, "All checks");
   assert.ok(
     (host.querySelector(".qp-settings") as unknown as HTMLElement).classList.contains("hidden"),
     "settings start hidden",
@@ -249,21 +245,30 @@ test("the score explanation link opens the existing settings panel", () => {
   );
 });
 
-test("a What-to-fix-first row is clickable as a whole", () => {
+test("an issue card shows the rows behind it and the first fixable card gets the only primary button", () => {
   const window = setupDom();
-  const columns = [meta({ name: "email", stats: { ...meta().stats, nulls: 50 } })];
+  const columns = [
+    meta({ name: "status", variants: { groups: 1, minorityRows: 30, examples: [{ spellings: [{ value: "Active", count: 60 }, { value: "active", count: 30 }] }], mappings: [{ from: "active", to: "Active", count: 30 }] } }),
+    meta({ name: "email", stats: { ...meta().stats, nulls: 50 } }),
+  ];
   const score = computeDQScore(columns, stats(), 100);
+  const issues = buildIssues({ score, metas: columns, rowCount: 100, review: [], sensitiveColumns: new Set() });
   const host = window.document.createElement("div");
-  const filters: string[] = [];
+  const shown: string[] = [];
   const page = new QualityPage(host as unknown as HTMLElement, {
-    onFilter: (check) => filters.push(check.id),
+    onFilter: () => {},
     onExport: () => Promise.resolve(true),
+    onShowIssue: (issue) => shown.push(issue.id),
   });
-  page.render({ score, rowCount: 100, stats: stats(), columnNames: ["email"] });
-  const row = host.querySelector(".qp-fix-clickable") as unknown as { click(): void };
-  assert.ok(row !== null);
-  row.click();
-  assert.equal(filters.length, 1, "clicking the row runs its check action");
+  page.render({ score, rowCount: 100, stats: stats(), columnNames: ["status", "email"], issues });
+  assert.equal(host.querySelectorAll(".issue-card").length, issues.length);
+  assert.equal(host.querySelectorAll(".issue-card .btn-primary").length, 1, "one primary in the list");
+  const first = host.querySelector(".issue-card") as unknown as HTMLElement;
+  assert.match(first.textContent ?? "", /status/);
+  assert.match(first.textContent ?? "", /\+\d+(\.\d)? pts/);
+  const show = [...first.querySelectorAll("button")].find((b) => (b.textContent ?? "") === "Show rows") as unknown as HTMLButtonElement;
+  show.click();
+  assert.deepEqual(shown, ["variants.0"]);
 });
 
 test("the matrix includes a per-column score", () => {
@@ -280,6 +285,7 @@ test("the matrix includes a per-column score", () => {
     stats: stats(),
     columnNames: ["city", "postcode"],
   });
+  openTab(host as unknown as HTMLElement, "All checks");
   const headers = [...host.querySelectorAll(".quality-matrix-table th")].map(
     (cell) => cell.textContent,
   );
@@ -306,22 +312,39 @@ test("sensitive-pattern and freshness advisories render separately", () => {
       {
         column: 0,
         name: "email",
-        rows: 100,
-        counts: [{ label: "Email", count: 100 }],
+        class: "contact",
+        confidence: "high",
+        reasons: [{ kind: "value", label: "100% of sampled values look like email addresses" }],
+        sampled: 100,
+        scanned: 100,
+        label: "confidential",
+        examples: ["j***@example.com"],
+        revealed: ["jane@example.com"],
       },
       {
         column: 1,
         name: "card",
-        rows: 100,
-        counts: [{ label: "Card", count: 12 }],
+        class: "financial",
+        confidence: "medium",
+        reasons: [{ kind: "name", label: "the column name contains card" }],
+        sampled: 100,
+        scanned: 100,
+        label: "confidential",
+        examples: [],
+        revealed: [],
       },
     ],
     sensitiveScanned: true,
     freshness: [{ column: 2, name: "when", latest: Date.UTC(2024, 0, 1) }],
     now: Date.UTC(2024, 0, 11),
   });
-  assert.match(host.querySelector(".qp-sensitive-list")?.textContent ?? "", /Email 100/);
-  assert.match(host.querySelector(".qp-sensitive-list")?.textContent ?? "", /Card 12/);
+  openTab(host as unknown as HTMLElement, "Sensitive");
+  const sensitive = host.querySelector(".qp-sensitive")?.textContent ?? "";
+  assert.match(sensitive, /Possibly sensitive columns/);
+  assert.match(sensitive, /not counted against your score/);
+  assert.match(sensitive, /Contact details/);
+  assert.match(sensitive, /100% of sampled values look like email addresses/);
+  openTab(host as unknown as HTMLElement, "All checks");
   assert.match(host.querySelector(".qp-freshness")?.textContent ?? "", /2024-01-01/);
   assert.match(host.querySelector(".qp-freshness")?.textContent ?? "", /10 days old/);
 });
@@ -344,6 +367,7 @@ test("a downgrade check converts the column in one click", () => {
     onConvert: (column, type) => converted.push(`${column}:${type}`),
   });
   page.render({ score, rowCount: 100, stats: stats(), columnNames: ["amount"] });
+  openTab(host as unknown as HTMLElement, "All checks");
 
   const rows = [...host.querySelectorAll(".qp-check:not(.qp-check-head)")] as unknown as {
     textContent: string;
@@ -353,4 +377,91 @@ test("a downgrade check converts the column in one click", () => {
   assert.ok(row !== undefined, "the downgrade check is listed");
   row?.querySelector("button")?.click();
   assert.deepEqual(converted, ["0:integer"], "the action converts, not filters");
+});
+
+test("sensitive cards mask examples, reveal on click and report decisions", () => {
+  const window = setupDom();
+  const host = window.document.createElement("div");
+  const changes: unknown[] = [];
+  let exact = -1;
+  const page = new QualityPage(host as unknown as HTMLElement, {
+    onFilter: () => {},
+    onExport: () => Promise.resolve(true),
+    onSensitiveChange: (card, change) => changes.push([card.name, change]),
+    onScanExact: (column) => {
+      exact = column;
+    },
+  });
+  page.render({
+    score: computeDQScore([meta({ name: "email" })], stats(), 100),
+    rowCount: 100,
+    stats: stats(),
+    columnNames: ["email"],
+    sensitive: [
+      {
+        column: 0,
+        name: "email",
+        class: "contact",
+        confidence: "high",
+        reasons: [{ kind: "value", label: "94% of sampled values look like email addresses" }],
+        sampled: 5000,
+        scanned: 12000,
+        label: "confidential",
+        examples: ["j***@example.com"],
+        revealed: ["jane@example.com"],
+      },
+    ],
+    sensitiveScanned: true,
+  });
+  openTab(host as unknown as HTMLElement, "Sensitive");
+  const example = host.querySelector(".qp-sensitive-example") as unknown as HTMLButtonElement;
+  assert.equal(example.textContent, "j***@example.com");
+  example.click();
+  assert.equal(example.textContent, "jane@example.com");
+  example.click();
+  assert.equal(example.textContent, "j***@example.com");
+
+  assert.match(host.querySelector(".qp-sensitive-meta")?.textContent ?? "", /5,000 of 12,000 values scanned/);
+  const buttons = [...host.querySelectorAll(".qp-sensitive button")] as unknown as HTMLButtonElement[];
+  buttons.find((b) => b.textContent === "Scan all values")?.click();
+  assert.equal(exact, 0);
+  buttons.find((b) => b.textContent === "Not sensitive")?.click();
+  buttons.find((b) => b.textContent === "Mark sensitive")?.click();
+  const select = host.querySelector(".qp-sensitive-label") as unknown as HTMLSelectElement;
+  select.value = "restricted";
+  select.dispatchEvent(new window.Event("change") as unknown as Event);
+  assert.deepEqual(changes, [
+    ["email", { dismissed: true, confirmed: false }],
+    ["email", { confirmed: true }],
+    ["email", { label: "restricted" }],
+  ]);
+});
+
+test("dismissed sensitive columns are tucked away and can be restored", () => {
+  const window = setupDom();
+  const host = window.document.createElement("div");
+  const changes: unknown[] = [];
+  const page = new QualityPage(host as unknown as HTMLElement, {
+    onFilter: () => {},
+    onExport: () => Promise.resolve(true),
+    onSensitiveChange: (card, change) => changes.push([card.name, change]),
+  });
+  page.render({
+    score: computeDQScore([meta({ name: "email" })], stats(), 100),
+    rowCount: 100,
+    stats: stats(),
+    columnNames: ["email"],
+    sensitive: [
+      {
+        column: 0, name: "email", class: "contact", confidence: "high", dismissed: true,
+        reasons: [], sampled: 10, scanned: 10, label: "confidential", examples: [], revealed: [],
+      },
+    ],
+    sensitiveScanned: true,
+  });
+  openTab(host as unknown as HTMLElement, "Sensitive");
+  assert.equal(host.querySelector(".qp-sensitive-card"), null);
+  assert.match(host.querySelector(".qp-sensitive")?.textContent ?? "", /1 marked not sensitive/);
+  (host.querySelector(".qp-sensitive-hidden button") as unknown as HTMLButtonElement).click();
+  assert.deepEqual(changes, [["email", { dismissed: false }]]);
 });

@@ -4,12 +4,16 @@
  * followed by anything but a plain number (OWASP CSV-injection list). A bare
  * "-999" is left alone because it is a normal number, not a formula.
  */
+const ISO_DURATION = /^P(?=\d|T\d)(?:\d+(?:\.\d+)?[YMWD])*(?:T(?:\d+(?:\.\d+)?[HMS])+)?$/;
+
 export function looksLikeFormula(value: string): boolean {
   const first = value.charCodeAt(0);
   if (first === 61 /* = */ || first === 64 /* @ */) return true;
   if (first === 9 /* tab */ || first === 13 /* CR */) return true;
   if (first === 43 /* + */ || first === 45 /* - */) {
     const rest = value.slice(1);
+    // ISO 8601 durations such as -P1D or -PT30M are data, not formulas.
+    if (ISO_DURATION.test(rest)) return false;
     return rest !== "" && !/^[0-9.,\s]+$/.test(rest);
   }
   return false;

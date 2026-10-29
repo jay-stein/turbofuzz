@@ -13,6 +13,14 @@ export interface DetectedTable {
   title: string | null;
 }
 
+/** A user-chosen header layout that replaces the automatic guess. */
+export interface HeaderLayout {
+  /** Rows above the header block to drop (titles, notes). */
+  skipRows: number;
+  /** Header levels after the skipped rows; 0 means the table has no header row. */
+  headerRows: number;
+}
+
 const MAX_SCAN_ROWS = 25;
 const MAX_SCAN_COLUMNS = 300;
 const DATA_LOOKAHEAD = 5;
@@ -102,6 +110,44 @@ function titleFrom(grid: readonly string[][], before: number, fallback: string |
   return fallback;
 }
 
+/** True when the first record is mostly numeric and the rows below match it. */
+function isHeaderlessNumeric(grid: readonly string[][], index: number): boolean {
+  const first = profileOf(grid[index] ?? []);
+  if (first.populated < 2 || first.numeric / first.populated < 0.8) return false;
+  let seen = 0;
+  for (let offset = 1; offset <= DATA_LOOKAHEAD; offset++) {
+    const row = grid[index + offset];
+    if (row === undefined) break;
+    const profile = profileOf(row);
+    if (profile.populated === 0) continue;
+    seen++;
+    if (profile.numeric / profile.populated < 0.8) return false;
+  }
+  return seen > 0;
+}
+
+/** Applies a user-chosen layout; no guessing. Column count comes from the widest row seen. */
+function applyLayout(grid: readonly string[][], layout: HeaderLayout): DetectedTable {
+  const skipRows = Math.max(0, Math.min(Math.floor(layout.skipRows), grid.length));
+  const headerRows = Math.max(0, Math.min(Math.floor(layout.headerRows), grid.length - skipRows));
+  let width = 0;
+  const limit = Math.min(grid.length, skipRows + headerRows + MAX_SCAN_ROWS);
+  for (let row = skipRows; row < limit; row++) {
+    width = Math.max(width, populatedExtent(grid[row] ?? []));
+  }
+  const headers =
+    headerRows > 0
+      ? mergeHeaders(grid, skipRows, headerRows, width)
+      : Array.from({ length: width }, (_, index) => `Column ${index + 1}`);
+  return {
+    skipRows,
+    headerRows,
+    headers,
+    rows: trimTrailingEmptyRows(grid.slice(skipRows + headerRows)),
+    title: titleFrom(grid, skipRows, null),
+  };
+}
+
 /**
  * Heuristic header detection for messy spreadsheets:
  *
@@ -116,7 +162,8 @@ function titleFrom(grid: readonly string[][], before: number, fallback: string |
  * Falls back to the first non-empty row as a single header when there is no
  * usable signal, matching the previous "first row is header" behaviour.
  */
-export function detectTable(grid: readonly string[][]): DetectedTable {
+export function detectTable(grid: readonly string[][], layout?: HeaderLayout): DetectedTable {
+  if (layout !== undefined) return applyLayout(grid, layout);
   const scanRows = Math.min(grid.length, MAX_SCAN_ROWS);
   if (scanRows === 0) {
     return { skipRows: 0, headerRows: 0, headers: [], rows: [], title: null };
@@ -150,6 +197,17 @@ export function detectTable(grid: readonly string[][]): DetectedTable {
     const firstNonEmpty = grid.findIndex((row) => row.some((cell) => cell !== ""));
     if (firstNonEmpty === -1) {
       return { skipRows: 0, headerRows: 0, headers: [], rows: [], title: null };
+    }
+    // No row reads as a header and the first record is as numeric as the ones
+    // below it: a header-less table. Keep every record and name the columns.
+    if (isHeaderlessNumeric(grid, firstNonEmpty)) {
+      return {
+        skipRows: firstNonEmpty,
+        headerRows: 0,
+        headers: Array.from({ length: width }, (_, index) => `Column ${index + 1}`),
+        rows: trimTrailingEmptyRows(grid.slice(firstNonEmpty)),
+        title: titleFrom(grid, firstNonEmpty, null),
+      };
     }
     return {
       skipRows: firstNonEmpty,

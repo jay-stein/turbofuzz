@@ -2,7 +2,7 @@ import type { DQScore, ScoreCheck, ScoreDimension } from "../data/score.js";
 import { setupDialog } from "./dialog.js";
 import { clear, el } from "./dom.js";
 
-export type DQExportKind = "markdown" | "json" | "sodacl" | "dbt" | "gx" | "dqdl";
+export type DQExportKind = "markdown" | "json" | "html" | "supplier" | "sodacl" | "dbt" | "gx" | "dqdl";
 
 export interface QualityPanelCallbacks {
   /** Filter the table to the failing rows of a check (undo via the toast). */

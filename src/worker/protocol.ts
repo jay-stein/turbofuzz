@@ -3,6 +3,7 @@ import type { ChartExclusion } from "../data/chart-exclusions.js";
 import type { ViewDef } from "../data/aggregate.js";
 import type { PivotDef, PivotResult } from "../data/pivot.js";
 import type { PairOperator } from "../data/pair-checks.js";
+import type { Rule, RuleResult } from "../data/rules.js";
 import type { DependencyPair } from "../data/dependencies.js";
 import type { GroupAnomalyPair } from "../data/group-anomalies.js";
 import type { ColumnNetworkResult } from "../data/column-network.js";
@@ -19,6 +20,14 @@ import type { BoxStatsResult, CorrelationResult, CrossTabResult } from "../data/
 import type { CleanOp } from "../data/clean-ops.js";
 import type { HistogramData, NullTokenCount } from "../data/column.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
+import type { HeaderLayout } from "../parse/header-detect.js";
+import type { Conformance } from "../data/conformance.js";
+import type { DateFormatSummary } from "../data/date-formats.js";
+import type { NumberSymbolSummary } from "../data/number-symbols.js";
+import type { RangeViolation } from "../data/plausibility.js";
+import type { Semantic } from "../data/semantic-type.js";
+import type { ColumnSensitivityInput } from "../data/sensitivity.js";
+import type { VariantSummary } from "../data/variants.js";
 import type { DatasetStats } from "../data/stats.js";
 import type { ColumnSchema, TransformOp } from "../data/transform-ops.js";
 import type { DateOrder } from "../parse/dates.js";
@@ -71,6 +80,18 @@ export interface ColumnMeta {
   suggestions: ColumnSuggestion[];
   /** Text fallback blocked by a minority of values: the near-miss richer type. */
   typeDowngrade?: TypeDowngrade | null;
+  /** Exact conformance against the majority-intended type (null when none). */
+  conformance?: Conformance | null;
+  /** Mixed text formats inside a date column (exact), or null. */
+  dateFormats?: DateFormatSummary | null;
+  /** Currency or grouping symbols on part of a numeric column (exact), or null. */
+  numberSymbols?: NumberSymbolSummary | null;
+  /** Values outside the plausible range the column name implies (exact), or null. */
+  rangeViolation?: RangeViolation | null;
+  /** Semantic type shared by every detector. */
+  semantic?: Semantic | null;
+  /** Case/space/accent spelling variants of one value (category columns). */
+  variants?: VariantSummary | null;
   /** Dominant-format check: mask, off-pattern count and examples (null when none). */
   pattern?: ColumnPatternMeta | null;
 }
@@ -131,6 +152,8 @@ export type LoadRequest = {
   maxRows?: number;
   /** Open the table first and compute heavy dataset metrics in a second request. */
   deferStats?: boolean;
+  /** User-chosen header layout replacing automatic detection. */
+  headerLayout?: HeaderLayout;
 };
 
 /** Stops the in-flight load at its next cancellation checkpoint. */
@@ -180,6 +203,7 @@ export type SpecialKind =
   | "pattern"
   | "keyDuplicates"
   | "pairCheck"
+  | "affectedRows"
   | "castFailures";
 
 export type SetSpecialRequest = {
@@ -418,6 +442,8 @@ export interface ExportOptions {
   nullAsBlank?: boolean;
   /** Prefix formula-like cells with ' so spreadsheets import them as text. */
   escapeFormulas?: boolean;
+  /** Columns to mask or leave out of the file (possibly-sensitive columns). */
+  columnHandling?: { column: number; mode: "mask" | "exclude" }[];
 }
 
 /** Value lists for charting non-category columns as groups; computed on demand. */
@@ -695,6 +721,70 @@ export interface TextProfileMessage {
   ms: number;
 }
 
+/**
+ * Profiles text-like columns for possibly-sensitive content in one cancellable
+ * pass. Results stream back one column at a time (`sensitiveColumn`), then a
+ * single `sensitiveDone` answers the request.
+ */
+export type ScanSensitiveRequest = {
+  type: "scanSensitive";
+  requestId: number;
+  /** Columns to scan; omitted means every string, category and identifier column. */
+  columns?: number[];
+  /** Scan every value instead of a bounded sample (the "Scan all values" action). */
+  exact?: boolean;
+};
+
+/** Stops a running scan at its next column boundary. Fire-and-forget. */
+/** Counts the distinct rows failing a deterministic check and arms the "affectedRows" filter. */
+export type GetRowsAffectedRequest = { type: "getRowsAffected"; requestId: number };
+
+/** Builds exceptions.csv: one row per failing cell. */
+export type GetExceptionsRequest = {
+  type: "getExceptions";
+  requestId: number;
+  maskColumns: number[];
+  includeRaw: boolean;
+  optional: number[];
+  /** One check id, or null for every check. */
+  checkId: string | null;
+};
+
+export interface ExceptionsMessage {
+  type: "exceptions";
+  requestId: number;
+  csv: string;
+  count: number;
+  ms: number;
+}
+
+export interface RowsAffectedMessage {
+  type: "rowsAffected";
+  requestId: number;
+  count: number;
+  total: number;
+  ms: number;
+}
+
+export type CancelScanRequest = { type: "cancelScan"; scanId: number };
+
+export interface SensitiveColumnMessage {
+  type: "sensitiveColumn";
+  requestId: number;
+  input: ColumnSensitivityInput;
+  /** True when every value was scanned; false when a bounded sample was. */
+  exact: boolean;
+  ms: number;
+}
+
+export interface SensitiveDoneMessage {
+  type: "sensitiveDone";
+  requestId: number;
+  columnsScanned: number;
+  cancelled: boolean;
+  ms: number;
+}
+
 export type GetSimilarClustersRequest = {
   type: "getSimilarClusters";
   requestId: number;
@@ -772,11 +862,48 @@ export type GetDistributionChangesRequest = {
   requestId: number;
 };
 
+/** Counts repeats on a column subset without touching the table filter. */
+export type CountKeyDuplicatesRequest = { type: "countKeyDuplicates"; requestId: number; columns: number[] };
+
+export interface KeyDuplicateCountMessage {
+  type: "keyDuplicateCount";
+  requestId: number;
+  duplicateRows: number;
+  duplicateGroups: number;
+  counted: number;
+}
+
 export type CheckKeyDuplicatesRequest = {
   type: "checkKeyDuplicates";
   requestId: number;
   columns: number[];
 };
+
+/** Counts pair failures without touching the table filter (for suggested checks). */
+export type CountPairRequest = {
+  type: "countPair";
+  requestId: number;
+  columnA: number;
+  columnB: number;
+  operator: PairOperator;
+};
+
+export interface PairCountMessage {
+  type: "pairCount";
+  requestId: number;
+  violations: number;
+  compared: number;
+}
+
+/** Runs saved rules over the loaded columns (pure; leaves the table filter alone). */
+export type EvaluateRulesRequest = { type: "evaluateRules"; requestId: number; rules: Rule[] };
+
+export interface RulesEvaluatedMessage {
+  type: "rulesEvaluated";
+  requestId: number;
+  results: RuleResult[];
+  ms: number;
+}
 
 export type CheckPairRequest = {
   type: "checkPair";
@@ -876,10 +1003,17 @@ export type WorkerRequest =
   | GetRelationshipsRequest
   | GetColumnNetworkRequest
   | GetTextProfileRequest
+  | ScanSensitiveRequest
+  | GetRowsAffectedRequest
+  | GetExceptionsRequest
+  | CancelScanRequest
   | GetDistributionChangesRequest
   | GetSimilarClustersRequest
   | CheckKeyDuplicatesRequest
+  | CountKeyDuplicatesRequest
   | CheckPairRequest
+  | EvaluateRulesRequest
+  | CountPairRequest
   | GetGridCountsRequest
   | GetAnimationRequest;
 
@@ -1086,6 +1220,10 @@ export interface CleanPreviewMessage {
     failed: number;
     /** Up to five distinct examples of values that did not parse. */
     examples?: string[];
+    /** Non-empty cells in the column (base for loss percentages; 0 when no cast is staged). */
+    nonEmpty?: number;
+    /** Cells whose digits a number cast would change: leading zeros, 16+ digits. */
+    digitLoss?: number;
   }[];
 }
 
@@ -1117,10 +1255,17 @@ export type WorkerResponse =
   | RelationshipsMessage
   | ColumnNetworkMessage
   | TextProfileMessage
+  | SensitiveColumnMessage
+  | RowsAffectedMessage
+  | ExceptionsMessage
+  | SensitiveDoneMessage
   | DistributionChangesMessage
   | SimilarClustersMessage
   | KeyDuplicatesMessage
+  | KeyDuplicateCountMessage
   | PairCheckMessage
+  | RulesEvaluatedMessage
+  | PairCountMessage
   | GridCountsMessage
   | AnimationMessage
   | ExportStartedMessage

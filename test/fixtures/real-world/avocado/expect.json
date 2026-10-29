@@ -1,0 +1,34 @@
+{
+  "hasHeaders": true,
+  "rows": 297,
+  "columns": 13,
+  "band": {
+    "min": 95,
+    "max": 100
+  },
+  "types": {},
+  "must_flag": [],
+  "must_not_flag": [
+    {
+      "kind": "validity",
+      "column": "*"
+    },
+    {
+      "kind": "variants",
+      "column": "*"
+    },
+    {
+      "kind": "sentinel",
+      "column": "*"
+    },
+    {
+      "kind": "convert",
+      "column": "*"
+    },
+    {
+      "kind": "sensitive",
+      "column": "*",
+      "confidence": "high"
+    }
+  ]
+}

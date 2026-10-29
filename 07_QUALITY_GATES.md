@@ -18,12 +18,12 @@
 
 | Layer | Status |
 |---|---|
-| Static/unit/component | **Existing.** `npm run typecheck` passes; `npm test` runs 650 `node:test` tests with `tsx` and `happy-dom`; both passed on 2026-10-17. `npm run build` exists (typecheck + Vite build). |
+| Static/unit/component | **Existing.** `npm run typecheck` passes; `npm test` runs 1,047 `node:test` tests with `tsx` and `happy-dom`; both passed on 2026-10-29. `npm run build` exists (typecheck + Vite build). |
 | Lint/formatting | **Not available.** No lint or formatter script/config exists. Do not claim one was run. |
 | App-level integration | **Missing.** No test imports `src/ui/app.ts`. `FilterPanel` and `ReportsPanel` also have no direct tests. |
-| End-to-end/browser | **Missing.** No committed Playwright/Cypress/Puppeteer suite or configuration. |
+| End-to-end/browser | **Existing.** Playwright specs in `test/e2e/` (8 files, 50+ tests) run with `npm run test:e2e` and are part of `npm run gate`. |
 | Visual regression | **Missing.** No screenshot tooling or baseline images in the repository. |
-| Accessibility automation | **Missing.** No axe-core or equivalent in the repository. |
+| Accessibility automation | **Partial.** `@axe-core/playwright` checks every tab of the Data Quality page in light and dark (serious and critical violations fail). Other pages are not covered. |
 | CI | **Missing.** No CI configuration found. |
 | Manual browser verification | **Required but not yet baselined.** No recorded viewport/device matrix or current screenshot set. |
 
@@ -39,7 +39,7 @@ npm test
 npm run build
 ```
 
-- `npm test` is the existing automated suite: 650 tests across parsing, search, data, worker, component and recipe logic.
+- `npm test` is the existing automated suite: 1,047 tests across parsing, search, data, worker, component and recipe logic.
 - `npm run typecheck` is the TypeScript check.
 - `npm run build` performs typecheck plus a Vite production build and writes `dist/`.
 - There is no lint script. Record this gap rather than claiming a lint pass.

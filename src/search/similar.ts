@@ -1,5 +1,7 @@
 import { jaroWinkler } from "./jaro-winkler.js";
 import { normalize } from "./normalize.js";
+import { classifyDateValue } from "../parse/dates.js";
+import { parseNumber } from "../parse/numbers.js";
 
 export interface SimilarValue {
   value: string;
@@ -12,6 +14,11 @@ export interface SimilarCluster {
   suggested: string;
 }
 
+function isDateOrNumber(value: string): boolean {
+  const trimmed = value.trim();
+  return Number.isFinite(parseNumber(trimmed)) || classifyDateValue(trimmed) !== null;
+}
+
 /**
  * Greedy pairwise clustering over category labels. Values compare in
  * normalized form (case, accents and padding folded) with Jaro-Winkler, and
@@ -22,7 +29,9 @@ export function clusterSimilar(
   values: readonly SimilarValue[],
   threshold = 0.9,
 ): SimilarCluster[] {
+  // Dates and numbers differ by meaning, not spelling (22/08/1976 vs 22/02/1974).
   const candidates = values
+    .filter(({ value }) => !isDateOrNumber(value))
     .map((entry) => ({ ...entry, key: normalize(entry.value) }))
     .sort((a, b) => b.count - a.count || (a.value < b.value ? -1 : a.value > b.value ? 1 : 0));
 

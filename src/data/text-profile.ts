@@ -15,6 +15,27 @@ export interface TextShapeCounts {
   dateLike: number;
   uppercase: number;
   hasDigits: number;
+  /** Australian Medicare number: 10 digits, first 2-6, with the check digit. */
+  medicare: number;
+  /** IPv4 or IPv6 address. */
+  ip: number;
+  /** A latitude, longitude pair written in one cell. */
+  latLon: number;
+}
+
+/**
+ * Sensitive shapes found INSIDE longer text (a notes column holding a card number
+ * or an email), counted per row on a bounded sample.
+ */
+export interface EmbeddedShapeCounts {
+  /** Rows scanned. */
+  scanned: number;
+  /** Rows containing at least one email address. */
+  email: number;
+  /** Rows containing at least one phone-like number. */
+  phone: number;
+  /** Rows containing a Luhn-valid card number. */
+  card: number;
 }
 
 export interface TextTerm {
@@ -35,10 +56,18 @@ export interface TextProfile {
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const URL = /^(https?:\/\/|www\.)\S+$/i;
 const PHONE = /^[+()\d][\d\s().-]{5,}$/;
+/** 1950-2200 is a range (altitude, years, pages), not a phone number. */
+const NUMBER_RANGE = /^\d{3,4}\s*-\s*\d{3,4}$/;
 const CARD_CANDIDATE = /^(?:\d[ -]?){12,18}\d$/;
 const IBAN_CANDIDATE = /^[A-Za-z]{2}\d{2}[A-Za-z0-9 ]{11,30}$/;
 const AUSTRALIAN_ID = /^\d(?:[ -]?\d){7,10}$/;
 const GOVERNMENT_ID = /^\d{3}-\d{2}-\d{4}$/;
+// Strict date forms (ISO and d/m/y with 1-2 digit parts), optionally followed by a time.
+const DATE_SHAPED = /^(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})(?:[ T].*)?$/;
+const IPV4 = /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
+const IPV6 = /^(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{0,4}$/i;
+const LAT_LON = /^[-+]?\d{1,2}\.\d{4,}\s*[,;]\s*[-+]?\d{1,3}\.\d{4,}$/;
+const MEDICARE_CANDIDATE = /^[2-6]\d{3}[ -]?\d{5}[ -]?\d$/;
 const NUMERIC = /^[-+]?\d*\.?\d+$/;
 const DATE_LIKE = /^\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}/;
 
@@ -76,6 +105,15 @@ function ibanValid(value: string): boolean {
 
 function digitsOf(value: string): string {
   return value.replace(/\D/g, "");
+}
+
+/** Australian Medicare number: first digit 2-6, check digit over the first eight. */
+function medicareValid(value: string): boolean {
+  const digits = digitsOf(value).split("").map(Number);
+  if (digits.length !== 10) return false;
+  const weights = [1, 3, 7, 9, 1, 3, 7, 9];
+  const sum = digits.slice(0, 8).reduce((total, digit, index) => total + digit * weights[index], 0);
+  return sum % 10 === digits[8];
 }
 
 /** Australian Business Number: 11 digits with the ATO modulus-89 check. */
@@ -163,6 +201,9 @@ export function textProfile(
     dateLike: 0,
     uppercase: 0,
     hasDigits: 0,
+    medicare: 0,
+    ip: 0,
+    latLon: 0,
   };
   let rows = 0;
   let characters = 0;
@@ -175,15 +216,21 @@ export function textProfile(
     if (trimmed === "") continue;
     rows++;
     characters += trimmed.length;
+    // Date-shaped values come first: digits and separators also satisfy the
+    // phone pattern and, once stripped, the TFN/ABN checksums.
     if (EMAIL.test(trimmed)) shapes.email++;
     else if (URL.test(trimmed)) shapes.url++;
+    else if (DATE_SHAPED.test(trimmed)) shapes.dateLike++;
+    else if (IPV4.test(trimmed) || IPV6.test(trimmed)) shapes.ip++;
+    else if (LAT_LON.test(trimmed)) shapes.latLon++;
+    else if (MEDICARE_CANDIDATE.test(trimmed) && medicareValid(trimmed)) shapes.medicare++;
     else if (CARD_CANDIDATE.test(trimmed) && luhnValid(trimmed)) shapes.creditCard++;
     else if (IBAN_CANDIDATE.test(trimmed) && ibanValid(trimmed)) shapes.iban++;
     else if (AUSTRALIAN_ID.test(trimmed) && abnValid(trimmed)) shapes.abn++;
     else if (AUSTRALIAN_ID.test(trimmed) && acnValid(trimmed)) shapes.acn++;
     else if (AUSTRALIAN_ID.test(trimmed) && tfnValid(trimmed)) shapes.taxFileNumber++;
     else if (GOVERNMENT_ID.test(trimmed)) shapes.governmentId++;
-    else if (PHONE.test(trimmed)) shapes.phone++;
+    else if (PHONE.test(trimmed) && !NUMBER_RANGE.test(trimmed)) shapes.phone++;
     else if (NUMERIC.test(trimmed)) shapes.numeric++;
     else if (DATE_LIKE.test(trimmed)) shapes.dateLike++;
     if (trimmed === trimmed.toUpperCase() && /[\p{L}]/u.test(trimmed)) shapes.uppercase++;
@@ -212,4 +259,40 @@ export function textProfile(
     topTerms,
     shapes,
   };
+}
+
+const EMBEDDED_EMAIL = /[^\s@<>()]+@[^\s@<>()]+\.[A-Za-z]{2,}/;
+const EMBEDDED_AU_MOBILE = /(?:\+?61|0)[\s-]?4\d{2}[\s-]?\d{3}[\s-]?\d{3}/;
+const EMBEDDED_PHONE = /(?:\+\d{1,3}[\s-]?)?\(?\d{2,4}\)?[\s-]\d{3,4}[\s-]\d{3,4}/;
+const EMBEDDED_CARD_RUN = /\d(?:[ -]?\d){12,18}/g;
+
+/**
+ * Searches INSIDE each value for sensitive shapes, on at most `cap` non-empty
+ * rows, so a notes column holding "call 0412 345 678" or a card number is not
+ * missed by whole-value matching. Counts rows, never values.
+ */
+export function embeddedShapes(
+  values: readonly string[],
+  nullMask: BitSet,
+  cap = 2000,
+): EmbeddedShapeCounts {
+  const counts: EmbeddedShapeCounts = { scanned: 0, email: 0, phone: 0, card: 0 };
+  const present: number[] = [];
+  for (let row = 0; row < values.length; row++) {
+    if (!nullMask.get(row) && (values[row] ?? "").trim() !== "") present.push(row);
+  }
+  const step = Math.max(1, present.length / cap);
+  for (let k = 0; k < present.length && counts.scanned < cap; k += step) {
+    const value = values[present[Math.floor(k)]] ?? "";
+    counts.scanned++;
+    if (EMBEDDED_EMAIL.test(value)) counts.email++;
+    if (EMBEDDED_AU_MOBILE.test(value) || EMBEDDED_PHONE.test(value)) counts.phone++;
+    for (const run of value.match(EMBEDDED_CARD_RUN) ?? []) {
+      if (luhnValid(run)) {
+        counts.card++;
+        break;
+      }
+    }
+  }
+  return counts;
 }

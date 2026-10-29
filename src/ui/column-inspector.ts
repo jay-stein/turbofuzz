@@ -37,6 +37,8 @@ export interface ColumnInspectorCallbacks {
   /** Fixed decimals for display; null = Auto. */
   onDisplayFormat(decimals: number | null): void;
   displayFormat: number | null;
+  /** Why this column is flagged as possibly sensitive (one line per reason), or empty. */
+  sensitiveWhy?: readonly string[];
   /** Thousands separators for display; the stored values are never changed. */
   onDisplayGrouping(on: boolean): void;
   displayGrouping: boolean;
@@ -171,6 +173,21 @@ export function openColumnInspector(
   }
   for (const row of stats) if (row !== null) profile.append(row);
   panel.append(profile);
+
+  if (callbacks.sensitiveWhy !== undefined && callbacks.sensitiveWhy.length > 0) {
+    const sensitive = section("Possibly sensitive");
+    sensitive.append(
+      el("div", { class: "inspector-stat" }, [
+        el("span", { class: "inspector-stat-label" }, ["Why"]),
+        el("span", { class: "inspector-stat-value" }, [callbacks.sensitiveWhy.join("; ")]),
+      ]),
+      el("div", { class: "inspector-stat" }, [
+        el("span", { class: "inspector-stat-label" }, ["Note"]),
+        el("span", { class: "inspector-stat-value" }, ["Advisory only; not counted in the score."]),
+      ]),
+    );
+    panel.append(sensitive);
+  }
 
   // Issues: suggestions, placeholder text, anomalies, similar values.
   const issues = section("Issues");

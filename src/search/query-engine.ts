@@ -36,6 +36,7 @@ export type SpecialFilter =
   | "outliers"
   | "keyDuplicates"
   | "pairCheck"
+  | "affectedRows"
   | "castFailures";
 
 /** Specials that can be scoped to a single column (duplicates cannot). */
@@ -156,6 +157,9 @@ export class QueryEngine {
       case "pairCheck":
         // Set by the inspector's compare check; before that, nothing matches.
         return this.dataset.pairCheckBits ?? new BitSet(this.dataset.rowCount);
+      case "affectedRows":
+        // Set by the rows-affected pass; before that, nothing matches.
+        return this.dataset.affectedRowBits ?? new BitSet(this.dataset.rowCount);
       case "castFailures":
         return new BitSet(this.dataset.rowCount);
     }
