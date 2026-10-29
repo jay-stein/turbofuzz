@@ -674,6 +674,104 @@ time series (CHG-2026-10-30-02). Still open, in suggested order:
 4. **Keyboard access** — arrow keys to step through bars/points, Enter to filter.
 5. **Touch** — two-finger pinch zoom and long-press brush.
 
+## BIG TODO: a dedicated Time Series page (logged 2026-10-30, future plan)
+
+**Name:** "Time Series" for now; revisit (candidates: Trends, Forecast, Seasonality).
+
+**Aim:** one page, separate from the Chart cards, for **decomposition** (trend +
+seasonality + remainder), **trend** reading, and **forecasting** (simple first, then
+with dependent variables). The Chart card's time series stays the quick look; this
+page is where someone goes to understand and predict a series. It must stay in the
+speed ethos: everything runs on the already-aggregated series (hundreds to a few
+thousand points), never on raw rows, so every step is milliseconds.
+
+### The hard part is the question before the maths
+
+Decomposition and forecasting both need **one regular series**: one value per period,
+no holes. Raw data is rarely that, so the page has to settle three things first, and
+the UI should make each an explicit, visible choice with a sensible default rather
+than hiding it:
+
+1. **Grain** — the period (hour, day, week, month). Already solved by the Every N
+   bucket control; the page reuses it. Default from the span and from the data's
+   natural cadence (median gap between timestamps), not just the span.
+2. **Which aggregate** — "daily average" vs "daily max" vs "daily sum" is a modelling
+   decision, not a detail, and it changes the answer. Rules of thumb to encode as the
+   default, always overridable and always shown in the headline:
+   - amounts that add up (sales, visits, points scored, rows) → **sum** (or count of rows)
+   - levels and rates (temperature, price, balance, utilisation, a score) → **mean**
+   - capacity and peak questions (load, queue length, worst case) → **max**
+   - stock counts at a moment (inventory, headcount) → **last**
+   - Show a one-line "why": "Summed per week because points scored add up."
+3. **Missing periods** — a gap is not a zero for a mean. Reuse the existing Missing
+   periods policy (gap / zero / carry); add **interpolate** here, because most
+   decomposition methods cannot take holes. Say how many periods were filled.
+
+Also surface, before any model: how many periods, how many are filled, the date range,
+and a plain warning when the series is too short for the chosen seasonality (rule of
+thumb: at least two full seasonal cycles).
+
+### Which seasonality? Detect it, do not make the user guess
+
+Candidate periods follow from the grain: daily data → 7 (weekly), ~30/365 (monthly,
+yearly); hourly → 24 (daily), 168 (weekly); weekly → 52; monthly → 12.
+
+- **Autodetect** by autocorrelation (ACF) on the detrended series, or a periodogram,
+  and show the strongest few candidate periods with a strength score ("weekly cycle:
+  strong, 0.71; yearly: weak"). Pre-select the best, let the user pick another or
+  several (multi-seasonal, e.g. daily + weekly for hourly data).
+- Show a **seasonal plot** (one line per cycle, overlaid) and a month-by-weekday
+  heatmap next to the decomposition: people trust seasonality they can see.
+- If nothing clears a threshold, say so ("no clear repeating pattern") instead of
+  forcing a fit.
+
+### Biggest bang for buck (build in this order)
+
+1. **Series prep + trend view** (smallest, most useful): regular series with the
+   aggregate/gap choices above, a moving-average and a LOESS-style smooth as the
+   trend line, and a plain-English trend read ("up 12% over the period, steepest in
+   Q3"). O(n), no new dependencies.
+2. **Classical decomposition, then STL.** Start with additive/multiplicative classical
+   decomposition (moving average + seasonal means), O(n), tiny. Add **STL** (LOESS
+   based, robust to outliers, handles any period) as the default once it is tested
+   against a reference (statsmodels). Output panels: observed, trend, seasonal,
+   remainder, plus "strength of trend / strength of seasonality" scores. Additive vs
+   multiplicative auto-pick by whether the seasonal swing grows with the level.
+3. **Anomalies from the remainder**: flag periods where the remainder is beyond a
+   robust (MAD) fence. This reuses the outlier language already in the app and is
+   nearly free once step 2 exists.
+4. **Simple forecast with an honest interval**: seasonal naive and Holt-Winters
+   (ETS) as the baselines, with prediction intervals and a **backtest** (hold out the
+   last cycle, report error vs naive). Always show the naive baseline next to the
+   model; a forecast that cannot beat seasonal naive should say so.
+5. **Forecast with dependent variables** (regression with ARIMA-style errors, or
+   gradient boosting on lag + calendar + driver features): pick driver columns from
+   the table (price, promo flag, temperature), aggregated with their own sensible
+   aggregate. Needs the drivers' **future values** to forecast, so the UI must ask
+   for them (or forecast the drivers first) and flag drivers that are not known in
+   advance. Start with a linear model on lags + calendar dummies + drivers; it
+   explains itself, which matters more than the last point of accuracy.
+6. **Later**: multiple series at once (one per category, small multiples), changepoint
+   detection, holiday/event calendars, exporting the fitted components and forecast
+   as columns or CSV, and the recipe/code export (statsmodels/Prophet-style Python).
+
+### Build and risk notes
+
+- Run in the existing worker on the aggregated series; no WebAssembly or numerical
+  library unless benchmarks demand it. STL, Holt-Winters and a small ridge regression
+  are a few hundred lines each in plain typed arrays.
+- Add `bench/` budgets: decompose 10k periods < 50 ms, forecast + backtest < 200 ms.
+- Validate every method against a Python reference on fixed fixtures before shipping
+  (this is the main correctness risk; wrong decompositions look plausible).
+- Time zones stay out of scope (dates used as stored); DST-free daily and above is the
+  supported world, sub-daily data is treated as naive local time.
+- Decide early whether this page edits the dataset (adds trend/seasonal/remainder or
+  forecast columns as a Transform step) or only reads it. Recommendation: read-only
+  first, with an explicit "add as columns" action later.
+- Open question for the owner: should the page start from a Chart card's time series
+  ("Analyse this series" button, carrying column, aggregate, grain and filters) as
+  well as from its own nav entry? Recommendation: yes, both.
+
 ## TODO (logged 2026-10-29)
 
 - **Time-series chart review (DONE 2026-10-29, see CHG-2026-10-29-10). Time-zone conversion is out of scope (decided 2026-10-30); arbitrary-width time buckets, interpolation and a trend overlay remain.** Time-series charts are not
