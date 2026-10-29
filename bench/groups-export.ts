@@ -58,7 +58,6 @@ for (const [format, budget] of [
   ["tsv", CONVERT_BUDGET_MS],
   ["json", CONVERT_BUDGET_MS],
   ["jsonl", CONVERT_BUDGET_MS],
-  ["xlsx", CONVERT_BUDGET_MS * 4],
 ] as const) {
   const times: number[] = [];
   for (let i = 0; i < 3; i++) {

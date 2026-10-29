@@ -138,3 +138,23 @@ Add entries here. Keep unsuccessful attempts too if they reveal useful constrain
 - **Explicit non-goals:** 15- and 30-minute grains, time-zone conversion (dates are used as stored; the Time resolution tooltip says so), interpolation, daylight-saving handling, a trend overlay.
 - **Files / components changed:** src/data/aggregate.ts, src/ui/chart-card.ts, chart-utils.ts, chart-spec.ts, test/calendar-ticks.test.ts, test/aggregate-gaps.test.ts, test/e2e/time-series.spec.ts
 - **Date:** 2026-10-29
+
+### CHG-2026-10-30-01 — Any time-bucket width; XLSX export removed
+
+- **Status:** Verified (unit tests, 2 browser tests); owner has not tried it
+- **Problem addressed:** Time series could only bucket by one second, minute, hour, day, week, month, quarter or year. "Every 15 minutes", "every 2 weeks" or "every 10 days" were impossible, and a day of timestamped readings defaulted to hourly buckets.
+- **Scope:** A new **Every N** box appears beside Time resolution once a unit is chosen: 15 + Minute, 2 + Week, 10 + Day, 3 + Month, 2 + Quarter all work, with any whole number. Fixed units (second to day) align from the epoch, weeks to the chosen weekday, months/quarters/years to the calendar or financial year. Missing-period filling, the axis, the headline ("Mean of points per 15 minutes"), the saved chart spec and the pandas/Polars code (`15min`, `2W`, `15m`) all follow the width. Auto now picks a round step for short spans (a morning of readings is minutes, a day is half-hours) instead of a single hour bucket; date-only columns get days. "Second" is now offered.
+- **Also fixed:** The generated pandas/Polars code for a minute or second grain fell back to monthly.
+- **Removed:** XLSX export (and its test, bench entry and docs). It is a poor interchange format. Reading Excel files on import is unchanged.
+- **Decision recorded:** Time-zone conversion is out of scope.
+- **Files / components changed:** src/data/aggregate.ts (`TimeOptions.every`, `timeBucket`, next-bucket stepping), src/ui/chart-card.ts, chart-utils.ts, chart-spec.ts, src/data/recipe.ts, recipe-polars.ts, src/ui/export-formats.ts, test/time-step.test.ts, test/e2e/time-series.spec.ts, test/export-*.test.ts, bench/groups-export.ts
+- **Date:** 2026-10-30
+
+### CHG-2026-10-30-02 — Shift+drag brush on charts
+
+- **Status:** Verified (4 browser tests on scatter, histogram, count time series; 1 on a measure time series); owner has not tried it
+- **Problem addressed:** Only the map could be drag-selected. On every other chart you could click one bar or bin, but not "this region" or "this period".
+- **Scope:** Hold Shift and drag on a scatter, density, bubble, histogram or time series. Scatter-style charts filter both columns to the rectangle; histograms and time series filter their own column over the dragged span. A time series that plots a measure (with or without Split by) snaps to whole periods, so a weekly chart selects Monday to Sunday. Whole-number columns round outward so edge rows stay in. The result is an ordinary range filter chip with a status line ("Chart selection: x 12 to 18, y 4 to 9"). Drags under 6 px are ignored; plain drag still pans and the wheel still zooms. Charts that support it say "Shift+drag to filter" in the note.
+- **Explicit non-goals:** Lasso, a brush that survives as a movable selection, brushing category bars/box/heatmap (click already filters those), cross-chart highlighting.
+- **Files / components changed:** src/ui/chart-card.ts (brush space recorded by each draw routine, overlay, `finishBrush`), chart-panel.ts, app.ts (`filterToBrush`), help-content.ts, test/e2e/chart-brush.spec.ts, test/e2e/time-series.spec.ts
+- **Date:** 2026-10-30

@@ -28,6 +28,7 @@ import {
   ChartCard,
   type ChartCardConfig,
   type ChartTableFilter,
+  type BrushRange,
   type MapBrushSelection,
   type SeriesRequestInput,
 } from "./chart-card.js";
@@ -152,6 +153,8 @@ export interface ChartsPanelOptions {
   onSuggestion?(column: number, suggestion: ColumnSuggestion): void;
   /** Map card rectangle brush: filter both coordinate columns to the area. */
   onMapBrush?(selection: MapBrushSelection): void;
+  /** Shift+drag brush on a chart card: filter to the brushed column ranges. */
+  onBrush?(ranges: BrushRange[]): void;
 }
 
 const LAYOUT_KEY = "turbofuzz.charts.columns";
@@ -603,6 +606,7 @@ export class ChartsPanel {
         onFilter: this.options.onFilter,
         currentFilter: this.options.currentFilter,
         onMapBrush: this.options.onMapBrush,
+        onBrush: this.options.onBrush,
         onRemove: (target) => this.removeCard(target),
         onDuplicate: (target) => this.duplicateCard(target),
         onEdit: (target) => void this.editCard(target),

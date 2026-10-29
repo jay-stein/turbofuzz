@@ -159,7 +159,7 @@ test("export panel offers several formats and builds the file name from them", (
   const formats = document.querySelectorAll(".export-modal select[aria-label='Export format'] option");
   assert.deepEqual(
     [...formats].map((option) => option.getAttribute("value")),
-    ["csv", "csv-semicolon", "tsv", "json", "jsonl", "xlsx"],
+    ["csv", "csv-semicolon", "tsv", "json", "jsonl"],
   );
   const select = document.querySelector(
     ".export-modal select[aria-label='Export format']",

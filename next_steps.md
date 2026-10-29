@@ -182,9 +182,7 @@ result set, streamed in 20k-row chunks. Good foundation.
 Recommended additions, in order of value-per-bloat:
 
 1. **TSV / JSON Lines** — trivial variants of the existing `buildCsv`, effectively free.
-2. **XLSX (write)** — `xlsx` (SheetJS) is *already* a dependency for reading
-   (`src/parse/xlsx.ts`). Reusing it to *write* typed Excel files costs ~0 extra bundle
-   bytes and gives you a format that preserves types. Do this before Parquet.
+2. ~~**XLSX (write)**~~ — decided against (2026-10-30): not a good export format.
 3. **Parquet** — the right "typed" format long-term, but a writer (hyparquet /
    parquet-wasm / `@dsnp/parquetjs`) is a real dependency. **Load it lazily via
    dynamic `import()`** so it never affects initial load or the happy path.
@@ -291,8 +289,6 @@ and Transform, and it reuses the exact patterns the codebase already establishes
 ### Step 6 — Export formats
 
 - Add TSV + JSON Lines beside CSV in `src/worker/csv.ts`.
-- Reuse `xlsx` for a typed XLSX export (dynamic import, but it's already loaded for
-  reads).
 - Add Parquet behind a lazy `import()` only if/when a real typed-export need appears.
 
 ---
@@ -379,9 +375,11 @@ and Transform, and it reuses the exact patterns the codebase already establishes
 - **Transform affordance (done 2026-10-07)** — "Add step" is now a primary
   (blue) button with a hint line, and "Apply transforms" stays disabled until
   the staged list differs from what is applied.
-- **Export formats beyond CSV** — the export dialog lists Parquet as planned.
-  XLSX write can reuse the existing SheetJS dependency; Parquet needs a lazy
-  writer. TSV / JSON Lines are near-free.
+- **Export formats beyond CSV** — CSV, semicolon CSV, TSV, JSON and JSON Lines
+  ship (with gzip/zip). **XLSX export was removed on 2026-10-30 and will not
+  come back**: it is a poor interchange format (type guessing, row cap, no
+  streaming). Reading Excel files on import is unchanged. Parquet would need a
+  lazy writer and is only worth doing on real demand.
 - **Null-resolution steps in the steps list** — treating tokens like `-999`
   as missing is applied but is not shown or undoable in the steps drawer yet.
 - **Combine date/time columns into a date or datetime (done 2026-10-08).** A
@@ -654,6 +652,20 @@ corner. Density cards gained a **Style** control — Heat (exact), Contours
 iso-lines) and Heat + lines — all computed on the main thread from the
 existing grid payload (`src/data/kde.ts`).
 
+
+## Chart interaction status (2026-10-30)
+
+High priority per the owner. Shipped: hover tooltips, click-to-filter (bars, bins,
+cells, terms), wheel zoom and drag pan on every continuous chart, map brush, and
+as of 2026-10-30 a **Shift+drag brush** on scatter, density, bubble, histogram and
+time series (CHG-2026-10-30-02). Still open, in suggested order:
+
+1. **Linked highlight** — hovering or selecting in one card marks the same rows in
+   the others (shared client-side highlight over the sampled ids).
+2. **Brush on category charts** — drag across several bars/cells to select a set.
+3. **Lasso** for scatter, and a brush that stays as an editable, movable selection.
+4. **Keyboard access** — arrow keys to step through bars/points, Enter to filter.
+5. **Touch** — two-finger pinch zoom and long-press brush.
 
 ## TODO (logged 2026-10-29)
 

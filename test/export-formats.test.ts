@@ -21,7 +21,7 @@ test("file names get the format extension and an optional date-time prefix", () 
     "20261026004030_sales.json",
   );
   assert.equal(buildExportFileName("sales", "x", "csv", "gzip", false, now), "sales.csv.gz");
-  assert.equal(buildExportFileName("  ", "fallback-cleaned", "xlsx", "none", true, now), "20261026004030_fallback-cleaned.xlsx");
+  assert.equal(buildExportFileName("  ", "fallback-cleaned", "jsonl", "none", true, now), "20261026004030_fallback-cleaned.jsonl");
   assert.equal(buildExportFileName("a/b:c", "x", "tsv", "none", false, now), "a-b-c.tsv");
   assert.equal(stripExportExtension("data.csv.gz"), "data");
 });
@@ -57,14 +57,4 @@ test("gzip and zip wrap the encoded file", async () => {
   const zip = await encodeExport(CSV, "tsv", "zip", "x.tsv.zip");
   const files = unzipSync(new Uint8Array(await zip.blob.arrayBuffer()));
   assert.deepEqual(Object.keys(files), ["x.tsv"]);
-});
-
-test("xlsx produces a workbook the reader can open", async () => {
-  const xlsx = await encodeExport(CSV, "xlsx", "none", "x.xlsx");
-  const XLSX = await import("xlsx");
-  const book = XLSX.read(new Uint8Array(await xlsx.blob.arrayBuffer()), { type: "array" });
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(book.Sheets[book.SheetNames[0]]);
-  assert.equal(rows.length, 2);
-  assert.equal(rows[0].id, 1);
-  assert.equal(rows[1].id, "02");
 });

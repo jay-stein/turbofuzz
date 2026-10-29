@@ -184,6 +184,35 @@ export function fitMapView(
   }
   return { lonMin, lonMax, latMin, latMax };
 }
+/** Shift+drag on a chart: the ranges (data units) to filter, one per brushed axis. */
+export interface BrushRange {
+  column: number;
+  min: number;
+  max: number;
+}
+
+/** Where the plot area sits in data units, recorded by each draw routine for the brush. */
+interface BrushSpace {
+  left: number;
+  top: number;
+  plotW: number;
+  plotH: number;
+  xColumn: number;
+  xMin: number;
+  xMax: number;
+  /** Share of the plot width the x domain spans (less than 1 when an overflow bar follows it). */
+  xFraction: number;
+  /**
+   * Aggregated time axes put one period in each slot: the brush snaps to whole
+   * periods and returns their combined date range.
+   */
+  slots?: { count: number; range(first: number, last: number): { min: number; max: number } | null };
+  /** Present for two-axis charts (scatter, density, bubble). */
+  yColumn?: number;
+  yMin?: number;
+  yMax?: number;
+}
+
 export interface MapBrushSelection {
   lonColumn: number;
   lonMin: number;
@@ -264,6 +293,8 @@ export interface ChartCardOptions {
   requestSeries(input: SeriesRequestInput): Promise<ChartSeriesMessage>;
   /** Map card rectangle brush: filter both coordinate columns to the area. */
   onMapBrush?(selection: MapBrushSelection): void;
+  /** Shift+drag on a scatter, density, bubble, line or histogram: filter to the brushed ranges. */
+  onBrush?(ranges: BrushRange[]): void;
   requestBoxStats(input: {
     valueColumn: number;
     categoryColumn: number;
@@ -939,6 +970,10 @@ export class ChartCard {
   private detailBasemapLoading = false;
   /** Live map brush rectangle in canvas pixels while dragging. */
   private mapBrush: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  /** Data-space geometry of the last paint, for Shift+drag brushing (null when not brushable). */
+  private brushSpace: BrushSpace | null = null;
+  /** Live Shift+drag rectangle in canvas pixels. */
+  private brushDrag: { x0: number; y0: number; x1: number; y1: number } | null = null;
   private mapBrushStart: { x: number; y: number } | null = null;
   /** Frame of the last paint, used to map brush pixels to lon/lat. */
   private lastFrame: Frame | null = null;
@@ -6584,7 +6619,13 @@ export class ChartCard {
       return;
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.brushSpace = null;
     this.drawChart(ctx, cssWidth, cssHeight);
+    this.drawBrushOverlay(ctx);
+    if (this.brushSpace !== null && this.noteEl.textContent?.includes("Shift+drag") !== true) {
+      const note = this.noteEl.textContent ?? "";
+      this.noteEl.textContent = note === "" ? "Shift+drag to filter" : `${note} · Shift+drag to filter`;
+    }
     this.syncDataIssues();
     this.syncLegend();
     this.syncAnimationBar();
@@ -6678,6 +6719,17 @@ export class ChartCard {
   /** Coalesces pointer moves into one tooltip update per animation frame. */
   private queuePointer(event: PointerEvent): void {
     const rect = this.canvas.getBoundingClientRect();
+    if (this.brushDrag !== null) {
+      this.dragMoved = true;
+      this.brushDrag = {
+        ...this.brushDrag,
+        x1: event.clientX - rect.left,
+        y1: event.clientY - rect.top,
+      };
+      this.hideTooltip();
+      this.render();
+      return;
+    }
     if (this.config.kind === "map" && this.mapDrag !== null && this.lastFrame !== null) {
       const frame = this.lastFrame;
       const dx = (event.clientX - rect.left - this.mapDrag.x) / frame.plotW;
@@ -7071,6 +7123,16 @@ export class ChartCard {
     ) {
       return;
     }
+    if (kind !== "map" && event.shiftKey && this.brushSpace !== null) {
+      this.dragMoved = false;
+      this.brushDrag = { x0: point.x, y0: point.y, x1: point.x, y1: point.y };
+      try {
+        this.canvas.setPointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture is best-effort.
+      }
+      return;
+    }
     if (kind !== "map") {
       // Scatter/density: drag pans the viewport.
       this.dragMoved = false;
@@ -7108,6 +7170,13 @@ export class ChartCard {
    * both coordinate columns. Rects smaller than 6 px are treated as clicks.
    */
   private endMapBrush(event: PointerEvent): void {
+    if (this.brushDrag !== null) {
+      const rect = this.canvas.getBoundingClientRect();
+      const drag = { ...this.brushDrag, x1: event.clientX - rect.left, y1: event.clientY - rect.top };
+      this.brushDrag = null;
+      this.finishBrush(drag);
+      return;
+    }
     if (this.config.kind !== "map") {
       this.plotDrag = null;
       return;
@@ -7162,6 +7231,112 @@ export class ChartCard {
     };
     this.render();
     this.options.onMapBrush?.(selection);
+  }
+
+  /**
+   * Shift+drag release: converts the pixel rectangle into data ranges on the
+   * plotted columns and hands them to the table filters. Drags under 6 px are
+   * ignored; one-axis charts (line, histogram) use the horizontal extent only.
+   */
+  private finishBrush(drag: { x0: number; y0: number; x1: number; y1: number }): void {
+    const space = this.brushSpace;
+    this.render();
+    if (space === null || this.options.onBrush === undefined) return;
+    const clamp = (value: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, value));
+    const left = space.left;
+    const right = space.left + space.plotW;
+    const top = space.top;
+    const bottom = space.top + space.plotH;
+    const px0 = clamp(Math.min(drag.x0, drag.x1), left, right);
+    const px1 = clamp(Math.max(drag.x0, drag.x1), left, right);
+    const py0 = clamp(Math.min(drag.y0, drag.y1), top, bottom);
+    const py1 = clamp(Math.max(drag.y0, drag.y1), top, bottom);
+    const twoAxes = space.yColumn !== undefined && space.yMin !== undefined && space.yMax !== undefined;
+    if (px1 - px0 < 6 || (twoAxes && py1 - py0 < 6)) return;
+    if (space.slots !== undefined) {
+      const slotW = space.plotW / Math.max(1, space.slots.count);
+      const last = space.slots.count - 1;
+      const first = clamp(Math.floor((px0 - left) / slotW), 0, last);
+      const end = clamp(Math.floor((px1 - left) / slotW), first, last);
+      const range = space.slots.range(first, end);
+      if (range !== null) this.options.onBrush([{ column: space.xColumn, ...range }]);
+      return;
+    }
+    const xSpan = space.xMax - space.xMin;
+    const xWidth = Math.max(1e-9, space.plotW * space.xFraction);
+    const toX = (x: number): number => space.xMin + clamp((x - left) / xWidth, 0, 1) * xSpan;
+    const ranges: BrushRange[] = [this.roundedRange(space.xColumn, toX(px0), toX(px1))];
+    if (twoAxes) {
+      const yMin = space.yMin as number;
+      const yMax = space.yMax as number;
+      const toY = (y: number): number => yMax - ((y - top) / space.plotH) * (yMax - yMin);
+      ranges.push(this.roundedRange(space.yColumn as number, toY(py1), toY(py0)));
+    }
+    this.options.onBrush(ranges);
+  }
+
+  /**
+   * Brush geometry for an aggregated time axis: slot i covers [times[i], the next
+   * period) so a selection of slots a..b is the dates from the start of a to the
+   * end of b. The last period is as long as the one before it.
+   */
+  private timeSlotBrush(times: readonly number[], column: number, frame: Frame): BrushSpace | null {
+    if (times.length === 0 || column < 0) return null;
+    const end = (i: number): number => {
+      const next = times[i + 1];
+      if (next !== undefined && Number.isFinite(next)) return next - 1;
+      const here = times[i] as number;
+      const previous = times[i - 1];
+      return previous !== undefined && Number.isFinite(previous) ? here + (here - previous) - 1 : here;
+    };
+    return {
+      left: frame.left,
+      top: frame.top,
+      plotW: frame.plotW,
+      plotH: frame.plotH,
+      xColumn: column,
+      xMin: 0,
+      xMax: 1,
+      xFraction: 1,
+      slots: {
+        count: times.length,
+        range: (first, last) => {
+          const min = times[first];
+          if (min === undefined || !Number.isFinite(min) || !Number.isFinite(times[last])) return null;
+          return { min, max: end(last) };
+        },
+      },
+    };
+  }
+
+  /** Whole-number columns get whole-number bounds so the edge rows stay in. */
+  private roundedRange(column: number, min: number, max: number): BrushRange {
+    if (this.meta(column)?.type === "integer") {
+      return { column, min: Math.floor(min), max: Math.ceil(max) };
+    }
+    return { column, min, max };
+  }
+
+  /** The live Shift+drag selection: a rectangle, or a full-height band on one-axis charts. */
+  private drawBrushOverlay(ctx: CanvasRenderingContext2D): void {
+    const space = this.brushSpace;
+    if (this.brushDrag === null || space === null) return;
+    const clampX = (x: number): number => Math.max(space.left, Math.min(space.left + space.plotW, x));
+    const clampY = (y: number): number => Math.max(space.top, Math.min(space.top + space.plotH, y));
+    const x = Math.min(clampX(this.brushDrag.x0), clampX(this.brushDrag.x1));
+    const w = Math.abs(clampX(this.brushDrag.x1) - clampX(this.brushDrag.x0));
+    const oneAxis = space.yColumn === undefined;
+    const y = oneAxis ? space.top : Math.min(clampY(this.brushDrag.y0), clampY(this.brushDrag.y1));
+    const h = oneAxis ? space.plotH : Math.abs(clampY(this.brushDrag.y1) - clampY(this.brushDrag.y0));
+    ctx.save();
+    ctx.fillStyle = this.primaryColor();
+    ctx.globalAlpha = 0.15;
+    ctx.fillRect(x, y, w, h);
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = this.primaryColor();
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    ctx.restore();
   }
 
   /** Wheel zoom on the map, anchored at the pointer; clamped to the world. */
@@ -8516,6 +8691,9 @@ export class ChartCard {
       }
     }
     ctx.textAlign = "left";
+    if (bucketTimes !== null && lineCard && this.config.source === "") {
+      this.brushSpace = this.timeSlotBrush(bucketTimes, this.config.column, frame);
+    }
     // The legend is the clickable one under the chart (same colours, toggles series).
 
     const measure = result.measureNames[0] ?? "measure";
@@ -9264,6 +9442,10 @@ export class ChartCard {
       });
     }
 
+    if (isTime && times !== undefined && times.length === n && this.config.source === "") {
+      this.brushSpace = this.timeSlotBrush(Array.from(times), dimensionColumn, frame);
+    }
+
     const ms = result.ms < 1 ? "<1" : String(Math.round(result.ms));
     const partialNote =
       partialCount > 0
@@ -9330,6 +9512,16 @@ export class ChartCard {
       this.chartXZoom?.max ??
       this.config.binOptions?.max ??
       automatic.max;
+    this.brushSpace = {
+      left: frame.left,
+      top: frame.top,
+      plotW: frame.plotW,
+      plotH: frame.plotH,
+      xColumn: this.config.column,
+      xMin: min,
+      xMax: max,
+      xFraction: bins.length / slots,
+    };
     this.hitRegions = seriesHitRegions(
       { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
       {
@@ -10294,6 +10486,19 @@ export class ChartCard {
   ): void {
     const ui = frame.ui;
     const { xMin, xMax, yMin, yMax, bins } = input;
+    this.brushSpace = {
+      left: frame.left,
+      top: frame.top,
+      plotW: frame.plotW,
+      plotH: frame.plotH,
+      xColumn: this.config.x,
+      xMin,
+      xMax,
+      xFraction: 1,
+      yColumn: this.config.y,
+      yMin,
+      yMax,
+    };
     const scaleName = this.config.bubbleScale ?? "area";
 
     const xTicks = niceTicks(xMin, xMax, 4);
@@ -10646,6 +10851,19 @@ export class ChartCard {
     xKind: "histogram" | AxisFormat,
     yKind: "histogram" | AxisFormat,
   ): void {
+    this.brushSpace = {
+      left: frame.left,
+      top: frame.top,
+      plotW: frame.plotW,
+      plotH: frame.plotH,
+      xColumn: this.config.x,
+      xMin,
+      xMax,
+      xFraction: 1,
+      yColumn: this.config.y,
+      yMin,
+      yMax,
+    };
     const ui = frame.ui;
     // Tick density follows the actual plot width so narrow cards stay legible.
     const xTarget = Math.max(2, Math.min(6, Math.floor(frame.plotW / (90 * ui))));

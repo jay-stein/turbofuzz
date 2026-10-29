@@ -1,4 +1,4 @@
-export type ExportFormat = "csv" | "csv-semicolon" | "tsv" | "json" | "jsonl" | "xlsx";
+export type ExportFormat = "csv" | "csv-semicolon" | "tsv" | "json" | "jsonl";
 export type ExportCompression = "none" | "gzip" | "zip";
 
 export interface ExportFormatInfo {
@@ -45,13 +45,6 @@ export const EXPORT_FORMATS: readonly ExportFormatInfo[] = [
     ext: ".jsonl",
     mime: "application/x-ndjson",
   },
-  {
-    value: "xlsx",
-    label: "Excel (.xlsx)",
-    hint: "An Excel workbook with one sheet. Limited to 1,048,575 rows.",
-    ext: ".xlsx",
-    mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  },
 ];
 
 export const EXPORT_COMPRESSIONS: readonly { value: ExportCompression; label: string; ext: string }[] =
@@ -61,15 +54,13 @@ export const EXPORT_COMPRESSIONS: readonly { value: ExportCompression; label: st
     { value: "zip", label: "Zip (.zip)", ext: ".zip" },
   ];
 
-const XLSX_MAX_ROWS = 1_048_575;
-
 export function formatInfo(format: ExportFormat): ExportFormatInfo {
   return EXPORT_FORMATS.find((entry) => entry.value === format) ?? EXPORT_FORMATS[0];
 }
 
 /** Binary formats and compression need the whole file; text formats stream. */
 export function isTextOnly(format: ExportFormat, compression: ExportCompression): boolean {
-  return compression === "none" && format !== "xlsx";
+  return compression === "none";
 }
 
 /** Local time as YYYYMMDDHHMMSS, e.g. 20261026004030. */
@@ -81,7 +72,7 @@ export function timestampString(now: Date = new Date()): string {
   );
 }
 
-const KNOWN_EXTENSION = /\.(csv|tsv|json|jsonl|ndjson|xlsx|gz|zip)$/i;
+const KNOWN_EXTENSION = /\.(csv|tsv|json|jsonl|ndjson|gz|zip)$/i;
 
 /** Drops any export extension the user typed so the format chooses it. */
 export function stripExportExtension(name: string): string {
@@ -180,24 +171,6 @@ export async function encodeExport(
         .map((record) => JSON.stringify(record))
         .join("\n")}\n`;
       break;
-    case "xlsx": {
-      const rows = await parseRows(csvText);
-      if (rows.length - 1 > XLSX_MAX_ROWS) {
-        throw new Error(
-          `Excel files hold at most ${XLSX_MAX_ROWS.toLocaleString()} rows — export fewer rows or choose CSV.`,
-        );
-      }
-      const XLSX = await import("xlsx");
-      const [header = [], ...body] = rows;
-      const sheet = XLSX.utils.aoa_to_sheet([
-        header,
-        ...body.map((row) => row.map((cell) => typedCell(cell, false))),
-      ]);
-      const book = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(book, sheet, "Data");
-      payload = new Uint8Array(XLSX.write(book, { type: "array", bookType: "xlsx" }) as ArrayBuffer);
-      break;
-    }
   }
 
   const info = formatInfo(format);

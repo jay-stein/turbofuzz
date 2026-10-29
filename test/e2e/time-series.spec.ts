@@ -83,3 +83,21 @@ test("any bucket width works: every 2 weeks, then every 10 days", async ({ page 
   await every.press("Tab");
   await expect(page.locator(".chart-card")).toContainText(/Mean of points per day \(order_date\)/);
 });
+
+test("Shift+drag across the line selects whole weeks and filters the date column", async ({ page }) => {
+  await openTimeSeries(page);
+  const box = (await page.locator("canvas.chart-canvas").first().boundingBox())!;
+  await page.keyboard.down("Shift");
+  await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.5);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.45, box.y + box.height * 0.5, { steps: 5 });
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5, { steps: 5 });
+  await page.mouse.up();
+  await page.keyboard.up("Shift");
+  await expect(page.locator(".action-status")).toContainText(/Chart selection: order_date 202\d-\d\d-\d\d to 202\d-\d\d-\d\d/);
+  // Weekly buckets start on Monday and end on Sunday.
+  const text = (await page.locator(".action-status").textContent()) ?? "";
+  const [, from, to] = text.match(/order_date (\S+) to (\S+)/) ?? [];
+  expect(new Date(`${from}T00:00:00Z`).getUTCDay()).toBe(1);
+  expect(new Date(`${to}T00:00:00Z`).getUTCDay()).toBe(0);
+});

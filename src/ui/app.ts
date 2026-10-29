@@ -81,7 +81,7 @@ import { Overview, STATS_ICON, delimiterLabel, readDefaultView } from "./overvie
 import type { DatasetStats } from "../data/stats.js";
 import { FilterPanel } from "./filters.js";
 import { ChartsPanel, remapChartConfigs, type NamedChartCardConfig } from "./chart-panel.js";
-import type { MapBrushSelection } from "./chart-card.js";
+import type { BrushRange, MapBrushSelection } from "./chart-card.js";
 import { openHelpDrawer } from "./help-drawer.js";
 import { Hints } from "./hints.js";
 import { sampleCsv } from "./sample.js";
@@ -2383,6 +2383,7 @@ export class App {
       onConvertToken: (column, tokens) => this.convertToken(column, tokens),
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
       onMapBrush: (selection) => this.filterToMapArea(selection),
+      onBrush: (ranges) => this.filterToBrush(ranges),
     });
     if (this.chartRestore !== null) {
       const remapped = remapChartConfigs(this.chartRestore, this.metas);
@@ -2785,6 +2786,21 @@ export class App {
       `${showRows ? "Showing rows for" : "Filtered table to"} ${label} (${filters.length} filter${filters.length === 1 ? "" : "s"})`,
     );
   }
+  /** Shift+drag on a chart: range-filter each brushed column and say what was kept. */
+  private filterToBrush(ranges: BrushRange[]): void {
+    const parts: string[] = [];
+    for (const range of ranges) {
+      this.changeFilter(range.column, { kind: "range", min: range.min, max: range.max });
+      const meta = this.metas[range.column];
+      const fmt = (value: number): string =>
+        meta?.type === "date" || meta?.type === "datetime"
+          ? new Date(value).toISOString().slice(0, meta.type === "date" ? 10 : 16).replace("T", " ")
+          : Number(value.toPrecision(6)).toLocaleString();
+      parts.push(`${meta?.name ?? "column"} ${fmt(range.min)} to ${fmt(range.max)}`);
+    }
+    this.setAction(`Chart selection: ${parts.join(", ")}`);
+  }
+
   /** Map rectangle brush: range-filter both coordinate columns to the area. */
   private filterToMapArea(selection: MapBrushSelection): void {
     const lat = this.metas[selection.latColumn]?.name ?? "latitude";
