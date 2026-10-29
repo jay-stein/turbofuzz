@@ -158,3 +158,12 @@ Add entries here. Keep unsuccessful attempts too if they reveal useful constrain
 - **Explicit non-goals:** Lasso, a brush that survives as a movable selection, brushing category bars/box/heatmap (click already filters those), cross-chart highlighting.
 - **Files / components changed:** src/ui/chart-card.ts (brush space recorded by each draw routine, overlay, `finishBrush`), chart-panel.ts, app.ts (`filterToBrush`), help-content.ts, test/e2e/chart-brush.spec.ts, test/e2e/time-series.spec.ts
 - **Date:** 2026-10-30
+
+### CHG-2026-10-30-03 — Linked highlight between chart cards
+
+- **Status:** Verified (5 unit tests, 1 browser test, screenshot); owner has not tried it
+- **Problem addressed:** Charts in the grid were islands. Hovering a bar in one gave no sign of where that slice sits in the others.
+- **Scope:** Hovering a mark (bar, bin, heatmap cell, term, aggregated period) in one card outlines the marks that show the same slice in every other card plotting the same column: the same category, or a date/number range that overlaps (a month lights the weeks inside it, neighbouring bins that only share an edge do not). It is client-side only: the card sends its hovered click-actions to the panel, the panel passes them to the other cards, and each card outlines matching hit regions on its next paint. No worker request, nothing filtered or stored; the pointer leaving clears it. A card with nothing matching does not repaint at all.
+- **Explicit non-goals / known limit:** Charts of different columns do not link (hovering East in a region chart does not mark East points in a scatter). That needs each card to re-run its query for the hovered slice through the existing per-card scope; logged as the next step in next_steps.md.
+- **Files / components changed:** src/ui/chart-card.ts (`actionsOverlap`, `setLinkedHighlight`, `drawLinkedOverlay`), chart-panel.ts, help-content.ts, test/linked-highlight.test.ts, test/e2e/chart-brush.spec.ts
+- **Date:** 2026-10-30

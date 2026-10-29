@@ -607,6 +607,9 @@ export class ChartsPanel {
         currentFilter: this.options.currentFilter,
         onMapBrush: this.options.onMapBrush,
         onBrush: this.options.onBrush,
+        onHighlight: (source, actions) => {
+          for (const card of this.cards()) if (card !== source) card.setLinkedHighlight(actions);
+        },
         onRemove: (target) => this.removeCard(target),
         onDuplicate: (target) => this.duplicateCard(target),
         onEdit: (target) => void this.editCard(target),

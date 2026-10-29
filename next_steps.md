@@ -660,8 +660,15 @@ cells, terms), wheel zoom and drag pan on every continuous chart, map brush, and
 as of 2026-10-30 a **Shift+drag brush** on scatter, density, bubble, histogram and
 time series (CHG-2026-10-30-02). Still open, in suggested order:
 
-1. **Linked highlight** — hovering or selecting in one card marks the same rows in
-   the others (shared client-side highlight over the sampled ids).
+1. ~~**Linked highlight, same column**~~ — shipped 2026-10-30 (CHG-2026-10-30-03):
+   hovering a slice outlines it in every other card of that column.
+1b. **Linked highlight across columns** — hovering East in a region chart should show
+   East's share inside the time series, histogram and scatter. Plan: re-run each
+   card's request with the hovered slice added through the existing per-card scope
+   (`chartFilter`/`chartExclude`), then draw it as a darker overlay on the full
+   chart (sub-bars, a second line, scatter points recoloured). Needs a debounce
+   (~80 ms), a cache keyed by slice + data generation, and a per-kind overlay
+   renderer; start with bars, histograms and time series.
 2. **Brush on category charts** — drag across several bars/cells to select a set.
 3. **Lasso** for scatter, and a brush that stays as an editable, movable selection.
 4. **Keyboard access** — arrow keys to step through bars/points, Enter to filter.

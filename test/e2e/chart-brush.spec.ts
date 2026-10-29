@@ -70,3 +70,29 @@ test("Shift+drag across a time series filters the date column to that period", a
   await shiftDrag(page, [0.3, 0.4], [0.6, 0.4]);
   await expect(page.locator(".action-status")).toContainText(/Chart selection: day 2024-\d\d-\d\d to 2024-\d\d-\d\d/);
 });
+
+test("hovering a bin in one chart outlines the same slice in another chart of that column", async ({ page }) => {
+  await openChart(page, /histogram/i);
+  await page.getByRole("button", { name: "+ Add chart" }).click();
+  await page.locator(".chart-add-type", { hasText: /histogram/i }).first().click();
+  const dialog = page.locator(".modal-overlay");
+  if (await dialog.count()) await dialog.getByRole("button", { name: /^(Add|Create|OK)/ }).last().click();
+  const canvases = page.locator("canvas.chart-canvas");
+  await expect(canvases).toHaveCount(2);
+  await page.waitForTimeout(800);
+  const first = (await canvases.nth(0).boundingBox())!;
+  // Nothing is outlined until the pointer is on a bin.
+  await expect(canvases.nth(1)).toHaveAttribute("data-linked", "0");
+  // Integer data leaves empty bins; sweep along the bars until the pointer lands on one with rows.
+  let linked = "0";
+  for (let step = 0; step < 24 && linked === "0"; step++) {
+    await page.mouse.move(first.x + first.width * (0.2 + 0.03 * step), first.y + first.height * 0.6);
+    await page.waitForTimeout(60);
+    linked = (await canvases.nth(1).getAttribute("data-linked")) ?? "0";
+  }
+  expect(Number(linked)).toBeGreaterThan(0);
+  // The hovered card does not outline itself; leaving clears the other card.
+  await expect(canvases.nth(0)).toHaveAttribute("data-linked", "0");
+  await page.mouse.move(first.x + first.width * 0.5, first.y - 40);
+  await expect(canvases.nth(1)).toHaveAttribute("data-linked", "0");
+});

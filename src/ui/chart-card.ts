@@ -295,6 +295,11 @@ export interface ChartCardOptions {
   onMapBrush?(selection: MapBrushSelection): void;
   /** Shift+drag on a scatter, density, bubble, line or histogram: filter to the brushed ranges. */
   onBrush?(ranges: BrushRange[]): void;
+  /**
+   * The slice under the pointer (as click actions), or null when the pointer
+   * leaves. The panel passes it to the other cards so the same slice lights up.
+   */
+  onHighlight?(source: ChartCard, actions: readonly HitAction[] | null): void;
   requestBoxStats(input: {
     valueColumn: number;
     categoryColumn: number;
@@ -619,6 +624,38 @@ export function cropDensityGrid(
     yMax: view.yMax,
     max,
   };
+}
+
+/**
+ * True when the two sets of click actions touch the same slice of a column: the
+ * same category, or date/number ranges that share more than an edge. Used to
+ * light up, in one card, what the pointer is over in another.
+ */
+export function actionsOverlap(
+  highlight: readonly HitAction[],
+  actions: readonly HitAction[],
+): boolean {
+  for (const h of highlight) {
+    for (const a of actions) {
+      if (h.column !== a.column) continue;
+      if (h.kind === "values" && a.kind === "values") {
+        if (h.code === a.code) return true;
+        continue;
+      }
+      if (h.kind !== "range" || a.kind !== "range") continue;
+      const hMin = h.min ?? Number.NEGATIVE_INFINITY;
+      const hMax = h.max ?? Number.POSITIVE_INFINITY;
+      const aMin = a.min ?? Number.NEGATIVE_INFINITY;
+      const aMax = a.max ?? Number.POSITIVE_INFINITY;
+      const low = Math.max(hMin, aMin);
+      const high = Math.min(hMax, aMax);
+      if (low > high) continue;
+      // Neighbouring bins that merely share an edge are not the same slice,
+      // unless one of them is a single value.
+      if (low < high || hMin === hMax || aMin === aMax) return true;
+    }
+  }
+  return false;
 }
 
 /** Topmost region containing the point, or null. Regions are drawn in order. */
@@ -972,6 +1009,12 @@ export class ChartCard {
   private mapBrush: { x0: number; y0: number; x1: number; y1: number } | null = null;
   /** Data-space geometry of the last paint, for Shift+drag brushing (null when not brushable). */
   private brushSpace: BrushSpace | null = null;
+  /** Slice another card's pointer is over; this card outlines the matching marks. */
+  private linked: readonly HitAction[] | null = null;
+  /** Whether the last paint outlined anything for the linked slice. */
+  private linkedShown = false;
+  /** Key of the last slice sent to the panel, so moving within one mark sends nothing. */
+  private emittedKey = "";
   /** Live Shift+drag rectangle in canvas pixels. */
   private brushDrag: { x0: number; y0: number; x1: number; y1: number } | null = null;
   private mapBrushStart: { x: number; y: number } | null = null;
@@ -6622,6 +6665,7 @@ export class ChartCard {
     this.brushSpace = null;
     this.drawChart(ctx, cssWidth, cssHeight);
     this.drawBrushOverlay(ctx);
+    this.drawLinkedOverlay(ctx);
     if (this.brushSpace !== null && this.noteEl.textContent?.includes("Shift+drag") !== true) {
       const note = this.noteEl.textContent ?? "";
       this.noteEl.textContent = note === "" ? "Shift+drag to filter" : `${note} · Shift+drag to filter`;
@@ -7025,6 +7069,7 @@ export class ChartCard {
       return;
     }
     this.lastActionRegion = region;
+    this.emitHighlight(region.actions);
     clear(this.tooltipEl);
     const title = el("div", { class: "chart-tooltip-title" }, [region.lines[0] ?? "Value"]);
     this.tooltipEl.append(title);
@@ -7071,7 +7116,52 @@ export class ChartCard {
     this.canvas.classList.toggle("chart-clickable", region.actions.length > 0);
   }
 
+  /** Tells the panel which slice the pointer is over (null when it leaves a mark). */
+  private emitHighlight(actions: readonly HitAction[] | null): void {
+    const usable = actions !== null && actions.length > 0 ? actions : null;
+    const key = usable === null ? "" : JSON.stringify(usable);
+    if (key === this.emittedKey) return;
+    this.emittedKey = key;
+    this.options.onHighlight?.(this, usable);
+  }
+
+  /** Another card's hovered slice: outline the marks here that show the same slice. */
+  setLinkedHighlight(actions: readonly HitAction[] | null): void {
+    if (JSON.stringify(actions) === JSON.stringify(this.linked)) return;
+    this.linked = actions;
+    const matches =
+      actions !== null && this.hitRegions.some((region) => actionsOverlap(actions, region.actions));
+    // Nothing to draw before or after: skip the repaint entirely.
+    if (!matches && !this.linkedShown) return;
+    this.scheduleRender(true);
+  }
+
+  /** Outlines every mark that shows the slice another card is hovering. */
+  private drawLinkedOverlay(ctx: CanvasRenderingContext2D): void {
+    const actions = this.linked;
+    let shown = 0;
+    if (actions !== null) {
+      ctx.save();
+      ctx.fillStyle = this.primaryColor();
+      ctx.strokeStyle = this.primaryColor();
+      ctx.lineWidth = 2;
+      for (const region of this.hitRegions) {
+        if (!actionsOverlap(actions, region.actions)) continue;
+        const w = Math.max(3, region.w);
+        ctx.globalAlpha = 0.16;
+        ctx.fillRect(region.x, region.y, w, region.h);
+        ctx.globalAlpha = 0.95;
+        ctx.strokeRect(region.x + 1, region.y + 1, Math.max(1, w - 2), Math.max(1, region.h - 2));
+        shown++;
+      }
+      ctx.restore();
+    }
+    this.linkedShown = shown > 0;
+    this.canvas.dataset.linked = String(shown);
+  }
+
   private hideTooltip(): void {
+    this.emitHighlight(null);
     this.tooltipEl.classList.add("hidden");
     this.canvas.classList.remove("chart-clickable");
   }
