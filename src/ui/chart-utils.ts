@@ -766,3 +766,146 @@ export function safeFileName(name: string): string {
       .toLowerCase() || "chart"
   );
 }
+
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export interface CalendarTick {
+  /** Index into the bucket list of the first bucket at or after the boundary. */
+  index: number;
+  label: string;
+}
+
+/**
+ * X-axis ticks for a time axis, placed on calendar boundaries (years, quarters,
+ * months, weeks, days) instead of at arbitrary bucket positions. `times` are bucket
+ * starts in ms (UTC fields are used, matching how buckets are made). Picks the
+ * finest unit that still fits within `maxTicks`.
+ */
+export function calendarTicks(times: readonly number[], maxTicks = 8): CalendarTick[] {
+  const finite = times.filter((t) => Number.isFinite(t));
+  if (finite.length === 0) return [];
+  const first = finite[0]!;
+  const last = finite[finite.length - 1]!;
+  const day = 86_400_000;
+  const spanDays = (last - first) / day;
+  type Unit = { key: (t: number) => number; label: (t: number) => string; count: number };
+  const d = (t: number): Date => new Date(t);
+  const units: Unit[] = [
+    { key: (t) => d(t).getUTCFullYear(), label: (t) => String(d(t).getUTCFullYear()), count: spanDays / 365.25 },
+    {
+      key: (t) => d(t).getUTCFullYear() * 4 + Math.floor(d(t).getUTCMonth() / 3),
+      label: (t) => `Q${Math.floor(d(t).getUTCMonth() / 3) + 1} ${d(t).getUTCFullYear()}`,
+      count: spanDays / 91.3,
+    },
+    {
+      key: (t) => d(t).getUTCFullYear() * 12 + d(t).getUTCMonth(),
+      label: (t) => `${MONTH_SHORT[d(t).getUTCMonth()]} ${d(t).getUTCFullYear()}`,
+      count: spanDays / 30.4,
+    },
+    {
+      // A new ISO week starts on Monday.
+      key: (t) => Math.floor((t - 4 * day) / (7 * day)),
+      label: (t) => `${d(t).getUTCDate()} ${MONTH_SHORT[d(t).getUTCMonth()]}`,
+      count: spanDays / 7,
+    },
+    { key: (t) => Math.floor(t / day), label: (t) => `${d(t).getUTCDate()} ${MONTH_SHORT[d(t).getUTCMonth()]}`, count: spanDays },
+  ];
+  // The finest unit whose boundaries still fit; the coarsest (years) otherwise.
+  const ordered = [...units].reverse().find((unit) => unit.count + 1 <= maxTicks) ?? units[0]!;
+  const ticks: CalendarTick[] = [];
+  let previous = Number.NaN;
+  times.forEach((t, index) => {
+    if (!Number.isFinite(t)) return;
+    const key = ordered.key(t);
+    if (key !== previous) {
+      ticks.push({ index, label: ordered.label(t) });
+      previous = key;
+    }
+  });
+  // Always keep the first tick even if it is a partial period; thin if still too many.
+  if (ticks.length > maxTicks) {
+    const stride = Math.ceil(ticks.length / maxTicks);
+    return ticks.filter((_, i) => i % stride === 0);
+  }
+  return ticks;
+}
+
+export type AxisGrain = "second" | "minute" | "hour" | "day" | "week" | "month" | "quarter" | "year";
+
+/** The start of the next period after `t` at this grain (UTC, matching bucket starts). */
+export function nextPeriod(t: number, grain: AxisGrain, every = 1): number {
+  const n = Number.isFinite(every) && every >= 2 ? Math.floor(every) : 1;
+  switch (grain) {
+    case "second":
+      return t + 1000 * n;
+    case "minute":
+      return t + 60_000 * n;
+    case "hour":
+      return t + 3_600_000 * n;
+    case "day":
+      return t + 86_400_000 * n;
+    case "week":
+      return t + 7 * 86_400_000 * n;
+    case "month":
+    case "quarter":
+    case "year": {
+      const d = new Date(t);
+      const months = (grain === "month" ? 1 : grain === "quarter" ? 3 : 12) * n;
+      return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, 1);
+    }
+  }
+}
+
+/**
+ * A continuous time axis: every period between the first and last bucket, so a
+ * missing period keeps its place on the axis instead of the neighbours closing up.
+ * Capped so a huge span at a fine grain cannot stall the page.
+ */
+export function fillTimeAxis(times: readonly number[], grain: AxisGrain, cap = 20_000, every = 1): number[] {
+  const finite = [...new Set(times.filter((t) => Number.isFinite(t)))].sort((a, b) => a - b);
+  if (finite.length < 2) return finite;
+  const out: number[] = [];
+  const last = finite[finite.length - 1]!;
+  for (let t = finite[0]!; t <= last && out.length < cap; t = nextPeriod(t, grain, every)) out.push(t);
+  // Fall back to the observed buckets if stepping drifted off them (irregular grain).
+  const observed = new Set(finite);
+  const hit = out.filter((t) => observed.has(t)).length;
+  return hit < finite.length ? finite : out;
+}
+
+/** A bucket width: `every` units of `grain` (every 15 minutes, every 2 weeks). */
+export interface TimeStep {
+  grain: AxisGrain;
+  every: number;
+}
+
+const AUTO_STEPS: readonly TimeStep[] = [
+  { grain: "second", every: 1 },
+  { grain: "second", every: 5 },
+  { grain: "second", every: 15 },
+  { grain: "second", every: 30 },
+  { grain: "minute", every: 1 },
+  { grain: "minute", every: 5 },
+  { grain: "minute", every: 15 },
+  { grain: "minute", every: 30 },
+  { grain: "hour", every: 1 },
+];
+const STEP_MS: Record<string, number> = { second: 1000, minute: 60_000, hour: 3_600_000 };
+
+/**
+ * Automatic width for a short time span (two days or less): the finest round
+ * step that keeps the line to about sixty points, so a morning of readings is
+ * minutes and a day is half-hours, instead of one lonely hour bucket.
+ */
+export function autoShortStep(spanMs: number, target = 60): TimeStep {
+  for (const step of AUTO_STEPS) {
+    if (spanMs / (STEP_MS[step.grain]! * step.every) <= target) return step;
+  }
+  return { grain: "hour", every: 1 };
+}
+
+/** "minute" → "minute", "minute" × 15 → "15 minutes" (for headlines and tooltips). */
+export function describeStep(grain: string, every = 1, plural = false): string {
+  if (every >= 2) return `${every} ${grain}s`;
+  return plural ? `${grain}s` : grain;
+}

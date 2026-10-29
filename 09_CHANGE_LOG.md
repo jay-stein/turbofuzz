@@ -120,3 +120,21 @@ Add entries here. Keep unsuccessful attempts too if they reveal useful constrain
 - **Scope:** The spelling review now lists each group as numbered options, each showing exactly what changes and what it becomes ("Option 2: Perth 60, PERTH 60 → perth · 120 cells"). The most frequent spelling is Option 1, highlighted, labelled "Suggested · most frequent" and ticked. Ticking another option moves the choice (one option per group); unticking all leaves the group alone; a last option takes your own typed standard. Swap is no longer a separate control, since Option 2 of a pair is the swap. Column cards in the Data Quality strip no longer clip: the fixed 92px height is gone, the score sits beside the name, text is 12 to 13px and chips wrap.
 - **Files / components changed:** src/ui/standardise-review-dialog.ts, quality-layout.ts, src/styles.css, test/e2e/quality-layout.spec.ts
 - **Date:** 2026-10-29
+
+### CHG-2026-10-29-10 — Time-series charts: honest gaps, calendar axis, one legend, calendar options
+
+- **Status:** Verified (unit tests, 2 browser tests, before/after screenshots); owner has not tried it
+- **Related issue / decision:** TODO "time-series chart review" against charting_aggregation_ux_spec.md section 6
+- **Audit finding:** The engine already supported grains, financial year, week start, time zone and fill policy; the chart card exposed almost none of it and drew several things wrongly.
+- **Fixed:**
+  1. A missing stretch of time was drawn as a drop to 0 for averages (a false "0 points"). Empty periods are now gaps: the line breaks, the empty period is shaded and the chart says "N periods have no data" (spec 6.4). A new "Missing periods" control: Automatic (zero for sums and counts, gap otherwise), Show gaps, Count as zero, Carry last value.
+  2. Split-by charts closed up over missing periods and spaced buckets by index. They now keep a continuous time axis.
+  3. A split chart showed two legends with different colours. There is one now, under the chart, with the colours the lines use; click a name to hide or show that line.
+  4. X-axis ticks were three raw dates or arbitrary bucket labels. They now sit on calendar boundaries (years, quarters, months, weeks).
+  5. Headline said "mean(points) by order_date (week) · 100 groups"; it now says "Mean of points per week · 100 weeks".
+  6. "Time resolution: Auto" now says what it chose ("Auto (week)") and hour and minute are hidden for date-only columns.
+  7. Calendar options (spec 6.3): "Week starts" (Monday or Sunday) at a weekly grain and "Financial year starts in" at quarter or year grain. All three new settings save in the chart spec.
+- **Engine:** ViewDef.showGaps keeps empty periods as missing values (test/aggregate-gaps.test.ts).
+- **Explicit non-goals:** 15- and 30-minute grains, time-zone conversion (dates are used as stored; the Time resolution tooltip says so), interpolation, daylight-saving handling, a trend overlay.
+- **Files / components changed:** src/data/aggregate.ts, src/ui/chart-card.ts, chart-utils.ts, chart-spec.ts, test/calendar-ticks.test.ts, test/aggregate-gaps.test.ts, test/e2e/time-series.spec.ts
+- **Date:** 2026-10-29

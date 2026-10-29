@@ -51,6 +51,11 @@ const PERIOD: Record<string, string> = {
   year: "Y",
 };
 
+/** "15" for a 15-wide bucket; empty for the default width of one. */
+function everyPrefix(every: number | undefined): string {
+  return every !== undefined && Number.isFinite(every) && every >= 2 ? String(Math.floor(every)) : "";
+}
+
 const PANDAS_AGG: Record<string, string> = {
   sum: "sum",
   mean: "mean",
@@ -187,7 +192,7 @@ export function viewPandasLines(
         });
       }
       lines.push(
-        `${temp} = pd.to_datetime(df[${py(name)}]).dt.to_period(${py(PERIOD[by.time] ?? "D")}).dt.to_timestamp()${weekArg}`,
+        `${temp} = pd.to_datetime(df[${py(name)}]).dt.to_period(${py(`${everyPrefix(by.every)}${PERIOD[by.time] ?? "D"}`)}).dt.to_timestamp()${weekArg}`,
       );
       return temp;
     }

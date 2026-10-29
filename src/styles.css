@@ -5813,6 +5813,11 @@ select.chart-number {
   flex: 0 1 130px;
 }
 
+.chart-card .chart-every-input {
+  flex: 0 0 64px;
+  width: 64px;
+}
+
 .chart-kind {
   padding: 5px 8px;
   font-size: var(--fs-sm);

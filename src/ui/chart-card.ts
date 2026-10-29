@@ -83,6 +83,10 @@ import {
   correlationCell,
   defaultChartTitle,
   formatChartNumber,
+  autoShortStep,
+  calendarTicks,
+  describeStep,
+  fillTimeAxis,
   formatCount,
   formatTick,
   hexToRgb,
@@ -431,6 +435,18 @@ export interface ChartCardConfig {
     | "truePct";
   /** Bucket grain for the value line; "auto"/undefined derives it from the span. */
   valueGrain?: TimeGrain | "auto";
+  /** Bucket width in grain units (15 with minute = every 15 minutes); undefined or 1 is one unit. */
+  valueEvery?: number;
+  /**
+   * Periods with no rows: show a gap, treat as zero, or carry the last value forward.
+   * Undefined picks zero for sums and counts (an empty period really adds up to 0)
+   * and a gap for everything else (an average of nothing is not 0).
+   */
+  valueFill?: "gap" | "zero" | "carry";
+  /** Week buckets start on Sunday (0) instead of Monday (undefined or 1). */
+  valueWeekStart?: 0 | 1;
+  /** 2-12: the fiscal year starts in this month; undefined or 1 is the calendar year. */
+  valueFiscalStart?: number;
   /** Non-destructive post-aggregation calculation for the card's measure. */
   valueCalc?:
     | "rolling7"
@@ -1046,6 +1062,17 @@ export class ChartCard {
   private readonly valueAggWrap: HTMLElement;
   private readonly valueGrainSelect: HTMLSelectElement;
   private readonly valueGrainWrap: HTMLElement;
+  private readonly valueEveryInput: HTMLInputElement;
+  private readonly valueEveryWrap: HTMLElement;
+  private readonly valueFillSelect: HTMLSelectElement;
+  private readonly valueFillWrap: HTMLElement;
+  private readonly weekStartSelect: HTMLSelectElement;
+  private readonly weekStartWrap: HTMLElement;
+  private readonly fiscalSelect: HTMLSelectElement;
+  private readonly fiscalWrap: HTMLElement;
+  /** Series colours of the last split-by time chart, for the one shared legend. */
+  private splitLegend: { label: string; color: string }[] | null = null;
+  private readonly hiddenSplit = new Set<string>();
   private readonly valueCalcSelect: HTMLSelectElement;
   private readonly valueCalcWrap: HTMLElement;
   private readonly sortSelect: HTMLSelectElement;
@@ -1279,7 +1306,7 @@ export class ChartCard {
     this.valueAggWrap = this.tagged("Aggregate", this.valueAggSelect).wrap;
 
     this.valueGrainSelect = this.buildSelect("chart-picker chart-picker-small", "Bucket");
-    (["auto", "minute", "hour", "day", "week", "month", "quarter", "year"] as const).forEach(
+    (["auto", "second", "minute", "hour", "day", "week", "month", "quarter", "year"] as const).forEach(
       (grain) => {
         const label = grain === "auto" ? "Auto" : grain.charAt(0).toUpperCase() + grain.slice(1);
         this.valueGrainSelect.append(el("option", { value: grain }, [label]) as HTMLOptionElement);
@@ -1288,10 +1315,80 @@ export class ChartCard {
     this.valueGrainSelect.addEventListener("change", () => {
       this.config.valueGrain = this.valueGrainSelect.value as ChartCardConfig["valueGrain"];
       this.generation++;
+      this.renderControls();
       this.refreshValue();
       this.render();
     });
+    this.valueGrainSelect.title = "How finely time is grouped. Dates are used as stored: no time-zone shift is applied.";
     this.valueGrainWrap = this.tagged("Time resolution", this.valueGrainSelect).wrap;
+
+    this.valueEveryInput = el("input", {
+      class: "chart-picker chart-picker-small chart-every-input",
+      type: "number",
+      min: "1",
+      step: "1",
+      inputmode: "numeric",
+      "aria-label": "Every N time units",
+      title: "Group every N units together: 15 with Minute is quarter-hourly, 2 with Week is fortnightly.",
+    }) as HTMLInputElement;
+    this.valueEveryInput.addEventListener("change", () => {
+      const value = Math.floor(Number(this.valueEveryInput.value));
+      this.config.valueEvery = Number.isFinite(value) && value >= 2 ? Math.min(value, 100_000) : undefined;
+      this.valueEveryInput.value = String(this.config.valueEvery ?? 1);
+      this.generation++;
+      this.renderControls();
+      this.refreshValue();
+      this.render();
+    });
+    this.valueEveryWrap = el("label", { class: "chart-tag" }, [
+      el("span", { class: "chart-tag-label" }, ["Every"]),
+      this.valueEveryInput,
+    ]);
+
+    this.valueFillSelect = this.buildSelect("chart-picker chart-picker-small", "Missing periods");
+    (
+      [
+        ["auto", "Automatic"],
+        ["gap", "Show gaps"],
+        ["zero", "Count as zero"],
+        ["carry", "Carry last value"],
+      ] as const
+    ).forEach(([value, label]) => {
+      this.valueFillSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+    });
+    this.valueFillSelect.addEventListener("change", () => {
+      const value = this.valueFillSelect.value;
+      this.config.valueFill = value === "auto" ? undefined : (value as "gap" | "zero" | "carry");
+      this.generation++;
+      this.refreshValue();
+      this.render();
+    });
+    this.valueFillWrap = this.tagged("Missing periods", this.valueFillSelect).wrap;
+
+    this.weekStartSelect = this.buildSelect("chart-picker chart-picker-small", "Week starts on");
+    [["1", "Monday"], ["0", "Sunday"]].forEach(([value, label]) => {
+      this.weekStartSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+    });
+    this.weekStartSelect.addEventListener("change", () => {
+      this.config.valueWeekStart = this.weekStartSelect.value === "0" ? 0 : undefined;
+      this.generation++;
+      this.refreshValue();
+      this.render();
+    });
+    this.weekStartWrap = this.tagged("Week starts", this.weekStartSelect).wrap;
+
+    this.fiscalSelect = this.buildSelect("chart-picker chart-picker-small", "Financial year starts in");
+    ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].forEach((label, index) => {
+      this.fiscalSelect.append(el("option", { value: String(index + 1) }, [index === 0 ? "January (calendar year)" : label]) as HTMLOptionElement);
+    });
+    this.fiscalSelect.addEventListener("change", () => {
+      const month = Number(this.fiscalSelect.value);
+      this.config.valueFiscalStart = month > 1 ? month : undefined;
+      this.generation++;
+      this.refreshValue();
+      this.render();
+    });
+    this.fiscalWrap = this.tagged("Year starts", this.fiscalSelect).wrap;
 
     this.valueCalcSelect = this.buildSelect(
       "chart-picker chart-picker-small",
@@ -2525,6 +2622,10 @@ export class ChartCard {
     const quickRow = el("div", { class: "chart-quick", role: "group", "aria-label": "Aggregation" }, [
       this.valueAggWrap,
       this.valueGrainWrap,
+      this.valueEveryWrap,
+      this.valueFillWrap,
+      this.weekStartWrap,
+      this.fiscalWrap,
     ]);
     const main = el("div", { class: "chart-card-main" }, [
       quickRow,
@@ -2771,6 +2872,10 @@ export class ChartCard {
     this.valueWrap.classList.toggle("hidden", bound || !measureKinds);
     this.valueAggWrap.classList.toggle("hidden", bound || !measureKinds || !valueOn);
     this.valueGrainWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn);
+    this.valueEveryWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || !this.hasExplicitGrain());
+    this.valueFillWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn);
+    this.weekStartWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || this.resolvedGrain() !== "week");
+    this.fiscalWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || (this.resolvedGrain() !== "quarter" && this.resolvedGrain() !== "year"));
     this.valueCalcWrap.classList.toggle("hidden", bound || !valueOn || kind === "treemap");
     this.xWrap.classList.toggle("hidden", bound || !pair);
     this.yWrap.classList.toggle("hidden", bound || !pair);
@@ -2937,6 +3042,51 @@ export class ChartCard {
     };
   }
 
+  /** The time dimension with the card's calendar options (week start, financial year). */
+  private timeBy(grain: TimeGrain): { time: TimeGrain; every?: number; weekStart?: 0 | 1; fiscalStartMonth?: number } {
+    const every = this.everyFor(grain);
+    return {
+      time: grain,
+      ...(every > 1 ? { every } : {}),
+      ...(this.config.valueWeekStart === 0 ? { weekStart: 0 as const } : {}),
+      ...(this.config.valueFiscalStart !== undefined && this.config.valueFiscalStart > 1
+        ? { fiscalStartMonth: this.config.valueFiscalStart }
+        : {}),
+    };
+  }
+
+  /** What to do with a period that has no rows (see ChartCardConfig.valueFill). */
+  private fillPolicy(): "gap" | "zero" | "carry" {
+    if (this.config.valueFill !== undefined) return this.config.valueFill;
+    const agg = this.config.valueAgg ?? "mean";
+    return agg === "sum" || agg === "count" || agg === "distinct" ? "zero" : "gap";
+  }
+
+  /** The grain in use: the chosen one, or the automatic one for this date column. */
+  private resolvedGrain(): TimeGrain {
+    return this.config.valueGrain === undefined || this.config.valueGrain === "auto"
+      ? this.defaultGrainFor(this.config.column)
+      : this.config.valueGrain;
+  }
+
+  /** True once a grain is picked by hand; Auto chooses width and unit together. */
+  private hasExplicitGrain(): boolean {
+    return this.config.valueGrain !== undefined && this.config.valueGrain !== "auto";
+  }
+
+  /** Bucket width for `grain`: the typed one, or what Auto chose for the default grain. */
+  private everyFor(grain: TimeGrain): number {
+    if (this.hasExplicitGrain()) return Math.max(1, Math.floor(this.config.valueEvery ?? 1));
+    const auto = this.defaultStepFor(this.config.column);
+    return auto.grain === grain ? auto.every : 1;
+  }
+
+  /** "week", "15 minutes": the bucket in use, for headlines. */
+  private stepNoun(plural = false): string {
+    const grain = this.resolvedGrain();
+    return describeStep(grain, this.everyFor(grain), plural);
+  }
+
   /** Implicit view definition: the measure aggregated over time, categories or bins. */
   private valueViewDef(): ViewDef | null {
     if (!this.usesValueAggregate() || this.options.requestAggregate === undefined) return null;
@@ -2982,6 +3132,7 @@ export class ChartCard {
           ? ([{ op: "rolling", window: 7 }] as const)
           : ([{ op: calc }] as const);
     const valueAgg = this.config.valueAgg ?? "mean";
+    const fillPolicy = this.fillPolicy();
     const measure: MeasureSpec =
       valueAgg === "true" || valueAgg === "false" || valueAgg === "missing"
         ? {
@@ -3016,10 +3167,10 @@ export class ChartCard {
         line || overTime
           ? split
             ? [
-                { column: this.config.column, by: { time: grain } },
+                { column: this.config.column, by: this.timeBy(grain) },
                 { column: this.config.groupColumn, by: "value" },
               ]
-            : [{ column: this.config.column, by: { time: grain } }]
+            : [{ column: this.config.column, by: this.timeBy(grain) }]
           : histogram
             ? [{ column: this.config.column, by: { bin: { n: binCount } } }]
             : kpi
@@ -3031,7 +3182,8 @@ export class ChartCard {
                   ]
                 : [{ column: this.config.column, by: "value" }],
       measures: [measure],
-      fill: line && !split ? "zero" : "none",
+      fill: line && !split ? (fillPolicy === "zero" ? "zero" : fillPolicy === "carry" ? "carry" : "none") : "none",
+      ...(line && !split && fillPolicy === "gap" ? { showGaps: true } : {}),
       sort:
         line || overTime || histogram
           ? { key: "dim0", dir: "asc" }
@@ -3233,8 +3385,17 @@ export class ChartCard {
       this.config.valueColumn !== undefined && this.config.valueColumn >= 0
         ? `${this.valueAggSelect.selectedOptions[0]?.textContent ?? this.config.valueAgg ?? "mean"} of ${name(this.config.valueColumn)}`
         : "rows";
+    const overTime =
+      this.config.valueColumn !== undefined &&
+      this.config.valueColumn >= 0 &&
+      this.isDateLike(this.meta(this.config.column)) &&
+      (this.config.kind === "line" || this.config.kind === "smallmultiples");
     const by =
-      this.config.column >= 0 ? ` by ${name(this.config.column)}` : "";
+      this.config.column < 0
+        ? ""
+        : overTime
+          ? ` per ${this.stepNoun()} (${name(this.config.column)})`
+          : ` by ${name(this.config.column)}`;
     const group =
       this.config.groupColumn >= 0 ? ` grouped by ${name(this.config.groupColumn)}` : "";
     const calc =
@@ -4137,6 +4298,20 @@ export class ChartCard {
     }
     this.syncValueAggOptions();
     this.valueGrainSelect.value = this.config.valueGrain ?? "auto";
+    this.valueEveryInput.value = String(this.config.valueEvery ?? 1);
+    this.valueFillSelect.value = this.config.valueFill ?? "auto";
+    this.weekStartSelect.value = String(this.config.valueWeekStart ?? 1);
+    this.fiscalSelect.value = String(this.config.valueFiscalStart ?? 1);
+    // Say what "Auto" currently means, and offer only grains the column can support.
+    const dateOnly = this.meta(this.config.column)?.type === "date";
+    const autoOption = this.valueGrainSelect.options[0];
+    if (autoOption !== undefined) {
+      const auto = this.defaultStepFor(this.config.column);
+      autoOption.textContent = `Auto (${describeStep(auto.grain, auto.every)})`;
+    }
+    for (const option of Array.from(this.valueGrainSelect.options)) {
+      option.hidden = dateOnly && (option.value === "minute" || option.value === "hour" || option.value === "second");
+    }
     this.valueCalcSelect.value = this.config.valueCalc ?? "";
     this.barStackInput.checked = (this.config.barLayout ?? "group") === "stack";
 
@@ -4265,15 +4440,25 @@ export class ChartCard {
 
   /** Sensible default frame length for a date column's span. */
   private defaultGrainFor(column: number): TimeGrain {
+    return this.defaultStepFor(column).grain;
+  }
+
+  /**
+   * Automatic bucket for a date column: a short span of timestamps gets minutes
+   * or half-hours (about sixty points), longer ones day, week or month.
+   */
+  private defaultStepFor(column: number): { grain: TimeGrain; every: number } {
     const meta = this.meta(column);
     const min = meta?.stats.min;
     const max = meta?.stats.max;
-    if (typeof min !== "number" || typeof max !== "number" || !(max > min)) return "month";
+    if (typeof min !== "number" || typeof max !== "number" || !(max > min)) return { grain: "month", every: 1 };
     const days = (max - min) / 86_400_000;
-    if (days <= 2) return "hour";
-    if (days <= 120) return "day";
-    if (days <= 840) return "week";
-    return "month";
+    if (days <= 2) {
+      return meta?.type === "date" ? { grain: "day", every: 1 } : autoShortStep(max - min);
+    }
+    if (days <= 120) return { grain: "day", every: 1 };
+    if (days <= 840) return { grain: "week", every: 1 };
+    return { grain: "month", every: 1 };
   }
 
   /**
@@ -4363,6 +4548,10 @@ export class ChartCard {
     this.valueWrap.classList.toggle("hidden", !measureKinds || !unbound);
     this.valueAggWrap.classList.toggle("hidden", !measureKinds || !unbound || !valueOn);
     this.valueGrainWrap.classList.toggle("hidden", !grainKinds || !unbound || !valueOn);
+    this.valueEveryWrap.classList.toggle("hidden", !grainKinds || !unbound || !valueOn || !this.hasExplicitGrain());
+    this.valueFillWrap.classList.toggle("hidden", !grainKinds || !unbound || !valueOn);
+    this.weekStartWrap.classList.toggle("hidden", !grainKinds || !unbound || !valueOn || this.resolvedGrain() !== "week");
+    this.fiscalWrap.classList.toggle("hidden", !grainKinds || !unbound || !valueOn || (this.resolvedGrain() !== "quarter" && this.resolvedGrain() !== "year"));
     this.valueCalcWrap.classList.toggle("hidden", !unbound || !valueOn || kind === "treemap");
     this.xWrap.classList.toggle("hidden", !pair);
     this.yWrap.classList.toggle("hidden", !pair);
@@ -6798,7 +6987,7 @@ export class ChartCard {
       );
     }
     if (this.config.valueGrain !== undefined && this.config.valueGrain !== "auto") {
-      details.push(`Bucket: ${this.config.valueGrain}`);
+      details.push(`Bucket: ${describeStep(this.config.valueGrain, this.everyFor(this.config.valueGrain))}`);
     }
     if (this.config.binOptions !== null && this.config.kind === "histogram") {
       details.push(`Bins: ${this.config.binOptions.binCount}`);
@@ -7928,6 +8117,15 @@ export class ChartCard {
       const result = this.aggregateResult();
       if (result === null) return "Aggregate · waiting for the first result";
       const two = result.dimensions.length >= 2;
+      if (result.dimensionIsTime[0] === true && this.config.source === "") {
+        const periods = result.groupCount;
+        const step = this.resolvedGrain();
+        const every = this.everyFor(step);
+        const unit = every > 1 ? `${every}-${step} period` : step;
+        return `${plainMeasureName(result.measureNames[0] ?? "measure")}${
+          two ? ` by ${result.dimensionNames[1] ?? "group"}` : ""
+        } per ${this.stepNoun()} · ${two ? `${periods.toLocaleString()} values` : `${periods.toLocaleString()} ${periods === 1 ? unit : `${unit}s`}`}`;
+      }
       return `${result.measureNames[0] ?? "measure"} by ${result.dimensionNames[0] ?? "group"}${
         two ? ` and ${result.dimensionNames[1] ?? "group"}` : ""
       } · ${result.groupCount.toLocaleString()} ${two ? "values" : "groups"}`;
@@ -7968,6 +8166,7 @@ export class ChartCard {
     forExport = false,
   ): void {
     ctx.clearRect(0, 0, width, height);
+    this.splitLegend = null;
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
     this.hitRegions = [];
@@ -8100,12 +8299,30 @@ export class ChartCard {
     const bucketLabels = result.dimensions[0] ?? [];
     const groupLabels = result.dimensions[1] ?? [];
     const bucketIndex = new Map<string, number>();
-    const buckets: string[] = [];
+    let buckets: string[] = [];
     for (let i = 0; i < n; i++) {
       const label = bucketLabels[i] ?? "";
       if (!bucketIndex.has(label)) {
         bucketIndex.set(label, buckets.length);
         buckets.push(label);
+      }
+    }
+    // A time axis keeps empty periods in place (series show a gap there) rather
+    // than letting the neighbouring periods close up.
+    let bucketTimes: number[] | null = null;
+    const groupTimesRaw = result.dimensionTimes[0];
+    if (result.dimensionIsTime[0] === true && groupTimesRaw !== undefined && groupTimesRaw.length === n) {
+      const labelByTime = new Map<number, string>();
+      for (let i = 0; i < n; i++) {
+        const time = groupTimesRaw[i];
+        if (Number.isFinite(time) && !labelByTime.has(time)) labelByTime.set(time, bucketLabels[i] ?? "");
+      }
+      const axis = fillTimeAxis([...labelByTime.keys()], this.resolvedGrain(), 20_000, this.everyFor(this.resolvedGrain()));
+      if (axis.length > 0) {
+        bucketTimes = axis;
+        buckets = axis.map((time) => labelByTime.get(time) ?? `${new Date(time).toISOString().slice(0, 10)} (no data)`);
+        bucketIndex.clear();
+        buckets.forEach((label, index) => bucketIndex.set(label, index));
       }
     }
     interface SplitSeries {
@@ -8156,8 +8373,10 @@ export class ChartCard {
       }
       shown = [...shown, other];
     }
+    this.splitLegend = shown.map((series) => ({ label: series.label, color: series.color }));
+    shown = shown.filter((series) => !this.hiddenSplit.has(series.label));
     if (shown.length === 0) {
-      const message = "The aggregate has no groups to draw yet.";
+      const message = this.hiddenSplit.size > 0 ? "Every series is hidden. Click a name in the legend to show it." : "The aggregate has no groups to draw yet.";
       this.noteEl.textContent = message;
       this.drawPlotMessage(ctx, frame, message);
       return;
@@ -8281,35 +8500,23 @@ export class ChartCard {
     ctx.fillStyle = frame.dim;
     this.font(ctx, ui, 10);
     ctx.textAlign = "center";
-    const step = Math.max(1, Math.ceil(buckets.length / 8));
-    for (let b = 0; b < buckets.length; b += step) {
-      ctx.fillText(
-        this.fit(ctx, buckets[b] ?? "", Math.max(16, slot * step - 4 * ui)),
-        frame.left + (b + 0.5) * slot,
-        frame.top + frame.plotH + 14 * ui,
-      );
+    if (bucketTimes !== null) {
+      const room = Math.max(3, Math.floor(frame.plotW / (70 * ui)));
+      for (const tick of calendarTicks(bucketTimes, room)) {
+        ctx.fillText(tick.label, frame.left + (tick.index + 0.5) * slot, frame.top + frame.plotH + 14 * ui);
+      }
+    } else {
+      const step = Math.max(1, Math.ceil(buckets.length / 8));
+      for (let b = 0; b < buckets.length; b += step) {
+        ctx.fillText(
+          this.fit(ctx, buckets[b] ?? "", Math.max(16, slot * step - 4 * ui)),
+          frame.left + (b + 0.5) * slot,
+          frame.top + frame.plotH + 14 * ui,
+        );
+      }
     }
     ctx.textAlign = "left";
-
-    // Legend: colored swatch + name, left to right until the row is full.
-    let x = frame.left;
-    let legendCount = 0;
-    for (const series of shown) {
-      const label = series.label;
-      this.font(ctx, ui, 10);
-      const width = ctx.measureText(label).width + 26 * ui;
-      if (x + width > frame.left + frame.plotW) break;
-      ctx.fillStyle = series.color;
-      ctx.fillRect(x, frame.top - 14 * ui, 8 * ui, 8 * ui);
-      ctx.fillStyle = frame.dim;
-      ctx.fillText(label, x + 12 * ui, frame.top - 6 * ui);
-      x += width;
-      legendCount++;
-    }
-    if (legendCount < shown.length) {
-      ctx.fillStyle = frame.dim;
-      ctx.fillText(`+${shown.length - legendCount} more`, x, frame.top - 6 * ui);
-    }
+    // The legend is the clickable one under the chart (same colours, toggles series).
 
     const measure = result.measureNames[0] ?? "measure";
     ctx.fillStyle = frame.dim;
@@ -8899,22 +9106,50 @@ export class ChartCard {
     const isTime = result.dimensionIsTime[0] === true;
     ctx.strokeStyle = this.primaryColor();
     ctx.fillStyle = this.primaryColor();
+    let gapPeriods = 0;
     if (isTime) {
-      ctx.beginPath();
+      // A missing period (NaN) breaks the line; it is never drawn as a zero.
+      const base = frame.top + frame.plotH;
+      let segment: { x: number; y: number }[] = [];
+      const flush = (): void => {
+        if (segment.length === 0) return;
+        ctx.beginPath();
+        segment.forEach((point, k) => (k === 0 ? ctx.moveTo(point.x, point.y) : ctx.lineTo(point.x, point.y)));
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        if (segment.length === 1) {
+          ctx.beginPath();
+          ctx.arc(segment[0]!.x, segment[0]!.y, 2.5 * ui, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.lineTo(segment[segment.length - 1]!.x, base);
+          ctx.lineTo(segment[0]!.x, base);
+          ctx.closePath();
+          ctx.globalAlpha = 0.18;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        segment = [];
+      };
       for (let i = 0; i < n; i++) {
-        const x = frame.left + (i + 0.5) * slot;
-        const y = frame.top + frame.plotH - ((values[i] || 0) / top) * frame.plotH;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+        const value = values[i];
+        if (!Number.isFinite(value)) {
+          gapPeriods++;
+          // Shade the empty period so the gap is visible, not just absent.
+          ctx.save();
+          ctx.globalAlpha = 0.07;
+          ctx.fillStyle = frame.dim;
+          ctx.fillRect(frame.left + i * slot, frame.top, slot, frame.plotH);
+          ctx.restore();
+          flush();
+          continue;
+        }
+        segment.push({
+          x: frame.left + (i + 0.5) * slot,
+          y: base - (value / top) * frame.plotH,
+        });
       }
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH);
-      ctx.lineTo(frame.left, frame.top + frame.plotH);
-      ctx.closePath();
-      ctx.globalAlpha = 0.18;
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      flush();
     } else {
       const barW = Math.max(1, slot - 1);
       for (let i = 0; i < n; i++) {
@@ -8956,18 +9191,36 @@ export class ChartCard {
     ctx.fillStyle = frame.dim;
     this.font(ctx, ui, 10);
     ctx.textAlign = "center";
-    const step = Math.max(1, Math.ceil(n / 8));
-    for (let i = 0; i < n; i += step) {
-      const label = result.labels[i] ?? "";
-      ctx.fillText(
-        this.fit(ctx, label, Math.max(16, slot * step - 4 * ui)),
-        frame.left + (i + 0.5) * slot,
-        frame.top + frame.plotH + 14 * ui,
-      );
+    const axisTimes = result.dimensionTimes[0];
+    if (isTime && axisTimes !== undefined && axisTimes.length === n) {
+      // Calendar boundaries (quarters, months, weeks), not arbitrary bucket labels.
+      const room = Math.max(3, Math.floor(frame.plotW / (70 * ui)));
+      for (const tick of calendarTicks(Array.from(axisTimes), room)) {
+        ctx.fillText(tick.label, frame.left + (tick.index + 0.5) * slot, frame.top + frame.plotH + 14 * ui);
+      }
+    } else {
+      const step = Math.max(1, Math.ceil(n / 8));
+      for (let i = 0; i < n; i += step) {
+        const label = result.labels[i] ?? "";
+        ctx.fillText(
+          this.fit(ctx, label, Math.max(16, slot * step - 4 * ui)),
+          frame.left + (i + 0.5) * slot,
+          frame.top + frame.plotH + 14 * ui,
+        );
+      }
     }
     ctx.textAlign = "left";
     const measure = result.measureNames[0] ?? "value";
     ctx.fillText(measure, frame.left, frame.top - 6 * ui);
+    if (gapPeriods > 0) {
+      ctx.textAlign = "right";
+      ctx.fillText(
+        `${gapPeriods} ${gapPeriods === 1 ? "period has" : "periods have"} no data`,
+        frame.left + frame.plotW,
+        frame.top - 6 * ui,
+      );
+      ctx.textAlign = "left";
+    }
 
     // One hoverable slot per group: a tooltip, and the value/period it stands
     // for so a right-click can leave it out (click filters the table, as for
@@ -9195,10 +9448,26 @@ export class ChartCard {
       axisKindFor(meta.type) ?? (kind === "line" ? "line" : "histogram");
     const tickSpan = max - min;
     const mid = (min + max) / 2;
+    const calendarAxis = kind === "line" && (meta.type === "date" || meta.type === "datetime") && tickSpan > 0;
+    if (calendarAxis) {
+      // Ticks on calendar boundaries across the whole range, not just three raw dates.
+      const dayMs = 86_400_000;
+      const stepMs = tickSpan / dayMs > 2000 ? 7 * dayMs : tickSpan / dayMs > 3 ? dayMs : 3_600_000;
+      const times: number[] = [];
+      for (let t = Math.ceil(min / stepMs) * stepMs; t <= max && times.length < 6000; t += stepMs) times.push(t);
+      const room = Math.max(3, Math.floor(frame.plotW / (74 * ui)));
+      ctx.textAlign = "center";
+      for (const tick of calendarTicks(times, room)) {
+        const x = frame.left + ((times[tick.index]! - min) / tickSpan) * frame.plotW;
+        const half = ctx.measureText(tick.label).width / 2;
+        ctx.fillText(tick.label, Math.min(frame.left + frame.plotW - half, Math.max(frame.left + half, x)), frame.top + frame.plotH + 16 * ui);
+      }
+      ctx.textAlign = "left";
+    }
     const minLabel = formatTick(min, tickKind, tickSpan);
-    ctx.fillText(minLabel, frame.left, frame.top + frame.plotH + 16 * ui);
+    if (!calendarAxis) ctx.fillText(minLabel, frame.left, frame.top + frame.plotH + 16 * ui);
     // On narrow cards the midpoint label collides with the edge labels.
-    if (frame.plotW >= 220 * (ui / 1.25)) {
+    if (!calendarAxis && frame.plotW >= 220 * (ui / 1.25)) {
       const midLabel = formatTick(mid, tickKind, tickSpan);
       ctx.fillText(
         midLabel,
@@ -9207,11 +9476,13 @@ export class ChartCard {
       );
     }
     const maxLabel = formatTick(max, tickKind, tickSpan);
-    ctx.fillText(
-      maxLabel,
-      frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
-      frame.top + frame.plotH + 16 * ui,
-    );
+    if (!calendarAxis) {
+      ctx.fillText(
+        maxLabel,
+        frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
+        frame.top + frame.plotH + 16 * ui,
+      );
+    }
     if (hasOverflow) {
       const overflowLabel = `> ${formatTick(max, tickKind, tickSpan)}`;
       ctx.fillText(
@@ -9280,6 +9551,7 @@ export class ChartCard {
       [86_400_000, "day"],
       [3_600_000, "hour"],
       [60_000, "minute"],
+      [1000, "second"],
     ];
     for (const [span, name] of units) {
       if (per >= span * 0.9) {
@@ -9522,6 +9794,29 @@ export class ChartCard {
               code: result.codes[index] ?? index,
             }))
           : null;
+    if (this.splitLegend !== null && this.usesAggregate() && this.config.source === "") {
+      this.legendEl.classList.remove("hidden");
+      this.legendEl.replaceChildren();
+      for (const { label, color } of this.splitLegend) {
+        const off = this.hiddenSplit.has(label);
+        const item = el(
+          "button",
+          { class: "chart-legend-item", type: "button", "aria-pressed": off ? "false" : "true", title: off ? `Show ${label}` : `Hide ${label}` },
+          [label],
+        ) as HTMLButtonElement;
+        const swatch = el("span", { class: "chart-legend-swatch" });
+        swatch.style.background = color;
+        item.prepend(swatch);
+        item.classList.toggle("off", off);
+        item.addEventListener("click", () => {
+          if (this.hiddenSplit.has(label)) this.hiddenSplit.delete(label);
+          else this.hiddenSplit.add(label);
+          this.render();
+        });
+        this.legendEl.append(item);
+      }
+      return;
+    }
     this.legendEl.classList.toggle("hidden", entries === null);
     this.legendEl.replaceChildren();
     if (entries === null) return;

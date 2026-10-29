@@ -657,7 +657,7 @@ existing grid payload (`src/data/kde.ts`).
 
 ## TODO (logged 2026-10-29)
 
-- **Time-series chart review (TODO, owner-flagged).** Time-series charts are not
+- **Time-series chart review (DONE 2026-10-29, see CHG-2026-10-29-10). Time-zone conversion is out of scope (decided 2026-10-30); arbitrary-width time buckets, interpolation and a trend overlay remain.** Time-series charts are not
   hitting the mark. Do a proper review against
   `charting_aggregation_ux_spec.md` section 6 (temporal aggregation): time
   grains (day/week/month/quarter/year), automatic grain choice, calendar

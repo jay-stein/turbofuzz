@@ -33,6 +33,12 @@ export interface ChartSpec {
     agg: ChartCardConfig["valueAgg"] | null;
     calculation: ChartCardConfig["valueCalc"] | null;
     timeGrain: TimeGrain | "auto" | null;
+    /** Missing periods policy, week start and financial-year month; absent means the defaults. */
+    missingPeriods?: "gap" | "zero" | "carry";
+    weekStart?: 0 | 1;
+    fiscalStart?: number;
+    /** Bucket width in grain units (15 with minute = every 15 minutes); absent means 1. */
+    every?: number;
   };
   filter: {
     column: string | null;
@@ -149,6 +155,10 @@ export function chartSpecFromConfig(
       agg: config.valueAgg ?? null,
       calculation: config.valueCalc ?? null,
       timeGrain: config.valueGrain ?? null,
+      ...(config.valueFill === undefined ? {} : { missingPeriods: config.valueFill }),
+      ...(config.valueWeekStart === undefined ? {} : { weekStart: config.valueWeekStart }),
+      ...(config.valueFiscalStart === undefined ? {} : { fiscalStart: config.valueFiscalStart }),
+      ...(config.valueEvery === undefined || config.valueEvery < 2 ? {} : { every: config.valueEvery }),
     },
     filter: {
       column: filterMeta?.name ?? null,
@@ -232,6 +242,10 @@ export function chartSpecToConfig(
   config.valueAgg = spec.aggregation.agg ?? undefined;
   config.valueCalc = spec.aggregation.calculation ?? undefined;
   config.valueGrain = spec.aggregation.timeGrain ?? undefined;
+  if (spec.aggregation.missingPeriods !== undefined) config.valueFill = spec.aggregation.missingPeriods;
+  if (spec.aggregation.weekStart !== undefined) config.valueWeekStart = spec.aggregation.weekStart;
+  if (spec.aggregation.fiscalStart !== undefined) config.valueFiscalStart = spec.aggregation.fiscalStart;
+  if (spec.aggregation.every !== undefined) config.valueEvery = spec.aggregation.every;
   config.binOptions = copyBins(spec.binning);
   config.mode = spec.presentation.mode;
   config.densityStyle = spec.presentation.densityStyle;
@@ -500,6 +514,8 @@ export interface GeneratedChartCode {
 }
 
 const PANDAS_GRAIN: Record<string, string> = {
+  second: "s",
+  minute: "min",
   hour: "h",
   day: "D",
   week: "W",
@@ -509,6 +525,8 @@ const PANDAS_GRAIN: Record<string, string> = {
 };
 
 const POLARS_GRAIN: Record<string, string> = {
+  second: "1s",
+  minute: "1m",
   hour: "1h",
   day: "1d",
   week: "1w",
@@ -518,6 +536,17 @@ const POLARS_GRAIN: Record<string, string> = {
 };
 
 const quote = (value: string): string => JSON.stringify(value);
+
+/**
+ * Scales a resample frequency by the bucket width: "min" × 15 → "15min",
+ * "1m" × 15 → "15m", "ME" × 2 → "2ME". A width of 1 leaves it unchanged.
+ */
+function withEvery(freq: string, every: number | undefined): string {
+  if (every === undefined || !Number.isFinite(every) || every < 2) return freq;
+  const n = Math.floor(every);
+  const match = /^(\d+)(.*)$/.exec(freq);
+  return match === null ? `${n}${freq}` : `${Number(match[1]) * n}${match[2]}`;
+}
 
 function pandasAgg(spec: ChartSpec): { call: string; alias: string } {
   const measure = spec.fields.value;
@@ -632,7 +661,10 @@ export function chartSpecToPandas(spec: ChartSpec): GeneratedChartCode {
     return finish(lines.join("\n"));
   }
   if (spec.kind === "line" && spec.fields.column !== null) {
-    const grain = PANDAS_GRAIN[spec.aggregation.timeGrain ?? "month"] ?? "ME";
+    const grain = withEvery(
+      PANDAS_GRAIN[spec.aggregation.timeGrain ?? "month"] ?? "ME",
+      spec.aggregation.every,
+    );
     const method =
       agg === "count"
         ? "count"
@@ -750,7 +782,10 @@ export function chartSpecToPolars(spec: ChartSpec): GeneratedChartCode {
     return finish(lines.join("\n"));
   }
   if (spec.kind === "line" && spec.fields.column !== null) {
-    const grain = POLARS_GRAIN[spec.aggregation.timeGrain ?? "month"] ?? "1mo";
+    const grain = withEvery(
+      POLARS_GRAIN[spec.aggregation.timeGrain ?? "month"] ?? "1mo",
+      spec.aggregation.every,
+    );
     lines.push(
       `df = df.with_columns(pl.col(${quote(spec.fields.column)}).str.to_datetime())`,
       "result = (",

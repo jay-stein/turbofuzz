@@ -28,6 +28,8 @@ export interface TimeOptions {
   fiscalStartMonth?: number;
   /** Zone to bucket in: "UTC", "local", "±HH:MM" or an IANA name. */
   tz?: string;
+  /** Bucket width in `time` units: 15 with "minute" is quarter-hourly. Default 1. */
+  every?: number;
 }
 
 /** First-period cohort of an entity: retention analysis over time. */
@@ -151,6 +153,11 @@ export interface ViewDef {
   measures: MeasureSpec[];
   /** Empty time buckets: dropped, counted as zero, or carried forward. */
   fill: "none" | "zero" | "carry";
+  /**
+   * With fill "none": keep empty periods on the time axis as missing values (NaN),
+   * so a chart draws a gap rather than closing it or showing a false zero.
+   */
+  showGaps?: boolean;
   /** "dim0" | "dim1" | "m0" | "m1" — sort key and direction. */
   sort: { key: string; dir: "asc" | "desc" };
   limit: number;
@@ -414,7 +421,23 @@ export function compileExpression(
 export interface BucketOptions {
   weekStart?: 0 | 1;
   fiscalStartMonth?: number;
+  /** Bucket width in grain units (whole number, 1 = one unit). */
+  every?: number;
 }
+
+/** A usable bucket width: a whole number of units, at least 1. */
+export function normaliseEvery(every: number | undefined): number {
+  if (every === undefined || !Number.isFinite(every) || every < 2) return 1;
+  return Math.min(Math.floor(every), 1_000_000);
+}
+
+const FIXED_GRAIN_MS: Partial<Record<TimeGrain, number>> = {
+  second: 1000,
+  minute: 60_000,
+  hour: 3_600_000,
+  day: 86_400_000,
+};
+const MONTHS_PER_GRAIN: Partial<Record<TimeGrain, number>> = { month: 1, quarter: 3, year: 12 };
 
 /**
  * Zone bucketing for time dimensions: shifts an instant by the zone offset so
@@ -447,6 +470,35 @@ function fiscalYearOf(year: number, month: number, fiscalStartMonth: number): nu
 }
 
 export function timeBucket(ms: number, grain: TimeGrain, options: BucketOptions = {}): number {
+  const every = normaliseEvery(options.every);
+  if (every > 1) {
+    const fixed = FIXED_GRAIN_MS[grain];
+    if (fixed !== undefined) {
+      const width = fixed * every;
+      return Math.floor(ms / width) * width;
+    }
+    if (grain === "week") {
+      // Weeks counted from the first week start on or after the epoch, so a
+      // fortnight is always the same pair of weeks.
+      const anchor = (options.weekStart ?? 1) === 0 ? 3 : 4;
+      const start = Math.floor(timeBucket(ms, "week", { weekStart: options.weekStart }) / DAY);
+      const weeks = Math.floor((start - anchor) / 7);
+      return (anchor + Math.floor(weeks / every) * every * 7) * DAY;
+    }
+    const monthsPer = MONTHS_PER_GRAIN[grain];
+    if (monthsPer !== undefined) {
+      const fiscal = options.fiscalStartMonth;
+      const offset =
+        grain !== "month" && fiscal !== undefined && fiscal >= 1 && fiscal <= 12 ? fiscal - 1 : 0;
+      const [year, month] = civilFromDays(
+        Math.floor(timeBucket(ms, grain, { ...options, every: 1 }) / DAY),
+      );
+      const step = monthsPer * every;
+      const index = year * 12 + (month - 1) - offset;
+      const first = Math.floor(index / step) * step + offset;
+      return daysFromCivil(Math.floor(first / 12), (((first % 12) + 12) % 12) + 1, 1) * DAY;
+    }
+  }
   const fiscalStartMonth =
     options.fiscalStartMonth !== undefined &&
     options.fiscalStartMonth >= 1 &&
@@ -999,6 +1051,7 @@ function dimensionInto(
     const bucket = timeBucket(shifted, by.time, {
       weekStart: by.weekStart,
       fiscalStartMonth: by.fiscalStartMonth,
+      every: by.every,
     });
     // Labels are formatted only when a new group appears, not per row.
     keys.push(String(bucket));
@@ -1103,28 +1156,29 @@ function dimensionInto(
 
 /** Iterates the regular calendar step of a time grain after `ms`. */
 function nextBucket(ms: number, grain: TimeGrain, options: BucketOptions = {}): number {
+  const every = normaliseEvery(options.every);
   switch (grain) {
     case "second":
-      return ms + SECOND;
+      return ms + SECOND * every;
     case "minute":
-      return ms + MINUTE;
+      return ms + MINUTE * every;
     case "hour":
-      return ms + HOUR;
+      return ms + HOUR * every;
     case "day":
-      return ms + DAY;
+      return ms + DAY * every;
     case "week":
-      return ms + 7 * DAY;
+      return ms + 7 * DAY * every;
     case "month": {
       const date = new Date(ms);
-      return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
+      return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + every, 1);
     }
     case "quarter": {
       const date = new Date(ms);
-      return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 3, 1);
+      return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 3 * every, 1);
     }
     case "year": {
       const date = new Date(ms);
-      return Date.UTC(date.getUTCFullYear() + 1, date.getUTCMonth(), 1);
+      return Date.UTC(date.getUTCFullYear() + every, date.getUTCMonth(), 1);
     }
   }
 }
@@ -1216,6 +1270,11 @@ export function computeAggregate(
     "time" in dimensions[0].by
       ? dimensions[0].by.time
       : null;
+  const timeEvery =
+    dimensions.length === 1 && typeof dimensions[0].by === "object" && "time" in dimensions[0].by
+      ? dimensions[0].by.every
+      : undefined;
+  const stepOptions: BucketOptions = { every: timeEvery };
   const dimGrains: (TimeGrain | null)[] = dimensions.map((spec) => {
     const by = spec.by;
     if (typeof by !== "object") return null;
@@ -1535,7 +1594,7 @@ export function computeAggregate(
   // missing row, so insert groups for every bucket between the extremes. With
   // "carry" the inserted buckets keep the previous period's values instead.
   if (
-    (view.fill === "zero" || view.fill === "carry") &&
+    (view.fill === "zero" || view.fill === "carry" || (view.showGaps === true && dimensions.length === 1)) &&
     timeGrain !== null &&
     groupTimes.length > 0
   ) {
@@ -1548,7 +1607,7 @@ export function computeAggregate(
       if (time < min) min = time;
       if (time > max) max = time;
     }
-    for (let time = min; time <= max; time = nextBucket(time, timeGrain)) {
+    for (let time = min; time <= max; time = nextBucket(time, timeGrain, stepOptions)) {
       if (seen.has(time)) continue;
       seen.add(time);
       dimValues[0].push(
@@ -1563,7 +1622,13 @@ export function computeAggregate(
     }
   }
 
+  const gapsAsMissing = view.showGaps === true && view.fill === "none";
   const finalMeasures: Float64Array[] = measures.map((measure, m) => {
+    const out = finalMeasuresFor(measure, m);
+    if (gapsAsMissing) for (let i = 0; i < out.length; i++) if (filled[i] === true) out[i] = Number.NaN;
+    return out;
+  });
+  function finalMeasuresFor(measure: MeasureSpec, m: number): Float64Array {
     const offset = measureSlotOffset[m];
     const terms = measureTerms[m];
     const compiled = measureCompiled[m];
@@ -1581,7 +1646,7 @@ export function computeAggregate(
     return Float64Array.from(accs, (group) =>
       finalise(group[offset], measure.agg, slots[offset]?.weighted ?? false),
     );
-  });
+  }
 
   const totals = Float64Array.from(measures, (measure, m) => {
     const offset = measureSlotOffset[m];
@@ -1644,6 +1709,7 @@ export function computeAggregate(
   const bucketOptions: BucketOptions = {
     weekStart: dimRuntime[0]?.weekStart,
     fiscalStartMonth: dimRuntime[0]?.fiscalStartMonth,
+    every: timeEvery,
   };
   let finalShown = shown;
   let partials: boolean[] | null = null;
@@ -1669,7 +1735,7 @@ export function computeAggregate(
     const lastBucket = Number.isFinite(rawMax)
       ? timeBucket(rawMax, timeGrain, bucketOptions)
       : Number.NaN;
-    const lastEnd = nextBucket(lastBucket, timeGrain);
+    const lastEnd = nextBucket(lastBucket, timeGrain, stepOptions);
     const firstPartial = Number.isFinite(rawMin) && rawMin > firstBucket;
     const now = Date.now();
     const flagsFor = (indexes: readonly number[]): boolean[] =>
@@ -1724,9 +1790,8 @@ export function computeAggregate(
             : undefined,
           by.tz !== undefined && by.tz.trim() !== "" ? by.tz : undefined,
         ].filter((part): part is string => part !== undefined);
-        return extras.length === 0
-          ? `${base} (${by.time})`
-          : `${base} (${by.time}, ${extras.join(", ")})`;
+        const unit = normaliseEvery(by.every) > 1 ? `${normaliseEvery(by.every)} ${by.time}s` : by.time;
+        return extras.length === 0 ? `${base} (${unit})` : `${base} (${unit}, ${extras.join(", ")})`;
       }
       if (typeof by === "object" && "datePart" in by) return `${base} (${by.datePart})`;
       if (typeof by === "object" && "bin" in by) {

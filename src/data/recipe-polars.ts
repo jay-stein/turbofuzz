@@ -399,7 +399,8 @@ function polarsAggregateLines(
           note: "Polars weeks start Monday; shift the bucket labels",
         });
       }
-      const interval = GRAIN_INTERVAL[by.time] ?? "1d";
+      const width = by.every !== undefined && Number.isFinite(by.every) && by.every >= 2 ? Math.floor(by.every) : 1;
+      const interval = (GRAIN_INTERVAL[by.time] ?? "1d").replace(/^1/, String(width));
       lines.push(
         `${col(name)}.str.to_datetime(strict=False).dt.truncate(${py(interval)}).alias(${py(temp)})`,
       );
