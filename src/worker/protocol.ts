@@ -363,6 +363,38 @@ export interface ChartSeriesMessage {
   result: SeriesResult;
 }
 
+/** One mark of a chart, as the slice of its column it stands for (null: not a slice). */
+export type SliceRegion =
+  | { kind: "values"; code: number }
+  | { kind: "range"; min: number | null; max: number | null }
+  | null;
+
+/**
+ * For linked highlight across columns: per mark of another chart, how much of
+ * that mark comes from the hovered slice (rows, or an aggregate of a measure).
+ */
+export type GetSliceBreakdownRequest = {
+  type: "getSliceBreakdown";
+  requestId: number;
+  /** Rows must match every entry (the hovered slice). */
+  slice: ChartExclusion[];
+  /** The column the chart's marks are drawn over, and what each mark stands for. */
+  column: number;
+  regions: SliceRegion[];
+  measure?: { column: number; agg: "count" | "sum" | "mean" | "min" | "max" };
+  chartFilter?: { column: number; code: number };
+  chartExclude?: ChartExclusion[];
+  respectFilters?: boolean;
+};
+
+export interface SliceBreakdownMessage {
+  type: "sliceBreakdown";
+  requestId: number;
+  /** One value per region; NaN where the slice has no rows in that mark. */
+  values: Float64Array;
+  ms: number;
+}
+
 export type GetBoxStatsRequest = {
   type: "getBoxStats";
   requestId: number;
@@ -982,6 +1014,7 @@ export type WorkerRequest =
   | GetMissingnessRequest
   | GetChartSeriesRequest
   | GetBoxStatsRequest
+  | GetSliceBreakdownRequest
   | GetCrosstabRequest
   | GetCorrelationRequest
   | StartExportRequest
@@ -1244,6 +1277,7 @@ export type WorkerResponse =
   | MissingnessMessage
   | ChartSeriesMessage
   | BoxStatsMessage
+  | SliceBreakdownMessage
   | CrosstabMessage
   | CorrelationMessage
   | AggregateMessage

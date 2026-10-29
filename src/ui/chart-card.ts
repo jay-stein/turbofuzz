@@ -1,4 +1,5 @@
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
+import type { GetSliceBreakdownRequest, SliceBreakdownMessage, SliceRegion } from "../worker/protocol.js";
 import {
   addExclusion,
   describeRange,
@@ -184,6 +185,27 @@ export function fitMapView(
   }
   return { lonMin, lonMax, latMin, latMax };
 }
+/**
+ * How a chart's marks map to values, recorded by the draw routines whose marks are
+ * one bar/bin/period per hit region, so a slice of the data can be drawn on them.
+ */
+interface ValueScale {
+  /** Value at the top of the plot. */
+  yMax: number;
+  top: number;
+  plotH: number;
+  mode: "bars" | "line";
+  /** Bar start and width inside a region (bars only). */
+  inset: number;
+  barW: number;
+  /** The column the marks' click actions refer to. */
+  regionColumn: number;
+  /** null = row counts; otherwise the aggregate of this measure. */
+  measure: { column: number; agg: "count" | "sum" | "mean" | "min" | "max" } | null;
+  /** Whether the chart's own scope (chart filter, exclusions) applies to its marks. */
+  scoped: boolean;
+}
+
 /** Shift+drag on a chart: the ranges (data units) to filter, one per brushed axis. */
 export interface BrushRange {
   column: number;
@@ -299,7 +321,11 @@ export interface ChartCardOptions {
    * The slice under the pointer (as click actions), or null when the pointer
    * leaves. The panel passes it to the other cards so the same slice lights up.
    */
-  onHighlight?(source: ChartCard, actions: readonly HitAction[] | null): void;
+  onHighlight?(source: ChartCard, actions: readonly HitAction[] | null, label?: string): void;
+  /** Per-mark share of a hovered slice, for highlighting across columns. */
+  requestSliceBreakdown?(
+    input: Omit<GetSliceBreakdownRequest, "type" | "requestId">,
+  ): Promise<SliceBreakdownMessage>;
   requestBoxStats(input: {
     valueColumn: number;
     categoryColumn: number;
@@ -1011,6 +1037,14 @@ export class ChartCard {
   private brushSpace: BrushSpace | null = null;
   /** Slice another card's pointer is over; this card outlines the matching marks. */
   private linked: readonly HitAction[] | null = null;
+  /** Caption for the linked slice ("East", "18.3 – 18.9"). */
+  private linkedLabel = "";
+  /** How the last paint scaled its marks, so another chart's slice can be drawn on them. */
+  private valueScale: ValueScale | null = null;
+  /** The slice's value per mark of this chart (another column's hover), or null. */
+  private sliceValues: Float64Array | null = null;
+  private sliceTimer: number | null = null;
+  private sliceGeneration = 0;
   /** Whether the last paint outlined anything for the linked slice. */
   private linkedShown = false;
   /** Key of the last slice sent to the panel, so moving within one mark sends nothing. */
@@ -6663,6 +6697,7 @@ export class ChartCard {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.brushSpace = null;
+    this.valueScale = null;
     this.drawChart(ctx, cssWidth, cssHeight);
     this.drawBrushOverlay(ctx);
     this.drawLinkedOverlay(ctx);
@@ -7069,7 +7104,7 @@ export class ChartCard {
       return;
     }
     this.lastActionRegion = region;
-    this.emitHighlight(region.actions);
+    this.emitHighlight(region.actions, region.lines[0] ?? "");
     clear(this.tooltipEl);
     const title = el("div", { class: "chart-tooltip-title" }, [region.lines[0] ?? "Value"]);
     this.tooltipEl.append(title);
@@ -7117,26 +7152,104 @@ export class ChartCard {
   }
 
   /** Tells the panel which slice the pointer is over (null when it leaves a mark). */
-  private emitHighlight(actions: readonly HitAction[] | null): void {
+  private emitHighlight(actions: readonly HitAction[] | null, label = ""): void {
     const usable = actions !== null && actions.length > 0 ? actions : null;
     const key = usable === null ? "" : JSON.stringify(usable);
     if (key === this.emittedKey) return;
     this.emittedKey = key;
-    this.options.onHighlight?.(this, usable);
+    this.options.onHighlight?.(this, usable, label);
   }
 
-  /** Another card's hovered slice: outline the marks here that show the same slice. */
-  setLinkedHighlight(actions: readonly HitAction[] | null): void {
+  /**
+   * Another card's hovered slice. Marks here over the same column are outlined; marks
+   * over a different column are redrawn with the slice's share of each (a hovered
+   * region in a bar chart shows its share of every week, bin and category here).
+   */
+  setLinkedHighlight(actions: readonly HitAction[] | null, label = ""): void {
     if (JSON.stringify(actions) === JSON.stringify(this.linked)) return;
     this.linked = actions;
+    this.linkedLabel = label;
+    this.cancelSliceFetch();
+    if (actions !== null) this.scheduleSliceFetch(actions);
     const matches =
       actions !== null && this.hitRegions.some((region) => actionsOverlap(actions, region.actions));
+    if (actions === null) this.sliceValues = null;
     // Nothing to draw before or after: skip the repaint entirely.
     if (!matches && !this.linkedShown) return;
     this.scheduleRender(true);
   }
 
-  /** Outlines every mark that shows the slice another card is hovering. */
+  private cancelSliceFetch(): void {
+    this.sliceGeneration++;
+    if (this.sliceTimer !== null) {
+      window.clearTimeout(this.sliceTimer);
+      this.sliceTimer = null;
+    }
+  }
+
+  /** The marks as slices of their column, or null when they are not (all-or-nothing per chart). */
+  private sliceRegions(): SliceRegion[] | null {
+    const scale = this.valueScale;
+    if (scale === null || this.hitRegions.length === 0) return null;
+    const regions: SliceRegion[] = this.hitRegions.map((region) => {
+      const only = region.actions.length === 1 ? region.actions[0]! : null;
+      if (only === null || only.column !== scale.regionColumn) return null;
+      if (only.kind === "values") return { kind: "values", code: only.code };
+      if (only.kind === "range") return { kind: "range", min: only.min, max: only.max };
+      return null;
+    });
+    return regions.some((region) => region !== null) ? regions : null;
+  }
+
+  /** The hovered slice as "keep only these rows" entries, or null when a value cannot be named. */
+  private sliceEntries(actions: readonly HitAction[]): ChartExclusion[] | null {
+    const entries: ChartExclusion[] = [];
+    for (const action of actions) {
+      if (action.kind === "values") {
+        const label = this.meta(action.column)?.categories?.labels[action.code];
+        if (label === undefined) return null;
+        entries.push({ kind: "values", column: action.column, labels: [label] });
+      } else if (action.kind === "range") {
+        entries.push({ kind: "range", column: action.column, min: action.min, max: action.max });
+      } else {
+        entries.push({ kind: "text", column: action.column, query: action.query });
+      }
+    }
+    return entries;
+  }
+
+  /** After a short pause on a mark, asks the worker for the slice's share of each mark here. */
+  private scheduleSliceFetch(actions: readonly HitAction[]): void {
+    const request = this.options.requestSliceBreakdown;
+    const scale = this.valueScale;
+    if (request === undefined || scale === null) return;
+    // Same column: the outline already says it.
+    if (actions.some((action) => action.column === scale.regionColumn)) return;
+    const regions = this.sliceRegions();
+    const slice = this.sliceEntries(actions);
+    if (regions === null || slice === null) return;
+    const generation = this.sliceGeneration;
+    this.sliceTimer = window.setTimeout(() => {
+      this.sliceTimer = null;
+      request({
+        slice,
+        column: scale.regionColumn,
+        regions,
+        ...(scale.measure === null ? {} : { measure: scale.measure }),
+        ...(scale.scoped ? this.chartScope() : {}),
+      })
+        .then((message) => {
+          if (this.disposed || generation !== this.sliceGeneration || this.linked === null) return;
+          this.sliceValues = message.values;
+          this.scheduleRender(true);
+        })
+        .catch(() => {
+          // A failed highlight is only a missing overlay.
+        });
+    }, 70);
+  }
+
+  /** Draws the linked slice: outlines on the same column, the slice's share on others. */
   private drawLinkedOverlay(ctx: CanvasRenderingContext2D): void {
     const actions = this.linked;
     let shown = 0;
@@ -7156,8 +7269,79 @@ export class ChartCard {
       }
       ctx.restore();
     }
-    this.linkedShown = shown > 0;
+    const values = this.sliceValues;
+    const scale = this.valueScale;
+    let sliced = 0;
+    if (actions !== null && values !== null && scale !== null && values.length === this.hitRegions.length) {
+      sliced = this.drawSliceShare(ctx, scale, values);
+    }
+    this.linkedShown = shown > 0 || sliced > 0;
     this.canvas.dataset.linked = String(shown);
+    this.canvas.dataset.slice = String(sliced);
+  }
+
+  /** The hovered slice's value on every mark, in the highlight colour; returns how many marks have one. */
+  private drawSliceShare(ctx: CanvasRenderingContext2D, scale: ValueScale, values: Float64Array): number {
+    const accent = "#e8590c";
+    const bottom = scale.top + scale.plotH;
+    const heightOf = (value: number): number =>
+      Math.max(0, Math.min(1, value / Math.max(1e-12, scale.yMax))) * scale.plotH;
+    let drawn = 0;
+    ctx.save();
+    ctx.fillStyle = accent;
+    ctx.strokeStyle = accent;
+    if (scale.mode === "bars") {
+      ctx.globalAlpha = 0.95;
+      this.hitRegions.forEach((region, index) => {
+        const value = values[index] as number;
+        if (!Number.isFinite(value) || value <= 0) return;
+        const h = Math.max(2, heightOf(value));
+        ctx.fillRect(region.x + scale.inset, bottom - h, Math.max(1, scale.barW), h);
+        drawn++;
+      });
+    } else {
+      ctx.lineWidth = 2.5;
+      ctx.globalAlpha = 0.95;
+      let open = false;
+      ctx.beginPath();
+      this.hitRegions.forEach((region, index) => {
+        const value = values[index] as number;
+        if (!Number.isFinite(value)) {
+          open = false;
+          return;
+        }
+        const x = region.x + region.w / 2;
+        const y = bottom - heightOf(value);
+        if (open) ctx.lineTo(x, y);
+        else ctx.moveTo(x, y);
+        open = true;
+        drawn++;
+      });
+      ctx.stroke();
+      if (drawn > 0 && drawn <= 60) {
+        this.hitRegions.forEach((region, index) => {
+          const value = values[index] as number;
+          if (!Number.isFinite(value)) return;
+          ctx.beginPath();
+          ctx.arc(region.x + region.w / 2, bottom - heightOf(value), 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+    }
+    if (drawn > 0 && this.linkedLabel !== "") {
+      ctx.globalAlpha = 1;
+      ctx.font = "600 11px system-ui, sans-serif";
+      // Right-aligned so it never sits on the chart's own axis label at the left.
+      ctx.textAlign = "right";
+      const last = this.hitRegions[this.hitRegions.length - 1];
+      ctx.fillText(
+        `Highlighted: ${this.linkedLabel}`,
+        last === undefined ? 0 : last.x + last.w,
+        Math.max(10, scale.top - 4),
+      );
+    }
+    ctx.restore();
+    return drawn;
   }
 
   private hideTooltip(): void {
@@ -9535,6 +9719,26 @@ export class ChartCard {
     if (isTime && times !== undefined && times.length === n && this.config.source === "") {
       this.brushSpace = this.timeSlotBrush(Array.from(times), dimensionColumn, frame);
     }
+    const valueAgg = this.config.valueAgg ?? "mean";
+    if (
+      this.config.source === "" &&
+      dimensionColumn >= 0 &&
+      (this.config.valueCalc ?? "") === "" &&
+      (valueAgg === "sum" || valueAgg === "mean" || valueAgg === "min" || valueAgg === "max" || valueAgg === "count") &&
+      (this.config.valueColumn ?? -1) >= 0
+    ) {
+      this.valueScale = {
+        yMax: top,
+        top: frame.top,
+        plotH: frame.plotH,
+        mode: isTime ? "line" : "bars",
+        inset: 0,
+        barW: Math.max(1, slot - 1),
+        regionColumn: dimensionColumn,
+        measure: { column: this.config.valueColumn as number, agg: valueAgg },
+        scoped: true,
+      };
+    }
 
     const ms = result.ms < 1 ? "<1" : String(Math.round(result.ms));
     const partialNote =
@@ -9611,6 +9815,17 @@ export class ChartCard {
       xMin: min,
       xMax: max,
       xFraction: bins.length / slots,
+    };
+    this.valueScale = {
+      yMax: maxCount,
+      top: frame.top,
+      plotH: frame.plotH,
+      mode: kind === "line" ? "line" : "bars",
+      inset: 0,
+      barW,
+      regionColumn: this.config.column,
+      measure: null,
+      scoped: true,
     };
     this.hitRegions = seriesHitRegions(
       { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
@@ -10823,6 +11038,18 @@ export class ChartCard {
     const codes = bars.map((bar) =>
       bar.other === true ? -1 : labels.indexOf(bar.label),
     );
+    this.valueScale = {
+      yMax: maxCount,
+      top: frame.top,
+      plotH: frame.plotH,
+      mode: "bars",
+      inset: (slotW - barW) / 2,
+      barW,
+      regionColumn: this.config.column,
+      measure: null,
+      // Count bars come from the table facets, not this card's own scope.
+      scoped: false,
+    };
     this.hitRegions = barHitRegions(
       { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
       bars,

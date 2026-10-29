@@ -167,3 +167,13 @@ Add entries here. Keep unsuccessful attempts too if they reveal useful constrain
 - **Explicit non-goals / known limit:** Charts of different columns do not link (hovering East in a region chart does not mark East points in a scatter). That needs each card to re-run its query for the hovered slice through the existing per-card scope; logged as the next step in next_steps.md.
 - **Files / components changed:** src/ui/chart-card.ts (`actionsOverlap`, `setLinkedHighlight`, `drawLinkedOverlay`), chart-panel.ts, help-content.ts, test/linked-highlight.test.ts, test/e2e/chart-brush.spec.ts
 - **Date:** 2026-10-30
+
+### CHG-2026-10-30-04 — Linked highlight across columns
+
+- **Status:** Verified (5 unit tests, 1 browser test, screenshot); owner has not tried it
+- **Problem addressed:** Linked highlight only linked charts over the same column. Hovering East in a region chart told you nothing about East in the time series or the sales histogram.
+- **Scope:** Hover a mark in one chart and every count plot, histogram, count time series and aggregated bar/line over a different column draws the hovered slice's share of each mark in orange, with a "Highlighted: East" caption. A new worker request (`getSliceBreakdown`) reduces the rows in the slice into each mark's bar, bin or period: a row count, or the sum/mean/min/max of the chart's own measure. It runs under the chart's own scope (table filters, chart filter, exclusions) and is debounced 70 ms with stale answers dropped, so sweeping across bars never queues work. Charts with calculations (percent of rows, running totals), split-by or animation do not overlay.
+- **Engine:** `ChartExclusion` gains `invert` (leave out the rows that do NOT match), which turns any existing per-chart exclusion path into "keep only this slice". Unknown labels keep nothing; rows missing the sliced value are not in a range slice. Adjacent histogram bins sharing an edge never double count.
+- **Explicit non-goals / known limits:** Scatter, density, bubble, box and heatmap charts do not overlay yet (they need a per-point or per-cell version of the same request); slices of text columns only link by the "contains" action.
+- **Files / components changed:** src/data/slice-breakdown.ts, chart-exclusions.ts, src/worker/protocol.ts, search.worker.ts, src/ui/worker-client.ts, chart-card.ts, chart-panel.ts, app.ts, help-content.ts, test/slice-breakdown.test.ts, test/e2e/chart-brush.spec.ts
+- **Date:** 2026-10-30

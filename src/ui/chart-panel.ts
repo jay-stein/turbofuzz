@@ -11,6 +11,8 @@ import type { ColumnSuggestion } from "../data/suggestions.js";
 import type {
   AggregateMessage,
   BoxStatsMessage,
+  GetSliceBreakdownRequest,
+  SliceBreakdownMessage,
   ChartBinsMessage,
   ChartSeriesMessage,
   ColumnMeta,
@@ -64,6 +66,10 @@ export interface ChartsPanelOptions {
   requestSeries(input: SeriesRequestInput): Promise<ChartSeriesMessage>;
   /** Value lists for groupable non-category columns, fetched only when charts need them. */
   requestChartGroups?(columns: number[]): Promise<Record<number, CategoryMeta>>;
+  /** Per-mark share of a hovered slice (linked highlight across columns). */
+  requestSliceBreakdown?(
+    input: Omit<GetSliceBreakdownRequest, "type" | "requestId">,
+  ): Promise<SliceBreakdownMessage>;
   requestBoxStats(input: {
     valueColumn: number;
     categoryColumn: number;
@@ -607,9 +613,10 @@ export class ChartsPanel {
         currentFilter: this.options.currentFilter,
         onMapBrush: this.options.onMapBrush,
         onBrush: this.options.onBrush,
-        onHighlight: (source, actions) => {
-          for (const card of this.cards()) if (card !== source) card.setLinkedHighlight(actions);
+        onHighlight: (source, actions, label) => {
+          for (const card of this.cards()) if (card !== source) card.setLinkedHighlight(actions, label);
         },
+        requestSliceBreakdown: this.options.requestSliceBreakdown,
         onRemove: (target) => this.removeCard(target),
         onDuplicate: (target) => this.duplicateCard(target),
         onEdit: (target) => void this.editCard(target),

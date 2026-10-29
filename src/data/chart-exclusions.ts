@@ -7,9 +7,9 @@ import type { ColumnData } from "./column.js";
  * a click can select: a category value, a numeric/time range, a text term.
  */
 export type ChartExclusion =
-  | { kind: "values"; column: number; labels: string[] }
-  | { kind: "range"; column: number; min: number | null; max: number | null }
-  | { kind: "text"; column: number; query: string };
+  | { kind: "values"; column: number; labels: string[]; invert?: boolean }
+  | { kind: "range"; column: number; min: number | null; max: number | null; invert?: boolean }
+  | { kind: "text"; column: number; query: string; invert?: boolean };
 
 /** One removable chip in the card: a label plus how to take it back out. */
 export interface ExclusionChip {
@@ -120,10 +120,13 @@ export function keepRows(
 ): Uint32Array {
   if (exclusions === undefined || exclusions.length === 0) return ids;
   // Compile each exclusion to "is this row left out?", then filter in one pass.
+  // An inverted entry leaves out the rows that do NOT match it, i.e. it keeps
+  // only the matching slice (used to highlight one slice of the data).
   const tests: ((id: number) => boolean)[] = [];
   for (const entry of exclusions) {
     const column = columns[entry.column];
     if (column === undefined) continue;
+    const before = tests.length;
     if (entry.kind === "values") {
       const categories = column.categories();
       const sets = entry.labels
@@ -152,6 +155,11 @@ export function keepRows(
       if (query === "") continue;
       const raw = column.raw;
       tests.push((id) => (raw[id] ?? "").toLowerCase().includes(query));
+    }
+    if (entry.invert === true) {
+      // An unmatched slice (unknown label) keeps nothing; otherwise flip the test.
+      const matches = tests.length > before ? tests.pop()! : () => false;
+      tests.push((id) => !matches(id));
     }
   }
   if (tests.length === 0) return ids;

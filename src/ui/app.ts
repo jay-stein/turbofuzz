@@ -2352,6 +2352,7 @@ export class App {
         this.client.getChartBins(column, options, exclude),
       requestSeries: (input) => this.client.getChartSeries(input),
       requestBoxStats: (input) => this.client.getBoxStats(input),
+      requestSliceBreakdown: (input) => this.client.getSliceBreakdown(input),
       requestChartGroups: async (columns) => (await this.client.getChartGroups(columns)).groups,
       requestCrosstab: (input) => this.client.getCrosstab(input),
       requestCorrelation: (columns, scope) => this.client.getCorrelation(columns, scope),

@@ -16,6 +16,8 @@ import type {
   AnimationChart,
   AnimationMessage,
   BoxStatsMessage,
+  GetSliceBreakdownRequest,
+  SliceBreakdownMessage,
   ChartBinsMessage,
   ChartSeriesMessage,
   CorrelationMessage,
@@ -269,6 +271,10 @@ export class SearchWorkerClient {
     respectFilters?: boolean;
   }): Promise<ChartSeriesMessage> {
     return this.request<ChartSeriesMessage>({ type: "getChartSeries", ...input });
+  }
+
+  getSliceBreakdown(input: Omit<GetSliceBreakdownRequest, "type" | "requestId">): Promise<SliceBreakdownMessage> {
+    return this.request<SliceBreakdownMessage>({ type: "getSliceBreakdown", ...input });
   }
 
   getBoxStats(input: {

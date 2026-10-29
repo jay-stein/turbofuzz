@@ -1,6 +1,7 @@
 import { ColumnData } from "../data/column.js";
 import { isGroupableColumn } from "../data/groupable.js";
 import { keepRows, type ChartExclusion } from "../data/chart-exclusions.js";
+import { sliceBreakdown } from "../data/slice-breakdown.js";
 import { computeAggregate } from "../data/aggregate.js";
 import { computePivot } from "../data/pivot.js";
 import { coMissingness } from "../data/comissingness.js";
@@ -92,6 +93,7 @@ import type {
   GetMissingnessRequest,
   GetChartSeriesRequest,
   GetBoxStatsRequest,
+  GetSliceBreakdownRequest,
   GetCrosstabRequest,
   GetCorrelationRequest,
   GetAggregateRequest,
@@ -415,6 +417,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getBoxStats":
       handleGetBoxStats(message);
+      break;
+    case "getSliceBreakdown":
+      handleGetSliceBreakdown(message);
       break;
     case "getCrosstab":
       handleGetCrosstab(message);
@@ -1471,6 +1476,39 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
       result,
     },
     transfer,
+  );
+}
+
+/** Per-mark share of one hovered slice, for linked highlight across columns. */
+function handleGetSliceBreakdown(message: GetSliceBreakdownRequest): void {
+  const { dataset } = state();
+  const column = dataset.columns[message.column];
+  if (column === undefined) throw new Error("Unknown column");
+  const started = performance.now();
+  const scoped = chartScopedIds(message.respectFilters, message.chartFilter, message.chartExclude);
+  const inSlice = keepRows(
+    scoped,
+    message.slice.map((entry) => ({ ...entry, invert: true })),
+    dataset.columns,
+  );
+  const measureColumn = message.measure === undefined ? undefined : dataset.columns[message.measure.column];
+  const values = sliceBreakdown(
+    inSlice,
+    column,
+    message.regions,
+    message.measure === undefined || measureColumn === undefined
+      ? null
+      : { values: measureColumn.numbers(), agg: message.measure.agg },
+    dataset.rowCount,
+  );
+  post(
+    {
+      type: "sliceBreakdown",
+      requestId: message.requestId,
+      values,
+      ms: performance.now() - started,
+    },
+    [values.buffer],
   );
 }
 

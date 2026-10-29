@@ -96,3 +96,45 @@ test("hovering a bin in one chart outlines the same slice in another chart of th
   await page.mouse.move(first.x + first.width * 0.5, first.y - 40);
   await expect(canvases.nth(1)).toHaveAttribute("data-linked", "0");
 });
+
+/** 360 days, three regions with very different sales, so a hovered region has a visible share elsewhere. */
+function salesByRegion(): string {
+  const lines = ["day,region,sales"];
+  const regions = ["East", "West", "North"];
+  for (let i = 0; i < 360; i++) {
+    const d = new Date(Date.UTC(2024, 0, 1) + i * 86_400_000).toISOString().slice(0, 10);
+    const r = i % 3;
+    lines.push(`${d},${regions[r]},${50 + (i % 40) + r * 40}`);
+  }
+  return lines.join("\n");
+}
+
+test("hovering a category lights its share inside charts of other columns", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 800 });
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "s.csv", mimeType: "text/csv", buffer: Buffer.from(salesByRegion()) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator(".view-tabs button", { hasText: "Chart" }).click();
+  await page.locator(".chart-add-type", { hasText: /^Count plot/i }).first().click();
+  await page.getByRole("button", { name: "+ Add chart" }).click();
+  await page.locator(".chart-add-type", { hasText: /^Histogram/i }).first().click();
+  await page.getByRole("combobox").filter({ hasText: "1 per row" }).selectOption({ label: "2 per row" });
+  await page.waitForTimeout(1200);
+  const canvases = page.locator("canvas.chart-canvas");
+  await expect(canvases).toHaveCount(2);
+  // The newest card is first in the grid: find the count plot by its caption.
+  const bars = page.locator(".chart-card", { hasText: /Count plot: rows by/ }).locator("canvas.chart-canvas").first();
+  const hist = page.locator(".chart-card", { hasText: /Histogram: rows by/ }).locator("canvas.chart-canvas").first();
+  const box = (await bars.boundingBox())!;
+  let slice = "0";
+  for (let step = 0; step < 12 && slice === "0"; step++) {
+    await page.mouse.move(box.x + box.width * (0.3 + 0.05 * step), box.y + box.height * 0.6);
+    await page.waitForTimeout(250);
+    slice = (await hist.getAttribute("data-slice")) ?? "0";
+  }
+  expect(Number(slice)).toBeGreaterThan(0);
+  // Leaving the bar clears the overlay.
+  await page.mouse.move(box.x + box.width * 0.5, box.y - 60);
+  await expect(hist).toHaveAttribute("data-slice", "0");
+});
