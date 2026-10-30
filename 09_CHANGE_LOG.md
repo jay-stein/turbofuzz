@@ -186,3 +186,19 @@ Add entries here. Keep unsuccessful attempts too if they reveal useful constrain
 - **Explicit non-goals / known limits:** Density, bubble, box and heatmap charts and split-by series still do not overlay. A slice of more than 20,000 rows is a sample, like the scatter itself.
 - **Files / components changed:** src/ui/chart-card.ts (`scheduleSlicePoints`, `drawSlicePoints`, `SeriesRequestInput.chartExclude`), help-content.ts, test/e2e/chart-brush.spec.ts
 - **Date:** 2026-10-30
+
+### CHG-2026-10-30-06 — Time Series page in the app
+
+- **Status:** Verified (unit, e2e and bench); owner has used the prototype, not yet the in-app page
+- **Related issue / decision:** next_steps.md "BIG TODO: a dedicated Time Series page"; owner chose the full port before the Map page
+- **Problem addressed:** The Time Series deep dive lived only as a standalone prototype with its own CSV loader and styles, so it could not see the loaded, cleaned and filtered table.
+- **Scope:** A new "Time Series" tab (keyboard 8, command `forecast`). The prototype's engine is now typed modules in src/data/timeseries (base, aggregate, decompose, models, patterns, engine) run by the worker through a `getTimeSeries` request on the current rows, with each stage cached so a drag reruns only the models. The page (src/ui/timeseries-page.ts, -findings.ts, -patterns.ts) draws the snapshots in the app's design tokens: Explore, Decompose, Forecast and Patterns, the trend-shift overlay, history-limited forecast length, seasonal gap fill, Export CSV. Clicking a period filters the Table to it; date range filter chips now read as dates instead of milliseconds.
+- **Explicit non-goals:** Impact/what-if (dropped by the owner), the Chart time series card stays until its retirement step, no time zones.
+- **Acceptance criteria:** loads any table with a date column, respects filters, all four modes draw, forecast length capped by the testable history, clicking a period filters the Table.
+- **Files / components changed:** src/data/timeseries/*, src/ui/timeseries-page.ts, timeseries-findings.ts, timeseries-patterns.ts, src/worker/protocol.ts, search.worker.ts, src/ui/worker-client.ts, app.ts (tab, host, filter chip dates), view-tabs.ts, command-bar.ts, help-content.ts, styles.css, bench/timeseries.ts, package.json (gate)
+- **Tests run and results:** test/timeseries.test.ts (11) and the full unit suite (1089 pass); test/e2e/time-series-page.spec.ts (3 pass); bench:timeseries all within budget (daily open 53 ms of 110, hourly open 101 ms of 220, hourly horizon drag 52 ms of 110).
+- **Manual browser verification:** parking.csv (29k irregular half-hourly rows) in the dev server: Hourly default, daily + weekly season, 1-month forecast, Patterns, click-to-filter.
+- **Known limitations:** Phase labels and season names are English only. Very long hourly tables (100k+ periods) open at a coarser grain to stay fast. Python reference check of the decomposition and models is still to do.
+- **Decision:** Ship
+- **Date:** 2026-10-30
+

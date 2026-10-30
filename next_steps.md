@@ -1309,25 +1309,272 @@ partial and gap logic, yearly grain, no-season (trend only) path, detected cycle
 (ACF), grains finer than the data disabled. Run 1: 10 of 11 load and run all four
 modes with no errors or NaN text; shampoo ("1-01" dates) refused with a clear message.
 
-Still to fix (found in run 1), then re-run and publish:
-1. Monthly data defaults to 4-weekly: make `tooFine` use `cadence * 0.97`.
-2. Partial text uses coverage (shows 0% / 100%): store allowed/full share per bucket.
-3. Group "all" with sum silently adds sources (global temp): say so in the why-line.
-4. Spurious weak seasons (births, AAPL, global temp 26-period cycle): use trend-only when
-   best strength < 0.15 unless chosen; detrend `detectCycle` with a wide moving average.
-5. Noisy peak phase at day/365 ("5 Mar" for Melbourne): smooth the profile for reporting.
-6. Rates rounding to 0 ("0 a month", "+0.0% a month"): pick month/year/decade/century unit.
-7. Events from every numeric column are noise (bridge total vs its own sidewalk):
-   events only from driver columns plus the trend changepoint; sample default driver
-   driver_x; compute EVENTS after DEC.
-8. Count-of-rows text says "latitude's trend": measureWord() -> "the row count".
-9. Event-like data (quakes): no gap ranges, coverage 1.
-10. Gap counts include structural weekends (AAPL): count only non-structural days.
-11. "Finer than a day" wrongly set for decimal-year CO2: set subDay only when a
-    (day, group) has more than one row.
-12. Cadence wording ("every week" for 2 days): format N days/weeks/months.
-13. Trend % from single noisy endpoints (births +35%): average first/last 5% of trend.
-14. Explain(): skip "group all accounts for 100%" when there is one group.
-Also noted: daily models take 46-49 ms on 2.5k-3.7k days (budget 30 ms); one season
-per decomposition means weekly variation lands in the remainder for daily data with a
-yearly season (MSTL in the plan fixes this).
+Run 1 issues 1-14: **all fixed 2026-10-30** (run 2 output: `real-run2.txt`). Fixes in
+brief: grain floor `cadence * 0.97`; partial share stored per period; why-line says when
+"all" adds groups; trend only below seasonal strength 0.15 with a moving-average detrend
+for cycle search; long profiles smoothed before naming peaks; rates choose month / year /
+decade / century and a before/after pair shares one unit; events only from chosen
+drivers plus the trend changepoint (sample defaults to `driver_x`); "the row count";
+event-like data has no gaps; structural weekdays not counted as missing; "finer than a
+day" only when a (day, group) has several rows; cadence in words with a count; trend %
+from the first and last 5%; no group share with one group.
+
+**Run 2 (2026-10-30), 16 files** (datasets in the session scratchpad; set `TS_DATA` to
+point the harness at them). Added: owner's parking file, Beijing PM2.5, UCI Air Quality,
+ETTh1, ETTm1. 15 load and run all four modes with no errors and no NaN text; shampoo
+("1-01" dates) is still refused with a clear message. Fixed during the run:
+
+- **Dates built from split columns in the page**: no date column, but Year / Month /
+  Day / Hour / Minute columns (exact, aliases, or one shared prefix; month names too)
+  now build the dates, and the toast says so (Beijing).
+- **Separate Date and Time columns** (`18.00.00` or `18:00`) are joined (Air Quality).
+- **Semicolon files** with decimal commas; fully blank rows skipped quietly.
+- **Missing-value codes** read from the values alone (a repeated round number of 99+
+  that is negative when nothing else is, or all nines and 10x the rest): Air Quality's
+  -200 is treated as missing and the Data finding says so.
+- **Regression blow-up** on short series (parking, 111 days: error 575,000x naive):
+  yearly terms only with a full year of data, weekly only with three weeks, and log
+  forecasts capped at 20x the largest value seen.
+- **"Sum depends on how many readings"** warning with a one-click "Use mean": fires on
+  parking (205-320 readings a day), Air Quality (14-24) and global temp (1-2 a month,
+  i.e. two sources added together). Worded neutrally (level vs amount), no guessing
+  from names.
+- A rough cycle that is too irregular to model (sunspots, ~11 years) is reported as
+  "rough cycle" instead of disappearing; column names keep their own case ("pm2.5");
+  impact's relative low end never goes below -100%.
+
+Run 3 (sub-daily, 2026-10-30, `real-run3.txt`): **sub-daily grains done.**
+- Rows sit in a base *slot*, not a day: a day for daily data, else the coarsest step on
+  a 1 / 5 / 15 / 30 / 60-minute ladder that the median gap fills (jittered 30-minute
+  parking readings get 30 minutes). Very long fine tables step up the ladder to stay
+  under 1.5M slots.
+- New grains 5-minute, 15-minute, 30-minute and Hourly, with weekly and daily seasons
+  (168 and 24 at hourly). Grains finer than the data are greyed out as before.
+- Regression gets daily Fourier terms. "Same time last week" replaces "last year",
+  "vs a week earlier" replaces "vs a year earlier", the range presets become
+  1D / 1W / 1M / 3M, and the axis shows hours.
+- Partial periods and gaps are counted in slots, so parking's first day is no longer
+  flagged as an anomaly.
+- Long hourly files still open at daily or weekly, keeping the default under about
+  4,000 periods; a Data note offers a one-click switch to hourly.
+- Speed:
+  - Fits on long series use the latest ~4,000 periods in whole cycles: theta,
+    Holt-Winters parameters and regression. Cycle search uses the latest 20,000.
+  - Harmonics are computed by rotation; medians use typed sorts and quickselect.
+  - Fremont hourly (122k periods): models 360 to 50 ms, decomposition 150 to 46 ms.
+  - Daily temperatures: 47 to 35 ms.
+- All 21 passes are clean (every readable file at its default grain, plus the six
+  sub-daily files at their finest).
+- Seasons found: ETTh1 hourly daily 0.53 (peak 00:00), Fremont hourly weekly 0.75
+  (Tue 13:00), parking hourly weekly 0.79 (Sat 15:00), Air Quality hourly weekly
+  0.41. Beijing hourly shows none: weather swamps the daily cycle.
+- Not done: business-hours tables (rows only 9-17) count the night as gaps. This needs
+  "structural hours", like the structural weekdays that already exist.
+
+Owner review changes (2026-10-30, after run 3):
+- **Impact tab dropped** (owner did not like it). Its model runs, panel, chart handles
+  and event findings are removed. In their place, the trend's one clear break is
+  drawn on the Explore and Decompose charts: a straight dashed trend on each side,
+  labelled "Trend shift 20 Jan 2025: +2.7%/mo → +1.4%/mo". It can be switched off
+  with "Trend shift" in the toolbar.
+- **What-if scenarios declined for now.** If revisited, build them as scenarios in
+  Forecast with evidence gates, not as a slider page: count of independent driver
+  changes, the range seen, and the stability of the effect across backtests.
+- **Forecast horizon follows the history**, not a fixed per-grain cap: the longest
+  forecast that can still be backtested. Parking hourly allows 61 days, ten years of
+  daily data about 6 years.
+  - Shortcuts from 1 day up to 1 year (sub-daily), or 1 month to 2 years (daily);
+    a "Longest" shortcut; "up to N" shown next to the box.
+  - Typed numbers are clamped to the limit.
+- **Patterns tab** (new). It uses hourly, daily and monthly series whatever grain is
+  shown, and counts only complete periods. Contents:
+  - Peak and low time of day; peak and low day; weekends vs weekdays; peak month.
+  - A typical day: median, middle half, weekday and weekend means.
+  - Day-of-week bars; month-of-year bars (the average day in each month, so long
+    months are not favoured).
+  - A weekday-by-hour heatmap.
+- **Decompose "Daily + weekly"** below a day: separate daily-cycle and day-of-week rows.
+- Explore zoom is visible: −/+ buttons, Shift-drag a range, and a hint line.
+- Typed number boxes for the rolling window and the horizon; rolling min and max.
+- Timing readouts removed from the UI.
+- Fixed: gap periods were flagged as anomalies, which crashed Decompose on parking
+  at mean.
+
+**Shipped in the app (2026-10-30, CHG-2026-10-30-06):**
+- The Time Series tab now runs the ported engine in the worker on the loaded,
+  filtered table. It is keyboard 8, or the command bar `forecast`.
+- Seasonal gap fill: on held-out 6-hour runs it is 2.6x more accurate than a straight
+  line. Made-up values are never fitted or scored.
+- Tests: 11 unit, 3 e2e. `bench:timeseries` is in the gate.
+- The prototype stays as the design reference only.
+
+Remaining for the Time Series page:
+- Retire the Chart time series card (section 2 below).
+- Python reference check of the decomposition and models.
+- Additive vs multiplicative seasons (parking's daily peaks sit in the remainder).
+
+Still to do, in order:
+1. ~~Sub-daily grains~~ done in run 3 (above).
+2. **Time-weighted mean** aggregate, for irregularly sampled levels (parking).
+3. **Repeated totals**: warn when a column is constant within a timestamp across
+   groups (parking's `total_occupied`) before summing across groups.
+4. **Speed**: daily models now take 33-42 ms on 2.5k-3.7k days (budget 30 ms); regression is ~25 ms of it (11 refits). Next idea: fixed knot grid so backtest refits share one running Gram matrix.
+5. More files from the test-set table below (wide electricity, PeMS, crime events,
+   unbalanced debt panel) and the hand-made messy fixtures; then publish.
+
+## Owner requests (logged 2026-10-30): Map page, drop the chart time series, date parts, messy-data testing
+
+### 1. Maps get their own page (out of Chart)
+
+Move the map card out of the Chart view into a dedicated **Map** page with its own
+nav entry, like Time Series. Reasons: a map wants the full width and its own toolbar
+(layers, base map, brush, colour/size by column), and it shares little with the card
+grid. The Chart view keeps a small "Open in Map" suggestion when it sees a lat/lon
+pair, so nobody loses the way in.
+
+- Reuse what exists: `src/data/geo.ts`, `src/data/geo-file.ts`, the bundled
+  `src/data/world-110m.ts` outline, the point sampling and density grids, and the
+  rectangle brush on the lat/lon range filters.
+- Saved charts and recipes with a map card migrate: they open on the Map page with
+  the same columns and filters (no silent drop).
+- The bundled **offline outline stays the default**, and the page never uses the
+  network.
+
+**Base maps stay offline (owner decision, 2026-10-30; replaces the online-tiles idea).**
+The app never talks to the internet: `public/_headers` sets `img-src 'self';
+connect-src 'none'`, and that stays. Instead the person can load **their own map
+image** as the background:
+
+- **Load a background image:** JPG, PNG or WebP, read from a local file with
+  `createImageBitmap(file)` and drawn on the canvas, so no CSP change is needed
+  (no `blob:`/`data:` image URLs). Nothing is uploaded; the file stays on the device.
+- **Place it on the map:** the image needs its edges in lon/lat. Three ways, in order
+  of ease: (1) a **world file** sidecar (`.jgw`/`.pgw`/`.wld`) loaded with it, which
+  QGIS and most GIS tools write; (2) **"whole world"** (-180..180, -90..90) for
+  global images; (3) type the west/east/south/north edges, with a live preview over
+  the bundled outline and the data points so a misfit is obvious.
+- **Projection:** support plate carree (equirectangular, the usual download) and
+  Web Mercator (screenshots/exports of web maps); the person picks, default plate
+  carree, and the outline overlay shows if the choice is wrong.
+- Controls: opacity, greyscale (so coloured points stay readable), show/hide the
+  outline on top, and remove. Very large images are downscaled on load (cap ~8k px
+  long edge) with a note.
+- **Remembered per dataset** in local storage only (IndexedDB); recipes record that a
+  background was used and its bounds, never the image itself.
+- **An in-app guide "Get an offline map"** (Help drawer and an empty-state link on
+  the Map page) with short steps:
+  - Natural Earth raster downloads (naturalearthdata.com, public domain): whole
+    world, plate carree, so choose "whole world".
+  - NASA Blue Marble / Visible Earth images (public domain): same.
+  - Your area from OpenStreetMap: export an image of a box (e.g. from QGIS with the
+    OSM layer, then "Export map to image" with a world file), noting OSM attribution
+    is required when sharing the result.
+  - Any scanned or drawn map: load it and type the four edges.
+- PNG/GIF export includes the background, with any attribution the person typed.
+- `docs/map-view-spike-memo.md`'s "no network tiles" no-go stands.
+
+### 2. Drop the time series chart from Chart
+
+Owner: the Time Series page covers it, so the time series card type comes out of
+Chart. Order matters:
+
+1. **Do not remove it until the Time Series page ships.** Today the page is only a
+   prototype (`prototypes/time-series/`).
+2. Then the chart recommender's time series suggestions, the command palette
+   `timeseries` verb and the "Add chart" rail send people to the Time Series page
+   with the date column and measure filled in.
+3. Saved charts and recipes with a time series card migrate to a Time Series page
+   state (same columns, aggregate, grain, Every N, filters), with a one-line notice.
+4. This replaces the "Analyse this series" card action decided above. The ways in
+   become the nav entry plus those redirects. What was built for the card (Shift+drag
+   brush, linked highlight on count time series, Every N buckets) carries over to the
+   page's hero chart; nothing in the engine is lost.
+5. Bar/line charts over a date-like category (such as a "Month" text column) stay in
+   Chart. Only the dedicated time series type goes.
+
+### 3. Make a date or datetime from split columns, right in the Time Series page
+
+Very common in real files: `Year`; `Year, Month`; `Year, Month, Day`; plus `Hour`
+(and `Minute`). The engine already exists (`src/data/date-combine.ts`, the Transform
+"combine date/time" step, with Polars export), so this is mostly wiring plus better
+detection:
+
+- **In the Time Series page:** when no date column is found (and always, as a choice
+  in the date picker), offer "Build a date from Year, Month, Day, Hour". One click
+  adds the combine as a normal Transform step (undoable, in the recipe and the code
+  export), then the page opens on the new column.
+- **Detection fixes** found while checking (first two **done 2026-10-30** in
+  `src/data/date-combine.ts`, with tests; the page prototype also builds dates from
+  split columns and joins separate Date + Time columns):
+  - `autoCombineParts` makes a datetime only when Hour **and** Minute both exist, so
+    `year,month,day,hour` (Beijing PM2.5) becomes a date and 24 hourly rows collapse
+    into one day. Hour alone must give a datetime (minute 0).
+  - Names must match exactly today. Add common variants (`yr`, `yyyy`, `mon`, `mth`,
+    `month_num`, `dd`, `hr`, `hh`, `min`), prefixed forms (`order_year`,
+    `OrderMonth`) when the prefix is shared, and month names as values ("Jan",
+    "January").
+  - `Year` alone: offer a yearly date (1 Jan of that year) or keep it numeric; the
+    page treats it as a yearly series either way.
+  - `Year + Quarter` (1-4 or "Q1") and `Year + Week` (ISO week) need their own roles;
+    there are none today.
+  - Separate `Date` + `Time` text columns (UCI Air Quality: `10/03/2004` and
+    `18.00.00`, with `-200` as missing) must combine too, including dotted times.
+  - Check values, not just names: month 1-12, day valid for that month, hour 0-23.
+    Report how many rows failed and why instead of quietly making them null.
+
+### 4. Test on many more real series, including messy ones
+
+Extend `prototypes/time-series/run-real.cjs` (and later a `test/` fixture set with
+expected outputs) well past the first 11 datasets, covering every frequency and the
+ways real files go wrong.
+
+**Owner's parking file** (`jay-stein/chaddy-parking-scraper`, `data/parking.csv`,
+profiled 2026-10-30): 29,405 rows, 5,881 snapshots of 5 car parks (A, B, C, E, F),
+12 Jul to 30 Oct 2026. What it teaches:
+
+- **Irregular intervals.** Gaps run from 15 seconds to 3.5 hours. The median is 30
+  minutes, but about 40% of gaps are 10-29 minutes and a few hundred are 40-120
+  minutes. A native cadence from the median alone says "30 min", which is wrong for
+  a third of the data.
+- **Levels, not flows.** `occupied` and `vacant` are counts at a moment. Summing them
+  per hour is meaningless and grows with the number of snapshots in that hour, so the
+  sum default draws a fake pattern. For levels the right answer is a **time-weighted
+  mean** (or the last value) per bucket. The page must not guess from names, so it
+  should detect uneven sampling and, when the aggregate is sum, say plainly "Buckets
+  have 1 to 6 readings each, so a sum changes with how often data was taken", with
+  mean / last / time-weighted mean one click away. Add time-weighted mean as an
+  aggregate.
+- **Repeated totals.** `total_occupied` and `total_vacant` repeat on every car-park
+  row, so summing across car parks counts them five times (same family as issue 3 in
+  run 1). Detect "constant within a timestamp" columns and warn before summing
+  across groups.
+- **Long format.** One row per (time, car park); the group column must split it into
+  five series cleanly.
+- A daily and weekly cycle is likely on sub-daily data, so this is a real test of the
+  multi-season (MSTL) path.
+
+**From `liaoyuhua/open-time-series-datasets`**, picked by what each one breaks:
+
+| Dataset | Frequency | Why it is in the set |
+|---|---|---|
+| Beijing PM2.5 (`jbrownlee/Datasets/pollution.csv`) | hourly, 5 yrs | `year,month,day,hour` split columns; `NA` gaps; wind-direction category |
+| ETT (ETTh1 hourly, ETTm1 15-min) | sub-hourly | 70k rows; long clean sub-daily series; daily and weekly cycles |
+| UCI Air Quality | hourly | separate `Date` + `Time` (dotted), `-200` sentinel, semicolons, decimal commas |
+| UCI Electricity load | 15-min, 370 series | wide format (one column per client); very large |
+| Seattle loop / PeMS traffic | 5-min, daily | many sensors; occupancy rates 0-1 |
+| Singapore population | annual | very short yearly series; groups |
+| Historical public debt | annual, 1800-2015 | unbalanced panel: each country starts in a different year |
+| Global climate (1750-2015) | monthly | very long; early years sparse |
+| NYC / Baltimore / Kansas City crime | event timestamps | events, not measurements: count per period |
+| Airline delays | monthly | several measures; airport groups |
+| Wikipedia web traffic (Kaggle) | daily | spikes, zeros, very many series |
+
+Add hand-made messy fixtures for what public data rarely shows alone: duplicate
+timestamps, unsorted rows, mixed date formats in one column, Excel serial dates,
+`dd/mm` vs `mm/dd` ambiguity, time-zone suffixes on only some rows, a daylight-saving
+duplicate hour, trailing blank rows, a partial current month, a series that changes
+cadence half way (daily, then weekly), and long dead spells.
+
+For each dataset, record: loads (or refuses with a clear message), detected cadence
+and grain, chosen aggregate and its warning, season found, model run times against
+the budgets, and no NaN or "0 a month" text. Then fix, re-run and publish.

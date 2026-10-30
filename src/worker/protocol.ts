@@ -1,3 +1,5 @@
+import type { TsConfig, TsMode } from "../data/timeseries/aggregate.js";
+import type { TsSnapshot } from "../data/timeseries/engine.js";
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
 import type { ChartExclusion } from "../data/chart-exclusions.js";
 import type { ViewDef } from "../data/aggregate.js";
@@ -721,6 +723,29 @@ export interface RelationshipsMessage {
   ms: number;
 }
 
+/** Time Series page: one series from the current rows, run through the engine. */
+export type GetTimeSeriesRequest = {
+  type: "getTimeSeries";
+  requestId: number;
+  dateColumn: number;
+  /** A category column whose values split the series; -1 for none. */
+  groupColumn: number;
+  /** Analyse the current rows (default true) or the whole dataset. */
+  respectFilters?: boolean;
+  /** null opens the series with the table's own defaults. */
+  config: TsConfig | null;
+  mode: TsMode;
+};
+
+export interface TimeSeriesMessage {
+  type: "timeSeries";
+  requestId: number;
+  /** null when the date column has too few readable dates. */
+  snapshot: TsSnapshot | null;
+  error?: string;
+  ms: number;
+}
+
 export type GetColumnNetworkRequest = {
   type: "getColumnNetwork";
   requestId: number;
@@ -1034,6 +1059,7 @@ export type WorkerRequest =
   | GetOutlierAnalysisRequest
   | GetDependenciesRequest
   | GetRelationshipsRequest
+  | GetTimeSeriesRequest
   | GetColumnNetworkRequest
   | GetTextProfileRequest
   | ScanSensitiveRequest
@@ -1287,6 +1313,7 @@ export type WorkerResponse =
   | OutlierAnalysisMessage
   | DependenciesMessage
   | RelationshipsMessage
+  | TimeSeriesMessage
   | ColumnNetworkMessage
   | TextProfileMessage
   | SensitiveColumnMessage

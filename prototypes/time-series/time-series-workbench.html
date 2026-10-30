@@ -63,7 +63,25 @@ button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .app { max-width: 1440px; margin: 0 auto; padding-block: 14px 28px; display: flex; flex-direction: column; gap: 14px; }
 .app[data-mode="forecast"] { --mode: var(--forecast); }
-.app[data-mode="impact"] { --mode: var(--impact); }
+.app[data-mode="patterns"] { --mode: var(--impact); }
+.patfacts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 0; }
+.patfacts div { border: 1px solid var(--border); border-radius: 8px; padding: 8px 11px; min-width: 0; }
+.patfacts dt { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); }
+.patfacts dd { margin: 2px 0 0; font-weight: 650; font-size: 15px; }
+.patfacts dd small { font-weight: 500; color: var(--dim); font-size: 12px; }
+.patgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.patgrid figure { margin: 0; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+.patgrid figure.wide { grid-column: 1 / -1; }
+.patgrid figcaption { font-size: 13px; font-weight: 650; margin-bottom: 2px; }
+.patgrid figcaption small { font-weight: 500; color: var(--dim); }
+.patgrid svg { width: 100%; height: auto; display: block; overflow: visible; }
+.patgrid svg text { font: 11px var(--font); fill: var(--dim); }
+.patgrid svg .hit { fill: transparent; }
+.patgrid svg .hit:hover { fill: var(--text); fill-opacity: .06; }
+.patkey { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--dim); margin: 2px 0 4px; }
+.patkey i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.patempty { color: var(--dim); font-size: 13px; padding: 6px 0; }
+@media (max-width: 760px) { .patgrid { grid-template-columns: 1fr; } }
 
 /* top bar */
 .top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -112,8 +130,6 @@ button { cursor: pointer; }
 .legend i.dash { border-top-style: dashed; }
 .legend i.band { height: 9px; border: 0; border-radius: 2px; opacity: 0.35; background: currentColor; }
 .head-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-.timing { font-family: var(--mono); font-size: 11px; color: var(--faint); white-space: nowrap; }
-.timing b { color: var(--ok); font-weight: 600; }
 .hero { position: relative; height: clamp(270px, 44vh, 430px); margin: 4px 0 0; }
 .hero canvas { touch-action: pan-y; }
 .hero canvas, .decomp canvas, .nav canvas, .cum canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
@@ -153,6 +169,16 @@ input[type="range"] { accent-color: var(--mode); width: 120px; }
 .stepper { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
 .stepper button { border: 0; background: var(--panel-2); width: 26px; height: 26px; font-size: 15px; }
 .stepper output { padding: 0 10px; min-width: 78px; text-align: center; }
+.stepper .stepnum { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; }
+input.num { width: 56px; height: 24px; border: 1px solid var(--border); border-radius: 5px; background: var(--panel); color: var(--text); font: inherit; text-align: right; padding: 0 4px; }
+.stepper input.num { border: 0; background: transparent; }
+input.num:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.numunit { color: var(--dim); }
+.zoom { display: inline-flex; gap: 2px; background: var(--panel-2); border-radius: 7px; padding: 2px; }
+.zoom button { border: 0; background: transparent; width: 26px; height: 22px; border-radius: 5px; font-size: 15px; color: var(--dim); font-weight: 600; }
+.zoom button:hover { color: var(--text); background: var(--panel); }
+.zoomhint { font-size: 11px; color: var(--faint); white-space: nowrap; }
+@media (max-width: 760px) { .zoomhint { display: none; } }
 select.sel { border: 1px solid var(--border); background: var(--panel); border-radius: 7px; padding: 3px 8px; font-size: 12.5px; max-width: 260px; }
 .tb-note { font-size: 12px; color: var(--dim); }
 .drivers { display: inline-flex; gap: 6px; flex-wrap: wrap; }
@@ -187,7 +213,7 @@ select.sel { border: 1px solid var(--border); background: var(--panel); border-r
 .meter b { color: var(--text); font-variant-numeric: tabular-nums; }
 .meter .bar { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
 .meter .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width 220ms; }
-.decomp { position: relative; height: 330px; }
+.decomp { position: relative; height: 380px; }
 .board { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .board th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .board td { padding: 7px 8px; border-bottom: 1px solid var(--subtle); white-space: nowrap; vertical-align: middle; }
@@ -210,7 +236,6 @@ select.sel { border: 1px solid var(--border); background: var(--panel); border-r
 .effect .r { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
 .effect.gain .v { color: var(--ok); }
 .effect.loss .v { color: var(--danger); }
-.cum { position: relative; height: 150px; }
 
 /* findings rail */
 .rail { display: flex; flex-direction: column; gap: 10px; position: sticky; top: max(12px, env(safe-area-inset-top, 0px)); }
@@ -227,7 +252,7 @@ select.sel { border: 1px solid var(--border); background: var(--panel); border-r
 .insight .mini { height: 4px; background: var(--panel-2); border-radius: 2px; overflow: hidden; }
 .insight .mini i { display: block; height: 100%; }
 
-.popover { position: fixed; z-index: 20; background: var(--panel); border: 1px solid var(--border); border-radius: 9px; box-shadow: var(--pop); padding: 4px; min-width: 180px; display: flex; flex-direction: column; }
+.popover { position: fixed; z-index: 20; background: var(--panel); border: 1px solid var(--border); border-radius: 9px; box-shadow: var(--pop); padding: 4px; min-width: 180px; display: flex; flex-direction: column; max-height: calc(100vh - 16px); overflow-y: auto; }
 .popover button { border: 0; background: transparent; text-align: left; padding: 6px 10px; border-radius: 6px; font-size: 13px; display: flex; justify-content: space-between; gap: 16px; }
 .popover button:hover, .popover button:focus-visible { background: var(--panel-2); outline: none; }
 .popover button[aria-checked="true"] { color: var(--accent); font-weight: 600; }
@@ -263,7 +288,7 @@ select.sel { border: 1px solid var(--border); background: var(--panel); border-r
       <button role="tab" type="button" id="tab-explore" data-mode="explore" aria-selected="true" aria-controls="panel-explore">Explore</button>
       <button role="tab" type="button" id="tab-decompose" data-mode="decompose" aria-selected="false" aria-controls="panel-decompose" tabindex="-1">Decompose</button>
       <button role="tab" type="button" id="tab-forecast" data-mode="forecast" aria-selected="false" aria-controls="panel-forecast" tabindex="-1">Forecast</button>
-      <button role="tab" type="button" id="tab-impact" data-mode="impact" aria-selected="false" aria-controls="panel-impact" tabindex="-1">Impact</button>
+      <button role="tab" type="button" id="tab-patterns" data-mode="patterns" aria-selected="false" aria-controls="panel-patterns" tabindex="-1">Patterns</button>
     </div>
     <button class="ghost-btn" type="button" id="openBtn">Open CSV</button>
     <input type="file" id="fileIn" accept=".csv,text/csv" hidden>
@@ -284,31 +309,31 @@ select.sel { border: 1px solid var(--border); background: var(--panel); border-r
       <section class="card" aria-label="Series chart">
         <div class="toolbar" role="toolbar" aria-label="Mode settings">
           <div class="tb" data-for="explore">
-            <div class="ctl"><label for="smoothW">Rolling window</label><input type="range" id="smoothW" min="2" max="52" step="1"><output id="smoothWOut" for="smoothW"></output></div>
-            <div class="seg" role="group" aria-label="Rolling statistic" id="statSeg"><button type="button" data-stat="mean">Mean</button><button type="button" data-stat="median">Median</button></div>
+            <div class="ctl"><label for="smoothW">Rolling window</label><input type="range" id="smoothW" min="2" max="52" step="1" aria-label="Rolling window (slider)"><input type="number" class="num" id="smoothWNum" min="2" step="1" aria-label="Rolling window"><span class="numunit" id="smoothWUnit"></span></div>
+            <div class="seg" role="group" aria-label="Rolling statistic" id="statSeg"><button type="button" data-stat="mean">Mean</button><button type="button" data-stat="median">Median</button><button type="button" data-stat="min">Min</button><button type="button" data-stat="max">Max</button></div>
             <label class="check"><input type="checkbox" id="smoothCentred"> Centred</label>
-            <label class="check"><input type="checkbox" id="lastYear"> Same period last year</label>
+            <label class="check"><input type="checkbox" id="lastYear"> <span id="lastYearText">Same period last year</span></label>
+            <label class="check" id="shiftWrap"><input type="checkbox" id="showShift"> Trend shift</label>
           </div>
           <div class="tb" data-for="decompose" hidden>
             <div class="ctl"><span class="lbl">Season</span><div class="seg" id="periodSeg" role="group" aria-label="Seasonal period"></div></div>
             <div class="ctl"><label for="sens">Flag unusual</label><input type="range" id="sens" min="2.5" max="6" step="0.25"><output id="sensOut" for="sens"></output></div>
           </div>
           <div class="tb" data-for="forecast" hidden>
-            <div class="ctl"><span class="lbl">Horizon</span><div class="stepper"><button type="button" id="hMinus" aria-label="Shorter horizon">&minus;</button><output id="hOut"></output><button type="button" id="hPlus" aria-label="Longer horizon">+</button></div></div>
+            <div class="ctl"><span class="lbl">Forecast ahead</span><div class="stepper"><button type="button" id="hMinus" aria-label="Forecast less far ahead">&minus;</button><span class="stepnum"><input type="number" class="num" id="hNum" min="1" step="1" aria-label="How far ahead to forecast"><span class="numunit" id="hUnit"></span></span><button type="button" id="hPlus" aria-label="Forecast further ahead">+</button></div><div class="seg" id="hPresets" role="group" aria-label="How far ahead"></div><span class="tb-note" id="hMax"></span></div>
             <div class="ctl"><span class="lbl">Band</span><div class="seg" id="levelSeg" role="group" aria-label="Interval"><button type="button" data-level="80">80%</button><button type="button" data-level="fan">80% + 95%</button></div></div>
             <div class="ctl"><span class="lbl">Drivers</span><div class="drivers" id="drivers"></div></div>
+            <span class="tb-note" id="trainNote"></span>
             <button class="ghost-btn" type="button" id="splitReset">Forecast from latest</button>
           </div>
-          <div class="tb" data-for="impact" hidden>
-            <div class="ctl"><label for="eventSel">Event</label><select class="sel" id="eventSel"></select></div>
-            <div class="ctl"><span class="lbl">Window</span><div class="stepper"><button type="button" id="wMinus" aria-label="Shorter window">&minus;</button><output id="wOut"></output><button type="button" id="wPlus" aria-label="Longer window">+</button></div></div>
-            <div class="ctl"><label for="impModel">Expected by</label><select class="sel" id="impModel"></select></div>
+          <div class="tb" data-for="patterns" hidden>
+            <span class="tb-note">Built from every complete hour and day in the data, whatever the grain above.</span>
           </div>
         </div>
         <div class="card-head">
           <div class="legend" id="legend"></div>
           <div class="head-actions">
-            <span class="timing" id="timing" title="Time spent in each stage for the last change, measured in this tab"></span>
+            <span class="zoomhint">Scroll to zoom · drag to pan · Shift-drag a range to zoom in · double-click to reset</span>
             <button class="ghost-btn" type="button" id="tableBtn" aria-expanded="false" aria-controls="tableWrap">Table</button>
           </div>
         </div>
@@ -319,8 +344,9 @@ select.sel { border: 1px solid var(--border); background: var(--panel); border-r
         </div>
         <div class="navrow">
           <div class="nav" id="nav"><canvas id="navCanvas" role="img" aria-label="Overview. Drag the window to pan, drag its edges to zoom."></canvas></div>
+          <div class="zoom" role="group" aria-label="Zoom"><button type="button" id="zoomOut" aria-label="Zoom out" title="Zoom out">&minus;</button><button type="button" id="zoomIn" aria-label="Zoom in" title="Zoom in">+</button></div>
           <div class="presets" id="presets" role="group" aria-label="Range">
-            <button type="button" data-span="3">3M</button><button type="button" data-span="6">6M</button><button type="button" data-span="12">1Y</button><button type="button" data-span="24">2Y</button><button type="button" data-span="0" aria-pressed="true">All</button>
+            <button type="button" data-span="91">3M</button><button type="button" data-span="182">6M</button><button type="button" data-span="365">1Y</button><button type="button" data-span="730">2Y</button><button type="button" data-span="0" aria-pressed="true">All</button>
           </div>
         </div>
         <div class="tablewrap" id="tableWrap" hidden></div>
@@ -338,17 +364,16 @@ select.sel { border: 1px solid var(--border); background: var(--panel); border-r
       </section>
 
       <section class="card mode-panel" id="panel-forecast" role="tabpanel" aria-labelledby="tab-forecast" hidden>
-        <div class="panel-head"><h2>Models</h2><p class="hint">Drag the split line on the chart to backtest from any date, or the handle at the end of the band to change the horizon. Hover a model to compare it.</p></div>
+        <div class="panel-head"><h2>Models</h2><p class="hint">Drag the split line on the chart to backtest from any date, or the handle at the end of the band to change how far ahead it forecasts. Hover a model to compare it.</p></div>
         <div class="boardwrap"><table class="board" id="board"></table></div>
         <div class="ctl"><label for="flex">Trend flexibility</label><input type="range" id="flex" min="1" max="10" step="1"><output id="flexOut" for="flex"></output><span class="tb-note">for the trend, seasons and drivers model</span></div>
         <dl class="modelcard" id="modelCard"></dl>
       </section>
 
-      <section class="card mode-panel" id="panel-impact" role="tabpanel" aria-labelledby="tab-impact" hidden>
-        <div class="panel-head"><h2>What the event did</h2><p class="hint">Expected is forecast only from data before the event. Drag the event line or the window handle on the chart.</p></div>
-        <div class="effects" id="effects"></div>
-        <div class="cum" id="cum"><canvas id="cumCanvas" aria-hidden="true"></canvas></div>
-        <dl class="modelcard" id="impactCard"></dl>
+      <section class="card mode-panel" id="panel-patterns" role="tabpanel" aria-labelledby="tab-patterns" hidden>
+        <div class="panel-head"><h2>Typical patterns</h2><p class="hint">What a usual day, week and year look like. Hover any bar, cell or point for its value.</p></div>
+        <dl class="patfacts" id="patFacts"></dl>
+        <div class="patgrid" id="patGrid"></div>
       </section>
     </div>
 
@@ -372,7 +397,9 @@ select.sel { border: 1px solid var(--border); background: var(--panel); border-r
 const DAY = 86400000;
 // The loaded table. Everything downstream reads these and nothing else; no code knows
 // what any column means.
-let START = 0, END = 0, NDAYS = 0, M0 = 0, WOFF = 0;
+// Rows sit in slots: a day for daily data, down to a minute for finer data. SPD is slots
+// per day and SWD the weekday (Monday 0) of each slot.
+let START = 0, END = 0, NSLOT = 0, SLOT = DAY, SPD = 1, SWD = null, M0 = 0, WOFF = 0;
 let GROUPS = ["all"];
 let DATA = null;
 
@@ -440,11 +467,19 @@ function sampleTable() {
   }
   const cols = {};
   for (const c of ["value", "value_signed", "value_sparse", "driver_x", "flag_x"]) cols[c] = Float64Array.from(rows[c]);
-  return finishTable({ name: "Sample table", start, rowDay: Int32Array.from(rows.day), rowGroup: Uint16Array.from(rows.group), groups: ["A", "B", "C", "D"], groupCol: "group", dateCol: "date", cols, flags: { flag_x: true }, subDay: false, eventTimes: null });
+  return finishTable({ name: "Sample table", start, rowSlot: Int32Array.from(rows.day), rowGroup: Uint16Array.from(rows.group), groups: ["A", "B", "C", "D"], groupCol: "group", dateCol: "date", cols, flags: { flag_x: true }, subDay: false, eventTimes: null });
 }
 
 /* ------------------------------------------------------------ CSV loading */
-function parseCSV(text) {
+/** Comma unless the header line has more semicolons or tabs (European exports, TSV). */
+function sniffDelimiter(text) {
+  const line = text.slice(0, text.search(/\r?\n/) >>> 0 || 2000);
+  const count = (ch) => line.split(ch).length - 1;
+  const [c, sc, tab] = [count(","), count(";"), count("\t")];
+  return tab > c && tab >= sc ? "\t" : sc > c ? ";" : ",";
+}
+let DECIMAL_COMMA = false;
+function parseCSV(text, delim = ",") {
   const rows = [];
   let row = [], field = "", q = false;
   for (let i = 0; i < text.length; i++) {
@@ -453,7 +488,7 @@ function parseCSV(text) {
       if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
       else field += c;
     } else if (c === '"') q = true;
-    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === delim) { row.push(field); field = ""; }
     else if (c === "\n" || c === "\r") {
       if (c === "\r" && text[i + 1] === "\n") i++;
       row.push(field); field = "";
@@ -496,7 +531,7 @@ function parseDate(s, order) {
 function parseNum(s) {
   const t = s.trim();
   if (t === "") return NaN;
-  const c = /^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(t) ? t.replace(/,/g, "") : t;
+  const c = DECIMAL_COMMA && t.includes(",") ? t.replace(/\./g, "").replace(",", ".") : /^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(t) ? t.replace(/,/g, "") : t;
   const v = Number(c);
   return Number.isFinite(v) ? v : NaN;
 }
@@ -506,10 +541,13 @@ function parseNum(s) {
  * when there is no usable date column.
  */
 function tableFromCSV(name, text) {
-  const grid = parseCSV(text);
+  const delim = sniffDelimiter(text);
+  // A semicolon file is a European export: its numbers use a decimal comma.
+  DECIMAL_COMMA = delim === ";";
+  const grid = parseCSV(text, delim);
   if (grid.length < 3) throw new Error("The file has fewer than two data rows.");
   const header = grid[0].map((h, k) => h.trim() || `column ${k + 1}`);
-  const body = grid.slice(1).filter((r) => r.length >= Math.min(2, header.length));
+  const body = grid.slice(1).filter((r) => r.length >= Math.min(2, header.length) && r.some((v) => v.trim() !== ""));
   const ncol = header.length;
   const sample = body.slice(0, 2000);
   // date column: the one with the most distinct parseable dates
@@ -524,17 +562,37 @@ function tableFromCSV(name, text) {
     for (const v of vals) { const t = parseDate(v, order); if (t === t) { ok++; distinct.add(t); } }
     if (ok / vals.length >= 0.9 && distinct.size >= 3 && (!best || distinct.size > best.distinct)) best = { c, order, distinct: distinct.size };
   }
-  if (!best) throw new Error("No column reads as dates. The page needs one column where most values are dates such as 2024-03-01, 01/03/2024 or 2024-03.");
+  // No date column: build one from Year / Month / Day / Hour columns when the file has them.
+  const parts = best ? null : splitDateParts(header);
+  if (!best && !parts) throw new Error("No column reads as dates, and there are no Year / Month / Day columns to build one from. The page needs one column where most values are dates such as 2024-03-01, 01/03/2024 or 2024-03.");
   const times = new Float64Array(body.length);
   let keep = 0;
   const kept = [];
-  for (let i = 0; i < body.length; i++) { const t = parseDate(body[i][best.c] ?? "", best.order); if (t === t) { times[keep++] = t; kept.push(body[i]); } }
+  for (let i = 0; i < body.length; i++) {
+    const t = parts ? partsToTime(body[i], parts) : parseDate(body[i][best.c] ?? "", best.order);
+    if (t === t) { times[keep++] = t; kept.push(body[i]); }
+  }
+  if (parts && keep < 3) throw new Error(`Found ${parts.names.join(", ")} columns, but too few rows hold a valid date in them.`);
+  const partCols = parts ? new Set(Object.values(parts.idx)) : new Set([best.c]);
+  // Date in one column, time of day in another (18:00:00 or 18.00.00): join them.
+  let timeCol = -1;
+  if (!parts && kept.every((r, i) => times[i] % DAY === 0)) {
+    for (let c = 0; c < ncol && timeCol < 0; c++) {
+      if (c === best.c) continue;
+      const vals = kept.slice(0, 2000).map((r) => (r[c] ?? "").trim()).filter((v) => v !== "");
+      if (vals.length && vals.filter((v) => RE_CLOCK.test(v)).length / vals.length >= 0.9 && new Set(vals).size > 1) timeCol = c;
+    }
+    if (timeCol >= 0) {
+      for (let i = 0; i < keep; i++) { const m = RE_CLOCK.exec((kept[i][timeCol] ?? "").trim()); if (m) times[i] += ((+m[1] * 60 + +m[2]) * 60 + (m[3] ? +m[3] : 0)) * 1000; }
+      partCols.add(timeCol);
+    }
+  }
   const dropped = body.length - keep;
   // numeric and group columns
-  const cols = {}, flags = {}, naCount = {};
+  const cols = {}, flags = {}, naCount = {}, codes = {};
   let groupCol = null, groupIdx = -1;
   for (let c = 0; c < ncol; c++) {
-    if (c === best.c) continue;
+    if (partCols.has(c)) continue;
     const vals = kept.map((r) => r[c] ?? "");
     const nonEmpty = vals.filter((v) => v.trim() !== "");
     if (!nonEmpty.length) continue;
@@ -542,6 +600,8 @@ function tableFromCSV(name, text) {
     for (const v of nonEmpty.slice(0, 2000)) if (parseNum(v) === parseNum(v)) numeric++;
     if (numeric / Math.min(2000, nonEmpty.length) >= 0.9) {
       const arr = Float64Array.from(vals, parseNum);
+      const code = missingCode(arr);
+      if (code !== null) { let k = 0; for (let i = 0; i < arr.length; i++) if (arr[i] === code) { arr[i] = NaN; k++; } codes[header[c]] = { code, n: k }; }
       let na = 0, only01 = true;
       for (const v of arr) { if (!(v === v)) na++; else if (v !== 0 && v !== 1) only01 = false; }
       cols[header[c]] = arr;
@@ -555,16 +615,103 @@ function tableFromCSV(name, text) {
   let tMin = Infinity, tMax = -Infinity;
   for (let i = 0; i < keep; i++) { if (times[i] < tMin) tMin = times[i]; if (times[i] > tMax) tMax = times[i]; }
   const d0 = new Date(tMin), start = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate());
-  const rowDay = new Int32Array(keep), rowGroup = new Uint16Array(keep);
+  const rowSlot = new Int32Array(keep), rowGroup = new Uint16Array(keep);
   let groups = ["all"];
   if (groupCol) {
     groups = [...new Set(kept.map((r) => (r[groupIdx] ?? "").trim() || "(blank)"))].sort();
     const gi = new Map(groups.map((g, k) => [g, k]));
     for (let i = 0; i < keep; i++) rowGroup[i] = gi.get((kept[i][groupIdx] ?? "").trim() || "(blank)");
   }
-  let subDay = false;
-  for (let i = 0; i < keep; i++) { rowDay[i] = Math.floor((times[i] - start) / DAY); if (!subDay && times[i] % DAY !== 0) subDay = true; }
-  return finishTable({ name, start, rowDay, rowGroup, groups, groupCol, dateCol: header[best.c], cols, flags, naCount, dropped, subDay, eventTimes: times.subarray(0, keep) });
+  const slot = pickSlot(times.subarray(0, keep), start, tMax);
+  for (let i = 0; i < keep; i++) rowSlot[i] = Math.floor((times[i] - start) / slot);
+  return finishTable({ name, start, slot, rowSlot, rowGroup, groups, groupCol, dateCol: parts ? parts.label : header[best.c], builtFrom: parts ? parts.names : timeCol >= 0 ? [header[best.c], header[timeCol]] : null, codes, cols, flags, naCount, dropped, eventTimes: times.subarray(0, keep) });
+}
+const MINUTE = 60000;
+const SLOT_LADDER = [1, 5, 15, 30, 60].map((m) => m * MINUTE);
+/**
+ * The base slot, from the spacing of the distinct times: a day unless rows come more
+ * than once a day, else the coarsest step on the minute ladder the typical gap fills
+ * (jittered 30-minute readings get 30 minutes). Very long fine tables get a coarser slot.
+ */
+function pickSlot(times, start, tMax) {
+  const ts = Float64Array.from(times).sort();
+  const gaps = [];
+  let clock = false;
+  for (let k = 0; k < ts.length; k++) {
+    if (ts[k] % DAY !== 0) clock = true;
+    if (k && ts[k] > ts[k - 1]) gaps.push(ts[k] - ts[k - 1]);
+  }
+  if (!clock || !gaps.length) return DAY;
+  gaps.sort((a, b) => a - b);
+  const med = gaps[gaps.length >> 1];
+  if (med >= 0.75 * DAY) return DAY;
+  let k = 0;
+  while (k + 1 < SLOT_LADDER.length && SLOT_LADDER[k + 1] <= med * 1.1) k++;
+  while (k < SLOT_LADDER.length && (tMax - start) / SLOT_LADDER[k] > 1.5e6) k++;
+  return SLOT_LADDER[k] ?? DAY;
+}
+const RE_CLOCK = /^(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?$/;
+/**
+ * A missing-value code, read from the values alone: a round number of 99 or more that
+ * repeats (at least 0.5% of rows) and sits apart from everything else, either negative
+ * when all other values are not, or all nines and ten times the largest other value.
+ */
+function missingCode(arr) {
+  const freq = new Map();
+  let n = 0;
+  for (const v of arr) if (v === v) { n++; if (Number.isInteger(v) && Math.abs(v) >= 99) freq.set(v, (freq.get(v) || 0) + 1); }
+  for (const [code, k] of [...freq].sort((a, b) => b[1] - a[1])) {
+    if (k < Math.max(3, 0.005 * n)) break;
+    let lo = Infinity, hi = -Infinity;
+    for (const v of arr) if (v === v && v !== code) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (!(lo <= hi)) continue;
+    if ((code < 0 && lo >= 0) || (/^9+$/.test(String(Math.abs(code))) && Math.abs(code) > 10 * Math.max(Math.abs(lo), Math.abs(hi)))) return code;
+  }
+  return null;
+}
+const PART_NAMES = {
+  year: ["year", "yr", "yyyy"], month: ["month", "mon", "mth", "monthnum", "monthname"], day: ["day", "dd", "dayofmonth"],
+  hour: ["hour", "hr", "hh"], minute: ["minute", "min"],
+};
+const MONTH_ABBR = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+/** Year (+ Month, Day, Hour, Minute) columns by name, exact or with one shared prefix ("order_year"). */
+function splitDateParts(header) {
+  const keys = header.map((h) => h.toLowerCase().replace(/[^a-z0-9]+/g, ""));
+  const find = (prefix) => {
+    const idx = {};
+    for (const [role, names] of Object.entries(PART_NAMES)) {
+      const k = keys.findIndex((key) => names.some((nm) => key === prefix + nm));
+      if (k >= 0) idx[role] = k;
+    }
+    return idx;
+  };
+  let idx = find("");
+  if (idx.year === undefined) {
+    for (const key of keys) {
+      const m = /^(.+?)(year|yr)$/.exec(key);
+      if (m) { const p = find(m[1]); if (p.year !== undefined && p.month !== undefined) { idx = p; break; } }
+    }
+  }
+  if (idx.year === undefined) return null;
+  if (idx.day !== undefined && idx.month === undefined) return null;
+  if (idx.hour !== undefined && idx.day === undefined) delete idx.hour;
+  if (idx.minute !== undefined && idx.hour === undefined) delete idx.minute;
+  const names = Object.values(idx).map((k) => header[k]);
+  return { idx, names, label: names.join(" + ") };
+}
+/** One row's parts to UTC milliseconds; NaN when a part is missing or out of range. */
+function partsToTime(row, parts) {
+  const num = (role, lo, hi, dflt) => {
+    if (parts.idx[role] === undefined) return dflt;
+    const raw = (row[parts.idx[role]] ?? "").trim();
+    let v = Number(raw);
+    if (role === "month" && !(v === v)) v = MONTH_ABBR.indexOf(raw.slice(0, 3).toLowerCase()) + 1 || NaN;
+    return raw !== "" && Number.isInteger(v) && v >= lo && v <= hi ? v : NaN;
+  };
+  const y = num("year", 1, 9999, NaN), mo = num("month", 1, 12, 1), d = num("day", 1, 31, 1), h = num("hour", 0, 23, 0), mi = num("minute", 0, 59, 0);
+  if (!(y === y && mo === mo && d === d && h === h && mi === mi)) return NaN;
+  const t = Date.UTC(y, mo - 1, d, h, mi);
+  return new Date(t).getUTCDate() === d ? t : NaN;
 }
 
 /**
@@ -573,22 +720,25 @@ function tableFromCSV(name, text) {
  * just time counters or date parts. Sets the defaults for the series sentence.
  */
 function finishTable(t) {
-  const n = t.rowDay.length;
+  const n = t.rowSlot.length;
   let lastDay = 0;
-  for (let i = 0; i < n; i++) if (t.rowDay[i] > lastDay) lastDay = t.rowDay[i];
+  for (let i = 0; i < n; i++) if (t.rowSlot[i] > lastDay) lastDay = t.rowSlot[i];
   const has = new Uint8Array(lastDay + 1);
-  for (let i = 0; i < n; i++) has[t.rowDay[i]] = 1;
+  for (let i = 0; i < n; i++) has[t.rowSlot[i]] = 1;
   const obs = [];
   for (let d = 0; d <= lastDay; d++) if (has[d]) obs.push(d);
   const gaps = [];
   for (let k = 1; k < obs.length; k++) gaps.push(obs[k] - obs[k - 1]);
   gaps.sort((a, b) => a - b);
-  const cadence = gaps.length ? gaps[gaps.length >> 1] : 1;
+  t.slot = t.slot || DAY;
+  const cadSlots = gaps.length ? gaps[gaps.length >> 1] : 1;
+  // Spacing in days throughout (1/24 for hourly), so grains compare to it directly.
+  const cadence = (cadSlots * t.slot) / DAY;
   // weekdays that (almost) never have rows are structural, not gaps
   const structural = new Uint8Array(7);
   if (cadence <= 1.5) {
     const cnt = new Array(7).fill(0);
-    for (const d of obs) cnt[(new Date(t.start + d * DAY).getUTCDay() + 6) % 7]++;
+    for (const d of obs) cnt[(new Date(t.start + d * t.slot).getUTCDay() + 6) % 7]++;
     const mx = Math.max(...cnt);
     for (let k = 0; k < 7; k++) if (cnt[k] < 0.1 * mx) structural[k] = 1;
   }
@@ -601,7 +751,7 @@ function finishTable(t) {
     eventLike = distinct.size / ts.length > 0.5;
   }
   // numeric columns that only count time (a running year or index) or name a date part
-  const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => t.rowDay[a] - t.rowDay[b]);
+  const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => t.rowSlot[a] - t.rowSlot[b]);
   const timeLike = {};
   for (const [c, arr] of Object.entries(t.cols)) {
     let up = 0, steps = 0, ints = true;
@@ -613,8 +763,10 @@ function finishTable(t) {
   }
   const measures = Object.keys(t.cols);
   const defMeasure = measures.find((c) => !timeLike[c] && !(t.flags && t.flags[c])) ?? null;
-  t.ndays = lastDay + Math.max(1, Math.round(cadence));
+  t.nslots = lastDay + Math.max(1, Math.round(cadSlots));
   t.cadence = cadence;
+  t.cadSlots = cadSlots;
+  t.subDay = t.slot < DAY;
   t.structural = structural;
   t.eventLike = eventLike || defMeasure === null;
   t.timeLike = timeLike;
@@ -625,69 +777,116 @@ function finishTable(t) {
   t.defMeasure = defMeasure ?? measures[0] ?? null;
   return t;
 }
-/** Plain words for the data's native spacing. */
-function cadenceNoun(c) { return c <= 1.5 ? "days" : c <= 10 ? "weeks" : c <= 40 ? "months" : c <= 120 ? "quarters" : c <= 400 ? "years" : "observations"; }
+/** Plain words for the data's native spacing (in days; 1/24 is hourly). */
+function cadenceNoun(c) {
+  if (c < 0.75) { const m = Math.round(c * 1440); return m === 60 ? "hours" : m === 30 ? "half-hours" : m % 60 === 0 ? `${m / 60}-hour slots` : `${m}-minute slots`; }
+  return c <= 1.5 ? "days" : c <= 10 ? "weeks" : c <= 40 ? "months" : c <= 120 ? "quarters" : c <= 400 ? "years" : "observations"; }
+/** "day", "3 days", "week", "2 weeks", "month", "quarter", "6 months", "year", "5 years". */
+function cadenceText(c) {
+  if (c < 0.75) {
+    const m = Math.round(c * 1440);
+    return m === 1 ? "minute" : m < 60 ? `${m} minutes` : m === 60 ? "hour" : m % 60 ? `${(m / 60).toFixed(1)} hours` : `${m / 60} hours`;
+  }
+  if (c <= 1.5) return "day";
+  if (c < 6) return `${Math.round(c)} days`;
+  if (c <= 10) return "week";
+  if (c < 26) return `${Math.round(c / 7)} weeks`;
+  if (c <= 40) return "month";
+  if (c >= 80 && c <= 100) return "quarter";
+  if (c < 330) return `${Math.round(c / 30.44)} months`;
+  if (c <= 400) return "year";
+  return `${Math.round(c / 365.25)} years`;
+}
 
 /* ============================================================ grains */
+// Calendar comparisons and range presets (in days): a year back for daily and coarser
+// grains, a week back below a day.
+const YEARLY = { lyText: "Same period last year", lyShort: "Last year", lyAgo: "a year earlier", presets: [["3M", 91], ["6M", 182], ["1Y", 365], ["2Y", 730]] };
+/**
+ * A grain finer than a day. Seasons are the week (first, it holds the day) and the day;
+ * views and windows are sized in days, since a year of 5-minute periods is unreadable.
+ */
+function minuteGrain(id, n, adj, noun, nouns) {
+  const pd = 1440 / n;
+  return { id, unit: "min", n, days: n / 1440, adj, noun, nouns, perYear: 365.25 * pd, perDay: pd, horizon: Math.min(2 * pd, 192),
+    hPresets: [["1 day", pd], ["1 week", 7 * pd], ["1 month", 30 * pd], ["3 months", 91 * pd], ["6 months", 182 * pd], ["1 year", 365 * pd]],
+    periods: [7 * pd, pd], seasons: { [7 * pd]: "weekly", [pd]: "daily" }, smooth: pd, smoothMax: 7 * pd, ly: 7 * pd, ctx: 14 * pd, evWin: 2 * pd,
+    lyText: "Same time last week", lyShort: "Last week", lyAgo: "a week earlier", presets: [["1D", 1], ["1W", 7], ["1M", 30], ["3M", 91]] };
+}
 const GRAINS = {
-  day: { id: "day", unit: "day", n: 1, days: 1, adj: "Daily", noun: "day", nouns: "days", perYear: 365.25, horizon: 42, maxH: 180, periods: [7, 365], smooth: 7, smoothMax: 60, ly: 364, impactW: 56 },
-  week: { id: "week", unit: "week", n: 1, days: 7, adj: "Weekly", noun: "week", nouns: "weeks", perYear: 365.25 / 7, horizon: 26, maxH: 78, periods: [52], smooth: 4, smoothMax: 52, ly: 52, impactW: 8 },
-  week2: { id: "week2", unit: "week", n: 2, days: 14, adj: "2-weekly", noun: "2-week period", nouns: "2-week periods", perYear: 365.25 / 14, horizon: 13, maxH: 39, periods: [26], smooth: 3, smoothMax: 26, ly: 26, impactW: 4 },
-  week4: { id: "week4", unit: "week", n: 4, days: 28, adj: "4-weekly", noun: "4-week period", nouns: "4-week periods", perYear: 365.25 / 28, horizon: 13, maxH: 20, periods: [13], smooth: 3, smoothMax: 13, ly: 13, impactW: 3 },
-  month: { id: "month", unit: "month", n: 1, days: 30.44, adj: "Monthly", noun: "month", nouns: "months", perYear: 12, horizon: 12, maxH: 36, periods: [12], smooth: 3, smoothMax: 24, ly: 12, impactW: 3 },
-  quarter: { id: "quarter", unit: "month", n: 3, days: 91.3, adj: "Quarterly", noun: "quarter", nouns: "quarters", perYear: 4, horizon: 4, maxH: 12, periods: [4], smooth: 2, smoothMax: 8, ly: 4, impactW: 2 },
-  year: { id: "year", unit: "month", n: 12, days: 365.25, adj: "Yearly", noun: "year", nouns: "years", perYear: 1, horizon: 5, maxH: 20, periods: [], smooth: 3, smoothMax: 20, ly: 1, impactW: 2 },
+  min5: minuteGrain("min5", 5, "5-minute", "5-minute period", "5-minute periods"),
+  min15: minuteGrain("min15", 15, "15-minute", "15-minute period", "15-minute periods"),
+  min30: minuteGrain("min30", 30, "30-minute", "half-hour", "half-hours"),
+  hour: minuteGrain("hour", 60, "Hourly", "hour", "hours"),
+  day: { hPresets: [["1 month", 30], ["3 months", 91], ["6 months", 182], ["1 year", 365], ["2 years", 730]], id: "day", unit: "day", n: 1, days: 1, adj: "Daily", noun: "day", nouns: "days", perYear: 365.25, horizon: 42, periods: [7, 365], seasons: { 7: "weekly", 365: "yearly" }, smooth: 7, smoothMax: 60, ly: 364, ctx: 365.25, ...YEARLY },
+  week: { hPresets: [["3 months", 13], ["6 months", 26], ["1 year", 52], ["2 years", 104], ["5 years", 261]], id: "week", unit: "week", n: 1, days: 7, adj: "Weekly", noun: "week", nouns: "weeks", perYear: 365.25 / 7, horizon: 26, periods: [52], seasons: { 52: "yearly" }, smooth: 4, smoothMax: 52, ly: 52, ctx: 365.25 / 7, ...YEARLY },
+  week2: { hPresets: [["6 months", 13], ["1 year", 26], ["2 years", 52], ["5 years", 130]], id: "week2", unit: "week", n: 2, days: 14, adj: "2-weekly", noun: "2-week period", nouns: "2-week periods", perYear: 365.25 / 14, horizon: 13, periods: [26], seasons: { 26: "yearly" }, smooth: 3, smoothMax: 26, ly: 26, ctx: 365.25 / 14, ...YEARLY },
+  week4: { hPresets: [["6 months", 7], ["1 year", 13], ["2 years", 26], ["5 years", 65]], id: "week4", unit: "week", n: 4, days: 28, adj: "4-weekly", noun: "4-week period", nouns: "4-week periods", perYear: 365.25 / 28, horizon: 13, periods: [13], seasons: { 13: "yearly" }, smooth: 3, smoothMax: 13, ly: 13, ctx: 365.25 / 28, ...YEARLY },
+  month: { hPresets: [["6 months", 6], ["1 year", 12], ["2 years", 24], ["5 years", 60], ["10 years", 120]], id: "month", unit: "month", n: 1, days: 30.44, adj: "Monthly", noun: "month", nouns: "months", perYear: 12, horizon: 12, periods: [12], seasons: { 12: "yearly" }, smooth: 3, smoothMax: 24, ly: 12, ctx: 12, ...YEARLY },
+  quarter: { hPresets: [["1 year", 4], ["2 years", 8], ["5 years", 20], ["10 years", 40]], id: "quarter", unit: "month", n: 3, days: 91.3, adj: "Quarterly", noun: "quarter", nouns: "quarters", perYear: 4, horizon: 4, periods: [4], seasons: { 4: "yearly" }, smooth: 2, smoothMax: 8, ly: 4, ctx: 4, ...YEARLY },
+  year: { hPresets: [["5 years", 5], ["10 years", 10], ["20 years", 20]], id: "year", unit: "month", n: 12, days: 365.25, adj: "Yearly", noun: "year", nouns: "years", perYear: 1, horizon: 5, periods: [], seasons: {}, smooth: 3, smoothMax: 20, ly: 1, ctx: 1, ...YEARLY },
 };
-const GRAIN_ORDER = ["day", "week", "week2", "week4", "month", "quarter", "year"];
-/** A grain finer than the data's own spacing would be mostly empty periods. */
-function tooFine(id) { return DATA && GRAINS[id].days < DATA.cadence * 0.9; }
+const GRAIN_ORDER = ["min5", "min15", "min30", "hour", "day", "week", "week2", "week4", "month", "quarter", "year"];
+/** A grain finer than the data's own spacing would be mostly empty periods; one finer than the slot cannot be drawn at all. */
+function tooFine(id) {
+  const g = GRAINS[id];
+  return DATA && (g.days < DATA.cadence * 0.97 || (g.unit === "min" && (g.n * MINUTE) % DATA.slot !== 0));
+}
 
-function monthIndex(d) { const dt = new Date(START + d * DAY); return dt.getUTCFullYear() * 12 + dt.getUTCMonth(); }
-function bucketOfDay(g, d) {
-  if (g.unit === "day") return Math.floor(d / g.n);
-  if (g.unit === "week") return Math.floor((d + WOFF) / (7 * g.n));
+function dayOf(d) { return Math.floor(d / SPD); }
+function monthIndex(d) { const dt = new Date(START + dayOf(d) * DAY); return dt.getUTCFullYear() * 12 + dt.getUTCMonth(); }
+function bucketOfSlot(g, d) {
+  if (g.unit === "min") return Math.floor((d * SLOT) / (g.n * MINUTE));
+  if (g.unit === "day") return Math.floor(dayOf(d) / g.n);
+  if (g.unit === "week") return Math.floor((dayOf(d) + WOFF) / (7 * g.n));
   return Math.floor(monthIndex(d) / g.n) - Math.floor(M0 / g.n);
 }
+/** Monday-0 weekday of any instant, from the table start (no Date per call). */
+function weekdayAt(ms) { return (((Math.floor((ms - START) / DAY) + WOFF) % 7) + 7) % 7; }
 function bucketStart(g, b) {
+  if (g.unit === "min") return START + b * g.n * MINUTE;
   if (g.unit === "day") return START + b * g.n * DAY;
   if (g.unit === "week") return START + (b * 7 * g.n - WOFF) * DAY;
   const mi = (Math.floor(M0 / g.n) + b) * g.n;
   return Date.UTC(Math.floor(mi / 12), mi % 12, 1);
 }
-const dayBucketCache = new Map();
-function dayBuckets(g) {
-  let arr = dayBucketCache.get(g.id);
+const slotBucketCache = new Map();
+function slotBuckets(g) {
+  let arr = slotBucketCache.get(g.id);
   if (!arr) {
-    arr = new Int32Array(NDAYS);
-    for (let d = 0; d < NDAYS; d++) arr[d] = bucketOfDay(g, d);
-    dayBucketCache.set(g.id, arr);
+    arr = new Int32Array(NSLOT);
+    for (let d = 0; d < NSLOT; d++) arr[d] = bucketOfSlot(g, d);
+    slotBucketCache.set(g.id, arr);
   }
   return arr;
 }
 function setTable(t) {
   DATA = t;
   START = t.start;
-  NDAYS = t.ndays;
-  END = START + (NDAYS - 1) * DAY;
+  NSLOT = t.nslots;
+  SLOT = t.slot;
+  SPD = Math.round(DAY / SLOT);
+  END = START + (NSLOT - 1) * SLOT;
   const s = new Date(START);
   M0 = s.getUTCFullYear() * 12 + s.getUTCMonth();
   WOFF = (s.getUTCDay() + 6) % 7;
+  SWD = new Uint8Array(NSLOT);
+  for (let d = 0; d < NSLOT; d++) SWD[d] = (dayOf(d) + WOFF) % 7;
   GROUPS = t.groups;
-  dayBucketCache.clear();
+  slotBucketCache.clear();
 }
 
 /* ============================================================ state */
 const cfg = {
   grain: "week", agg: "sum", measure: "value", group: "all", gaps: "leave", partial: "exclude",
-  showSmooth: true, smoothW: 4, smoothStat: "mean", smoothCentred: false, lastYear: false,
+  showSmooth: true, smoothW: 4, smoothStat: "mean", smoothCentred: false, lastYear: false, showShift: true,
   period: null, sens: 4.5,
   mode: "explore", split: null, horizon: null, level: "fan", model: "auto", flex: 5,
   // Driver columns from the table, each with a rule for its values after the data ends.
   drivers: [],
-  event: null, window: null, impactModel: "auto",
 };
-let A = null, SM = null, DEC = null, MOD = null, FUT = null, IMP = null, INS = [], EVENTS = [];
-const cache = { agg: "", sm: "", dec: "", mod: "", imp: "", ev: "" };
+let A = null, SM = null, DEC = null, MOD = null, FUT = null, PAT = null, INS = [];
+const cache = { agg: "", sm: "", dec: "", mod: "", pat: "" };
 const hwWarm = new Map();
 const timing = { agg: 0, dec: 0, mod: 0, draw: 0 };
 let view = null;
@@ -696,7 +895,6 @@ let pulse = null;
 let reveal = 1, revealStart = 0;
 let fade = null;
 let viewAnim = null;
-let impactFreeze = null;
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 /* ============================================================ format */
@@ -705,6 +903,10 @@ const dfDay = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric
 const dfMonth = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
 const dfMonShort = new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
 const dfDM = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+const dfTime = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" });
+const dfWd = new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "UTC" });
+/** A date, with the clock when rows come more than once a day. */
+function fmtInstant(ms) { return SPD > 1 ? dfDate.format(new Date(ms)) + " " + dfTime.format(new Date(ms)) : dfDate.format(new Date(ms)); }
 const nf = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 0 });
 const WEEKDAYS = ["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -723,6 +925,7 @@ function signedNum(v) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).
 function pct(v, digits = 0) { const s = Math.abs(v * 100).toFixed(digits); return (Number(s) === 0 ? "" : v > 0 ? "+" : "−") + s + "%"; }
 function periodLabel(g, ms) {
   const dt = new Date(ms);
+  if (g.unit === "min") return dfDay.format(dt) + ", " + dfTime.format(dt);
   if (g.unit === "day") return dfDay.format(dt);
   if (g.unit === "week") return g.n === 1 ? "Week of " + dfDate.format(dt) : g.n + " weeks from " + dfDate.format(dt);
   if (g.n === 12) return String(dt.getUTCFullYear());
@@ -731,12 +934,14 @@ function periodLabel(g, ms) {
 }
 function shortPeriod(g, ms) {
   const dt = new Date(ms);
+  if (g.unit === "min") return dfDM.format(dt) + " " + dfTime.format(dt);
   if (g.unit === "day" || g.unit === "week") return dfDate.format(dt);
   if (g.n === 12) return String(dt.getUTCFullYear());
   if (g.n === 3) return "Q" + (Math.floor(dt.getUTCMonth() / 3) + 1) + " " + dt.getUTCFullYear();
   return dfMonShort.format(dt);
 }
-function measureWord() { return cfg.measure; }
+function measureWord() { return cfg.agg === "count" ? "the row count" : cfg.measure; }
+function measureLead() { return cfg.agg === "count" ? "The row count" : cfg.measure; }
 /**
  * Change from b to a. A percentage only when the series is positive throughout;
  * otherwise in the series' own units (percentages mean nothing across zero).
@@ -746,32 +951,48 @@ function chg(a, b) {
   if (A.allPositive && b > 0) return { v: a / b - 1, text: pct(a / b - 1, 1) };
   return { v: a - b, text: signed(a - b) };
 }
-function monthlyRate(slope, mean) {
+function monthlyParts(slope, mean) {
   const perMonth = slope * (A.g.perYear / 12);
-  return A.allPositive && mean > 0 ? pct(perMonth / mean, 1) : signed(perMonth);
+  return A.allPositive && mean > 0 ? [perMonth / mean, true] : [perMonth, false];
+}
+function monthlyRate(slope, mean, k) { const [r, asPct] = monthlyParts(slope, mean); return rateText(r, asPct, k); }
+const RATE_UNITS = [["a month", 1], ["a year", 12], ["a decade", 120], ["a century", 1200]];
+const rateOver = (perMonth, asPct, k) => (asPct ? Math.pow(1 + perMonth, k) - 1 : perMonth * k);
+/** Months in the smallest unit (month, year, decade, century) where the rate does not round to zero. */
+function rateK(perMonth, asPct) {
+  for (const [, k] of RATE_UNITS) { const v = rateOver(perMonth, asPct, k); if (Math.abs(asPct ? v * 100 : v) >= 0.05) return k; }
+  return 1200;
+}
+/** A per-month rate in that unit: "+0.4% a year". */
+function rateText(perMonth, asPct, k = rateK(perMonth, asPct)) {
+  if (!(perMonth === perMonth) || perMonth === 0) return "flat";
+  const v = rateOver(perMonth, asPct, k);
+  return `${asPct ? pct(v, 1) : signed(v)} ${RATE_UNITS.find((u) => u[1] === k)[0]}`;
 }
 function cap(s) { return s[0].toUpperCase() + s.slice(1); }
 function nounFor(g, k) { return k === 1 ? g.noun : g.nouns; }
+/** "a day", "an hour". */
+function aNoun(g) { return (/^(hour|8|11|18)/.test(g.noun) ? "an " : "a ") + g.noun; }
 
 /* ============================================================ stage 1: aggregate */
-function aggregate() {
-  const g = GRAINS[cfg.grain];
-  const bod = dayBuckets(g);
-  const n = bod[NDAYS - 1] + 1;
+function aggregate(gid = cfg.grain) {
+  const g = GRAINS[gid];
+  const bod = slotBuckets(g);
+  const n = bod[NSLOT - 1] + 1;
   const allG = cfg.group === "all";
   const selG = allG ? -1 : Number(cfg.group);
   const count = cfg.agg === "count";
   const src = count ? null : DATA.cols[cfg.measure];
-  const nr = DATA.rowDay.length;
+  const nr = DATA.rowSlot.length;
   const sum = new Float64Array(n), cnt = new Float64Array(n), rowsIn = new Float64Array(n);
   const mn = new Float64Array(n).fill(Infinity), mx = new Float64Array(n).fill(-Infinity);
   const firstV = new Float64Array(n).fill(NaN), lastV = new Float64Array(n).fill(NaN), firstD = new Int32Array(n).fill(2147483647), lastD = new Int32Array(n).fill(-1);
   const vals = cfg.agg === "median" ? Array.from({ length: n }, () => []) : null;
   const groupVal = GROUPS.map(() => new Float64Array(n));
-  const seen = new Uint8Array(NDAYS);
+  const seen = new Uint8Array(NSLOT);
   let naRows = 0;
   for (let i = 0; i < nr; i++) {
-    const d = DATA.rowDay[i], b = bod[d], gr = DATA.rowGroup[i];
+    const d = DATA.rowSlot[i], b = bod[d], gr = DATA.rowGroup[i];
     const v = count ? 1 : src[i];
     if (v === v) groupVal[gr][b] += v;
     if (!allG && gr !== selG) continue;
@@ -787,12 +1008,12 @@ function aggregate() {
   }
   // Coverage from the data's own spacing: a monthly table has one row per month and is
   // complete; a daily table missing four days in a week is not.
-  const cad = DATA.cadence, obsDays = new Float64Array(n), allowed = new Float64Array(n);
+  const cad = DATA.cadSlots, obsDays = new Float64Array(n), allowed = new Float64Array(n);
   const lastObs = DATA.observed[DATA.observed.length - 1], spanEnd = lastObs + Math.max(1, Math.round(cad)) - 1;
-  for (let d = 0; d < NDAYS; d++) {
+  for (let d = 0; d < NSLOT; d++) {
     const b = bod[d];
     if (seen[d]) obsDays[b]++;
-    if (d <= spanEnd && !DATA.structural[(new Date(START + d * DAY).getUTCDay() + 6) % 7]) allowed[b]++;
+    if (d <= spanEnd && !DATA.structural[SWD[d]]) allowed[b]++;
   }
   const t = new Float64Array(n), y = new Float64Array(n), filled = new Uint8Array(n), partial = new Uint8Array(n);
   const expected = new Float64Array(n), coverage = new Float64Array(n), missing = new Uint16Array(n);
@@ -812,11 +1033,28 @@ function aggregate() {
     else { const v = vals[b].sort((p, q) => p - q), h = v.length >> 1; y[b] = v.length % 2 ? v[h] : (v[h - 1] + v[h]) / 2; }
   }
   // Only the first and last period can be partial: the data starts or stops inside them.
-  const fullAllowed = (b) => { let c = 0; for (let ms = t[b]; ms < bucketStart(g, b + 1); ms += DAY) if (!DATA.structural[(new Date(ms).getUTCDay() + 6) % 7]) c++; return c; };
-  for (const b of [0, n - 1]) if (allowed[b] < 0.95 * fullAllowed(b)) partial[b] = 1;
+  const fullAllowed = (b) => { let c = 0; for (let ms = t[b]; ms < bucketStart(g, b + 1); ms += SLOT) if (!DATA.structural[weekdayAt(ms)]) c++; return c; };
+  const partShare = new Float64Array(n).fill(1);
+  for (const b of [0, n - 1]) { const f = fullAllowed(b); partShare[b] = f ? Math.min(1, allowed[b] / f) : 1; if (partShare[b] < 0.95) partial[b] = 1; }
+  // Events (quakes, orders) arrive when they happen: a quiet stretch is a real zero, not a gap.
+  if (DATA.eventLike) { coverage.fill(1); missing.fill(0); }
   let first = 0, last = n - 1;
   while (first < n && !(y[first] === y[first])) first++;
   while (last >= 0 && !(y[last] === y[last])) last--;
+  const modelN = partial[n - 1] && cfg.partial === "exclude" ? n - 1 : n;
+  let modelM = 1;
+  for (const p of g.periods) if (modelN >= 2 * p + 2) { modelM = p; break; }
+  let knownNonNeg = true;
+  for (let b = 0; b < n; b++) if (y[b] < 0) { knownNonNeg = false; break; }
+  // Values the page makes up (any fill but zero, which says "nothing happened"): shown,
+  // but never learned from or scored against.
+  const made = new Uint8Array(n);
+  for (let b = 0; b < n; b++) if (!(y[b] === y[b]) && cfg.gaps !== "zero") made[b] = 1;
+  if (first <= last && cfg.gaps === "seasonal") {
+    const z = y.slice(first, last + 1);
+    seasonalFill(z, modelM, knownNonNeg);
+    for (let b = first; b <= last; b++) if (!(y[b] === y[b])) { y[b] = z[b - first]; filled[b] = 1; }
+  }
   for (let b = first; b <= last; b++) {
     if (y[b] === y[b]) continue;
     if (cfg.gaps === "zero") { y[b] = 0; filled[b] = 1; }
@@ -827,49 +1065,87 @@ function aggregate() {
       b = c - 1;
     }
   }
-  const modelN = partial[n - 1] && cfg.partial === "exclude" ? n - 1 : n;
-  const yModel = new Float64Array(modelN);
-  for (let i = 0; i < modelN; i++) yModel[i] = y[i];
-  interpFill(yModel);
-  let modelM = 1;
-  for (const p of g.periods) if (modelN >= 2 * p + 2) { modelM = p; break; }
+  // Models need an unbroken series: whatever is still empty gets the seasonal fill.
+  const yModel = y.slice(0, modelN);
+  seasonalFill(yModel, modelM, knownNonNeg);
   // Shape, not meaning: decides whether changes read as percentages and whether
   // forecasts may go below zero.
   let allPositive = true, nonNeg = true;
-  for (let i = 0; i < modelN; i++) { const v = y[i]; if (!(v === v) || filled[i]) continue; if (!(v > 0)) allPositive = false; if (v < 0) nonNeg = false; }
+  for (let i = 0; i < modelN; i++) { const v = y[i]; if (!(v === v) || made[i]) continue; if (!(v > 0)) allPositive = false; if (v < 0) nonNeg = false; }
   // Other numeric columns as per-period means (candidate drivers and event sources).
   const colMean = {};
   for (const [c, arr] of Object.entries(DATA.cols)) {
     if (c === cfg.measure && !count) continue;
     const s = new Float64Array(n), k = new Float64Array(n), out = new Float64Array(n);
-    for (let i = 0; i < nr; i++) { const v = arr[i]; if (v === v) { const b = bod[DATA.rowDay[i]]; s[b] += v; k[b]++; } }
+    for (let i = 0; i < nr; i++) { const v = arr[i]; if (v === v) { const b = bod[DATA.rowSlot[i]]; s[b] += v; k[b]++; } }
     let prev = NaN;
     for (let b = 0; b < n; b++) { if (k[b]) prev = s[b] / k[b]; out[b] = prev; }
     for (let b = 0; b < n && !(out[b] === out[b]); b++) out[b] = s.find((_, j) => k[j]) / (k.find((x) => x) || 1);
     colMean[c] = out;
   }
-  // Runs without rows (structural weekdays excluded), as day ranges for the findings.
+  // Runs without rows (structural weekdays excluded), as slot ranges for the findings.
   const gapRanges = [];
-  const ob = DATA.observed;
+  const ob = DATA.eventLike ? [] : DATA.observed;
   for (let k = 1; k < ob.length; k++) {
     if (ob[k] - ob[k - 1] <= 1.5 * cad) continue;
     let real = false;
-    for (let d = ob[k - 1] + 1; d < ob[k]; d++) if (!DATA.structural[(new Date(START + d * DAY).getUTCDay() + 6) % 7]) { real = true; break; }
+    for (let d = ob[k - 1] + 1; d < ob[k]; d++) if (!DATA.structural[SWD[d]]) { real = true; break; }
     if (real) gapRanges.push([ob[k - 1] + 1, ob[k] - 1]);
   }
-  return { g, n, t, y, filled, partial, coverage, expected, missing, rows: rowsIn, groupVal, colMean, modelN, yModel, modelM, gapRanges, allPositive, nonNeg, naRows };
-}
-function interpFill(y) {
-  const n = y.length;
-  let prev = -1;
-  for (let i = 0; i < n; i++) {
-    if (y[i] === y[i]) {
-      if (prev === -1 && i > 0) for (let k = 0; k < i; k++) y[k] = y[i];
-      else if (prev >= 0 && i - prev > 1) for (let k = prev + 1; k < i; k++) y[k] = y[prev] + ((y[i] - y[prev]) * (k - prev)) / (i - prev);
-      prev = i;
-    }
+  // How many values each period holds. When that swings, a sum swings with it.
+  let spread = null;
+  if (!count && cfg.agg === "sum") {
+    const nz = Array.from(cnt).filter((c) => c > 0).sort((p, q) => p - q);
+    const p10 = nz[Math.floor(nz.length * 0.1)], p90 = nz[Math.floor(nz.length * 0.9)];
+    if (nz.length >= 10 && p90 > 1.5 * p10) spread = [p10, p90];
   }
-  if (prev >= 0) for (let k = prev + 1; k < n; k++) y[k] = y[prev];
+  return { g, n, t, y, filled, made, partial, partShare, spread, coverage, expected, missing, rows: rowsIn, groupVal, colMean, modelN, yModel, modelM, gapRanges, allPositive, nonNeg, naRows };
+}
+/**
+ * Fills the empty periods of y in place. Each gap gets a straight line between the
+ * levels either side of it, plus the usual shape for those periods: the median, phase
+ * by phase over a cycle of m, of each known value around its moving average. A midday
+ * gap in hourly data so keeps its midday peak instead of a flat line. With no cycle
+ * (m = 1, or too little data) it is the straight line alone; gaps at either end take
+ * the nearest level. Never below zero when the known values never are.
+ */
+function seasonalFill(y, m, nonNeg) {
+  const n = y.length;
+  let P = null;
+  if (m > 1 && n >= 2 * m) {
+    const pre = new Float64Array(n + 1), cnt = new Float64Array(n + 1);
+    for (let i = 0; i < n; i++) { const ok = y[i] === y[i]; pre[i + 1] = pre[i] + (ok ? y[i] : 0); cnt[i + 1] = cnt[i] + (ok ? 1 : 0); }
+    const h = m >> 1, per = Math.ceil(n / m) + 1, buf = new Float64Array(m * per), bn = new Int32Array(m);
+    for (let i = 0; i < n; i++) {
+      if (!(y[i] === y[i])) continue;
+      const a = Math.max(0, i - h), b = Math.min(n, i + h + 1), c = cnt[b] - cnt[a];
+      if (c >= m / 2) { const k = i % m; buf[k * per + bn[k]++] = y[i] - (pre[b] - pre[a]) / c; }
+    }
+    P = new Float64Array(m);
+    let mean = 0;
+    for (let k = 0; k < m && P; k++) {
+      if (bn[k] < 2) { P = null; break; }
+      const v = buf.subarray(k * per, k * per + bn[k]).sort(), q = v.length >> 1;
+      P[k] = v.length % 2 ? v[q] : (v[q - 1] + v[q]) / 2;
+      mean += P[k];
+    }
+    if (P) for (let k = 0; k < m; k++) P[k] -= mean / m;
+  }
+  const shape = (k) => (P ? P[k % m] : 0);
+  for (let i = 0; i < n; ) {
+    if (y[i] === y[i]) { i++; continue; }
+    let j = i;
+    while (j < n && !(y[j] === y[j])) j++;
+    const a = i - 1, c = j;
+    if (a < 0 && c >= n) return y;
+    const la = a >= 0 ? y[a] - shape(a) : y[c] - shape(c), lc = c < n ? y[c] - shape(c) : la;
+    for (let k = i; k < j; k++) {
+      const t = a >= 0 && c < n ? (k - a) / (c - a) : 0;
+      const v = la + (lc - la) * t + shape(k);
+      y[k] = nonNeg && v < 0 ? 0 : v;
+    }
+    i = j;
+  }
   return y;
 }
 /** Typical value of a series over [i0, i1): the median, so one-off periods do not move it. */
@@ -878,40 +1154,159 @@ function regular(series, i0, i1) {
   const v = Array.from(series.subarray(a, Math.max(a + 1, i1))).sort((p, q) => p - q);
   return v[v.length >> 1];
 }
-function eventWindowLen(g) { return Math.max(3, Math.round(g.perYear / 6.5)); }
+function eventWindowLen(g) { return g.evWin || Math.max(3, Math.round(g.perYear / 6.5)); }
 function fmtNum(v) { return Math.abs(v - Math.round(v)) < 1e-9 ? nf.format(v) : v.toFixed(2); }
+
+/* ============================================================ patterns */
 /**
- * Lasting steps in any numeric driver column. Medians over about two months ignore
- * one-off periods; the event is dated at the first period the new level touches, so
- * no part-changed period counts as "before".
+ * Typical day, week and year, from the series at hourly, daily and monthly grain
+ * whatever grain is shown. Only complete periods with their usual rows count, so a
+ * half-recorded hour or a data gap cannot fake a quiet spell.
  */
-function detectEvents() {
-  const g = A.g, N = A.modelN, win = eventWindowLen(g), out = [];
-  for (const col of Object.keys(DRIVER_DEFS)) {
-    const d = { col }, def = DRIVER_DEFS[col];
-    if (def.flag || DATA.timeLike[col] || (col === cfg.measure && cfg.agg !== "count")) continue;
-    const s = def.series();
-    for (let i = win; i <= N - win; i++) {
-      const before = regular(s, i - win, i), after = regular(s, i, i + win);
-      if (!(before > 0)) continue;
-      const ch = after / before - 1;
-      if (Math.abs(ch) < 0.03) continue;
-      // A step, not a swing: the jump must dwarf the usual wobble on either side.
-      const wobble = (i0, i1, mid) => { const v = Array.from(s.subarray(Math.max(0, i0), i1), (x) => Math.abs(x - mid)).sort((p, q) => p - q); return v[v.length >> 1]; };
-      if (Math.abs(after - before) < 4 * Math.max(wobble(i - win, i, before), wobble(i, i + win, after))) continue;
-      const lo = Math.min(before, after) * 0.99, hi = Math.max(before, after) * 1.01;
-      let at = i;
-      for (let j = i; j < Math.min(N, i + win); j++) { const v = s[j]; if (v >= lo && v <= hi && Math.abs(v / before - 1) > 0.01) { at = j; break; } }
-      out.push({ i: at, col: d.col, label: `${d.col} stepped ${ch > 0 ? "up" : "down"} to ${fmtNum(after)}`, short: `${d.col} ${ch > 0 ? "up" : "down"}`, change: ch, before });
-      i = at + win * 2;
+function computePatterns() {
+  const ok = (S, i) => S.y[i] === S.y[i] && !S.partial[i] && !S.made[i] && S.coverage[i] >= 0.5;
+  const out = {};
+  const fine = DATA.subDay ? ["hour", "min30", "min15", "min5"].find((id) => !tooFine(id)) : null;
+  if (fine) {
+    const S = aggregate(fine), gm = GRAINS[fine], pd = gm.perDay;
+    const vals = Array.from({ length: pd }, () => []);
+    const cell = new Float64Array(7 * pd), cellN = new Float64Array(7 * pd);
+    const wk = [new Float64Array(pd), new Float64Array(pd)], wkN = [new Float64Array(pd), new Float64Array(pd)];
+    for (let i = 0; i < S.n; i++) {
+      if (!ok(S, i)) continue;
+      const ms = S.t[i], k = Math.floor((((ms - START) % DAY) + DAY) % DAY / (gm.n * MINUTE)), wd = weekdayAt(ms), v = S.y[i];
+      vals[k].push(v);
+      cell[wd * pd + k] += v; cellN[wd * pd + k]++;
+      const we = wd >= 5 ? 1 : 0;
+      wk[we][k] += v; wkN[we][k]++;
+    }
+    const q = (a, p) => (a.length ? quantile(a, p) : NaN);
+    for (const a of vals) a.sort((x, y) => x - y);
+    out.day = {
+      pd, stepMin: gm.n, noun: gm.noun,
+      med: vals.map((a) => q(a, 0.5)), p25: vals.map((a) => q(a, 0.25)), p75: vals.map((a) => q(a, 0.75)),
+      weekday: Array.from(wk[0], (s, k) => (wkN[0][k] ? s / wkN[0][k] : NaN)),
+      weekend: Array.from(wk[1], (s, k) => (wkN[1][k] ? s / wkN[1][k] : NaN)),
+      cells: Array.from(cell, (s, k) => (cellN[k] ? s / cellN[k] : NaN)),
+      days: Math.round(vals.reduce((m, a) => Math.max(m, a.length), 0)), pos: S.nonNeg,
+    };
+  }
+  const daily = tooFine("day") ? null : aggregate("day");
+  if (daily) {
+    const S = daily, sum = new Float64Array(7), n = new Float64Array(7);
+    for (let i = 0; i < S.n; i++) if (ok(S, i)) { const wd = weekdayAt(S.t[i]); sum[wd] += S.y[i]; n[wd]++; }
+    out.week = { mean: Array.from(sum, (s, k) => (n[k] ? s / n[k] : NaN)), n: Array.from(n), pos: S.nonNeg };
+  }
+  // By month: the average day in each month when there are days (a 31-day month must
+  // not beat February just by being longer), else the monthly values themselves.
+  if (!tooFine("month") && (END - START) / DAY >= 330) {
+    const S = daily || aggregate("month"), sum = new Float64Array(12), n = new Float64Array(12), yrs = Array.from({ length: 12 }, () => new Set());
+    for (let i = 0; i < S.n; i++) if (ok(S, i)) { const dt = new Date(S.t[i]), mo = dt.getUTCMonth(); sum[mo] += S.y[i]; n[mo]++; yrs[mo].add(dt.getUTCFullYear()); }
+    if (n.filter((c) => c).length >= 10) out.year = { mean: Array.from(sum, (s, k) => (n[k] ? s / n[k] : NaN)), years: yrs.map((y) => y.size), perDay: !!daily, pos: S.nonNeg };
+  }
+  return out;
+}
+const WD_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+function argExt(a, dir) { let b = -1; a.forEach((v, k) => { if (v === v && (b < 0 || (dir > 0 ? v > a[b] : v < a[b]))) b = k; }); return b; }
+function slotTime(k, stepMin) { const m = k * stepMin; return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; }
+/** Relative to the average when the profile never goes below zero, else in its own units. */
+function vsAvg(v, avg, pos) { return pos && avg > 0 ? pct(v / avg - 1) : signed(v - avg); }
+const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+/** A typical day: the median with its middle half, and the weekday and weekend means. */
+function patDaySvg(D, W) {
+  const H = 220, L = 46, R = 8, T = 10, B = 24, pw = W - L - R, ph = H - T - B, n = D.pd;
+  const all = [...D.p25, ...D.p75, ...D.weekday, ...D.weekend].filter((v) => v === v);
+  const tk = niceTicks(Math.min(0, ...all), Math.max(...all), 4);
+  const lo = Math.min(0, tk[0]), hi = Math.max(...all, tk[tk.length - 1]);
+  const x = (k) => L + (k / Math.max(1, n - 1)) * pw, y = (v) => T + ph - ((v - lo) / (hi - lo || 1)) * ph;
+  const path = (a) => a.map((v, k) => (v === v ? `${k && a[k - 1] === a[k - 1] ? "L" : "M"}${x(k).toFixed(1)},${y(v).toFixed(1)}` : "")).join("");
+  const band = D.p75.map((v, k) => `${k ? "L" : "M"}${x(k).toFixed(1)},${y(v).toFixed(1)}`).join("") + D.p25.map((v, k) => k).reverse().map((k) => `L${x(k).toFixed(1)},${y(D.p25[k]).toFixed(1)}`).join("") + "Z";
+  const every = Math.max(1, Math.round(n / 8));
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Typical day">`;
+  for (const t of tk) svg += `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)"/><text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${compact(t)}</text>`;
+  for (let k = 0; k < n; k += every) svg += `<text x="${x(k)}" y="${H - 6}" text-anchor="middle">${slotTime(k, D.stepMin)}</text>`;
+  svg += `<path d="${band}" fill="var(--accent)" fill-opacity=".14"/>`;
+  svg += `<path d="${path(D.weekday)}" fill="none" stroke="var(--text)" stroke-width="1.25" stroke-dasharray="4 3"/>`;
+  svg += `<path d="${path(D.weekend)}" fill="none" stroke="var(--forecast)" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+  svg += `<path d="${path(D.med)}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>`;
+  const cw = pw / Math.max(1, n - 1);
+  for (let k = 0; k < n; k++) svg += `<rect class="hit" x="${x(k) - cw / 2}" y="${T}" width="${cw}" height="${ph}"><title>${slotTime(k, D.stepMin)} — typical ${full(D.med[k])} (middle half ${full(D.p25[k])} to ${full(D.p75[k])}); weekdays ${full(D.weekday[k])}, weekends ${full(D.weekend[k])}</title></rect>`;
+  return svg + "</svg>";
+}
+/** Bars with the highest in full colour and the rest muted; a dashed line at the average. */
+function patBarsSvg(vals, labels, titles, W) {
+  const H = 190, L = 40, R = 6, T = 18, B = 22, pw = W - L - R, ph = H - T - B, n = vals.length;
+  const fin = vals.filter((v) => v === v), avg = fin.reduce((a, b) => a + b, 0) / (fin.length || 1);
+  const tk = niceTicks(Math.min(0, ...fin), Math.max(...fin), 4);
+  const lo = Math.min(0, tk[0]), hi = Math.max(...fin, tk[tk.length - 1]);
+  const y = (v) => T + ph - ((v - lo) / (hi - lo || 1)) * ph, bw = (pw / n) * 0.7, top = argExt(vals, 1);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
+  for (const t of tk) svg += `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)"/><text x="${L - 5}" y="${y(t) + 4}" text-anchor="end">${compact(t)}</text>`;
+  vals.forEach((v, k) => {
+    const cx = L + (k + 0.5) * (pw / n);
+    if (v === v) svg += `<rect x="${cx - bw / 2}" y="${Math.min(y(v), y(0))}" width="${bw}" height="${Math.max(1, Math.abs(y(0) - y(v)))}" rx="2" fill="var(--accent)" fill-opacity="${k === top ? 1 : 0.35}"><title>${esc(titles[k])}</title></rect>`;
+    if (k === top) svg += `<text x="${cx}" y="${y(v) - 5}" text-anchor="middle" style="fill:var(--text);font-weight:600">${compact(v)}</text>`;
+    svg += `<text x="${cx}" y="${H - 6}" text-anchor="middle">${labels[k]}</text>`;
+  });
+  svg += `<line x1="${L}" x2="${W - R}" y1="${y(avg)}" y2="${y(avg)}" stroke="var(--dim)" stroke-dasharray="3 3"/>`;
+  return svg + "</svg>";
+}
+/** Weekday by time of day: darker is higher. */
+function patHeatSvg(D, W) {
+  const n = D.pd, L = 36, R = 4, T = 4, ch = 20, B = 20, H = T + 7 * ch + B, cw = (W - L - R) / n;
+  const fin = D.cells.filter((v) => v === v), lo = Math.min(...fin), hi = Math.max(...fin);
+  const every = Math.max(1, Math.round(n / 8));
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Day of week by time of day">`;
+  for (let wd = 0; wd < 7; wd++) {
+    svg += `<text x="${L - 6}" y="${T + wd * ch + ch / 2 + 4}" text-anchor="end">${WD_SHORT[wd]}</text>`;
+    for (let k = 0; k < n; k++) {
+      const v = D.cells[wd * n + k];
+      const a = v === v ? 0.06 + 0.94 * ((v - lo) / (hi - lo || 1)) : 0;
+      svg += `<rect x="${L + k * cw}" y="${T + wd * ch}" width="${cw + 0.4}" height="${ch - 2}" fill="var(--accent)" fill-opacity="${a.toFixed(3)}"><title>${WD_SHORT[wd]} ${slotTime(k, D.stepMin)}: ${v === v ? full(v) + " on average" : "no rows"}</title></rect>`;
     }
   }
-  // Keep the largest few, so a busy column does not flood the list.
-  return out.sort((a, b) => Math.abs(b.change) - Math.abs(a.change)).slice(0, 6).sort((a, b) => a.i - b.i);
+  for (let k = 0; k < n; k += every) svg += `<text x="${L + k * cw + cw / 2}" y="${H - 5}" text-anchor="middle">${slotTime(k, D.stepMin)}</text>`;
+  return svg + "</svg>";
+}
+function renderPatterns() {
+  // Drawn at the panel's own pixel width, so 11px text stays 11px.
+  const gw = document.getElementById("patGrid").clientWidth || 900;
+  const wide = Math.max(300, gw - 26), half = Math.max(260, (gw > 760 ? (gw - 12) / 2 : gw) - 26);
+  const P = PAT || {}, facts = [], figs = [], what = measureWord(), D = P.day, Wk = P.week, Yr = P.year;
+  if (D) {
+    const hi = argExt(D.med, 1), lo = argExt(D.med, -1);
+    facts.push([`Peak time of day`, `${slotTime(hi, D.stepMin)} <small>typical ${compact(D.med[hi])}</small>`]);
+    facts.push([`Low time of day`, `${slotTime(lo, D.stepMin)} <small>typical ${compact(D.med[lo])}</small>`]);
+    figs.push(`<figure class="wide"><figcaption>A typical day <small>· ${what} per ${D.noun}, over ${nf.format(D.days)} days</small></figcaption>
+      <div class="patkey"><span><i style="background:var(--accent)"></i>Typical (median)</span><span><i style="background:var(--accent);opacity:.3;height:8px"></i>Middle half of days</span><span><i style="background:var(--text)"></i>Weekdays (mean)</span><span><i style="background:var(--forecast)"></i>Weekends (mean)</span></div>
+      ${patDaySvg(D, wide)}</figure>`);
+  }
+  if (Wk) {
+    const fin = Wk.mean.filter((v) => v === v), avg = fin.reduce((a, b) => a + b, 0) / (fin.length || 1);
+    const hi = argExt(Wk.mean, 1), lo = argExt(Wk.mean, -1);
+    facts.push([`Peak day`, `${WEEKDAYS[hi].slice(0, -1)} <small>${vsAvg(Wk.mean[hi], avg, Wk.pos)} vs average day</small>`]);
+    facts.push([`Low day`, `${WEEKDAYS[lo].slice(0, -1)} <small>${vsAvg(Wk.mean[lo], avg, Wk.pos)}</small>`]);
+    const wd = Wk.mean.slice(0, 5).filter((v) => v === v), we = Wk.mean.slice(5).filter((v) => v === v);
+    if (wd.length && we.length) { const a = wd.reduce((p, c) => p + c, 0) / wd.length, b = we.reduce((p, c) => p + c, 0) / we.length; facts.push([`Weekends vs weekdays`, `${vsAvg(b, a, Wk.pos)}`]); }
+    figs.push(`<figure><figcaption>Day of week <small>· average ${what} per day; dashed line is the average day</small></figcaption>${patBarsSvg(Wk.mean, WD_SHORT, Wk.mean.map((v, k) => `${WEEKDAYS[k]}: ${v === v ? full(v) + ` on average (${vsAvg(v, avg, Wk.pos)} vs the average day), over ${Wk.n[k]} days` : "no complete days"}`), half)}</figure>`);
+  }
+  if (Yr) {
+    const fin = Yr.mean.filter((v) => v === v), avg = fin.reduce((a, b) => a + b, 0) / (fin.length || 1), hi = argExt(Yr.mean, 1);
+    facts.push([`Peak month`, `${MONTHS[hi]} <small>${vsAvg(Yr.mean[hi], avg, Yr.pos)} vs average month</small>`]);
+    const per = Yr.perDay ? "day" : "month";
+    figs.push(`<figure><figcaption>Month of year <small>· average ${what} per ${per} in each month</small></figcaption>${patBarsSvg(Yr.mean, MONTHS.map((m) => m[0]), Yr.mean.map((v, k) => `${MONTHS[k]}: ${v === v ? full(v) + ` per ${per} on average (${vsAvg(v, avg, Yr.pos)} vs the average month), over ${Yr.years[k]} ${Yr.years[k] === 1 ? "year" : "years"}` : "no complete data"}`), half)}</figure>`);
+  } else if (Wk) figs.push(`<figure><figcaption>Month of year</figcaption><p class="patempty">Needs about a year of data to show; this table covers ${nf.format(Math.round((END - START) / DAY))} days.</p></figure>`);
+  if (D) figs.push(`<figure class="wide"><figcaption>Day of week by time of day <small>· average ${what} per ${D.noun}; darker is higher</small></figcaption>${patHeatSvg(D, wide)}</figure>`);
+  if (!D && !Wk && !Yr) figs.push(`<p class="patempty">This table is ${cadenceText(DATA.cadence)}ly or coarser, so there is no day or week to profile. Patterns need daily or finer data.</p>`);
+  else if (!D) figs.unshift(`<p class="patempty" style="grid-column:1/-1">Rows come about every ${cadenceText(DATA.cadence)}, so there is no time of day to profile.</p>`);
+  document.getElementById("patFacts").innerHTML = facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("");
+  document.getElementById("patGrid").innerHTML = figs.join("");
 }
 
 /* ============================================================ stage 2: smooth */
-function rolling(y, n, w, centred, median) {
+/** Rolling mean, median, min or max over w periods; trailing unless centred. */
+function rolling(y, n, w, centred, stat) {
   const out = new Float64Array(n).fill(NaN);
   const buf = [];
   const lo = centred ? Math.floor((w - 1) / 2) : w - 1;
@@ -922,7 +1317,9 @@ function rolling(y, n, w, centred, median) {
     buf.length = 0;
     for (let k = i - lo; k <= i + hi; k++) if (k >= 0 && y[k] === y[k]) buf.push(y[k]);
     if (buf.length < need || (!centred && i < w - 1)) continue;
-    if (median) { buf.sort((a, b) => a - b); const m = buf.length >> 1; out[i] = buf.length % 2 ? buf[m] : (buf[m - 1] + buf[m]) / 2; }
+    if (stat === "median") { buf.sort((a, b) => a - b); const m = buf.length >> 1; out[i] = buf.length % 2 ? buf[m] : (buf[m - 1] + buf[m]) / 2; }
+    else if (stat === "min") out[i] = Math.min(...buf);
+    else if (stat === "max") out[i] = Math.max(...buf);
     else { let s = 0; for (const v of buf) s += v; out[i] = s / buf.length; }
   }
   return out;
@@ -954,12 +1351,12 @@ function decompose(y, n, m) {
   const [s1, c1] = fit(z - L + 1, z);
   for (let i = z + 1; i < n; i++) trend[i] = c1 + s1 * i;
   // Median per phase, so one bad period (a data gap, a viral day) cannot fake a seasonal peak.
-  const byPhase = Array.from({ length: m }, () => []);
-  for (let i = a; i <= z; i++) byPhase[i % m].push(y[i] - trend[i]);
+  const per = Math.ceil(n / m) + 1, buf = new Float64Array(m * per), cnt = new Int32Array(m);
+  for (let i = a; i <= z; i++) { const k = i % m; buf[k * per + cnt[k]++] = y[i] - trend[i]; }
   const prof = new Float64Array(m);
   let mean = 0;
   for (let k = 0; k < m; k++) {
-    const v = byPhase[k].sort((p, q) => p - q), h = v.length >> 1;
+    const v = buf.subarray(k * per, k * per + cnt[k]).sort(), h = v.length >> 1;
     prof[k] = v.length ? (v.length % 2 ? v[h] : (v[h - 1] + v[h]) / 2) : 0;
     mean += prof[k];
   }
@@ -975,11 +1372,33 @@ function decompose(y, n, m) {
   for (let i = 0; i < n; i++) level += trend[i];
   return { m, trend, seasonal, rem, prof, ft, fs, level: level / n };
 }
+/** Centred moving average around a cycle (wraps), for reporting a long seasonal profile. */
+function circularSmooth(p, half) {
+  const m = p.length, out = new Float64Array(m);
+  for (let k = 0; k < m; k++) { let s = 0; for (let j = -half; j <= half; j++) s += p[(k + j + m) % m]; out[k] = s / (2 * half + 1); }
+  return out;
+}
+/** The k-th smallest value of a (reordered in place): a median without a full sort. */
+function selectK(a, k) {
+  let lo = 0, hi = a.length - 1;
+  while (lo < hi) {
+    const pv = a[(lo + hi) >> 1];
+    let i = lo, j = hi;
+    while (i <= j) {
+      while (a[i] < pv) i++;
+      while (a[j] > pv) j--;
+      if (i <= j) { const t = a[i]; a[i] = a[j]; a[j] = t; i++; j--; }
+    }
+    if (k <= j) hi = j;
+    else if (k >= i) lo = i;
+    else return a[k];
+  }
+  return a[k];
+}
 function robustZ(rem, n) {
-  const arr = Array.from(rem.subarray(0, n)).sort((a, b) => a - b);
-  const med = arr[n >> 1];
-  const dev = arr.map((v) => Math.abs(v - med)).sort((a, b) => a - b);
-  let mad = dev[n >> 1] * 1.4826;
+  const arr = Float64Array.from(rem.subarray(0, n));
+  const med = selectK(arr, n >> 1);
+  let mad = selectK(arr.map((v) => Math.abs(v - med)), n >> 1) * 1.4826;
   if (!(mad > 1e-9)) { let a = 0, b = 0; for (const v of arr) { a += v; b += v * v; } mad = Math.sqrt(Math.max(1e-18, b / n - (a / n) ** 2)); }
   const z = new Float64Array(n);
   for (let i = 0; i < n; i++) z[i] = (rem[i] - med) / mad;
@@ -1010,14 +1429,19 @@ function changepoint(trend, n) {
  */
 function detectCycle(y, N, taken) {
   if (N < 30) return 0;
-  let sx = 0, sy = 0, sxx = 0, sxy = 0;
-  for (let i = 0; i < N; i++) { sx += i; sy += y[i]; sxx += i * i; sxy += i * y[i]; }
-  const b = (N * sxy - sx * sy) / (N * sxx - sx * sx || 1), a = (sy - b * sx) / N;
+  // A wide centred moving average follows a curved trend (a linear fit leaves its bend in
+  // the residual, which then reads as a slow cycle); cycles up to its half-width survive.
+  const W = Math.max(5, Math.floor(N / 4)), half = W >> 1;
+  const pre = new Float64Array(N + 1);
+  for (let i = 0; i < N; i++) pre[i + 1] = pre[i] + y[i];
   const r = new Float64Array(N);
+  let mean = 0;
+  for (let i = 0; i < N; i++) { const a = Math.max(0, i - half), b = Math.min(N, i + half + 1); r[i] = y[i] - (pre[b] - pre[a]) / (b - a); mean += r[i]; }
+  mean /= N;
   let v = 0;
-  for (let i = 0; i < N; i++) { r[i] = y[i] - a - b * i; v += r[i] * r[i]; }
+  for (let i = 0; i < N; i++) { r[i] -= mean; v += r[i] * r[i]; }
   if (!(v > 0)) return 0;
-  const maxLag = Math.min(Math.floor(N / 3), 600);
+  const maxLag = Math.min(Math.floor(N / 3), 600, half);
   const acf = new Float64Array(maxLag + 2);
   for (let lag = 1; lag <= maxLag + 1; lag++) { let c = 0; for (let i = lag; i < N; i++) c += r[i] * r[i - lag]; acf[lag] = c / v; }
   let best = 0, bestV = 0.3;
@@ -1044,20 +1468,66 @@ function trendOnly(y, N) {
   d.m = 0;
   return d;
 }
+/** Median of v over each phase i % m for i in [a, z], centred on zero. */
+function phaseMedian(v, a, z, m) {
+  const per = Math.ceil((z - a + 1) / m) + 1, buf = new Float64Array(m * per), cnt = new Int32Array(m);
+  for (let i = a; i <= z; i++) { const k = i % m; buf[k * per + cnt[k]++] = v[i]; }
+  const prof = new Float64Array(m);
+  let mean = 0;
+  for (let k = 0; k < m; k++) {
+    const s = buf.subarray(k * per, k * per + cnt[k]).sort(), h = s.length >> 1;
+    prof[k] = s.length ? (s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2) : 0;
+    mean += prof[k];
+  }
+  mean /= m;
+  for (let k = 0; k < m; k++) prof[k] -= mean;
+  return prof;
+}
+/**
+ * Two seasons at once below a day: the cycle within a day, then what each part of the
+ * week adds on top of it. The trend is the week-long moving average, as for weekly alone.
+ */
+function decomposeMulti(y, n, pd) {
+  const w = 7 * pd, d = decompose(y, n, w);
+  if (!d) return null;
+  const a = w >> 1, z = n - 1 - a;
+  const det = new Float64Array(n);
+  for (let i = 0; i < n; i++) det[i] = y[i] - d.trend[i];
+  const daily = phaseMedian(det, a, z, pd);
+  for (let i = 0; i < n; i++) det[i] -= daily[i % pd];
+  const weekly = phaseMedian(det, a, z, w);
+  for (let k = 0; k < w; k++) d.prof[k] = daily[k % pd] + weekly[k];
+  for (let i = 0; i < n; i++) { d.seasonal[i] = d.prof[i % w]; d.rem[i] = y[i] - d.trend[i] - d.seasonal[i]; }
+  const v = (f) => { let s = 0, ss = 0; for (let i = 0; i < n; i++) { const x = f(i); s += x; ss += x * x; } return ss / n - (s / n) ** 2; };
+  const vr = v((i) => d.rem[i]);
+  d.ft = Math.max(0, 1 - vr / (v((i) => d.trend[i] + d.rem[i]) || 1));
+  d.fs = Math.max(0, 1 - vr / (v((i) => d.seasonal[i] + d.rem[i]) || 1));
+  d.parts = { daily, weekly, pd };
+  return d;
+}
+/** "daily + weekly" for the two-season split, else the period's own name. */
+function seasonName(d) { return d.parts ? "daily + weekly" : periodName(d.m); }
 function computeDecomposition() {
   const g = A.g, N = A.modelN;
   const cands = g.periods.filter((p) => N >= 2 * p + 2);
-  const cyc = detectCycle(A.yModel, N, cands);
+  const CW = 20000;
+  const cyc = N > CW ? detectCycle(A.yModel.subarray(N - CW, N), CW, cands) : detectCycle(A.yModel, N, cands);
   if (cyc && N >= 2 * cyc + 2) cands.push(cyc);
   const options = [];
-  for (const p of cands) { const d = decompose(A.yModel, N, p); if (d) options.push(d); }
-  const dec = options.find((d) => d.m === cfg.period) || (options.length ? options.reduce((a, b) => (b.fs > a.fs ? b : a)) : null) || trendOnly(A.yModel, N);
+  for (const p of cands) {
+    const d = g.unit === "min" && p === 7 * g.perDay ? decomposeMulti(A.yModel, N, g.perDay) : decompose(A.yModel, N, p);
+    if (d) options.push(d);
+  }
+  // A weak best season is noise (births, share prices): trend only, unless the person picked one.
+  const best = options.length ? options.reduce((a, b) => (b.fs > a.fs ? b : a)) : null;
+  const dec = options.find((d) => d.m === cfg.period) || (best && best.fs >= 0.15 ? best : null) || trendOnly(A.yModel, N);
   if (!dec) return { options, dec: null, anomalies: [], anomalyCount: 0, cp: null, z: null, mad: 0 };
   const rz = robustZ(dec.rem, N);
   const anomalies = [];
-  for (let i = 0; i < N; i++) if (Math.abs(rz.z[i]) >= cfg.sens) anomalies.push(i);
+  // A period with no value was filled in for the models; it is a gap, not an anomaly.
+  for (let i = 0; i < N; i++) if (Math.abs(rz.z[i]) >= cfg.sens && A.y[i] === A.y[i]) anomalies.push(i);
   anomalies.sort((a, b) => Math.abs(rz.z[b]) - Math.abs(rz.z[a]));
-  return { options, dec, z: rz.z, mad: rz.mad, anomalies: anomalies.slice(0, 8), anomalyCount: anomalies.length, cp: changepoint(dec.trend, N) };
+  return { options, dec, cycle: cyc, z: rz.z, mad: rz.mad, anomalies: anomalies.slice(0, 8), anomalyCount: anomalies.length, cp: changepoint(dec.trend, N) };
 }
 
 /* ============================================================ stage 4: models */
@@ -1152,30 +1622,49 @@ function buildDriverDefs() {
 }
 /** Recent typical value of a driver: the median of its last couple of months. */
 function driverRecent(col) { return regular(DRIVER_DEFS[col].series(), A.n - eventWindowLen(A.g), A.n); }
-/**
- * A driver's value at period i: actual where the table has it; after the data ends,
- * the driver's rule. In event impact the event's own driver is held at its level
- * before the event and every other driver keeps its actual values.
- */
+/** A driver's value at period i: actual where the table has it; after the data ends, the driver's rule. */
 function driverAt(d, i) {
-  if (impactFreeze && impactFreeze.col === d.col && i >= impactFreeze.from) return impactFreeze.value;
   const s = DRIVER_DEFS[d.col].series();
   if (i < A.n) return s[i];
   if (d.rule === "lastyear") { let j = i - A.g.ly; while (j >= A.n) j -= A.g.ly; return j >= 0 ? s[j] : s[A.n - 1]; }
   const base = driverRecent(d.col);
   return d.rule === "pct" ? base * (1 + d.pct / 100) : base;
 }
+// Fits learn from the latest periods only: older ones barely move a forecast but cost
+// as much to fit (a year of hours is 8,766 rows per refit). Daily data up to about ten
+// years is never cut.
+const REG_WIN = 4000;
+/** Start of a fitting window ending at o: whole cycles of m, so every phase keeps its place. */
+function fitFrom(o, m) {
+  const w = Math.max(REG_WIN, 3 * m);
+  return o > w ? Math.floor((o - w) / m) * m : 0;
+}
+/** sin(ja), cos(ja) for j = 1..K into x from k, by rotation: two trig calls, not 2K. */
+function harmonics(x, k, a, K) {
+  if (!K) return k;
+  const s1 = Math.sin(a), c1 = Math.cos(a);
+  let sj = s1, cj = c1;
+  for (let j = 1; j <= K; j++) {
+    x[k++] = sj; x[k++] = cj;
+    const t = sj * c1 + cj * s1;
+    cj = cj * c1 - sj * s1; sj = t;
+  }
+  return k;
+}
 /** Prophet-style regression on log values: trend with shrunk bends, Fourier seasons, any driver columns. */
 function regFit(y, T, flex) {
-  const g = A.g;
-  const Ky = Math.max(0, Math.min(4, Math.floor((g.perYear - 1) / 2)));
-  const Kw = g.unit === "day" && g.n === 1 ? 3 : 0;
+  const g = A.g, from = Math.max(0, T - REG_WIN), W = T - from;
+  // A season needs data to learn it from: yearly terms only with a full year, weekly and daily with three cycles.
+  const Ky = W >= g.perYear ? Math.max(0, Math.min(4, Math.floor((g.perYear - 1) / 2))) : 0;
+  const wk = g.unit === "day" && g.n === 1 ? 7 : g.perDay ? 7 * g.perDay : 0;
+  const Kw = wk && W >= 3 * wk ? 3 : 0;
+  const Kd = g.perDay && W >= 3 * g.perDay ? Math.min(6, g.perDay >> 1) : 0;
   const K = Math.max(1, Math.min(10, Math.floor(T / 10)));
   const hinges = Array.from({ length: K }, (_, k) => (0.85 * (k + 1)) / (K + 1));
   // A positive series is fitted on logs (effects read as percentages); anything with
   // zeros or negatives is fitted as it is (effects read in its own units).
   let logY = true;
-  for (let i = 0; i < T; i++) if (!A.filled[i] && !(y[i] > 0)) { logY = false; break; }
+  for (let i = 0; i < T; i++) if (!A.made[i] && !(y[i] > 0)) { logY = false; break; }
   const drv = cfg.drivers.map((d) => {
     const s = DRIVER_DEFS[d.col].series();
     let pos = true;
@@ -1185,21 +1674,22 @@ function regFit(y, T, flex) {
     for (let i = 0; i < T; i++) mean += log ? Math.log(s[i]) : s[i];
     return { d, log, mean: mean / T };
   });
-  const iDrv = 2 + K + 2 * Ky + 2 * Kw;
+  const iDrv = 2 + K + 2 * Ky + 2 * Kw + 2 * Kd;
   const p = iDrv + drv.length;
   const fill = (i, x) => {
     let k = 0;
     const t = i / T;
     x[k++] = 1; x[k++] = t;
     for (const c of hinges) x[k++] = t > c ? t - c : 0;
-    for (let j = 1; j <= Ky; j++) { const a = (2 * Math.PI * j * i) / g.perYear; x[k++] = Math.sin(a); x[k++] = Math.cos(a); }
-    for (let j = 1; j <= Kw; j++) { const a = (2 * Math.PI * j * i) / 7; x[k++] = Math.sin(a); x[k++] = Math.cos(a); }
+    k = harmonics(x, k, (2 * Math.PI * i) / g.perYear, Ky);
+    k = harmonics(x, k, (2 * Math.PI * i) / wk, Kw);
+    k = harmonics(x, k, (2 * Math.PI * i) / g.perDay, Kd);
     for (const v of drv) { const raw = driverAt(v.d, i); x[k++] = (v.log ? Math.log(raw) : raw) - v.mean; }
   };
   const M = new Float64Array(p * p), bv = new Float64Array(p), x = new Float64Array(p);
   let cnt = 0;
-  for (let i = 0; i < T; i++) {
-    if (A.filled[i] || !(y[i] === y[i]) || (logY && !(y[i] > 0))) continue;
+  for (let i = from; i < T; i++) {
+    if (A.made[i] || !(y[i] === y[i]) || (logY && !(y[i] > 0))) continue;
     fill(i, x);
     const zt = logY ? Math.log(y[i]) : y[i];
     for (let a = 0; a < p; a++) {
@@ -1218,23 +1708,28 @@ function regFit(y, T, flex) {
   M[0] += 1e-9;
   const beta = cholSolve(M, bv, p);
   let smear = 0, sc = 0;
-  for (let i = 0; i < T && logY; i++) {
-    if (!(y[i] > 0) || A.filled[i]) continue;
+  for (let i = from; i < T && logY; i++) {
+    if (!(y[i] > 0) || A.made[i]) continue;
     fill(i, x);
     let s = 0;
     for (let a = 0; a < p; a++) s += x[a] * beta[a];
     smear += Math.exp(Math.log(y[i]) - s); sc++;
   }
-  return { beta, p, fill, x: new Float64Array(p), smear: sc ? smear / sc : 1, K, Ky, Kw, T, drv, iDrv, logY };
+  let maxLog = -Infinity;
+  for (let i = 0; i < T && logY; i++) if (y[i] > 0) maxLog = Math.max(maxLog, Math.log(y[i]));
+  return { beta, p, fill, x: new Float64Array(p), smear: sc ? smear / sc : 1, K, Ky, Kw, Kd, T, drv, iDrv, logY, maxLog };
 }
 function regAt(fit, i) {
   fit.fill(i, fit.x);
   let s = 0;
   for (let a = 0; a < fit.p; a++) s += fit.x[a] * fit.beta[a];
-  return fit.logY ? Math.exp(s) * fit.smear : s;
+  // On logs a steep end slope compounds without limit; no forecast goes past 20x the largest value seen.
+  return fit.logY ? Math.exp(Math.min(s, fit.maxLog + 3)) * fit.smear : s;
 }
 /** Theta method: simple smoothing plus half the long-run slope, on the deseasonalised series. */
 function thetaFit(y, o, m) {
+  const s = fitFrom(o, m);
+  if (s) return thetaFit(y.subarray(s, o), o - s, m);
   const d = m > 1 && o >= 2 * m + 2 ? decompose(y, o, m) : null;
   const prof = d ? d.prof : null;
   const z = new Float64Array(o);
@@ -1308,32 +1803,34 @@ const MODEL_INFO = {
   clim: { name: "Seasonal average", meth: "Mean of the same point in earlier cycles" },
   ens: { name: "Blend", meth: "Average of smooth-and-damp, steady trend and drivers" },
 };
-function horizon() { return Math.max(1, Math.min(A.g.maxH, cfg.horizon ?? A.g.horizon)); }
+/**
+ * The longest forecast this history can check: every forecast is backtested from earlier
+ * dates, which needs a training stretch plus the horizon plus room for several origins
+ * (see runModels). Past that there is nothing to measure the forecast or its band
+ * against, so the page does not offer it. A hard ceiling keeps very fine series quick.
+ */
+function maxHorizon() {
+  const m = A.modelM || 1, minTrain = Math.max(m + Math.max(4, Math.ceil(m / 4)), 8);
+  let H = Math.max(1, Math.floor((3 * (A.modelN - minTrain)) / 5));
+  while (H > 1 && minTrain + H + 2 * Math.max(1, Math.round(H / 3)) > A.modelN) H--;
+  return Math.min(H, 20000);
+}
+function horizon() { return Math.max(1, Math.min(maxHorizon(), cfg.horizon ?? A.g.horizon)); }
 /**
  * Fits every model on [0, T) and backtests it from earlier origins.
- * `exact` keeps T as given (an event date) instead of clamping it.
  */
-function runModels(splitReq, H, exact) {
+function runModels(splitReq, H) {
   const g = A.g, N = A.modelN, m = A.modelM;
   if (!m) return { error: `Needs at least ${2 * g.periods[0] + 2} ${g.nouns} of history.` };
   const minTrain = Math.max(m + Math.max(4, Math.ceil(m / 4)), 8);
   const step = Math.max(1, Math.round(H / 3));
   const minSplit = minTrain + H + 2 * step;
-  if (!exact && N < minSplit) return { error: `A ${H}-${g.noun} forecast needs at least ${minSplit} ${g.nouns} of history; this series has ${N}. Shorten the horizon or pick a finer grain.` };
-  const T = exact ? splitReq : splitReq == null ? N : Math.max(minSplit, Math.min(N, splitReq));
-  if (exact && T < minSplit) return { error: `Needs ${minSplit} ${g.nouns} before the event to learn the normal pattern; this one has ${T}.${g.unit !== "day" ? " Daily grain needs less history." : ""}`, T, H };
+  if (N < minSplit) return { error: `A ${H}-${g.noun} forecast needs at least ${minSplit} ${g.nouns} of history; this series has ${N}. Forecast less far ahead or pick a finer grain.` };
+  const T = splitReq == null ? N : Math.max(minSplit, Math.min(N, splitReq));
   const y = A.yModel;
-  let origins = [];
-  if (exact) {
-    // Event impact: spread the backtests over the whole history, so the range sees the
-    // model's errors in every season, not only the stretch just before the event.
-    const span = T - H - minTrain, R0 = Math.min(16, span + 1);
-    for (let k = 0; k < R0; k++) origins.push(minTrain + Math.round((k * span) / Math.max(1, R0 - 1)));
-    origins = [...new Set(origins)];
-  } else {
-    for (let k = 0; k < 10; k++) { const o = T - H - k * step; if (o < minTrain) break; origins.push(o); }
-    origins.reverse();
-  }
+  const origins = [];
+  for (let k = 0; k < 10; k++) { const o = T - H - k * step; if (o < minTrain) break; origins.push(o); }
+  origins.reverse();
   const R = origins.length;
   let scale = 0, sc = 0;
   for (let t = m; t < T; t++) { scale += Math.abs(y[t] - y[t - m]); sc++; }
@@ -1349,7 +1846,8 @@ function runModels(splitReq, H, exact) {
   t0 = performance.now();
   const hw = mk("hw");
   const wkey = cfg.grain + cfg.agg + cfg.measure + cfg.group + cfg.gaps;
-  const params = hwFit(y, T, m, hwWarm.get(wkey));
+  const hs = fitFrom(T, m);
+  const params = hwFit(y.subarray(hs), T - hs, m, hwWarm.get(wkey));
   hwWarm.set(wkey, params);
   const run = hwRun(y, T, m, params, origins);
   origins.forEach((o, k) => hwForecast(run.snaps.get(o), m, params[3], o, H, hw.oc, k * H));
@@ -1386,7 +1884,7 @@ function runModels(splitReq, H, exact) {
     let ae = 0, ac = 0;
     origins.forEach((o, k) => {
       for (let h = 0; h < H; h++) {
-        if (A.filled[o + h]) continue;
+        if (A.made[o + h]) continue;
         const e = y[o + h] - mod.oc[k * H + h];
         errs[k * H + h] = e; ae += Math.abs(e); ac++;
       }
@@ -1409,16 +1907,14 @@ function runModels(splitReq, H, exact) {
   return res;
 }
 /** Future values and bands; cheap, so the what-if controls redraw while dragging. */
-function computeFutures(M, freeze) {
+function computeFutures(M) {
   if (!M || M.error) return null;
   const { T, H, m } = M;
   const y = A.yModel;
-  impactFreeze = freeze;
   const hwF = new Float64Array(H);
   hwForecast(M.models.hw.final, m, M.models.hw.params[3], T, H, hwF, 0);
   const regF = new Float64Array(H);
   for (let h = 0; h < H; h++) regF[h] = regAt(M.models.reg.fit, T + h);
-  impactFreeze = null;
   const snF = new Float64Array(H);
   for (let h = 0; h < H; h++) snF[h] = y[T - m + (h % m)];
   const thF = new Float64Array(H);
@@ -1442,7 +1938,7 @@ function computeFutures(M, freeze) {
       let hit = 0, tot = 0, ae = 0;
       for (let h = 0; h < H && T + h < A.modelN; h++) {
         const v = A.y[T + h];
-        if (!(v === v) || A.filled[T + h]) continue;
+        if (!(v === v) || A.made[T + h]) continue;
         tot++; ae += Math.abs(v - F[h]);
         if (v >= lo80[h] && v <= hi80[h]) hit++;
       }
@@ -1463,107 +1959,35 @@ function grade(ratio, key) {
   return { cls: "poor", text: "Poor" };
 }
 
-/* ============================================================ stage 5: event impact */
-function defaultEvent() {
-  const N = A.modelN;
-  const ev = EVENTS.filter((e) => N - e.i >= 2);
-  return ev.length ? ev[ev.length - 1].i : Math.round(N * 0.8);
-}
-function eventWindow(ev) { return Math.max(1, Math.min(cfg.window ?? A.g.impactW, A.modelN - ev)); }
-/**
- * Expected = every model fitted only on data before the event, drivers held at their
- * pre-event values. The effect range comes from the cumulative backtest errors.
- */
-function computeImpact() {
-  const ev = Math.max(2, Math.min(A.modelN - 1, cfg.event ?? defaultEvent()));
-  const W = eventWindow(ev);
-  const run = runModels(ev, W, true);
-  const event = EVENTS.find((e) => e.i === ev) || { i: ev, kind: "custom", label: "Custom event" };
-  if (run.error) return { error: run.error, T: ev, H: W, event };
-  const fut = computeFutures(run, event.col ? { col: event.col, value: event.before, from: ev } : null);
-  const key = cfg.impactModel === "auto" ? run.best : cfg.impactModel;
-  const f = fut[key];
-  const ce = new Float64Array(W);
-  let acc = 0, sf = 0, above = 0, below = 0, cnt = 0;
-  for (let h = 0; h < W; h++) {
-    const i = ev + h, v = A.y[i];
-    if (v === v && !A.filled[i]) {
-      acc += v - f.F[h]; sf += f.F[h]; cnt++;
-      if (v > f.hi80[h]) above++; else if (v < f.lo80[h]) below++;
-    }
-    ce[h] = acc;
-  }
-  const errs = run.models[key].errs, R = run.origins.length;
-  const lo = new Float64Array(W), hi = new Float64Array(W);
-  let lo95 = 0, hi95 = 0;
-  for (let h = 0; h < W; h++) {
-    const vals = [], recent = [];
-    for (let k = 0; k < R; k++) {
-      let s = 0;
-      for (let j = 0; j <= h; j++) { const e = errs[k * W + j]; if (e === e) s += e; }
-      vals.push(s);
-      if (k >= R >> 1) recent.push(s);
-    }
-    vals.sort((a, b) => a - b);
-    recent.sort((a, b) => a - b);
-    const mean = vals.reduce((s, v) => s + v, 0) / (vals.length || 1);
-    const sd = Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / Math.max(1, vals.length - 1));
-    // Backtests show how far the model drifts with no event. Its typical bias comes from
-    // the later backtests (trained on most of the history, like the real fit); the
-    // spread around it from all of them.
-    const mid = quantile(recent, 0.5);
-    const l = Math.min(mid + quantile(vals, 0.1) - quantile(vals, 0.5), mid - 1.2816 * sd), u = Math.max(mid + quantile(vals, 0.9) - quantile(vals, 0.5), mid + 1.2816 * sd);
-    lo[h] = ce[h] - u; hi[h] = ce[h] - l;
-    if (h === W - 1) {
-      const q50 = quantile(vals, 0.5);
-      lo95 = ce[h] - Math.max(mid + quantile(vals, 0.975) - q50, mid + 1.96 * sd);
-      hi95 = ce[h] - Math.min(mid + quantile(vals, 0.025) - q50, mid - 1.96 * sd);
-    }
-    ce[h] -= mid;
-  }
-  acc = ce[W - 1];
-  // "Clear" only when the 95% range leaves out zero; an 80% range alone would cry
-  // wolf about one time in five on a series the event did not touch.
-  let verdict = lo95 > 0 || hi95 < 0 ? "clear" : lo[W - 1] > 0 || hi[W - 1] < 0 ? "possible" : "none";
-  // Under two years before the event, a yearly swing cannot be told apart from the event.
-  const shortYear = ev < 2 * A.g.perYear;
-  if (shortYear && verdict === "clear") verdict = "possible";
-  let gap = false;
-  for (let h = 0; h < W; h++) if (A.coverage[ev + h] < 0.9) gap = true;
-  return { run, fut, key, T: ev, H: W, f, ce, lo, hi, total: acc, rel: A.allPositive && sf > 0 ? acc / sf : NaN, relLo: A.allPositive && sf > 0 ? lo[W - 1] / sf : NaN, relHi: A.allPositive && sf > 0 ? hi[W - 1] / sf : NaN, sf, cnt, above, below, verdict, clear: verdict === "clear", shortYear, event, gap };
-}
 
 /* ============================================================ compute pipeline */
 function compute() {
   const t0 = performance.now();
   const aggKey = [cfg.grain, cfg.agg, cfg.measure, cfg.group, cfg.gaps, cfg.partial].join("|");
-  if (aggKey !== cache.agg) { A = aggregate(); cache.agg = aggKey; cache.sm = cache.dec = cache.mod = cache.imp = ""; allT = null; }
+  if (aggKey !== cache.agg) { A = aggregate(); cache.agg = aggKey; cache.sm = cache.dec = cache.mod = ""; allT = null; }
   const t1 = performance.now();
   const smKey = aggKey + [cfg.smoothW, cfg.smoothStat, cfg.smoothCentred].join("|");
-  if (smKey !== cache.sm) { SM = rolling(A.y, A.modelN, cfg.smoothW, cfg.smoothCentred, cfg.smoothStat === "median"); cache.sm = smKey; }
+  if (smKey !== cache.sm) { SM = rolling(A.y, A.modelN, cfg.smoothW, cfg.smoothCentred, cfg.smoothStat); cache.sm = smKey; }
   const drvKey = cfg.drivers.map((d) => d.col).join(",");
-  if (aggKey + drvKey !== cache.ev) { EVENTS = detectEvents(); cache.ev = aggKey + drvKey; }
   const decKey = aggKey + "|" + cfg.period + "|" + cfg.sens;
   if (decKey !== cache.dec) { DEC = computeDecomposition(); cache.dec = decKey; }
   const t2 = performance.now();
   const modKey = aggKey + "|" + [cfg.split, horizon(), cfg.flex, drvKey].join("|");
   let modMs = null;
-  if (modKey !== cache.mod) { MOD = runModels(cfg.split, horizon(), false); cache.mod = modKey; allT = null; modMs = performance.now() - t2; }
-  FUT = computeFutures(MOD, null);
-  if (cfg.mode === "impact") {
-    const impKey = aggKey + "|" + [cfg.event, cfg.window, cfg.impactModel, cfg.flex, drvKey].join("|");
-    if (impKey !== cache.imp) { const s = performance.now(); IMP = computeImpact(); cache.imp = impKey; modMs = performance.now() - s; }
-  }
+  if (modKey !== cache.mod) { MOD = runModels(cfg.split, horizon()); cache.mod = modKey; allT = null; modMs = performance.now() - t2; }
+  FUT = computeFutures(MOD);
+  // Profiles do not depend on the grain shown, only on what is measured and how.
+  const patKey = [cfg.agg, cfg.measure, cfg.group, cfg.gaps].join("|");
+  if (cfg.mode === "patterns" && patKey !== cache.pat) { PAT = computePatterns(); cache.pat = patKey; }
   const t3 = performance.now();
   timing.agg = t1 - t0;
   timing.dec = t2 - t1;
   timing.mod = modMs ?? t3 - t2;
   INS = buildInsights();
 }
-/** What the chart projects beyond the split: a forecast, or the expected path after an event. */
+/** What the chart projects beyond the split: the forecast. */
 function proj() {
   if (cfg.mode === "forecast" && MOD && !MOD.error && FUT) { const key = selectedModel(); return { kind: "forecast", T: MOD.T, H: MOD.H, f: FUT[key], key, color: C.forecast }; }
-  if (cfg.mode === "impact" && IMP && !IMP.error) return { kind: "impact", T: IMP.T, H: IMP.H, f: IMP.f, key: IMP.key, color: C.impact };
   return null;
 }
 
@@ -1600,6 +2024,8 @@ function clampView(v) {
   if (a + span > hi) a = hi - span;
   return [a, a + span];
 }
+/** The narrowest view: eight periods. */
+function minSpan() { return (A.t[Math.min(A.n - 1, 8)] - A.t[0]) || DAY * 7; }
 function fullView() { const [d0, d1] = domain(); const pad = (d1 - d0) * 0.015; return [d0 - pad, d1 + pad]; }
 
 /* ============================================================ colours */
@@ -1625,7 +2051,6 @@ const readoutEl = document.getElementById("readout");
 const navCanvas = document.getElementById("navCanvas");
 const decCanvas = document.getElementById("decCanvas");
 const decOverlay = document.getElementById("decOverlay");
-const cumCanvas = document.getElementById("cumCanvas");
 const heroBuf = document.createElement("canvas");
 let geo = { w: 0, h: 0, L: 56, R: 130, T: 26, B: 44, pw: 0, ph: 0, dpr: 1 };
 let yScale = { min: 0, max: 1 };
@@ -1644,7 +2069,7 @@ function layout() {
   for (const cv of [heroCanvas, heroOverlay, heroBuf]) sizeCanvas(cv, r.width, r.height, dpr);
   const n = navCanvas.parentElement.getBoundingClientRect();
   sizeCanvas(navCanvas, n.width, n.height, dpr);
-  for (const [cv, ov] of [[decCanvas, decOverlay], [cumCanvas, null]]) {
+  for (const [cv, ov] of [[decCanvas, decOverlay]]) {
     const d = cv.parentElement.getBoundingClientRect();
     if (d.width > 0) { sizeCanvas(cv, d.width, d.height, dpr); if (ov) sizeCanvas(ov, d.width, d.height, dpr); }
   }
@@ -1666,11 +2091,17 @@ function niceTicks(min, max, count) {
 function timeTicks(v0, v1, width) {
   const spanDays = (v1 - v0) / DAY;
   const max = Math.max(3, Math.floor(width / 64));
-  const units = [[1, "d", 1], [2, "d", 2], [7, "d", 7], [14, "d", 14], [1, "m", 30.4], [2, "m", 61], [3, "m", 91], [6, "m", 182], [1, "y", 365], [2, "y", 730], [5, "y", 1826], [10, "y", 3652], [25, "y", 9131], [50, "y", 18262], [100, "y", 36525]];
+  const units = [[1, "h", 1 / 24], [2, "h", 2 / 24], [3, "h", 3 / 24], [6, "h", 6 / 24], [12, "h", 12 / 24], [1, "d", 1], [2, "d", 2], [7, "d", 7], [14, "d", 14], [1, "m", 30.4], [2, "m", 61], [3, "m", 91], [6, "m", 182], [1, "y", 365], [2, "y", 730], [5, "y", 1826], [10, "y", 3652], [25, "y", 9131], [50, "y", 18262], [100, "y", 36525]];
   let u = units[units.length - 1];
   for (const cand of units) if (spanDays / cand[2] <= max) { u = cand; break; }
   const ticks = [], majors = [];
   const d0 = new Date(v0);
+  if (u[1] === "h") {
+    const st = u[0] * 3600000;
+    for (let ms = Math.ceil(v0 / st) * st; ms <= v1; ms += st) if (ms % DAY) ticks.push({ ms, label: dfTime.format(new Date(ms)) });
+    for (let ms = Math.ceil(v0 / DAY) * DAY; ms <= v1; ms += DAY) majors.push({ ms, label: dfDM.format(new Date(ms)) });
+    return { ticks, majors, ctx: dfDM.format(new Date(Math.max(v0, START))) };
+  }
   if (u[1] === "d") {
     for (let ms = Math.ceil((v0 - START) / (DAY * u[0])) * DAY * u[0] + START; ms <= v1; ms += DAY * u[0]) ticks.push({ ms, label: String(new Date(ms).getUTCDate()) });
     for (let mm = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth() + 1, 1); mm <= v1; mm = Date.UTC(new Date(mm).getUTCFullYear(), new Date(mm).getUTCMonth() + 1, 1)) majors.push({ ms: mm, label: dfMonShort.format(new Date(mm)) });
@@ -1723,7 +2154,7 @@ function renderHero() {
   const N = A.modelN, n = A.n, mode = cfg.mode;
   const P = proj();
   const split = P ? P.T : -1;
-  const isF = !!P && P.kind === "forecast", isI = !!P && P.kind === "impact";
+  const isF = !!P;
 
   let lo = Infinity, hi = -Infinity;
   const take = (v) => { if (v === v) { if (v < lo) lo = v; if (v > hi) hi = v; } };
@@ -1786,11 +2217,6 @@ function renderHero() {
     ctx.fillStyle = rgba(C.forecast, 0.05);
     ctx.fillRect(xs, geo.T - 6, geo.L + geo.pw - xs, geo.ph + 6);
   }
-  if (isI) {
-    const xs = X(T[split - 1]), xe = X(T[split + P.H - 1]);
-    ctx.fillStyle = rgba(C.impact, 0.06);
-    ctx.fillRect(xs, geo.T - 6, xe - xs, geo.ph + 6);
-  }
   if (A.partial[n - 1]) {
     const xa = X(T[n - 1]), xb = X(bucketStart(A.g, n));
     ctx.save();
@@ -1799,47 +2225,33 @@ function renderHero() {
     for (let x = xa - geo.ph; x < xb; x += 6) { ctx.beginPath(); ctx.moveTo(x, geo.T + geo.ph); ctx.lineTo(x + geo.ph, geo.T); ctx.stroke(); }
     ctx.restore();
   }
-  if ((mode === "explore" || mode === "decompose") && DEC.cp && DEC.cp.gain > 0.5) {
-    const x = Math.round(X(T[DEC.cp.k])) + 0.5;
-    ctx.strokeStyle = C.dim; ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
+  const shift = trendShift();
+  if ((mode === "explore" || mode === "decompose") && shift) {
+    const x = Math.round(X(T[shift.k])) + 0.5;
+    ctx.strokeStyle = rgba(C.warn, 0.7); ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x, geo.T - 4); ctx.lineTo(x, geo.T + geo.ph); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = C.dim; ctx.textAlign = "left"; ctx.font = font(11, 600);
-    ctx.fillText("Trend change", x + 5, geo.T + 6);
-    ctx.font = font(11);
-  }
-  if (mode === "impact") {
-    for (const e of EVENTS) {
-      if (IMP && e.i === IMP.T) continue;
-      const x = X(T[e.i]);
-      if (x < geo.L || x > geo.L + geo.pw) continue;
-      ctx.strokeStyle = rgba(C.impact, 0.5); ctx.setLineDash([2, 4]); ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, geo.T); ctx.lineTo(Math.round(x) + 0.5, geo.T + geo.ph); ctx.stroke(); ctx.setLineDash([]);
-    }
   }
 
   const rawEnd = Math.min(n - 1, N - 1);
   const histEnd = isF ? split - 1 : N - 1;
   const raw = (i) => A.y[i];
-  const emphasis = mode !== "explore" || !cfg.showSmooth || A.g.unit !== "day";
+  const emphasis = mode !== "explore" || !cfg.showSmooth || (A.g.unit !== "day" && A.g.unit !== "min");
 
   if (mode === "explore" && cfg.lastYear) {
     ctx.strokeStyle = rgba(C.dim, 0.75); ctx.setLineDash([4, 3]); ctx.lineWidth = 1.25;
     linePath(ctx, Math.max(i0, A.g.ly), Math.min(i1, n - 1), (i) => A.y[i - A.g.ly]);
     ctx.stroke(); ctx.setLineDash([]);
   }
-  if (isI) {
-    for (let h = 0; h < P.H - 1; h++) {
-      const i = split + h, a0 = A.y[i], a1 = A.y[i + 1];
-      if (!(a0 === a0) || !(a1 === a1)) continue;
-      const e0 = P.f.F[h], e1 = P.f.F[h + 1];
-      ctx.fillStyle = rgba(a0 - e0 + (a1 - e1) >= 0 ? C.ok : C.danger, 0.24);
-      ctx.beginPath(); ctx.moveTo(X(T[i]), Y(a0)); ctx.lineTo(X(T[i + 1]), Y(a1)); ctx.lineTo(X(T[i + 1]), Y(e1)); ctx.lineTo(X(T[i]), Y(e0)); ctx.closePath(); ctx.fill();
-    }
-  }
   ctx.lineJoin = "round"; ctx.lineCap = "round";
+  // The estimated shift: a straight trend on each side of the break, over the data.
+  if ((mode === "explore" || mode === "decompose") && shift) {
+    ctx.strokeStyle = C.warn; ctx.lineWidth = 2.5; ctx.setLineDash([7, 4]);
+    for (const sg of shift.segs) { ctx.beginPath(); ctx.moveTo(X(T[sg.i0]), Y(sg.at(sg.i0))); ctx.lineTo(X(T[sg.i1]), Y(sg.at(sg.i1))); ctx.stroke(); }
+    ctx.setLineDash([]);
+  }
   ctx.strokeStyle = emphasis ? C.text : rgba(C.raw, 0.75);
-  ctx.globalAlpha = mode === "explore" && cfg.showSmooth && emphasis ? 0.5 : isI ? 0.95 : emphasis ? 0.85 : 1;
-  ctx.lineWidth = isI ? 1.75 : emphasis ? 1.5 : 1;
+  ctx.globalAlpha = mode === "explore" && cfg.showSmooth && emphasis ? 0.5 : emphasis ? 0.85 : 1;
+  ctx.lineWidth = emphasis ? 1.5 : 1;
   linePath(ctx, i0, Math.min(i1, histEnd), raw);
   ctx.stroke();
   ctx.globalAlpha = 1;
@@ -1920,14 +2332,14 @@ function renderHero() {
   }
   ctx.restore();
 
-  const handleT = P ? P.T : mode === "impact" && IMP ? IMP.T : null;
+  const handleT = P ? P.T : null;
   if (handleT != null) {
-    const color = mode === "impact" ? C.impact : C.forecast;
+    const color = C.forecast;
     const xs = X(T[handleT - 1]);
     if (xs >= geo.L && xs <= geo.L + geo.pw) {
       ctx.strokeStyle = color; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(Math.round(xs) + 0.5, geo.T - 8); ctx.lineTo(Math.round(xs) + 0.5, geo.T + geo.ph); ctx.stroke();
-      const label = mode === "impact" ? `${IMP.event.label} · ${shortPeriod(A.g, T[handleT])}` : MOD.T < A.modelN ? "Backtest from " + shortPeriod(A.g, T[split]) : "Forecast";
+      const label = MOD.T < A.modelN ? "Backtest from " + shortPeriod(A.g, T[split]) : "Forecast";
       pill(ctx, xs, geo.T - 18, label + "  ⇆", color, C.panel, "center");
     }
     if (P) {
@@ -1936,11 +2348,15 @@ function renderHero() {
     }
   }
 
+  if ((mode === "explore" || mode === "decompose") && shift) {
+    const xs = X(T[shift.k]);
+    if (xs >= geo.L && xs <= geo.L + geo.pw) pill(ctx, xs, geo.T - 18, `Trend shift ${shortPeriod(A.g, T[shift.k])}: ${shift.text}`, C.warn, C.panel, xs > geo.L + geo.pw * 0.7 ? "right" : "left");
+  }
   if (geo.wide) {
     const labels = [];
     const lastIn = (get, end) => { for (let i = Math.min(i1, end); i >= i0; i--) { const v = get(i); if (v === v) return { i, v }; } return null; };
-    const r = lastIn(raw, isI ? Math.min(histEnd, split + P.H - 1) : histEnd);
-    if (r) labels.push({ y: Y(r.v), color: emphasis ? C.text : C.dim, text: isI ? "Actual" : measureWord(), val: compact(r.v) });
+    const r = lastIn(raw, histEnd);
+    if (r) labels.push({ y: Y(r.v), color: emphasis ? C.text : C.dim, text: measureWord(), val: compact(r.v) });
     if (mode === "explore" && cfg.showSmooth) { const s = lastIn((i) => SM[i], N - 1); if (s) labels.push({ y: Y(s.v), color: C.accent, text: cfg.smoothW + "-" + A.g.noun.split(" ").pop() + " " + cfg.smoothStat, val: compact(s.v) }); }
     if (mode === "decompose" && DEC.dec) { const s = lastIn((i) => DEC.dec.trend[i], N - 1); if (s) labels.push({ y: Y(s.v), color: C.accent, text: "Trend", val: compact(s.v) }); }
     if (P) {
@@ -1997,6 +2413,11 @@ function renderOverlay(now) {
   ctx.clearRect(0, 0, geo.w, geo.h);
   if (!A) return;
   const T = times();
+  if (drag && drag.kind === "box" && drag.x1 != null) {
+    const a = Math.min(drag.x0, drag.x1), w = Math.abs(drag.x1 - drag.x0);
+    ctx.fillStyle = rgba(C.accent, 0.12); ctx.fillRect(a, geo.T, w, geo.ph);
+    ctx.strokeStyle = rgba(C.accent, 0.6); ctx.lineWidth = 1; ctx.strokeRect(Math.round(a) + 0.5, geo.T + 0.5, Math.round(w), geo.ph - 1);
+  }
   if (pulse) {
     const t = Math.max(0, (now - pulse.start) / 1600);
     if (t >= 1) pulse = null;
@@ -2011,7 +2432,6 @@ function renderOverlay(now) {
     }
   }
   if (cfg.mode === "decompose") renderDecOverlay();
-  if (cfg.mode === "impact") renderCum();
   if (hoverIdx < 0) { readoutEl.hidden = true; return; }
   const i = hoverIdx, x = X(T[i]);
   if (x < geo.L - 1 || x > geo.L + geo.pw + 1) { readoutEl.hidden = true; return; }
@@ -2035,25 +2455,24 @@ function renderReadout(i, x) {
   let note = "";
   if (i < A.n) {
     const v = A.y[i];
-    rows.push([C.text, inP && P.kind === "impact" ? "Actual" : measureWord(), full(v)]);
+    rows.push([C.text, measureWord(), full(v)]);
     if (cfg.mode === "explore" && cfg.showSmooth && i < A.modelN) rows.push([C.accent, cfg.smoothW + "-" + g.noun.split(" ").pop() + " " + cfg.smoothStat, full(SM[i])]);
     const cp1 = i > 0 ? chg(v, A.y[i - 1]) : null, cpy = i - g.ly >= 0 ? chg(v, A.y[i - g.ly]) : null;
     if (!inP && cp1) rows.push([null, "vs previous", cp1.text]);
-    if (!inP && cpy) rows.push([null, "vs a year earlier", cpy.text]);
+    if (!inP && cpy) rows.push([null, `vs ${A.g.lyAgo}`, cpy.text]);
     if (cfg.mode === "decompose" && DEC.dec && i < A.modelN) {
       rows.push([C.accent, "Trend", full(DEC.dec.trend[i])]);
       rows.push([null, "Seasonal", signed(DEC.dec.seasonal[i])]);
       rows.push([null, "Remainder", signed(DEC.dec.rem[i])]);
     }
-    if (A.filled[i]) note = `No rows in this ${g.noun}; ${cfg.gaps === "zero" ? "filled with zero" : "interpolated"}.`;
+    if (A.filled[i]) note = `No rows in this ${g.noun}; ${cfg.gaps === "zero" ? "filled with zero" : cfg.gaps === "seasonal" ? "filled with the usual pattern" : "interpolated"}.`;
     else if (!(A.y[i] === A.y[i])) note = `No rows in this ${g.noun}.`;
-    else if (A.partial[i]) note = `Partial ${g.noun}: about ${Math.round(A.coverage[i] * 100)}% of its data.`;
+    else if (A.partial[i]) note = `Partial ${g.noun}: the data covers about ${Math.round(A.partShare[i] * 100)}% of it.`;
     else if (A.coverage[i] < 0.9) note = `${A.missing[i]} of ${Math.round(A.expected[i])} expected ${cadenceNoun(DATA.cadence)} have no rows.`;
     if ((cfg.mode === "explore" || cfg.mode === "decompose") && DEC.dec && DEC.anomalies.includes(i)) note = (note ? note + " " : "") + `<span class="flag">Unusual: ${chg(A.y[i], DEC.dec.trend[i] + DEC.dec.seasonal[i]).text} vs expected.</span>`;
   }
   if (inP) {
-    rows.push([P.color, P.kind === "impact" ? "Expected" : "Forecast", full(P.f.F[h])]);
-    if (P.kind === "impact" && A.y[i] === A.y[i]) rows.push([null, "Effect", chg(A.y[i], P.f.F[h]).text]);
+    rows.push([P.color, "Forecast", full(P.f.F[h])]);
     rows.push([null, "80% range", compact(P.f.lo80[h]) + " to " + compact(P.f.hi80[h])]);
     if (P.kind === "forecast" && cfg.level === "fan") rows.push([null, "95% range", compact(P.f.lo95[h]) + " to " + compact(P.f.hi95[h])]);
     if (P.kind === "forecast" && i < A.modelN && A.y[i] === A.y[i]) note = `Held out: actual ${full(A.y[i])}, ${A.y[i] >= P.f.lo80[h] && A.y[i] <= P.f.hi80[h] ? "inside" : "outside"} the 80% band.`;
@@ -2096,7 +2515,6 @@ function renderNav() {
     for (let k = 0; k < P.H; k++) ctx.lineTo(nx(T[P.T + k]), ny(P.f.F[k]));
     ctx.stroke(); ctx.setLineDash([]);
   }
-  if (cfg.mode === "impact") for (const e of EVENTS) { ctx.fillStyle = C.impact; ctx.fillRect(Math.round(nx(T[e.i])), 2, 1.5, h - 4); }
   const a = Math.max(0, nx(view[0])), b = Math.min(w, nx(view[1]));
   ctx.fillStyle = rgba(C.bg, 0.6);
   ctx.fillRect(0, 0, a, h); ctx.fillRect(b, 0, w - b, h);
@@ -2119,17 +2537,21 @@ function renderDec() {
   if (!d) { ctx.fillStyle = C.dim; ctx.font = font(13); ctx.fillText(`Needs at least two full seasons of ${A.g.nouns} to separate trend from season.`, 16, 30); return; }
   const T = times(), N = A.modelN;
   const [i0, i1] = visibleRange();
+  const P = d.parts;
   const rowsDef = [
     { name: "Trend", get: (i) => d.trend[i], color: C.accent, kind: "line" },
-    { name: `Seasonal · ${periodName(d.m)}`, get: (i) => d.seasonal[i], color: C.forecast, kind: "line", zero: true },
+    ...(P
+      ? [{ name: "Daily cycle", get: (i) => P.daily[i % P.pd], color: C.forecast, kind: "line", zero: true },
+         { name: "Day of week, on top of the daily cycle", get: (i) => P.weekly[i % (7 * P.pd)], color: C.impact, kind: "line", zero: true }]
+      : [{ name: `Seasonal · ${periodName(d.m)}`, get: (i) => d.seasonal[i], color: C.forecast, kind: "line", zero: true }]),
     { name: "Remainder", get: (i) => d.rem[i], color: C.raw, kind: "bars", zero: true },
   ];
-  const gap = 10, top = 4, rh = (r.height - top - gap * 2 - 4) / 3;
+  const nr = rowsDef.length, gap = 10, top = 4, rh = (r.height - top - gap * (nr - 1) - 4) / nr;
   rowsDef.forEach((row, k) => {
     const y0 = top + k * (rh + gap);
     let lo = Infinity, hi = -Infinity;
     for (let i = i0; i <= Math.min(i1, N - 1); i++) { const v = row.get(i); if (v < lo) lo = v; if (v > hi) hi = v; }
-    if (k === 2) { const lim = cfg.sens * DEC.mad; lo = Math.min(lo, -lim); hi = Math.max(hi, lim); }
+    if (row.kind === "bars") { const lim = cfg.sens * DEC.mad; lo = Math.min(lo, -lim); hi = Math.max(hi, lim); }
     if (row.zero) { const m = Math.max(Math.abs(lo), Math.abs(hi)) || 1; lo = -m; hi = m; }
     const padv = (hi - lo) * 0.1 || 1; lo -= padv; hi += padv;
     const yy = (v) => y0 + rh - ((v - lo) / (hi - lo)) * rh;
@@ -2140,7 +2562,7 @@ function renderDec() {
     ctx.fillText(compact(hi - padv), geo.L - 8, yy(hi - padv)); ctx.fillText(compact(lo + padv), geo.L - 8, yy(lo + padv));
     ctx.save(); ctx.beginPath(); ctx.rect(geo.L, y0, geo.pw, rh); ctx.clip();
     if (row.zero) { ctx.strokeStyle = C.border; ctx.beginPath(); ctx.moveTo(geo.L, Math.round(yy(0)) + 0.5); ctx.lineTo(geo.L + geo.pw, Math.round(yy(0)) + 0.5); ctx.stroke(); }
-    if (k === 2) {
+    if (row.kind === "bars") {
       const lim = cfg.sens * DEC.mad;
       ctx.fillStyle = rgba(C.danger, 0.06);
       ctx.fillRect(geo.L, y0, geo.pw, yy(lim) - y0);
@@ -2181,103 +2603,77 @@ function renderDecOverlay() {
     ctx.strokeStyle = C.panel; ctx.lineWidth = 2; ctx.stroke();
   }
 }
-/** Cumulative effect since the event, on the chart's time axis, with its 80% range. */
-function renderCum() {
-  if (cfg.mode !== "impact") return;
-  const r = cumCanvas.parentElement.getBoundingClientRect();
-  if (!r.width) return;
-  const ctx = cumCanvas.getContext("2d");
-  ctx.setTransform(geo.dpr, 0, 0, geo.dpr, 0, 0);
-  ctx.clearRect(0, 0, r.width, r.height);
-  if (!IMP || IMP.error) return;
-  const T = times(), { T: ev, H, ce, lo, hi } = IMP;
-  const top = 18, bot = r.height - 8, ph = bot - top;
-  let mn = 0, mx = 0;
-  for (let h = 0; h < H; h++) { mn = Math.min(mn, lo[h], ce[h]); mx = Math.max(mx, hi[h], ce[h]); }
-  const pad = (mx - mn) * 0.1 || 1; mn -= pad; mx += pad;
-  const yy = (v) => bot - ((v - mn) / (mx - mn)) * ph;
-  ctx.fillStyle = C.panel2; ctx.fillRect(geo.L, top, geo.pw, ph);
-  ctx.save(); ctx.beginPath(); ctx.rect(geo.L, top, geo.pw, ph); ctx.clip();
-  ctx.strokeStyle = C.border; ctx.beginPath(); ctx.moveTo(geo.L, Math.round(yy(0)) + 0.5); ctx.lineTo(geo.L + geo.pw, Math.round(yy(0)) + 0.5); ctx.stroke();
-  const x0 = X(T[ev - 1]);
-  ctx.fillStyle = rgba(C.impact, 0.18);
-  ctx.beginPath(); ctx.moveTo(x0, yy(0));
-  for (let h = 0; h < H; h++) ctx.lineTo(X(T[ev + h]), yy(hi[h]));
-  for (let h = H - 1; h >= 0; h--) ctx.lineTo(X(T[ev + h]), yy(lo[h]));
-  ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = IMP.total >= 0 ? C.ok : C.danger; ctx.lineWidth = 2.25;
-  ctx.beginPath(); ctx.moveTo(x0, yy(0));
-  for (let h = 0; h < H; h++) ctx.lineTo(X(T[ev + h]), yy(ce[h]));
-  ctx.stroke();
-  if (hoverIdx >= ev && hoverIdx < ev + H) {
-    const x = X(T[hoverIdx]);
-    ctx.strokeStyle = rgba(C.text, 0.35); ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, top); ctx.lineTo(Math.round(x) + 0.5, bot); ctx.stroke();
-    ctx.beginPath(); ctx.arc(x, yy(ce[hoverIdx - ev]), 4, 0, Math.PI * 2); ctx.fillStyle = C.text; ctx.fill();
-  }
-  ctx.restore();
-  ctx.fillStyle = C.dim; ctx.font = font(11, 600); ctx.textAlign = "left";
-  ctx.fillText(`Cumulative effect since ${shortPeriod(A.g, T[ev])}, with 80% range`, geo.L, top - 6);
-  ctx.font = font(11); ctx.textAlign = "right"; ctx.textBaseline = "middle";
-  ctx.fillText("0", geo.L - 8, yy(0));
-  ctx.fillText(compact(mx - pad), geo.L - 8, yy(mx - pad));
-  ctx.fillText(compact(mn + pad), geo.L - 8, yy(mn + pad));
-  ctx.textBaseline = "alphabetic";
-  if (geo.wide) {
-    const end = X(T[ev + H - 1]);
-    ctx.textAlign = "left"; ctx.fillStyle = IMP.total >= 0 ? C.ok : C.danger; ctx.font = font(13, 650);
-    ctx.fillText(signed(IMP.total), Math.min(end + 8, geo.L + geo.pw + 10), yy(IMP.total) + 4);
-  }
-}
 function periodName(m) {
   const g = A.g;
   if (!m) return "none";
-  if (g.unit === "day" && m === 7) return "weekly";
-  if (g.periods.includes(m)) return "yearly";
-  return `${m}-${g.noun.split(" ").pop()} cycle`;
+  return g.seasons[m] || `${m}-${g.noun.split(" ").pop()} cycle`;
 }
 
 /* ============================================================ findings */
+/** A cycle's length in a bigger unit when that reads better: " (2.5 years)", " (1.5 days)". */
+/**
+ * The trend's one clear break, when the decomposition found one and the person has not
+ * switched it off: a straight line fitted to the trend on each side, and the rate before
+ * and after in words.
+ */
+function trendShift() {
+  const cp = DEC && DEC.cp;
+  if (!cfg.showShift || !cp || cp.gain <= 0.5) return null;
+  const N = A.modelN, k = cp.k;
+  const line = (i0, i1, sg) => { const xm = (i0 + i1) / 2; return { i0, i1, at: (i) => sg.mean + sg.slope * (i - xm) }; };
+  const kk = Math.max(rateK(...monthlyParts(cp.before.slope, cp.before.mean)), rateK(...monthlyParts(cp.after.slope, cp.after.mean)));
+  const short = (t) => t.replace(" a month", "/mo").replace(" a year", "/yr").replace(" a decade", "/decade").replace(" a century", "/century");
+  return { k, segs: [line(0, k - 1, cp.before), line(k, N - 1, cp.after)],
+    text: `${short(monthlyRate(cp.before.slope, cp.before.mean, kk))} → ${short(monthlyRate(cp.after.slope, cp.after.mean, kk))}` };
+}
+function cycleSpan(g, m) {
+  const yrs = m / g.perYear, days = m * g.days;
+  if (yrs >= 1) return ` (${yrs.toFixed(1)} years)`;
+  if (g.unit === "min" && days >= 1) return ` (${days.toFixed(1)} days)`;
+  return "";
+}
 function phaseLabel(m, k) {
   const g = A.g;
   if (g.unit === "day" && m === 7) return WEEKDAYS[k % 7];
   let idx = -1;
   for (let i = A.modelN - 1; i >= 0; i--) if (i % m === k) { idx = i; break; }
   const dt = new Date(A.t[idx]);
+  if (g.unit === "min") return m === 7 * g.perDay ? dfWd.format(dt) + " " + dfTime.format(dt) : m === g.perDay ? dfTime.format(dt) : shortPeriod(g, A.t[idx]);
   if (g.unit === "month" && g.n === 1) return MONTHS[dt.getUTCMonth()];
   if (g.unit === "month") return "Q" + (Math.floor(dt.getUTCMonth() / 3) + 1);
   if (g.unit === "day") return dfDM.format(dt);
   return (g.n === 1 ? "the week of " : `the ${g.n} weeks from `) + dfDM.format(dt);
 }
-/** Verdict wording shared by the strip, the findings and the effect cards. */
-function verdictOf(I) {
-  const dir = I.total >= 0 ? "rise" : "drop";
-  if (I.verdict === "clear") return { text: `Clear ${dir}`, cls: I.total >= 0 ? "up" : "down", note: "the 95% range leaves out zero" };
-  if (I.verdict === "possible") return { text: `Possible ${dir}`, cls: "flat", note: "only the 80% range leaves out zero" };
-  return { text: "No clear effect", cls: "flat", note: "the 80% range includes zero" };
-}
-function impactSentence(I) {
-  const g = A.g;
-  const when = `over the ${I.H} ${nounFor(g, I.H)} after <b>${I.event.label}</b> on ${shortPeriod(g, A.t[I.T])}`;
-  if (I.rel === I.rel) return `${measureWord()} ran <b>${Math.abs(I.rel * 100).toFixed(1)}% ${I.total >= 0 ? "above" : "below"}</b> expected ${when} (80%: ${pct(I.relLo, 1)} to ${pct(I.relHi, 1)}).`;
-  return `${measureWord()} ran <b>${signed(I.total)}</b> against expected in total ${when} (80%: ${signed(I.lo[I.H - 1])} to ${signed(I.hi[I.H - 1])}).`;
+/** The daily + weekly split in words: the hour that peaks, then the weekday that adds most. */
+function seasonPartsFinding(d) {
+  const g = A.g, { daily, weekly, pd } = d.parts;
+  const amt = (v) => (A.allPositive && d.level > 0 ? Math.abs((v / d.level) * 100).toFixed(0) + "%" : compact(Math.abs(v)));
+  let hi = 0, lo = 0;
+  for (let k = 0; k < pd; k++) { if (daily[k] > daily[hi]) hi = k; if (daily[k] < daily[lo]) lo = k; }
+  // What each weekday adds: the weekly part averaged over that day's periods.
+  const add = new Float64Array(7), cnt = new Float64Array(7);
+  for (let k = 0; k < 7 * pd; k++) { const wd = weekdayAt(A.t[k]); add[wd] += weekly[k]; cnt[wd]++; }
+  for (let k = 0; k < 7; k++) add[k] /= cnt[k] || 1;
+  let dh = 0, dl = 0;
+  for (let k = 0; k < 7; k++) { if (add[k] > add[dh]) dh = k; if (add[k] < add[dl]) dl = k; }
+  const at = (k) => dfTime.format(new Date(A.t[k]));
+  return { kind: "Season · daily + weekly", color: C.forecast, meter: d.fs, meterLabel: "seasonal strength",
+    html: `Within a day, <b>${at(hi)}</b> runs <b>${amt(daily[hi])}</b> above the average ${g.noun}; <b>${at(lo)}</b> <b>${amt(daily[lo])}</b> below. Across the week, ${WEEKDAYS[dh]} add <b>${amt(add[dh])}</b> on top of that and ${WEEKDAYS[dl]} take off <b>${amt(add[dl])}</b>.`,
+    acts: [{ label: "Decompose", fn: () => setMode("decompose") }] };
 }
 function buildInsights() {
   const out = [];
   const g = A.g, N = A.modelN, d = DEC.dec;
-  if (cfg.mode === "impact" && IMP && !IMP.error) {
-    out.push({ kind: `Impact · ${verdictOf(IMP).text.toLowerCase()}`, color: C.impact, html: impactSentence(IMP), acts: [{ label: "Fit view", fn: () => flyTo(impactView()) }] });
-  }
-  if (cfg.mode === "impact" && EVENTS.length > 1) {
-    out.push({ kind: `Events · ${EVENTS.length} found`, color: C.impact, html: "Lasting steps found in other numeric columns. Pick one to measure it, or drag the event line anywhere.",
-      acts: EVENTS.map((e) => ({ label: `${e.short} ${shortPeriod(g, A.t[e.i])}`, fn: () => openImpact(e.i) })) });
-  }
   if (d) {
-    const first = d.trend[0], lastv = d.trend[N - 1];
-    const months = (A.t[N - 1] - A.t[0]) / (30.44 * DAY);
+    const ends = Math.max(1, Math.round(N * 0.05));
+    let first = 0, lastv = 0;
+    for (let i = 0; i < ends; i++) { first += d.trend[i]; lastv += d.trend[N - 1 - i]; }
+    first /= ends; lastv /= ends;
+    const mid = (ends - 1) >> 1;
+    const months = (A.t[N - 1 - mid] - A.t[mid]) / (30.44 * DAY);
     const html = A.allPositive && first > 0
-      ? `${measureWord()} ${lastv >= first ? "rose" : "fell"} <b>${Math.abs((lastv / first - 1) * 100).toFixed(0)}%</b> over the period, about <b>${pct(Math.pow(lastv / first, 1 / Math.max(1, months)) - 1, 1)}</b> a month.`
-      : `${measureWord()}'s trend went from <b>${compact(first)}</b> to <b>${compact(lastv)}</b> over the period, about <b>${signed((lastv - first) / Math.max(1, months))}</b> a month.`;
+      ? `${measureLead()} ${lastv >= first ? "rose" : "fell"} <b>${Math.abs((lastv / first - 1) * 100).toFixed(0)}%</b> over the period, about <b>${rateText(Math.pow(lastv / first, 1 / Math.max(1, months)) - 1, true)}</b>.`
+      : `${measureLead()}'s trend went from <b>${compact(first)}</b> to <b>${compact(lastv)}</b> over the period, about <b>${rateText((lastv - first) / Math.max(1, months), false)}</b>.`;
     out.push({ kind: "Trend", color: C.accent, meter: d.ft, meterLabel: "trend strength", html,
       acts: [{ label: "Show all", fn: () => flyTo(fullView()) }] });
     const cp = DEC.cp;
@@ -2287,21 +2683,25 @@ function buildInsights() {
       for (let i = 0; i < N; i++) scale += Math.abs(A.yModel[i]);
       scale = scale / N || 1;
       const b = (cp.before.slope * k) / scale, a = (cp.after.slope * k) / scale;
+      const kk = Math.max(rateK(...monthlyParts(cp.before.slope, cp.before.mean)), rateK(...monthlyParts(cp.after.slope, cp.after.mean)));
       if (Math.abs(b - a) > 0.006) out.push({ kind: "Change", color: C.dim,
-        html: `The trend ${a < b ? "slowed" : "picked up"} from <b>${dfMonShort.format(new Date(A.t[cp.k]))}</b>: <b>${monthlyRate(cp.before.slope, cp.before.mean)}</b> a month before, <b>${monthlyRate(cp.after.slope, cp.after.mean)}</b> after.`,
-        acts: [{ label: "Show", fn: () => { flyTo([A.t[Math.max(0, cp.k - Math.round(g.perYear * 0.75))], A.t[Math.min(N - 1, cp.k + Math.round(g.perYear * 0.6))]]); pulse = { indices: [], rule: cp.k, start: performance.now() }; } }, { label: "Measure it", fn: () => openImpact(cp.k) }] });
+        html: `The trend ${a < b ? "slowed" : "picked up"} from <b>${dfMonShort.format(new Date(A.t[cp.k]))}</b>: <b>${monthlyRate(cp.before.slope, cp.before.mean, kk)}</b> before, <b>${monthlyRate(cp.after.slope, cp.after.mean, kk)}</b> after.`,
+        acts: [{ label: "Show", fn: () => { flyTo([A.t[Math.max(0, cp.k - Math.round(g.ctx * 0.75))], A.t[Math.min(N - 1, cp.k + Math.round(g.ctx * 0.6))]]); pulse = { indices: [], rule: cp.k, start: performance.now() }; } }] });
     }
-    const prof = d.prof;
+    const prof = d.m > 60 ? circularSmooth(d.prof, Math.round(d.m / 24)) : d.prof;
     let hiK = 0, loK = 0;
     for (let k = 0; k < d.m; k++) { if (prof[k] > prof[hiK]) hiK = k; if (prof[k] < prof[loK]) loK = k; }
     const unit = g.unit === "day" && d.m === 7 ? "day" : g.unit === "month" && g.n === 1 ? "month" : g.noun;
-    const calendar = d.m && (g.periods.includes(d.m) || (g.unit === "day" && d.m === 7));
-    if (!d.m) out.push({ kind: "Season · none", color: C.forecast, html: `No repeating cycle at this grain. Trend and leftovers only.`, acts: [{ label: "Decompose", fn: () => setMode("decompose") }] });
+    const calendar = d.m && g.seasons[d.m];
+    if (!d.m && DEC.cycle) out.push({ kind: "Season · rough cycle", color: C.forecast, html: `A rough cycle of about <b>${DEC.cycle} ${g.nouns}</b>${cycleSpan(g, DEC.cycle)} shows up, but its length drifts too much to treat as a season. Trend and leftovers only; pick it under Decompose to try.`,
+      acts: [{ label: "Decompose", fn: () => setMode("decompose") }] });
+    else if (!d.m) out.push({ kind: "Season · none", color: C.forecast, html: `No repeating cycle at this grain. Trend and leftovers only.`, acts: [{ label: "Decompose", fn: () => setMode("decompose") }] });
+    else if (d.parts) out.push(seasonPartsFinding(d));
     else if (!calendar) {
       let lastHi = -1, lastLo = -1;
       for (let i = N - 1; i >= 0 && (lastHi < 0 || lastLo < 0); i--) { if (lastHi < 0 && i % d.m === hiK) lastHi = i; if (lastLo < 0 && i % d.m === loK) lastLo = i; }
       out.push({ kind: `Season · ${periodName(d.m)}`, color: C.forecast, meter: d.fs, meterLabel: "seasonal strength",
-        html: `Repeats about every <b>${d.m} ${g.nouns}</b>${g.perYear > 1 ? ` (${(d.m / g.perYear).toFixed(1)} years)` : ""}. Latest high phase around <b>${shortPeriod(g, A.t[lastHi])}</b>, latest low around <b>${shortPeriod(g, A.t[lastLo])}</b>; swing about <b>${compact(prof[hiK] - prof[loK])}</b>.`,
+        html: `Repeats about every <b>${d.m} ${g.nouns}</b>${cycleSpan(g, d.m)}. Latest high phase around <b>${shortPeriod(g, A.t[lastHi])}</b>, latest low around <b>${shortPeriod(g, A.t[lastLo])}</b>; swing about <b>${compact(prof[hiK] - prof[loK])}</b>.`,
         acts: [{ label: "Decompose", fn: () => setMode("decompose") }] });
     } else out.push({ kind: `Season · ${periodName(d.m)}`, color: C.forecast, meter: d.fs, meterLabel: "seasonal strength",
       html: `${cap(phaseLabel(d.m, hiK))} ${d.m === 7 ? "run" : "runs"} <b>${A.allPositive && d.level > 0 ? ((prof[hiK] / d.level) * 100).toFixed(0) + "%" : compact(prof[hiK])}</b> above an average ${unit}; ${phaseLabel(d.m, loK)} <b>${A.allPositive && d.level > 0 ? Math.abs((prof[loK] / d.level) * 100).toFixed(0) + "%" : compact(Math.abs(prof[loK]))}</b> below.`,
@@ -2314,11 +2714,6 @@ function buildInsights() {
         acts: DEC.anomalies.slice(0, 4).map((j) => ({ label: shortPeriod(g, A.t[j]), fn: () => focusIndex(j) })) });
     }
   }
-  if (cfg.mode !== "impact" && EVENTS.length) {
-    out.push({ kind: `Events · ${EVENTS.length} found`, color: C.impact,
-      html: `${EVENTS.length} lasting ${EVENTS.length === 1 ? "step" : "steps"} in ${[...new Set(EVENTS.map((e) => e.col))].join(", ")}. Measure what ${EVENTS.length === 1 ? "it" : "each"} did to ${measureWord()}.`,
-      acts: EVENTS.map((e) => ({ label: `${e.short} ${shortPeriod(g, A.t[e.i])}`, fn: () => openImpact(e.i) })) });
-  }
   if (MOD && !MOD.error && FUT) {
     const key = selectedModel(), f = FUT[key], r = ratioOf(key);
     const gr = grade(r, key);
@@ -2326,23 +2721,35 @@ function buildInsights() {
     for (let k = 0; k < MOD.H; k++) { avg += f.F[k]; l += f.lo80[k]; h += f.hi80[k]; }
     const beat = key === "sn" ? "Nothing beats repeating the last cycle here." : `<b>${MODEL_INFO[key].name}</b> beats repeating the last cycle by <b>${Math.max(0, (1 - r) * 100).toFixed(0)}%</b>${f.held ? " on the held-out " + g.nouns : ""}.`;
     out.push({ kind: `Forecast · ${gr.text}`, color: C.forecast,
-      html: `${beat} Next ${MOD.H} ${nounFor(g, MOD.H)}: <b>${compact(avg / MOD.H)}</b> a ${g.noun} on average (80%: ${compact(l / MOD.H)} to ${compact(h / MOD.H)}).`,
+      html: `${beat} Next ${MOD.H} ${nounFor(g, MOD.H)}: <b>${compact(avg / MOD.H)}</b> ${aNoun(g)} on average (80%: ${compact(l / MOD.H)} to ${compact(h / MOD.H)}).`,
       acts: [{ label: cfg.mode === "forecast" ? "Fit view" : "Open forecast", fn: () => { setMode("forecast"); flyTo(forecastView()); } }] });
   } else if (MOD && MOD.error) out.push({ kind: "Forecast", color: C.forecast, html: MOD.error, acts: [] });
   const bits = [], cn = cadenceNoun(DATA.cadence);
   if (A.gapRanges.length) {
-    const fmt = ([a, b]) => dfDate.format(new Date(START + a * DAY)) + (b > a ? " – " + dfDate.format(new Date(START + b * DAY)) : "");
-    const slots = A.gapRanges.reduce((s2, [a, b]) => s2 + Math.max(1, Math.round((b - a + 1) / Math.max(1, DATA.cadence))), 0);
-    bits.push(`<b>${nf.format(slots)} ${slots === 1 ? cn.replace(/s$/, "") : cn}</b> with no rows (${A.gapRanges.slice(0, 3).map(fmt).join(", ")}${A.gapRanges.length > 3 ? `, and ${A.gapRanges.length - 3} more stretches` : ""}). Periods left with no rows are ${cfg.gaps === "zero" ? "filled with zero" : cfg.gaps === "interp" ? "interpolated" : "left empty"}.`);
+    const fmt = ([a, b]) => fmtInstant(START + a * SLOT) + (b > a ? " – " + (SPD > 1 && dayOf(a) === dayOf(b) ? dfTime.format(new Date(START + b * SLOT)) : fmtInstant(START + b * SLOT)) : "");
+    const realSlots = (a, b) => { let c = 0; for (let d = a; d <= b; d++) if (!DATA.structural[SWD[d]]) c++; return c; };
+    const slots = A.gapRanges.reduce((s2, [a, b]) => s2 + Math.max(1, Math.round(realSlots(a, b) / Math.max(1, DATA.cadSlots))), 0);
+    bits.push(`<b>${nf.format(slots)} ${slots === 1 ? cn.replace(/s$/, "") : cn}</b> with no rows (${A.gapRanges.slice(0, 3).map(fmt).join(", ")}${A.gapRanges.length > 3 ? `, and ${A.gapRanges.length - 3} more stretches` : ""}). Periods with no rows are ${cfg.gaps === "zero" ? "filled with zero" : cfg.gaps === "interp" ? "interpolated" : cfg.gaps === "seasonal" ? "filled with the usual pattern" : "left empty"}${cfg.gaps === "zero" ? "" : "; the models bridge them with the usual pattern and never learn from or score them"}.`);
   }
   const struct = [0, 1, 2, 3, 4, 5, 6].filter((k) => DATA.structural[k]).map((k) => WEEKDAYS[k]);
   if (struct.length) bits.push(`${struct.join(" and ")} never have rows, so they are not counted as missing.`);
-  if (DATA.subDay) bits.push("Rows are finer than a day; this prototype shows days at the finest.");
-  if (A.naRows) bits.push(`${nf.format(A.naRows)} rows have no ${cfg.measure} value and are left out.`);
+  // Finer rows shown at a day or coarser: the cycle within the day is averaged away.
+  const finer = DATA.subDay && g.unit !== "min" ? GRAIN_ORDER.find((id) => GRAINS[id].unit === "min" && !tooFine(id)) : null;
+  if (finer) bits.push(`Rows come about every ${cadenceText(DATA.cadence)}; ${GRAINS[finer].adj.toLowerCase()} grain shows the pattern within each day.`);
+  const code = DATA.codes && DATA.codes[cfg.measure];
+  if (code) bits.push(`${nf.format(code.n)} rows of ${cfg.measure} hold ${code.code}, which sits apart from every other value, so it is read as a missing-value code and left out.`);
+  const blank = A.naRows - (code && cfg.group === "all" ? code.n : 0);
+  if (blank > 0) bits.push(`${nf.format(blank)} ${code ? "other " : ""}rows have no ${cfg.measure} value and are left out.`);
   if (DATA.dropped) bits.push(`${nf.format(DATA.dropped)} rows had no readable date and were skipped.`);
-  if (A.partial[A.n - 1]) bits.push(`The last ${g.noun} is partial (about ${Math.round(A.coverage[A.n - 1] * 100)}% of its data) and is ${cfg.partial === "exclude" ? "left out of trend and forecast" : "included"}.`);
-  const firstGap = A.gapRanges.length ? dayBuckets(g)[A.gapRanges[0][0]] : -1;
-  if (bits.length) out.push({ kind: "Data", color: C.warn, html: bits.join(" "), acts: firstGap >= 0 ? [{ label: "Show gap", fn: () => focusIndex(firstGap) }] : [] });
+  if (A.partial[A.n - 1]) bits.push(`The last ${g.noun} is partial (the data covers about ${Math.round(A.partShare[A.n - 1] * 100)}% of it) and is ${cfg.partial === "exclude" ? "left out of trend and forecast" : "included"}.`);
+  const firstGap = A.gapRanges.length ? slotBuckets(g)[A.gapRanges[0][0]] : -1;
+  const acts = firstGap >= 0 ? [{ label: "Show gap", fn: () => focusIndex(firstGap) }] : [];
+  if (finer) acts.push({ label: GRAINS[finer].adj, fn: () => choose("grain", finer) });
+  if (A.spread) {
+    bits.unshift(`Most ${g.nouns} hold between <b>${nf.format(A.spread[0])}</b> and <b>${nf.format(A.spread[1])}</b> values of ${cfg.measure}, so a sum rises and falls with how many there were. If each row is a reading at a moment (a level, a temperature, spaces in use), a mean fits; if each row is an amount (a sale, a visit), the sum is right.`);
+    acts.unshift({ label: "Use mean", fn: () => choose("agg", "mean") });
+  }
+  if (bits.length) out.push({ kind: "Data", color: C.warn, html: bits.join(" "), acts });
   return out;
 }
 function explain(i, expected) {
@@ -2352,7 +2759,7 @@ function explain(i, expected) {
     const ser = DRIVER_DEFS[d.col].series(), w = eventWindowLen(A.g), typ = regular(ser, i - w, i + w), ch = ser[i] / typ - 1;
     if (Math.abs(ch) > 0.05) return `<b>${d.col}</b> was ${Math.abs(ch * 100).toFixed(0)}% ${ch < 0 ? "below" : "above"} its usual level that ${A.g.noun}.`;
   }
-  if (cfg.agg !== "sum" || cfg.group !== "all") return "";
+  if (cfg.agg !== "sum" || cfg.group !== "all" || GROUPS.length < 2) return "";
   const excess = A.y[i] - expected;
   let tot = 0;
   const shares = GROUPS.map((_, r) => { let s = 0; for (let k = 0; k < A.modelN; k++) s += A.groupVal[r][k]; tot += s; return s; });
@@ -2369,7 +2776,7 @@ function flyTo(target) {
   invalidate();
 }
 function focusIndex(i) {
-  const w = Math.max(10, Math.round(A.g.perYear * 0.5));
+  const w = Math.max(10, Math.round(A.g.ctx * 0.5));
   flyTo([A.t[Math.max(0, i - w)], A.t[Math.min(A.n - 1, i + w)]]);
   pulse = { indices: [i], rule: null, start: performance.now() + 200 };
   hoverIdx = i;
@@ -2377,20 +2784,8 @@ function focusIndex(i) {
 function forecastView() {
   if (!MOD || MOD.error) return fullView();
   const T = times();
-  const back = Math.round(Math.max(MOD.H * 2.5, A.g.perYear * 1.5));
+  const back = Math.round(Math.max(MOD.H * 2.5, A.g.ctx * 1.5));
   return [T[Math.max(0, MOD.T - back)], T[MOD.T + MOD.H - 1] + (T[1] - T[0]) * 2];
-}
-function impactView() {
-  if (!IMP) return fullView();
-  const T = times();
-  const back = Math.round(Math.max(IMP.H * 3, A.g.perYear * 0.75));
-  return [T[Math.max(0, IMP.T - back)], T[Math.min(A.n - 1, IMP.T + IMP.H - 1 + Math.max(2, Math.round(IMP.H * 0.6)))]];
-}
-function openImpact(i) {
-  cfg.event = i; cfg.window = null;
-  if (cfg.mode !== "impact") setMode("impact");
-  else { compute(); invalidate("ui", "stat", "nav", "panel", "ov"); }
-  flyTo(impactView());
 }
 
 /* ============================================================ UI */
@@ -2400,7 +2795,7 @@ const TOKENS = {
   agg: { opts: [["sum", "sum"], ["mean", "mean"], ["median", "median"], ["min", "min"], ["max", "max"], ["first", "first"], ["last", "last"], ["count", "count of rows"]] },
   measure: { opts: [] },
   group: { opts: [] },
-  gaps: { opts: [["zero", "filled with zero"], ["interp", "interpolated"], ["leave", "left empty"]] },
+  gaps: { opts: [["seasonal", "filled with the usual pattern", "the typical shape for those periods, on a line between the levels either side"], ["interp", "interpolated", "a straight line between the periods either side"], ["zero", "filled with zero", "an empty period counts as 0, as for sales"], ["leave", "left empty", "a break in the line; models still bridge it with the usual pattern"]] },
   partial: { opts: [["exclude", "left out"], ["include", "kept"]] },
 };
 function refreshTokens() {
@@ -2410,9 +2805,9 @@ function refreshTokens() {
 function defaultGrain(t) {
   for (const id of GRAIN_ORDER) {
     if (tooFine(id)) continue;
-    const buckets = t.ndays / GRAINS[id].days;
+    const buckets = (t.nslots * t.slot) / DAY / GRAINS[id].days;
     if (buckets > 4000) continue;
-    if (t.eventLike && t.rowDay.length / buckets < 3) continue;
+    if (t.eventLike && t.rowSlot.length / buckets < 3) continue;
     return id;
   }
   return "year";
@@ -2424,7 +2819,7 @@ function loadTable(t) {
   refreshTokens();
   const g0 = defaultGrain(t);
   Object.assign(cfg, { grain: g0, agg: t.eventLike ? "count" : "sum", measure: t.defMeasure, group: "all", gaps: "leave", partial: "exclude",
-    smoothW: GRAINS[g0].smooth, showSmooth: true, lastYear: false, period: null, split: null, horizon: null, model: "auto", drivers: [], event: null, window: null, impactModel: "auto" });
+    smoothW: GRAINS[g0].smooth, showSmooth: true, lastYear: false, period: null, split: null, horizon: null, model: "auto", drivers: t.name === "Sample table" && t.cols.driver_x ? [{ col: "driver_x", rule: "hold", pct: 0 }] : [] });
   for (const k in cache) cache[k] = "";
   hwWarm.clear();
   allT = null;
@@ -2440,8 +2835,8 @@ async function openFile(file) {
     compute();
     view = clampView(fullView());
     invalidate("ui", "stat", "nav", "panel", "ov");
-    const last = START + DATA.observed[DATA.observed.length - 1] * DAY;
-    toast(`Loaded ${file.name}: ${nf.format(t.rowDay.length)} rows, ${dfDate.format(new Date(START))} to ${dfDate.format(new Date(last))}, a row about every ${cadenceNoun(t.cadence).replace(/s$/, "")}${t.subDay ? " (finer than a day)" : ""}.`);
+    const last = START + DATA.observed[DATA.observed.length - 1] * SLOT;
+    toast(`Loaded ${file.name}: ${nf.format(t.rowSlot.length)} rows, ${fmtInstant(t.eventTimes ? t.eventTimes.reduce((a, b) => Math.min(a, b), Infinity) : START)} to ${fmtInstant(last)}, a row about every ${cadenceText(t.cadence)}.${t.builtFrom ? ` Dates built from ${t.builtFrom.join(", ")}.` : ""}`);
   } catch (err) {
     toast(`Could not read ${file.name}: ${err.message}`);
   }
@@ -2453,9 +2848,10 @@ function renderUI() {
   document.getElementById("app").dataset.mode = cfg.mode;
   const count = cfg.agg === "count";
   document.getElementById("sentence").innerHTML = `${tok("grain")} ${tok("agg")}${count ? "" : ` of ${tok("measure")}`}${GROUPS.length > 1 ? ` for ${DATA.groupCol} ${tok("group")}` : ""}`;
-  const lastObs = START + DATA.observed[DATA.observed.length - 1] * DAY;
-  document.getElementById("subline").innerHTML = `${DATA.name} · ${nf.format(DATA.rowDay.length)} rows · ${dfDate.format(new Date(START))} to ${dfDate.format(new Date(lastObs))} · gaps ${tok("gaps")} · partial last ${g.noun} ${tok("partial")}`;
-  document.getElementById("why").textContent = `Each ${g.noun} is ${count ? "the number of rows" : `the ${cfg.agg} of the rows`} that fall in it. Click any highlighted word to change it.`;
+  const lastObs = START + DATA.observed[DATA.observed.length - 1] * SLOT;
+  document.getElementById("subline").innerHTML = `${DATA.name} · ${nf.format(DATA.rowSlot.length)} rows · ${dfDate.format(new Date(START))} to ${dfDate.format(new Date(lastObs))} · gaps ${tok("gaps")} · partial last ${g.noun} ${tok("partial")}`;
+  const across = cfg.group === "all" && GROUPS.length > 1 && !count && cfg.agg === "sum" ? ` That adds all ${GROUPS.length} ${DATA.groupCol} values together; pick one if they measure the same thing.` : "";
+  document.getElementById("why").textContent = `Each ${g.noun} is ${count ? "the number of rows" : `the ${cfg.agg} of the rows`} that fall in it.${across} Click any highlighted word to change it.`;
   document.getElementById("dataNote").textContent = DATA.name === "Sample table" ? "Sample table: generated, with neutral column names. Open any CSV with a date column to try your own data; it never leaves this tab." : "Your file stays in this tab; nothing is uploaded. Every number is computed here.";
   heroOverlay.setAttribute("aria-label", document.getElementById("sentence").textContent + ". Left and right arrows step through periods, Enter shows the rows.");
 
@@ -2467,30 +2863,26 @@ function renderUI() {
   const cells = [
     ["Periods", `${nf.format(A.n)} <small>${g.nouns}${A.partial[A.n - 1] ? ", last partial" : ""}</small>`],
     [`Latest full ${g.noun}`, `${compact(v)} ${chip(chg(v, prev))}`],
-    ["vs a year earlier", Number.isFinite(ly) ? `${chip(chg(v, ly))} <small>${compact(ly)}</small>` : "<small>not enough history</small>"],
+    [`vs ${g.lyAgo}`, Number.isFinite(ly) ? `${chip(chg(v, ly))} <small>${compact(ly)}</small>` : "<small>not enough history</small>"],
   ];
-  if (DEC.cp && DEC.cp.gain > 0.5) cells.push(["Trend now", `${monthlyRate(DEC.cp.after.slope, DEC.cp.after.mean)} <small>a month since ${dfMonShort.format(new Date(A.t[DEC.cp.k]))}</small>`]);
+  if (DEC.cp && DEC.cp.gain > 0.5) cells.push(["Trend now", `${monthlyRate(DEC.cp.after.slope, DEC.cp.after.mean)} <small>since ${dfMonShort.format(new Date(A.t[DEC.cp.k]))}</small>`]);
   else if (d) { const months = Math.max(1, (A.t[N - 1] - A.t[0]) / (30.44 * DAY)); cells.push(["Trend", `${A.allPositive && d.trend[0] > 0 ? pct(Math.pow(d.trend[N - 1] / d.trend[0], 1 / months) - 1, 1) : signed((d.trend[N - 1] - d.trend[0]) / months)} <small>a month</small>`]); }
-  if (d) cells.push(["Season", `${cap(periodName(d.m))} <small>strength ${d.fs.toFixed(2)}</small>`]);
-  if (cfg.mode === "impact" && IMP && !IMP.error) {
-    cells.push(["Event impact", `<span class="pill ${verdictOf(IMP).cls}">${IMP.rel === IMP.rel ? pct(IMP.rel, 1) : signed(IMP.total)}</span> <small>${verdictOf(IMP).text.toLowerCase()}</small>`]);
-  } else if (MOD && !MOD.error) {
+  if (d) cells.push(["Season", `${cap(seasonName(d))} <small>strength ${d.fs.toFixed(2)}</small>`]);
+  if (MOD && !MOD.error) {
     const key = selectedModel(), r = ratioOf(key), gr = grade(r, key);
     cells.push(["Forecast", `<span class="pill ${gr.cls}">${gr.text}</span> <small>${key === "sn" ? "baseline" : (r - 1 >= 0 ? "+" : "−") + Math.abs((r - 1) * 100).toFixed(0) + "% error vs naive"}</small>`]);
   }
   document.getElementById("strip").innerHTML = cells.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join("");
 
-  const lg = [`<span style="color:${C.text}"><i></i>${cfg.mode === "impact" ? "Actual" : measureWord()}</span>`];
+  const lg = [`<span style="color:${C.text}"><i></i>${measureWord()}</span>`];
   if (cfg.mode === "explore" && cfg.showSmooth) lg.push(`<span style="color:${C.accent}"><i></i>Rolling ${cfg.smoothStat}</span>`);
-  if (cfg.mode === "explore" && cfg.lastYear) lg.push(`<span style="color:${C.dim}"><i class="dash"></i>Last year</span>`);
+  if (cfg.mode === "explore" && cfg.lastYear) lg.push(`<span style="color:${C.dim}"><i class="dash"></i>${A.g.lyShort}</span>`);
   if (cfg.mode === "decompose") lg.push(`<span style="color:${C.accent}"><i></i>Trend</span>`);
+  if ((cfg.mode === "explore" || cfg.mode === "decompose") && trendShift()) lg.push(`<span style="color:${C.warn}"><i class="dash"></i>Trend shift (estimated)</span>`);
   if ((cfg.mode === "explore" || cfg.mode === "decompose") && DEC.anomalies.length) lg.push(`<span style="color:${C.danger}">◯ Unusual</span>`);
   if (cfg.mode === "forecast" && FUT) lg.push(`<span style="color:${C.forecast}"><i class="dash"></i>Forecast</span><span style="color:${C.forecast}"><i class="band"></i>${cfg.level === "fan" ? "80% and 95%" : "80%"} range</span>`);
-  if (cfg.mode === "impact") lg.push(`<span style="color:${C.impact}"><i class="dash"></i>Expected without the event</span><span style="color:${C.impact}"><i class="band"></i>80% range</span><span style="color:${C.ok}"><i class="band"></i>Above</span><span style="color:${C.danger}"><i class="band"></i>Below</span>`);
   if (A.filled.some((x) => x)) lg.push(`<span style="color:${C.dim}">○ Filled</span>`);
   document.getElementById("legend").innerHTML = lg.join("");
-  const ms = (x) => (x < 0.05 ? "<0.1" : x.toFixed(1));
-  document.getElementById("timing").innerHTML = `aggregate <b>${ms(timing.agg)}</b> · season <b>${ms(timing.dec)}</b> · models <b>${ms(timing.mod)}</b> · draw <b>${ms(timing.draw)}</b> ms`;
   document.getElementById("insights").innerHTML = INS.map((it, k) => `
     <article class="insight">
       <div class="kick"><i style="background:${it.color}"></i>${it.kind}</div>
@@ -2503,26 +2895,36 @@ function renderUI() {
 }
 function renderModePanel() {
   const g = A.g;
-  for (const m of ["explore", "decompose", "forecast", "impact"]) {
+  for (const m of ["explore", "decompose", "forecast", "patterns"]) {
     document.getElementById("panel-" + m).hidden = cfg.mode !== m;
     const tab = document.getElementById("tab-" + m);
     tab.setAttribute("aria-selected", String(cfg.mode === m));
     tab.tabIndex = cfg.mode === m ? 0 : -1;
   }
   for (const tb of document.querySelectorAll(".tb")) tb.hidden = tb.dataset.for !== cfg.mode;
+  // Range presets follow the grain: days to months below a day, months to years above.
+  const pr = document.getElementById("presets");
+  if (pr.dataset.grain !== g.id) {
+    pr.dataset.grain = g.id;
+    pr.innerHTML = [...g.presets, ["All", 0]].map(([label, days]) => `<button type="button" data-span="${days}" aria-pressed="${days === 0}">${label}</button>`).join("");
+  }
   if (cfg.mode === "explore") {
     const w = document.getElementById("smoothW");
     w.max = String(g.smoothMax); w.value = String(cfg.smoothW);
-    document.getElementById("smoothWOut").textContent = cfg.smoothW + " " + nounFor(g, cfg.smoothW).split(" ").pop();
+    setNum("smoothWNum", cfg.smoothW, maxSmooth());
+    document.getElementById("smoothWUnit").textContent = nounFor(g, cfg.smoothW).split(" ").pop();
     document.getElementById("smoothCentred").checked = cfg.smoothCentred;
     document.getElementById("lastYear").checked = cfg.lastYear;
+    document.getElementById("showShift").checked = cfg.showShift;
+    document.getElementById("shiftWrap").hidden = !(DEC.cp && DEC.cp.gain > 0.5);
+    document.getElementById("lastYearText").textContent = g.lyText;
     for (const b of document.querySelectorAll("#statSeg button")) b.setAttribute("aria-pressed", String(b.dataset.stat === cfg.smoothStat));
     const filled = A.filled.reduce((s, x) => s + x, 0);
     const steps = [
       { id: "resample", name: "Resample", val: `${g.adj} ${tokText("agg")}`, on: true },
       { id: "fill", name: "Fill", val: filled ? `${filled} ${nounFor(g, filled)} ${tokText("gaps")}` : "No missing periods", on: true },
       { id: "smooth", name: "Smooth", val: `${cfg.smoothW}-${g.noun.split(" ").pop()} ${cfg.smoothStat}`, on: cfg.showSmooth },
-      { id: "compare", name: "Compare", val: "Same period last year", on: cfg.lastYear },
+      { id: "compare", name: "Compare", val: g.lyText, on: cfg.lastYear },
     ];
     const ol = document.getElementById("pipeline");
     if (ol.children.length !== 4) ol.innerHTML = steps.map((s) => `<li><button type="button" class="step" data-step="${s.id}"><span class="step-name">${s.name}</span><span class="step-val"></span><canvas></canvas></button></li>`).join("");
@@ -2534,9 +2936,9 @@ function renderModePanel() {
     });
   }
   if (cfg.mode === "decompose") {
-    document.getElementById("periodSeg").innerHTML = DEC.options.map((o) => `<button type="button" data-period="${o.m}" aria-pressed="${DEC.dec && o.m === DEC.dec.m}">${cap(periodName(o.m))} <small>${o.fs.toFixed(2)}</small></button>`).join("") || `<span class="tb-note">No seasonal period fits this series.</span>`;
+    document.getElementById("periodSeg").innerHTML = DEC.options.map((o) => `<button type="button" data-period="${o.m}" aria-pressed="${DEC.dec && o.m === DEC.dec.m}">${cap(seasonName(o))} <small>${o.fs.toFixed(2)}</small></button>`).join("") || `<span class="tb-note">No seasonal period fits this series.</span>`;
     const d = DEC.dec;
-    document.getElementById("meters").innerHTML = d ? [["Trend strength", d.ft], [`Seasonal strength (${periodName(d.m)})`, d.fs], ["Unusual " + g.nouns, null]].map(([k, v]) => v == null
+    document.getElementById("meters").innerHTML = d ? [["Trend strength", d.ft], [`Seasonal strength (${seasonName(d)})`, d.fs], ["Unusual " + g.nouns, null]].map(([k, v]) => v == null
       ? `<div class="meter"><span>${k} <b>${DEC.anomalyCount}</b></span><div class="bar"><i style="width:${Math.min(100, DEC.anomalyCount * 10)}%;background:${C.danger}"></i></div></div>`
       : `<div class="meter"><span>${k} <b>${v.toFixed(2)}</b></span><div class="bar"><i style="width:${(v * 100).toFixed(0)}%"></i></div></div>`).join("") : "";
     document.getElementById("sens").value = String(cfg.sens);
@@ -2544,15 +2946,22 @@ function renderModePanel() {
   }
   if (cfg.mode === "forecast") {
     const H = horizon();
-    document.getElementById("hOut").textContent = H + " " + nounFor(g, H).split(" ").pop();
+    const hMax = maxHorizon();
+    setNum("hNum", H, hMax);
+    document.getElementById("hMax").textContent = `up to ${nf.format(hMax)} ${nounFor(g, hMax).split(" ").pop()}${g.days < 1 && hMax * g.days >= 2 ? ` (${Math.floor(hMax * g.days)} days)` : ""}`;
+    document.getElementById("hMax").title = `The furthest ahead this history can test: each forecast is checked against what happened after earlier dates, which needs more history than the forecast is long.`;
+    document.getElementById("hUnit").textContent = nounFor(g, H).split(" ").pop();
+    document.getElementById("hPresets").innerHTML = [...g.hPresets.filter(([, n]) => n < hMax), ["Longest", hMax]].map(([label, n]) => `<button type="button" data-h="${n}" aria-pressed="${n === H}">${label}</button>`).join("");
     for (const b of document.querySelectorAll("#levelSeg button")) b.setAttribute("aria-pressed", String(b.dataset.level === cfg.level));
     document.getElementById("flex").value = String(cfg.flex);
     document.getElementById("flexOut").textContent = cfg.flex <= 3 ? "Stiff" : cfg.flex >= 8 ? "Bendy" : "Medium";
     renderDrivers();
     document.getElementById("splitReset").hidden = !(MOD && !MOD.error && MOD.T < A.modelN);
+    // The training period: everything before the split line.
+    document.getElementById("trainNote").textContent = MOD && !MOD.error ? `Learns from ${shortPeriod(g, A.t[0])} to ${shortPeriod(g, A.t[MOD.T - 1])}${MOD.T < A.modelN ? " (drag the split line to change)" : ""}` : "";
     renderBoard();
   }
-  if (cfg.mode === "impact") renderImpactPanel();
+  if (cfg.mode === "patterns") renderPatterns();
 }
 function drawSpark(cv, id) {
   const r = cv.getBoundingClientRect();
@@ -2578,7 +2987,7 @@ function renderBoard() {
   const heldMode = MOD.T < A.modelN && FUT.sn.held && FUT.sn.held.ratio != null;
   const maxR = Math.max(...Object.keys(MOD.models).map(ratioOf), 1);
   const keys = Object.keys(MOD.models).sort((a, b) => ratioOf(a) - ratioOf(b));
-  board.innerHTML = `<thead><tr><th>Model</th><th>${heldMode ? "Held-out" : "Backtest"} error vs repeat-last-cycle</th><th>Grade</th><th>${heldMode ? "Held-out check" : "Band check"}</th><th>Fit</th></tr></thead><tbody>` +
+  board.innerHTML = `<thead><tr><th>Model</th><th>${heldMode ? "Held-out" : "Backtest"} error vs repeat-last-cycle</th><th>Grade</th><th>${heldMode ? "Held-out check" : "Band check"}</th></tr></thead><tbody>` +
     keys.map((k) => {
       const m = MOD.models[k], r = ratioOf(k), gr = grade(r, k), f = FUT[k];
       const chk = f.held ? `${f.held.hit} of ${f.held.tot} inside 80%` : m.check ? `${m.check.hit} of ${m.check.tot} inside 80%` : "–";
@@ -2586,17 +2995,16 @@ function renderBoard() {
         <td><span class="mname">${MODEL_INFO[k].name}</span>${k === MOD.best && cfg.model === "auto" ? `<span class="auto">Auto</span>` : ""}<span class="mmeth">${MODEL_INFO[k].meth}</span></td>
         <td><span class="errbar" style="width:${Math.max(4, (r / maxR) * 90).toFixed(0)}px;opacity:${k === "sn" ? 0.35 : 0.85}"></span>${r.toFixed(2)}×${heldMode ? ` <small style="color:var(--dim)">backtest ${m.ratio.toFixed(2)}×</small>` : ""}</td>
         <td><span class="pill ${gr.cls}">${gr.text}</span></td>
-        <td>${chk}</td>
-        <td>${m.ms < 0.1 ? "<0.1" : m.ms.toFixed(1)} ms</td></tr>`;
+        <td>${chk}</td></tr>`;
     }).join("") + "</tbody>";
-  card.innerHTML = modelRows(MOD, FUT, sel, false).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+  card.innerHTML = modelRows(MOD, FUT, sel).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
 }
-function modelRows(M, F, sel, impact) {
+function modelRows(M, F, sel) {
   const g = A.g, m = M.models[sel], rows = [["Model set", M.profile]];
   if (sel === "hw" || sel === "ens") { const [a, b, gm, ph] = M.models.hw.params; rows.push(["Smooth and damp", `level ${a.toFixed(2)}, trend ${b.toFixed(3)}, season ${gm.toFixed(2)}, damping ${ph.toFixed(2)} (season of ${M.m} ${g.nouns})`]); }
   if (sel === "reg" || sel === "ens") {
     const f = M.models.reg.fit;
-    rows.push(["Trend, seasons and drivers", `${f.K} possible trend bends, ${f.Ky} yearly${f.Kw ? ` and ${f.Kw} weekly` : ""} wave pairs${f.drv.length ? ", drivers " + f.drv.map((v) => `<b>${v.d.col}</b>`).join(", ") : ", no drivers"}`]);
+    rows.push(["Trend, seasons and drivers", `${f.K} possible trend bends, ${[[f.Ky, "yearly"], [f.Kw, "weekly"], [f.Kd, "daily"]].filter(([k]) => k).map(([k, w]) => `${k} ${w}`).join(", ") || "no"} wave pairs${f.drv.length ? ", drivers " + f.drv.map((v) => `<b>${v.d.col}</b>`).join(", ") : ", no drivers"}`]);
     f.drv.forEach((v, j) => {
       const b = f.beta[f.iDrv + j];
       const unit = DRIVER_DEFS[v.d.col].flag ? `${v.d.col} at 1 rather than 0` : `each +1 in ${v.d.col}`;
@@ -2604,47 +3012,46 @@ function modelRows(M, F, sel, impact) {
         ? `a 1% higher ${v.d.col} goes with ${Math.abs(b).toFixed(1)}% ${b < 0 ? "lower" : "higher"} ${measureWord()} (elasticity ${b.toFixed(2)})`
         : f.logY ? `${unit} goes with ${pct(Math.exp(b) - 1)} ${measureWord()}` : `${unit} goes with ${signedNum(b)} in ${measureWord()}`]);
     });
-    if (impact && f.drv.length) rows.push(["Drivers after the event", driverStory(true)]);
-    else if (f.drv.length) rows.push(["Driver values ahead", driverStory(false)]);
+    if (f.drv.length) rows.push(["Driver values ahead", driverStory()]);
   }
-  if (sel === "theta" || sel === "ens") { const t = M.models.theta.fit; rows.push(["Steady trend", `simple smoothing (α ${t.alpha.toFixed(2)}) plus half the long-run slope (${signed(t.b0 / 2)} a ${g.noun})${t.prof ? "; seasonal pattern taken out first and added back" : ""}`]); }
+  if (sel === "theta" || sel === "ens") { const t = M.models.theta.fit; rows.push(["Steady trend", `simple smoothing (α ${t.alpha.toFixed(2)}) plus half the long-run slope (${signed(t.b0 / 2)} ${aNoun(g)})${t.prof ? "; seasonal pattern taken out first and added back" : ""}`]); }
   if (sel === "clim") rows.push(["Seasonal average", M.models.clim.m > 1 ? `each ${g.noun} is the mean of the same point in every earlier cycle of ${M.models.clim.m} ${g.nouns}; strong when there is a season but no trend` : `the mean of all earlier ${g.nouns}; there is no season at this grain`]);
   if (sel === "sn") rows.push(["Repeat last cycle", M.m > 1 ? `each ${g.noun} copies the same ${g.noun} one season (${M.m} ${g.nouns}) earlier` : `each ${g.noun} repeats the last one; there is no season at this grain`]);
-  rows.push(["Fitted on", `${shortPeriod(g, A.t[0])} to ${shortPeriod(g, A.t[M.T - 1])} (${M.T} ${g.nouns})${impact ? ", nothing after the event" : ""}`]);
+  rows.push(["Fitted on", `${shortPeriod(g, A.t[0])} to ${shortPeriod(g, A.t[M.T - 1])} (${M.T} ${g.nouns})`]);
   rows.push(["Backtest", `${M.origins.length} forecasts from earlier dates, ${M.H} ${g.nouns} each; error ${m.ratio.toFixed(2)}× repeating the last cycle`]);
   const f = F[sel];
-  if (!impact && f.held) rows.push(["Held-out check", `${f.held.hit} of ${f.held.tot} actual ${g.nouns} after the split fell inside the 80% band (${f.held.tot ? ((f.held.hit / f.held.tot) * 100).toFixed(0) : 0}%)${f.held.tot && f.held.hit / f.held.tot < 0.6 ? `. <span class="warn">The band was too narrow here: the series changed after the backtest stretch.</span>` : ""}`]);
-  else if (!impact && m.check) rows.push(["Band check", `on the latest backtest, ${m.check.hit} of ${m.check.tot} ${g.nouns} fell inside the 80% band built from the others`]);
+  if (f.held) rows.push(["Held-out check", `${f.held.hit} of ${f.held.tot} actual ${g.nouns} after the split fell inside the 80% band (${f.held.tot ? ((f.held.hit / f.held.tot) * 100).toFixed(0) : 0}%)${f.held.tot && f.held.hit / f.held.tot < 0.6 ? `. <span class="warn">The band was too narrow here: the series changed after the backtest stretch.</span>` : ""}`]);
+  else if (m.check) rows.push(["Band check", `on the latest backtest, ${m.check.hit} of ${m.check.tot} ${g.nouns} fell inside the 80% band built from the others`]);
   if (M.rough) rows.push(["Note", `<span class="warn">Under three backtests fit in this history, so the range is wide and rough.</span>`]);
-  rows.push([impact ? "Range" : "Band", impact ? "from how far the same model's backtests drifted over the same number of steps, summed; not from a formula" : `built from the backtest errors at each step ahead, not from a formula; it widens with the horizon${A.nonNeg ? " and stays at or above zero, as the series does" : ""}`]);
+  rows.push(["Band", `built from the backtest errors at each step ahead, not from a formula; it widens the further ahead it goes${A.nonNeg ? " and stays at or above zero, as the series does" : ""}`]);
   return rows;
 }
-function driverStory(impact) {
+function driverStory() {
   const parts = cfg.drivers.map((d) => {
-    if (impact && IMP && IMP.event && IMP.event.col === d.col) return `<b>${d.col}</b> held at ${fmtNum(IMP.event.before)}, its typical level before the event`;
-    if (impact) return `<b>${d.col}</b> at its actual values, so its own effect is not counted as the event's`;
     const recent = fmtNum(driverRecent(d.col));
-    return `<b>${d.col}</b> ${d.rule === "lastyear" ? "same as a year earlier" : d.rule === "pct" ? `${d.pct >= 0 ? "+" : "−"}${Math.abs(d.pct)}% on its recent level of ${recent}` : `held at its recent level of ${recent}`}`;
+    return `<b>${d.col}</b> ${d.rule === "lastyear" ? `same as ${A.g.lyAgo}` : d.rule === "pct" ? `${d.pct >= 0 ? "+" : "−"}${Math.abs(d.pct)}% on its recent level of ${recent}` : `held at its recent level of ${recent}`}`;
   });
-  return parts.join("; ") + (impact ? "." : ". These are assumptions; the band does not include doubt about them.");
+  return parts.join("; ") + ". These are assumptions; the band does not include doubt about them.";
 }
 function renderDrivers() {
-  const label = (d) => (d.rule === "lastyear" ? "as last year" : d.rule === "pct" ? `${d.pct >= 0 ? "+" : "−"}${Math.abs(d.pct)}%` : "held");
+  const label = (d) => (d.rule === "lastyear" ? `as ${A.g.lyShort.toLowerCase()}` : d.rule === "pct" ? `${d.pct >= 0 ? "+" : "−"}${Math.abs(d.pct)}%` : "held");
   const chips = cfg.drivers.map((d, k) => `<button type="button" class="drv" data-drv="${k}" aria-haspopup="menu"><b>${d.col}</b> <span>· ${label(d)}</span> ▾</button>`);
   chips.push(`<button type="button" class="drv add" data-drv="add" aria-haspopup="menu">+ Add column</button>`);
   document.getElementById("drivers").innerHTML = chips.join("");
 }
+/** Below the anchor when it fits, else above it, else pinned inside the window (and scrolling). */
 function placePop(anchor) {
   POP.hidden = false;
-  const r = anchor.getBoundingClientRect();
+  const r = anchor.getBoundingClientRect(), h = POP.offsetHeight, vh = window.innerHeight;
   POP.style.left = Math.max(8, Math.min(window.innerWidth - POP.offsetWidth - 8, r.left)) + "px";
-  POP.style.top = r.bottom + 6 + "px";
+  const top = r.bottom + 6 + h <= vh - 8 ? r.bottom + 6 : r.top - 6 - h >= 8 ? r.top - 6 - h : Math.max(8, vh - h - 8);
+  POP.style.top = top + "px";
 }
 function openDriverPop(anchor, k) {
   popKey = "driver";
   const d = cfg.drivers[k];
   POP.innerHTML = `<div class="pop-title"><b>${d.col}</b> after the data ends</div>` +
-    [["hold", `Hold at its recent level (${fmtNum(driverRecent(d.col))})`], ["lastyear", "Same as a year earlier"], ["pct", "Change from its recent level"]]
+    [["hold", `Hold at its recent level (${fmtNum(driverRecent(d.col))})`], ["lastyear", `Same as ${A.g.lyAgo}`], ["pct", "Change from its recent level"]]
       .map(([r, l]) => `<button type="button" role="menuitemradio" data-drv-act="rule:${k}:${r}" aria-checked="${d.rule === r}">${l}</button>`).join("") +
     `<div class="pop-range"${d.rule === "pct" ? "" : " hidden"}><input type="range" id="drvPct" min="-25" max="25" step="1" value="${d.pct}" aria-label="Change in ${d.col}"><output id="drvPctOut">${d.pct >= 0 ? "+" : "−"}${Math.abs(d.pct)}%</output></div>` +
     `<button type="button" data-drv-act="remove:${k}">Remove driver <small>fit without it</small></button>`;
@@ -2678,57 +3085,18 @@ function driverAction(act) {
   closePop();
   change({}, { fade: false });
 }
-function renderImpactPanel() {
-  const g = A.g;
-  const sel = document.getElementById("eventSel");
-  const opts = EVENTS.map((e) => `<option value="${e.i}">${e.label} · ${shortPeriod(g, A.t[e.i])}</option>`);
-  const cur = IMP ? IMP.T : null;
-  if (cur != null && !EVENTS.some((e) => e.i === cur)) opts.push(`<option value="${cur}">Custom · ${shortPeriod(g, A.t[cur])}</option>`);
-  sel.innerHTML = opts.join("");
-  if (cur != null) sel.value = String(cur);
-  document.getElementById("wOut").textContent = IMP ? IMP.H + " " + nounFor(g, IMP.H).split(" ").pop() : "";
-  const im = document.getElementById("impModel");
-  im.innerHTML = [["auto", "Auto (best backtest)"], ["ens", "Blend"], ["hw", "Smooth and damp"], ["reg", "Trend, seasons and drivers"], ["theta", "Steady trend"], ["clim", "Seasonal average"], ["sn", "Repeat last cycle"]].map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
-  im.value = cfg.impactModel;
-  const eff = document.getElementById("effects"), card = document.getElementById("impactCard");
-  if (!IMP || IMP.error) {
-    eff.innerHTML = `<div class="empty" style="grid-column:1/-1">${IMP ? IMP.error : ""}</div>`;
-    card.innerHTML = "";
-    renderCum();
-    return;
-  }
-  const I = IMP, cls = I.total >= 0 ? "gain" : "loss";
-  const vd = verdictOf(I);
-  eff.innerHTML = `
-    <div class="effect ${cls}"><span class="k">Total effect</span><span class="v">${signed(I.total)}</span><span class="r">80%: ${signed(I.lo[I.H - 1])} to ${signed(I.hi[I.H - 1])}</span></div>
-    ${I.rel === I.rel ? `<div class="effect ${cls}"><span class="k">Relative</span><span class="v">${pct(I.rel, 1)}</span><span class="r">80%: ${pct(I.relLo, 1)} to ${pct(I.relHi, 1)}</span></div>` : `<div class="effect"><span class="k">Relative</span><span class="v">–</span><span class="r">the series is not above zero throughout, so only totals apply</span></div>`}
-    <div class="effect"><span class="k">Per ${g.noun}</span><span class="v">${signed(I.total / Math.max(1, I.cnt))}</span><span class="r">over ${I.cnt} ${nounFor(g, I.cnt)}</span></div>
-    <div class="effect"><span class="k">Verdict</span><span class="v" style="font-size:16px"><span class="pill ${vd.cls}" style="font-size:13px">${vd.text}</span></span><span class="r">${vd.note}; ${I.above} above, ${I.below} below the 80% range</span></div>`;
-  const rows = modelRows(I.run, I.fut, I.key, true);
-  rows.unshift(["Expected by", `${MODEL_INFO[I.key].name}${cfg.impactModel === "auto" ? " (lowest backtest error before the event)" : ""}`]);
-  const cautions = [];
-  const others = cfg.drivers.filter((d) => d.col !== I.event.col).map((d) => d.col);
-  if (others.length) cautions.push(`Expected uses the actual ${others.join(" and ")} values after the event, so their effect is not counted as the event's.`);
-  if (I.shortYear) cautions.push(`Less than two years of history before the event, so a yearly pattern cannot be learned; part of this effect may be season. The verdict is capped at "possible".`);
-  if (I.gap) cautions.push("The window has days with no rows, which reads as a drop.");
-  cautions.push("This compares against what the pattern before the event predicted; anything else that changed at the same time is part of the effect.");
-  rows.push(["Read with care", cautions.join(" ")]);
-  card.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
-  renderCum();
-}
 let tableOpen = false;
 function renderTable() {
   const wrap = document.getElementById("tableWrap");
   const T = times(), [i0, i1] = visibleRange();
   const P = proj();
-  const lbl = P ? (P.kind === "impact" ? ["Expected", "Effect"] : ["Forecast", "80% low", "80% high"]) : [];
-  const head = `<tr><th>Period</th><th>${P && P.kind === "impact" ? "Actual" : measureWord()}</th>${cfg.mode === "explore" ? "<th>Rolling</th>" : ""}${cfg.mode === "decompose" ? "<th>Trend</th><th>Seasonal</th><th>Remainder</th>" : ""}${lbl.map((l) => `<th>${l}</th>`).join("")}</tr>`;
+  const lbl = P ? ["Forecast", "80% low", "80% high"] : [];
+  const head = `<tr><th>Period</th><th>${measureWord()}</th>${cfg.mode === "explore" ? "<th>Rolling</th>" : ""}${cfg.mode === "decompose" ? "<th>Trend</th><th>Seasonal</th><th>Remainder</th>" : ""}${lbl.map((l) => `<th>${l}</th>`).join("")}</tr>`;
   const rows = [];
   for (let i = i0; i <= i1 && rows.length < 400; i++) {
     const h = P ? i - P.T : -1, inP = !!P && h >= 0 && h < P.H;
     let tail = "";
-    if (P && P.kind === "impact") tail = inP ? `<td>${full(P.f.F[h])}</td><td>${signed(A.y[i] - P.f.F[h])}</td>` : "<td></td><td></td>";
-    else if (P) tail = inP ? `<td>${full(P.f.F[h])}</td><td>${full(P.f.lo80[h])}</td><td>${full(P.f.hi80[h])}</td>` : "<td></td><td></td><td></td>";
+    if (P) tail = inP ? `<td>${full(P.f.F[h])}</td><td>${full(P.f.lo80[h])}</td><td>${full(P.f.hi80[h])}</td>` : "<td></td><td></td><td></td>";
     rows.push(`<tr><td>${periodLabel(A.g, T[i])}</td><td>${i < A.n ? full(A.y[i]) : ""}</td>` +
       (cfg.mode === "explore" ? `<td>${i < A.modelN ? full(SM[i]) : ""}</td>` : "") +
       (cfg.mode === "decompose" ? (DEC.dec && i < A.modelN ? `<td>${full(DEC.dec.trend[i])}</td><td>${full(DEC.dec.seasonal[i])}</td><td>${full(DEC.dec.rem[i])}</td>` : "<td></td><td></td><td></td>") : "") + tail + "</tr>");
@@ -2758,7 +3126,7 @@ function frame(now) {
   if (need.ui) { need.ui = false; renderUI(); }
   if (need.stat) { need.stat = false; renderHero(); }
   if (need.nav) { need.nav = false; renderNav(); }
-  if (need.panel) { need.panel = false; renderDec(); renderDecOverlay(); renderCum(); }
+  if (need.panel) { need.panel = false; renderDec(); renderDecOverlay(); }
   if (need.table) { need.table = false; if (tableOpen) renderTable(); }
   compose(now);
   if (need.ov || pulse) { need.ov = false; renderOverlay(now); }
@@ -2776,10 +3144,9 @@ function setMode(mode) {
   const wasAtEnd = view && Math.abs(view[1] - fullView()[1]) < (view[1] - view[0]) * 0.05;
   cfg.mode = mode;
   allT = null; hoverIdx = -1; ghostModel = null;
-  if (mode === "forecast" || mode === "impact") { reveal = 0; revealStart = performance.now(); }
+  if (mode === "forecast") { reveal = 0; revealStart = performance.now(); }
   compute();
   if (mode === "forecast") view = clampView(forecastView());
-  else if (mode === "impact") view = clampView(impactView());
   else if (wasAtEnd || !view) view = clampView([fullView()[1] - (view[1] - view[0]), fullView()[1]]);
   else view = clampView(view);
   invalidate("ui", "stat", "nav", "panel", "ov");
@@ -2806,6 +3173,9 @@ document.addEventListener("click", (e) => {
     else if (id === "smooth") change({ showSmooth: !cfg.showSmooth }, { fade: false });
     else if (id === "compare") change({ lastYear: !cfg.lastYear }, { fade: false });
   }
+  const hp = e.target.closest("[data-h]");
+  // Compute now so the view can open out to the new horizon.
+  if (hp) { change({ horizon: Number(hp.dataset.h) }, { fade: false }); compute(); allT = null; flyTo(clampView(forecastView())); }
   const per = e.target.closest("[data-period]");
   if (per) change({ period: Number(per.dataset.period) });
   const lvl = e.target.closest("[data-level]");
@@ -2818,20 +3188,17 @@ document.addEventListener("click", (e) => {
   if (tab) setMode(tab.dataset.mode);
   const preset = e.target.closest("[data-span]");
   if (preset) {
-    const months = Number(preset.dataset.span);
+    const days = Number(preset.dataset.span);
     for (const b of document.querySelectorAll("#presets button")) b.setAttribute("aria-pressed", String(b === preset));
     const [, d1] = fullView();
-    flyTo(months ? [d1 - months * 30.44 * DAY, d1] : fullView());
+    flyTo(days ? [d1 - days * DAY, d1] : fullView());
   }
 });
 function openPop(anchor, key) {
   popKey = key;
   const g = A.g;
   POP.innerHTML = TOKENS[key].opts.map(([val, label, hint]) => `<button type="button" role="menuitemradio" data-val="${val}" aria-checked="${cfg[key] === val}"${key === "grain" && tooFine(val) ? ` disabled title="Finer than the data: most periods would be empty"` : ""}>${key === "partial" ? `${label} <small>${label === "left out" ? `${g.noun} left out of models` : "treated as complete"}</small>` : label}${hint ? ` <small>${hint}</small>` : ""}</button>`).join("");
-  POP.hidden = false;
-  const r = anchor.getBoundingClientRect();
-  POP.style.left = Math.max(8, Math.min(window.innerWidth - POP.offsetWidth - 8, r.left)) + "px";
-  POP.style.top = r.bottom + 6 + "px";
+  placePop(anchor);
   (POP.querySelector('[aria-checked="true"]') || POP.querySelector("button")).focus();
 }
 function closePop() { POP.hidden = true; popKey = null; }
@@ -2846,7 +3213,7 @@ function choose(key, val) {
   if (!key) return;
   const patch = { [key]: val };
   if (key === "grain") {
-    Object.assign(patch, { smoothW: GRAINS[val].smooth, split: null, horizon: null, period: null, event: null, window: null });
+    Object.assign(patch, { smoothW: GRAINS[val].smooth, split: null, horizon: null, period: null });
     hoverIdx = -1;
     view = null;
   }
@@ -2855,17 +3222,41 @@ function choose(key, val) {
 }
 const on = (id, ev, fn) => document.getElementById(id).addEventListener(ev, fn);
 on("smoothW", "input", (e) => change({ smoothW: Number(e.target.value), showSmooth: true }, { fade: false }));
+/** A typed number box: shows the value unless someone is typing in it. */
+function setNum(id, v, max) {
+  const el = document.getElementById(id);
+  el.max = String(max);
+  if (document.activeElement !== el) el.value = String(v);
+}
+/** The typed value, whole and within [lo, hi]; null when the box holds no number. */
+function readNum(el, lo, hi) {
+  const v = Math.round(Number(el.value));
+  if (el.value.trim() === "" || !Number.isFinite(v)) return null;
+  return Math.max(lo, Math.min(hi, v));
+}
+// Typed windows may go past the slider's end, up to half the series.
+function maxSmooth() { return Math.max(A.g.smoothMax, Math.floor(A.modelN / 2)); }
+const onNum = (id, fn) => {
+  on(id, "change", (e) => { fn(e.target); e.target.blur(); });
+  on(id, "keydown", (e) => { if (e.key === "Enter") { fn(e.target); e.target.select(); } });
+};
+onNum("smoothWNum", (el) => { const v = readNum(el, 2, maxSmooth()); if (v != null) change({ smoothW: v, showSmooth: true }, { fade: false }); });
+onNum("hNum", (el) => { const v = readNum(el, 1, maxHorizon()); if (v != null) change({ horizon: v }, { fade: false }); });
+function zoomBy(k) {
+  const c = (view[0] + view[1]) / 2;
+  for (const b of document.querySelectorAll("#presets button")) b.setAttribute("aria-pressed", "false");
+  flyTo(clampView([c - (c - view[0]) * k, c + (view[1] - c) * k]));
+}
+on("zoomIn", "click", () => zoomBy(1 / 1.6));
+on("zoomOut", "click", () => zoomBy(1.6));
 on("smoothCentred", "change", (e) => change({ smoothCentred: e.target.checked }, { fade: false }));
 on("lastYear", "change", (e) => change({ lastYear: e.target.checked }, { fade: false }));
+on("showShift", "change", (e) => change({ showShift: e.target.checked }, { fade: false }));
 on("sens", "input", (e) => change({ sens: Number(e.target.value) }, { fade: false }));
 on("flex", "input", (e) => change({ flex: Number(e.target.value) }, { fade: false }));
 on("hMinus", "click", () => change({ horizon: Math.max(1, horizon() - 1) }, { fade: false }));
-on("hPlus", "click", () => change({ horizon: Math.min(A.g.maxH, horizon() + 1) }, { fade: false }));
+on("hPlus", "click", () => change({ horizon: Math.min(maxHorizon(), horizon() + 1) }, { fade: false }));
 on("splitReset", "click", () => change({ split: null }, { fade: false }));
-on("eventSel", "change", (e) => { cfg.window = null; cfg.event = Number(e.target.value); compute(); invalidate("ui", "stat", "nav", "panel", "ov"); flyTo(impactView()); });
-on("wMinus", "click", () => { if (IMP) change({ window: Math.max(1, IMP.H - 1) }, { fade: false }); });
-on("wPlus", "click", () => { if (IMP) change({ window: Math.min(A.modelN - IMP.T, IMP.H + 1) }, { fade: false }); });
-on("impModel", "change", (e) => change({ impactModel: e.target.value }, { fade: false }));
 on("board", "pointerover", (e) => { const r = e.target.closest("tr[data-model]"); const k = r ? r.dataset.model : null; if (k !== ghostModel) { ghostModel = k; invalidate("stat"); } });
 on("board", "pointerleave", () => { ghostModel = null; invalidate("stat"); });
 on("tableBtn", "click", (e) => {
@@ -2877,7 +3268,7 @@ on("tableBtn", "click", (e) => {
 on("backBtn", "click", () => toast("Back to the Chart view, card untouched (prototype)."));
 on("exportBtn", "click", () => toast("Export: chart as PNG, series with components and forecast as CSV, the pipeline as Python (prototype)."));
 document.querySelector(".tabs").addEventListener("keydown", (e) => {
-  const order = ["explore", "decompose", "forecast", "impact"];
+  const order = ["explore", "decompose", "forecast", "patterns"];
   const i = order.indexOf(cfg.mode);
   if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
     const next = order[(i + (e.key === "ArrowRight" ? 1 : order.length - 1)) % order.length];
@@ -2889,12 +3280,6 @@ document.querySelector(".tabs").addEventListener("keydown", (e) => {
 let drag = null;
 function handleAt(px, py) {
   const T = times();
-  if (cfg.mode === "impact" && IMP) {
-    const xs = X(T[IMP.T - 1]);
-    if (!IMP.error) { const xe = X(T[IMP.T + IMP.H - 1]); if (Math.abs(px - xe) < 34 && py > geo.T + geo.ph - 26 && py < geo.T + geo.ph) return "horizon"; }
-    if (Math.abs(px - xs) < 7 || (Math.abs(px - xs) < 90 && py < geo.T)) return "split";
-    return null;
-  }
   if (cfg.mode !== "forecast" || !MOD || MOD.error) return null;
   const xs = X(T[MOD.T - 1]), xe = X(T[MOD.T + MOD.H - 1]);
   if (Math.abs(px - xe) < 34 && py > geo.T + geo.ph - 26 && py < geo.T + geo.ph) return "horizon";
@@ -2907,6 +3292,7 @@ heroOverlay.addEventListener("pointermove", (e) => {
   if (drag) {
     const dx = px - drag.x0;
     if (Math.abs(dx) > 3) drag.moved = true;
+    if (drag.kind === "box") { drag.x1 = Math.max(geo.L, Math.min(geo.L + geo.pw, px)); hoverIdx = -1; invalidate("ov"); return; }
     if (drag.kind === "pan" && drag.moved) {
       const span = drag.view[1] - drag.view[0];
       view = clampView([drag.view[0] - (dx / geo.pw) * span, drag.view[1] - (dx / geo.pw) * span]);
@@ -2917,18 +3303,12 @@ heroOverlay.addEventListener("pointermove", (e) => {
     const step = A.t[1] - A.t[0];
     if (drag.kind === "split") {
       const i = Math.min(A.modelN, nearestIndex(invX(px)) + 1);
-      if (cfg.mode === "impact") { const ev = Math.max(2, Math.min(A.modelN - 1, i)); if (ev !== IMP.T) { cfg.event = ev; invalidate("compute"); } }
-      else if (i !== MOD.T) { cfg.split = i >= A.modelN ? null : i; invalidate("compute"); }
+      if (i !== MOD.T) { cfg.split = i >= A.modelN ? null : i; invalidate("compute"); }
       return;
     }
     if (drag.kind === "horizon") {
-      if (cfg.mode === "impact") {
-        const W = Math.max(1, Math.min(A.modelN - IMP.T, Math.round((invX(px) - times()[IMP.T - 1]) / step)));
-        if (W !== IMP.H) { cfg.window = W; invalidate("compute"); }
-      } else {
-        const H = Math.max(1, Math.min(A.g.maxH, Math.round((invX(px) - times()[MOD.T - 1]) / step)));
-        if (H !== MOD.H) { cfg.horizon = H; allT = null; invalidate("compute"); }
-      }
+      const H = Math.max(1, Math.min(maxHorizon(), Math.round((invX(px) - times()[MOD.T - 1]) / step)));
+      if (H !== MOD.H) { cfg.horizon = H; allT = null; invalidate("compute"); }
       return;
     }
   }
@@ -2943,7 +3323,7 @@ heroOverlay.addEventListener("pointerdown", (e) => {
   const px = e.clientX - r.left, py = e.clientY - r.top;
   heroOverlay.setPointerCapture(e.pointerId);
   const hd = handleAt(px, py);
-  drag = { kind: hd || "pan", x0: px, view: view.slice(), moved: false };
+  drag = { kind: hd || (e.shiftKey ? "box" : "pan"), x0: px, view: view.slice(), moved: false };
   if (!hd) heroOverlay.classList.add("grab");
 });
 heroOverlay.addEventListener("pointerup", () => {
@@ -2951,6 +3331,13 @@ heroOverlay.addEventListener("pointerup", () => {
   const d = drag;
   drag = null;
   if (d && d.kind === "pan" && !d.moved && hoverIdx >= 0 && hoverIdx < A.n) showRows(hoverIdx);
+  if (d && d.kind === "box") {
+    if (d.x1 != null && Math.abs(d.x1 - d.x0) > 8) {
+      for (const b of document.querySelectorAll("#presets button")) b.setAttribute("aria-pressed", "false");
+      flyTo(clampView([invX(Math.min(d.x0, d.x1)), invX(Math.max(d.x0, d.x1))]));
+    }
+    invalidate("ov");
+  }
   if (d && d.kind !== "pan") invalidate("ui");
 });
 heroOverlay.addEventListener("wheel", (e) => {
@@ -2963,7 +3350,7 @@ heroOverlay.addEventListener("wheel", (e) => {
   for (const b of document.querySelectorAll("#presets button")) b.setAttribute("aria-pressed", "false");
   invalidate("stat", "nav", "panel", "ov");
 }, { passive: false });
-heroOverlay.addEventListener("dblclick", () => flyTo(cfg.mode === "forecast" ? forecastView() : cfg.mode === "impact" ? impactView() : fullView()));
+heroOverlay.addEventListener("dblclick", () => flyTo(cfg.mode === "forecast" ? forecastView() : fullView()));
 heroOverlay.addEventListener("keydown", (e) => {
   const last = lastIndex();
   if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
@@ -2979,7 +3366,7 @@ heroOverlay.addEventListener("keydown", (e) => {
 function showRows(i) {
   const T = times();
   const endMs = bucketStart(A.g, i + 1) - DAY;
-  toast(`Table filtered to ${dfDate.format(new Date(T[i]))}${A.g.unit === "day" ? "" : " – " + dfDate.format(new Date(Math.min(endMs, END)))}${cfg.group === "all" ? "" : ", group " + GROUPS[Number(cfg.group)]}: ${nf.format(A.rows[i])} rows.`, "Undo");
+  toast(`Table filtered to ${A.g.unit === "min" ? periodLabel(A.g, T[i]) : dfDate.format(new Date(T[i]))}${A.g.unit === "day" || A.g.unit === "min" ? "" : " – " + dfDate.format(new Date(Math.min(endMs, END)))}${cfg.group === "all" ? "" : ", group " + GROUPS[Number(cfg.group)]}: ${nf.format(A.rows[i])} rows.`, "Undo");
 }
 let navDrag = null;
 navCanvas.addEventListener("pointerdown", (e) => {
@@ -3009,8 +3396,8 @@ navCanvas.addEventListener("pointermove", (e) => {
   const dms = navDrag.toMs(px) - navDrag.toMs(navDrag.x0);
   const v = navDrag.view;
   if (navDrag.kind === "move") view = clampView([v[0] + dms, v[1] + dms]);
-  else if (navDrag.kind === "l") view = clampView([Math.min(v[0] + dms, v[1] - DAY * 7), v[1]]);
-  else view = clampView([v[0], Math.max(v[1] + dms, v[0] + DAY * 7)]);
+  else if (navDrag.kind === "l") view = clampView([Math.min(v[0] + dms, v[1] - minSpan()), v[1]]);
+  else view = clampView([v[0], Math.max(v[1] + dms, v[0] + minSpan())]);
   hoverIdx = -1;
   invalidate("stat", "nav", "panel", "ov");
 });
@@ -3031,7 +3418,7 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", the
 new MutationObserver(themeChanged).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 new ResizeObserver(() => { layout(); invalidate("stat", "nav", "panel", "ov", "ui"); }).observe(heroEl);
 new ResizeObserver(() => { layout(); invalidate("panel"); }).observe(document.getElementById("decomp"));
-new ResizeObserver(() => { layout(); invalidate("panel"); }).observe(document.getElementById("cum"));
+new ResizeObserver(() => { if (cfg.mode === "patterns" && A) renderPatterns(); }).observe(document.getElementById("patGrid"));
 
 on("openBtn", "click", () => document.getElementById("fileIn").click());
 on("fileIn", "change", (e) => { const f = e.target.files[0]; if (f) openFile(f); e.target.value = ""; });

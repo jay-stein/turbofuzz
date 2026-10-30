@@ -155,7 +155,7 @@ test("autoCombineParts detects Year + Month + Day in any case", () => {
   });
 });
 
-test("autoCombineParts adds the clock only when hour and minute both exist", () => {
+test("autoCombineParts adds the clock when an hour sits with a day", () => {
   const withClock = autoCombineParts([
     { name: "Year" },
     { name: "Month" },
@@ -171,12 +171,69 @@ test("autoCombineParts adds the clock only when hour and minute both exist", () 
     ["year", "month", "day", "hour", "minute", "second"],
   );
 
-  const hourOnly = autoCombineParts([{ name: "Year" }, { name: "Month" }, { name: "Hour" }]);
-  assert.equal(hourOnly?.output, "date");
+  // Beijing PM2.5: year,month,day,hour with no minute is hourly, not daily.
+  const hourly = autoCombineParts([
+    { name: "No" },
+    { name: "year" },
+    { name: "month" },
+    { name: "day" },
+    { name: "hour" },
+    { name: "pm2.5" },
+  ]);
+  assert.equal(hourly?.output, "datetime");
   assert.deepEqual(
-    hourOnly?.parts.map((part) => part.role),
+    hourly?.parts.map((part) => [part.role, part.column]),
+    [
+      ["year", 1],
+      ["month", 2],
+      ["day", 3],
+      ["hour", 4],
+    ],
+  );
+
+  const noDay = autoCombineParts([{ name: "Year" }, { name: "Month" }, { name: "Hour" }]);
+  assert.equal(noDay?.output, "date");
+  assert.deepEqual(
+    noDay?.parts.map((part) => part.role),
     ["year", "month"],
   );
+});
+
+test("autoCombineParts reads hour-only parts as minute zero", () => {
+  const year = column("year", ["2010", "2010"]);
+  const month = column("month", ["1", "1"]);
+  const day = column("day", ["1", "1"]);
+  const hour = column("hour", ["0", "23"]);
+  const pick = autoCombineParts([year, month, day, hour]);
+  assert.ok(pick);
+  const out = combine([year, month, day, hour], { ...pick, timeZone: "naive" });
+  assert.deepEqual(out[out.length - 1].raw, ["2010-01-01T00:00:00", "2010-01-01T23:00:00"]);
+});
+
+test("autoCombineParts knows common aliases and a shared prefix", () => {
+  const aliases = autoCombineParts([{ name: "YR" }, { name: "Mth" }, { name: "dd" }]);
+  assert.deepEqual(
+    aliases?.parts.map((part) => part.role),
+    ["year", "month", "day"],
+  );
+
+  const prefixed = autoCombineParts([
+    { name: "id" },
+    { name: "Order Year" },
+    { name: "Order Month" },
+    { name: "Order Day" },
+    { name: "Ship Year" },
+  ]);
+  assert.deepEqual(
+    prefixed?.parts.map((part) => [part.role, part.column]),
+    [
+      ["year", 1],
+      ["month", 2],
+      ["day", 3],
+    ],
+  );
+
+  assert.equal(autoCombineParts([{ name: "Order Year" }, { name: "Ship Month" }]), null);
 });
 
 test("autoCombineParts needs a year and a month", () => {

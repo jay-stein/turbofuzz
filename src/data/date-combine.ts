@@ -33,12 +33,27 @@ const DATE_ROLES = new Set<DatePartRole>(["date", "datetime", "epoch"]);
 
 const AUTO_PART_NAMES: readonly (readonly [string, DatePartRole])[] = [
   ["year", "year"],
+  ["yr", "year"],
+  ["yyyy", "year"],
   ["month", "month"],
+  ["mon", "month"],
+  ["mth", "month"],
+  ["monthnum", "month"],
+  ["monthname", "month"],
   ["day", "day"],
+  ["dd", "day"],
+  ["dayofmonth", "day"],
   ["hour", "hour"],
+  ["hr", "hour"],
+  ["hh", "hour"],
   ["minute", "minute"],
+  ["min", "minute"],
   ["second", "second"],
+  ["sec", "second"],
 ];
+
+/** Part names long enough to match as a suffix ("order_year", "OrderMonth"). */
+const SUFFIX_PART_NAMES = AUTO_PART_NAMES.filter(([name]) => name.length >= 3 && name !== "min" && name !== "mon");
 
 /** Case/punctuation-insensitive name key: "Order Year" → "orderyear". */
 function nameKey(name: string): string {
@@ -51,15 +66,8 @@ export interface CombineAutoPick {
   outputName: string;
 }
 
-/**
- * One-click detection for split date columns: Year + Month (plus Day when
- * present) named exactly like their part combine to a date; Hour + Minute
- * together make it a datetime. Returns null when the file does not look like
- * split date parts, so the combine step stays opt-in everywhere else.
- */
-export function autoCombineParts(
-  columns: readonly { name: string }[],
-): CombineAutoPick | null {
+/** Exact part names first; failing that, one shared prefix ("order_year" + "order_month"). */
+function findParts(columns: readonly { name: string }[]): Map<DatePartRole, number> {
   const found = new Map<DatePartRole, number>();
   columns.forEach((column, index) => {
     const key = nameKey(column.name);
@@ -70,10 +78,42 @@ export function autoCombineParts(
       }
     }
   });
+  if (found.has("year") && found.has("month")) return found;
+
+  const byPrefix = new Map<string, Map<DatePartRole, number>>();
+  columns.forEach((column, index) => {
+    const key = nameKey(column.name);
+    for (const [name, role] of SUFFIX_PART_NAMES) {
+      if (key.length <= name.length || !key.endsWith(name)) continue;
+      const prefix = key.slice(0, key.length - name.length);
+      const parts = byPrefix.get(prefix) ?? new Map<DatePartRole, number>();
+      if (!parts.has(role)) parts.set(role, index);
+      byPrefix.set(prefix, parts);
+      return;
+    }
+  });
+  for (const parts of byPrefix.values()) {
+    if (parts.has("year") && parts.has("month")) return parts;
+  }
+  return found;
+}
+
+/**
+ * One-click detection for split date columns: Year + Month (plus Day when
+ * present) combine to a date; an Hour alongside a Day makes it a datetime
+ * (Minute and Second optional, zero when absent). Names match exactly, by a
+ * common alias (yr, mth, hr...) or with one shared prefix (order_year +
+ * order_month). Returns null when the file does not look like split date
+ * parts, so the combine step stays opt-in everywhere else.
+ */
+export function autoCombineParts(
+  columns: readonly { name: string }[],
+): CombineAutoPick | null {
+  const found = findParts(columns);
   const year = found.get("year");
   const month = found.get("month");
   if (year === undefined || month === undefined) return null;
-  const time = found.has("hour") && found.has("minute");
+  const time = found.has("hour") && found.has("day");
   const roles: DatePartRole[] = time
     ? ["year", "month", "day", "hour", "minute", "second"]
     : ["year", "month", "day"];

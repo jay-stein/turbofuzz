@@ -1,3 +1,4 @@
+import type { TsConfig, TsMode } from "../data/timeseries/aggregate.js";
 import type { HeaderLayout } from "../parse/header-detect.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { ChartExclusion } from "../data/chart-exclusions.js";
@@ -54,6 +55,7 @@ import type {
   ProgressMessage,
   ColumnNetworkMessage,
   RelationshipsMessage,
+  TimeSeriesMessage,
   ResultsMessage,
   RowsMessage,
   ShuffledMessage,
@@ -375,6 +377,16 @@ export class SearchWorkerClient {
 
   getRelationships(respectFilters = true): Promise<RelationshipsMessage> {
     return this.request<RelationshipsMessage>({ type: "getRelationships", respectFilters });
+  }
+
+  getTimeSeries(input: {
+    dateColumn: number;
+    groupColumn: number;
+    respectFilters?: boolean;
+    config: TsConfig | null;
+    mode: TsMode;
+  }): Promise<TimeSeriesMessage> {
+    return this.request<TimeSeriesMessage>({ type: "getTimeSeries", ...input });
   }
 
   getColumnNetwork(respectFilters = true): Promise<ColumnNetworkMessage> {

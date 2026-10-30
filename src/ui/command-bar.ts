@@ -95,6 +95,11 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
     hint: "Open the data-quality breakdown",
   },
   {
+    name: "forecast",
+    aliases: ["series", "decompose", "seasonality", "trend"],
+    hint: "Open Time Series: trend, season, forecast and typical day or week",
+  },
+  {
     name: "timeseries",
     aliases: ["time series", "prepare time series"],
     hint: "One step: parse the date and measure, ready for sorting, filtering and charting",
@@ -1011,6 +1016,8 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
       return { kind: "openView", view: "outliers", label: "Opened Outliers" };
     case "relationships":
       return { kind: "openView", view: "relationships", label: "Opened Relationships" };
+    case "forecast":
+      return { kind: "openView", view: "timeseries", label: "Opened Time Series" };
     case "shuffle":
       return { kind: "shuffle", label: "Shuffled the rows" };
     case "copy":

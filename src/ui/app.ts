@@ -185,6 +185,7 @@ import {
   OutliersPanel,
   type OutliersPanelOptions,
 } from "./outliers-panel.js";
+import { createTimeSeriesPage, type TimeSeriesPageHandle } from "./timeseries-page.js";
 import {
   coMissingnessFindings,
   distributionFindings,
@@ -553,6 +554,8 @@ export class App {
   private viewsPanel: ViewsPanel | null = null;
   private outliersHost!: HTMLElement;
   private relationshipsHost!: HTMLElement;
+  private timeSeriesHost!: HTMLElement;
+  private timeSeries: TimeSeriesPageHandle | null = null;
   private qualityHost!: HTMLElement;
   private qualityPage: QualityPage | null = null;
   /** Engine output for the current data: one finding per possibly-sensitive column. */
@@ -1154,6 +1157,7 @@ export class App {
     this.viewsHost = el("div", { class: "views-host hidden" });
     this.outliersHost = el("div", { class: "outliers-host hidden" });
     this.relationshipsHost = el("div", { class: "outliers-host hidden" });
+    this.timeSeriesHost = el("div", { class: "timeseries-host hidden" });
     this.qualityHost = el("div", { class: "quality-host hidden" });
     this.columnsStrip = el("div", { class: "column-strip hidden" });
     results.append(
@@ -1165,6 +1169,7 @@ export class App {
       this.viewsHost,
       this.outliersHost,
       this.relationshipsHost,
+      this.timeSeriesHost,
     );
 
     this.overviewHost = el("div", { class: "overview-host hidden" });
@@ -1248,6 +1253,7 @@ export class App {
       else if (event.key === "5") this.setView("outliers");
       else if (event.key === "6") this.setView("relationships");
       else if (event.key === "7") this.setView("chart");
+      else if (event.key === "8") this.setView("timeseries");
       else if (
         (event.key === "t" || event.key === "T") &&
         this.view === "table"
@@ -3495,6 +3501,8 @@ export class App {
     if (view === "views") this.ensureViews();
     if (view === "outliers") this.ensureOutliers();
     if (view === "relationships") this.ensureRelationships();
+    if (view === "timeseries") this.ensureTimeSeries();
+    else this.timeSeries?.hide();
     if (view === "quality") this.ensureQuality();
     if (view !== "overview") this.lastLens = view;
     const chart = view === "chart";
@@ -3508,6 +3516,8 @@ export class App {
     this.viewsHost.classList.toggle("hidden", view !== "views");
     this.outliersHost.classList.toggle("hidden", view !== "outliers");
     this.relationshipsHost.classList.toggle("hidden", view !== "relationships");
+    this.timeSeriesHost.classList.toggle("hidden", view !== "timeseries");
+    if (view === "timeseries") this.timeSeries?.shown();
     this.healthHost.classList.toggle("hidden", view === "overview" || this.healthChipCount === 0);
     this.moreButton.classList.toggle("hidden", view === "overview");
     this.statsButton.classList.toggle("hidden", view !== "table");
@@ -3756,6 +3766,30 @@ export class App {
     clear(this.outliersHost);
     this.relationshipsPanel = null;
     clear(this.relationshipsHost);
+    this.timeSeries?.hide();
+    this.timeSeries = null;
+    clear(this.timeSeriesHost);
+    if (this.view === "timeseries") this.ensureTimeSeries();
+  }
+
+  /**
+   * The Time Series page reads the current rows through the worker; clicking a period
+   * filters the Table to it.
+   */
+  private ensureTimeSeries(): void {
+    if (this.timeSeries === null) {
+      this.timeSeries = createTimeSeriesPage(this.timeSeriesHost, {
+        request: (input) => this.client.getTimeSeries(input).catch(() => null),
+        onShowRows: (column, min, max) => {
+          this.changeFilter(column, { kind: "range", min, max });
+          this.setView("table");
+          this.table?.flashColumn(column);
+        },
+        onAction: (message) => this.setAction(message),
+        datasetName: () => this.datasetName,
+      });
+    }
+    this.timeSeries.setData(this.metas, this.resultCount);
   }
 
   private outliersPanelOptions(): OutliersPanelOptions {
@@ -3959,6 +3993,7 @@ export class App {
     this.outliersPanel?.setData(this.metas, stats, this.rowCount, this.resultCount);
     this.outliersPanel?.invalidate();
     this.relationshipsPanel?.setData(this.metas, stats, this.rowCount, this.resultCount);
+    this.timeSeries?.setData(this.metas, this.resultCount);
     this.relationshipsPanel?.invalidate();
     this.triage?.update(this.metas, stats);
     this.sensitiveKey = "";
@@ -5265,14 +5300,18 @@ export class App {
     openMenu(anchor, items);
   }
 
-  private filterChipLabel(filter: ColumnFilter): string {
+  private filterChipLabel(filter: ColumnFilter, type?: ColumnType): string {
     switch (filter.kind) {
       case "text":
         return filter.query === "" ? "…" : `“${filter.query}”`;
-      case "range":
-        return `${filter.min === null ? "−∞" : filter.min.toLocaleString()} – ${
-          filter.max === null ? "∞" : filter.max.toLocaleString()
-        }`;
+      case "range": {
+        // Dates are filtered as UTC milliseconds; show them as dates (with the clock for datetimes).
+        const bound = (value: number): string =>
+          type === "date" || type === "datetime"
+            ? new Date(value).toISOString().slice(0, type === "date" ? 10 : 16).replace("T", " ")
+            : value.toLocaleString();
+        return `${filter.min === null ? "−∞" : bound(filter.min)} – ${filter.max === null ? "∞" : bound(filter.max)}`;
+      }
       case "compare": {
         const op = {
           eq: "=",
@@ -5308,7 +5347,7 @@ export class App {
       const name = this.metas[column]?.name ?? `Column ${column + 1}`;
       const chip = el("span", { class: "filter-chip" });
       chip.append(
-        el("span", { class: "filter-chip-label" }, [`${name} · ${this.filterChipLabel(filter)}`]),
+        el("span", { class: "filter-chip-label" }, [`${name} · ${this.filterChipLabel(filter, this.metas[column]?.type)}`]),
       );
       const remove = el(
         "button",
@@ -5426,6 +5465,7 @@ export class App {
     this.chartsPanel?.setRowCount(count);
     this.outliersPanel?.setVisibleRowCount(count);
     this.relationshipsPanel?.setVisibleRowCount(count);
+    this.timeSeries?.setData(this.metas, count);
     if (this.qualityPage !== null && this.lastLoaded !== null) this.renderQualityPage();
     const timeText = queryMs < 1 ? "<1" : String(Math.round(queryMs));
     const total = this.rowCount;

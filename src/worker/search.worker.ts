@@ -36,6 +36,8 @@ import { castColumn } from "../data/cast-ops.js";
 import type { Dataset } from "../data/dataset.js";
 import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
 import { binValues, groupedBinValues } from "../data/chart-bins.js";
+import { buildTable, type TsInput } from "../data/timeseries/base.js";
+import { defaultConfig, sanitizeTsConfig, TsEngine } from "../data/timeseries/engine.js";
 import { missingnessGrid } from "../data/missingness.js";
 import { categoryCodes, computeSeries } from "../data/chart-series.js";
 import {
@@ -103,6 +105,7 @@ import type {
   GetOutlierAnalysisRequest,
   GetDependenciesRequest,
   GetRelationshipsRequest,
+  GetTimeSeriesRequest,
   GetColumnNetworkRequest,
   GetTextProfileRequest,
   ScanSensitiveRequest,
@@ -447,6 +450,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getRelationships":
       handleGetRelationships(message);
+      break;
+    case "getTimeSeries":
+      handleGetTimeSeries(message);
       break;
     case "getColumnNetwork":
       handleGetColumnNetwork(message);
@@ -1777,6 +1783,76 @@ function handleGetDependencies(message: GetDependenciesRequest): void {
     pairs,
     ms: performance.now() - started,
   });
+}
+
+/**
+ * The Time Series page's series table, kept while the date and group columns, the rows
+ * and the dataset stay the same, so its engine can reuse every cached stage.
+ */
+let timeSeriesCache: { key: string; ids: Uint32Array; dataset: Dataset; engine: TsEngine } | null = null;
+
+/** Rows with a readable date, their numeric columns and their group, for the engine. */
+function timeSeriesInput(dataset: Dataset, ids: Uint32Array, dateColumn: number, groupColumn: number): TsInput {
+  const dates = dataset.columns[dateColumn].numbers();
+  const keep: number[] = [];
+  for (const id of ids) if (Number.isFinite(dates[id])) keep.push(id);
+  const times = Float64Array.from(keep, (id) => dates[id]);
+  const cols: Record<string, Float64Array> = {};
+  const flags: Record<string, boolean> = {};
+  dataset.columns.forEach((column, index) => {
+    if (index === dateColumn || column.role === "provenance") return;
+    if (column.type !== "integer" && column.type !== "number") return;
+    const values = column.numbers();
+    const out = Float64Array.from(keep, (id) => values[id]);
+    let name = column.name;
+    for (let k = 2; name in cols; k++) name = `${column.name} (${k})`;
+    cols[name] = out;
+    let zero = false, one = false, other = false;
+    for (const v of out) { if (v === 0) zero = true; else if (v === 1) one = true; else if (v === v) { other = true; break; } }
+    if (zero && one && !other) flags[name] = true;
+  });
+  let groups = ["all"];
+  const rowGroup = new Uint16Array(keep.length);
+  let groupCol: string | null = null;
+  if (groupColumn >= 0) {
+    const column = dataset.columns[groupColumn];
+    const set = column.categories();
+    const rowCode = categoryCodes(set.bits, dataset.rowCount);
+    const used = new Map<number, number>();
+    for (const id of keep) used.set(rowCode[id], 0);
+    const codes = [...used.keys()].sort((a, b) => set.labels[a].localeCompare(set.labels[b]));
+    codes.forEach((code, k) => used.set(code, k));
+    groups = codes.map((code) => set.labels[code]);
+    keep.forEach((id, i) => { rowGroup[i] = used.get(rowCode[id]) ?? 0; });
+    groupCol = column.name;
+  }
+  return { times, cols, flags, groups, rowGroup, groupCol, dateCol: dataset.columns[dateColumn].name, dropped: ids.length - keep.length };
+}
+
+/** Time Series page: one series over the current rows, through the cached engine. */
+function handleGetTimeSeries(message: GetTimeSeriesRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  let ids = sortedIds;
+  if (message.respectFilters === false) {
+    const all = new BitSet(dataset.rowCount);
+    all.setAll();
+    ids = withoutExcluded(all).toIndices();
+  }
+  const key = `${message.dateColumn}|${message.groupColumn}|${message.respectFilters !== false}`;
+  if (timeSeriesCache === null || timeSeriesCache.key !== key || timeSeriesCache.ids !== ids || timeSeriesCache.dataset !== dataset) {
+    const table = buildTable(timeSeriesInput(dataset, ids, message.dateColumn, message.groupColumn));
+    if (table === null) {
+      timeSeriesCache = null;
+      post({ type: "timeSeries", requestId: message.requestId, snapshot: null, error: "Too few rows have a readable date in this column.", ms: performance.now() - started });
+      return;
+    }
+    timeSeriesCache = { key, ids, dataset, engine: new TsEngine(table) };
+  }
+  const engine = timeSeriesCache.engine;
+  const config = sanitizeTsConfig(message.config ?? defaultConfig(engine.info()), engine.info());
+  const snapshot = engine.compute(config, message.mode);
+  post({ type: "timeSeries", requestId: message.requestId, snapshot, ms: performance.now() - started });
 }
 
 /** Ranked relationship discovery over the current rows (Reports → Relationships). */

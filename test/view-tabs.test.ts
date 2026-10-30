@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { VIEW_ORDER, viewSwitchHint } from "../src/ui/view-tabs.js";
 
 test("the keyboard hint follows the number of registered tabs", () => {
-  assert.equal(VIEW_ORDER.length, 7);
+  assert.equal(VIEW_ORDER.length, 8);
   assert.deepEqual(VIEW_ORDER, [
     "overview",
     "quality",
@@ -12,6 +12,7 @@ test("the keyboard hint follows the number of registered tabs", () => {
     "outliers",
     "relationships",
     "chart",
+    "timeseries",
   ]);
   assert.equal(viewSwitchHint(), `switch anytime with 1–${VIEW_ORDER.length}`);
 });
