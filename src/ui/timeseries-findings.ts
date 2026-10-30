@@ -5,7 +5,7 @@
 
 import { cadenceNoun, cadenceText, DAY, GRAIN_ORDER, GRAINS, openAt, weekdayAt, type Grain, type GrainId } from "../data/timeseries/base.js";
 import type { TsAgg, TsMode } from "../data/timeseries/aggregate.js";
-import { circularSmooth, type Decomposition, type SeasonOption } from "../data/timeseries/decompose.js";
+import { circularSmooth, phaseIndex, type Decomposition, type SeasonOption } from "../data/timeseries/decompose.js";
 import type { TsSnapshot } from "../data/timeseries/engine.js";
 import {
   aNoun, cap, compact, dfDM, dfMonShort, dfTime, dfWd, fmtInstant, MONTHS, nf, nounFor, pct, periodLabel, rateK, rateText,
@@ -114,7 +114,7 @@ function phaseLabel(s: TsSnapshot, m: number, k: number): string {
   const g = s.A.g, A = s.A;
   if (g.unit === "day" && m === 7) return WEEKDAYS[(k + weekdayAt(s.table, A.t[0])) % 7];
   let idx = -1;
-  for (let i = A.modelN - 1; i >= 0; i--) if (i % m === k) { idx = i; break; }
+  for (let i = A.modelN - 1; i >= 0; i--) if (phaseIndex(i, m) === k) { idx = i; break; }
   const dt = new Date(A.t[idx]);
   if (g.unit === "min") return m === 7 * (g.perDay ?? 24) ? `${dfWd.format(dt)} ${dfTime.format(dt)}` : m === g.perDay ? dfTime.format(dt) : shortPeriod(g, A.t[idx]);
   if (g.unit === "month" && g.n === 1) return MONTHS[dt.getUTCMonth()];
@@ -216,7 +216,7 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
     }
     const prof = d.m > 60 ? circularSmooth(d.prof, Math.round(d.m / 24)) : d.prof;
     let hiK = 0, loK = 0;
-    for (let k = 0; k < d.m; k++) { if (prof[k] > prof[hiK]) hiK = k; if (prof[k] < prof[loK]) loK = k; }
+    for (let k = 0; k < prof.length; k++) { if (prof[k] > prof[hiK]) hiK = k; if (prof[k] < prof[loK]) loK = k; }
     const unit = g.unit === "day" && d.m === 7 ? "day" : g.unit === "month" && g.n === 1 ? "month" : g.noun;
     const calendar = d.m && g.seasons[d.m];
     const toDecompose = { label: "Decompose", act: { kind: "mode", mode: "decompose" } as TsAction };
@@ -225,7 +225,7 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
     else if (d.parts) out.push(seasonPartsFinding(s, d));
     else if (!calendar) {
       let lastHi = -1, lastLo = -1;
-      for (let i = N - 1; i >= 0 && (lastHi < 0 || lastLo < 0); i--) { if (lastHi < 0 && i % d.m === hiK) lastHi = i; if (lastLo < 0 && i % d.m === loK) lastLo = i; }
+      for (let i = N - 1; i >= 0 && (lastHi < 0 || lastLo < 0); i--) { const k = phaseIndex(i, d.m); if (lastHi < 0 && k === hiK) lastHi = i; if (lastLo < 0 && k === loK) lastLo = i; }
       out.push({
         kind: `Season · ${periodName(g, d.m)}`, tone: "forecast", meter: d.fs, meterLabel: "seasonal strength",
         html: `Repeats about every <b>${d.m} ${g.nouns}</b>${cycleSpan(g, d.m)}. Latest high phase around <b>${shortPeriod(g, A.t[lastHi])}</b>, latest low around <b>${shortPeriod(g, A.t[lastLo])}</b>; swing about <b>${compact(prof[hiK] - prof[loK])}</b>.`,

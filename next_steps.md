@@ -1423,8 +1423,11 @@ Owner review changes (2026-10-30, after run 3):
 the "Several series in one line" banner naming the column behind the repeats, with One
 at a time, Average them instead and Keep the sum. **Item 3 shipped 2026-10-31
 (CHG-2026-10-31-04):** a Source word reads a Pivot View's periods, linked to the view.
-Still open from item 2: an "Open in Pivot View" button (needs a preset API on the views
-panel).
+**Item 4 shipped 2026-10-31 (CHG-2026-10-31-05):** 365.25-day and 52.18-week years in
+decomposition, seasons too short for the series shown greyed with the 2-cycles-plus-2
+rule, and Daily view / Back to hourly in Decompose. Still open: an "Open in Pivot View"
+button (needs a preset API on the views panel); periods counted in open slots only for
+timetabled data; item 5 (STL/MSTL, Box-Cox, credits in exports).
 
 **1. Show the frequency of the data, plainly.** Say what the page found, in the strip or
 the sentence at the top: "hourly", "daily", "monthly", "every 10 minutes", or for uneven

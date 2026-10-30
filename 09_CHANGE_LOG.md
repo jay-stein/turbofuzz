@@ -28,6 +28,17 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-05 — Time Series: which seasons to decompose, said plainly
+
+- **Status:** Verified
+- **Related issue / decision:** next_steps.md, owner TODO 2026-10-30 item 4.
+- **Problem addressed:** Seasons the series was too short for disappeared without a word; sub-daily data offered no way to see the week and year without the swings within a day; a yearly season in weekly data used 52 weeks and drifted about a week every five and a half years.
+- **Scope:** Decomposition season lengths follow fpp3: a year is 365.25 days and 52.18 weeks (`Grain.decPeriods`; models keep whole-number `periods`). `phaseIndex`/`phaseCount` place each period by its share of the way through a calendar cycle, so all 52 weekly phases are used evenly; whole lengths are unchanged (i % m). The engine returns the grain's seasons the series is too short for (`tooShort`, with the periods needed: 2 cycles + 2); the page shows them greyed with the rule, named as this page's own (fpp3 sets none). Decompose gains Daily view (sub-daily grain to day, for the weekly and yearly season) and Back to hourly. Help credits Hyndman and Athanasopoulos.
+- **Tests run and results:** `test/timeseries-seasons.test.ts` (3; ten years of weekly data: yearly strength 0.955 with 52.18 weeks against 0.872 with 52), a new Time Series page e2e test; full suite green; bench:timeseries within budgets.
+- **Known limitations:** Closed hours still count in the period length (plan: open slots only). STL/MSTL and Box-Cox from item 5 are not done.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-04 — Time Series reads a Pivot View as its source
 
 - **Status:** Verified

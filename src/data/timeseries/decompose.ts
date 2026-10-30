@@ -26,6 +26,12 @@ export interface Changepoint { k: number; gain: number; before: Segment; after: 
 export interface SeasonOption { m: number; fs: number; multi: boolean }
 export interface DecompResult {
   options: SeasonOption[];
+  /**
+   * The grain's seasons this series is too short for, with the periods each would need:
+   * two full cycles plus two (our rule; classical decomposition needs two cycles to tell
+   * a season from the trend, and fpp3 sets no minimum).
+   */
+  tooShort: { m: number; need: number }[];
   dec: Decomposition | null;
   /** A rough cycle the calendar does not name, in periods (0 when none). */
   cycle: number;
@@ -43,18 +49,37 @@ const variance = (n: number, f: (i: number) => number): number => {
   return ss / n - (s / n) ** 2;
 };
 
+/** Phases in a season of m periods: m, or the nearest whole number for a calendar length such as 52.18 weeks. */
+export function phaseCount(m: number): number {
+  return Math.max(1, Math.round(m));
+}
+
+/**
+ * Phase of period i in a season of m periods. A whole m is i % m; a calendar length
+ * (365.25 days, 52.18 weeks: fpp3's yearly periods) places i by its share of the way
+ * through the cycle, so the phases stay on the calendar instead of drifting a day
+ * every four years or a week every five and a half.
+ */
+export function phaseIndex(i: number, m: number): number {
+  if (Number.isInteger(m)) return i % m;
+  const M = Math.round(m);
+  return Math.min(M - 1, Math.floor(((i % m) / m) * M));
+}
+
 export function decompose(y: Float64Array, n: number, m: number): Decomposition | null {
   if (n < 2 * m + 2) return null;
+  // The trend's moving average spans the nearest whole number of periods (a 2 x W average when even).
+  const W = phaseCount(m);
   const pre = new Float64Array(n + 1);
   for (let i = 0; i < n; i++) pre[i + 1] = pre[i] + y[i];
   const trend = new Float64Array(n).fill(NaN);
   let a: number, z: number;
-  if (m % 2 === 1) {
-    const k = (m - 1) / 2; a = k; z = n - 1 - k;
-    for (let i = k; i < n - k; i++) trend[i] = (pre[i + k + 1] - pre[i - k]) / m;
+  if (W % 2 === 1) {
+    const k = (W - 1) / 2; a = k; z = n - 1 - k;
+    for (let i = k; i < n - k; i++) trend[i] = (pre[i + k + 1] - pre[i - k]) / W;
   } else {
-    const k = m / 2; a = k; z = n - 1 - k;
-    for (let i = k; i < n - k; i++) trend[i] = (pre[i + k] - pre[i - k + 1] + 0.5 * (y[i - k] + y[i + k])) / m;
+    const k = W / 2; a = k; z = n - 1 - k;
+    for (let i = k; i < n - k; i++) trend[i] = (pre[i + k] - pre[i - k + 1] + 0.5 * (y[i - k] + y[i + k])) / W;
   }
   const fit = (i0: number, i1: number): [number, number] => {
     let sx = 0, sy = 0, sxx = 0, sxy = 0, c = 0;
@@ -62,7 +87,7 @@ export function decompose(y: Float64Array, n: number, m: number): Decomposition 
     const s = (c * sxy - sx * sy) / (c * sxx - sx * sx || 1);
     return [s, (sy - s * sx) / c];
   };
-  const L = Math.max(2, Math.min(m, z - a));
+  const L = Math.max(2, Math.min(W, z - a));
   const [s0, c0] = fit(a, a + L - 1);
   for (let i = 0; i < a; i++) trend[i] = c0 + s0 * i;
   const [s1, c1] = fit(z - L + 1, z);
@@ -72,7 +97,7 @@ export function decompose(y: Float64Array, n: number, m: number): Decomposition 
   for (let i = 0; i < n; i++) det[i] = y[i] - trend[i];
   const prof = phaseMedian(det, a, z, m);
   const seasonal = new Float64Array(n), rem = new Float64Array(n);
-  for (let i = 0; i < n; i++) { seasonal[i] = prof[i % m]; rem[i] = y[i] - trend[i] - seasonal[i]; }
+  for (let i = 0; i < n; i++) { seasonal[i] = prof[phaseIndex(i, m)]; rem[i] = y[i] - trend[i] - seasonal[i]; }
   const vr = variance(n, (i) => rem[i]);
   const ft = Math.max(0, 1 - vr / (variance(n, (i) => trend[i] + rem[i]) || 1));
   const fs = Math.max(0, 1 - vr / (variance(n, (i) => seasonal[i] + rem[i]) || 1));
@@ -81,19 +106,20 @@ export function decompose(y: Float64Array, n: number, m: number): Decomposition 
   return { m, trend, seasonal, rem, prof, ft, fs, level: level / n };
 }
 
-/** Median of v over each phase i % m for i in [a, z], centred on zero. */
+/** Median of v over each phase (see phaseIndex) for i in [a, z], centred on zero. */
 export function phaseMedian(v: Float64Array, a: number, z: number, m: number): Float64Array {
-  const per = Math.ceil((z - a + 1) / m) + 1, buf = new Float64Array(m * per), cnt = new Int32Array(m);
-  for (let i = a; i <= z; i++) { const k = i % m; buf[k * per + cnt[k]++] = v[i]; }
-  const prof = new Float64Array(m);
+  const M = phaseCount(m);
+  const per = Math.ceil((z - a + 1) / M) + 2, buf = new Float64Array(M * per), cnt = new Int32Array(M);
+  for (let i = a; i <= z; i++) { const k = phaseIndex(i, m); buf[k * per + cnt[k]++] = v[i]; }
+  const prof = new Float64Array(M);
   let mean = 0;
-  for (let k = 0; k < m; k++) {
+  for (let k = 0; k < M; k++) {
     const s = buf.subarray(k * per, k * per + cnt[k]).sort(), h = s.length >> 1;
     prof[k] = s.length ? (s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2) : 0;
     mean += prof[k];
   }
-  mean /= m;
-  for (let k = 0; k < m; k++) prof[k] -= mean;
+  mean /= M;
+  for (let k = 0; k < M; k++) prof[k] -= mean;
   return prof;
 }
 
@@ -242,11 +268,11 @@ export function scaleWithLevel(y: Float64Array, n: number, d: Decomposition): De
     for (let k = 0; k < m; k++) S[k] = (1 + daily[k % pd]) * (1 + weekly[k]);
   } else {
     S = phaseMedian(r, a, z, m);
-    for (let k = 0; k < m; k++) S[k] += 1;
+    for (let k = 0; k < S.length; k++) S[k] += 1;
   }
-  const seasonal = new Float64Array(n), rem = new Float64Array(n), prof = new Float64Array(m);
-  for (let i = 0; i < n; i++) { seasonal[i] = d.trend[i] * (S[i % m] - 1); rem[i] = y[i] - d.trend[i] - seasonal[i]; }
-  for (let k = 0; k < m; k++) prof[k] = d.level * (S[k] - 1);
+  const seasonal = new Float64Array(n), rem = new Float64Array(n), prof = new Float64Array(S.length);
+  for (let i = 0; i < n; i++) { seasonal[i] = d.trend[i] * (S[phaseIndex(i, m)] - 1); rem[i] = y[i] - d.trend[i] - seasonal[i]; }
+  for (let k = 0; k < S.length; k++) prof[k] = d.level * (S[k] - 1);
   const vr = variance(n, (i) => rem[i]);
   const out: Decomposition = {
     ...d, seasonal, rem, prof, scaled: true,
@@ -278,7 +304,10 @@ export function preferScaled(y: Float64Array, n: number, d: Decomposition): Deco
 
 export function computeDecomposition(A: Aggregated, cfg: TsConfig): DecompResult {
   const g = A.g, N = A.modelN;
-  const cands = g.periods.filter((p) => N >= 2 * p + 2);
+  // Only seasons with two full cycles plus two periods of history (see DecompResult.tooShort).
+  const lengths = g.decPeriods ?? g.periods;
+  const cands = lengths.filter((p) => N >= 2 * p + 2);
+  const tooShort = lengths.filter((p) => N < 2 * p + 2).map((m) => ({ m, need: Math.ceil(2 * m + 2) }));
   // The cycle search costs length x lags, so it reads the latest stretch only.
   const CW = 20_000;
   const cyc = N > CW ? detectCycle(A.yModel.subarray(N - CW, N), CW, cands) : detectCycle(A.yModel, N, cands);
@@ -292,11 +321,11 @@ export function computeDecomposition(A: Aggregated, cfg: TsConfig): DecompResult
   const best = options.length ? options.reduce((a, b) => (b.fs > a.fs ? b : a)) : null;
   const dec = options.find((d) => d.m === cfg.period) ?? (best && best.fs >= 0.15 ? best : null) ?? trendOnly(A.yModel, N);
   const summary = options.map((o) => ({ m: o.m, fs: o.fs, multi: !!o.parts }));
-  if (!dec) return { options: summary, dec: null, cycle: cyc, anomalies: [], anomalyCount: 0, cp: null, z: null, mad: 0 };
+  if (!dec) return { options: summary, tooShort, dec: null, cycle: cyc, anomalies: [], anomalyCount: 0, cp: null, z: null, mad: 0 };
   const rz = robustZ(dec.rem, N);
   const anomalies: number[] = [];
   // A period with no value was filled in for the models; it is a gap, not an anomaly.
   for (let i = 0; i < N; i++) if (Math.abs(rz.z[i]) >= cfg.sens && !A.made[i] && A.y[i] === A.y[i]) anomalies.push(i);
   anomalies.sort((a, b) => Math.abs(rz.z[b]) - Math.abs(rz.z[a]));
-  return { options: summary, dec, cycle: cyc, z: rz.z, mad: rz.mad, anomalies: anomalies.slice(0, 8), anomalyCount: anomalies.length, cp: changepoint(dec.trend, N) };
+  return { options: summary, tooShort, dec, cycle: cyc, z: rz.z, mad: rz.mad, anomalies: anomalies.slice(0, 8), anomalyCount: anomalies.length, cp: changepoint(dec.trend, N) };
 }

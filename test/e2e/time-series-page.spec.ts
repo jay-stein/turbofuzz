@@ -125,3 +125,37 @@ test("a Pivot View can be the source: its periods are read at its own grain, not
   await page.locator(".ts-popover button", { hasText: "Table" }).click();
   await expect(page.locator(".ts-page [data-ref=subline]")).toContainText("Dates from");
 });
+
+test("decompose: half-hourly data splits into daily + weekly, and one click reads it at daily grain", async ({ page }) => {
+  const lines = ["snapshot_time,occupied"];
+  let t = Date.UTC(2026, 3, 1);
+  for (let i = 0; i < 90 * 48; i++) {
+    const d = new Date(t), hour = d.getUTCHours() + d.getUTCMinutes() / 60, wd = (d.getUTCDay() + 6) % 7;
+    lines.push(`${d.toISOString().slice(0, 16).replace("T", " ")},${Math.round(50 + 30 * Math.sin(((hour - 6) / 24) * 2 * Math.PI) + (wd >= 5 ? -15 : 0) + (i % 5))}`);
+    t += 30 * 60_000;
+  }
+  await page.setViewportSize({ width: 1400, height: 950 });
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "park.csv", mimeType: "text/csv", buffer: Buffer.from(lines.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator(".view-tabs button", { hasText: "Time Series" }).click();
+  await page.locator(".ts-modes [data-mode=decompose]").click();
+  const seasons = page.locator(".ts-page [data-ref=periodSeg]");
+  await expect(seasons).toContainText("Daily + weekly");
+
+  const regrain = page.locator(".ts-page [data-ref=decGrain]");
+  await expect(regrain).toHaveText(/Daily view/);
+  await regrain.click();
+  await expect(page.locator(".ts-page [data-ref=sentence]")).toContainText("Daily");
+  await expect(page.locator(".ts-modes [data-mode=decompose]")).toHaveAttribute("aria-selected", "true");
+  // Ninety days fit a weekly season; a yearly one is shown greyed, with what it needs.
+  await expect(seasons.locator("button:not([disabled])")).toContainText(["Weekly"]);
+  const yearly = seasons.locator("button[disabled]");
+  await expect(yearly).toContainText("needs 733");
+  await expect(yearly).toHaveAttribute("title", /This series has 90/);
+
+  await expect(regrain).toHaveText(/Back to/);
+  await regrain.click();
+  await expect(seasons).toContainText("Daily + weekly");
+});

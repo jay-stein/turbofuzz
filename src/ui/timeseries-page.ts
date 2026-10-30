@@ -17,7 +17,7 @@ import { grade, MODEL_INFO, MODEL_KEYS, type Future, type ModelKey, type ModelRu
 import type { ColumnMeta, TimeSeriesMessage } from "../worker/protocol.js";
 import { downloadCsv } from "./chart-export.js";
 import {
-  buildInsights, chg, escapeHtml, measureWord, modelRows, ratioOf, seasonName, selectedModel, trendShift,
+  buildInsights, chg, escapeHtml, measureWord, modelRows, periodName, ratioOf, seasonName, selectedModel, trendShift,
   type TsAction, type TsFinding, type TsTone, type TsView,
 } from "./timeseries-findings.js";
 import { niceTicks, patternsHtml } from "./timeseries-patterns.js";
@@ -103,6 +103,7 @@ const TEMPLATE = `
           <div class="ts-tb" data-for="decompose" hidden>
             <div class="ts-ctl"><span>Season</span><div class="ts-seg" data-ref="periodSeg" role="group" aria-label="Seasonal period"></div></div>
             <div class="ts-ctl"><label>Flag unusual</label><input type="range" data-ref="sens" min="2.5" max="6" step="0.25" aria-label="How unusual a period must be to flag"><output data-ref="sensOut"></output></div>
+            <button class="ts-ghost" type="button" data-ref="decGrain" hidden></button>
           </div>
           <div class="ts-tb" data-for="forecast" hidden>
             <div class="ts-ctl"><span>Forecast ahead</span><div class="ts-stepper"><button type="button" data-ref="hMinus" aria-label="Forecast less far ahead">&minus;</button><span class="ts-stepnum"><input type="number" class="ts-num" data-ref="hNum" min="1" step="1" aria-label="How far ahead to forecast"><span class="ts-numunit" data-ref="hUnit"></span></span><button type="button" data-ref="hPlus" aria-label="Forecast further ahead">+</button></div><div class="ts-seg" data-ref="hPresets" role="group" aria-label="How far ahead"></div><span class="ts-note" data-ref="hMax"></span></div>
@@ -1046,7 +1047,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   }
   function maxSmooth(): number { const a = A(); return Math.max(a.g.smoothMax, Math.floor(a.modelN / 2)); }
   function renderModePanel(): void {
-    const s = snap as TsSnapshot, a = s.A, gr = a.g, c = s.cfg;
+    const s = snap as TsSnapshot, a = s.A, gr = a.g, c = s.cfg, info = s.table;
     for (const p of host.querySelectorAll<HTMLElement>("[data-panel]")) p.hidden = p.dataset.panel !== ui.mode;
     for (const b of host.querySelectorAll<HTMLButtonElement>(".ts-modes [data-mode]")) { const on = b.dataset.mode === ui.mode; b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1; }
     for (const tb of host.querySelectorAll<HTMLElement>(".ts-tb")) tb.hidden = tb.dataset.for !== ui.mode;
@@ -1085,7 +1086,28 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     }
     if (ui.mode === "decompose") {
       const d = s.dec.dec;
-      ref("periodSeg").innerHTML = s.dec.options.map((o) => `<button type="button" data-period="${o.m}" aria-pressed="${!!d && o.m === d.m}">${seasonName(gr, o).replace(/^./, (ch) => ch.toUpperCase())} <small>${o.fs.toFixed(2)}</small></button>`).join("") || `<span class="ts-note">No seasonal period fits this series.</span>`;
+      const cap1 = (t: string): string => t.replace(/^./, (ch) => ch.toUpperCase());
+      // Seasons the series is too short for stay visible, greyed, with what they would need.
+      const short = s.dec.tooShort.map(({ m, need }) => {
+        const why = `Needs ${nf.format(need)} ${gr.nouns}: two full cycles plus two, so the season can be told apart from the trend. This series has ${nf.format(s.A.modelN)}. That minimum is this page's rule; fpp3 (Hyndman and Athanasopoulos) sets none.`;
+        return `<button type="button" disabled title="${escapeHtml(why)}">${cap1(periodName(gr, m))} <small>needs ${nf.format(need)}</small></button>`;
+      }).join("");
+      const fits = s.dec.options.map((o) => `<button type="button" data-period="${o.m}" aria-pressed="${!!d && o.m === d.m}">${cap1(seasonName(gr, o))} <small>${o.fs.toFixed(2)}</small></button>`).join("");
+      ref("periodSeg").innerHTML = (fits || `<span class="ts-note">No seasonal period fits this series.</span>`) + short;
+      // Below a day the cycles are the day and the week; the week and year read better from daily totals.
+      const decGrain = ref("decGrain");
+      const fine = (["hour", "min30", "min15", "min5"] as GrainId[]).find((id) => !info.tooFine[id]);
+      if (source === "" && gr.unit === "min" && !info.tooFine.day) {
+        decGrain.hidden = false;
+        decGrain.dataset.grain = "day";
+        decGrain.textContent = "Daily view: weekly and yearly season →";
+        decGrain.title = "Combines each day first, so the week and the year show without the swings within a day. Data read more than once a day usually has a daily and a weekly cycle; a yearly one needs two years of days.";
+      } else if (source === "" && gr.id === "day" && info.subDay && fine) {
+        decGrain.hidden = false;
+        decGrain.dataset.grain = fine;
+        decGrain.textContent = `Back to ${GRAINS[fine].adj.toLowerCase()}: daily and weekly cycle`;
+        decGrain.title = "The data is read more than once a day: at that grain the season splits into the cycle within a day and what each weekday adds.";
+      } else decGrain.hidden = true;
       ref("meters").innerHTML = d ? ([["Trend strength", d.ft], [`Seasonal strength (${seasonName(gr, d)})`, d.fs], [`Unusual ${gr.nouns}`, null]] as [string, number | null][]).map(([k, val]) => val == null
         ? `<div class="ts-meter"><span>${k} <b>${s.dec.anomalyCount}</b></span><div class="ts-bar"><i style="width:${Math.min(100, s.dec.anomalyCount * 10)}%;background:${C.danger}"></i></div></div>`
         : `<div class="ts-meter"><span>${k} <b>${val.toFixed(2)}</b></span><div class="ts-bar"><i style="width:${(val * 100).toFixed(0)}%"></i></div></div>`).join("") : "";
@@ -1448,6 +1470,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (hp) { afterFetch = () => { allT = null; flyTo(forecastView()); }; change({ horizon: Number(hp.dataset.h) }, { fade: false }); }
     const per = target.closest<HTMLElement>("[data-period]");
     if (per) change({ period: Number(per.dataset.period) });
+    const regrain = target.closest<HTMLElement>("[data-ref=decGrain]");
+    if (regrain?.dataset.grain) choose("grain", regrain.dataset.grain);
     const lvl = target.closest<HTMLElement>("[data-level]");
     if (lvl) uiChange({ level: lvl.dataset.level as Level });
     const st = target.closest<HTMLElement>("[data-stat]");

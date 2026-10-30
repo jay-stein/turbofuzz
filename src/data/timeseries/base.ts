@@ -33,6 +33,11 @@ export interface Grain {
   hPresets: readonly (readonly [string, number])[];
   /** Calendar seasons to try, preferred first. */
   periods: readonly number[];
+  /**
+   * Season lengths for decomposition when the calendar's is not a whole number of
+   * periods: a year is 365.25 days and 52.18 weeks (fpp3). Models keep `periods`.
+   */
+  decPeriods?: readonly number[];
   seasons: Readonly<Record<number, string>>;
   smooth: number;
   smoothMax: number;
@@ -81,12 +86,12 @@ export const GRAINS: Readonly<Record<GrainId, Grain>> = {
   day: {
     id: "day", unit: "day", n: 1, days: 1, adj: "Daily", noun: "day", nouns: "days", perYear: 365.25, horizon: 42,
     hPresets: [["1 month", 30], ["3 months", 91], ["6 months", 182], ["1 year", 365], ["2 years", 730]],
-    periods: [7, 365], seasons: { 7: "weekly", 365: "yearly" }, smooth: 7, smoothMax: 60, ly: 364, ctx: 365.25, ...YEARLY,
+    periods: [7, 365], decPeriods: [7, 365.25], seasons: { 7: "weekly", 365: "yearly", 365.25: "yearly" }, smooth: 7, smoothMax: 60, ly: 364, ctx: 365.25, ...YEARLY,
   },
   week: {
     id: "week", unit: "week", n: 1, days: 7, adj: "Weekly", noun: "week", nouns: "weeks", perYear: 365.25 / 7, horizon: 26,
     hPresets: [["3 months", 13], ["6 months", 26], ["1 year", 52], ["2 years", 104], ["5 years", 261]],
-    periods: [52], seasons: { 52: "yearly" }, smooth: 4, smoothMax: 52, ly: 52, ctx: 365.25 / 7, ...YEARLY,
+    periods: [52], decPeriods: [365.25 / 7], seasons: { 52: "yearly", [365.25 / 7]: "yearly" }, smooth: 4, smoothMax: 52, ly: 52, ctx: 365.25 / 7, ...YEARLY,
   },
   week2: {
     id: "week2", unit: "week", n: 2, days: 14, adj: "2-weekly", noun: "2-week period", nouns: "2-week periods", perYear: 365.25 / 14, horizon: 13,
