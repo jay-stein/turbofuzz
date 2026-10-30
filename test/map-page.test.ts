@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { backgroundOps, mercY, parseWorldFile, placementProblem, WHOLE_WORLD } from "../src/data/map-background.js";
-import { markersToCsv, MAX_MARKERS, parseMarkers } from "../src/data/map-markers.js";
+import { autoLabel, markersToCsv, MAX_MARKER_SIZE, MAX_MARKERS, parseMarkers } from "../src/data/map-markers.js";
 
 const near = (a: number, b: number, eps = 1e-6): void => assert.ok(Math.abs(a - b) < eps, `${a} vs ${b}`);
 
@@ -50,8 +50,24 @@ test("a mercator picture is drawn in strips that follow latitude", () => {
 test("markers read from pasted cells with a header, in any column order", () => {
   const r = parseMarkers("Name\tLongitude\tLatitude\tColour\nLondon\t-0.1276\t51.5072\tblue\nNowhere\tabc\t\n", { symbol: "pin", color: "#dc2626" });
   assert.equal(r.markers.length, 1);
-  assert.deepEqual(r.markers[0], { label: "London", lat: 51.5072, lon: -0.1276, symbol: "pin", color: "#2563eb" });
+  assert.deepEqual(r.markers[0], { label: "London", lat: 51.5072, lon: -0.1276, symbol: "pin", color: "#2563eb", size: 7 });
   assert.equal(r.skipped.length, 1);
+});
+
+test("a size column sets each marker's size, clamped; the default size fills the rest", () => {
+  const r = parseMarkers("label,lat,lon,size\nA,10,20,12\nB,11,21,99px\nC,12,22,\n", { symbol: "pin", color: "#dc2626", size: 9 });
+  assert.deepEqual(r.markers.map((m) => m.size), [12, MAX_MARKER_SIZE, 9]);
+  const back = parseMarkers(markersToCsv(r.markers), { symbol: "pin", color: "#dc2626" });
+  assert.deepEqual(back.markers.map((m) => m.size), [12, MAX_MARKER_SIZE, 9]);
+});
+
+test("bare latitude, longitude rows under a label header still read, and get Marker N labels", () => {
+  const r = parseMarkers("label,lat,lon\nHobart,-42.88,147.33\n-12.46,130.84\n-34.93;138.60\n", { symbol: "pin", color: "#dc2626" });
+  // The semicolon line reads too: each line may use its own separator.
+  assert.deepEqual(r.markers.map((m) => [m.label, m.lat, m.lon]), [["Hobart", -42.88, 147.33], ["", -12.46, 130.84], ["", -34.93, 138.6]]);
+  assert.equal(r.skipped.length, 0);
+  // Numbering carries on from the markers already on the map.
+  assert.deepEqual(autoLabel(r.markers, 3).map((m) => m.label), ["Hobart", "Marker 5", "Marker 6"]);
 });
 
 test("markers read without a header, including degrees and minutes", () => {

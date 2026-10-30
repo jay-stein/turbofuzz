@@ -310,7 +310,9 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       ),
       list(
         "Background image: load a JPG, PNG or WebP of a map. Place it as the whole world, from its world file (.jgw, .pgw or .wld, picked together with the picture), or by typing its west, east, south and north edges. Pick plate carrée for most downloads and Web Mercator for screenshots of web maps; the coastline on top shows at once if the fit is off. Opacity, greyscale and a credit line are in the same panel, and the credit is drawn on the map and in PNG exports.",
-        "Markers: up to 100 points with a symbol, a colour and a label. Type rows into the table, paste cells copied from a spreadsheet (label, latitude, longitude, then symbol and colour if you have them), upload a CSV, or turn on Click map to add. Symbols are a ring, dot, cross, plus, square, triangle, diamond, star or pin, or your own SVG: only its shapes are read and they are filled with the marker colour. Download CSV saves them.",
+        "The dock on the map holds the Cities switch (the largest cities in view, with names, kept clear of your markers), the Marker size slider (resizes every marker), Click map to add, and Add markers.",
+        "Add markers opens a window: paste rows separated by commas, tabs or semicolons, load a CSV, or find a city, and a preview shows what will be added. Each row needs a latitude and a longitude; a header is optional, and label, symbol, colour and size columns are used when present. Rows without a label are numbered Marker 1, Marker 2 and on. The style row sets the symbol, colour and size for rows that do not name their own.",
+        "Markers: up to 100 points with a symbol, a colour, a size and a label, listed under the map where any of them can be edited. Symbols are a ring, dot, cross, plus, square, triangle, diamond, star or pin, or your own SVG: only its shapes are read and they are filled with the marker colour. Download CSV saves them, sizes included.",
         "The picture and the markers are kept for this dataset in this browser only. Nothing is uploaded and the Map never uses the network.",
       ),
       p("Get an offline map picture:"),

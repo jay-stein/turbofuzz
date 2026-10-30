@@ -28,6 +28,15 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-02 — Map page: dock on the map, Add markers window, marker size
+
+- **Status:** Verified
+- **Problem addressed:** The Cities box sat in the page header away from the map; adding markers was a row of buttons above the map that pushed it down; markers had one fixed size.
+- **Scope:** A floating dock on the map (Cities switch, Marker size slider, Click map to add, + Add markers…), on top of the map from 860px, above it on narrower screens. Add markers window (`src/ui/map-add-dialog.ts`): paste box, CSV, city search, live preview with skipped lines, style row (symbol, colour, size), Ctrl+Enter adds. Only latitude and longitude are required; unlabelled rows become Marker N, numbered on from the markers already there. A bare `lat,lon` row under a `label,lat,lon` header still reads, and each line may use its own separator. Markers carry a size (3 to 24 px; `size`/`radius` column; per-row field; saved and in the CSV). The marker table moved under the map. Zoom buttons moved to the bottom left so they no longer cover the map title. City and marker labels use the theme's ink and halo (they were dark-on-white in dark mode), and city names keep clear of markers and their labels. Fixed: map page sections shrank under each other in the scrolling page.
+- **Tests run and results:** map-page unit tests (12) and e2e (8, two new: paste with numbering, sizes three ways). bench:map within budgets.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-01 — General and Research modes
 
 - **Status:** Verified

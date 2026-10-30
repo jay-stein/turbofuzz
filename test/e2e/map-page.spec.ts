@@ -13,6 +13,11 @@ function sites(): string {
   return lines.join("\n");
 }
 
+/** The values of every input matching the selector, in order. */
+function values(page: Page, selector: string): Promise<string[]> {
+  return page.locator(selector).evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
+}
+
 async function openMap(page: Page, csv = sites(), name = "sites.csv"): Promise<void> {
   await page.setViewportSize({ width: 1400, height: 1000 });
   await page.goto("/");
@@ -44,12 +49,16 @@ test("a background picture is placed, and bad edges are explained", async ({ pag
 
 test("markers come from a CSV, the table and clicks on the map", async ({ page }) => {
   await openMap(page);
-  await page.locator(".map-markers summary").click();
-  await page.locator('input[aria-label="Markers CSV file"]').setInputFiles({
+  await page.getByRole("button", { name: "+ Add markers…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add markers" });
+  await dialog.locator('input[aria-label="Markers CSV file"]').setInputFiles({
     name: "pins.csv",
     mimeType: "text/csv",
     buffer: Buffer.from("name,lat,lon,shape,colour\nDepot,45.1,2.5,star,blue\nYard,47.2,4.1,x,#00aa00\nBad,north,east,,\n"),
   });
+  await expect(dialog.locator(".map-add-skipped")).toContainText("Line 4");
+  await dialog.getByRole("button", { name: "Add 2 markers" }).click();
+  await expect(dialog).toBeHidden();
   await expect(page.locator(".map-mk-count")).toHaveText("2 / 100");
   await expect(page.locator(".map-mk-table tbody tr")).toHaveCount(2);
   await expect(page.locator(".map-cell-label").first()).toHaveValue("Depot");
@@ -75,15 +84,47 @@ test("a table without coordinates still gets a map for markers", async ({ page }
 
 test("cities: search adds a marker, names alone become markers, and the layer draws offline", async ({ page }) => {
   await openMap(page);
-  await page.locator(".map-markers summary").click();
-  await page.getByLabel("Find a city to add as a marker").fill("lond");
-  await expect(page.locator(".map-city-list li").first()).toContainText("London");
-  await page.getByLabel("Find a city to add as a marker").press("Enter");
-  await expect(page.locator(".map-cell-label").first()).toHaveValue("London");
-  await page.locator('input[aria-label="Markers CSV file"]').setInputFiles({ name: "names.csv", mimeType: "text/csv", buffer: Buffer.from("city\nTokyo\nNairobi\n") });
+  await page.getByRole("button", { name: "+ Add markers…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add markers" });
+  await dialog.locator(".map-add-text").fill("city\nTokyo\nNairobi\n");
+  await dialog.getByLabel("Find a city to add").fill("lond");
+  await expect(dialog.locator(".map-city-list li").first()).toContainText("London");
+  await dialog.getByLabel("Find a city to add").press("Enter");
+  await dialog.getByRole("button", { name: "Add 3 markers" }).click();
   await expect(page.locator(".map-mk-count")).toHaveText("3 / 100");
-  await page.getByLabel("Show world cities").check();
+  await expect.poll(() => values(page, ".map-cell-label")).toEqual(["Tokyo", "Nairobi", "London"]);
+  // The cities switch sits on the map, in the dock.
+  await page.locator(".map-dock").getByLabel("Show world cities").check();
   await expect(page.getByLabel("Show world cities")).toBeChecked();
+});
+
+test("pasted rows need only a latitude and longitude; unlabelled ones are numbered", async ({ page }) => {
+  await openMap(page);
+  await page.getByRole("button", { name: "+ Add markers…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add markers" });
+  await dialog.locator(".map-add-text").fill("45.1,2.5\n46.2;3.3\nDepot\t47.2\t4.1\nnothing here");
+  await expect(dialog.locator(".map-add-summary")).toContainText("3 markers ready");
+  await expect(dialog.locator(".map-add-preview tbody tr")).toHaveCount(3);
+  await dialog.locator(".map-add-text").press("Control+Enter");
+  await expect(dialog).toBeHidden();
+  await expect.poll(() => values(page, ".map-cell-label")).toEqual(["Marker 1", "Marker 2", "Depot"]);
+});
+
+test("marker size: set in the Add window, per row, and for every marker from the dock", async ({ page }) => {
+  await openMap(page);
+  await page.getByRole("button", { name: "+ Add markers…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add markers" });
+  await dialog.locator(".map-add-text").fill("label,lat,lon,size\nBig,45,2,16\nPlain,46,3,");
+  await dialog.getByLabel("Size for these markers").fill("10");
+  await dialog.getByRole("button", { name: "Add 2 markers" }).click();
+  await expect.poll(() => values(page, ".map-cell-size")).toEqual(["16", "10"]);
+
+  await page.getByLabel("Size in pixels, row 2").fill("5");
+  await expect.poll(() => values(page, ".map-cell-size")).toEqual(["16", "5"]);
+
+  await page.locator(".map-dock").getByLabel("Marker size").fill("20");
+  await expect.poll(() => values(page, ".map-cell-size")).toEqual(["20", "20"]);
+  await expect(page.locator(".map-dock .map-size-out")).toHaveText("20px");
 });
 
 test("an uploaded SVG becomes a symbol; its scripts are never run", async ({ page }) => {

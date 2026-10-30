@@ -10862,6 +10862,8 @@ button.qp-tile:hover {
 .map-host { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 24px; }
 .map-page { display: flex; flex-direction: column; gap: 10px; color: var(--text); font-size: var(--fs-sm); }
 .map-page .grow { flex: 1; }
+/* The page scrolls; its sections keep their height instead of shrinking under each other. */
+.map-page > * { flex: none; }
 .map-page .hidden { display: none !important; }
 .map-toolbar { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .map-title { margin: 0; font-size: var(--fs-lg); font-weight: 650; }
@@ -10936,6 +10938,340 @@ button.qp-tile:hover {
 .map-city-list li { display: flex; justify-content: space-between; gap: 12px; padding: 4px 10px; cursor: pointer; }
 .map-city-list li:hover { background: var(--accent-soft); }
 .map-city-list small { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+/* ---------- Map page: the dock floating on the map ---------- */
+
+/* Zoom buttons move to the bottom left so they never sit on the map's title. */
+.map-page .chart-map-controls,
+.map-page .chart-reset-view {
+  top: auto;
+  bottom: 16px;
+}
+
+.map-dock {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 36px);
+  padding: 5px 6px 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.map-dock-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.map-dock-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+/* A real switch for the cities layer: the checkbox stays for keyboards and readers. */
+.map-switch {
+  position: relative;
+}
+
+.map-switch-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.map-switch-track {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 18px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-dim) 45%, var(--panel));
+  transition: background 160ms ease;
+}
+
+.map-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(16 24 40 / 30%);
+  transition: transform 180ms cubic-bezier(0.3, 0.9, 0.3, 1);
+}
+
+.map-switch-input:checked + .map-switch-track {
+  background: var(--accent);
+}
+
+.map-switch-input:checked + .map-switch-track::after {
+  transform: translateX(12px);
+}
+
+.map-switch-input:focus-visible + .map-switch-track {
+  box-shadow: var(--focus-ring);
+}
+
+.map-dock-size input[type="range"] {
+  width: 110px;
+  accent-color: var(--accent);
+}
+
+.map-size-out {
+  min-width: 34px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.map-dock-btn {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur) ease, border-color var(--dur) ease;
+}
+
+.map-dock-btn:hover {
+  border-color: var(--accent);
+}
+
+.map-dock-btn[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.map-dock-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.map-dock-btn.primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text));
+}
+
+/* Narrow maps: the dock sits above the map instead of over it. */
+@media (max-width: 860px) {
+  .map-dock {
+    position: static;
+    flex-wrap: wrap;
+    max-width: none;
+    margin-bottom: 8px;
+    border-radius: var(--radius);
+    box-shadow: none;
+  }
+}
+
+.map-cell-size {
+  width: 58px;
+}
+
+/* ---------- Map page: the Add markers window ---------- */
+
+.map-add-modal {
+  width: min(900px, 100%);
+}
+
+.map-add-lead {
+  margin: 0 0 12px;
+  color: var(--text-dim);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+}
+
+.map-add-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.map-add-input {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.map-add-text {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: var(--fs-md);
+  line-height: 1.55;
+}
+
+.map-add-text:focus {
+  border-color: var(--accent);
+}
+
+.map-add-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.map-add-city {
+  width: 180px;
+}
+
+.map-add-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+
+.map-add-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: var(--fs-md);
+}
+
+.map-add-none,
+.map-add-room,
+.map-add-more {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.map-add-more {
+  margin: 0;
+}
+
+.map-add-more:empty {
+  display: none;
+}
+
+.map-add-preview {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.map-add-preview th {
+  padding: 4px 6px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.map-add-preview td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.map-add-preview td.num {
+  font-family: var(--mono);
+  text-align: right;
+}
+
+.map-add-label {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-add-swatch {
+  display: inline-flex;
+  width: 22px;
+  justify-content: center;
+}
+
+.map-add-skipped {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--qa-warn-text);
+  font-size: var(--fs-sm);
+}
+
+.map-add-skipped:empty {
+  display: none;
+}
+
+.map-add-style {
+  display: flex;
+  align-items: center;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  margin: 14px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+}
+
+.map-add-style-title {
+  font-weight: 650;
+}
+
+.map-add-style-note,
+.map-add-keys {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.map-add-style input[type="range"] {
+  width: 110px;
+  accent-color: var(--accent);
+}
+
+.map-add-modal .map-palette {
+  position: absolute;
+  z-index: 40;
+}
+
+.map-add-modal .hidden {
+  display: none !important;
+}
+
+@media (max-width: 720px) {
+  .map-add-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 
 /* Date format picker (convert to date / date & time) */
 .date-format-picker { display: flex; flex-direction: column; gap: 6px; }

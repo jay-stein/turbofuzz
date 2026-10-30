@@ -257,6 +257,8 @@ export interface MapMarkerDraw {
   lon: number;
   lat: number;
   label: string;
+  /** Radius in CSS pixels (7 when absent). */
+  size?: number;
   draw(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void;
 }
 
@@ -1306,6 +1308,7 @@ export class ChartCard {
   private readonly yUnitInput: HTMLInputElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly mapControls: HTMLElement;
+  private readonly canvasWrap: HTMLElement;
   private readonly scopeEl: HTMLElement;
   private readonly summaryEl: HTMLElement;
   /** One short note under the heading (see lint); dismissed notes stay dismissed. */
@@ -2688,6 +2691,7 @@ export class ChartCard {
     mapControls.append(mapZoomIn, mapZoomOut, mapFit);
     this.mapControls = mapControls;
     canvasWrap.append(this.resetViewButton, mapControls);
+    this.canvasWrap = canvasWrap;
     this.summaryEl = el("div", { class: "chart-summary" });
     this.dataIssueEl = el("div", { class: "chart-data-issues hidden" });
     this.scopeEl = el("div", { class: "chart-scope" });
@@ -9235,6 +9239,11 @@ export class ChartCard {
     this.render();
   }
 
+  /** The box around the canvas, for controls that float over the chart (the Map page's dock). */
+  get canvasHost(): HTMLElement {
+    return this.canvasWrap;
+  }
+
   /** The Map page's own markers, drawn over the data. */
   setMapMarkers(markers: readonly MapMarkerDraw[]): void {
     this.mapMarkers = markers;
@@ -9271,11 +9280,11 @@ export class ChartCard {
     ctx.beginPath();
     ctx.rect(x0, y0, w, h);
     ctx.clip();
-    const r = 7 * frame.ui;
     ctx.font = `600 ${11 * frame.ui}px system-ui, sans-serif`;
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
     for (const marker of this.mapMarkers) {
+      const r = (marker.size ?? 7) * frame.ui;
       const x = x0 + ((marker.lon - view.lonMin) / (view.lonMax - view.lonMin)) * w;
       const y = y0 + ((view.latMax - marker.lat) / (view.latMax - view.latMin)) * h;
       if (x < x0 - r || x > x0 + w + r || y < y0 - r || y > y0 + h + r) continue;
@@ -9283,11 +9292,12 @@ export class ChartCard {
       marker.draw(ctx, x, y, r);
       ctx.restore();
       if (marker.label !== "") {
-        // A light halo keeps the label readable over any picture.
+        // A halo in the panel colour keeps the label readable over any picture, in either theme.
         ctx.lineWidth = 3;
-        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineJoin = "round";
+        ctx.strokeStyle = cssVar("--panel", "#ffffff");
         ctx.strokeText(marker.label, x + r + 3, y);
-        ctx.fillStyle = "#1c2430";
+        ctx.fillStyle = cssVar("--text", "#1c2430");
         ctx.fillText(marker.label, x + r + 3, y);
       }
       this.hitRegions.push({

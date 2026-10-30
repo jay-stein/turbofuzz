@@ -1539,8 +1539,10 @@ offline background pictures (whole world / world file / edges, plate carrée or 
 Mercator), up to 100 markers (table, paste, CSV, city search, click; 9 shapes or an
 SVG; colour), and a bundled world-cities layer (Natural Earth, public domain). The map
 card stays in Chart with "Open in Map →" (same call as the line card), so saved charts
-need no migration. Still open: keep city labels clear of marker labels; markers in
-recipes/exports beyond the CSV download.
+need no migration. **2026-10-31 (CHG-2026-10-31-02):** dock on the map (cities, marker
+size, click to add, Add markers window with paste/CSV/city and preview), marker sizes,
+city labels kept clear of marker labels. Still open: markers in recipes/exports beyond
+the CSV download.
 
 Move the map card out of the Chart view into a dedicated **Map** page with its own
 nav entry, like Time Series. Reasons: a map wants the full width and its own toolbar

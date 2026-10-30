@@ -21,6 +21,7 @@ import { el } from "./dom.js";
 import { loadCities } from "../data/cities.js";
 import { cityOverlay } from "./map-cities.js";
 import { createMarkersPanel, type MarkersState } from "./map-markers-panel.js";
+import { MAX_MARKER_SIZE, MIN_MARKER_SIZE } from "../data/map-markers.js";
 import { drawSymbol } from "./map-symbols.js";
 
 export interface MapPageOptions {
@@ -74,14 +75,11 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   }) as HTMLInputElement;
   const loadButton = el("button", { type: "button", class: "map-btn primary", "data-ref": "load" }, ["Background image…"]);
   const guideButton = el("button", { type: "button", class: "map-btn link" }, ["Get an offline map"]);
-  const citiesToggle = el("input", { type: "checkbox", "aria-label": "Show world cities" }) as HTMLInputElement;
-  const citiesLabel = el("label", { class: "map-field", title: "The largest cities in view, with names (bundled, offline)" }, [citiesToggle, el("span", {}, ["Cities"])]);
   const sub = el("span", { class: "map-sub" });
   const toolbar = el("div", { class: "map-toolbar" }, [
     el("h2", { class: "map-title" }, ["Map"]),
     sub,
     el("span", { class: "grow" }),
-    citiesLabel,
     guideButton,
     loadButton,
     fileInput,
@@ -132,6 +130,39 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     ]),
     problem,
   ]);
+  // The dock floats on the map itself, so its layers and marker tools are in view
+  // whenever the map is: cities, marker size, click-to-add and the Add window.
+  const citiesToggle = el("input", { type: "checkbox", role: "switch", class: "map-switch-input", "aria-label": "Show world cities" }) as HTMLInputElement;
+  const sizeSlider = el("input", {
+    type: "range",
+    min: String(MIN_MARKER_SIZE),
+    max: String(MAX_MARKER_SIZE),
+    step: "1",
+    "aria-label": "Marker size",
+  }) as HTMLInputElement;
+  const sizeOut = el("output", { class: "map-size-out" });
+  const pickToggle = el(
+    "button",
+    { type: "button", class: "map-dock-btn", "aria-pressed": "false", title: "Each click on the map adds a marker there; click again to stop" },
+    ["Click map to add"],
+  ) as HTMLButtonElement;
+  const addMarkers = el("button", { type: "button", class: "map-dock-btn primary", title: "Paste rows, load a CSV or find a city" }, ["+ Add markers…"]);
+  const dock = el("div", { class: "map-dock", role: "toolbar", "aria-label": "Map layers and markers" }, [
+    el("label", { class: "map-dock-item map-switch", title: "The largest cities in view, with names (bundled, offline)" }, [
+      citiesToggle,
+      el("span", { class: "map-switch-track", "aria-hidden": "true" }),
+      el("span", {}, ["Cities"]),
+    ]),
+    el("span", { class: "map-dock-sep", "aria-hidden": "true" }),
+    el("label", { class: "map-dock-item map-dock-size", title: "Resize every marker; new markers get this size too" }, [
+      el("span", {}, ["Marker size"]),
+      sizeSlider,
+      sizeOut,
+    ]),
+    el("span", { class: "map-dock-sep", "aria-hidden": "true" }),
+    pickToggle,
+    addMarkers,
+  ]);
   const empty = el("div", { class: "map-empty hidden" });
   const cardHost = el("section", { class: "map-card" });
   let markerState: MarkersState = { markers: [], customs: [] };
@@ -142,6 +173,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
       saveMarkers();
     },
     onPick(on) {
+      pickToggle.setAttribute("aria-pressed", String(on));
       card?.setMapPicker(on ? (lon, lat) => markersPanel.addAt(lon, lat) : null);
       if (on) options.onAction("Click the map to add markers; click “Click map to add” again to stop");
     },
@@ -149,7 +181,19 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     datasetName: options.datasetName,
     cities: loadCities,
   });
-  host.append(toolbar, bgPanel, markersPanel.root, empty, cardHost);
+  // The map comes first; the marker table for editing sits under it.
+  host.append(toolbar, bgPanel, empty, cardHost, markersPanel.root);
+  const syncSize = (): void => {
+    sizeSlider.value = String(markersPanel.size());
+    sizeOut.textContent = `${markersPanel.size()}px`;
+  };
+  syncSize();
+  sizeSlider.addEventListener("input", () => {
+    markersPanel.setSize(Number(sizeSlider.value));
+    syncSize();
+  });
+  pickToggle.addEventListener("click", () => markersPanel.setPicking(pickToggle.getAttribute("aria-pressed") !== "true"));
+  addMarkers.addEventListener("click", () => markersPanel.openAdd());
 
   let metas: readonly ColumnMeta[] = [];
   let rowCount = 0;
@@ -188,6 +232,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     else if (card !== null && card.getConfig().x === -1 && geo !== null) card.applyConfig({ ...card.getConfig(), ...auto });
     if (card === null) {
       card = options.createCard(cardHost, { ...(pending !== null && valid(pending) ? pending : auto), kind: "map" });
+      card.canvasHost.prepend(dock);
       applyBackground();
       applyMarkers();
       void applyCities();
@@ -374,7 +419,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
       return;
     }
     const cities = await loadCities().catch(() => null);
-    if (cities !== null && citiesToggle.checked) card?.setMapOverlay(cityOverlay(cities));
+    if (cities !== null && citiesToggle.checked) card?.setMapOverlay(cityOverlay(cities, () => markerState.markers));
   }
 
   function applyMarkers(): void {
@@ -384,6 +429,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
         lon: m.lon,
         lat: m.lat,
         label: m.label,
+        size: m.size,
         draw: (ctx, x, y, r) => drawSymbol(ctx, m.symbol, x, y, r, m.color, customs),
       })),
     );
@@ -510,6 +556,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
             if (saved === undefined || key !== datasetKey) return;
             markerState = { markers: saved.markers, customs: saved.customs };
             markersPanel.set(markerState);
+            syncSize();
             applyMarkers();
           });
         }
