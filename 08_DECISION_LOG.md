@@ -23,6 +23,15 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-10-31-01 — New-column formulas are Excel style
+
+- **Status:** Accepted (owner, 2026-10-31)
+- **Context:** The Table's New column window needs a formula language (next_steps.md, "BIG TODO: the Table view", section 1). Compared side by side: Excel style (`IF([Status] = "Closed", "Done", "Open")`, `UPPER([First] & " " & [Last])`, `YEAR([Order date])`) against pandas style (`np.where(Status == "Closed", …)`, `(First + " " + Last).str.upper()`, `` `Order date`.dt.year ``).
+- **Decision:** Excel style. Columns are `[Column]` (any name, spaces included; `[` opens column suggestions). Spreadsheet function names: `IF`, `AND`, `OR`, `NOT`, `ROUND`, `ABS`, `MIN`, `MAX`, `LEN`, `LEFT`, `RIGHT`, `MID`, `FIND`, `UPPER`, `LOWER`, `TRIM`, `CONCAT` and `&`, `YEAR`, `MONTH`, `DAY`, `WEEKDAY`, `DATEDIF`, `TODAY`, `ISBLANK`, `COALESCE`/`IFBLANK`. The window shows the matching pandas line under the preview, and Recipe export writes pandas and Polars as for every step.
+- **Trade-offs:** Python users write a syntax they use less, softened by the pandas line shown and the export; deep nesting of `IF` is offset by the Conditional builder.
+- **Acceptance criteria:** every function has a parity case (pandas and Polars give the app's result); unknown columns and functions are reported at their place in the formula with a suggestion.
+- **Date / owner:** 2026-10-31 / owner
+
 ### DEC-2026-10-29-01 — Score band caps and optional columns (plan D7)
 
 - **Status:** Accepted 2026-10-29 by the owner as the starting thresholds (50%/75% empty, 20%/50% invalid); revisit after real use

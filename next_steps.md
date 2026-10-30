@@ -1893,7 +1893,10 @@ Click a cell to change its value, confirm, and undo later if wanted.
 5. Usability pass on headers, the menu, hidden columns and cell peek; frozen columns.
 6. From examples; pasting a block of cells.
 
-**Open questions for the owner:** Excel-style function names (proposed) or pandas-style?
-Static columns first (proposed), or live ones now? Should "first N / last N" limit
+**Decided (owner, 2026-10-31, DEC-2026-10-31-01):** formulas are Excel style
+(`[Column]` references, `IF`, `UPPER`, `YEAR`…), with the matching pandas line shown under
+the preview and a few aliases (`&`/`CONCAT`, `COALESCE`/`IFBLANK`).
+
+**Open questions for the owner:** Static columns first (proposed), or live ones now? Should "first N / last N" limit
 what Export writes (proposed: yes, like any other filter)? Should the cell-edit confirm
 default to on for every edit (proposed: on, with "don't ask again this session")?
