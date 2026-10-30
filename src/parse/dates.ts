@@ -1,4 +1,15 @@
-export type DateOrder = "dmy" | "mdy";
+import { parseWithFormat, type DateFormatPrefix } from "./date-format.js";
+
+/**
+ * How day/month dates are read: day first, month first, or an explicit format
+ * ("fmt:YYYY-MM", see date-format.ts) that every value must follow.
+ */
+export type DateOrder = "dmy" | "mdy" | DateFormatPrefix;
+
+/** The explicit format inside a date order, or null for day-first / month-first. */
+export function orderFormat(order: DateOrder | undefined): string | null {
+  return order !== undefined && order.startsWith("fmt:") ? order.slice(4) : null;
+}
 
 const DMY_OR_MDY = /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/;
 // Same, followed by a clock time: 4/27/2021 11:02:10, 27.04.2021 09:05.
@@ -221,6 +232,8 @@ export function detectDateOrder(values: readonly string[]): DateOrder {
 export function classifyDateValue(raw: string, order: DateOrder = "dmy"): DateValue | null {
   const s = raw.trim();
   if (s === "") return null;
+  const format = orderFormat(order);
+  if (format !== null) return parseWithFormat(s, format);
 
   let m = s.match(ISO_DATETIME);
   if (m !== null) {

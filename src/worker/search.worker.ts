@@ -58,7 +58,7 @@ import {
 } from "../parse/null-tokens.js";
 import { isParquetName, readParquetGrid } from "../parse/parquet.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
-import { parseDate } from "../parse/dates.js";
+import { orderFormat, parseDate, type DateOrder } from "../parse/dates.js";
 import { measureRagged, type RaggedInfo } from "../parse/parse.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
 import { BitSet } from "../search/bitset.js";
@@ -108,6 +108,7 @@ import type {
   GetTimeSeriesRequest,
   GetColumnNetworkRequest,
   GetTextProfileRequest,
+  GetColumnSampleRequest,
   ScanSensitiveRequest,
   GetRowsAffectedRequest,
   GetExceptionsRequest,
@@ -468,6 +469,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "cancelScan":
       cancelledScans.add(message.scanId);
+      break;
+    case "getColumnSample":
+      handleGetColumnSample(message);
       break;
     case "getTextProfile":
       handleGetTextProfile(message);
@@ -2029,6 +2033,20 @@ async function handleScanSensitive(message: ScanSensitiveRequest): Promise<void>
   });
 }
 
+function handleGetColumnSample(message: GetColumnSampleRequest): void {
+  const column = state().dataset.columns[message.column];
+  if (column === undefined) throw new Error("Unknown column");
+  // Evenly spaced rows, so the sample spans the whole file without copying it.
+  const limit = Math.max(1, Math.min(500, message.limit));
+  const n = column.raw.length, values: string[] = [];
+  const step = Math.max(1, Math.floor(n / (limit * 2)));
+  for (let row = 0; row < n && values.length < limit; row += step) {
+    const value = column.raw[row] ?? "";
+    if (!column.nullMask.get(row) && value.trim() !== "") values.push(value);
+  }
+  post({ type: "columnSample", requestId: message.requestId, values });
+}
+
 function handleGetTextProfile(message: GetTextProfileRequest): void {
   const { dataset } = state();
   const column = dataset.columns[message.column];
@@ -2294,7 +2312,7 @@ function cleanTarget(
         // Casts may keep invalid text or blank it, so let inference decide.
         type = undefined;
         if (op.locale !== undefined) numberLocale = op.locale;
-        if (op.order !== undefined) dateOrder = op.order;
+        if (op.order !== undefined) dateOrder = readingOrder(op.order);
         break;
       case "toNumber":
         type = undefined;
@@ -2311,11 +2329,11 @@ function cleanTarget(
         break;
       case "toDate":
         type = undefined;
-        dateOrder = op.order;
+        dateOrder = readingOrder(op.order);
         break;
       case "toDateTime":
         type = undefined;
-        dateOrder = op.order;
+        dateOrder = readingOrder(op.order);
         break;
       case "trim":
       case "case":
@@ -2325,6 +2343,15 @@ function cleanTarget(
     }
   }
   return { type, dateOrder, numberLocale };
+}
+
+/**
+ * The order the column is read with after a date conversion. Converted values are
+ * rewritten as ISO dates, so an explicit format ("fmt:YYYY-MM") no longer describes
+ * them; day first reads ISO and anything left unconverted the usual way.
+ */
+function readingOrder(order: DateOrder): DateOrder {
+  return orderFormat(order) === null ? order : "dmy";
 }
 /**
  * Applies (or reverts) non-destructive value cleans for one or more columns in

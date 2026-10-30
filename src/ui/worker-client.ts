@@ -63,6 +63,7 @@ import type {
   SpecialKind,
   StatsMessage,
   TextProfileMessage,
+  ColumnSampleMessage,
   SensitiveColumnMessage,
   RowsAffectedMessage,
   ExceptionsMessage,
@@ -434,6 +435,11 @@ export class SearchWorkerClient {
 
   getRowsAffected(): Promise<RowsAffectedMessage> {
     return this.request<RowsAffectedMessage>({ type: "getRowsAffected" });
+  }
+
+  /** A spread of the column's non-empty values (up to limit). */
+  getColumnSample(column: number, limit = 200): Promise<ColumnSampleMessage> {
+    return this.request<ColumnSampleMessage>({ type: "getColumnSample", column, limit });
   }
 
   getTextProfile(

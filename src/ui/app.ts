@@ -2941,11 +2941,16 @@ export class App {
       locale: options.locale,
       order: options.dateOrder,
     });
+    const samples =
+      target === "date" || target === "datetime"
+        ? ((await this.client.getColumnSample(column).catch(() => null))?.values ?? [])
+        : [];
     const result = await openCastDialog({
       name,
       fromType: meta.type,
       target,
       initial,
+      samples,
       preview: async (options) => {
         const preview = await this.client.previewClean([
           { column, ops: [...existing, castOp(options)] },
@@ -5978,6 +5983,7 @@ export class App {
             return { changed, total, failed };
           }),
         onOpenMerge: (column) => this.openMerge(column),
+        onSampleValues: async (column) => (await this.client.getColumnSample(column)).values,
         onClose: () => undefined,
       },
       { column, tab, op },

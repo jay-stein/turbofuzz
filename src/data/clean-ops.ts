@@ -1,5 +1,6 @@
 import { parseDate, toDateInputValue, toDateTimeValue, type DateOrder } from "../parse/dates.js";
 import { escapeFormula } from "./formula.js";
+import { describeOrder } from "../parse/date-format.js";
 import { detectDecimalStyle, parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { maskEdges } from "./mask-value.js";
 import { sha256Hex } from "./sha256.js";
@@ -214,11 +215,9 @@ export function describeCleanOp(op: CleanOp): string {
     case "escapeFormulas":
       return "Escape formula-like cells (=1+1 → '=1+1)";
     case "toDate":
-      return `Convert to date (date only, ${op.order === "dmy" ? "day first DD/MM/YYYY" : "month first MM/DD/YYYY"})`;
+      return `Convert to date (date only, ${describeOrder(op.order)})`;
     case "toDateTime":
-      return `Convert to date & time (keeps the clock, stored as UTC — ${
-        op.order === "dmy" ? "day first" : "month first"
-      })`;
+      return `Convert to date & time (keeps the clock, stored as UTC — ${describeOrder(op.order)})`;
     case "mask":
       return `Mask values (keep the first ${op.keepFirst} and last ${op.keepLast} characters)`;
     case "hash":

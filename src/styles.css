@@ -10709,3 +10709,13 @@ button.qp-tile:hover {
 .map-city-list li { display: flex; justify-content: space-between; gap: 12px; padding: 4px 10px; cursor: pointer; }
 .map-city-list li:hover { background: var(--accent-soft); }
 .map-city-list small { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+/* Date format picker (convert to date / date & time) */
+.date-format-picker { display: flex; flex-direction: column; gap: 6px; }
+.date-format-picker .hidden { display: none; }
+.date-format-custom { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.date-format-help { color: var(--text-dim); font-size: var(--fs-xs); line-height: 1.45; }
+.date-format-status { color: var(--text-dim); font-size: var(--fs-sm); }
+.date-format-status:empty { display: none; }
+.date-format-status.error { color: var(--danger); }
+.date-format-row { align-items: flex-start; }

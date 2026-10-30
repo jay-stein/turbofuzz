@@ -4,6 +4,7 @@ import { maskValue } from "./mask-value.js";
 import { columnScore, type ColumnScore, type DQScore, type ScoreCheck } from "./score.js";
 import { TYPE_LABELS, type ColumnType } from "../types.js";
 import type { ColumnMeta } from "../worker/protocol.js";
+import type { DateOrder } from "../parse/dates.js";
 
 /**
  * ONE issue list for the Quality page. Scored checks that fail become "fix"
@@ -44,7 +45,7 @@ export type FixStep =
     }
   | { kind: "placeholders"; column: number; tokens: string[]; preview: FixPreviewLine[] }
   | { kind: "convert"; column: number; to: ColumnType }
-  | { kind: "dateFormat"; column: number; order: "dmy" | "mdy"; preview: FixPreviewLine[] }
+  | { kind: "dateFormat"; column: number; order: DateOrder; preview: FixPreviewLine[] }
   | { kind: "numberSymbols"; column: number; locale: "dot" | "comma"; preview: FixPreviewLine[] };
 
 export type DistClass = "variant" | "target" | "placeholder" | "neutral";

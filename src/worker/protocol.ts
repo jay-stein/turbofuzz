@@ -759,6 +759,20 @@ export interface ColumnNetworkMessage extends ColumnNetworkResult {
   ms: number;
 }
 
+/** A spread of a column's non-empty values, e.g. to show which date formats fit. */
+export type GetColumnSampleRequest = {
+  type: "getColumnSample";
+  requestId: number;
+  column: number;
+  limit: number;
+};
+
+export interface ColumnSampleMessage {
+  type: "columnSample";
+  requestId: number;
+  values: string[];
+}
+
 export type GetTextProfileRequest = {
   type: "getTextProfile";
   requestId: number;
@@ -1062,6 +1076,7 @@ export type WorkerRequest =
   | GetTimeSeriesRequest
   | GetColumnNetworkRequest
   | GetTextProfileRequest
+  | GetColumnSampleRequest
   | ScanSensitiveRequest
   | GetRowsAffectedRequest
   | GetExceptionsRequest
@@ -1316,6 +1331,7 @@ export type WorkerResponse =
   | TimeSeriesMessage
   | ColumnNetworkMessage
   | TextProfileMessage
+  | ColumnSampleMessage
   | SensitiveColumnMessage
   | RowsAffectedMessage
   | ExceptionsMessage

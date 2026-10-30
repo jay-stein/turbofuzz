@@ -240,3 +240,14 @@ Add entries here. Keep unsuccessful attempts too if they reveal useful constrain
 - **Decision:** Ship
 - **Date:** 2026-10-30
 
+### CHG-2026-10-30-09 — Date formats when converting to date / date & time
+
+- **Status:** Verified (unit, e2e, gate)
+- **Related issue / decision:** owner, loading monthly-sunspots.csv: "1749-01" stays text (fine), but converting offered only day-first or month-first; wants the common formats listed plus a custom one, for dates and date-times.
+- **Problem addressed:** Year-month, year-only, quarter, compact (YYYYMMDD), month-name and custom date-time layouts could not be converted.
+- **Scope:** src/parse/date-format.ts reads explicit formats (YYYY, YY, Q, MMMM/MMM, MM/M, DD/D, ddd(d), HH/H, hh/h + A, mm, ss, S..SSS, Z, [literal]; strftime %Y-%m also accepted). A format rides on the existing date order as "fmt:<pattern>", so the cast, Clean, data-quality and worker paths read it unchanged. Missing parts start at 1 (1749-01 → 1749-01-01). After converting, the column reads its rewritten ISO values normally again. One picker (src/ui/date-format-picker.ts) in the change-type dialog and Clean's convert step: automatic day/month first, the common formats that fit a sample of the column first (with how many they read), the rest, and Custom with live checking and a token guide; it starts on the best fit when automatic reading would miss values. New worker request getColumnSample. Recipes: pandas gets format="%Y-%m"; Polars gets a strptime format with "|01" day/month pieces appended when the format has none; quarter formats are flagged for review.
+- **Files / components changed:** src/parse/date-format.ts (new), dates.ts; src/ui/date-format-picker.ts (new), cast-dialog.ts, clean-panel.ts, app.ts, help-content.ts, styles.css, worker-client.ts; src/worker/protocol.ts, search.worker.ts; src/data/recipe.ts, recipe-polars.ts, clean-ops.ts, dq-issues.ts; test/date-format.test.ts (7), test/e2e/date-format.spec.ts (3)
+- **Tests run and results:** unit 1111 pass; e2e 77 pass; gate exit 0.
+- **Decision:** Ship
+- **Date:** 2026-10-30
+

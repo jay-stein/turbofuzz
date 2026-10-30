@@ -164,7 +164,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       ),
       list(
         "Trim whitespace, change case (upper/lower/title), find and replace.",
-        "Convert to number (choose the decimal convention) or to date (choose day-first or month-first).",
+        "Convert to number (choose the decimal convention) or to date / date & time. The Date format list reads day-first or month-first automatically, lists the common formats that fit the column first (with how many values each reads), and takes a custom format such as YYYY-MM, DD.MM.YYYY HH:mm, MMM-YY, YYYY [Q]Q or strftime %Y-%m. Parts a format leaves out start at 1, so 1749-01 becomes 1749-01-01. The same list is in the dialog when you change a column's type to Date.",
         "Repair mixed decimals — fixes only the values written in the other convention.",
         "Escape formula-like cells — for values that would execute on spreadsheet import.",
         "Apply to all columns — run the same operation list across every column.",

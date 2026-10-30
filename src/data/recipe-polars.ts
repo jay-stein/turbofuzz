@@ -16,6 +16,7 @@ import {
   type SupportEntry,
 } from "./recipe-support.js";
 import type { RecipeInput } from "./recipe.js";
+import { polarsDateExpr } from "../parse/date-format.js";
 
 function py(value: string): string {
   return JSON.stringify(value);
@@ -179,9 +180,11 @@ function polarsCleanLines(
           ),
         ].join("\n");
       case "toDate":
-        return assign(`${column}.str.to_datetime(strict=False)`, name);
-      case "toDateTime":
-        return assign(`${column}.str.to_datetime(strict=False, utc=True)`, name);
+      case "toDateTime": {
+        const { expr, review } = polarsDateExpr(column, op.order, op.kind === "toDateTime" ? ", time_zone=\"UTC\"" : "");
+        if (review !== null) entries[entries.length - 1] = { ...entries[entries.length - 1], status: "manual_step_required", note: review };
+        return assign(expr, name);
+      }
       case "cast":
         entries[entries.length - 1] = {
           ...entries[entries.length - 1],

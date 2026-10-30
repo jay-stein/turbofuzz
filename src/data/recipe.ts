@@ -12,6 +12,7 @@ import {
   type SupportEntry,
 } from "./recipe-support.js";
 import type { ColumnType } from "../types.js";
+import { pandasDateArgs } from "../parse/date-format.js";
 
 export interface RecipeInput {
   cleans: readonly { name: string; ops: readonly CleanOp[] }[];
@@ -556,9 +557,11 @@ function cleanLines(
           `${column} = ${column}.map(lambda v: hashlib.sha256((${py(op.salt)} + "\\x00" + v.strip()).encode("utf-8")).hexdigest()[:16] if isinstance(v, str) and v.strip() != "" else v)`,
         ].join("\n");
       case "toDate":
-        return `${column} = pd.to_datetime(${column}, dayfirst=${op.order === "dmy" ? "True" : "False"}, errors="coerce")`;
-      case "toDateTime":
-        return `${column} = pd.to_datetime(${column}, dayfirst=${op.order === "dmy" ? "True" : "False"}, utc=True, errors="coerce")`;
+      case "toDateTime": {
+        const { args, review } = pandasDateArgs(op.order);
+        if (review !== null) entries[entries.length - 1] = { ...entries[entries.length - 1], status: "manual_step_required", note: review };
+        return `${column} = pd.to_datetime(${column}, ${args}${op.kind === "toDateTime" ? ", utc=True" : ""}, errors="coerce")`;
+      }
       case "cast":
         entries[entries.length - 1] = {
           ...entries[entries.length - 1],

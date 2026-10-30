@@ -1,5 +1,5 @@
 import type { CastOptions, CastPolicy, CastTarget } from "../data/cast-ops.js";
-import type { DateOrder } from "../parse/dates.js";
+import { createDateFormatPicker } from "./date-format-picker.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { ColumnType } from "../types.js";
 import { TYPE_LABELS } from "../types.js";
@@ -29,6 +29,8 @@ export interface CastDialogInput {
   target: CastTarget;
   initial: CastOptions;
   preview: (options: CastOptions) => Promise<CastPreviewCounts>;
+  /** Some of the column's values, to show which date formats fit. */
+  samples?: readonly string[];
 }
 
 const TARGET_LABELS: Record<CastTarget, string> = {
@@ -104,21 +106,15 @@ export function openCastDialog(input: CastDialogInput): Promise<CastDialogResult
     localeField.classList.toggle("hidden", !wantsLocale);
     body.append(localeField);
 
-    const orderField = el("label", { class: "chart-setup-field" });
-    orderField.append(el("span", { class: "chart-field-label" }, ["Date order"]));
-    const orderSelect = el("select", {
-      class: "chart-select",
-      "aria-label": "Date order",
-    }) as HTMLSelectElement;
-    orderSelect.append(
-      el("option", { value: "dmy" }, ["Day first (DD/MM/YYYY)"]) as HTMLOptionElement,
-      el("option", { value: "mdy" }, ["Month first (MM/DD/YYYY)"]) as HTMLOptionElement,
-    );
-    orderSelect.value = input.initial.dateOrder ?? "dmy";
-    orderField.append(orderSelect);
     const wantsOrder = input.target === "date" || input.target === "datetime";
-    orderField.classList.toggle("hidden", !wantsOrder);
-    body.append(orderField);
+    const picker = createDateFormatPicker({
+      samples: input.samples ?? [],
+      initial: input.initial.dateOrder ?? "dmy",
+      withTime: input.target === "datetime",
+      onChange: () => refresh(),
+    });
+    picker.root.classList.toggle("hidden", !wantsOrder);
+    body.append(picker.root);
 
     const summary = el("div", { class: "cast-summary", role: "status" }, [
       "Checking the conversion...",
@@ -167,7 +163,7 @@ export function openCastDialog(input: CastDialogInput): Promise<CastDialogResult
       target: input.target,
       policy: policySelect.value as CastPolicy,
       locale: localeSelect.value as NumberLocale,
-      dateOrder: orderSelect.value as DateOrder,
+      dateOrder: picker.value() ?? input.initial.dateOrder ?? "dmy",
     });
 
     const render = (counts: CastPreviewCounts): void => {
@@ -218,6 +214,13 @@ export function openCastDialog(input: CastDialogInput): Promise<CastDialogResult
 
     const refresh = (): void => {
       const current = ++generation;
+      if (wantsOrder && picker.value() === null) {
+        latest = null;
+        summary.textContent = "Fix the custom format to see the conversion.";
+        examples.replaceChildren();
+        confirm.disabled = true;
+        return;
+      }
       summary.textContent = "Checking the conversion...";
       examples.replaceChildren();
       confirm.disabled = true;
@@ -237,7 +240,6 @@ export function openCastDialog(input: CastDialogInput): Promise<CastDialogResult
 
     policySelect.addEventListener("change", refresh);
     localeSelect.addEventListener("change", refresh);
-    orderSelect.addEventListener("change", refresh);
     closeButton.addEventListener("click", () => finish(null));
     cancel.addEventListener("click", () => finish(null));
     reinterpret.addEventListener("click", () => finish({ kind: "reinterpret" }));

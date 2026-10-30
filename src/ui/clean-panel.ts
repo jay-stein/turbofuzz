@@ -1,5 +1,6 @@
 import { setupDialog } from "./dialog.js";
 import { clear, el } from "./dom.js";
+import { createDateFormatPicker } from "./date-format-picker.js";
 import {
   DEFAULT_HEADER_OPTIONS,
   normalizeHeaders,
@@ -34,6 +35,8 @@ export interface CleanPanelCallbacks {
   onApplyNullPolicy: (column: number, extra: string[], keep: string[]) => void;
   onApplyNullPolicyAll: (extra: string[], keep: string[]) => void;
   onPreviewClean: (updates: CleanUpdateRequest[]) => Promise<CleanPreviewCount | null>;
+  /** Some of a column's values, so the date format list shows which formats fit. */
+  onSampleValues?: (column: number) => Promise<string[]>;
   onOpenMerge: (column: number) => void;
   onClose: () => void;
 }
@@ -281,7 +284,7 @@ function buildValuesTab(
 
   const opField = el("label", { class: "clean-field" });
   opField.append(el("span", { class: "clean-label" }, ["Operation"]));
-  const opSelect = el("select") as HTMLSelectElement;
+  const opSelect = el("select", { "aria-label": "Operation" }) as HTMLSelectElement;
   for (const { value, label } of OP_TYPES) {
     opSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
   }
@@ -316,22 +319,32 @@ function buildValuesTab(
   );
   localeRow.append(localeSelect);
 
-  const dateOrderRow = el("div", { class: "clean-field locale-row hidden" });
-  dateOrderRow.append(el("span", { class: "clean-label" }, ["Date order"]));
-  const dateOrderSelect = el("select", { "aria-label": "Date order" }) as HTMLSelectElement;
-  dateOrderSelect.append(
-    el("option", { value: "dmy" }, ["DD/MM/YYYY"]),
-    el("option", { value: "mdy" }, ["MM/DD/YYYY"]),
-  );
-  dateOrderRow.append(dateOrderSelect);
+  const dateOrderRow = el("div", { class: "clean-field locale-row date-format-row hidden" });
+  const datePicker = createDateFormatPicker({
+    samples: [],
+    initial: "dmy",
+    withTime: false,
+    onChange: () => onBuilderChange(),
+  });
+  dateOrderRow.append(datePicker.root);
+  // Samples follow the selected column; the date list re-ranks when they arrive.
+  let sampledColumn = -1;
+  const loadSamples = (): void => {
+    if (sampledColumn === column || callbacks.onSampleValues === undefined) return;
+    const wanted = column;
+    sampledColumn = wanted;
+    void callbacks.onSampleValues(wanted).then((values) => {
+      if (wanted === column) datePicker.setSamples(values);
+    }).catch(() => undefined);
+  };
 
   const syncOpType = (): void => {
     replaceRow.classList.toggle("hidden", opSelect.value !== "replace");
     localeRow.classList.toggle("hidden", opSelect.value !== "toNumber");
-    dateOrderRow.classList.toggle(
-      "hidden",
-      opSelect.value !== "toDate" && opSelect.value !== "toDateTime",
-    );
+    const dates = opSelect.value === "toDate" || opSelect.value === "toDateTime";
+    dateOrderRow.classList.toggle("hidden", !dates);
+    datePicker.setWithTime(opSelect.value === "toDateTime");
+    if (dates) loadSamples();
   };
 
   const currentBuilderOp = (): CleanOp | null =>
@@ -341,7 +354,7 @@ function buildValuesTab(
       replacementInput.value,
       ignoreCaseInput.checked,
       localeSelect.value === "comma" ? "comma" : "dot",
-      dateOrderSelect.value === "mdy" ? "mdy" : "dmy",
+      datePicker.value() ?? "dmy",
     );
 
   // The configured operation is only included when the user actually touched
@@ -366,7 +379,6 @@ function buildValuesTab(
   replacementInput.addEventListener("input", onBuilderChange);
   ignoreCaseInput.addEventListener("change", onBuilderChange);
   localeSelect.addEventListener("change", onBuilderChange);
-  dateOrderSelect.addEventListener("change", onBuilderChange);
 
   if (initialOp !== undefined) {
     switch (initialOp.kind) {
@@ -388,11 +400,11 @@ function buildValuesTab(
         break;
       case "toDate":
         opSelect.value = "toDate";
-        dateOrderSelect.value = initialOp.order;
+        datePicker.set(initialOp.order);
         break;
       case "toDateTime":
         opSelect.value = "toDateTime";
-        dateOrderSelect.value = initialOp.order;
+        datePicker.set(initialOp.order);
         break;
       default:
         break;
@@ -521,7 +533,8 @@ function buildValuesTab(
     const meta = metas[column];
     if (meta === undefined) return;
     localeSelect.value = meta.numberLocale;
-    dateOrderSelect.value = meta.dateOrder;
+    datePicker.set(meta.dateOrder);
+    if (!dateOrderRow.classList.contains("hidden")) loadSamples();
     mergeButton.classList.toggle("hidden", meta.type !== "category");
   }
 
