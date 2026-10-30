@@ -231,6 +231,12 @@ export type ClearExcludedRowsRequest = { type: "clearExcludedRows"; requestId: n
 
 export type ShuffleRequest = { type: "shuffle"; requestId: number; limit?: number };
 
+/** Keep only the first or last N rows of the current order, like pandas head() and tail(). */
+export interface RowLimit {
+  from: "head" | "tail";
+  n: number;
+}
+
 export type SortRequest = {
   type: "sort";
   requestId: number;
@@ -238,6 +244,8 @@ export type SortRequest = {
   dir: 1 | -1;
   /** Reverse the resulting order (file order or the sort); omitted keeps the current setting. */
   reversed?: boolean;
+  /** First / last N rows (null for all); omitted keeps the current setting. */
+  rowLimit?: RowLimit | null;
 };
 
 /** Dataset row indexes (0-based) of the rows at positions [start, end) in the current order. */
@@ -258,6 +266,7 @@ export interface OrderMessage {
   dir: 1 | -1;
   reversed: boolean;
   shuffled: boolean;
+  rowLimit: RowLimit | null;
 }
 
 export type GetRowsRequest = {

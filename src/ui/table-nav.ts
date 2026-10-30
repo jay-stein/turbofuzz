@@ -5,7 +5,10 @@
  * column by name.
  */
 
+import type { RowLimit } from "../worker/protocol.js";
+import { openPrompt } from "./dialog.js";
 import { el, svgIcon } from "./dom.js";
+import { openMenu } from "./menu.js";
 import { parseGoTo, type GoTo } from "./table-goto.js";
 
 export interface TableOrder {
@@ -25,6 +28,9 @@ export interface TableNavOptions {
   onTop(): void;
   onBottom(): void;
   onReverse(on: boolean): void;
+  /** First / last N rows of the current order; null for all rows. */
+  onRowLimit(limit: RowLimit | null): void;
+  currentRowLimit(): RowLimit | null;
   /** Back to the file's own order: no sort, no shuffle, not reversed. */
   onFileOrder(): void;
   onShowFileRow(on: boolean): void;
@@ -35,6 +41,7 @@ const ICONS = {
   top: '<path d="M5 4h14M12 20V9M7 13l5-5 5 5"/>',
   bottom: '<path d="M5 20h14M12 4v11M7 11l5 5 5-5"/>',
   reverse: '<path d="M8 4v16M4 8l4-4 4 4M16 20V4M12 16l4 4 4-4"/>',
+  limit: '<path d="M4 6h16M4 10h16M4 14h7M4 18h7"/>',
 };
 
 /** "file order", "sorted by Amount ↓", "Amount ↓, reversed", "shuffled". */
@@ -49,6 +56,7 @@ export class TableNav {
   private readonly position: HTMLButtonElement;
   private readonly reverse: HTMLButtonElement;
   private readonly fileRow: HTMLButtonElement;
+  private readonly limit: HTMLButtonElement;
   private readonly orderLabel: HTMLElement;
   private readonly fileOrder: HTMLButtonElement;
   private readonly pop: HTMLElement;
@@ -69,6 +77,8 @@ export class TableNav {
     this.reverse = button("", "Reverse", "Reverse the current order: the last row comes first", ICONS.reverse);
     this.reverse.setAttribute("aria-pressed", "false");
     this.fileRow = button("", "File row", "Show each row's number in the loaded data, which stays with the row through sorting and filtering");
+    this.limit = button("", "First / last N ▾", "Keep only the first or last rows of this order, like pandas head() and tail(); Copy, Chart and Export use the same rows", ICONS.limit);
+    this.limit.setAttribute("aria-haspopup", "menu");
     this.fileRow.setAttribute("aria-pressed", "false");
     this.orderLabel = el("span", { class: "table-nav-order", "aria-live": "polite" });
     this.fileOrder = el("button", { class: "table-nav-link", type: "button", title: "Clear the sort, shuffle and reverse" }, ["Back to file order"]) as HTMLButtonElement;
@@ -102,6 +112,7 @@ export class TableNav {
       top,
       bottom,
       this.reverse,
+      this.limit,
       this.fileRow,
       el("span", { class: "table-nav-sep", "aria-hidden": "true" }),
       el("span", { class: "table-nav-order-wrap" }, [el("span", { class: "table-nav-dim" }, ["Order:"]), this.orderLabel, this.fileOrder]),
@@ -121,6 +132,7 @@ export class TableNav {
       options.onShowFileRow(on);
     });
     this.fileOrder.addEventListener("click", () => options.onFileOrder());
+    this.limit.addEventListener("click", () => this.openLimitMenu());
     this.input.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -152,6 +164,42 @@ export class TableNav {
     const plain = order.column === null && !order.reversed && !order.shuffled;
     this.fileOrder.classList.toggle("hidden", plain);
     this.element.classList.toggle("reordered", !plain);
+  }
+
+  /** Shows the active first / last N on its button. */
+  setRowLimit(limit: RowLimit | null): void {
+    const label = this.limit.querySelector("span");
+    if (label) label.textContent = limit === null ? "First / last N ▾" : `${limit.from === "head" ? "First" : "Last"} ${nf.format(limit.n)} ▾`;
+    this.limit.setAttribute("aria-pressed", String(limit !== null));
+  }
+
+  private openLimitMenu(): void {
+    const current = this.options.currentRowLimit();
+    const pick = (from: RowLimit["from"], n: number) => ({
+      label: `${from === "head" ? "First" : "Last"} ${nf.format(n)} rows`,
+      disabled: current?.from === from && current.n === n,
+      action: () => this.options.onRowLimit({ from, n }),
+    });
+    const other = (from: RowLimit["from"]) => ({
+      label: `${from === "head" ? "First" : "Last"} N rows…`,
+      action: () => {
+        void openPrompt({
+          title: from === "head" ? "Keep the first rows" : "Keep the last rows",
+          label: "How many rows",
+          value: String(current?.n ?? 100),
+          confirmLabel: "Keep them",
+        }).then((text) => {
+          if (text === null) return;
+          const n = Number(text.replace(/[,_ ]/g, ""));
+          if (Number.isFinite(n) && n >= 1) this.options.onRowLimit({ from, n: Math.floor(n) });
+        });
+      },
+    });
+    openMenu(this.limit, [
+      pick("head", 10), pick("head", 100), pick("head", 1000), other("head"),
+      pick("tail", 10), pick("tail", 100), pick("tail", 1000), other("tail"),
+      { label: "All rows", disabled: current === null, action: () => this.options.onRowLimit(null) },
+    ]);
   }
 
   setShowFileRow(on: boolean): void {

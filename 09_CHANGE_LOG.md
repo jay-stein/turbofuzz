@@ -28,6 +28,15 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-07 — Table: first / last N rows
+
+- **Status:** Verified
+- **Related issue / decision:** next_steps.md, "BIG TODO: the Table view", section 2; DEC-2026-10-31-02 (it is a filter Copy, Chart and Export respect).
+- **Scope:** A First / last N menu in the Table bar (10, 100, 1,000 or a number you type, from the top or the bottom of the current order; All rows), a filter chip ("Last 10 rows ×") that Clear all also removes, and `head 100` / `tail 50` / `head all` in the command bar. The worker applies it where the current rows are built, so the count, the row read-out, chart cards, Pivot View, Time Series, Copy and Export all use the same rows; after a shuffle the first N are a random N; a new dataset clears it.
+- **Tests run and results:** a new `test/e2e/table-nav.spec.ts` case; full suite green.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-06 — Table navigation: where you are, Go to, Top/Bottom, Reverse, file row numbers
 
 - **Status:** Verified

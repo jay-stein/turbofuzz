@@ -61,6 +61,7 @@ import type {
   RowIdsMessage,
   RowPositionMessage,
   OrderMessage,
+  RowLimit,
   ShuffledMessage,
   SortedMessage,
   SpecialKind,
@@ -218,8 +219,8 @@ export class SearchWorkerClient {
     return this.request<ShuffledMessage>({ type: "shuffle", limit });
   }
 
-  sort(column: number, dir: 1 | -1, reversed?: boolean): Promise<SortedMessage> {
-    return this.request<SortedMessage>({ type: "sort", column, dir, reversed });
+  sort(column: number, dir: 1 | -1, reversed?: boolean, rowLimit?: RowLimit | null): Promise<SortedMessage> {
+    return this.request<SortedMessage>({ type: "sort", column, dir, reversed, rowLimit });
   }
 
   /** Dataset row indexes of the rows at positions [start, end) in the current order. */

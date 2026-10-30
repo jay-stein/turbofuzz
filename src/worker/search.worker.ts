@@ -95,6 +95,7 @@ import type {
   GetRowIdsRequest,
   FindRowRequest,
   GetOrderRequest,
+  RowLimit,
   GetStatsRequest,
   GetChartBinsRequest,
   GetGroupedBinsRequest,
@@ -163,6 +164,13 @@ let sortDir: 1 | -1 = 1;
 let reversedOrder = false;
 /** The current order is a shuffle; any re-sort (a filter, a sort) ends it. */
 let shuffledOrder = false;
+/** First / last N rows of the current order: a filter like any other (a new dataset clears it). */
+let rowLimit: RowLimit | null = null;
+
+function applyRowLimit(ids: Uint32Array): Uint32Array {
+  if (rowLimit === null || rowLimit.n >= ids.length) return ids;
+  return rowLimit.from === "head" ? ids.slice(0, rowLimit.n) : ids.slice(ids.length - rowLimit.n);
+}
 let exportIds: Uint32Array | null = null;
 let duplicateRank: Uint32Array | null = null;
 // Global specials only; "pattern" is column-only and never joins this set.
@@ -594,7 +602,7 @@ function computeSortedIds(bits: BitSet): Uint32Array {
   shuffledOrder = false;
   const ids = specials.has("duplicates") && rankAsc === null ? orderByDuplicates(usable) : orderIds(usable, rankAsc, sortDir);
   // Both orderings build a fresh array, so reversing in place is safe.
-  return reversedOrder ? ids.reverse() : ids;
+  return applyRowLimit(reversedOrder ? ids.reverse() : ids);
 }
 
 function orderByDuplicates(bits: BitSet): Uint32Array {
@@ -669,9 +677,14 @@ function handleShuffle(message: { requestId: number; limit?: number }): void {
   duplicateRank = null;
   reversedOrder = false;
   // Recompute from the filters so repeated shuffles always sample the full
-  // current result set (a previous sample must not shrink the pool).
+  // current result set (a previous sample must not shrink the pool). First / last N
+  // then reads the shuffle, so "first 100" is a random 100.
+  const keepLimit = rowLimit;
+  rowLimit = null;
   sortedIds = computeSortedIds(engine.evaluateBits(filters));
+  rowLimit = keepLimit;
   shuffleInPlace(sortedIds);
+  sortedIds = applyRowLimit(sortedIds);
   shuffledOrder = true;
 
   const limit = message.limit;
@@ -841,6 +854,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
     datasetRagged = ragged;
     reversedOrder = false;
     shuffledOrder = false;
+    rowLimit = null;
     sortedIds = engine.evaluate(filters);
 
     postLoadProgress(message.requestId, { phase: "ready", detail: "Ready" });
@@ -1065,6 +1079,7 @@ function handleSort(message: SortRequest): void {
     sortDir = message.dir;
   }
   if (message.reversed !== undefined) reversedOrder = message.reversed;
+  if (message.rowLimit !== undefined) rowLimit = message.rowLimit !== null && message.rowLimit.n > 0 ? { from: message.rowLimit.from, n: Math.floor(message.rowLimit.n) } : null;
 
   const bits = engine.evaluateBits(filters);
   sortedIds = computeSortedIds(bits);
@@ -1109,7 +1124,7 @@ function handleFindRow(message: FindRowRequest): void {
 }
 
 function handleGetOrder(message: GetOrderRequest): void {
-  post({ type: "order", requestId: message.requestId, column: rankColumn, dir: sortDir, reversed: reversedOrder, shuffled: shuffledOrder });
+  post({ type: "order", requestId: message.requestId, column: rankColumn, dir: sortDir, reversed: reversedOrder, shuffled: shuffledOrder, rowLimit });
 }
 
 function handleGetRows(message: GetRowsRequest): void {
@@ -3005,6 +3020,7 @@ function handleTransform(message: TransformRequest): void {
   const started = performance.now();
   reversedOrder = false;
   shuffledOrder = false;
+  rowLimit = null;
   sortedIds = engine.evaluate(filters);
   post({
     type: "transformed",

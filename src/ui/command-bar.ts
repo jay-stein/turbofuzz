@@ -49,6 +49,7 @@ export type ParsedCommand =
   | { kind: "mode"; mode: AppMode; label: string }
   | { kind: "goto"; target: string; label: string }
   | { kind: "reverse"; label: string }
+  | { kind: "rowLimit"; limit: { from: "head" | "tail"; n: number } | null; label: string }
   | { kind: "export"; label: string }
   | { kind: "views"; label: string }
   | { kind: "quality"; label: string }
@@ -194,6 +195,8 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
     hint: "Go to a row or column in the Table — “goto 250”, “goto -1”, “goto 50%”, “goto file 1234”, “goto amount”",
   },
   { name: "reverse", aliases: ["reverse order", "reverse rows"], hint: "Reverse the Table's order: the last row comes first" },
+  { name: "head", aliases: ["first rows"], hint: "Keep only the first rows — “head 100”; “head all” shows every row again" },
+  { name: "tail", aliases: ["last rows"], hint: "Keep only the last rows — “tail 100”; “tail all” shows every row again" },
 ];
 
 function normalise(value: string): string {
@@ -1139,6 +1142,14 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
       return { kind: "goto", target: rest.trim(), label: `Went to ${rest.trim()}` };
     case "reverse":
       return { kind: "reverse", label: "Reversed the Table's order" };
+    case "head":
+    case "tail": {
+      const arg = normalise(rest);
+      if (arg === "all" || arg === "off" || arg === "none") return { kind: "rowLimit", limit: null, label: "Showing all rows" };
+      const n = arg === "" ? 10 : Number(arg.replace(/[,_ ]/g, ""));
+      if (!Number.isFinite(n) || n < 1) return { kind: "error", message: `How many rows? “${verb} 100”, or “${verb} all” for every row.` };
+      return { kind: "rowLimit", limit: { from: verb, n: Math.floor(n) }, label: `Kept the ${verb === "head" ? "first" : "last"} ${Math.floor(n)} rows` };
+    }
     case "research":
       return { kind: "mode", mode: "research", label: "Switched to Research mode" };
     case "general":

@@ -84,3 +84,25 @@ test("goto and reverse work from the command bar", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(order(page)).toHaveText("file order, reversed");
 });
+
+test("first / last N rows is a filter: a chip, the count and the row read-out follow it", async ({ page }) => {
+  await openTable(page);
+  await page.getByRole("button", { name: /First \/ last N/ }).click();
+  await page.getByRole("menuitem", { name: "Last 10 rows" }).click();
+  await expect(page.locator(".table-nav-pos")).toHaveText("Rows 1–10 of 10");
+  await expect(firstId(page)).toHaveText("991");
+  await expect(page.locator(".filter-chip", { hasText: "Last 10 rows" })).toBeVisible();
+  await expect(page.locator(".count")).toContainText("10 of 1,000 rows");
+
+  // Removing the chip shows every row again.
+  await page.locator(".filter-chip", { hasText: "Last 10 rows" }).getByRole("button").click();
+  await expect(page.locator(".table-nav-pos")).toHaveText(/of 1,000$/);
+
+  // From the command bar, and Clear all removes it like any filter.
+  await page.keyboard.press("Control+k");
+  await page.keyboard.type("head 25");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".table-nav-pos")).toHaveText(/of 25$/);
+  await page.getByRole("button", { name: "Clear all" }).click();
+  await expect(page.locator(".table-nav-pos")).toHaveText(/of 1,000$/);
+});

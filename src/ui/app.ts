@@ -72,6 +72,7 @@ import type {
   ResultsMessage,
   SpecialKind,
   TransformedMessage,
+  RowLimit,
 } from "../worker/protocol.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openDedupeMenu } from "./dedupe-menu.js";
@@ -481,6 +482,8 @@ export class App {
   /** The worker's current order, as last read (column -1 is file order). */
   private tableOrder: { column: number; dir: 1 | -1; reversed: boolean } = { column: -1, dir: 1, reversed: false };
   private showFileRow = readFlag(FILE_ROW_KEY);
+  /** First / last N rows, as the worker last reported it (a filter chip shows it). */
+  private rowLimit: RowLimit | null = null;
 
   private pasteView!: HTMLElement;
   private pasteCancel!: HTMLButtonElement;
@@ -2403,6 +2406,8 @@ export class App {
       onTop: () => this.table?.scrollToTop(),
       onBottom: () => this.table?.scrollToBottom(),
       onReverse: (on) => this.reverseTable(on),
+      onRowLimit: (limit) => this.setRowLimit(limit),
+      currentRowLimit: () => this.rowLimit,
       onFileOrder: () => {
         this.changeSort(-1, 0);
         this.table?.scrollToTop();
@@ -3343,13 +3348,37 @@ export class App {
     );
   }
 
-  /** Reads the worker's order for the Table's status bar. */
+  /** Keeps only the first or last N rows of the current order (null for all rows). */
+  private setRowLimit(limit: RowLimit | null): void {
+    const { column, dir } = this.tableOrder;
+    this.queueSend(() =>
+      this.client
+        .sort(column, dir, undefined, limit)
+        .then((message) => {
+          this.table?.setSort(message.column, message.dir);
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags, message.firstChanged);
+          this.table?.scrollToTop();
+          this.updateCount(message.count, 0);
+          // Cards read the rows the worker keeps, so they follow the new row set.
+          this.chartsPanel?.refresh();
+          this.chartsPanel?.refreshBoundViews();
+          this.setAction(limit === null ? "Showing all rows again" : `Showing the ${limit.from === "head" ? "first" : "last"} ${limit.n.toLocaleString()} rows; Copy, Chart and Export use the same rows`);
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
+  }
+
+  /** Reads the worker's order for the Table's status bar and the first / last N chip. */
   private refreshTableOrder(): void {
-    if (this.tableNav === null) return;
     void this.client
       .getOrder()
       .then((order) => {
+        const before = JSON.stringify(this.rowLimit);
+        this.rowLimit = order.rowLimit;
+        if (JSON.stringify(order.rowLimit) !== before) this.renderFilterChips();
         this.tableOrder = { column: order.column, dir: order.dir, reversed: order.reversed };
+        this.tableNav?.setRowLimit(order.rowLimit);
         this.tableNav?.setOrder({
           column: order.column >= 0 ? this.metas[order.column]?.name ?? null : null,
           dir: order.dir,
@@ -3381,6 +3410,7 @@ export class App {
   }
 
   private clearFilters(): void {
+    if (this.rowLimit !== null) this.setRowLimit(null);
     if (
       this.filters.size === 0 &&
       this.specials.size === 0 &&
@@ -3889,6 +3919,10 @@ export class App {
       case "reverse":
         this.setView("table");
         this.reverseTable(!this.tableOrder.reversed);
+        break;
+      case "rowLimit":
+        this.setView("table");
+        this.setRowLimit(command.limit);
         break;
       case "theme":
         this.themePreference = command.preference;
@@ -5621,9 +5655,18 @@ export class App {
       (sum, count) => sum + count,
       0,
     );
-    if (this.filters.size === 0 && failureTotal === 0) {
+    if (this.filters.size === 0 && failureTotal === 0 && this.rowLimit === null) {
       this.filterChipsEl.classList.add("hidden");
       return;
+    }
+    if (this.rowLimit !== null) {
+      const { from, n } = this.rowLimit;
+      const text = `${from === "head" ? "First" : "Last"} ${n.toLocaleString()} rows`;
+      const chip = el("span", { class: "filter-chip" }, [el("span", { class: "filter-chip-label" }, [text])]);
+      const remove = el("button", { class: "filter-chip-remove", type: "button", "aria-label": `Remove ${text}`, title: "Show all rows again" }, ["×"]);
+      remove.addEventListener("click", () => this.setRowLimit(null));
+      chip.append(remove);
+      this.filterChipsEl.append(chip);
     }
     for (const [column, filter] of this.filters) {
       const name = this.metas[column]?.name ?? `Column ${column + 1}`;
