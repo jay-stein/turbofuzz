@@ -8,7 +8,8 @@ export type ViewId =
   | "outliers"
   | "relationships"
   | "chart"
-  | "timeseries";
+  | "timeseries"
+  | "map";
 
 export const VIEW_ORDER: readonly ViewId[] = [
   "overview",
@@ -19,6 +20,7 @@ export const VIEW_ORDER: readonly ViewId[] = [
   "relationships",
   "chart",
   "timeseries",
+  "map",
 ];
 
 /** Hint text derived from the tabs actually available, not a hardcoded range. */
@@ -44,6 +46,10 @@ const LABELS: Record<ViewId, { label: string; title: string }> = {
   timeseries: {
     label: "Time Series",
     title: "Trend, season, forecast and typical patterns of one column over a date column",
+  },
+  map: {
+    label: "Map",
+    title: "Points and areas on a world map, over your own offline map picture if you load one",
   },
   outliers: {
     label: "Outliers",

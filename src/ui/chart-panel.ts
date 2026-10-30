@@ -29,6 +29,7 @@ import { isGroupableColumn } from "../data/groupable.js";
 import {
   ChartCard,
   type ChartCardConfig,
+  type ChartCardOptions,
   type ChartSeriesTarget,
   type ChartTableFilter,
   type BrushRange,
@@ -156,6 +157,8 @@ export interface ChartsPanelOptions {
   onShowRows?(filters: readonly ChartTableFilter[], label: string): void;
   /** Open a line card's series on the Time Series page. */
   onDeepDive?(series: ChartSeriesTarget): void;
+  /** Open a map card full width on the Map page. */
+  onOpenMap?(config: ChartCardConfig): void;
   /** Convert placeholder tokens through the existing null-policy path. */
   onConvertToken?(column: number, tokens: string[]): void;
   /** Apply an existing suggestion through the shared fix path. */
@@ -438,6 +441,7 @@ export class ChartsPanel {
   private readonly layoutSelect: HTMLSelectElement;
   private readonly sizeSelect: HTMLSelectElement;
   private entries: ChartEntry[] = [];
+  private detached: ChartCard[] = [];
   private columns: ColumnMeta[] = [];
   private sources: { id: string; name: string; kind?: "pivot" | "view" }[] = [];
   private facets: Record<number, number[]> = {};
@@ -595,9 +599,62 @@ export class ChartsPanel {
       kinds.add(existing.getConfig().kind);
     }
     const section = el("section", { class: "chart-card" });
-    const card = new ChartCard(
-      section,
-      {
+    const card = new ChartCard(section, this.cardOptions(), preset ?? presetFor(this.columns, used, kinds, this.rowCount));
+    const entry: ChartEntry = { type: "card", card };
+    const beforeIndex =
+      before === undefined || before === null
+        ? -1
+        : this.entries.findIndex((candidate) =>
+            candidate.type === "orphan"
+              ? candidate.root === before
+              : candidate.card.root === before,
+          );
+    if (beforeIndex >= 0 && before !== undefined && before !== null) {
+      this.entries.splice(beforeIndex, 0, entry);
+      this.grid.insertBefore(section, before);
+    } else {
+      this.entries.push(entry);
+      this.grid.append(section);
+    }
+    this.syncCard(card);
+    this.syncEmpty();
+    return card;
+  }
+
+  /**
+   * A card outside the grid (the Map page's map): the same requests and data as the
+   * grid's cards, kept in step with them, but never saved with the grid's charts.
+   */
+  createDetachedCard(root: HTMLElement, preset: Partial<ChartCardConfig>, overrides: Partial<ChartCardOptions> = {}): ChartCard {
+    root.classList.add("chart-card");
+    const card = new ChartCard(root, { ...this.cardOptions(), ...overrides }, preset);
+    this.detached.push(card);
+    this.syncCard(card);
+    return card;
+  }
+
+  /** Stops updating a detached card and frees it. */
+  releaseDetachedCard(card: ChartCard): void {
+    this.detached = this.detached.filter((other) => other !== card);
+    card.dispose();
+  }
+
+  private syncCard(card: ChartCard): void {
+    card.setColumns(this.columns);
+    card.setSources(this.sources);
+    card.setFiltered(this.facets, this.histograms);
+    card.setRowCount(this.rowCount);
+    card.setTotalRowCount(this.totalRowCount);
+    if (card.getConfig().source !== "") card.refreshView();
+  }
+
+  /** Grid cards and detached ones: everything that follows the data. */
+  private liveCards(): ChartCard[] {
+    return [...this.cards(), ...this.detached];
+  }
+
+  private cardOptions(): ChartCardOptions {
+    return {
         datasetName: this.options.datasetName,
         requestBins: this.options.requestBins,
         requestSeries: this.options.requestSeries,
@@ -617,7 +674,7 @@ export class ChartsPanel {
         onMapBrush: this.options.onMapBrush,
         onBrush: this.options.onBrush,
         onHighlight: (source, actions, label) => {
-          for (const card of this.cards()) if (card !== source) card.setLinkedHighlight(actions, label);
+          for (const card of this.liveCards()) if (card !== source) card.setLinkedHighlight(actions, label);
         },
         requestSliceBreakdown: this.options.requestSliceBreakdown,
         onRemove: (target) => this.removeCard(target),
@@ -631,46 +688,21 @@ export class ChartsPanel {
         onBreakDown: (target) => this.breakDownCard(target),
         onCompare: (target) => this.compareCard(target),
         onDeepDive: this.options.onDeepDive,
+        onOpenMap: this.options.onOpenMap,
         onConvertToken: this.options.onConvertToken,
         onSuggestion: this.options.onSuggestion,
         onExport: (target) => {
           const size = EXPORT_SIZES[this.exportSizeIndex] ?? EXPORT_SIZES[DEFAULT_EXPORT_SIZE];
           target.exportPng(size.width, size.height);
         },
-      },
-      preset ?? presetFor(this.columns, used, kinds, this.rowCount),
-    );
-    const entry: ChartEntry = { type: "card", card };
-    const beforeIndex =
-      before === undefined || before === null
-        ? -1
-        : this.entries.findIndex((candidate) =>
-            candidate.type === "orphan"
-              ? candidate.root === before
-              : candidate.card.root === before,
-          );
-    if (beforeIndex >= 0 && before !== undefined && before !== null) {
-      this.entries.splice(beforeIndex, 0, entry);
-      this.grid.insertBefore(section, before);
-    } else {
-      this.entries.push(entry);
-      this.grid.append(section);
-    }
-    card.setColumns(this.columns);
-    card.setSources(this.sources);
-    card.setFiltered(this.facets, this.histograms);
-    card.setRowCount(this.rowCount);
-    card.setTotalRowCount(this.totalRowCount);
-    if (card.getConfig().source !== "") card.refreshView();
-    this.syncEmpty();
-    return card;
+    };
   }
 
   /** Sources every card can bind to: the filtered table plus each saved view. */
   setSources(sources: { id: string; name: string; kind?: "pivot" | "view" }[]): void {
     this.sources = sources;
     this.addPanel.setSources(sources);
-    for (const card of this.cards()) card.setSources(sources);
+    for (const card of this.liveCards()) card.setSources(sources);
   }
 
   /** Refetch every view-bound card after filters or underlying data change. */
@@ -797,7 +829,7 @@ export class ChartsPanel {
     this.columns = withChartGroups(this.withKnownGroups(columns));
     if (this.groupsWanted) this.fetchMissingGroups(columns);
     this.addPanel.setColumns(this.columns, this.rowCount);
-    for (const card of this.cards()) card.setColumns(this.columns);
+    for (const card of this.liveCards()) card.setColumns(this.columns);
     this.syncEmpty();
   }
 
@@ -849,7 +881,7 @@ export class ChartsPanel {
         }
       }
       this.columns = withChartGroups(this.withKnownGroups(columns));
-      for (const card of this.cards()) card.setColumns(this.columns);
+      for (const card of this.liveCards()) card.setColumns(this.columns);
       this.syncEmpty();
     });
   }
@@ -967,33 +999,33 @@ export class ChartsPanel {
   ): void {
     this.facets = facets;
     this.histograms = histograms;
-    for (const card of this.cards()) card.setFiltered(facets, histograms);
+    for (const card of this.liveCards()) card.setFiltered(facets, histograms);
   }
 
   setRowCount(count: number): void {
     this.rowCount = count;
     this.addPanel.setColumns(this.columns, count);
-    for (const card of this.cards()) card.setRowCount(count);
+    for (const card of this.liveCards()) card.setRowCount(count);
   }
 
   setTotalRowCount(count: number): void {
     this.totalRowCount = count;
-    for (const card of this.cards()) card.setTotalRowCount(count);
+    for (const card of this.liveCards()) card.setTotalRowCount(count);
   }
 
   refresh(): void {
-    for (const card of this.cards()) card.refresh();
+    for (const card of this.liveCards()) card.refresh();
   }
 
   /** Cheap re-entry: repaint without re-requesting any worker payloads. */
   repaint(): void {
-    for (const card of this.cards()) card.repaint();
+    for (const card of this.liveCards()) card.repaint();
   }
 
   dispose(): void {
     if (this.guideKey !== null) document.removeEventListener("keydown", this.guideKey);
     this.guide?.root.remove();
-    for (const card of this.cards()) card.dispose();
+    for (const card of this.liveCards()) card.dispose();
     this.entries = [];
   }
 

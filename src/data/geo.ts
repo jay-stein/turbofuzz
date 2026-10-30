@@ -162,7 +162,9 @@ export function detectGeoPair(
     .filter(
       (entry) =>
         (entry.meta.type === "integer" || entry.meta.type === "number") &&
-        !(rowCount > 12 && entry.meta.stats.distinct === rowCount),
+        // A whole-number column unique on every row is a row id; decimal coordinates
+        // of distinct sites are unique too, and are kept.
+        !(rowCount > 12 && entry.meta.type === "integer" && entry.meta.stats.distinct === rowCount),
     );
   if (entries.length < 2) return null;
 

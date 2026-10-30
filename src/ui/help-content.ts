@@ -299,6 +299,28 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     ],
   },
   {
+    id: "map",
+    title: "Map",
+    summary: "Points on a world map, over your own offline map picture, with markers you add.",
+    blocks: [
+      p(
+        "The Map tab (keyboard 9, or type map in the command bar) shows the Chart view's map at full width: the rows' latitude and longitude as points or a heat grid, a boundary file coloured by a column, zoom and pan, and a dragged rectangle to filter the Table to an area. It follows the Table's filters. A Chart map card's Open in Map link opens the same columns here.",
+      ),
+      list(
+        "Background image: load a JPG, PNG or WebP of a map. Place it as the whole world, from its world file (.jgw, .pgw or .wld, picked together with the picture), or by typing its west, east, south and north edges. Pick plate carrée for most downloads and Web Mercator for screenshots of web maps; the coastline on top shows at once if the fit is off. Opacity, greyscale and a credit line are in the same panel, and the credit is drawn on the map and in PNG exports.",
+        "Markers: up to 100 points with a symbol, a colour and a label. Type rows into the table, paste cells copied from a spreadsheet (label, latitude, longitude, then symbol and colour if you have them), upload a CSV, or turn on Click map to add. Symbols are a ring, dot, cross, plus, square, triangle, diamond, star or pin, or your own SVG: only its shapes are read and they are filled with the marker colour. Download CSV saves them.",
+        "The picture and the markers are kept for this dataset in this browser only. Nothing is uploaded and the Map never uses the network.",
+      ),
+      p("Get an offline map picture:"),
+      list(
+        "Natural Earth raster maps (naturalearthdata.com, public domain): the whole world in plate carrée, so choose Whole world.",
+        "NASA Blue Marble / Visible Earth (public domain): whole-world images, also Whole world.",
+        "Your own area from OpenStreetMap: in QGIS add the OpenStreetMap layer, zoom to the area, then Project → Import/Export → Export Map to Image with Save world file ticked. Load the picture and its world file together. OpenStreetMap asks for the credit “© OpenStreetMap contributors” when you share the result: type it in the credit box.",
+        "A scanned or drawn map: load it, choose Edges and type the four edges in degrees.",
+      ),
+    ],
+  },
+  {
     id: "process-log",
     title: "Recipe (undo)",
     summary: "Every applied change, individually reversible, plus a pandas or Polars recipe.",

@@ -81,7 +81,7 @@ import { Overview, STATS_ICON, delimiterLabel, readDefaultView } from "./overvie
 import type { DatasetStats } from "../data/stats.js";
 import { FilterPanel } from "./filters.js";
 import { ChartsPanel, remapChartConfigs, type NamedChartCardConfig } from "./chart-panel.js";
-import type { BrushRange, ChartSeriesTarget, MapBrushSelection } from "./chart-card.js";
+import type { BrushRange, ChartCardConfig, ChartSeriesTarget, MapBrushSelection } from "./chart-card.js";
 import { openHelpDrawer } from "./help-drawer.js";
 import { Hints } from "./hints.js";
 import { sampleCsv } from "./sample.js";
@@ -187,6 +187,7 @@ import {
 } from "./outliers-panel.js";
 import { createTimeSeriesPage, type TimeSeriesPageHandle, type TsPreset } from "./timeseries-page.js";
 import type { GrainId } from "../data/timeseries/base.js";
+import { createMapPage, type MapPageHandle } from "./map-page.js";
 import {
   coMissingnessFindings,
   distributionFindings,
@@ -557,6 +558,8 @@ export class App {
   private relationshipsHost!: HTMLElement;
   private timeSeriesHost!: HTMLElement;
   private timeSeries: TimeSeriesPageHandle | null = null;
+  private mapHost!: HTMLElement;
+  private mapPage: MapPageHandle | null = null;
   private qualityHost!: HTMLElement;
   private qualityPage: QualityPage | null = null;
   /** Engine output for the current data: one finding per possibly-sensitive column. */
@@ -1159,6 +1162,7 @@ export class App {
     this.outliersHost = el("div", { class: "outliers-host hidden" });
     this.relationshipsHost = el("div", { class: "outliers-host hidden" });
     this.timeSeriesHost = el("div", { class: "timeseries-host hidden" });
+    this.mapHost = el("div", { class: "map-host hidden" });
     this.qualityHost = el("div", { class: "quality-host hidden" });
     this.columnsStrip = el("div", { class: "column-strip hidden" });
     results.append(
@@ -1171,6 +1175,7 @@ export class App {
       this.outliersHost,
       this.relationshipsHost,
       this.timeSeriesHost,
+      this.mapHost,
     );
 
     this.overviewHost = el("div", { class: "overview-host hidden" });
@@ -1255,6 +1260,7 @@ export class App {
       else if (event.key === "6") this.setView("relationships");
       else if (event.key === "7") this.setView("chart");
       else if (event.key === "8") this.setView("timeseries");
+      else if (event.key === "9") this.setView("map");
       else if (
         (event.key === "t" || event.key === "T") &&
         this.view === "table"
@@ -2223,6 +2229,9 @@ export class App {
     this.chartsPanel?.dispose();
     this.chartsPanel = null;
     clear(this.chartHost);
+    // The map card is fed by the chart panel: a new panel needs a new map page.
+    this.mapPage = null;
+    clear(this.mapHost);
 
     clear(this.filterHost);
     this.filterSearch.value = "";
@@ -2389,6 +2398,7 @@ export class App {
       onFilterTable: (filters, label) => this.applyChartFilters(filters, label, false),
       onShowRows: (filters, label) => this.applyChartFilters(filters, label, true),
       onDeepDive: (series) => this.openSeries(series),
+      onOpenMap: (config) => this.openMap(config),
       onConvertToken: (column, tokens) => this.convertToken(column, tokens),
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
       onMapBrush: (selection) => this.filterToMapArea(selection),
@@ -3505,6 +3515,8 @@ export class App {
     if (view === "relationships") this.ensureRelationships();
     if (view === "timeseries") this.ensureTimeSeries();
     else this.timeSeries?.hide();
+    if (view === "map") this.ensureMap();
+    else this.mapPage?.hide();
     if (view === "quality") this.ensureQuality();
     if (view !== "overview") this.lastLens = view;
     const chart = view === "chart";
@@ -3520,6 +3532,8 @@ export class App {
     this.relationshipsHost.classList.toggle("hidden", view !== "relationships");
     this.timeSeriesHost.classList.toggle("hidden", view !== "timeseries");
     if (view === "timeseries") this.timeSeries?.shown();
+    this.mapHost.classList.toggle("hidden", view !== "map");
+    if (view === "map") this.mapPage?.shown();
     this.healthHost.classList.toggle("hidden", view === "overview" || this.healthChipCount === 0);
     this.moreButton.classList.toggle("hidden", view === "overview");
     this.statsButton.classList.toggle("hidden", view !== "table");
@@ -3772,6 +3786,39 @@ export class App {
     this.timeSeries = null;
     clear(this.timeSeriesHost);
     if (this.view === "timeseries") this.ensureTimeSeries();
+    if (this.mapPage !== null) {
+      this.mapPage.hide();
+      this.mapPage = null;
+      clear(this.mapHost);
+      if (this.view === "map") this.ensureMap();
+    }
+  }
+
+  /**
+   * The Map page: the Chart view's map card at full width (fed by the chart panel, so
+   * it follows filters like any chart), plus an offline background picture.
+   */
+  private ensureMap(): void {
+    this.ensureCharts();
+    const charts = this.chartsPanel;
+    if (charts === null) return;
+    if (this.mapPage === null) {
+      this.mapPage = createMapPage(this.mapHost, {
+        createCard: (root, preset) => charts.createDetachedCard(root, preset, { onOpenMap: undefined, keepEmptyMap: true }),
+        releaseCard: (card) => charts.releaseDetachedCard(card),
+        datasetName: () => this.datasetName,
+        onAction: (message) => this.setAction(message),
+        openGuide: () => openHelpDrawer("map"),
+      });
+    }
+    this.mapPage.setData(this.metas, this.resultCount);
+  }
+
+  /** A Chart map card, opened full width on the Map page with the same columns. */
+  private openMap(config: ChartCardConfig): void {
+    this.ensureMap();
+    this.mapPage?.open({ x: config.x, y: config.y, mapMode: config.mapMode, colorColumn: config.colorColumn, sizeColumn: config.sizeColumn });
+    this.setView("map");
   }
 
   /**
@@ -4019,6 +4066,7 @@ export class App {
     this.outliersPanel?.invalidate();
     this.relationshipsPanel?.setData(this.metas, stats, this.rowCount, this.resultCount);
     this.timeSeries?.setData(this.metas, this.resultCount);
+    this.mapPage?.setData(this.metas, this.resultCount);
     this.relationshipsPanel?.invalidate();
     this.triage?.update(this.metas, stats);
     this.sensitiveKey = "";
@@ -5491,6 +5539,7 @@ export class App {
     this.outliersPanel?.setVisibleRowCount(count);
     this.relationshipsPanel?.setVisibleRowCount(count);
     this.timeSeries?.setData(this.metas, count);
+    this.mapPage?.setData(this.metas, count);
     if (this.qualityPage !== null && this.lastLoaded !== null) this.renderQualityPage();
     const timeText = queryMs < 1 ? "<1" : String(Math.round(queryMs));
     const total = this.rowCount;

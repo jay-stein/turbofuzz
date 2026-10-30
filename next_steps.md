@@ -1429,6 +1429,14 @@ Still to do (later, not blocking the Map page):
 
 ### 1. Maps get their own page (out of Chart)
 
+**Shipped 2026-10-30 (CHG-2026-10-30-08):** Map tab with the map card at full width,
+offline background pictures (whole world / world file / edges, plate carrée or Web
+Mercator), up to 100 markers (table, paste, CSV, city search, click; 9 shapes or an
+SVG; colour), and a bundled world-cities layer (Natural Earth, public domain). The map
+card stays in Chart with "Open in Map →" (same call as the line card), so saved charts
+need no migration. Still open: keep city labels clear of marker labels; markers in
+recipes/exports beyond the CSV download.
+
 Move the map card out of the Chart view into a dedicated **Map** page with its own
 nav entry, like Time Series. Reasons: a map wants the full width and its own toolbar
 (layers, base map, brush, colour/size by column), and it shares little with the card

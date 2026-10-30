@@ -100,6 +100,11 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
     hint: "Open Time Series: trend, season, forecast and typical day or week",
   },
   {
+    name: "map",
+    aliases: ["maps", "markers", "geo"],
+    hint: "Open the Map: points on a world map, your own offline map picture and markers",
+  },
+  {
     name: "timeseries",
     aliases: ["time series", "prepare time series"],
     hint: "One step: parse the date and measure, ready for sorting, filtering and charting",
@@ -1016,6 +1021,8 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
       return { kind: "openView", view: "outliers", label: "Opened Outliers" };
     case "relationships":
       return { kind: "openView", view: "relationships", label: "Opened Relationships" };
+    case "map":
+      return { kind: "openView", view: "map", label: "Opened Map" };
     case "forecast":
       return { kind: "openView", view: "timeseries", label: "Opened Time Series" };
     case "shuffle":

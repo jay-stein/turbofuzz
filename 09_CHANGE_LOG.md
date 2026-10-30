@@ -221,3 +221,22 @@ Add entries here. Keep unsuccessful attempts too if they reveal useful constrain
 - **Decision:** Ship
 - **Date:** 2026-10-30
 
+### CHG-2026-10-30-08 — Map page: background pictures, markers, world cities
+
+- **Status:** Verified (unit, e2e, bench, gate)
+- **Related issue / decision:** next_steps.md "Owner requests: 1. Maps get their own page"; offline base maps (owner, 2026-10-30); owner asked for up to 100 markers (editable table, paste, CSV, symbols incl. SVG, colour) and a bundled list of world cities (name, lat, lon only)
+- **Problem addressed:** The map lived only as a Chart card: no room, no way to put a real map underneath without the network, no way to add a few points of your own.
+- **Scope:**
+  - New **Map** tab (keyboard 9, command `map`). It hosts the Chart view's map card at full width through `ChartsPanel.createDetachedCard`, so points, heat grid, boundary files, zoom and the area brush all carry over and follow filters. Chart map cards get "Open in Map →"; the card stays in Chart (as with the line card).
+  - **Background picture** (src/data/map-background.ts): local JPG/PNG/WebP via `createImageBitmap` (no CSP change), downscaled past 8k px. Placed as the whole world, from a world file (degrees → plate carrée, metres → Web Mercator), or typed edges with a live check. Mercator pictures are drawn in latitude strips under the lon/lat plot. Opacity, greyscale copy, coastline outline on top, credit line drawn on the map (and in PNG exports).
+  - **Markers** (src/data/map-markers.ts, src/ui/map-markers-panel.ts, map-symbols.ts): up to 100 in an editable table; paste cells from a spreadsheet (header by name or none; decimal or DMS), CSV upload/download, find a city, click the map to add. Shapes: ring, dot, cross, plus, square, triangle, diamond, star, pin, or an uploaded SVG of which only shape geometry is read (scripts, styles, links and images in the file are dropped). Colour per marker. Unreadable coordinates are marked and left off the map.
+  - **World cities** (src/data/cities.ts, tools/vendor-cities.mjs → src/data/reference/world-cities.ts): Natural Earth populated places, public domain, 7,342 names with coordinates to 0.01°, largest first; 146 KB / 74 KB gzip as a lazy chunk, ~0.4 MB decoded. A "Cities" layer labels the largest in view without overlaps; a list of city names pasted or uploaded becomes markers.
+  - Picture and markers are kept per dataset in IndexedDB (`turbofuzz.map`), never uploaded.
+  - Fix: `detectGeoPair` skipped decimal coordinate columns unique on every row (taken for row ids); the id rule now applies to whole-number columns only.
+- **Explicit non-goals:** network tiles (no-go stands); moving saved map cards out of Chart; label collision between cities and markers.
+- **Files / components changed:** src/data/map-background.ts, map-markers.ts, cities.ts, reference/world-cities.ts, geo.ts; src/ui/map-page.ts, map-markers-panel.ts, map-symbols.ts, map-cities.ts, chart-card.ts (background, markers, overlay, click-to-pick, keepEmptyMap, Open in Map), chart-panel.ts (detached cards), app.ts, view-tabs.ts, command-bar.ts, help-content.ts (Map topic with "Get an offline map"), styles.css; tools/vendor-cities.mjs; bench/map.ts, package.json (gate); test/map-page.test.ts, test/geo.test.ts, test/view-tabs.test.ts, test/e2e/map-page.spec.ts
+- **Tests run and results:** unit 1104 pass; e2e 74 pass (6 new Map specs, and the existing no-network sweep now opens the Map tab too); bench:map: decode cities 2.8 ms (budget 40), search keystroke 0.25 ms (4), paste 100 city names 0.5 ms (15), mercator strips 0.03 ms (0.5).
+- **Manual verification:** screenshot of 300 sites with Cities on and four markers (star, cross, pin, triangle) over Europe.
+- **Decision:** Ship
+- **Date:** 2026-10-30
+

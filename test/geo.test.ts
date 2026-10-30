@@ -124,6 +124,13 @@ test("detectGeoPair stays quiet without real coordinates", () => {
   );
 });
 
+test("decimal coordinates unique on every row still pair", () => {
+  const unique = (name: string, min: number, max: number) =>
+    num(name, min, max, { type: "number", stats: { ...meta().stats, min, max, distinct: 300 } });
+  const pair = detectGeoPair([unique("lat", 20, 50), unique("lon", -15, 35)], 300);
+  assert.deepEqual([pair?.lat, pair?.lon], [0, 1]);
+});
+
 test("misspelled coordinate names still detect", () => {
   const typo = detectGeoPair([num("Lattitude", -37.9, -37.7), num("Longtitude", 144.8, 145.1)]);
   assert.equal(typo?.lat, 0, "Lattitude (double t) is latitude");

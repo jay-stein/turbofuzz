@@ -125,6 +125,7 @@ import {
   projectLon,
 } from "../data/topo.js";
 import { parseGeoFile, type GeoDataset } from "../data/geo-file.js";
+import { backgroundOps, type MapPlacement } from "../data/map-background.js";
 
 /** Rectangle brush result: lon/lat bounds for the two coordinate columns. */
 export interface MapViewport {
@@ -242,6 +243,36 @@ export interface MapBrushSelection {
   latColumn: number;
   latMin: number;
   latMax: number;
+}
+
+/** Draws over a map card's plot: the lon/lat window shown and the plot rectangle in CSS pixels. */
+export type MapOverlay = (
+  ctx: CanvasRenderingContext2D,
+  view: MapViewport,
+  plot: { x: number; y: number; w: number; h: number; ui: number },
+) => void;
+
+/** A marker the person placed on the Map page; draw paints its symbol centred on (x, y). */
+export interface MapMarkerDraw {
+  lon: number;
+  lat: number;
+  label: string;
+  draw(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void;
+}
+
+/** The person's own map picture under a map card (Map page), placed by its edges. */
+export interface MapBackgroundImage {
+  /** The picture to draw (already greyscale when the page asks for it); width x height pixels. */
+  image: CanvasImageSource;
+  width: number;
+  height: number;
+  placement: MapPlacement;
+  /** 0 to 1. */
+  opacity: number;
+  /** Draw the bundled coastlines and borders on top. */
+  outline: boolean;
+  /** Credit line drawn in the corner, and so in PNG exports. */
+  attribution: string;
 }
 
 interface Basemap {
@@ -423,6 +454,10 @@ export interface ChartCardOptions {
   onCompare?(card: ChartCard): void;
   /** Open this line card's series on the Time Series page. */
   onDeepDive?(series: ChartSeriesTarget): void;
+  /** Open this map card full width on the Map page. */
+  onOpenMap?(config: ChartCardConfig): void;
+  /** Map card with no coordinate columns: leave them unset instead of picking any number columns. */
+  keepEmptyMap?: boolean;
   /** Apply the existing null-policy conversion for placeholder tokens. */
   onConvertToken?(column: number, tokens: string[]): void;
   /** Apply an existing column suggestion (for example a sentinel code). */
@@ -1119,6 +1154,10 @@ export class ChartCard {
   private mapGrid: GridCountsResult | null = null;
   /** Map viewport in degrees (null = the whole world). */
   private mapView: MapViewport | null = null;
+  private mapBackground: MapBackgroundImage | null = null;
+  private mapMarkers: readonly MapMarkerDraw[] = [];
+  private mapPicker: ((lon: number, lat: number) => void) | null = null;
+  private mapOverlay: MapOverlay | null = null;
   /** Optional user-supplied regions (GeoJSON / zipped Shapefile). */
   private geoDataset: GeoDataset | null = null;
   private readonly mapLayerRow: HTMLElement;
@@ -4450,8 +4489,10 @@ export class ChartCard {
 
     const xAllowed = this.allowedIndexes((meta) => this.allowsX(meta));
     const yAllowed = this.allowedIndexes((meta) => this.allowsY(meta));
-    if (!xAllowed.includes(this.config.x)) this.config.x = xAllowed[0] ?? -1;
-    if (!yAllowed.includes(this.config.y) || (this.config.y === this.config.x && yAllowed.length > 1)) {
+    // The Map page's map with no coordinate columns stays empty (basemap and markers only).
+    const keepEmpty = this.options.keepEmptyMap === true && this.config.kind === "map" && this.config.x === -1 && this.config.y === -1;
+    if (!keepEmpty && !xAllowed.includes(this.config.x)) this.config.x = xAllowed[0] ?? -1;
+    if (!keepEmpty && (!yAllowed.includes(this.config.y) || (this.config.y === this.config.x && yAllowed.length > 1))) {
       this.config.y = yAllowed.find((index) => index !== this.config.x) ?? yAllowed[0] ?? -1;
     }
     for (const [select, allowed, selected] of [
@@ -5148,8 +5189,25 @@ export class ChartCard {
     };
   }
 
-  /** Line cards point to the Time Series page for trend, seasons and a forecast. */
+  /** Line cards point to the Time Series page for trend, seasons and a forecast; map cards to the Map page. */
   private syncDeepDive(): void {
+    if (this.config.kind === "map") {
+      const on = this.options.onOpenMap !== undefined;
+      const key = on ? "map" : "";
+      if (this.deepDiveEl.dataset.key === key) return;
+      this.deepDiveEl.dataset.key = key;
+      clear(this.deepDiveEl);
+      this.deepDiveEl.classList.toggle("hidden", !on);
+      if (!on) return;
+      const button = el(
+        "button",
+        { class: "chart-deep-dive-link", type: "button", title: "Open this map on the Map page" },
+        ["Open in Map →"],
+      ) as HTMLButtonElement;
+      button.addEventListener("click", () => this.options.onOpenMap?.(this.getConfig()));
+      this.deepDiveEl.append(el("span", {}, ["Full width, with your own offline map picture underneath."]), button);
+      return;
+    }
     const target = this.seriesTarget();
     const key = target === null ? "" : JSON.stringify(target);
     if (this.deepDiveEl.dataset.key === key) return;
@@ -7520,6 +7578,16 @@ export class ChartCard {
       return;
     }
     const rect = this.canvas.getBoundingClientRect();
+    if (this.config.kind === "map" && this.mapPicker !== null && this.lastFrame !== null) {
+      const frame = this.lastFrame;
+      const view = this.mapView ?? this.mapViewOrAuto();
+      const fx = (event.clientX - rect.left - frame.left) / frame.plotW;
+      const fy = (event.clientY - rect.top - frame.top) / frame.plotH;
+      if (fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1) {
+        this.mapPicker(view.lonMin + fx * (view.lonMax - view.lonMin), view.latMax - fy * (view.latMax - view.latMin));
+      }
+      return;
+    }
     const region = hitTest(
       this.hitRegions,
       event.clientX - rect.left,
@@ -9153,7 +9221,80 @@ export class ChartCard {
    * coordinate points drawn in world space. Drag a rectangle to filter both
    * coordinate columns to that area (plan §8).
    */
+  /** The Map page's background picture (null removes it). */
+  setMapBackground(background: MapBackgroundImage | null): void {
+    this.mapBackground = background;
+    this.render();
+  }
+
+  /** The Map page's own markers, drawn over the data. */
+  setMapMarkers(markers: readonly MapMarkerDraw[]): void {
+    this.mapMarkers = markers;
+    this.render();
+  }
+
+  /** While set, a click on the map calls it with the lon/lat under the pointer instead of filtering. */
+  setMapPicker(picker: ((lon: number, lat: number) => void) | null): void {
+    this.mapPicker = picker;
+    this.canvas.classList.toggle("chart-canvas-pick", picker !== null);
+  }
+
+  /** An extra layer drawn over the data and under the markers (the Map page's cities). */
+  setMapOverlay(overlay: MapOverlay | null): void {
+    this.mapOverlay = overlay;
+    this.render();
+  }
+
   private drawMap(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    this.drawMapBody(ctx, frame);
+    if (this.basemap === null) return;
+    const view = this.mapView ?? this.mapViewOrAuto();
+    const x0 = frame.left, y0 = frame.top, w = frame.plotW, h = frame.plotH;
+    if (this.mapOverlay !== null) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x0, y0, w, h);
+      ctx.clip();
+      this.mapOverlay(ctx, view, { x: x0, y: y0, w, h, ui: frame.ui });
+      ctx.restore();
+    }
+    if (this.mapMarkers.length === 0) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x0, y0, w, h);
+    ctx.clip();
+    const r = 7 * frame.ui;
+    ctx.font = `600 ${11 * frame.ui}px system-ui, sans-serif`;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    for (const marker of this.mapMarkers) {
+      const x = x0 + ((marker.lon - view.lonMin) / (view.lonMax - view.lonMin)) * w;
+      const y = y0 + ((view.latMax - marker.lat) / (view.latMax - view.latMin)) * h;
+      if (x < x0 - r || x > x0 + w + r || y < y0 - r || y > y0 + h + r) continue;
+      ctx.save();
+      marker.draw(ctx, x, y, r);
+      ctx.restore();
+      if (marker.label !== "") {
+        // A light halo keeps the label readable over any picture.
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.strokeText(marker.label, x + r + 3, y);
+        ctx.fillStyle = "#1c2430";
+        ctx.fillText(marker.label, x + r + 3, y);
+      }
+      this.hitRegions.push({
+        x: x - r,
+        y: y - r,
+        w: 2 * r,
+        h: 2 * r,
+        lines: [marker.label || "Marker", `${marker.lat.toFixed(4)}, ${marker.lon.toFixed(4)}`],
+        actions: [],
+      });
+    }
+    ctx.restore();
+  }
+
+  private drawMapBody(ctx: CanvasRenderingContext2D, frame: Frame): void {
     if (this.basemap === null) {
       const cached = basemapCaches.get("110m");
       if (cached !== undefined) this.basemap = cached;
@@ -9215,6 +9356,31 @@ export class ChartCard {
     ctx.globalAlpha = 0.12;
     ctx.fillRect(x0, y0, w, h);
     ctx.globalAlpha = 1;
+
+    const background = this.mapBackground;
+    if (background !== null) {
+      ctx.globalAlpha = background.opacity;
+      for (const op of backgroundOps(background.placement, background.width, background.height, view, x0, y0, w, h)) {
+        ctx.drawImage(background.image, op.sx, op.sy, op.sw, op.sh, op.dx, op.dy, op.dw, op.dh);
+      }
+      ctx.globalAlpha = 1;
+      if (background.attribution !== "") {
+        ctx.save();
+        const size = 10 * frame.ui;
+        ctx.font = `${size}px system-ui, sans-serif`;
+        const text = background.attribution;
+        const tw = ctx.measureText(text).width;
+        ctx.fillStyle = "#ffffff";
+        ctx.globalAlpha = 0.7;
+        ctx.fillRect(x0 + w - tw - 8, y0 + h - size - 6, tw + 8, size + 6);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "#333333";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(text, x0 + w - 4, y0 + h - 3);
+        ctx.restore();
+      }
+    }
 
     // Graticule: 30° at world scale, finer as the viewport zooms in.
     const gridStep = lonSpan > 180 ? 30 : lonSpan > 60 ? 10 : lonSpan > 20 ? 5 : 1;
@@ -9318,7 +9484,7 @@ export class ChartCard {
         }
       }
       ctx.globalAlpha = 1;
-    } else {
+    } else if (background === null || background.outline) {
       // Land polygons: one fill path, then one stroke path for the coast.
       ctx.beginPath();
       for (const ring of map.land) {
@@ -9330,9 +9496,12 @@ export class ChartCard {
         }
         ctx.closePath();
       }
-      ctx.fillStyle = frame.border;
-      ctx.globalAlpha = 0.4;
-      ctx.fill();
+      // Over a picture the land is outline only, so the picture shows through.
+      if (background === null) {
+        ctx.fillStyle = frame.border;
+        ctx.globalAlpha = 0.4;
+        ctx.fill();
+      }
       ctx.globalAlpha = 0.75;
       ctx.strokeStyle = frame.dim;
       ctx.lineWidth = 0.75;
