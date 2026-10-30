@@ -251,3 +251,15 @@ Add entries here. Keep unsuccessful attempts too if they reveal useful constrain
 - **Decision:** Ship
 - **Date:** 2026-10-30
 
+### CHG-2026-10-30-10 — Forgiving search in filters and pickers
+
+- **Status:** Verified (unit, e2e, bench, gate)
+- **Related issue / decision:** owner: filters on the left (and others) match exact substrings only; wants to start typing and have it almost know what is meant.
+- **Problem addressed:** the sidebar column search, a pick-list's "Find value…", the Add filter column list and the Pivot View value search were `includes()` only, and a free-text filter had no suggestions.
+- **Scope:** src/search/fuzzy-match.ts: exact, prefix, word start, contains, every word, letters in order ("ctry" → country, "ordid" → order_id) and one slipped/missing/extra/swapped letter ("lodnon" → London; two for long queries); case, accents and separators ignored. Used in all four pickers, best match first (clearing restores the original order). The sidebar search opens the card when one column is left. Free-text filters (sidebar and header popover) show the column's own values that best fit, with counts; arrow keys and Enter or a click filter to that exact value. New worker request getValueSuggestions (distinct values and match keys built once per column, up to 200k distinct; cheap tiers first, near-miss tier only when too few fit).
+- **Explicit non-goals:** the command bar's column lookup (its words are verbs and columns, so guessing there could misfire); changing the filter's Contains default.
+- **Files / components changed:** src/search/fuzzy-match.ts (new), src/ui/filters.ts, table.ts, app.ts, views-panel.ts, worker-client.ts, src/worker/protocol.ts, search.worker.ts, styles.css; bench/fuzzy-suggest.ts, package.json (gate); test/fuzzy-match.test.ts, test/e2e/fuzzy-filters.spec.ts
+- **Tests run and results:** unit and e2e pass; bench:fuzzy-suggest per keystroke: a few letters 10 ms and a misspelling 21 ms over 100k distinct values (budget 40), 10 and 40 ms over 200k (budget 80).
+- **Decision:** Ship
+- **Date:** 2026-10-30
+

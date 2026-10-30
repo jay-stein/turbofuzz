@@ -64,6 +64,7 @@ import type {
   StatsMessage,
   TextProfileMessage,
   ColumnSampleMessage,
+  ValueSuggestionsMessage,
   SensitiveColumnMessage,
   RowsAffectedMessage,
   ExceptionsMessage,
@@ -435,6 +436,11 @@ export class SearchWorkerClient {
 
   getRowsAffected(): Promise<RowsAffectedMessage> {
     return this.request<RowsAffectedMessage>({ type: "getRowsAffected" });
+  }
+
+  /** The column's distinct values that best fit what was typed, best first. */
+  getValueSuggestions(column: number, query: string, limit = 8): Promise<ValueSuggestionsMessage> {
+    return this.request<ValueSuggestionsMessage>({ type: "getValueSuggestions", column, query, limit });
   }
 
   /** A spread of the column's non-empty values (up to limit). */

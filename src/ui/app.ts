@@ -187,6 +187,7 @@ import {
 } from "./outliers-panel.js";
 import { createTimeSeriesPage, type TimeSeriesPageHandle, type TsPreset } from "./timeseries-page.js";
 import type { GrainId } from "../data/timeseries/base.js";
+import { fuzzyRank } from "../search/fuzzy-match.js";
 import { createMapPage, type MapPageHandle } from "./map-page.js";
 import {
   coMissingnessFindings,
@@ -2331,6 +2332,8 @@ export class App {
       onToggleColumnDelete: (column) => this.toggleColumnDelete(column),
       onToggleRowDelete: (position) => this.toggleRowDelete(position),
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
+      requestValueSuggestions: (column, query) =>
+        this.client.getValueSuggestions(column, query).then((message) => message.values),
       onConvertToken: (column, tokens) => this.convertToken(column, tokens),
       onWinsorize: (column, percent) => this.winsorizeColumn(column, percent),
       onFlagAnomalies: (column) => this.flagAnomaliesColumn(column),
@@ -2441,6 +2444,8 @@ export class App {
     this.filterPanel = new FilterPanel(this.filterHost, this.metas, this.filters, {
       onFilter: (column, filter, preview) => this.changeFilter(column, filter, preview ?? false),
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
+      requestSuggestions: (column, query) =>
+        this.client.getValueSuggestions(column, query).then((message) => message.values),
     });
     this.sidebarEl.classList.remove("hidden");
   }
@@ -5493,9 +5498,13 @@ export class App {
 
     const renderList = (): void => {
       list.replaceChildren();
-      const needle = input.value.trim().toLowerCase();
-      this.metas.forEach((meta, index) => {
-        if (needle !== "" && !meta.name.toLowerCase().includes(needle)) return;
+      // Fuzzy, best match first: "ordr" or "oid" finds order_id.
+      const ranked = fuzzyRank(
+        this.metas.map((meta, index) => ({ meta, index })),
+        input.value,
+        (entry) => entry.meta.name,
+      );
+      ranked.forEach(({ meta, index }) => {
         const item = el(
           "button",
           { class: "context-item", type: "button", role: "menuitem" },

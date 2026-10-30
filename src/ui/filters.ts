@@ -20,12 +20,15 @@ import {
 import type { ColumnFilter } from "../search/query-engine.js";
 import { chipText } from "./chips.js";
 import type { ColumnMeta } from "../worker/protocol.js";
+import { fuzzyScore } from "../search/fuzzy-match.js";
 
 export interface FilterPanelCallbacks {
   onFilter: (column: number, filter: ColumnFilter | null, preview?: boolean) => void;
   /** Text filters opened from a header default to Contains. */
   defaultTextMode?: TextMode;
   onSuggestion: (column: number, suggestion: ColumnSuggestion) => void;
+  /** The column's values that best fit what was typed (a few letters or a small typo is enough). */
+  requestSuggestions?: (column: number, query: string) => Promise<{ label: string; count: number }[]>;
 }
 
 const TEXT_MODES: { value: TextMode; label: string }[] = [
@@ -88,13 +91,31 @@ export class FilterPanel {
     window.setTimeout(() => card.classList.remove("flash"), 1200);
   }
 
-  /** Hides cards whose column name does not match the sidebar search. */
+  /**
+   * Narrows the cards to columns that fit what was typed (see fuzzy-match.ts: a few
+   * letters, initials or a small typo are enough) with the best match first; an empty
+   * search puts every card back in column order.
+   */
   search(query: string): void {
-    const needle = query.trim().toLowerCase();
-    this.cards.forEach((card, index) => {
-      const name = this.metas[index]?.name.toLowerCase() ?? "";
-      card.classList.toggle("hidden", needle !== "" && !name.includes(needle));
-    });
+    const scores = this.cards.map((_, index) => fuzzyScore(query, this.metas[index]?.name ?? ""));
+    const order = this.cards.map((_, index) => index);
+    order.sort((a, b) => (scores[b] ?? -1) - (scores[a] ?? -1) || a - b);
+    for (const index of order) {
+      const card = this.cards[index];
+      if (card === undefined) continue;
+      card.classList.toggle("hidden", scores[index] === null);
+      this.listEl.append(card);
+    }
+    // One column left: open it, so typing a column name goes straight to its filter.
+    const fits = order.filter((index) => scores[index] !== null);
+    const only = fits[0];
+    if (fits.length === 1 && only !== undefined && query.trim() !== "" && !this.expanded.has(only)) {
+      this.expanded.add(only);
+      const card = this.cards[only];
+      card?.classList.remove("collapsed");
+      const caret = card?.querySelector(".filter-caret");
+      if (caret) caret.textContent = "▾";
+    }
   }
 
   /**
@@ -255,12 +276,88 @@ export class FilterPanel {
       cardActive(body, this.filters.has(index));
     };
 
-    input.addEventListener("input", apply);
+    // Suggestions as you type: the column's own values that best fit, so a few letters or a
+    // small typo finds the one meant. Picking one filters to exactly that value.
+    const suggest = el("div", { class: "filter-suggest hidden", role: "listbox", "aria-label": `Suggested values for ${meta.name}` });
+    let seq = 0;
+    let active = -1;
+    const options = (): HTMLElement[] => Array.from(suggest.children) as HTMLElement[];
+    const highlight = (next: number): void => {
+      const all = options();
+      active = all.length === 0 ? -1 : (next + all.length) % all.length;
+      all.forEach((option, i) => {
+        option.classList.toggle("active", i === active);
+        option.setAttribute("aria-selected", String(i === active));
+      });
+    };
+    const hideSuggestions = (): void => {
+      seq++;
+      suggest.classList.add("hidden");
+      active = -1;
+    };
+    const pick = (label: string): void => {
+      input.value = label;
+      modeSelect.value = "exact";
+      hideSuggestions();
+      apply();
+    };
+    const showSuggestions = (): void => {
+      const query = input.value.trim();
+      const request = this.callbacks.requestSuggestions;
+      if (request === undefined || query === "") {
+        hideSuggestions();
+        return;
+      }
+      const mine = ++seq;
+      void request(index, query)
+        .then((values) => {
+          if (mine !== seq) return;
+          const same = values.length === 1 && values[0]!.label.toLowerCase() === query.toLowerCase();
+          suggest.replaceChildren(
+            ...values.map((value) => {
+              const option = el("button", { class: "filter-suggest-item", type: "button", role: "option", tabindex: "-1" }, [
+                el("span", { class: "filter-suggest-label", title: value.label }, [value.label]),
+                el("span", { class: "filter-suggest-count" }, [value.count.toLocaleString()]),
+              ]);
+              // mousedown, so the pick lands before the input loses focus.
+              option.addEventListener("mousedown", (event) => {
+                event.preventDefault();
+                pick(value.label);
+              });
+              return option;
+            }),
+          );
+          suggest.classList.toggle("hidden", values.length === 0 || same);
+          active = -1;
+        })
+        .catch(() => undefined);
+    };
+
+    input.addEventListener("input", () => {
+      apply();
+      showSuggestions();
+    });
+    input.addEventListener("focus", () => {
+      if (input.value.trim() !== "") showSuggestions();
+    });
+    input.addEventListener("blur", () => window.setTimeout(hideSuggestions, 120));
+    input.addEventListener("keydown", (event) => {
+      if (suggest.classList.contains("hidden")) return;
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        highlight(active + (event.key === "ArrowDown" ? 1 : active < 0 ? -1 : -1));
+      } else if (event.key === "Enter" && active >= 0) {
+        event.preventDefault();
+        pick(options()[active]?.querySelector(".filter-suggest-label")?.textContent ?? input.value);
+      } else if (event.key === "Escape") {
+        hideSuggestions();
+      }
+    });
     modeSelect.addEventListener("change", () => {
       apply();
     });
 
-    body.append(modeSelect, input);
+    body.append(modeSelect, input, suggest);
     return body;
   }
 
@@ -530,11 +627,18 @@ export class FilterPanel {
         spellcheck: "false",
         "aria-label": `Find a value in ${meta.name}`,
       }) as HTMLInputElement;
+      // Fuzzy: a few letters or a small typo finds the value; best matches come first and
+      // clearing the box restores the original order.
       search.addEventListener("input", () => {
-        const needle = search.value.toLowerCase();
-        for (const child of list.children) {
-          const row = child as HTMLElement;
-          row.hidden = needle !== "" && !(row.dataset.label ?? "").toLowerCase().includes(needle);
+        const rows = (Array.from(list.children) as HTMLElement[]).map((row) => ({
+          row,
+          id: Number(row.dataset.i),
+          score: fuzzyScore(search.value, row.dataset.label ?? ""),
+        }));
+        rows.sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || a.id - b.id);
+        for (const { row, score } of rows) {
+          row.hidden = score === null;
+          list.append(row);
         }
       });
       body.append(search);
@@ -554,6 +658,7 @@ export class FilterPanel {
     categories.labels.forEach((label, id) => {
       const row = el("label", { class: "value-row" }) as HTMLLabelElement;
       row.dataset.label = label;
+      row.dataset.i = String(id);
       const checkbox = el("input", { type: "checkbox" }) as HTMLInputElement;
       checkbox.checked = selected.has(id);
       checkbox.addEventListener("change", () => {

@@ -1416,6 +1416,111 @@ Owner review changes (2026-10-30, after run 3):
 - Python reference check done: prototypes/time-series/reference (results.txt).
   Decomposition matches statsmodels to 1e-13; forecasts in line.
 
+## TODO (owner, 2026-10-30): make the data's frequency and shape obvious on the Time Series page
+
+**1. Show the frequency of the data, plainly.** Say what the page found, in the strip or
+the sentence at the top: "hourly", "daily", "monthly", "every 10 minutes", or for uneven
+data "irregular, usually every 12 minutes (middle 80% between 8 and 19 minutes)".
+- Today: `buildTable` already works out the typical spacing (`cadence`, `cadSlots`) and
+  `cadenceText` can say "30 minutes" or "month"; the Data finding mentions it only in
+  passing ("Rows come about every 30 minutes"). Nothing says how regular it is.
+- Add a **regularity** measure: share of gaps equal to the typical gap, and the spread
+  (p10/p90 of gaps). Wording: regular / mostly regular (some missing) / irregular.
+- Show it next to "Periods", with a one-click explanation, and use it to decide the
+  default aggregate (levels read at uneven times suggest time-weighted mean).
+
+**2. Flag clearly when there is more than one value per time period.** That means the
+rows are not one series yet: several rows per timestamp (stores, car parks, sensors) or
+many readings per period. The page then aggregates silently, and a sum or mean over
+unlike things misleads.
+- Today only partial cover exists: a sentence "That adds all N values together; pick one
+  if they measure the same thing" (sum across groups), the uneven-readings finding
+  (`A.spread`), and the repeated-totals warning (CHG-2026-10-30-07).
+- Add one visible banner whenever the typical period holds more than one row: "Each
+  hour holds 5 rows (one per car_park). This is 5 series added together. Split by
+  car_park, filter to one, or aggregate first." With buttons: split by the group column,
+  and "Open in Pivot View".
+- Rule: compare rows per period to distinct timestamps; name the column(s) that explain
+  the repeats (a category column that is unique within each timestamp).
+
+**3. Read a precomputed Pivot View as the series.** The person may aggregate in Pivot
+View first (group by month, measure sum of sales, filtered) and expect Time Series to use
+that result, not the raw rows.
+- Offer the Pivot View results as a source on the page, like the Chart cards' Source
+  selector: "Source: Table / Pivot View: Monthly sales". The view needs a date-like
+  dimension (a time-grain dimension) and one numeric measure; extra dimensions become
+  the split column.
+- The engine takes `TsInput` (times, columns, groups), so this is an adapter from
+  `getAggregate`'s result to `TsInput`, plus the frequency taken from the view's grain.
+  Keep it linked to the view (as D1 does for charts): when the view changes, the series
+  follows.
+- A view already aggregated needs no second aggregation: lock "sum/mean" and say so.
+
+**4. Decomposition at which level? (rule of thumb, for hourly data)** Hourly data
+usually has a daily and a weekly pattern, and a yearly one only with several years. The
+page already decomposes hourly data as daily + weekly (`decomposeMulti`) and can show
+the daily-level view by aggregating to days; the open work is choosing and explaining.
+- Rule (fpp3, "complex seasonality"): include only the periods likely to be in the data,
+  and only if enough cycles exist. fpp3's own example: with 180 days of data, ignore the
+  annual cycle; for a natural phenomenon (temperature), weekly seasonality can usually be
+  ignored. Hourly data "usually" has daily, weekly and annual patterns. The engine
+  currently needs 2 full cycles plus 2 periods (`N >= 2p + 2`); fpp3 gives no minimum,
+  so this is our rule, and should be said as such.
+- Show both: the hourly decomposition (daily + weekly rows) and a one-click "aggregate to
+  daily and decompose" for the weekly/yearly view, because a daily series answers
+  "is there a weekday effect or a trend?" without the within-day noise.
+- Weekly period from daily data is 7; yearly from daily is 365.25, from weekly 52.18
+  (fpp3), which the grain ladder should use rather than 52.
+- Irregular opening hours (rows only 7:00 to 21:05 on weekdays): fpp3 re-indexes to
+  observation numbers and gives periods in observations (169 per day, 845 per week).
+  We now detect closed hours (CHG-2026-10-30-07); next, make the period count open
+  slots only.
+
+**5. What to take from Rob Hyndman's work (attribution required).** The book is
+*Forecasting: Principles and Practice* (3rd ed.), Rob J. Hyndman and George
+Athanasopoulos, OTexts, https://otexts.com/fpp3/. The R package is `forecast`,
+https://github.com/robjhyndman/forecast/ (GPL-3).
+- **Already used, to credit in Help and the exports:**
+  - trend and seasonal strength, 1 - Var(remainder) / Var(detrended or deseasonalised +
+    remainder), from the book's decomposition chapter (see `ft`, `fs` in
+    `src/data/timeseries/decompose.ts`); the strength measures are credited there to
+    Wang, Smith and Hyndman (2006), verify the citation before printing it.
+  - classical decomposition with a 2 x m or m moving average for even/odd periods
+    (`decompose`), and multiple seasonal periods as in "complex seasonality" (`decomposeMulti`).
+  - seasonal naive and drift/theta-style baselines, backtests scored against seasonal naive.
+- **Worth adding next:**
+  - **STL** (robust, with a seasonal and a trend window) as an option beside classical:
+    it handles any period, a seasonal shape that changes slowly, and outliers (robust
+    keeps them in the remainder). fpp3's defaults for single-period data are seasonal
+    window 11 and trend window 21 for monthly data (from a summary of the page; verify
+    on https://otexts.com/fpp3/stl.html before copying), both odd. **MSTL**, the multiple
+    seasonality extension, would replace `decomposeMulti`.
+  - **Box-Cox / log transform** so seasonal swings of constant relative size become
+    constant: lambda between 0 and 0.2 usually works (fpp3 uses 0.10 on Australian gas),
+    chosen by the Guerrero method; logs need positive data. This is the principled form
+    of the "scaled seasons" choice in CHG-2026-10-30-07 and would also help Holt-Winters
+    (the airline-passengers gap in the Python reference check).
+  - Fourier terms for long periods in the regression model: fpp3 uses a fixed, subjective
+    10 daily and 5 weekly terms for half-hourly data because AICc over-fits there; we
+    use harmonics already, so check our counts against these.
+  - **Outlier and missing-value cleaning** (the package's `tsoutliers`, `tsclean`) and
+    **period detection** (`findfrequency`): not described in anything I could read, so
+    read the package documentation (https://pkg.robjhyndman.com/forecast/) before
+    building; do not guess the method.
+- **Licence care.** The `forecast` package is GPL-3. TurboFuzz has no LICENSE file and no
+  `license` field in package.json yet, so decide its licence first: re-implement from the published method and the book's
+  formulas, never copy package code. Ideas and published formulas need credit, not
+  permission; copied code would bring the GPL with it.
+- **Attribution to ship:** a "Methods and credits" entry in the Time Series Help topic
+  and a line in the CSV/recipe header ("Decomposition and strength measures follow
+  Hyndman and Athanasopoulos, Forecasting: Principles and Practice, 3rd ed., OTexts,
+  https://otexts.com/fpp3/"), added in the same change as anything new taken from it.
+- Gaps in what I could read: the seasonal-strength page returned 404 (so the formulas
+  above are from the code and the book's chapter, not re-checked against the page), the
+  STL section came through only as a summary, and the package README has no citation
+  text. Re-read https://otexts.com/fpp3/stl.html and the package's "Cite this
+  repository" entry directly before quoting either.
+
 Still to do (later, not blocking the Map page):
 1. **Multiplicative Holt-Winters** with an automatic choice: statsmodels' beats ours on
    airline passengers (36.5 vs 50.7 MAE over 24 months).

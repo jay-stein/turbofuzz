@@ -66,6 +66,8 @@ export interface ResultTableOptions {
   /** Clicking a column name opens the inspector anchored to it. */
   onColumnInspect: (column: number, anchor: HTMLElement) => void;
   onTypeChange: (column: number, type: ColumnType) => boolean | Promise<boolean>;
+  /** The column's values that best fit what was typed in a filter (a few letters or a small typo). */
+  requestValueSuggestions?: (column: number, query: string) => Promise<{ label: string; count: number }[]>;
   /** Quick contains filter typed directly in a column header. */
   onQuickFilter?: (column: number, query: string) => void;
   /** Current contains query for a column, used to restore the header input. */
@@ -507,10 +509,18 @@ export class ResultTable {
             ? `Filter ${name}`
             : `${describeHeaderFilter(activeFilter, column)} - click to edit`;
         const open = (): void => {
-          openHeaderFilterPanel(quickFilter, column, activeFilter, (filter) => {
-            this.options.onColumnFilter?.(index, filter);
-            this.renderHeader();
-          });
+          openHeaderFilterPanel(
+            quickFilter,
+            column,
+            activeFilter,
+            (filter) => {
+              this.options.onColumnFilter?.(index, filter);
+              this.renderHeader();
+            },
+            this.options.requestValueSuggestions === undefined
+              ? undefined
+              : (query) => this.options.requestValueSuggestions!(index, query),
+          );
         };
         quickFilter.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -1233,6 +1243,7 @@ function openHeaderFilterPanel(
   meta: ColumnMeta,
   current: ColumnFilter | null,
   onApply: (filter: ColumnFilter | null) => void,
+  requestSuggestions?: (query: string) => Promise<{ label: string; count: number }[]>,
 ): void {
   const popover = el("div", {
     class: "th-filter-popover th-filter-panel-popover",
@@ -1253,6 +1264,7 @@ function openHeaderFilterPanel(
         onApply(filter);
       },
       onSuggestion: () => {},
+      ...(requestSuggestions === undefined ? {} : { requestSuggestions: (_index: number, query: string) => requestSuggestions(query) }),
     },
   );
   panel.focusColumn(0);

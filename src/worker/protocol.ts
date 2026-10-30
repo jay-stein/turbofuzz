@@ -773,6 +773,25 @@ export interface ColumnSampleMessage {
   values: string[];
 }
 
+/** The column's distinct values that best fit what was typed, with their row counts. */
+export type GetValueSuggestionsRequest = {
+  type: "getValueSuggestions";
+  requestId: number;
+  column: number;
+  query: string;
+  limit: number;
+};
+
+export interface ValueSuggestionsMessage {
+  type: "valueSuggestions";
+  requestId: number;
+  column: number;
+  query: string;
+  values: { label: string; count: number }[];
+  /** More distinct values than were scanned (the very largest columns). */
+  truncated: boolean;
+}
+
 export type GetTextProfileRequest = {
   type: "getTextProfile";
   requestId: number;
@@ -1077,6 +1096,7 @@ export type WorkerRequest =
   | GetColumnNetworkRequest
   | GetTextProfileRequest
   | GetColumnSampleRequest
+  | GetValueSuggestionsRequest
   | ScanSensitiveRequest
   | GetRowsAffectedRequest
   | GetExceptionsRequest
@@ -1332,6 +1352,7 @@ export type WorkerResponse =
   | ColumnNetworkMessage
   | TextProfileMessage
   | ColumnSampleMessage
+  | ValueSuggestionsMessage
   | SensitiveColumnMessage
   | RowsAffectedMessage
   | ExceptionsMessage

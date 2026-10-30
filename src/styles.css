@@ -10748,3 +10748,33 @@ button.qp-tile:hover {
 .date-format-status:empty { display: none; }
 .date-format-status.error { color: var(--danger); }
 .date-format-row { align-items: flex-start; }
+
+/* Free-text filter: values that best fit what is being typed */
+.filter-suggest {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.filter-suggest.hidden { display: none; }
+.filter-suggest-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.filter-suggest-item:hover,
+.filter-suggest-item.active { background: var(--accent-soft); }
+.filter-suggest-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-suggest-count { flex: none; color: var(--text-dim); font-variant-numeric: tabular-nums; }

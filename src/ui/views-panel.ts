@@ -30,6 +30,7 @@ import {
 import { openPrompt, setupDialog } from "./dialog.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
+import { fuzzyRank } from "../search/fuzzy-match.js";
 
 export interface ViewSource {
   id: string;
@@ -2783,10 +2784,9 @@ export class ViewsPanel {
     };
     const renderOptions = (): void => {
       clear(list);
-      const needle = search.value.trim().toLocaleLowerCase();
+      const needle = search.value.trim();
       let shown = 0;
-      for (const [label, count] of labels) {
-        if (needle !== "" && !label.toLocaleLowerCase().includes(needle)) continue;
+      for (const [label, count] of fuzzyRank([...labels], needle, ([text]) => text)) {
         addOption(label, count);
         shown++;
       }

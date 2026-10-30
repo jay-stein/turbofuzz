@@ -59,6 +59,7 @@ import {
 import { isParquetName, readParquetGrid } from "../parse/parquet.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { orderFormat, parseDate, type DateOrder } from "../parse/dates.js";
+import { fuzzyScoreNormalized, normalizeForMatch } from "../search/fuzzy-match.js";
 import { measureRagged, type RaggedInfo } from "../parse/parse.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
 import { BitSet } from "../search/bitset.js";
@@ -109,6 +110,7 @@ import type {
   GetColumnNetworkRequest,
   GetTextProfileRequest,
   GetColumnSampleRequest,
+  GetValueSuggestionsRequest,
   ScanSensitiveRequest,
   GetRowsAffectedRequest,
   GetExceptionsRequest,
@@ -472,6 +474,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getColumnSample":
       handleGetColumnSample(message);
+      break;
+    case "getValueSuggestions":
+      handleGetValueSuggestions(message);
       break;
     case "getTextProfile":
       handleGetTextProfile(message);
@@ -2030,6 +2035,78 @@ async function handleScanSensitive(message: ScanSensitiveRequest): Promise<void>
     columnsScanned: scanned,
     cancelled,
     ms: performance.now() - started,
+  });
+}
+
+/** Distinct values of a column with counts and match keys, built once per column. */
+interface ValueIndex {
+  labels: string[];
+  keys: string[];
+  counts: number[];
+  truncated: boolean;
+}
+const valueIndexes = new WeakMap<ColumnData, ValueIndex>();
+const MAX_SUGGEST_DISTINCT = 200_000;
+
+function valueIndexFor(column: ColumnData): ValueIndex {
+  const cached = valueIndexes.get(column);
+  if (cached !== undefined) return cached;
+  const counts = new Map<string, number>();
+  let truncated = false;
+  for (let row = 0; row < column.raw.length; row++) {
+    if (column.nullMask.get(row)) continue;
+    const value = column.raw[row] ?? "";
+    if (value.trim() === "") continue;
+    const seen = counts.get(value);
+    if (seen !== undefined) counts.set(value, seen + 1);
+    else if (counts.size < MAX_SUGGEST_DISTINCT) counts.set(value, 1);
+    else truncated = true;
+  }
+  const labels = [...counts.keys()];
+  const index: ValueIndex = {
+    labels,
+    keys: labels.map(normalizeForMatch),
+    counts: labels.map((label) => counts.get(label) ?? 0),
+    truncated,
+  };
+  valueIndexes.set(column, index);
+  return index;
+}
+
+function handleGetValueSuggestions(message: GetValueSuggestionsRequest): void {
+  const column = state().dataset.columns[message.column];
+  if (column === undefined) throw new Error("Unknown column");
+  const index = valueIndexFor(column);
+  const q = normalizeForMatch(message.query);
+  const limit = Math.max(1, Math.min(20, message.limit));
+  type Hit = { i: number; score: number };
+  const best: Hit[] = [];
+  // Cheap tiers over every value first; the near-miss tier only when too few values fit.
+  const scan = (typo: boolean): void => {
+    best.length = 0;
+    for (let i = 0; i < index.keys.length; i++) {
+      const score = fuzzyScoreNormalized(q, index.keys[i]!, typo);
+      if (score === null) continue;
+      // Among equal fits the more common value comes first.
+      const rank = score + Math.min(0.49, Math.log10(1 + index.counts[i]!) / 10);
+      if (best.length === limit && rank <= best[limit - 1]!.score) continue;
+      let at = best.length;
+      while (at > 0 && best[at - 1]!.score < rank) at--;
+      best.splice(at, 0, { i, score: rank });
+      if (best.length > limit) best.pop();
+    }
+  };
+  if (q !== "") {
+    scan(false);
+    if (best.length < limit) scan(true);
+  }
+  post({
+    type: "valueSuggestions",
+    requestId: message.requestId,
+    column: message.column,
+    query: message.query,
+    values: best.map(({ i }) => ({ label: index.labels[i]!, count: index.counts[i]! })),
+    truncated: index.truncated,
   });
 }
 
