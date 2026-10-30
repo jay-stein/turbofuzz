@@ -176,6 +176,8 @@ import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.
 import { openTransformPanel } from "./transform-panel.js";
 import { GENERAL_VIEWS, ViewTabs, isResearchView, viewSwitchHint, type ViewId } from "./view-tabs.js";
 import { ModeSwitch, modeLabel, readMode, writeMode, type AppMode } from "./mode.js";
+import { TableNav } from "./table-nav.js";
+import { parseGoTo, type GoTo } from "./table-goto.js";
 import { ViewsPanel, type ViewSource } from "./views-panel.js";
 import { openCommandBar, type ParsedCommand } from "./command-bar.js";
 import { openTriagePanel, type TriagePanelHandle } from "./triage-panel.js";
@@ -202,6 +204,24 @@ import {
 
 const LARGE_PASTE_ROWS = 300_000;
 const SIDEBAR_COLLAPSED_KEY = "turbofuzz.filters.collapsed";
+/** The Table's File row column, remembered in this browser. */
+const FILE_ROW_KEY = "turbofuzz.table.fileRow";
+
+function readFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeFlag(key: string, on: boolean): void {
+  try {
+    localStorage.setItem(key, on ? "1" : "0");
+  } catch {
+    // Not remembered; the setting still applies now.
+  }
+}
 const COLUMN_TILES_KEY = "turbofuzz.table.tiles";
 
 function readColumnTilesPreference(): boolean {
@@ -456,6 +476,11 @@ export class App {
   private transformCommitSizes: number[] = [];
   private filterPanel: FilterPanel | null = null;
   private table: ResultTable | null = null;
+  /** The status bar under the Table: position, Top/Bottom, Reverse, File row, order, Go to. */
+  private tableNav: TableNav | null = null;
+  /** The worker's current order, as last read (column -1 is file order). */
+  private tableOrder: { column: number; dir: 1 | -1; reversed: boolean } = { column: -1, dir: 1, reversed: false };
+  private showFileRow = readFlag(FILE_ROW_KEY);
 
   private pasteView!: HTMLElement;
   private pasteCancel!: HTMLButtonElement;
@@ -1248,6 +1273,22 @@ export class App {
         event.preventDefault();
         this.openPalette();
         return;
+      }
+      // Table navigation: Ctrl+G opens Go to; Ctrl+Home / Ctrl+End jump to the first or last row.
+      if ((event.ctrlKey || event.metaKey) && this.view === "table" && !this.workspace.classList.contains("hidden")) {
+        const target = event.target as HTMLElement | null;
+        const typing = target !== null && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+        if (event.key.toLowerCase() === "g") {
+          event.preventDefault();
+          this.tableNav?.openGoTo();
+          return;
+        }
+        if (!typing && (event.key === "Home" || event.key === "End")) {
+          event.preventDefault();
+          if (event.key === "Home") this.table?.scrollToTop();
+          else this.table?.scrollToBottom();
+          return;
+        }
       }
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (this.workspace.classList.contains("hidden")) return;
@@ -2350,7 +2391,33 @@ export class App {
           )
           .catch(() => done(start, []));
       },
+      onRequestRowIds: (start, end, done) => {
+        void this.client.getRowIds(start, end).then((message) => done(message.start, message.ids)).catch(() => undefined);
+      },
+      onViewport: (first, last, count) => this.tableNav?.setViewport(first, last, count),
     });
+    this.tableNav = new TableNav({
+      columns: () => this.metas.map((meta) => meta.name),
+      count: () => this.resultCount,
+      onGoTo: (target) => this.goToInTable(target),
+      onTop: () => this.table?.scrollToTop(),
+      onBottom: () => this.table?.scrollToBottom(),
+      onReverse: (on) => this.reverseTable(on),
+      onFileOrder: () => {
+        this.changeSort(-1, 0);
+        this.table?.scrollToTop();
+        this.setAction("Back to the file's own order");
+      },
+      onShowFileRow: (on) => {
+        this.showFileRow = on;
+        writeFlag(FILE_ROW_KEY, on);
+        this.table?.setShowFileRow(on);
+      },
+    });
+    this.tableNav.setShowFileRow(this.showFileRow);
+    this.tableHost.append(this.tableNav.element);
+    this.table.setShowFileRow(this.showFileRow);
+    this.refreshTableOrder();
     this.table.setColumns(this.metas);
     this.table.setSensitive(this.sensitiveNotes);
     this.table.setSort(-1, 1);
@@ -3242,7 +3309,7 @@ export class App {
     const sortDir: 1 | -1 = dir === 0 ? 1 : dir;
     this.queueSend(() =>
       this.client
-        .sort(sortColumn, sortDir)
+        .sort(sortColumn, sortDir, false)
         .then((message) => {
           this.table?.setSort(message.column, message.dir);
           this.updateCount(message.count, 0);
@@ -3256,6 +3323,61 @@ export class App {
         })
         .catch((error: unknown) => this.showError(error)),
     );
+  }
+
+  /** Reverses the Table's current order (file order or the sort); a shuffle ends. */
+  private reverseTable(on: boolean): void {
+    const { column, dir } = this.tableOrder;
+    this.queueSend(() =>
+      this.client
+        .sort(column, dir, on)
+        .then((message) => {
+          this.table?.setSort(message.column, message.dir);
+          this.table?.setCount(message.count);
+          this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags, message.firstChanged);
+          this.table?.scrollToTop();
+          this.updateCount(message.count, 0);
+          this.setAction(on ? "Reversed the order: the last row comes first" : "Order no longer reversed");
+        })
+        .catch((error: unknown) => this.showError(error)),
+    );
+  }
+
+  /** Reads the worker's order for the Table's status bar. */
+  private refreshTableOrder(): void {
+    if (this.tableNav === null) return;
+    void this.client
+      .getOrder()
+      .then((order) => {
+        this.tableOrder = { column: order.column, dir: order.dir, reversed: order.reversed };
+        this.tableNav?.setOrder({
+          column: order.column >= 0 ? this.metas[order.column]?.name ?? null : null,
+          dir: order.dir,
+          reversed: order.reversed,
+          shuffled: order.shuffled,
+        });
+      })
+      .catch(() => undefined);
+  }
+
+  /** Go to (Ctrl+G): resolves to an error to show in the box, or null when done. */
+  private async goToInTable(target: Exclude<GoTo, { kind: "error" }>): Promise<string | null> {
+    if (target.kind === "row") {
+      this.table?.scrollToRow(target.position);
+      return null;
+    }
+    if (target.kind === "column") {
+      this.table?.flashColumn(target.index);
+      this.setAction(`Went to column ${this.metas[target.index]?.name ?? ""}`);
+      return null;
+    }
+    const found = await this.client.findRow(target.row).catch(() => null);
+    if (found === null) return "Could not look that row up.";
+    if (!found.exists) return `There is no file row ${(target.row + 1).toLocaleString()}: the data has ${this.rowCount.toLocaleString()} rows.`;
+    if (found.position < 0) return `File row ${(target.row + 1).toLocaleString()} is hidden by the current filters.`;
+    this.table?.scrollToRow(found.position);
+    if (!this.showFileRow) this.setAction(`File row ${(target.row + 1).toLocaleString()} is row ${(found.position + 1).toLocaleString()} in this order`);
+    return null;
   }
 
   private clearFilters(): void {
@@ -3756,6 +3878,17 @@ export class App {
         break;
       case "mode":
         this.setMode(command.mode);
+        break;
+      case "goto": {
+        this.setView("table");
+        const target = parseGoTo(command.target, this.resultCount, this.metas.map((meta) => meta.name));
+        if (target.kind === "error") this.setAction(target.message);
+        else void this.goToInTable(target).then((problem) => { if (problem !== null) this.setAction(problem); });
+        break;
+      }
+      case "reverse":
+        this.setView("table");
+        this.reverseTable(!this.tableOrder.reversed);
         break;
       case "theme":
         this.themePreference = command.preference;
@@ -5615,6 +5748,8 @@ export class App {
 
   private updateCount(count: number, queryMs: number): void {
     this.resultCount = count;
+    // Every new row set can come with a new order (a filter ends a shuffle).
+    this.refreshTableOrder();
     this.chartsPanel?.setRowCount(count);
     this.outliersPanel?.setVisibleRowCount(count);
     this.relationshipsPanel?.setVisibleRowCount(count);

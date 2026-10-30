@@ -1881,6 +1881,10 @@ Click a cell to change its value, confirm, and undo later if wanted.
 
 ### Order of work
 
+**Step 1 shipped 2026-10-31 (CHG-2026-10-31-06):** the bar under the Table with the
+position read-out, Go to (row, -1, %, file row, column), Top/Bottom, Reverse, the order in
+words and Back to file order, and the File row column. First N / last N is still to do.
+
 1. Navigation basics: position read-out, Go to row and column, Top/Bottom, reverse,
    order chip, File row column. Small, and every session benefits; the file row number
    is also what cell edits hang on.

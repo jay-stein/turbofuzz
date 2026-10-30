@@ -58,6 +58,9 @@ import type {
   TimeSeriesMessage,
   ResultsMessage,
   RowsMessage,
+  RowIdsMessage,
+  RowPositionMessage,
+  OrderMessage,
   ShuffledMessage,
   SortedMessage,
   SpecialKind,
@@ -215,8 +218,22 @@ export class SearchWorkerClient {
     return this.request<ShuffledMessage>({ type: "shuffle", limit });
   }
 
-  sort(column: number, dir: 1 | -1): Promise<SortedMessage> {
-    return this.request<SortedMessage>({ type: "sort", column, dir });
+  sort(column: number, dir: 1 | -1, reversed?: boolean): Promise<SortedMessage> {
+    return this.request<SortedMessage>({ type: "sort", column, dir, reversed });
+  }
+
+  /** Dataset row indexes of the rows at positions [start, end) in the current order. */
+  getRowIds(start: number, end: number): Promise<RowIdsMessage> {
+    return this.request<RowIdsMessage>({ type: "getRowIds", start, end });
+  }
+
+  /** Position of a dataset row in the current order (-1 when filtered out). */
+  findRow(row: number): Promise<RowPositionMessage> {
+    return this.request<RowPositionMessage>({ type: "findRow", row });
+  }
+
+  getOrder(): Promise<OrderMessage> {
+    return this.request<OrderMessage>({ type: "getOrder" });
   }
 
   getRows(start: number, end: number): Promise<RowsMessage> {

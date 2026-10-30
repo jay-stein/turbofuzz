@@ -236,7 +236,29 @@ export type SortRequest = {
   requestId: number;
   column: number;
   dir: 1 | -1;
+  /** Reverse the resulting order (file order or the sort); omitted keeps the current setting. */
+  reversed?: boolean;
 };
+
+/** Dataset row indexes (0-based) of the rows at positions [start, end) in the current order. */
+export type GetRowIdsRequest = { type: "getRowIds"; requestId: number; start: number; end: number };
+export interface RowIdsMessage { type: "rowIds"; requestId: number; start: number; ids: Uint32Array }
+
+/** Where a dataset row (0-based) sits in the current order; -1 when filters hide it. */
+export type FindRowRequest = { type: "findRow"; requestId: number; row: number };
+export interface RowPositionMessage { type: "rowPosition"; requestId: number; position: number; exists: boolean }
+
+/** How the current rows are ordered. */
+export type GetOrderRequest = { type: "getOrder"; requestId: number };
+export interface OrderMessage {
+  type: "order";
+  requestId: number;
+  /** Sorted column, or -1 for file order. */
+  column: number;
+  dir: 1 | -1;
+  reversed: boolean;
+  shuffled: boolean;
+}
 
 export type GetRowsRequest = {
   type: "getRows";
@@ -1069,6 +1091,9 @@ export type WorkerRequest =
   | ShuffleRequest
   | SortRequest
   | GetRowsRequest
+  | GetRowIdsRequest
+  | FindRowRequest
+  | GetOrderRequest
   | SetTypeRequest
   | SetNumberLocaleRequest
   | GetStatsRequest
@@ -1181,6 +1206,7 @@ export interface SortedMessage {
   count: number;
   column: number;
   dir: 1 | -1;
+  reversed: boolean;
   firstRows: string[][];
   firstGroups?: boolean[];
   firstFlags?: Uint8Array;
@@ -1334,6 +1360,9 @@ export type WorkerResponse =
   | DatasetStatsMessage
   | ResultsMessage
   | SortedMessage
+  | RowIdsMessage
+  | RowPositionMessage
+  | OrderMessage
   | ShuffledMessage
   | RowsMessage
   | ColumnMetaMessage

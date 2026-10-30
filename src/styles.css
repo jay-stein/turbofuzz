@@ -1735,6 +1735,197 @@ button:disabled {
   flex: 1;
   min-height: 0;
   display: flex;
+  /* The rows, then the navigation bar under them. */
+  flex-direction: column;
+}
+
+/* ---------- Table navigation bar (position, Top/Bottom, Reverse, File row, order, Go to) ---------- */
+
+.table-nav {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  min-height: 34px;
+  padding: 3px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.table-nav .grow {
+  flex: 1;
+}
+
+.table-nav-pos {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.table-nav-pos:hover {
+  border-color: var(--border);
+  background: var(--panel-2);
+}
+
+.table-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.table-nav-btn:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.table-nav-btn[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.table-nav-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.table-nav-btn .kbd {
+  margin-left: 2px;
+}
+
+.table-nav-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--border);
+}
+
+.table-nav-order-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.table-nav-order {
+  color: var(--text);
+}
+
+/* Any order other than the file's own is worth noticing. */
+.table-nav.reordered .table-nav-order {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.table-nav-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.table-nav-link.hidden {
+  display: none;
+}
+
+/* Go to: opens upwards from the bar, at its right. */
+.table-goto {
+  position: fixed;
+  /* Above first-run hint callouts (90). */
+  z-index: 95;
+  width: 300px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
+  white-space: normal;
+}
+
+.table-goto.hidden {
+  display: none;
+}
+
+.table-goto-title {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 650;
+  font-size: var(--fs-md);
+}
+
+.table-goto-input {
+  width: 100%;
+  font-family: var(--mono);
+}
+
+.table-goto-help {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+
+.table-goto-help code {
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+.table-goto-msg {
+  margin: 6px 0 0;
+}
+
+.table-goto-msg:empty {
+  display: none;
+}
+
+.table-goto-msg.error {
+  color: var(--danger);
+}
+
+/* The File row column and a row reached by Go to. */
+.th.file-row-head,
+.td.file-row {
+  justify-content: flex-end;
+  padding: 0 8px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.td.file-row {
+  display: flex;
+  align-items: center;
+}
+
+.tr.flash-row > .td {
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  transition: background 600ms ease;
 }
 
 .table-scroller {

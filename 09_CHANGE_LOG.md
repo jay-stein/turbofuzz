@@ -28,6 +28,17 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-06 — Table navigation: where you are, Go to, Top/Bottom, Reverse, file row numbers
+
+- **Status:** Verified
+- **Related issue / decision:** next_steps.md, "BIG TODO: the Table view", order of work step 1.
+- **Problem addressed:** The Table did not say which rows were on screen or how they were ordered, had no way to jump to a row, the end or a column, could not reverse, and lost the file's own row number once rows were sorted. Past 9,999 rows the # column cut its numbers off.
+- **Scope:** A bar under the Table (`src/ui/table-nav.ts`): "Rows 41–66 of 12,480" (click to Go to), Top and Bottom (Ctrl+Home, Ctrl+End), Reverse, File row, the order in words ("file order", "sorted by Amount ↓, reversed", "shuffled") with Back to file order, and Go to (Ctrl+G; `src/ui/table-goto.ts`): a position, -1, 50%, `file 1234`, top/bottom, or a column name (fuzzy). The worker reverses in `computeSortedIds`, so reversal holds through every filter and re-sort; a header sort or a shuffle clears it. New worker requests: `getRowIds` (File row numbers for the rows on screen, only while the column is shown), `findRow` (where a file row sits now, or that filters hide it), `getOrder`. The File row column is remembered in this browser; the # column widens to fit five or more digits. Command bar: `goto …`, `reverse`.
+- **Tests run and results:** `test/table-goto.test.ts` (5), command-bar cases, `test/e2e/table-nav.spec.ts` (3); full suite green.
+- **Known limitations:** First N / last N, keyboard cell movement and frozen columns are later steps of the plan.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-05 — Time Series: which seasons to decompose, said plainly
 
 - **Status:** Verified

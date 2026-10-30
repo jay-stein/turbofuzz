@@ -66,7 +66,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Transform — round amount 2 · fill amount median · knn amount 5 · split notes on , · splitregex notes on \\d+ · group region sum amount · dedupe last · melt keep region, year · combine dates · winsorize amount 1 · flag amount.",
         "Filter and sort — filter region active · filter amount 10..20 · sort amount desc · clear filters.",
         "Output — chart region · chart · export · recipe · stats.",
-        "Workspace — shuffle · copy · tiles · theme dark/light/auto · help.",
+        "Workspace — shuffle · copy · tiles · goto 250 / goto file 1234 / goto amount · reverse · theme dark/light/auto · help.",
       ),
     ],
   },
@@ -213,6 +213,23 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Shuffle — show every row in a random order (no sampling).",
       ),
       p("Clicking highlighted text or using a chip filters instantly. “Clear all” resets every filter."),
+    ],
+  },
+  {
+    id: "table-nav",
+    title: "Moving around the Table",
+    summary: "Where you are, Go to (Ctrl+G), Top and Bottom, Reverse and file row numbers.",
+    blocks: [
+      p(
+        "The bar under the Table says which rows are on screen (Rows 41–66 of 12,480) and how they are ordered: file order, sorted by a column, shuffled or reversed, with Back to file order when they are not in the file's own order.",
+      ),
+      list(
+        "Go to (Ctrl+G, or click the row read-out): 250 for row 250 in this order, -1 for the last row, 50% for halfway down, file 1234 for row 1,234 of the loaded data wherever sorting put it, or a column's name (a close spelling is fine).",
+        "Top and Bottom (Ctrl+Home and Ctrl+End) jump to the first and last row.",
+        "Reverse puts the last row first, whatever the order (file order or a sort). Sorting by a header starts a fresh order, not reversed; a shuffle ends it.",
+        "File row shows each row's number in the loaded data next to #. It stays with the row through sorting, filtering and shuffling; # is the place in the current order.",
+        "From the command bar: goto 250, goto -1, goto file 1234, goto amount, reverse.",
+      ),
     ],
   },
   {

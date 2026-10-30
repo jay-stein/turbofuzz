@@ -387,6 +387,11 @@ test("sort, filter, view and output commands parse", () => {
     if (command.kind === "mode") assert.equal(command.mode, mode);
   }
   assert.equal(parseCommand("mode expert", columns).kind, "error");
+  const goto = parseCommand("go to file 12", columns);
+  assert.equal(goto.kind, "goto");
+  if (goto.kind === "goto") assert.equal(goto.target, "file 12");
+  assert.equal(parseCommand("goto", columns).kind, "error");
+  assert.equal(parseCommand("reverse", columns).kind, "reverse");
 });
 
 test("suggestions expose the new commands", () => {

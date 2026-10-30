@@ -37,6 +37,8 @@ const DEFAULT_COL_WIDTH = 180;
 const MIN_COL_WIDTH = 56;
 const MAX_COL_WIDTH = 720;
 const INDEX_WIDTH = 64;
+/** The optional File row column: the row's number in the loaded data, whatever the order. */
+const FILE_ROW_WIDTH = 76;
 const OVERSCAN = 10;
 const CACHE_LIMIT = 4000;
 
@@ -95,6 +97,10 @@ export interface ResultTableOptions {
   onFillMenu?: (anchor: HTMLElement, column: number) => void;
   /** Opens the outlier fix menu for a column, anchored to the chip. */
   onOutlierMenu?: (anchor: HTMLElement, column: number) => void;
+  /** Dataset row indexes for positions [start, end), for the File row column. */
+  onRequestRowIds?: (start: number, end: number, done: (start: number, ids: Uint32Array) => void) => void;
+  /** The rows on screen changed: first and last visible position (0-based), and the row count. */
+  onViewport?: (first: number, last: number, count: number) => void;
   onRequestRows: (
     start: number,
     end: number,
@@ -142,6 +148,14 @@ export class ResultTable {
   /** Column briefly highlighted after a Reports jump; cleared by a timer. */
   private flashIndex: number | null = null;
   private flashTimer: number | null = null;
+  /** Row briefly highlighted after Go to; cleared by a timer. */
+  private flashRow: number | null = null;
+  private flashRowTimer: number | null = null;
+  private showFileRow = false;
+  /** Dataset row index per position, for the File row column (cleared with the rows). */
+  private readonly ids = new Map<number, number>();
+  private idsPending = "";
+  private lastViewport = "";
 
   constructor(
     root: HTMLElement,
@@ -218,7 +232,7 @@ export class ResultTable {
   flashColumn(column: number): void {
     if (column < 0 || column >= this.columns.length) return;
     const offset =
-      INDEX_WIDTH + this.widths.slice(0, column).reduce((sum, width) => sum + width, 0);
+      this.leadWidth() + this.widths.slice(0, column).reduce((sum, width) => sum + width, 0);
     if (typeof this.scroller.scrollTo === "function") {
       this.scroller.scrollTo({ left: Math.max(0, offset - 120), behavior: "smooth" });
     }
@@ -236,7 +250,12 @@ export class ResultTable {
   }
 
   setCount(count: number): void {
+    const before = this.indexWidth();
     this.count = count;
+    if (this.indexWidth() !== before) {
+      this.renderHeader();
+      this.lastStart = -1;
+    }
     this.spacer.style.height = `${count * ROW_HEIGHT}px`;
     this.spacer.style.width = `${this.totalWidth()}px`;
     this.render();
@@ -251,6 +270,35 @@ export class ResultTable {
   scrollToTop(): void {
     this.scroller.scrollTop = 0;
     this.invalidateRows();
+  }
+
+  /** Scrolls the last row into view. */
+  scrollToBottom(): void {
+    this.scroller.scrollTop = this.scroller.scrollHeight;
+    this.render();
+  }
+
+  /** Scrolls a position (0-based, current order) into view, a third of the way down, and flashes it. */
+  scrollToRow(position: number): void {
+    const visible = Math.max(1, Math.floor((this.scroller.clientHeight - this.header.offsetHeight) / ROW_HEIGHT));
+    this.scroller.scrollTop = Math.max(0, (position - Math.floor(visible / 3)) * ROW_HEIGHT);
+    this.flashRow = position;
+    if (this.flashRowTimer !== null) window.clearTimeout(this.flashRowTimer);
+    this.flashRowTimer = window.setTimeout(() => {
+      this.flashRow = null;
+      this.flashRowTimer = null;
+      this.repaintRows();
+    }, 1600);
+    this.repaintRows();
+  }
+
+  /** Shows or hides the File row column (the row's number in the loaded data). */
+  setShowFileRow(on: boolean): void {
+    if (on === this.showFileRow) return;
+    this.showFileRow = on;
+    this.renderHeader();
+    this.spacer.style.width = `${this.totalWidth()}px`;
+    this.repaintRows();
   }
 
   setHighlights(highlights: HighlightRule[]): void {
@@ -285,6 +333,8 @@ export class ResultTable {
 
   invalidateRows(): void {
     this.cache.clear();
+    this.ids.clear();
+    this.idsPending = "";
     this.pendingStart = -1;
     this.pendingEnd = -1;
     this.lastStart = -1;
@@ -300,6 +350,8 @@ export class ResultTable {
     changed?: Uint8Array,
   ): void {
     this.cache.clear();
+    this.ids.clear();
+    this.idsPending = "";
     this.groupStarts.clear();
     this.rowFlags.clear();
     this.changedRows.clear();
@@ -344,12 +396,22 @@ export class ResultTable {
     this.render();
   }
 
+  /** The # column fits the longest row number (12,480 needs five digits) beside the delete button. */
+  private indexWidth(): number {
+    return Math.max(INDEX_WIDTH, 30 + 8 * String(Math.max(1, this.count)).length);
+  }
+
+  /** Width of the row-number columns before the data: # and, when shown, File row. */
+  private leadWidth(): number {
+    return this.indexWidth() + (this.showFileRow ? FILE_ROW_WIDTH : 0);
+  }
+
   private gridTemplate(): string {
-    return [`${INDEX_WIDTH}px`, ...this.widths.map((width) => `${width}px`)].join(" ");
+    return [`${this.indexWidth()}px`, ...(this.showFileRow ? [`${FILE_ROW_WIDTH}px`] : []), ...this.widths.map((width) => `${width}px`)].join(" ");
   }
 
   private totalWidth(): number {
-    return INDEX_WIDTH + this.widths.reduce((total, width) => total + width, 0);
+    return this.leadWidth() + this.widths.reduce((total, width) => total + width, 0);
   }
 
   private applyWidths(): void {
@@ -397,6 +459,13 @@ export class ResultTable {
     });
     indexHead.append(el("span", { class: "th-index" }, ["#"]));
     this.header.append(indexHead);
+    if (this.showFileRow) {
+      this.header.append(
+        el("div", { class: "th file-row-head", title: "The row's number in the loaded data: it stays with the row through sorting, filtering and shuffling" }, [
+          el("span", { class: "th-index" }, ["File row"]),
+        ]),
+      );
+    }
 
     this.columns.forEach((column, index) => {
       const name = column.name;
@@ -960,6 +1029,7 @@ export class ResultTable {
   }
   private render(): void {
     const height = this.scroller.clientHeight || 600;
+    this.reportViewport(height);
     const start = Math.max(0, Math.floor(this.scroller.scrollTop / ROW_HEIGHT) - OVERSCAN);
     const end = Math.min(this.count, start + Math.ceil(height / ROW_HEIGHT) + OVERSCAN * 2);
     if (start === this.lastStart && end === this.lastEnd) return;
@@ -984,6 +1054,7 @@ export class ResultTable {
       fragment.append(this.buildRow(i, row));
     }
     this.rowsHost.append(fragment);
+    this.requestIds(start, end);
 
     if (missing && (this.pendingStart !== start || this.pendingEnd !== end)) {
       this.pendingStart = start;
@@ -1016,8 +1087,39 @@ export class ResultTable {
     }
   }
 
+  /** Tells the page which rows are on screen, once per change. */
+  private reportViewport(height: number): void {
+    if (this.options.onViewport === undefined) return;
+    // Rows sit under the sticky header: row i spans [i, i + 1) x ROW_HEIGHT below it.
+    const top = this.scroller.scrollTop;
+    const first = Math.min(Math.max(0, this.count - 1), Math.floor(top / ROW_HEIGHT));
+    const last = Math.max(first, Math.min(this.count - 1, Math.floor((top + height - this.header.offsetHeight - 1) / ROW_HEIGHT)));
+    const key = `${first}|${last}|${this.count}`;
+    if (key === this.lastViewport) return;
+    this.lastViewport = key;
+    this.options.onViewport(first, last, this.count);
+  }
+
+  /** Fetches the File row numbers the shown rows still lack. */
+  private requestIds(start: number, end: number): void {
+    if (!this.showFileRow || this.options.onRequestRowIds === undefined) return;
+    let need = false;
+    for (let i = start; i < end && !need; i++) if (!this.ids.has(i)) need = true;
+    const key = `${start}|${end}`;
+    if (!need || this.idsPending === key) return;
+    this.idsPending = key;
+    this.options.onRequestRowIds(start, end, (from, ids) => {
+      if (this.idsPending === key) this.idsPending = "";
+      ids.forEach((id, k) => this.ids.set(from + k, id));
+      // Keep the map small: only positions near the window.
+      if (this.ids.size > 5000) for (const position of this.ids.keys()) if (Math.abs(position - start) > 2000) this.ids.delete(position);
+      this.repaintRows();
+    });
+  }
+
   private buildRow(index: number, row: string[] | undefined): HTMLElement {
     const tr = el("div", { class: "tr" });
+    if (this.flashRow === index) tr.classList.add("flash-row");
     tr.style.gridTemplateColumns = this.gridTemplate();
     if (row === undefined) tr.classList.add("skeleton");
     if (this.groupStarts.has(index)) tr.classList.add("group-start");
@@ -1038,6 +1140,10 @@ export class ResultTable {
     });
     indexCell.append(del, el("span", { class: "row-number" }, [String(index + 1)]));
     tr.append(indexCell);
+    if (this.showFileRow) {
+      const id = this.ids.get(index);
+      tr.append(el("div", { class: "td file-row" }, [id === undefined ? "" : String(id + 1)]));
+    }
 
     const changedRow = this.changedRows.get(index);
     for (let c = 0; c < this.columns.length; c++) {

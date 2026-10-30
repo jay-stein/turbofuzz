@@ -47,6 +47,8 @@ export type ParsedCommand =
   | { kind: "help"; label: string }
   | { kind: "theme"; preference: ThemePreference; label: string }
   | { kind: "mode"; mode: AppMode; label: string }
+  | { kind: "goto"; target: string; label: string }
+  | { kind: "reverse"; label: string }
   | { kind: "export"; label: string }
   | { kind: "views"; label: string }
   | { kind: "quality"; label: string }
@@ -186,6 +188,12 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
   },
   { name: "general", aliases: ["general mode"], hint: "General mode: the everyday tabs only" },
   { name: "mode", aliases: [], hint: "Switch mode — “mode research” or “mode general”" },
+  {
+    name: "goto",
+    aliases: ["go to", "jump to", "jump"],
+    hint: "Go to a row or column in the Table — “goto 250”, “goto -1”, “goto 50%”, “goto file 1234”, “goto amount”",
+  },
+  { name: "reverse", aliases: ["reverse order", "reverse rows"], hint: "Reverse the Table's order: the last row comes first" },
 ];
 
 function normalise(value: string): string {
@@ -1126,6 +1134,11 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
       }
       return { kind: "theme", preference, label: `Set theme to ${preference}` };
     }
+    case "goto":
+      if (rest.trim() === "") return { kind: "error", message: "Go to where? “goto 250”, “goto -1”, “goto file 1234” or a column name." };
+      return { kind: "goto", target: rest.trim(), label: `Went to ${rest.trim()}` };
+    case "reverse":
+      return { kind: "reverse", label: "Reversed the Table's order" };
     case "research":
       return { kind: "mode", mode: "research", label: "Switched to Research mode" };
     case "general":
@@ -1200,6 +1213,8 @@ export function commandSuggestions(
         return "theme dark";
       case "mode":
         return "mode research";
+      case "goto":
+        return "goto -1";
       default:
         return null;
     }
