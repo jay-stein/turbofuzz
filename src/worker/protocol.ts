@@ -729,8 +729,10 @@ export type GetTimeSeriesRequest = {
   type: "getTimeSeries";
   requestId: number;
   dateColumn: number;
-  /** A category column whose values split the series; -1 for none. */
+  /** A category column whose values split the series; -1 for none. With a view, a dimension index. */
   groupColumn: number;
+  /** Read this Pivot View's periods instead of the table's rows (dateColumn is then ignored). */
+  view?: ViewDef;
   /** Analyse the current rows (default true) or the whole dataset. */
   respectFilters?: boolean;
   /** null opens the series with the table's own defaults. */

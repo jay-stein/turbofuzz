@@ -146,6 +146,9 @@ export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): 
   };
   const partShare = new Float64Array(n).fill(1);
   for (const b of [0, n - 1]) { const f = fullAllowed(b); partShare[b] = f ? Math.min(1, allowed[b] / f) : 1; if (partShare[b] < 0.95) partial[b] = 1; }
+  // A Pivot View has one row per period, so only it can say a period was cut short.
+  if (T.partialEdge?.first) { partial[0] = 1; partShare[0] = Math.min(partShare[0], 0.5); }
+  if (T.partialEdge?.last) { partial[n - 1] = 1; partShare[n - 1] = Math.min(partShare[n - 1], 0.5); }
   // Events (quakes, orders) arrive when they happen: a quiet stretch is a real zero, not a gap.
   if (T.eventLike) { coverage.fill(1); missing.fill(0); }
   let first = 0, last = n - 1;

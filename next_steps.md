@@ -1421,9 +1421,10 @@ Owner review changes (2026-10-30, after run 3):
 **Items 1 and 2 shipped 2026-10-31 (CHG-2026-10-31-03):** Frequency cell in the strip
 (regular / regular with some missing / irregular, with the usual gap and p10-p90), and
 the "Several series in one line" banner naming the column behind the repeats, with One
-at a time, Average them instead and Keep the sum. Still open from item 2: an "Open in
-Pivot View" button (needs a preset API on the views panel); then item 3 (Pivot View as
-a source) and item 4.
+at a time, Average them instead and Keep the sum. **Item 3 shipped 2026-10-31
+(CHG-2026-10-31-04):** a Source word reads a Pivot View's periods, linked to the view.
+Still open from item 2: an "Open in Pivot View" button (needs a preset API on the views
+panel).
 
 **1. Show the frequency of the data, plainly.** Say what the page found, in the strip or
 the sentence at the top: "hourly", "daily", "monthly", "every 10 minutes", or for uneven

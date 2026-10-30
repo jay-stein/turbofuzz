@@ -2,7 +2,7 @@ import { ColumnData } from "../data/column.js";
 import { isGroupableColumn } from "../data/groupable.js";
 import { keepRows, type ChartExclusion } from "../data/chart-exclusions.js";
 import { sliceBreakdown } from "../data/slice-breakdown.js";
-import { computeAggregate } from "../data/aggregate.js";
+import { computeAggregate, type ViewDef } from "../data/aggregate.js";
 import { computePivot } from "../data/pivot.js";
 import { coMissingness } from "../data/comissingness.js";
 import { computeDependencies } from "../data/dependencies.js";
@@ -39,6 +39,7 @@ import { binValues, groupedBinValues } from "../data/chart-bins.js";
 import { buildTable, type TsInput } from "../data/timeseries/base.js";
 import { defaultConfig, sanitizeTsConfig, TsEngine } from "../data/timeseries/engine.js";
 import { seriesShape, type SeriesShape, type ShapeCandidate } from "../data/timeseries/shape.js";
+import { timeDimension, viewSeriesInput } from "../data/timeseries/view-source.js";
 import { missingnessGrid } from "../data/missingness.js";
 import { categoryCodes, computeSeries } from "../data/chart-series.js";
 import {
@@ -1593,17 +1594,17 @@ function handleGetCrosstab(message: GetCrosstabRequest): void {
 }
 
 /** Aggregate view over the filtered rows (or every row after steps). */
-function handleGetAggregate(message: GetAggregateRequest): void {
+/** The rows a view reads: the Table's filters (or every row) and its own category filter. */
+function viewRowIds(view: ViewDef): Uint32Array {
   const { dataset } = state();
-  const started = performance.now();
   let ids = sortedIds;
-  if (!message.view.respectFilters) {
+  if (!view.respectFilters) {
     const all = new BitSet(dataset.rowCount);
     all.setAll();
     ids = withoutExcluded(all).toIndices();
   }
-  const filterColumn = message.view.filterColumn ?? -1;
-  const filterCode = message.view.filterCode ?? -1;
+  const filterColumn = view.filterColumn ?? -1;
+  const filterCode = view.filterCode ?? -1;
   if (filterColumn >= 0 && filterCode >= 0 && filterColumn < dataset.columnCount) {
     const column = dataset.columns[filterColumn];
     if (isGroupableColumn(column.type, column.stats.distinct)) {
@@ -1611,6 +1612,13 @@ function handleGetAggregate(message: GetAggregateRequest): void {
       ids = ids.filter((id) => codes[id] === filterCode);
     }
   }
+  return ids;
+}
+
+function handleGetAggregate(message: GetAggregateRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const ids = viewRowIds(message.view);
   const result = computeAggregate(message.view, dataset.columns, dataset.rowCount, ids);
   const transfer: Transferable[] = [result.totals.buffer];
   for (const values of result.measures) transfer.push(values.buffer);
@@ -1814,6 +1822,23 @@ let timeSeriesCache: {
 
 /** Category columns the Time Series page can split by (as its own list), coded per series row. */
 const TS_SPLIT_LIMIT = 50;
+/**
+ * First and last timestamp of a date column over the rows, and the usual gap between
+ * its distinct timestamps (the median).
+ */
+function rawEdges(dataset: Dataset, ids: Uint32Array, column: number): { min: number; max: number; step: number } | undefined {
+  if (column < 0 || column >= dataset.columnCount) return undefined;
+  const values = dataset.columns[column].numbers();
+  const sorted = Float64Array.from(ids, (id) => values[id]).filter(Number.isFinite).sort();
+  if (sorted.length === 0) return undefined;
+  const gaps: number[] = [];
+  for (let k = 1; k < sorted.length; k++) if (sorted[k] > sorted[k - 1]) gaps.push(sorted[k] - sorted[k - 1]);
+  const step = gaps.length ? Float64Array.from(gaps).sort()[gaps.length >> 1] : 0;
+  return { min: sorted[0], max: sorted[sorted.length - 1], step };
+}
+
+/** Most view groups read as a series (periods times split values). */
+const TS_VIEW_LIMIT = 200_000;
 function shapeCandidates(dataset: Dataset, keep: readonly number[], dateColumn: number): ShapeCandidate[] {
   const out: ShapeCandidate[] = [];
   dataset.columns.forEach((column, index) => {
@@ -1883,16 +1908,33 @@ function handleGetTimeSeries(message: GetTimeSeriesRequest): void {
     all.setAll();
     ids = withoutExcluded(all).toIndices();
   }
-  const key = `${message.dateColumn}|${message.groupColumn}|${message.respectFilters !== false}`;
+  const view = message.view;
+  if (view !== undefined) ids = viewRowIds(view);
+  const key = view !== undefined
+    ? `view|${JSON.stringify(view)}|${message.groupColumn}`
+    : `${message.dateColumn}|${message.groupColumn}|${message.respectFilters !== false}`;
   if (timeSeriesCache === null || timeSeriesCache.key !== key || timeSeriesCache.ids !== ids || timeSeriesCache.dataset !== dataset) {
-    const built = timeSeriesInput(dataset, ids, message.dateColumn, message.groupColumn);
-    const table = buildTable(built.input);
-    if (table === null) {
+    let built: { input: TsInput; keep: number[]; candidates?: ShapeCandidate[] } | null;
+    if (view !== undefined) {
+      // A Pivot View source: its own periods, every group, in time order; not aggregated again.
+      const t = timeDimension(view);
+      // Partial periods stay in and flagged: the page's own choice keeps or leaves them out.
+      const whole: ViewDef = { ...view, limit: TS_VIEW_LIMIT, sort: { key: `dim${Math.max(0, t)}`, dir: "asc" }, partial: "show" };
+      const fromView = viewSeriesInput(computeAggregate(whole, dataset.columns, dataset.rowCount, ids), message.groupColumn, rawEdges(dataset, ids, view.dimensions[t]?.column ?? -1));
+      built = fromView === null ? null : { input: fromView.input, keep: [], candidates: fromView.candidates };
+    } else {
+      built = timeSeriesInput(dataset, ids, message.dateColumn, message.groupColumn);
+    }
+    const table = built === null ? null : buildTable(built.input);
+    if (built === null || table === null) {
       timeSeriesCache = null;
-      post({ type: "timeSeries", requestId: message.requestId, snapshot: null, error: "Too few rows have a readable date in this column.", ms: performance.now() - started });
+      const error = view !== undefined
+        ? "This Pivot View has fewer than three periods with a date. Group it by a date column (a time grain such as Month) to read it as a series."
+        : "Too few rows have a readable date in this column.";
+      post({ type: "timeSeries", requestId: message.requestId, snapshot: null, error, ms: performance.now() - started });
       return;
     }
-    timeSeriesCache = { key, ids, dataset, engine: new TsEngine(table), keep: built.keep, input: built.input, shapes: new Map(), candidates: null };
+    timeSeriesCache = { key, ids, dataset, engine: new TsEngine(table), keep: built.keep, input: built.input, shapes: new Map(), candidates: built.candidates ?? null };
   }
   const cache = timeSeriesCache;
   const engine = cache.engine;

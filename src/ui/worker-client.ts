@@ -387,6 +387,7 @@ export class SearchWorkerClient {
     respectFilters?: boolean;
     config: TsConfig | null;
     mode: TsMode;
+    view?: ViewDef;
   }): Promise<TimeSeriesMessage> {
     return this.request<TimeSeriesMessage>({ type: "getTimeSeries", ...input });
   }

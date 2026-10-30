@@ -96,3 +96,32 @@ test("several rows per date are called out as several series, with one-click fix
   await expect(page.locator(".ts-page [data-ref=sentence]")).toContainText("for player");
   await expect(page.locator(".ts-mixed")).toBeHidden();
 });
+
+test("a Pivot View can be the source: its periods are read at its own grain, not aggregated again", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 950 });
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "games.csv", mimeType: "text/csv", buffer: Buffer.from(games()) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  // Pivot View starts with a "Rows by order_date month" view.
+  await page.locator(".view-tabs button", { hasText: "Pivot View" }).click();
+  await page.locator(".view-tabs button", { hasText: "Time Series" }).click();
+  await expect(page.locator(".ts-page .ts-strip")).toContainText("Periods");
+
+  await page.locator(".ts-tok[data-tok=source]").click();
+  await page.locator(".ts-popover button", { hasText: "Pivot View: Rows by order_date month" }).click();
+  const sentence = page.locator(".ts-page [data-ref=sentence]");
+  await expect(sentence).toContainText("Monthly");
+  await expect(page.locator(".ts-page [data-ref=subline]")).toContainText("Periods of order_date (month)");
+  await expect(page.locator(".ts-page [data-ref=why]")).toContainText("not aggregated again");
+  await expect(page.locator(".ts-strip")).toContainText("Every month");
+  // The grain is the view's own.
+  await page.locator(".ts-tok[data-tok=grain]").click();
+  await expect(page.locator(".ts-popover button")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+
+  // Back to the Table's rows.
+  await page.locator(".ts-tok[data-tok=source]").click();
+  await page.locator(".ts-popover button", { hasText: "Table" }).click();
+  await expect(page.locator(".ts-page [data-ref=subline]")).toContainText("Dates from");
+});

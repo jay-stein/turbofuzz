@@ -7,6 +7,7 @@
 
 import { bucketStart, cadenceText, DAY, GRAIN_ORDER, GRAINS, type GrainId } from "../data/timeseries/base.js";
 import type { SeriesShape } from "../data/timeseries/shape.js";
+import type { TsViewSource } from "../data/timeseries/view-source.js";
 import type { TsAgg, TsConfig, TsGaps, TsMode } from "../data/timeseries/aggregate.js";
 import type { TsSnapshot } from "../data/timeseries/engine.js";
 import {
@@ -22,7 +23,10 @@ import {
 import { niceTicks, patternsHtml } from "./timeseries-patterns.js";
 
 export interface TimeSeriesPageOptions {
-  request: (input: { dateColumn: number; groupColumn: number; config: TsConfig | null; mode: TsMode }) => Promise<TimeSeriesMessage | null>;
+  /** source "" reads the Table's rows; a Pivot View id reads that view's periods. */
+  request: (input: { dateColumn: number; groupColumn: number; config: TsConfig | null; mode: TsMode; source: string }) => Promise<TimeSeriesMessage | null>;
+  /** Pivot Views the page can read: complete, grouped by a time grain, with a measure. */
+  viewSources: () => TsViewSource[];
   /** Filter the table to one period of the date column (UTC ms, inclusive) and show it. */
   onShowRows: (dateColumn: number, min: number, max: number) => void;
   onAction: (message: string) => void;
@@ -37,6 +41,8 @@ export interface TimeSeriesPageHandle {
   hide(): void;
   /** Open on a given date column, split and series, e.g. from a Chart line card. */
   open(preset: TsPreset): void;
+  /** Pivot Views were added, edited or removed: a series read from one follows it. */
+  viewsChanged(): void;
 }
 /** What another view knows about a series; anything it leaves out keeps the defaults. */
 export interface TsPreset {
@@ -50,7 +56,7 @@ export interface TsPreset {
 
 type Level = "80" | "fan";
 interface UiState { mode: TsMode; showSmooth: boolean; lastYear: boolean; showShift: boolean; level: Level; model: ModelKey | "auto" }
-type TokenKey = "grain" | "agg" | "measure" | "group" | "gaps" | "partial" | "date" | "groupBy";
+type TokenKey = "grain" | "agg" | "measure" | "group" | "gaps" | "partial" | "date" | "groupBy" | "source";
 interface Colors { bg: string; panel: string; panel2: string; border: string; text: string; dim: string; accent: string; forecast: string; season2: string; raw: string; danger: string; warn: string; grid: string }
 interface Proj { T: number; H: number; f: Future; key: ModelKey }
 interface DecRow { name: string; get: (i: number) => number; color: string; kind: "line" | "bars"; zero?: boolean; yy?: (v: number) => number }
@@ -174,6 +180,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   // ---------------------------------------------------------------- state
   let metas: readonly ColumnMeta[] = [];
   let dateColumn = -1, groupColumn = -1;
+  // "" reads the Table; otherwise the id of the Pivot View whose periods are the series.
+  let source = "";
+  const viewSource = (): TsViewSource | undefined => (source === "" ? undefined : options.viewSources().find((v) => v.id === source));
   let cfg: TsConfig | null = null;
   let snap: TsSnapshot | null = null;
   let shape: SeriesShape | null = null;
@@ -201,14 +210,14 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     return metas.flatMap((m, i) => (m.role !== "provenance" && (m.type === "category" || m.type === "string" || m.type === "boolean") && m.stats.distinct >= 2 && m.stats.distinct <= GROUP_LIMIT ? [i] : []));
   }
   function fetchSeries(): void {
-    if (dateColumn < 0) return;
+    if (dateColumn < 0 && source === "") return;
     if (inFlight) { again = true; return; }
     inFlight = true;
     const mine = ++seq;
-    const sentDate = dateColumn, sentGroup = groupColumn;
-    options.request({ dateColumn, groupColumn, config: cfg, mode: ui.mode }).then((msg) => {
+    const sentDate = dateColumn, sentGroup = groupColumn, sentSource = source;
+    options.request({ dateColumn, groupColumn, config: cfg, mode: ui.mode, source }).then((msg) => {
       inFlight = false;
-      if (mine !== seq || sentDate !== dateColumn || sentGroup !== groupColumn) { if (again || mine !== seq) { again = false; fetchSeries(); } return; }
+      if (mine !== seq || sentDate !== dateColumn || sentGroup !== groupColumn || sentSource !== source) { if (again || mine !== seq) { again = false; fetchSeries(); } return; }
       if (!msg || !msg.snapshot) {
         snap = null;
         showEmpty(msg?.error ?? "This column has too few readable dates to make a series.");
@@ -241,6 +250,12 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const prevName = dateColumn >= 0 ? metas[dateColumn]?.name : null;
     metas = next;
     const dates = dateColumns();
+    if (source !== "" && viewSource() === undefined) { source = ""; groupColumn = -1; cfg = null; view = null; }
+    if (source !== "") {
+      if (visible) fetchSeries();
+      else stale = true;
+      return;
+    }
     if (!dates.length) {
       dateColumn = -1;
       snap = null;
@@ -877,14 +892,20 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   function tokenOpts(key: TokenKey): [string, string, string?][] {
     const s = snap as TsSnapshot, info = s.table;
     switch (key) {
-      case "grain": return GRAIN_ORDER.map((id) => [id, GRAINS[id].adj]);
-      case "agg": return AGG_OPTS;
+      // A Pivot View's periods are read at its own grain, never aggregated a second time.
+      case "grain": return source !== "" ? [[s.cfg.grain, GRAINS[s.cfg.grain].adj, "the Pivot View's grain"]] : GRAIN_ORDER.map((id) => [id, GRAINS[id].adj]);
+      case "agg": return source !== "" ? AGG_OPTS.filter((o) => o[0] === "sum" || o[0] === "mean") : AGG_OPTS;
       case "measure": return info.columns.map((c) => [c.name, c.name, c.timeLike ? "counts time" : c.flag ? "0/1" : ""]);
       case "group": return [["-1", "all"], ...info.groups.map((r, k): [string, string] => [String(k), r])];
       case "gaps": return GAP_OPTS;
       case "partial": return [["exclude", "left out", `${s.A.g.noun} left out of models`], ["include", "kept", "treated as complete"]];
       case "date": return dateColumns().map((i) => [String(i), metas[i].name]);
-      case "groupBy": return [["-1", "nothing"], ...groupColumns().map((i): [string, string, string] => [String(i), metas[i].name, `${metas[i].stats.distinct} values`])];
+      case "groupBy": {
+        const vs = viewSource();
+        if (vs) return [["-1", "nothing"], ...vs.splits.map((d): [string, string] => [String(d.index), d.name])];
+        return [["-1", "nothing"], ...groupColumns().map((i): [string, string, string] => [String(i), metas[i].name, `${metas[i].stats.distinct} values`])];
+      }
+      case "source": return [["", "Table", "the rows the Table's filters leave"], ...options.viewSources().map((v): [string, string, string] => [v.id, `Pivot View: ${v.name}`, `by ${v.timeName}`])];
     }
   }
   function tokValue(key: TokenKey): string {
@@ -898,6 +919,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       case "partial": return c.partial;
       case "date": return String(dateColumn);
       case "groupBy": return String(groupColumn);
+      case "source": return source;
     }
   }
   function tokText(key: TokenKey): string { const o = tokenOpts(key).find((x) => x[0] === tokValue(key)); return escapeHtml(o ? o[1] : ""); }
@@ -909,10 +931,14 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     host.dataset.mode = ui.mode;
     const count = c.agg === "count";
     ref("sentence").innerHTML = `${tok("grain")} ${tok("agg")}${count ? "" : ` of ${tok("measure")}`}${info.groups.length > 1 ? ` for ${escapeHtml(info.groupCol ?? "")} ${tok("group")}` : ""}`;
-    ref("subline").innerHTML = `Dates from ${tok("date")} · split by ${tok("groupBy")} · ${nf.format(info.rows)} rows · ${dfDate.format(new Date(info.firstMs))} to ${dfDate.format(new Date(info.lastMs))} · gaps ${tok("gaps")} · partial last ${gr.noun} ${tok("partial")}`;
+    const vs = viewSource();
+    const showSource = vs !== undefined || options.viewSources().length > 0;
+    ref("subline").innerHTML = `${showSource ? `Source ${tok("source")} · ` : ""}${vs ? `Periods of <b>${escapeHtml(vs.timeName)}</b>` : `Dates from ${tok("date")}`} · split by ${tok("groupBy")} · ${nf.format(info.rows)} rows · ${dfDate.format(new Date(info.firstMs))} to ${dfDate.format(new Date(info.lastMs))} · gaps ${tok("gaps")} · partial last ${gr.noun} ${tok("partial")}`;
     const mixed = renderMixed();
     const across = !mixed && c.group < 0 && info.groups.length > 1 && !count && c.agg === "sum" ? ` That adds all ${info.groups.length} ${escapeHtml(info.groupCol ?? "")} values together; pick one if they measure the same thing.` : "";
-    ref("why").innerHTML = `Each ${gr.noun} is ${count ? "the number of rows that fall in it" : c.agg === "twmean" ? "the mean of the readings in it, each counted for as long as it held (until the next reading, at most three usual spacings)" : `the ${c.agg} of the rows that fall in it`}.${across} Click any highlighted word to change it. Uses the rows the Table's filters leave.`;
+    ref("why").innerHTML = vs
+      ? `Each ${gr.noun} is ${escapeHtml(c.measure ?? "the value")} as the Pivot View <b>${escapeHtml(vs.name)}</b> worked it out; its periods are read as they are, not aggregated again. Edit the view and this series follows.${across}`
+      : `Each ${gr.noun} is ${count ? "the number of rows that fall in it" : c.agg === "twmean" ? "the mean of the readings in it, each counted for as long as it held (until the next reading, at most three usual spacings)" : `the ${c.agg} of the rows that fall in it`}.${across} Click any highlighted word to change it. Uses the rows the Table's filters leave.`;
     heroOverlay.setAttribute("aria-label", `${ref("sentence").textContent ?? ""}. Left and right arrows step through periods, Enter shows the rows.`);
 
     const N = a.modelN, d = s.dec.dec;
@@ -1253,6 +1279,10 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       if (next !== dateColumn) { dateColumn = next; cfg = null; view = null; snap = null; fetchSeries(); }
       return;
     }
+    if (key === "source") {
+      if (val !== source) { source = val; groupColumn = -1; cfg = null; view = null; snap = null; shape = null; fetchSeries(); }
+      return;
+    }
     if (key === "groupBy") {
       const next = Number(val);
       if (next !== groupColumn) { groupColumn = next; cfg = { ...cfg, group: -1 }; fetchSeries(); }
@@ -1274,7 +1304,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   function showRows(i: number): void {
     const a = A(), T = times(), s = snap as TsSnapshot;
     const end = (i + 1 < a.n ? a.t[i + 1] : bucketStart(s.table, a.g, i + 1)) - 1;
-    options.onShowRows(dateColumn, T[i], end);
+    options.onShowRows(viewSource()?.timeColumn ?? dateColumn, T[i], end);
   }
   function exportCsv(): void {
     const s = snap;
@@ -1632,6 +1662,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   function open(preset: TsPreset): void {
     if (!dateColumns().includes(preset.dateColumn)) return;
     dateColumn = preset.dateColumn;
+    source = "";
     groupColumn = preset.groupColumn !== undefined && groupColumns().includes(preset.groupColumn) ? preset.groupColumn : -1;
     cfg = null; view = null; snap = null;
     seq++; // a reply already on its way is for the old series
@@ -1666,6 +1697,13 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     hide(): void {
       visible = false;
       closePop();
+    },
+    viewsChanged(): void {
+      // The view list changed: the Source menu offers it, and a series read from a view follows it.
+      if (source === "") { if (snap) renderUI(); return; }
+      if (viewSource() === undefined) { source = ""; groupColumn = -1; cfg = null; view = null; snap = null; }
+      if (visible) fetchSeries();
+      else stale = true;
     },
   };
 }

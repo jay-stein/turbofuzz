@@ -28,6 +28,17 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-04 — Time Series reads a Pivot View as its source
+
+- **Status:** Verified
+- **Related issue / decision:** next_steps.md, owner TODO 2026-10-30 item 3; D1 (view-sourced charts stay linked).
+- **Problem addressed:** Someone who had already aggregated in Pivot View (monthly sum of sales, filtered) had to rebuild the same series from raw rows on the Time Series page.
+- **Scope:** A Source word in the subline: Table, or any complete Pivot View with a time-grain dimension and a measure. The worker runs the view's own aggregation (its filters and scope, every group, partial periods kept and flagged) and `src/data/timeseries/view-source.ts` turns the result into engine input: the time dimension is the date, each measure a column (never read as a date part or time counter), other dimensions the split-by choices and the shape check's candidates. The grain is the view's own and only sum or mean (across split rows) are offered; the page says the periods are read as they are, not aggregated again. Edge periods the raw rows only partly cover are marked partial, as for the Table. Linked: editing, renaming or removing the view, or changing the filters, updates the series; a removed view falls back to the Table. Clicking a period filters the Table on the view's date column.
+- **Tests run and results:** `test/timeseries-view-source.test.ts` (4), a new Time Series page e2e test; full suite green.
+- **Known limitations:** Views are only offered once Pivot View has been opened (its panel creates the starter views). The banner's "Open in Pivot View" button is still to do.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-03 — Time Series: several series in one line, and the data's frequency
 
 - **Status:** Verified

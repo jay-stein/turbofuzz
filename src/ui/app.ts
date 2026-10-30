@@ -188,6 +188,7 @@ import {
 } from "./outliers-panel.js";
 import { createTimeSeriesPage, type TimeSeriesPageHandle, type TsPreset } from "./timeseries-page.js";
 import type { GrainId } from "../data/timeseries/base.js";
+import { timeDimension, type TsViewSource } from "../data/timeseries/view-source.js";
 import { fuzzyRank } from "../search/fuzzy-match.js";
 import { createMapPage, type MapPageHandle } from "./map-page.js";
 import {
@@ -2429,6 +2430,27 @@ export class App {
     return this.viewsPanel?.sources() ?? [];
   }
 
+  /** Pivot Views the Time Series page can read: grouped by a time grain, with a measure. */
+  private timeSeriesViewSources(): TsViewSource[] {
+    const out: TsViewSource[] = [];
+    for (const source of this.viewSources()) {
+      const def = this.viewsPanel?.viewDef(source.id);
+      if (def === undefined || def.measures.length === 0) continue;
+      const t = timeDimension(def);
+      const time = def.dimensions[t];
+      if (time === undefined || typeof time.by !== "object" || !("time" in time.by)) continue;
+      const name = (column: number): string => this.metas[column]?.name ?? `Column ${column + 1}`;
+      out.push({
+        id: def.id,
+        name: def.name,
+        timeName: `${name(time.column)} (${time.by.time})`,
+        timeColumn: time.column,
+        splits: def.dimensions.flatMap((d, index) => (index === t ? [] : [{ index, name: name(d.column) }])),
+      });
+    }
+    return out;
+  }
+
   private aggregateForSource(source: string): Promise<AggregateMessage | null> {
     const def = this.viewsPanel?.viewDef(source);
     if (def === undefined) return Promise.resolve(null);
@@ -3788,7 +3810,10 @@ export class App {
           view,
           result,
         }),
-      onViewsChanged: () => this.chartsPanel?.setSources(this.viewSources()),
+      onViewsChanged: () => {
+        this.chartsPanel?.setSources(this.viewSources());
+        this.timeSeries?.viewsChanged();
+      },
     });
     this.viewsPanel.setColumns(this.metas, this.resultCount);
   }
@@ -3847,7 +3872,12 @@ export class App {
   private ensureTimeSeries(): void {
     if (this.timeSeries === null) {
       this.timeSeries = createTimeSeriesPage(this.timeSeriesHost, {
-        request: (input) => this.client.getTimeSeries(input).catch(() => null),
+        request: ({ source, ...input }) => {
+          if (source === "") return this.client.getTimeSeries(input).catch(() => null);
+          const view = this.viewsPanel?.viewDef(source);
+          return view === undefined ? Promise.resolve(null) : this.client.getTimeSeries({ ...input, view }).catch(() => null);
+        },
+        viewSources: () => this.timeSeriesViewSources(),
         onShowRows: (column, min, max) => {
           this.changeFilter(column, { kind: "range", min, max });
           this.setView("table");

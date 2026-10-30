@@ -132,6 +132,10 @@ export interface TsInput {
   dateCol: string;
   /** Rows left out because their date did not read. */
   dropped: number;
+  /** Columns are a Pivot View's measures: never read as time counters or date parts. */
+  aggregated?: boolean;
+  /** The source knows its first or last period is incomplete (a view period cut by the data's edge). */
+  partialEdge?: { first: boolean; last: boolean };
 }
 
 /** The series table: rows in slots, plus what the dates alone say about them. */
@@ -254,7 +258,7 @@ export function buildTable(input: TsInput): TsTable | null {
   // Numeric columns that only count time (a running year or index) or name a date part.
   const order = Array.from({ length: keep }, (_, i) => i).sort((a, b) => input.times[a] - input.times[b]);
   const timeLike: Record<string, "time" | "part"> = {};
-  for (const [c, arr] of Object.entries(input.cols)) {
+  for (const [c, arr] of Object.entries(input.aggregated ? {} : input.cols)) {
     let up = 0, steps = 0, ints = true;
     const distinct = new Set<number>();
     for (let k = 0; k < keep; k++) { const v = arr[order[k]]; if (v === v) { distinct.add(v); if (v !== Math.round(v)) ints = false; } }
