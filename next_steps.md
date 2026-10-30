@@ -1791,10 +1791,9 @@ the formula text plus its compiled form), shown in Recipe as `Added "total" =
 name, …)` with vectorised expressions (`np.where` for IF); Polars: `with_columns` with
 `pl.when(...).then(...)`. Every function gets a parity case.
 
-**Static or live?** In the first release a new column is a value computed when the step
-runs; the Recipe replays it when earlier steps change. Live-updating columns, which
-recompute when a source cell is edited, wait until cell editing exists. *Owner to
-confirm.*
+**Computed once (decided, DEC-2026-10-31-02).** A new column is a value computed when
+the step runs; the Recipe replays it when earlier steps change. It does not update when
+a cell it reads is edited later; editing the formula step recomputes it.
 
 **Budgets (bench/derive.ts, in the gate):** preview on the 20 shown rows < 16 ms per
 keystroke; apply a simple formula to 1M rows < 150 ms p95 in the worker; IF over 1M rows
@@ -1897,6 +1896,7 @@ Click a cell to change its value, confirm, and undo later if wanted.
 (`[Column]` references, `IF`, `UPPER`, `YEAR`…), with the matching pandas line shown under
 the preview and a few aliases (`&`/`CONCAT`, `COALESCE`/`IFBLANK`).
 
-**Open questions for the owner:** Static columns first (proposed), or live ones now? Should "first N / last N" limit
-what Export writes (proposed: yes, like any other filter)? Should the cell-edit confirm
-default to on for every edit (proposed: on, with "don't ask again this session")?
+**Also decided (owner, 2026-10-31, DEC-2026-10-31-02):** new columns are computed once;
+"first N / last N" limits what Copy, Chart and Export see, like any other filter; the
+cell-edit confirm is on by default, with "don't ask again this session". No open
+questions remain for the Table plan.

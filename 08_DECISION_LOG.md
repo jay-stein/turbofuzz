@@ -23,6 +23,17 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-10-31-02 — Table plan: computed-once columns, first/last N filters, edit confirm on
+
+- **Status:** Accepted (owner, 2026-10-31)
+- **Context:** Open questions in next_steps.md, "BIG TODO: the Table view".
+- **Decision:**
+  - New columns are **computed once** when their step runs and replayed by the Recipe; they do not recompute when a cell they read is edited later. Editing the formula step recomputes the column.
+  - **First N / last N** is a filter like any other: Copy, Chart and Export see the same rows, and its chip says so.
+  - Editing a cell asks **"are you sure"** by default, next to the cell, with "Don't ask again for this session"; every edit is an undoable Recipe step tied to the file row.
+- **Trade-offs:** A formula column can disagree with a later hand edit to a cell it reads, until the formula step is edited; editing a formula column's own cells is refused ("edit the formula instead").
+- **Date / owner:** 2026-10-31 / owner
+
 ### DEC-2026-10-31-01 — New-column formulas are Excel style
 
 - **Status:** Accepted (owner, 2026-10-31)
