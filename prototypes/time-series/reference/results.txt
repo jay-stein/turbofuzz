@@ -1,0 +1,68 @@
+
+=== airline: N=144 m=12 H=24 (page season 12, scaled)
+  trend vs statsmodels centred MA: max |diff| 1.14e-13 over 132 interior periods
+  season vs per-phase median (same method): max |diff| 9.24e-14; vs statsmodels mean: corr 0.997
+  seasonal naive                   MAE     71.250  ( 1.00x naive)
+  statsmodels HW (add, damped)     MAE     41.199  ( 0.58x naive)
+  statsmodels HW (mul, damped)     MAE     36.515  ( 0.51x naive)
+  statsmodels Theta                MAE     63.222  ( 0.89x naive)
+  page seasonal naive              MAE     71.250  ( 1.00x naive)
+  page Holt-Winters                MAE     50.740  ( 0.71x naive)
+  page Theta                       MAE     64.985  ( 0.91x naive)
+  page regression                  MAE     18.444  ( 0.26x naive)
+  page ensemble                    MAE     39.481  ( 0.55x naive)
+  page sn matches python sn: True
+
+=== sunspots: N=2820 m=12 H=24 (page season 0)
+  trend vs statsmodels centred MA: max |diff| 4.86e-12 over 2808 interior periods
+  season vs per-phase median (same method): max |diff| 3.60e-12; vs statsmodels mean: corr 0.793
+  seasonal naive                   MAE     54.087  ( 1.00x naive)
+  statsmodels HW (add, damped)     MAE     60.029  ( 1.11x naive)
+  statsmodels Theta                MAE     59.289  ( 1.10x naive)
+  page seasonal naive              MAE     54.087  ( 1.00x naive)
+  page Holt-Winters                MAE     59.988  ( 1.11x naive)
+  page Theta                       MAE     59.282  ( 1.10x naive)
+  page regression                  MAE     26.973  ( 0.50x naive)
+  page ensemble                    MAE     41.819  ( 0.77x naive)
+  page sn matches python sn: True
+
+=== births: N=365 m=7 H=28 (page season 0)
+  trend vs statsmodels centred MA: max |diff| 1.42e-14 over 359 interior periods
+  season vs per-phase median (same method): max |diff| 5.55e-15; vs statsmodels mean: corr 0.824
+  seasonal naive                   MAE      8.036  ( 1.00x naive)
+  statsmodels HW (add, damped)     MAE      5.745  ( 0.71x naive)
+  statsmodels HW (mul, damped)     MAE      5.768  ( 0.72x naive)
+  statsmodels Theta                MAE      5.829  ( 0.73x naive)
+  page seasonal naive              MAE      8.036  ( 1.00x naive)
+  page Holt-Winters                MAE      6.284  ( 0.78x naive)
+  page Theta                       MAE      6.212  ( 0.77x naive)
+  page regression                  MAE      5.872  ( 0.73x naive)
+  page ensemble                    MAE      6.113  ( 0.76x naive)
+  page sn matches python sn: True
+
+=== min-temps: N=522 m=52 H=26 (page season 52)
+  trend vs statsmodels centred MA: max |diff| 4.26e-14 over 470 interior periods
+  season vs per-phase median (same method): max |diff| 2.64e-14; vs statsmodels mean: corr 0.991
+  seasonal naive                   MAE      1.595  ( 1.00x naive)
+  statsmodels HW (add, damped)     MAE      1.222  ( 0.77x naive)
+  statsmodels HW (mul, damped)     MAE      1.255  ( 0.79x naive)
+  statsmodels Theta                MAE      1.282  ( 0.80x naive)
+  page seasonal naive              MAE      1.595  ( 1.00x naive)
+  page Holt-Winters                MAE      1.211  ( 0.76x naive)
+  page Theta                       MAE      1.191  ( 0.75x naive)
+  page regression                  MAE      1.236  ( 0.77x naive)
+  page ensemble                    MAE      1.189  ( 0.75x naive)
+  page sn matches python sn: True
+
+=== fremont-hourly: N=8760 m=168 H=168 (page season 168)
+  trend vs statsmodels centred MA: max |diff| 1.14e-13 over 8592 interior periods
+  season vs per-phase median (same method): max |diff| 1.14e-13; vs statsmodels mean: corr 0.999
+  seasonal naive                   MAE     37.851  ( 1.00x naive)
+  statsmodels HW (add, damped)     MAE     81.167  ( 2.14x naive)
+  statsmodels Theta                MAE     86.051  ( 2.27x naive)
+  page seasonal naive              MAE     37.851  ( 1.00x naive)
+  page Holt-Winters                MAE     66.356  ( 1.75x naive)
+  page Theta                       MAE     95.844  ( 2.53x naive)
+  page regression                  MAE     76.454  ( 2.02x naive)
+  page ensemble                    MAE     74.185  ( 1.96x naive)
+  page sn matches python sn: True

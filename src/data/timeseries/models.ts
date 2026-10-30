@@ -6,7 +6,7 @@
 
 import { eventWindowLen, type Grain, type TsTable } from "./base.js";
 import { regular, type Aggregated, type TsConfig, type TsDriver } from "./aggregate.js";
-import { decompose } from "./decompose.js";
+import { decompose, preferScaled } from "./decompose.js";
 import { cap, nounFor } from "./format.js";
 
 export type ModelKey = "sn" | "hw" | "reg" | "theta" | "clim" | "ens";
@@ -27,7 +27,8 @@ interface RegFit {
   beta: Float64Array; p: number; fill: (i: number, x: Float64Array) => void; x: Float64Array; smear: number;
   K: number; Ky: number; Kw: number; Kd: number; T: number; drv: { d: TsDriver; log: boolean; mean: number }[]; iDrv: number; logY: boolean; maxLog: number;
 }
-interface ThetaFit { prof: Float64Array | null; b0: number; alpha: number; level: number; o: number; m: number }
+/** prof: the season added back; scale: the season as factors (one that grows with the level). */
+interface ThetaFit { prof: Float64Array | null; scale: Float64Array | null; b0: number; alpha: number; level: number; o: number; m: number }
 
 /** What the page shows about one model (no closures, so it can leave the worker). */
 export interface ModelSummary {
@@ -261,10 +262,13 @@ function regAt(fit: RegFit, i: number): number {
 function thetaFit(y: Float64Array, o: number, m: number): ThetaFit {
   const s = fitFrom(o, m);
   if (s) return thetaFit(y.subarray(s, o), o - s, m);
-  const d = m > 1 && o >= 2 * m + 2 ? decompose(y, o, m) : null;
-  const prof = d ? d.prof : null;
+  const add = m > 1 && o >= 2 * m + 2 ? decompose(y, o, m) : null;
+  const d = add ? preferScaled(y, o, add) : null;
+  // A scaled season comes out as factors around 1 (its profile is amounts at the average level).
+  const scale = d?.scaled ? d.prof.map((v) => 1 + v / d.level) : null;
+  const prof = d && !scale ? d.prof : null;
   const z = new Float64Array(o);
-  for (let i = 0; i < o; i++) z[i] = y[i] - (prof ? prof[i % m] : 0);
+  for (let i = 0; i < o; i++) z[i] = scale ? y[i] / scale[i % m] : y[i] - (prof ? prof[i % m] : 0);
   let sx = 0, sy = 0, sxx = 0, sxy = 0;
   for (let i = 0; i < o; i++) { sx += i; sy += z[i]; sxx += i * i; sxy += i * z[i]; }
   const b0 = (o * sxy - sx * sy) / (o * sxx - sx * sx || 1);
@@ -274,11 +278,12 @@ function thetaFit(y: Float64Array, o: number, m: number): ThetaFit {
     for (let i = 1; i < o; i++) { const e = z[i] - l; sse += e * e; l += a * e; }
     if (sse < best) { best = sse; alpha = a; level = l; }
   }
-  return { prof, b0, alpha, level, o, m };
+  return { prof, scale, b0, alpha, level, o, m };
 }
 function thetaAt(f: ThetaFit, h: number): number {
   const a = f.alpha;
-  return f.level + (f.b0 / 2) * ((1 - Math.pow(1 - a, f.o)) / a + h) + (f.prof ? f.prof[(f.o + h) % f.m] : 0);
+  const flat = f.level + (f.b0 / 2) * ((1 - Math.pow(1 - a, f.o)) / a + h);
+  return f.scale ? flat * f.scale[(f.o + h) % f.m] : flat + (f.prof ? f.prof[(f.o + h) % f.m] : 0);
 }
 /** Climatology: the average of the same point in every earlier cycle. */
 function phaseMeans(y: Float64Array, o: number, m: number): Float64Array {
@@ -409,7 +414,7 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   for (const key of MODEL_KEYS) models[key].ratio = models[key].mase / base;
   models.hw.hw = { params: hwParams };
   models.reg.reg = { K: reg.K, Ky: reg.Ky, Kw: reg.Kw, Kd: reg.Kd, logY: reg.logY, drivers: reg.drv.map((v, j) => ({ col: v.d.col, log: v.log, beta: reg.beta[reg.iDrv + j], flag: !!table.flags[v.d.col] })) };
-  models.theta.theta = { alpha: theta.alpha, b0: theta.b0, seasonal: theta.prof !== null };
+  models.theta.theta = { alpha: theta.alpha, b0: theta.b0, seasonal: theta.prof !== null || theta.scale !== null };
   models.clim.clim = { m: climM };
   const best = (["hw", "reg", "ens", "theta", "clim", "sn"] as ModelKey[]).reduce((a, b) => (models[b].mase < models[a].mase ? b : a));
   const out: ModelRun = { T, H, m, origins, step, models, best, rough: R < 3, profile: seriesProfile(A, T) };

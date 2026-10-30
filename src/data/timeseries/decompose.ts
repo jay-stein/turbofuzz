@@ -18,6 +18,8 @@ export interface Decomposition {
   level: number;
   /** Below a day: the daily cycle and what each part of the week adds on top. */
   parts?: { daily: Float64Array; weekly: Float64Array; pd: number };
+  /** The season is a share of the trend (it swings more when the level is higher). */
+  scaled?: boolean;
 }
 export interface Segment { sse: number; slope: number; mean: number }
 export interface Changepoint { k: number; gain: number; before: Segment; after: Segment }
@@ -218,6 +220,62 @@ export function decomposeMulti(y: Float64Array, n: number, pd: number): Decompos
   return d;
 }
 
+/**
+ * The same split with a season that scales with the trend (y = trend x season x rest),
+ * from the ratios y / trend, phase by phase. It is written back as amounts, seasonal =
+ * trend x (season - 1), so trend + seasonal + remainder still add up to y; the profile
+ * is those amounts at the average level. Null when the trend is not above zero.
+ */
+export function scaleWithLevel(y: Float64Array, n: number, d: Decomposition): Decomposition | null {
+  const m = d.parts ? 7 * d.parts.pd : d.m;
+  if (m < 2) return null;
+  const r = new Float64Array(n);
+  for (let i = 0; i < n; i++) { if (!(d.trend[i] > 0)) return null; r[i] = y[i] / d.trend[i] - 1; }
+  const a = m >> 1, z = n - 1 - a;
+  let S: Float64Array, daily: Float64Array | null = null;
+  if (d.parts) {
+    const pd = d.parts.pd;
+    daily = phaseMedian(r, a, z, pd);
+    for (let i = 0; i < n; i++) r[i] = (r[i] + 1) / (1 + daily[i % pd]) - 1;
+    const weekly = phaseMedian(r, a, z, m);
+    S = new Float64Array(m);
+    for (let k = 0; k < m; k++) S[k] = (1 + daily[k % pd]) * (1 + weekly[k]);
+  } else {
+    S = phaseMedian(r, a, z, m);
+    for (let k = 0; k < m; k++) S[k] += 1;
+  }
+  const seasonal = new Float64Array(n), rem = new Float64Array(n), prof = new Float64Array(m);
+  for (let i = 0; i < n; i++) { seasonal[i] = d.trend[i] * (S[i % m] - 1); rem[i] = y[i] - d.trend[i] - seasonal[i]; }
+  for (let k = 0; k < m; k++) prof[k] = d.level * (S[k] - 1);
+  const vr = variance(n, (i) => rem[i]);
+  const out: Decomposition = {
+    ...d, seasonal, rem, prof, scaled: true,
+    ft: Math.max(0, 1 - vr / (variance(n, (i) => d.trend[i] + rem[i]) || 1)),
+    fs: Math.max(0, 1 - vr / (variance(n, (i) => seasonal[i] + rem[i]) || 1)),
+  };
+  if (d.parts && daily) {
+    const pd = d.parts.pd, dl = new Float64Array(pd), wk = new Float64Array(m);
+    for (let k = 0; k < pd; k++) dl[k] = d.level * daily[k];
+    for (let k = 0; k < m; k++) wk[k] = prof[k] - dl[k % pd];
+    out.parts = { daily: dl, weekly: wk, pd };
+  }
+  return out;
+}
+
+/** Sum of squares of what is left over: how much a split leaves unexplained. */
+function remSS(d: Decomposition, n: number): number { let s = 0; for (let i = 0; i < n; i++) s += d.rem[i] * d.rem[i]; return s; }
+
+/**
+ * A season that grows with the level (busier peaks when busier overall) is a share of
+ * the trend, not a fixed amount: the scaled split, when the series is above zero and
+ * it leaves clearly less unexplained; else d as it is.
+ */
+export function preferScaled(y: Float64Array, n: number, d: Decomposition): Decomposition {
+  for (let i = 0; i < n; i++) if (!(y[i] > 0)) return d;
+  const s = scaleWithLevel(y, n, d);
+  return s && remSS(s, n) < 0.85 * remSS(d, n) ? s : d;
+}
+
 export function computeDecomposition(A: Aggregated, cfg: TsConfig): DecompResult {
   const g = A.g, N = A.modelN;
   const cands = g.periods.filter((p) => N >= 2 * p + 2);
@@ -228,7 +286,7 @@ export function computeDecomposition(A: Aggregated, cfg: TsConfig): DecompResult
   const options: Decomposition[] = [];
   for (const p of cands) {
     const d = g.unit === "min" && g.perDay && p === 7 * g.perDay ? decomposeMulti(A.yModel, N, g.perDay) : decompose(A.yModel, N, p);
-    if (d) options.push(d);
+    if (d) options.push(A.allPositive ? preferScaled(A.yModel, N, d) : d);
   }
   // A weak best season is noise (births, share prices): trend only, unless the person picked one.
   const best = options.length ? options.reduce((a, b) => (b.fs > a.fs ? b : a)) : null;

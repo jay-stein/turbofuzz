@@ -280,15 +280,18 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     summary: "Trend, season, forecast and the typical day, week and year of one column over a date column.",
     blocks: [
       p(
-        "The Time Series tab (keyboard 8, or type forecast in the command bar) turns the current rows into one series: a date column, a measure and how to combine the rows in each period. Every highlighted word in the sentence at the top is a choice: the grain (5-minute up to yearly), sum, mean or count, the measure, the date column, a column to split by and one of its values, how empty periods are shown and whether a partial last period counts.",
+        "The Time Series tab (keyboard 8, or type forecast in the command bar) turns the current rows into one series: a date column, a measure and how to combine the rows in each period. Every highlighted word in the sentence at the top is a choice: the grain (5-minute up to yearly), sum, mean, time-weighted mean (each reading counts for as long as it held, for levels read at uneven times) or count, the measure, the date column, a column to split by and one of its values, how empty periods are shown and whether a partial last period counts.",
       ),
       list(
         "Explore draws the series with a rolling mean, median, min or max, the same period a year (or, below a day, a week) earlier, and the trend's one clear shift when there is one. Scroll to zoom, drag to pan, Shift-drag a range to zoom into it, double-click to reset. Click a period to filter the Table to its rows.",
-        "Decompose splits the series into trend, season and the rest, and flags unusual periods. Below a day it can show the daily cycle and what each weekday adds on top as separate rows.",
+        "Decompose splits the series into trend, season and the rest, and flags unusual periods. Below a day it can show the daily cycle and what each weekday adds on top as separate rows. When the season swings more as the level rises, it is fitted as a share of the trend; the parts still add up to the series.",
         "Forecast fits six models, backtests each from earlier dates against repeating the last cycle, and grades them. The band is built from those backtest errors. Forecast ahead goes as far as the history can test; drag the split line to forecast from an earlier date and compare with what happened.",
         "Patterns shows a typical day (median and middle half, weekdays and weekends), the day of the week, a weekday-by-hour heatmap and the month of the year, using only complete periods.",
         "Empty periods can be left empty, filled with the usual pattern, interpolated or filled with zero. Whatever is shown, the models bridge gaps with the usual pattern and never learn from or score made-up values.",
         "Export CSV saves every period with its rolling value, trend, season, remainder and forecast with its 80% range.",
+      ),
+      p(
+        "On Chart, a line card's Open in Time Series link (also in its ⋯ menu) opens the same date column, measure and bucket here. Weekdays or hours that never have rows, such as a business-hours timetable, are not counted as missing. A column that repeats one total on every group's row at a moment is flagged before it is summed across groups.",
       ),
       note(
         "Everything runs in the worker on the loaded rows and respects the Table's filters. The page never guesses what a column means from its name; it reads the dates and values only.",

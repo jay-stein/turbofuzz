@@ -31,12 +31,13 @@ export interface TsTableInfo {
   subDay: boolean;
   eventLike: boolean;
   structural: number[];
+  closedHours: number[];
   rows: number;
   dropped: number;
   firstMs: number;
   lastMs: number;
   /** Numeric columns, with how each reads. */
-  columns: { name: string; flag: boolean; timeLike: "time" | "part" | null }[];
+  columns: { name: string; flag: boolean; timeLike: "time" | "part" | null; repeated: boolean }[];
   defMeasure: string | null;
   defGrain: GrainId;
   tooFine: Record<GrainId, boolean>;
@@ -78,9 +79,9 @@ export class TsEngine {
     for (const v of t.times) { if (v < firstMs) firstMs = v; if (v > lastMs) lastMs = v; }
     return {
       dateCol: t.dateCol, groupCol: t.groupCol, groups: t.groups, start: t.start, end: t.end, woff: t.woff, m0: t.m0, slot: t.slot, spd: t.spd,
-      cadence: t.cadence, cadSlots: t.cadSlots, subDay: t.subDay, eventLike: t.eventLike, structural: Array.from(t.structural),
+      cadence: t.cadence, cadSlots: t.cadSlots, subDay: t.subDay, eventLike: t.eventLike, structural: Array.from(t.structural), closedHours: Array.from(t.closedHours),
       rows: t.times.length, dropped: t.dropped, firstMs, lastMs,
-      columns: Object.keys(t.cols).map((name) => ({ name, flag: !!t.flags[name], timeLike: t.timeLike[name] ?? null })),
+      columns: Object.keys(t.cols).map((name) => ({ name, flag: !!t.flags[name], timeLike: t.timeLike[name] ?? null, repeated: !!t.repeated[name] })),
       defMeasure: t.defMeasure, defGrain: defaultGrain(t),
       tooFine: Object.fromEntries(GRAIN_ORDER.map((id) => [id, tooFine(t, id)])) as Record<GrainId, boolean>,
     };

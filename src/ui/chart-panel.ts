@@ -29,6 +29,7 @@ import { isGroupableColumn } from "../data/groupable.js";
 import {
   ChartCard,
   type ChartCardConfig,
+  type ChartSeriesTarget,
   type ChartTableFilter,
   type BrushRange,
   type MapBrushSelection,
@@ -153,6 +154,8 @@ export interface ChartsPanelOptions {
   onFilterTable?(filters: readonly ChartTableFilter[], label: string): void;
   /** Apply filters and switch to the table. */
   onShowRows?(filters: readonly ChartTableFilter[], label: string): void;
+  /** Open a line card's series on the Time Series page. */
+  onDeepDive?(series: ChartSeriesTarget): void;
   /** Convert placeholder tokens through the existing null-policy path. */
   onConvertToken?(column: number, tokens: string[]): void;
   /** Apply an existing suggestion through the shared fix path. */
@@ -627,6 +630,7 @@ export class ChartsPanel {
           void this.drillCard(target, filters, label),
         onBreakDown: (target) => this.breakDownCard(target),
         onCompare: (target) => this.compareCard(target),
+        onDeepDive: this.options.onDeepDive,
         onConvertToken: this.options.onConvertToken,
         onSuggestion: this.options.onSuggestion,
         onExport: (target) => {

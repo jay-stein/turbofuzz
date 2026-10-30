@@ -1408,18 +1408,21 @@ Owner review changes (2026-10-30, after run 3):
 - Tests: 11 unit, 3 e2e. `bench:timeseries` is in the gate.
 - The prototype stays as the design reference only.
 
-Remaining for the Time Series page:
-- Retire the Chart time series card (section 2 below).
-- Python reference check of the decomposition and models.
-- Additive vs multiplicative seasons (parking's daily peaks sit in the remainder).
+**Closed out (2026-10-30, CHG-2026-10-30-07):**
+- Chart line card kept (owner decision) and linked: "Open in Time Series →" opens the
+  page on the same date, measure, aggregate, split and bucket.
+- Time-weighted mean; repeated-totals warning; structural hours; scaled
+  (multiplicative) seasons, also used by Theta.
+- Python reference check done: prototypes/time-series/reference (results.txt).
+  Decomposition matches statsmodels to 1e-13; forecasts in line.
 
-Still to do, in order:
-1. ~~Sub-daily grains~~ done in run 3 (above).
-2. **Time-weighted mean** aggregate, for irregularly sampled levels (parking).
-3. **Repeated totals**: warn when a column is constant within a timestamp across
-   groups (parking's `total_occupied`) before summing across groups.
-4. **Speed**: daily models now take 33-42 ms on 2.5k-3.7k days (budget 30 ms); regression is ~25 ms of it (11 refits). Next idea: fixed knot grid so backtest refits share one running Gram matrix.
-5. More files from the test-set table below (wide electricity, PeMS, crime events,
+Still to do (later, not blocking the Map page):
+1. **Multiplicative Holt-Winters** with an automatic choice: statsmodels' beats ours on
+   airline passengers (36.5 vs 50.7 MAE over 24 months).
+2. **Closed hours in the models**: hourly forecasts on a timetable still fill the
+   closed night hours with the seasonal fill (never scored, but drawn).
+3. **Speed**: daily models now take 33-42 ms on 2.5k-3.7k days (budget 30 ms); regression is ~25 ms of it (11 refits). Next idea: fixed knot grid so backtest refits share one running Gram matrix.
+4. More files from the test-set table below (wide electricity, PeMS, crime events,
    unbalanced debt panel) and the hand-made messy fixtures; then publish.
 
 ## Owner requests (logged 2026-10-30): Map page, drop the chart time series, date parts, messy-data testing
@@ -1474,6 +1477,10 @@ image** as the background:
 - `docs/map-view-spike-memo.md`'s "no network tiles" no-go stands.
 
 ### 2. Drop the time series chart from Chart
+
+**Superseded 2026-10-30:** the owner chose to keep the line card (it compares groups
+on one chart, which the page does not) and link it to the Time Series page instead.
+Done in CHG-2026-10-30-07. Original plan kept below for reference.
 
 Owner: the Time Series page covers it, so the time series card type comes out of
 Chart. Order matters:

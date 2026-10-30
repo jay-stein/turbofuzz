@@ -101,3 +101,15 @@ test("Shift+drag across the line selects whole weeks and filters the date column
   expect(new Date(`${from}T00:00:00Z`).getUTCDay()).toBe(1);
   expect(new Date(`${to}T00:00:00Z`).getUTCDay()).toBe(0);
 });
+
+test("a line card links to the Time Series page with the same date and measure", async ({ page }) => {
+  await openTimeSeries(page);
+  const link = page.locator(".chart-deep-dive-link");
+  await expect(link).toBeVisible();
+  await link.click();
+  await expect(page.locator(".view-tabs [aria-selected=true]")).toHaveText("Time Series");
+  const sentence = page.locator(".ts-page [data-ref=sentence]");
+  await expect(sentence).toContainText(/Weekly mean/i);
+  await expect(sentence).toContainText("points");
+  await expect(page.locator(".ts-page [data-ref=subline]")).toContainText("order_date");
+});

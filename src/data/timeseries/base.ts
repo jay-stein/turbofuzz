@@ -9,6 +9,7 @@
 
 export const DAY = 86_400_000;
 export const MINUTE = 60_000;
+export const HOUR = 3_600_000;
 
 export type GrainId = "min5" | "min15" | "min30" | "hour" | "day" | "week" | "week2" | "week4" | "month" | "quarter" | "year";
 export type GrainUnit = "min" | "day" | "week" | "month";
@@ -154,9 +155,16 @@ export interface TsTable extends TsInput {
   subDay: boolean;
   /** Weekdays that (almost) never have rows: not gaps. */
   structural: Uint8Array;
+  /** Hours of the day (UTC clock, 0-23) that (almost) never have rows: not gaps. */
+  closedHours: Uint8Array;
   eventLike: boolean;
   /** Numeric columns that only count time or name a date part. */
   timeLike: Record<string, "time" | "part">;
+  /**
+   * Numeric columns that repeat one value on every group's row at the same moment
+   * (a total copied onto each row): a sum across groups counts it once per group.
+   */
+  repeated: Record<string, true>;
   /** Slots with at least one row. */
   observed: number[];
   defMeasure: string | null;
@@ -224,6 +232,17 @@ export function buildTable(input: TsInput): TsTable | null {
     const mx = Math.max(...cnt);
     for (let k = 0; k < 7; k++) if (cnt[k] < 0.1 * mx) structural[k] = 1;
   }
+  // Hours that (almost) never have rows, as in a table of business hours: hourly or
+  // finer rows over at least a week, judged like the weekdays above.
+  const closedHours = new Uint8Array(24);
+  if (slot < DAY && cadence <= 1.5 / 24 && lastSlot >= 7 * spd) {
+    const cnt = new Array<number>(24).fill(0);
+    for (const d of obs) cnt[Math.floor(((d % spd) * slot) / HOUR)]++;
+    const mx = Math.max(...cnt);
+    for (let k = 0; k < 24; k++) if (cnt[k] < 0.1 * mx) closedHours[k] = 1;
+    // Fewer than four open hours is not a timetable, it is sparse data.
+    if (closedHours.reduce((a, b) => a + b, 0) > 20) closedHours.fill(0);
+  }
   // Irregular event rows: most gaps between consecutive rows differ from each other.
   let eventLike = false;
   if (keep > 50) {
@@ -243,14 +262,44 @@ export function buildTable(input: TsInput): TsTable | null {
     if (distinct.size > 10 && steps && up / steps >= 0.99) timeLike[c] = "time";
     else if (ints && distinct.size <= 31 && distinct.size < keep / 4 && !input.flags[c]) timeLike[c] = "part";
   }
+  // Columns that are the same on every group's row at a moment, checked over the
+  // moments that have rows from two or more groups.
+  const repeated: Record<string, true> = {};
+  if (input.groups.length > 1) {
+    const runs: [number, number][] = [];
+    for (let a = 0; a < keep; ) {
+      let b = a + 1;
+      while (b < keep && input.times[order[b]] === input.times[order[a]]) b++;
+      if (b - a > 1) {
+        const g0 = input.rowGroup[order[a]];
+        for (let k = a + 1; k < b; k++) if (input.rowGroup[order[k]] !== g0) { runs.push([a, b]); break; }
+      }
+      a = b;
+    }
+    if (runs.length >= 5) {
+      for (const [c, arr] of Object.entries(input.cols)) {
+        let same = 0, seen = 0;
+        for (const [a, b] of runs) {
+          const v0 = arr[order[a]];
+          if (!(v0 === v0)) continue;
+          seen++;
+          let eq = true;
+          for (let k = a + 1; k < b && eq; k++) if (arr[order[k]] !== v0) eq = false;
+          if (eq) same++;
+        }
+        if (seen >= 5 && same >= 0.95 * seen) repeated[c] = true;
+      }
+    }
+  }
   const measures = Object.keys(input.cols);
-  const defMeasure = measures.find((c) => !timeLike[c] && !input.flags[c]) ?? null;
+  const plain = (c: string): boolean => !timeLike[c] && !input.flags[c];
+  const defMeasure = measures.find((c) => plain(c) && !repeated[c]) ?? measures.find(plain) ?? null;
   const nslots = lastSlot + Math.max(1, Math.round(cadSlots));
   const swd = new Uint8Array(nslots);
   for (let d = 0; d < nslots; d++) swd[d] = (Math.floor(d / spd) + woff) % 7;
   return {
     ...input, start, slot, spd, nslots, end: start + (nslots - 1) * slot, m0: s.getUTCFullYear() * 12 + s.getUTCMonth(), woff, swd,
-    rowSlot, cadence, cadSlots, subDay: slot < DAY, structural, eventLike: eventLike || defMeasure === null, timeLike,
+    rowSlot, cadence, cadSlots, subDay: slot < DAY, structural, closedHours, eventLike: eventLike || defMeasure === null, timeLike, repeated,
     observed: obs, defMeasure: defMeasure ?? measures[0] ?? null, bucketCache: new Map(),
   };
 }
@@ -271,6 +320,16 @@ export function bucketOfSlot(t: TsTable, g: Grain, d: number): number {
 }
 /** What placing periods on the calendar needs: the start, its weekday and its month. */
 export type TimeBase = Pick<TsTable, "start" | "woff" | "m0">;
+/** Whether rows are expected at this instant: not a weekday or an hour that never has rows. */
+export function openAt(t: TimeBase & { structural: ArrayLike<number>; closedHours: ArrayLike<number> }, ms: number): boolean {
+  if (t.structural[weekdayAt(t, ms)]) return false;
+  const h = Math.floor((((ms - t.start) % DAY) + DAY) % DAY / HOUR);
+  return !t.closedHours[h];
+}
+/** Whether rows are expected in slot d (see openAt). */
+export function slotOpen(t: TsTable, d: number): boolean {
+  return !t.structural[t.swd[d]] && !t.closedHours[Math.floor(((d % t.spd) * t.slot) / HOUR)];
+}
 /** Monday-0 weekday of any instant, from the table start (no Date per call). */
 export function weekdayAt(t: TimeBase, ms: number): number { return (((Math.floor((ms - t.start) / DAY) + t.woff) % 7) + 7) % 7; }
 export function bucketStart(t: TimeBase, g: Grain, b: number): number {

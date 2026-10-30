@@ -3,9 +3,10 @@
  * the rolling smooth.
  */
 
-import { bucketStart, GRAINS, slotBuckets, weekdayAt, type Grain, type GrainId, type TsTable } from "./base.js";
+import { bucketStart, GRAINS, openAt, slotBuckets, slotOpen, type Grain, type GrainId, type TsTable } from "./base.js";
 
-export type TsAgg = "sum" | "mean" | "median" | "min" | "max" | "first" | "last" | "count";
+/** twmean: each reading counts for as long as it held (until the next one). */
+export type TsAgg = "sum" | "mean" | "twmean" | "median" | "min" | "max" | "first" | "last" | "count";
 /** How periods with no rows are shown; the models always bridge them (see seasonalFill). */
 export type TsGaps = "seasonal" | "interp" | "zero" | "leave";
 export type TsMode = "explore" | "decompose" | "forecast" | "patterns";
@@ -116,7 +117,7 @@ export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): 
   for (let d = 0; d < T.nslots; d++) {
     const b = bod[d];
     if (seen[d]) obsSlots[b]++;
-    if (d <= spanEnd && !T.structural[T.swd[d]]) allowed[b]++;
+    if (d <= spanEnd && slotOpen(T, d)) allowed[b]++;
   }
   const t = new Float64Array(n), y = new Float64Array(n), filled = new Uint8Array(n), partial = new Uint8Array(n);
   const expected = new Float64Array(n), coverage = new Float64Array(n), missing = new Uint16Array(n);
@@ -129,16 +130,18 @@ export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): 
     else if (!cnt[b]) y[b] = NaN;
     else if (cfg.agg === "sum") y[b] = sum[b];
     else if (cfg.agg === "mean") y[b] = sum[b] / cnt[b];
+    else if (cfg.agg === "twmean") y[b] = NaN;
     else if (cfg.agg === "min") y[b] = mn[b];
     else if (cfg.agg === "max") y[b] = mx[b];
     else if (cfg.agg === "first") y[b] = firstV[b];
     else if (cfg.agg === "last") y[b] = lastV[b];
     else if (vals) { const v = vals[b].sort((p, q) => p - q), h = v.length >> 1; y[b] = v.length % 2 ? v[h] : (v[h - 1] + v[h]) / 2; }
   }
+  if (cfg.agg === "twmean" && src) timeWeighted(T, src, cfg.group, g, bod, y);
   // Only the first and last period can be partial: the data starts or stops inside them.
   const fullAllowed = (b: number): number => {
     let c = 0;
-    for (let ms = t[b]; ms < bucketStart(T, g, b + 1); ms += T.slot) if (!T.structural[weekdayAt(T, ms)]) c++;
+    for (let ms = t[b]; ms < bucketStart(T, g, b + 1); ms += T.slot) if (openAt(T, ms)) c++;
     return c;
   };
   const partShare = new Float64Array(n).fill(1);
@@ -189,18 +192,18 @@ export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): 
     for (let b = 0; b < n && !(out[b] === out[b]) && j0 >= 0; b++) out[b] = s[j0] / k[j0];
     colMean[c] = out;
   }
-  // Runs without rows (structural weekdays excluded), as slot ranges for the findings.
+  // Runs without rows (weekdays and hours that never have rows excluded), as slot ranges for the findings.
   const gapRanges: [number, number][] = [];
   const ob = T.eventLike ? [] : T.observed;
   for (let k = 1; k < ob.length; k++) {
     if (ob[k] - ob[k - 1] <= 1.5 * cad) continue;
     let real = false;
-    for (let d = ob[k - 1] + 1; d < ob[k]; d++) if (!T.structural[T.swd[d]]) { real = true; break; }
+    for (let d = ob[k - 1] + 1; d < ob[k]; d++) if (slotOpen(T, d)) { real = true; break; }
     if (real) gapRanges.push([ob[k - 1] + 1, ob[k] - 1]);
   }
   // How many values each period holds. When that swings, a sum swings with it.
   let spread: [number, number] | null = null;
-  if (!count && cfg.agg === "sum") {
+  if (!count && (cfg.agg === "sum" || cfg.agg === "mean")) {
     const nz = Array.from(cnt).filter((c) => c > 0).sort((p, q) => p - q);
     const p10 = nz[Math.floor(nz.length * 0.1)], p90 = nz[Math.floor(nz.length * 0.9)];
     if (nz.length >= 10 && p90 > 1.5 * p10) spread = [p10, p90];
@@ -209,6 +212,47 @@ export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): 
     g, n, t, y, filled, made, partial, partShare, spread, coverage, expected, missing, rows: rowsIn, groupVal, colMean,
     modelN, yModel, modelM, gapRanges, allPositive, nonNeg, naRows,
   };
+}
+
+// Rows by group, then time: built once per table for the time-weighted mean.
+const byGroupTime = new WeakMap<TsTable, Int32Array>();
+
+/**
+ * Time-weighted mean per period, into y. Each reading holds its value until the next
+ * reading of the same group, but for no more than three typical spacings (beyond that
+ * the gap is missing data, not a steady level); the last reading holds one spacing.
+ * A period is the mean over the time it is covered, so a burst of readings in one
+ * half-hour counts no more than one reading that held all hour. With all groups,
+ * groups are averaged the same way, by time held.
+ */
+function timeWeighted(T: TsTable, src: Float64Array, group: number, g: Grain, bod: Int32Array, y: Float64Array): void {
+  let order = byGroupTime.get(T);
+  if (!order) {
+    order = Int32Array.from({ length: T.times.length }, (_, i) => i);
+    order.sort((a, b) => T.rowGroup[a] - T.rowGroup[b] || T.times[a] - T.times[b]);
+    byGroupTime.set(T, order);
+  }
+  const n = y.length, wsum = new Float64Array(n), wt = new Float64Array(n);
+  const step = Math.max(T.slot, T.cadence * 86_400_000), cap = 3 * step;
+  const edge = new Float64Array(n + 1);
+  for (let b = 0; b <= n; b++) edge[b] = bucketStart(T, g, b);
+  for (let k = 0; k < order.length; k++) {
+    const i = order[k], gr = T.rowGroup[i];
+    if (group >= 0 && gr !== group) continue;
+    const v = src[i];
+    if (!(v === v)) continue;
+    const t0 = T.times[i], nx = k + 1 < order.length ? order[k + 1] : -1;
+    const sameGroup = nx >= 0 && T.rowGroup[nx] === gr;
+    const t1 = Math.min(sameGroup ? T.times[nx] : t0 + step, t0 + cap);
+    let b = bod[T.rowSlot[i]], a = t0;
+    while (a < t1 && b < n) {
+      const e = Math.min(t1, edge[b + 1]);
+      if (e > a) { wsum[b] += v * (e - a); wt[b] += e - a; }
+      a = e;
+      b++;
+    }
+  }
+  for (let b = 0; b < n; b++) y[b] = wt[b] > 0 ? wsum[b] / wt[b] : NaN;
 }
 
 /**

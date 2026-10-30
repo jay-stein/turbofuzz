@@ -421,10 +421,25 @@ export interface ChartCardOptions {
   onBreakDown?(card: ChartCard): void;
   /** Duplicate the current chart as an explicit comparison. */
   onCompare?(card: ChartCard): void;
+  /** Open this line card's series on the Time Series page. */
+  onDeepDive?(series: ChartSeriesTarget): void;
   /** Apply the existing null-policy conversion for placeholder tokens. */
   onConvertToken?(column: number, tokens: string[]): void;
   /** Apply an existing column suggestion (for example a sentinel code). */
   onSuggestion?(column: number, suggestion: ColumnSuggestion): void;
+}
+
+/** A line card's series as the Time Series page reads it. */
+export interface ChartSeriesTarget {
+  dateColumn: number;
+  /** Category column the lines are split by (-1 = none). */
+  groupColumn: number;
+  /** Numeric column plotted (-1 = row count). */
+  valueColumn: number;
+  valueAgg: ChartCardConfig["valueAgg"];
+  grain: TimeGrain | "auto";
+  /** Buckets of `every` grains (2 weeks, say). */
+  every: number;
 }
 
 export interface ChartTableFilter {
@@ -1256,6 +1271,7 @@ export class ChartCard {
   private readonly lintEl = el("div", { class: "chart-lint hidden", role: "note" });
   private readonly dismissedNotes = new Set<string>();
   private readonly dataIssueEl: HTMLElement;
+  private readonly deepDiveEl: HTMLElement;
   private issueSignature = "";
   private readonly noteEl: HTMLElement;
   private totalRowCount = 0;
@@ -2635,6 +2651,7 @@ export class ChartCard {
     this.dataIssueEl = el("div", { class: "chart-data-issues hidden" });
     this.scopeEl = el("div", { class: "chart-scope" });
     this.noteEl = el("div", { class: "chart-note" });
+    this.deepDiveEl = el("div", { class: "chart-deep-dive hidden" });
     this.legendEl = el("div", { class: "chart-legend hidden" });
     this.exclusionBar = el("div", { class: "chart-exclusions hidden", "aria-label": "Left out of this chart" });
     this.tooltipEl = el("div", { class: "chart-tooltip hidden", role: "tooltip" });
@@ -2754,6 +2771,7 @@ export class ChartCard {
       canvasWrap,
       this.animationBar,
       this.legendEl,
+      this.deepDiveEl,
       this.noteEl,
     ]);
     this.layoutEl = el("div", { class: "chart-card-layout" }, [this.sidebar, main]);
@@ -5114,6 +5132,51 @@ export class ChartCard {
     return defaultChartTitle(this.meta(this.config.column)?.name ?? "");
   }
 
+  /** The series a line card plots, when the Time Series page can read it. */
+  private seriesTarget(): ChartSeriesTarget | null {
+    if (this.config.kind !== "line" || this.config.source !== "" || this.options.onDeepDive === undefined) return null;
+    if (!this.isDateLike(this.meta(this.config.column))) return null;
+    const value = this.config.valueColumn ?? -1;
+    return {
+      dateColumn: this.config.column,
+      groupColumn: this.config.groupColumn,
+      valueColumn: value >= 0 && this.meta(value) !== undefined ? value : -1,
+      valueAgg: this.config.valueAgg,
+      // The bucket the value line draws (count lines bin by span, so the page picks).
+      grain: value >= 0 ? this.resolvedGrain() : "auto",
+      every: value >= 0 ? this.everyFor(this.resolvedGrain()) : 1,
+    };
+  }
+
+  /** Line cards point to the Time Series page for trend, seasons and a forecast. */
+  private syncDeepDive(): void {
+    const target = this.seriesTarget();
+    const key = target === null ? "" : JSON.stringify(target);
+    if (this.deepDiveEl.dataset.key === key) return;
+    this.deepDiveEl.dataset.key = key;
+    clear(this.deepDiveEl);
+    this.deepDiveEl.classList.toggle("hidden", target === null);
+    if (target === null) return;
+    const group = this.meta(target.groupColumn)?.name;
+    const button = el(
+      "button",
+      { class: "chart-deep-dive-link", type: "button", title: "Open this series on the Time Series page" },
+      ["Open in Time Series →"],
+    ) as HTMLButtonElement;
+    button.addEventListener("click", () => {
+      const current = this.seriesTarget();
+      if (current !== null) this.options.onDeepDive?.(current);
+    });
+    this.deepDiveEl.append(
+      el("span", {}, [
+        group === undefined
+          ? "Deep dive on this series: trend, seasons, typical day and a forecast."
+          : `Deep dive on one ${group} at a time: trend, seasons, typical day and a forecast.`,
+      ]),
+      button,
+    );
+  }
+
   /** Duplicate, PNG and remove live behind one ⋯ menu, plus the red ×. */
   private openCardMenu(anchor: HTMLElement): void {
     const pivotHeatmap = this.config.kind === "pivotHeatmap";
@@ -5164,6 +5227,15 @@ export class ChartCard {
           title: "Open the chart builder for a new breakdown",
           disabled: this.options.onBreakDown === undefined,
           action: () => this.options.onBreakDown?.(this),
+        },
+        {
+          label: "Open in Time Series",
+          title: "Trend, seasons, typical day and a forecast for this series",
+          disabled: this.seriesTarget() === null,
+          action: () => {
+            const target = this.seriesTarget();
+            if (target !== null) this.options.onDeepDive?.(target);
+          },
         },
         {
           label: "Duplicate for comparison",
@@ -6669,6 +6741,7 @@ export class ChartCard {
 
   private render(): void {
     this.syncScope();
+    this.syncDeepDive();
     this.canvas.setAttribute("aria-label", this.canvasLabel());
     const wrap = this.canvas.parentElement;
     // Not laid out yet (detached or hidden lens): painting would size the canvas

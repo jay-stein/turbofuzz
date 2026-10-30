@@ -10605,3 +10605,28 @@ button.qp-tile:hover {
   .ts-top-actions { margin-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .ts-page * { transition: none !important; } }
+
+/* Line cards: a quiet pointer to the Time Series page for the deep dive. */
+.chart-deep-dive {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+.chart-deep-dive.hidden {
+  display: none;
+}
+.chart-deep-dive-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chart-deep-dive-link:hover {
+  text-decoration: underline;
+}

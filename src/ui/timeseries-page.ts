@@ -34,6 +34,17 @@ export interface TimeSeriesPageHandle {
   shown(): void;
   /** The page is out of sight: stop drawing and fetching until shown again. */
   hide(): void;
+  /** Open on a given date column, split and series, e.g. from a Chart line card. */
+  open(preset: TsPreset): void;
+}
+/** What another view knows about a series; anything it leaves out keeps the defaults. */
+export interface TsPreset {
+  dateColumn: number;
+  groupColumn?: number;
+  /** Column name to measure; null counts rows. Undefined keeps the default. */
+  measure?: string | null;
+  agg?: TsAgg;
+  grain?: GrainId;
 }
 
 type Level = "80" | "fan";
@@ -45,7 +56,7 @@ interface DecRow { name: string; get: (i: number) => number; color: string; kind
 type DragKind = "pan" | "box" | "split" | "horizon";
 
 const GROUP_LIMIT = 50;
-const AGG_OPTS: [TsAgg, string][] = [["sum", "sum"], ["mean", "mean"], ["median", "median"], ["min", "min"], ["max", "max"], ["first", "first"], ["last", "last"], ["count", "count of rows"]];
+const AGG_OPTS: [TsAgg, string][] = [["sum", "sum"], ["mean", "mean"], ["twmean", "time-weighted mean"], ["median", "median"], ["min", "min"], ["max", "max"], ["first", "first"], ["last", "last"], ["count", "count of rows"]];
 const GAP_OPTS: [TsGaps, string, string][] = [
   ["seasonal", "filled with the usual pattern", "the typical shape for those periods, on a line between the levels either side"],
   ["interp", "interpolated", "a straight line between the periods either side"],
@@ -894,7 +905,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     ref("sentence").innerHTML = `${tok("grain")} ${tok("agg")}${count ? "" : ` of ${tok("measure")}`}${info.groups.length > 1 ? ` for ${escapeHtml(info.groupCol ?? "")} ${tok("group")}` : ""}`;
     ref("subline").innerHTML = `Dates from ${tok("date")} · split by ${tok("groupBy")} · ${nf.format(info.rows)} rows · ${dfDate.format(new Date(info.firstMs))} to ${dfDate.format(new Date(info.lastMs))} · gaps ${tok("gaps")} · partial last ${gr.noun} ${tok("partial")}`;
     const across = c.group < 0 && info.groups.length > 1 && !count && c.agg === "sum" ? ` That adds all ${info.groups.length} ${escapeHtml(info.groupCol ?? "")} values together; pick one if they measure the same thing.` : "";
-    ref("why").innerHTML = `Each ${gr.noun} is ${count ? "the number of rows" : `the ${c.agg} of the rows`} that fall in it.${across} Click any highlighted word to change it. Uses the rows the Table's filters leave.`;
+    ref("why").innerHTML = `Each ${gr.noun} is ${count ? "the number of rows that fall in it" : c.agg === "twmean" ? "the mean of the readings in it, each counted for as long as it held (until the next reading, at most three usual spacings)" : `the ${c.agg} of the rows that fall in it`}.${across} Click any highlighted word to change it. Uses the rows the Table's filters leave.`;
     heroOverlay.setAttribute("aria-label", `${ref("sentence").textContent ?? ""}. Left and right arrows step through periods, Enter shows the rows.`);
 
     const N = a.modelN, d = s.dec.dec;
@@ -1546,9 +1557,34 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   let patW = 0;
   new ResizeObserver(() => { const w = ref("patGrid").clientWidth; if (visible && ui.mode === "patterns" && snap && Math.abs(w - patW) > 4) { patW = w; renderPatterns(); } }).observe(ref("patGrid"));
 
+  // A preset waiting for the first snapshot of its date column (that one carries the
+  // defaults and the column list the preset is checked against).
+  function open(preset: TsPreset): void {
+    if (!dateColumns().includes(preset.dateColumn)) return;
+    dateColumn = preset.dateColumn;
+    groupColumn = preset.groupColumn !== undefined && groupColumns().includes(preset.groupColumn) ? preset.groupColumn : -1;
+    cfg = null; view = null; snap = null;
+    seq++; // a reply already on its way is for the old series
+    afterFetch = () => {
+      if (!cfg || !snap) return;
+      const patch: Partial<TsConfig> = {};
+      const names = new Set(snap.table.columns.map((c) => c.name));
+      if (preset.measure === null) patch.agg = "count";
+      else if (preset.measure !== undefined && names.has(preset.measure)) {
+        patch.measure = preset.measure;
+        if (preset.agg && preset.agg !== "count") patch.agg = preset.agg;
+      }
+      if (preset.grain && GRAIN_ORDER.includes(preset.grain)) patch.grain = preset.grain;
+      if (Object.keys(patch).length) { cfg = { ...cfg, ...patch }; view = null; fetchSeries(); }
+    };
+    if (visible) fetchSeries();
+    else stale = true;
+  }
+
   readColors();
   return {
     setData,
+    open,
     shown(): void {
       visible = true;
       readColors();

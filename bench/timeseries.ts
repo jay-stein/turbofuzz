@@ -63,6 +63,10 @@ for (const [name, days, perDay, grain] of [["daily", 3650, 1, "day"], ["hourly",
     engine.compute({ ...base, horizon: h, smoothW: w, agg }, "patterns");
   }, { iterations: 4, warmup: 0 });
   check(`${name}: patterns tab (+ re-aggregate)`, patterns.p95, budget.patterns + budget.open);
+  // Time-weighted mean: every reading spread over the time it held, then the full rerun.
+  let tw = 0;
+  const twmean = measure(() => { tw++; engine.compute({ ...base, horizon: h, smoothW: w, agg: tw % 2 ? "twmean" : "mean" }, "forecast"); }, { iterations: 4, warmup: 0 });
+  check(`${name}: switch to time-weighted mean`, twmean.p95, budget.open);
 }
 if (failed) {
   console.error("Time series latency gate failed.");

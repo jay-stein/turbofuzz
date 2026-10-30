@@ -3,8 +3,8 @@
  * snapshot. Pure functions (no DOM), so they are tested on their own.
  */
 
-import { cadenceNoun, cadenceText, DAY, GRAIN_ORDER, GRAINS, weekdayAt, type Grain, type GrainId } from "../data/timeseries/base.js";
-import type { TsMode } from "../data/timeseries/aggregate.js";
+import { cadenceNoun, cadenceText, DAY, GRAIN_ORDER, GRAINS, openAt, weekdayAt, type Grain, type GrainId } from "../data/timeseries/base.js";
+import type { TsAgg, TsMode } from "../data/timeseries/aggregate.js";
 import { circularSmooth, type Decomposition, type SeasonOption } from "../data/timeseries/decompose.js";
 import type { TsSnapshot } from "../data/timeseries/engine.js";
 import {
@@ -21,7 +21,7 @@ export type TsAction =
   | { kind: "mode"; mode: TsMode }
   | { kind: "forecastView" }
   | { kind: "grain"; grain: GrainId }
-  | { kind: "agg"; agg: "mean" };
+  | { kind: "agg"; agg: TsAgg };
 
 export type TsTone = "accent" | "forecast" | "danger" | "warn" | "dim";
 export interface TsFinding {
@@ -166,6 +166,23 @@ function explain(s: TsSnapshot, i: number, expected: number): string {
   return best < 0 || !(tot > 0) ? "" : `${escapeHtml(s.table.groupCol ?? "group")} <b>${escapeHtml(groups[best])}</b> accounts for ${Math.min(100, (bestV / excess) * 100).toFixed(0)}% of it.`;
 }
 
+/** "between 08:00 and 18:00" for the open hours of a timetable, or "" when every hour has rows. */
+function openHours(closed: readonly number[]): string {
+  if (!closed.some(Boolean)) return "";
+  const hh = (h: number): string => `${String(h % 24).padStart(2, "0")}:00`;
+  const runs: string[] = [];
+  // Start at a closed hour so a run across midnight stays whole.
+  const s0 = closed.indexOf(1);
+  for (let k = 0; k < 24; k++) {
+    const h = (s0 + k) % 24;
+    if (closed[h] || !closed[(h + 23) % 24]) continue;
+    let e = h;
+    while (!closed[(e + 1) % 24]) e++;
+    runs.push(`between ${hh(h)} and ${hh(e + 1)}`);
+  }
+  return runs.join(" and ");
+}
+
 const GAP_WORDS: Record<string, string> = { zero: "filled with zero", interp: "interpolated", seasonal: "filled with the usual pattern", leave: "left empty" };
 
 /** Everything the findings rail says, most useful first. */
@@ -222,6 +239,9 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
         acts: [toDecompose],
       });
     }
+    // The season grows with the level: say so on the season finding just added.
+    const last = out[out.length - 1];
+    if (d.scaled && d.m && last.kind.startsWith("Season")) last.html += " The swing grows and shrinks with the level, so it is fitted as a share of the trend; sizes are at the average level.";
     if (s.dec.anomalies.length) {
       const i = s.dec.anomalies[0];
       const exp = d.trend[i] + d.seasonal[i];
@@ -250,7 +270,7 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
     const ms = (slot: number): number => info.start + slot * info.slot;
     const sameDay = (a: number, b: number): boolean => Math.floor(a / info.spd) === Math.floor(b / info.spd);
     const fmt = ([a, b]: [number, number]): string => fmtInstant(ms(a), info.subDay) + (b > a ? " – " + (info.subDay && sameDay(a, b) ? dfTime.format(new Date(ms(b))) : fmtInstant(ms(b), info.subDay)) : "");
-    const realSlots = (a: number, b: number): number => { let c = 0; for (let k = a; k <= b; k++) if (!info.structural[weekdayAt(info, ms(k))]) c++; return c; };
+    const realSlots = (a: number, b: number): number => { let c = 0; for (let k = a; k <= b; k++) if (openAt(info, ms(k))) c++; return c; };
     const slots = A.gapRanges.reduce((sum, [a, b]) => sum + Math.max(1, Math.round(realSlots(a, b) / Math.max(1, info.cadSlots))), 0);
     bits.push(`<b>${nf.format(slots)} ${slots === 1 ? cn.replace(/s$/, "") : cn}</b> with no rows (${A.gapRanges.slice(0, 3).map(fmt).join(", ")}${A.gapRanges.length > 3 ? `, and ${A.gapRanges.length - 3} more stretches` : ""}). Periods with no rows are ${GAP_WORDS[cfg.gaps]}${cfg.gaps === "zero" ? "" : "; the models bridge them with the usual pattern and never learn from or score them"}.`);
     // The period holding the first empty slot.
@@ -261,6 +281,8 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
   }
   const struct = [0, 1, 2, 3, 4, 5, 6].filter((k) => info.structural[k]).map((k) => WEEKDAYS[k]);
   if (struct.length) bits.push(`${struct.join(" and ")} never have rows, so they are not counted as missing.`);
+  const hours = openHours(info.closedHours);
+  if (hours) bits.push(`Rows only come ${hours}; other hours are not counted as missing.`);
   // Finer rows shown at a day or coarser: the cycle within the day is averaged away.
   const finer = info.subDay && g.unit !== "min" ? GRAIN_ORDER.find((id) => GRAINS[id].unit === "min" && !info.tooFine[id]) : undefined;
   if (finer) {
@@ -270,9 +292,16 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
   if (A.naRows > 0) bits.push(`${nf.format(A.naRows)} rows have no ${measureWord(s)} value and are left out.`);
   if (info.dropped) bits.push(`${nf.format(info.dropped)} rows have no readable ${escapeHtml(info.dateCol)} and are left out.`);
   if (A.partial[A.n - 1]) bits.push(`The last ${g.noun} is partial (the data covers about ${Math.round(A.partShare[A.n - 1] * 100)}% of it) and is ${cfg.partial === "exclude" ? "left out of trend and forecast" : "included"}.`);
-  if (A.spread) {
-    bits.unshift(`Most ${g.nouns} hold between <b>${nf.format(A.spread[0])}</b> and <b>${nf.format(A.spread[1])}</b> values of ${measureWord(s)}, so a sum rises and falls with how many there were. If each row is a reading at a moment (a level, a temperature, spaces in use), a mean fits; if each row is an amount (a sale, a visit), the sum is right.`);
+  const repeated = cfg.agg === "sum" && cfg.group < 0 && info.groups.length > 1 && info.columns.some((c) => c.name === cfg.measure && c.repeated);
+  if (repeated) {
+    bits.unshift(`<b>${measureWord(s)}</b> has the same value on every ${escapeHtml(info.groupCol ?? "group")} row at the same moment, so it looks like a total already. Summing across the ${info.groups.length} ${escapeHtml(info.groupCol ?? "group")} values counts it ${info.groups.length} times; a mean shows it once.`);
     acts.unshift({ label: "Use mean", act: { kind: "agg", agg: "mean" } });
+  } else if (A.spread && cfg.agg === "sum") {
+    bits.unshift(`Most ${g.nouns} hold between <b>${nf.format(A.spread[0])}</b> and <b>${nf.format(A.spread[1])}</b> values of ${measureWord(s)}, so a sum rises and falls with how many there were. If each row is a reading at a moment (a level, a temperature, spaces in use), a mean fits, and a time-weighted mean also evens out readings taken at uneven times; if each row is an amount (a sale, a visit), the sum is right.`);
+    acts.unshift({ label: "Use mean", act: { kind: "agg", agg: "mean" } }, { label: "Time-weighted mean", act: { kind: "agg", agg: "twmean" } });
+  } else if (A.spread && cfg.agg === "mean") {
+    bits.unshift(`Readings are uneven: most ${g.nouns} hold between <b>${nf.format(A.spread[0])}</b> and <b>${nf.format(A.spread[1])}</b>, so a plain mean leans toward the stretches with more of them. A time-weighted mean counts each reading for as long as it held, until the next one.`);
+    acts.unshift({ label: "Time-weighted mean", act: { kind: "agg", agg: "twmean" } });
   }
   if (bits.length) out.push({ kind: "Data", tone: "warn", html: bits.join(" "), acts });
   return out;

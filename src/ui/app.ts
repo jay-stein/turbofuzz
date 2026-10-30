@@ -81,7 +81,7 @@ import { Overview, STATS_ICON, delimiterLabel, readDefaultView } from "./overvie
 import type { DatasetStats } from "../data/stats.js";
 import { FilterPanel } from "./filters.js";
 import { ChartsPanel, remapChartConfigs, type NamedChartCardConfig } from "./chart-panel.js";
-import type { BrushRange, MapBrushSelection } from "./chart-card.js";
+import type { BrushRange, ChartSeriesTarget, MapBrushSelection } from "./chart-card.js";
 import { openHelpDrawer } from "./help-drawer.js";
 import { Hints } from "./hints.js";
 import { sampleCsv } from "./sample.js";
@@ -185,7 +185,8 @@ import {
   OutliersPanel,
   type OutliersPanelOptions,
 } from "./outliers-panel.js";
-import { createTimeSeriesPage, type TimeSeriesPageHandle } from "./timeseries-page.js";
+import { createTimeSeriesPage, type TimeSeriesPageHandle, type TsPreset } from "./timeseries-page.js";
+import type { GrainId } from "../data/timeseries/base.js";
 import {
   coMissingnessFindings,
   distributionFindings,
@@ -2387,6 +2388,7 @@ export class App {
       currentFilter: (column) => this.filters.get(column) ?? null,
       onFilterTable: (filters, label) => this.applyChartFilters(filters, label, false),
       onShowRows: (filters, label) => this.applyChartFilters(filters, label, true),
+      onDeepDive: (series) => this.openSeries(series),
       onConvertToken: (column, tokens) => this.convertToken(column, tokens),
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
       onMapBrush: (selection) => this.filterToMapArea(selection),
@@ -3790,6 +3792,29 @@ export class App {
       });
     }
     this.timeSeries.setData(this.metas, this.resultCount);
+  }
+
+  /** A Chart line card's series, opened on the Time Series page with the same fields. */
+  private openSeries(series: ChartSeriesTarget): void {
+    const preset: TsPreset = { dateColumn: series.dateColumn, groupColumn: series.groupColumn };
+    const value = series.valueColumn >= 0 ? this.metas[series.valueColumn] : undefined;
+    const agg = series.valueAgg ?? "mean";
+    if (value === undefined) preset.measure = null;
+    else {
+      preset.measure = value.name;
+      if (agg === "sum" || agg === "mean" || agg === "median" || agg === "min" || agg === "max" || agg === "first" || agg === "last") {
+        preset.agg = agg;
+      }
+    }
+    const grains: Partial<Record<string, GrainId>> = {
+      "hour:1": "hour", "day:1": "day", "week:1": "week", "week:2": "week2", "week:4": "week4",
+      "month:1": "month", "month:3": "quarter", "quarter:1": "quarter", "year:1": "year",
+      "minute:5": "min5", "minute:15": "min15", "minute:30": "min30", "minute:60": "hour",
+    };
+    preset.grain = grains[`${series.grain}:${series.every}`];
+    this.ensureTimeSeries();
+    this.timeSeries?.open(preset);
+    this.setView("timeseries");
   }
 
   private outliersPanelOptions(): OutliersPanelOptions {

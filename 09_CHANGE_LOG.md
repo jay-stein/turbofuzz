@@ -202,3 +202,22 @@ Add entries here. Keep unsuccessful attempts too if they reveal useful constrain
 - **Decision:** Ship
 - **Date:** 2026-10-30
 
+### CHG-2026-10-30-07 — Time Series: close-out (Chart link, levels, totals, timetables, scaled seasons, Python check)
+
+- **Status:** Verified (unit, e2e, bench, gate)
+- **Related issue / decision:** next_steps.md "Remaining for the Time Series page" and "Still to do"; owner chose to keep the Chart line card and link it to the page instead of retiring it
+- **Problem addressed:** The Chart line card and the Time Series page did not know about each other; levels read at uneven times (parking) had no right aggregate; a total copied onto every group row was summed once per group; business-hours tables counted every night as a gap; seasons that grow with the level sat in the remainder; no reference check of the maths.
+- **Scope:**
+  - Chart line cards show "Open in Time Series →" (and a ⋯ menu item) that opens the page on the same date column, measure, aggregate, split column and bucket (week, 2 weeks, month…).
+  - New aggregate **time-weighted mean**: each reading holds until the next one of its group, at most three usual spacings. The Data finding offers it when buckets hold uneven numbers of readings.
+  - **Repeated totals**: numeric columns equal on every group's row at the same moment are detected; summing one across groups gets a warning with "Use mean", and such a column is never the default measure.
+  - **Structural hours**: hours of the day that (almost) never have rows, on hourly or finer data over a week or more, are not gaps or missing coverage; the Data finding names the open hours.
+  - **Scaled seasons**: on positive series, a season fitted as a share of the trend replaces the fixed-amount one when it leaves at least 15% less unexplained. Written back as amounts so trend + season + remainder still equals the series. Theta deseasonalises the same way.
+  - **Python reference** (prototypes/time-series/reference): trend and seasonal profile match statsmodels' centred moving average and a per-phase median to 1e-13 on five public series; forecast errors are in line with statsmodels Holt-Winters and Theta (results.txt).
+- **Explicit non-goals:** retiring the Chart line card (owner: keep it, link through); multiplicative Holt-Winters (statsmodels' beats ours on airline passengers, 36.5 vs 50.7 MAE; logged).
+- **Files / components changed:** src/data/timeseries/base.ts, aggregate.ts, decompose.ts, models.ts, engine.ts; src/ui/timeseries-page.ts (open preset), timeseries-findings.ts, chart-card.ts, chart-panel.ts, app.ts, help-content.ts, styles.css; bench/timeseries.ts; test/timeseries.test.ts (+4), test/e2e/time-series.spec.ts (+1); prototypes/time-series/reference/*
+- **Tests run and results:** unit 1093 pass; e2e 68 pass; bench:timeseries within budget (hourly switch to time-weighted mean 80 ms of 220); npm run gate exit 0.
+- **Manual verification:** engine on parking.csv: total_occupied and total_vacant flagged as repeated, default measure occupied, time-weighted mean offered under sum and mean.
+- **Decision:** Ship
+- **Date:** 2026-10-30
+

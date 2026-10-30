@@ -161,3 +161,83 @@ test("the engine reruns only what changed", () => {
   assert.equal(longer.A.y, first.A.y);
   assert.equal(longer.dec, first.dec);
 });
+
+test("time-weighted mean counts each reading for as long as it held", () => {
+  // Every 10 minutes the level is 10, until a burst of zero readings late in each hour.
+  const times: number[] = [], values: number[] = [];
+  for (let h = 0; h < 48; h++) {
+    for (const [m, v] of [[0, 10], [10, 10], [20, 10], [30, 10], [40, 10], [50, 0], [54, 0], [57, 0]]) {
+      times.push(START + h * 3_600_000 + m * MINUTE);
+      values.push(v);
+    }
+  }
+  const t = buildTable(input(times, values));
+  assert.ok(t);
+  const plain = aggregate(t, cfg({ grain: "hour", agg: "mean" }));
+  const tw = aggregate(t, cfg({ grain: "hour", agg: "twmean" }));
+  assert.ok(Math.abs(plain.y[10] - 6.25) < 1e-9);
+  assert.ok(Math.abs(tw.y[10] - 50 / 6) < 1e-9, `got ${tw.y[10]}`);
+  // A hole longer than three usual spacings is missing data, not a held level.
+  const holed = buildTable(input(times.filter((ms) => ms < START + 20 * 3_600_000 || ms >= START + 24 * 3_600_000), values.filter((_, i) => times[i] < START + 20 * 3_600_000 || times[i] >= START + 24 * 3_600_000)));
+  assert.ok(holed);
+  const th = aggregate(holed, cfg({ grain: "hour", agg: "twmean" }));
+  assert.ok(Number.isNaN(th.y[22]));
+});
+
+test("a total repeated on every group's row is found and not the default measure", () => {
+  const times: number[] = [], total: number[] = [], own: number[] = [], rowGroup: number[] = [];
+  for (let h = 0; h < 72; h++) {
+    const parts = [10 + (h % 5) + h * 0.37, 20 + (h % 3), 5 + (h % 7) + h * 0.11];
+    parts.forEach((v, g) => { times.push(START + h * 3_600_000); own.push(v); total.push(parts[0] + parts[1] + parts[2]); rowGroup.push(g); });
+  }
+  const t = buildTable(input(times, own, {
+    cols: { total: Float64Array.from(total), occupied: Float64Array.from(own) },
+    groups: ["A", "B", "C"], rowGroup: Uint16Array.from(rowGroup), groupCol: "park",
+  }));
+  assert.ok(t);
+  assert.deepEqual(t.repeated, { total: true });
+  assert.equal(t.defMeasure, "occupied");
+});
+
+test("a season that grows with the level is fitted as a share of the trend", () => {
+  // Daily data, level doubling over two years, weekend lift of 40% of the level.
+  const times: number[] = [], values: number[] = [];
+  for (let i = 0; i < 730; i++) {
+    const level = 100 * (1 + i / 730), wd = i % 7;
+    times.push(START + i * DAY);
+    values.push(level * (wd >= 5 ? 1.4 : 0.84) + ((i * 7919) % 5) - 2);
+  }
+  const t = buildTable(input(times, values));
+  assert.ok(t);
+  const A = aggregate(t, cfg({ grain: "day" }));
+  const r = computeDecomposition(A, cfg({ grain: "day" }));
+  assert.ok(r.dec);
+  assert.equal(r.dec.m, 7);
+  assert.equal(r.dec.scaled, true);
+  // Parts still add up, and the late weekend swing is bigger than the early one.
+  for (const i of [10, 400, 700]) assert.ok(Math.abs(r.dec.trend[i] + r.dec.seasonal[i] + r.dec.rem[i] - A.yModel[i]) < 1e-9);
+  assert.ok(r.dec.seasonal[705] > 1.6 * r.dec.seasonal[12]);
+  // A fixed-size season stays additive.
+  const flat = buildTable(input(times, times.map((_, i) => 100 * (1 + i / 730) + (i % 7 >= 5 ? 40 : -16) + ((i * 7919) % 5) - 2)));
+  assert.ok(flat);
+  const fa = aggregate(flat, cfg({ grain: "day" }));
+  assert.notEqual(computeDecomposition(fa, cfg({ grain: "day" })).dec?.scaled, true);
+});
+
+test("hours that never have rows are a timetable, not gaps", () => {
+  // Weekdays 09:00-17:00 only, for six weeks, with one real missing afternoon.
+  const times: number[] = [];
+  for (let d = 0; d < 42; d++) {
+    if (d % 7 >= 5) continue;
+    for (let h = 9; h <= 17; h++) if (!(d === 10 && h >= 13)) times.push(START + d * DAY + h * 3_600_000);
+  }
+  const t = buildTable(input(times, times.map((_, i) => 50 + (i % 9) + i * 0.013)));
+  assert.ok(t);
+  assert.deepEqual(Array.from(t.closedHours).map((c, h) => (c ? "" : h)).filter((h) => h !== ""), [9, 10, 11, 12, 13, 14, 15, 16, 17]);
+  const A = aggregate(t, cfg({ grain: "hour" }));
+  assert.equal(A.gapRanges.length, 1);
+  // The day with the missing afternoon is short of rows; full days are complete.
+  const D = aggregate(t, cfg({ grain: "day" }));
+  assert.ok(D.coverage[10] < 0.6);
+  assert.equal(D.coverage[9], 1);
+});
