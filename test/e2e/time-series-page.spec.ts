@@ -1,5 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
 
+// Outliers, Relationships, Time Series and Map are Research-mode tabs.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("turbofuzz-mode", "research"));
+});
+
 /** Two years of weekday readings with a six-week hole in the middle, for three players. */
 function games(): string {
   const lines = ["order_date,region,player,points"];

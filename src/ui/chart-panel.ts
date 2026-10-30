@@ -159,6 +159,8 @@ export interface ChartsPanelOptions {
   onDeepDive?(series: ChartSeriesTarget): void;
   /** Open a map card full width on the Map page. */
   onOpenMap?(config: ChartCardConfig): void;
+  /** False in General mode: cards then hide their Time Series and Map links. */
+  research?(): boolean;
   /** Convert placeholder tokens through the existing null-policy path. */
   onConvertToken?(column: number, tokens: string[]): void;
   /** Apply an existing suggestion through the shared fix path. */
@@ -689,6 +691,7 @@ export class ChartsPanel {
         onCompare: (target) => this.compareCard(target),
         onDeepDive: this.options.onDeepDive,
         onOpenMap: this.options.onOpenMap,
+        research: this.options.research,
         onConvertToken: this.options.onConvertToken,
         onSuggestion: this.options.onSuggestion,
         onExport: (target) => {

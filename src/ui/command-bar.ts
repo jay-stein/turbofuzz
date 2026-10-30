@@ -7,6 +7,7 @@ import type { HeaderCaseStyle } from "../data/headers.js";
 import type { TransformOp } from "../data/transform-ops.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnType } from "../types.js";
+import type { AppMode } from "./mode.js";
 import type { ThemePreference } from "./theme.js";
 import type { ViewId } from "./view-tabs.js";
 import { openConfirm } from "./dialog.js";
@@ -45,6 +46,7 @@ export type ParsedCommand =
   | { kind: "recipe"; label: string }
   | { kind: "help"; label: string }
   | { kind: "theme"; preference: ThemePreference; label: string }
+  | { kind: "mode"; mode: AppMode; label: string }
   | { kind: "export"; label: string }
   | { kind: "views"; label: string }
   | { kind: "quality"; label: string }
@@ -97,12 +99,12 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
   {
     name: "forecast",
     aliases: ["series", "decompose", "seasonality", "trend"],
-    hint: "Open Time Series: trend, season, forecast and typical day or week",
+    hint: "Open Time Series (Research): trend, season, forecast and typical day or week",
   },
   {
     name: "map",
     aliases: ["maps", "markers", "geo"],
-    hint: "Open the Map: points on a world map, your own offline map picture and markers",
+    hint: "Open the Map (Research): points on a world map, your own offline map picture and markers",
   },
   {
     name: "timeseries",
@@ -161,12 +163,12 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
   {
     name: "outliers",
     aliases: ["outlier", "anomalies"],
-    hint: "Open the Outliers lens - anomaly landscape and method agreement",
+    hint: "Open the Outliers lens (Research) - anomaly landscape and method agreement",
   },
   {
     name: "relationships",
     aliases: ["correlations", "associations", "network"],
-    hint: "Open the Relationships lens - text-aware column network, correlations, associations and dependencies",
+    hint: "Open the Relationships lens (Research) - text-aware column network, correlations, associations and dependencies",
   },
   { name: "shuffle", aliases: ["randomise", "randomize"], hint: "Show every row in a random order" },
   { name: "copy", aliases: ["copy rows"], hint: "Copy the filtered rows as CSV" },
@@ -177,6 +179,13 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
   { name: "recipe", aliases: ["steps", "undo"], hint: "Open Recipe to inspect, undo or reuse applied steps" },
   { name: "help", aliases: ["guide"], hint: "Open the in-app help guide" },
   { name: "theme", aliases: [], hint: "Set the theme — “theme dark”, “theme light” or “theme auto”" },
+  {
+    name: "research",
+    aliases: ["research mode"],
+    hint: "Research mode: adds Outliers, Relationships, Time Series and Map to the tabs",
+  },
+  { name: "general", aliases: ["general mode"], hint: "General mode: the everyday tabs only" },
+  { name: "mode", aliases: [], hint: "Switch mode — “mode research” or “mode general”" },
 ];
 
 function normalise(value: string): string {
@@ -1117,6 +1126,17 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
       }
       return { kind: "theme", preference, label: `Set theme to ${preference}` };
     }
+    case "research":
+      return { kind: "mode", mode: "research", label: "Switched to Research mode" };
+    case "general":
+      return { kind: "mode", mode: "general", label: "Switched to General mode" };
+    case "mode": {
+      const mode = normalise(rest);
+      if (mode !== "research" && mode !== "general") {
+        return { kind: "error", message: "Mode needs general or research — “mode research”." };
+      }
+      return { kind: "mode", mode, label: `Switched to ${mode === "research" ? "Research" : "General"} mode` };
+    }
     default:
       return { kind: "error", message: `Unrecognised command “${verb}”.` };
   }
@@ -1178,6 +1198,8 @@ export function commandSuggestions(
         return `flag ${pickColumn("flag")}`;
       case "theme":
         return "theme dark";
+      case "mode":
+        return "mode research";
       default:
         return null;
     }

@@ -1,5 +1,10 @@
 import { test, expect } from "@playwright/test";
 
+// Outliers, Relationships, Time Series and Map are Research-mode tabs.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("turbofuzz-mode", "research"));
+});
+
 test("core surfaces expose accessible names and focusable controls", async ({ page }) => {
   await page.goto("/");
   await page.locator('input[type="file"]').setInputFiles({

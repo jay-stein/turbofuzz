@@ -44,6 +44,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Columns carry a logical type — Text, Category, Integer, Number, Date, Date & time, Time of day, Duration, Boolean, ID — inferred from the values and changeable from the header dropdown. Date stays a calendar date; a timestamp keeps its time-of-day (and any zone offset); ambiguous clock text such as 09:30 stays text until you choose an interpretation.",
         "Click a column name to inspect it — profile, issues and one-click fixes (sort, filter, chart, trim, case, convert, split, round, fill missing, remove duplicates, display format). Right-click a header for the full grouped Column / Clean / Transform menu. Parameter-free cleans (Trim, UPPERCASE, lowercase, Title Case, Convert to number/date, formula escaping) apply instantly with an Undo toast; configurable operations open their panel with that column (and operation) already selected. Drag the divider on a header's right edge to resize it (double-click the divider to reset).",
         "Use Export… when you are done; the dialog states exactly which rows will be written, with an optional first-N subset.",
+        "The General | Research switch at the left of the tabs picks the mode. General shows Overview, Data Quality, Table, Pivot View and Chart; Research adds Outliers, Relationships, Time Series and Map in their own teal lane. The choice is remembered, and switching back to General keeps your work on the research pages.",
         "The header Theme control cycles Auto / Light / Dark — Auto follows your operating system.",
         "Help (this drawer) is searchable; the Chart tab shows a chart of the current result set and exports it as a PNG.",
       ),
@@ -58,7 +59,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Open “Enter a command” in the toolbar or press Ctrl/⌘+K. Start typing to filter suggestions, use the arrow keys to choose, and Enter to run. Data-changing commands ask for confirmation and land in Recipe.",
       ),
       list(
-        "Navigation — overview, table, pivot view, outliers, relationships, quality, chart, help.",
+        "Navigation — overview, table, pivot view, quality, chart, help; outliers, relationships, forecast and map open the Research views (switching to Research mode if needed).",
+        "Mode — research · general · mode research.",
         "Columns — rename notes memo · type amount number · drop notes · dropempty · merge region · headercase snake.",
         "Clean — upper/lower/title/trim (or “all”), number, date, datetime, repair, replace notes \"old\" with \"new\", escape.",
         "Transform — round amount 2 · fill amount median · knn amount 5 · split notes on , · splitregex notes on \\d+ · group region sum amount · dedupe last · melt keep region, year · combine dates · winsorize amount 1 · flag amount.",

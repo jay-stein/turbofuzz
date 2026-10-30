@@ -28,6 +28,18 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-01 — General and Research modes
+
+- **Status:** Verified
+- **Problem addressed:** Nine tabs put specialist views in front of every user.
+- **Scope:** A `General | Research` switch at the left of the tab row (`src/ui/mode.ts`). General shows Overview, Data Quality, Table, Pivot View and Chart. Research adds Outliers, Relationships, Time Series and Map in a teal lane after a divider; they slide in when switched on. The mode is remembered (`turbofuzz-mode`, default General). Number keys follow the visible tabs, so Chart is now 5 and the research tabs are 6–9. Switching to General on a research page returns to the last general page, with Undo. In General the chart cards' "Open in Time Series / Map" links and the "Review the outliers first…" menu item are hidden. The command bar's outliers, relationships, forecast and map commands switch to Research, and new `research`, `general` and `mode …` commands were added.
+- **Tokens:** `--research`, `--research-soft`, `--research-border`, `--research-text`, `--research-lane`, each with dark values. Teal is used for Research mode only.
+- **Tests run and results:** `npm test` 1119/1119; Playwright 83/84 in the full run, with the a11y light-theme test timing out under load (8/8 when rerun on its own). New `test/e2e/mode.spec.ts`; research-page specs start in Research mode.
+- **Manual browser verification:** Screenshots at 1440, 622 and 375px in light and dark. Below 480px the switch shows icons only.
+- **Known limitations:** Already present before this change: clicking a line card's "Open in Time Series →" right after the card first draws freezes the page under Playwright tracing (reproduced on the previous commit). Relationships overflows horizontally below about 700px, also unchanged.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-29-01 — Band caps and optional columns
 
 - **Status:** Verified (unit tests, corpus run); not yet checked in a browser by the owner

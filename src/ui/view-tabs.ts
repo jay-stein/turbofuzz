@@ -11,21 +11,21 @@ export type ViewId =
   | "timeseries"
   | "map";
 
-export const VIEW_ORDER: readonly ViewId[] = [
-  "overview",
-  "quality",
-  "table",
-  "views",
-  "outliers",
-  "relationships",
-  "chart",
-  "timeseries",
-  "map",
-];
+/** The everyday lenses, shown in both modes. */
+export const GENERAL_VIEWS: readonly ViewId[] = ["overview", "quality", "table", "views", "chart"];
+
+/** Shown only in Research mode, grouped after the general tabs. */
+export const RESEARCH_VIEWS: readonly ViewId[] = ["outliers", "relationships", "timeseries", "map"];
+
+export const VIEW_ORDER: readonly ViewId[] = [...GENERAL_VIEWS, ...RESEARCH_VIEWS];
+
+export function isResearchView(view: ViewId): boolean {
+  return RESEARCH_VIEWS.includes(view);
+}
 
 /** Hint text derived from the tabs actually available, not a hardcoded range. */
-export function viewSwitchHint(): string {
-  return `switch anytime with 1–${VIEW_ORDER.length}`;
+export function viewSwitchHint(count = VIEW_ORDER.length): string {
+  return `switch anytime with 1–${count}`;
 }
 
 const LABELS: Record<ViewId, { label: string; title: string }> = {
@@ -80,22 +80,30 @@ export interface ViewTabsCallbacks {
 }
 
 /**
- * `Overview | Data Quality | Table | Pivot View | Outliers | Relationships |
- * Chart` lens switcher with the ARIA tabs pattern: role=tablist, aria-selected
- * and roving tabindex. Lenses never alter data; they only change what is on
- * screen.
+ * `Overview | Data Quality | Table | Pivot View | Chart` lens switcher, plus
+ * the Research lane (`Outliers | Relationships | Time Series | Map`) when
+ * Research mode is on. ARIA tabs pattern: role=tablist, aria-selected and
+ * roving tabindex. Lenses never alter data; they only change what is on screen.
  */
 export class ViewTabs {
   private readonly buttons = new Map<ViewId, HTMLButtonElement>();
+  private readonly researchLane: HTMLElement;
   private view: ViewId = "overview";
+  private research: boolean;
 
   constructor(
     private readonly root: HTMLElement,
     private readonly callbacks: ViewTabsCallbacks,
+    research = true,
   ) {
+    this.research = research;
     this.root.classList.add("view-tabs");
     this.root.setAttribute("role", "tablist");
     this.root.setAttribute("aria-label", "Views");
+    this.researchLane = el("div", { class: "view-tabs-research" });
+    this.researchLane.addEventListener("animationend", (event) => {
+      if ((event.target as HTMLElement).dataset.last === "true") this.researchLane.classList.remove("entering");
+    });
 
     for (const id of VIEW_ORDER) {
       const button = el(
@@ -111,10 +119,37 @@ export class ViewTabs {
       ) as HTMLButtonElement;
       button.addEventListener("click", () => this.select(id));
       this.buttons.set(id, button);
-      this.root.append(button);
+      const lane = RESEARCH_VIEWS.indexOf(id);
+      if (lane < 0) {
+        this.root.append(button);
+      } else {
+        // Staggers the slide-in when Research mode is switched on.
+        button.style.setProperty("--i", String(lane));
+        if (lane === RESEARCH_VIEWS.length - 1) button.dataset.last = "true";
+        this.researchLane.append(button);
+      }
     }
+    this.root.append(this.researchLane);
     this.root.addEventListener("keydown", (event) => this.onKeydown(event));
+    this.syncResearch(false);
     this.sync();
+  }
+
+  /** The tabs on screen, in order; number keys 1–n map onto these. */
+  visibleViews(): readonly ViewId[] {
+    return this.research ? VIEW_ORDER : GENERAL_VIEWS;
+  }
+
+  /** Shows or hides the Research lane; `animate` slides the tabs in. */
+  setResearch(on: boolean, animate = false): void {
+    if (on === this.research) return;
+    this.research = on;
+    this.syncResearch(animate);
+  }
+
+  private syncResearch(animate: boolean): void {
+    this.researchLane.classList.toggle("hidden", !this.research);
+    this.researchLane.classList.toggle("entering", animate && this.research);
   }
 
   /** The currently selected lens. */
@@ -158,16 +193,17 @@ export class ViewTabs {
     ) {
       return;
     }
-    const current = VIEW_ORDER.indexOf(this.view);
+    const views = this.visibleViews();
+    const current = views.indexOf(this.view);
     if (current < 0) return;
     event.preventDefault();
     let next = current;
-    if (event.key === "ArrowLeft") next = (current + VIEW_ORDER.length - 1) % VIEW_ORDER.length;
-    else if (event.key === "ArrowRight") next = (current + 1) % VIEW_ORDER.length;
+    if (event.key === "ArrowLeft") next = (current + views.length - 1) % views.length;
+    else if (event.key === "ArrowRight") next = (current + 1) % views.length;
     else if (event.key === "Home") next = 0;
-    else next = VIEW_ORDER.length - 1;
-    this.select(VIEW_ORDER[next]);
-    this.buttons.get(VIEW_ORDER[next])?.focus();
+    else next = views.length - 1;
+    this.select(views[next]);
+    this.buttons.get(views[next])?.focus();
   }
 
   private sync(): void {

@@ -456,6 +456,8 @@ export interface ChartCardOptions {
   onDeepDive?(series: ChartSeriesTarget): void;
   /** Open this map card full width on the Map page. */
   onOpenMap?(config: ChartCardConfig): void;
+  /** False in General mode: the Time Series and Map pages are hidden, so are links to them. */
+  research?(): boolean;
   /** Map card with no coordinate columns: leave them unset instead of picking any number columns. */
   keepEmptyMap?: boolean;
   /** Apply the existing null-policy conversion for placeholder tokens. */
@@ -5176,6 +5178,7 @@ export class ChartCard {
   /** The series a line card plots, when the Time Series page can read it. */
   private seriesTarget(): ChartSeriesTarget | null {
     if (this.config.kind !== "line" || this.config.source !== "" || this.options.onDeepDive === undefined) return null;
+    if (this.options.research?.() === false) return null;
     if (!this.isDateLike(this.meta(this.config.column))) return null;
     const value = this.config.valueColumn ?? -1;
     return {
@@ -5192,7 +5195,7 @@ export class ChartCard {
   /** Line cards point to the Time Series page for trend, seasons and a forecast; map cards to the Map page. */
   private syncDeepDive(): void {
     if (this.config.kind === "map") {
-      const on = this.options.onOpenMap !== undefined;
+      const on = this.options.onOpenMap !== undefined && this.options.research?.() !== false;
       const key = on ? "map" : "";
       if (this.deepDiveEl.dataset.key === key) return;
       this.deepDiveEl.dataset.key = key;
@@ -5286,15 +5289,20 @@ export class ChartCard {
           disabled: this.options.onBreakDown === undefined,
           action: () => this.options.onBreakDown?.(this),
         },
-        {
-          label: "Open in Time Series",
-          title: "Trend, seasons, typical day and a forecast for this series",
-          disabled: this.seriesTarget() === null,
-          action: () => {
-            const target = this.seriesTarget();
-            if (target !== null) this.options.onDeepDive?.(target);
-          },
-        },
+        // The Time Series page is a Research view: General mode leaves the item out.
+        ...(this.options.research?.() === false
+          ? []
+          : [
+              {
+                label: "Open in Time Series",
+                title: "Trend, seasons, typical day and a forecast for this series",
+                disabled: this.seriesTarget() === null,
+                action: () => {
+                  const target = this.seriesTarget();
+                  if (target !== null) this.options.onDeepDive?.(target);
+                },
+              },
+            ]),
         {
           label: "Duplicate for comparison",
           title: "Add an editable copy of this chart for side-by-side comparison",

@@ -2,6 +2,11 @@ import { test, expect } from "@playwright/test";
 import { gzipSync } from "node:zlib";
 import { zipSync, strToU8 } from "fflate";
 
+// Outliers, Relationships, Time Series and Map are Research-mode tabs.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("turbofuzz-mode", "research"));
+});
+
 function collectErrors(page: import("@playwright/test").Page): {
   consoleErrors: string[];
   pageErrors: string[];

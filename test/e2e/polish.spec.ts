@@ -20,9 +20,10 @@ for (const { width, height, chrome } of VIEWPORTS) {
       const h = (s: string) => Math.round(document.querySelector(s)!.getBoundingClientRect().height);
       return {
         chrome: h("header.topbar") + h(".nav-row"),
-        tabs: [...document.querySelectorAll(".view-tabs button")].map((b) =>
-          Math.round(b.getBoundingClientRect().height),
-        ),
+        // Visible tabs only: General mode hides the Research lane.
+        tabs: [...document.querySelectorAll(".view-tabs button")]
+          .map((b) => Math.round(b.getBoundingClientRect().height))
+          .filter((height) => height > 0),
         overflow: document.documentElement.scrollWidth > window.innerWidth,
       };
     });

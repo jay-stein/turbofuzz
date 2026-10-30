@@ -1,5 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
 
+// Outliers, Relationships, Time Series and Map are Research-mode tabs.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("turbofuzz-mode", "research"));
+});
+
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==", "base64");
 
 function sites(): string {
