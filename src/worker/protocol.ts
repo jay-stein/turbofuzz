@@ -1,5 +1,6 @@
 import type { TsConfig, TsMode } from "../data/timeseries/aggregate.js";
 import type { TsSnapshot } from "../data/timeseries/engine.js";
+import type { SeriesShape } from "../data/timeseries/shape.js";
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
 import type { ChartExclusion } from "../data/chart-exclusions.js";
 import type { ViewDef } from "../data/aggregate.js";
@@ -742,6 +743,8 @@ export interface TimeSeriesMessage {
   requestId: number;
   /** null when the date column has too few readable dates. */
   snapshot: TsSnapshot | null;
+  /** How the rows behind the series sit in time: repeats per moment, the column behind them, spacing. */
+  shape?: SeriesShape;
   error?: string;
   ms: number;
 }

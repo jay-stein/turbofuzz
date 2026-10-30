@@ -74,3 +74,25 @@ test("clicking a period filters the Table to it, shown as dates", async ({ page 
   await expect(page.locator(".view-tabs [aria-selected=true]")).toHaveText("Table");
   await expect(page.locator(".filter-chip-label")).toContainText(/order_date · \d{4}-\d{2}-\d{2} – \d{4}-\d{2}-\d{2}/);
 });
+
+test("several rows per date are called out as several series, with one-click fixes", async ({ page }) => {
+  await openPage(page);
+  const banner = page.locator(".ts-mixed");
+  await expect(banner).toContainText("Several series in one line");
+  await expect(banner).toContainText("holds 3 rows");
+  await expect(banner).toContainText("one per player");
+  await expect(page.locator(".ts-strip")).toContainText("Frequency");
+
+  // Keeping the sum hides the banner for this choice only.
+  await banner.getByRole("button", { name: "Keep the sum" }).click();
+  await expect(banner).toBeHidden();
+  await page.locator(".ts-tok[data-tok=agg]").click();
+  await page.locator(".ts-popover button", { hasText: "mean" }).first().click();
+  await expect(banner).toBeHidden();
+
+  // A fresh page: one player at a time makes one series, and the banner goes.
+  await openPage(page);
+  await page.locator(".ts-mixed").getByRole("button", { name: "One player at a time" }).click();
+  await expect(page.locator(".ts-page [data-ref=sentence]")).toContainText("for player");
+  await expect(page.locator(".ts-mixed")).toBeHidden();
+});

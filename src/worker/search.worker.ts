@@ -38,6 +38,7 @@ import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
 import { binValues, groupedBinValues } from "../data/chart-bins.js";
 import { buildTable, type TsInput } from "../data/timeseries/base.js";
 import { defaultConfig, sanitizeTsConfig, TsEngine } from "../data/timeseries/engine.js";
+import { seriesShape, type SeriesShape, type ShapeCandidate } from "../data/timeseries/shape.js";
 import { missingnessGrid } from "../data/missingness.js";
 import { categoryCodes, computeSeries } from "../data/chart-series.js";
 import {
@@ -1798,10 +1799,44 @@ function handleGetDependencies(message: GetDependenciesRequest): void {
  * The Time Series page's series table, kept while the date and group columns, the rows
  * and the dataset stay the same, so its engine can reuse every cached stage.
  */
-let timeSeriesCache: { key: string; ids: Uint32Array; dataset: Dataset; engine: TsEngine } | null = null;
+let timeSeriesCache: {
+  key: string;
+  ids: Uint32Array;
+  dataset: Dataset;
+  engine: TsEngine;
+  /** Dataset rows behind the series, in the engine's row order. */
+  keep: number[];
+  input: TsInput;
+  /** Shape of the rows per group shown (-1 = all), worked out on first ask. */
+  shapes: Map<number, SeriesShape>;
+  candidates: ShapeCandidate[] | null;
+} | null = null;
+
+/** Category columns the Time Series page can split by (as its own list), coded per series row. */
+const TS_SPLIT_LIMIT = 50;
+function shapeCandidates(dataset: Dataset, keep: readonly number[], dateColumn: number): ShapeCandidate[] {
+  const out: ShapeCandidate[] = [];
+  dataset.columns.forEach((column, index) => {
+    if (index === dateColumn || column.role === "provenance") return;
+    if (column.type !== "category" && column.type !== "string" && column.type !== "boolean") return;
+    const distinct = column.categorySummary().labels.length;
+    if (distinct < 2 || distinct > TS_SPLIT_LIMIT) return;
+    const codeOf = new Map<string, number>();
+    const codes = new Int32Array(keep.length);
+    keep.forEach((id, i) => {
+      if (column.nullMask.get(id)) { codes[i] = -1; return; }
+      const value = (column.raw[id] ?? "").trim();
+      let code = codeOf.get(value);
+      if (code === undefined) { code = codeOf.size; codeOf.set(value, code); }
+      codes[i] = code;
+    });
+    out.push({ column: index, name: column.name, codes });
+  });
+  return out;
+}
 
 /** Rows with a readable date, their numeric columns and their group, for the engine. */
-function timeSeriesInput(dataset: Dataset, ids: Uint32Array, dateColumn: number, groupColumn: number): TsInput {
+function timeSeriesInput(dataset: Dataset, ids: Uint32Array, dateColumn: number, groupColumn: number): { input: TsInput; keep: number[] } {
   const dates = dataset.columns[dateColumn].numbers();
   const keep: number[] = [];
   for (const id of ids) if (Number.isFinite(dates[id])) keep.push(id);
@@ -1835,7 +1870,7 @@ function timeSeriesInput(dataset: Dataset, ids: Uint32Array, dateColumn: number,
     keep.forEach((id, i) => { rowGroup[i] = used.get(rowCode[id]) ?? 0; });
     groupCol = column.name;
   }
-  return { times, cols, flags, groups, rowGroup, groupCol, dateCol: dataset.columns[dateColumn].name, dropped: ids.length - keep.length };
+  return { input: { times, cols, flags, groups, rowGroup, groupCol, dateCol: dataset.columns[dateColumn].name, dropped: ids.length - keep.length }, keep };
 }
 
 /** Time Series page: one series over the current rows, through the cached engine. */
@@ -1850,18 +1885,29 @@ function handleGetTimeSeries(message: GetTimeSeriesRequest): void {
   }
   const key = `${message.dateColumn}|${message.groupColumn}|${message.respectFilters !== false}`;
   if (timeSeriesCache === null || timeSeriesCache.key !== key || timeSeriesCache.ids !== ids || timeSeriesCache.dataset !== dataset) {
-    const table = buildTable(timeSeriesInput(dataset, ids, message.dateColumn, message.groupColumn));
+    const built = timeSeriesInput(dataset, ids, message.dateColumn, message.groupColumn);
+    const table = buildTable(built.input);
     if (table === null) {
       timeSeriesCache = null;
       post({ type: "timeSeries", requestId: message.requestId, snapshot: null, error: "Too few rows have a readable date in this column.", ms: performance.now() - started });
       return;
     }
-    timeSeriesCache = { key, ids, dataset, engine: new TsEngine(table) };
+    timeSeriesCache = { key, ids, dataset, engine: new TsEngine(table), keep: built.keep, input: built.input, shapes: new Map(), candidates: null };
   }
-  const engine = timeSeriesCache.engine;
+  const cache = timeSeriesCache;
+  const engine = cache.engine;
   const config = sanitizeTsConfig(message.config ?? defaultConfig(engine.info()), engine.info());
   const snapshot = engine.compute(config, message.mode);
-  post({ type: "timeSeries", requestId: message.requestId, snapshot, ms: performance.now() - started });
+  // Rows of the series shown: one group when one is picked, else all of them.
+  let shape = cache.shapes.get(config.group);
+  if (shape === undefined) {
+    cache.candidates ??= shapeCandidates(dataset, cache.keep, message.dateColumn);
+    const { rowGroup, times } = cache.input;
+    const keep = config.group >= 0 ? Uint8Array.from(rowGroup, (g) => (g === config.group ? 1 : 0)) : null;
+    shape = seriesShape(times, keep, cache.candidates);
+    cache.shapes.set(config.group, shape);
+  }
+  post({ type: "timeSeries", requestId: message.requestId, snapshot, shape, ms: performance.now() - started });
 }
 
 /** Ranked relationship discovery over the current rows (Reports → Relationships). */

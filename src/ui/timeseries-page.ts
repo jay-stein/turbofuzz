@@ -5,7 +5,8 @@
  * into new choices. Ported from prototypes/time-series/time-series-workbench.html.
  */
 
-import { bucketStart, DAY, GRAIN_ORDER, GRAINS, type GrainId } from "../data/timeseries/base.js";
+import { bucketStart, cadenceText, DAY, GRAIN_ORDER, GRAINS, type GrainId } from "../data/timeseries/base.js";
+import type { SeriesShape } from "../data/timeseries/shape.js";
 import type { TsAgg, TsConfig, TsGaps, TsMode } from "../data/timeseries/aggregate.js";
 import type { TsSnapshot } from "../data/timeseries/engine.js";
 import {
@@ -80,6 +81,7 @@ const TEMPLATE = `
       <button class="ts-ghost" type="button" data-ref="exportBtn" title="The series, its trend, season and forecast as CSV">Export CSV</button>
     </div>
   </header>
+  <div class="ts-mixed" data-ref="mixed" role="status" hidden></div>
   <dl class="ts-strip" data-ref="strip"></dl>
   <div class="ts-work">
     <div class="ts-stage">
@@ -174,6 +176,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   let dateColumn = -1, groupColumn = -1;
   let cfg: TsConfig | null = null;
   let snap: TsSnapshot | null = null;
+  let shape: SeriesShape | null = null;
+  // Mixed-series warnings the person kept as they are (date|split|group), for this session.
+  const keptMixed = new Set<string>();
   const ui: UiState = { mode: "explore", showSmooth: true, lastYear: false, showShift: true, level: "fan", model: "auto" };
   let INS: TsFinding[] = [];
   let view: [number, number] | null = null;
@@ -210,6 +215,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       } else {
         const first = snap === null || cfg === null;
         snap = msg.snapshot;
+        shape = msg.shape ?? null;
         cfg = msg.snapshot.cfg;
         allT = null;
         INS = buildInsights(snap, ui);
@@ -904,7 +910,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const count = c.agg === "count";
     ref("sentence").innerHTML = `${tok("grain")} ${tok("agg")}${count ? "" : ` of ${tok("measure")}`}${info.groups.length > 1 ? ` for ${escapeHtml(info.groupCol ?? "")} ${tok("group")}` : ""}`;
     ref("subline").innerHTML = `Dates from ${tok("date")} · split by ${tok("groupBy")} · ${nf.format(info.rows)} rows · ${dfDate.format(new Date(info.firstMs))} to ${dfDate.format(new Date(info.lastMs))} · gaps ${tok("gaps")} · partial last ${gr.noun} ${tok("partial")}`;
-    const across = c.group < 0 && info.groups.length > 1 && !count && c.agg === "sum" ? ` That adds all ${info.groups.length} ${escapeHtml(info.groupCol ?? "")} values together; pick one if they measure the same thing.` : "";
+    const mixed = renderMixed();
+    const across = !mixed && c.group < 0 && info.groups.length > 1 && !count && c.agg === "sum" ? ` That adds all ${info.groups.length} ${escapeHtml(info.groupCol ?? "")} values together; pick one if they measure the same thing.` : "";
     ref("why").innerHTML = `Each ${gr.noun} is ${count ? "the number of rows that fall in it" : c.agg === "twmean" ? "the mean of the readings in it, each counted for as long as it held (until the next reading, at most three usual spacings)" : `the ${c.agg} of the rows that fall in it`}.${across} Click any highlighted word to change it. Uses the rows the Table's filters leave.`;
     heroOverlay.setAttribute("aria-label", `${ref("sentence").textContent ?? ""}. Left and right arrows step through periods, Enter shows the rows.`);
 
@@ -914,6 +921,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const v = a.y[li], prev = a.y[li - 1], ly = li - gr.ly >= 0 ? a.y[li - gr.ly] : NaN;
     const chip = (x: { v: number; text: string } | null): string => (x ? `<span class="ts-pill ${x.v > 0 ? "up" : x.v < 0 ? "down" : "flat"}">${x.text}</span>` : "");
     const cells: [string, string][] = [
+      ...frequencyCell(),
       ["Periods", `${nf.format(a.n)} <small>${gr.nouns}${a.partial[a.n - 1] ? ", last partial" : ""}</small>`],
       [`Latest full ${gr.noun}`, `${compact(v)} ${chip(chg(s, v, prev))}`],
       [`vs ${gr.lyAgo}`, Number.isFinite(ly) ? `${chip(chg(s, v, ly))} <small>${compact(ly)}</small>` : "<small>not enough history</small>"],
@@ -955,6 +963,54 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       </article>`).join("");
     renderModePanel();
     if (tableOpen) renderTable();
+  }
+  /**
+   * The banner for a line made of several series: the rows at one moment are one per
+   * store, car park or sensor, and the page would otherwise add or average them silently.
+   * Returns whether it is showing.
+   */
+  function renderMixed(): boolean {
+    const box = ref("mixed");
+    const s = snap, c = cfg;
+    const keepKey = `${dateColumn}|${groupColumn}|${c?.group ?? -1}`;
+    if (!s || !c || !shape || (shape.typical < 2 && shape.repeatShare < 0.5) || c.agg === "count" || keptMixed.has(keepKey)) {
+      box.hidden = true;
+      return false;
+    }
+    const key = shape.keys[0];
+    const date = escapeHtml(s.table.dateCol);
+    const usual = Math.max(2, shape.typical);
+    const where = shape.repeatShare >= 0.9
+      ? `Each moment in <b>${date}</b> holds <b>${nf.format(usual)} rows</b>`
+      : `<b>${Math.round(shape.repeatShare * 100)}%</b> of moments in <b>${date}</b> hold more than one row (usually ${nf.format(usual)})`;
+    const verb = c.agg === "sum" ? "adds" : c.agg === "mean" || c.agg === "twmean" ? "averages" : c.agg === "median" ? "takes the median of" : "combines";
+    const series = key ? `${nf.format(key.distinct)} ${escapeHtml(key.name)} series` : `${nf.format(usual)} different series`;
+    const name = key ? escapeHtml(key.name) : "";
+    const lead = `${where}${key ? `, one per <b>${name}</b>` : ""}${shape.most > usual ? ` (up to ${nf.format(shape.most)})` : ""}. This line ${verb} ${series} together, and trend, seasons and forecasts need one series.`;
+    const tail = key ? "" : " No single column tells these rows apart, so filter the Table to one series first.";
+    const acts: string[] = [];
+    if (key) acts.push(`<button type="button" class="primary" data-mixed="one" data-col="${key.column}">One ${name} at a time</button>`);
+    if (c.agg === "sum") acts.push(`<button type="button" data-mixed="mean">Average them instead</button>`);
+    acts.push(`<button type="button" data-mixed="keep">Keep the ${escapeHtml(c.agg === "twmean" ? "time-weighted mean" : c.agg)}</button>`);
+    box.innerHTML = `<div class="ts-mixed-icon" aria-hidden="true">!</div><div class="ts-mixed-body"><b class="ts-mixed-title">Several series in one line</b><p>${lead}${tail}</p><div class="ts-mixed-acts">${acts.join("")}</div></div>`;
+    box.dataset.keep = keepKey;
+    box.hidden = false;
+    return true;
+  }
+  /** "Every 30 minutes, regular" or "Irregular, usually every 12 minutes", from the moments' spacing. */
+  function frequencyCell(): [string, string][] {
+    const sp = shape?.spacing;
+    if (!sp) return [];
+    const every = cadenceText(sp.typicalMs / DAY);
+    const lo = cadenceText(sp.p10Ms / DAY), hi = cadenceText(sp.p90Ms / DAY);
+    // "26 to 34 minutes", not "26 minutes to 34 minutes".
+    const unit = hi.split(" ").pop() ?? "";
+    const range = lo === hi ? hi : lo.endsWith(` ${unit}`) && /^\d/.test(lo) ? `${lo.slice(0, -unit.length - 1)} to ${hi}` : `${lo} to ${hi}`;
+    const title = `${Math.round(sp.onBeat * 100)}% of gaps are one ${every}; ${Math.round(sp.onGrid * 100)}% are a whole number of them. Most gaps run ${range}.`;
+    const value = sp.kind === "irregular"
+      ? `Irregular <small>usually every ${every}, most ${range}</small>`
+      : `Every ${every} <small>${sp.kind === "regular" ? "regular" : "regular, some missing"}</small>`;
+    return [[`<span title="${escapeHtml(title)}">Frequency</span>`, value]];
   }
   const numUnit = (k: number): string => (snap ? nounFor(snap.A.g, k).split(" ").pop() ?? "" : "");
   function setNum(name: string, v: number, max: number): void {
@@ -1334,6 +1390,20 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const opt = target.closest<HTMLButtonElement>(".ts-popover button[data-val]");
     if (opt && popKey && popKey !== "driver") { const key = popKey; closePop(); choose(key, opt.dataset.val ?? ""); return; }
     if (!target.closest(".ts-popover")) closePop();
+    const mixedAct = target.closest<HTMLElement>("[data-mixed]");
+    if (mixedAct && cfg) {
+      const what = mixedAct.dataset.mixed;
+      if (what === "one") {
+        const col = Number(mixedAct.dataset.col);
+        if (col !== groupColumn) { groupColumn = col; cfg = { ...cfg, group: 0 }; fetchSeries(); }
+        else change({ group: 0 });
+      } else if (what === "mean") change({ agg: "mean" });
+      else if (what === "keep") {
+        keptMixed.add(ref("mixed").dataset.keep ?? "");
+        renderUI();
+      }
+      return;
+    }
     const ins = target.closest<HTMLElement>("[data-ins]");
     if (ins) { const [k, j] = (ins.dataset.ins ?? "0:0").split(":").map(Number); const act = INS[k]?.acts[j]?.act; if (act) runAction(act); invalidate("ov", "stat", "nav"); }
     const step = target.closest<HTMLElement>("[data-step]");

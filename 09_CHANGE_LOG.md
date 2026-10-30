@@ -28,6 +28,17 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-03 — Time Series: several series in one line, and the data's frequency
+
+- **Status:** Verified
+- **Related issue / decision:** next_steps.md, owner TODO 2026-10-30 items 1 and 2.
+- **Problem addressed:** Rows with several values per timestamp (one per car park, store, sensor) were summed or averaged into one line without a word, so trend, seasons and forecasts were fitted to a mix of series. The page did not say how often or how regularly rows come.
+- **Scope:** `src/data/timeseries/shape.ts` reads the rows behind the series shown: rows per moment, share of repeated moments, the category column whose values differ within (almost) every repeated moment (fewest values first, so a row id loses to the series name), and the spacing (typical gap, share on the beat, share on a whole number of beats, p10/p90). The worker works it out once per data, filter or group change and sends it with the snapshot. The page shows an amber banner ("Each moment in snapshot_time holds 5 rows, one per car_park. This line adds 5 car_park series together…") with One car_park at a time, Average them instead (for a sum) and Keep the sum, and a Frequency cell in the strip ("Every day, regular", "Every 30 minutes, regular, some missing", "Irregular, usually every 30 minutes, most 26 to 34 minutes"). Count series never get the banner.
+- **Tests run and results:** `test/timeseries-shape.test.ts` (4) and a new Time Series page e2e test; full suite 1125 unit, 87 e2e. 1M rows: 50 to 90 ms, once per data change. bench:timeseries within budgets.
+- **Known limitations:** Open in Pivot View (item 2) and Pivot View as a source (item 3) are not done. A pair of columns that only together tell rows apart is reported as "no single column".
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-02 — Map page: dock on the map, Add markers window, marker size
 
 - **Status:** Verified
