@@ -1,0 +1,3048 @@
+<title>Time Series Workbench</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: the chart is the anchor. Series sentence on top, then the summary strip; a card with the mode's toolbar, chart and navigator; the mode's detail below it on the same x axis; findings on the right. Tokens mirror TurboFuzz's styles.css. */
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --panel-2: #f0f2f5;
+  --border: #d8dde3;
+  --subtle: #eceff2;
+  --text: #1c2430;
+  --dim: #62707f;
+  --faint: #8b97a5;
+  --accent: #2563eb;
+  --accent-soft: #dbe6ff;
+  --forecast: #7c3aed;
+  --forecast-soft: #efe8ff;
+  --impact: #0e7490;
+  --impact-soft: #d5f3f8;
+  --raw: #7d8a99;
+  --danger: #b42318;
+  --danger-soft: #fde8e6;
+  --ok: #15803d;
+  --ok-soft: #dcfce7;
+  --warn: #b45309;
+  --warn-soft: #fef3c7;
+  --grid: #e6e9ee;
+  --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 8px 24px rgb(16 24 40 / 8%);
+  --pop: 0 10px 30px rgb(16 24 40 / 18%);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+  --r: 10px;
+  --r-sm: 6px;
+  --dur: 140ms;
+  --mode: var(--accent);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10151c; --panel: #161d26; --panel-2: #1d2530; --border: #2c3745; --subtle: #222b36;
+    --text: #e7ecf2; --dim: #93a1b1; --faint: #6b7888; --accent: #60a5fa; --accent-soft: #1e3a5f;
+    --forecast: #a78bfa; --forecast-soft: #2a2347; --impact: #22d3ee; --impact-soft: #0c3440; --raw: #7f8ea0;
+    --danger: #f97066; --danger-soft: #3b1d1b; --ok: #4ade80; --ok-soft: #14321f; --warn: #fbbf24; --warn-soft: #3a2c0b; --grid: #232c37;
+    --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 8px 24px rgb(0 0 0 / 30%); --pop: 0 10px 30px rgb(0 0 0 / 45%);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10151c; --panel: #161d26; --panel-2: #1d2530; --border: #2c3745; --subtle: #222b36;
+  --text: #e7ecf2; --dim: #93a1b1; --faint: #6b7888; --accent: #60a5fa; --accent-soft: #1e3a5f;
+  --forecast: #a78bfa; --forecast-soft: #2a2347; --impact: #22d3ee; --impact-soft: #0c3440; --raw: #7f8ea0;
+  --danger: #f97066; --danger-soft: #3b1d1b; --ok: #4ade80; --ok-soft: #14321f; --warn: #fbbf24; --warn-soft: #3a2c0b; --grid: #232c37;
+  --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 8px 24px rgb(0 0 0 / 30%); --pop: 0 10px 30px rgb(0 0 0 / 45%);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.app { max-width: 1440px; margin: 0 auto; padding-block: 14px 28px; display: flex; flex-direction: column; gap: 14px; }
+.app[data-mode="forecast"] { --mode: var(--forecast); }
+.app[data-mode="impact"] { --mode: var(--impact); }
+
+/* top bar */
+.top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.crumbs { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 13px; }
+.crumbs .sep { color: var(--faint); }
+.tabs { display: inline-flex; background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px; gap: 2px; margin-left: auto; overflow-x: auto; max-width: 100%; }
+.tabs button { border: 0; background: transparent; padding: 5px 14px; border-radius: 999px; color: var(--dim); font-weight: 550; font-size: 13px; transition: background var(--dur), color var(--dur); white-space: nowrap; }
+.tabs button[aria-selected="true"] { background: var(--panel); color: var(--mode); box-shadow: 0 1px 2px rgb(16 24 40 / 12%); }
+.proto { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--warn); background: var(--warn-soft); padding: 3px 8px; border-radius: 999px; font-weight: 600; }
+.ghost-btn { border: 1px solid var(--border); background: var(--panel); border-radius: var(--r-sm); padding: 4px 10px; font-size: 12.5px; color: var(--text); transition: background var(--dur), border-color var(--dur); white-space: nowrap; }
+.ghost-btn:hover { background: var(--panel-2); }
+.ghost-btn[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); }
+
+/* series sentence */
+.sentence { display: flex; flex-direction: column; gap: 4px; }
+.sentence h1 { margin: 0; font-size: clamp(19px, 2.4vw, 25px); font-weight: 650; letter-spacing: -0.01em; line-height: 1.35; text-wrap: balance; }
+.tok { border: 0; background: var(--accent-soft); color: var(--text); font-weight: inherit; font-size: inherit; padding: 0 7px 1px; border-radius: 7px; box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 55%, transparent); transition: background var(--dur), box-shadow var(--dur); }
+.tok:hover:not(:disabled) { box-shadow: inset 0 -2px 0 var(--accent); background: color-mix(in srgb, var(--accent-soft) 70%, var(--accent) 12%); }
+.tok:disabled { background: var(--panel-2); box-shadow: none; color: var(--dim); cursor: default; }
+.sub { margin: 0; color: var(--dim); font-size: 13.5px; }
+.sub .tok { font-size: 13px; padding: 0 6px; }
+.why { margin: 0; color: var(--dim); font-size: 12.5px; }
+
+/* summary strip */
+.strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; margin: 0; background: var(--border); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+.strip > div { background: var(--panel); padding: 9px 12px; min-width: 0; }
+.strip dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); font-weight: 600; }
+.strip dd { margin: 2px 0 0; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.strip dd small { font-size: 12px; font-weight: 500; color: var(--dim); }
+.pill { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pill.up, .pill.good { background: var(--ok-soft); color: var(--ok); }
+.pill.down, .pill.poor { background: var(--danger-soft); color: var(--danger); }
+.pill.flat, .pill.base { background: var(--panel-2); color: var(--dim); }
+.pill.okay { background: var(--warn-soft); color: var(--warn); }
+
+/* workbench */
+.work { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 14px; align-items: start; }
+.stage { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r); box-shadow: var(--shadow); min-width: 0; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; padding: 9px 14px; border-bottom: 1px solid var(--subtle); min-height: 50px; border-top: 3px solid var(--mode); border-radius: var(--r) var(--r) 0 0; transition: border-color 200ms; }
+.tb { display: contents; }
+.card-head { display: flex; align-items: center; gap: 10px; padding: 9px 14px 0; flex-wrap: wrap; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--dim); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 16px; height: 0; border-top: 2px solid currentColor; display: inline-block; }
+.legend i.dash { border-top-style: dashed; }
+.legend i.band { height: 9px; border: 0; border-radius: 2px; opacity: 0.35; background: currentColor; }
+.head-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.timing { font-family: var(--mono); font-size: 11px; color: var(--faint); white-space: nowrap; }
+.timing b { color: var(--ok); font-weight: 600; }
+.hero { position: relative; height: clamp(270px, 44vh, 430px); margin: 4px 0 0; }
+.hero canvas { touch-action: pan-y; }
+.hero canvas, .decomp canvas, .nav canvas, .cum canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#heroOverlay { cursor: crosshair; }
+#heroOverlay.grab { cursor: grabbing; }
+#heroOverlay.ew { cursor: ew-resize; }
+.readout { position: absolute; top: 0; left: 0; z-index: 3; pointer-events: none; min-width: 190px; max-width: 270px; background: color-mix(in srgb, var(--panel) 94%, transparent); backdrop-filter: blur(6px); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--pop); padding: 8px 10px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.readout h3 { margin: 0 0 5px; font-size: 12.5px; font-weight: 650; }
+.readout .row { display: flex; justify-content: space-between; gap: 14px; }
+.readout .row span:first-child { color: var(--dim); display: inline-flex; gap: 6px; align-items: center; }
+.readout .sw { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.readout .note { margin-top: 5px; color: var(--dim); font-size: 11.5px; }
+.readout .flag { color: var(--danger); font-weight: 600; }
+.navrow { display: flex; align-items: center; gap: 10px; padding: 4px 14px 12px; flex-wrap: wrap; }
+.nav { position: relative; flex: 1 1 300px; height: 46px; touch-action: none; }
+.presets { display: inline-flex; gap: 2px; background: var(--panel-2); border-radius: 7px; padding: 2px; }
+.presets button { border: 0; background: transparent; padding: 3px 9px; border-radius: 5px; font-size: 12px; color: var(--dim); font-weight: 550; }
+.presets button:hover { color: var(--text); }
+.presets button[aria-pressed="true"] { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgb(16 24 40 / 12%); }
+.tablewrap { overflow-x: auto; max-height: 320px; border-top: 1px solid var(--subtle); }
+.tablewrap table { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.tablewrap th, .tablewrap td { padding: 5px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--subtle); }
+.tablewrap th:first-child, .tablewrap td:first-child { text-align: left; }
+.tablewrap thead th { position: sticky; top: 0; background: var(--panel); color: var(--dim); font-weight: 600; font-size: 11.5px; }
+
+/* controls */
+.ctl { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--dim); }
+.ctl label, .ctl .lbl { white-space: nowrap; }
+.ctl output { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; min-width: 52px; }
+input[type="range"] { accent-color: var(--mode); width: 120px; }
+.check { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--text); cursor: pointer; white-space: nowrap; }
+.check input { accent-color: var(--mode); }
+.seg { display: inline-flex; background: var(--panel-2); border-radius: 7px; padding: 2px; gap: 2px; flex-wrap: wrap; }
+.seg button { border: 0; background: transparent; padding: 3px 10px; border-radius: 5px; font-size: 12px; color: var(--dim); font-weight: 550; white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgb(16 24 40 / 12%); }
+.seg button small { font-variant-numeric: tabular-nums; color: var(--faint); margin-left: 4px; }
+.stepper { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.stepper button { border: 0; background: var(--panel-2); width: 26px; height: 26px; font-size: 15px; }
+.stepper output { padding: 0 10px; min-width: 78px; text-align: center; }
+select.sel { border: 1px solid var(--border); background: var(--panel); border-radius: 7px; padding: 3px 8px; font-size: 12.5px; max-width: 260px; }
+.tb-note { font-size: 12px; color: var(--dim); }
+.drivers { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.drv { border: 1px solid var(--border); background: var(--panel); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--text); white-space: nowrap; }
+.drv b { font-family: var(--mono); font-weight: 600; font-size: 11.5px; }
+.drv span { color: var(--dim); }
+.drv:hover { border-color: var(--mode); }
+.drv.add { border-style: dashed; color: var(--dim); }
+.popover .pop-title { font-size: 12px; color: var(--dim); padding: 6px 10px 4px; max-width: 300px; }
+.popover .pop-title b { font-family: var(--mono); color: var(--text); }
+.popover .pop-range { display: flex; align-items: center; gap: 8px; padding: 2px 10px 8px 22px; font-size: 12.5px; }
+.popover .pop-range output { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 40px; }
+
+/* detail panels */
+.mode-panel { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 12px; }
+.panel-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.panel-head h2 { margin: 0; font-size: 14px; font-weight: 650; }
+.hint { margin: 0; color: var(--dim); font-size: 12.5px; }
+.pipeline { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; counter-reset: step; }
+.pipeline li { min-width: 0; }
+.step { width: 100%; text-align: left; border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 7px 9px 6px; display: grid; gap: 2px; transition: border-color var(--dur), background var(--dur); }
+.step:hover { border-color: var(--accent); }
+.step[aria-pressed="false"] { background: var(--panel-2); }
+.step[aria-pressed="false"] .step-val, .step[aria-pressed="false"] canvas { opacity: 0.45; }
+.step-name { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); font-weight: 600; }
+.step-name::before { counter-increment: step; content: counter(step) "  "; color: var(--faint); }
+.step-val { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step canvas { width: 100%; height: 26px; display: block; }
+.meters { display: flex; gap: 22px; flex-wrap: wrap; }
+.meter { display: grid; gap: 4px; min-width: 170px; }
+.meter span { font-size: 12px; color: var(--dim); display: flex; justify-content: space-between; gap: 10px; }
+.meter b { color: var(--text); font-variant-numeric: tabular-nums; }
+.meter .bar { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+.meter .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width 220ms; }
+.decomp { position: relative; height: 330px; }
+.board { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.board th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.board td { padding: 7px 8px; border-bottom: 1px solid var(--subtle); white-space: nowrap; vertical-align: middle; }
+.board tbody tr { cursor: pointer; transition: background var(--dur); }
+.board tbody tr:hover { background: var(--panel-2); }
+.board tbody tr[aria-selected="true"] { background: color-mix(in srgb, var(--forecast-soft) 80%, transparent); }
+.board .mname { font-weight: 600; }
+.board .mmeth { color: var(--dim); font-size: 11.5px; display: block; font-weight: 400; }
+.board .errbar { display: inline-block; height: 6px; border-radius: 3px; background: var(--forecast); vertical-align: middle; margin-right: 6px; }
+.board .auto { font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; color: var(--forecast); margin-left: 6px; text-transform: uppercase; }
+.boardwrap { overflow-x: auto; }
+.modelcard { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 5px 16px; font-size: 12.5px; margin: 0; padding: 10px 12px; background: var(--panel-2); border-radius: 8px; }
+.modelcard dt { color: var(--dim); }
+.modelcard dd { margin: 0; min-width: 0; }
+.modelcard .warn { color: var(--warn); }
+.effects { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.effect { border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; min-width: 0; display: grid; gap: 2px; }
+.effect .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); font-weight: 600; }
+.effect .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.effect .r { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.effect.gain .v { color: var(--ok); }
+.effect.loss .v { color: var(--danger); }
+.cum { position: relative; height: 150px; }
+
+/* findings rail */
+.rail { display: flex; flex-direction: column; gap: 10px; position: sticky; top: max(12px, env(safe-area-inset-top, 0px)); }
+.rail h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); }
+.insight { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; transition: border-color var(--dur); }
+.insight:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.insight .kick { display: flex; align-items: center; gap: 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 650; color: var(--dim); }
+.insight .kick i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.insight p { margin: 0; font-size: 13px; line-height: 1.45; }
+.insight b { font-variant-numeric: tabular-nums; }
+.insight .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.insight .acts button { border: 1px solid var(--border); background: var(--panel); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--accent); font-weight: 550; }
+.insight .acts button:hover { background: var(--accent-soft); border-color: var(--accent); }
+.insight .mini { height: 4px; background: var(--panel-2); border-radius: 2px; overflow: hidden; }
+.insight .mini i { display: block; height: 100%; }
+
+.popover { position: fixed; z-index: 20; background: var(--panel); border: 1px solid var(--border); border-radius: 9px; box-shadow: var(--pop); padding: 4px; min-width: 180px; display: flex; flex-direction: column; }
+.popover button { border: 0; background: transparent; text-align: left; padding: 6px 10px; border-radius: 6px; font-size: 13px; display: flex; justify-content: space-between; gap: 16px; }
+.popover button:hover, .popover button:focus-visible { background: var(--panel-2); outline: none; }
+.popover button[aria-checked="true"] { color: var(--accent); font-weight: 600; }
+.popover button:disabled { color: var(--faint); cursor: not-allowed; }
+.popover button small { color: var(--dim); font-weight: 400; }
+.toast { position: fixed; z-index: 30; left: 50%; bottom: max(18px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 9px 14px; border-radius: 9px; box-shadow: var(--pop); font-size: 13px; display: flex; gap: 14px; align-items: center; max-width: calc(100vw - 32px); }
+.toast button { border: 0; background: transparent; color: inherit; font-weight: 700; text-decoration: underline; padding: 0; }
+.foot { color: var(--faint); font-size: 12px; display: flex; gap: 14px; flex-wrap: wrap; justify-content: space-between; }
+.empty { padding: 26px; color: var(--dim); text-align: center; white-space: normal; }
+
+@media (max-width: 1020px) {
+  .work { grid-template-columns: minmax(0, 1fr); }
+  .rail { position: static; order: -1; }
+  #insights { flex-direction: row !important; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 4px; }
+  .insight { flex: 0 0 min(300px, 82vw); scroll-snap-align: start; }
+}
+@media (max-width: 640px) {
+  .pipeline, .effects { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tabs { margin-left: 0; }
+  .decomp { height: 300px; }
+  input[type="range"] { width: 100px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="app" id="app" data-mode="explore">
+  <header class="top">
+    <div class="crumbs">
+      <button class="ghost-btn" id="backBtn" type="button">&larr; Chart</button>
+      <span class="sep">/</span><span>Analyse series</span>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Analysis mode">
+      <button role="tab" type="button" id="tab-explore" data-mode="explore" aria-selected="true" aria-controls="panel-explore">Explore</button>
+      <button role="tab" type="button" id="tab-decompose" data-mode="decompose" aria-selected="false" aria-controls="panel-decompose" tabindex="-1">Decompose</button>
+      <button role="tab" type="button" id="tab-forecast" data-mode="forecast" aria-selected="false" aria-controls="panel-forecast" tabindex="-1">Forecast</button>
+      <button role="tab" type="button" id="tab-impact" data-mode="impact" aria-selected="false" aria-controls="panel-impact" tabindex="-1">Impact</button>
+    </div>
+    <button class="ghost-btn" type="button" id="openBtn">Open CSV</button>
+    <input type="file" id="fileIn" accept=".csv,text/csv" hidden>
+    <button class="ghost-btn" type="button" id="exportBtn">Export</button>
+    <span class="proto">Prototype &middot; sample data</span>
+  </header>
+
+  <section class="sentence" aria-label="Series">
+    <h1 id="sentence"></h1>
+    <p class="sub" id="subline"></p>
+    <p class="why" id="why"></p>
+  </section>
+
+  <dl class="strip" id="strip"></dl>
+
+  <div class="work">
+    <div class="stage">
+      <section class="card" aria-label="Series chart">
+        <div class="toolbar" role="toolbar" aria-label="Mode settings">
+          <div class="tb" data-for="explore">
+            <div class="ctl"><label for="smoothW">Rolling window</label><input type="range" id="smoothW" min="2" max="52" step="1"><output id="smoothWOut" for="smoothW"></output></div>
+            <div class="seg" role="group" aria-label="Rolling statistic" id="statSeg"><button type="button" data-stat="mean">Mean</button><button type="button" data-stat="median">Median</button></div>
+            <label class="check"><input type="checkbox" id="smoothCentred"> Centred</label>
+            <label class="check"><input type="checkbox" id="lastYear"> Same period last year</label>
+          </div>
+          <div class="tb" data-for="decompose" hidden>
+            <div class="ctl"><span class="lbl">Season</span><div class="seg" id="periodSeg" role="group" aria-label="Seasonal period"></div></div>
+            <div class="ctl"><label for="sens">Flag unusual</label><input type="range" id="sens" min="2.5" max="6" step="0.25"><output id="sensOut" for="sens"></output></div>
+          </div>
+          <div class="tb" data-for="forecast" hidden>
+            <div class="ctl"><span class="lbl">Horizon</span><div class="stepper"><button type="button" id="hMinus" aria-label="Shorter horizon">&minus;</button><output id="hOut"></output><button type="button" id="hPlus" aria-label="Longer horizon">+</button></div></div>
+            <div class="ctl"><span class="lbl">Band</span><div class="seg" id="levelSeg" role="group" aria-label="Interval"><button type="button" data-level="80">80%</button><button type="button" data-level="fan">80% + 95%</button></div></div>
+            <div class="ctl"><span class="lbl">Drivers</span><div class="drivers" id="drivers"></div></div>
+            <button class="ghost-btn" type="button" id="splitReset">Forecast from latest</button>
+          </div>
+          <div class="tb" data-for="impact" hidden>
+            <div class="ctl"><label for="eventSel">Event</label><select class="sel" id="eventSel"></select></div>
+            <div class="ctl"><span class="lbl">Window</span><div class="stepper"><button type="button" id="wMinus" aria-label="Shorter window">&minus;</button><output id="wOut"></output><button type="button" id="wPlus" aria-label="Longer window">+</button></div></div>
+            <div class="ctl"><label for="impModel">Expected by</label><select class="sel" id="impModel"></select></div>
+          </div>
+        </div>
+        <div class="card-head">
+          <div class="legend" id="legend"></div>
+          <div class="head-actions">
+            <span class="timing" id="timing" title="Time spent in each stage for the last change, measured in this tab"></span>
+            <button class="ghost-btn" type="button" id="tableBtn" aria-expanded="false" aria-controls="tableWrap">Table</button>
+          </div>
+        </div>
+        <div class="hero" id="hero">
+          <canvas id="heroCanvas" aria-hidden="true"></canvas>
+          <canvas id="heroOverlay" tabindex="0" role="img" aria-label="Series chart"></canvas>
+          <div class="readout" id="readout" hidden aria-live="polite"></div>
+        </div>
+        <div class="navrow">
+          <div class="nav" id="nav"><canvas id="navCanvas" role="img" aria-label="Overview. Drag the window to pan, drag its edges to zoom."></canvas></div>
+          <div class="presets" id="presets" role="group" aria-label="Range">
+            <button type="button" data-span="3">3M</button><button type="button" data-span="6">6M</button><button type="button" data-span="12">1Y</button><button type="button" data-span="24">2Y</button><button type="button" data-span="0" aria-pressed="true">All</button>
+          </div>
+        </div>
+        <div class="tablewrap" id="tableWrap" hidden></div>
+      </section>
+
+      <section class="card mode-panel" id="panel-explore" role="tabpanel" aria-labelledby="tab-explore">
+        <div class="panel-head"><h2>Pipeline</h2><p class="hint">Each step feeds the next. Click a step to change it or switch it off.</p></div>
+        <ol class="pipeline" id="pipeline"></ol>
+      </section>
+
+      <section class="card mode-panel" id="panel-decompose" role="tabpanel" aria-labelledby="tab-decompose" hidden>
+        <div class="panel-head"><h2>Trend, season and the rest</h2><p class="hint">Same time axis as the chart above.</p></div>
+        <div class="meters" id="meters"></div>
+        <div class="decomp" id="decomp"><canvas id="decCanvas" aria-hidden="true"></canvas><canvas id="decOverlay" aria-hidden="true"></canvas></div>
+      </section>
+
+      <section class="card mode-panel" id="panel-forecast" role="tabpanel" aria-labelledby="tab-forecast" hidden>
+        <div class="panel-head"><h2>Models</h2><p class="hint">Drag the split line on the chart to backtest from any date, or the handle at the end of the band to change the horizon. Hover a model to compare it.</p></div>
+        <div class="boardwrap"><table class="board" id="board"></table></div>
+        <div class="ctl"><label for="flex">Trend flexibility</label><input type="range" id="flex" min="1" max="10" step="1"><output id="flexOut" for="flex"></output><span class="tb-note">for the trend, seasons and drivers model</span></div>
+        <dl class="modelcard" id="modelCard"></dl>
+      </section>
+
+      <section class="card mode-panel" id="panel-impact" role="tabpanel" aria-labelledby="tab-impact" hidden>
+        <div class="panel-head"><h2>What the event did</h2><p class="hint">Expected is forecast only from data before the event. Drag the event line or the window handle on the chart.</p></div>
+        <div class="effects" id="effects"></div>
+        <div class="cum" id="cum"><canvas id="cumCanvas" aria-hidden="true"></canvas></div>
+        <dl class="modelcard" id="impactCard"></dl>
+      </section>
+    </div>
+
+    <aside class="rail" aria-label="Findings">
+      <h2>Findings</h2>
+      <div id="insights" style="display:flex;flex-direction:column;gap:10px"></div>
+    </aside>
+  </div>
+
+  <footer class="foot">
+    <span id="dataNote"></span>
+    <span>TurboFuzz &middot; Time Series page prototype</span>
+  </footer>
+</div>
+<div class="popover" id="popover" role="menu" hidden></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+"use strict";
+/* ============================================================ data */
+const DAY = 86400000;
+// The loaded table. Everything downstream reads these and nothing else; no code knows
+// what any column means.
+let START = 0, END = 0, NDAYS = 0, M0 = 0, WOFF = 0;
+let GROUPS = ["all"];
+let DATA = null;
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** The built-in sample: a generated daily table with neutral column names. */
+function sampleTable() {
+  const start = Date.UTC(2023, 0, 2), ndays = Math.round((Date.UTC(2026, 9, 28) - start) / DAY) + 1;
+  const rnd = mulberry32(20261030);
+  const gauss = () => { let u = 0; while (u === 0) u = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
+  const price = new Float64Array(ndays), promo = new Uint8Array(ndays);
+  const orders = [0, 1, 2, 3].map(() => new Float64Array(ndays));
+  const shares = [0.32, 0.22, 0.28, 0.18], dow = [0.93, 0.9, 0.95, 1.0, 1.08, 1.24, 0.9], tilt = [0.0, 0.07, -0.02, 0.03];
+  const brk = Date.UTC(2025, 7, 4), moBrk = (brk - start) / (30.44 * DAY);
+  const steps = [[Date.UTC(2024, 2, 1), 25.5], [Date.UTC(2025, 1, 1), 27], [Date.UTC(2026, 3, 1), 26]];
+  const out0 = Date.UTC(2024, 6, 15), out1 = Date.UTC(2024, 6, 19), viral = Date.UTC(2025, 2, 11);
+  for (let d = 0; d < ndays; d++) {
+    const ms = start + d * DAY, dt = new Date(ms), wd = (dt.getUTCDay() + 6) % 7, mo = (ms - start) / (30.44 * DAY);
+    const level = ms < brk ? 180 * Math.exp(0.034 * mo) : 180 * Math.exp(0.034 * moBrk + 0.004 * (mo - moBrk));
+    const doy = (ms - Date.UTC(dt.getUTCFullYear(), 0, 1)) / DAY;
+    const yearly = 1 + 0.11 * Math.cos((2 * Math.PI * (doy - 355)) / 365.25) + 0.04 * Math.cos((4 * Math.PI * (doy - 200)) / 365.25);
+    let p = 24;
+    for (const [at, v] of steps) if (ms >= at) p = v;
+    if (mulberry32(Math.floor(d / 7) * 7919 + 13)() < 0.12) p = Math.round(p * 0.9 * 100) / 100;
+    price[d] = p;
+    const dom = dt.getUTCDate(), mon = dt.getUTCMonth(), pr = dom <= 3 ? 1 : 0;
+    promo[d] = pr;
+    let ev = 1;
+    if (mon === 10) { const nov1 = new Date(Date.UTC(dt.getUTCFullYear(), 10, 1)).getUTCDay(), th = 1 + ((4 - nov1 + 7) % 7) + 21; if (dom === th + 1) ev = 2.1; else if (dom === th + 4) ev = 1.5; }
+    if (mon === 11 && dom === 25) ev = 0.35;
+    if (mon === 11 && dom === 24) ev = 0.7;
+    if (mon === 0 && dom === 1) ev = 0.6;
+    const base = level * yearly * Math.pow(p / 24, -1.2) * (pr ? 1.18 : 1) * ev;
+    const outage = ms >= out0 && ms <= out1;
+    for (let r = 0; r < 4; r++) {
+      let v = base * shares[r] * dow[wd] * (wd >= 5 ? 1 + tilt[r] : 1 - tilt[r] * 0.4) * (1 + 0.075 * gauss());
+      if (r === 2 && ms === viral) v *= 4.2;
+      if (r === 2 && ms === viral + DAY) v *= 1.9;
+      orders[r][d] = outage ? NaN : Math.max(0, Math.round(v));
+    }
+  }
+  const r2 = mulberry32(777);
+  const g2 = () => { let u = 0; while (u === 0) u = r2(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r2()); };
+  const offset = [-1, 0.5, 1, -0.5];
+  const rows = { day: [], group: [], value: [], value_signed: [], value_sparse: [], driver_x: [], flag_x: [] };
+  for (let d = 0; d < ndays; d++) {
+    if (orders[0][d] !== orders[0][d]) continue; // the sample's gap: no rows at all
+    const ms = start + d * DAY, dt = new Date(ms), doy = (ms - Date.UTC(dt.getUTCFullYear(), 0, 1)) / DAY, wd = (dt.getUTCDay() + 6) % 7;
+    const swing = 9 * Math.sin((2 * Math.PI * (doy - 100)) / 365.25) + (wd >= 5 ? 1.5 : -0.6) + (2 * d) / ndays;
+    const chance = 0.07 + 0.05 * Math.cos((2 * Math.PI * (doy - 20)) / 365.25);
+    for (let r = 0; r < 4; r++) {
+      rows.day.push(d); rows.group.push(r);
+      rows.value.push(orders[r][d]);
+      rows.value_signed.push(Math.round((swing + offset[r] + 2.5 * g2()) * 10) / 10);
+      rows.value_sparse.push(r2() < chance ? Math.round(-Math.log(1 - r2()) * 12 + 1) : 0);
+      rows.driver_x.push(price[d]); rows.flag_x.push(promo[d]);
+    }
+  }
+  const cols = {};
+  for (const c of ["value", "value_signed", "value_sparse", "driver_x", "flag_x"]) cols[c] = Float64Array.from(rows[c]);
+  return finishTable({ name: "Sample table", start, rowDay: Int32Array.from(rows.day), rowGroup: Uint16Array.from(rows.group), groups: ["A", "B", "C", "D"], groupCol: "group", dateCol: "date", cols, flags: { flag_x: true }, subDay: false, eventTimes: null });
+}
+
+/* ------------------------------------------------------------ CSV loading */
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
+      else field += c;
+    } else if (c === '"') q = true;
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field); field = "";
+      if (!(row.length === 1 && row[0].trim() === "") && !row[0].trimStart().startsWith("#")) rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  if (field !== "" || row.length) { row.push(field); if (!row[0].trimStart().startsWith("#")) rows.push(row); }
+  return rows;
+}
+const RE_ISO = /^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?(?:[T ](\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?\s*(?:Z|[+-]\d{2}:?\d{2})?$/;
+const RE_YMD_SLASH = /^(\d{4})\/(\d{1,2})\/(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/;
+const RE_DMY = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp][Mm])?)?$/;
+const RE_DECYEAR = /^(\d{4})\.(\d+)$/;
+/** Milliseconds (UTC, as stored) or NaN. `order` is "dmy" or "mdy" for d/m/y-style strings. */
+function parseDate(s, order) {
+  s = s.trim();
+  let m = RE_ISO.exec(s);
+  if (m) return Date.UTC(+m[1], +m[2] - 1, m[3] ? +m[3] : 1, m[4] ? +m[4] : 0, m[5] ? +m[5] : 0, m[6] ? +m[6] : 0);
+  m = RE_YMD_SLASH.exec(s);
+  if (m) return Date.UTC(+m[1], +m[2] - 1, +m[3], m[4] ? +m[4] : 0, m[5] ? +m[5] : 0, m[6] ? +m[6] : 0);
+  m = RE_DMY.exec(s);
+  if (m) {
+    const a = +m[1], b = +m[2];
+    const [day, mon] = order === "mdy" ? [b, a] : [a, b];
+    let hh = m[4] ? +m[4] : 0;
+    if (m[7]) { const pm = /p/i.test(m[7]); if (pm && hh < 12) hh += 12; if (!pm && hh === 12) hh = 0; }
+    if (mon < 1 || mon > 12 || day < 1 || day > 31) return NaN;
+    return Date.UTC(+m[3], mon - 1, day, hh, m[5] ? +m[5] : 0, m[6] ? +m[6] : 0);
+  }
+  m = RE_DECYEAR.exec(s);
+  if (m) {
+    const y = +m[1], frac = Number("0." + m[2]);
+    if (y < 1000 || y > 3000) return NaN;
+    const a = Date.UTC(y, 0, 1), b = Date.UTC(y + 1, 0, 1);
+    return a + frac * (b - a);
+  }
+  return NaN;
+}
+function parseNum(s) {
+  const t = s.trim();
+  if (t === "") return NaN;
+  const c = /^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(t) ? t.replace(/,/g, "") : t;
+  const v = Number(c);
+  return Number.isFinite(v) ? v : NaN;
+}
+/**
+ * Reads any CSV: picks the date column (most distinct parseable dates), numeric columns,
+ * and a group column (text with 2 to 50 distinct values). Throws a plain-language error
+ * when there is no usable date column.
+ */
+function tableFromCSV(name, text) {
+  const grid = parseCSV(text);
+  if (grid.length < 3) throw new Error("The file has fewer than two data rows.");
+  const header = grid[0].map((h, k) => h.trim() || `column ${k + 1}`);
+  const body = grid.slice(1).filter((r) => r.length >= Math.min(2, header.length));
+  const ncol = header.length;
+  const sample = body.slice(0, 2000);
+  // date column: the one with the most distinct parseable dates
+  let best = null;
+  for (let c = 0; c < ncol; c++) {
+    const vals = sample.map((r) => (r[c] ?? "").trim()).filter((v) => v !== "");
+    if (!vals.length) continue;
+    let order = "dmy";
+    for (const v of vals) { const m = RE_DMY.exec(v); if (m) { if (+m[1] > 12) { order = "dmy"; break; } if (+m[2] > 12) { order = "mdy"; break; } } }
+    let ok = 0;
+    const distinct = new Set();
+    for (const v of vals) { const t = parseDate(v, order); if (t === t) { ok++; distinct.add(t); } }
+    if (ok / vals.length >= 0.9 && distinct.size >= 3 && (!best || distinct.size > best.distinct)) best = { c, order, distinct: distinct.size };
+  }
+  if (!best) throw new Error("No column reads as dates. The page needs one column where most values are dates such as 2024-03-01, 01/03/2024 or 2024-03.");
+  const times = new Float64Array(body.length);
+  let keep = 0;
+  const kept = [];
+  for (let i = 0; i < body.length; i++) { const t = parseDate(body[i][best.c] ?? "", best.order); if (t === t) { times[keep++] = t; kept.push(body[i]); } }
+  const dropped = body.length - keep;
+  // numeric and group columns
+  const cols = {}, flags = {}, naCount = {};
+  let groupCol = null, groupIdx = -1;
+  for (let c = 0; c < ncol; c++) {
+    if (c === best.c) continue;
+    const vals = kept.map((r) => r[c] ?? "");
+    const nonEmpty = vals.filter((v) => v.trim() !== "");
+    if (!nonEmpty.length) continue;
+    let numeric = 0;
+    for (const v of nonEmpty.slice(0, 2000)) if (parseNum(v) === parseNum(v)) numeric++;
+    if (numeric / Math.min(2000, nonEmpty.length) >= 0.9) {
+      const arr = Float64Array.from(vals, parseNum);
+      let na = 0, only01 = true;
+      for (const v of arr) { if (!(v === v)) na++; else if (v !== 0 && v !== 1) only01 = false; }
+      cols[header[c]] = arr;
+      naCount[header[c]] = na;
+      if (only01) flags[header[c]] = true;
+    } else if (groupCol === null) {
+      const distinct = new Set(nonEmpty);
+      if (distinct.size >= 2 && distinct.size <= 50) { groupCol = header[c]; groupIdx = c; }
+    }
+  }
+  let tMin = Infinity, tMax = -Infinity;
+  for (let i = 0; i < keep; i++) { if (times[i] < tMin) tMin = times[i]; if (times[i] > tMax) tMax = times[i]; }
+  const d0 = new Date(tMin), start = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate());
+  const rowDay = new Int32Array(keep), rowGroup = new Uint16Array(keep);
+  let groups = ["all"];
+  if (groupCol) {
+    groups = [...new Set(kept.map((r) => (r[groupIdx] ?? "").trim() || "(blank)"))].sort();
+    const gi = new Map(groups.map((g, k) => [g, k]));
+    for (let i = 0; i < keep; i++) rowGroup[i] = gi.get((kept[i][groupIdx] ?? "").trim() || "(blank)");
+  }
+  let subDay = false;
+  for (let i = 0; i < keep; i++) { rowDay[i] = Math.floor((times[i] - start) / DAY); if (!subDay && times[i] % DAY !== 0) subDay = true; }
+  return finishTable({ name, start, rowDay, rowGroup, groups, groupCol, dateCol: header[best.c], cols, flags, naCount, dropped, subDay, eventTimes: times.subarray(0, keep) });
+}
+
+/**
+ * Shape of the table, read from the numbers only: spacing of the dates, weekdays that
+ * never have rows, whether rows look like irregular events, which numeric columns are
+ * just time counters or date parts. Sets the defaults for the series sentence.
+ */
+function finishTable(t) {
+  const n = t.rowDay.length;
+  let lastDay = 0;
+  for (let i = 0; i < n; i++) if (t.rowDay[i] > lastDay) lastDay = t.rowDay[i];
+  const has = new Uint8Array(lastDay + 1);
+  for (let i = 0; i < n; i++) has[t.rowDay[i]] = 1;
+  const obs = [];
+  for (let d = 0; d <= lastDay; d++) if (has[d]) obs.push(d);
+  const gaps = [];
+  for (let k = 1; k < obs.length; k++) gaps.push(obs[k] - obs[k - 1]);
+  gaps.sort((a, b) => a - b);
+  const cadence = gaps.length ? gaps[gaps.length >> 1] : 1;
+  // weekdays that (almost) never have rows are structural, not gaps
+  const structural = new Uint8Array(7);
+  if (cadence <= 1.5) {
+    const cnt = new Array(7).fill(0);
+    for (const d of obs) cnt[(new Date(t.start + d * DAY).getUTCDay() + 6) % 7]++;
+    const mx = Math.max(...cnt);
+    for (let k = 0; k < 7; k++) if (cnt[k] < 0.1 * mx) structural[k] = 1;
+  }
+  // irregular event rows: most gaps between consecutive rows are different from each other
+  let eventLike = false;
+  if (t.eventTimes && t.eventTimes.length > 50) {
+    const ts = Float64Array.from(t.eventTimes).sort();
+    const distinct = new Set();
+    for (let k = 1; k < ts.length; k++) distinct.add(ts[k] - ts[k - 1]);
+    eventLike = distinct.size / ts.length > 0.5;
+  }
+  // numeric columns that only count time (a running year or index) or name a date part
+  const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => t.rowDay[a] - t.rowDay[b]);
+  const timeLike = {};
+  for (const [c, arr] of Object.entries(t.cols)) {
+    let up = 0, steps = 0, ints = true;
+    const distinct = new Set();
+    for (let k = 0; k < n; k++) { const v = arr[order[k]]; if (v === v) { distinct.add(v); if (v !== Math.round(v)) ints = false; } }
+    for (let k = 1; k < n; k++) { const a = arr[order[k - 1]], b = arr[order[k]]; if (a === a && b === b) { steps++; if (b >= a) up++; } }
+    if (distinct.size > 10 && steps && up / steps >= 0.99) timeLike[c] = "time";
+    else if (ints && distinct.size <= 31 && distinct.size < n / 4 && !(t.flags && t.flags[c])) timeLike[c] = "part";
+  }
+  const measures = Object.keys(t.cols);
+  const defMeasure = measures.find((c) => !timeLike[c] && !(t.flags && t.flags[c])) ?? null;
+  t.ndays = lastDay + Math.max(1, Math.round(cadence));
+  t.cadence = cadence;
+  t.structural = structural;
+  t.eventLike = eventLike || defMeasure === null;
+  t.timeLike = timeLike;
+  t.flags = t.flags || {};
+  t.naCount = t.naCount || {};
+  t.dropped = t.dropped || 0;
+  t.observed = obs;
+  t.defMeasure = defMeasure ?? measures[0] ?? null;
+  return t;
+}
+/** Plain words for the data's native spacing. */
+function cadenceNoun(c) { return c <= 1.5 ? "days" : c <= 10 ? "weeks" : c <= 40 ? "months" : c <= 120 ? "quarters" : c <= 400 ? "years" : "observations"; }
+
+/* ============================================================ grains */
+const GRAINS = {
+  day: { id: "day", unit: "day", n: 1, days: 1, adj: "Daily", noun: "day", nouns: "days", perYear: 365.25, horizon: 42, maxH: 180, periods: [7, 365], smooth: 7, smoothMax: 60, ly: 364, impactW: 56 },
+  week: { id: "week", unit: "week", n: 1, days: 7, adj: "Weekly", noun: "week", nouns: "weeks", perYear: 365.25 / 7, horizon: 26, maxH: 78, periods: [52], smooth: 4, smoothMax: 52, ly: 52, impactW: 8 },
+  week2: { id: "week2", unit: "week", n: 2, days: 14, adj: "2-weekly", noun: "2-week period", nouns: "2-week periods", perYear: 365.25 / 14, horizon: 13, maxH: 39, periods: [26], smooth: 3, smoothMax: 26, ly: 26, impactW: 4 },
+  week4: { id: "week4", unit: "week", n: 4, days: 28, adj: "4-weekly", noun: "4-week period", nouns: "4-week periods", perYear: 365.25 / 28, horizon: 13, maxH: 20, periods: [13], smooth: 3, smoothMax: 13, ly: 13, impactW: 3 },
+  month: { id: "month", unit: "month", n: 1, days: 30.44, adj: "Monthly", noun: "month", nouns: "months", perYear: 12, horizon: 12, maxH: 36, periods: [12], smooth: 3, smoothMax: 24, ly: 12, impactW: 3 },
+  quarter: { id: "quarter", unit: "month", n: 3, days: 91.3, adj: "Quarterly", noun: "quarter", nouns: "quarters", perYear: 4, horizon: 4, maxH: 12, periods: [4], smooth: 2, smoothMax: 8, ly: 4, impactW: 2 },
+  year: { id: "year", unit: "month", n: 12, days: 365.25, adj: "Yearly", noun: "year", nouns: "years", perYear: 1, horizon: 5, maxH: 20, periods: [], smooth: 3, smoothMax: 20, ly: 1, impactW: 2 },
+};
+const GRAIN_ORDER = ["day", "week", "week2", "week4", "month", "quarter", "year"];
+/** A grain finer than the data's own spacing would be mostly empty periods. */
+function tooFine(id) { return DATA && GRAINS[id].days < DATA.cadence * 0.9; }
+
+function monthIndex(d) { const dt = new Date(START + d * DAY); return dt.getUTCFullYear() * 12 + dt.getUTCMonth(); }
+function bucketOfDay(g, d) {
+  if (g.unit === "day") return Math.floor(d / g.n);
+  if (g.unit === "week") return Math.floor((d + WOFF) / (7 * g.n));
+  return Math.floor(monthIndex(d) / g.n) - Math.floor(M0 / g.n);
+}
+function bucketStart(g, b) {
+  if (g.unit === "day") return START + b * g.n * DAY;
+  if (g.unit === "week") return START + (b * 7 * g.n - WOFF) * DAY;
+  const mi = (Math.floor(M0 / g.n) + b) * g.n;
+  return Date.UTC(Math.floor(mi / 12), mi % 12, 1);
+}
+const dayBucketCache = new Map();
+function dayBuckets(g) {
+  let arr = dayBucketCache.get(g.id);
+  if (!arr) {
+    arr = new Int32Array(NDAYS);
+    for (let d = 0; d < NDAYS; d++) arr[d] = bucketOfDay(g, d);
+    dayBucketCache.set(g.id, arr);
+  }
+  return arr;
+}
+function setTable(t) {
+  DATA = t;
+  START = t.start;
+  NDAYS = t.ndays;
+  END = START + (NDAYS - 1) * DAY;
+  const s = new Date(START);
+  M0 = s.getUTCFullYear() * 12 + s.getUTCMonth();
+  WOFF = (s.getUTCDay() + 6) % 7;
+  GROUPS = t.groups;
+  dayBucketCache.clear();
+}
+
+/* ============================================================ state */
+const cfg = {
+  grain: "week", agg: "sum", measure: "value", group: "all", gaps: "leave", partial: "exclude",
+  showSmooth: true, smoothW: 4, smoothStat: "mean", smoothCentred: false, lastYear: false,
+  period: null, sens: 4.5,
+  mode: "explore", split: null, horizon: null, level: "fan", model: "auto", flex: 5,
+  // Driver columns from the table, each with a rule for its values after the data ends.
+  drivers: [],
+  event: null, window: null, impactModel: "auto",
+};
+let A = null, SM = null, DEC = null, MOD = null, FUT = null, IMP = null, INS = [], EVENTS = [];
+const cache = { agg: "", sm: "", dec: "", mod: "", imp: "", ev: "" };
+const hwWarm = new Map();
+const timing = { agg: 0, dec: 0, mod: 0, draw: 0 };
+let view = null;
+let hoverIdx = -1, ghostModel = null;
+let pulse = null;
+let reveal = 1, revealStart = 0;
+let fade = null;
+let viewAnim = null;
+let impactFreeze = null;
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+/* ============================================================ format */
+const dfDate = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const dfDay = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const dfMonth = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+const dfMonShort = new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
+const dfDM = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+const nf = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 0 });
+const WEEKDAYS = ["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"];
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+const nf1 = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 1 });
+function full(v) { return Number.isFinite(v) ? (Math.abs(v) >= 100 ? nf.format(v) : nf1.format(v)) : "–"; }
+function compact(v) {
+  if (!Number.isFinite(v)) return "–";
+  const a = Math.abs(v), s = v < 0 ? "−" : "";
+  if (a >= 1e6) return s + (a / 1e6).toFixed(a >= 1e7 ? 0 : 1) + "M";
+  if (a >= 1e4) return s + (a / 1e3).toFixed(a >= 1e5 ? 0 : 1) + "k";
+  return s + (a >= 100 ? nf.format(a) : nf1.format(a));
+}
+function signed(v) { if (!Number.isFinite(v)) return "–"; const c = compact(Math.abs(v)); return (c === "0" ? "" : v > 0 ? "+" : "−") + c; }
+function signedNum(v) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(Math.abs(v) < 10 ? 2 : 0); }
+function pct(v, digits = 0) { const s = Math.abs(v * 100).toFixed(digits); return (Number(s) === 0 ? "" : v > 0 ? "+" : "−") + s + "%"; }
+function periodLabel(g, ms) {
+  const dt = new Date(ms);
+  if (g.unit === "day") return dfDay.format(dt);
+  if (g.unit === "week") return g.n === 1 ? "Week of " + dfDate.format(dt) : g.n + " weeks from " + dfDate.format(dt);
+  if (g.n === 12) return String(dt.getUTCFullYear());
+  if (g.n === 3) return "Q" + (Math.floor(dt.getUTCMonth() / 3) + 1) + " " + dt.getUTCFullYear();
+  return dfMonth.format(dt);
+}
+function shortPeriod(g, ms) {
+  const dt = new Date(ms);
+  if (g.unit === "day" || g.unit === "week") return dfDate.format(dt);
+  if (g.n === 12) return String(dt.getUTCFullYear());
+  if (g.n === 3) return "Q" + (Math.floor(dt.getUTCMonth() / 3) + 1) + " " + dt.getUTCFullYear();
+  return dfMonShort.format(dt);
+}
+function measureWord() { return cfg.measure; }
+/**
+ * Change from b to a. A percentage only when the series is positive throughout;
+ * otherwise in the series' own units (percentages mean nothing across zero).
+ */
+function chg(a, b) {
+  if (!(a === a) || !(b === b)) return null;
+  if (A.allPositive && b > 0) return { v: a / b - 1, text: pct(a / b - 1, 1) };
+  return { v: a - b, text: signed(a - b) };
+}
+function monthlyRate(slope, mean) {
+  const perMonth = slope * (A.g.perYear / 12);
+  return A.allPositive && mean > 0 ? pct(perMonth / mean, 1) : signed(perMonth);
+}
+function cap(s) { return s[0].toUpperCase() + s.slice(1); }
+function nounFor(g, k) { return k === 1 ? g.noun : g.nouns; }
+
+/* ============================================================ stage 1: aggregate */
+function aggregate() {
+  const g = GRAINS[cfg.grain];
+  const bod = dayBuckets(g);
+  const n = bod[NDAYS - 1] + 1;
+  const allG = cfg.group === "all";
+  const selG = allG ? -1 : Number(cfg.group);
+  const count = cfg.agg === "count";
+  const src = count ? null : DATA.cols[cfg.measure];
+  const nr = DATA.rowDay.length;
+  const sum = new Float64Array(n), cnt = new Float64Array(n), rowsIn = new Float64Array(n);
+  const mn = new Float64Array(n).fill(Infinity), mx = new Float64Array(n).fill(-Infinity);
+  const firstV = new Float64Array(n).fill(NaN), lastV = new Float64Array(n).fill(NaN), firstD = new Int32Array(n).fill(2147483647), lastD = new Int32Array(n).fill(-1);
+  const vals = cfg.agg === "median" ? Array.from({ length: n }, () => []) : null;
+  const groupVal = GROUPS.map(() => new Float64Array(n));
+  const seen = new Uint8Array(NDAYS);
+  let naRows = 0;
+  for (let i = 0; i < nr; i++) {
+    const d = DATA.rowDay[i], b = bod[d], gr = DATA.rowGroup[i];
+    const v = count ? 1 : src[i];
+    if (v === v) groupVal[gr][b] += v;
+    if (!allG && gr !== selG) continue;
+    seen[d] = 1;
+    rowsIn[b]++;
+    if (!(v === v)) { naRows++; continue; }
+    sum[b] += v; cnt[b]++;
+    if (v < mn[b]) mn[b] = v;
+    if (v > mx[b]) mx[b] = v;
+    if (d < firstD[b]) { firstD[b] = d; firstV[b] = v; }
+    if (d >= lastD[b]) { lastD[b] = d; lastV[b] = v; }
+    if (vals) vals[b].push(v);
+  }
+  // Coverage from the data's own spacing: a monthly table has one row per month and is
+  // complete; a daily table missing four days in a week is not.
+  const cad = DATA.cadence, obsDays = new Float64Array(n), allowed = new Float64Array(n);
+  const lastObs = DATA.observed[DATA.observed.length - 1], spanEnd = lastObs + Math.max(1, Math.round(cad)) - 1;
+  for (let d = 0; d < NDAYS; d++) {
+    const b = bod[d];
+    if (seen[d]) obsDays[b]++;
+    if (d <= spanEnd && !DATA.structural[(new Date(START + d * DAY).getUTCDay() + 6) % 7]) allowed[b]++;
+  }
+  const t = new Float64Array(n), y = new Float64Array(n), filled = new Uint8Array(n), partial = new Uint8Array(n);
+  const expected = new Float64Array(n), coverage = new Float64Array(n), missing = new Uint16Array(n);
+  for (let b = 0; b < n; b++) {
+    t[b] = bucketStart(g, b);
+    expected[b] = Math.max(1, allowed[b] / Math.max(1, cad));
+    coverage[b] = Math.min(1, obsDays[b] / expected[b]);
+    missing[b] = Math.max(0, Math.round(expected[b] - obsDays[b]));
+    if (count) y[b] = rowsIn[b];
+    else if (!cnt[b]) y[b] = NaN;
+    else if (cfg.agg === "sum") y[b] = sum[b];
+    else if (cfg.agg === "mean") y[b] = sum[b] / cnt[b];
+    else if (cfg.agg === "min") y[b] = mn[b];
+    else if (cfg.agg === "max") y[b] = mx[b];
+    else if (cfg.agg === "first") y[b] = firstV[b];
+    else if (cfg.agg === "last") y[b] = lastV[b];
+    else { const v = vals[b].sort((p, q) => p - q), h = v.length >> 1; y[b] = v.length % 2 ? v[h] : (v[h - 1] + v[h]) / 2; }
+  }
+  // Only the first and last period can be partial: the data starts or stops inside them.
+  const fullAllowed = (b) => { let c = 0; for (let ms = t[b]; ms < bucketStart(g, b + 1); ms += DAY) if (!DATA.structural[(new Date(ms).getUTCDay() + 6) % 7]) c++; return c; };
+  for (const b of [0, n - 1]) if (allowed[b] < 0.95 * fullAllowed(b)) partial[b] = 1;
+  let first = 0, last = n - 1;
+  while (first < n && !(y[first] === y[first])) first++;
+  while (last >= 0 && !(y[last] === y[last])) last--;
+  for (let b = first; b <= last; b++) {
+    if (y[b] === y[b]) continue;
+    if (cfg.gaps === "zero") { y[b] = 0; filled[b] = 1; }
+    else if (cfg.gaps === "interp") {
+      let a = b - 1, c = b + 1;
+      while (c <= last && !(y[c] === y[c])) c++;
+      for (let k = b; k < c; k++) { y[k] = y[a] + ((y[c] - y[a]) * (k - a)) / (c - a); filled[k] = 1; }
+      b = c - 1;
+    }
+  }
+  const modelN = partial[n - 1] && cfg.partial === "exclude" ? n - 1 : n;
+  const yModel = new Float64Array(modelN);
+  for (let i = 0; i < modelN; i++) yModel[i] = y[i];
+  interpFill(yModel);
+  let modelM = 1;
+  for (const p of g.periods) if (modelN >= 2 * p + 2) { modelM = p; break; }
+  // Shape, not meaning: decides whether changes read as percentages and whether
+  // forecasts may go below zero.
+  let allPositive = true, nonNeg = true;
+  for (let i = 0; i < modelN; i++) { const v = y[i]; if (!(v === v) || filled[i]) continue; if (!(v > 0)) allPositive = false; if (v < 0) nonNeg = false; }
+  // Other numeric columns as per-period means (candidate drivers and event sources).
+  const colMean = {};
+  for (const [c, arr] of Object.entries(DATA.cols)) {
+    if (c === cfg.measure && !count) continue;
+    const s = new Float64Array(n), k = new Float64Array(n), out = new Float64Array(n);
+    for (let i = 0; i < nr; i++) { const v = arr[i]; if (v === v) { const b = bod[DATA.rowDay[i]]; s[b] += v; k[b]++; } }
+    let prev = NaN;
+    for (let b = 0; b < n; b++) { if (k[b]) prev = s[b] / k[b]; out[b] = prev; }
+    for (let b = 0; b < n && !(out[b] === out[b]); b++) out[b] = s.find((_, j) => k[j]) / (k.find((x) => x) || 1);
+    colMean[c] = out;
+  }
+  // Runs without rows (structural weekdays excluded), as day ranges for the findings.
+  const gapRanges = [];
+  const ob = DATA.observed;
+  for (let k = 1; k < ob.length; k++) {
+    if (ob[k] - ob[k - 1] <= 1.5 * cad) continue;
+    let real = false;
+    for (let d = ob[k - 1] + 1; d < ob[k]; d++) if (!DATA.structural[(new Date(START + d * DAY).getUTCDay() + 6) % 7]) { real = true; break; }
+    if (real) gapRanges.push([ob[k - 1] + 1, ob[k] - 1]);
+  }
+  return { g, n, t, y, filled, partial, coverage, expected, missing, rows: rowsIn, groupVal, colMean, modelN, yModel, modelM, gapRanges, allPositive, nonNeg, naRows };
+}
+function interpFill(y) {
+  const n = y.length;
+  let prev = -1;
+  for (let i = 0; i < n; i++) {
+    if (y[i] === y[i]) {
+      if (prev === -1 && i > 0) for (let k = 0; k < i; k++) y[k] = y[i];
+      else if (prev >= 0 && i - prev > 1) for (let k = prev + 1; k < i; k++) y[k] = y[prev] + ((y[i] - y[prev]) * (k - prev)) / (i - prev);
+      prev = i;
+    }
+  }
+  if (prev >= 0) for (let k = prev + 1; k < n; k++) y[k] = y[prev];
+  return y;
+}
+/** Typical value of a series over [i0, i1): the median, so one-off periods do not move it. */
+function regular(series, i0, i1) {
+  const a = Math.max(0, i0);
+  const v = Array.from(series.subarray(a, Math.max(a + 1, i1))).sort((p, q) => p - q);
+  return v[v.length >> 1];
+}
+function eventWindowLen(g) { return Math.max(3, Math.round(g.perYear / 6.5)); }
+function fmtNum(v) { return Math.abs(v - Math.round(v)) < 1e-9 ? nf.format(v) : v.toFixed(2); }
+/**
+ * Lasting steps in any numeric driver column. Medians over about two months ignore
+ * one-off periods; the event is dated at the first period the new level touches, so
+ * no part-changed period counts as "before".
+ */
+function detectEvents() {
+  const g = A.g, N = A.modelN, win = eventWindowLen(g), out = [];
+  for (const col of Object.keys(DRIVER_DEFS)) {
+    const d = { col }, def = DRIVER_DEFS[col];
+    if (def.flag || DATA.timeLike[col] || (col === cfg.measure && cfg.agg !== "count")) continue;
+    const s = def.series();
+    for (let i = win; i <= N - win; i++) {
+      const before = regular(s, i - win, i), after = regular(s, i, i + win);
+      if (!(before > 0)) continue;
+      const ch = after / before - 1;
+      if (Math.abs(ch) < 0.03) continue;
+      // A step, not a swing: the jump must dwarf the usual wobble on either side.
+      const wobble = (i0, i1, mid) => { const v = Array.from(s.subarray(Math.max(0, i0), i1), (x) => Math.abs(x - mid)).sort((p, q) => p - q); return v[v.length >> 1]; };
+      if (Math.abs(after - before) < 4 * Math.max(wobble(i - win, i, before), wobble(i, i + win, after))) continue;
+      const lo = Math.min(before, after) * 0.99, hi = Math.max(before, after) * 1.01;
+      let at = i;
+      for (let j = i; j < Math.min(N, i + win); j++) { const v = s[j]; if (v >= lo && v <= hi && Math.abs(v / before - 1) > 0.01) { at = j; break; } }
+      out.push({ i: at, col: d.col, label: `${d.col} stepped ${ch > 0 ? "up" : "down"} to ${fmtNum(after)}`, short: `${d.col} ${ch > 0 ? "up" : "down"}`, change: ch, before });
+      i = at + win * 2;
+    }
+  }
+  // Keep the largest few, so a busy column does not flood the list.
+  return out.sort((a, b) => Math.abs(b.change) - Math.abs(a.change)).slice(0, 6).sort((a, b) => a.i - b.i);
+}
+
+/* ============================================================ stage 2: smooth */
+function rolling(y, n, w, centred, median) {
+  const out = new Float64Array(n).fill(NaN);
+  const buf = [];
+  const lo = centred ? Math.floor((w - 1) / 2) : w - 1;
+  const hi = centred ? w - 1 - lo : 0;
+  const need = Math.ceil(w / 2);
+  for (let i = 0; i < n; i++) {
+    if (i + hi >= n) break;
+    buf.length = 0;
+    for (let k = i - lo; k <= i + hi; k++) if (k >= 0 && y[k] === y[k]) buf.push(y[k]);
+    if (buf.length < need || (!centred && i < w - 1)) continue;
+    if (median) { buf.sort((a, b) => a - b); const m = buf.length >> 1; out[i] = buf.length % 2 ? buf[m] : (buf[m - 1] + buf[m]) / 2; }
+    else { let s = 0; for (const v of buf) s += v; out[i] = s / buf.length; }
+  }
+  return out;
+}
+
+/* ============================================================ stage 3: decompose */
+function decompose(y, n, m) {
+  if (n < 2 * m + 2) return null;
+  const pre = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) pre[i + 1] = pre[i] + y[i];
+  const trend = new Float64Array(n).fill(NaN);
+  let a, z;
+  if (m % 2 === 1) {
+    const k = (m - 1) / 2; a = k; z = n - 1 - k;
+    for (let i = k; i < n - k; i++) trend[i] = (pre[i + k + 1] - pre[i - k]) / m;
+  } else {
+    const k = m / 2; a = k; z = n - 1 - k;
+    for (let i = k; i < n - k; i++) trend[i] = (pre[i + k] - pre[i - k + 1] + 0.5 * (y[i - k] + y[i + k])) / m;
+  }
+  const fit = (i0, i1) => {
+    let sx = 0, sy = 0, sxx = 0, sxy = 0, c = 0;
+    for (let i = i0; i <= i1; i++) { sx += i; sy += trend[i]; sxx += i * i; sxy += i * trend[i]; c++; }
+    const s = (c * sxy - sx * sy) / (c * sxx - sx * sx || 1);
+    return [s, (sy - s * sx) / c];
+  };
+  const L = Math.max(2, Math.min(m, z - a));
+  const [s0, c0] = fit(a, a + L - 1);
+  for (let i = 0; i < a; i++) trend[i] = c0 + s0 * i;
+  const [s1, c1] = fit(z - L + 1, z);
+  for (let i = z + 1; i < n; i++) trend[i] = c1 + s1 * i;
+  // Median per phase, so one bad period (a data gap, a viral day) cannot fake a seasonal peak.
+  const byPhase = Array.from({ length: m }, () => []);
+  for (let i = a; i <= z; i++) byPhase[i % m].push(y[i] - trend[i]);
+  const prof = new Float64Array(m);
+  let mean = 0;
+  for (let k = 0; k < m; k++) {
+    const v = byPhase[k].sort((p, q) => p - q), h = v.length >> 1;
+    prof[k] = v.length ? (v.length % 2 ? v[h] : (v[h - 1] + v[h]) / 2) : 0;
+    mean += prof[k];
+  }
+  mean /= m;
+  for (let k = 0; k < m; k++) prof[k] -= mean;
+  const seasonal = new Float64Array(n), rem = new Float64Array(n);
+  for (let i = 0; i < n; i++) { seasonal[i] = prof[i % m]; rem[i] = y[i] - trend[i] - seasonal[i]; }
+  const v = (f) => { let s = 0, ss = 0; for (let i = 0; i < n; i++) { const x = f(i); s += x; ss += x * x; } return ss / n - (s / n) ** 2; };
+  const vr = v((i) => rem[i]);
+  const ft = Math.max(0, 1 - vr / (v((i) => trend[i] + rem[i]) || 1));
+  const fs = Math.max(0, 1 - vr / (v((i) => seasonal[i] + rem[i]) || 1));
+  let level = 0;
+  for (let i = 0; i < n; i++) level += trend[i];
+  return { m, trend, seasonal, rem, prof, ft, fs, level: level / n };
+}
+function robustZ(rem, n) {
+  const arr = Array.from(rem.subarray(0, n)).sort((a, b) => a - b);
+  const med = arr[n >> 1];
+  const dev = arr.map((v) => Math.abs(v - med)).sort((a, b) => a - b);
+  let mad = dev[n >> 1] * 1.4826;
+  if (!(mad > 1e-9)) { let a = 0, b = 0; for (const v of arr) { a += v; b += v * v; } mad = Math.sqrt(Math.max(1e-18, b / n - (a / n) ** 2)); }
+  const z = new Float64Array(n);
+  for (let i = 0; i < n; i++) z[i] = (rem[i] - med) / mad;
+  return { z, mad };
+}
+function changepoint(trend, n) {
+  const P = (f) => { const a = new Float64Array(n + 1); for (let i = 0; i < n; i++) a[i + 1] = a[i] + f(i); return a; };
+  const Sx = P((i) => i), Sy = P((i) => trend[i]), Sxx = P((i) => i * i), Sxy = P((i) => i * trend[i]), Syy = P((i) => trend[i] * trend[i]);
+  const seg = (i0, i1) => {
+    const c = i1 - i0, sx = Sx[i1] - Sx[i0], sy = Sy[i1] - Sy[i0], sxx = Sxx[i1] - Sxx[i0], sxy = Sxy[i1] - Sxy[i0], syy = Syy[i1] - Syy[i0];
+    const vx = sxx - (sx * sx) / c, cxy = sxy - (sx * sy) / c;
+    const slope = vx > 0 ? cxy / vx : 0;
+    return { sse: Math.max(0, syy - (sy * sy) / c - slope * cxy), slope, mean: sy / c };
+  };
+  const whole = seg(0, n);
+  const minSeg = Math.max(4, Math.floor(n * 0.15));
+  let best = null;
+  for (let k = minSeg; k <= n - minSeg; k++) {
+    const a = seg(0, k), b = seg(k, n), s = a.sse + b.sse;
+    if (!best || s < best.sse) best = { k, sse: s, a, b };
+  }
+  if (!best || whole.sse <= 0) return null;
+  return { k: best.k, gain: 1 - best.sse / whole.sse, before: best.a, after: best.b };
+}
+/**
+ * A repeating cycle the calendar does not name (an 11-year cycle in monthly data, say):
+ * the strongest autocorrelation peak of the linearly detrended series.
+ */
+function detectCycle(y, N, taken) {
+  if (N < 30) return 0;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (let i = 0; i < N; i++) { sx += i; sy += y[i]; sxx += i * i; sxy += i * y[i]; }
+  const b = (N * sxy - sx * sy) / (N * sxx - sx * sx || 1), a = (sy - b * sx) / N;
+  const r = new Float64Array(N);
+  let v = 0;
+  for (let i = 0; i < N; i++) { r[i] = y[i] - a - b * i; v += r[i] * r[i]; }
+  if (!(v > 0)) return 0;
+  const maxLag = Math.min(Math.floor(N / 3), 600);
+  const acf = new Float64Array(maxLag + 2);
+  for (let lag = 1; lag <= maxLag + 1; lag++) { let c = 0; for (let i = lag; i < N; i++) c += r[i] * r[i - lag]; acf[lag] = c / v; }
+  let best = 0, bestV = 0.3;
+  for (let lag = 3; lag <= maxLag; lag++) if (acf[lag] > acf[lag - 1] && acf[lag] >= acf[lag + 1] && acf[lag] > bestV) { best = lag; bestV = acf[lag]; }
+  if (!best || taken.some((p) => Math.abs(p - best) <= Math.max(1, 0.1 * p))) return 0;
+  return best;
+}
+/** No season to separate: a smooth trend (wide moving average) and what is left over. */
+function trendOnly(y, N) {
+  let w = Math.max(3, Math.round(N / 12));
+  w = Math.min(w, Math.floor((N - 2) / 2));
+  if (w % 2 === 0) w--;
+  if (w < 3) return null;
+  const d = decompose(y, N, w);
+  if (!d) return null;
+  d.seasonal.fill(0);
+  d.prof = new Float64Array(1);
+  for (let i = 0; i < N; i++) d.rem[i] = y[i] - d.trend[i];
+  let s = 0, ss = 0, s2 = 0, ss2 = 0;
+  for (let i = 0; i < N; i++) { const e = d.rem[i], q = d.trend[i] + e; s += e; ss += e * e; s2 += q; ss2 += q * q; }
+  const vr = ss / N - (s / N) ** 2, vt = ss2 / N - (s2 / N) ** 2;
+  d.ft = Math.max(0, 1 - vr / (vt || 1));
+  d.fs = 0;
+  d.m = 0;
+  return d;
+}
+function computeDecomposition() {
+  const g = A.g, N = A.modelN;
+  const cands = g.periods.filter((p) => N >= 2 * p + 2);
+  const cyc = detectCycle(A.yModel, N, cands);
+  if (cyc && N >= 2 * cyc + 2) cands.push(cyc);
+  const options = [];
+  for (const p of cands) { const d = decompose(A.yModel, N, p); if (d) options.push(d); }
+  const dec = options.find((d) => d.m === cfg.period) || (options.length ? options.reduce((a, b) => (b.fs > a.fs ? b : a)) : null) || trendOnly(A.yModel, N);
+  if (!dec) return { options, dec: null, anomalies: [], anomalyCount: 0, cp: null, z: null, mad: 0 };
+  const rz = robustZ(dec.rem, N);
+  const anomalies = [];
+  for (let i = 0; i < N; i++) if (Math.abs(rz.z[i]) >= cfg.sens) anomalies.push(i);
+  anomalies.sort((a, b) => Math.abs(rz.z[b]) - Math.abs(rz.z[a]));
+  return { options, dec, z: rz.z, mad: rz.mad, anomalies: anomalies.slice(0, 8), anomalyCount: anomalies.length, cp: changepoint(dec.trend, N) };
+}
+
+/* ============================================================ stage 4: models */
+function hwInit(y, m, limit) {
+  let l = 0;
+  for (let i = 0; i < m; i++) l += y[i];
+  l /= m;
+  let b = 0;
+  if (limit >= 2 * m) { let l2 = 0; for (let i = m; i < 2 * m; i++) l2 += y[i]; b = (l2 / m - l) / m; }
+  const s = new Float64Array(m);
+  for (let i = 0; i < m; i++) s[i] = y[i] - l;
+  return { l, b, s };
+}
+function hwSSE(y, T, m, a, be, ga, ph) {
+  const st = hwInit(y, m, T);
+  let l = st.l, b = st.b, sse = 0;
+  const s = st.s;
+  for (let t = m; t < T; t++) {
+    const k = t % m, yt = y[t];
+    const e = yt - (l + ph * b + s[k]);
+    sse += e * e;
+    const ln = a * (yt - s[k]) + (1 - a) * (l + ph * b);
+    b = be * (ln - l) + (1 - be) * ph * b;
+    s[k] = ga * (yt - ln) + (1 - ga) * s[k];
+    l = ln;
+  }
+  return sse;
+}
+function hwFit(y, T, m, warm) {
+  const lo = [0.01, 0.001, 0.001, 0.8], hi = [0.99, 0.5, 0.7, 0.98];
+  let p = warm ? warm.slice() : [0.3, 0.05, 0.15, 0.95];
+  if (m === 1) p[2] = 0; // no season: plain damped trend
+  let best = hwSSE(y, T, m, p[0], p[1], p[2], p[3]);
+  const step = warm ? [0.04, 0.015, 0.04, 0.015] : [0.12, 0.04, 0.1, 0.04];
+  for (let round = 0; round < 7; round++) {
+    for (let j = 0; j < 4; j++) {
+      if (m === 1 && j === 2) continue;
+      for (const dir of [1, -1]) {
+        const q = p.slice();
+        q[j] = Math.min(hi[j], Math.max(lo[j], q[j] + dir * step[j]));
+        const e = hwSSE(y, T, m, q[0], q[1], q[2], q[3]);
+        if (e < best) { best = e; p = q; }
+      }
+    }
+    for (let j = 0; j < 4; j++) step[j] *= 0.5;
+  }
+  return p;
+}
+function hwRun(y, T, m, p, origins) {
+  const [a, be, ga, ph] = p;
+  const st = hwInit(y, m, origins.length ? origins[0] : T);
+  let l = st.l, b = st.b;
+  const s = st.s;
+  const snaps = new Map();
+  let oi = 0;
+  for (let t = m; t < T; t++) {
+    while (oi < origins.length && origins[oi] === t) { snaps.set(t, { l, b, s: s.slice() }); oi++; }
+    const k = t % m, yt = y[t];
+    const ln = a * (yt - s[k]) + (1 - a) * (l + ph * b);
+    b = be * (ln - l) + (1 - be) * ph * b;
+    s[k] = ga * (yt - ln) + (1 - ga) * s[k];
+    l = ln;
+  }
+  return { snaps, final: { l, b, s } };
+}
+function hwForecast(st, m, ph, t0, H, out, off) {
+  let damp = 0, pw = 1;
+  for (let h = 0; h < H; h++) { pw *= ph; damp += pw; out[off + h] = st.l + damp * st.b + st.s[(t0 + h) % m]; }
+}
+function cholSolve(Am, bv, p) {
+  const L = new Float64Array(p * p);
+  for (let i = 0; i < p; i++) {
+    for (let j = 0; j <= i; j++) {
+      let s = Am[i * p + j];
+      for (let k = 0; k < j; k++) s -= L[i * p + k] * L[j * p + k];
+      if (i === j) L[i * p + i] = Math.sqrt(Math.max(s, 1e-12));
+      else L[i * p + j] = s / L[j * p + j];
+    }
+  }
+  const z = new Float64Array(p), x = new Float64Array(p);
+  for (let i = 0; i < p; i++) { let s = bv[i]; for (let k = 0; k < i; k++) s -= L[i * p + k] * z[k]; z[i] = s / L[i * p + i]; }
+  for (let i = p - 1; i >= 0; i--) { let s = z[i]; for (let k = i + 1; k < p; k++) s -= L[k * p + i] * x[k]; x[i] = s / L[i * p + i]; }
+  return x;
+}
+/** Every numeric column can act as a driver; built when a table loads. */
+let DRIVER_DEFS = {};
+function buildDriverDefs() {
+  DRIVER_DEFS = {};
+  for (const c of Object.keys(DATA.cols)) {
+    DRIVER_DEFS[c] = { flag: !!DATA.flags[c], series: () => A.colMean[c], about: DATA.flags[c] ? "0/1, share of rows per period" : DATA.timeLike[c] ? "counts time or names a date part" : "numeric, mean per period" };
+  }
+}
+/** Recent typical value of a driver: the median of its last couple of months. */
+function driverRecent(col) { return regular(DRIVER_DEFS[col].series(), A.n - eventWindowLen(A.g), A.n); }
+/**
+ * A driver's value at period i: actual where the table has it; after the data ends,
+ * the driver's rule. In event impact the event's own driver is held at its level
+ * before the event and every other driver keeps its actual values.
+ */
+function driverAt(d, i) {
+  if (impactFreeze && impactFreeze.col === d.col && i >= impactFreeze.from) return impactFreeze.value;
+  const s = DRIVER_DEFS[d.col].series();
+  if (i < A.n) return s[i];
+  if (d.rule === "lastyear") { let j = i - A.g.ly; while (j >= A.n) j -= A.g.ly; return j >= 0 ? s[j] : s[A.n - 1]; }
+  const base = driverRecent(d.col);
+  return d.rule === "pct" ? base * (1 + d.pct / 100) : base;
+}
+/** Prophet-style regression on log values: trend with shrunk bends, Fourier seasons, any driver columns. */
+function regFit(y, T, flex) {
+  const g = A.g;
+  const Ky = Math.max(0, Math.min(4, Math.floor((g.perYear - 1) / 2)));
+  const Kw = g.unit === "day" && g.n === 1 ? 3 : 0;
+  const K = Math.max(1, Math.min(10, Math.floor(T / 10)));
+  const hinges = Array.from({ length: K }, (_, k) => (0.85 * (k + 1)) / (K + 1));
+  // A positive series is fitted on logs (effects read as percentages); anything with
+  // zeros or negatives is fitted as it is (effects read in its own units).
+  let logY = true;
+  for (let i = 0; i < T; i++) if (!A.filled[i] && !(y[i] > 0)) { logY = false; break; }
+  const drv = cfg.drivers.map((d) => {
+    const s = DRIVER_DEFS[d.col].series();
+    let pos = true;
+    for (let i = 0; i < T; i++) if (!(s[i] > 0)) { pos = false; break; }
+    const log = logY && !DRIVER_DEFS[d.col].flag && pos;
+    let mean = 0;
+    for (let i = 0; i < T; i++) mean += log ? Math.log(s[i]) : s[i];
+    return { d, log, mean: mean / T };
+  });
+  const iDrv = 2 + K + 2 * Ky + 2 * Kw;
+  const p = iDrv + drv.length;
+  const fill = (i, x) => {
+    let k = 0;
+    const t = i / T;
+    x[k++] = 1; x[k++] = t;
+    for (const c of hinges) x[k++] = t > c ? t - c : 0;
+    for (let j = 1; j <= Ky; j++) { const a = (2 * Math.PI * j * i) / g.perYear; x[k++] = Math.sin(a); x[k++] = Math.cos(a); }
+    for (let j = 1; j <= Kw; j++) { const a = (2 * Math.PI * j * i) / 7; x[k++] = Math.sin(a); x[k++] = Math.cos(a); }
+    for (const v of drv) { const raw = driverAt(v.d, i); x[k++] = (v.log ? Math.log(raw) : raw) - v.mean; }
+  };
+  const M = new Float64Array(p * p), bv = new Float64Array(p), x = new Float64Array(p);
+  let cnt = 0;
+  for (let i = 0; i < T; i++) {
+    if (A.filled[i] || !(y[i] === y[i]) || (logY && !(y[i] > 0))) continue;
+    fill(i, x);
+    const zt = logY ? Math.log(y[i]) : y[i];
+    for (let a = 0; a < p; a++) {
+      const xa = x[a];
+      bv[a] += xa * zt;
+      for (let c = 0; c <= a; c++) M[a * p + c] += xa * x[c];
+    }
+    cnt++;
+  }
+  for (let a = 0; a < p; a++) for (let c = 0; c < a; c++) M[c * p + a] = M[a * p + c];
+  // Each bend is shrunk relative to its own scale, so late bends are as free as early ones.
+  const rel = 0.3 * Math.pow(10, (5 - flex) / 2.5);
+  M[1 * p + 1] += 1e-6 * cnt;
+  for (let k = 0; k < K; k++) { const j = (2 + k) * p + (2 + k); M[j] += Math.max(M[j] * rel, 1e-6 * cnt); }
+  for (let k = 2 + K; k < p; k++) M[k * p + k] += 1e-4 * cnt;
+  M[0] += 1e-9;
+  const beta = cholSolve(M, bv, p);
+  let smear = 0, sc = 0;
+  for (let i = 0; i < T && logY; i++) {
+    if (!(y[i] > 0) || A.filled[i]) continue;
+    fill(i, x);
+    let s = 0;
+    for (let a = 0; a < p; a++) s += x[a] * beta[a];
+    smear += Math.exp(Math.log(y[i]) - s); sc++;
+  }
+  return { beta, p, fill, x: new Float64Array(p), smear: sc ? smear / sc : 1, K, Ky, Kw, T, drv, iDrv, logY };
+}
+function regAt(fit, i) {
+  fit.fill(i, fit.x);
+  let s = 0;
+  for (let a = 0; a < fit.p; a++) s += fit.x[a] * fit.beta[a];
+  return fit.logY ? Math.exp(s) * fit.smear : s;
+}
+/** Theta method: simple smoothing plus half the long-run slope, on the deseasonalised series. */
+function thetaFit(y, o, m) {
+  const d = m > 1 && o >= 2 * m + 2 ? decompose(y, o, m) : null;
+  const prof = d ? d.prof : null;
+  const z = new Float64Array(o);
+  for (let i = 0; i < o; i++) z[i] = y[i] - (prof ? prof[i % m] : 0);
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (let i = 0; i < o; i++) { sx += i; sy += z[i]; sxx += i * i; sxy += i * z[i]; }
+  const b0 = (o * sxy - sx * sy) / (o * sxx - sx * sx || 1);
+  let best = Infinity, alpha = 0.5, level = z[0];
+  for (let a = 0.05; a < 0.951; a += 0.05) {
+    let l = z[0], sse = 0;
+    for (let i = 1; i < o; i++) { const e = z[i] - l; sse += e * e; l += a * e; }
+    if (sse < best) { best = sse; alpha = a; level = l; }
+  }
+  return { prof, b0, alpha, level, o, m };
+}
+function thetaAt(f, h) {
+  const a = f.alpha;
+  return f.level + (f.b0 / 2) * ((1 - Math.pow(1 - a, f.o)) / a + h) + (f.prof ? f.prof[(f.o + h) % f.m] : 0);
+}
+/** Climatology: the average of the same point in every earlier cycle. */
+function phaseMeans(y, o, m) {
+  const sum = new Float64Array(m), cnt = new Float64Array(m);
+  let all = 0;
+  for (let i = 0; i < o; i++) { sum[i % m] += y[i]; cnt[i % m]++; all += y[i]; }
+  const out = new Float64Array(m);
+  for (let k = 0; k < m; k++) out[k] = cnt[k] ? sum[k] / cnt[k] : all / o;
+  return out;
+}
+/** What the series looks like decides which model families apply (the model router). */
+function seriesProfile(T) {
+  const g = A.g;
+  let zeros = 0, neg = 0, ints = 0, filled = 0, tot = 0, sum = 0;
+  for (let i = 0; i < T; i++) {
+    const v = A.y[i];
+    if (!(v === v)) continue;
+    tot++; sum += v;
+    if (v === 0) zeros++;
+    if (v < 0) neg++;
+    if (Math.abs(v - Math.round(v)) < 1e-9) ints++;
+    if (A.filled[i]) filled++;
+  }
+  const bits = [];
+  bits.push(zeros - filled > 0.3 * tot ? "mostly zero periods: models for sparse series would join (not in this prototype)" : "few zero periods");
+  bits.push(A.allPositive ? "all values above zero, so changes and effects read as percentages" : neg ? "values below zero, so changes and effects read in the series' own units and forecasts may go below zero" : "zero values present, so changes and effects read in the series' own units");
+  if (ints === tot && sum / tot < 30) bits.push("small whole numbers: a count model would join (not in this prototype)");
+  if (filled) bits.push(`${filled} filled ${nounFor(g, filled)} left out of fitting`);
+  return cap(bits.join("; ")) + ".";
+}
+function quantile(sorted, q) {
+  if (!sorted.length) return 0;
+  const pos = (sorted.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+function bandQuantiles(errs, ks, H) {
+  const w = Math.max(1, Math.round(H / 8));
+  const out = [];
+  for (let h = 0; h < H; h++) {
+    const pool = [];
+    for (const k of ks) for (let j = Math.max(0, h - w); j <= Math.min(H - 1, h + w); j++) { const e = errs[k * H + j]; if (e === e) pool.push(e); }
+    pool.sort((a, b) => a - b);
+    const q50 = quantile(pool, 0.5), q10 = quantile(pool, 0.1), q90 = quantile(pool, 0.9);
+    out.push({ q10, q90, q025: Math.min(quantile(pool, 0.025), q50 - 1.53 * (q50 - q10)), q975: Math.max(quantile(pool, 0.975), q50 + 1.53 * (q90 - q50)) });
+  }
+  return out;
+}
+const MODEL_INFO = {
+  sn: { name: "Repeat last cycle", meth: "Seasonal naive" },
+  hw: { name: "Smooth and damp", meth: "Holt-Winters, damped trend" },
+  reg: { name: "Trend, seasons and drivers", meth: "Prophet-style regression" },
+  theta: { name: "Steady trend", meth: "Theta method" },
+  clim: { name: "Seasonal average", meth: "Mean of the same point in earlier cycles" },
+  ens: { name: "Blend", meth: "Average of smooth-and-damp, steady trend and drivers" },
+};
+function horizon() { return Math.max(1, Math.min(A.g.maxH, cfg.horizon ?? A.g.horizon)); }
+/**
+ * Fits every model on [0, T) and backtests it from earlier origins.
+ * `exact` keeps T as given (an event date) instead of clamping it.
+ */
+function runModels(splitReq, H, exact) {
+  const g = A.g, N = A.modelN, m = A.modelM;
+  if (!m) return { error: `Needs at least ${2 * g.periods[0] + 2} ${g.nouns} of history.` };
+  const minTrain = Math.max(m + Math.max(4, Math.ceil(m / 4)), 8);
+  const step = Math.max(1, Math.round(H / 3));
+  const minSplit = minTrain + H + 2 * step;
+  if (!exact && N < minSplit) return { error: `A ${H}-${g.noun} forecast needs at least ${minSplit} ${g.nouns} of history; this series has ${N}. Shorten the horizon or pick a finer grain.` };
+  const T = exact ? splitReq : splitReq == null ? N : Math.max(minSplit, Math.min(N, splitReq));
+  if (exact && T < minSplit) return { error: `Needs ${minSplit} ${g.nouns} before the event to learn the normal pattern; this one has ${T}.${g.unit !== "day" ? " Daily grain needs less history." : ""}`, T, H };
+  const y = A.yModel;
+  let origins = [];
+  if (exact) {
+    // Event impact: spread the backtests over the whole history, so the range sees the
+    // model's errors in every season, not only the stretch just before the event.
+    const span = T - H - minTrain, R0 = Math.min(16, span + 1);
+    for (let k = 0; k < R0; k++) origins.push(minTrain + Math.round((k * span) / Math.max(1, R0 - 1)));
+    origins = [...new Set(origins)];
+  } else {
+    for (let k = 0; k < 10; k++) { const o = T - H - k * step; if (o < minTrain) break; origins.push(o); }
+    origins.reverse();
+  }
+  const R = origins.length;
+  let scale = 0, sc = 0;
+  for (let t = m; t < T; t++) { scale += Math.abs(y[t] - y[t - m]); sc++; }
+  scale = scale / (sc || 1) || 1;
+  const res = { T, H, m, origins, scale, step, models: {} };
+  const mk = (key) => ({ key, oc: new Float64Array(R * H), ms: 0 });
+
+  let t0 = performance.now();
+  const sn = mk("sn");
+  origins.forEach((o, k) => { for (let h = 0; h < H; h++) sn.oc[k * H + h] = y[o - m + (h % m)]; });
+  sn.ms = performance.now() - t0;
+
+  t0 = performance.now();
+  const hw = mk("hw");
+  const wkey = cfg.grain + cfg.agg + cfg.measure + cfg.group + cfg.gaps;
+  const params = hwFit(y, T, m, hwWarm.get(wkey));
+  hwWarm.set(wkey, params);
+  const run = hwRun(y, T, m, params, origins);
+  origins.forEach((o, k) => hwForecast(run.snaps.get(o), m, params[3], o, H, hw.oc, k * H));
+  hw.params = params; hw.final = run.final;
+  hw.ms = performance.now() - t0;
+
+  t0 = performance.now();
+  const reg = mk("reg");
+  origins.forEach((o, k) => { const f = regFit(y, o, cfg.flex); for (let h = 0; h < H; h++) reg.oc[k * H + h] = regAt(f, o + h); });
+  reg.fit = regFit(y, T, cfg.flex);
+  reg.ms = performance.now() - t0;
+
+  t0 = performance.now();
+  const theta = mk("theta");
+  origins.forEach((o, k) => { const f = thetaFit(y, o, m); for (let h = 0; h < H; h++) theta.oc[k * H + h] = thetaAt(f, h); });
+  theta.fit = thetaFit(y, T, m);
+  theta.ms = performance.now() - t0;
+
+  t0 = performance.now();
+  const clim = mk("clim");
+  const first = origins.length ? origins[0] : T;
+  clim.m = g.periods.filter((pp) => first >= pp).pop() || m;
+  origins.forEach((o, k) => { const means = phaseMeans(y, o, clim.m); for (let h = 0; h < H; h++) clim.oc[k * H + h] = means[(o + h) % clim.m]; });
+  clim.means = phaseMeans(y, T, clim.m);
+  clim.ms = performance.now() - t0;
+
+  const ens = mk("ens");
+  for (let i = 0; i < R * H; i++) ens.oc[i] = (hw.oc[i] + reg.oc[i] + theta.oc[i]) / 3;
+  ens.ms = 0.01;
+  res.profile = seriesProfile(T);
+
+  for (const mod of [sn, hw, reg, theta, clim, ens]) {
+    const errs = new Float64Array(R * H).fill(NaN);
+    let ae = 0, ac = 0;
+    origins.forEach((o, k) => {
+      for (let h = 0; h < H; h++) {
+        if (A.filled[o + h]) continue;
+        const e = y[o + h] - mod.oc[k * H + h];
+        errs[k * H + h] = e; ae += Math.abs(e); ac++;
+      }
+    });
+    mod.errs = errs;
+    mod.mase = ae / (ac || 1) / scale;
+    mod.q = bandQuantiles(errs, origins.map((_, k) => k), H);
+    if (R >= 4) {
+      const qx = bandQuantiles(errs, origins.slice(0, -1).map((_, k) => k), H);
+      let hit = 0, tot = 0;
+      for (let h = 0; h < H; h++) { const e = errs[(R - 1) * H + h]; if (e !== e) continue; tot++; if (e >= qx[h].q10 && e <= qx[h].q90) hit++; }
+      mod.check = { hit, tot };
+    }
+    res.models[mod.key] = mod;
+  }
+  const base = sn.mase || 1;
+  for (const mod of [sn, hw, reg, theta, clim, ens]) mod.ratio = mod.mase / base;
+  res.best = ["hw", "reg", "ens", "theta", "clim", "sn"].reduce((a, b) => (res.models[b].mase < res.models[a].mase ? b : a));
+  res.rough = R < 3;
+  return res;
+}
+/** Future values and bands; cheap, so the what-if controls redraw while dragging. */
+function computeFutures(M, freeze) {
+  if (!M || M.error) return null;
+  const { T, H, m } = M;
+  const y = A.yModel;
+  impactFreeze = freeze;
+  const hwF = new Float64Array(H);
+  hwForecast(M.models.hw.final, m, M.models.hw.params[3], T, H, hwF, 0);
+  const regF = new Float64Array(H);
+  for (let h = 0; h < H; h++) regF[h] = regAt(M.models.reg.fit, T + h);
+  impactFreeze = null;
+  const snF = new Float64Array(H);
+  for (let h = 0; h < H; h++) snF[h] = y[T - m + (h % m)];
+  const thF = new Float64Array(H);
+  for (let h = 0; h < H; h++) thF[h] = thetaAt(M.models.theta.fit, h);
+  const clF = new Float64Array(H);
+  for (let h = 0; h < H; h++) clF[h] = M.models.clim.means[(T + h) % M.models.clim.m];
+  const ensF = new Float64Array(H);
+  for (let h = 0; h < H; h++) ensF[h] = (hwF[h] + regF[h] + thF[h]) / 3;
+  const floor0 = A.nonNeg ? (v) => Math.max(0, v) : (v) => v;
+  const out = {};
+  for (const [key, F] of [["sn", snF], ["hw", hwF], ["reg", regF], ["theta", thF], ["clim", clF], ["ens", ensF]]) {
+    const q = M.models[key].q;
+    const lo80 = new Float64Array(H), hi80 = new Float64Array(H), lo95 = new Float64Array(H), hi95 = new Float64Array(H);
+    for (let h = 0; h < H; h++) {
+      F[h] = floor0(F[h]);
+      lo80[h] = floor0(F[h] + q[h].q10); hi80[h] = F[h] + q[h].q90;
+      lo95[h] = floor0(F[h] + q[h].q025); hi95[h] = F[h] + q[h].q975;
+    }
+    let held = null;
+    if (T < A.modelN) {
+      let hit = 0, tot = 0, ae = 0;
+      for (let h = 0; h < H && T + h < A.modelN; h++) {
+        const v = A.y[T + h];
+        if (!(v === v) || A.filled[T + h]) continue;
+        tot++; ae += Math.abs(v - F[h]);
+        if (v >= lo80[h] && v <= hi80[h]) hit++;
+      }
+      held = { hit, tot, mae: tot ? ae / tot : NaN };
+    }
+    out[key] = { F, lo80, hi80, lo95, hi95, held };
+  }
+  // With held-out actuals, grade on them: a backtest on an easy stretch must not hide a miss.
+  if (out.sn.held && out.sn.held.mae > 0) for (const k in out) out[k].held.ratio = out[k].held.mae / out.sn.held.mae;
+  return out;
+}
+function ratioOf(key) { const h = FUT && FUT[key] && FUT[key].held; return h && h.ratio != null ? h.ratio : MOD.models[key].ratio; }
+function selectedModel() { return !MOD || MOD.error ? null : cfg.model === "auto" ? MOD.best : cfg.model; }
+function grade(ratio, key) {
+  if (key === "sn") return { cls: "base", text: "Baseline" };
+  if (ratio < 0.8) return { cls: "good", text: "Good" };
+  if (ratio < 1) return { cls: "okay", text: "OK" };
+  return { cls: "poor", text: "Poor" };
+}
+
+/* ============================================================ stage 5: event impact */
+function defaultEvent() {
+  const N = A.modelN;
+  const ev = EVENTS.filter((e) => N - e.i >= 2);
+  return ev.length ? ev[ev.length - 1].i : Math.round(N * 0.8);
+}
+function eventWindow(ev) { return Math.max(1, Math.min(cfg.window ?? A.g.impactW, A.modelN - ev)); }
+/**
+ * Expected = every model fitted only on data before the event, drivers held at their
+ * pre-event values. The effect range comes from the cumulative backtest errors.
+ */
+function computeImpact() {
+  const ev = Math.max(2, Math.min(A.modelN - 1, cfg.event ?? defaultEvent()));
+  const W = eventWindow(ev);
+  const run = runModels(ev, W, true);
+  const event = EVENTS.find((e) => e.i === ev) || { i: ev, kind: "custom", label: "Custom event" };
+  if (run.error) return { error: run.error, T: ev, H: W, event };
+  const fut = computeFutures(run, event.col ? { col: event.col, value: event.before, from: ev } : null);
+  const key = cfg.impactModel === "auto" ? run.best : cfg.impactModel;
+  const f = fut[key];
+  const ce = new Float64Array(W);
+  let acc = 0, sf = 0, above = 0, below = 0, cnt = 0;
+  for (let h = 0; h < W; h++) {
+    const i = ev + h, v = A.y[i];
+    if (v === v && !A.filled[i]) {
+      acc += v - f.F[h]; sf += f.F[h]; cnt++;
+      if (v > f.hi80[h]) above++; else if (v < f.lo80[h]) below++;
+    }
+    ce[h] = acc;
+  }
+  const errs = run.models[key].errs, R = run.origins.length;
+  const lo = new Float64Array(W), hi = new Float64Array(W);
+  let lo95 = 0, hi95 = 0;
+  for (let h = 0; h < W; h++) {
+    const vals = [], recent = [];
+    for (let k = 0; k < R; k++) {
+      let s = 0;
+      for (let j = 0; j <= h; j++) { const e = errs[k * W + j]; if (e === e) s += e; }
+      vals.push(s);
+      if (k >= R >> 1) recent.push(s);
+    }
+    vals.sort((a, b) => a - b);
+    recent.sort((a, b) => a - b);
+    const mean = vals.reduce((s, v) => s + v, 0) / (vals.length || 1);
+    const sd = Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / Math.max(1, vals.length - 1));
+    // Backtests show how far the model drifts with no event. Its typical bias comes from
+    // the later backtests (trained on most of the history, like the real fit); the
+    // spread around it from all of them.
+    const mid = quantile(recent, 0.5);
+    const l = Math.min(mid + quantile(vals, 0.1) - quantile(vals, 0.5), mid - 1.2816 * sd), u = Math.max(mid + quantile(vals, 0.9) - quantile(vals, 0.5), mid + 1.2816 * sd);
+    lo[h] = ce[h] - u; hi[h] = ce[h] - l;
+    if (h === W - 1) {
+      const q50 = quantile(vals, 0.5);
+      lo95 = ce[h] - Math.max(mid + quantile(vals, 0.975) - q50, mid + 1.96 * sd);
+      hi95 = ce[h] - Math.min(mid + quantile(vals, 0.025) - q50, mid - 1.96 * sd);
+    }
+    ce[h] -= mid;
+  }
+  acc = ce[W - 1];
+  // "Clear" only when the 95% range leaves out zero; an 80% range alone would cry
+  // wolf about one time in five on a series the event did not touch.
+  let verdict = lo95 > 0 || hi95 < 0 ? "clear" : lo[W - 1] > 0 || hi[W - 1] < 0 ? "possible" : "none";
+  // Under two years before the event, a yearly swing cannot be told apart from the event.
+  const shortYear = ev < 2 * A.g.perYear;
+  if (shortYear && verdict === "clear") verdict = "possible";
+  let gap = false;
+  for (let h = 0; h < W; h++) if (A.coverage[ev + h] < 0.9) gap = true;
+  return { run, fut, key, T: ev, H: W, f, ce, lo, hi, total: acc, rel: A.allPositive && sf > 0 ? acc / sf : NaN, relLo: A.allPositive && sf > 0 ? lo[W - 1] / sf : NaN, relHi: A.allPositive && sf > 0 ? hi[W - 1] / sf : NaN, sf, cnt, above, below, verdict, clear: verdict === "clear", shortYear, event, gap };
+}
+
+/* ============================================================ compute pipeline */
+function compute() {
+  const t0 = performance.now();
+  const aggKey = [cfg.grain, cfg.agg, cfg.measure, cfg.group, cfg.gaps, cfg.partial].join("|");
+  if (aggKey !== cache.agg) { A = aggregate(); cache.agg = aggKey; cache.sm = cache.dec = cache.mod = cache.imp = ""; allT = null; }
+  const t1 = performance.now();
+  const smKey = aggKey + [cfg.smoothW, cfg.smoothStat, cfg.smoothCentred].join("|");
+  if (smKey !== cache.sm) { SM = rolling(A.y, A.modelN, cfg.smoothW, cfg.smoothCentred, cfg.smoothStat === "median"); cache.sm = smKey; }
+  const drvKey = cfg.drivers.map((d) => d.col).join(",");
+  if (aggKey + drvKey !== cache.ev) { EVENTS = detectEvents(); cache.ev = aggKey + drvKey; }
+  const decKey = aggKey + "|" + cfg.period + "|" + cfg.sens;
+  if (decKey !== cache.dec) { DEC = computeDecomposition(); cache.dec = decKey; }
+  const t2 = performance.now();
+  const modKey = aggKey + "|" + [cfg.split, horizon(), cfg.flex, drvKey].join("|");
+  let modMs = null;
+  if (modKey !== cache.mod) { MOD = runModels(cfg.split, horizon(), false); cache.mod = modKey; allT = null; modMs = performance.now() - t2; }
+  FUT = computeFutures(MOD, null);
+  if (cfg.mode === "impact") {
+    const impKey = aggKey + "|" + [cfg.event, cfg.window, cfg.impactModel, cfg.flex, drvKey].join("|");
+    if (impKey !== cache.imp) { const s = performance.now(); IMP = computeImpact(); cache.imp = impKey; modMs = performance.now() - s; }
+  }
+  const t3 = performance.now();
+  timing.agg = t1 - t0;
+  timing.dec = t2 - t1;
+  timing.mod = modMs ?? t3 - t2;
+  INS = buildInsights();
+}
+/** What the chart projects beyond the split: a forecast, or the expected path after an event. */
+function proj() {
+  if (cfg.mode === "forecast" && MOD && !MOD.error && FUT) { const key = selectedModel(); return { kind: "forecast", T: MOD.T, H: MOD.H, f: FUT[key], key, color: C.forecast }; }
+  if (cfg.mode === "impact" && IMP && !IMP.error) return { kind: "impact", T: IMP.T, H: IMP.H, f: IMP.f, key: IMP.key, color: C.impact };
+  return null;
+}
+
+/* ============================================================ time positions */
+let allT = null;
+function lastIndex() {
+  if (cfg.mode === "forecast" && MOD && !MOD.error) return Math.max(A.n - 1, MOD.T + MOD.H - 1);
+  return A.n - 1;
+}
+function times() {
+  const last = Math.max(A.n - 1, MOD && !MOD.error ? MOD.T + MOD.H - 1 : 0);
+  if (!allT || allT.length !== last + 1) {
+    allT = new Float64Array(last + 1);
+    for (let i = 0; i <= last; i++) allT[i] = i < A.n ? A.t[i] : bucketStart(A.g, i);
+  }
+  return allT;
+}
+function domain() { const T = times(); return [T[0], T[lastIndex()]]; }
+function nearestIndex(ms) {
+  const T = times(), last = lastIndex();
+  let lo = 0, hi = last;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (T[mid] < ms) lo = mid + 1; else hi = mid; }
+  if (lo > 0 && Math.abs(T[lo - 1] - ms) < Math.abs(T[lo] - ms)) lo--;
+  return lo;
+}
+function clampView(v) {
+  const [d0, d1] = domain();
+  const pad = (d1 - d0) * 0.015;
+  const lo = d0 - pad, hi = d1 + pad;
+  let span = Math.max(v[1] - v[0], (A.t[Math.min(A.n - 1, 8)] - A.t[0]) || DAY * 8);
+  span = Math.min(span, hi - lo);
+  let a = v[0];
+  if (a < lo) a = lo;
+  if (a + span > hi) a = hi - span;
+  return [a, a + span];
+}
+function fullView() { const [d0, d1] = domain(); const pad = (d1 - d0) * 0.015; return [d0 - pad, d1 + pad]; }
+
+/* ============================================================ colours */
+let C = {};
+let FONT = "system-ui";
+function readColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const get = (n) => cs.getPropertyValue(n).trim();
+  C = { bg: get("--bg"), panel: get("--panel"), panel2: get("--panel-2"), border: get("--border"), text: get("--text"), dim: get("--dim"), faint: get("--faint"), accent: get("--accent"), forecast: get("--forecast"), impact: get("--impact"), raw: get("--raw"), danger: get("--danger"), ok: get("--ok"), warn: get("--warn"), grid: get("--grid") };
+  FONT = getComputedStyle(document.body).fontFamily;
+}
+function rgba(hex, a) {
+  const h = hex.replace("#", "");
+  const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+/* ============================================================ geometry */
+const heroEl = document.getElementById("hero");
+const heroCanvas = document.getElementById("heroCanvas");
+const heroOverlay = document.getElementById("heroOverlay");
+const readoutEl = document.getElementById("readout");
+const navCanvas = document.getElementById("navCanvas");
+const decCanvas = document.getElementById("decCanvas");
+const decOverlay = document.getElementById("decOverlay");
+const cumCanvas = document.getElementById("cumCanvas");
+const heroBuf = document.createElement("canvas");
+let geo = { w: 0, h: 0, L: 56, R: 130, T: 26, B: 44, pw: 0, ph: 0, dpr: 1 };
+let yScale = { min: 0, max: 1 };
+
+function sizeCanvas(cv, w, h, dpr) {
+  const W = Math.max(1, Math.round(w * dpr)), Hh = Math.max(1, Math.round(h * dpr));
+  if (cv.width !== W || cv.height !== Hh) { cv.width = W; cv.height = Hh; }
+}
+function layout() {
+  const r = heroEl.getBoundingClientRect();
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const wide = r.width >= 620;
+  geo = { w: r.width, h: r.height, L: wide ? 58 : 44, R: wide ? 132 : 12, T: 30, B: 44, dpr, wide };
+  geo.pw = Math.max(10, geo.w - geo.L - geo.R);
+  geo.ph = Math.max(10, geo.h - geo.T - geo.B);
+  for (const cv of [heroCanvas, heroOverlay, heroBuf]) sizeCanvas(cv, r.width, r.height, dpr);
+  const n = navCanvas.parentElement.getBoundingClientRect();
+  sizeCanvas(navCanvas, n.width, n.height, dpr);
+  for (const [cv, ov] of [[decCanvas, decOverlay], [cumCanvas, null]]) {
+    const d = cv.parentElement.getBoundingClientRect();
+    if (d.width > 0) { sizeCanvas(cv, d.width, d.height, dpr); if (ov) sizeCanvas(ov, d.width, d.height, dpr); }
+  }
+}
+const X = (ms) => geo.L + ((ms - view[0]) / (view[1] - view[0])) * geo.pw;
+const Y = (v) => geo.T + geo.ph - ((v - yScale.min) / (yScale.max - yScale.min || 1)) * geo.ph;
+const invX = (px) => view[0] + ((px - geo.L) / geo.pw) * (view[1] - view[0]);
+
+function niceTicks(min, max, count) {
+  const span = max - min || 1;
+  const raw = span / count;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+  const ticks = [];
+  for (let v = Math.ceil(min / step) * step; v <= max + step * 1e-6; v += step) ticks.push(v);
+  return ticks;
+}
+function timeTicks(v0, v1, width) {
+  const spanDays = (v1 - v0) / DAY;
+  const max = Math.max(3, Math.floor(width / 64));
+  const units = [[1, "d", 1], [2, "d", 2], [7, "d", 7], [14, "d", 14], [1, "m", 30.4], [2, "m", 61], [3, "m", 91], [6, "m", 182], [1, "y", 365], [2, "y", 730], [5, "y", 1826], [10, "y", 3652], [25, "y", 9131], [50, "y", 18262], [100, "y", 36525]];
+  let u = units[units.length - 1];
+  for (const cand of units) if (spanDays / cand[2] <= max) { u = cand; break; }
+  const ticks = [], majors = [];
+  const d0 = new Date(v0);
+  if (u[1] === "d") {
+    for (let ms = Math.ceil((v0 - START) / (DAY * u[0])) * DAY * u[0] + START; ms <= v1; ms += DAY * u[0]) ticks.push({ ms, label: String(new Date(ms).getUTCDate()) });
+    for (let mm = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth() + 1, 1); mm <= v1; mm = Date.UTC(new Date(mm).getUTCFullYear(), new Date(mm).getUTCMonth() + 1, 1)) majors.push({ ms: mm, label: dfMonShort.format(new Date(mm)) });
+    return { ticks, majors, ctx: dfMonShort.format(new Date(Math.max(v0, START))) };
+  }
+  if (u[1] === "m") {
+    const mo = Math.ceil((d0.getUTCMonth() + 1) / u[0]) * u[0];
+    for (let ms = Date.UTC(d0.getUTCFullYear(), mo, 1); ms <= v1; ) {
+      const dt = new Date(ms);
+      ticks.push({ ms, label: dt.toLocaleString("en-GB", { month: "short", timeZone: "UTC" }) });
+      ms = Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + u[0], 1);
+    }
+    for (let yy = d0.getUTCFullYear() + 1; Date.UTC(yy, 0, 1) <= v1; yy++) majors.push({ ms: Date.UTC(yy, 0, 1), label: String(yy) });
+    return { ticks, majors, ctx: String(new Date(Math.max(v0, START)).getUTCFullYear()) };
+  }
+  const k = u[0];
+  for (let yy = Math.ceil((d0.getUTCFullYear() + 1) / k) * k; Date.UTC(yy, 0, 1) <= v1; yy += k) ticks.push({ ms: Date.UTC(yy, 0, 1), label: String(yy) });
+  return { ticks, majors: [], ctx: "" };
+}
+
+/* ============================================================ hero (static layer) */
+function visibleRange() {
+  const T = times(), last = lastIndex();
+  let a = 0, b = last;
+  while (a < last && T[a + 1] < view[0]) a++;
+  while (b > 0 && T[b - 1] > view[1]) b--;
+  return [a, b];
+}
+function linePath(ctx, i0, i1, get) {
+  const T = times();
+  let open = false;
+  ctx.beginPath();
+  for (let i = i0; i <= i1; i++) {
+    const v = get(i);
+    if (!(v === v)) { open = false; continue; }
+    const x = X(T[i]), y = Y(v);
+    if (open) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    open = true;
+  }
+}
+function font(px, weight = 400) { return `${weight} ${px}px ${FONT}`; }
+function renderHero() {
+  const t0 = performance.now();
+  const ctx = heroBuf.getContext("2d");
+  ctx.setTransform(geo.dpr, 0, 0, geo.dpr, 0, 0);
+  ctx.clearRect(0, 0, geo.w, geo.h);
+  if (!A) return;
+  const T = times();
+  const [i0, i1] = visibleRange();
+  const N = A.modelN, n = A.n, mode = cfg.mode;
+  const P = proj();
+  const split = P ? P.T : -1;
+  const isF = !!P && P.kind === "forecast", isI = !!P && P.kind === "impact";
+
+  let lo = Infinity, hi = -Infinity;
+  const take = (v) => { if (v === v) { if (v < lo) lo = v; if (v > hi) hi = v; } };
+  for (let i = i0; i <= Math.min(i1, n - 1); i++) {
+    if (isF && i >= split && i >= N) continue;
+    take(A.y[i]);
+    if (mode === "explore" && cfg.showSmooth && i < N) take(SM[i]);
+    if (mode === "explore" && cfg.lastYear && i - A.g.ly >= 0) take(A.y[i - A.g.ly]);
+    if (mode === "decompose" && DEC.dec && i < N) take(DEC.dec.trend[i]);
+  }
+  if (P) for (let h = 0; h < P.H; h++) {
+    const i = split + h;
+    if (i < i0 || i > i1) continue;
+    take(P.f.F[h]);
+    take(cfg.level === "fan" && isF ? P.f.hi95[h] : P.f.hi80[h]);
+    take(cfg.level === "fan" && isF ? P.f.lo95[h] : P.f.lo80[h]);
+  }
+  if (lo === Infinity) { lo = 0; hi = 1; }
+  if (lo >= 0 && lo < 0.45 * hi) lo = 0;
+  const pad = (hi - lo) * 0.08 || 1;
+  yScale = { min: lo === 0 ? 0 : lo - pad, max: hi + pad };
+
+  ctx.font = font(11);
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (const v of niceTicks(yScale.min, yScale.max, geo.ph > 240 ? 5 : 4)) {
+    const y = Math.round(Y(v)) + 0.5;
+    ctx.strokeStyle = v === 0 ? C.border : C.grid; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(geo.L, y); ctx.lineTo(geo.L + geo.pw, y); ctx.stroke();
+    ctx.fillStyle = C.dim; ctx.fillText(compact(v), geo.L - 8, y);
+  }
+  const tt = timeTicks(view[0], view[1], geo.pw);
+  ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  const axisY = geo.T + geo.ph;
+  ctx.strokeStyle = C.border;
+  ctx.beginPath(); ctx.moveTo(geo.L, axisY + 0.5); ctx.lineTo(geo.L + geo.pw, axisY + 0.5); ctx.stroke();
+  ctx.fillStyle = C.dim;
+  for (const tk of tt.ticks) {
+    const x = X(tk.ms);
+    if (x < geo.L - 1 || x > geo.L + geo.pw + 1) continue;
+    ctx.fillRect(Math.round(x), axisY, 1, 4);
+    ctx.fillText(tk.label, x, axisY + 16);
+  }
+  ctx.font = font(11, 600); ctx.fillStyle = C.text;
+  let ctxShown = false;
+  for (const mj of tt.majors) {
+    const x = X(mj.ms);
+    if (x < geo.L || x > geo.L + geo.pw) continue;
+    ctx.strokeStyle = C.border;
+    ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, axisY); ctx.lineTo(Math.round(x) + 0.5, axisY + 34); ctx.stroke();
+    ctx.textAlign = "left"; ctx.fillText(mj.label, x + 4, axisY + 33);
+    if (x - geo.L < 70) ctxShown = true;
+  }
+  if (tt.ctx && !ctxShown) { ctx.textAlign = "left"; ctx.fillText(tt.ctx, geo.L, axisY + 33); }
+  ctx.font = font(11);
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(geo.L, geo.T - 6, geo.pw, geo.ph + 6); ctx.clip();
+  if (isF) {
+    const xs = X(T[split - 1]);
+    ctx.fillStyle = rgba(C.forecast, 0.05);
+    ctx.fillRect(xs, geo.T - 6, geo.L + geo.pw - xs, geo.ph + 6);
+  }
+  if (isI) {
+    const xs = X(T[split - 1]), xe = X(T[split + P.H - 1]);
+    ctx.fillStyle = rgba(C.impact, 0.06);
+    ctx.fillRect(xs, geo.T - 6, xe - xs, geo.ph + 6);
+  }
+  if (A.partial[n - 1]) {
+    const xa = X(T[n - 1]), xb = X(bucketStart(A.g, n));
+    ctx.save();
+    ctx.beginPath(); ctx.rect(xa, geo.T, xb - xa, geo.ph); ctx.clip();
+    ctx.strokeStyle = rgba(C.raw, 0.25);
+    for (let x = xa - geo.ph; x < xb; x += 6) { ctx.beginPath(); ctx.moveTo(x, geo.T + geo.ph); ctx.lineTo(x + geo.ph, geo.T); ctx.stroke(); }
+    ctx.restore();
+  }
+  if ((mode === "explore" || mode === "decompose") && DEC.cp && DEC.cp.gain > 0.5) {
+    const x = Math.round(X(T[DEC.cp.k])) + 0.5;
+    ctx.strokeStyle = C.dim; ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, geo.T - 4); ctx.lineTo(x, geo.T + geo.ph); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = C.dim; ctx.textAlign = "left"; ctx.font = font(11, 600);
+    ctx.fillText("Trend change", x + 5, geo.T + 6);
+    ctx.font = font(11);
+  }
+  if (mode === "impact") {
+    for (const e of EVENTS) {
+      if (IMP && e.i === IMP.T) continue;
+      const x = X(T[e.i]);
+      if (x < geo.L || x > geo.L + geo.pw) continue;
+      ctx.strokeStyle = rgba(C.impact, 0.5); ctx.setLineDash([2, 4]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, geo.T); ctx.lineTo(Math.round(x) + 0.5, geo.T + geo.ph); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+
+  const rawEnd = Math.min(n - 1, N - 1);
+  const histEnd = isF ? split - 1 : N - 1;
+  const raw = (i) => A.y[i];
+  const emphasis = mode !== "explore" || !cfg.showSmooth || A.g.unit !== "day";
+
+  if (mode === "explore" && cfg.lastYear) {
+    ctx.strokeStyle = rgba(C.dim, 0.75); ctx.setLineDash([4, 3]); ctx.lineWidth = 1.25;
+    linePath(ctx, Math.max(i0, A.g.ly), Math.min(i1, n - 1), (i) => A.y[i - A.g.ly]);
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+  if (isI) {
+    for (let h = 0; h < P.H - 1; h++) {
+      const i = split + h, a0 = A.y[i], a1 = A.y[i + 1];
+      if (!(a0 === a0) || !(a1 === a1)) continue;
+      const e0 = P.f.F[h], e1 = P.f.F[h + 1];
+      ctx.fillStyle = rgba(a0 - e0 + (a1 - e1) >= 0 ? C.ok : C.danger, 0.24);
+      ctx.beginPath(); ctx.moveTo(X(T[i]), Y(a0)); ctx.lineTo(X(T[i + 1]), Y(a1)); ctx.lineTo(X(T[i + 1]), Y(e1)); ctx.lineTo(X(T[i]), Y(e0)); ctx.closePath(); ctx.fill();
+    }
+  }
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.strokeStyle = emphasis ? C.text : rgba(C.raw, 0.75);
+  ctx.globalAlpha = mode === "explore" && cfg.showSmooth && emphasis ? 0.5 : isI ? 0.95 : emphasis ? 0.85 : 1;
+  ctx.lineWidth = isI ? 1.75 : emphasis ? 1.5 : 1;
+  linePath(ctx, i0, Math.min(i1, histEnd), raw);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  if (A.partial[n - 1] && N === n - 1 && !isF) {
+    ctx.setLineDash([2, 3]); ctx.strokeStyle = C.dim; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(X(T[n - 2]), Y(A.y[n - 2])); ctx.lineTo(X(T[n - 1]), Y(A.y[n - 1])); ctx.stroke(); ctx.setLineDash([]);
+  }
+  if (isF && split < rawEnd + 1) {
+    ctx.strokeStyle = rgba(C.text, 0.45); ctx.lineWidth = 1.25;
+    linePath(ctx, Math.max(i0, split - 1), Math.min(i1, rawEnd), raw);
+    ctx.stroke();
+  }
+  if (mode === "explore" && cfg.showSmooth) {
+    ctx.strokeStyle = C.accent; ctx.lineWidth = 2.5;
+    linePath(ctx, i0, Math.min(i1, N - 1), (i) => SM[i]);
+    ctx.stroke();
+  }
+  if (mode === "decompose" && DEC.dec) {
+    ctx.strokeStyle = C.accent; ctx.lineWidth = 2.5;
+    linePath(ctx, i0, Math.min(i1, N - 1), (i) => DEC.dec.trend[i]);
+    ctx.stroke();
+  }
+  if (P) {
+    const xs0 = X(T[split - 1]), y0 = A.yModel[split - 1];
+    const xEnd = X(T[split + P.H - 1]);
+    const clipX = xs0 + (xEnd - xs0) * reveal;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(geo.L, geo.T - 6, clipX - geo.L, geo.ph + 6); ctx.clip();
+    const band = (blo, bhi, alpha) => {
+      const grad = ctx.createLinearGradient(xs0, 0, xEnd, 0);
+      grad.addColorStop(0, rgba(P.color, alpha));
+      grad.addColorStop(1, rgba(P.color, alpha * (isF ? 0.45 : 0.8)));
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.moveTo(xs0, Y(y0));
+      for (let h = 0; h < P.H; h++) ctx.lineTo(X(T[split + h]), Y(bhi[h]));
+      for (let h = P.H - 1; h >= 0; h--) ctx.lineTo(X(T[split + h]), Y(blo[h]));
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = rgba(P.color, 0.45); ctx.lineWidth = 0.75;
+      for (const arr of [bhi, blo]) { ctx.beginPath(); ctx.moveTo(xs0, Y(y0)); for (let h = 0; h < P.H; h++) ctx.lineTo(X(T[split + h]), Y(arr[h])); ctx.stroke(); }
+    };
+    if (isF && cfg.level === "fan") band(P.f.lo95, P.f.hi95, 0.13);
+    band(P.f.lo80, P.f.hi80, isF ? 0.26 : 0.16);
+    if (isF && ghostModel && ghostModel !== P.key) {
+      const gf = FUT[ghostModel];
+      ctx.strokeStyle = C.dim; ctx.setLineDash([2, 3]); ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(xs0, Y(y0)); for (let h = 0; h < P.H; h++) ctx.lineTo(X(T[split + h]), Y(gf.F[h])); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.strokeStyle = P.color; ctx.lineWidth = 2.25; ctx.setLineDash([7, 4]);
+    ctx.beginPath(); ctx.moveTo(xs0, Y(y0)); for (let h = 0; h < P.H; h++) ctx.lineTo(X(T[split + h]), Y(P.f.F[h])); ctx.stroke(); ctx.setLineDash([]);
+    ctx.restore();
+    if (isF && split < N) {
+      for (let h = 0; h < P.H && split + h < N; h++) {
+        const v = A.y[split + h];
+        if (!(v === v)) continue;
+        const out = v < P.f.lo80[h] || v > P.f.hi80[h];
+        ctx.beginPath(); ctx.arc(X(T[split + h]), Y(v), out ? 3.6 : 2.4, 0, Math.PI * 2);
+        if (out) { ctx.strokeStyle = C.danger; ctx.lineWidth = 1.5; ctx.stroke(); }
+        else { ctx.fillStyle = rgba(C.text, 0.6); ctx.fill(); }
+      }
+    }
+  }
+  if (i1 - i0 + 1 <= 90) {
+    ctx.fillStyle = emphasis ? C.text : C.raw;
+    for (let i = i0; i <= Math.min(i1, histEnd); i++) if (A.y[i] === A.y[i] && !A.filled[i]) { ctx.beginPath(); ctx.arc(X(T[i]), Y(A.y[i]), 2.2, 0, Math.PI * 2); ctx.fill(); }
+  }
+  for (let i = i0; i <= Math.min(i1, n - 1); i++) {
+    if (!(A.filled[i] || (A.partial[i] && i === n - 1))) continue;
+    if (!(A.y[i] === A.y[i])) continue;
+    ctx.beginPath(); ctx.arc(X(T[i]), Y(A.y[i]), 3.4, 0, Math.PI * 2);
+    ctx.fillStyle = C.panel; ctx.fill(); ctx.strokeStyle = C.dim; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  if ((mode === "explore" || mode === "decompose") && DEC.dec) {
+    ctx.strokeStyle = C.danger; ctx.lineWidth = 1.75;
+    for (const i of DEC.anomalies) {
+      if (i < i0 || i > i1) continue;
+      ctx.beginPath(); ctx.arc(X(T[i]), Y(A.y[i]), 6.5, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+  ctx.restore();
+
+  const handleT = P ? P.T : mode === "impact" && IMP ? IMP.T : null;
+  if (handleT != null) {
+    const color = mode === "impact" ? C.impact : C.forecast;
+    const xs = X(T[handleT - 1]);
+    if (xs >= geo.L && xs <= geo.L + geo.pw) {
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(Math.round(xs) + 0.5, geo.T - 8); ctx.lineTo(Math.round(xs) + 0.5, geo.T + geo.ph); ctx.stroke();
+      const label = mode === "impact" ? `${IMP.event.label} · ${shortPeriod(A.g, T[handleT])}` : MOD.T < A.modelN ? "Backtest from " + shortPeriod(A.g, T[split]) : "Forecast";
+      pill(ctx, xs, geo.T - 18, label + "  ⇆", color, C.panel, "center");
+    }
+    if (P) {
+      const xe = X(T[split + P.H - 1]);
+      if (xe >= geo.L - 2 && xe <= geo.L + geo.pw + 2) pill(ctx, xe, geo.T + geo.ph - 14, P.H + " " + (P.H === 1 ? A.g.noun : A.g.nouns.split(" ").pop()) + "  ⇆", C.panel, P.color, "center", P.color);
+    }
+  }
+
+  if (geo.wide) {
+    const labels = [];
+    const lastIn = (get, end) => { for (let i = Math.min(i1, end); i >= i0; i--) { const v = get(i); if (v === v) return { i, v }; } return null; };
+    const r = lastIn(raw, isI ? Math.min(histEnd, split + P.H - 1) : histEnd);
+    if (r) labels.push({ y: Y(r.v), color: emphasis ? C.text : C.dim, text: isI ? "Actual" : measureWord(), val: compact(r.v) });
+    if (mode === "explore" && cfg.showSmooth) { const s = lastIn((i) => SM[i], N - 1); if (s) labels.push({ y: Y(s.v), color: C.accent, text: cfg.smoothW + "-" + A.g.noun.split(" ").pop() + " " + cfg.smoothStat, val: compact(s.v) }); }
+    if (mode === "decompose" && DEC.dec) { const s = lastIn((i) => DEC.dec.trend[i], N - 1); if (s) labels.push({ y: Y(s.v), color: C.accent, text: "Trend", val: compact(s.v) }); }
+    if (P) {
+      const h = Math.min(P.H - 1, Math.max(0, i1 - split));
+      if (split + h >= i0) labels.push({ y: Y(P.f.F[h]), color: P.color, text: isF ? "Forecast " + shortPeriod(A.g, T[split + h]) : "Expected", val: compact(P.f.F[h]) });
+    }
+    labels.sort((a, b) => a.y - b.y);
+    for (let k = 1; k < labels.length; k++) if (labels[k].y - labels[k - 1].y < 30) labels[k].y = labels[k - 1].y + 30;
+    const x = geo.L + geo.pw + 10;
+    for (const lb of labels) {
+      ctx.textAlign = "left"; ctx.fillStyle = lb.color;
+      ctx.font = font(11); ctx.fillText(lb.text, x, lb.y - 3);
+      ctx.font = font(13, 600); ctx.fillText(lb.val, x, lb.y + 12);
+    }
+  }
+  timing.draw = performance.now() - t0;
+}
+function pill(ctx, x, y, text, bg, fg, align, border) {
+  ctx.font = font(11, 600);
+  const w = ctx.measureText(text).width + 14, h = 18;
+  let left = align === "center" ? x - w / 2 : x;
+  left = Math.max(2, Math.min(geo.w - w - 2, left));
+  ctx.beginPath(); ctx.roundRect(left, y - h / 2, w, h, 9);
+  ctx.fillStyle = bg; ctx.fill();
+  if (border) { ctx.strokeStyle = border; ctx.lineWidth = 1.25; ctx.stroke(); }
+  ctx.fillStyle = fg; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillText(text, left + 7, y + 0.5);
+  ctx.textBaseline = "alphabetic";
+}
+function compose(now) {
+  const ctx = heroCanvas.getContext("2d");
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, heroCanvas.width, heroCanvas.height);
+  if (fade) {
+    const t = Math.min(1, (now - fade.start) / 200);
+    ctx.globalAlpha = t; ctx.drawImage(heroBuf, 0, 0);
+    ctx.globalAlpha = 1 - t; ctx.drawImage(fade.canvas, 0, 0);
+    ctx.globalAlpha = 1;
+    if (t >= 1) fade = null;
+  } else ctx.drawImage(heroBuf, 0, 0);
+}
+function startFade() {
+  if (reduceMotion.matches || !heroCanvas.width) return;
+  const c = document.createElement("canvas");
+  c.width = heroCanvas.width; c.height = heroCanvas.height;
+  c.getContext("2d").drawImage(heroCanvas, 0, 0);
+  fade = { canvas: c, start: performance.now() };
+}
+
+/* ============================================================ hero overlay */
+function renderOverlay(now) {
+  const ctx = heroOverlay.getContext("2d");
+  ctx.setTransform(geo.dpr, 0, 0, geo.dpr, 0, 0);
+  ctx.clearRect(0, 0, geo.w, geo.h);
+  if (!A) return;
+  const T = times();
+  if (pulse) {
+    const t = Math.max(0, (now - pulse.start) / 1600);
+    if (t >= 1) pulse = null;
+    else {
+      const ph = (t * 2) % 1;
+      ctx.strokeStyle = rgba(C.danger, 1 - ph); ctx.lineWidth = 2;
+      for (const i of pulse.indices) {
+        const x = X(T[i]); if (x < geo.L || x > geo.L + geo.pw) continue;
+        ctx.beginPath(); ctx.arc(x, Y(A.y[i]), 8 + 10 * ph, 0, Math.PI * 2); ctx.stroke();
+      }
+      if (pulse.rule != null) { const x = X(T[pulse.rule]); ctx.fillStyle = rgba(C.accent, 0.18 * (1 - t)); ctx.fillRect(x - 10, geo.T, 20, geo.ph); }
+    }
+  }
+  if (cfg.mode === "decompose") renderDecOverlay();
+  if (cfg.mode === "impact") renderCum();
+  if (hoverIdx < 0) { readoutEl.hidden = true; return; }
+  const i = hoverIdx, x = X(T[i]);
+  if (x < geo.L - 1 || x > geo.L + geo.pw + 1) { readoutEl.hidden = true; return; }
+  ctx.strokeStyle = rgba(C.text, 0.35); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, geo.T - 4); ctx.lineTo(Math.round(x) + 0.5, geo.T + geo.ph); ctx.stroke();
+  const dot = (v, color) => { if (!(v === v)) return; ctx.beginPath(); ctx.arc(x, Y(v), 4.5, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill(); ctx.strokeStyle = C.panel; ctx.lineWidth = 2; ctx.stroke(); };
+  const P = proj();
+  const h = P ? i - P.T : -1;
+  if (i < A.n) dot(A.y[i], C.text);
+  if (cfg.mode === "explore" && cfg.showSmooth && i < A.modelN) dot(SM[i], C.accent);
+  if (cfg.mode === "decompose" && DEC.dec && i < A.modelN) dot(DEC.dec.trend[i], C.accent);
+  if (P && h >= 0 && h < P.H) dot(P.f.F[h], P.color);
+  renderReadout(i, x);
+}
+function renderReadout(i, x) {
+  const g = A.g, T = times();
+  const rows = [];
+  const P = proj();
+  const h = P ? i - P.T : -1;
+  const inP = !!P && h >= 0 && h < P.H;
+  let note = "";
+  if (i < A.n) {
+    const v = A.y[i];
+    rows.push([C.text, inP && P.kind === "impact" ? "Actual" : measureWord(), full(v)]);
+    if (cfg.mode === "explore" && cfg.showSmooth && i < A.modelN) rows.push([C.accent, cfg.smoothW + "-" + g.noun.split(" ").pop() + " " + cfg.smoothStat, full(SM[i])]);
+    const cp1 = i > 0 ? chg(v, A.y[i - 1]) : null, cpy = i - g.ly >= 0 ? chg(v, A.y[i - g.ly]) : null;
+    if (!inP && cp1) rows.push([null, "vs previous", cp1.text]);
+    if (!inP && cpy) rows.push([null, "vs a year earlier", cpy.text]);
+    if (cfg.mode === "decompose" && DEC.dec && i < A.modelN) {
+      rows.push([C.accent, "Trend", full(DEC.dec.trend[i])]);
+      rows.push([null, "Seasonal", signed(DEC.dec.seasonal[i])]);
+      rows.push([null, "Remainder", signed(DEC.dec.rem[i])]);
+    }
+    if (A.filled[i]) note = `No rows in this ${g.noun}; ${cfg.gaps === "zero" ? "filled with zero" : "interpolated"}.`;
+    else if (!(A.y[i] === A.y[i])) note = `No rows in this ${g.noun}.`;
+    else if (A.partial[i]) note = `Partial ${g.noun}: about ${Math.round(A.coverage[i] * 100)}% of its data.`;
+    else if (A.coverage[i] < 0.9) note = `${A.missing[i]} of ${Math.round(A.expected[i])} expected ${cadenceNoun(DATA.cadence)} have no rows.`;
+    if ((cfg.mode === "explore" || cfg.mode === "decompose") && DEC.dec && DEC.anomalies.includes(i)) note = (note ? note + " " : "") + `<span class="flag">Unusual: ${chg(A.y[i], DEC.dec.trend[i] + DEC.dec.seasonal[i]).text} vs expected.</span>`;
+  }
+  if (inP) {
+    rows.push([P.color, P.kind === "impact" ? "Expected" : "Forecast", full(P.f.F[h])]);
+    if (P.kind === "impact" && A.y[i] === A.y[i]) rows.push([null, "Effect", chg(A.y[i], P.f.F[h]).text]);
+    rows.push([null, "80% range", compact(P.f.lo80[h]) + " to " + compact(P.f.hi80[h])]);
+    if (P.kind === "forecast" && cfg.level === "fan") rows.push([null, "95% range", compact(P.f.lo95[h]) + " to " + compact(P.f.hi95[h])]);
+    if (P.kind === "forecast" && i < A.modelN && A.y[i] === A.y[i]) note = `Held out: actual ${full(A.y[i])}, ${A.y[i] >= P.f.lo80[h] && A.y[i] <= P.f.hi80[h] ? "inside" : "outside"} the 80% band.`;
+  }
+  const rowsHtml = rows.map(([c, k, v]) => `<div class="row"><span>${c ? `<i class="sw" style="background:${c}"></i>` : ""}${k}</span><span>${v}</span></div>`).join("");
+  const click = i < A.n ? `<div class="note">Click to show these ${nf.format(A.rows[i])} rows in the Table.</div>` : "";
+  readoutEl.innerHTML = `<h3>${periodLabel(g, T[i])}</h3>${rowsHtml}${note ? `<div class="note">${note}</div>` : ""}${click}`;
+  readoutEl.hidden = false;
+  const rw = readoutEl.offsetWidth;
+  let left = x + 14;
+  if (left + rw > geo.w - 4) left = x - rw - 14;
+  readoutEl.style.transform = `translate(${Math.round(Math.max(4, left))}px, ${Math.round(geo.T)}px)`;
+}
+
+/* ============================================================ navigator */
+function renderNav() {
+  const r = navCanvas.parentElement.getBoundingClientRect();
+  const w = r.width, h = r.height;
+  const ctx = navCanvas.getContext("2d");
+  ctx.setTransform(geo.dpr, 0, 0, geo.dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  if (!A) return;
+  const T = times();
+  const [d0, d1] = fullView();
+  const nx = (ms) => ((ms - d0) / (d1 - d0)) * w;
+  let hi = -Infinity;
+  for (let i = 0; i < A.n; i++) { const v = A.y[i]; if (v === v) hi = Math.max(hi, v); }
+  const P = proj();
+  if (P && P.kind === "forecast") for (let k = 0; k < P.H; k++) hi = Math.max(hi, P.f.F[k]);
+  const ny = (v) => h - 3 - (v / (hi || 1)) * (h - 8);
+  ctx.fillStyle = C.panel2;
+  ctx.beginPath(); ctx.roundRect(0, 0, w, h, 6); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(nx(T[0]), h);
+  for (let i = 0; i < A.n; i++) if (A.y[i] === A.y[i]) ctx.lineTo(nx(T[i]), ny(A.y[i]));
+  ctx.lineTo(nx(T[A.n - 1]), h); ctx.closePath();
+  ctx.fillStyle = rgba(C.accent, 0.22); ctx.fill();
+  if (P) {
+    ctx.strokeStyle = P.color; ctx.setLineDash([3, 2]);
+    ctx.beginPath(); ctx.moveTo(nx(T[P.T - 1]), ny(A.yModel[P.T - 1]));
+    for (let k = 0; k < P.H; k++) ctx.lineTo(nx(T[P.T + k]), ny(P.f.F[k]));
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+  if (cfg.mode === "impact") for (const e of EVENTS) { ctx.fillStyle = C.impact; ctx.fillRect(Math.round(nx(T[e.i])), 2, 1.5, h - 4); }
+  const a = Math.max(0, nx(view[0])), b = Math.min(w, nx(view[1]));
+  ctx.fillStyle = rgba(C.bg, 0.6);
+  ctx.fillRect(0, 0, a, h); ctx.fillRect(b, 0, w - b, h);
+  ctx.strokeStyle = C.accent; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(a + 0.75, 0.75, Math.max(4, b - a - 1.5), h - 1.5, 5); ctx.stroke();
+  ctx.fillStyle = C.accent;
+  for (const x of [a, b]) { ctx.beginPath(); ctx.roundRect(x - 2.5, h / 2 - 9, 5, 18, 2.5); ctx.fill(); }
+}
+
+/* ============================================================ detail canvases */
+let decRows = null;
+function renderDec() {
+  if (cfg.mode !== "decompose") return;
+  const r = decCanvas.parentElement.getBoundingClientRect();
+  if (!r.width) return;
+  const ctx = decCanvas.getContext("2d");
+  ctx.setTransform(geo.dpr, 0, 0, geo.dpr, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+  const d = DEC.dec;
+  if (!d) { ctx.fillStyle = C.dim; ctx.font = font(13); ctx.fillText(`Needs at least two full seasons of ${A.g.nouns} to separate trend from season.`, 16, 30); return; }
+  const T = times(), N = A.modelN;
+  const [i0, i1] = visibleRange();
+  const rowsDef = [
+    { name: "Trend", get: (i) => d.trend[i], color: C.accent, kind: "line" },
+    { name: `Seasonal · ${periodName(d.m)}`, get: (i) => d.seasonal[i], color: C.forecast, kind: "line", zero: true },
+    { name: "Remainder", get: (i) => d.rem[i], color: C.raw, kind: "bars", zero: true },
+  ];
+  const gap = 10, top = 4, rh = (r.height - top - gap * 2 - 4) / 3;
+  rowsDef.forEach((row, k) => {
+    const y0 = top + k * (rh + gap);
+    let lo = Infinity, hi = -Infinity;
+    for (let i = i0; i <= Math.min(i1, N - 1); i++) { const v = row.get(i); if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (k === 2) { const lim = cfg.sens * DEC.mad; lo = Math.min(lo, -lim); hi = Math.max(hi, lim); }
+    if (row.zero) { const m = Math.max(Math.abs(lo), Math.abs(hi)) || 1; lo = -m; hi = m; }
+    const padv = (hi - lo) * 0.1 || 1; lo -= padv; hi += padv;
+    const yy = (v) => y0 + rh - ((v - lo) / (hi - lo)) * rh;
+    ctx.fillStyle = C.panel2; ctx.fillRect(geo.L, y0, geo.pw, rh);
+    ctx.fillStyle = C.dim; ctx.font = font(11, 600); ctx.textAlign = "left"; ctx.textBaseline = "top";
+    ctx.fillText(row.name, geo.L + 8, y0 + 6);
+    ctx.font = font(11); ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    ctx.fillText(compact(hi - padv), geo.L - 8, yy(hi - padv)); ctx.fillText(compact(lo + padv), geo.L - 8, yy(lo + padv));
+    ctx.save(); ctx.beginPath(); ctx.rect(geo.L, y0, geo.pw, rh); ctx.clip();
+    if (row.zero) { ctx.strokeStyle = C.border; ctx.beginPath(); ctx.moveTo(geo.L, Math.round(yy(0)) + 0.5); ctx.lineTo(geo.L + geo.pw, Math.round(yy(0)) + 0.5); ctx.stroke(); }
+    if (k === 2) {
+      const lim = cfg.sens * DEC.mad;
+      ctx.fillStyle = rgba(C.danger, 0.06);
+      ctx.fillRect(geo.L, y0, geo.pw, yy(lim) - y0);
+      ctx.fillRect(geo.L, yy(-lim), geo.pw, y0 + rh - yy(-lim));
+      const bw = Math.max(1, Math.min(6, (geo.pw / (i1 - i0 + 1)) * 0.7));
+      for (let i = i0; i <= Math.min(i1, N - 1); i++) {
+        const v = row.get(i), x = X(T[i]);
+        ctx.fillStyle = Math.abs(DEC.z[i]) >= cfg.sens ? C.danger : rgba(C.raw, 0.8);
+        const a = yy(0), b = yy(v);
+        ctx.fillRect(x - bw / 2, Math.min(a, b), bw, Math.max(1, Math.abs(b - a)));
+      }
+    } else {
+      ctx.strokeStyle = row.color; ctx.lineWidth = 2;
+      let open = false; ctx.beginPath();
+      for (let i = i0; i <= Math.min(i1, N - 1); i++) { const x = X(T[i]), y = yy(row.get(i)); if (open) ctx.lineTo(x, y); else ctx.moveTo(x, y); open = true; }
+      ctx.stroke();
+    }
+    ctx.restore();
+    row.yy = yy;
+  });
+  decRows = rowsDef;
+  ctx.textBaseline = "alphabetic";
+}
+function renderDecOverlay() {
+  const r = decOverlay.parentElement.getBoundingClientRect();
+  if (!r.width) return;
+  const ctx = decOverlay.getContext("2d");
+  ctx.setTransform(geo.dpr, 0, 0, geo.dpr, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+  if (hoverIdx < 0 || !decRows || hoverIdx >= A.modelN) return;
+  const x = X(times()[hoverIdx]);
+  if (x < geo.L || x > geo.L + geo.pw) return;
+  ctx.strokeStyle = rgba(C.text, 0.35);
+  ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, 0); ctx.lineTo(Math.round(x) + 0.5, r.height); ctx.stroke();
+  for (const row of decRows) {
+    ctx.beginPath(); ctx.arc(x, row.yy(row.get(hoverIdx)), 4, 0, Math.PI * 2);
+    ctx.fillStyle = row.kind === "bars" ? C.text : row.color; ctx.fill();
+    ctx.strokeStyle = C.panel; ctx.lineWidth = 2; ctx.stroke();
+  }
+}
+/** Cumulative effect since the event, on the chart's time axis, with its 80% range. */
+function renderCum() {
+  if (cfg.mode !== "impact") return;
+  const r = cumCanvas.parentElement.getBoundingClientRect();
+  if (!r.width) return;
+  const ctx = cumCanvas.getContext("2d");
+  ctx.setTransform(geo.dpr, 0, 0, geo.dpr, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+  if (!IMP || IMP.error) return;
+  const T = times(), { T: ev, H, ce, lo, hi } = IMP;
+  const top = 18, bot = r.height - 8, ph = bot - top;
+  let mn = 0, mx = 0;
+  for (let h = 0; h < H; h++) { mn = Math.min(mn, lo[h], ce[h]); mx = Math.max(mx, hi[h], ce[h]); }
+  const pad = (mx - mn) * 0.1 || 1; mn -= pad; mx += pad;
+  const yy = (v) => bot - ((v - mn) / (mx - mn)) * ph;
+  ctx.fillStyle = C.panel2; ctx.fillRect(geo.L, top, geo.pw, ph);
+  ctx.save(); ctx.beginPath(); ctx.rect(geo.L, top, geo.pw, ph); ctx.clip();
+  ctx.strokeStyle = C.border; ctx.beginPath(); ctx.moveTo(geo.L, Math.round(yy(0)) + 0.5); ctx.lineTo(geo.L + geo.pw, Math.round(yy(0)) + 0.5); ctx.stroke();
+  const x0 = X(T[ev - 1]);
+  ctx.fillStyle = rgba(C.impact, 0.18);
+  ctx.beginPath(); ctx.moveTo(x0, yy(0));
+  for (let h = 0; h < H; h++) ctx.lineTo(X(T[ev + h]), yy(hi[h]));
+  for (let h = H - 1; h >= 0; h--) ctx.lineTo(X(T[ev + h]), yy(lo[h]));
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = IMP.total >= 0 ? C.ok : C.danger; ctx.lineWidth = 2.25;
+  ctx.beginPath(); ctx.moveTo(x0, yy(0));
+  for (let h = 0; h < H; h++) ctx.lineTo(X(T[ev + h]), yy(ce[h]));
+  ctx.stroke();
+  if (hoverIdx >= ev && hoverIdx < ev + H) {
+    const x = X(T[hoverIdx]);
+    ctx.strokeStyle = rgba(C.text, 0.35); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, top); ctx.lineTo(Math.round(x) + 0.5, bot); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, yy(ce[hoverIdx - ev]), 4, 0, Math.PI * 2); ctx.fillStyle = C.text; ctx.fill();
+  }
+  ctx.restore();
+  ctx.fillStyle = C.dim; ctx.font = font(11, 600); ctx.textAlign = "left";
+  ctx.fillText(`Cumulative effect since ${shortPeriod(A.g, T[ev])}, with 80% range`, geo.L, top - 6);
+  ctx.font = font(11); ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  ctx.fillText("0", geo.L - 8, yy(0));
+  ctx.fillText(compact(mx - pad), geo.L - 8, yy(mx - pad));
+  ctx.fillText(compact(mn + pad), geo.L - 8, yy(mn + pad));
+  ctx.textBaseline = "alphabetic";
+  if (geo.wide) {
+    const end = X(T[ev + H - 1]);
+    ctx.textAlign = "left"; ctx.fillStyle = IMP.total >= 0 ? C.ok : C.danger; ctx.font = font(13, 650);
+    ctx.fillText(signed(IMP.total), Math.min(end + 8, geo.L + geo.pw + 10), yy(IMP.total) + 4);
+  }
+}
+function periodName(m) {
+  const g = A.g;
+  if (!m) return "none";
+  if (g.unit === "day" && m === 7) return "weekly";
+  if (g.periods.includes(m)) return "yearly";
+  return `${m}-${g.noun.split(" ").pop()} cycle`;
+}
+
+/* ============================================================ findings */
+function phaseLabel(m, k) {
+  const g = A.g;
+  if (g.unit === "day" && m === 7) return WEEKDAYS[k % 7];
+  let idx = -1;
+  for (let i = A.modelN - 1; i >= 0; i--) if (i % m === k) { idx = i; break; }
+  const dt = new Date(A.t[idx]);
+  if (g.unit === "month" && g.n === 1) return MONTHS[dt.getUTCMonth()];
+  if (g.unit === "month") return "Q" + (Math.floor(dt.getUTCMonth() / 3) + 1);
+  if (g.unit === "day") return dfDM.format(dt);
+  return (g.n === 1 ? "the week of " : `the ${g.n} weeks from `) + dfDM.format(dt);
+}
+/** Verdict wording shared by the strip, the findings and the effect cards. */
+function verdictOf(I) {
+  const dir = I.total >= 0 ? "rise" : "drop";
+  if (I.verdict === "clear") return { text: `Clear ${dir}`, cls: I.total >= 0 ? "up" : "down", note: "the 95% range leaves out zero" };
+  if (I.verdict === "possible") return { text: `Possible ${dir}`, cls: "flat", note: "only the 80% range leaves out zero" };
+  return { text: "No clear effect", cls: "flat", note: "the 80% range includes zero" };
+}
+function impactSentence(I) {
+  const g = A.g;
+  const when = `over the ${I.H} ${nounFor(g, I.H)} after <b>${I.event.label}</b> on ${shortPeriod(g, A.t[I.T])}`;
+  if (I.rel === I.rel) return `${measureWord()} ran <b>${Math.abs(I.rel * 100).toFixed(1)}% ${I.total >= 0 ? "above" : "below"}</b> expected ${when} (80%: ${pct(I.relLo, 1)} to ${pct(I.relHi, 1)}).`;
+  return `${measureWord()} ran <b>${signed(I.total)}</b> against expected in total ${when} (80%: ${signed(I.lo[I.H - 1])} to ${signed(I.hi[I.H - 1])}).`;
+}
+function buildInsights() {
+  const out = [];
+  const g = A.g, N = A.modelN, d = DEC.dec;
+  if (cfg.mode === "impact" && IMP && !IMP.error) {
+    out.push({ kind: `Impact · ${verdictOf(IMP).text.toLowerCase()}`, color: C.impact, html: impactSentence(IMP), acts: [{ label: "Fit view", fn: () => flyTo(impactView()) }] });
+  }
+  if (cfg.mode === "impact" && EVENTS.length > 1) {
+    out.push({ kind: `Events · ${EVENTS.length} found`, color: C.impact, html: "Lasting steps found in other numeric columns. Pick one to measure it, or drag the event line anywhere.",
+      acts: EVENTS.map((e) => ({ label: `${e.short} ${shortPeriod(g, A.t[e.i])}`, fn: () => openImpact(e.i) })) });
+  }
+  if (d) {
+    const first = d.trend[0], lastv = d.trend[N - 1];
+    const months = (A.t[N - 1] - A.t[0]) / (30.44 * DAY);
+    const html = A.allPositive && first > 0
+      ? `${measureWord()} ${lastv >= first ? "rose" : "fell"} <b>${Math.abs((lastv / first - 1) * 100).toFixed(0)}%</b> over the period, about <b>${pct(Math.pow(lastv / first, 1 / Math.max(1, months)) - 1, 1)}</b> a month.`
+      : `${measureWord()}'s trend went from <b>${compact(first)}</b> to <b>${compact(lastv)}</b> over the period, about <b>${signed((lastv - first) / Math.max(1, months))}</b> a month.`;
+    out.push({ kind: "Trend", color: C.accent, meter: d.ft, meterLabel: "trend strength", html,
+      acts: [{ label: "Show all", fn: () => flyTo(fullView()) }] });
+    const cp = DEC.cp;
+    if (cp && cp.gain > 0.5) {
+      const k = g.perYear / 12;
+      let scale = 0;
+      for (let i = 0; i < N; i++) scale += Math.abs(A.yModel[i]);
+      scale = scale / N || 1;
+      const b = (cp.before.slope * k) / scale, a = (cp.after.slope * k) / scale;
+      if (Math.abs(b - a) > 0.006) out.push({ kind: "Change", color: C.dim,
+        html: `The trend ${a < b ? "slowed" : "picked up"} from <b>${dfMonShort.format(new Date(A.t[cp.k]))}</b>: <b>${monthlyRate(cp.before.slope, cp.before.mean)}</b> a month before, <b>${monthlyRate(cp.after.slope, cp.after.mean)}</b> after.`,
+        acts: [{ label: "Show", fn: () => { flyTo([A.t[Math.max(0, cp.k - Math.round(g.perYear * 0.75))], A.t[Math.min(N - 1, cp.k + Math.round(g.perYear * 0.6))]]); pulse = { indices: [], rule: cp.k, start: performance.now() }; } }, { label: "Measure it", fn: () => openImpact(cp.k) }] });
+    }
+    const prof = d.prof;
+    let hiK = 0, loK = 0;
+    for (let k = 0; k < d.m; k++) { if (prof[k] > prof[hiK]) hiK = k; if (prof[k] < prof[loK]) loK = k; }
+    const unit = g.unit === "day" && d.m === 7 ? "day" : g.unit === "month" && g.n === 1 ? "month" : g.noun;
+    const calendar = d.m && (g.periods.includes(d.m) || (g.unit === "day" && d.m === 7));
+    if (!d.m) out.push({ kind: "Season · none", color: C.forecast, html: `No repeating cycle at this grain. Trend and leftovers only.`, acts: [{ label: "Decompose", fn: () => setMode("decompose") }] });
+    else if (!calendar) {
+      let lastHi = -1, lastLo = -1;
+      for (let i = N - 1; i >= 0 && (lastHi < 0 || lastLo < 0); i--) { if (lastHi < 0 && i % d.m === hiK) lastHi = i; if (lastLo < 0 && i % d.m === loK) lastLo = i; }
+      out.push({ kind: `Season · ${periodName(d.m)}`, color: C.forecast, meter: d.fs, meterLabel: "seasonal strength",
+        html: `Repeats about every <b>${d.m} ${g.nouns}</b>${g.perYear > 1 ? ` (${(d.m / g.perYear).toFixed(1)} years)` : ""}. Latest high phase around <b>${shortPeriod(g, A.t[lastHi])}</b>, latest low around <b>${shortPeriod(g, A.t[lastLo])}</b>; swing about <b>${compact(prof[hiK] - prof[loK])}</b>.`,
+        acts: [{ label: "Decompose", fn: () => setMode("decompose") }] });
+    } else out.push({ kind: `Season · ${periodName(d.m)}`, color: C.forecast, meter: d.fs, meterLabel: "seasonal strength",
+      html: `${cap(phaseLabel(d.m, hiK))} ${d.m === 7 ? "run" : "runs"} <b>${A.allPositive && d.level > 0 ? ((prof[hiK] / d.level) * 100).toFixed(0) + "%" : compact(prof[hiK])}</b> above an average ${unit}; ${phaseLabel(d.m, loK)} <b>${A.allPositive && d.level > 0 ? Math.abs((prof[loK] / d.level) * 100).toFixed(0) + "%" : compact(Math.abs(prof[loK]))}</b> below.`,
+      acts: [{ label: "Decompose", fn: () => setMode("decompose") }] });
+    if (DEC.anomalies.length) {
+      const i = DEC.anomalies[0];
+      const exp = d.trend[i] + d.seasonal[i];
+      out.push({ kind: `Unusual · ${DEC.anomalyCount} ${nounFor(g, DEC.anomalyCount)}`, color: C.danger,
+        html: `Largest: <b>${periodLabel(g, A.t[i])}</b>, <b>${chg(A.y[i], exp).text}</b> against expected. ${explain(i, exp)}`,
+        acts: DEC.anomalies.slice(0, 4).map((j) => ({ label: shortPeriod(g, A.t[j]), fn: () => focusIndex(j) })) });
+    }
+  }
+  if (cfg.mode !== "impact" && EVENTS.length) {
+    out.push({ kind: `Events · ${EVENTS.length} found`, color: C.impact,
+      html: `${EVENTS.length} lasting ${EVENTS.length === 1 ? "step" : "steps"} in ${[...new Set(EVENTS.map((e) => e.col))].join(", ")}. Measure what ${EVENTS.length === 1 ? "it" : "each"} did to ${measureWord()}.`,
+      acts: EVENTS.map((e) => ({ label: `${e.short} ${shortPeriod(g, A.t[e.i])}`, fn: () => openImpact(e.i) })) });
+  }
+  if (MOD && !MOD.error && FUT) {
+    const key = selectedModel(), f = FUT[key], r = ratioOf(key);
+    const gr = grade(r, key);
+    let avg = 0, l = 0, h = 0;
+    for (let k = 0; k < MOD.H; k++) { avg += f.F[k]; l += f.lo80[k]; h += f.hi80[k]; }
+    const beat = key === "sn" ? "Nothing beats repeating the last cycle here." : `<b>${MODEL_INFO[key].name}</b> beats repeating the last cycle by <b>${Math.max(0, (1 - r) * 100).toFixed(0)}%</b>${f.held ? " on the held-out " + g.nouns : ""}.`;
+    out.push({ kind: `Forecast · ${gr.text}`, color: C.forecast,
+      html: `${beat} Next ${MOD.H} ${nounFor(g, MOD.H)}: <b>${compact(avg / MOD.H)}</b> a ${g.noun} on average (80%: ${compact(l / MOD.H)} to ${compact(h / MOD.H)}).`,
+      acts: [{ label: cfg.mode === "forecast" ? "Fit view" : "Open forecast", fn: () => { setMode("forecast"); flyTo(forecastView()); } }] });
+  } else if (MOD && MOD.error) out.push({ kind: "Forecast", color: C.forecast, html: MOD.error, acts: [] });
+  const bits = [], cn = cadenceNoun(DATA.cadence);
+  if (A.gapRanges.length) {
+    const fmt = ([a, b]) => dfDate.format(new Date(START + a * DAY)) + (b > a ? " – " + dfDate.format(new Date(START + b * DAY)) : "");
+    const slots = A.gapRanges.reduce((s2, [a, b]) => s2 + Math.max(1, Math.round((b - a + 1) / Math.max(1, DATA.cadence))), 0);
+    bits.push(`<b>${nf.format(slots)} ${slots === 1 ? cn.replace(/s$/, "") : cn}</b> with no rows (${A.gapRanges.slice(0, 3).map(fmt).join(", ")}${A.gapRanges.length > 3 ? `, and ${A.gapRanges.length - 3} more stretches` : ""}). Periods left with no rows are ${cfg.gaps === "zero" ? "filled with zero" : cfg.gaps === "interp" ? "interpolated" : "left empty"}.`);
+  }
+  const struct = [0, 1, 2, 3, 4, 5, 6].filter((k) => DATA.structural[k]).map((k) => WEEKDAYS[k]);
+  if (struct.length) bits.push(`${struct.join(" and ")} never have rows, so they are not counted as missing.`);
+  if (DATA.subDay) bits.push("Rows are finer than a day; this prototype shows days at the finest.");
+  if (A.naRows) bits.push(`${nf.format(A.naRows)} rows have no ${cfg.measure} value and are left out.`);
+  if (DATA.dropped) bits.push(`${nf.format(DATA.dropped)} rows had no readable date and were skipped.`);
+  if (A.partial[A.n - 1]) bits.push(`The last ${g.noun} is partial (about ${Math.round(A.coverage[A.n - 1] * 100)}% of its data) and is ${cfg.partial === "exclude" ? "left out of trend and forecast" : "included"}.`);
+  const firstGap = A.gapRanges.length ? dayBuckets(g)[A.gapRanges[0][0]] : -1;
+  if (bits.length) out.push({ kind: "Data", color: C.warn, html: bits.join(" "), acts: firstGap >= 0 ? [{ label: "Show gap", fn: () => focusIndex(firstGap) }] : [] });
+  return out;
+}
+function explain(i, expected) {
+  if (A.coverage[i] < 0.9 || A.filled[i]) return `Only about ${Math.round(A.coverage[i] * 100)}% of the usual rows are there, so this is a data gap, not a real ${A.y[i] < expected ? "drop" : "rise"}.`;
+  for (const d of cfg.drivers) {
+    if (DRIVER_DEFS[d.col].flag) continue;
+    const ser = DRIVER_DEFS[d.col].series(), w = eventWindowLen(A.g), typ = regular(ser, i - w, i + w), ch = ser[i] / typ - 1;
+    if (Math.abs(ch) > 0.05) return `<b>${d.col}</b> was ${Math.abs(ch * 100).toFixed(0)}% ${ch < 0 ? "below" : "above"} its usual level that ${A.g.noun}.`;
+  }
+  if (cfg.agg !== "sum" || cfg.group !== "all") return "";
+  const excess = A.y[i] - expected;
+  let tot = 0;
+  const shares = GROUPS.map((_, r) => { let s = 0; for (let k = 0; k < A.modelN; k++) s += A.groupVal[r][k]; tot += s; return s; });
+  let best = -1, bestV = 0;
+  GROUPS.forEach((_, r) => { const e = A.groupVal[r][i] - (expected * shares[r]) / tot; if (Math.sign(e) === Math.sign(excess) && Math.abs(e) > Math.abs(bestV)) { bestV = e; best = r; } });
+  return best < 0 || !(tot > 0) ? "" : `group <b>${GROUPS[best]}</b> accounts for ${Math.min(100, (bestV / excess) * 100).toFixed(0)}% of it.`;
+}
+
+/* ============================================================ view actions */
+function flyTo(target) {
+  const to = clampView(target);
+  if (reduceMotion.matches) { view = to; invalidate("stat", "nav", "panel", "ov"); return; }
+  viewAnim = { from: view.slice(), to, start: performance.now(), dur: 380 };
+  invalidate();
+}
+function focusIndex(i) {
+  const w = Math.max(10, Math.round(A.g.perYear * 0.5));
+  flyTo([A.t[Math.max(0, i - w)], A.t[Math.min(A.n - 1, i + w)]]);
+  pulse = { indices: [i], rule: null, start: performance.now() + 200 };
+  hoverIdx = i;
+}
+function forecastView() {
+  if (!MOD || MOD.error) return fullView();
+  const T = times();
+  const back = Math.round(Math.max(MOD.H * 2.5, A.g.perYear * 1.5));
+  return [T[Math.max(0, MOD.T - back)], T[MOD.T + MOD.H - 1] + (T[1] - T[0]) * 2];
+}
+function impactView() {
+  if (!IMP) return fullView();
+  const T = times();
+  const back = Math.round(Math.max(IMP.H * 3, A.g.perYear * 0.75));
+  return [T[Math.max(0, IMP.T - back)], T[Math.min(A.n - 1, IMP.T + IMP.H - 1 + Math.max(2, Math.round(IMP.H * 0.6)))]];
+}
+function openImpact(i) {
+  cfg.event = i; cfg.window = null;
+  if (cfg.mode !== "impact") setMode("impact");
+  else { compute(); invalidate("ui", "stat", "nav", "panel", "ov"); }
+  flyTo(impactView());
+}
+
+/* ============================================================ UI */
+const POP = document.getElementById("popover");
+const TOKENS = {
+  grain: { opts: GRAIN_ORDER.map((id) => [id, GRAINS[id].adj]) },
+  agg: { opts: [["sum", "sum"], ["mean", "mean"], ["median", "median"], ["min", "min"], ["max", "max"], ["first", "first"], ["last", "last"], ["count", "count of rows"]] },
+  measure: { opts: [] },
+  group: { opts: [] },
+  gaps: { opts: [["zero", "filled with zero"], ["interp", "interpolated"], ["leave", "left empty"]] },
+  partial: { opts: [["exclude", "left out"], ["include", "kept"]] },
+};
+function refreshTokens() {
+  TOKENS.measure.opts = Object.keys(DATA.cols).map((c) => [c, c, DATA.timeLike[c] ? "counts time" : ""]);
+  TOKENS.group.opts = [["all", "all"], ...GROUPS.map((r, k) => [String(k), r])];
+}
+function defaultGrain(t) {
+  for (const id of GRAIN_ORDER) {
+    if (tooFine(id)) continue;
+    const buckets = t.ndays / GRAINS[id].days;
+    if (buckets > 4000) continue;
+    if (t.eventLike && t.rowDay.length / buckets < 3) continue;
+    return id;
+  }
+  return "year";
+}
+/** Load any table: reset every choice to the table's own defaults. */
+function loadTable(t) {
+  setTable(t);
+  buildDriverDefs();
+  refreshTokens();
+  const g0 = defaultGrain(t);
+  Object.assign(cfg, { grain: g0, agg: t.eventLike ? "count" : "sum", measure: t.defMeasure, group: "all", gaps: "leave", partial: "exclude",
+    smoothW: GRAINS[g0].smooth, showSmooth: true, lastYear: false, period: null, split: null, horizon: null, model: "auto", drivers: [], event: null, window: null, impactModel: "auto" });
+  for (const k in cache) cache[k] = "";
+  hwWarm.clear();
+  allT = null;
+  hoverIdx = -1;
+  view = null;
+}
+async function openFile(file) {
+  try {
+    const text = await file.text();
+    const t = tableFromCSV(file.name, text);
+    startFade();
+    loadTable(t);
+    compute();
+    view = clampView(fullView());
+    invalidate("ui", "stat", "nav", "panel", "ov");
+    const last = START + DATA.observed[DATA.observed.length - 1] * DAY;
+    toast(`Loaded ${file.name}: ${nf.format(t.rowDay.length)} rows, ${dfDate.format(new Date(START))} to ${dfDate.format(new Date(last))}, a row about every ${cadenceNoun(t.cadence).replace(/s$/, "")}${t.subDay ? " (finer than a day)" : ""}.`);
+  } catch (err) {
+    toast(`Could not read ${file.name}: ${err.message}`);
+  }
+}
+function tokText(key) { const o = TOKENS[key].opts.find((x) => x[0] === cfg[key]); return o ? o[1] : ""; }
+function tok(key, disabled) { return `<button type="button" class="tok" data-tok="${key}" aria-haspopup="menu"${disabled ? " disabled" : ""}>${tokText(key)}</button>`; }
+function renderUI() {
+  const g = A.g;
+  document.getElementById("app").dataset.mode = cfg.mode;
+  const count = cfg.agg === "count";
+  document.getElementById("sentence").innerHTML = `${tok("grain")} ${tok("agg")}${count ? "" : ` of ${tok("measure")}`}${GROUPS.length > 1 ? ` for ${DATA.groupCol} ${tok("group")}` : ""}`;
+  const lastObs = START + DATA.observed[DATA.observed.length - 1] * DAY;
+  document.getElementById("subline").innerHTML = `${DATA.name} · ${nf.format(DATA.rowDay.length)} rows · ${dfDate.format(new Date(START))} to ${dfDate.format(new Date(lastObs))} · gaps ${tok("gaps")} · partial last ${g.noun} ${tok("partial")}`;
+  document.getElementById("why").textContent = `Each ${g.noun} is ${count ? "the number of rows" : `the ${cfg.agg} of the rows`} that fall in it. Click any highlighted word to change it.`;
+  document.getElementById("dataNote").textContent = DATA.name === "Sample table" ? "Sample table: generated, with neutral column names. Open any CSV with a date column to try your own data; it never leaves this tab." : "Your file stays in this tab; nothing is uploaded. Every number is computed here.";
+  heroOverlay.setAttribute("aria-label", document.getElementById("sentence").textContent + ". Left and right arrows step through periods, Enter shows the rows.");
+
+  const N = A.modelN, d = DEC.dec;
+  let li = N - 1;
+  while (li > 0 && !(A.y[li] === A.y[li])) li--;
+  const v = A.y[li], prev = A.y[li - 1], ly = li - g.ly >= 0 ? A.y[li - g.ly] : NaN;
+  const chip = (c) => (c ? `<span class="pill ${c.v > 0 ? "up" : c.v < 0 ? "down" : "flat"}">${c.text}</span>` : "");
+  const cells = [
+    ["Periods", `${nf.format(A.n)} <small>${g.nouns}${A.partial[A.n - 1] ? ", last partial" : ""}</small>`],
+    [`Latest full ${g.noun}`, `${compact(v)} ${chip(chg(v, prev))}`],
+    ["vs a year earlier", Number.isFinite(ly) ? `${chip(chg(v, ly))} <small>${compact(ly)}</small>` : "<small>not enough history</small>"],
+  ];
+  if (DEC.cp && DEC.cp.gain > 0.5) cells.push(["Trend now", `${monthlyRate(DEC.cp.after.slope, DEC.cp.after.mean)} <small>a month since ${dfMonShort.format(new Date(A.t[DEC.cp.k]))}</small>`]);
+  else if (d) { const months = Math.max(1, (A.t[N - 1] - A.t[0]) / (30.44 * DAY)); cells.push(["Trend", `${A.allPositive && d.trend[0] > 0 ? pct(Math.pow(d.trend[N - 1] / d.trend[0], 1 / months) - 1, 1) : signed((d.trend[N - 1] - d.trend[0]) / months)} <small>a month</small>`]); }
+  if (d) cells.push(["Season", `${cap(periodName(d.m))} <small>strength ${d.fs.toFixed(2)}</small>`]);
+  if (cfg.mode === "impact" && IMP && !IMP.error) {
+    cells.push(["Event impact", `<span class="pill ${verdictOf(IMP).cls}">${IMP.rel === IMP.rel ? pct(IMP.rel, 1) : signed(IMP.total)}</span> <small>${verdictOf(IMP).text.toLowerCase()}</small>`]);
+  } else if (MOD && !MOD.error) {
+    const key = selectedModel(), r = ratioOf(key), gr = grade(r, key);
+    cells.push(["Forecast", `<span class="pill ${gr.cls}">${gr.text}</span> <small>${key === "sn" ? "baseline" : (r - 1 >= 0 ? "+" : "−") + Math.abs((r - 1) * 100).toFixed(0) + "% error vs naive"}</small>`]);
+  }
+  document.getElementById("strip").innerHTML = cells.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join("");
+
+  const lg = [`<span style="color:${C.text}"><i></i>${cfg.mode === "impact" ? "Actual" : measureWord()}</span>`];
+  if (cfg.mode === "explore" && cfg.showSmooth) lg.push(`<span style="color:${C.accent}"><i></i>Rolling ${cfg.smoothStat}</span>`);
+  if (cfg.mode === "explore" && cfg.lastYear) lg.push(`<span style="color:${C.dim}"><i class="dash"></i>Last year</span>`);
+  if (cfg.mode === "decompose") lg.push(`<span style="color:${C.accent}"><i></i>Trend</span>`);
+  if ((cfg.mode === "explore" || cfg.mode === "decompose") && DEC.anomalies.length) lg.push(`<span style="color:${C.danger}">◯ Unusual</span>`);
+  if (cfg.mode === "forecast" && FUT) lg.push(`<span style="color:${C.forecast}"><i class="dash"></i>Forecast</span><span style="color:${C.forecast}"><i class="band"></i>${cfg.level === "fan" ? "80% and 95%" : "80%"} range</span>`);
+  if (cfg.mode === "impact") lg.push(`<span style="color:${C.impact}"><i class="dash"></i>Expected without the event</span><span style="color:${C.impact}"><i class="band"></i>80% range</span><span style="color:${C.ok}"><i class="band"></i>Above</span><span style="color:${C.danger}"><i class="band"></i>Below</span>`);
+  if (A.filled.some((x) => x)) lg.push(`<span style="color:${C.dim}">○ Filled</span>`);
+  document.getElementById("legend").innerHTML = lg.join("");
+  const ms = (x) => (x < 0.05 ? "<0.1" : x.toFixed(1));
+  document.getElementById("timing").innerHTML = `aggregate <b>${ms(timing.agg)}</b> · season <b>${ms(timing.dec)}</b> · models <b>${ms(timing.mod)}</b> · draw <b>${ms(timing.draw)}</b> ms`;
+  document.getElementById("insights").innerHTML = INS.map((it, k) => `
+    <article class="insight">
+      <div class="kick"><i style="background:${it.color}"></i>${it.kind}</div>
+      <p>${it.html}</p>
+      ${it.meter != null ? `<div class="mini" title="${it.meterLabel} ${it.meter.toFixed(2)}"><i style="width:${(it.meter * 100).toFixed(0)}%;background:${it.color}"></i></div>` : ""}
+      ${it.acts.length ? `<div class="acts">${it.acts.map((a, j) => `<button type="button" data-ins="${k}:${j}">${a.label}</button>`).join("")}</div>` : ""}
+    </article>`).join("");
+  renderModePanel();
+  if (tableOpen) renderTable();
+}
+function renderModePanel() {
+  const g = A.g;
+  for (const m of ["explore", "decompose", "forecast", "impact"]) {
+    document.getElementById("panel-" + m).hidden = cfg.mode !== m;
+    const tab = document.getElementById("tab-" + m);
+    tab.setAttribute("aria-selected", String(cfg.mode === m));
+    tab.tabIndex = cfg.mode === m ? 0 : -1;
+  }
+  for (const tb of document.querySelectorAll(".tb")) tb.hidden = tb.dataset.for !== cfg.mode;
+  if (cfg.mode === "explore") {
+    const w = document.getElementById("smoothW");
+    w.max = String(g.smoothMax); w.value = String(cfg.smoothW);
+    document.getElementById("smoothWOut").textContent = cfg.smoothW + " " + nounFor(g, cfg.smoothW).split(" ").pop();
+    document.getElementById("smoothCentred").checked = cfg.smoothCentred;
+    document.getElementById("lastYear").checked = cfg.lastYear;
+    for (const b of document.querySelectorAll("#statSeg button")) b.setAttribute("aria-pressed", String(b.dataset.stat === cfg.smoothStat));
+    const filled = A.filled.reduce((s, x) => s + x, 0);
+    const steps = [
+      { id: "resample", name: "Resample", val: `${g.adj} ${tokText("agg")}`, on: true },
+      { id: "fill", name: "Fill", val: filled ? `${filled} ${nounFor(g, filled)} ${tokText("gaps")}` : "No missing periods", on: true },
+      { id: "smooth", name: "Smooth", val: `${cfg.smoothW}-${g.noun.split(" ").pop()} ${cfg.smoothStat}`, on: cfg.showSmooth },
+      { id: "compare", name: "Compare", val: "Same period last year", on: cfg.lastYear },
+    ];
+    const ol = document.getElementById("pipeline");
+    if (ol.children.length !== 4) ol.innerHTML = steps.map((s) => `<li><button type="button" class="step" data-step="${s.id}"><span class="step-name">${s.name}</span><span class="step-val"></span><canvas></canvas></button></li>`).join("");
+    steps.forEach((s, k) => {
+      const btn = ol.children[k].querySelector("button");
+      btn.setAttribute("aria-pressed", String(s.on));
+      btn.querySelector(".step-val").textContent = s.val;
+      drawSpark(btn.querySelector("canvas"), s.id);
+    });
+  }
+  if (cfg.mode === "decompose") {
+    document.getElementById("periodSeg").innerHTML = DEC.options.map((o) => `<button type="button" data-period="${o.m}" aria-pressed="${DEC.dec && o.m === DEC.dec.m}">${cap(periodName(o.m))} <small>${o.fs.toFixed(2)}</small></button>`).join("") || `<span class="tb-note">No seasonal period fits this series.</span>`;
+    const d = DEC.dec;
+    document.getElementById("meters").innerHTML = d ? [["Trend strength", d.ft], [`Seasonal strength (${periodName(d.m)})`, d.fs], ["Unusual " + g.nouns, null]].map(([k, v]) => v == null
+      ? `<div class="meter"><span>${k} <b>${DEC.anomalyCount}</b></span><div class="bar"><i style="width:${Math.min(100, DEC.anomalyCount * 10)}%;background:${C.danger}"></i></div></div>`
+      : `<div class="meter"><span>${k} <b>${v.toFixed(2)}</b></span><div class="bar"><i style="width:${(v * 100).toFixed(0)}%"></i></div></div>`).join("") : "";
+    document.getElementById("sens").value = String(cfg.sens);
+    document.getElementById("sensOut").textContent = cfg.sens <= 3 ? "More" : cfg.sens >= 5 ? "Fewer" : "Balanced";
+  }
+  if (cfg.mode === "forecast") {
+    const H = horizon();
+    document.getElementById("hOut").textContent = H + " " + nounFor(g, H).split(" ").pop();
+    for (const b of document.querySelectorAll("#levelSeg button")) b.setAttribute("aria-pressed", String(b.dataset.level === cfg.level));
+    document.getElementById("flex").value = String(cfg.flex);
+    document.getElementById("flexOut").textContent = cfg.flex <= 3 ? "Stiff" : cfg.flex >= 8 ? "Bendy" : "Medium";
+    renderDrivers();
+    document.getElementById("splitReset").hidden = !(MOD && !MOD.error && MOD.T < A.modelN);
+    renderBoard();
+  }
+  if (cfg.mode === "impact") renderImpactPanel();
+}
+function drawSpark(cv, id) {
+  const r = cv.getBoundingClientRect();
+  if (!r.width) return;
+  sizeCanvas(cv, r.width, r.height, geo.dpr);
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(geo.dpr, 0, 0, geo.dpr, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+  const n = A.modelN;
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < n; i++) { const v = A.y[i]; if (v === v) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }
+  const sx = (i) => (i / (n - 1)) * (r.width - 2) + 1, sy = (v) => r.height - 2 - ((v - lo) / (hi - lo || 1)) * (r.height - 4);
+  const line = (get, color, w, from = 0) => { ctx.strokeStyle = color; ctx.lineWidth = w; ctx.beginPath(); let open = false; for (let i = from; i < n; i++) { const v = get(i); if (!(v === v)) { open = false; continue; } if (open) ctx.lineTo(sx(i), sy(v)); else ctx.moveTo(sx(i), sy(v)); open = true; } ctx.stroke(); };
+  if (id === "resample") line((i) => A.y[i], C.text, 1);
+  if (id === "fill") { line((i) => A.y[i], rgba(C.raw, 0.7), 1); ctx.fillStyle = C.danger; for (let i = 0; i < n; i++) if (A.filled[i] || A.coverage[i] < 0.9) { ctx.beginPath(); ctx.arc(sx(i), sy(A.y[i] === A.y[i] ? A.y[i] : lo), 2.2, 0, Math.PI * 2); ctx.fill(); } }
+  if (id === "smooth") { line((i) => A.y[i], rgba(C.raw, 0.5), 1); line((i) => SM[i], C.accent, 1.75); }
+  if (id === "compare") { line((i) => A.y[i], rgba(C.raw, 0.6), 1, A.g.ly); ctx.setLineDash([3, 2]); line((i) => (i - A.g.ly >= 0 ? A.y[i - A.g.ly] : NaN), C.dim, 1, A.g.ly); ctx.setLineDash([]); }
+}
+function renderBoard() {
+  const board = document.getElementById("board"), card = document.getElementById("modelCard");
+  if (!MOD || MOD.error) { board.innerHTML = `<tbody><tr><td class="empty">${MOD ? MOD.error : ""}</td></tr></tbody>`; card.innerHTML = ""; return; }
+  const sel = selectedModel();
+  const heldMode = MOD.T < A.modelN && FUT.sn.held && FUT.sn.held.ratio != null;
+  const maxR = Math.max(...Object.keys(MOD.models).map(ratioOf), 1);
+  const keys = Object.keys(MOD.models).sort((a, b) => ratioOf(a) - ratioOf(b));
+  board.innerHTML = `<thead><tr><th>Model</th><th>${heldMode ? "Held-out" : "Backtest"} error vs repeat-last-cycle</th><th>Grade</th><th>${heldMode ? "Held-out check" : "Band check"}</th><th>Fit</th></tr></thead><tbody>` +
+    keys.map((k) => {
+      const m = MOD.models[k], r = ratioOf(k), gr = grade(r, k), f = FUT[k];
+      const chk = f.held ? `${f.held.hit} of ${f.held.tot} inside 80%` : m.check ? `${m.check.hit} of ${m.check.tot} inside 80%` : "–";
+      return `<tr data-model="${k}" aria-selected="${k === sel}">
+        <td><span class="mname">${MODEL_INFO[k].name}</span>${k === MOD.best && cfg.model === "auto" ? `<span class="auto">Auto</span>` : ""}<span class="mmeth">${MODEL_INFO[k].meth}</span></td>
+        <td><span class="errbar" style="width:${Math.max(4, (r / maxR) * 90).toFixed(0)}px;opacity:${k === "sn" ? 0.35 : 0.85}"></span>${r.toFixed(2)}×${heldMode ? ` <small style="color:var(--dim)">backtest ${m.ratio.toFixed(2)}×</small>` : ""}</td>
+        <td><span class="pill ${gr.cls}">${gr.text}</span></td>
+        <td>${chk}</td>
+        <td>${m.ms < 0.1 ? "<0.1" : m.ms.toFixed(1)} ms</td></tr>`;
+    }).join("") + "</tbody>";
+  card.innerHTML = modelRows(MOD, FUT, sel, false).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+}
+function modelRows(M, F, sel, impact) {
+  const g = A.g, m = M.models[sel], rows = [["Model set", M.profile]];
+  if (sel === "hw" || sel === "ens") { const [a, b, gm, ph] = M.models.hw.params; rows.push(["Smooth and damp", `level ${a.toFixed(2)}, trend ${b.toFixed(3)}, season ${gm.toFixed(2)}, damping ${ph.toFixed(2)} (season of ${M.m} ${g.nouns})`]); }
+  if (sel === "reg" || sel === "ens") {
+    const f = M.models.reg.fit;
+    rows.push(["Trend, seasons and drivers", `${f.K} possible trend bends, ${f.Ky} yearly${f.Kw ? ` and ${f.Kw} weekly` : ""} wave pairs${f.drv.length ? ", drivers " + f.drv.map((v) => `<b>${v.d.col}</b>`).join(", ") : ", no drivers"}`]);
+    f.drv.forEach((v, j) => {
+      const b = f.beta[f.iDrv + j];
+      const unit = DRIVER_DEFS[v.d.col].flag ? `${v.d.col} at 1 rather than 0` : `each +1 in ${v.d.col}`;
+      rows.push([`Effect of ${v.d.col}`, v.log
+        ? `a 1% higher ${v.d.col} goes with ${Math.abs(b).toFixed(1)}% ${b < 0 ? "lower" : "higher"} ${measureWord()} (elasticity ${b.toFixed(2)})`
+        : f.logY ? `${unit} goes with ${pct(Math.exp(b) - 1)} ${measureWord()}` : `${unit} goes with ${signedNum(b)} in ${measureWord()}`]);
+    });
+    if (impact && f.drv.length) rows.push(["Drivers after the event", driverStory(true)]);
+    else if (f.drv.length) rows.push(["Driver values ahead", driverStory(false)]);
+  }
+  if (sel === "theta" || sel === "ens") { const t = M.models.theta.fit; rows.push(["Steady trend", `simple smoothing (α ${t.alpha.toFixed(2)}) plus half the long-run slope (${signed(t.b0 / 2)} a ${g.noun})${t.prof ? "; seasonal pattern taken out first and added back" : ""}`]); }
+  if (sel === "clim") rows.push(["Seasonal average", M.models.clim.m > 1 ? `each ${g.noun} is the mean of the same point in every earlier cycle of ${M.models.clim.m} ${g.nouns}; strong when there is a season but no trend` : `the mean of all earlier ${g.nouns}; there is no season at this grain`]);
+  if (sel === "sn") rows.push(["Repeat last cycle", M.m > 1 ? `each ${g.noun} copies the same ${g.noun} one season (${M.m} ${g.nouns}) earlier` : `each ${g.noun} repeats the last one; there is no season at this grain`]);
+  rows.push(["Fitted on", `${shortPeriod(g, A.t[0])} to ${shortPeriod(g, A.t[M.T - 1])} (${M.T} ${g.nouns})${impact ? ", nothing after the event" : ""}`]);
+  rows.push(["Backtest", `${M.origins.length} forecasts from earlier dates, ${M.H} ${g.nouns} each; error ${m.ratio.toFixed(2)}× repeating the last cycle`]);
+  const f = F[sel];
+  if (!impact && f.held) rows.push(["Held-out check", `${f.held.hit} of ${f.held.tot} actual ${g.nouns} after the split fell inside the 80% band (${f.held.tot ? ((f.held.hit / f.held.tot) * 100).toFixed(0) : 0}%)${f.held.tot && f.held.hit / f.held.tot < 0.6 ? `. <span class="warn">The band was too narrow here: the series changed after the backtest stretch.</span>` : ""}`]);
+  else if (!impact && m.check) rows.push(["Band check", `on the latest backtest, ${m.check.hit} of ${m.check.tot} ${g.nouns} fell inside the 80% band built from the others`]);
+  if (M.rough) rows.push(["Note", `<span class="warn">Under three backtests fit in this history, so the range is wide and rough.</span>`]);
+  rows.push([impact ? "Range" : "Band", impact ? "from how far the same model's backtests drifted over the same number of steps, summed; not from a formula" : `built from the backtest errors at each step ahead, not from a formula; it widens with the horizon${A.nonNeg ? " and stays at or above zero, as the series does" : ""}`]);
+  return rows;
+}
+function driverStory(impact) {
+  const parts = cfg.drivers.map((d) => {
+    if (impact && IMP && IMP.event && IMP.event.col === d.col) return `<b>${d.col}</b> held at ${fmtNum(IMP.event.before)}, its typical level before the event`;
+    if (impact) return `<b>${d.col}</b> at its actual values, so its own effect is not counted as the event's`;
+    const recent = fmtNum(driverRecent(d.col));
+    return `<b>${d.col}</b> ${d.rule === "lastyear" ? "same as a year earlier" : d.rule === "pct" ? `${d.pct >= 0 ? "+" : "−"}${Math.abs(d.pct)}% on its recent level of ${recent}` : `held at its recent level of ${recent}`}`;
+  });
+  return parts.join("; ") + (impact ? "." : ". These are assumptions; the band does not include doubt about them.");
+}
+function renderDrivers() {
+  const label = (d) => (d.rule === "lastyear" ? "as last year" : d.rule === "pct" ? `${d.pct >= 0 ? "+" : "−"}${Math.abs(d.pct)}%` : "held");
+  const chips = cfg.drivers.map((d, k) => `<button type="button" class="drv" data-drv="${k}" aria-haspopup="menu"><b>${d.col}</b> <span>· ${label(d)}</span> ▾</button>`);
+  chips.push(`<button type="button" class="drv add" data-drv="add" aria-haspopup="menu">+ Add column</button>`);
+  document.getElementById("drivers").innerHTML = chips.join("");
+}
+function placePop(anchor) {
+  POP.hidden = false;
+  const r = anchor.getBoundingClientRect();
+  POP.style.left = Math.max(8, Math.min(window.innerWidth - POP.offsetWidth - 8, r.left)) + "px";
+  POP.style.top = r.bottom + 6 + "px";
+}
+function openDriverPop(anchor, k) {
+  popKey = "driver";
+  const d = cfg.drivers[k];
+  POP.innerHTML = `<div class="pop-title"><b>${d.col}</b> after the data ends</div>` +
+    [["hold", `Hold at its recent level (${fmtNum(driverRecent(d.col))})`], ["lastyear", "Same as a year earlier"], ["pct", "Change from its recent level"]]
+      .map(([r, l]) => `<button type="button" role="menuitemradio" data-drv-act="rule:${k}:${r}" aria-checked="${d.rule === r}">${l}</button>`).join("") +
+    `<div class="pop-range"${d.rule === "pct" ? "" : " hidden"}><input type="range" id="drvPct" min="-25" max="25" step="1" value="${d.pct}" aria-label="Change in ${d.col}"><output id="drvPctOut">${d.pct >= 0 ? "+" : "−"}${Math.abs(d.pct)}%</output></div>` +
+    `<button type="button" data-drv-act="remove:${k}">Remove driver <small>fit without it</small></button>`;
+  placePop(anchor);
+  const range = POP.querySelector("#drvPct");
+  range.addEventListener("input", (e) => {
+    d.pct = Number(e.target.value);
+    POP.querySelector("#drvPctOut").textContent = `${d.pct >= 0 ? "+" : "−"}${Math.abs(d.pct)}%`;
+    invalidate("compute");
+  });
+  (POP.querySelector('[aria-checked="true"]') || POP.querySelector("button")).focus();
+}
+function openAddDriver(anchor) {
+  popKey = "driver";
+  const spare = Object.keys(DRIVER_DEFS).filter((c) => !cfg.drivers.some((d) => d.col === c) && (c !== cfg.measure || cfg.agg === "count"));
+  POP.innerHTML = `<div class="pop-title">Columns that move the series. Trend and seasons are built in.</div>` +
+    (spare.length ? spare.map((c) => `<button type="button" data-drv-act="add:${c}"><b style="font-family:var(--mono)">${c}</b> <small>${DRIVER_DEFS[c].about}</small></button>`).join("")
+      : `<div class="pop-title">Every numeric column in this table is already a driver.</div>`);
+  placePop(anchor);
+  const b = POP.querySelector("button");
+  if (b) b.focus();
+}
+function driverAction(act) {
+  const [kind, a, b] = act.split(":");
+  if (kind === "rule") {
+    const d = cfg.drivers[Number(a)];
+    d.rule = b;
+    if (b === "pct") { const anchor = document.querySelector(`[data-drv="${a}"]`); invalidate("compute"); openDriverPop(anchor, Number(a)); return; }
+  } else if (kind === "remove") cfg.drivers.splice(Number(a), 1);
+  else if (kind === "add") cfg.drivers.push({ col: a, rule: DRIVER_DEFS[a].flag ? "lastyear" : "hold", pct: 0 });
+  closePop();
+  change({}, { fade: false });
+}
+function renderImpactPanel() {
+  const g = A.g;
+  const sel = document.getElementById("eventSel");
+  const opts = EVENTS.map((e) => `<option value="${e.i}">${e.label} · ${shortPeriod(g, A.t[e.i])}</option>`);
+  const cur = IMP ? IMP.T : null;
+  if (cur != null && !EVENTS.some((e) => e.i === cur)) opts.push(`<option value="${cur}">Custom · ${shortPeriod(g, A.t[cur])}</option>`);
+  sel.innerHTML = opts.join("");
+  if (cur != null) sel.value = String(cur);
+  document.getElementById("wOut").textContent = IMP ? IMP.H + " " + nounFor(g, IMP.H).split(" ").pop() : "";
+  const im = document.getElementById("impModel");
+  im.innerHTML = [["auto", "Auto (best backtest)"], ["ens", "Blend"], ["hw", "Smooth and damp"], ["reg", "Trend, seasons and drivers"], ["theta", "Steady trend"], ["clim", "Seasonal average"], ["sn", "Repeat last cycle"]].map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+  im.value = cfg.impactModel;
+  const eff = document.getElementById("effects"), card = document.getElementById("impactCard");
+  if (!IMP || IMP.error) {
+    eff.innerHTML = `<div class="empty" style="grid-column:1/-1">${IMP ? IMP.error : ""}</div>`;
+    card.innerHTML = "";
+    renderCum();
+    return;
+  }
+  const I = IMP, cls = I.total >= 0 ? "gain" : "loss";
+  const vd = verdictOf(I);
+  eff.innerHTML = `
+    <div class="effect ${cls}"><span class="k">Total effect</span><span class="v">${signed(I.total)}</span><span class="r">80%: ${signed(I.lo[I.H - 1])} to ${signed(I.hi[I.H - 1])}</span></div>
+    ${I.rel === I.rel ? `<div class="effect ${cls}"><span class="k">Relative</span><span class="v">${pct(I.rel, 1)}</span><span class="r">80%: ${pct(I.relLo, 1)} to ${pct(I.relHi, 1)}</span></div>` : `<div class="effect"><span class="k">Relative</span><span class="v">–</span><span class="r">the series is not above zero throughout, so only totals apply</span></div>`}
+    <div class="effect"><span class="k">Per ${g.noun}</span><span class="v">${signed(I.total / Math.max(1, I.cnt))}</span><span class="r">over ${I.cnt} ${nounFor(g, I.cnt)}</span></div>
+    <div class="effect"><span class="k">Verdict</span><span class="v" style="font-size:16px"><span class="pill ${vd.cls}" style="font-size:13px">${vd.text}</span></span><span class="r">${vd.note}; ${I.above} above, ${I.below} below the 80% range</span></div>`;
+  const rows = modelRows(I.run, I.fut, I.key, true);
+  rows.unshift(["Expected by", `${MODEL_INFO[I.key].name}${cfg.impactModel === "auto" ? " (lowest backtest error before the event)" : ""}`]);
+  const cautions = [];
+  const others = cfg.drivers.filter((d) => d.col !== I.event.col).map((d) => d.col);
+  if (others.length) cautions.push(`Expected uses the actual ${others.join(" and ")} values after the event, so their effect is not counted as the event's.`);
+  if (I.shortYear) cautions.push(`Less than two years of history before the event, so a yearly pattern cannot be learned; part of this effect may be season. The verdict is capped at "possible".`);
+  if (I.gap) cautions.push("The window has days with no rows, which reads as a drop.");
+  cautions.push("This compares against what the pattern before the event predicted; anything else that changed at the same time is part of the effect.");
+  rows.push(["Read with care", cautions.join(" ")]);
+  card.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+  renderCum();
+}
+let tableOpen = false;
+function renderTable() {
+  const wrap = document.getElementById("tableWrap");
+  const T = times(), [i0, i1] = visibleRange();
+  const P = proj();
+  const lbl = P ? (P.kind === "impact" ? ["Expected", "Effect"] : ["Forecast", "80% low", "80% high"]) : [];
+  const head = `<tr><th>Period</th><th>${P && P.kind === "impact" ? "Actual" : measureWord()}</th>${cfg.mode === "explore" ? "<th>Rolling</th>" : ""}${cfg.mode === "decompose" ? "<th>Trend</th><th>Seasonal</th><th>Remainder</th>" : ""}${lbl.map((l) => `<th>${l}</th>`).join("")}</tr>`;
+  const rows = [];
+  for (let i = i0; i <= i1 && rows.length < 400; i++) {
+    const h = P ? i - P.T : -1, inP = !!P && h >= 0 && h < P.H;
+    let tail = "";
+    if (P && P.kind === "impact") tail = inP ? `<td>${full(P.f.F[h])}</td><td>${signed(A.y[i] - P.f.F[h])}</td>` : "<td></td><td></td>";
+    else if (P) tail = inP ? `<td>${full(P.f.F[h])}</td><td>${full(P.f.lo80[h])}</td><td>${full(P.f.hi80[h])}</td>` : "<td></td><td></td><td></td>";
+    rows.push(`<tr><td>${periodLabel(A.g, T[i])}</td><td>${i < A.n ? full(A.y[i]) : ""}</td>` +
+      (cfg.mode === "explore" ? `<td>${i < A.modelN ? full(SM[i]) : ""}</td>` : "") +
+      (cfg.mode === "decompose" ? (DEC.dec && i < A.modelN ? `<td>${full(DEC.dec.trend[i])}</td><td>${full(DEC.dec.seasonal[i])}</td><td>${full(DEC.dec.rem[i])}</td>` : "<td></td><td></td><td></td>") : "") + tail + "</tr>");
+  }
+  wrap.innerHTML = `<table><thead>${head}</thead><tbody>${rows.join("")}</tbody></table>`;
+}
+
+/* ============================================================ frame loop */
+const need = { compute: false, ui: false, stat: false, nav: false, panel: false, ov: false, table: false };
+let raf = 0;
+function invalidate(...keys) {
+  for (const k of keys) need[k] = true;
+  if (!raf) raf = requestAnimationFrame(frame);
+}
+function frame(now) {
+  raf = 0;
+  if (viewAnim) {
+    const t = Math.min(1, (now - viewAnim.start) / viewAnim.dur);
+    const e = 1 - Math.pow(1 - t, 3);
+    view = [viewAnim.from[0] + (viewAnim.to[0] - viewAnim.from[0]) * e, viewAnim.from[1] + (viewAnim.to[1] - viewAnim.from[1]) * e];
+    if (t >= 1) viewAnim = null;
+    need.stat = need.nav = need.panel = need.ov = true;
+    if (tableOpen) need.table = true;
+  }
+  if (reveal < 1) { reveal = reduceMotion.matches ? 1 : Math.min(1, (now - revealStart) / 520); need.stat = true; }
+  if (need.compute) { need.compute = false; compute(); view = clampView(view || fullView()); need.ui = need.stat = need.nav = need.panel = need.ov = true; }
+  if (need.ui) { need.ui = false; renderUI(); }
+  if (need.stat) { need.stat = false; renderHero(); }
+  if (need.nav) { need.nav = false; renderNav(); }
+  if (need.panel) { need.panel = false; renderDec(); renderDecOverlay(); renderCum(); }
+  if (need.table) { need.table = false; if (tableOpen) renderTable(); }
+  compose(now);
+  if (need.ov || pulse) { need.ov = false; renderOverlay(now); }
+  if (viewAnim || reveal < 1 || fade || pulse) raf = requestAnimationFrame(frame);
+}
+
+/* ============================================================ interactions */
+function change(patch, opts = {}) {
+  if (opts.fade !== false) startFade();
+  Object.assign(cfg, patch);
+  invalidate("compute");
+}
+function setMode(mode) {
+  if (cfg.mode === mode) return;
+  const wasAtEnd = view && Math.abs(view[1] - fullView()[1]) < (view[1] - view[0]) * 0.05;
+  cfg.mode = mode;
+  allT = null; hoverIdx = -1; ghostModel = null;
+  if (mode === "forecast" || mode === "impact") { reveal = 0; revealStart = performance.now(); }
+  compute();
+  if (mode === "forecast") view = clampView(forecastView());
+  else if (mode === "impact") view = clampView(impactView());
+  else if (wasAtEnd || !view) view = clampView([fullView()[1] - (view[1] - view[0]), fullView()[1]]);
+  else view = clampView(view);
+  invalidate("ui", "stat", "nav", "panel", "ov");
+  requestAnimationFrame(() => { layout(); invalidate("stat", "panel", "ui"); });
+}
+let popKey = null;
+document.addEventListener("click", (e) => {
+  const t = e.target.closest(".tok");
+  if (t && !t.disabled) { openPop(t, t.dataset.tok); e.stopPropagation(); return; }
+  const da = e.target.closest("[data-drv-act]");
+  if (da) { driverAction(da.dataset.drvAct); return; }
+  const dc = e.target.closest("[data-drv]");
+  if (dc) { if (dc.dataset.drv === "add") openAddDriver(dc); else openDriverPop(dc, Number(dc.dataset.drv)); e.stopPropagation(); return; }
+  const opt = e.target.closest("#popover button");
+  if (opt) { choose(popKey, opt.dataset.val); closePop(); return; }
+  if (!e.target.closest("#popover")) closePop();
+  const ins = e.target.closest("[data-ins]");
+  if (ins) { const [k, j] = ins.dataset.ins.split(":").map(Number); INS[k].acts[j].fn(); invalidate("ov", "stat", "nav"); }
+  const step = e.target.closest("[data-step]");
+  if (step) {
+    const id = step.dataset.step;
+    if (id === "resample") openPop(step, "grain");
+    else if (id === "fill") openPop(step, "gaps");
+    else if (id === "smooth") change({ showSmooth: !cfg.showSmooth }, { fade: false });
+    else if (id === "compare") change({ lastYear: !cfg.lastYear }, { fade: false });
+  }
+  const per = e.target.closest("[data-period]");
+  if (per) change({ period: Number(per.dataset.period) });
+  const lvl = e.target.closest("[data-level]");
+  if (lvl) change({ level: lvl.dataset.level }, { fade: false });
+  const st = e.target.closest("[data-stat]");
+  if (st) change({ smoothStat: st.dataset.stat }, { fade: false });
+  const row = e.target.closest("tr[data-model]");
+  if (row) change({ model: row.dataset.model === MOD.best && cfg.model !== "auto" ? "auto" : row.dataset.model }, { fade: false });
+  const tab = e.target.closest("[role=tab]");
+  if (tab) setMode(tab.dataset.mode);
+  const preset = e.target.closest("[data-span]");
+  if (preset) {
+    const months = Number(preset.dataset.span);
+    for (const b of document.querySelectorAll("#presets button")) b.setAttribute("aria-pressed", String(b === preset));
+    const [, d1] = fullView();
+    flyTo(months ? [d1 - months * 30.44 * DAY, d1] : fullView());
+  }
+});
+function openPop(anchor, key) {
+  popKey = key;
+  const g = A.g;
+  POP.innerHTML = TOKENS[key].opts.map(([val, label, hint]) => `<button type="button" role="menuitemradio" data-val="${val}" aria-checked="${cfg[key] === val}"${key === "grain" && tooFine(val) ? ` disabled title="Finer than the data: most periods would be empty"` : ""}>${key === "partial" ? `${label} <small>${label === "left out" ? `${g.noun} left out of models` : "treated as complete"}</small>` : label}${hint ? ` <small>${hint}</small>` : ""}</button>`).join("");
+  POP.hidden = false;
+  const r = anchor.getBoundingClientRect();
+  POP.style.left = Math.max(8, Math.min(window.innerWidth - POP.offsetWidth - 8, r.left)) + "px";
+  POP.style.top = r.bottom + 6 + "px";
+  (POP.querySelector('[aria-checked="true"]') || POP.querySelector("button")).focus();
+}
+function closePop() { POP.hidden = true; popKey = null; }
+POP.addEventListener("keydown", (e) => {
+  const items = [...POP.querySelectorAll("button")];
+  const i = items.indexOf(document.activeElement);
+  if (e.key === "ArrowDown") { items[(i + 1) % items.length].focus(); e.preventDefault(); }
+  if (e.key === "ArrowUp") { items[(i - 1 + items.length) % items.length].focus(); e.preventDefault(); }
+  if (e.key === "Escape") closePop();
+});
+function choose(key, val) {
+  if (!key) return;
+  const patch = { [key]: val };
+  if (key === "grain") {
+    Object.assign(patch, { smoothW: GRAINS[val].smooth, split: null, horizon: null, period: null, event: null, window: null });
+    hoverIdx = -1;
+    view = null;
+  }
+  if (key === "measure") patch.drivers = cfg.drivers.filter((d) => d.col !== val);
+  change(patch);
+}
+const on = (id, ev, fn) => document.getElementById(id).addEventListener(ev, fn);
+on("smoothW", "input", (e) => change({ smoothW: Number(e.target.value), showSmooth: true }, { fade: false }));
+on("smoothCentred", "change", (e) => change({ smoothCentred: e.target.checked }, { fade: false }));
+on("lastYear", "change", (e) => change({ lastYear: e.target.checked }, { fade: false }));
+on("sens", "input", (e) => change({ sens: Number(e.target.value) }, { fade: false }));
+on("flex", "input", (e) => change({ flex: Number(e.target.value) }, { fade: false }));
+on("hMinus", "click", () => change({ horizon: Math.max(1, horizon() - 1) }, { fade: false }));
+on("hPlus", "click", () => change({ horizon: Math.min(A.g.maxH, horizon() + 1) }, { fade: false }));
+on("splitReset", "click", () => change({ split: null }, { fade: false }));
+on("eventSel", "change", (e) => { cfg.window = null; cfg.event = Number(e.target.value); compute(); invalidate("ui", "stat", "nav", "panel", "ov"); flyTo(impactView()); });
+on("wMinus", "click", () => { if (IMP) change({ window: Math.max(1, IMP.H - 1) }, { fade: false }); });
+on("wPlus", "click", () => { if (IMP) change({ window: Math.min(A.modelN - IMP.T, IMP.H + 1) }, { fade: false }); });
+on("impModel", "change", (e) => change({ impactModel: e.target.value }, { fade: false }));
+on("board", "pointerover", (e) => { const r = e.target.closest("tr[data-model]"); const k = r ? r.dataset.model : null; if (k !== ghostModel) { ghostModel = k; invalidate("stat"); } });
+on("board", "pointerleave", () => { ghostModel = null; invalidate("stat"); });
+on("tableBtn", "click", (e) => {
+  tableOpen = !tableOpen;
+  e.currentTarget.setAttribute("aria-expanded", String(tableOpen));
+  document.getElementById("tableWrap").hidden = !tableOpen;
+  if (tableOpen) renderTable();
+});
+on("backBtn", "click", () => toast("Back to the Chart view, card untouched (prototype)."));
+on("exportBtn", "click", () => toast("Export: chart as PNG, series with components and forecast as CSV, the pipeline as Python (prototype)."));
+document.querySelector(".tabs").addEventListener("keydown", (e) => {
+  const order = ["explore", "decompose", "forecast", "impact"];
+  const i = order.indexOf(cfg.mode);
+  if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+    const next = order[(i + (e.key === "ArrowRight" ? 1 : order.length - 1)) % order.length];
+    setMode(next);
+    document.getElementById("tab-" + next).focus();
+  }
+});
+
+let drag = null;
+function handleAt(px, py) {
+  const T = times();
+  if (cfg.mode === "impact" && IMP) {
+    const xs = X(T[IMP.T - 1]);
+    if (!IMP.error) { const xe = X(T[IMP.T + IMP.H - 1]); if (Math.abs(px - xe) < 34 && py > geo.T + geo.ph - 26 && py < geo.T + geo.ph) return "horizon"; }
+    if (Math.abs(px - xs) < 7 || (Math.abs(px - xs) < 90 && py < geo.T)) return "split";
+    return null;
+  }
+  if (cfg.mode !== "forecast" || !MOD || MOD.error) return null;
+  const xs = X(T[MOD.T - 1]), xe = X(T[MOD.T + MOD.H - 1]);
+  if (Math.abs(px - xe) < 34 && py > geo.T + geo.ph - 26 && py < geo.T + geo.ph) return "horizon";
+  if (Math.abs(px - xs) < 7 || (Math.abs(px - xs) < 50 && py < geo.T)) return "split";
+  return null;
+}
+heroOverlay.addEventListener("pointermove", (e) => {
+  const r = heroOverlay.getBoundingClientRect();
+  const px = e.clientX - r.left, py = e.clientY - r.top;
+  if (drag) {
+    const dx = px - drag.x0;
+    if (Math.abs(dx) > 3) drag.moved = true;
+    if (drag.kind === "pan" && drag.moved) {
+      const span = drag.view[1] - drag.view[0];
+      view = clampView([drag.view[0] - (dx / geo.pw) * span, drag.view[1] - (dx / geo.pw) * span]);
+      viewAnim = null; hoverIdx = -1;
+      invalidate("stat", "nav", "panel", "ov");
+      return;
+    }
+    const step = A.t[1] - A.t[0];
+    if (drag.kind === "split") {
+      const i = Math.min(A.modelN, nearestIndex(invX(px)) + 1);
+      if (cfg.mode === "impact") { const ev = Math.max(2, Math.min(A.modelN - 1, i)); if (ev !== IMP.T) { cfg.event = ev; invalidate("compute"); } }
+      else if (i !== MOD.T) { cfg.split = i >= A.modelN ? null : i; invalidate("compute"); }
+      return;
+    }
+    if (drag.kind === "horizon") {
+      if (cfg.mode === "impact") {
+        const W = Math.max(1, Math.min(A.modelN - IMP.T, Math.round((invX(px) - times()[IMP.T - 1]) / step)));
+        if (W !== IMP.H) { cfg.window = W; invalidate("compute"); }
+      } else {
+        const H = Math.max(1, Math.min(A.g.maxH, Math.round((invX(px) - times()[MOD.T - 1]) / step)));
+        if (H !== MOD.H) { cfg.horizon = H; allT = null; invalidate("compute"); }
+      }
+      return;
+    }
+  }
+  heroOverlay.classList.toggle("ew", !!handleAt(px, py));
+  if (px < geo.L || px > geo.L + geo.pw) { if (hoverIdx !== -1) { hoverIdx = -1; invalidate("ov"); } return; }
+  const i = nearestIndex(invX(px));
+  if (i !== hoverIdx) { hoverIdx = i; invalidate("ov"); }
+});
+heroOverlay.addEventListener("pointerleave", () => { if (!drag) { hoverIdx = -1; invalidate("ov"); } });
+heroOverlay.addEventListener("pointerdown", (e) => {
+  const r = heroOverlay.getBoundingClientRect();
+  const px = e.clientX - r.left, py = e.clientY - r.top;
+  heroOverlay.setPointerCapture(e.pointerId);
+  const hd = handleAt(px, py);
+  drag = { kind: hd || "pan", x0: px, view: view.slice(), moved: false };
+  if (!hd) heroOverlay.classList.add("grab");
+});
+heroOverlay.addEventListener("pointerup", () => {
+  heroOverlay.classList.remove("grab");
+  const d = drag;
+  drag = null;
+  if (d && d.kind === "pan" && !d.moved && hoverIdx >= 0 && hoverIdx < A.n) showRows(hoverIdx);
+  if (d && d.kind !== "pan") invalidate("ui");
+});
+heroOverlay.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const r = heroOverlay.getBoundingClientRect();
+  const at = invX(e.clientX - r.left);
+  const k = Math.pow(1.0018, e.deltaY);
+  viewAnim = null;
+  view = clampView([at - (at - view[0]) * k, at + (view[1] - at) * k]);
+  for (const b of document.querySelectorAll("#presets button")) b.setAttribute("aria-pressed", "false");
+  invalidate("stat", "nav", "panel", "ov");
+}, { passive: false });
+heroOverlay.addEventListener("dblclick", () => flyTo(cfg.mode === "forecast" ? forecastView() : cfg.mode === "impact" ? impactView() : fullView()));
+heroOverlay.addEventListener("keydown", (e) => {
+  const last = lastIndex();
+  if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+    hoverIdx = hoverIdx < 0 ? nearestIndex((view[0] + view[1]) / 2) : Math.max(0, Math.min(last, hoverIdx + (e.key === "ArrowRight" ? 1 : -1)));
+    const T = times();
+    if (T[hoverIdx] < view[0] || T[hoverIdx] > view[1]) { const span = view[1] - view[0]; view = clampView([T[hoverIdx] - span / 2, T[hoverIdx] + span / 2]); invalidate("stat", "nav", "panel"); }
+    invalidate("ov"); e.preventDefault();
+  } else if (e.key === "Home" || e.key === "End") { hoverIdx = e.key === "Home" ? 0 : last; invalidate("ov"); e.preventDefault(); }
+  else if (e.key === "Enter" && hoverIdx >= 0 && hoverIdx < A.n) showRows(hoverIdx);
+  else if (e.key === "Escape") { hoverIdx = -1; invalidate("ov"); }
+  else if (e.key === "+" || e.key === "=" || e.key === "-") { const c = (view[0] + view[1]) / 2, k = e.key === "-" ? 1.4 : 1 / 1.4; view = clampView([c - (c - view[0]) * k, c + (view[1] - c) * k]); invalidate("stat", "nav", "panel", "ov"); }
+});
+function showRows(i) {
+  const T = times();
+  const endMs = bucketStart(A.g, i + 1) - DAY;
+  toast(`Table filtered to ${dfDate.format(new Date(T[i]))}${A.g.unit === "day" ? "" : " – " + dfDate.format(new Date(Math.min(endMs, END)))}${cfg.group === "all" ? "" : ", group " + GROUPS[Number(cfg.group)]}: ${nf.format(A.rows[i])} rows.`, "Undo");
+}
+let navDrag = null;
+navCanvas.addEventListener("pointerdown", (e) => {
+  const r = navCanvas.getBoundingClientRect();
+  const [d0, d1] = fullView();
+  const toMs = (px) => d0 + (px / r.width) * (d1 - d0);
+  const px = e.clientX - r.left;
+  const a = ((view[0] - d0) / (d1 - d0)) * r.width, b = ((view[1] - d0) / (d1 - d0)) * r.width;
+  let kind = "move";
+  if (Math.abs(px - a) < 8) kind = "l";
+  else if (Math.abs(px - b) < 8) kind = "r";
+  else if (px < a || px > b) { const span = view[1] - view[0]; view = clampView([toMs(px) - span / 2, toMs(px) + span / 2]); invalidate("stat", "nav", "panel"); }
+  navDrag = { kind, x0: px, view: view.slice(), toMs };
+  navCanvas.setPointerCapture(e.pointerId);
+  viewAnim = null;
+  for (const bt of document.querySelectorAll("#presets button")) bt.setAttribute("aria-pressed", "false");
+});
+navCanvas.addEventListener("pointermove", (e) => {
+  const r = navCanvas.getBoundingClientRect();
+  const px = e.clientX - r.left;
+  if (!navDrag) {
+    const [d0, d1] = fullView();
+    const a = ((view[0] - d0) / (d1 - d0)) * r.width, b = ((view[1] - d0) / (d1 - d0)) * r.width;
+    navCanvas.style.cursor = Math.abs(px - a) < 8 || Math.abs(px - b) < 8 ? "ew-resize" : px > a && px < b ? "grab" : "pointer";
+    return;
+  }
+  const dms = navDrag.toMs(px) - navDrag.toMs(navDrag.x0);
+  const v = navDrag.view;
+  if (navDrag.kind === "move") view = clampView([v[0] + dms, v[1] + dms]);
+  else if (navDrag.kind === "l") view = clampView([Math.min(v[0] + dms, v[1] - DAY * 7), v[1]]);
+  else view = clampView([v[0], Math.max(v[1] + dms, v[0] + DAY * 7)]);
+  hoverIdx = -1;
+  invalidate("stat", "nav", "panel", "ov");
+});
+navCanvas.addEventListener("pointerup", () => { navDrag = null; if (tableOpen) renderTable(); });
+
+let toastTimer = 0;
+function toast(msg, action) {
+  const el = document.getElementById("toast");
+  el.innerHTML = `<span>${msg}</span>${action ? `<button type="button">${action}</button>` : ""}`;
+  el.hidden = false;
+  const btn = el.querySelector("button");
+  if (btn) btn.onclick = () => { el.hidden = true; };
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 4200);
+}
+function themeChanged() { readColors(); invalidate("ui", "stat", "nav", "panel", "ov"); }
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", themeChanged);
+new MutationObserver(themeChanged).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+new ResizeObserver(() => { layout(); invalidate("stat", "nav", "panel", "ov", "ui"); }).observe(heroEl);
+new ResizeObserver(() => { layout(); invalidate("panel"); }).observe(document.getElementById("decomp"));
+new ResizeObserver(() => { layout(); invalidate("panel"); }).observe(document.getElementById("cum"));
+
+on("openBtn", "click", () => document.getElementById("fileIn").click());
+on("fileIn", "change", (e) => { const f = e.target.files[0]; if (f) openFile(f); e.target.value = ""; });
+document.addEventListener("dragover", (e) => e.preventDefault());
+document.addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) openFile(f); });
+
+readColors();
+layout();
+loadTable(sampleTable());
+Object.assign(cfg, { grain: "week", smoothW: 4 });
+compute();
+view = clampView(fullView());
+invalidate("ui", "stat", "nav", "panel", "ov");
+</script>

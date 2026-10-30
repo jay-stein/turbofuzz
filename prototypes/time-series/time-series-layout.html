@@ -1,0 +1,274 @@
+<title>Time Series Page Layout</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: a two-page product brief. Annotated wireframe first, then rules, mode matrix, page two, responsive and placement map. Tokens mirror TurboFuzz. */
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --panel-2: #f0f2f5; --border: #d8dde3; --subtle: #eceff2;
+  --text: #1c2430; --dim: #62707f; --faint: #8b97a5;
+  --accent: #2563eb; --accent-soft: #dbe6ff; --forecast: #7c3aed; --forecast-soft: #efe8ff;
+  --impact: #0e7490; --impact-soft: #d5f3f8; --danger: #b42318; --ok: #15803d; --warn: #b45309; --warn-soft: #fef3c7;
+  --wire: #c3cad3; --wire-fill: #f8f9fb;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10151c; --panel: #161d26; --panel-2: #1d2530; --border: #2c3745; --subtle: #222b36;
+    --text: #e7ecf2; --dim: #93a1b1; --faint: #6b7888; --accent: #60a5fa; --accent-soft: #1e3a5f;
+    --forecast: #a78bfa; --forecast-soft: #2a2347; --impact: #22d3ee; --impact-soft: #0c3440;
+    --danger: #f97066; --ok: #4ade80; --warn: #fbbf24; --warn-soft: #3a2c0b; --wire: #3a4655; --wire-fill: #1a222c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10151c; --panel: #161d26; --panel-2: #1d2530; --border: #2c3745; --subtle: #222b36;
+  --text: #e7ecf2; --dim: #93a1b1; --faint: #6b7888; --accent: #60a5fa; --accent-soft: #1e3a5f;
+  --forecast: #a78bfa; --forecast-soft: #2a2347; --impact: #22d3ee; --impact-soft: #0c3440;
+  --danger: #f97066; --ok: #4ade80; --warn: #fbbf24; --warn-soft: #3a2c0b; --wire: #3a4655; --wire-fill: #1a222c;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14.5px; line-height: 1.55; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+main { max-width: 1120px; margin: 0 auto; padding-block: 28px 48px; display: flex; flex-direction: column; gap: 34px; }
+h1 { font-size: clamp(24px, 3.2vw, 32px); margin: 0; letter-spacing: -0.015em; line-height: 1.2; text-wrap: balance; }
+h2 { font-size: 18px; margin: 0 0 4px; letter-spacing: -0.01em; text-wrap: balance; }
+h3 { font-size: 14px; margin: 0; }
+p { margin: 0; max-width: 72ch; }
+.lede { color: var(--dim); font-size: 16px; margin-top: 8px; }
+.eyebrow { font-size: 11.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--dim); font-weight: 650; }
+section { display: flex; flex-direction: column; gap: 14px; }
+.sub { color: var(--dim); }
+
+/* annotated wireframe */
+.anatomy { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 22px; align-items: start; }
+.wf { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: grid; gap: 7px; font-size: 11.5px; color: var(--dim); }
+.z { position: relative; border: 1.5px dashed var(--wire); background: var(--wire-fill); border-radius: 7px; padding: 7px 9px; min-width: 0; }
+.z b { color: var(--text); font-weight: 600; }
+.n { position: absolute; top: -9px; left: -9px; width: 20px; height: 20px; border-radius: 50%; background: var(--text); color: var(--bg); font-size: 11px; font-weight: 700; display: grid; place-items: center; }
+.row { display: flex; gap: 7px; align-items: stretch; }
+.row > * { flex: 1; }
+.wf .grid { display: grid; grid-template-columns: minmax(0, 1fr) 30%; gap: 7px; }
+.wf .stack { display: grid; gap: 7px; }
+.chart { height: 150px; display: flex; flex-direction: column; justify-content: space-between; }
+.chart svg { width: 100%; height: 96px; display: block; }
+.chips { display: flex; gap: 5px; flex-wrap: wrap; }
+.chip { background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; font-size: 10.5px; color: var(--dim); }
+.chip.on { border-color: var(--accent); color: var(--accent); }
+.tok { background: var(--accent-soft); border-radius: 4px; padding: 0 4px; color: var(--text); font-weight: 600; }
+.cells { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; }
+.cells i { height: 14px; background: var(--panel); border: 1px solid var(--subtle); border-radius: 3px; }
+.cards { display: grid; gap: 5px; }
+.cards i { height: 36px; background: var(--panel); border: 1px solid var(--subtle); border-radius: 5px; }
+.legend-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; counter-reset: z; }
+.legend-list li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; }
+.legend-list .k { width: 20px; height: 20px; border-radius: 50%; background: var(--text); color: var(--bg); font-size: 11px; font-weight: 700; display: grid; place-items: center; margin-top: 2px; }
+.legend-list p { font-size: 13.5px; }
+.legend-list strong { display: block; font-size: 13.5px; }
+
+/* rules */
+.rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.rule { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; align-content: start; }
+.rule p { font-size: 13.5px; color: var(--dim); }
+
+/* matrix */
+.tablebox { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 720px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--subtle); vertical-align: top; }
+thead th { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); background: var(--panel-2); }
+tbody th { font-weight: 600; white-space: nowrap; }
+tr:last-child td, tr:last-child th { border-bottom: 0; }
+.m-ex { color: var(--accent); } .m-fc { color: var(--forecast); } .m-im { color: var(--impact); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+
+/* page two + responsive */
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; align-items: start; }
+.brief { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: grid; gap: 8px; font-size: 11.5px; color: var(--dim); }
+.brief .t { height: 12px; width: 70%; background: var(--text); opacity: 0.8; border-radius: 3px; }
+.brief .s { height: 8px; width: 45%; background: var(--faint); border-radius: 3px; }
+.brief .nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.brief .nums i { height: 30px; border: 1px solid var(--subtle); border-radius: 5px; background: var(--wire-fill); }
+.brief .bullets { display: grid; gap: 5px; }
+.brief .bullets i { height: 8px; background: var(--wire); border-radius: 3px; }
+.brief .foot { height: 7px; width: 85%; background: var(--subtle); border-radius: 3px; }
+.devices { display: grid; grid-template-columns: 1.5fr 1.1fr 0.7fr; gap: 14px; align-items: end; }
+.dev { display: grid; gap: 6px; }
+.dev .frame { border: 1.5px solid var(--wire); border-radius: 10px; padding: 6px; display: grid; gap: 4px; background: var(--panel); }
+.dev .frame i { display: block; border-radius: 3px; background: var(--wire-fill); border: 1px dashed var(--wire); }
+.dev .cap { font-size: 12px; color: var(--dim); }
+.dev .cap b { color: var(--text); }
+.swipe { display: flex; gap: 4px; overflow: hidden; }
+.swipe i { flex: 0 0 60%; height: 22px; }
+
+.avoid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 22px; margin: 0; padding: 0; list-style: none; }
+.avoid li { font-size: 13.5px; padding-left: 18px; position: relative; color: var(--dim); }
+.avoid li::before { content: "×"; position: absolute; left: 0; top: -1px; color: var(--danger); font-weight: 700; }
+.avoid b { color: var(--text); font-weight: 600; }
+.note { background: var(--warn-soft); border-radius: 10px; padding: 12px 14px; font-size: 13.5px; }
+a { color: var(--accent); }
+
+@media (max-width: 860px) {
+  .anatomy, .two { grid-template-columns: minmax(0, 1fr); }
+  .rules { grid-template-columns: minmax(0, 1fr); }
+  .devices { grid-template-columns: 1fr 1fr; }
+  .devices .dev:first-child { grid-column: 1 / -1; }
+  .avoid { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
+
+<main>
+  <header>
+    <div class="eyebrow">TurboFuzz · Time Series page · layout plan</div>
+    <h1>One chart that stays put, four ways to read it</h1>
+    <p class="lede">How Explore, Decompose, Forecast and Impact share one page without turning into a cockpit, plus a second page for sharing the result. The <a href="https://claude.ai/artifact/Wbr9eDFTFfFwtW5hT9xTGy">clickable prototype</a> already follows this layout.</p>
+  </header>
+
+  <section aria-labelledby="anatomy">
+    <div>
+      <h2 id="anatomy">Page one: the workbench</h2>
+      <p class="sub">Seven zones, read top to bottom: what the series is, how it is doing, the picture, then the evidence. The right rail is the table of contents.</p>
+    </div>
+    <div class="anatomy">
+      <div class="wf" role="img" aria-label="Wireframe of the workbench with seven numbered zones">
+        <div class="z"><span class="n">1</span><div class="row" style="justify-content:space-between"><span><b>← Chart</b> / Analyse series</span><span class="chips"><span class="chip on">Explore</span><span class="chip">Decompose</span><span class="chip">Forecast</span><span class="chip">Impact</span><span class="chip">Export</span></span></div></div>
+        <div class="z"><span class="n">2</span><span style="font-size:14px;color:var(--text)"><span class="tok">Weekly</span> <span class="tok">sum</span> of <span class="tok">value</span> for group <span class="tok">all</span></span><br>2 Jan 2023 to 28 Oct 2026 · gaps <span class="tok">filled with zero</span></div>
+        <div class="z"><span class="n">3</span><div class="cells"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+        <div class="grid">
+          <div class="stack">
+            <div class="z" style="border-top:3px solid var(--accent)"><span class="n">4</span><span class="chips"><span class="chip">Rolling window ▬▬○</span><span class="chip">Mean | Median</span><span class="chip">Last year</span></span></div>
+            <div class="z chart"><span class="n">5</span>
+              <svg viewBox="0 0 300 96" preserveAspectRatio="none" aria-hidden="true">
+                <polyline fill="none" stroke="var(--faint)" stroke-width="1.2" points="0,80 20,74 40,77 60,62 80,66 100,52 120,57 140,41 160,46 180,33 200,38 210,30"/>
+                <polyline fill="none" stroke="var(--accent)" stroke-width="2.4" points="0,79 20,76 40,73 60,66 80,63 100,56 120,53 140,46 160,43 180,37 200,35 210,32"/>
+                <path d="M210 30 L300 14 L300 46 Z" fill="var(--forecast)" opacity="0.18"/>
+                <polyline fill="none" stroke="var(--forecast)" stroke-width="2" stroke-dasharray="5 3" points="210,31 240,27 270,24 300,22"/>
+                <line x1="210" y1="0" x2="210" y2="96" stroke="var(--forecast)" stroke-width="1"/>
+              </svg>
+              <div style="height:14px;border-radius:4px;background:var(--panel-2);border:1px solid var(--subtle)"></div>
+            </div>
+            <div class="z"><span class="n">6</span><b>Detail for the mode</b>: pipeline · components · leaderboard · effect, on the chart's time axis</div>
+          </div>
+          <div class="z"><span class="n">7</span><b>Findings</b><div class="cards" style="margin-top:6px"><i></i><i></i><i></i><i></i><i></i></div></div>
+        </div>
+      </div>
+      <ol class="legend-list">
+        <li><span class="k">1</span><div><strong>Header</strong><p>Way back to the chart card, the four modes, Export. Nothing else, so it never wraps on a laptop.</p></div></li>
+        <li><span class="k">2</span><div><strong>Series sentence</strong><p>The series' name and its settings in one: grain, aggregate, measure, slice, gap rule. Each word is a control. Exports use it as the chart title.</p></div></li>
+        <li><span class="k">3</span><div><strong>Summary strip</strong><p>Five facts that hold in every mode (periods, latest, vs last year, trend now, season), plus one cell that follows the mode: forecast grade or event impact.</p></div></li>
+        <li><span class="k">4</span><div><strong>Mode toolbar</strong><p>The three to five controls you touch most in this mode, on the chart's top edge. The coloured top border tells you which mode you are in.</p></div></li>
+        <li><span class="k">5</span><div><strong>Chart and navigator</strong><p>Same place, same zoom, same crosshair in every mode. Modes add layers to it, never replace it. Handles for split, horizon and event live on the chart.</p></div></li>
+        <li><span class="k">6</span><div><strong>Detail</strong><p>The evidence for the mode, aligned to the chart's time axis so a glance down lines up: decomposition panels, model leaderboard and model card, effect cards and cumulative effect.</p></div></li>
+        <li><span class="k">7</span><div><strong>Findings</strong><p>Plain sentences with a number and a "show me". The fastest route into the page: most people read the rail, then click.</p></div></li>
+      </ol>
+    </div>
+  </section>
+
+  <section aria-labelledby="rules">
+    <h2 id="rules">Six layout rules</h2>
+    <div class="rules">
+      <div class="rule"><h3>The chart never moves</h3><p>Switching mode keeps the chart's place, zoom and crosshair. People lose the thread when the picture jumps.</p></div>
+      <div class="rule"><h3>Controls on the chart's edge</h3><p>At most five in the toolbar. Anything rarer goes in the detail section next to what it explains (trend flexibility sits beside the leaderboard).</p></div>
+      <div class="rule"><h3>Summary before detail</h3><p>Sentence, strip, chart, evidence. Each step is optional; someone can stop at the strip and still have the answer.</p></div>
+      <div class="rule"><h3>One time axis</h3><p>Everything under the chart shares its x scale and crosshair, so the eye reads straight down from a spike to its remainder or its effect.</p></div>
+      <div class="rule"><h3>One colour per mode</h3><p>Blue for explore and decompose, violet for forecast, teal for impact. Red and green only carry meaning: unusual, above, below.</p></div>
+      <div class="rule"><h3>Drag, don't fill in forms</h3><p>Split line, horizon and event date are handles on the chart; a click on any period opens its rows. The toolbar mirrors them for keyboard users.</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="matrix">
+    <div>
+      <h2 id="matrix">What each mode puts in each zone</h2>
+      <p class="sub">The zones stay the same in every mode; only their contents change.</p>
+    </div>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Zone</th><th><span class="dot" style="background:var(--accent)"></span>Explore</th><th><span class="dot" style="background:var(--accent)"></span>Decompose</th><th><span class="dot" style="background:var(--forecast)"></span>Forecast</th><th><span class="dot" style="background:var(--impact)"></span>Impact</th></tr></thead>
+        <tbody>
+          <tr><th>4 Toolbar</th><td>Rolling window, mean or median, centred, last year</td><td>Season period (with strength), unusual-period sensitivity</td><td>Horizon, band 80 / 80+95, driver chips (any column; each with a rule for its future values: held, as last year, or a % change)</td><td>Event, window, expected-by model</td></tr>
+          <tr><th>5 Chart layers</th><td>Series, rolling line, last-year ghost, unusual rings, trend change</td><td>Series and trend line, unusual rings</td><td>Dashed forecast, fading band, split and horizon handles, held-out points</td><td>Expected line and range, above/below shading, event and window handles</td></tr>
+          <tr><th>6 Detail</th><td>Pipeline: resample, fill, smooth, compare</td><td>Trend, seasonal, remainder panels and strengths</td><td>Leaderboard, trend flexibility, model card</td><td>Effect cards, cumulative effect, method and cautions</td></tr>
+          <tr><th>3 Strip, last cell</th><td>Forecast grade</td><td>Forecast grade</td><td>Forecast grade</td><td>Event impact and verdict</td></tr>
+          <tr><th>7 Findings, top</th><td>Trend, change, season</td><td>Season, unusual periods</td><td>Forecast grade and next-period range</td><td>Impact sentence, other events</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="brief">
+    <div>
+      <h2 id="brief">Page two: the brief</h2>
+      <p class="sub">The workbench is for the person doing the analysis. The brief is for the person who reads the answer. Keeping them apart stops the workbench growing presentation clutter.</p>
+    </div>
+    <div class="two">
+      <div class="brief" role="img" aria-label="Wireframe of the one-page brief">
+        <div class="t"></div><div class="s"></div>
+        <div class="nums"><i></i><i></i><i></i></div>
+        <svg viewBox="0 0 300 90" width="100%" height="90" aria-hidden="true" preserveAspectRatio="none">
+          <polyline fill="none" stroke="var(--text)" stroke-width="1.6" points="0,70 30,64 60,66 90,52 120,55 150,40 180,44 200,34"/>
+          <path d="M200 34 L300 16 L300 50 Z" fill="var(--forecast)" opacity="0.18"/>
+          <polyline fill="none" stroke="var(--forecast)" stroke-width="2" stroke-dasharray="5 3" points="200,34 300,30"/>
+        </svg>
+        <div class="bullets"><i style="width:92%"></i><i style="width:80%"></i><i style="width:86%"></i></div>
+        <div class="foot"></div>
+      </div>
+      <div style="display:grid;gap:10px">
+        <p><b>Built from the workbench, not edited by hand.</b> One click on Export → Brief takes the current mode and makes a single page:</p>
+        <ul style="margin:0;padding-left:18px;display:grid;gap:4px;font-size:13.5px">
+          <li>the series sentence as the title, the date range and data source as the subtitle;</li>
+          <li>three headline numbers (for example latest, forecast for next quarter, event impact);</li>
+          <li>one chart: the mode you were in, at the zoom you chose, with direct labels;</li>
+          <li>the top three findings as sentences;</li>
+          <li>a footnote with the method, the backtest check and the cautions from the model card.</li>
+        </ul>
+        <p class="sub" style="font-size:13.5px">Exports as PNG and PDF, or as a link that reopens the workbench in the same state. Same light and dark themes, no controls.</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="sizes">
+    <div>
+      <h2 id="sizes">At every width</h2>
+      <p class="sub">Findings move above the chart on smaller screens, because they are the summary. The chart keeps the most height it can.</p>
+    </div>
+    <div class="devices">
+      <div class="dev"><div class="frame" aria-hidden="true"><i style="height:10px"></i><i style="height:14px"></i><div style="display:grid;grid-template-columns:3fr 1fr;gap:4px"><div style="display:grid;gap:4px"><i style="height:10px"></i><i style="height:70px"></i><i style="height:26px"></i></div><i style="height:114px"></i></div></div><span class="cap"><b>1200 px and up.</b> Findings rail on the right, sticky while you scroll the detail.</span></div>
+      <div class="dev"><div class="frame" aria-hidden="true"><i style="height:10px"></i><i style="height:14px"></i><div class="swipe"><i></i><i></i></div><i style="height:10px"></i><i style="height:62px"></i><i style="height:22px"></i></div><span class="cap"><b>Tablet.</b> Findings become a row of cards you swipe, under the strip.</span></div>
+      <div class="dev"><div class="frame" aria-hidden="true"><i style="height:8px"></i><i style="height:18px"></i><div class="swipe"><i></i><i></i></div><i style="height:16px"></i><i style="height:56px"></i><i style="height:22px"></i></div><span class="cap"><b>Phone.</b> Toolbar wraps, chart 300 px, detail cards two across.</span></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="fit">
+    <div>
+      <h2 id="fit">Where everything planned lands</h2>
+      <p class="sub">Checked against the plan in next_steps.md. Nothing needs a new zone; most later items are a new row or a new layer.</p>
+    </div>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Feature</th><th>Zone</th><th>How it appears</th></tr></thead>
+        <tbody>
+          <tr><th>Any-width resample, aggregate, gap and partial-period rules</th><td>2 Sentence</td><td>Words in the sentence; pipeline cards in Explore show their effect</td></tr>
+          <tr><th>Rolling windows, smoothing, last year, index to 100, cumulative</th><td>4 Toolbar (Explore)</td><td>Chart layers; rarer transforms in the pipeline's Transform card</td></tr>
+          <tr><th>Seasonal period detection, strengths, anomalies, changepoints</th><td>5 Chart, 6 Detail, 7 Findings</td><td>Rings and rules on the chart, panels below, sentences on the right</td></tr>
+          <tr><th>Every model in the roster (Theta, ETS family, MSTL, state space, count, intermittent, zero-inflated, analogues)</th><td>6 Leaderboard</td><td>New rows chosen by the series profile (the model router); Auto still picks one. No new controls</td></tr>
+          <tr><th>Regression with drivers, what-if, scenarios</th><td>4 Toolbar, 6 Model card</td><td>Driver chips for whichever columns the person adds; each chip sets that column's future values; saved scenarios as extra dashed lines on the chart</td></tr>
+          <tr><th>Groups that add up (hierarchy)</th><td>2 Sentence, 6 Detail</td><td>"for group all" becomes "by group"; small multiples in the detail, total stays in the chart</td></tr>
+          <tr><th>Event impact, custom events, event list</th><td>4 Toolbar, 5 Chart, 6 Detail</td><td>Event picker and "+ Add event"; draggable line; effect cards</td></tr>
+          <tr><th>Table view, export, recipe and Python, brief</th><td>1 Header, 5 Chart card</td><td>Table toggle beside the legend; Export menu holds the rest</td></tr>
+          <tr><th>Keyboard, screen reader, reduced motion</th><td>Everywhere</td><td>Arrows step periods, Enter opens rows; findings in a live region; no motion when asked</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="avoid">
+    <h2 id="avoid">What this layout rules out</h2>
+    <ul class="avoid">
+      <li><b>A settings drawer</b> that hides the choices that change the answer, like the aggregate and the gap rule.</li>
+      <li><b>A grid of eight charts.</b> One chart plus aligned panels; more charts only as small multiples of one kind.</li>
+      <li><b>A wizard</b> ("step 1 of 4") before the first chart. The page opens on a sensible default series.</li>
+      <li><b>Legend boxes</b> on the chart. Lines are labelled at their ends; the legend row is a key, not a control.</li>
+      <li><b>Mode switches that reset zoom</b> or move the chart.</li>
+      <li><b>Model jargon in the main view.</b> Behaviour names first ("Smooth and damp"), method names in grey beneath.</li>
+      <li><b>Any view, preset or wording for a particular kind of data.</b> The page reads only the numbers: their shape (zeros, negatives, gaps, cycles), never what they measure.</li>
+    </ul>
+    <p class="note"><b>Two choices for you.</b> Whether the brief ships with the first release or after it, and whether "Impact" is the right tab name (alternatives: "Events", "What changed").</p>
+  </section>
+</main>

@@ -692,14 +692,11 @@ than hiding it:
 1. **Grain** — the period (hour, day, week, month). Already solved by the Every N
    bucket control; the page reuses it. Default from the span and from the data's
    natural cadence (median gap between timestamps), not just the span.
-2. **Which aggregate** — "daily average" vs "daily max" vs "daily sum" is a modelling
-   decision, not a detail, and it changes the answer. Rules of thumb to encode as the
-   default, always overridable and always shown in the headline:
-   - amounts that add up (sales, visits, points scored, rows) → **sum** (or count of rows)
-   - levels and rates (temperature, price, balance, utilisation, a score) → **mean**
-   - capacity and peak questions (load, queue length, worst case) → **max**
-   - stock counts at a moment (inventory, headcount) → **last**
-   - Show a one-line "why": "Summed per week because points scored add up."
+2. **Which aggregate**: sum, mean, median, min, max, first, last, or count of rows.
+   The page never guesses meaning from column names or values. Default: sum (count of
+   rows when no measure is picked). The aggregate is a word in the series sentence, one
+   click to change, and the line under it says plainly what it does ("Each week is the
+   sum of the rows that fall in it").
 3. **Missing periods** — a gap is not a zero for a mean. Reuse the existing Missing
    periods policy (gap / zero / carry); add **interpolate** here, because most
    decomposition methods cannot take holes. Say how many periods were filled.
@@ -743,13 +740,13 @@ yearly); hourly → 24 (daily), 168 (weekly); weekly → 52; monthly → 12.
    model; a forecast that cannot beat seasonal naive should say so.
 5. **Forecast with dependent variables** (regression on lag + calendar + driver
    features, decided: see "Forecast methods" below; no ARIMA, no boosting): pick driver columns from
-   the table (price, promo flag, temperature), aggregated with their own sensible
+   the table (any numeric or 0/1 column), aggregated with their own sensible
    aggregate. Needs the drivers' **future values** to forecast, so the UI must ask
    for them (or forecast the drivers first) and flag drivers that are not known in
    advance. Start with a linear model on lags + calendar dummies + drivers; it
    explains itself, which matters more than the last point of accuracy.
 6. **Later**: multiple series at once (one per category, small multiples), changepoint
-   detection, holiday/event calendars, exporting the fitted components and forecast
+   detection, lists of special dates, exporting the fitted components and forecast
    as columns or CSV, and the recipe/code export (statsmodels/Prophet-style Python).
 
 ### Forecast methods (decided 2026-10-30): no new dependencies, drivers in release one
@@ -766,7 +763,7 @@ ships in the first forecast release**, not as a second pass. Build order and rou
 4. **Decompose then forecast** (~200): STL, forecast the seasonally adjusted part with
    Holt or drift, add the seasonal part back. Shares code with the decomposition view.
 5. **Regression with drivers** (~150 + OLS): trend, Fourier terms (several
-   seasonalities at once, long periods such as 365), event/holiday dummies, and the
+   seasonalities at once, long periods such as 365), event and special-date dummies, and the
    chosen driver columns, optionally lagged. OLS by QR; ridge when columns are
    collinear. Explains itself with coefficients, which matters more than the last point
    of accuracy. AR terms (lags of the target) come from the same fit; no ARIMA.
@@ -784,7 +781,7 @@ autocorrelation function over the candidates the grain implies (daily 7 and 365,
 The backtest answers "daily mean or max" empirically for the aggregate choice.
 
 **Drivers must be usable in the future.** A driver column is accepted only when its
-future values are known (calendar, planned price or promotion, entered in a small grid
+future values are known (derived from the calendar, or entered in a small grid
 on the page) or it is lagged by at least the horizon. Otherwise the page says the driver
 would have to be forecast too and offers to do that, marked as compounding error.
 The backtest must use only information available at each origin, or it looks great by
@@ -793,6 +790,138 @@ peeking at the future.
 **Tests:** fixed fixtures (airline passengers, a synthetic seasonal series with a known
 driver effect) with expected output checked against reference implementations; bench
 budget forecast + backtest under 200 ms for 1,000 periods.
+
+### More models, event impact (decided 2026-10-30)
+
+**Position:** the gap is not model count. For one aggregated series of a few hundred
+points, the forecasting competitions (M3, M4) favour simple statistical methods and
+their combinations; machine learning won M5 only by learning across thousands of
+related series. More candidates also hurt: with about 8 backtest origins, picking the
+best of a dozen models mostly picks luck. Keep the leaderboard to about six and spend
+the effort on robustness and on the cases where today's models break.
+
+**Add, in this order:**
+
+1. **Theta** (~20 lines): already planned; strong in M3/M4 and a good blend member.
+2. **Full ETS family with automatic choice:** additive/multiplicative error, trend
+   (none, additive, damped) and season, chosen by AICc, as in R `forecast`, Excel and
+   Nixtla AutoETS. Multiplicative seasonality matters whenever the swing grows with
+   the level.
+3. **Multiple seasonalities (MSTL + ETS):** daily data has weekly and yearly cycles,
+   hourly has daily and weekly. The prototype's Holt-Winters only sees the weekly
+   cycle at daily grain, which is why it loses there.
+4. **Sparse series (Croston, TSB):** a series filtered to a small slice is often
+   mostly zeros and every model above fails, with a nonsense band. Detect it (average
+   interval between non-zero values, and their CV squared) and switch automatically.
+   About 40 lines.
+5. **Coherent hierarchy:** forecast each group and the total, then reconcile (MinT,
+   or bottom-up to start) so groups add up to the total. We already slice by any
+   category column; forecasts that do not add up are the first thing an analyst notices.
+
+**Skip, with reasons:**
+- ARIMA / auto-ARIMA: about 400 fragile lines (order search, stationarity), rarely
+  beats 2-3 on aggregated series; the regression already carries AR terms.
+- Gradient boosting and neural models (LightGBM, N-BEATS, DeepAR): need many related
+  series and training time; break the millisecond budget for no gain on one series.
+- Foundation models (TimesFM, Chronos, TimeGPT): genuinely strong zero-shot, but tens to
+  hundreds of MB of weights plus a runtime dependency in the browser, or an API call.
+  That breaks offline use, the no-new-dependency rule and the latency budget. If ever,
+  an opt-in extra, never a core model.
+
+**Event impact (owner: "super good"), a fourth mode beside Explore, Decompose,
+Forecast.** Pick a date (a lasting step detected in another column, a changepoint, or
+drag a line). The page forecasts what the series would have done from data before that
+date (the event's own column held at its pre-event level, every other driver at its
+actual values), then shades actual minus
+expected and reports the total, relative and per-period effect with an 80% range and a
+verdict: "clear" only when the 95% range leaves out zero, "possible" when only the
+80% range does, otherwise "no clear effect"; capped at "possible" with under two years
+of history before the event, since a yearly swing cannot be separated from it. The range comes from the same backtest
+machinery as the forecast band: cumulative errors of backtests spread across the
+whole history before the event (bias from the later ones, spread from all), so the range
+sees every season and an unrelated series does not raise false alarms. Same idea
+as Google's CausalImpact, but no new model. Rules:
+- Expected is fitted only on data before the event; nothing after it leaks in.
+- Needs enough history before the event to learn the normal pattern; say how much
+  ("needs 79 weeks before the event, this one has 61; daily grain needs less").
+- Events are suggested from the data (lasting steps in other columns, changepoints), and the
+  person can name their own; the event list is part of the recipe.
+- Verdict wording never claims causation beyond "compared with what the pattern before
+  the event predicted"; other things that changed at the same time are named when known
+  (another driver changing in the window, a data gap).
+
+### Context-free by design, and the model roster (owner, 2026-10-30)
+
+**Owner rule: a Swiss army knife for any time series.** Plain decomposition and
+forecasting that works the same whatever the numbers measure. No views, presets,
+defaults, wording or examples for a kind of data or an industry. The page reads only
+the numbers, never what they mean.
+
+What it may look at is the **shape** of the numbers, because that is what keeps the
+maths valid on every series: values below zero, runs of zeros, whole numbers, gaps,
+how many cycles of history exist, which cycles are present. Shape decides which models
+are allowed and how changes are worded; meaning decides nothing.
+
+- **Columns are just columns.** The measure, the slice and the drivers are whatever the
+  person picks. Labels use the column names as they are.
+- **Aggregates are stated, not guessed:** sum, mean, median, min, max, first, last,
+  count. Default sum; the sentence says which.
+- **Drivers:** any numeric or 0/1 column, each with one rule for its values after the
+  data ends: held at its recent level, same as a year earlier, a % change from its
+  recent level, or entered values. Drivers start empty. Effects are worded "goes with",
+  never "causes"; the band does not include doubt about driver assumptions, and the card
+  says so.
+- **Events:** lasting steps in any other numeric column, changepoints in the series,
+  and dates the person adds. Nothing is labelled by domain ("price rise", "promotion");
+  labels name the column and the step ("driver_x stepped down to 26").
+- **Calendar effects** are generic: day of week, day of month, month, year. Special
+  dates come from the person (a date column or a pasted list), never from built-in
+  country tables.
+- **Wording follows the shape:** percentages only when the series stays above zero;
+  otherwise changes, effects and seasonal swings are in the series' own units.
+  Forecast ranges stay at or above zero only when the history does.
+- Prototype v4 follows all of this: a neutral sample table (date, group, value,
+  value_signed, value_sparse, driver_x, flag_x) and no domain words anywhere.
+
+**Model roster, by shape only.** Pure TypeScript on the aggregated series, no
+dependencies. "proto" marks those already in the prototype.
+
+| Model | Series shape it suits | Notes |
+|---|---|---|
+| Seasonal naive, naive, drift, mean | every series (baselines) | proto (seasonal naive) |
+| Seasonal average (mean of the same point in earlier cycles) | a season but no trend | proto |
+| Holt-Winters / full ETS family by AICc | trend and season | proto (one variant); add multiplicative and auto choice |
+| Theta | robust default, short series | proto ("Steady trend") |
+| STL + ETS, MSTL | several cycles at once (daily or finer grain) | |
+| Regression with Fourier terms and drivers (Prophet-style) | driver columns or calendar effects | proto; logs only when the series is positive; add AR errors |
+| Structural model via Kalman filter (local level / local linear trend + season + drivers) | missing values and irregular gaps; best engine for event impact | fits around gaps instead of filling them; ~250 lines |
+| Count models (Poisson / negative binomial) | small whole numbers | whole-number ranges, never below zero |
+| Sparse-series models (Croston, SBA, TSB, ADIDA) | mostly zeros | forecasts a rate, not a shape |
+| Hurdle (chance of non-zero × size when non-zero) | zeros mixed with a skewed size | lopsided range |
+| Quantile regression | skewed series | lopsided range, drivers allowed |
+| Analogues (k nearest past windows) | odd shapes nothing else fits | explainable: "like Mar 2024 and Oct 2025" |
+| Temporal hierarchies (forecast at several grains, reconcile) | any series | usually more accurate; grains agree; uses our any-width resampling |
+| Group reconciliation (bottom-up, MinT) | sliced series | groups add up to the total |
+| Simple and weighted combinations | any series | the backtest decides |
+| Later: TBATS (non-integer cycles such as 52.18 weeks), Gaussian process (n ≤ 500) | specialist | only if benchmarks justify |
+| Skipped: ARIMA (possible later on the Kalman engine), boosting, neural nets, foundation models | | no dependency, latency, one series |
+
+**Model router (shape only).** A cheap profile decides which models enter the
+leaderboard; the model card says what it saw (prototype shows this):
+- mostly zeros → sparse-series models and seasonal average; no logs;
+- zeros mixed with a skewed size → hurdle model and quantile range;
+- small whole numbers → count models;
+- values below zero → additive only, no logs or Box-Cox, ranges may go below zero;
+- values bounded 0 to 1 or 0 to 100 → logit scale;
+- several cycles (daily or finer grain) → MSTL and Fourier regression;
+- missing values → the Kalman model fits around them; others use the filled series, marked;
+- a big level shift → changepoint-aware trend and an offer to fit only after it;
+- under two full cycles → non-seasonal models only, with the reason.
+
+**Test fixtures, defined by shape:** trend plus multiplicative season; additive season
+crossing zero; two cycles at daily grain; mostly zeros; small counts; a level shift;
+missing stretches; a series shorter than two cycles; a constant series. Each with
+expected outputs checked against a reference implementation.
 
 ### Series prep is a visible pipeline: resample, fill, transform, smooth
 
@@ -824,9 +953,9 @@ so the page reuses it and adds what analysis needs on top:
   (interpolate, carry forward, spread evenly); warn that it invents data.
 - **Auto** picks a round step for the span (already true for short spans) and
   suggests one from the data's natural cadence.
-- **Business calendars.** Weekends and holidays missing from daily data are
-  structural, not gaps: offer "business days only" so a Friday-to-Monday jump is
-  not a hole and weekly seasonality uses 5, not 7.
+- **Days that never have data.** If some weekdays never have rows, they are
+  structural, not gaps: detect it and offer "skip days that never have data" so a jump
+  across them is not a hole and the weekly cycle uses only the days that exist.
 
 ### Edge cases the page must handle explicitly (each a visible choice with a default)
 
@@ -879,7 +1008,7 @@ periods were filled or ignored, and mark filled points on the chart (hollow mark
 - **Trend in plain English** with units: "+3.2 per week (up 12% over the period)",
   and slope significance, not just a line.
 - **Peaks and troughs** marked and listed; **event markers** (the person adds a dated
-  label such as "price change") drawn as vertical lines and carried into exports.
+  label of their own) drawn as vertical lines and carried into exports.
 - **Zoom and brush on the series** (the Shift+drag select already exists on charts),
   with "analyse only this range" and a train/test split marker for forecasting.
 - **Summary strip**: periods, missing, filled, range, mean, trend slope, strongest
@@ -948,7 +1077,7 @@ item below names its latency budget.
 #### Layout: one workbench, not a form
 
 - **Series sentence as the header.** The series is described in words, and each word
-  is a control: "Weekly **sum** of **sales** for **East**, **Jan 2023 to Oct 2026**,
+  is a control: "Weekly **sum** of **value** for group **A**, **Jan 2023 to Oct 2026**,
   gaps **filled with zero**". Click a word to change it. This replaces a wall of
   dropdowns and doubles as the chart title in exports.
 - **Hero chart** (about 60% of the height) with an **overview navigator** strip under
@@ -1000,7 +1129,7 @@ item below names its latency budget.
 - **Drag the train/test split line** to backtest from any date; error and coverage
   update live. This turns "is this model any good?" into something you can feel.
 - **What-if drivers:** for regression forecasts, each driver gets a slider or a small
-  editable future grid ("price +5% from March"); the forecast and band respond while
+  editable future grid ("driver_x +5% from March"); the forecast and band respond while
   dragging. **Scenarios** A/B/C can be saved and overlaid with their own bands.
 - **Click a point to see its rows:** every period is backed by real rows, so a click
   filters the Table to that period (and slice). This is the edge over standalone
@@ -1086,6 +1215,26 @@ item below names its latency budget.
 4. **Polish:** presentation export, small multiples per category, annotations and
    events, code export.
 
+### Layout (proposed 2026-10-30, awaiting owner sign-off)
+
+Plan page: https://claude.ai/artifact/MVR5tuZ4hRVpVfN7i8ivn9 ; prototype v2 follows it:
+https://claude.ai/artifact/Wbr9eDFTFfFwtW5hT9xTGy (both private to the owner).
+
+- **Page one, the workbench, seven zones:** header (back, four modes Explore /
+  Decompose / Forecast / Impact, Export), series sentence, summary strip (five fixed
+  facts plus one mode cell), mode toolbar on the chart's top edge (at most five
+  controls, coloured by mode), chart plus navigator, detail on the chart's time axis,
+  findings rail (swipeable row above the chart below 1020 px).
+- **Rules:** the chart never moves between modes; controls sit on the chart's edge;
+  summary before detail; one time axis for everything below the chart; one colour per
+  mode (blue, violet, teal) with red/green only for meaning; drag handles on the chart
+  instead of forms, mirrored in the toolbar for keyboard use.
+- **Page two, the brief:** a read-only one-page summary generated from the workbench
+  state (sentence as title, three numbers, one chart, top three findings, method
+  footnote); PNG/PDF or a link back. Open: ship in release one or later.
+- Every planned feature maps to an existing zone (later models are leaderboard rows,
+  hierarchy is "by group" small multiples in the detail).
+
 ### Market survey (2026-10-30): what to borrow, and the gap we fill
 
 A quick survey of the leaders. Two families: **code libraries** (Prophet, Nixtla
@@ -1141,3 +1290,44 @@ prediction intervals), Prophet R reference and course notes.
   include/exclude value picker per chart card (chart-local, not the table
   filter), applied in the worker before aggregation, saved in the chart spec and
   recipe, and shown on the card so the chart says what it excludes.
+
+### Real-data test of the prototype (in progress, 2026-10-30)
+
+Files: `prototypes/time-series/` holds the working prototype (with the new CSV loader,
+NOT yet published; published v4 lacks it), the layout page, the test harness
+`run-real.cjs` (expects the datasets in `../ts-data/`) and the first run's output
+`real-run1.txt`. Datasets (public): airline passengers, Melbourne daily min temps,
+monthly sunspots, daily female births, shampoo, NOAA CO2 monthly, global temp (two
+sources), AAPL daily, USGS quakes M6+, Wikipedia "Christmas" daily views, Fremont
+bridge hourly counts.
+
+Done: generic CSV loader (date column detection incl. dd/mm vs mm/dd, ISO with time,
+yyyy-mm, decimal years; numeric, 0/1 and group columns; time-counter and date-part
+columns kept out of defaults), row-based aggregation (sum/mean/median/min/max/first/
+last/count of rows), native cadence, weekdays that never have rows, coverage-based
+partial and gap logic, yearly grain, no-season (trend only) path, detected cycles
+(ACF), grains finer than the data disabled. Run 1: 10 of 11 load and run all four
+modes with no errors or NaN text; shampoo ("1-01" dates) refused with a clear message.
+
+Still to fix (found in run 1), then re-run and publish:
+1. Monthly data defaults to 4-weekly: make `tooFine` use `cadence * 0.97`.
+2. Partial text uses coverage (shows 0% / 100%): store allowed/full share per bucket.
+3. Group "all" with sum silently adds sources (global temp): say so in the why-line.
+4. Spurious weak seasons (births, AAPL, global temp 26-period cycle): use trend-only when
+   best strength < 0.15 unless chosen; detrend `detectCycle` with a wide moving average.
+5. Noisy peak phase at day/365 ("5 Mar" for Melbourne): smooth the profile for reporting.
+6. Rates rounding to 0 ("0 a month", "+0.0% a month"): pick month/year/decade/century unit.
+7. Events from every numeric column are noise (bridge total vs its own sidewalk):
+   events only from driver columns plus the trend changepoint; sample default driver
+   driver_x; compute EVENTS after DEC.
+8. Count-of-rows text says "latitude's trend": measureWord() -> "the row count".
+9. Event-like data (quakes): no gap ranges, coverage 1.
+10. Gap counts include structural weekends (AAPL): count only non-structural days.
+11. "Finer than a day" wrongly set for decimal-year CO2: set subDay only when a
+    (day, group) has more than one row.
+12. Cadence wording ("every week" for 2 days): format N days/weeks/months.
+13. Trend % from single noisy endpoints (births +35%): average first/last 5% of trend.
+14. Explain(): skip "group all accounts for 100%" when there is one group.
+Also noted: daily models take 46-49 ms on 2.5k-3.7k days (budget 30 ms); one season
+per decomposition means weekly variation lands in the remainder for daily data with a
+yearly season (MSTL in the plan fixes this).
