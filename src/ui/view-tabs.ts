@@ -1,4 +1,4 @@
-import { el } from "./dom.js";
+import { el, svgIcon } from "./dom.js";
 
 export type ViewId =
   | "overview"
@@ -61,6 +61,19 @@ const LABELS: Record<ViewId, { label: string; title: string }> = {
   },
 };
 
+/** Stroke icons (24x24 box) so nine tabs fit; the name shows on the active tab and on hover or focus. */
+const ICONS: Record<ViewId, string> = {
+  overview: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  quality: '<path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',
+  table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>',
+  views: '<path d="M4 7h13l-3-3"/><path d="M20 17H7l3 3"/>',
+  outliers: '<circle cx="6" cy="16" r="1.4"/><circle cx="10" cy="13.5" r="1.4"/><circle cx="13" cy="17.5" r="1.4"/><circle cx="8.5" cy="18.5" r="1.4"/><circle cx="18" cy="6" r="2.2"/>',
+  relationships: '<circle cx="6" cy="7" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.3 8.6l2.5 7M15.7 8.6l-2.5 7M8.5 7h7"/>',
+  chart: '<path d="M5 20v-7M12 20V5M19 20V10"/>',
+  timeseries: '<path d="M3 16l5-6 4 3 5-8 4 4"/><path d="M3 21h18"/>',
+  map: '<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>',
+};
+
 export interface ViewTabsCallbacks {
   /** Called when the user picks a tab (click or keyboard). */
   onChange: (view: ViewId) => void;
@@ -94,7 +107,7 @@ export class ViewTabs {
           id: `view-tab-${id}`,
           title: LABELS[id].title,
         },
-        [LABELS[id].label],
+        [svgIcon(ICONS[id], "view-tab-icon"), el("span", { class: "view-tab-label" }, [LABELS[id].label])],
       ) as HTMLButtonElement;
       button.addEventListener("click", () => this.select(id));
       this.buttons.set(id, button);

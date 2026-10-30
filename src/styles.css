@@ -4991,14 +4991,14 @@ mark {
   display: inline-flex;
   align-items: center;
   flex: none;
-  gap: 6px;
+  gap: 0;
   height: var(--tab-h);
   border: none;
   border-bottom: 2px solid transparent;
   border-radius: 0;
   background: transparent;
   color: var(--tab-fg);
-  padding: 0 12px;
+  padding: 0 11px;
   font-size: var(--fs-md);
   white-space: nowrap;
   scroll-snap-align: center;
@@ -5008,6 +5008,35 @@ mark {
 .view-tabs button:hover {
   background: var(--tab-hover-bg);
   color: var(--text);
+}
+
+/* Icons only, so every tab fits; the name opens beside the icon on the active tab,
+   on hover and on keyboard focus. The text stays in the page for screen readers. */
+.view-tab-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+.view-tab-label {
+  display: inline-block;
+  max-width: 0;
+  padding-left: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-width var(--dur) ease, padding-left var(--dur) ease, opacity var(--dur) ease;
+}
+
+.view-tabs button.active .view-tab-label,
+.view-tabs button:hover .view-tab-label,
+.view-tabs button:focus-visible .view-tab-label {
+  max-width: 10em;
+  padding-left: 6px;
+  opacity: 1;
+}
+
+.view-tabs button .view-tab-badge {
+  margin-left: 6px;
 }
 
 .view-tabs button.active {
