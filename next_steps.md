@@ -1711,3 +1711,189 @@ cadence half way (daily, then weekly), and long dead spells.
 For each dataset, record: loads (or refuses with a clear message), detected cadence
 and grain, chosen aggregate and its warning, season found, model run times against
 the budgets, and no NaN or "0 a month" text. Then fix, re-run and publish.
+
+## BIG TODO (owner, 2026-10-31): the Table view, the most important page
+
+**Owner:** the Table is the most important page in the app, and its ease of use is
+paramount. Four asks: insert columns easily (calculated from other columns, a
+constant, or whatever the person wants; borrow Power BI's good ideas); navigate the
+table (head or tail, reverse the order, go to row n); edit a cell directly, with an
+"are you sure" confirm and a way to reverse it; and a real usability pass on the page
+wherever it falls short.
+
+**Today (checked 2026-10-31):** no step adds a column. Transforms only reshape or change
+existing ones (round, impute, split, combine dates, flag outliers, melt, group by). The
+`#` column is the position in the current order, so the file's own row number is lost
+once rows are sorted. The grid has no keyboard movement between cells, no "go to row",
+no position read-out, no reverse, and cells cannot be edited. Parts to build on: the safe expression compiler behind
+Pivot View measures and lambdas (`compileExpression` in `src/data/aggregate.ts`,
+`src/data/pivot-lambda.ts`; no JavaScript is ever run), recipe steps with pandas and
+Polars export plus the parity tool (`tools/recipe-parity`), the virtual-scrolling grid
+(`src/ui/table.ts`), and the Add markers window as a model for a pop-out with a live
+preview.
+
+Rules for all of it: every new column is a Recipe step (undoable, replayed on reload,
+exported to pandas and Polars, parity-tested); evaluation runs in the worker over whole
+columns; nothing is applied without a preview; every control has a keyboard path.
+
+### 1. Insert columns
+
+**Ways in (all open the same "New column" window at the right place):**
+- A **+ column** at the right end of the header row (always visible, like a spreadsheet's
+  next empty column) and on hover between two headers.
+- Header right-click: **Insert column left / right…**, first in the menu.
+- Command bar: `add column`, `add column total = [price] * [qty]` (runs straight away
+  when it reads, else opens the window filled in).
+- From a column: **Add column from this…** opens the window with that column picked.
+
+**The New column window.** One window, five ways to say what goes in it, as Power
+Query's *Add Column* ribbon does. Name, position and type sit at the top; a live preview
+on the right shows the first 20 rows next to the columns it reads, plus a count of rows
+that come out empty or in error and why ("12 rows divide by zero → empty").
+
+1. **Formula** (Power Query *Custom Column*, DAX calculated column, an Excel formula).
+   - Columns written as `[Amount]`, autocompleted on `[` from the column list, with each
+     column's type shown. Clicking a column in the list inserts it.
+   - Excel-style functions, because that is what people know: `IF`, `AND`, `OR`, `NOT`,
+     `ROUND`, `ABS`, `MIN`, `MAX`, `LEN`, `LEFT`, `RIGHT`, `MID`, `UPPER`, `LOWER`,
+     `TRIM`, `CONCAT` / `&`, `CONTAINS`, `YEAR`, `MONTH`, `DAY`, `WEEKDAY`, `DATEDIFF`,
+     `TODAY`, `COALESCE`, `ISBLANK`. Function help appears as you type (signature and
+     one example).
+   - Row-level only in the first release. Window functions (running total, previous row,
+     % of total) come as quick picks below, not as formula syntax.
+   - Errors point at the place in the formula ("`[Amout]`: no such column, did you mean
+     Amount?", reusing the fuzzy column search).
+   - Engine: extend the safe compiler to row expressions over typed columns (numbers,
+     text, dates, booleans, blanks); compile once, then evaluate column by column in the
+     worker. Never `eval`.
+2. **Constant**: a value and its type (text, number, date, Yes/No). Example: a `source`
+   column before merging files.
+3. **Conditional** (Power Query *Conditional Column*): if / else-if / else rows built
+   from pickers (`[Status]` `is` `Closed` → `Done`), so no formula needs writing. It
+   compiles to the same expression, and **Show as formula** switches to the formula view
+   to keep editing.
+4. **From examples** (Power Query *Column From Examples*, Excel *Flash Fill*): type
+   what you want in two or three rows and the window finds the rule that gives it,
+   shown as a formula you can read and edit. Search a small, fast set of rules: text
+   before or after a separator, first or last N characters, a word by position, change
+   of case, two columns joined with a separator, a date part, a number rounded or
+   scaled. Second phase; name the rule when it is ambiguous ("2 rules fit; this one
+   also fits the next 1,000 rows").
+5. **Quick picks** (one click, also on a column's header menu under **Add column ▸**):
+   duplicate; index (1, 2, 3… in the current order, or the file's row number); date
+   parts (year, quarter, month, weekday, hour); text length; bins (equal width, equal
+   count, or edges you type); rank; % of total; running total; change from the
+   previous row; join columns with a separator.
+
+**Recipe and export.** One new op, `{ kind: "derive", name, at, expr }` (expr kept as
+the formula text plus its compiled form), shown in Recipe as `Added "total" =
+[price] * [qty]`. Editing the step reopens the window. pandas export: `df.insert(at,
+name, …)` with vectorised expressions (`np.where` for IF); Polars: `with_columns` with
+`pl.when(...).then(...)`. Every function gets a parity case.
+
+**Static or live?** In the first release a new column is a value computed when the step
+runs; the Recipe replays it when earlier steps change. Live-updating columns, which
+recompute when a source cell is edited, wait until cell editing exists. *Owner to
+confirm.*
+
+**Budgets (bench/derive.ts, in the gate):** preview on the 20 shown rows < 16 ms per
+keystroke; apply a simple formula to 1M rows < 150 ms p95 in the worker; IF over 1M rows
+< 250 ms.
+
+### 2. Navigate the table
+
+- **Where am I:** a read-out in the results bar, "Rows 41–66 of 12,480", that follows
+  the scroll. Clicking it opens Go to row.
+- **Go to row** (Ctrl+G, as in Excel): a small box takes `n` (1-based, in the current
+  order), `-1` for the last row, `50%` for the middle, or `file 1234` for the file's own
+  row 1234 wherever sorting put it. The row is scrolled to and flashed.
+- **Head and tail:** **Top** and **Bottom** buttons (also Ctrl+Home and Ctrl+End).
+  **Show first N / last N** puts a chip in the filter bar ("First 100 rows"), the pandas
+  `head()` and `tail()` habit, so Copy, Chart and Export see the same rows.
+- **Reverse order:** a toggle that reverses whatever order is current (file order,
+  sorted or shuffled), with a chip "Order: reversed" next to the filters.
+- **Say what the order is:** "Order: file order" / "sorted by Amount ↓, then Region" /
+  "shuffled" / "reversed", with one click back to file order.
+- **Row numbers:** the `#` column shows position in the current order. Add an optional
+  **File row** column with the file's own row number, and show both on hover, so a
+  sorted or filtered row can always be traced to the file.
+- **Keyboard grid:** a cell cursor with the arrow keys, Page Up/Down, Home/End,
+  Ctrl+arrows to the edge of the data (Excel), Enter to open the cell, Ctrl+C to copy
+  the cell or a selected range, Esc to clear. Screen-reader grid roles with the row and
+  column read out.
+- **Go to column:** the same box takes a column name (fuzzy), scrolls to it and flashes
+  it.
+- **Freeze columns:** pin the first column or columns while scrolling sideways.
+- **Come back to the same place:** the scroll position and cursor are kept when you
+  switch tabs and return.
+
+### 3. Edit a cell directly (owner, 2026-10-31)
+
+Click a cell to change its value, confirm, and undo later if wanted.
+
+- **Start:** double-click a cell, press Enter or F2 on the cell cursor, or start typing
+  (as in a spreadsheet). A single click selects; it never edits by accident.
+- **Edit in place:** the cell becomes an input sized to the column, with the old value
+  shown under it. For the column's type: numbers are checked as you type (locale
+  aware), dates and times get the column's own format with a picker, Yes/No a toggle,
+  and a category a list of its values with "new value…". Esc cancels; Enter or Tab
+  commits.
+- **Are you sure:** on commit a small confirm appears next to the cell, not a page
+  modal: "Change Amount in row 1,234 (file row 88) from 4,500 to 45,000?" with Change
+  and Cancel. A **Don't ask again for this session** box serves people editing many
+  cells. A value that does not fit the type ("abc" in a number column) is said plainly,
+  with "keep as text" or "fix" as the choices, and is never quietly emptied.
+- **Undo:** every edit is a Recipe step, `{ kind: "setCell", fileRow, column, from,
+  to }`, so Undo (Ctrl+Z), the toast's Undo and Recipe all reverse it. Several edits in
+  a row group into one step, "Edited 5 cells in Amount", that can be expanded and
+  reverted one by one. Edits are tied to the **file's row number**, not the position on
+  screen, so sorting, filtering or shuffling never moves an edit to another row (this
+  is why the File row number in section 2 comes first).
+- **See what was changed:** edited cells carry the existing "changed since load" mark
+  (the Changes highlight), with the old value on hover and a "Revert this cell" action.
+- **Export:** pandas `df.loc[file_row, "Amount"] = 45000` per edit (one `df.loc` block
+  per grouped step); Polars a `when(pl.int_range(...) == row)` update. Parity-tested
+  like every step.
+- **Limits:** edits on rows a later step removes are kept in the Recipe but report "row
+  no longer present"; editing a formula column (section 1) is refused with "edit the
+  formula instead"; pasting a block of cells (a range from a spreadsheet) is a second
+  phase, behind the same confirm ("Change 40 cells?").
+
+### 4. Usability pass (from screenshots, 2026-10-31)
+
+- **Headers cut the column name** ("Customer…", "Annual …") while the column number,
+  type badge, sort arrow and filter take the space. Give the name first claim on the
+  width: column number on hover only, type as a small icon, auto-fit widths to the name
+  and the content's typical length, full name in a tooltip.
+- **The header menu is 26 items long.** Lead with the common actions (Sort, Filter,
+  Insert column, Rename, Hide), group the rest into submenus (Clean ▸, Transform ▸,
+  Add column ▸), and let typing filter the menu (as the command bar does).
+- **Hide and show columns** without deleting them, with a "3 hidden" chip to bring them
+  back.
+- **Long values:** clicking a cell opens a small peek with the full value, its type and
+  Copy; text wrap per column on request.
+- **Consistent buttons:** the shuffle button is an unlabelled icon next to labelled
+  ones; label it or give every icon button a tooltip and an accessible name.
+- **Hints must not cover data:** the first-run hint cards sit over the grid's rows; dock
+  them to the results bar or a corner outside the rows.
+- **Density:** compact / comfortable row height, remembered.
+- **Empty and loading states:** what a filtered-to-nothing table says, with one click to
+  clear the filter that emptied it.
+
+### Order of work
+
+1. Navigation basics: position read-out, Go to row and column, Top/Bottom, reverse,
+   order chip, File row column. Small, and every session benefits; the file row number
+   is also what cell edits hang on.
+2. New column window: Formula and Constant, + column in the header, the `derive` step
+   with pandas and Polars export, parity cases, bench.
+3. Keyboard grid (cell cursor) and editing a cell with the confirm, `setCell` steps,
+   Undo and the changed-cell mark.
+4. Conditional builder and quick picks.
+5. Usability pass on headers, the menu, hidden columns and cell peek; frozen columns.
+6. From examples; pasting a block of cells.
+
+**Open questions for the owner:** Excel-style function names (proposed) or pandas-style?
+Static columns first (proposed), or live ones now? Should "first N / last N" limit
+what Export writes (proposed: yes, like any other filter)? Should the cell-edit confirm
+default to on for every edit (proposed: on, with "don't ask again this session")?
