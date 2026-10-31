@@ -278,7 +278,8 @@ export function fillGaps(y: Float64Array, how: TsGaps, m: number, shortM: number
   if (how === "seasonal") return seasonalFill(y, m, nonNeg);
   if (how === "last") return carryForward(y);
   if (how === "lastcycle") return lastCycleFill(y, m, nonNeg);
-  if (how === "local") return m > 1 ? nearbyTypicalFill(y, m) : seasonalFill(y, m, nonNeg);
+  // A phase never seen nearby (a weekday that never has rows) falls back to the usual pattern.
+  if (how === "local") return seasonalFill(m > 1 ? nearbyTypicalFill(y, m) : y, m, nonNeg);
   // smart: short gaps the usual pattern, long ones the nearby typical value.
   if (m <= 1) return seasonalFill(y, m, nonNeg);
   const short = Math.max(2, Math.round(shortM / 4));
@@ -296,7 +297,7 @@ export function fillGaps(y: Float64Array, how: TsGaps, m: number, shortM: number
   const typical = anyLong ? nearbyTypicalFill(src.slice(), m) : pattern;
   for (let i = 0; i < y.length; i++) {
     if (src[i] === src[i]) continue;
-    y[i] = longGaps[i] === longGaps[i] ? pattern[i] : typical[i];
+    y[i] = longGaps[i] === longGaps[i] || !(typical[i] === typical[i]) ? pattern[i] : typical[i];
   }
   return y;
 }

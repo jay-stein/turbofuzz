@@ -17,6 +17,12 @@ test("a long gap takes the nearby typical value, which follows the local level",
   assert.ok(err(smart, truth, from, to) <= err(pattern, truth, from, to));
 });
 
+test("a long gap over a phase that never has values (weekends with no rows) still fills", () => {
+  const y = Float64Array.from({ length: 7 * 30 }, (_, i) => (i % 7 >= 5 ? NaN : 10 + (i % 7)));
+  for (let i = 70; i < 112; i++) y[i] = NaN;
+  for (const how of ["smart", "local"] as const) assert.ok(fillGaps(y.slice(), how, 7, 7, true).every((v) => v === v), how);
+});
+
 test("each choice fills every gap: copied from the cycle before, carried forward, nearby typical", () => {
   const truth = hours(), holed = truth.slice();
   for (const i of [5, 300, 301, 1500]) holed[i] = NaN;
