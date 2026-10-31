@@ -179,6 +179,7 @@ import { GENERAL_VIEWS, ViewTabs, isResearchView, viewSwitchHint, type ViewId } 
 import { ModeSwitch, modeLabel, readMode, writeMode, type AppMode } from "./mode.js";
 import { TableNav } from "./table-nav.js";
 import { openNewColumn } from "./new-column-dialog.js";
+import { confirmCellEdit } from "./cell-edit-confirm.js";
 import { parseGoTo, type GoTo } from "./table-goto.js";
 import { ViewsPanel, type ViewSource } from "./views-panel.js";
 import { openCommandBar, type ParsedCommand } from "./command-bar.js";
@@ -208,6 +209,19 @@ const LARGE_PASTE_ROWS = 300_000;
 const SIDEBAR_COLLAPSED_KEY = "turbofuzz.filters.collapsed";
 /** The Table's File row column, remembered in this browser. */
 const FILE_ROW_KEY = "turbofuzz.table.fileRow";
+
+/** Said in the edit confirm when a typed value does not read as the column's type. */
+function cellTypeWarning(type: ColumnType, name: string, value: string): string | null {
+  const v = value.trim();
+  if (v === "") return null;
+  if ((type === "integer" || type === "number") && !Number.isFinite(Number(v.replace(/[,\s]/g, "")))) {
+    return `“${v}” is not a number, so ${name} will count it as a value that does not fit.`;
+  }
+  if ((type === "date" || type === "datetime") && Number.isNaN(Date.parse(v))) {
+    return `“${v}” does not read as a date, so ${name} will count it as a value that does not fit.`;
+  }
+  return null;
+}
 
 function readFlag(key: string): boolean {
   try {
@@ -485,6 +499,10 @@ export class App {
   private showFileRow = readFlag(FILE_ROW_KEY);
   /** First / last N rows, as the worker last reported it (a filter chip shows it). */
   private rowLimit: RowLimit | null = null;
+  /** Cell edits ask first, until "Don't ask again for this session" (DEC-2026-10-31-02). */
+  private askEditConfirm = true;
+  /** A cell just edited: the cursor goes back to it once the cleaned rows arrive. */
+  private pendingEditRestore: { row: number; column: number } | null = null;
   /** A column just added: scrolled to and flashed once the new table arrives. */
   private pendingFlashName: string | null = null;
 
@@ -2424,6 +2442,7 @@ export class App {
       },
       onViewport: (first, last, count) => this.tableNav?.setViewport(first, last, count),
       onAddColumn: () => void this.openNewColumn(),
+      onEditCell: (edit) => void this.editCell(edit),
     });
     this.tableNav.setShowFileRow(this.showFileRow);
     this.tableHost.append(this.tableNav.element);
@@ -3374,6 +3393,53 @@ export class App {
       [...this.transformOps, { kind: "derive", name: result.name, at: result.at, formula: result.formula }],
       `Added column "${result.name}" = ${result.formula}`,
     );
+  }
+
+  /**
+   * A cell edited in place: confirmed (unless the person turned that off for the
+   * session), then recorded as a setCells clean step on the file row, so it stays with
+   * its row through sorting and filtering and is undone from the Recipe.
+   */
+  private async editCell(edit: { position: number; column: number; from: string; to: string; anchor: DOMRect }): Promise<void> {
+    const meta = this.metas[edit.column];
+    if (meta === undefined) return;
+    const ids = await this.client.getRowIds(edit.position, edit.position + 1).catch(() => null);
+    const row = ids?.ids[0];
+    if (row === undefined) return;
+    if (this.askEditConfirm) {
+      const answer = await confirmCellEdit({
+        column: meta.name,
+        row: edit.position + 1,
+        fileRow: row + 1,
+        from: edit.from,
+        to: edit.to,
+        warning: cellTypeWarning(meta.type, meta.name, edit.to),
+        anchor: edit.anchor,
+      });
+      if (!answer.ok) {
+        this.setAction("Edit cancelled");
+        return;
+      }
+      if (answer.dontAsk) this.askEditConfirm = false;
+    }
+    const before = this.cleanedColumns.get(edit.column) ?? [];
+    const last = before[before.length - 1];
+    // Edits in a row on one column are one step; each keeps the cell's value before the first edit.
+    const next: CleanOp[] =
+      last?.kind === "setCells"
+        ? [
+            ...before.slice(0, -1),
+            {
+              kind: "setCells",
+              edits: [
+                ...last.edits.filter((e) => e.row !== row),
+                { row, from: last.edits.find((e) => e.row === row)?.from ?? edit.from, to: edit.to },
+              ],
+            },
+          ]
+        : [...before, { kind: "setCells", edits: [{ row, from: edit.from, to: edit.to }] }];
+    this.pendingEditRestore = { row, column: edit.column };
+    this.applyClean([{ column: edit.column, ops: next }]);
   }
 
   /** Keeps only the first or last N rows of the current order (null for all rows). */
@@ -7262,6 +7328,14 @@ export class App {
         message.firstFlags,
         message.firstChanged,
       );
+          // After a cell edit, the cursor goes back to that cell wherever the row now is.
+          const restore = this.pendingEditRestore;
+          this.pendingEditRestore = null;
+          if (restore !== null) {
+            void this.client.findRow(restore.row).then((found) => {
+              if (found.position >= 0) this.table?.setCursor(found.position, restore.column);
+            });
+          }
           const reverted = updates.every((update) => update.ops.length === 0);
           const name = message.columns[0]?.meta.name ?? "";
           const label =

@@ -28,6 +28,16 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-10 — Table: cell cursor and editing a cell in place
+
+- **Status:** Verified
+- **Related issue / decision:** next_steps.md "BIG TODO: the Table view" step 3; DEC-2026-10-31-02 (confirm on by default).
+- **Scope:** A cell cursor in the grid (click; arrows, Page Up/Down, Ctrl+arrows to the edges, Home/End, Ctrl+C copies, Esc clears; the grid's keys no longer reach the 1-9 tab shortcuts). Editing in place: double-click, Enter, F2 or typing; Enter commits and moves down, Tab right, Esc cancels. A confirm next to the cell (`src/ui/cell-edit-confirm.ts`) shows old and new value with the file row, warns when the value does not fit a number or date column, and offers Don't ask again for this session. Each edit is a `setCells` clean step keyed by the row's file number (cleans see the current rows), so it stays with the row; consecutive edits on one column merge into one step keeping each cell's first value; after the edit the cursor returns to that cell wherever the row now is. pandas (`df.iloc[...]`) and Polars (`pl.when(pl.int_range(...))`) write it.
+- **Tests run and results:** `test/e2e/cell-edit.spec.ts` (3), a setCells unit test, parity case `cell-edits` (pandas PASS, Polars PASS); full suite green.
+- **Known limitations:** an edit clears that column's own filter (as any clean does) and the sort returns to file order; pasting a block of cells is a later step.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-09 — Formula columns in the pandas and Polars recipes
 
 - **Status:** Verified

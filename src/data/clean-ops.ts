@@ -22,6 +22,8 @@ export type CleanOp =
   | { kind: "hash"; salt: string }
   /** Replaces whole cell values (after trimming) using exact matches, e.g. active/ACTIVE to Active. */
   | { kind: "recode"; pairs: [from: string, to: string][] }
+  /** Cells edited by hand: row (in the rows this clean sees), the old and the new text. */
+  | { kind: "setCells"; edits: { row: number; from: string; to: string }[] }
   | { kind: "toDate"; order: DateOrder }
   | { kind: "toDateTime"; order: DateOrder }
   | {
@@ -110,6 +112,7 @@ function compileOp(op: CleanOp): (value: string) => string {
       return (value) =>
         isNullToken(value) ? value : sha256Hex(`${op.salt}\u0000${value.trim()}`).slice(0, 16);
     case "cast":
+    case "setCells":
       return (value) => value;
   }
 }
@@ -121,6 +124,10 @@ function compileOp(op: CleanOp): (value: string) => string {
 export function applyCleanOps(values: readonly string[], ops: readonly CleanOp[]): string[] {
   let out = values.slice();
   for (const op of ops) {
+    if (op.kind === "setCells") {
+      for (const { row, to } of op.edits) if (row >= 0 && row < out.length) out[row] = to;
+      continue;
+    }
     if (op.kind === "cast") {
       out = castColumn(out, {
         target: op.target,
@@ -224,6 +231,10 @@ export function describeCleanOp(op: CleanOp): string {
       return "Replace values with a salted SHA-256 hash";
     case "recode":
       return `Standardise ${op.pairs.length} spelling${op.pairs.length === 1 ? "" : "s"} to the most common one`;
+    case "setCells":
+      return op.edits.length === 1
+        ? `Edited row ${op.edits[0]!.row + 1}: ${JSON.stringify(op.edits[0]!.from)} → ${JSON.stringify(op.edits[0]!.to)}`
+        : `Edited ${op.edits.length} cells by hand`;
     case "cast":
       return `Convert to ${CAST_TARGET_LABELS[op.target]} (${CAST_POLICY_LABELS[op.policy]})`;
   }
@@ -250,6 +261,8 @@ export function describeCleanOpDetail(op: CleanOp): string {
       return `hash(sha256, salt=${op.salt.length} chars)`;
     case "recode":
       return `recode(${op.pairs.length} pairs)`;
+    case "setCells":
+      return `setCells(${op.edits.map((e) => `row ${e.row + 1}=${JSON.stringify(e.to)}`).join(", ")})`;
     case "toDate":
       return `toDate(order=${op.order})`;
     case "toDateTime":

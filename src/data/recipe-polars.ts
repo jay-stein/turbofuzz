@@ -138,6 +138,10 @@ function polarsCleanLines(
           `)`,
         ].join("\n");
       }
+      case "setCells":
+        return op.edits
+          .map((e) => assign(`pl.when(pl.int_range(pl.len()) == ${e.row}).then(pl.lit(${e.to === "" ? "None" : py(e.to)})).otherwise(${column})`, name) + `  # was ${py(e.from)}`)
+          .join("\n");
       case "recode":
         return [
           `_tf_recode = {${op.pairs.map(([from, to]) => `${py(from)}: ${py(to)}`).join(", ")}}`,

@@ -524,6 +524,10 @@ function cleanLines(
         // Mirrors looksLikeFormula(): =, @, tab and CR always; a leading sign
         // only when the rest is not a plain number.
         return `${column} = ${column}.map(lambda v: ("'" + v) if isinstance(v, str) and v != "" and (v[0] in "=@\\t\\r" or (v[0] in "+-" and v[1:] != "" and not re.fullmatch(r"[0-9.,\\s]+", v[1:]))) else v)`;
+      case "setCells":
+        return op.edits
+          .map((e) => `df.iloc[${e.row}, df.columns.get_loc(${py(name)})] = ${e.to === "" ? "None" : py(e.to)}  # was ${py(e.from)}`)
+          .join("\n");
       case "recode":
         return [
           `_tf_recode = {${op.pairs.map(([from, to]) => `${py(from)}: ${py(to)}`).join(", ")}}`,

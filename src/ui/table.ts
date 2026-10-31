@@ -101,6 +101,8 @@ export interface ResultTableOptions {
   onOutlierMenu?: (anchor: HTMLElement, column: number) => void;
   /** Dataset row indexes for positions [start, end), for the File row column. */
   onRequestRowIds?: (start: number, end: number, done: (start: number, ids: Uint32Array) => void) => void;
+  /** A cell edited in place (Enter, Tab or a click away): the page confirms and records it. */
+  onEditCell?: (edit: { position: number; column: number; from: string; to: string; anchor: DOMRect }) => void;
   /** The + at the end of the header row: a new column at the end. */
   onAddColumn?: () => void;
   /** The rows on screen changed: first and last visible position (0-based), and the row count. */
@@ -156,6 +158,9 @@ export class ResultTable {
   private flashRow: number | null = null;
   private flashRowTimer: number | null = null;
   private showFileRow = false;
+  /** The cell cursor: position in the current order and column, or null. */
+  private cursor: { row: number; col: number } | null = null;
+  private editor: HTMLInputElement | null = null;
   /** Dataset row index per position, for the File row column (cleared with the rows). */
   private readonly ids = new Map<number, number>();
   private idsPending = "";
@@ -172,6 +177,20 @@ export class ResultTable {
     root.append(this.scroller);
 
     this.scroller.addEventListener("scroll", () => this.render());
+    // The grid takes the keyboard: a cell cursor, and typing edits the cell under it.
+    this.scroller.tabIndex = 0;
+    this.scroller.setAttribute("aria-label", "Table rows. Arrow keys move between cells; Enter or typing edits a cell.");
+    this.scroller.addEventListener("keydown", (event) => this.onGridKey(event));
+    this.rowsHost.addEventListener("click", (event) => {
+      const at = this.cellAt(event.target);
+      if (at === null) return;
+      this.setCursor(at.row, at.col, false);
+      this.scroller.focus({ preventScroll: true });
+    });
+    this.rowsHost.addEventListener("dblclick", (event) => {
+      const at = this.cellAt(event.target);
+      if (at !== null) this.startEdit(at.row, at.col);
+    });
     window.addEventListener("resize", this.onResize);
   }
 
@@ -1104,6 +1123,130 @@ export class ResultTable {
     }
   }
 
+  /** The data cell (position, column) an event landed on, or null. */
+  private cellAt(target: EventTarget | null): { row: number; col: number } | null {
+    const cell = (target as HTMLElement | null)?.closest<HTMLElement>(".td[data-col]");
+    const tr = cell?.closest<HTMLElement>(".tr[data-pos]");
+    if (!cell || !tr) return null;
+    return { row: Number(tr.dataset.pos), col: Number(cell.dataset.col) };
+  }
+
+  /** Puts the cell cursor on a cell and scrolls it into view (when asked). */
+  setCursor(row: number, col: number, reveal = true): void {
+    if (this.count === 0 || this.columns.length === 0) return;
+    this.cursor = { row: Math.max(0, Math.min(this.count - 1, row)), col: Math.max(0, Math.min(this.columns.length - 1, col)) };
+    if (reveal) this.reveal(this.cursor.row, this.cursor.col);
+    this.markCursor();
+  }
+
+  /** Moves the cursor's mark on the cells already drawn (no repaint, so a double-click still lands). */
+  private markCursor(): void {
+    for (const cell of this.rowsHost.querySelectorAll(".cursor-cell")) cell.classList.remove("cursor-cell");
+    if (this.cursor === null) return;
+    this.rowsHost.querySelector(`.tr[data-pos="${this.cursor.row}"] .td[data-col="${this.cursor.col}"]`)?.classList.add("cursor-cell");
+  }
+
+  private reveal(row: number, col: number): void {
+    const body = this.scroller.clientHeight - this.header.offsetHeight;
+    if (row * ROW_HEIGHT < this.scroller.scrollTop) this.scroller.scrollTop = row * ROW_HEIGHT;
+    else if ((row + 1) * ROW_HEIGHT > this.scroller.scrollTop + body) this.scroller.scrollTop = (row + 1) * ROW_HEIGHT - body;
+    const lead = this.leadWidth();
+    const left = lead + this.widths.slice(0, col).reduce((a, b) => a + b, 0);
+    const right = left + (this.widths[col] ?? 0);
+    if (left - lead < this.scroller.scrollLeft) this.scroller.scrollLeft = left - lead;
+    else if (right > this.scroller.scrollLeft + this.scroller.clientWidth) this.scroller.scrollLeft = right - this.scroller.clientWidth;
+  }
+
+  private onGridKey(event: KeyboardEvent): void {
+    if (event.target !== this.scroller || this.count === 0) return;
+    const ctrl = event.ctrlKey || event.metaKey;
+    const c = this.cursor ?? { row: Math.floor(this.scroller.scrollTop / ROW_HEIGHT), col: 0 };
+    const page = Math.max(1, Math.floor((this.scroller.clientHeight - this.header.offsetHeight) / ROW_HEIGHT) - 1);
+    const last = this.columns.length - 1;
+    const moves: Record<string, () => [number, number]> = {
+      ArrowDown: () => [ctrl ? this.count - 1 : c.row + 1, c.col],
+      ArrowUp: () => [ctrl ? 0 : c.row - 1, c.col],
+      ArrowRight: () => [c.row, ctrl ? last : c.col + 1],
+      ArrowLeft: () => [c.row, ctrl ? 0 : c.col - 1],
+      PageDown: () => [c.row + page, c.col],
+      PageUp: () => [c.row - page, c.col],
+      Home: () => [ctrl ? 0 : c.row, 0],
+      End: () => [ctrl ? this.count - 1 : c.row, last],
+    };
+    const move = moves[event.key];
+    if (move !== undefined) {
+      event.preventDefault();
+      event.stopPropagation();
+      const [row, col] = move();
+      this.setCursor(row, col);
+      return;
+    }
+    if (this.cursor === null) return;
+    // Keys the grid uses never reach the page's shortcuts (1-9 switch tabs).
+    if (event.key === "Escape" || event.key === "Enter" || event.key === "F2" || (event.key.length === 1 && !event.altKey)) event.stopPropagation();
+    if (event.key === "Escape") {
+      this.cursor = null;
+      this.markCursor();
+    } else if (event.key === "Enter" || event.key === "F2") {
+      event.preventDefault();
+      this.startEdit(this.cursor.row, this.cursor.col);
+    } else if (ctrl && event.key.toLowerCase() === "c") {
+      event.preventDefault();
+      void navigator.clipboard?.writeText(this.cache.get(this.cursor.row)?.[this.cursor.col] ?? "").catch(() => undefined);
+    } else if (!ctrl && !event.altKey && event.key.length === 1 && this.options.onEditCell !== undefined) {
+      // Typing over a cell starts editing it with that character, as in a spreadsheet.
+      event.preventDefault();
+      this.startEdit(this.cursor.row, this.cursor.col, event.key);
+    }
+  }
+
+  /** Opens the in-place editor over a cell; Enter or Tab commits, Esc cancels. */
+  startEdit(row: number, col: number, typed?: string): void {
+    if (this.options.onEditCell === undefined || this.editor !== null) return;
+    const from = this.cache.get(row)?.[col];
+    if (from === undefined) return;
+    this.setCursor(row, col);
+    const cell = this.rowsHost.querySelector<HTMLElement>(`.tr[data-pos="${row}"] .td[data-col="${col}"]`);
+    if (cell === null) return;
+    const box = cell.getBoundingClientRect(), host = this.scroller.getBoundingClientRect();
+    const input = el("input", {
+      class: "cell-editor",
+      type: "text",
+      spellcheck: "false",
+      "aria-label": `Edit ${this.columns[col]?.name ?? "cell"}, row ${row + 1}`,
+      title: `Was: ${from === "" ? "(empty)" : from}`,
+    }) as HTMLInputElement;
+    input.value = typed ?? from;
+    Object.assign(input.style, {
+      left: `${box.left - host.left + this.scroller.scrollLeft}px`,
+      top: `${box.top - host.top + this.scroller.scrollTop}px`,
+      width: `${Math.max(box.width, 140)}px`,
+      height: `${box.height}px`,
+    });
+    this.editor = input;
+    this.scroller.append(input);
+    input.focus();
+    if (typed === undefined) input.select();
+    let done = false;
+    const finish = (commit: boolean, next?: [number, number]): void => {
+      if (done) return;
+      done = true;
+      const to = input.value;
+      input.remove();
+      this.editor = null;
+      this.scroller.focus({ preventScroll: true });
+      if (commit && to !== from) this.options.onEditCell?.({ position: row, column: col, from, to, anchor: box });
+      if (next) this.setCursor(next[0], next[1]);
+    };
+    input.addEventListener("keydown", (event) => {
+      event.stopPropagation();
+      if (event.key === "Escape") finish(false);
+      else if (event.key === "Enter") { event.preventDefault(); finish(true, [row + 1, col]); }
+      else if (event.key === "Tab") { event.preventDefault(); finish(true, [row, col + (event.shiftKey ? -1 : 1)]); }
+    });
+    input.addEventListener("blur", () => finish(true));
+  }
+
   /** Reports the rows on screen again, even if unchanged (a new bar, a new row count). */
   refreshViewport(): void {
     this.lastViewport = "";
@@ -1142,6 +1285,7 @@ export class ResultTable {
 
   private buildRow(index: number, row: string[] | undefined): HTMLElement {
     const tr = el("div", { class: "tr" });
+    tr.dataset.pos = String(index);
     if (this.flashRow === index) tr.classList.add("flash-row");
     tr.style.gridTemplateColumns = this.gridTemplate();
     if (row === undefined) tr.classList.add("skeleton");
@@ -1172,6 +1316,8 @@ export class ResultTable {
     for (let c = 0; c < this.columns.length; c++) {
       const type = this.columns[c]?.type;
       const cell = el("div", { class: "td" });
+      cell.dataset.col = String(c);
+      if (this.cursor !== null && this.cursor.row === index && this.cursor.col === c) cell.classList.add("cursor-cell");
       if (this.flashIndex === c) cell.classList.add("flash-column");
       if (type === "integer" || type === "number") cell.classList.add("num-cell");
       else if (type === "boolean") cell.classList.add("bool-cell");

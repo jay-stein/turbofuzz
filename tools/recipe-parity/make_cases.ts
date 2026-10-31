@@ -169,6 +169,13 @@ const CASES: CaseSpec[] = [
     ],
   },
   {
+    name: "cell-edits",
+    description: "cells edited by hand in the Table (setCells)",
+    headers: ["name", "region"],
+    rows: [["Ada", "North"], ["Alan", "South"], ["Grace", "East"]],
+    cleans: [{ column: 1, ops: [{ kind: "setCells", edits: [{ row: 0, from: "North", to: "West" }, { row: 2, from: "East", to: "" }] }] }],
+  },
+  {
     name: "formulas",
     description: "new columns from Excel-style formulas: every function, blanks, errors, dates",
     headers: ["first", "last", "price", "qty", "status", "email", "ordered", "shipped", "solar"],

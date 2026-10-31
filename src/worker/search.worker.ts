@@ -2585,6 +2585,7 @@ function cleanTarget(
         type = undefined;
         break;
       case "recode":
+      case "setCells":
         break;
       case "toDate":
         type = undefined;

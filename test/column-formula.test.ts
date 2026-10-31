@@ -156,3 +156,15 @@ test("pandas and Polars recipes write a formula column as code, once-only helper
   assert.match(pandasRecipeScript(input).code, /df\.insert\(2, "total", _derive\(df\.to_dict\("records"\), _f1, "number"\)\)/);
   assert.match(polarsRecipeScript(input).code, /df = df\.insert_column\(0, pl\.Series\("big", _derive\(df\.iter_rows\(named=True\), _f2, "bool"\), dtype=pl\.Utf8\)\)/);
 });
+
+test("a cell edit is a setCells clean step on the row's index, and the recipes write it", async () => {
+  const { applyCleanOps, describeCleanOp } = await import("../src/data/clean-ops.js");
+  const { pandasRecipeScript } = await import("../src/data/recipe.js");
+  const { polarsRecipeScript } = await import("../src/data/recipe-polars.js");
+  const op = { kind: "setCells" as const, edits: [{ row: 1, from: "120", to: "9" }, { row: 7, from: "", to: "x" }] };
+  assert.deepEqual(applyCleanOps(["4500", "120", "77"], [op]), ["4500", "9", "77"]);
+  assert.equal(describeCleanOp(op), "Edited 2 cells by hand");
+  const input = { cleans: [{ name: "amount", ops: [op] }], transforms: [], schema: [{ name: "amount", numeric: true }] };
+  assert.match(pandasRecipeScript(input).code, /df\.iloc\[1, df\.columns\.get_loc\("amount"\)\] = "9"  # was "120"/);
+  assert.match(polarsRecipeScript(input).code, /pl\.when\(pl\.int_range\(pl\.len\(\)\) == 1\)\.then\(pl\.lit\("9"\)\)/);
+});

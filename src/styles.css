@@ -11821,3 +11821,78 @@ button.qp-tile:hover {
 .filter-suggest-item.active { background: var(--accent-soft); }
 .filter-suggest-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .filter-suggest-count { flex: none; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+/* ---------- Table: cell cursor, in-place editor, edit confirm ---------- */
+
+.td.cursor-cell {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.table-scroller:focus-visible {
+  outline: none;
+}
+
+.cell-editor {
+  position: absolute;
+  z-index: 6;
+  padding: 0 8px;
+  border: 2px solid var(--accent);
+  border-radius: 2px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-md);
+  box-shadow: var(--shadow-pop);
+}
+
+.cell-editor:focus {
+  outline: none;
+}
+
+.cell-confirm {
+  position: fixed;
+  z-index: 96;
+  width: 380px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
+  font-size: var(--fs-md);
+}
+
+.cell-confirm p {
+  margin: 0 0 8px;
+  line-height: 1.45;
+}
+
+.cell-confirm-q b {
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.cell-confirm-warn {
+  color: var(--qa-warn-text);
+}
+
+.cell-confirm-acts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cell-confirm-acts .grow {
+  flex: 1;
+}
+
+.cell-confirm-skip,
+.cell-confirm-note {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.cell-confirm-note {
+  margin: 8px 0 0 !important;
+}
