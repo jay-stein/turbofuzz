@@ -100,7 +100,8 @@ const TEMPLATE = `
   <dl class="ts-strip" data-ref="strip"></dl>
   <div class="ts-work">
     <div class="ts-stage">
-      <section class="ts-card" aria-label="Series chart">
+      <section class="ts-card ts-card-main" aria-label="Series chart">
+        <div class="ts-busy" data-ref="busy" role="status" hidden><span class="ts-spinner" aria-hidden="true"></span><span>Calculating…</span></div>
         <div class="ts-toolbar" role="toolbar" aria-label="Mode settings">
           <div class="ts-tb" data-for="explore">
             <div class="ts-ctl"><label>Rolling window</label><input type="range" data-ref="smoothW" min="2" max="52" step="1" aria-label="Rolling window (slider)"><input type="number" class="ts-num" data-ref="smoothWNum" min="2" step="1" aria-label="Rolling window"><span class="ts-numunit" data-ref="smoothWUnit"></span></div>
@@ -235,15 +236,26 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   function groupColumns(): number[] {
     return metas.flatMap((m, i) => (m.role !== "provenance" && (m.type === "category" || m.type === "string" || m.type === "boolean") && m.stats.distinct >= 2 && m.stats.distinct <= GROUP_LIMIT ? [i] : []));
   }
+  // The worker answers in well under half a second; if a request takes longer than this the
+  // page says it is calculating (a pill with a spinning donut) instead of looking stuck.
+  // Shorter waits show nothing, so quick changes do not flicker.
+  const BUSY_AFTER_MS = 150;
+  let busyTimer = 0;
+  function setBusy(on: boolean): void {
+    window.clearTimeout(busyTimer);
+    if (on) busyTimer = window.setTimeout(() => { ref("busy").hidden = false; }, BUSY_AFTER_MS);
+    else ref("busy").hidden = true;
+  }
   function fetchSeries(): void {
     if (dateColumn < 0 && source === "") return;
     if (inFlight) { again = true; return; }
     inFlight = true;
+    if (ref("busy").hidden) setBusy(true);
     const mine = ++seq;
     const sentDate = dateColumn, sentGroup = groupColumn, sentSource = source;
     options.request({ dateColumn, groupColumn, config: cfg, mode: ui.mode, source }).then((msg) => {
       inFlight = false;
-      if (mine !== seq || sentDate !== dateColumn || sentGroup !== groupColumn || sentSource !== source) { if (again || mine !== seq) { again = false; fetchSeries(); } return; }
+      if (mine !== seq || sentDate !== dateColumn || sentGroup !== groupColumn || sentSource !== source) { if (again || mine !== seq) { again = false; fetchSeries(); } if (!inFlight) setBusy(false); return; }
       if (!msg || !msg.snapshot) {
         snap = null;
         showEmpty(msg?.error ?? "This column has too few readable dates to make a series.");
@@ -264,7 +276,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         invalidate("ui", "stat", "nav", "panel", "ov");
       }
       if (again) { again = false; fetchSeries(); }
-    }).catch(() => { inFlight = false; if (again) { again = false; fetchSeries(); } });
+      if (!inFlight) setBusy(false);
+    }).catch(() => { inFlight = false; if (again) { again = false; fetchSeries(); } if (!inFlight) setBusy(false); });
   }
   function showEmpty(html: string): void {
     ref("body").hidden = true;

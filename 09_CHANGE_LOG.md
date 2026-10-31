@@ -28,6 +28,19 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-33 — Time Series: 500 ms latency ceiling, with a "Calculating..." spinner
+
+- **Status:** Verified
+- **Related issue:** Owner, 2026-10-31: loosen the Time Series latency budget to 0.5 s or less, show a spinning donut, and keep a deep-analysis button for anything heavier (DEC-2026-10-31-03).
+- **Scope:**
+  - **Budgets:** `bench/timeseries.ts` allows 500 ms for open, horizon drag, Patterns and the aggregation switch; the rolling-window change keeps 8 ms (daily) and 15 ms (hourly). The old figures are now soft targets: over one prints "slow" without failing.
+  - **Spinner:** a pill with a spinning donut and "Calculating..." at the top right of the chart card appears when a request passes 150 ms and disappears when the answer arrives (also on a stale or failed response); it respects reduced motion (a slow pulse instead of a spin).
+  - Heavier analyses stay behind buttons: the Deep check and the Trend flexibility check already work this way.
+- **Measured now:** daily open 97 ms, hourly open 205 ms, hourly horizon drag 122 ms (flagged "slow" against its old 110 ms target), Patterns 249 ms.
+- **Tests run and results:** an end-to-end test delays the worker's answer by 700 ms and checks the pill and spinner appear and clear, and that a fast change shows no pill; Time Series suite and the benchmark pass.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-32 — Time Series: "How the models work" window, with sources and credits (fundamentals plan, Phase 2)
 
 - **Status:** Verified

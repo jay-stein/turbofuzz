@@ -77,8 +77,10 @@ export type Key = ModelKey | "auto" | "et" | "eth";
 /** Fixed combinations: ETS + Theta, and ETS + Theta + damped Holt-Winters (like M4's "Comb" benchmark). */
 export const KEYS: Key[] = ["auto", "et", "eth", ...MODEL_KEYS];
 
-/** MASE of every model, the Auto pick and the combinations on one series; or why it could not run. */
-export function runSeries(s: Series, freq: FreqName, H: number): { mase: Record<Key, number>; auto: ModelKey } | { skip: string } {
+interface Setup { snap: ReturnType<TsEngine["compute"]>; train: number[]; test: number[]; fq: (typeof FREQ)[FreqName] }
+
+/** The engine run for one series on the archive's protocol, or why it could not be done. */
+function setup(s: Series, freq: FreqName, H: number): Setup | { skip: string } {
   const fq = FREQ[freq], n = s.values.length;
   if (n <= H + 2) return { skip: "too short" };
   const times = Float64Array.from({ length: n }, (_, i) => fq.add(s.start, i));
@@ -92,13 +94,28 @@ export function runSeries(s: Series, freq: FreqName, H: number): { mase: Record<
   const snap = engine.compute(cfg, "forecast");
   if ("error" in snap.models) return { skip: snap.models.error.slice(0, 60) };
   if (!snap.futures || snap.models.T !== off + n - H || snap.A.modelN - off !== n || snap.models.H !== H) return { skip: `T ${snap.models.T}/${off + n - H}, n ${snap.A.modelN - off}/${n}, H ${snap.models.H}/${H}` };
-  const train = s.values.slice(0, n - H), test = s.values.slice(n - H), F = snap.futures;
+  return { snap, train: s.values.slice(0, n - H), test: s.values.slice(n - H), fq };
+}
+
+/** MASE of every model, the Auto pick and the combinations on one series; or why it could not run. */
+export function runSeries(s: Series, freq: FreqName, H: number): { mase: Record<Key, number>; auto: ModelKey } | { skip: string } {
+  const r = setup(s, freq, H);
+  if ("skip" in r) return r;
+  const { snap, train, test, fq } = r, F = snap.futures!, M = snap.models as Exclude<typeof snap.models, { error: string }>;
   const out = {} as Record<Key, number>;
   for (const k of MODEL_KEYS) out[k] = mase(train, test, F[k].F, fq.season);
-  out.auto = mase(train, test, F[snap.models.best].F, fq.season);
+  out.auto = mase(train, test, F[M.best].F, fq.season);
   out.et = mase(train, test, Array.from({ length: H }, (_, h) => (F.ets.F[h]! + F.theta.F[h]!) / 2), fq.season);
   out.eth = mase(train, test, Array.from({ length: H }, (_, h) => (F.ets.F[h]! + F.theta.F[h]! + F.hw.F[h]!) / 3), fq.season);
-  return { mase: out, auto: snap.models.best };
+  return { mase: out, auto: M.best };
+}
+
+/** Our ETS and Theta forecasts and the ETS form chosen, for comparison with a reference implementation. */
+export function forecastsOf(s: Series, freq: FreqName, H: number): { ets: number[]; theta: number[]; spec: string; etsMase: number; thetaMase: number } | { skip: string } {
+  const r = setup(s, freq, H);
+  if ("skip" in r) return r;
+  const { snap, train, test, fq } = r, F = snap.futures!, M = snap.models as Exclude<typeof snap.models, { error: string }>;
+  return { ets: Array.from(F.ets.F), theta: Array.from(F.theta.F), spec: M.models.ets.ets!.spec, etsMase: mase(train, test, F.ets.F, fq.season), thetaMase: mase(train, test, F.theta.F, fq.season) };
 }
 
 export const meanOf = (a: number[]): number => { const v = a.filter((x) => Number.isFinite(x)); return v.reduce((x, y) => x + y, 0) / (v.length || 1); };

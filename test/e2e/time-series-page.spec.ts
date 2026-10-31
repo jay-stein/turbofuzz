@@ -309,3 +309,34 @@ test("each model has a technical page with its equations, this series' fit and i
   await page.getByRole("button", { name: "How the models work" }).click();
   await expect(page.getByRole("dialog", { name: "How the forecasts work" })).toBeVisible();
 });
+
+test("a slow calculation shows a Calculating pill with a spinner, and quick ones show nothing", async ({ page }) => {
+  // Hold the worker's answer for a series for 700 ms so the wait is long enough to notice.
+  await page.addInitScript(() => {
+    const post = Worker.prototype.postMessage;
+    (window as unknown as { __slowTs: boolean }).__slowTs = false;
+    Worker.prototype.postMessage = function (this: Worker, message: unknown, ...rest: unknown[]) {
+      const m = message as { type?: string } | null;
+      if (m?.type === "getTimeSeries" && (window as unknown as { __slowTs: boolean }).__slowTs) {
+        window.setTimeout(() => (post as (...a: unknown[]) => void).call(this, message, ...rest), 700);
+        return;
+      }
+      (post as (...a: unknown[]) => void).call(this, message, ...rest);
+    } as typeof Worker.prototype.postMessage;
+  });
+  await openPage(page);
+  const busy = page.locator(".ts-page [data-ref=busy]");
+  await expect(busy).toBeHidden();
+  await page.evaluate(() => { (window as unknown as { __slowTs: boolean }).__slowTs = true; });
+  await page.locator(".ts-modes [data-mode=forecast]").click();
+  await page.locator(".ts-page [data-ref=hPresets] button").first().click();
+  await expect(busy).toBeVisible();
+  await expect(busy).toContainText("Calculating");
+  await expect(busy.locator(".ts-spinner")).toBeVisible();
+  await expect(busy).toBeHidden({ timeout: 5000 });
+  // Without the delay a change answers in milliseconds and the pill never appears.
+  await page.evaluate(() => { (window as unknown as { __slowTs: boolean }).__slowTs = false; });
+  await page.locator(".ts-page [data-ref=hPresets] button").nth(1).click();
+  await page.waitForTimeout(400);
+  await expect(busy).toBeHidden();
+});

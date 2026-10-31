@@ -4,13 +4,25 @@ import { measure, ms } from "./bench-utils.js";
 
 // Latency budgets for the Time Series page, per change a person makes. The engine
 // runs in the worker; these are the waits between a click or drag and the redraw.
-//   open:    rows -> series table -> aggregate, decompose, six models, futures
+//   open:    rows -> series table -> aggregate, decompose, eight models, futures
 //   horizon: dragging the forecast handle (models and futures only)
 //   smooth:  moving the rolling window (cached aggregate, one rolling pass)
-//   patterns: opening the Patterns tab (hourly + daily + monthly profiles)
+//   patterns: opening the Patterns tab (hourly + daily + monthly profiles, with the re-aggregate)
+//   twmean:  switching to the time-weighted mean (every reading spread over the time it held)
+//
+// Since 2026-10-31 (DEC-2026-10-31-03) anything that recomputes models may take up to 500 ms:
+// the page shows a "Calculating..." spinner once a request passes 150 ms, and heavier
+// analyses sit behind a button (the Deep check). Cheap interactions keep tight budgets.
+// The earlier, tighter figures stay as targets: going over one prints "slow" but passes, so
+// a creeping slowdown stays visible.
+const CEILING = 500;
 const BUDGETS = {
-  daily: { open: 110, horizon: 80, smooth: 8, patterns: 40 },
-  hourly: { open: 220, horizon: 110, smooth: 15, patterns: 60 },
+  daily: { open: CEILING, horizon: CEILING, smooth: 8, patterns: CEILING, twmean: CEILING },
+  hourly: { open: CEILING, horizon: CEILING, smooth: 15, patterns: CEILING, twmean: CEILING },
+};
+const TARGETS = {
+  daily: { open: 110, horizon: 80, patterns: 150, twmean: 110 },
+  hourly: { open: 220, horizon: 110, patterns: 280, twmean: 220 },
 };
 
 /** Rows with a trend, a daily and weekly cycle and noise, `perDay` rows a day. */
@@ -29,22 +41,23 @@ function rows(days: number, perDay: number): TsInput {
 }
 
 let failed = false;
-const check = (label: string, p95: number, budget: number): void => {
+const check = (label: string, p95: number, budget: number, target?: number): void => {
   const over = p95 > budget;
   if (over) failed = true;
-  console.log(`${over ? "OVER" : "ok  "} ${label.padEnd(44)} p95 ${ms(p95).padStart(7)} ms  budget ${budget} ms`);
+  const slow = !over && target !== undefined && p95 > target;
+  console.log(`${over ? "OVER" : slow ? "slow" : "ok  "} ${label.padEnd(44)} p95 ${ms(p95).padStart(7)} ms  budget ${budget} ms${slow ? `  (over the old target of ${target} ms)` : ""}`);
 };
 
 for (const [name, days, perDay, grain] of [["daily", 3650, 1, "day"], ["hourly", 730, 24, "hour"]] as const) {
   const input = rows(days, perDay);
-  const budget = BUDGETS[name];
+  const budget = BUDGETS[name], target = TARGETS[name];
   const open = measure(() => {
     const table = buildTable(input);
     if (!table) throw new Error("no table");
     const engine = new TsEngine(table);
     engine.compute({ ...defaultConfig(engine.info()), grain }, "forecast");
   }, { iterations: 5, warmup: 1 });
-  check(`${name}: open (${days * perDay} rows, ${grain})`, open.p95, budget.open);
+  check(`${name}: open (${days * perDay} rows, ${grain})`, open.p95, budget.open, target.open);
 
   const table = buildTable(input);
   if (!table) throw new Error("no table");
@@ -53,7 +66,7 @@ for (const [name, days, perDay, grain] of [["daily", 3650, 1, "day"], ["hourly",
   engine.compute(base, "forecast");
   let h = base.horizon ?? 30;
   const horizon = measure(() => { h = h === 30 ? 31 : 30; engine.compute({ ...base, horizon: h }, "forecast"); }, { iterations: 6, warmup: 1 });
-  check(`${name}: forecast horizon drag`, horizon.p95, budget.horizon);
+  check(`${name}: forecast horizon drag`, horizon.p95, budget.horizon, target.horizon);
   let w = 5;
   const smooth = measure(() => { w = w === 5 ? 6 : 5; engine.compute({ ...base, horizon: h, smoothW: w }, "explore"); }, { iterations: 6, warmup: 1 });
   check(`${name}: rolling window change`, smooth.p95, budget.smooth);
@@ -62,11 +75,11 @@ for (const [name, days, perDay, grain] of [["daily", 3650, 1, "day"], ["hourly",
     agg = agg === "sum" ? "mean" : "sum";
     engine.compute({ ...base, horizon: h, smoothW: w, agg }, "patterns");
   }, { iterations: 4, warmup: 0 });
-  check(`${name}: patterns tab (+ re-aggregate)`, patterns.p95, budget.patterns + budget.open);
+  check(`${name}: patterns tab (+ re-aggregate)`, patterns.p95, budget.patterns, target.patterns);
   // Time-weighted mean: every reading spread over the time it held, then the full rerun.
   let tw = 0;
   const twmean = measure(() => { tw++; engine.compute({ ...base, horizon: h, smoothW: w, agg: tw % 2 ? "twmean" : "mean" }, "forecast"); }, { iterations: 4, warmup: 0 });
-  check(`${name}: switch to time-weighted mean`, twmean.p95, budget.open);
+  check(`${name}: switch to time-weighted mean`, twmean.p95, budget.twmean, target.twmean);
 }
 if (failed) {
   console.error("Time series latency gate failed.");

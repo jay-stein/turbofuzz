@@ -12102,3 +12102,12 @@ button.qp-tile:hover {
 .ts-sources li { margin-bottom: 8px; }
 .ts-sources li.focus { background: color-mix(in srgb, var(--ts-forecast-soft) 70%, transparent); border-radius: 6px; padding: 4px 6px; }
 @media (max-width: 760px) { .ts-docs-grid { grid-template-columns: 1fr; height: 80vh; } .ts-docs-nav { max-height: 120px; border-right: 0; border-bottom: 1px solid var(--border); } }
+
+/* Calculating pill: shown when a Time Series request takes longer than 150 ms */
+.ts-card-main { position: relative; }
+.ts-busy { position: absolute; top: 10px; right: 14px; z-index: 6; display: flex; align-items: center; gap: 8px; padding: 5px 12px 5px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); box-shadow: var(--shadow); font-size: 12px; color: var(--ts-dim); pointer-events: none; }
+.ts-busy[hidden] { display: none; }
+.ts-spinner { width: 15px; height: 15px; border-radius: 50%; border: 2.5px solid color-mix(in srgb, var(--ts-forecast) 22%, transparent); border-top-color: var(--ts-forecast); animation: ts-spin 0.8s linear infinite; }
+@keyframes ts-spin { to { transform: rotate(360deg); } }
+@keyframes ts-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ts-spinner { animation: ts-pulse 1.4s ease-in-out infinite; border-top-color: var(--ts-forecast); } }

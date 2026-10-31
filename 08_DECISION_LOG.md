@@ -23,6 +23,21 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-10-31-03 — Time Series view: up to 500 ms with a spinner; heavier work behind a button
+
+- **Status:** Accepted (owner, 2026-10-31)
+- **Context:** Accuracy work on the Time Series forecasts (long seasons removed with MSTL, textbook ETS to come) costs compute, and the old budgets (110 ms daily, 220 ms hourly to open) left no room for it. Speed remains the project's core ethos.
+- **Decision:**
+  - Anything on the Time Series view that recomputes models may take **up to 500 ms**. A **"Calculating..." pill with a spinning donut** appears once a request passes 150 ms, so nothing looks stuck; quicker answers show nothing.
+  - Work that would take longer than that does not run automatically: it sits **behind a button** (as the **Deep check** and the Trend flexibility check do today).
+  - Cheap interactions keep their tight budgets (moving the rolling window: 8 ms daily, 15 ms hourly).
+  - The earlier tight figures stay as **soft targets** in `bench/timeseries.ts`: going over one prints "slow" but passes, so a creeping slowdown stays visible.
+- **Trade-offs:** A slower open on large hourly series in return for better forecasts (hourly Auto error -19% from MSTL). The ceiling can be used up gradually; the soft targets are there to make that visible.
+- **Features / journeys affected:** Time Series page (open, horizon drag, Patterns, aggregation switch), `bench:timeseries`.
+- **Acceptance criteria:** `npm run bench:timeseries` passes with every model-heavy case under 500 ms; the e2e test shows the pill for a 700 ms wait and not for a fast one.
+- **Revisit trigger:** A model-heavy case approaches 500 ms, or users report the wait.
+- **Date / owner:** 2026-10-31 / owner
+
 ### DEC-2026-10-31-02 — Table plan: computed-once columns, first/last N filters, edit confirm on
 
 - **Status:** Accepted (owner, 2026-10-31)
