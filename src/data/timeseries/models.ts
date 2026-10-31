@@ -97,12 +97,15 @@ function hwInit(y: Float64Array, m: number, limit: number): HwState {
   for (let i = 0; i < m; i++) s[i] = y[i] - l;
   return { l, b, s };
 }
-function hwSSE(y: Float64Array, T: number, m: number, a: number, be: number, ga: number, ph: number): number {
-  const st = hwInit(y, m, T);
+// Filled periods arrive as NaN in y (yi is the filled series, used only for the starting
+// state): the state carries through them like a forecast and learns nothing from them.
+function hwSSE(y: Float64Array, T: number, m: number, a: number, be: number, ga: number, ph: number, yi: Float64Array = y): number {
+  const st = hwInit(yi, m, T);
   let l = st.l, b = st.b, sse = 0;
   const s = st.s;
   for (let t = m; t < T; t++) {
     const k = t % m, yt = y[t];
+    if (!(yt === yt)) { l += ph * b; b *= ph; continue; }
     const e = yt - (l + ph * b + s[k]);
     sse += e * e;
     const ln = a * (yt - s[k]) + (1 - a) * (l + ph * b);
@@ -112,11 +115,11 @@ function hwSSE(y: Float64Array, T: number, m: number, a: number, be: number, ga:
   }
   return sse;
 }
-function hwFit(y: Float64Array, T: number, m: number, warm: HwParams | undefined): HwParams {
+function hwFit(y: Float64Array, T: number, m: number, warm: HwParams | undefined, yi: Float64Array = y): HwParams {
   const lo = [0.01, 0.001, 0.001, 0.8], hi = [0.99, 0.5, 0.7, 0.98];
   let p: HwParams = warm ? [...warm] : [0.3, 0.05, 0.15, 0.95];
   if (m === 1) p[2] = 0; // no season: plain damped trend
-  let best = hwSSE(y, T, m, p[0], p[1], p[2], p[3]);
+  let best = hwSSE(y, T, m, p[0], p[1], p[2], p[3], yi);
   const step = warm ? [0.04, 0.015, 0.04, 0.015] : [0.12, 0.04, 0.1, 0.04];
   for (let round = 0; round < 7; round++) {
     for (let j = 0; j < 4; j++) {
@@ -124,7 +127,7 @@ function hwFit(y: Float64Array, T: number, m: number, warm: HwParams | undefined
       for (const dir of [1, -1]) {
         const q: HwParams = [...p];
         q[j] = Math.min(hi[j], Math.max(lo[j], q[j] + dir * step[j]));
-        const e = hwSSE(y, T, m, q[0], q[1], q[2], q[3]);
+        const e = hwSSE(y, T, m, q[0], q[1], q[2], q[3], yi);
         if (e < best) { best = e; p = q; }
       }
     }
@@ -132,9 +135,9 @@ function hwFit(y: Float64Array, T: number, m: number, warm: HwParams | undefined
   }
   return p;
 }
-function hwRun(y: Float64Array, T: number, m: number, p: HwParams, origins: number[]): { snaps: Map<number, HwState>; final: HwState } {
+function hwRun(y: Float64Array, T: number, m: number, p: HwParams, origins: number[], yi: Float64Array = y): { snaps: Map<number, HwState>; final: HwState } {
   const [a, be, ga, ph] = p;
-  const st = hwInit(y, m, origins.length ? origins[0] : T);
+  const st = hwInit(yi, m, origins.length ? origins[0] : T);
   let l = st.l, b = st.b;
   const s = st.s;
   const snaps = new Map<number, HwState>();
@@ -142,6 +145,7 @@ function hwRun(y: Float64Array, T: number, m: number, p: HwParams, origins: numb
   for (let t = m; t < T; t++) {
     while (oi < origins.length && origins[oi] === t) { snaps.set(t, { l, b, s: s.slice() }); oi++; }
     const k = t % m, yt = y[t];
+    if (!(yt === yt)) { l += ph * b; b *= ph; continue; }
     const ln = a * (yt - s[k]) + (1 - a) * (l + ph * b);
     b = be * (ln - l) + (1 - be) * ph * b;
     s[k] = ga * (yt - ln) + (1 - ga) * s[k];
@@ -193,8 +197,8 @@ function etsStep(st: EtsState, y: number, k: number, f: Omit<EtsFit, "aicc" | "t
   return pred;
 }
 
-function etsSSE(y: Float64Array, from: number, T: number, f: Omit<EtsFit, "aicc" | "tried">): { sse: number; n: number } {
-  const st = etsInit(y, from, f.m, f);
+function etsSSE(y: Float64Array, from: number, T: number, f: Omit<EtsFit, "aicc" | "tried">, yi: Float64Array = y): { sse: number; n: number } {
+  const st = etsInit(yi, from, f.m, f);
   const start = from + (f.season === "N" ? 1 : f.m);
   let sse = 0, n = 0;
   for (let t = start; t < T; t++) {
@@ -206,11 +210,11 @@ function etsSSE(y: Float64Array, from: number, T: number, f: Omit<EtsFit, "aicc"
 }
 
 /** Least-squares smoothing parameters for one ETS form (coordinate search, as for Holt-Winters). */
-function etsFitOne(y: Float64Array, from: number, T: number, m: number, trend: EtsTrend, season: EtsSeason): EtsFit | null {
+function etsFitOne(y: Float64Array, from: number, T: number, m: number, trend: EtsTrend, season: EtsSeason, yi: Float64Array = y): EtsFit | null {
   const free = [true, trend !== "N", season !== "N", trend === "Ad"];
   const lo = [0.01, 0.001, 0.001, 0.8], hi = [0.99, 0.5, 0.7, 0.98];
   let p = [0.3, trend === "N" ? 0 : 0.05, season === "N" ? 0 : 0.15, trend === "Ad" ? 0.95 : 1];
-  const sse = (q: number[]): number => etsSSE(y, from, T, { trend, season, m, a: q[0]!, be: q[1]!, ga: q[2]!, ph: q[3]! }).sse;
+  const sse = (q: number[]): number => etsSSE(y, from, T, { trend, season, m, a: q[0]!, be: q[1]!, ga: q[2]!, ph: q[3]! }, yi).sse;
   let best = sse(p);
   const step = [0.12, 0.04, 0.1, 0.04];
   for (let round = 0; round < 5; round++) {
@@ -225,7 +229,7 @@ function etsFitOne(y: Float64Array, from: number, T: number, m: number, trend: E
     }
     for (let j = 0; j < 4; j++) step[j]! *= 0.5;
   }
-  const { n } = etsSSE(y, from, T, { trend, season, m, a: p[0]!, be: p[1]!, ga: p[2]!, ph: p[3]! });
+  const { n } = etsSSE(y, from, T, { trend, season, m, a: p[0]!, be: p[1]!, ga: p[2]!, ph: p[3]! }, yi);
   // Parameters plus initial states: level, trend, and m - 1 free seasonal starts.
   const k = free.filter(Boolean).length + 1 + (trend !== "N" ? 1 : 0) + (season !== "N" ? m - 1 : 0);
   if (!Number.isFinite(best) || n - k - 1 <= 0 || best <= 0) return null;
@@ -243,26 +247,26 @@ function etsFrom(T: number, m: number): number {
 const etsCache = new Map<string, EtsFit>();
 
 /** The ETS form with the lowest AICc over [from, T), from the cache when this stretch was fitted before. */
-function etsSelect(y: Float64Array, from: number, T: number, m: number): EtsFit {
+function etsSelect(y: Float64Array, from: number, T: number, m: number, yi: Float64Array = y): EtsFit {
   let sum = 0;
   for (let t = from; t < T; t += Math.max(1, Math.floor((T - from) / 64))) sum += y[t] === y[t] ? y[t] : 0.5;
   const key = `${from}|${T}|${m}|${sum}|${y[T - 1]}`;
   const hit = etsCache.get(key);
   if (hit) return hit;
-  const fit = etsSelectFresh(y, from, T, m);
+  const fit = etsSelectFresh(y, from, T, m, yi);
   if (etsCache.size > 64) etsCache.clear();
   etsCache.set(key, fit);
   return fit;
 }
 
-function etsSelectFresh(y: Float64Array, from: number, T: number, m: number): EtsFit {
+function etsSelectFresh(y: Float64Array, from: number, T: number, m: number, yi: Float64Array = y): EtsFit {
   let positive = true;
   for (let t = from; t < T; t++) if (y[t] === y[t] && !(y[t] > 0)) { positive = false; break; }
   const seasons: EtsSeason[] = m >= 2 && T - from >= 2 * m + 2 ? (positive ? ["N", "A", "M"] : ["N", "A"]) : ["N"];
   let best: EtsFit | null = null, tried = 0;
   for (const season of seasons) {
     for (const trend of ["N", "A", "Ad"] as EtsTrend[]) {
-      const fit = etsFitOne(y, from, T, season === "N" ? 1 : m, trend, season);
+      const fit = etsFitOne(y, from, T, season === "N" ? 1 : m, trend, season, yi);
       tried++;
       if (fit && (best === null || fit.aicc < best.aicc)) best = fit;
     }
@@ -271,8 +275,8 @@ function etsSelectFresh(y: Float64Array, from: number, T: number, m: number): Et
 }
 
 /** Runs a fitted ETS from `from` to T, keeping the state at each origin. */
-function etsRun(y: Float64Array, from: number, T: number, f: EtsFit, origins: number[]): { snaps: Map<number, EtsState>; final: EtsState } {
-  const st = etsInit(y, from, f.m, f);
+function etsRun(y: Float64Array, from: number, T: number, f: EtsFit, origins: number[], yi: Float64Array = y): { snaps: Map<number, EtsState>; final: EtsState } {
+  const st = etsInit(yi, from, f.m, f);
   const snaps = new Map<number, EtsState>();
   let oi = 0;
   while (oi < origins.length && origins[oi]! < from + f.m) oi++;
@@ -425,9 +429,9 @@ function regAt(fit: RegFit, i: number): number {
   return fit.logY ? Math.exp(Math.min(s, fit.maxLog + 3)) * fit.smear : s;
 }
 /** Theta method: simple smoothing plus half the long-run slope, on the deseasonalised series. */
-function thetaFit(y: Float64Array, o: number, m: number, start = 0): ThetaFit {
+function thetaFit(y: Float64Array, o: number, m: number, start = 0, skip?: Uint8Array): ThetaFit {
   const s = Math.max(fitFrom(o, m), start);
-  if (s) return thetaFit(y.subarray(s, o), o - s, m);
+  if (s) return thetaFit(y.subarray(s, o), o - s, m, 0, skip?.subarray(s, o));
   const add = m > 1 && o >= 2 * m + 2 ? decompose(y, o, m) : null;
   const d = add ? preferScaled(y, o, add) : null;
   // A scaled season comes out as factors around 1 (its profile is amounts at the average level).
@@ -441,7 +445,7 @@ function thetaFit(y: Float64Array, o: number, m: number, start = 0): ThetaFit {
   let best = Infinity, alpha = 0.5, level = z[0];
   for (let a = 0.05; a < 0.951; a += 0.05) {
     let l = z[0], sse = 0;
-    for (let i = 1; i < o; i++) { const e = z[i] - l; sse += e * e; l += a * e; }
+    for (let i = 1; i < o; i++) { if (skip?.[i]) continue; const e = z[i] - l; sse += e * e; l += a * e; }
     if (sse < best) { best = sse; alpha = a; level = l; }
   }
   return { prof, scale, b0, alpha, level, o, m };
@@ -578,6 +582,9 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   if ("error" in plan) return plan;
   const { T, origins, step, rolling, trainLen, startOf, scale } = plan;
   const y = A.yModel;
+  // The smoothing models see filled periods as missing: they bridge them but never learn from them.
+  const yM = y.slice();
+  for (let t = 0; t < yM.length; t++) if (A.made[t]) yM[t] = NaN;
   const R = origins.length;
   const oc = Object.fromEntries(MODEL_KEYS.map((k) => [k, new Float64Array(R * H)])) as Record<ModelKey, Float64Array>;
 
@@ -592,36 +599,36 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   const quantum = Math.max(m, 64);
   const cut = Math.max(Math.min(first0, 2 * m + 10), Math.floor(first0 / quantum) * quantum);
   const hb = etsFrom(cut, m);
-  const hwBack = cut - hb >= 2 * m + 2 ? hwFit(y.subarray(hb), cut - hb, m, warm.get(wkey)) : null;
+  const hwBack = cut - hb >= 2 * m + 2 ? hwFit(yM.subarray(hb), cut - hb, m, warm.get(wkey), y.subarray(hb)) : null;
   const hs = fitFrom(T, m);
-  const hwParams = hwFit(y.subarray(hs), T - hs, m, warm.get(wkey));
+  const hwParams = hwFit(yM.subarray(hs), T - hs, m, warm.get(wkey), y.subarray(hs));
   warm.set(wkey, hwParams);
-  const backRun = hwRun(y, T, m, hwBack ?? hwParams, origins);
+  const backRun = hwRun(yM, T, m, hwBack ?? hwParams, origins, y);
   origins.forEach((o, k) => {
     const s0 = startOf(o), p = hwBack ?? hwParams;
-    const st = s0 > 0 ? hwRun(y.subarray(s0), o - s0, m, p, []).final : backRun.snaps.get(o);
+    const st = s0 > 0 ? hwRun(yM.subarray(s0), o - s0, m, p, [], y.subarray(s0)).final : backRun.snaps.get(o);
     if (st) hwForecast(st, m, p[3], o - s0, H, oc.hw, k * H);
   });
-  const run = hwRun(y, T, m, hwParams, []);
+  const run = hwRun(yM, T, m, hwParams, [], y);
 
   // ETS: the form and its parameters chosen before the first origin for the backtest, again on all data for the forecast.
   const eb = etsFrom(cut, m);
-  const etsBack = etsSelect(y, eb, cut, m);
-  const etsBackRun = etsRun(y, eb, T, etsBack, origins);
+  const etsBack = etsSelect(yM, eb, cut, m, y);
+  const etsBackRun = etsRun(yM, eb, T, etsBack, origins, y);
   origins.forEach((o, k) => {
     const s0 = startOf(o);
-    const st = s0 > 0 ? etsRun(y, s0, o, etsBack, []).final : etsBackRun.snaps.get(o);
+    const st = s0 > 0 ? etsRun(yM, s0, o, etsBack, [], y).final : etsBackRun.snaps.get(o);
     if (st) etsForecast(st, etsBack, o, H, oc.ets, k * H); else for (let h = 0; h < H; h++) oc.ets[k * H + h] = oc.hw[k * H + h];
   });
   const es = etsFrom(T, m);
-  const etsFit = etsSelect(y, es, T, m);
-  const etsFinal = etsRun(y, es, T, etsFit, []).final;
+  const etsFit = etsSelect(yM, es, T, m, y);
+  const etsFinal = etsRun(yM, es, T, etsFit, [], y).final;
 
   origins.forEach((o, k) => { const f = regFit(A, table, cfg.drivers, y, o, cfg.flex, rolling ? o - startOf(o) : Infinity); for (let h = 0; h < H; h++) oc.reg[k * H + h] = regAt(f, o + h); });
   const reg = regFit(A, table, cfg.drivers, y, T, cfg.flex);
 
-  origins.forEach((o, k) => { const f = thetaFit(y, o, m, startOf(o)); for (let h = 0; h < H; h++) oc.theta[k * H + h] = thetaAt(f, h); });
-  const theta = thetaFit(y, T, m);
+  origins.forEach((o, k) => { const f = thetaFit(y, o, m, startOf(o), A.made); for (let h = 0; h < H; h++) oc.theta[k * H + h] = thetaAt(f, h); });
+  const theta = thetaFit(y, T, m, 0, A.made);
 
   const first = origins.length ? origins[0] : T;
   const climM = g.periods.filter((pp) => first >= pp).pop() || m;

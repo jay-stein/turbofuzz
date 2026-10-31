@@ -28,6 +28,18 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-24 — Time Series: no model learns from filled periods
+
+- **Status:** Verified
+- **Related issue:** next_steps.md "Review against fpp3", item 6. ETS, Holt-Winters and Theta used to run through filled values and learn from them; only the regression skipped them.
+- **Scope:**
+  - **ETS and Holt-Winters:** a filled period is missing. The state carries through it like a forecast (level + damped trend, season unchanged) and adds nothing to the fitting error. Starting values still come from the filled series, so a gap at the very start cannot break initialisation.
+  - **Theta:** its level smoothing skips filled periods.
+  - The gap notes, the Data finding and the help text say so.
+- **Tests run and results:** a test with a 15-month gap (every model gives finite scores and forecasts); Time Series unit (38) and e2e (17) pass; bench:timeseries within budgets on two runs.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-23 — Time Series: Deep check (significance, horizon, calibration, residuals)
 
 - **Status:** Verified

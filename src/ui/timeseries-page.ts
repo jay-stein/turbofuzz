@@ -1414,7 +1414,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       interp: "A straight line between the two edge values. It ignores the season, so a gap across a daily peak comes out flat.",
       last: "Last observation carried forward. Right for levels that hold until changed (prices, settings); wrong for anything seasonal.",
       zero: "y(t) = 0. Right when no row means nothing happened (sales, counts). These periods then count as real data in the models.",
-      leave: "Shown as a break. The models still need an unbroken series, so they bridge gaps with the smart fill. Forecast errors are never scored on filled periods, and the regression leaves them out of its fit.",
+      leave: "Shown as a break. The models still need an unbroken series, so they bridge gaps with the smart fill. No model learns from filled periods (ETS, Holt-Winters and Theta carry their state across them; the regression leaves them out) and forecast errors are never scored on them.",
     } : {
       smart: "With no season at this grain: a straight line between the levels either side.",
       local: "No season at this grain, so this is the same as the usual pattern: a straight line between the edges.",

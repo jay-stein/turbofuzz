@@ -1992,7 +1992,7 @@ Already in line with *Forecasting: Principles and Practice*:
 
 The honest backtest (settings fitted before the first fold) and the validation curve go beyond most tools.
 
-Ranked improvements, overfitting first:
+Ranked improvements, overfitting first (items 1-6 shipped 2026-10-31: lockbox CHG-22, Deep check CHG-23 for 2-5, filled periods CHG-24):
 1. **Selection bias from picking the winner.** The Auto pick is the minimum of 7 models over the same folds, so its reported score is optimistic (winner's curse). Fix: score the chosen model on a final lockbox it never saw during selection (the last fold held back from ranking). Report "selected on folds 1..k-1, confirmed on fold k".
 2. **Are differences real?** Add a Diebold–Mariano test (with the Harvey small-sample correction) between the pick and the runner-up, and the baseline. "Not significantly better" should push toward the simpler model.
 3. **Residual diagnostics (§5.4).** Show the ACF of one-step residuals and a Ljung–Box test. Leftover autocorrelation means the model missed structure; none, with a worse backtest, suggests it is overfitting noise.

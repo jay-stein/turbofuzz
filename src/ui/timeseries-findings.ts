@@ -278,7 +278,7 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
     const fmt = ([a, b]: [number, number]): string => fmtInstant(ms(a), info.subDay) + (b > a ? " – " + (info.subDay && sameDay(a, b) ? dfTime.format(new Date(ms(b))) : fmtInstant(ms(b), info.subDay)) : "");
     const realSlots = (a: number, b: number): number => { let c = 0; for (let k = a; k <= b; k++) if (openAt(info, ms(k))) c++; return c; };
     const slots = A.gapRanges.reduce((sum, [a, b]) => sum + Math.max(1, Math.round(realSlots(a, b) / Math.max(1, info.cadSlots))), 0);
-    bits.push(`<b>${nf.format(slots)} ${slots === 1 ? cn.replace(/s$/, "") : cn}</b> with no rows (${A.gapRanges.slice(0, 3).map(fmt).join(", ")}${A.gapRanges.length > 3 ? `, and ${A.gapRanges.length - 3} more stretches` : ""}). Periods with no rows are ${GAP_WORDS[cfg.gaps]}${cfg.gaps === "zero" ? "" : "; the models bridge them with the smart fill, never score forecast errors on them, and the regression leaves them out of its fit"}.`);
+    bits.push(`<b>${nf.format(slots)} ${slots === 1 ? cn.replace(/s$/, "") : cn}</b> with no rows (${A.gapRanges.slice(0, 3).map(fmt).join(", ")}${A.gapRanges.length > 3 ? `, and ${A.gapRanges.length - 3} more stretches` : ""}). Periods with no rows are ${GAP_WORDS[cfg.gaps]}${cfg.gaps === "zero" ? "" : "; the models bridge them with the smart fill but never learn from them (the smoothing models carry their state across, the regression leaves them out) and never score forecast errors on them"}.`);
     // The period holding the first empty slot.
     const gapMs = ms(A.gapRanges[0][0]);
     let gi = 0;
