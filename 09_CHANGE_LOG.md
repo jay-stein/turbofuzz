@@ -28,6 +28,15 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-30 — Time Series: STL and MSTL decomposition, and the Theta seasonality test
+
+- **Status:** Verified
+- **Scope:** `src/data/timeseries/stl.ts` implements STL (Cleveland, Cleveland, McRae and Terpenning 1990) and MSTL (Bandara, Hyndman and Bergmeir 2021) from the published algorithms, with the defaults of R's stl() and forecast::mstl(). `seasonality.ts` implements the Theta method's autocorrelation test of seasonality (as in forecast::thetaf). No code was copied.
+- **Checked against** Python statsmodels (BSD-3-Clause) with the settings of R's stl(): STL agrees to machine precision (0 to 1.7e-13) on monthly, outlier-robust, weekly and hourly series, so the loess, subseries extension, low-pass filter and bisquare robustness loops are the published ones; MSTL agrees to within 2% of the series' spread (statsmodels uses jumps of 1 where R uses ceil(window / 10)). Reference output is stored in `test/fixtures/stl-reference.json` (`tools/ts-eval/make-stl-reference.py`).
+- **Tests run and results:** `test/timeseries-stl.test.ts` (4: reference match, MSTL, components add back, robust fit resists an outlier).
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-29 — Time Series: Auto defaults to the Combination (fundamentals plan, Phase 1)
 
 - **Status:** Verified
