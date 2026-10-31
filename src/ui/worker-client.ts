@@ -61,6 +61,7 @@ import type {
   RowIdsMessage,
   RowPositionMessage,
   OrderMessage,
+  FormulaPreviewMessage,
   RowLimit,
   ShuffledMessage,
   SortedMessage,
@@ -235,6 +236,11 @@ export class SearchWorkerClient {
 
   getOrder(): Promise<OrderMessage> {
     return this.request<OrderMessage>({ type: "getOrder" });
+  }
+
+  /** Checks a new column's formula and evaluates it, without changing the data. */
+  previewFormula(formula: string): Promise<FormulaPreviewMessage> {
+    return this.request<FormulaPreviewMessage>({ type: "previewFormula", formula });
   }
 
   getRows(start: number, end: number): Promise<RowsMessage> {

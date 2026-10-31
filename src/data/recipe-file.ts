@@ -69,6 +69,9 @@ function remapTransform(
     case "dedupe":
     case "melt":
       return null;
+    // A formula names its columns, so it carries over as written.
+    case "derive":
+      return { ...op };
     case "drop":
     case "round":
     case "flagAnomalies":

@@ -11,3 +11,6 @@ claude_reviews/snowflake_ui/
 # Real-world test datasets stay on this machine only (trimmed copies of third-party files).
 # expect.json and SOURCE.md are tracked; data.csv is not.
 test/fixtures/real-world/*/data.csv
+
+# Python environment for tools/recipe-parity (pandas, polars).
+.venv-recipe-parity/

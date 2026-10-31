@@ -39,6 +39,8 @@ const MAX_COL_WIDTH = 720;
 const INDEX_WIDTH = 64;
 /** The optional File row column: the row's number in the loaded data, whatever the order. */
 const FILE_ROW_WIDTH = 76;
+/** The + after the last header, where a new column would go. */
+const ADD_COLUMN_WIDTH = 40;
 const OVERSCAN = 10;
 const CACHE_LIMIT = 4000;
 
@@ -99,6 +101,8 @@ export interface ResultTableOptions {
   onOutlierMenu?: (anchor: HTMLElement, column: number) => void;
   /** Dataset row indexes for positions [start, end), for the File row column. */
   onRequestRowIds?: (start: number, end: number, done: (start: number, ids: Uint32Array) => void) => void;
+  /** The + at the end of the header row: a new column at the end. */
+  onAddColumn?: () => void;
   /** The rows on screen changed: first and last visible position (0-based), and the row count. */
   onViewport?: (first: number, last: number, count: number) => void;
   onRequestRows: (
@@ -414,10 +418,19 @@ export class ResultTable {
     return this.leadWidth() + this.widths.reduce((total, width) => total + width, 0);
   }
 
+  /** The header has one more track than the rows: the + for a new column. */
+  private headerTemplate(): string {
+    return this.options.onAddColumn === undefined ? this.gridTemplate() : `${this.gridTemplate()} ${ADD_COLUMN_WIDTH}px`;
+  }
+
+  private headerWidth(): number {
+    return this.totalWidth() + (this.options.onAddColumn === undefined ? 0 : ADD_COLUMN_WIDTH);
+  }
+
   private applyWidths(): void {
     const template = this.gridTemplate();
-    this.header.style.gridTemplateColumns = template;
-    this.header.style.width = `${this.totalWidth()}px`;
+    this.header.style.gridTemplateColumns = this.headerTemplate();
+    this.header.style.width = `${this.headerWidth()}px`;
     this.spacer.style.width = `${this.totalWidth()}px`;
     for (const row of this.rowsHost.querySelectorAll<HTMLElement>(".tr")) {
       row.style.gridTemplateColumns = template;
@@ -449,9 +462,8 @@ export class ResultTable {
 
   private renderHeader(): void {
     clear(this.header);
-    const template = this.gridTemplate();
-    this.header.style.gridTemplateColumns = template;
-    this.header.style.width = `${this.totalWidth()}px`;
+    this.header.style.gridTemplateColumns = this.headerTemplate();
+    this.header.style.width = `${this.headerWidth()}px`;
 
     const indexHead = el("div", {
       class: "th row-index-head",
@@ -640,6 +652,11 @@ export class ResultTable {
       });
       this.header.append(cell);
     });
+    if (this.options.onAddColumn !== undefined) {
+      const add = el("button", { class: "th add-col-head", type: "button", title: "Add a column: a formula over the others, or one value for every row", "aria-label": "Add a column" }, ["+"]);
+      add.addEventListener("click", () => this.options.onAddColumn?.());
+      this.header.append(add);
+    }
   }
 
   /**
@@ -1085,6 +1102,12 @@ export class ResultTable {
         this.render();
       });
     }
+  }
+
+  /** Reports the rows on screen again, even if unchanged (a new bar, a new row count). */
+  refreshViewport(): void {
+    this.lastViewport = "";
+    this.reportViewport(this.scroller.clientHeight || 600);
   }
 
   /** Tells the page which rows are on screen, once per change. */

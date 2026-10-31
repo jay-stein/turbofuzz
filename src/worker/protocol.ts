@@ -256,6 +256,30 @@ export interface RowIdsMessage { type: "rowIds"; requestId: number; start: numbe
 export type FindRowRequest = { type: "findRow"; requestId: number; row: number };
 export interface RowPositionMessage { type: "rowPosition"; requestId: number; position: number; exists: boolean }
 
+/** A new column's formula, checked and evaluated without changing the data. */
+export type PreviewFormulaRequest = { type: "previewFormula"; requestId: number; formula: string };
+export interface FormulaPreviewMessage {
+  type: "formulaPreview";
+  requestId: number;
+  ok: boolean;
+  /** When not ok: what is wrong, and where in the formula (character offsets). */
+  error?: string;
+  at?: number;
+  end?: number;
+  /** The new column's type, e.g. "number". */
+  columnType?: string;
+  /** The first rows of the current order: the new value and the columns the formula reads. */
+  rows?: { value: string; inputs: string[] }[];
+  inputs?: string[];
+  /** Over the rows checked: errors by reason, blanks, and how many rows were checked. */
+  errors?: [string, number][];
+  errorRows?: number;
+  blanks?: number;
+  checked?: number;
+  total?: number;
+  ms: number;
+}
+
 /** How the current rows are ordered. */
 export type GetOrderRequest = { type: "getOrder"; requestId: number };
 export interface OrderMessage {
@@ -1103,6 +1127,7 @@ export type WorkerRequest =
   | GetRowIdsRequest
   | FindRowRequest
   | GetOrderRequest
+  | PreviewFormulaRequest
   | SetTypeRequest
   | SetNumberLocaleRequest
   | GetStatsRequest
@@ -1372,6 +1397,7 @@ export type WorkerResponse =
   | RowIdsMessage
   | RowPositionMessage
   | OrderMessage
+  | FormulaPreviewMessage
   | ShuffledMessage
   | RowsMessage
   | ColumnMetaMessage

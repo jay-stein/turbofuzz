@@ -28,6 +28,16 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-08 — Table: New column window (formula or one value)
+
+- **Status:** Verified
+- **Related issue / decision:** next_steps.md "BIG TODO: the Table view" step 2; DEC-2026-10-31-01 (Excel style), DEC-2026-10-31-02 (computed once).
+- **Scope:** `src/data/column-formula.ts`: Excel-style formulas (`[Column]`, + - * / ^ &, comparisons, 28 functions), checked against column types with errors that point at the place and suggest a fix, compiled to closures (no eval). Rules: blank in, blank out; comparisons with a blank FALSE except `<>`; text compares case-insensitively; date - date is days. A `derive` transform step inserts the column (typed from the result) at a chosen place; it carries over in recipe files and survives renames via `renameInFormula`. A `previewFormula` worker request shows the first 20 rows with the inputs and counts empties and errors by reason (all rows up to 200k, else an even sample). The window (`src/ui/new-column-dialog.ts`): name, place, Formula or Same value for every row, column suggestions after `[`, function help at the caret, column and function lists. Ways in: + after the last header, Insert column left/right, Add column in the Table bar, `add column name = formula`. Fixed: the Table bar showed "No rows" after a transform rebuilt the table.
+- **Known limitations:** pandas/Polars export of formulas is the next step (until then the recipe marks the step for manual work).
+- **Tests run and results:** `test/column-formula.test.ts` (8), `test/e2e/new-column.spec.ts` (3); full suite green.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-07 — Table: first / last N rows
 
 - **Status:** Verified

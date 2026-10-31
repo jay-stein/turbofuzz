@@ -1,4 +1,5 @@
 import { datasetFromColumns } from "./build.js";
+import { compileFormula, evaluateFormula, outputColumnType } from "./column-formula.js";
 import { ColumnData } from "./column.js";
 import {
   computeAggregate,
@@ -55,6 +56,16 @@ export type TransformOp =
       kind: "flagAnomalies";
       column: number;
       name?: string;
+    }
+  | {
+      /**
+       * Adds a column computed once from an Excel-style formula over the other
+       * columns (`[Price] * [Qty]`), or a constant (`"Online"`, `0`), at position `at`.
+       */
+      kind: "derive";
+      name: string;
+      at: number;
+      formula: string;
     }
   | {
       /** Clamps numeric values at the given symmetric percentile (1 = p1/p99). */
@@ -155,6 +166,9 @@ export function applyTransformOps(
         break;
       case "flagAnomalies":
         current = flagAnomaliesColumn(current, op);
+        break;
+      case "derive":
+        current = deriveColumn(current, op);
         break;
       case "winsorize":
         current = winsorizeColumn(current, op);
@@ -257,6 +271,28 @@ function dedupeColumns(columns: readonly ColumnData[], keep: DedupeKeep): Column
     }
   }
   return columns.map((column) => rebuildColumn(column, filterRaw(column.raw, mask)));
+}
+
+/** A name not yet taken: "total", or "total (2)" when it is. */
+export function freeColumnName(base: string, taken: Iterable<string>): string {
+  const names = new Set([...taken].map((name) => name.toLowerCase()));
+  const clean = base.trim() || "New column";
+  let name = clean;
+  for (let suffix = 2; names.has(name.toLowerCase()); suffix++) name = `${clean} (${suffix})`;
+  return name;
+}
+
+/** Inserts the column a formula computes; a formula that no longer reads leaves the table as it was. */
+function deriveColumn(columns: readonly ColumnData[], op: TransformOp & { kind: "derive" }): ColumnData[] {
+  const compiled = compileFormula(op.formula, columns.map((c) => ({ name: c.name, type: c.type })));
+  if (!compiled.ok) return columns.slice();
+  const rowCount = columns[0]?.raw.length ?? 0;
+  const result = evaluateFormula(compiled, columns, rowCount);
+  const column = ColumnData.create(freeColumnName(op.name, columns.map((c) => c.name)), result.raw);
+  column.setType(result.type, true);
+  const next = columns.slice();
+  next.splice(Math.max(0, Math.min(op.at, next.length)), 0, column);
+  return next;
 }
 
 /** Appends a Yes/No column marking the outlier cells of one column. */
@@ -775,6 +811,8 @@ export function describeTransformOp(op: TransformOp, headers: readonly string[])
     }
     case "flagAnomalies":
       return `Flag unusual cells in ${quoted(nameAt(op.column))} (Yes/No column)`;
+    case "derive":
+      return `Added ${quoted(op.name)} = ${op.formula}`;
     case "winsorize":
       return `Winsorise ${quoted(nameAt(op.column))} at the ${op.percent}% / ${
         100 - op.percent
@@ -844,6 +882,8 @@ export function describeTransformOpDetail(op: TransformOp, headers: readonly str
         .join(", ")}], fill=${op.fill ?? "none"})`;
     case "flagAnomalies":
       return `flagAnomalies(column=${nameAt(op.column)})`;
+    case "derive":
+      return `derive(name=${JSON.stringify(op.name)}, at=${op.at}, formula=${JSON.stringify(op.formula)})`;
     case "winsorize":
       return `winsorize(column=${nameAt(op.column)}, percent=${op.percent})`;
     case "clip":
@@ -927,6 +967,18 @@ export function schemaAfter(schema: readonly ColumnSchema[], op: TransformOp): C
       let suffix = 2;
       while (taken.has(name)) name = `${flagBase} (${suffix++})`;
       return [...schema, { name, numeric: false }];
+    }
+    case "derive": {
+      const compiled = compileFormula(op.formula, schema.map((c) => ({ name: c.name, type: c.type ?? (c.numeric ? "number" : "string") })));
+      if (!compiled.ok) return schema.slice();
+      const type = outputColumnType(compiled.type);
+      const next = schema.slice();
+      next.splice(Math.max(0, Math.min(op.at, next.length)), 0, {
+        name: freeColumnName(op.name, schema.map((c) => c.name)),
+        numeric: type === "integer" || type === "number",
+        type,
+      });
+      return next;
     }
     case "winsorize":
     case "clip":

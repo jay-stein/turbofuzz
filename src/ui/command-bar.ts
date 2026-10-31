@@ -49,6 +49,7 @@ export type ParsedCommand =
   | { kind: "mode"; mode: AppMode; label: string }
   | { kind: "goto"; target: string; label: string }
   | { kind: "reverse"; label: string }
+  | { kind: "addColumn"; name?: string; formula?: string; label: string }
   | { kind: "rowLimit"; limit: { from: "head" | "tail"; n: number } | null; label: string }
   | { kind: "export"; label: string }
   | { kind: "views"; label: string }
@@ -195,6 +196,11 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
     hint: "Go to a row or column in the Table — “goto 250”, “goto -1”, “goto 50%”, “goto file 1234”, “goto amount”",
   },
   { name: "reverse", aliases: ["reverse order", "reverse rows"], hint: "Reverse the Table's order: the last row comes first" },
+  {
+    name: "addcolumn",
+    aliases: ["add column", "new column", "insert column", "calculated column", "formula"],
+    hint: "Add a column from a formula or one value — “add column total = [price] * [qty]”",
+  },
   { name: "head", aliases: ["first rows"], hint: "Keep only the first rows — “head 100”; “head all” shows every row again" },
   { name: "tail", aliases: ["last rows"], hint: "Keep only the last rows — “tail 100”; “tail all” shows every row again" },
 ];
@@ -1142,6 +1148,14 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
       return { kind: "goto", target: rest.trim(), label: `Went to ${rest.trim()}` };
     case "reverse":
       return { kind: "reverse", label: "Reversed the Table's order" };
+    case "addcolumn": {
+      // "total = [Price] * [Qty]", "= [Price] * [Qty]" or just a name.
+      const text = rest.trim();
+      const eq = text.indexOf("=");
+      const name = (eq >= 0 ? text.slice(0, eq) : text).trim();
+      const formula = eq >= 0 ? text.slice(eq + 1).trim() : "";
+      return { kind: "addColumn", name: name || undefined, formula: formula || undefined, label: "Opened New column" };
+    }
     case "head":
     case "tail": {
       const arg = normalise(rest);

@@ -178,6 +178,7 @@ import { openTransformPanel } from "./transform-panel.js";
 import { GENERAL_VIEWS, ViewTabs, isResearchView, viewSwitchHint, type ViewId } from "./view-tabs.js";
 import { ModeSwitch, modeLabel, readMode, writeMode, type AppMode } from "./mode.js";
 import { TableNav } from "./table-nav.js";
+import { openNewColumn } from "./new-column-dialog.js";
 import { parseGoTo, type GoTo } from "./table-goto.js";
 import { ViewsPanel, type ViewSource } from "./views-panel.js";
 import { openCommandBar, type ParsedCommand } from "./command-bar.js";
@@ -484,6 +485,8 @@ export class App {
   private showFileRow = readFlag(FILE_ROW_KEY);
   /** First / last N rows, as the worker last reported it (a filter chip shows it). */
   private rowLimit: RowLimit | null = null;
+  /** A column just added: scrolled to and flashed once the new table arrives. */
+  private pendingFlashName: string | null = null;
 
   private pasteView!: HTMLElement;
   private pasteCancel!: HTMLButtonElement;
@@ -2357,6 +2360,28 @@ export class App {
   }
   private ensureTable(): void {
     if (this.table !== null) return;
+    // The bar first: the new table reports its first rows on screen as soon as it draws.
+    this.tableNav = new TableNav({
+      columns: () => this.metas.map((meta) => meta.name),
+      count: () => this.resultCount,
+      onGoTo: (target) => this.goToInTable(target),
+      onTop: () => this.table?.scrollToTop(),
+      onBottom: () => this.table?.scrollToBottom(),
+      onReverse: (on) => this.reverseTable(on),
+      onRowLimit: (limit) => this.setRowLimit(limit),
+      onAddColumn: () => void this.openNewColumn(),
+      currentRowLimit: () => this.rowLimit,
+      onFileOrder: () => {
+        this.changeSort(-1, 0);
+        this.table?.scrollToTop();
+        this.setAction("Back to the file's own order");
+      },
+      onShowFileRow: (on) => {
+        this.showFileRow = on;
+        writeFlag(FILE_ROW_KEY, on);
+        this.table?.setShowFileRow(on);
+      },
+    });
     this.table = new ResultTable(this.tableHost, {
       onSort: (column, dir) => this.changeSort(column, dir),
       onColumnInspect: (column, anchor) => this.openColumnInspector(column, anchor),
@@ -2398,26 +2423,7 @@ export class App {
         void this.client.getRowIds(start, end).then((message) => done(message.start, message.ids)).catch(() => undefined);
       },
       onViewport: (first, last, count) => this.tableNav?.setViewport(first, last, count),
-    });
-    this.tableNav = new TableNav({
-      columns: () => this.metas.map((meta) => meta.name),
-      count: () => this.resultCount,
-      onGoTo: (target) => this.goToInTable(target),
-      onTop: () => this.table?.scrollToTop(),
-      onBottom: () => this.table?.scrollToBottom(),
-      onReverse: (on) => this.reverseTable(on),
-      onRowLimit: (limit) => this.setRowLimit(limit),
-      currentRowLimit: () => this.rowLimit,
-      onFileOrder: () => {
-        this.changeSort(-1, 0);
-        this.table?.scrollToTop();
-        this.setAction("Back to the file's own order");
-      },
-      onShowFileRow: (on) => {
-        this.showFileRow = on;
-        writeFlag(FILE_ROW_KEY, on);
-        this.table?.setShowFileRow(on);
-      },
+      onAddColumn: () => void this.openNewColumn(),
     });
     this.tableNav.setShowFileRow(this.showFileRow);
     this.tableHost.append(this.tableNav.element);
@@ -3348,6 +3354,28 @@ export class App {
     );
   }
 
+  /**
+   * The New column window, inserting at `at` (default: at the end). The column is one
+   * Recipe step, computed once from its formula.
+   */
+  private async openNewColumn(at = this.metas.length, formula?: string, name?: string): Promise<void> {
+    if (this.datasetName === "") return;
+    const result = await openNewColumn({
+      columns: this.metas.map((meta) => ({ name: meta.name, type: meta.type })),
+      at,
+      preview: (text) => this.client.previewFormula(text),
+      formula,
+      name,
+    });
+    if (result === null) return;
+    this.setView("table");
+    this.pendingFlashName = result.name;
+    this.applyTransform(
+      [...this.transformOps, { kind: "derive", name: result.name, at: result.at, formula: result.formula }],
+      `Added column "${result.name}" = ${result.formula}`,
+    );
+  }
+
   /** Keeps only the first or last N rows of the current order (null for all rows). */
   private setRowLimit(limit: RowLimit | null): void {
     const { column, dir } = this.tableOrder;
@@ -3923,6 +3951,9 @@ export class App {
       case "rowLimit":
         this.setView("table");
         this.setRowLimit(command.limit);
+        break;
+      case "addColumn":
+        void this.openNewColumn(this.metas.length, command.formula, command.name);
         break;
       case "theme":
         this.themePreference = command.preference;
@@ -5793,6 +5824,7 @@ export class App {
     this.resultCount = count;
     // Every new row set can come with a new order (a filter ends a shuffle).
     this.refreshTableOrder();
+    this.table?.refreshViewport();
     this.chartsPanel?.setRowCount(count);
     this.outliersPanel?.setVisibleRowCount(count);
     this.relationshipsPanel?.setVisibleRowCount(count);
@@ -6512,6 +6544,8 @@ export class App {
     addItem("Filter this column", () => this.focusFilterColumn(column));
 
     addHeader("Column");
+    addItem("Insert column left…", () => void this.openNewColumn(column));
+    addItem("Insert column right…", () => void this.openNewColumn(column + 1));
     addItem("Rename column…", () => void this.renameColumn(column));
     if (meta.type === "integer" || meta.type === "number") {
       const next: NumberLocale = meta.numberLocale === "comma" ? "dot" : "comma";
@@ -7404,6 +7438,12 @@ export class App {
         .transform(ops)
         .then((message) => {
           this.openWorkspace(message);
+          // A column just added: bring it into view.
+          if (this.pendingFlashName !== null) {
+            const added = this.metas.findIndex((meta) => meta.name === this.pendingFlashName);
+            this.pendingFlashName = null;
+            if (added >= 0) window.setTimeout(() => this.table?.flashColumn(added), 50);
+          }
           const plural = ops.length === 1 ? "" : "s";
           const rowsText =
             before !== message.rowCount

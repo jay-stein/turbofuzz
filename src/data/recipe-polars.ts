@@ -848,6 +848,14 @@ function polarsTransformLines(
         );
         break;
       }
+      case "derive":
+        lines.push(`# new column ${JSON.stringify(op.name)} = ${op.formula.replace(/\n/g, " ")}: add it by hand (formula export comes next)`);
+        entries.push({
+          label: `derive: ${op.name}`,
+          status: "manual_step_required",
+          note: `formula ${op.formula}; not yet written as code`,
+        });
+        break;
       case "flagAnomalies":
         lines.push(
           `# outlier flags for ${names[op.column]} depend on fences computed from the data (robust median/MAD or quantiles); recompute before exporting`,

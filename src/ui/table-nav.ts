@@ -28,6 +28,8 @@ export interface TableNavOptions {
   onTop(): void;
   onBottom(): void;
   onReverse(on: boolean): void;
+  /** Opens the New column window (at the end). */
+  onAddColumn(): void;
   /** First / last N rows of the current order; null for all rows. */
   onRowLimit(limit: RowLimit | null): void;
   currentRowLimit(): RowLimit | null;
@@ -42,6 +44,7 @@ const ICONS = {
   bottom: '<path d="M5 20h14M12 4v11M7 11l5 5 5-5"/>',
   reverse: '<path d="M8 4v16M4 8l4-4 4 4M16 20V4M12 16l4 4 4-4"/>',
   limit: '<path d="M4 6h16M4 10h16M4 14h7M4 18h7"/>',
+  add: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16M18.5 10v4M16.5 12h4"/>',
 };
 
 /** "file order", "sorted by Amount ↓", "Amount ↓, reversed", "shuffled". */
@@ -82,6 +85,8 @@ export class TableNav {
     this.fileRow.setAttribute("aria-pressed", "false");
     this.orderLabel = el("span", { class: "table-nav-order", "aria-live": "polite" });
     this.fileOrder = el("button", { class: "table-nav-link", type: "button", title: "Clear the sort, shuffle and reverse" }, ["Back to file order"]) as HTMLButtonElement;
+    const addColumn = button("table-nav-add", "Add column", "A new column from a formula over the others, or one value for every row", ICONS.add);
+    addColumn.addEventListener("click", () => options.onAddColumn());
     const goTo = button("table-nav-goto", "Go to…", "Go to a row or column (Ctrl+G)");
     goTo.append(el("span", { class: "kbd" }, ["Ctrl G"]));
 
@@ -117,6 +122,7 @@ export class TableNav {
       el("span", { class: "table-nav-sep", "aria-hidden": "true" }),
       el("span", { class: "table-nav-order-wrap" }, [el("span", { class: "table-nav-dim" }, ["Order:"]), this.orderLabel, this.fileOrder]),
       el("span", { class: "grow" }),
+      addColumn,
       goTo,
       this.pop,
     ]);

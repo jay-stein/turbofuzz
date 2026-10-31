@@ -40,6 +40,7 @@ import { buildTable, type TsInput } from "../data/timeseries/base.js";
 import { defaultConfig, sanitizeTsConfig, TsEngine } from "../data/timeseries/engine.js";
 import { seriesShape, type SeriesShape, type ShapeCandidate } from "../data/timeseries/shape.js";
 import { timeDimension, viewSeriesInput } from "../data/timeseries/view-source.js";
+import { compileFormula, evaluateFormula } from "../data/column-formula.js";
 import { missingnessGrid } from "../data/missingness.js";
 import { categoryCodes, computeSeries } from "../data/chart-series.js";
 import {
@@ -95,6 +96,7 @@ import type {
   GetRowIdsRequest,
   FindRowRequest,
   GetOrderRequest,
+  PreviewFormulaRequest,
   RowLimit,
   GetStatsRequest,
   GetChartBinsRequest,
@@ -395,6 +397,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getOrder":
       handleGetOrder(message);
+      break;
+    case "previewFormula":
+      handlePreviewFormula(message);
       break;
     case "setType":
       handleSetType(message);
@@ -1121,6 +1126,41 @@ function handleGetRowIds(message: GetRowIdsRequest): void {
 function handleFindRow(message: FindRowRequest): void {
   const exists = dataset !== null && message.row >= 0 && message.row < dataset.rowCount;
   post({ type: "rowPosition", requestId: message.requestId, position: exists ? sortedIds.indexOf(message.row) : -1, exists });
+}
+
+/** Rows a formula preview checks: all of them up to this many, else an even sample. */
+const FORMULA_PREVIEW_CHECK = 200_000;
+
+function handlePreviewFormula(message: PreviewFormulaRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const columns = dataset.columns;
+  const compiled = compileFormula(message.formula, columns.map((c) => ({ name: c.name, type: c.type })));
+  if (!compiled.ok) {
+    post({ type: "formulaPreview", requestId: message.requestId, ok: false, error: compiled.error, at: compiled.at, end: compiled.end, ms: performance.now() - started });
+    return;
+  }
+  const shown = Array.from(sortedIds.subarray(0, 20));
+  const head = evaluateFormula(compiled, columns, dataset.rowCount, shown);
+  const total = dataset.rowCount;
+  const step = Math.max(1, Math.ceil(total / FORMULA_PREVIEW_CHECK));
+  const sample: number[] = [];
+  for (let row = 0; row < total; row += step) sample.push(row);
+  const all = evaluateFormula(compiled, columns, total, step === 1 ? null : sample);
+  post({
+    type: "formulaPreview",
+    requestId: message.requestId,
+    ok: true,
+    columnType: all.type,
+    inputs: compiled.refs.map((index) => columns[index]!.name),
+    rows: shown.map((row, k) => ({ value: head.raw[k] ?? "", inputs: compiled.refs.map((index) => columns[index]!.raw[row] ?? "") })),
+    errors: [...all.errors.entries()].sort((a, b) => b[1] - a[1]),
+    errorRows: all.errorCount,
+    blanks: all.blanks,
+    checked: step === 1 ? total : sample.length,
+    total,
+    ms: performance.now() - started,
+  });
 }
 
 function handleGetOrder(message: GetOrderRequest): void {
