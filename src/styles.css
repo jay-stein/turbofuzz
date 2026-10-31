@@ -12111,3 +12111,11 @@ button.qp-tile:hover {
 @keyframes ts-spin { to { transform: rotate(360deg); } }
 @keyframes ts-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ts-spinner { animation: ts-pulse 1.4s ease-in-out infinite; border-top-color: var(--ts-forecast); } }
+
+/* Forecast tab: Compare models and Under the hood open on demand */
+.ts-fold { display: flex; align-items: center; gap: 10px; width: 100%; margin: 8px 0 0; padding: 11px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.ts-fold:hover { background: var(--panel-2); }
+.ts-fold-chev { width: 7px; height: 7px; border-right: 2px solid var(--ts-dim); border-bottom: 2px solid var(--ts-dim); transform: rotate(-45deg); transition: transform 0.15s; }
+.ts-fold[aria-expanded="true"] .ts-fold-chev { transform: rotate(45deg); }
+.ts-fold-body { padding: 10px 0 2px; }
+.ts-fold-body[hidden] { display: none; }

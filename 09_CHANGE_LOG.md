@@ -28,6 +28,18 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-01 — Time Series Forecast tab: answer first, Compare models and Under the hood on demand
+
+- **Status:** Verified
+- **Scope:**
+  - The Forecast tab opens with the chart, the forecast badge and the controls. The model board is behind a **Compare models** bar; the analyst tools (guide, How the models work, Deep check, Trend flexibility, model card) are behind **Under the hood**. Both start closed and a person's choice is remembered in the browser (DEC-2026-11-01-01).
+  - The badge's Good / OK / Poor grade is now a trust verdict: **Holds up**, **Middling** or **Doubtful** (red), from the model's rank on the fold the choice never saw (bottom third or worse than repeating the last cycle: Doubtful; top two and winning at least half the folds: Holds up). Series without a lockbox fall back to the ratio to the baseline.
+  - Not yet done from the mock-up: the plain-language verdict sentence, the single "Heads up" chip, compact board rows, and moving Rank by / Validate under the hood. The Simple / Detailed switch is undecided.
+- **Files / components changed:** src/ui/timeseries-page.ts, src/styles.css, test/e2e/time-series-page.spec.ts
+- **Tests run and results:** typecheck clean; 1184 unit tests pass; e2e 112 pass (one unrelated map test flaked, passes alone); e2e now asserts the folds start closed and opens them before using their buttons
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-10-31-35 — Time Series: Theta on maximum-likelihood smoothing, and on the adjusted series for long seasons (fundamentals plan, Phase 3)
 
 - **Status:** Verified

@@ -184,6 +184,7 @@ test("the board validates on an expanding or rolling window, ranks by any measur
 
   await expect(page.locator(".ts-page [data-ref=legend]")).toContainText(/Auto · /);
   await expect(page.locator(".ts-page [data-ref=boardNote]")).toContainText("Ranked by WAPE");
+  await page.locator(".ts-fold[data-fold=hood]").click();
   await page.getByRole("button", { name: "Which model, and why?", exact: true }).click();
   const guide = page.getByRole("dialog", { name: "Which model, and why?" });
   await expect(guide.locator(".ts-metric-table").last().locator("thead th")).toHaveText(["Metric", "Why it's good (strengths)", "When to use it", "Math (formula)"]);
@@ -239,10 +240,14 @@ test("the chart names the forecast model and how it did; Trend flexibility expla
   const badge = page.locator(".ts-page [data-ref=heroBadge]");
   await expect(badge).toBeVisible();
   await expect(badge).toContainText(/Auto · /);
+  await expect(badge).toContainText(/Holds up|Middling|Doubtful/);
+  await expect(page.locator(".ts-fold[data-fold=compare]")).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(".ts-page [data-ref=foldHood]")).toBeHidden();
   await expect(badge).toContainText(/repeating the last cycle at the same horizons, over \d+ backtest folds · MASE \d\.\d\d/);
   await expect(badge).toContainText(/Lockbox check: picked on folds 1–\d+; on fold \d+, which the choice never saw, it ranked #\d of 8/);
   await expect(page.locator(".ts-board thead")).toContainText("Unseen fold");
   await expect(page.locator(".ts-page [data-ref=flexNote]")).toContainText(/ridge \(L2\) penalty of λ = /);
+  await page.locator(".ts-fold[data-fold=hood]").click();
   await page.getByRole("button", { name: "Check every setting" }).click();
   const curve = page.locator(".ts-page [data-ref=flexCurve]");
   await expect(curve.locator("svg circle")).toHaveCount(10);
@@ -272,6 +277,7 @@ test("Deep check tests the pick against every rival, by horizon, for calibration
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();
   await expect(page.locator(".ts-board tbody tr")).toHaveCount(8);
+  await page.locator(".ts-fold[data-fold=hood]").click();
   await page.getByRole("button", { name: "Deep check" }).click();
   const box = page.locator(".ts-page [data-ref=deepBox]");
   await expect(box).toBeVisible();
@@ -287,6 +293,7 @@ test("each model has a technical page with its equations, this series' fit and i
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();
   await expect(page.locator(".ts-board tbody tr")).toHaveCount(8);
+  await page.locator(".ts-fold[data-fold=compare]").click();
   await page.getByRole("button", { name: "How Best smoothing works" }).click();
   const win = page.getByRole("dialog", { name: "How the forecasts work" });
   await expect(win.locator("h2").nth(1)).toContainText("Best smoothing");
@@ -306,6 +313,7 @@ test("each model has a technical page with its equations, this series' fit and i
   await page.keyboard.press("Escape");
   await expect(win).toHaveCount(0);
   // The same window opens from the button beside the guide.
+  await page.locator(".ts-fold[data-fold=hood]").click();
   await page.getByRole("button", { name: "How the models work" }).click();
   await expect(page.getByRole("dialog", { name: "How the forecasts work" })).toBeVisible();
 });

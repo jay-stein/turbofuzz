@@ -161,20 +161,26 @@ const TEMPLATE = `
       </section>
       <section class="ts-card ts-panel" data-panel="forecast" hidden>
         <div class="ts-panel-head"><h3>Models</h3><p>Drag the split line on the chart to backtest from any date, or the handle at the end of the band to change how far ahead it forecasts. Hover a model to compare it.</p></div>
-        <div class="ts-boardbar">
+        <button class="ts-fold" type="button" data-fold="compare" aria-expanded="false"><span class="ts-fold-chev" aria-hidden="true"></span><b>Compare models</b><span class="ts-note">8 models: see how the forecast stacks up against the others</span></button>
+        <div class="ts-fold-body" data-ref="foldCompare" hidden>
           <span class="ts-note" data-ref="boardNote"></span>
+        <div class="ts-boardwrap"><table class="ts-board" data-ref="board"></table></div>
+        </div>
+        <button class="ts-fold" type="button" data-fold="hood" aria-expanded="false"><span class="ts-fold-chev" aria-hidden="true"></span><b>Under the hood</b><span class="ts-note">Checks, validation, flexibility and the model card, for analysts</span></button>
+        <div class="ts-fold-body" data-ref="foldHood" hidden>
+        <div class="ts-boardbar">
           <button class="ts-ghost ts-guide-btn" type="button" data-ref="guideBtn">Which model, and why?</button>
           <button class="ts-ghost" type="button" data-ref="docsBtn" title="Equations, fitting, forecasts, bands, differences from the textbook, and sources for every model">How the models work</button>
           <button class="ts-ghost ts-deep-btn" type="button" data-ref="deepBtn" title="Significance tests, error by steps ahead, band calibration on every fold and residual diagnostics. Slower: runs only when asked.">Deep check</button>
         </div>
         <div class="ts-deep" data-ref="deepBox" hidden></div>
-        <div class="ts-boardwrap"><table class="ts-board" data-ref="board"></table></div>
         <div class="ts-flexbox">
           <div class="ts-ctl"><label>Trend flexibility</label><input type="range" data-ref="flex" min="1" max="10" step="1" aria-label="Trend flexibility"><output data-ref="flexOut"></output><span class="ts-note">trend, seasons and drivers model (and the Blend)</span><button class="ts-ghost" type="button" data-ref="flexCheck" title="Backtest every setting from 1 to 10 on the same folds: a validation curve">Check every setting</button></div>
           <p class="ts-flexnote" data-ref="flexNote"></p>
           <div class="ts-flexcurve" data-ref="flexCurve" hidden></div>
         </div>
         <dl class="ts-modelcard" data-ref="modelCard"></dl>
+        </div>
       </section>
       <section class="ts-card ts-panel" data-panel="patterns" hidden>
         <div class="ts-panel-head"><h3>Typical patterns</h3><p>What a usual day, week and year look like. Hover any bar, cell or point for its value.</p></div>
@@ -1271,15 +1277,28 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   }
 
   // ---------------------------------------------------------------- forecast badge and trend flexibility
+  /** The trust verdict: how the pick did on the fold the choice never saw, else on the ratio to the baseline. */
+  function verdictOf(M: ModelRun, key: ModelKey, gd: { cls: string; text: string }): { cls: string; text: string } {
+    if (key === "sn") return { cls: "base", text: "Baseline" };
+    const m = M.models[key], lucky = m.folds.of > 0 && m.folds.won * 2 < m.folds.of;
+    const r = ratioOf(snap!, key);
+    if (M.lockbox && m.lock) {
+      const rank = lockRank(M, key, ui.metric), n = MODEL_KEYS.length;
+      if (r >= 1 || rank * 3 > n * 2) return { cls: "poor", text: "Doubtful" };
+      if (rank <= 2 && !lucky) return { cls: "good", text: "Holds up" };
+      return { cls: "okay", text: "Middling" };
+    }
+    return gd.cls === "good" ? { cls: "good", text: "Holds up" } : gd.cls === "okay" ? { cls: "okay", text: "Middling" } : { cls: "poor", text: "Doubtful" };
+  }
   function renderHeroBadge(s: TsSnapshot, key: ModelKey | null): void {
     const badge = ref("heroBadge"), M = models();
     if (ui.mode !== "forecast" || !M || !s.futures || !key) { badge.hidden = true; return; }
-    const m = M.models[key], r = ratioOf(s, key), gd = grade(r, key), f = s.futures[key];
+    const m = M.models[key], r = ratioOf(s, key), gd = grade(r, key), vd = verdictOf(M, key, gd), f = s.futures[key];
     const heldMode = M.T < s.A.modelN && f.held?.ratio != null;
     const better = key === "sn" ? "the baseline every other model is measured against" : r < 1 ? `${Math.round((1 - r) * 100)}% less error than repeating the last cycle` : `${Math.round((r - 1) * 100)}% <b>more</b> error than repeating the last cycle`;
     const lucky = key !== "sn" && m.folds.of > 0 && m.folds.won * 2 < m.folds.of;
     const band = f.held ? `${f.held.hit} of ${f.held.tot} held-out actuals inside the 80% band` : m.check ? `${m.check.hit} of ${m.check.tot} inside the 80% band on the latest fold` : "";
-    badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ${gd.cls}">${gd.text}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small><button type="button" class="ts-link" data-info="${key}">How it works</button></div>
+    badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ${vd.cls}">${vd.text}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small><button type="button" class="ts-link" data-info="${key}">How it works</button></div>
       <div class="ts-badge-body">${better} at the same horizons, ${heldMode ? "on the held-out actuals" : `over ${M.origins.length} backtest folds`} · ${METRIC_INFO[ui.metric].label} ${metricText(ui.metric, m.metrics[ui.metric])}${ui.metric === "mase" ? " (scaled by the in-sample one-cycle naive error, so multi-step forecasts often sit above 1)" : ""}${key !== "sn" ? ` · beat it in ${m.folds.won} of ${m.folds.of} folds` : ""}${band ? ` · ${band}` : ""}${lucky ? ` · <span class="ts-warn">wins under half its folds: may be luck</span>` : ""}${M.rough ? ` · <span class="ts-warn">under 3 folds: rough</span>` : ""}</div>${lockLine(M, key)}`;
     badge.hidden = false;
   }
@@ -1871,6 +1890,23 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   on("sens", "input", (e) => change({ sens: Number((e.target as HTMLInputElement).value) }, { fade: false }));
   on("flex", "input", (e) => change({ flex: Number((e.target as HTMLInputElement).value) }, { fade: false }));
   on("flexCheck", "click", () => checkFlex());
+  /** Compare models and Under the hood start closed; a person's choice is remembered in this browser. */
+  const folds: Record<string, boolean> = { compare: false, hood: false };
+  try { Object.assign(folds, JSON.parse(localStorage.getItem("ts.forecast.folds") || "{}")); } catch { /* storage unavailable */ }
+  function applyFolds(): void {
+    for (const b of host.querySelectorAll<HTMLButtonElement>(".ts-fold")) {
+      const k = b.dataset.fold ?? "", open = !!folds[k];
+      b.setAttribute("aria-expanded", String(open));
+      ref(k === "hood" ? "foldHood" : "foldCompare").hidden = !open;
+    }
+  }
+  for (const b of host.querySelectorAll<HTMLButtonElement>(".ts-fold")) b.addEventListener("click", () => {
+    const k = b.dataset.fold ?? "";
+    folds[k] = !folds[k];
+    try { localStorage.setItem("ts.forecast.folds", JSON.stringify(folds)); } catch { /* ignore */ }
+    applyFolds();
+  });
+  applyFolds();
   on("deepBtn", "click", () => runDeep());
   on("flexCurve", "click", (e) => { const b = (e.target as Element).closest<HTMLElement>("[data-flexpick]"); if (b) change({ flex: Number(b.dataset.flexpick) }, { fade: false }); });
   on("diffOn", "change", (e) => uiChange({ diff: (e.target as HTMLInputElement).checked, diffLag: ui.diffLag || defaultLag() }));

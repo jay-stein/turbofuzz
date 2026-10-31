@@ -23,6 +23,19 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-01-01 — Forecast tab: three layers, Compare models closed by default, "Doubtful" in red
+
+- **Status:** Accepted (owner, 2026-11-01)
+- **Context:** Eight models, seven measures and many diagnostics made the Forecast tab overwhelming (next_steps.md, "Forecast tab UX"). A mock-up (canvas "Forecast tab: three layouts") compared today's page with a layered one.
+- **Decision:**
+  - The tab shows **one answer first** (the chosen forecast, a trust verdict, forecast ahead, band and Export), with **Compare models** and **Under the hood** as two bars that open on demand. **Both are closed on first view**, and a person's choice is remembered in the browser.
+  - The trust verdict may say **"Doubtful", in red**, when a model fell apart on data it never saw.
+  - Still open: whether to add a single Simple / Detailed switch on top. The two bars are built so the switch could be added later without rework.
+- **Trade-offs:** The model board and the measures are one click further away; in return a first-time viewer sees a forecast and how far to trust it, not a statistics workbench. The red verdict is unmistakable and can alarm someone who wanted a quick forecast.
+- **Features / journeys affected:** Time Series, Forecast mode.
+- **Acceptance criteria:** the page opens with both layers closed; the verdict, the compare board and the analyst tools are each reachable in one click; end-to-end tests cover all three.
+- **Date / owner:** 2026-11-01 / owner
+
 ### DEC-2026-10-31-03 — Time Series view: up to 500 ms with a spinner; heavier work behind a button
 
 - **Status:** Accepted (owner, 2026-10-31)
