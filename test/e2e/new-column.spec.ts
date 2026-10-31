@@ -70,3 +70,26 @@ test("add column from the command bar opens the window filled in", async ({ page
   await expect.poll(() => headers(page)).toContain("full name");
   await expect(page.locator(".table-nav-pos")).toHaveText("Rows 1–3 of 3");
 });
+
+test("If / then and Quick column build the formula for you", async ({ page }) => {
+  await openTable(page);
+  await page.getByRole("button", { name: "Add a column" }).click();
+  const dialog = page.getByRole("dialog", { name: "New column" });
+
+  await dialog.getByRole("tab", { name: "If / then" }).click();
+  await dialog.getByLabel("If column").selectOption("price");
+  await dialog.getByLabel("Test", { exact: true }).selectOption("ge");
+  await dialog.getByLabel("Value", { exact: true }).fill("4");
+  await dialog.getByLabel("Then", { exact: true }).fill("Big");
+  await dialog.getByLabel("Otherwise", { exact: true }).fill("Small");
+  await expect(dialog.locator(".newcol-preview tbody td.newcol-out")).toHaveText(["Big", "Small", "Big"]);
+  await dialog.getByRole("button", { name: "Show as formula" }).click();
+  await expect(dialog.getByLabel("Formula")).toHaveValue('IF([price] >= 4, "Big", "Small")');
+
+  await dialog.getByRole("tab", { name: "Quick column" }).click();
+  await dialog.getByLabel("Quick column").selectOption("running");
+  await expect(dialog.getByLabel("Column name")).toHaveValue("price running total");
+  await expect(dialog.locator(".newcol-preview tbody td.newcol-out")).toHaveText(["10", "12.5", "16.5"]);
+  await dialog.getByRole("button", { name: "Add column" }).click();
+  await expect.poll(() => headers(page)).toContain("price running total");
+});

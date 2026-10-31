@@ -240,6 +240,13 @@ const CASES: CaseSpec[] = [
       { kind: "derive", name: "bad", at: 99, formula: 'DATEDIF([shipped], [ordered], "d")' },
       { kind: "derive", name: "made", at: 99, formula: "DATE(2024, 13, 1)" },
       { kind: "derive", name: "age", at: 99, formula: 'DATEDIF(DATE(2000, 1, 1), TODAY(), "y") > 20' },
+      { kind: "derive", name: "n", at: 99, formula: "ROWNUMBER()" },
+      { kind: "derive", name: "rank", at: 99, formula: "RANK([price])" },
+      { kind: "derive", name: "share", at: 99, formula: "PERCENTOFTOTAL([price])" },
+      { kind: "derive", name: "running", at: 99, formula: "RUNNINGSUM([qty])" },
+      { kind: "derive", name: "change", at: 99, formula: "[qty] - PREVIOUS([qty])" },
+      { kind: "derive", name: "prev_name", at: 99, formula: "PREVIOUS([first])" },
+      { kind: "derive", name: "band", at: 99, formula: "BIN([qty], 3)" },
     ],
   },
 ];

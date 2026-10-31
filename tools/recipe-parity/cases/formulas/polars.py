@@ -307,12 +307,56 @@ def _call(fn, args, ts):
         return None
     raise _Err(f"{fn} is not available")
 
-def _derive(rows, f, t):
-    """One new column's cells as text, the way the app writes them ("" left empty)."""
-    out = []
-    for r in rows:
+def _window(fn, values, count):
+    """A whole-column function over the column's values in stored order (as the app)."""
+    nums = []
+    for v in values:
         try:
-            v = f(r)
+            nums.append(_num(v))
+        except _Err:
+            nums.append(None)
+    if fn == "PREVIOUS":
+        return [None] + list(values[:-1])
+    if fn == "RUNNINGSUM":
+        out, total = [], 0.0
+        for x in nums:
+            if x is None:
+                out.append(None)
+            else:
+                total += x
+                out.append(total)
+        return out
+    if fn == "PERCENTOFTOTAL":
+        total = sum(x for x in nums if x is not None)
+        return [None if x is None else (_Err("divide by zero") if total == 0 else (x / total) * 100) for x in nums]
+    if fn == "RANK":
+        first = {}
+        for k, x in enumerate(sorted((x for x in nums if x is not None), reverse=True)):
+            first.setdefault(x, k + 1)
+        return [None if x is None else float(first[x]) for x in nums]
+    if fn == "BIN":
+        present = [x for x in nums if x is not None]
+        if count < 1:
+            return [_Err("BIN needs a count of 1 or more") for _ in nums]
+        lo, hi = (min(present), max(present)) if present else (0.0, 0.0)
+        width = (hi - lo) / int(count)
+        return [None if x is None else (1.0 if width == 0 else float(max(1, _math.ceil((x - lo) / width)))) for x in nums]
+    return [_Err(f"{fn} is not available") for _ in nums]
+
+def _w(W, k, i):
+    v = W[k][i]
+    if isinstance(v, _Err):
+        raise v
+    return v
+
+def _derive(rows, f, t, windows=()):
+    """One new column's cells as text, the way the app writes them ("" left empty)."""
+    rows = list(rows)
+    W = [_window(fn, [_read(r[c], ct) for r in rows], count) for fn, c, ct, count in windows]
+    out = []
+    for i, r in enumerate(rows):
+        try:
+            v = f(r, i, W)
         except _Err:
             v = None
         s = None if v is None else _text(v, t)
@@ -320,192 +364,220 @@ def _derive(rows, f, t):
     return out
 # --- end of formula helpers ---
 # new column "total" = [price] * [qty]
-def _f1(r):
+def _f1(r, i, W):
     return _bin("*", _read(r["price"], "number"), _read(r["qty"], "number"), "number", "number")
-df = df.insert_column(9, pl.Series("total", _derive(df.iter_rows(named=True), _f1, "number"), dtype=pl.Utf8))
+df = df.insert_column(9, pl.Series("total", _derive(df.iter_rows(named=True), _f1, "number", []), dtype=pl.Utf8))
 # new column "ratio" = [price] / [qty]
-def _f2(r):
+def _f2(r, i, W):
     return _bin("/", _read(r["price"], "number"), _read(r["qty"], "number"), "number", "number")
-df = df.insert_column(10, pl.Series("ratio", _derive(df.iter_rows(named=True), _f2, "number"), dtype=pl.Utf8))
+df = df.insert_column(10, pl.Series("ratio", _derive(df.iter_rows(named=True), _f2, "number", []), dtype=pl.Utf8))
 # new column "power" = -[qty] ^ 2 + 0.1 + 0.2
-def _f3(r):
+def _f3(r, i, W):
     return _bin("+", _bin("+", _bin("^", _neg(_read(r["qty"], "number")), 2, "number", "number"), 0.1, "number", "number"), 0.2, "number", "number")
-df = df.insert_column(11, pl.Series("power", _derive(df.iter_rows(named=True), _f3, "number"), dtype=pl.Utf8))
+df = df.insert_column(11, pl.Series("power", _derive(df.iter_rows(named=True), _f3, "number", []), dtype=pl.Utf8))
 # new column "full" = [first] & " " & [last]
-def _f4(r):
+def _f4(r, i, W):
     return _bin("&", _bin("&", _read(r["first"], "text"), " ", "text", "text"), _read(r["last"], "text"), "text", "text")
-df = df.insert_column(12, pl.Series("full", _derive(df.iter_rows(named=True), _f4, "text"), dtype=pl.Utf8))
+df = df.insert_column(12, pl.Series("full", _derive(df.iter_rows(named=True), _f4, "text", []), dtype=pl.Utf8))
 # new column "joined" = CONCAT([first], [qty], TRUE)
-def _f5(r):
+def _f5(r, i, W):
     return _call("CONCAT", [lambda: _read(r["first"], "text"), lambda: _read(r["qty"], "number"), lambda: True], ["text", "number", "bool"])
-df = df.insert_column(13, pl.Series("joined", _derive(df.iter_rows(named=True), _f5, "text"), dtype=pl.Utf8))
+df = df.insert_column(13, pl.Series("joined", _derive(df.iter_rows(named=True), _f5, "text", []), dtype=pl.Utf8))
 # new column "upper" = UPPER([first])
-def _f6(r):
+def _f6(r, i, W):
     return _call("UPPER", [lambda: _read(r["first"], "text")], ["text"])
-df = df.insert_column(14, pl.Series("upper", _derive(df.iter_rows(named=True), _f6, "text"), dtype=pl.Utf8))
+df = df.insert_column(14, pl.Series("upper", _derive(df.iter_rows(named=True), _f6, "text", []), dtype=pl.Utf8))
 # new column "lower" = LOWER([status])
-def _f7(r):
+def _f7(r, i, W):
     return _call("LOWER", [lambda: _read(r["status"], "text")], ["text"])
-df = df.insert_column(15, pl.Series("lower", _derive(df.iter_rows(named=True), _f7, "text"), dtype=pl.Utf8))
+df = df.insert_column(15, pl.Series("lower", _derive(df.iter_rows(named=True), _f7, "text", []), dtype=pl.Utf8))
 # new column "trimmed" = TRIM("  a   b ") & [last]
-def _f8(r):
+def _f8(r, i, W):
     return _bin("&", _call("TRIM", [lambda: "  a   b "], ["text"]), _read(r["last"], "text"), "text", "text")
-df = df.insert_column(16, pl.Series("trimmed", _derive(df.iter_rows(named=True), _f8, "text"), dtype=pl.Utf8))
+df = df.insert_column(16, pl.Series("trimmed", _derive(df.iter_rows(named=True), _f8, "text", []), dtype=pl.Utf8))
 # new column "len" = LEN([last])
-def _f9(r):
+def _f9(r, i, W):
     return _call("LEN", [lambda: _read(r["last"], "text")], ["text"])
-df = df.insert_column(17, pl.Series("len", _derive(df.iter_rows(named=True), _f9, "number"), dtype=pl.Utf8))
+df = df.insert_column(17, pl.Series("len", _derive(df.iter_rows(named=True), _f9, "number", []), dtype=pl.Utf8))
 # new column "left" = LEFT([last], 3)
-def _f10(r):
+def _f10(r, i, W):
     return _call("LEFT", [lambda: _read(r["last"], "text"), lambda: 3], ["text", "number"])
-df = df.insert_column(18, pl.Series("left", _derive(df.iter_rows(named=True), _f10, "text"), dtype=pl.Utf8))
+df = df.insert_column(18, pl.Series("left", _derive(df.iter_rows(named=True), _f10, "text", []), dtype=pl.Utf8))
 # new column "right" = RIGHT([last])
-def _f11(r):
+def _f11(r, i, W):
     return _call("RIGHT", [lambda: _read(r["last"], "text")], ["text"])
-df = df.insert_column(19, pl.Series("right", _derive(df.iter_rows(named=True), _f11, "text"), dtype=pl.Utf8))
+df = df.insert_column(19, pl.Series("right", _derive(df.iter_rows(named=True), _f11, "text", []), dtype=pl.Utf8))
 # new column "mid" = MID([last], 2, 3)
-def _f12(r):
+def _f12(r, i, W):
     return _call("MID", [lambda: _read(r["last"], "text"), lambda: 2, lambda: 3], ["text", "number", "number"])
-df = df.insert_column(20, pl.Series("mid", _derive(df.iter_rows(named=True), _f12, "text"), dtype=pl.Utf8))
+df = df.insert_column(20, pl.Series("mid", _derive(df.iter_rows(named=True), _f12, "text", []), dtype=pl.Utf8))
 # new column "at" = FIND("@", [email])
-def _f13(r):
+def _f13(r, i, W):
     return _call("FIND", [lambda: "@", lambda: _read(r["email"], "text")], ["text", "text"])
-df = df.insert_column(21, pl.Series("at", _derive(df.iter_rows(named=True), _f13, "number"), dtype=pl.Utf8))
+df = df.insert_column(21, pl.Series("at", _derive(df.iter_rows(named=True), _f13, "number", []), dtype=pl.Utf8))
 # new column "user" = LEFT([email], FIND("@", [email]) - 1)
-def _f14(r):
+def _f14(r, i, W):
     return _call("LEFT", [lambda: _read(r["email"], "text"), lambda: _bin("-", _call("FIND", [lambda: "@", lambda: _read(r["email"], "text")], ["text", "text"]), 1, "number", "number")], ["text", "number"])
-df = df.insert_column(22, pl.Series("user", _derive(df.iter_rows(named=True), _f14, "text"), dtype=pl.Utf8))
+df = df.insert_column(22, pl.Series("user", _derive(df.iter_rows(named=True), _f14, "text", []), dtype=pl.Utf8))
 # new column "has" = CONTAINS([email], "X.ORG")
-def _f15(r):
+def _f15(r, i, W):
     return _call("CONTAINS", [lambda: _read(r["email"], "text"), lambda: "X.ORG"], ["text", "text"])
-df = df.insert_column(23, pl.Series("has", _derive(df.iter_rows(named=True), _f15, "bool"), dtype=pl.Utf8))
+df = df.insert_column(23, pl.Series("has", _derive(df.iter_rows(named=True), _f15, "bool", []), dtype=pl.Utf8))
 # new column "is_open" = [status] = "open"
-def _f16(r):
+def _f16(r, i, W):
     return _bin("=", _read(r["status"], "text"), "open", "text", "text")
-df = df.insert_column(24, pl.Series("is_open", _derive(df.iter_rows(named=True), _f16, "bool"), dtype=pl.Utf8))
+df = df.insert_column(24, pl.Series("is_open", _derive(df.iter_rows(named=True), _f16, "bool", []), dtype=pl.Utf8))
 # new column "not_open" = [status] <> "open"
-def _f17(r):
+def _f17(r, i, W):
     return _bin("<>", _read(r["status"], "text"), "open", "text", "text")
-df = df.insert_column(25, pl.Series("not_open", _derive(df.iter_rows(named=True), _f17, "bool"), dtype=pl.Utf8))
+df = df.insert_column(25, pl.Series("not_open", _derive(df.iter_rows(named=True), _f17, "bool", []), dtype=pl.Utf8))
 # new column "big" = [price] > 3
-def _f18(r):
+def _f18(r, i, W):
     return _bin(">", _read(r["price"], "number"), 3, "number", "number")
-df = df.insert_column(26, pl.Series("big", _derive(df.iter_rows(named=True), _f18, "bool"), dtype=pl.Utf8))
+df = df.insert_column(26, pl.Series("big", _derive(df.iter_rows(named=True), _f18, "bool", []), dtype=pl.Utf8))
 # new column "label" = IF([status] = "closed", "Done", "Open")
-def _f19(r):
+def _f19(r, i, W):
     return _call("IF", [lambda: _bin("=", _read(r["status"], "text"), "closed", "text", "text"), lambda: "Done", lambda: "Open"], ["bool", "text", "text"])
-df = df.insert_column(27, pl.Series("label", _derive(df.iter_rows(named=True), _f19, "text"), dtype=pl.Utf8))
+df = df.insert_column(27, pl.Series("label", _derive(df.iter_rows(named=True), _f19, "text", []), dtype=pl.Utf8))
 # new column "maybe" = IF([price] >= 4, "Big")
-def _f20(r):
+def _f20(r, i, W):
     return _call("IF", [lambda: _bin(">=", _read(r["price"], "number"), 4, "number", "number"), lambda: "Big"], ["bool", "text"])
-df = df.insert_column(28, pl.Series("maybe", _derive(df.iter_rows(named=True), _f20, "text"), dtype=pl.Utf8))
+df = df.insert_column(28, pl.Series("maybe", _derive(df.iter_rows(named=True), _f20, "text", []), dtype=pl.Utf8))
 # new column "mixed" = IF([qty] > 3, [qty], "few")
-def _f21(r):
+def _f21(r, i, W):
     return _call("IF", [lambda: _bin(">", _read(r["qty"], "number"), 3, "number", "number"), lambda: _read(r["qty"], "number"), lambda: "few"], ["bool", "number", "text"])
-df = df.insert_column(29, pl.Series("mixed", _derive(df.iter_rows(named=True), _f21, "text"), dtype=pl.Utf8))
+df = df.insert_column(29, pl.Series("mixed", _derive(df.iter_rows(named=True), _f21, "text", []), dtype=pl.Utf8))
 # new column "both" = AND([qty] > 0, [solar])
-def _f22(r):
+def _f22(r, i, W):
     return _call("AND", [lambda: _bin(">", _read(r["qty"], "number"), 0, "number", "number"), lambda: _read(r["solar"], "bool")], ["bool", "bool"])
-df = df.insert_column(30, pl.Series("both", _derive(df.iter_rows(named=True), _f22, "bool"), dtype=pl.Utf8))
+df = df.insert_column(30, pl.Series("both", _derive(df.iter_rows(named=True), _f22, "bool", []), dtype=pl.Utf8))
 # new column "either" = OR([qty] = 0, [solar])
-def _f23(r):
+def _f23(r, i, W):
     return _call("OR", [lambda: _bin("=", _read(r["qty"], "number"), 0, "number", "number"), lambda: _read(r["solar"], "bool")], ["bool", "bool"])
-df = df.insert_column(31, pl.Series("either", _derive(df.iter_rows(named=True), _f23, "bool"), dtype=pl.Utf8))
+df = df.insert_column(31, pl.Series("either", _derive(df.iter_rows(named=True), _f23, "bool", []), dtype=pl.Utf8))
 # new column "no_solar" = NOT([solar])
-def _f24(r):
+def _f24(r, i, W):
     return _call("NOT", [lambda: _read(r["solar"], "bool")], ["bool"])
-df = df.insert_column(32, pl.Series("no_solar", _derive(df.iter_rows(named=True), _f24, "bool"), dtype=pl.Utf8))
+df = df.insert_column(32, pl.Series("no_solar", _derive(df.iter_rows(named=True), _f24, "bool", []), dtype=pl.Utf8))
 # new column "no_first" = ISBLANK([first])
-def _f25(r):
+def _f25(r, i, W):
     return _call("ISBLANK", [lambda: _read(r["first"], "text")], ["text"])
-df = df.insert_column(33, pl.Series("no_first", _derive(df.iter_rows(named=True), _f25, "bool"), dtype=pl.Utf8))
+df = df.insert_column(33, pl.Series("no_first", _derive(df.iter_rows(named=True), _f25, "bool", []), dtype=pl.Utf8))
 # new column "name" = COALESCE([first], [last], "?")
-def _f26(r):
+def _f26(r, i, W):
     return _call("COALESCE", [lambda: _read(r["first"], "text"), lambda: _read(r["last"], "text"), lambda: "?"], ["text", "text", "text"])
-df = df.insert_column(34, pl.Series("name", _derive(df.iter_rows(named=True), _f26, "text"), dtype=pl.Utf8))
+df = df.insert_column(34, pl.Series("name", _derive(df.iter_rows(named=True), _f26, "text", []), dtype=pl.Utf8))
 # new column "status2" = IFBLANK([status], "Unknown")
-def _f27(r):
+def _f27(r, i, W):
     return _call("IFBLANK", [lambda: _read(r["status"], "text"), lambda: "Unknown"], ["text", "text"])
-df = df.insert_column(35, pl.Series("status2", _derive(df.iter_rows(named=True), _f27, "text"), dtype=pl.Utf8))
+df = df.insert_column(35, pl.Series("status2", _derive(df.iter_rows(named=True), _f27, "text", []), dtype=pl.Utf8))
 # new column "r0" = ROUND(2.5) + ROUND(-2.5)
-def _f28(r):
+def _f28(r, i, W):
     return _bin("+", _call("ROUND", [lambda: 2.5], ["number"]), _call("ROUND", [lambda: _neg(2.5)], ["number"]), "number", "number")
-df = df.insert_column(36, pl.Series("r0", _derive(df.iter_rows(named=True), _f28, "number"), dtype=pl.Utf8))
+df = df.insert_column(36, pl.Series("r0", _derive(df.iter_rows(named=True), _f28, "number", []), dtype=pl.Utf8))
 # new column "r2" = ROUND([price] * 1.07, 2)
-def _f29(r):
+def _f29(r, i, W):
     return _call("ROUND", [lambda: _bin("*", _read(r["price"], "number"), 1.07, "number", "number"), lambda: 2], ["number", "number"])
-df = df.insert_column(37, pl.Series("r2", _derive(df.iter_rows(named=True), _f29, "number"), dtype=pl.Utf8))
+df = df.insert_column(37, pl.Series("r2", _derive(df.iter_rows(named=True), _f29, "number", []), dtype=pl.Utf8))
 # new column "rneg" = ROUND(1234, -2)
-def _f30(r):
+def _f30(r, i, W):
     return _call("ROUND", [lambda: 1234, lambda: _neg(2)], ["number", "number"])
-df = df.insert_column(38, pl.Series("rneg", _derive(df.iter_rows(named=True), _f30, "number"), dtype=pl.Utf8))
+df = df.insert_column(38, pl.Series("rneg", _derive(df.iter_rows(named=True), _f30, "number", []), dtype=pl.Utf8))
 # new column "abs" = ABS(-[qty])
-def _f31(r):
+def _f31(r, i, W):
     return _call("ABS", [lambda: _neg(_read(r["qty"], "number"))], ["number"])
-df = df.insert_column(39, pl.Series("abs", _derive(df.iter_rows(named=True), _f31, "number"), dtype=pl.Utf8))
+df = df.insert_column(39, pl.Series("abs", _derive(df.iter_rows(named=True), _f31, "number", []), dtype=pl.Utf8))
 # new column "lo" = MIN([price], [qty])
-def _f32(r):
+def _f32(r, i, W):
     return _call("MIN", [lambda: _read(r["price"], "number"), lambda: _read(r["qty"], "number")], ["number", "number"])
-df = df.insert_column(40, pl.Series("lo", _derive(df.iter_rows(named=True), _f32, "number"), dtype=pl.Utf8))
+df = df.insert_column(40, pl.Series("lo", _derive(df.iter_rows(named=True), _f32, "number", []), dtype=pl.Utf8))
 # new column "hi" = MAX([price], [qty])
-def _f33(r):
+def _f33(r, i, W):
     return _call("MAX", [lambda: _read(r["price"], "number"), lambda: _read(r["qty"], "number")], ["number", "number"])
-df = df.insert_column(41, pl.Series("hi", _derive(df.iter_rows(named=True), _f33, "number"), dtype=pl.Utf8))
+df = df.insert_column(41, pl.Series("hi", _derive(df.iter_rows(named=True), _f33, "number", []), dtype=pl.Utf8))
 # new column "year" = YEAR([ordered])
-def _f34(r):
+def _f34(r, i, W):
     return _call("YEAR", [lambda: _read(r["ordered"], "date")], ["date"])
-df = df.insert_column(42, pl.Series("year", _derive(df.iter_rows(named=True), _f34, "number"), dtype=pl.Utf8))
+df = df.insert_column(42, pl.Series("year", _derive(df.iter_rows(named=True), _f34, "number", []), dtype=pl.Utf8))
 # new column "month" = MONTH([ordered])
-def _f35(r):
+def _f35(r, i, W):
     return _call("MONTH", [lambda: _read(r["ordered"], "date")], ["date"])
-df = df.insert_column(43, pl.Series("month", _derive(df.iter_rows(named=True), _f35, "number"), dtype=pl.Utf8))
+df = df.insert_column(43, pl.Series("month", _derive(df.iter_rows(named=True), _f35, "number", []), dtype=pl.Utf8))
 # new column "day" = DAY([ordered])
-def _f36(r):
+def _f36(r, i, W):
     return _call("DAY", [lambda: _read(r["ordered"], "date")], ["date"])
-df = df.insert_column(44, pl.Series("day", _derive(df.iter_rows(named=True), _f36, "number"), dtype=pl.Utf8))
+df = df.insert_column(44, pl.Series("day", _derive(df.iter_rows(named=True), _f36, "number", []), dtype=pl.Utf8))
 # new column "wd1" = WEEKDAY([ordered])
-def _f37(r):
+def _f37(r, i, W):
     return _call("WEEKDAY", [lambda: _read(r["ordered"], "date")], ["date"])
-df = df.insert_column(45, pl.Series("wd1", _derive(df.iter_rows(named=True), _f37, "number"), dtype=pl.Utf8))
+df = df.insert_column(45, pl.Series("wd1", _derive(df.iter_rows(named=True), _f37, "number", []), dtype=pl.Utf8))
 # new column "wd2" = WEEKDAY([ordered], 2)
-def _f38(r):
+def _f38(r, i, W):
     return _call("WEEKDAY", [lambda: _read(r["ordered"], "date"), lambda: 2], ["date", "number"])
-df = df.insert_column(46, pl.Series("wd2", _derive(df.iter_rows(named=True), _f38, "number"), dtype=pl.Utf8))
+df = df.insert_column(46, pl.Series("wd2", _derive(df.iter_rows(named=True), _f38, "number", []), dtype=pl.Utf8))
 # new column "wd3" = WEEKDAY([ordered], 3)
-def _f39(r):
+def _f39(r, i, W):
     return _call("WEEKDAY", [lambda: _read(r["ordered"], "date"), lambda: 3], ["date", "number"])
-df = df.insert_column(47, pl.Series("wd3", _derive(df.iter_rows(named=True), _f39, "number"), dtype=pl.Utf8))
+df = df.insert_column(47, pl.Series("wd3", _derive(df.iter_rows(named=True), _f39, "number", []), dtype=pl.Utf8))
 # new column "days" = [shipped] - [ordered]
-def _f40(r):
+def _f40(r, i, W):
     return _bin("-", _read(r["shipped"], "date"), _read(r["ordered"], "date"), "date", "date")
-df = df.insert_column(48, pl.Series("days", _derive(df.iter_rows(named=True), _f40, "number"), dtype=pl.Utf8))
+df = df.insert_column(48, pl.Series("days", _derive(df.iter_rows(named=True), _f40, "number", []), dtype=pl.Utf8))
 # new column "later" = [ordered] + 30
-def _f41(r):
+def _f41(r, i, W):
     return _bin("+", _read(r["ordered"], "date"), 30, "date", "number")
-df = df.insert_column(49, pl.Series("later", _derive(df.iter_rows(named=True), _f41, "date"), dtype=pl.Utf8))
+df = df.insert_column(49, pl.Series("later", _derive(df.iter_rows(named=True), _f41, "date", []), dtype=pl.Utf8))
 # new column "dd" = DATEDIF([ordered], [shipped], "d")
-def _f42(r):
+def _f42(r, i, W):
     return _call("DATEDIF", [lambda: _read(r["ordered"], "date"), lambda: _read(r["shipped"], "date"), lambda: "d"], ["date", "date", "text"])
-df = df.insert_column(50, pl.Series("dd", _derive(df.iter_rows(named=True), _f42, "number"), dtype=pl.Utf8))
+df = df.insert_column(50, pl.Series("dd", _derive(df.iter_rows(named=True), _f42, "number", []), dtype=pl.Utf8))
 # new column "yy" = DATEDIF(DATE(2020, 2, 29), [shipped], "y")
-def _f43(r):
+def _f43(r, i, W):
     return _call("DATEDIF", [lambda: _call("DATE", [lambda: 2020, lambda: 2, lambda: 29], ["number", "number", "number"]), lambda: _read(r["shipped"], "date"), lambda: "y"], ["date", "date", "text"])
-df = df.insert_column(51, pl.Series("yy", _derive(df.iter_rows(named=True), _f43, "number"), dtype=pl.Utf8))
+df = df.insert_column(51, pl.Series("yy", _derive(df.iter_rows(named=True), _f43, "number", []), dtype=pl.Utf8))
 # new column "mm" = DATEDIF(DATE(2024, 1, 31), [shipped], "m")
-def _f44(r):
+def _f44(r, i, W):
     return _call("DATEDIF", [lambda: _call("DATE", [lambda: 2024, lambda: 1, lambda: 31], ["number", "number", "number"]), lambda: _read(r["shipped"], "date"), lambda: "m"], ["date", "date", "text"])
-df = df.insert_column(52, pl.Series("mm", _derive(df.iter_rows(named=True), _f44, "number"), dtype=pl.Utf8))
+df = df.insert_column(52, pl.Series("mm", _derive(df.iter_rows(named=True), _f44, "number", []), dtype=pl.Utf8))
 # new column "bad" = DATEDIF([shipped], [ordered], "d")
-def _f45(r):
+def _f45(r, i, W):
     return _call("DATEDIF", [lambda: _read(r["shipped"], "date"), lambda: _read(r["ordered"], "date"), lambda: "d"], ["date", "date", "text"])
-df = df.insert_column(53, pl.Series("bad", _derive(df.iter_rows(named=True), _f45, "number"), dtype=pl.Utf8))
+df = df.insert_column(53, pl.Series("bad", _derive(df.iter_rows(named=True), _f45, "number", []), dtype=pl.Utf8))
 # new column "made" = DATE(2024, 13, 1)
-def _f46(r):
+def _f46(r, i, W):
     return _call("DATE", [lambda: 2024, lambda: 13, lambda: 1], ["number", "number", "number"])
-df = df.insert_column(54, pl.Series("made", _derive(df.iter_rows(named=True), _f46, "date"), dtype=pl.Utf8))
+df = df.insert_column(54, pl.Series("made", _derive(df.iter_rows(named=True), _f46, "date", []), dtype=pl.Utf8))
 # new column "age" = DATEDIF(DATE(2000, 1, 1), TODAY(), "y") > 20
-def _f47(r):
+def _f47(r, i, W):
     return _bin(">", _call("DATEDIF", [lambda: _call("DATE", [lambda: 2000, lambda: 1, lambda: 1], ["number", "number", "number"]), lambda: _call("TODAY", [], []), lambda: "y"], ["date", "date", "text"]), 20, "number", "number")
-df = df.insert_column(55, pl.Series("age", _derive(df.iter_rows(named=True), _f47, "bool"), dtype=pl.Utf8))
+df = df.insert_column(55, pl.Series("age", _derive(df.iter_rows(named=True), _f47, "bool", []), dtype=pl.Utf8))
+# new column "n" = ROWNUMBER()
+def _f48(r, i, W):
+    return float(i + 1)
+df = df.insert_column(56, pl.Series("n", _derive(df.iter_rows(named=True), _f48, "number", []), dtype=pl.Utf8))
+# new column "rank" = RANK([price])
+def _f49(r, i, W):
+    return _w(W, 0, i)
+df = df.insert_column(57, pl.Series("rank", _derive(df.iter_rows(named=True), _f49, "number", [("RANK", "price", "number", 0)]), dtype=pl.Utf8))
+# new column "share" = PERCENTOFTOTAL([price])
+def _f50(r, i, W):
+    return _w(W, 0, i)
+df = df.insert_column(58, pl.Series("share", _derive(df.iter_rows(named=True), _f50, "number", [("PERCENTOFTOTAL", "price", "number", 0)]), dtype=pl.Utf8))
+# new column "running" = RUNNINGSUM([qty])
+def _f51(r, i, W):
+    return _w(W, 0, i)
+df = df.insert_column(59, pl.Series("running", _derive(df.iter_rows(named=True), _f51, "number", [("RUNNINGSUM", "qty", "number", 0)]), dtype=pl.Utf8))
+# new column "change" = [qty] - PREVIOUS([qty])
+def _f52(r, i, W):
+    return _bin("-", _read(r["qty"], "number"), _w(W, 0, i), "number", "number")
+df = df.insert_column(60, pl.Series("change", _derive(df.iter_rows(named=True), _f52, "number", [("PREVIOUS", "qty", "number", 0)]), dtype=pl.Utf8))
+# new column "prev_name" = PREVIOUS([first])
+def _f53(r, i, W):
+    return _w(W, 0, i)
+df = df.insert_column(61, pl.Series("prev_name", _derive(df.iter_rows(named=True), _f53, "text", [("PREVIOUS", "first", "text", 0)]), dtype=pl.Utf8))
+# new column "band" = BIN([qty], 3)
+def _f54(r, i, W):
+    return _w(W, 0, i)
+df = df.insert_column(62, pl.Series("band", _derive(df.iter_rows(named=True), _f54, "number", [("BIN", "qty", "number", 3)]), dtype=pl.Utf8))
 
 df.write_csv("cleaned.csv")

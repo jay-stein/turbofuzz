@@ -11945,3 +11945,13 @@ button.qp-tile:hover {
 .date-code small { color: var(--text-dim); font-family: var(--mono); }
 .date-codes-credit { margin: 4px 0 0; color: var(--text-dim); font-size: var(--fs-xs); }
 .date-codes-credit a { color: var(--accent); }
+
+/* New column: If / then rows and Quick column. */
+.newcol-rules { display: flex; flex-direction: column; gap: 6px; }
+.newcol-rule { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.newcol-rule .text-input { width: 120px; }
+.newcol-rule select { max-width: 170px; }
+.newcol-rule-word { min-width: 52px; color: var(--text-dim); font-size: var(--fs-sm); font-weight: 600; }
+.newcol-rule .hidden, .newcol-pane .map-field.hidden { display: none; }
+.newcol-small { width: 70px !important; }
+.newcol-quick-formula { padding: 2px 8px; border-radius: 4px; background: var(--panel-2); font-family: var(--mono); font-size: var(--fs-sm); }

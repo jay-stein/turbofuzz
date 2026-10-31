@@ -149,12 +149,12 @@ test("pandas and Polars recipes write a formula column as code, once-only helper
   };
   for (const script of [pandasRecipeScript(input), polarsRecipeScript(input)]) {
     assert.equal(script.code.split("formula helpers: the app's rules").length - 1, 1);
-    assert.match(script.code, /def _f1\(r\):\n {4}return _bin\("\*", _read\(r\["price"\], "number"\), _read\(r\["qty"\], "number"\), "number", "number"\)/);
-    assert.match(script.code, /def _f2\(r\):/);
+    assert.match(script.code, /def _f1\(r, i, W\):\n {4}return _bin\("\*", _read\(r\["price"\], "number"\), _read\(r\["qty"\], "number"\), "number", "number"\)/);
+    assert.match(script.code, /def _f2\(r, i, W\):/);
     assert.deepEqual(script.entries.filter((e) => e.label.startsWith("derive")).map((e) => e.status), ["supported", "supported", "manual_step_required"]);
   }
-  assert.match(pandasRecipeScript(input).code, /df\.insert\(2, "total", _derive\(df\.to_dict\("records"\), _f1, "number"\)\)/);
-  assert.match(polarsRecipeScript(input).code, /df = df\.insert_column\(0, pl\.Series\("big", _derive\(df\.iter_rows\(named=True\), _f2, "bool"\), dtype=pl\.Utf8\)\)/);
+  assert.match(pandasRecipeScript(input).code, /df\.insert\(2, "total", _derive\(df\.to_dict\("records"\), _f1, "number", \[\]\)\)/);
+  assert.match(polarsRecipeScript(input).code, /df = df\.insert_column\(0, pl\.Series\("big", _derive\(df\.iter_rows\(named=True\), _f2, "bool", \[\]\), dtype=pl\.Utf8\)\)/);
 });
 
 test("a cell edit is a setCells clean step on the row's index, and the recipes write it", async () => {
@@ -167,4 +167,23 @@ test("a cell edit is a setCells clean step on the row's index, and the recipes w
   const input = { cleans: [{ name: "amount", ops: [op] }], transforms: [], schema: [{ name: "amount", numeric: true }] };
   assert.match(pandasRecipeScript(input).code, /df\.iloc\[1, df\.columns\.get_loc\("amount"\)\] = "9"  # was "120"/);
   assert.match(polarsRecipeScript(input).code, /pl\.when\(pl\.int_range\(pl\.len\(\)\) == 1\)\.then\(pl\.lit\("9"\)\)/);
+});
+
+test("whole-column functions: row number, rank, percent of total, running sum, previous, bins", () => {
+  const nums = [col("Sales", "number", ["10", "", "30", "30", "-5"])];
+  const inf = nums.map((c) => ({ name: c.name, type: c.type }));
+  const r = (f: string) => {
+    const c = compileFormula(f, inf);
+    if (!c.ok) throw new Error(c.error);
+    return evaluateFormula(c, nums, 5).raw;
+  };
+  assert.deepEqual(r("ROWNUMBER()"), ["1", "2", "3", "4", "5"]);
+  assert.deepEqual(r("RANK([Sales])"), ["3", "", "1", "1", "4"]);
+  assert.deepEqual(r("PERCENTOFTOTAL([Sales])"), ["15.3846153846154", "", "46.1538461538462", "46.1538461538462", "-7.69230769230769"]);
+  assert.deepEqual(r("RUNNINGSUM([Sales])"), ["10", "", "40", "70", "65"]);
+  assert.deepEqual(r("[Sales] - PREVIOUS([Sales])"), ["", "", "", "0", "-35"]);
+  assert.deepEqual(r("BIN([Sales], 5)"), ["3", "", "5", "5", "1"]);
+  // Only on a column, so the meaning is plain.
+  const bad = compileFormula("RANK([Sales] * 2)", inf);
+  assert.equal(bad.ok, false);
 });

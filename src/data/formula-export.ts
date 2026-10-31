@@ -7,15 +7,19 @@
  * recipe runs once and must agree with the app cell for cell.
  */
 
-import { compileFormula, typeOf, type FormulaColumnInfo, type Node } from "./column-formula.js";
+import { compileFormula, typeOf, WINDOW_FUNCTIONS, type FormulaColumnInfo, type Node } from "./column-formula.js";
 
 const py = (value: string): string => JSON.stringify(value);
 
-/** The formula as a Python expression over the row dict `r`; null when it does not compile. */
-export function formulaPython(formula: string, columns: readonly FormulaColumnInfo[]): { expr: string; type: string } | null {
+/**
+ * The formula as a Python expression over the row dict `r` and its index `i`; whole-column
+ * functions read `W` (worked out by _derive from `windows`, a Python list literal).
+ */
+export function formulaPython(formula: string, columns: readonly FormulaColumnInfo[]): { expr: string; type: string; windows: string } | null {
   const compiled = compileFormula(formula, columns);
   if (!compiled.ok) return null;
   const t = (n: Node): string => typeOf(n, columns);
+  const windows: string[] = [];
   const emit = (n: Node): string => {
     switch (n.k) {
       case "num": return String(n.v);
@@ -24,11 +28,20 @@ export function formulaPython(formula: string, columns: readonly FormulaColumnIn
       case "col": return `_read(r[${py(n.name)}], ${py(t(n))})`;
       case "un": return `_neg(${emit(n.a)})`.replace(/^_neg/, n.op === "-" ? "_neg" : "_pos");
       case "bin": return `_bin(${py(n.op)}, ${emit(n.a)}, ${emit(n.b)}, ${py(t(n.a))}, ${py(t(n.b))})`;
-      case "call":
+      case "call": {
+        if (n.fn === "ROWNUMBER") return "float(i + 1)";
+        const col = n.args[0];
+        if (WINDOW_FUNCTIONS.has(n.fn) && col?.k === "col") {
+          const count = n.fn === "BIN" ? (n.args[1] as { v: number }).v : 0;
+          windows.push(`(${py(n.fn)}, ${py(col.name)}, ${py(t(col))}, ${count})`);
+          return `_w(W, ${windows.length - 1}, i)`;
+        }
         return `_call(${py(n.fn)}, [${n.args.map((a) => `lambda: ${emit(a)}`).join(", ")}], [${n.args.map((a) => py(t(a))).join(", ")}])`;
+      }
     }
   };
-  return { expr: emit(compiled.ast), type: compiled.type };
+  const expr = emit(compiled.ast);
+  return { expr, type: compiled.type, windows: `[${windows.join(", ")}]` };
 }
 
 /** The helpers every formula column uses; written once per script. */
@@ -320,12 +333,56 @@ def _call(fn, args, ts):
         return None
     raise _Err(f"{fn} is not available")
 
-def _derive(rows, f, t):
-    """One new column's cells as text, the way the app writes them ("" left empty)."""
-    out = []
-    for r in rows:
+def _window(fn, values, count):
+    """A whole-column function over the column's values in stored order (as the app)."""
+    nums = []
+    for v in values:
         try:
-            v = f(r)
+            nums.append(_num(v))
+        except _Err:
+            nums.append(None)
+    if fn == "PREVIOUS":
+        return [None] + list(values[:-1])
+    if fn == "RUNNINGSUM":
+        out, total = [], 0.0
+        for x in nums:
+            if x is None:
+                out.append(None)
+            else:
+                total += x
+                out.append(total)
+        return out
+    if fn == "PERCENTOFTOTAL":
+        total = sum(x for x in nums if x is not None)
+        return [None if x is None else (_Err("divide by zero") if total == 0 else (x / total) * 100) for x in nums]
+    if fn == "RANK":
+        first = {}
+        for k, x in enumerate(sorted((x for x in nums if x is not None), reverse=True)):
+            first.setdefault(x, k + 1)
+        return [None if x is None else float(first[x]) for x in nums]
+    if fn == "BIN":
+        present = [x for x in nums if x is not None]
+        if count < 1:
+            return [_Err("BIN needs a count of 1 or more") for _ in nums]
+        lo, hi = (min(present), max(present)) if present else (0.0, 0.0)
+        width = (hi - lo) / int(count)
+        return [None if x is None else (1.0 if width == 0 else float(max(1, _math.ceil((x - lo) / width)))) for x in nums]
+    return [_Err(f"{fn} is not available") for _ in nums]
+
+def _w(W, k, i):
+    v = W[k][i]
+    if isinstance(v, _Err):
+        raise v
+    return v
+
+def _derive(rows, f, t, windows=()):
+    """One new column's cells as text, the way the app writes them ("" left empty)."""
+    rows = list(rows)
+    W = [_window(fn, [_read(r[c], ct) for r in rows], count) for fn, c, ct, count in windows]
+    out = []
+    for i, r in enumerate(rows):
+        try:
+            v = f(r, i, W)
         except _Err:
             v = None
         s = None if v is None else _text(v, t)

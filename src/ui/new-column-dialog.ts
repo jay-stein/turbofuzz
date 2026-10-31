@@ -26,7 +26,7 @@ export interface NewColumnResult {
   formula: string;
 }
 
-type Mode = "formula" | "value";
+type Mode = "formula" | "ifthen" | "quick" | "value";
 type ValueType = "text" | "number" | "date" | "bool";
 
 const TYPE_LABEL: Partial<Record<string, string>> = {
@@ -40,6 +40,63 @@ const FUNCTION_GROUPS: [string, string[]][] = [
   ["Dates", ["YEAR", "MONTH", "DAY", "WEEKDAY", "DATEDIF", "DATE", "TODAY"]],
 ];
 const nf = new Intl.NumberFormat("en");
+
+export type IfOp = "is" | "isnot" | "gt" | "ge" | "lt" | "le" | "contains" | "empty" | "notempty";
+export interface IfRule { column: string; op: IfOp; value: string; then: string }
+const IF_OPS: [IfOp, string][] = [
+  ["is", "is"], ["isnot", "is not"], ["gt", ">"], ["ge", "≥"], ["lt", "<"], ["le", "≤"],
+  ["contains", "contains"], ["empty", "is empty"], ["notempty", "is not empty"],
+];
+const isNum = (v: string): boolean => v.trim() !== "" && Number.isFinite(Number(v.trim()));
+const quote = (v: string): string => `"${v.replace(/"/g, '""')}"`;
+const ref = (name: string): string => `[${name.replace(/]/g, "]]")}]`;
+
+/**
+ * The If / then builder as a formula: IF(test1, then1, IF(test2, then2, otherwise)).
+ * Values compare as numbers or dates when the column is one; outputs are numbers when
+ * every output is a number. Null until each rule names a column.
+ */
+export function ifThenFormula(rules: readonly IfRule[], otherwise: string, types: ReadonlyMap<string, ColumnType>): string | null {
+  if (rules.length === 0 || rules.some((r) => r.column === "")) return null;
+  const outputs = [...rules.map((r) => r.then), otherwise].filter((v) => v.trim() !== "");
+  const numeric = outputs.length > 0 && outputs.every(isNum);
+  const out = (v: string): string => (v.trim() === "" ? '""' : numeric ? String(Number(v.trim())) : quote(v));
+  const lit = (r: IfRule): string => {
+    const type = types.get(r.column);
+    if ((type === "integer" || type === "number") && isNum(r.value)) return String(Number(r.value.trim()));
+    const d = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(r.value.trim());
+    if ((type === "date" || type === "datetime") && d) return `DATE(${Number(d[1])}, ${Number(d[2])}, ${Number(d[3])})`;
+    return quote(r.value);
+  };
+  const test = (r: IfRule): string => {
+    const c = ref(r.column);
+    switch (r.op) {
+      case "empty": return `ISBLANK(${c})`;
+      case "notempty": return `NOT(ISBLANK(${c}))`;
+      case "contains": return `CONTAINS(${c}, ${quote(r.value)})`;
+      default: return `${c} ${{ is: "=", isnot: "<>", gt: ">", ge: ">=", lt: "<", le: "<=" }[r.op]} ${lit(r)}`;
+    }
+  };
+  return rules.reduceRight((acc, r) => `IF(${test(r)}, ${out(r.then)}, ${acc})`, out(otherwise));
+}
+
+/** One-click columns: each writes a formula (and a name) from a column. */
+export interface QuickPick { id: string; label: string; group: string; needs: "none" | "any" | "number" | "date" | "two"; name(a: string, b: string): string; formula(a: string, b: string, n: number, sep: string): string }
+export const QUICK_PICKS: readonly QuickPick[] = [
+  { id: "copy", group: "Copy and count", label: "Copy of a column", needs: "any", name: (a) => `${a} (copy)`, formula: (a) => ref(a) },
+  { id: "index", group: "Copy and count", label: "Row number (1, 2, 3…)", needs: "none", name: () => "Row number", formula: () => "ROWNUMBER()" },
+  { id: "len", group: "Copy and count", label: "Text length", needs: "any", name: (a) => `${a} length`, formula: (a) => `LEN(${ref(a)})` },
+  { id: "join", group: "Copy and count", label: "Join two columns", needs: "two", name: (a, b) => `${a} ${b}`, formula: (a, b, _n, sep) => `CONCAT(${ref(a)}, ${quote(sep)}, ${ref(b)})` },
+  { id: "year", group: "Date parts", label: "Year", needs: "date", name: (a) => `${a} year`, formula: (a) => `YEAR(${ref(a)})` },
+  { id: "month", group: "Date parts", label: "Month (1-12)", needs: "date", name: (a) => `${a} month`, formula: (a) => `MONTH(${ref(a)})` },
+  { id: "day", group: "Date parts", label: "Day of the month", needs: "date", name: (a) => `${a} day`, formula: (a) => `DAY(${ref(a)})` },
+  { id: "weekday", group: "Date parts", label: "Weekday (Monday = 1)", needs: "date", name: (a) => `${a} weekday`, formula: (a) => `WEEKDAY(${ref(a)}, 2)` },
+  { id: "rank", group: "Across the column", label: "Rank (1 = largest)", needs: "number", name: (a) => `${a} rank`, formula: (a) => `RANK(${ref(a)})` },
+  { id: "pct", group: "Across the column", label: "% of total", needs: "number", name: (a) => `${a} % of total`, formula: (a) => `PERCENTOFTOTAL(${ref(a)})` },
+  { id: "running", group: "Across the column", label: "Running total", needs: "number", name: (a) => `${a} running total`, formula: (a) => `RUNNINGSUM(${ref(a)})` },
+  { id: "change", group: "Across the column", label: "Change from the row above", needs: "number", name: (a) => `${a} change`, formula: (a) => `${ref(a)} - PREVIOUS(${ref(a)})` },
+  { id: "bins", group: "Across the column", label: "Equal-width bands", needs: "number", name: (a) => `${a} band`, formula: (a, _b, n) => `BIN(${ref(a)}, ${n})` },
+];
 
 /** The formula a "same value for every row" stands for. Null when the value does not read. */
 export function constantFormula(value: string, type: ValueType): string | null {
@@ -103,9 +160,110 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
     const modeSeg = el("div", { class: "newcol-modes", role: "tablist", "aria-label": "What goes in the column" });
     const modeButtons: Record<Mode, HTMLButtonElement> = {
       formula: el("button", { type: "button", role: "tab", "data-mode": "formula" }, ["Formula"]) as HTMLButtonElement,
+      ifthen: el("button", { type: "button", role: "tab", "data-mode": "ifthen" }, ["If / then"]) as HTMLButtonElement,
+      quick: el("button", { type: "button", role: "tab", "data-mode": "quick" }, ["Quick column"]) as HTMLButtonElement,
       value: el("button", { type: "button", role: "tab", "data-mode": "value" }, ["Same value for every row"]) as HTMLButtonElement,
     };
-    modeSeg.append(modeButtons.formula, modeButtons.value);
+    modeSeg.append(modeButtons.formula, modeButtons.ifthen, modeButtons.quick, modeButtons.value);
+    // The name follows the choice until the person types their own.
+    let autoName = options.name === undefined;
+    const setAutoName = (name: string): void => { if (autoName) nameInput.value = name; };
+    const types = new Map(options.columns.map((c) => [c.name, c.type] as const));
+    const columnSelect = (label: string, filter: (t: ColumnType) => boolean = () => true): HTMLSelectElement => {
+      const s = el("select", { "aria-label": label }) as HTMLSelectElement;
+      for (const c of options.columns) if (filter(c.type)) s.append(el("option", { value: c.name }, [c.name]) as HTMLOptionElement);
+      return s;
+    };
+
+    // ---------------------------------------------------------------- if / then
+    const rulesHost = el("div", { class: "newcol-rules" });
+    const otherwiseInput = el("input", { class: "text-input", type: "text", "aria-label": "Otherwise", placeholder: "(empty)" }) as HTMLInputElement;
+    const addRule = el("button", { type: "button", class: "ghost small" }, ["+ Another if"]);
+    const asFormula = el("button", { type: "button", class: "ghost small" }, ["Show as formula"]);
+    const rules: { row: HTMLElement; read(): IfRule }[] = [];
+    function addRuleRow(): void {
+      const column = columnSelect("If column");
+      const op = el("select", { "aria-label": "Test" }) as HTMLSelectElement;
+      for (const [v, label] of IF_OPS) op.append(el("option", { value: v }, [label]) as HTMLOptionElement);
+      const value = el("input", { class: "text-input", type: "text", "aria-label": "Value", placeholder: "value" }) as HTMLInputElement;
+      const then = el("input", { class: "text-input", type: "text", "aria-label": "Then", placeholder: "result" }) as HTMLInputElement;
+      const remove = el("button", { type: "button", class: "icon-btn", "aria-label": "Remove this if", title: "Remove" }, ["×"]);
+      const row = el("div", { class: "newcol-rule" }, [el("span", { class: "newcol-rule-word" }, [rules.length ? "Else if" : "If"]), column, op, value, el("span", { class: "newcol-rule-word" }, ["then"]), then, remove]);
+      const entry = { row, read: (): IfRule => ({ column: column.value, op: op.value as IfOp, value: value.value, then: then.value }) };
+      op.addEventListener("change", () => { value.classList.toggle("hidden", op.value === "empty" || op.value === "notempty"); schedule(); });
+      for (const input of [column, value, then]) input.addEventListener("input", schedule);
+      column.addEventListener("change", schedule);
+      remove.addEventListener("click", () => {
+        if (rules.length === 1) return;
+        rules.splice(rules.indexOf(entry), 1);
+        row.remove();
+        rules.forEach((r, k) => { (r.row.firstChild as HTMLElement).textContent = k ? "Else if" : "If"; });
+        schedule();
+      });
+      rules.push(entry);
+      rulesHost.append(row);
+    }
+    addRuleRow();
+    addRule.addEventListener("click", () => { addRuleRow(); schedule(); });
+    otherwiseInput.addEventListener("input", schedule);
+    const ifFormula = (): string | null => ifThenFormula(rules.map((r) => r.read()), otherwiseInput.value, types);
+    asFormula.addEventListener("click", () => { const f = ifFormula(); if (f) { formula.value = f; setMode("formula"); } });
+    const ifPane = el("div", { class: "newcol-pane hidden" }, [
+      rulesHost,
+      el("div", { class: "newcol-rule" }, [addRule]),
+      el("label", { class: "newcol-rule" }, [el("span", { class: "newcol-rule-word" }, ["Otherwise"]), otherwiseInput]),
+      el("div", { class: "newcol-rule" }, [asFormula, el("span", { class: "newcol-note" }, ["Text compares whatever the case; numbers and dates compare as numbers and dates."])]),
+    ]);
+
+    // ---------------------------------------------------------------- quick column
+    const pickSelect = el("select", { "aria-label": "Quick column" }) as HTMLSelectElement;
+    for (const group of [...new Set(QUICK_PICKS.map((p) => p.group))]) {
+      const g = el("optgroup", { label: group });
+      for (const p of QUICK_PICKS.filter((q) => q.group === group)) g.append(el("option", { value: p.id }, [p.label]) as HTMLOptionElement);
+      pickSelect.append(g);
+    }
+    const quickA = columnSelect("Column");
+    const quickB = columnSelect("Second column");
+    const sepInput = el("input", { class: "text-input newcol-small", type: "text", value: " ", "aria-label": "Separator" }) as HTMLInputElement;
+    const binsInput = el("input", { class: "text-input newcol-small", type: "number", min: "1", max: "100", value: "5", "aria-label": "Number of bands" }) as HTMLInputElement;
+    const quickFormula = el("code", { class: "newcol-quick-formula" });
+    const quickEdit = el("button", { type: "button", class: "ghost small" }, ["Edit as formula"]);
+    const fieldA = el("label", { class: "map-field" }, [el("span", {}, ["Column"]), quickA]);
+    const fieldB = el("label", { class: "map-field" }, [el("span", {}, ["and"]), quickB]);
+    const fieldSep = el("label", { class: "map-field" }, [el("span", {}, ["Separator"]), sepInput]);
+    const fieldBins = el("label", { class: "map-field" }, [el("span", {}, ["Bands"]), binsInput]);
+    const quickPick = (): QuickPick => QUICK_PICKS.find((p) => p.id === pickSelect.value) ?? QUICK_PICKS[0]!;
+    const fits = (needs: QuickPick["needs"], t: ColumnType | undefined): boolean =>
+      needs === "number" ? t === "integer" || t === "number" : needs === "date" ? t === "date" || t === "datetime" : true;
+    function quickChanged(): void {
+      const p = quickPick();
+      fieldA.classList.toggle("hidden", p.needs === "none");
+      fieldB.classList.toggle("hidden", p.needs !== "two");
+      fieldSep.classList.toggle("hidden", p.needs !== "two");
+      fieldBins.classList.toggle("hidden", p.id !== "bins");
+      // Offer the columns that fit first: a number pick starts on a number column.
+      if (!fits(p.needs, types.get(quickA.value))) {
+        const first = options.columns.find((c) => fits(p.needs, c.type));
+        if (first) quickA.value = first.name;
+      }
+      setAutoName(p.name(quickA.value, quickB.value));
+      quickFormula.textContent = quickFormulaText() ?? "";
+      schedule();
+    }
+    const quickFormulaText = (): string | null => {
+      const p = quickPick();
+      if (p.needs !== "none" && quickA.value === "") return null;
+      return p.formula(quickA.value, quickB.value, Math.max(1, Math.trunc(Number(binsInput.value) || 5)), sepInput.value);
+    };
+    for (const input of [pickSelect, quickA, quickB]) input.addEventListener("change", quickChanged);
+    for (const input of [sepInput, binsInput]) input.addEventListener("input", quickChanged);
+    quickEdit.addEventListener("click", () => { const f = quickFormulaText(); if (f) { formula.value = f; setMode("formula"); } });
+    const quickPane = el("div", { class: "newcol-pane hidden" }, [
+      el("label", { class: "map-field" }, [el("span", {}, ["Make"]), pickSelect]),
+      el("div", { class: "newcol-rule" }, [fieldA, fieldB, fieldSep, fieldBins]),
+      el("div", { class: "newcol-rule" }, [el("span", { class: "newcol-note" }, ["Formula:"]), quickFormula, quickEdit]),
+      el("p", { class: "newcol-note" }, ["Rank, % of total, running total, change and bands read the whole column in the table's stored order (the file's order), whatever the Table is sorted by."]),
+    ]);
 
     // ---------------------------------------------------------------- formula
     const formula = el("textarea", {
@@ -177,12 +335,16 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
         el("label", { class: "map-field" }, [el("span", {}, ["Place"]), place]),
         modeSeg,
       ]),
-      el("div", { class: "newcol-body" }, [el("div", { class: "newcol-input" }, [formulaPane, valuePane]), previewSide]),
+      el("div", { class: "newcol-body" }, [el("div", { class: "newcol-input" }, [formulaPane, ifPane, quickPane, valuePane]), previewSide]),
       el("div", { class: "clean-footer" }, [el("span", { class: "newcol-keys" }, ["Ctrl+Enter adds"]), el("span", { class: "grow" }), cancel, addButton]),
     );
 
     // ---------------------------------------------------------------- behaviour
-    const currentFormula = (): string | null => (mode === "formula" ? formula.value.trim() : constantFormula(valueInput.value, valueType));
+    const currentFormula = (): string | null =>
+      mode === "formula" ? formula.value.trim()
+      : mode === "ifthen" ? ifFormula()
+      : mode === "quick" ? quickFormulaText()
+      : constantFormula(valueInput.value, valueType);
 
     function insert(text: string): void {
       const start = formula.selectionStart, end = formula.selectionEnd;
@@ -310,7 +472,7 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
       formula.focus();
       formula.setSelectionRange(at, Math.max(at, end));
     });
-    nameInput.addEventListener("input", () => { if (last?.ok) render(last); });
+    nameInput.addEventListener("input", () => { autoName = false; if (last?.ok) render(last); });
     valueInput.addEventListener("input", schedule);
     typeSelect.addEventListener("change", () => { valueType = typeSelect.value as ValueType; schedule(); });
 
@@ -318,8 +480,11 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
       mode = next;
       for (const [key, button] of Object.entries(modeButtons) as [Mode, HTMLButtonElement][]) button.setAttribute("aria-selected", String(key === mode));
       formulaPane.classList.toggle("hidden", mode !== "formula");
+      ifPane.classList.toggle("hidden", mode !== "ifthen");
+      quickPane.classList.toggle("hidden", mode !== "quick");
       valuePane.classList.toggle("hidden", mode !== "value");
-      (mode === "formula" ? formula : valueInput).focus();
+      if (mode === "quick") quickChanged();
+      (mode === "formula" ? formula : mode === "value" ? valueInput : mode === "quick" ? pickSelect : rulesHost.querySelector("select") ?? formula).focus();
       schedule();
     }
     modeSeg.addEventListener("click", (event) => {

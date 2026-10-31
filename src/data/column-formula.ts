@@ -75,7 +75,16 @@ export const FUNCTIONS: Readonly<Record<string, { min: number; max: number; sig:
   ISBLANK: { min: 1, max: 1, sig: "ISBLANK(value)", help: "TRUE when the cell is empty.", example: "ISBLANK([Phone])" },
   COALESCE: { min: 1, max: -1, sig: "COALESCE(value1, value2, …)", help: "The first value that is not empty.", example: "COALESCE([Phone], [Mobile])" },
   IFBLANK: { min: 2, max: 2, sig: "IFBLANK(value, fallback)", help: "The value, or the fallback when it is empty (the same as COALESCE).", example: 'IFBLANK([Region], "Unknown")' },
+  ROWNUMBER: { min: 0, max: 0, sig: "ROWNUMBER()", help: "1, 2, 3… down the table's stored order (the file's order).", example: "ROWNUMBER()" },
+  RANK: { min: 1, max: 1, sig: "RANK([column])", help: "1 for the largest value; ties share the best rank; blanks stay blank.", example: "RANK([Sales])" },
+  PERCENTOFTOTAL: { min: 1, max: 1, sig: "PERCENTOFTOTAL([column])", help: "The value as a percentage of the column's total.", example: "PERCENTOFTOTAL([Sales])" },
+  RUNNINGSUM: { min: 1, max: 1, sig: "RUNNINGSUM([column])", help: "The total so far, down the stored order; blanks add nothing and stay blank.", example: "RUNNINGSUM([Sales])" },
+  PREVIOUS: { min: 1, max: 1, sig: "PREVIOUS([column])", help: "The value on the row above in the stored order (blank on the first row).", example: "[Sales] - PREVIOUS([Sales])" },
+  BIN: { min: 2, max: 2, sig: "BIN([column], count)", help: "Which of count equal-width bands from the smallest to the largest value (1 = lowest).", example: "BIN([Age], 5)" },
 };
+
+/** Functions that read a whole column (worked out once, then read row by row). */
+export const WINDOW_FUNCTIONS: ReadonlySet<string> = new Set(["RANK", "PERCENTOFTOTAL", "RUNNINGSUM", "PREVIOUS", "BIN"]);
 
 // ---------------------------------------------------------------- tokenizer
 
@@ -241,6 +250,12 @@ function parse(text: string, columns: readonly FormulaColumnInfo[]): Node {
         while (isOp(",")) { p++; args.push(compare()); }
       }
       expect(")", `a closing ) for ${name}`);
+      if (WINDOW_FUNCTIONS.has(name) && args[0] !== undefined && args[0].k !== "col") {
+        throw new ParseError(`${name} reads a whole column: ${spec.sig}`, t.at, t.end);
+      }
+      if (name === "BIN" && args[1] !== undefined && args[1].k !== "num") {
+        throw new ParseError("BIN needs a count of bands as a number, e.g. BIN([Age], 5)", t.at, t.end);
+      }
       if (args.length < spec.min || (spec.max >= 0 && args.length > spec.max)) {
         throw new ParseError(`${name} takes ${spec.min === spec.max ? spec.min : spec.max < 0 ? `${spec.min} or more` : `${spec.min} to ${spec.max}`} value${spec.max === 1 ? "" : "s"}: ${spec.sig}`, t.at, t.end);
       }
@@ -312,6 +327,7 @@ export function typeOf(node: Node, columns: readonly FormulaColumnInfo[]): FType
         case "LEFT": case "RIGHT": case "MID": case "UPPER": case "LOWER": case "TRIM": case "CONCAT": return "text";
         case "DATE": case "TODAY": return "date";
         case "COALESCE": case "IFBLANK": return args.reduce(unify);
+        case "PREVIOUS": return args[0]!;
         default: return "number";
       }
     }
@@ -669,6 +685,26 @@ export function evaluator(ast: Node, columns: readonly FormulaSource[], now = Da
         const today = Math.floor(now / DAY_MS) * DAY_MS;
         return () => today;
       }
+      case "ROWNUMBER":
+        return (row) => row + 1;
+      case "RANK":
+      case "PERCENTOFTOTAL":
+      case "RUNNINGSUM":
+      case "PREVIOUS":
+      case "BIN": {
+        // Worked out over every row on first use, then read by row.
+        let values: (CellValue | CellError)[] | null = null;
+        const rowCount = columns[0]?.raw.length ?? 0;
+        const count = n.fn === "BIN" ? (n.args[1] as { v: number }).v : 0;
+        return (row) => {
+          if (values === null) {
+            const read: CellValue[] = [];
+            for (let i = 0; i < rowCount; i++) { const v = fs[0]!(i); read.push(v instanceof CellError ? null : v); }
+            values = windowValues(n.fn, read, count);
+          }
+          return values[row] ?? null;
+        };
+      }
       case "ISBLANK":
         return (row) => { const v = fs[0]!(row); return v instanceof CellError ? v : v === null || v === ""; };
       case "COALESCE":
@@ -686,6 +722,42 @@ export function evaluator(ast: Node, columns: readonly FormulaSource[], now = Da
   };
 
   return build(ast);
+}
+
+/**
+ * A whole-column function over the column's values in stored order. The pandas and
+ * Polars recipes port this exactly (formula-export.ts, _window).
+ */
+export function windowValues(fn: string, values: readonly CellValue[], count = 0): (CellValue | CellError)[] {
+  const nums = values.map((v) => { const x = asNumber(v); return x instanceof CellError ? null : x; });
+  switch (fn) {
+    case "PREVIOUS":
+      return values.map((_, i) => (i === 0 ? null : values[i - 1] ?? null));
+    case "RUNNINGSUM": {
+      let total = 0;
+      return nums.map((x) => (x === null ? null : (total += x)));
+    }
+    case "PERCENTOFTOTAL": {
+      const total = nums.reduce<number>((s, x) => s + (x ?? 0), 0);
+      return nums.map((x) => (x === null ? null : total === 0 ? new CellError("divide by zero") : (x / total) * 100));
+    }
+    case "RANK": {
+      const sorted = nums.filter((x): x is number => x !== null).sort((a, b) => b - a);
+      const first = new Map<number, number>();
+      sorted.forEach((x, i) => { if (!first.has(x)) first.set(x, i + 1); });
+      return nums.map((x) => (x === null ? null : first.get(x)!));
+    }
+    case "BIN": {
+      const present = nums.filter((x): x is number => x !== null);
+      if (count < 1) return nums.map(() => new CellError("BIN needs a count of 1 or more"));
+      // A loop, not Math.min(...values): a million arguments would overflow the stack.
+      let lo = Infinity, hi = -Infinity;
+      for (const x of present) { if (x < lo) lo = x; if (x > hi) hi = x; }
+      const width = (hi - lo) / Math.trunc(count);
+      return nums.map((x) => (x === null ? null : width === 0 ? 1 : Math.max(1, Math.ceil((x - lo) / width))));
+    }
+  }
+  return values.map(() => new CellError(`${fn} is not available`));
 }
 
 /** The new column's type for the app, from the formula's result type. */

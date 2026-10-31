@@ -870,7 +870,7 @@ function polarsTransformLines(
         const fn = `_f${++formulaCount}`;
         const name = freeColumnName(op.name, names);
         const at = Math.max(0, Math.min(op.at, names.length));
-        lines.push(`# new column ${JSON.stringify(name)} = ${op.formula.replace(/\n/g, " ")}`, `def ${fn}(r):`, `    return ${code.expr}`, `df = df.insert_column(${at}, pl.Series(${py(name)}, _derive(df.iter_rows(named=True), ${fn}, ${py(code.type)}), dtype=pl.Utf8))`);
+        lines.push(`# new column ${JSON.stringify(name)} = ${op.formula.replace(/\n/g, " ")}`, `def ${fn}(r, i, W):`, `    return ${code.expr}`, `df = df.insert_column(${at}, pl.Series(${py(name)}, _derive(df.iter_rows(named=True), ${fn}, ${py(code.type)}, ${code.windows}), dtype=pl.Utf8))`);
         entries.push({ label: `derive: ${name}`, status: "supported" });
         break;
       }

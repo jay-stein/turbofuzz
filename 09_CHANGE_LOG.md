@@ -28,6 +28,15 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-11 — New column: If / then builder and quick columns
+
+- **Status:** Verified
+- **Related issue / decision:** next_steps.md "BIG TODO: the Table view" step 4.
+- **Scope:** The New column window gains If / then (column, test, value → result rows, Else if, Otherwise, Show as formula; numbers and dates compare as such) and Quick column (copy, row number, text length, join two columns, year/month/day/weekday, rank, % of total, running total, change from the row above, equal-width bands; the name follows the pick). Both write formulas, so preview, Recipe, export and parity are unchanged. New whole-column formula functions ROWNUMBER, RANK (ties share the best rank), PERCENTOFTOTAL, RUNNINGSUM, PREVIOUS, BIN, worked out once per column in the stored order and ported exactly to the pandas/Polars helpers.
+- **Tests run and results:** `test/new-column-builders.test.ts` (2), whole-column unit test, a new New column e2e case, parity case `formulas` extended (pandas PASS, Polars PASS); full suite green.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-10 — Table: cell cursor and editing a cell in place
 
 - **Status:** Verified

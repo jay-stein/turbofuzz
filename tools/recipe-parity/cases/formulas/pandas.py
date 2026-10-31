@@ -309,12 +309,56 @@ def _call(fn, args, ts):
         return None
     raise _Err(f"{fn} is not available")
 
-def _derive(rows, f, t):
-    """One new column's cells as text, the way the app writes them ("" left empty)."""
-    out = []
-    for r in rows:
+def _window(fn, values, count):
+    """A whole-column function over the column's values in stored order (as the app)."""
+    nums = []
+    for v in values:
         try:
-            v = f(r)
+            nums.append(_num(v))
+        except _Err:
+            nums.append(None)
+    if fn == "PREVIOUS":
+        return [None] + list(values[:-1])
+    if fn == "RUNNINGSUM":
+        out, total = [], 0.0
+        for x in nums:
+            if x is None:
+                out.append(None)
+            else:
+                total += x
+                out.append(total)
+        return out
+    if fn == "PERCENTOFTOTAL":
+        total = sum(x for x in nums if x is not None)
+        return [None if x is None else (_Err("divide by zero") if total == 0 else (x / total) * 100) for x in nums]
+    if fn == "RANK":
+        first = {}
+        for k, x in enumerate(sorted((x for x in nums if x is not None), reverse=True)):
+            first.setdefault(x, k + 1)
+        return [None if x is None else float(first[x]) for x in nums]
+    if fn == "BIN":
+        present = [x for x in nums if x is not None]
+        if count < 1:
+            return [_Err("BIN needs a count of 1 or more") for _ in nums]
+        lo, hi = (min(present), max(present)) if present else (0.0, 0.0)
+        width = (hi - lo) / int(count)
+        return [None if x is None else (1.0 if width == 0 else float(max(1, _math.ceil((x - lo) / width)))) for x in nums]
+    return [_Err(f"{fn} is not available") for _ in nums]
+
+def _w(W, k, i):
+    v = W[k][i]
+    if isinstance(v, _Err):
+        raise v
+    return v
+
+def _derive(rows, f, t, windows=()):
+    """One new column's cells as text, the way the app writes them ("" left empty)."""
+    rows = list(rows)
+    W = [_window(fn, [_read(r[c], ct) for r in rows], count) for fn, c, ct, count in windows]
+    out = []
+    for i, r in enumerate(rows):
+        try:
+            v = f(r, i, W)
         except _Err:
             v = None
         s = None if v is None else _text(v, t)
@@ -322,192 +366,220 @@ def _derive(rows, f, t):
     return out
 # --- end of formula helpers ---
 # new column "total" = [price] * [qty]
-def _f1(r):
+def _f1(r, i, W):
     return _bin("*", _read(r["price"], "number"), _read(r["qty"], "number"), "number", "number")
-df.insert(9, "total", _derive(df.to_dict("records"), _f1, "number"))
+df.insert(9, "total", _derive(df.to_dict("records"), _f1, "number", []))
 # new column "ratio" = [price] / [qty]
-def _f2(r):
+def _f2(r, i, W):
     return _bin("/", _read(r["price"], "number"), _read(r["qty"], "number"), "number", "number")
-df.insert(10, "ratio", _derive(df.to_dict("records"), _f2, "number"))
+df.insert(10, "ratio", _derive(df.to_dict("records"), _f2, "number", []))
 # new column "power" = -[qty] ^ 2 + 0.1 + 0.2
-def _f3(r):
+def _f3(r, i, W):
     return _bin("+", _bin("+", _bin("^", _neg(_read(r["qty"], "number")), 2, "number", "number"), 0.1, "number", "number"), 0.2, "number", "number")
-df.insert(11, "power", _derive(df.to_dict("records"), _f3, "number"))
+df.insert(11, "power", _derive(df.to_dict("records"), _f3, "number", []))
 # new column "full" = [first] & " " & [last]
-def _f4(r):
+def _f4(r, i, W):
     return _bin("&", _bin("&", _read(r["first"], "text"), " ", "text", "text"), _read(r["last"], "text"), "text", "text")
-df.insert(12, "full", _derive(df.to_dict("records"), _f4, "text"))
+df.insert(12, "full", _derive(df.to_dict("records"), _f4, "text", []))
 # new column "joined" = CONCAT([first], [qty], TRUE)
-def _f5(r):
+def _f5(r, i, W):
     return _call("CONCAT", [lambda: _read(r["first"], "text"), lambda: _read(r["qty"], "number"), lambda: True], ["text", "number", "bool"])
-df.insert(13, "joined", _derive(df.to_dict("records"), _f5, "text"))
+df.insert(13, "joined", _derive(df.to_dict("records"), _f5, "text", []))
 # new column "upper" = UPPER([first])
-def _f6(r):
+def _f6(r, i, W):
     return _call("UPPER", [lambda: _read(r["first"], "text")], ["text"])
-df.insert(14, "upper", _derive(df.to_dict("records"), _f6, "text"))
+df.insert(14, "upper", _derive(df.to_dict("records"), _f6, "text", []))
 # new column "lower" = LOWER([status])
-def _f7(r):
+def _f7(r, i, W):
     return _call("LOWER", [lambda: _read(r["status"], "text")], ["text"])
-df.insert(15, "lower", _derive(df.to_dict("records"), _f7, "text"))
+df.insert(15, "lower", _derive(df.to_dict("records"), _f7, "text", []))
 # new column "trimmed" = TRIM("  a   b ") & [last]
-def _f8(r):
+def _f8(r, i, W):
     return _bin("&", _call("TRIM", [lambda: "  a   b "], ["text"]), _read(r["last"], "text"), "text", "text")
-df.insert(16, "trimmed", _derive(df.to_dict("records"), _f8, "text"))
+df.insert(16, "trimmed", _derive(df.to_dict("records"), _f8, "text", []))
 # new column "len" = LEN([last])
-def _f9(r):
+def _f9(r, i, W):
     return _call("LEN", [lambda: _read(r["last"], "text")], ["text"])
-df.insert(17, "len", _derive(df.to_dict("records"), _f9, "number"))
+df.insert(17, "len", _derive(df.to_dict("records"), _f9, "number", []))
 # new column "left" = LEFT([last], 3)
-def _f10(r):
+def _f10(r, i, W):
     return _call("LEFT", [lambda: _read(r["last"], "text"), lambda: 3], ["text", "number"])
-df.insert(18, "left", _derive(df.to_dict("records"), _f10, "text"))
+df.insert(18, "left", _derive(df.to_dict("records"), _f10, "text", []))
 # new column "right" = RIGHT([last])
-def _f11(r):
+def _f11(r, i, W):
     return _call("RIGHT", [lambda: _read(r["last"], "text")], ["text"])
-df.insert(19, "right", _derive(df.to_dict("records"), _f11, "text"))
+df.insert(19, "right", _derive(df.to_dict("records"), _f11, "text", []))
 # new column "mid" = MID([last], 2, 3)
-def _f12(r):
+def _f12(r, i, W):
     return _call("MID", [lambda: _read(r["last"], "text"), lambda: 2, lambda: 3], ["text", "number", "number"])
-df.insert(20, "mid", _derive(df.to_dict("records"), _f12, "text"))
+df.insert(20, "mid", _derive(df.to_dict("records"), _f12, "text", []))
 # new column "at" = FIND("@", [email])
-def _f13(r):
+def _f13(r, i, W):
     return _call("FIND", [lambda: "@", lambda: _read(r["email"], "text")], ["text", "text"])
-df.insert(21, "at", _derive(df.to_dict("records"), _f13, "number"))
+df.insert(21, "at", _derive(df.to_dict("records"), _f13, "number", []))
 # new column "user" = LEFT([email], FIND("@", [email]) - 1)
-def _f14(r):
+def _f14(r, i, W):
     return _call("LEFT", [lambda: _read(r["email"], "text"), lambda: _bin("-", _call("FIND", [lambda: "@", lambda: _read(r["email"], "text")], ["text", "text"]), 1, "number", "number")], ["text", "number"])
-df.insert(22, "user", _derive(df.to_dict("records"), _f14, "text"))
+df.insert(22, "user", _derive(df.to_dict("records"), _f14, "text", []))
 # new column "has" = CONTAINS([email], "X.ORG")
-def _f15(r):
+def _f15(r, i, W):
     return _call("CONTAINS", [lambda: _read(r["email"], "text"), lambda: "X.ORG"], ["text", "text"])
-df.insert(23, "has", _derive(df.to_dict("records"), _f15, "bool"))
+df.insert(23, "has", _derive(df.to_dict("records"), _f15, "bool", []))
 # new column "is_open" = [status] = "open"
-def _f16(r):
+def _f16(r, i, W):
     return _bin("=", _read(r["status"], "text"), "open", "text", "text")
-df.insert(24, "is_open", _derive(df.to_dict("records"), _f16, "bool"))
+df.insert(24, "is_open", _derive(df.to_dict("records"), _f16, "bool", []))
 # new column "not_open" = [status] <> "open"
-def _f17(r):
+def _f17(r, i, W):
     return _bin("<>", _read(r["status"], "text"), "open", "text", "text")
-df.insert(25, "not_open", _derive(df.to_dict("records"), _f17, "bool"))
+df.insert(25, "not_open", _derive(df.to_dict("records"), _f17, "bool", []))
 # new column "big" = [price] > 3
-def _f18(r):
+def _f18(r, i, W):
     return _bin(">", _read(r["price"], "number"), 3, "number", "number")
-df.insert(26, "big", _derive(df.to_dict("records"), _f18, "bool"))
+df.insert(26, "big", _derive(df.to_dict("records"), _f18, "bool", []))
 # new column "label" = IF([status] = "closed", "Done", "Open")
-def _f19(r):
+def _f19(r, i, W):
     return _call("IF", [lambda: _bin("=", _read(r["status"], "text"), "closed", "text", "text"), lambda: "Done", lambda: "Open"], ["bool", "text", "text"])
-df.insert(27, "label", _derive(df.to_dict("records"), _f19, "text"))
+df.insert(27, "label", _derive(df.to_dict("records"), _f19, "text", []))
 # new column "maybe" = IF([price] >= 4, "Big")
-def _f20(r):
+def _f20(r, i, W):
     return _call("IF", [lambda: _bin(">=", _read(r["price"], "number"), 4, "number", "number"), lambda: "Big"], ["bool", "text"])
-df.insert(28, "maybe", _derive(df.to_dict("records"), _f20, "text"))
+df.insert(28, "maybe", _derive(df.to_dict("records"), _f20, "text", []))
 # new column "mixed" = IF([qty] > 3, [qty], "few")
-def _f21(r):
+def _f21(r, i, W):
     return _call("IF", [lambda: _bin(">", _read(r["qty"], "number"), 3, "number", "number"), lambda: _read(r["qty"], "number"), lambda: "few"], ["bool", "number", "text"])
-df.insert(29, "mixed", _derive(df.to_dict("records"), _f21, "text"))
+df.insert(29, "mixed", _derive(df.to_dict("records"), _f21, "text", []))
 # new column "both" = AND([qty] > 0, [solar])
-def _f22(r):
+def _f22(r, i, W):
     return _call("AND", [lambda: _bin(">", _read(r["qty"], "number"), 0, "number", "number"), lambda: _read(r["solar"], "bool")], ["bool", "bool"])
-df.insert(30, "both", _derive(df.to_dict("records"), _f22, "bool"))
+df.insert(30, "both", _derive(df.to_dict("records"), _f22, "bool", []))
 # new column "either" = OR([qty] = 0, [solar])
-def _f23(r):
+def _f23(r, i, W):
     return _call("OR", [lambda: _bin("=", _read(r["qty"], "number"), 0, "number", "number"), lambda: _read(r["solar"], "bool")], ["bool", "bool"])
-df.insert(31, "either", _derive(df.to_dict("records"), _f23, "bool"))
+df.insert(31, "either", _derive(df.to_dict("records"), _f23, "bool", []))
 # new column "no_solar" = NOT([solar])
-def _f24(r):
+def _f24(r, i, W):
     return _call("NOT", [lambda: _read(r["solar"], "bool")], ["bool"])
-df.insert(32, "no_solar", _derive(df.to_dict("records"), _f24, "bool"))
+df.insert(32, "no_solar", _derive(df.to_dict("records"), _f24, "bool", []))
 # new column "no_first" = ISBLANK([first])
-def _f25(r):
+def _f25(r, i, W):
     return _call("ISBLANK", [lambda: _read(r["first"], "text")], ["text"])
-df.insert(33, "no_first", _derive(df.to_dict("records"), _f25, "bool"))
+df.insert(33, "no_first", _derive(df.to_dict("records"), _f25, "bool", []))
 # new column "name" = COALESCE([first], [last], "?")
-def _f26(r):
+def _f26(r, i, W):
     return _call("COALESCE", [lambda: _read(r["first"], "text"), lambda: _read(r["last"], "text"), lambda: "?"], ["text", "text", "text"])
-df.insert(34, "name", _derive(df.to_dict("records"), _f26, "text"))
+df.insert(34, "name", _derive(df.to_dict("records"), _f26, "text", []))
 # new column "status2" = IFBLANK([status], "Unknown")
-def _f27(r):
+def _f27(r, i, W):
     return _call("IFBLANK", [lambda: _read(r["status"], "text"), lambda: "Unknown"], ["text", "text"])
-df.insert(35, "status2", _derive(df.to_dict("records"), _f27, "text"))
+df.insert(35, "status2", _derive(df.to_dict("records"), _f27, "text", []))
 # new column "r0" = ROUND(2.5) + ROUND(-2.5)
-def _f28(r):
+def _f28(r, i, W):
     return _bin("+", _call("ROUND", [lambda: 2.5], ["number"]), _call("ROUND", [lambda: _neg(2.5)], ["number"]), "number", "number")
-df.insert(36, "r0", _derive(df.to_dict("records"), _f28, "number"))
+df.insert(36, "r0", _derive(df.to_dict("records"), _f28, "number", []))
 # new column "r2" = ROUND([price] * 1.07, 2)
-def _f29(r):
+def _f29(r, i, W):
     return _call("ROUND", [lambda: _bin("*", _read(r["price"], "number"), 1.07, "number", "number"), lambda: 2], ["number", "number"])
-df.insert(37, "r2", _derive(df.to_dict("records"), _f29, "number"))
+df.insert(37, "r2", _derive(df.to_dict("records"), _f29, "number", []))
 # new column "rneg" = ROUND(1234, -2)
-def _f30(r):
+def _f30(r, i, W):
     return _call("ROUND", [lambda: 1234, lambda: _neg(2)], ["number", "number"])
-df.insert(38, "rneg", _derive(df.to_dict("records"), _f30, "number"))
+df.insert(38, "rneg", _derive(df.to_dict("records"), _f30, "number", []))
 # new column "abs" = ABS(-[qty])
-def _f31(r):
+def _f31(r, i, W):
     return _call("ABS", [lambda: _neg(_read(r["qty"], "number"))], ["number"])
-df.insert(39, "abs", _derive(df.to_dict("records"), _f31, "number"))
+df.insert(39, "abs", _derive(df.to_dict("records"), _f31, "number", []))
 # new column "lo" = MIN([price], [qty])
-def _f32(r):
+def _f32(r, i, W):
     return _call("MIN", [lambda: _read(r["price"], "number"), lambda: _read(r["qty"], "number")], ["number", "number"])
-df.insert(40, "lo", _derive(df.to_dict("records"), _f32, "number"))
+df.insert(40, "lo", _derive(df.to_dict("records"), _f32, "number", []))
 # new column "hi" = MAX([price], [qty])
-def _f33(r):
+def _f33(r, i, W):
     return _call("MAX", [lambda: _read(r["price"], "number"), lambda: _read(r["qty"], "number")], ["number", "number"])
-df.insert(41, "hi", _derive(df.to_dict("records"), _f33, "number"))
+df.insert(41, "hi", _derive(df.to_dict("records"), _f33, "number", []))
 # new column "year" = YEAR([ordered])
-def _f34(r):
+def _f34(r, i, W):
     return _call("YEAR", [lambda: _read(r["ordered"], "date")], ["date"])
-df.insert(42, "year", _derive(df.to_dict("records"), _f34, "number"))
+df.insert(42, "year", _derive(df.to_dict("records"), _f34, "number", []))
 # new column "month" = MONTH([ordered])
-def _f35(r):
+def _f35(r, i, W):
     return _call("MONTH", [lambda: _read(r["ordered"], "date")], ["date"])
-df.insert(43, "month", _derive(df.to_dict("records"), _f35, "number"))
+df.insert(43, "month", _derive(df.to_dict("records"), _f35, "number", []))
 # new column "day" = DAY([ordered])
-def _f36(r):
+def _f36(r, i, W):
     return _call("DAY", [lambda: _read(r["ordered"], "date")], ["date"])
-df.insert(44, "day", _derive(df.to_dict("records"), _f36, "number"))
+df.insert(44, "day", _derive(df.to_dict("records"), _f36, "number", []))
 # new column "wd1" = WEEKDAY([ordered])
-def _f37(r):
+def _f37(r, i, W):
     return _call("WEEKDAY", [lambda: _read(r["ordered"], "date")], ["date"])
-df.insert(45, "wd1", _derive(df.to_dict("records"), _f37, "number"))
+df.insert(45, "wd1", _derive(df.to_dict("records"), _f37, "number", []))
 # new column "wd2" = WEEKDAY([ordered], 2)
-def _f38(r):
+def _f38(r, i, W):
     return _call("WEEKDAY", [lambda: _read(r["ordered"], "date"), lambda: 2], ["date", "number"])
-df.insert(46, "wd2", _derive(df.to_dict("records"), _f38, "number"))
+df.insert(46, "wd2", _derive(df.to_dict("records"), _f38, "number", []))
 # new column "wd3" = WEEKDAY([ordered], 3)
-def _f39(r):
+def _f39(r, i, W):
     return _call("WEEKDAY", [lambda: _read(r["ordered"], "date"), lambda: 3], ["date", "number"])
-df.insert(47, "wd3", _derive(df.to_dict("records"), _f39, "number"))
+df.insert(47, "wd3", _derive(df.to_dict("records"), _f39, "number", []))
 # new column "days" = [shipped] - [ordered]
-def _f40(r):
+def _f40(r, i, W):
     return _bin("-", _read(r["shipped"], "date"), _read(r["ordered"], "date"), "date", "date")
-df.insert(48, "days", _derive(df.to_dict("records"), _f40, "number"))
+df.insert(48, "days", _derive(df.to_dict("records"), _f40, "number", []))
 # new column "later" = [ordered] + 30
-def _f41(r):
+def _f41(r, i, W):
     return _bin("+", _read(r["ordered"], "date"), 30, "date", "number")
-df.insert(49, "later", _derive(df.to_dict("records"), _f41, "date"))
+df.insert(49, "later", _derive(df.to_dict("records"), _f41, "date", []))
 # new column "dd" = DATEDIF([ordered], [shipped], "d")
-def _f42(r):
+def _f42(r, i, W):
     return _call("DATEDIF", [lambda: _read(r["ordered"], "date"), lambda: _read(r["shipped"], "date"), lambda: "d"], ["date", "date", "text"])
-df.insert(50, "dd", _derive(df.to_dict("records"), _f42, "number"))
+df.insert(50, "dd", _derive(df.to_dict("records"), _f42, "number", []))
 # new column "yy" = DATEDIF(DATE(2020, 2, 29), [shipped], "y")
-def _f43(r):
+def _f43(r, i, W):
     return _call("DATEDIF", [lambda: _call("DATE", [lambda: 2020, lambda: 2, lambda: 29], ["number", "number", "number"]), lambda: _read(r["shipped"], "date"), lambda: "y"], ["date", "date", "text"])
-df.insert(51, "yy", _derive(df.to_dict("records"), _f43, "number"))
+df.insert(51, "yy", _derive(df.to_dict("records"), _f43, "number", []))
 # new column "mm" = DATEDIF(DATE(2024, 1, 31), [shipped], "m")
-def _f44(r):
+def _f44(r, i, W):
     return _call("DATEDIF", [lambda: _call("DATE", [lambda: 2024, lambda: 1, lambda: 31], ["number", "number", "number"]), lambda: _read(r["shipped"], "date"), lambda: "m"], ["date", "date", "text"])
-df.insert(52, "mm", _derive(df.to_dict("records"), _f44, "number"))
+df.insert(52, "mm", _derive(df.to_dict("records"), _f44, "number", []))
 # new column "bad" = DATEDIF([shipped], [ordered], "d")
-def _f45(r):
+def _f45(r, i, W):
     return _call("DATEDIF", [lambda: _read(r["shipped"], "date"), lambda: _read(r["ordered"], "date"), lambda: "d"], ["date", "date", "text"])
-df.insert(53, "bad", _derive(df.to_dict("records"), _f45, "number"))
+df.insert(53, "bad", _derive(df.to_dict("records"), _f45, "number", []))
 # new column "made" = DATE(2024, 13, 1)
-def _f46(r):
+def _f46(r, i, W):
     return _call("DATE", [lambda: 2024, lambda: 13, lambda: 1], ["number", "number", "number"])
-df.insert(54, "made", _derive(df.to_dict("records"), _f46, "date"))
+df.insert(54, "made", _derive(df.to_dict("records"), _f46, "date", []))
 # new column "age" = DATEDIF(DATE(2000, 1, 1), TODAY(), "y") > 20
-def _f47(r):
+def _f47(r, i, W):
     return _bin(">", _call("DATEDIF", [lambda: _call("DATE", [lambda: 2000, lambda: 1, lambda: 1], ["number", "number", "number"]), lambda: _call("TODAY", [], []), lambda: "y"], ["date", "date", "text"]), 20, "number", "number")
-df.insert(55, "age", _derive(df.to_dict("records"), _f47, "bool"))
+df.insert(55, "age", _derive(df.to_dict("records"), _f47, "bool", []))
+# new column "n" = ROWNUMBER()
+def _f48(r, i, W):
+    return float(i + 1)
+df.insert(56, "n", _derive(df.to_dict("records"), _f48, "number", []))
+# new column "rank" = RANK([price])
+def _f49(r, i, W):
+    return _w(W, 0, i)
+df.insert(57, "rank", _derive(df.to_dict("records"), _f49, "number", [("RANK", "price", "number", 0)]))
+# new column "share" = PERCENTOFTOTAL([price])
+def _f50(r, i, W):
+    return _w(W, 0, i)
+df.insert(58, "share", _derive(df.to_dict("records"), _f50, "number", [("PERCENTOFTOTAL", "price", "number", 0)]))
+# new column "running" = RUNNINGSUM([qty])
+def _f51(r, i, W):
+    return _w(W, 0, i)
+df.insert(59, "running", _derive(df.to_dict("records"), _f51, "number", [("RUNNINGSUM", "qty", "number", 0)]))
+# new column "change" = [qty] - PREVIOUS([qty])
+def _f52(r, i, W):
+    return _bin("-", _read(r["qty"], "number"), _w(W, 0, i), "number", "number")
+df.insert(60, "change", _derive(df.to_dict("records"), _f52, "number", [("PREVIOUS", "qty", "number", 0)]))
+# new column "prev_name" = PREVIOUS([first])
+def _f53(r, i, W):
+    return _w(W, 0, i)
+df.insert(61, "prev_name", _derive(df.to_dict("records"), _f53, "text", [("PREVIOUS", "first", "text", 0)]))
+# new column "band" = BIN([qty], 3)
+def _f54(r, i, W):
+    return _w(W, 0, i)
+df.insert(62, "band", _derive(df.to_dict("records"), _f54, "number", [("BIN", "qty", "number", 3)]))
 
 df.to_csv("cleaned.csv", index=False)

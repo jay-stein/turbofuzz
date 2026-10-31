@@ -795,7 +795,7 @@ function transformLines(
         const fn = `_f${++formulaCount}`;
         const name = freeColumnName(op.name, names);
         const at = Math.max(0, Math.min(op.at, names.length));
-        lines.push(`# new column ${JSON.stringify(name)} = ${op.formula.replace(/\n/g, " ")}`, `def ${fn}(r):`, `    return ${code.expr}`, `df.insert(${at}, ${py(name)}, _derive(df.to_dict("records"), ${fn}, ${py(code.type)}))`);
+        lines.push(`# new column ${JSON.stringify(name)} = ${op.formula.replace(/\n/g, " ")}`, `def ${fn}(r, i, W):`, `    return ${code.expr}`, `df.insert(${at}, ${py(name)}, _derive(df.to_dict("records"), ${fn}, ${py(code.type)}, ${code.windows}))`);
         entries.push({ label: `derive: ${name}`, status: "supported" });
         break;
       }
