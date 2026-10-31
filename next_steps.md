@@ -2109,7 +2109,7 @@ What it says:
 
 ### Plan, in order (each phase re-run on the benchmark; targets are mean MASE)
 
-**Phase 0: an accuracy gate.**
+**Phase 0: an accuracy gate. Shipped 2026-10-31 (CHG-2026-10-31-28; the fixture is committed, 61 series, instead of downloaded).**
 - A fixed benchmark subset (about 30 series from M3 monthly, quarterly and yearly, tourism, hospital, NN5 daily, M4 weekly and hourly, car parts), small enough to run in about a minute.
 - Store the current scores and fail the gate when any dataset gets more than 2% worse.
 - Keep the full Monash run as a manual report.
@@ -2144,7 +2144,7 @@ What it says:
 - Calendar checks:
   - week start chosen from the data (Sunday-stamped weeks become Sunday weeks);
   - an optional month-length adjustment;
-  - the daylight-saving shift detector (deferred by the owner, still on the list).
+  - the daylight-saving shift detector (shelved by the owner, 2026-10-31: not important).
 
 **Later:** hierarchical reconciliation (fpp3 ch. 11) for split series such as car parks; ARIMA (on hold); bagged ETS.
 

@@ -31,3 +31,8 @@ Findings of the first run (2026-10-31) are in `next_steps.md`, "Evaluation on 13
     npx tsx tools/ts-eval/monash.ts <folder of .tsf files> [max series per dataset, default 300] [file-name filter]
 
 Download the `.tsf` zips from each dataset's Zenodo record (linked from forecastingdata.org) into one folder and unzip them. Missing values are carried forward, as in the archive's "without missing values" versions. Series too short for our backtest are skipped and counted, so a dataset's mean can be over a longer-series subset; the output says how many ran.
+
+## Accuracy gate (`npm run bench:accuracy`, part of `npm run gate`)
+
+`bench/accuracy.ts` runs the fixed series in `test/fixtures/accuracy` (see its SOURCE.md) on the same protocol in about a second and compares each dataset's mean MASE with `baseline.json`. The Auto forecast and the ETS + Theta + damped combination may not get more than 2% worse on any dataset. A change that is meant to move the numbers is accepted with `npm run bench:accuracy -- --update`, and the changelog says why. `make-fixture.ts` rebuilds the fixture from the downloaded `.tsf` files. `lib.ts` holds the protocol both scripts share.
+

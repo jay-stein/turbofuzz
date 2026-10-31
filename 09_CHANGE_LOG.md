@@ -28,6 +28,18 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-28 — Accuracy gate for the Time Series forecasts (fundamentals plan, Phase 0)
+
+- **Status:** Verified
+- **Related issue:** next_steps.md "BIG TODO: get the forecasting fundamentals right", weak point 12: speed had budgets in the gate, accuracy had none, so a model change could silently make forecasts worse.
+- **Scope:**
+  - `bench/accuracy.ts` (`npm run bench:accuracy`, in `npm run gate`): 61 series from 20 Monash archive datasets (`test/fixtures/accuracy`, CC BY 4.0, attributed in SOURCE.md) run through the engine on the archive's protocol; about 1 s. The Auto forecast and the ETS + Theta + damped combination fail the gate when any dataset's mean MASE is more than 2% worse than `baseline.json`; the other models are printed. `--update` accepts an intended change.
+  - `tools/ts-eval/lib.ts` holds the protocol shared with `monash.ts`; `make-fixture.ts` rebuilds the fixture.
+  - Departure from the plan: the fixture is committed (107 KB, test-only) rather than downloaded on demand, so the gate is deterministic and offline.
+- **Tests run and results:** gate passes on its baseline; fails (exit 1, "OVER") when one baseline entry is tightened by 5%; typecheck; monash.ts still runs on the shared code.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-27 — Monash benchmark against R's forecast package; fundamentals plan
 
 - **Status:** Verified (tooling and plan)
