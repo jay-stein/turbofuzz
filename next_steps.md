@@ -2151,3 +2151,56 @@ What it says:
 **Later:** hierarchical reconciliation (fpp3 ch. 11) for split series such as car parks; ARIMA (on hold); bagged ETS.
 
 Everything stays dependency-free in the app. statsforecast lives only in the dev venv, for parity checks.
+
+## PROPOSED (2026-10-31, awaiting owner sign-off): Forecast tab UX, so the models do not overwhelm
+
+Owner: "We will need to plan out how all these models impact the UX. I am not really sure how it will all look. So the user isn't overwhelmed."
+
+### The problem
+
+The Forecast tab now shows everything at once: eight models in a board with six columns, a "Rank by" menu of seven measures, a validation window switch, a band switch, drivers, a forecast strip with a lockbox check, a model card of about a dozen rows, the Trend flexibility box and curve, a Deep check, an Export menu with four files, and two windows (Which model, and why?; How the models work). Each is justified, but together they read as a statistics workbench. Most people who open a forecast want: what will happen, how far to trust it, and a way to take it away.
+
+### Principles
+
+1. **One answer first.** The page opens on a single forecast (Auto) with its band and one sentence on how much to trust it.
+2. **Detail on request.** Comparing models, other measures and diagnostics are one click away, never in the way.
+3. **Silent unless it needs attention.** Warnings (a lucky pick, bands too narrow, too little history) appear as one "Heads up" line only when true.
+4. **Plain words first.** Technical names and equations stay one click behind an (i), as now.
+5. **Remember what was opened.** A person who works in the detail should not have to reopen it each time (kept per browser, like the mode switch).
+6. **No cost in speed.** Collapsed sections are not rendered until opened.
+
+### Three layers
+
+**Layer 1: the answer (always visible).**
+- The chart: history, Auto's forecast, the 80% (and 95%) band.
+- A verdict strip: the model in plain words, and a **trust verdict** built from what we already compute: *Holds up* (ranked in the top two on the unseen lockbox fold, beat repeating the last cycle in most folds, band coverage near its aim), *Middling*, or *Doubtful* (fell apart on unseen data, or too little history). One line says why, e.g. "Held up on unseen data (2nd of 8); beat repeating last cycle in 8 of 9 tests."
+- Controls: forecast ahead, band, Export.
+- A "Heads up" chip when there is something to act on.
+
+**Layer 2: Compare models (collapsed by default; one click).**
+- A compact board with three columns: model, error against repeating the last cycle (a bar), and a dot for the unseen-fold verdict. Auto is marked.
+- Models grouped as **Recommended** (Auto's pick), **Alternatives**, and **Benchmarks** (repeat last cycle, seasonal average: what to beat), with the benchmarks collapsed to one line.
+- Clicking a model shows its forecast on the chart; (i) opens its technical page.
+
+**Layer 3: Under the hood (collapsed; for analysts).**
+- Rank by (seven measures), Validate (expanding / rolling), all measure columns, folds beaten, band check.
+- Deep check, Trend flexibility and its validation curve, drivers.
+- Scorecard and backtest exports, Which model and why?, How the models work.
+
+### Smaller decisions
+- **Names:** keep the technical names (they are what a research user searches for) with a one-line plain descriptor under each in the board ("Combination: steady all-rounder, Auto's default").
+- **Models that do not apply** (Blend with regression with no drivers; a seasonal model with no season) go under "Alternatives" collapsed, not removed.
+- **Research mode** does not open the layers by default: it is about which tabs are visible, not how much detail each shows.
+- The existing windows stay; they become the destination of the Layer 3 links.
+
+### Steps (about 4-6 hours)
+1. Restructure the tab into the three layers with accessible disclosure sections and remembered open state.
+2. Write the trust verdict as a pure function over the model run, with tests for each verdict and the "why" sentence.
+3. Build the compact board and grouping; move the six-column board into Layer 3.
+4. Move Rank by, Validate and the diagnostics into Layer 3; keep forecast ahead, band and Export in Layer 1.
+5. Update the end-to-end tests; review screenshots at 1400, 1000 and 390 px wide.
+
+### Open questions for the owner
+- Should the compact board be open or closed on first view?
+- Is the trust verdict wording right, and should it ever say "Doubtful" in red?
+- Should a person be able to set the detail they want once ("Simple" / "Detailed") instead of opening sections one by one?
