@@ -15,6 +15,8 @@ import {
 } from "../data/timeseries/format.js";
 import { grade, METRIC_KEYS, MODEL_INFO, MODEL_KEYS, type Future, type MetricKey, type ModelKey, type ModelRun } from "../data/timeseries/models.js";
 import { METRIC_INFO, metricText, openModelGuide } from "./timeseries-metrics.js";
+import { backtestRows, forecastRows, scorecardRows } from "./timeseries-export.js";
+import { openMenu } from "./menu.js";
 import type { ColumnMeta, TimeSeriesMessage } from "../worker/protocol.js";
 import { downloadCsv } from "./chart-export.js";
 import {
@@ -25,7 +27,7 @@ import { niceTicks, patternsHtml } from "./timeseries-patterns.js";
 
 export interface TimeSeriesPageOptions {
   /** source "" reads the Table's rows; a Pivot View id reads that view's periods. */
-  request: (input: { dateColumn: number; groupColumn: number; config: TsConfig | null; mode: TsMode; source: string }) => Promise<TimeSeriesMessage | null>;
+  request: (input: { dateColumn: number; groupColumn: number; config: TsConfig | null; mode: TsMode; source: string; backtest?: boolean }) => Promise<TimeSeriesMessage | null>;
   /** Pivot Views the page can read: complete, grouped by a time grain, with a measure. */
   viewSources: () => TsViewSource[];
   /** Filter the table to one period of the date column (UTC ms, inclusive) and show it. */
@@ -89,7 +91,7 @@ const TEMPLATE = `
     </section>
     <div class="ts-top-actions">
       <div class="ts-modes" role="tablist" aria-label="Analysis">${MODES.map((m, k) => `<button role="tab" type="button" data-mode="${m}" aria-selected="${k === 0}" tabindex="${k === 0 ? 0 : -1}">${MODE_LABEL[m]}</button>`).join("")}</div>
-      <button class="ts-ghost" type="button" data-ref="exportBtn" title="The series, its trend, season and forecast as CSV">Export CSV</button>
+      <button class="ts-export-btn" type="button" data-ref="exportBtn" aria-haspopup="menu" title="Download the forecast, the series, the model scorecard or the backtest as CSV">Export ▾</button>
     </div>
   </header>
   <div class="ts-mixed" data-ref="mixed" role="status" hidden></div>
@@ -1358,19 +1360,52 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     })();
     const T = times();
     const iso = (ms: number): string => new Date(ms).toISOString().slice(0, a.g.unit === "min" ? 16 : 10).replace("T", " ");
-    const rows: string[][] = [["period_start", "period", "value", "filled", "rolling", "trend", "seasonal", "remainder", "forecast", "forecast_lo80", "forecast_hi80"]];
+    const rows: string[][] = [["period_start", "period", "row_type", "value", "filled", "rolling", "trend", "seasonal", "remainder", "model", "forecast", "forecast_lo80", "forecast_hi80", "forecast_lo95", "forecast_hi95"]];
     const last = P ? Math.max(a.n - 1, P.T + P.H - 1) : a.n - 1;
     for (let i = 0; i <= last; i++) {
       const h = P ? i - P.T : -1, inP = !!P && h >= 0 && h < P.H;
       const num = (v: number | undefined): string => (v === undefined || !(v === v) ? "" : String(Math.round(v * 1e6) / 1e6));
       rows.push([
-        iso(T[i]), periodLabel(a.g, T[i]), i < a.n ? num(a.y[i]) : "", i < a.n && a.filled[i] ? "1" : "",
+        iso(T[i]), periodLabel(a.g, T[i]), i >= a.n ? "forecast" : a.filled[i] ? "filled" : !(a.y[i] === a.y[i]) ? "empty" : inP ? "actual (held out)" : "actual",
+        i < a.n ? num(a.y[i]) : "", i < a.n && a.filled[i] ? "1" : "",
         i < a.modelN ? num(s.smooth[i]) : "", d && i < a.modelN ? num(d.trend[i]) : "", d && i < a.modelN ? num(d.seasonal[i]) : "", d && i < a.modelN ? num(d.rem[i]) : "",
-        inP && P ? num(P.f.F[h]) : "", inP && P ? num(P.f.lo80[h]) : "", inP && P ? num(P.f.hi80[h]) : "",
+        inP && P ? MODEL_INFO[P.key].name : "", inP && P ? num(P.f.F[h]) : "", inP && P ? num(P.f.lo80[h]) : "", inP && P ? num(P.f.hi80[h]) : "", inP && P ? num(P.f.lo95[h]) : "", inP && P ? num(P.f.hi95[h]) : "",
       ]);
     }
     const base = `${options.datasetName() || "series"}-${s.cfg.agg === "count" ? "rows" : s.cfg.measure ?? "value"}-${a.g.id}`.replace(/[^\w.-]+/g, "_");
     if (downloadCsv(`${base}.csv`, rows)) options.onAction(`Exported ${nf.format(rows.length - 1)} ${a.g.nouns} with trend, season and forecast`);
+  }
+  const csvIso = (s: TsSnapshot) => (ms: number): string => new Date(ms).toISOString().slice(0, s.A.g.unit === "min" ? 16 : 10).replace("T", " ");
+  const csvBase = (s: TsSnapshot): string => `${options.datasetName() || "series"}-${s.cfg.agg === "count" ? "rows" : s.cfg.measure ?? "value"}-${s.A.g.id}`.replace(/[^\w.-]+/g, "_");
+  function exportForecast(): void {
+    const s = snap, key = s ? selectedModel(s, { ...ui, mode: "forecast" }) : null;
+    if (!s || !key) return;
+    const rows = forecastRows(s, key, times(), csvIso(s), (ms) => periodLabel(s.A.g, ms));
+    if (downloadCsv(`${csvBase(s)}-forecast.csv`, rows)) options.onAction(`Exported the ${nf.format(rows.length - 1)}-${s.A.g.noun} forecast (${MODEL_INFO[key].name}) with 80% and 95% bands`);
+  }
+  function exportScorecard(): void {
+    const s = snap;
+    if (!s) return;
+    const rows = scorecardRows(s, ui.metric, selectedModel(s, { ...ui, mode: "forecast" }), csvIso(s));
+    if (downloadCsv(`${csvBase(s)}-models.csv`, rows)) options.onAction(`Exported the scorecard for ${rows.length - 1} models: every measure, check and parameter`);
+  }
+  async function exportBacktest(): Promise<void> {
+    const s = snap;
+    if (!s || !cfg) return;
+    const msg = await options.request({ dateColumn, groupColumn, config: cfg, mode: "forecast", source, backtest: true });
+    const bt = msg?.snapshot?.backtest;
+    if (!bt) { options.onAction("The backtest could not be read for export"); return; }
+    const rows = backtestRows(msg!.snapshot!, bt, times(), csvIso(s));
+    if (downloadCsv(`${csvBase(s)}-backtest.csv`, rows)) options.onAction(`Exported ${nf.format(rows.length - 1)} backtest rows: each model, fold and step ahead, with the actual`);
+  }
+  function openExportMenu(anchor: HTMLElement): void {
+    const ok = !!snap && !("error" in snap.models) && !!snap.futures;
+    openMenu(anchor, [
+      { label: "Forecast: future periods and bands", disabled: !ok, title: "The shown model's forecast with 80% and 95% bands", action: exportForecast },
+      { label: "Series and forecast: every period", title: "Actuals, filled periods, rolling, trend, season and the forecast, one row per period", action: exportCsv },
+      { label: "Model scorecard: measures and parameters", disabled: !ok, title: "One row per model: MASE, MAE, RMSE, WAPE, sMAPE, MAPE, bias, checks, validation and fitted parameters", action: exportScorecard },
+      { label: "Backtest detail: every fold, step and model", disabled: !ok, title: "Actual vs forecast for each model, fold and step ahead, to recompute any measure", action: () => void exportBacktest() },
+    ]);
   }
 
   // ---------------------------------------------------------------- popovers
@@ -1550,7 +1585,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   on("hMinus", "click", () => { if (snap) change({ horizon: Math.max(1, snap.H - 1) }, { fade: false }); });
   on("hPlus", "click", () => { if (snap) change({ horizon: Math.min(snap.maxH, snap.H + 1) }, { fade: false }); });
   on("splitReset", "click", () => change({ split: null }, { fade: false }));
-  on("exportBtn", "click", exportCsv);
+  on("exportBtn", "click", () => openExportMenu(ref("exportBtn")));
   on("board", "pointerover", (e) => { const r = (e.target as Element).closest<HTMLElement>("tr[data-model]"); const k = (r?.dataset.model as ModelKey | undefined) ?? null; if (k !== ghostModel) { ghostModel = k; invalidate("stat"); } });
   on("board", "pointerleave", () => { ghostModel = null; invalidate("stat"); });
   on("tableBtn", "click", (e) => {

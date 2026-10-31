@@ -418,6 +418,7 @@ export class SearchWorkerClient {
     config: TsConfig | null;
     mode: TsMode;
     view?: ViewDef;
+    backtest?: boolean;
   }): Promise<TimeSeriesMessage> {
     return this.request<TimeSeriesMessage>({ type: "getTimeSeries", ...input });
   }

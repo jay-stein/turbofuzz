@@ -28,6 +28,20 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-18 — Time Series: an Export menu for analysts
+
+- **Status:** Verified
+- **Related issue:** Owner: no visible way to export the forecast; wanted the model details and performance as CSV.
+- **Scope:** The faint "Export CSV" became a clear **Export ▾** menu with four CSVs:
+  - **Forecast:** future periods, model, forecast and the 80% and 95% bands.
+  - **Series and forecast:** the old export, plus a row_type column (actual / filled / empty / actual held out / forecast), the model name and the 95% band.
+  - **Model scorecard:** one row per model, ranked by the chosen measure: all seven measures, vs repeat-last-cycle, grade, folds beaten, band and held-out checks, the validation window, train length, horizon and fold step, the fitted range, and parameters (e.g. `ETS(A,Ad,M) alpha=… beta=… gamma=… phi=… AICc=…`).
+  - **Backtest detail:** long form (model, fold, fold origin, step ahead, period, actual, forecast, error, abs error, filled), so any measure can be recomputed; MAE recomputed from it matches the board.
+- **How:** The fold forecasts stay in the worker and are only sent when this export asks (`backtest: true` on getTimeSeries), so normal page updates carry no extra data.
+- **Tests run and results:** `test/timeseries-export.test.ts` (2); an e2e downloading all four; Time Series e2e green.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-17 — Time Series: Rank by up front
 
 - **Status:** Verified

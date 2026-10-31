@@ -79,7 +79,7 @@ export interface Future {
 export type Futures = Record<ModelKey, Future>;
 
 /** Inside the worker only: the run plus what the futures need (fits with closures). */
-interface RunInternal extends ModelRun { etsFinal: EtsState; etsFit: EtsFit; hwFinal: HwState; hwParams: HwParams; regFit: RegFit; thetaFit: ThetaFit; climM: number; climMeans: Float64Array; q: Record<ModelKey, BandQ[]> }
+interface RunInternal extends ModelRun { oc: Record<ModelKey, Float64Array>; etsFinal: EtsState; etsFit: EtsFit; hwFinal: HwState; hwParams: HwParams; regFit: RegFit; thetaFit: ThetaFit; climM: number; climMeans: Float64Array; q: Record<ModelKey, BandQ[]> }
 
 function hwInit(y: Float64Array, m: number, limit: number): HwState {
   let l = 0;
@@ -633,7 +633,7 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   const bestBy = Object.fromEntries(METRIC_KEYS.map((mk) => [mk, order.reduce((a, b) => (size(b, mk) < size(a, mk) ? b : a))])) as Record<MetricKey, ModelKey>;
   const best = bestBy.mase;
   const out: ModelRun = { T, H, m, origins, step, models, best, bestBy, cv: rolling ? "rolling" : "expanding", trainLen, rough: R < 3, profile: seriesProfile(A, T) };
-  return { ...out, internal: { ...out, etsFinal, etsFit, hwFinal: run.final, hwParams, regFit: reg, thetaFit: theta, climM, climMeans, q } };
+  return { ...out, internal: { ...out, oc, etsFinal, etsFit, hwFinal: run.final, hwParams, regFit: reg, thetaFit: theta, climM, climMeans, q } };
 }
 
 /** Future values and bands for every model. */

@@ -797,6 +797,8 @@ export type GetTimeSeriesRequest = {
   /** null opens the series with the table's own defaults. */
   config: TsConfig | null;
   mode: TsMode;
+  /** Also send every model's backtest forecasts (for the backtest export). */
+  backtest?: boolean;
 };
 
 export interface TimeSeriesMessage {

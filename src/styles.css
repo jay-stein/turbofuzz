@@ -12003,3 +12003,6 @@ button.qp-tile:hover {
 .ts-help-dot { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--border); background: var(--panel); color: var(--ts-dim); font: 600 12px/1 inherit; cursor: pointer; padding: 0; }
 .ts-help-dot:hover { color: var(--text); border-color: var(--ts-forecast); }
 .ts-legend small { opacity: 0.8; font-weight: 400; }
+
+.ts-export-btn { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.ts-export-btn:hover { border-color: var(--ts-mode); color: var(--ts-mode); }

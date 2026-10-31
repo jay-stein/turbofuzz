@@ -192,3 +192,28 @@ test("the board validates on an expanding or rolling window, ranks by any measur
   await page.keyboard.press("Escape");
   await expect(guide).toHaveCount(0);
 });
+
+test("Export offers the forecast, the series, the model scorecard and the backtest", async ({ page }) => {
+  await openPage(page);
+  await page.locator(".ts-modes [data-mode=forecast]").click();
+  await expect(page.locator(".ts-board tbody tr")).toHaveCount(7);
+  const grab = async (item: string): Promise<string> => {
+    await page.getByRole("button", { name: "Export ▾" }).click();
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("menuitem", { name: item }).click()]);
+    const stream = await download.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const c of stream) chunks.push(c as Buffer);
+    return Buffer.concat(chunks).toString("utf8").replace(/^\uFEFF/, "");
+  };
+  const forecast = await grab("Forecast: future periods and bands");
+  expect(forecast.split("\n")[0]).toContain("forecast,lo80,hi80,lo95,hi95");
+  const series = await grab("Series and forecast: every period");
+  expect(series).toContain("row_type");
+  expect(series).toMatch(/,forecast,/);
+  const models = await grab("Model scorecard: measures and parameters");
+  expect(models.trim().split("\n")).toHaveLength(8);
+  expect(models).toContain("ETS(A,");
+  const backtest = await grab("Backtest detail: every fold, step and model");
+  expect(backtest.split("\n")[0]).toContain("model,fold,fold_origin,step_ahead,period_start,actual,forecast,error");
+  expect(backtest.trim().split("\n").length).toBeGreaterThan(100);
+});

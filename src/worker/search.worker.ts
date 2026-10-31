@@ -2042,7 +2042,7 @@ function handleGetTimeSeries(message: GetTimeSeriesRequest): void {
   const cache = timeSeriesCache;
   const engine = cache.engine;
   const config = sanitizeTsConfig(message.config ?? defaultConfig(engine.info()), engine.info());
-  const snapshot = engine.compute(config, message.mode);
+  const snapshot = engine.compute(config, message.mode, { backtest: message.backtest === true });
   // Rows of the series shown: one group when one is picked, else all of them.
   let shape = cache.shapes.get(config.group);
   if (shape === undefined) {
