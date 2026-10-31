@@ -28,6 +28,15 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-26 — Fix: an empty extra period after monthly, quarterly and yearly series
+
+- **Status:** Verified
+- **Related issue:** Found by the Monash benchmark (M3 monthly): a monthly series ending in a 30-day month (or February) got an empty extra period after its last reading, because the last reading was taken to cover the median gap (31 days) after it. With "partial last period: kept" the models even forecast from the empty period.
+- **Scope:** Monthly, quarterly and yearly readings now cover their calendar period and end with it.
+- **Tests run and results:** `test/timeseries-calendar-end.test.ts` (fails before the fix, passes after); Time Series unit tests pass.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-25 — Time Series evaluation harness and findings on 13 real series
 
 - **Status:** Verified

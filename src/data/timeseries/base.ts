@@ -303,7 +303,17 @@ export function buildTable(input: TsInput): TsTable | null {
   const measures = Object.keys(input.cols);
   const plain = (c: string): boolean => !timeLike[c] && !input.flags[c];
   const defMeasure = measures.find((c) => plain(c) && !repeated[c]) ?? measures.find(plain) ?? null;
-  const nslots = lastSlot + Math.max(1, Math.round(cadSlots));
+  // The last reading covers one typical gap after it, except that monthly, quarterly and
+  // yearly readings stand for their calendar period and end with it: a median gap of 31
+  // days from 1 November reaches 2 December and made an empty December.
+  let tail = Math.max(1, Math.round(cadSlots));
+  const calMonths = cadence > 26 && cadence < 33 ? 1 : cadence > 85 && cadence < 95 ? 3 : cadence > 355 && cadence < 375 ? 12 : 0;
+  if (calMonths && slot <= DAY) {
+    const last = new Date(start + lastSlot * slot);
+    const next = Date.UTC(last.getUTCFullYear(), last.getUTCMonth() + calMonths, 1);
+    tail = Math.max(1, Math.round((next - (start + lastSlot * slot)) / slot));
+  }
+  const nslots = lastSlot + tail;
   const swd = new Uint8Array(nslots);
   for (let d = 0; d < nslots; d++) swd[d] = (Math.floor(d / spd) + woff) % 7;
   return {
