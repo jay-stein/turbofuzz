@@ -280,6 +280,10 @@ export interface FormulaPreviewMessage {
   ms: number;
 }
 
+/** Formulas that give these results on these rows (positions in the current order). */
+export type SuggestFormulasRequest = { type: "suggestFormulas"; requestId: number; examples: { position: number; output: string }[] };
+export interface FormulaSuggestionsMessage { type: "formulaSuggestions"; requestId: number; formulas: string[]; ms: number }
+
 /** How the current rows are ordered. */
 export type GetOrderRequest = { type: "getOrder"; requestId: number };
 export interface OrderMessage {
@@ -1128,6 +1132,7 @@ export type WorkerRequest =
   | FindRowRequest
   | GetOrderRequest
   | PreviewFormulaRequest
+  | SuggestFormulasRequest
   | SetTypeRequest
   | SetNumberLocaleRequest
   | GetStatsRequest
@@ -1398,6 +1403,7 @@ export type WorkerResponse =
   | RowPositionMessage
   | OrderMessage
   | FormulaPreviewMessage
+  | FormulaSuggestionsMessage
   | ShuffledMessage
   | RowsMessage
   | ColumnMetaMessage

@@ -1881,6 +1881,8 @@ Click a cell to change its value, confirm, and undo later if wanted.
 
 ### Order of work
 
+**Steps 1-6 shipped 2026-10-31 (CHG-2026-10-31-06 to -13):** navigation, first/last N, New column (formula, value, If / then, quick columns, from examples) with pandas/Polars export, cell editing and pasting, the usability pass. Left: row density, hints off the rows.
+
 **Step 1 shipped 2026-10-31 (CHG-2026-10-31-06):** the bar under the Table with the
 position read-out, Go to (row, -1, %, file row, column), Top/Bottom, Reverse, the order in
 words and Back to file order, and the File row column. First / last N followed the same

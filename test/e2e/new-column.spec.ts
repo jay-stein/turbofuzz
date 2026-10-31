@@ -93,3 +93,13 @@ test("If / then and Quick column build the formula for you", async ({ page }) =>
   await dialog.getByRole("button", { name: "Add column" }).click();
   await expect.poll(() => headers(page)).toContain("price running total");
 });
+
+test("From examples finds the rule from one typed result", async ({ page }) => {
+  await openTable(page);
+  await page.getByRole("button", { name: "Add a column" }).click();
+  const dialog = page.getByRole("dialog", { name: "New column" });
+  await dialog.getByRole("tab", { name: "From examples" }).click();
+  await dialog.getByLabel("Result for row 1").fill("Ada Lovelace");
+  await expect(dialog.locator(".newcol-found button").first()).toHaveText('[first] & " " & [last]');
+  await expect(dialog.locator(".newcol-preview:not(.newcol-examples) tbody td.newcol-out")).toHaveText(["Ada Lovelace", "Alan Turing", "Grace Hopper"]);
+});

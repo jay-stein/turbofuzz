@@ -3401,6 +3401,11 @@ export class App {
       columns: this.metas.map((meta) => ({ name: meta.name, type: meta.type })),
       at,
       preview: (text) => this.client.previewFormula(text),
+      sampleRows: async () => {
+        const rows = await this.client.getRows(0, 6);
+        return { columns: this.metas.map((m) => m.name), rows: rows.rows };
+      },
+      suggest: async (examples) => (await this.client.suggestFormulas(examples)).formulas,
       formula,
       name,
     });

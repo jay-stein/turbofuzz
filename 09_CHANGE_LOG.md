@@ -28,6 +28,15 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-13 — New column from examples
+
+- **Status:** Verified
+- **Related issue / decision:** next_steps.md "BIG TODO: the Table view" step 6 (Power Query Column From Examples, Excel Flash Fill).
+- **Scope:** A From examples mode in the New column window: the first six rows with a "You want" box each; as results are typed, the worker tries an ordered set of rules (`src/data/formula-examples.ts`: the column, case, trim, length, text before/after a separator, first/last N characters, date parts, rounding, two columns joined or combined) on just those rows and offers the formulas that give every typed result, simplest first; the preview then shows them on more rows. The answer is an ordinary editable formula.
+- **Tests run and results:** `test/formula-examples.test.ts` (2, incl. a 40-column speed check), a New column e2e case; full suite green.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-12 — Table usability: headers, menu search, hide and freeze columns, cell peek, paste a block
 
 - **Status:** Verified

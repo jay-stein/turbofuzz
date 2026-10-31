@@ -41,6 +41,7 @@ import { defaultConfig, sanitizeTsConfig, TsEngine } from "../data/timeseries/en
 import { seriesShape, type SeriesShape, type ShapeCandidate } from "../data/timeseries/shape.js";
 import { timeDimension, viewSeriesInput } from "../data/timeseries/view-source.js";
 import { compileFormula, evaluateFormula } from "../data/column-formula.js";
+import { formulasFromExamples } from "../data/formula-examples.js";
 import { missingnessGrid } from "../data/missingness.js";
 import { categoryCodes, computeSeries } from "../data/chart-series.js";
 import {
@@ -97,6 +98,7 @@ import type {
   FindRowRequest,
   GetOrderRequest,
   PreviewFormulaRequest,
+  SuggestFormulasRequest,
   RowLimit,
   GetStatsRequest,
   GetChartBinsRequest,
@@ -401,6 +403,13 @@ async function handle(message: WorkerRequest): Promise<void> {
     case "previewFormula":
       handlePreviewFormula(message);
       break;
+    case "suggestFormulas": {
+      const started = performance.now();
+      const { dataset } = state();
+      const examples = message.examples.flatMap((e) => (sortedIds[e.position] === undefined ? [] : [{ row: sortedIds[e.position]!, output: e.output }]));
+      post({ type: "formulaSuggestions", requestId: message.requestId, formulas: formulasFromExamples(dataset.columns, dataset.rowCount, examples), ms: performance.now() - started });
+      break;
+    }
     case "setType":
       handleSetType(message);
       break;

@@ -18,6 +18,10 @@ export interface NewColumnOptions {
   preview(formula: string): Promise<FormulaPreviewMessage>;
   formula?: string;
   name?: string;
+  /** The first rows of the table, for From examples. */
+  sampleRows?(): Promise<{ columns: string[]; rows: string[][] }>;
+  /** Formulas that give the typed results on those rows. */
+  suggest?(examples: { position: number; output: string }[]): Promise<string[]>;
 }
 
 export interface NewColumnResult {
@@ -26,7 +30,7 @@ export interface NewColumnResult {
   formula: string;
 }
 
-type Mode = "formula" | "ifthen" | "quick" | "value";
+type Mode = "formula" | "ifthen" | "quick" | "examples" | "value";
 type ValueType = "text" | "number" | "date" | "bool";
 
 const TYPE_LABEL: Partial<Record<string, string>> = {
@@ -162,9 +166,11 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
       formula: el("button", { type: "button", role: "tab", "data-mode": "formula" }, ["Formula"]) as HTMLButtonElement,
       ifthen: el("button", { type: "button", role: "tab", "data-mode": "ifthen" }, ["If / then"]) as HTMLButtonElement,
       quick: el("button", { type: "button", role: "tab", "data-mode": "quick" }, ["Quick column"]) as HTMLButtonElement,
+      examples: el("button", { type: "button", role: "tab", "data-mode": "examples" }, ["From examples"]) as HTMLButtonElement,
       value: el("button", { type: "button", role: "tab", "data-mode": "value" }, ["Same value for every row"]) as HTMLButtonElement,
     };
-    modeSeg.append(modeButtons.formula, modeButtons.ifthen, modeButtons.quick, modeButtons.value);
+    modeSeg.append(modeButtons.formula, modeButtons.ifthen, modeButtons.quick, modeButtons.examples, modeButtons.value);
+    if (options.suggest === undefined) modeButtons.examples.remove();
     // The name follows the choice until the person types their own.
     let autoName = options.name === undefined;
     const setAutoName = (name: string): void => { if (autoName) nameInput.value = name; };
@@ -174,6 +180,59 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
       for (const c of options.columns) if (filter(c.type)) s.append(el("option", { value: c.name }, [c.name]) as HTMLOptionElement);
       return s;
     };
+
+    // ---------------------------------------------------------------- from examples
+    const exampleTable = el("table", { class: "newcol-preview newcol-examples" });
+    const exampleFound = el("div", { class: "newcol-found" });
+    let exampleFormula: string | null = null;
+    let exampleInputs: HTMLInputElement[] = [];
+    let examplesLoaded = false;
+    let exampleSeq = 0;
+    async function loadExamples(): Promise<void> {
+      if (examplesLoaded || options.sampleRows === undefined) return;
+      examplesLoaded = true;
+      const sample = await options.sampleRows().catch(() => null);
+      if (sample === null) return;
+      exampleInputs = sample.rows.map((_, i) => el("input", { class: "text-input", type: "text", "aria-label": `Result for row ${i + 1}`, placeholder: i < 2 ? "type the result" : "" }) as HTMLInputElement);
+      exampleTable.replaceChildren(
+        el("thead", {}, [el("tr", {}, [...sample.columns.map((c) => el("th", { class: "newcol-in" }, [c])), el("th", { class: "newcol-out" }, ["You want"])])]),
+        el("tbody", {}, sample.rows.map((row, i) => el("tr", {}, [...row.map((v) => el("td", { class: "newcol-in" }, [v])), el("td", { class: "newcol-out" }, [exampleInputs[i]!])]))),
+      );
+      for (const input of exampleInputs) input.addEventListener("input", findExamples);
+      exampleInputs[0]?.focus();
+    }
+    let exampleTimer = 0;
+    function findExamples(): void {
+      window.clearTimeout(exampleTimer);
+      exampleTimer = window.setTimeout(async () => {
+        const examples = exampleInputs.map((input, position) => ({ position, output: input.value })).filter((e) => e.output.trim() !== "");
+        const mine = ++exampleSeq;
+        if (examples.length === 0) { exampleFound.replaceChildren(); exampleFormula = null; schedule(); return; }
+        const found = await options.suggest?.(examples).catch(() => []) ?? [];
+        if (mine !== exampleSeq) return;
+        exampleFormula = found[0] ?? null;
+        const chooser = (f: string): HTMLElement => {
+          const b = el("button", { type: "button", class: "newcol-chip fn", "aria-pressed": String(f === exampleFormula) }, [f]);
+          b.addEventListener("click", () => { exampleFormula = f; for (const x of exampleFound.querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b)); schedule(); });
+          return b;
+        };
+        exampleFound.replaceChildren(
+          found.length === 0
+            ? el("span", { class: "newcol-warn" }, ["No rule gives all of those. Try another example, or write a formula."])
+            : el("span", { class: "newcol-note" }, [found.length === 1 ? "This rule fits:" : `${found.length} rules fit; the first is picked (check the preview on more rows):`]),
+          ...found.map(chooser),
+        );
+        schedule();
+      }, 200);
+    }
+    const examplesEdit = el("button", { type: "button", class: "ghost small" }, ["Edit as formula"]);
+    examplesEdit.addEventListener("click", () => { if (exampleFormula) { formula.value = exampleFormula; setMode("formula"); } });
+    const examplesPane = el("div", { class: "newcol-pane hidden" }, [
+      el("p", { class: "newcol-note" }, ["Type what the new column should say for a row or two; the rule that gives exactly that is found for you."]),
+      el("div", { class: "newcol-examples-wrap" }, [exampleTable]),
+      exampleFound,
+      el("div", { class: "newcol-rule" }, [examplesEdit]),
+    ]);
 
     // ---------------------------------------------------------------- if / then
     const rulesHost = el("div", { class: "newcol-rules" });
@@ -335,7 +394,7 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
         el("label", { class: "map-field" }, [el("span", {}, ["Place"]), place]),
         modeSeg,
       ]),
-      el("div", { class: "newcol-body" }, [el("div", { class: "newcol-input" }, [formulaPane, ifPane, quickPane, valuePane]), previewSide]),
+      el("div", { class: "newcol-body" }, [el("div", { class: "newcol-input" }, [formulaPane, ifPane, quickPane, examplesPane, valuePane]), previewSide]),
       el("div", { class: "clean-footer" }, [el("span", { class: "newcol-keys" }, ["Ctrl+Enter adds"]), el("span", { class: "grow" }), cancel, addButton]),
     );
 
@@ -344,6 +403,7 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
       mode === "formula" ? formula.value.trim()
       : mode === "ifthen" ? ifFormula()
       : mode === "quick" ? quickFormulaText()
+      : mode === "examples" ? exampleFormula
       : constantFormula(valueInput.value, valueType);
 
     function insert(text: string): void {
@@ -482,6 +542,8 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
       formulaPane.classList.toggle("hidden", mode !== "formula");
       ifPane.classList.toggle("hidden", mode !== "ifthen");
       quickPane.classList.toggle("hidden", mode !== "quick");
+      examplesPane.classList.toggle("hidden", mode !== "examples");
+      if (mode === "examples") void loadExamples();
       valuePane.classList.toggle("hidden", mode !== "value");
       if (mode === "quick") quickChanged();
       (mode === "formula" ? formula : mode === "value" ? valueInput : mode === "quick" ? pickSelect : rulesHost.querySelector("select") ?? formula).focus();
