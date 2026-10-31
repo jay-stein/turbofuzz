@@ -1942,7 +1942,7 @@ explaining the metrics: Metric, Why it's good, When to use it, Math."
    fails), plus the metrics table: Metric | Why it's good (strengths) | When to use
    it | Math (formula).
 
-### AutoARIMA (plan only)
+### AutoARIMA (plan only; ON HOLD by the owner, 2026-10-31)
 
 The goal is statsforecast's AutoARIMA level, with no dependencies.
 
