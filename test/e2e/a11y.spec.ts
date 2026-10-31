@@ -66,6 +66,8 @@ function messy(): string {
 
 for (const scheme of ["light", "dark"] as const) {
   test(`the Quality page has no serious accessibility violations on any tab (${scheme})`, async ({ page }) => {
+    // An axe scan of every Quality tab takes ~10 s alone and longer when the whole suite runs at once.
+    test.setTimeout(60_000);
     await page.emulateMedia({ colorScheme: scheme });
     await page.goto("/");
     await page.locator('input[type="file"]').setInputFiles({ name: "a11y.csv", mimeType: "text/csv", buffer: Buffer.from(messy()) });
