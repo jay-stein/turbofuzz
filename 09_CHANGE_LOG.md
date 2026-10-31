@@ -28,6 +28,15 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-09 — Formula columns in the pandas and Polars recipes
+
+- **Status:** Verified
+- **Related issue / decision:** DEC-2026-10-31-01 acceptance: every function has a parity case.
+- **Scope:** `src/data/formula-export.ts` writes each formula as a small Python function over one row, with one shared helper block (written once per script) that ports the app's rules and all 28 functions; pandas inserts the column with `df.insert`, Polars with `insert_column`, both as the app's text. A formula that no longer reads against the tracked columns is marked for manual work. Row by row is slower than vectorised code, by choice: the recipe must agree with the app cell for cell. Fixed in the app: a formula writing a word that usually means missing ("Unknown", "N/A") showed an empty cell; a new column now keeps its own output.
+- **Tests run and results:** recipe parity harness (`tools/recipe-parity`, new `formulas` case: 47 formula columns over blanks, errors and dates): pandas PASS, Polars PASS, every other case PASS; codegen unit test; full suite green.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-08 — Table: New column window (formula or one value)
 
 - **Status:** Verified

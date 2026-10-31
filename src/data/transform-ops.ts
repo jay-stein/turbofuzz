@@ -1,4 +1,5 @@
 import { datasetFromColumns } from "./build.js";
+import { isNullToken } from "../parse/null-tokens.js";
 import { compileFormula, evaluateFormula, outputColumnType } from "./column-formula.js";
 import { ColumnData } from "./column.js";
 import {
@@ -288,7 +289,9 @@ function deriveColumn(columns: readonly ColumnData[], op: TransformOp & { kind: 
   if (!compiled.ok) return columns.slice();
   const rowCount = columns[0]?.raw.length ?? 0;
   const result = evaluateFormula(compiled, columns, rowCount);
-  const column = ColumnData.create(freeColumnName(op.name, columns.map((c) => c.name)), result.raw);
+  // What the formula writes is data, even a word that usually means missing ("Unknown", "N/A").
+  const keep = new Set(result.raw.filter((value) => value !== "" && isNullToken(value)));
+  const column = ColumnData.create(freeColumnName(op.name, columns.map((c) => c.name)), result.raw, { extra: new Set(), keep });
   column.setType(result.type, true);
   const next = columns.slice();
   next.splice(Math.max(0, Math.min(op.at, next.length)), 0, column);

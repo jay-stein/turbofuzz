@@ -1,0 +1,4 @@
+{
+  "name": "formulas",
+  "description": "new columns from Excel-style formulas: every function, blanks, errors, dates"
+}

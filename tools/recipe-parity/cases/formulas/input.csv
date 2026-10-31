@@ -1,0 +1,5 @@
+first,last,price,qty,status,email,ordered,shipped,solar
+Ada,Lovelace,10,3,Closed,ada@x.org,2024-01-15,2024-01-20,Yes
+Alan,Turing,2.5,4,open,alan@y.com,2024-02-29,2024-03-01,No
+,Hopper,,5,Open,nobody,,2024-01-01,
+Grace,,4,0,,,2023-12-31,2023-12-31,Yes

@@ -131,3 +131,28 @@ test("mistakes are pointed at, with a suggestion", () => {
 test("a rename keeps formulas pointing at the column", () => {
   assert.equal(renameInFormula('[price] * [Qty] & "[Price]"', "Price", "Unit price"), '[Unit price] * [Qty] & "[Price]"');
 });
+
+test("pandas and Polars recipes write a formula column as code, once-only helpers included", async () => {
+  const { pandasRecipeScript } = await import("../src/data/recipe.js");
+  const { polarsRecipeScript } = await import("../src/data/recipe-polars.js");
+  const input = {
+    cleans: [],
+    schema: [
+      { name: "price", numeric: true, type: "number" as const },
+      { name: "qty", numeric: true, type: "integer" as const },
+    ],
+    transforms: [
+      { kind: "derive" as const, name: "total", at: 2, formula: "[price] * [qty]" },
+      { kind: "derive" as const, name: "big", at: 0, formula: '[total] > 10' },
+      { kind: "derive" as const, name: "oops", at: 0, formula: "[nope] + 1" },
+    ],
+  };
+  for (const script of [pandasRecipeScript(input), polarsRecipeScript(input)]) {
+    assert.equal(script.code.split("formula helpers: the app's rules").length - 1, 1);
+    assert.match(script.code, /def _f1\(r\):\n {4}return _bin\("\*", _read\(r\["price"\], "number"\), _read\(r\["qty"\], "number"\), "number", "number"\)/);
+    assert.match(script.code, /def _f2\(r\):/);
+    assert.deepEqual(script.entries.filter((e) => e.label.startsWith("derive")).map((e) => e.status), ["supported", "supported", "manual_step_required"]);
+  }
+  assert.match(pandasRecipeScript(input).code, /df\.insert\(2, "total", _derive\(df\.to_dict\("records"\), _f1, "number"\)\)/);
+  assert.match(polarsRecipeScript(input).code, /df = df\.insert_column\(0, pl\.Series\("big", _derive\(df\.iter_rows\(named=True\), _f2, "bool"\), dtype=pl\.Utf8\)\)/);
+});

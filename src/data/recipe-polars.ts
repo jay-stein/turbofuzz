@@ -1,4 +1,5 @@
 import { describeCleanOp, type CleanOp } from "./clean-ops.js";
+import { FORMULA_PRELUDE, formulaPython } from "./formula-export.js";
 import {
   compileExpression,
   type ExprTerm,
@@ -7,6 +8,7 @@ import {
 } from "./aggregate.js";
 import {
   schemaAfter,
+  freeColumnName,
   describeTransformOp,
   type TransformOp,
 } from "./transform-ops.js";
@@ -642,6 +644,8 @@ function polarsTransformLines(
 ): string[] {
   const lines: string[] = [];
   let current = schema.slice();
+  let formulaHelpers = false;
+  let formulaCount = 0;
   for (const op of transforms) {
     const names = current.map((entry) => entry.name);
     const before = entries.length;
@@ -848,14 +852,24 @@ function polarsTransformLines(
         );
         break;
       }
-      case "derive":
-        lines.push(`# new column ${JSON.stringify(op.name)} = ${op.formula.replace(/\n/g, " ")}: add it by hand (formula export comes next)`);
-        entries.push({
-          label: `derive: ${op.name}`,
-          status: "manual_step_required",
-          note: `formula ${op.formula}; not yet written as code`,
-        });
+      case "derive": {
+        const code = formulaPython(op.formula, current.map((c) => ({ name: c.name, type: c.type ?? (c.numeric ? "number" : "string") })));
+        if (code === null) {
+          lines.push(`# new column ${JSON.stringify(op.name)}: its formula no longer reads against these columns; add it by hand`);
+          entries.push({ label: `derive: ${op.name}`, status: "manual_step_required", note: `formula ${op.formula} does not compile here` });
+          break;
+        }
+        if (!formulaHelpers) {
+          lines.push(...FORMULA_PRELUDE);
+          formulaHelpers = true;
+        }
+        const fn = `_f${++formulaCount}`;
+        const name = freeColumnName(op.name, names);
+        const at = Math.max(0, Math.min(op.at, names.length));
+        lines.push(`# new column ${JSON.stringify(name)} = ${op.formula.replace(/\n/g, " ")}`, `def ${fn}(r):`, `    return ${code.expr}`, `df = df.insert_column(${at}, pl.Series(${py(name)}, _derive(df.iter_rows(named=True), ${fn}, ${py(code.type)}), dtype=pl.Utf8))`);
+        entries.push({ label: `derive: ${name}`, status: "supported" });
         break;
+      }
       case "flagAnomalies":
         lines.push(
           `# outlier flags for ${names[op.column]} depend on fences computed from the data (robust median/MAD or quantiles); recompute before exporting`,
