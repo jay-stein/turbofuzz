@@ -28,6 +28,20 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-21 — Time Series: technical notes, the forecast named on the chart, difference plots
+
+- **Status:** Verified
+- **Related issue:** Owner, 2026-10-31: the gap fill and Trend flexibility descriptions were too thin for a technical audience; the forecast model should be prominent with a comment on its performance; Explore should plot the difference from n periods earlier.
+- **Scope:**
+  - **Gap choices:** each states its exact rule, with this series' numbers (season, smart threshold, nearby-cycle count), stacked under the name in a wider popover. The models' use of filled periods is now stated exactly: errors are never scored on them, and the regression leaves them out of its fit (the smoothing models run through them).
+  - **Trend flexibility:** explains the piecewise-linear trend, its hinge count and the ridge λ at the current setting, and the bias/variance trade-off. **Check every setting** draws the validation curve: backtest MASE at 1-10 on the board's folds, with the best other model as a reference line. It suggests the stiffest setting within 5% of the lowest, offers "Use n", and says when the error turns back up (fitting noise).
+  - **Forecast strip:** above the chart, it names the model (Auto / picked) with its grade, the like-for-like error against repeating the last cycle, folds beaten, the band check, and warnings for a lead won in under half the folds or under 3 folds.
+  - **MASE wording fixed:** below 1 means beating the *in-sample one-step* naive, not repeating the last cycle at the same horizon.
+  - **Explore → Difference:** plots y(t) − y(t − lag), with presets (1, each season that fits, a year) or any lag. The legend says what is drawn, the zero line is marked, the hover read-out gives the change, and a note gives the mean and SD of the change and the share of variance differencing removes. It is also a Difference step in the pipeline strip.
+- **Tests run and results:** two Time Series e2e cases; full suite and bench:timeseries.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-20 — Time Series engine: validation curve for Trend flexibility; MASE scaled on training data only
 
 - **Status:** Verified

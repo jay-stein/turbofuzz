@@ -25,7 +25,7 @@ export const METRIC_INFO: Record<MetricKey, MetricInfo> = {
   mase: {
     label: "MASE",
     short: "Mean absolute scaled error",
-    strengths: "Scale-free, so it compares series of any size; fine with zeros; below 1 means it beats repeating the last cycle. Recommended by Hyndman & Koehler (2006).",
+    strengths: "Scale-free, so it compares series of any size, and fine with zeros. Recommended by Hyndman & Koehler (2006). Below 1: the forecast errs less than repeating the last cycle did one cycle ahead in the training data. A multi-step forecast can sit above 1 and still beat repeating the last cycle at the same horizons; the board's \"vs repeat-last-cycle\" column compares like with like.",
     when: "The default: ranking models, and comparing across series or grains.",
     formula: `MASE = MAE &divide; ( <sup>1</sup>&frasl;<sub>T&minus;m</sub> &Sigma;<sub>t=m+1..T</sub> |y<sub>t</sub> &minus; y<sub>t&minus;m</sub>| ), the error of repeating the last cycle (season m) on the training data`,
   },

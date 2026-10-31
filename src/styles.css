@@ -12014,3 +12014,31 @@ button.qp-tile:hover {
 .ts-row-forecast .ts-status, .ts-row-heldout .ts-status { color: var(--ts-forecast); font-weight: 600; }
 .ts-row-filled td, .ts-row-empty td { color: var(--ts-dim); font-style: italic; }
 .ts-row-partial .ts-status { color: var(--ts-warn); }
+
+/* Forecast: the model in use, on the chart */
+.ts-hero-badge { margin: 0 16px 6px; padding: 7px 10px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--ts-forecast) 40%, var(--border)); border-left-width: 4px; background: color-mix(in srgb, var(--ts-forecast-soft) 45%, var(--panel)); font-size: 12px; line-height: 1.4; }
+.ts-badge-top { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 14px; }
+.ts-badge-top b { color: var(--ts-forecast); }
+.ts-badge-top small { color: var(--ts-dim); font-size: 11.5px; }
+.ts-badge-label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--ts-dim); }
+.ts-badge-body { color: var(--ts-dim); margin-top: 2px; }
+/* Trend flexibility: what it does, and the validation curve */
+.ts-flexbox { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.ts-flexnote { margin: 6px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ts-dim); }
+.ts-flexnote b { color: var(--text); }
+.ts-flexcurve { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: flex-start; margin-top: 10px; }
+.ts-flexcurve svg { flex: none; max-width: 100%; height: auto; }
+.ts-flexcurve path { fill: none; stroke: var(--ts-forecast); stroke-width: 2; }
+.ts-flexcurve circle { fill: var(--ts-forecast); }
+.ts-flexcurve circle.cur { fill: var(--panel); stroke: var(--ts-forecast); stroke-width: 2.5; }
+.ts-flexcurve circle.pick { fill: var(--qa-good, #16a34a); }
+.ts-flexcurve .ref { stroke: var(--ts-dim); stroke-dasharray: 4 3; }
+.ts-flexcurve text { font-size: 10px; fill: var(--ts-dim); }
+.ts-flexread { flex: 1 1 260px; font-size: 12.5px; line-height: 1.5; }
+.ts-flexread p { margin: 0 0 6px; }
+.ts-diffnote { flex-basis: 100%; }
+
+/* Gap choices carry the exact rule: stack the note under the name */
+.ts-popover[data-key="gaps"] { max-width: min(520px, calc(100vw - 16px)); }
+.ts-popover[data-key="gaps"] button { flex-direction: column; gap: 2px; padding: 7px 10px; }
+.ts-popover[data-key="gaps"] button small { line-height: 1.45; font-size: 12px; }

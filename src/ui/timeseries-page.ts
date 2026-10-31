@@ -13,7 +13,7 @@ import type { TsSnapshot } from "../data/timeseries/engine.js";
 import {
   compact, dfDate, dfDM, dfMonShort, dfTime, fmtNum, full, nf, nounFor, pct, periodLabel, shortPeriod, signed,
 } from "../data/timeseries/format.js";
-import { grade, METRIC_KEYS, MODEL_INFO, MODEL_KEYS, type Future, type MetricKey, type ModelKey, type ModelRun } from "../data/timeseries/models.js";
+import { flexDetail, grade, METRIC_KEYS, MODEL_INFO, MODEL_KEYS, type Future, type MetricKey, type ModelKey, type ModelRun } from "../data/timeseries/models.js";
 import { METRIC_INFO, metricText, openModelGuide } from "./timeseries-metrics.js";
 import { backtestRows, forecastRows, scorecardRows } from "./timeseries-export.js";
 import { openMenu } from "./menu.js";
@@ -27,7 +27,7 @@ import { niceTicks, patternsHtml } from "./timeseries-patterns.js";
 
 export interface TimeSeriesPageOptions {
   /** source "" reads the Table's rows; a Pivot View id reads that view's periods. */
-  request: (input: { dateColumn: number; groupColumn: number; config: TsConfig | null; mode: TsMode; source: string; backtest?: boolean }) => Promise<TimeSeriesMessage | null>;
+  request: (input: { dateColumn: number; groupColumn: number; config: TsConfig | null; mode: TsMode; source: string; backtest?: boolean; flexCurve?: boolean }) => Promise<TimeSeriesMessage | null>;
   /** Pivot Views the page can read: complete, grouped by a time grain, with a measure. */
   viewSources: () => TsViewSource[];
   /** Filter the table to one period of the date column (UTC ms, inclusive) and show it. */
@@ -58,7 +58,7 @@ export interface TsPreset {
 }
 
 type Level = "80" | "fan";
-interface UiState { mode: TsMode; showSmooth: boolean; lastYear: boolean; showShift: boolean; level: Level; model: ModelKey | "auto"; metric: MetricKey }
+interface UiState { mode: TsMode; showSmooth: boolean; lastYear: boolean; showShift: boolean; level: Level; model: ModelKey | "auto"; metric: MetricKey; diff: boolean; diffLag: number }
 type TokenKey = "grain" | "agg" | "measure" | "group" | "gaps" | "partial" | "date" | "groupBy" | "source";
 interface Colors { bg: string; panel: string; panel2: string; border: string; text: string; dim: string; accent: string; forecast: string; season2: string; raw: string; danger: string; warn: string; grid: string }
 interface Proj { T: number; H: number; f: Future; key: ModelKey }
@@ -106,6 +106,8 @@ const TEMPLATE = `
             <label class="ts-check"><input type="checkbox" data-ref="smoothCentred"> Centred</label>
             <label class="ts-check"><input type="checkbox" data-ref="lastYear"> <span data-ref="lastYearText">Same period last year</span></label>
             <label class="ts-check" data-ref="shiftWrap"><input type="checkbox" data-ref="showShift"> Trend shift</label>
+            <div class="ts-ctl"><label class="ts-check" title="Plot y(t) − y(t − lag): the change from the same point a lag earlier. A seasonal lag takes the season out (fpp3 9.1)."><input type="checkbox" data-ref="diffOn"> Difference</label><span class="ts-stepnum"><input type="number" class="ts-num" data-ref="diffLag" min="1" step="1" aria-label="Difference lag"><span class="ts-numunit" data-ref="diffUnit"></span></span><div class="ts-seg" data-ref="diffPresets" role="group" aria-label="Difference lag presets"></div></div>
+            <span class="ts-note ts-diffnote" data-ref="diffNote"></span>
           </div>
           <div class="ts-tb" data-for="decompose" hidden>
             <div class="ts-ctl"><span>Season</span><div class="ts-seg" data-ref="periodSeg" role="group" aria-label="Seasonal period"></div></div>
@@ -132,6 +134,7 @@ const TEMPLATE = `
             <button class="ts-ghost" type="button" data-ref="tableBtn" aria-expanded="false" title="The numbers behind the chart, one row per period in view: actuals, filled periods and the forecast">Show data table</button>
           </div>
         </div>
+        <div class="ts-hero-badge" data-ref="heroBadge" hidden></div>
         <div class="ts-hero" data-ref="hero">
           <canvas data-ref="heroCanvas" aria-hidden="true"></canvas>
           <canvas data-ref="heroOverlay" tabindex="0" role="img" aria-label="Series chart"></canvas>
@@ -160,7 +163,11 @@ const TEMPLATE = `
           <button class="ts-ghost ts-guide-btn" type="button" data-ref="guideBtn">Which model, and why?</button>
         </div>
         <div class="ts-boardwrap"><table class="ts-board" data-ref="board"></table></div>
-        <div class="ts-ctl"><label>Trend flexibility</label><input type="range" data-ref="flex" min="1" max="10" step="1" aria-label="Trend flexibility"><output data-ref="flexOut"></output><span class="ts-note">for the trend, seasons and drivers model</span></div>
+        <div class="ts-flexbox">
+          <div class="ts-ctl"><label>Trend flexibility</label><input type="range" data-ref="flex" min="1" max="10" step="1" aria-label="Trend flexibility"><output data-ref="flexOut"></output><span class="ts-note">trend, seasons and drivers model (and the Blend)</span><button class="ts-ghost" type="button" data-ref="flexCheck" title="Backtest every setting from 1 to 10 on the same folds: a validation curve">Check every setting</button></div>
+          <p class="ts-flexnote" data-ref="flexNote"></p>
+          <div class="ts-flexcurve" data-ref="flexCurve" hidden></div>
+        </div>
         <dl class="ts-modelcard" data-ref="modelCard"></dl>
       </section>
       <section class="ts-card ts-panel" data-panel="patterns" hidden>
@@ -202,7 +209,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   let shape: SeriesShape | null = null;
   // Mixed-series warnings the person kept as they are (date|split|group), for this session.
   const keptMixed = new Set<string>();
-  const ui: UiState = { mode: "explore", showSmooth: true, lastYear: false, showShift: true, level: "fan", model: "auto", metric: "mase" };
+  const ui: UiState = { mode: "explore", showSmooth: true, lastYear: false, showShift: true, level: "fan", model: "auto", metric: "mase", diff: false, diffLag: 0 };
   let INS: TsFinding[] = [];
   let view: [number, number] | null = null;
   let hoverIdx = -1, ghostModel: ModelKey | null = null;
@@ -467,11 +474,12 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const split = P ? P.T : -1;
     let lo = Infinity, hi = -Infinity;
     const take = (v: number): void => { if (v === v) { if (v < lo) lo = v; if (v > hi) hi = v; } };
+    const dl = diffLag();
     for (let i = i0; i <= Math.min(i1, n - 1); i++) {
       if (P && i >= split && i >= N) continue;
-      take(a.y[i]);
-      if (mode === "explore" && ui.showSmooth && i < N) take(SM[i]);
-      if (mode === "explore" && ui.lastYear && i - a.g.ly >= 0) take(a.y[i - a.g.ly]);
+      take(heroVal(i));
+      if (mode === "explore" && !dl && ui.showSmooth && i < N) take(SM[i]);
+      if (mode === "explore" && !dl && ui.lastYear && i - a.g.ly >= 0) take(a.y[i - a.g.ly]);
       if (mode === "decompose" && D.dec && i < N) take(D.dec.trend[i]);
     }
     if (P) for (let h = 0; h < P.H; h++) {
@@ -482,6 +490,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       take(ui.level === "fan" ? P.f.lo95[h] : P.f.lo80[h]);
     }
     if (lo === Infinity) { lo = 0; hi = 1; }
+    if (dl) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
     if (lo >= 0 && lo < 0.45 * hi) lo = 0;
     const pad = (hi - lo) * 0.08 || 1;
     yScale = { min: lo === 0 ? 0 : lo - pad, max: hi + pad };
@@ -534,7 +543,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       for (let x = xa - geo.ph; x < xb; x += 6) { ctx.beginPath(); ctx.moveTo(x, geo.T + geo.ph); ctx.lineTo(x + geo.ph, geo.T); ctx.stroke(); }
       ctx.restore();
     }
-    const shift = mode === "explore" || mode === "decompose" ? trendShift(s, ui) : null;
+    const shift = (mode === "explore" && !dl) || mode === "decompose" ? trendShift(s, ui) : null;
     if (shift) {
       const x = Math.round(X(T[shift.k])) + 0.5;
       ctx.strokeStyle = rgba(C.warn, 0.7); ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
@@ -542,9 +551,14 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     }
     const rawEnd = Math.min(n - 1, N - 1);
     const histEnd = P ? split - 1 : N - 1;
-    const raw = (i: number): number => a.y[i];
-    const emphasis = mode !== "explore" || !ui.showSmooth || (a.g.unit !== "day" && a.g.unit !== "min");
-    if (mode === "explore" && ui.lastYear) {
+    const raw = (i: number): number => heroVal(i);
+    const emphasis = mode !== "explore" || !!dl || !ui.showSmooth || (a.g.unit !== "day" && a.g.unit !== "min");
+    if (dl) {
+      const z = Math.round(Y(0)) + 0.5;
+      ctx.strokeStyle = rgba(C.text, 0.5); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(geo.L, z); ctx.lineTo(geo.L + geo.pw, z); ctx.stroke();
+    }
+    if (mode === "explore" && !dl && ui.lastYear) {
       ctx.strokeStyle = rgba(C.dim, 0.75); ctx.setLineDash([4, 3]); ctx.lineWidth = 1.25;
       linePath(ctx, Math.max(i0, a.g.ly), Math.min(i1, n - 1), (i) => a.y[i - a.g.ly]);
       ctx.stroke(); ctx.setLineDash([]);
@@ -557,12 +571,12 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       ctx.setLineDash([]);
     }
     ctx.strokeStyle = emphasis ? C.text : rgba(C.raw, 0.75);
-    ctx.globalAlpha = mode === "explore" && ui.showSmooth && emphasis ? 0.5 : emphasis ? 0.85 : 1;
+    ctx.globalAlpha = mode === "explore" && !dl && ui.showSmooth && emphasis ? 0.5 : emphasis ? 0.85 : 1;
     ctx.lineWidth = emphasis ? 1.5 : 1;
     linePath(ctx, i0, Math.min(i1, histEnd), raw);
     ctx.stroke();
     ctx.globalAlpha = 1;
-    if (a.partial[n - 1] && N === n - 1 && !P) {
+    if (a.partial[n - 1] && N === n - 1 && !P && !dl) {
       ctx.setLineDash([2, 3]); ctx.strokeStyle = C.dim; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(X(T[n - 2]), Y(a.y[n - 2])); ctx.lineTo(X(T[n - 1]), Y(a.y[n - 1])); ctx.stroke(); ctx.setLineDash([]);
     }
@@ -571,7 +585,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       linePath(ctx, Math.max(i0, split - 1), Math.min(i1, rawEnd), raw);
       ctx.stroke();
     }
-    if (mode === "explore" && ui.showSmooth) {
+    if (mode === "explore" && !dl && ui.showSmooth) {
       ctx.strokeStyle = C.accent; ctx.lineWidth = 2.5;
       linePath(ctx, i0, Math.min(i1, N - 1), (i) => SM[i]);
       ctx.stroke();
@@ -733,7 +747,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const dot = (v: number, color: string): void => { if (!(v === v)) return; ctx.beginPath(); ctx.arc(x, Y(v), 4.5, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill(); ctx.strokeStyle = C.panel; ctx.lineWidth = 2; ctx.stroke(); };
     const P = proj();
     const h = P ? i - P.T : -1;
-    if (i < a.n) dot(a.y[i], C.text);
+    if (i < a.n) dot(heroVal(i), C.text);
     if (ui.mode === "explore" && ui.showSmooth && i < a.modelN) dot(snap.smooth[i], C.accent);
     if (ui.mode === "decompose" && snap.dec.dec && i < a.modelN) dot(snap.dec.dec.trend[i], C.accent);
     if (P && h >= 0 && h < P.H) dot(P.f.F[h], C.forecast);
@@ -749,6 +763,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (i < a.n) {
       const v = a.y[i];
       rows.push([C.text, measureWord(s), full(v)]);
+      const dl = diffLag();
+      if (dl) rows.push([C.accent, `Change vs ${dl} ${nounFor(gr, dl)} earlier`, i - dl >= 0 ? signed(heroVal(i)) : "–"]);
       if (ui.mode === "explore" && ui.showSmooth && i < a.modelN) rows.push([C.accent, `${cfgNow.smoothW}-${gr.noun.split(" ").pop()} ${cfgNow.smoothStat}`, full(s.smooth[i])]);
       const cp1 = i > 0 ? chg(s, v, a.y[i - 1]) : null, cpy = i - gr.ly >= 0 ? chg(s, v, a.y[i - gr.ly]) : null;
       if (!inP && cp1) rows.push([null, "vs previous", cp1.text]);
@@ -911,7 +927,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       case "agg": return source !== "" ? AGG_OPTS.filter((o) => o[0] === "sum" || o[0] === "mean") : AGG_OPTS;
       case "measure": return info.columns.map((c) => [c.name, c.name, c.timeLike ? "counts time" : c.flag ? "0/1" : ""]);
       case "group": return [["-1", "all"], ...info.groups.map((r, k): [string, string] => [String(k), r])];
-      case "gaps": return GAP_OPTS;
+      case "gaps": return gapOpts(s);
       case "partial": return [["exclude", "left out", `${s.A.g.noun} left out of models`], ["include", "kept", "treated as complete"]];
       case "date": return dateColumns().map((i) => [String(i), metas[i].name]);
       case "groupBy": {
@@ -985,14 +1001,16 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     }
     ref("strip").innerHTML = cells.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join("");
 
-    const lg = [`<span style="color:${C.text}"><i></i>${measureWord(s)}</span>`];
-    if (ui.mode === "explore" && ui.showSmooth) lg.push(`<span style="color:${C.accent}"><i></i>Rolling ${c.smoothStat}</span>`);
-    if (ui.mode === "explore" && ui.lastYear) lg.push(`<span style="color:${C.dim}"><i class="dash"></i>${gr.lyShort}</span>`);
+    const dlg = diffLag();
+    const lg = [`<span style="color:${C.text}"><i></i>${dlg ? `${measureWord(s)} − ${measureWord(s)} ${dlg} ${nounFor(gr, dlg)} earlier` : measureWord(s)}</span>`];
+    if (ui.mode === "explore" && !dlg && ui.showSmooth) lg.push(`<span style="color:${C.accent}"><i></i>Rolling ${c.smoothStat}</span>`);
+    if (ui.mode === "explore" && !dlg && ui.lastYear) lg.push(`<span style="color:${C.dim}"><i class="dash"></i>${gr.lyShort}</span>`);
     if (ui.mode === "decompose") lg.push(`<span style="color:${C.accent}"><i></i>Trend</span>`);
     if ((ui.mode === "explore" || ui.mode === "decompose") && trendShift(s, ui)) lg.push(`<span style="color:${C.warn}"><i class="dash"></i>Trend shift (estimated)</span>`);
     if ((ui.mode === "explore" || ui.mode === "decompose") && s.dec.anomalies.length) lg.push(`<span style="color:${C.danger}">◯ Unusual</span>`);
     const fk = selectedModel(s, ui);
     if (ui.mode === "forecast" && s.futures) lg.push(`<span style="color:${C.forecast}"><i class="dash"></i>Forecast: <b>${fk ? MODEL_INFO[fk].name : ""}</b> <small>${ui.model === "auto" ? `Auto, best on ${METRIC_INFO[ui.metric].label}` : "picked"}</small></span>`)
+    renderHeroBadge(s, fk);
     if (ui.mode === "forecast" && s.futures) lg.push(`<span style="color:${C.forecast}"><span style="color:${C.forecast}"><i class="band"></i>${ui.level === "fan" ? "80% and 95%" : "80%"} range</span>`);
     if (a.filled.some((x) => x)) lg.push(`<span style="color:${C.dim}">○ Filled</span>`);
     ref("legend").innerHTML = lg.join("");
@@ -1080,6 +1098,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       ref<HTMLInputElement>("smoothCentred").checked = c.smoothCentred;
       ref<HTMLInputElement>("lastYear").checked = ui.lastYear;
       ref<HTMLInputElement>("showShift").checked = ui.showShift;
+      syncDiff();
       ref("shiftWrap").hidden = !(s.dec.cp && s.dec.cp.gain > 0.5);
       ref("lastYearText").textContent = gr.lyText;
       for (const b of ref("statSeg").querySelectorAll<HTMLButtonElement>("button")) b.setAttribute("aria-pressed", String(b.dataset.stat === c.smoothStat));
@@ -1089,9 +1108,10 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         { id: "fill", name: "Fill", val: filled ? `${filled} ${nounFor(gr, filled)} ${tokText("gaps")}` : "No missing periods", on: true },
         { id: "smooth", name: "Smooth", val: `${c.smoothW}-${gr.noun.split(" ").pop()} ${c.smoothStat}`, on: ui.showSmooth },
         { id: "compare", name: "Compare", val: gr.lyText, on: ui.lastYear },
+        { id: "diff", name: "Difference", val: diffLag() ? `lag ${lagLabel(diffLag())}` : "off", on: !!diffLag() },
       ];
       const ol = ref("pipeline");
-      if (ol.children.length !== 4) ol.innerHTML = steps.map((st) => `<li><button type="button" class="ts-step" data-step="${st.id}"><span class="ts-step-name">${st.name}</span><span class="ts-step-val"></span><canvas></canvas></button></li>`).join("");
+      if (ol.children.length !== steps.length) ol.innerHTML = steps.map((st) => `<li><button type="button" class="ts-step" data-step="${st.id}"><span class="ts-step-name">${st.name}</span><span class="ts-step-val"></span><canvas></canvas></button></li>`).join("");
       steps.forEach((st, k) => {
         const btn = ol.children[k].querySelector("button") as HTMLButtonElement;
         btn.setAttribute("aria-pressed", String(st.on));
@@ -1138,7 +1158,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       ref("hPresets").innerHTML = [...gr.hPresets.filter(([, n]) => n < hMax), ["Longest", hMax] as const].map(([label, n]) => `<button type="button" data-h="${n}" aria-pressed="${n === H}">${label}</button>`).join("");
       for (const b of ref("levelSeg").querySelectorAll<HTMLButtonElement>("button")) b.setAttribute("aria-pressed", String(b.dataset.level === ui.level));
       ref<HTMLInputElement>("flex").value = String(c.flex);
-      ref("flexOut").textContent = c.flex <= 3 ? "Stiff" : c.flex >= 8 ? "Bendy" : "Medium";
+      ref("flexOut").textContent = `${c.flex} · ${c.flex <= 3 ? "Stiff" : c.flex >= 8 ? "Bendy" : "Medium"}`;
+      renderFlex();
       renderDrivers();
       const M = models();
       ref("splitReset").hidden = !(M && M.T < a.modelN);
@@ -1168,8 +1189,147 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (id === "resample") line((i) => a.y[i], C.text, 1);
     if (id === "fill") { line((i) => a.y[i], rgba(C.raw, 0.7), 1); ctx.fillStyle = C.danger; for (let i = 0; i < n; i++) if (a.filled[i] || a.coverage[i] < 0.9) { ctx.beginPath(); ctx.arc(sx(i), sy(a.y[i] === a.y[i] ? a.y[i] : lo), 2.2, 0, Math.PI * 2); ctx.fill(); } }
     if (id === "smooth") { line((i) => a.y[i], rgba(C.raw, 0.5), 1); line((i) => SM[i], C.accent, 1.75); }
+    if (id === "diff") {
+      const lag = ui.diffLag || defaultLag();
+      const d = (i: number): number => (i - lag >= 0 ? a.y[i] - a.y[i - lag] : NaN);
+      lo = 0; hi = 0;
+      for (let i = lag; i < n; i++) { const v = d(i); if (v === v) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }
+      ctx.strokeStyle = rgba(C.dim, 0.6); ctx.lineWidth = 0.75; ctx.beginPath(); ctx.moveTo(0, sy(0)); ctx.lineTo(r.width, sy(0)); ctx.stroke();
+      line(d, ui.diff ? C.accent : rgba(C.raw, 0.7), 1, lag);
+    }
     if (id === "compare") { line((i) => a.y[i], rgba(C.raw, 0.6), 1, a.g.ly); ctx.setLineDash([3, 2]); line((i) => (i - a.g.ly >= 0 ? a.y[i - a.g.ly] : NaN), C.dim, 1, a.g.ly); ctx.setLineDash([]); }
   }
+  // ---------------------------------------------------------------- difference (Explore)
+  /** The lag in use: 0 when the difference is off or not in Explore. */
+  function diffLag(): number { return ui.mode === "explore" && ui.diff && snap ? Math.max(1, Math.min(ui.diffLag || defaultLag(), snap.A.n - 2)) : 0; }
+  /** The shortest season that fits, else 1: the lag most worth looking at first. */
+  function defaultLag(): number {
+    const a = snap?.A;
+    if (!a) return 1;
+    const fit = a.g.periods.filter((p) => a.modelN >= 2 * p + 2);
+    return fit.length ? Math.min(...fit) : 1;
+  }
+  function lagLabel(lag: number): string {
+    const g = snap?.A.g, name = g?.seasons[lag];
+    return name ? `${lag} (${name})` : String(lag);
+  }
+  /** What the chart plots: the value, or its change from `lag` periods earlier. */
+  function heroVal(i: number): number {
+    const a = (snap as TsSnapshot).A, dl = diffLag();
+    if (!dl) return a.y[i];
+    return i - dl >= 0 ? a.y[i] - a.y[i - dl] : NaN;
+  }
+  function syncDiff(): void {
+    const s = snap as TsSnapshot, g = s.A.g, lag = ui.diffLag || defaultLag();
+    ref<HTMLInputElement>("diffOn").checked = ui.diff;
+    setNum("diffLag", lag, Math.max(1, s.A.n - 2));
+    ref("diffUnit").textContent = nounFor(g, lag).split(" ").pop() ?? "";
+    const presets = [1, ...g.periods.filter((p) => s.A.modelN >= 2 * p + 2), g.ly].filter((v, k, arr) => v >= 1 && arr.indexOf(v) === k).sort((p, q) => p - q);
+    ref("diffPresets").innerHTML = presets.map((p) => `<button type="button" data-lag="${p}" aria-pressed="${ui.diff && p === lag}">${p === 1 ? "1 (previous)" : lagLabel(p)}</button>`).join("");
+    const note = ref("diffNote");
+    const dl = diffLag();
+    if (!dl) { note.textContent = ""; return; }
+    const a = s.A;
+    let sum = 0, sq = 0, k = 0, ss = 0, sk = 0;
+    for (let i = dl; i < a.modelN; i++) {
+      if (a.filled[i] || a.filled[i - dl]) continue;
+      const v = a.y[i] - a.y[i - dl], u = a.y[i];
+      if (v === v) { sum += v; sq += v * v; k++; }
+      if (u === u) { ss += u; sk++; }
+    }
+    if (!k) { note.textContent = ""; return; }
+    const mean = sum / k, sd = Math.sqrt(Math.max(0, sq / k - mean * mean));
+    let vy = 0; const my = ss / (sk || 1);
+    for (let i = 0; i < a.modelN; i++) { const u = a.y[i]; if (u === u && !a.filled[i]) vy += (u - my) * (u - my); }
+    const sdy = Math.sqrt(vy / (sk || 1));
+    note.innerHTML = `Mean change <b>${signed(mean)}</b>, SD <b>${full(sd)}</b> (the series' own SD is ${full(sdy)}; ${sd < sdy ? `differencing removes ${Math.round((1 - (sd * sd) / (sdy * sdy)) * 100)}% of the variance` : "differencing adds variance: this lag is not a cycle of the series"}). Filled periods are left out.`;
+  }
+
+  // ---------------------------------------------------------------- forecast badge and trend flexibility
+  function renderHeroBadge(s: TsSnapshot, key: ModelKey | null): void {
+    const badge = ref("heroBadge"), M = models();
+    if (ui.mode !== "forecast" || !M || !s.futures || !key) { badge.hidden = true; return; }
+    const m = M.models[key], r = ratioOf(s, key), gd = grade(r, key), f = s.futures[key];
+    const heldMode = M.T < s.A.modelN && f.held?.ratio != null;
+    const better = key === "sn" ? "the baseline every other model is measured against" : r < 1 ? `${Math.round((1 - r) * 100)}% less error than repeating the last cycle` : `${Math.round((r - 1) * 100)}% <b>more</b> error than repeating the last cycle`;
+    const lucky = key !== "sn" && m.folds.of > 0 && m.folds.won * 2 < m.folds.of;
+    const band = f.held ? `${f.held.hit} of ${f.held.tot} held-out actuals inside the 80% band` : m.check ? `${m.check.hit} of ${m.check.tot} inside the 80% band on the latest fold` : "";
+    badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ${gd.cls}">${gd.text}</span><small>${ui.model === "auto" ? `Auto · best on ${METRIC_INFO[ui.metric].label}` : "picked by you"}</small></div>
+      <div class="ts-badge-body">${better} at the same horizons, ${heldMode ? "on the held-out actuals" : `over ${M.origins.length} backtest folds`} · ${METRIC_INFO[ui.metric].label} ${metricText(ui.metric, m.metrics[ui.metric])}${ui.metric === "mase" ? " (scaled by the in-sample one-cycle naive error, so multi-step forecasts often sit above 1)" : ""}${key !== "sn" ? ` · beat it in ${m.folds.won} of ${m.folds.of} folds` : ""}${band ? ` · ${band}` : ""}${lucky ? ` · <span class="ts-warn">wins under half its folds: may be luck</span>` : ""}${M.rough ? ` · <span class="ts-warn">under 3 folds: rough</span>` : ""}</div>`;
+    badge.hidden = false;
+  }
+  let curve: { key: string; points: { flex: number; mase: number }[] } | null = null;
+  let curveBusy = false;
+  const curveKey = (s: TsSnapshot): string => JSON.stringify({ ...s.cfg, flex: 0, h: s.H, src: source, d: dateColumn, gb: groupColumn });
+  function renderFlex(): void {
+    const s = snap as TsSnapshot, M = models(), c = s.cfg;
+    const d = flexDetail(M ? M.T : s.A.modelN, c.flex);
+    const lam = d.lambda >= 1 ? d.lambda.toFixed(1) : d.lambda >= 0.01 ? d.lambda.toFixed(2) : d.lambda.toExponential(0);
+    ref("flexNote").innerHTML = `A piecewise-linear trend with <b>${d.hinges} hinges</b> (possible changepoints) spread over the first 85% of the history, as in Prophet. Each hinge's change in slope carries a ridge (L2) penalty of <b>λ = ${lam}</b> × its own scale (λ runs from 12 at 1 to 0.003 at 10). `
+      + `<b>Stiff</b>: close to one straight line. High bias, low variance; it misses real turns but extrapolates calmly. <b>Bendy</b>: the trend can turn at every hinge. Low bias, high variance; it follows recent wiggles and extrapolates the last slope, which is how this model overfits. `
+      + `Judge it by the backtest, never by how well the line hugs the history: <b>Check every setting</b> draws the validation curve.`;
+    const box = ref("flexCurve");
+    if (!curve || curve.key !== curveKey(s) || !curve.points.length) { box.hidden = true; ref("flexCheck").textContent = curveBusy ? "Checking…" : "Check every setting"; return; }
+    ref("flexCheck").textContent = "Check again";
+    const pts = curve.points, best = pts.reduce((p, q) => (q.mase < p.mase ? q : p));
+    const pick = pts.find((p) => p.mase <= best.mase * 1.05) ?? best; // the stiffest within 5% of the best
+    const ref0 = M ? Math.min(...MODEL_KEYS.filter((k) => k !== "reg" && k !== "ens" && k !== "sn").map((k) => M.models[k].mase)) : NaN;
+    const refKey = M ? MODEL_KEYS.filter((k) => k !== "reg" && k !== "ens" && k !== "sn").find((k) => M.models[k].mase === ref0) : undefined;
+    const W = 360, Hh = 120, L = 34, B = 20, top = 8;
+    const vals = [...pts.map((p) => p.mase), ...(ref0 === ref0 ? [ref0] : [])];
+    const lo = Math.min(...vals) * 0.95, hi = Math.max(...vals) * 1.05 || 1;
+    const sx = (f: number): number => L + ((f - 1) / 9) * (W - L - 8), sy = (v: number): number => top + (1 - (v - lo) / (hi - lo || 1)) * (Hh - top - B);
+    const path = pts.map((p, k) => `${k ? "L" : "M"}${sx(p.flex).toFixed(1)},${sy(p.mase).toFixed(1)}`).join("");
+    const dots = pts.map((p) => `<circle cx="${sx(p.flex).toFixed(1)}" cy="${sy(p.mase).toFixed(1)}" r="${p.flex === c.flex ? 5 : 3}" class="${p.flex === c.flex ? "cur" : p === pick ? "pick" : ""}"><title>Flexibility ${p.flex}: MASE ${p.mase.toFixed(3)}</title></circle>`).join("");
+    const refLine = ref0 === ref0 && refKey ? `<line x1="${L}" x2="${W - 8}" y1="${sy(ref0).toFixed(1)}" y2="${sy(ref0).toFixed(1)}" class="ref"/><text x="${W - 10}" y="${(sy(ref0) - 4).toFixed(1)}" text-anchor="end" class="reft">${MODEL_INFO[refKey].name} ${ref0.toFixed(2)}</text>` : "";
+    const axis = `<text x="${L - 4}" y="${sy(hi / 1.05) + 4}" text-anchor="end">${(hi / 1.05).toFixed(2)}</text><text x="${L - 4}" y="${sy(lo / 0.95) + 4}" text-anchor="end">${(lo / 0.95).toFixed(2)}</text>`
+      + [1, 5, 10].map((f) => `<text x="${sx(f)}" y="${Hh - 4}" text-anchor="${f === 1 ? "start" : f === 10 ? "end" : "middle"}">${f === 1 ? "1 stiff" : f === 10 ? "10 bendy" : "5"}</text>`).join("");
+    const rising = pts[9]!.mase > best.mase * 1.05 && best.flex < 10;
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${Hh}" width="${W}" height="${Hh}" role="img" aria-label="Backtest MASE at each trend flexibility">${refLine}<path d="${path}"/>${dots}${axis}</svg>
+      <div class="ts-flexread"><p>Backtest MASE of the trend, seasons and drivers model at each setting, on the board's ${M?.origins.length ?? ""} folds (lower is better). Lowest at <b>${best.flex}</b> (${best.mase.toFixed(3)}); you are on <b>${c.flex}</b> (${pts[c.flex - 1]!.mase.toFixed(3)}).</p>
+      <p>${rising ? "The error rises again as the trend gets bendier: past the lowest point the trend is <b>fitting noise</b>. " : best.flex >= 9 ? "The error keeps falling as the trend bends: the series has real turns the stiff trend misses. " : ""}Suggested: <b>${pick.flex}</b>, the stiffest setting within 5% of the lowest. When scores are this close, the simpler trend has less room to have learned noise (a one-standard-error style rule).</p>
+      ${pick.flex !== c.flex ? `<button class="ts-ghost" type="button" data-flexpick="${pick.flex}">Use ${pick.flex}</button>` : ""}</div>`;
+    box.hidden = false;
+  }
+  function checkFlex(): void {
+    const s = snap;
+    if (!s || !cfg || curveBusy) return;
+    curveBusy = true;
+    ref("flexCheck").textContent = "Checking…";
+    const key = curveKey(s);
+    void options.request({ dateColumn, groupColumn, config: cfg, mode: "forecast", source, flexCurve: true }).then((msg) => {
+      curveBusy = false;
+      curve = { key, points: msg?.snapshot?.flexCurve ?? [] };
+      invalidate("ui", "panel");
+    });
+  }
+  /** Technical notes for each gap choice, with this series' own numbers. */
+  function gapOpts(s: TsSnapshot): [TsGaps, string, string][] {
+    const a = s.A, g = a.g, m = a.modelM, fit = g.periods.filter((p) => a.modelN >= 2 * p + 2);
+    const shortM = fit.length ? Math.min(...fit) : m, short = Math.max(2, Math.round(shortM / 4)), K = m >= 100 ? 4 : 7;
+    const u = (k: number): string => nounFor(g, k);
+    const notes: Record<TsGaps, string> = m > 1 ? {
+      smart: `Recommended. Gaps of up to ${short} ${u(short)} (a quarter of the shortest season, ${shortM}) take the usual pattern; longer gaps take the nearby typical value. On real hourly data with stretches hidden, each was the more accurate at its gap lengths.`,
+      local: `For each empty t: the median of y at t ± k·${m} (the same phase, season ${m}) over the nearest ${2 * K} known values (k = 1, 2, …). Robust to outliers and follows the local level, so a semester or holiday shift is respected. Assumes no trend across the gap.`,
+      lastcycle: `Seasonal naive: y(t) = y(t − ${m}). Copies the cycle before exactly, noise included; one odd cycle becomes two.`,
+      seasonal: `A straight line through the deseasonalised level from one edge of the gap to the other, plus the robust phase profile (the median, per phase of ${m}, of each value minus its moving average). It hangs on the two edge readings, so it is best for gaps of a few ${g.nouns}.`,
+      interp: "A straight line between the two edge values. It ignores the season, so a gap across a daily peak comes out flat.",
+      last: "Last observation carried forward. Right for levels that hold until changed (prices, settings); wrong for anything seasonal.",
+      zero: "y(t) = 0. Right when no row means nothing happened (sales, counts). These periods then count as real data in the models.",
+      leave: "Shown as a break. The models still need an unbroken series, so they bridge gaps with the smart fill. Forecast errors are never scored on filled periods, and the regression leaves them out of its fit.",
+    } : {
+      smart: "With no season at this grain: a straight line between the levels either side.",
+      local: "No season at this grain, so this is the same as the usual pattern: a straight line between the edges.",
+      lastcycle: "No season at this grain, so this carries the last value forward.",
+      seasonal: "With no season at this grain: a straight line between the levels either side.",
+      interp: "A straight line between the two edge values.",
+      last: "Last observation carried forward. Right for levels that hold until changed (prices, settings).",
+      zero: "y(t) = 0. Right when no row means nothing happened (sales, counts).",
+      leave: "Shown as a break. The models bridge it with the smart fill and never score forecast errors on it.",
+    };
+    return GAP_OPTS.map(([k, label]) => [k, label, notes[k]]);
+  }
+
   function renderBoard(): void {
     const s = snap as TsSnapshot, board = ref("board"), card = ref("modelCard");
     const M = models();
@@ -1428,6 +1588,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (!snap) return;
     popKey = key;
     const cur = tokValue(key), info = snap.table;
+    POP.dataset.key = key;
     POP.innerHTML = tokenOpts(key).map(([val, label, hint]) => {
       const off = key === "grain" && info.tooFine[val as GrainId];
       return `<button type="button" role="menuitemradio" data-val="${escapeHtml(val)}" aria-checked="${cur === val}"${off ? ` disabled title="Finer than the data: most periods would be empty"` : ""}>${escapeHtml(label)}${hint ? ` <small>${escapeHtml(hint)}</small>` : ""}</button>`;
@@ -1527,6 +1688,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       else if (id === "fill") openPop(step, "gaps");
       else if (id === "smooth") uiChange({ showSmooth: !ui.showSmooth });
       else if (id === "compare") uiChange({ lastYear: !ui.lastYear });
+      else if (id === "diff") uiChange({ diff: !ui.diff, diffLag: ui.diffLag || defaultLag() });
     }
     const hp = target.closest<HTMLElement>("[data-h]");
     if (hp) { afterFetch = () => { allT = null; flyTo(forecastView()); }; change({ horizon: Number(hp.dataset.h) }, { fade: false }); }
@@ -1584,6 +1746,11 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   on("showShift", "change", (e) => uiChange({ showShift: (e.target as HTMLInputElement).checked }));
   on("sens", "input", (e) => change({ sens: Number((e.target as HTMLInputElement).value) }, { fade: false }));
   on("flex", "input", (e) => change({ flex: Number((e.target as HTMLInputElement).value) }, { fade: false }));
+  on("flexCheck", "click", () => checkFlex());
+  on("flexCurve", "click", (e) => { const b = (e.target as Element).closest<HTMLElement>("[data-flexpick]"); if (b) change({ flex: Number(b.dataset.flexpick) }, { fade: false }); });
+  on("diffOn", "change", (e) => uiChange({ diff: (e.target as HTMLInputElement).checked, diffLag: ui.diffLag || defaultLag() }));
+  on("diffLag", "change", (e) => { const v = Math.round(Number((e.target as HTMLInputElement).value)); if (v >= 1) uiChange({ diff: true, diffLag: v }); });
+  on("diffPresets", "click", (e) => { const b = (e.target as Element).closest<HTMLElement>("[data-lag]"); if (b) uiChange({ diff: true, diffLag: Number(b.dataset.lag) }); });
   on("cvSeg", "click", (e) => { const b = (e.target as Element).closest<HTMLButtonElement>("button[data-cv]"); if (b) change({ cv: b.dataset.cv as TsConfig["cv"] }, { fade: false }); });
   on("metricSel", "change", (e) => { uiChange({ metric: (e.target as HTMLSelectElement).value as MetricKey }); invalidate("panel"); });
   on("guideBtn2", "click", () => openModelGuide(Object.fromEntries(MODEL_KEYS.map((k) => [k, MODEL_INFO[k].name])) as Record<ModelKey, string>));

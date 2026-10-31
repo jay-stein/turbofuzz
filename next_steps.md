@@ -1978,3 +1978,28 @@ The goal is statsforecast's AutoARIMA level, with no dependencies.
   a few percent of each other, and the blend of both beats either. The win is a second
   strong, very different model for the Blend, plus a name forecasters trust. It is not
   a leap in accuracy.
+
+### Review against fpp3 (2026-10-31): where we stand, and the overfitting roadmap
+
+Already in line with *Forecasting: Principles and Practice*:
+- the seasonal naive benchmark (§5.2);
+- time-series cross-validation on a rolling origin, expanding or rolling (§5.10);
+- MASE as the default measure, scaled on training data (§5.8);
+- ETS chosen by AICc (§8.6);
+- Theta and forecast combinations (§13.4);
+- STL-style decomposition (§3.6);
+- intervals from out-of-sample errors (in the spirit of §5.5).
+
+The honest backtest (settings fitted before the first fold) and the validation curve go beyond most tools.
+
+Ranked improvements, overfitting first:
+1. **Selection bias from picking the winner.** The Auto pick is the minimum of 7 models over the same folds, so its reported score is optimistic (winner's curse). Fix: score the chosen model on a final lockbox it never saw during selection (the last fold held back from ranking). Report "selected on folds 1..k-1, confirmed on fold k".
+2. **Are differences real?** Add a Diebold–Mariano test (with the Harvey small-sample correction) between the pick and the runner-up, and the baseline. "Not significantly better" should push toward the simpler model.
+3. **Residual diagnostics (§5.4).** Show the ACF of one-step residuals and a Ljung–Box test. Leftover autocorrelation means the model missed structure; none, with a worse backtest, suggests it is overfitting noise.
+4. **Accuracy by horizon (§5.10).** Plot each model's error against steps ahead. Some models win at short range and lose at long range, and one average hides that.
+5. **Interval calibration across all folds.** The band check uses only the latest fold. Do leave-one-fold-out coverage for every fold and report 80%/95% coverage and the Winkler or CRPS score (§5.9).
+6. **Smoothing models through filled periods.** ETS, Holt-Winters and Theta run through filled values (the regression skips them). Treat them as missing in the state updates (ETS supports it) so no made-up value is learned from.
+7. **Transformations (§3.1, §5.6).** Offer Box-Cox / log with bias-adjusted back-transform for all models, not only the regression.
+8. **ETS with multiplicative errors (§8.5).** Point forecasts are the same, but the intervals and likelihood differ, as does AICc across error types.
+9. **ARIMA (ch. 9).** See the AutoARIMA plan above. The Difference plot in Explore is its first step.
+10. **Bagged ETS (§12.5)** for robustness, and **reconciliation (ch. 11)** for split series that should add up to the total.

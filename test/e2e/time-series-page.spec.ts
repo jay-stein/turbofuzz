@@ -232,3 +232,36 @@ test("the data table says which rows are actual, filled or forecast", async ({ p
   await expect(table.locator("tr.ts-row-actual").first()).toContainText("Actual");
   await expect(table.locator(".ts-table-note")).toContainText("in view");
 });
+
+test("the chart names the forecast model and how it did; Trend flexibility explains itself and draws its validation curve", async ({ page }) => {
+  await openPage(page);
+  await page.locator(".ts-modes [data-mode=forecast]").click();
+  const badge = page.locator(".ts-page [data-ref=heroBadge]");
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText(/Auto · best on MASE/);
+  await expect(badge).toContainText(/repeating the last cycle at the same horizons, over \d+ backtest folds · MASE \d\.\d\d/);
+  await expect(page.locator(".ts-page [data-ref=flexNote]")).toContainText(/ridge \(L2\) penalty of λ = /);
+  await page.getByRole("button", { name: "Check every setting" }).click();
+  const curve = page.locator(".ts-page [data-ref=flexCurve]");
+  await expect(curve.locator("svg circle")).toHaveCount(10);
+  await expect(curve).toContainText(/Lowest at \d+/);
+  await expect(curve).toContainText(/Suggested: \d+/);
+});
+
+test("Explore can plot the difference from n periods earlier, and gap choices state their rule", async ({ page }) => {
+  await openPage(page);
+  await page.locator(".ts-page [data-ref=diffPresets] button", { hasText: "weekly" }).click();
+  await expect(page.locator(".ts-page [data-ref=diffOn]")).toBeChecked();
+  await expect(page.locator(".ts-page [data-ref=legend]")).toContainText("points − points 7 days earlier");
+  await expect(page.locator(".ts-page [data-ref=diffNote]")).toContainText(/Mean change .* SD/);
+  await page.locator(".ts-page [data-ref=diffLag]").fill("1");
+  await page.locator(".ts-page [data-ref=diffLag]").press("Enter");
+  await expect(page.locator(".ts-page [data-ref=legend]")).toContainText("1 day earlier");
+  await page.locator(".ts-page [data-ref=diffOn]").uncheck();
+  await expect(page.locator(".ts-page [data-ref=legend]")).not.toContainText("earlier");
+
+  await page.locator(".ts-tok[data-tok=gaps]").click();
+  const smart = page.locator(".ts-popover button", { hasText: "filled smartly" });
+  await expect(smart).toContainText(/Gaps of up to \d+ days? \(a quarter of the shortest season, 7\)/);
+  await expect(page.locator(".ts-popover button", { hasText: /^filled with the nearby typical value/ })).toContainText("t ± k·");
+});
