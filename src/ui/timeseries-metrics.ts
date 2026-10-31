@@ -132,6 +132,7 @@ export function openModelGuide(names: Record<ModelKey, string>): void {
     <h3>Overfitting, and how the scores avoid it</h3>
     <p>Any model can be tuned to fit its own history closely. That says nothing about the future. So no score here is measured on data the model learned from. Each one comes from forecasts made from <b>earlier dates</b> (the backtest folds). The model's settings are chosen <b>before the first fold</b>, and it is scored on what actually came next.</p>
     <ul>
+      <li><b>Lockbox</b>: with 4 or more folds, the last one is held back. Models are ranked, and Auto picks, on the others only; the pick is then scored once on the held-back fold. The best of seven on the same folds is optimistic (selection bias, the "winner's curse"); the lockbox score is not. If the pick ranks low there, its lead was luck.</li>
       <li><b>Folds beaten</b>: in how many folds the model beat repeating the last cycle. One that is best overall but wins few folds may have been lucky once.</li>
       <li><b>Close scores</b>: when two models score within about 5%, prefer the simpler one. It has less room to have learned noise.</li>
       <li><b>Expanding vs rolling</b>: if a model ranks well under one and badly under the other, it depends on how much history it gets.</li>

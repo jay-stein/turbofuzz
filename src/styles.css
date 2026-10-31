@@ -12042,3 +12042,6 @@ button.qp-tile:hover {
 .ts-popover[data-key="gaps"] { max-width: min(520px, calc(100vw - 16px)); }
 .ts-popover[data-key="gaps"] button { flex-direction: column; gap: 2px; padding: 7px 10px; }
 .ts-popover[data-key="gaps"] button small { line-height: 1.45; font-size: 12px; }
+
+.ts-badge-lock { margin-top: 4px; padding-top: 4px; border-top: 1px dashed color-mix(in srgb, var(--ts-forecast) 30%, var(--border)); color: var(--ts-dim); }
+.ts-badge-lock b { color: var(--text); }

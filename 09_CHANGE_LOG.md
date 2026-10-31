@@ -28,6 +28,19 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-22 — Time Series: a lockbox fold against selection bias
+
+- **Status:** Verified
+- **Related issue:** next_steps.md "Review against fpp3", item 1. The Auto pick was the best of 7 models on the same folds it was scored on, so its score was optimistic (the winner's curse).
+- **Scope:**
+  - **Lockbox:** with 4 or more folds, the last fold is held back. Ranking, Auto, folds beaten, grades and the "vs repeat-last-cycle" ratio use the other folds only; every model is then scored once on the held-back fold.
+  - **Board:** a new "Unseen fold" column shows each model's score and rank there.
+  - **Forecast strip:** adds a "Lockbox check" line: where the pick ranked on unseen data, whether it beat repeating the last cycle, and a verdict (holds up / partly luck / fell apart).
+  - **Elsewhere:** the model card lists both score sets; the guide explains the lockbox; the scorecard CSV gains lockbox_* columns.
+- **Tests run and results:** Time Series unit tests (35, incl. a lockbox test) and e2e (16) pass.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-21 — Time Series: technical notes, the forecast named on the chart, difference plots
 
 - **Status:** Verified

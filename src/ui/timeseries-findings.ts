@@ -350,7 +350,8 @@ export function modelRows(s: TsSnapshot, sel: ModelKey, metric: MetricKey = "mas
   if (sel === "sn") rows.push(["Repeat last cycle", M.m > 1 ? `each ${g.noun} copies the same ${g.noun} one season (${M.m} ${g.nouns}) earlier` : `each ${g.noun} repeats the last one; there is no season at this grain`]);
   rows.push(["Fitted on", `${shortPeriod(g, A.t[0])} to ${shortPeriod(g, A.t[M.T - 1])} (${M.T} ${g.nouns})`]);
   rows.push(["Backtest", `${M.origins.length} forecasts from earlier dates, ${M.H} ${g.nouns} each, ${M.cv === "rolling" && M.trainLen ? `each trained on the ${M.trainLen} ${g.nouns} before it (rolling window)` : "each trained on all the history before it (expanding window)"}; settings chosen before the first one, so nothing is scored on data it was tuned on. Error ${m.ratio.toFixed(2)}× repeating the last cycle`]);
-  if (m.metrics) rows.push(["Scores", METRIC_KEYS.map((k) => `${METRIC_INFO[k].label} ${metricText(k, m.metrics[k])}`).join(" · ")]);
+  if (m.metrics) rows.push([M.lockbox ? "Scores (selection folds)" : "Scores", METRIC_KEYS.map((k) => `${METRIC_INFO[k].label} ${metricText(k, m.metrics[k])}`).join(" · ")]);
+  if (M.lockbox && m.lock) rows.push(["Scores (lockbox fold)", `${METRIC_KEYS.map((k) => `${METRIC_INFO[k].label} ${metricText(k, m.lock![k])}`).join(" · ")}. The last fold is held back: models are ranked and Auto picks on the other folds, then scored once here, so this score carries no selection bias`]);
   if (sel !== "sn" && m.folds?.of) {
     const luck = m.folds.won * 2 < m.folds.of && sel === (M.bestBy?.[metric] ?? M.best);
     rows.push(["Folds beaten", `beat repeating the last cycle in ${m.folds.won} of ${m.folds.of} folds${luck ? `. <span class="ts-warn">Best overall but wins under half the folds: its lead may come from one lucky stretch.</span>` : ""}`]);

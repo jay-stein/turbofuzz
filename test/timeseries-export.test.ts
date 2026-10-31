@@ -39,8 +39,9 @@ test("forecast, scorecard and backtest CSVs hold what an analyst needs", () => {
 
   const bt = backtestRows(s, s.backtest!, starts(s), iso);
   assert.equal(bt.length - 1, 7 * s.models.origins.length * s.models.H);
-  // MAE recomputed from the export matches the board.
-  const sn = bt.slice(1).filter((r) => r[0] === "Repeat last cycle" && r[8] !== "");
+  // MAE recomputed from the export (selection folds, the last one is the lockbox) matches the board.
+  const R = s.models.origins.length;
+  const sn = bt.slice(1).filter((r) => r[0] === "Repeat last cycle" && r[8] !== "" && Number(r[1]) < R);
   const mae = sn.reduce((a, r) => a + Number(r[8]), 0) / sn.length;
   assert.ok(Math.abs(mae - s.models.models.sn.metrics.mae) < 1e-3, `${mae} vs ${s.models.models.sn.metrics.mae}`);
 });

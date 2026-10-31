@@ -44,8 +44,11 @@ export interface ModelSummary {
   ratio: number;
   /** On the latest backtest: how many periods fell inside the 80% band built from the others. */
   check: { hit: number; tot: number } | null;
+  /** On the selection folds (all but the last when there are 4 or more). */
   metrics: Metrics;
-  /** Backtest folds where this model's error was below repeating the last cycle. */
+  /** On the lockbox: the last fold, never used to rank or pick; null with under 4 folds. */
+  lock: Metrics | null;
+  /** Selection folds where this model's error was below repeating the last cycle. */
   folds: { won: number; of: number };
   hw?: { params: HwParams };
   /** ETS components, e.g. "A,Ad,M" (error, trend, season), and its smoothing parameters. */
@@ -62,8 +65,10 @@ export interface ModelRun {
   step: number;
   models: Record<ModelKey, ModelSummary>;
   best: ModelKey;
-  /** The best model by each measure (bias by its size). */
+  /** The best model by each measure (bias by its size), on the selection folds only. */
   bestBy: Record<MetricKey, ModelKey>;
+  /** The last fold is held back from selection and only scored (a lockbox). */
+  lockbox: boolean;
   cv: "expanding" | "rolling";
   /** Periods each rolling fold trains on; null when expanding. */
   trainLen: number | null;
@@ -627,30 +632,28 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   const models = {} as Record<ModelKey, ModelSummary>;
   const q = {} as Record<ModelKey, BandQ[]>;
   const foldMae = {} as Record<ModelKey, Float64Array>;
+  // With 4 or more folds the last is a lockbox: models are ranked and the Auto pick is
+  // made on the others only, then the pick is scored once on data the choice never saw.
+  // The best of seven on the same folds is optimistic (selection bias); the lockbox is not.
+  const lockbox = R >= 4;
+  const sel = (k: number): boolean => !lockbox || k < R - 1;
   for (const key of MODEL_KEYS) {
     const errs = new Float64Array(R * H).fill(NaN);
     const fm = (foldMae[key] = new Float64Array(R));
-    let ae = 0, ac = 0, se = 0, ay = 0, sum = 0, sm = 0, smc = 0, mp = 0, mpc = 0;
+    const all = newAcc(), last = newAcc();
     origins.forEach((o, k) => {
+      const acc = sel(k) ? all : last;
       let fae = 0, fc = 0;
       for (let h = 0; h < H; h++) {
         if (A.made[o + h]) continue;
         const act = y[o + h], f = oc[key][k * H + h], e = act - f;
         if (!(e === e)) continue;
-        errs[k * H + h] = e; ae += Math.abs(e); ac++; fae += Math.abs(e); fc++;
-        se += e * e; ay += Math.abs(act); sum -= e;
-        const d = Math.abs(act) + Math.abs(f);
-        if (d > 0) { sm += (2 * Math.abs(e)) / d; smc++; }
-        if (act !== 0) { mp += Math.abs(e / act); mpc++; }
+        errs[k * H + h] = e; fae += Math.abs(e); fc++;
+        addErr(acc, act, f);
       }
       fm[k] = fc ? fae / fc : NaN;
     });
-    const mae = ae / (ac || 1);
-    const metrics: Metrics = {
-      mase: mae / scale, mae, rmse: Math.sqrt(se / (ac || 1)),
-      wape: ay > 0 ? ae / ay : NaN, smape: smc ? sm / smc : NaN, mape: mpc ? mp / mpc : NaN,
-      bias: ay > 0 ? sum / ay : NaN,
-    };
+    const metrics = metricsOf(all, scale);
     q[key] = bandQuantiles(errs, origins.map((_, k) => k), H);
     let check: ModelSummary["check"] = null;
     if (R >= 4) {
@@ -659,11 +662,12 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
       for (let h = 0; h < H; h++) { const e = errs[(R - 1) * H + h]; if (e !== e) continue; tot++; if (e >= qx[h].q10 && e <= qx[h].q90) hit++; }
       check = { hit, tot };
     }
-    models[key] = { key, mase: metrics.mase, ratio: 0, check, metrics, folds: { won: 0, of: 0 } };
+    models[key] = { key, mase: metrics.mase, ratio: 0, check, metrics, lock: lockbox ? metricsOf(last, scale) : null, folds: { won: 0, of: 0 } };
   }
   for (const key of MODEL_KEYS) {
     let won = 0, of = 0;
-    for (let k = 0; k < R; k++) { const a = foldMae[key][k]!, b = foldMae.sn[k]!; if (a === a && b === b) { of++; if (a < b) won++; } }
+    for (let k = 0; k < R; k++) {
+      if (!sel(k)) continue; const a = foldMae[key][k]!, b = foldMae.sn[k]!; if (a === a && b === b) { of++; if (a < b) won++; } }
     models[key].folds = { won, of };
   }
   const base = models.sn.mase || 1;
@@ -677,8 +681,26 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   const size = (key: ModelKey, mk: MetricKey): number => { const v = models[key].metrics[mk]; return v === v ? (mk === "bias" ? Math.abs(v) : v) : Infinity; };
   const bestBy = Object.fromEntries(METRIC_KEYS.map((mk) => [mk, order.reduce((a, b) => (size(b, mk) < size(a, mk) ? b : a))])) as Record<MetricKey, ModelKey>;
   const best = bestBy.mase;
-  const out: ModelRun = { T, H, m, origins, step, models, best, bestBy, cv: rolling ? "rolling" : "expanding", trainLen, rough: R < 3, profile: seriesProfile(A, T) };
+  const out: ModelRun = { T, H, m, origins, step, models, best, bestBy, lockbox, cv: rolling ? "rolling" : "expanding", trainLen, rough: R < 3, profile: seriesProfile(A, T) };
   return { ...out, internal: { ...out, oc, etsFinal, etsFit, hwFinal: run.final, hwParams, regFit: reg, thetaFit: theta, climM, climMeans, q } };
+}
+
+interface ErrAcc { ae: number; ac: number; se: number; ay: number; sum: number; sm: number; smc: number; mp: number; mpc: number }
+const newAcc = (): ErrAcc => ({ ae: 0, ac: 0, se: 0, ay: 0, sum: 0, sm: 0, smc: 0, mp: 0, mpc: 0 });
+function addErr(a: ErrAcc, act: number, f: number): void {
+  const e = act - f;
+  a.ae += Math.abs(e); a.ac++; a.se += e * e; a.ay += Math.abs(act); a.sum -= e;
+  const d = Math.abs(act) + Math.abs(f);
+  if (d > 0) { a.sm += (2 * Math.abs(e)) / d; a.smc++; }
+  if (act !== 0) { a.mp += Math.abs(e / act); a.mpc++; }
+}
+function metricsOf(a: ErrAcc, scale: number): Metrics {
+  const mae = a.ac ? a.ae / a.ac : NaN;
+  return {
+    mase: mae / scale, mae, rmse: a.ac ? Math.sqrt(a.se / a.ac) : NaN,
+    wape: a.ay > 0 ? a.ae / a.ay : NaN, smape: a.smc ? a.sm / a.smc : NaN, mape: a.mpc ? a.mp / a.mpc : NaN,
+    bias: a.ay > 0 ? a.sum / a.ay : NaN,
+  };
 }
 
 /** Future values and bands for every model. */

@@ -1199,6 +1199,12 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     }
     if (id === "compare") { line((i) => a.y[i], rgba(C.raw, 0.6), 1, a.g.ly); ctx.setLineDash([3, 2]); line((i) => (i - a.g.ly >= 0 ? a.y[i - a.g.ly] : NaN), C.dim, 1, a.g.ly); ctx.setLineDash([]); }
   }
+  /** A model's rank among the seven on the lockbox fold, by the chosen measure. */
+  function lockRank(M: ModelRun, key: ModelKey, mk: MetricKey): number {
+    const v = (k: ModelKey): number => { const x = M.models[k].lock?.[mk] ?? NaN; return x === x ? (mk === "bias" ? Math.abs(x) : x) : Infinity; };
+    return 1 + MODEL_KEYS.filter((k) => v(k) < v(key)).length;
+  }
+
   // ---------------------------------------------------------------- difference (Explore)
   /** The lag in use: 0 when the difference is off or not in Explore. */
   function diffLag(): number { return ui.mode === "explore" && ui.diff && snap ? Math.max(1, Math.min(ui.diffLag || defaultLag(), snap.A.n - 2)) : 0; }
@@ -1255,8 +1261,17 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const lucky = key !== "sn" && m.folds.of > 0 && m.folds.won * 2 < m.folds.of;
     const band = f.held ? `${f.held.hit} of ${f.held.tot} held-out actuals inside the 80% band` : m.check ? `${m.check.hit} of ${m.check.tot} inside the 80% band on the latest fold` : "";
     badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ${gd.cls}">${gd.text}</span><small>${ui.model === "auto" ? `Auto · best on ${METRIC_INFO[ui.metric].label}` : "picked by you"}</small></div>
-      <div class="ts-badge-body">${better} at the same horizons, ${heldMode ? "on the held-out actuals" : `over ${M.origins.length} backtest folds`} · ${METRIC_INFO[ui.metric].label} ${metricText(ui.metric, m.metrics[ui.metric])}${ui.metric === "mase" ? " (scaled by the in-sample one-cycle naive error, so multi-step forecasts often sit above 1)" : ""}${key !== "sn" ? ` · beat it in ${m.folds.won} of ${m.folds.of} folds` : ""}${band ? ` · ${band}` : ""}${lucky ? ` · <span class="ts-warn">wins under half its folds: may be luck</span>` : ""}${M.rough ? ` · <span class="ts-warn">under 3 folds: rough</span>` : ""}</div>`;
+      <div class="ts-badge-body">${better} at the same horizons, ${heldMode ? "on the held-out actuals" : `over ${M.origins.length} backtest folds`} · ${METRIC_INFO[ui.metric].label} ${metricText(ui.metric, m.metrics[ui.metric])}${ui.metric === "mase" ? " (scaled by the in-sample one-cycle naive error, so multi-step forecasts often sit above 1)" : ""}${key !== "sn" ? ` · beat it in ${m.folds.won} of ${m.folds.of} folds` : ""}${band ? ` · ${band}` : ""}${lucky ? ` · <span class="ts-warn">wins under half its folds: may be luck</span>` : ""}${M.rough ? ` · <span class="ts-warn">under 3 folds: rough</span>` : ""}</div>${lockLine(M, key)}`;
     badge.hidden = false;
+  }
+  /** How the pick did on the lockbox fold, which the choice never saw. */
+  function lockLine(M: ModelRun, key: ModelKey): string {
+    const m = M.models[key], mk = ui.metric;
+    if (!M.lockbox || !m.lock) return "";
+    const R = M.origins.length, rank = lockRank(M, key, mk), base = M.models.sn.lock?.[mk] ?? NaN, v = m.lock[mk];
+    const beats = key === "sn" ? "" : v === v && base === base ? (Math.abs(v) < Math.abs(base) ? " and beat repeating the last cycle" : `, <span class="ts-warn">but did not beat repeating the last cycle (${metricText(mk, base)})</span>`) : "";
+    const verdict = rank <= 2 ? "the pick holds up" : rank <= 4 ? "middling: the pick's lead looks partly like luck" : "<span class=\"ts-warn\">the pick fell apart on unseen data: treat its score as overfitted to the folds</span>";
+    return `<div class="ts-badge-lock"><b>Lockbox check</b>: picked on folds 1–${R - 1}; on fold ${R}, which the choice never saw, it ranked <b>#${rank} of ${MODEL_KEYS.length}</b> (${METRIC_INFO[mk].label} ${metricText(mk, v)})${beats}. ${verdict}.</div>`;
   }
   let curve: { key: string; points: { flex: number; mase: number }[] } | null = null;
   let curveBusy = false;
@@ -1344,7 +1359,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     for (const b of ref("cvSeg").querySelectorAll<HTMLButtonElement>("button")) b.setAttribute("aria-pressed", String(b.dataset.cv === M.cv));
     ref<HTMLSelectElement>("metricSel").value = mk;
     ref("boardNote").innerHTML = `Ranked by <b>${info.label}</b> (${info.short.toLowerCase()}), ${M.cv} window, ${M.origins.length} folds. Change both in the toolbar above the chart.`;
-    board.innerHTML = `<thead><tr><th>Model</th><th title="${info.short}: ${mk === "bias" ? "nearer zero is better" : "lower is better"}">${info.label} <small>${mk === "bias" ? "nearer 0 is better" : "lower is better"}</small></th><th>${heldMode ? "Held-out" : "Backtest"} error vs repeat-last-cycle</th><th>Grade</th><th title="Backtest folds where it beat repeating the last cycle">Folds beaten</th><th>${heldMode ? "Held-out check" : "Band check"}</th></tr></thead><tbody>` +
+    board.innerHTML = `<thead><tr><th>Model</th><th title="${info.short}: ${mk === "bias" ? "nearer zero is better" : "lower is better"}">${info.label} <small>${mk === "bias" ? "nearer 0 is better" : "lower is better"}</small></th><th>${heldMode ? "Held-out" : "Backtest"} error vs repeat-last-cycle</th><th>Grade</th><th title="Selection folds where it beat repeating the last cycle">Folds beaten</th>${M.lockbox ? `<th title="The last fold, held back: never used to rank or pick, so its score is not flattered by the choice">Unseen fold <small>${info.label}, rank</small></th>` : ""}<th>${heldMode ? "Held-out check" : "Band check"}</th></tr></thead><tbody>` +
       keys.map((k) => {
         const m = M.models[k], r = ratioOf(s, k), gd = grade(r, k), f = fut[k], v = size(k);
         const chk = f.held ? `${f.held.hit} of ${f.held.tot} inside 80%` : m.check ? `${m.check.hit} of ${m.check.tot} inside 80%` : "–";
@@ -1353,7 +1368,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
           <td><span class="ts-errbar" style="width:${Number.isFinite(v) ? Math.max(4, (v / maxV) * 90).toFixed(0) : 0}px;opacity:${k === "sn" ? 0.35 : 0.85}"></span>${metricText(mk, m.metrics[mk])}</td>
           <td>${r.toFixed(2)}×${heldMode ? ` <small>backtest ${m.ratio.toFixed(2)}×</small>` : ""}</td>
           <td><span class="ts-pill ${gd.cls}">${gd.text}</span></td>
-          <td>${k === "sn" ? "–" : `${m.folds.won} of ${m.folds.of}`}</td>
+          <td>${k === "sn" ? "–" : `${m.folds.won} of ${m.folds.of}`}</td>${M.lockbox ? `<td>${m.lock ? `${metricText(mk, m.lock[mk])} <small>#${lockRank(M, k, mk)}</small>` : "–"}</td>` : ""}
           <td>${chk}</td></tr>`;
       }).join("") + "</tbody>";
     card.innerHTML = modelRows(s, sel, mk).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");

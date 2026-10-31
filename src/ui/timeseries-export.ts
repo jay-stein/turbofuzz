@@ -42,7 +42,7 @@ export function modelParams(m: ModelSummary, season: number): string {
 export function scorecardRows(s: TsSnapshot, metric: MetricKey, picked: ModelKey | null, iso: (ms: number) => string): string[][] {
   const head = ["model", "method", "rank", "auto_pick", "shown", ...METRIC_KEYS.map((k) => k), "vs_repeat_last_cycle", "grade", "folds_beaten", "folds",
     "band_check_inside_80", "band_check_periods", "heldout_mae", "heldout_inside_80", "heldout_periods", "validation", "train_periods_per_fold", "horizon", "fold_step",
-    "fitted_from", "fitted_to", "fitted_periods", "ranked_by", "parameters"];
+    "fitted_from", "fitted_to", "fitted_periods", "ranked_by", ...METRIC_KEYS.map((k) => `lockbox_${k}`), "parameters"];
   const rows = [head];
   if ("error" in s.models || !s.futures) return rows;
   const M = s.models, futures = s.futures;
@@ -55,7 +55,7 @@ export function scorecardRows(s: TsSnapshot, metric: MetricKey, picked: ModelKey
       ...METRIC_KEYS.map((mk) => num(m.metrics[mk])), num(m.ratio), grade(m.ratio, k).text, k === "sn" ? "" : String(m.folds.won), String(m.folds.of),
       m.check ? String(m.check.hit) : "", m.check ? String(m.check.tot) : "", held ? num(held.mae) : "", held ? String(held.hit) : "", held ? String(held.tot) : "",
       M.cv, M.trainLen === null ? "all before each fold" : String(M.trainLen), String(M.H), String(M.step),
-      iso(s.A.t[0]!), iso(s.A.t[M.T - 1]!), String(M.T), METRIC_INFO[metric].label, modelParams(m, M.m),
+      iso(s.A.t[0]!), iso(s.A.t[M.T - 1]!), String(M.T), METRIC_INFO[metric].label, ...METRIC_KEYS.map((mk) => num(m.lock?.[mk])), modelParams(m, M.m),
     ]);
   });
   return rows;

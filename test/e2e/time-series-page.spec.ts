@@ -240,6 +240,8 @@ test("the chart names the forecast model and how it did; Trend flexibility expla
   await expect(badge).toBeVisible();
   await expect(badge).toContainText(/Auto · best on MASE/);
   await expect(badge).toContainText(/repeating the last cycle at the same horizons, over \d+ backtest folds · MASE \d\.\d\d/);
+  await expect(badge).toContainText(/Lockbox check: picked on folds 1–\d+; on fold \d+, which the choice never saw, it ranked #\d of 7/);
+  await expect(page.locator(".ts-board thead")).toContainText("Unseen fold");
   await expect(page.locator(".ts-page [data-ref=flexNote]")).toContainText(/ridge \(L2\) penalty of λ = /);
   await page.getByRole("button", { name: "Check every setting" }).click();
   const curve = page.locator(".ts-page [data-ref=flexCurve]");
