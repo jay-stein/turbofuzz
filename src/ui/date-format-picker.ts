@@ -4,7 +4,7 @@
  * or a custom format typed by the person (YYYY-MM, %d.%m.%Y %H:%M, ...).
  */
 
-import { DATE_FORMAT_PRESETS, formatProblem, parseWithFormat, rankFormats } from "../parse/date-format.js";
+import { DATE_FORMAT_PRESETS, formatProblem, parseWithFormat, rankFormats, toStrftime } from "../parse/date-format.js";
 import { classifyDateValue, orderFormat, type DateOrder } from "../parse/dates.js";
 import { el } from "./dom.js";
 
@@ -20,6 +20,36 @@ export interface DateFormatPicker {
 }
 
 const CUSTOM = "custom";
+/** Sample values read to suggest a format. */
+const SAMPLE_LIMIT = 1000;
+
+/** strftime codes with an example (7 March 2024, 14:05:09), as Python and pandas read them. */
+const STRFTIME_CODES: readonly [string, string, string][] = [
+  ["%Y", "Year, four digits", "2024"],
+  ["%y", "Year, two digits", "24"],
+  ["%m", "Month, two digits", "03"],
+  ["%b", "Month, short name", "Mar"],
+  ["%B", "Month, full name", "March"],
+  ["%d", "Day of the month, two digits", "07"],
+  ["%a", "Weekday, short name", "Thu"],
+  ["%A", "Weekday, full name", "Thursday"],
+  ["%H", "Hour, 24-hour clock", "14"],
+  ["%I", "Hour, 12-hour clock", "02"],
+  ["%p", "AM or PM", "PM"],
+  ["%M", "Minute", "05"],
+  ["%S", "Second", "09"],
+  ["%f", "Fraction of a second", "000000"],
+  ["%z", "Offset from UTC", "+1100"],
+  ["%%", "A literal % sign", "%"],
+];
+const STRFTIME_EXAMPLES: readonly [string, string][] = [
+  ["%Y-%m-%d", "2024-03-07"],
+  ["%d/%m/%Y", "07/03/2024"],
+  ["%m/%d/%Y", "03/07/2024"],
+  ["%d %b %Y", "07 Mar 2024"],
+  ["%Y-%m-%d %H:%M:%S", "2024-03-07 14:05:09"],
+  ["%d/%m/%Y %I:%M %p", "07/03/2024 02:05 PM"],
+];
 
 export function createDateFormatPicker(options: {
   samples: readonly string[];
@@ -28,7 +58,7 @@ export function createDateFormatPicker(options: {
   onChange(): void;
   label?: string;
 }): DateFormatPicker {
-  let samples = options.samples.map((v) => v.trim()).filter((v) => v !== "").slice(0, 200);
+  let samples = options.samples.map((v) => v.trim()).filter((v) => v !== "").slice(0, SAMPLE_LIMIT);
   let withTime = options.withTime;
   const select = el("select", { class: "chart-select", "aria-label": "Date format" }) as HTMLSelectElement;
   const custom = el("input", {
@@ -38,13 +68,54 @@ export function createDateFormatPicker(options: {
     "aria-label": "Custom date format",
     spellcheck: "false",
   }) as HTMLInputElement;
-  const help = el("div", { class: "date-format-help hidden" }, [
-    "YYYY year · YY 2-digit year · MM month · MMM Jan · MMMM January · DD day · Q quarter · HH hour 0-23 · hh hour 1-12 with A (AM/PM) · mm minutes · ss seconds · SSS fraction · Z offset · [text] literal. strftime (%Y-%m-%d %H:%M) also works. Missing parts start at 1: YYYY-MM is the 1st of the month.",
+  custom.classList.remove("hidden");
+  custom.placeholder = "%d/%m/%Y %H:%M  or  DD/MM/YYYY HH:mm";
+  const help = el("div", { class: "date-format-help" }, [
+    "Or YYYY year · YY · MM month · MMM Jan · MMMM January · DD day · Q quarter · HH hour 0-23 · hh 1-12 with A (AM/PM) · mm minutes · ss seconds · SSS fraction · Z offset · [text] literal. Missing parts start at 1: %Y-%m is the 1st of the month.",
   ]);
   const status = el("div", { class: "date-format-status", role: "status" });
+  // The suggestion, said plainly before anything else.
+  const suggestText = el("span", { class: "date-format-suggest-text" });
+  const useSuggested = el("button", { type: "button", class: "ghost small" }, ["Use it"]) as HTMLButtonElement;
+  const suggest = el("div", { class: "date-format-suggest" }, [suggestText, useSuggested]);
+  let suggested = "dmy";
+  // strftime codes: click one to put it in the custom format.
+  const codesButton = el("button", { type: "button", class: "ghost small", "aria-expanded": "false" }, ["strftime codes ▾"]) as HTMLButtonElement;
+  const codeRow = (code: string, meaning: string, example: string): HTMLElement => {
+    const b = el("button", { type: "button", class: "date-code", title: `Insert ${code}` }, [el("code", {}, [code]), el("span", {}, [meaning]), el("small", {}, [example])]);
+    b.addEventListener("click", () => {
+      const at = custom.selectionStart ?? custom.value.length;
+      custom.setRangeText(code, at, custom.selectionEnd ?? at, "end");
+      custom.focus();
+      onCustomInput();
+    });
+    return b;
+  };
+  const codes = el("div", { class: "date-codes hidden" }, [
+    el("div", { class: "date-codes-grid" }, STRFTIME_CODES.map(([c, m, e]) => codeRow(c, m, e))),
+    el("div", { class: "date-codes-title" }, ["Common formats (click to use)"]),
+    el("div", { class: "date-codes-grid" }, STRFTIME_EXAMPLES.map(([f, e]) => {
+      const b = el("button", { type: "button", class: "date-code", title: `Use ${f}` }, [el("code", {}, [f]), el("small", {}, [e])]);
+      b.addEventListener("click", () => { custom.value = f; onCustomInput(); });
+      return b;
+    })),
+    el("p", { class: "date-codes-credit" }, [
+      "Examples for 7 March 2024, 14:05:09. Codes follow Python's strftime; the list is after BairesDev's strftime reference, ",
+      el("a", { href: "https://www.bairesdev.com/tools/strftime/", target: "_blank", rel: "noopener noreferrer" }, ["bairesdev.com/tools/strftime"]),
+      ".",
+    ]),
+  ]);
+  codesButton.addEventListener("click", () => {
+    const open = codes.classList.toggle("hidden") === false;
+    codesButton.setAttribute("aria-expanded", String(open));
+    codesButton.textContent = open ? "strftime codes ▴" : "strftime codes ▾";
+  });
   const root = el("div", { class: "date-format-picker" }, [
+    suggest,
     el("label", { class: "chart-setup-field" }, [el("span", { class: "chart-field-label" }, [options.label ?? "Date format"]), select]),
-    custom,
+    el("label", { class: "chart-setup-field" }, [el("span", { class: "chart-field-label" }, ["Or your own format"]), custom]),
+    el("div", { class: "date-format-tools" }, [codesButton]),
+    codes,
     help,
     status,
   ]);
@@ -81,9 +152,9 @@ export function createDateFormatPicker(options: {
 
   function sync(): void {
     const isCustom = select.value === CUSTOM;
-    custom.classList.toggle("hidden", !isCustom);
     help.classList.toggle("hidden", !isCustom);
     status.classList.remove("error");
+    renderSuggestion();
     if (isCustom) {
       const problem = formatProblem(custom.value);
       if (problem !== null) {
@@ -114,6 +185,27 @@ export function createDateFormatPicker(options: {
     return formatProblem(custom.value) === null ? (`fmt:${custom.value.trim()}` as DateOrder) : null;
   }
 
+  /** "Suggested: %d/%m/%Y (07/03/2024) · reads 998 of 1,000 sample values", from the best fit. */
+  function renderSuggestion(): void {
+    if (samples.length === 0) { suggest.classList.add("hidden"); return; }
+    suggest.classList.remove("hidden");
+    const best = rankFormats(samples, DATE_FORMAT_PRESETS.filter((p) => withTime || !p.time))[0];
+    const dmy = autoReads("dmy"), mdy = autoReads("mdy");
+    const n = samples.length.toLocaleString();
+    if (best !== undefined && best.hits >= Math.max(dmy, mdy)) {
+      suggested = `fmt:${best.preset.format}`;
+      const strf = toStrftimeLabel(best.preset.format);
+      suggestText.replaceChildren("Suggested format: ", el("b", {}, [strf]), ` (e.g. ${best.preset.example}) · reads ${best.hits.toLocaleString()} of ${n} sample values`);
+    } else {
+      suggested = dmy >= mdy ? "dmy" : "mdy";
+      suggestText.replaceChildren("Suggested: ", el("b", {}, [dmy >= mdy ? "day first (DD/MM/YYYY)" : "month first (MM/DD/YYYY)"]), ` · reads ${Math.max(dmy, mdy).toLocaleString()} of ${n} sample values`);
+    }
+    const current = select.value === CUSTOM ? `fmt:${custom.value.trim()}` : select.value;
+    useSuggested.disabled = current === suggested;
+    useSuggested.textContent = current === suggested ? "In use" : "Use it";
+  }
+  useSuggested.addEventListener("click", () => { build(suggested); options.onChange(); });
+
   // Start on the best fit when automatic reading misses values a common format reads.
   function bestStart(current: string): string {
     if ((current !== "dmy" && current !== "mdy") || samples.length === 0) return current;
@@ -128,11 +220,14 @@ export function createDateFormatPicker(options: {
     options.onChange();
   });
   let timer: number | undefined;
-  custom.addEventListener("input", () => {
+  // Typing a format switches to it.
+  function onCustomInput(): void {
+    if (custom.value.trim() !== "") select.value = CUSTOM;
     sync();
     if (timer !== undefined) window.clearTimeout(timer);
     timer = window.setTimeout(() => options.onChange(), 250);
-  });
+  }
+  custom.addEventListener("input", onCustomInput);
 
   return {
     root,
@@ -141,7 +236,7 @@ export function createDateFormatPicker(options: {
       build(order);
     },
     setSamples(values) {
-      samples = values.map((v) => v.trim()).filter((v) => v !== "").slice(0, 200);
+      samples = values.map((v) => v.trim()).filter((v) => v !== "").slice(0, SAMPLE_LIMIT);
       const current = select.value === CUSTOM ? `fmt:${custom.value}` : select.value;
       const next = bestStart(current);
       build(next);
@@ -154,4 +249,9 @@ export function createDateFormatPicker(options: {
       build(current);
     },
   };
+}
+
+/** A format shown the strftime way (%d/%m/%Y) when it has one, else as it is. */
+function toStrftimeLabel(format: string): string {
+  return toStrftime(format) ?? format;
 }

@@ -1,8 +1,14 @@
 import { test, expect } from "@playwright/test";
 
-// Outliers, Relationships, Time Series and Map are Research-mode tabs.
+// Outliers, Relationships, Time Series and Map are Research-mode tabs, and every new
+// dataset opens in General: switch Research on whenever the switch shows General.
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("turbofuzz-mode", "research"));
+  await page.addInitScript(() => {
+    new MutationObserver(() => {
+      const research = document.querySelector<HTMLElement>('.mode-switch-option[data-mode="research"][aria-checked="false"]');
+      if (research !== null && !document.querySelector(".workspace.hidden")) research.click();
+    }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-checked", "class"] });
+  });
 });
 
 test("core surfaces expose accessible names and focusable controls", async ({ page }) => {

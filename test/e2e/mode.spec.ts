@@ -24,7 +24,7 @@ async function load(page: Page): Promise<void> {
 const modeOption = (page: Page, name: "General" | "Research") =>
   page.getByRole("radiogroup", { name: "Mode" }).getByRole("radio", { name });
 
-test("General is the default and Research adds four tabs that stay on after a reload", async ({ page }) => {
+test("General is the default, Research adds four tabs, and a new dataset opens in General again", async ({ page }) => {
   await load(page);
   await expect(modeOption(page, "General")).toHaveAttribute("aria-checked", "true");
   for (const name of RESEARCH_TABS) await expect(page.getByRole("tab", { name })).toBeHidden();
@@ -41,8 +41,9 @@ test("General is the default and Research adds four tabs that stay on after a re
   await page.reload();
   await page.locator('input[type="file"]').setInputFiles({ name: "sales.csv", mimeType: "text/csv", buffer: Buffer.from(sales()) });
   await page.locator(".nav-row").waitFor();
-  await expect(modeOption(page, "Research")).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByRole("tab", { name: "Outliers" })).toBeVisible();
+  // Every new dataset opens in General; Research is switched on each time.
+  await expect(modeOption(page, "General")).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("tab", { name: "Outliers" })).toBeHidden();
 });
 
 test("leaving Research on a research page returns to the last general page, and Undo brings it back", async ({ page }) => {

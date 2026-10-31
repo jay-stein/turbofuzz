@@ -2191,6 +2191,14 @@ export class App {
   }
 
   private openWorkspace(loaded: LoadedMessage | TransformedMessage): void {
+    // A new dataset always opens in General; Research is switched on by the person each time.
+    if (loaded.type === "loaded" && this.mode !== "general") {
+      this.mode = "general";
+      writeMode("general");
+      this.modeSwitch?.setSelected("general");
+      this.tabs?.setResearch(false);
+      if (isResearchView(this.view)) this.view = "overview";
+    }
     const captured = this.chartsPanel?.captureConfigs() ?? this.chartRestore;
     const hadOrphans =
       (captured ?? []).some((config) => (config.missingColumns?.length ?? 0) > 0) ||
@@ -6001,10 +6009,18 @@ export class App {
       this.showPaste();
       return;
     }
+    // Say exactly what goes: this cannot be undone.
+    const steps = [...this.cleanedColumns.values()].reduce((sum, ops) => sum + ops.length, 0) + this.transformOps.length;
+    const filters = this.filters.size + this.specials.size + (this.rowLimit !== null ? 1 : 0);
+    const lose = [
+      steps > 0 ? `${steps} Recipe step${steps === 1 ? "" : "s"} (cleans, new columns, edited cells)` : "",
+      filters > 0 ? `${filters} active filter${filters === 1 ? "" : "s"}` : "",
+      "charts, Pivot Views and markers built on it",
+    ].filter(Boolean);
     void openConfirm({
-      title: "Clear the data?",
-      body: "The current table, filters and steps will be closed. Saved recipes are not affected.",
-      confirmLabel: "Clear data",
+      title: steps > 0 ? `Clear “${this.datasetName}” and ${steps} step${steps === 1 ? "" : "s"} of work?` : `Clear “${this.datasetName}”?`,
+      body: `This closes the table and cannot be undone. You lose: ${lose.join("; ")}. Your file on disk is not changed.${steps > 0 ? " To keep your steps, Cancel, open Recipe and save them as a recipe file first." : ""}`,
+      confirmLabel: steps > 0 ? `Clear data and ${steps} step${steps === 1 ? "" : "s"}` : "Clear data",
       danger: true,
     }).then((confirmed) => {
       if (confirmed) this.clearData();
@@ -6013,7 +6029,11 @@ export class App {
 
   private updateNewButton(): void {
     const hasData = this.lastLoaded !== null;
-    this.newButton.textContent = hasData ? "Clear data" : "New data";
+    this.newButton.replaceChildren(
+      svgIcon(hasData ? '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>' : '<path d="M12 5v14M5 12h14"/>', "new-data-icon"),
+      el("span", {}, [hasData ? "Clear data" : "New data"]),
+    );
+    this.newButton.classList.toggle("danger-ghost", hasData);
     this.newButton.title = hasData
       ? "Close the current table and start over (asks first)"
       : "Load a CSV, Excel, JSON or Parquet file";

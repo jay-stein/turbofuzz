@@ -6830,7 +6830,10 @@ export class ChartCard {
     // The canvas follows the card at any width; text has a legibility floor
     // instead of the old 300px minimum that overflowed narrow cards.
     cssWidth = Math.max(1, Math.round(cssWidth));
-    const cssHeight = Math.round((cssWidth * 9) / 16);
+    // 16:9, but never taller than the window allows: a full-width card (1 per row) or an
+    // expanded one would otherwise push its own controls off screen.
+    const cap = Math.max(260, Math.round(window.innerHeight * (this.focusOverlay !== null ? 0.72 : 0.55)));
+    const cssHeight = Math.min(Math.round((cssWidth * 9) / 16), cap);
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = Math.round(cssWidth * dpr);
     this.canvas.height = Math.round(cssHeight * dpr);

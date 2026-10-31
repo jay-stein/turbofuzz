@@ -469,7 +469,7 @@ export class SearchWorkerClient {
   }
 
   /** A spread of the column's non-empty values (up to limit). */
-  getColumnSample(column: number, limit = 200): Promise<ColumnSampleMessage> {
+  getColumnSample(column: number, limit = 1000): Promise<ColumnSampleMessage> {
     return this.request<ColumnSampleMessage>({ type: "getColumnSample", column, limit });
   }
 
