@@ -129,7 +129,7 @@ const TEMPLATE = `
           <div class="ts-legend" data-ref="legend"></div>
           <div class="ts-head-actions">
             <span class="ts-zoomhint">Scroll to zoom · drag to pan · Shift-drag a range to zoom in · double-click to reset</span>
-            <button class="ts-ghost" type="button" data-ref="tableBtn" aria-expanded="false">Periods</button>
+            <button class="ts-ghost" type="button" data-ref="tableBtn" aria-expanded="false" title="The numbers behind the chart, one row per period in view: actuals, filled periods and the forecast">Show data table</button>
           </div>
         </div>
         <div class="ts-hero" data-ref="hero">
@@ -1217,19 +1217,25 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const s = snap as TsSnapshot, a = s.A, wrap = ref("tableWrap");
     const T = times(), [i0, i1] = visibleRange();
     const P = proj();
-    const lbl = P ? ["Forecast", "80% low", "80% high"] : [];
+    const lbl = P ? [`Forecast <small>${MODEL_INFO[P.key].name}</small>`, "80% low", "80% high"] : [];
     const dec = s.dec.dec;
-    const head = `<tr><th>Period</th><th>${measureWord(s)}</th>${ui.mode === "explore" ? "<th>Rolling</th>" : ""}${ui.mode === "decompose" ? "<th>Trend</th><th>Seasonal</th><th>Remainder</th>" : ""}${lbl.map((l) => `<th>${l}</th>`).join("")}</tr>`;
+    const head = `<tr><th>Period</th><th>Status</th><th>Actual <small>${measureWord(s)}</small></th>${ui.mode === "explore" ? `<th>Rolling ${escapeHtml(s.cfg.smoothStat)}</th>` : ""}${ui.mode === "decompose" ? "<th>Trend</th><th>Seasonal</th><th>Remainder</th>" : ""}${lbl.map((l) => `<th>${l}</th>`).join("")}</tr>`;
     const rows: string[] = [];
-    for (let i = i0; i <= i1 && rows.length < 400; i++) {
+    const fillWord = GAP_OPTS.find((o) => o[0] === s.cfg.gaps)?.[1] ?? "filled";
+    // At most 400 rows: the latest in view, so the forecast is never cut off.
+    const from = Math.max(i0, i1 - 399);
+    for (let i = from; i <= i1; i++) {
       const h = P ? i - P.T : -1, inP = !!P && h >= 0 && h < P.H;
+      const status = i >= a.n ? ["forecast", "Forecast"] : a.filled[i] ? ["filled", `No rows; ${fillWord}`] : !(a.y[i] === a.y[i]) ? ["empty", "No rows"]
+        : inP ? ["heldout", "Actual, held out"] : a.partial[i] ? ["partial", "Actual, partial"] : ["actual", "Actual"];
       let tail = "";
       if (P) tail = inP ? `<td>${full(P.f.F[h])}</td><td>${full(P.f.lo80[h])}</td><td>${full(P.f.hi80[h])}</td>` : "<td></td><td></td><td></td>";
-      rows.push(`<tr><td>${periodLabel(a.g, T[i])}</td><td>${i < a.n ? full(a.y[i]) : ""}</td>` +
+      rows.push(`<tr class="ts-row-${status[0]}"><td>${periodLabel(a.g, T[i])}</td><td class="ts-status">${status[1]}</td><td>${i < a.n ? full(a.y[i]) : ""}</td>` +
         (ui.mode === "explore" ? `<td>${i < a.modelN ? full(s.smooth[i]) : ""}</td>` : "") +
         (ui.mode === "decompose" ? (dec && i < a.modelN ? `<td>${full(dec.trend[i])}</td><td>${full(dec.seasonal[i])}</td><td>${full(dec.rem[i])}</td>` : "<td></td><td></td><td></td>") : "") + tail + "</tr>");
     }
-    wrap.innerHTML = `<table><thead>${head}</thead><tbody>${rows.join("")}</tbody></table>`;
+    const shown = rows.length, inView = i1 - i0 + 1;
+    wrap.innerHTML = `<p class="ts-table-note">${nf.format(shown)} ${nounFor(a.g, shown)} in view${inView > shown ? ` (the latest ${nf.format(shown)} of ${nf.format(inView)}; zoom in for earlier ones)` : ""}. Pan or zoom the chart to change them; Export ▾ downloads every period.</p><table><thead>${head}</thead><tbody>${rows.join("")}</tbody></table>`;
   }
 
   // ---------------------------------------------------------------- frame loop
@@ -1591,6 +1597,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   on("tableBtn", "click", (e) => {
     tableOpen = !tableOpen;
     (e.currentTarget as HTMLElement).setAttribute("aria-expanded", String(tableOpen));
+    (e.currentTarget as HTMLElement).textContent = tableOpen ? "Hide data table" : "Show data table";
     ref("tableWrap").hidden = !tableOpen;
     if (tableOpen && snap) renderTable();
   });

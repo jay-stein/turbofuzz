@@ -217,3 +217,18 @@ test("Export offers the forecast, the series, the model scorecard and the backte
   expect(backtest.split("\n")[0]).toContain("model,fold,fold_origin,step_ahead,period_start,actual,forecast,error");
   expect(backtest.trim().split("\n").length).toBeGreaterThan(100);
 });
+
+test("the data table says which rows are actual, filled or forecast", async ({ page }) => {
+  await openPage(page);
+  await page.locator(".ts-modes [data-mode=forecast]").click();
+  await expect(page.locator(".ts-board tbody tr")).toHaveCount(7);
+  await page.getByRole("button", { name: "Show data table" }).click();
+  await expect(page.getByRole("button", { name: "Hide data table" })).toHaveAttribute("aria-expanded", "true");
+  const table = page.locator(".ts-page [data-ref=tableWrap]");
+  await expect(table.locator("thead th").nth(1)).toHaveText("Status");
+  await expect(table.locator("thead th").nth(2)).toContainText("Actual");
+  await expect(table.locator("thead")).toContainText(/Forecast\s*\S/);
+  await expect(table.locator("tr.ts-row-forecast").first()).toContainText("Forecast");
+  await expect(table.locator("tr.ts-row-actual").first()).toContainText("Actual");
+  await expect(table.locator(".ts-table-note")).toContainText("in view");
+});

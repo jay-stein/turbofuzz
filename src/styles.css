@@ -12006,3 +12006,11 @@ button.qp-tile:hover {
 
 .ts-export-btn { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
 .ts-export-btn:hover { border-color: var(--ts-mode); color: var(--ts-mode); }
+
+/* Data table: say what each row is */
+.ts-table-note { margin: 0 0 6px; font-size: 12px; color: var(--ts-dim); }
+.ts-page .ts-status { color: var(--ts-dim); white-space: nowrap; text-align: left; }
+.ts-row-forecast td { background: color-mix(in srgb, var(--ts-forecast-soft) 70%, transparent); }
+.ts-row-forecast .ts-status, .ts-row-heldout .ts-status { color: var(--ts-forecast); font-weight: 600; }
+.ts-row-filled td, .ts-row-empty td { color: var(--ts-dim); font-style: italic; }
+.ts-row-partial .ts-status { color: var(--ts-warn); }

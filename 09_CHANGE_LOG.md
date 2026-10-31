@@ -28,6 +28,21 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-19 — Time Series: "Periods" becomes a clear data table
+
+- **Status:** Verified
+- **Related issue:** Owner: "what is the Periods button - is that the table of the numbers? is it actuals or forecast? that is vague".
+- **Scope:**
+  - **Button:** "Show data table" / "Hide data table", with a tooltip.
+  - **Caption:** says the table lists the periods in view, how many, and that Export downloads them all.
+  - **Status column:** Actual / Actual, held out / Actual, partial / No rows; *how filled* / No rows / Forecast. Forecast rows are shaded; filled and empty rows are dimmed.
+  - **Headers:** "Actual (measure)" and "Forecast (model name)".
+  - **Row limit:** past 400 rows in view it keeps the latest 400, so the forecast is never cut off.
+  - The help text describes the Export menu and the data table.
+- **Tests run and results:** a Time Series e2e case; full suite 1160 unit and 108 e2e pass; build OK.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-18 — Time Series: an Export menu for analysts
 
 - **Status:** Verified
