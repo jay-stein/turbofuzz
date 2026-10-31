@@ -66,10 +66,14 @@ type DragKind = "pan" | "box" | "split" | "horizon";
 const GROUP_LIMIT = 50;
 const AGG_OPTS: [TsAgg, string][] = [["sum", "sum"], ["mean", "mean"], ["twmean", "time-weighted mean"], ["median", "median"], ["min", "min"], ["max", "max"], ["first", "first"], ["last", "last"], ["count", "count of rows"]];
 const GAP_OPTS: [TsGaps, string, string][] = [
-  ["seasonal", "filled with the usual pattern", "the typical shape for those periods, on a line between the levels either side"],
+  ["smart", "filled smartly", "recommended: the usual pattern for short gaps, the nearby typical value for long ones"],
+  ["local", "filled with the nearby typical value", "the median of the same time in the nearest cycles either side; follows the local level, best for long gaps"],
+  ["lastcycle", "copied from the cycle before", "the same time one cycle earlier, e.g. the same hour last week"],
+  ["seasonal", "filled with the usual pattern", "the typical shape on a line between the levels either side; best for gaps of a few periods"],
   ["interp", "interpolated", "a straight line between the periods either side"],
+  ["last", "carried forward", "the last known value repeats; for levels that hold, such as prices or settings"],
   ["zero", "filled with zero", "an empty period counts as 0, as for sales"],
-  ["leave", "left empty", "a break in the line; models still bridge it with the usual pattern"],
+  ["leave", "left empty", "a break in the line; models still bridge it with the smart fill"],
 ];
 const MODES: TsMode[] = ["explore", "decompose", "forecast", "patterns"];
 const MODE_LABEL: Record<TsMode, string> = { explore: "Explore", decompose: "Decompose", forecast: "Forecast", patterns: "Patterns" };
@@ -752,7 +756,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         rows.push([null, "Seasonal", signed(dec.seasonal[i])]);
         rows.push([null, "Remainder", signed(dec.rem[i])]);
       }
-      const fill = cfgNow.gaps === "zero" ? "filled with zero" : cfgNow.gaps === "seasonal" ? "filled with the usual pattern" : "interpolated";
+      const fill = GAP_OPTS.find((o) => o[0] === cfgNow.gaps)?.[1] ?? "filled";
       if (a.filled[i]) note = `No rows in this ${gr.noun}; ${fill}.`;
       else if (!(a.y[i] === a.y[i])) note = `No rows in this ${gr.noun}.`;
       else if (a.partial[i]) note = `Partial ${gr.noun}: the data covers about ${Math.round(a.partShare[i] * 100)}% of it.`;

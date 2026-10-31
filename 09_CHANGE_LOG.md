@@ -28,6 +28,22 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-16 — Time Series: better gap fills, and a smart one for the models
+
+- **Status:** Verified
+- **Related issue:** Owner, testing on `gym_stats.csv` (10-minute gym counts, 2,334 of 13,971 hours empty, gaps up to 25 days): "filled with the usual pattern" performed poorly.
+- **Evidence:** Real stretches of the hourly series were hidden and refilled, 60 per gap length, scored by mean absolute error in people:
+  - The usual pattern is best up to about 6 hours (3.7 at 3 h).
+  - From 12 hours up, the median of the same hour-of-week in the nearest 4 cycles either side misses 20-40% less (24 h: 7.5 vs 9.3; 72 h: 5.5 vs 9.3; 240 h: 7.3 vs 10.0).
+  - Carry-forward and linear are 2-3× worse on long gaps.
+- **Scope:**
+  - New gap choices: *filled smartly* (the usual pattern for gaps up to a quarter of the shortest season, the nearby typical value beyond), *nearby typical value*, *copied from the cycle before*, *carried forward*, alongside the usual pattern, interpolated, zero and left empty.
+  - The models now bridge gaps with the smart fill instead of the usual pattern; they still never learn from or score filled periods.
+  - Series with no gaps skip the fill work.
+- **Tests run and results:** `test/timeseries-fill.test.ts` (2); Time Series unit and e2e; bench:timeseries within budgets (one noisy run over on the daily drag, which does not touch the fill).
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-15 — Time Series: validation window, seven accuracy measures, "Which model, and why?"
 
 - **Status:** Verified

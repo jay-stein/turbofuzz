@@ -186,7 +186,10 @@ function openHours(closed: readonly number[]): string {
   return runs.join(" and ");
 }
 
-const GAP_WORDS: Record<string, string> = { zero: "filled with zero", interp: "interpolated", seasonal: "filled with the usual pattern", leave: "left empty" };
+const GAP_WORDS: Record<string, string> = {
+  smart: "filled smartly (the usual pattern for short gaps, the nearby typical value for long ones)", local: "filled with the nearby typical value",
+  lastcycle: "copied from the cycle before", seasonal: "filled with the usual pattern", interp: "interpolated", last: "carried forward", zero: "filled with zero", leave: "left empty",
+};
 
 /** Everything the findings rail says, most useful first. */
 export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
@@ -275,7 +278,7 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
     const fmt = ([a, b]: [number, number]): string => fmtInstant(ms(a), info.subDay) + (b > a ? " – " + (info.subDay && sameDay(a, b) ? dfTime.format(new Date(ms(b))) : fmtInstant(ms(b), info.subDay)) : "");
     const realSlots = (a: number, b: number): number => { let c = 0; for (let k = a; k <= b; k++) if (openAt(info, ms(k))) c++; return c; };
     const slots = A.gapRanges.reduce((sum, [a, b]) => sum + Math.max(1, Math.round(realSlots(a, b) / Math.max(1, info.cadSlots))), 0);
-    bits.push(`<b>${nf.format(slots)} ${slots === 1 ? cn.replace(/s$/, "") : cn}</b> with no rows (${A.gapRanges.slice(0, 3).map(fmt).join(", ")}${A.gapRanges.length > 3 ? `, and ${A.gapRanges.length - 3} more stretches` : ""}). Periods with no rows are ${GAP_WORDS[cfg.gaps]}${cfg.gaps === "zero" ? "" : "; the models bridge them with the usual pattern and never learn from or score them"}.`);
+    bits.push(`<b>${nf.format(slots)} ${slots === 1 ? cn.replace(/s$/, "") : cn}</b> with no rows (${A.gapRanges.slice(0, 3).map(fmt).join(", ")}${A.gapRanges.length > 3 ? `, and ${A.gapRanges.length - 3} more stretches` : ""}). Periods with no rows are ${GAP_WORDS[cfg.gaps]}${cfg.gaps === "zero" ? "" : "; the models bridge them with the smart fill and never learn from or score them"}.`);
     // The period holding the first empty slot.
     const gapMs = ms(A.gapRanges[0][0]);
     let gi = 0;

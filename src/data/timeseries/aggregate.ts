@@ -8,7 +8,7 @@ import { bucketStart, GRAINS, openAt, slotBuckets, slotOpen, type Grain, type Gr
 /** twmean: each reading counts for as long as it held (until the next one). */
 export type TsAgg = "sum" | "mean" | "twmean" | "median" | "min" | "max" | "first" | "last" | "count";
 /** How periods with no rows are shown; the models always bridge them (see seasonalFill). */
-export type TsGaps = "seasonal" | "interp" | "zero" | "leave";
+export type TsGaps = "smart" | "local" | "lastcycle" | "seasonal" | "interp" | "last" | "zero" | "leave";
 export type TsMode = "explore" | "decompose" | "forecast" | "patterns";
 export type TsSmoothStat = "mean" | "median" | "min" | "max";
 export type DriverRule = "hold" | "lastyear" | "pct";
@@ -166,9 +166,12 @@ export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): 
   for (let b = 0; b < n; b++) if (y[b] < 0) { knownNonNeg = false; break; }
   const made = new Uint8Array(n);
   for (let b = 0; b < n; b++) if (!(y[b] === y[b]) && cfg.gaps !== "zero") made[b] = 1;
-  if (first <= last && cfg.gaps === "seasonal") {
+  // The shortest season that fits decides what counts as a short gap for "smart".
+  let shortM = modelM;
+  for (const p of g.periods) if (modelN >= 2 * p + 2) shortM = Math.min(shortM, p);
+  if (first <= last && cfg.gaps !== "zero" && cfg.gaps !== "interp" && cfg.gaps !== "leave") {
     const z = y.slice(first, last + 1);
-    seasonalFill(z, modelM, knownNonNeg);
+    fillGaps(z, cfg.gaps, modelM, shortM, knownNonNeg);
     for (let b = first; b <= last; b++) if (!(y[b] === y[b])) { y[b] = z[b - first]; filled[b] = 1; }
   }
   for (let b = first; b <= last; b++) {
@@ -182,9 +185,9 @@ export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): 
       b = c - 1;
     }
   }
-  // Models need an unbroken series: whatever is still empty gets the seasonal fill.
+  // Models need an unbroken series: whatever is still empty gets the smart fill.
   const yModel = y.slice(0, modelN);
-  seasonalFill(yModel, modelM, knownNonNeg);
+  fillGaps(yModel, "smart", modelM, shortM, knownNonNeg);
   // Shape, not meaning: decides whether changes read as percentages and whether
   // forecasts may go below zero.
   let allPositive = true, nonNeg = true;
@@ -261,6 +264,89 @@ function timeWeighted(T: TsTable, src: Float64Array, group: number, g: Grain, bo
     }
   }
   for (let b = 0; b < n; b++) y[b] = wt[b] > 0 ? wsum[b] / wt[b] : NaN;
+}
+
+/**
+ * Fills the empty periods of y in place by one of the gap choices (all but zero, interp
+ * and leave, which the caller handles). Measured on real hourly gym counts with known
+ * stretches hidden (CHG-2026-10-31-16): the usual pattern is best for gaps of a few
+ * periods, and the nearby typical value (the median of the same phase in the nearest
+ * cycles) misses 30-35% less from about a day up. "smart" uses each where it is best.
+ */
+export function fillGaps(y: Float64Array, how: TsGaps, m: number, shortM: number, nonNeg: boolean): Float64Array {
+  if (y.every((v) => v === v)) return y; // nothing to fill: skip the profile work
+  if (how === "seasonal") return seasonalFill(y, m, nonNeg);
+  if (how === "last") return carryForward(y);
+  if (how === "lastcycle") return lastCycleFill(y, m, nonNeg);
+  if (how === "local") return m > 1 ? nearbyTypicalFill(y, m) : seasonalFill(y, m, nonNeg);
+  // smart: short gaps the usual pattern, long ones the nearby typical value.
+  if (m <= 1) return seasonalFill(y, m, nonNeg);
+  const short = Math.max(2, Math.round(shortM / 4));
+  const src = y.slice(), longGaps = y.slice();
+  let anyLong = false;
+  for (let i = 0; i < y.length; ) {
+    if (src[i] === src[i]) { i++; continue; }
+    let j = i;
+    while (j < y.length && !(src[j] === src[j])) j++;
+    if (j - i > short) anyLong = true;
+    else for (let k = i; k < j; k++) longGaps[k] = 0; // marks short gaps as handled below
+    i = j;
+  }
+  const pattern = seasonalFill(src.slice(), m, nonNeg);
+  const typical = anyLong ? nearbyTypicalFill(src.slice(), m) : pattern;
+  for (let i = 0; i < y.length; i++) {
+    if (src[i] === src[i]) continue;
+    y[i] = longGaps[i] === longGaps[i] ? pattern[i] : typical[i];
+  }
+  return y;
+}
+
+/** Each empty period takes the last known value before it (the first known one at the start). */
+function carryForward(y: Float64Array): Float64Array {
+  let prev = NaN;
+  for (let i = 0; i < y.length; i++) { if (y[i] === y[i]) prev = y[i]; else y[i] = prev; }
+  const firstKnown = y.find((v) => v === v);
+  if (firstKnown !== undefined) for (let i = 0; i < y.length && !(y[i] === y[i]); i++) y[i] = firstKnown;
+  return y;
+}
+
+/** Each empty period copies the same phase one cycle earlier (later, before the first cycle). */
+function lastCycleFill(y: Float64Array, m: number, nonNeg: boolean): Float64Array {
+  if (m <= 1) return carryForward(y);
+  const src = y.slice();
+  for (let i = 0; i < y.length; i++) {
+    if (src[i] === src[i]) continue;
+    let j = i - m;
+    while (j >= 0 && !(src[j] === src[j]) && !(y[j] === y[j])) j -= m;
+    if (j >= 0) { y[i] = y[j]; continue; }
+    j = i + m;
+    while (j < y.length && !(src[j] === src[j])) j += m;
+    if (j < y.length) y[i] = src[j];
+  }
+  return seasonalFill(y, m, nonNeg); // anything still empty (no known phase anywhere)
+}
+
+/** Nearby cycles each side used for the typical value: about a month of hours by week, two of days. */
+const NEARBY_CYCLES = (m: number): number => (m >= 100 ? 4 : 7);
+
+/** Each empty period takes the median of the same phase in the nearest known cycles either side. */
+function nearbyTypicalFill(y: Float64Array, m: number): Float64Array {
+  const src = y.slice(), n = y.length, K = NEARBY_CYCLES(m), vals: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (src[i] === src[i]) continue;
+    vals.length = 0;
+    for (let k = 1; k <= 400 && vals.length < 2 * K; k++) {
+      const a = i - k * m, b = i + k * m;
+      if (a < 0 && b >= n) break;
+      if (a >= 0 && src[a] === src[a]) vals.push(src[a]);
+      if (b < n && src[b] === src[b]) vals.push(src[b]);
+    }
+    if (vals.length === 0) continue;
+    vals.sort((p, q) => p - q);
+    const h = vals.length >> 1;
+    y[i] = vals.length % 2 ? vals[h]! : (vals[h - 1]! + vals[h]!) / 2;
+  }
+  return y;
 }
 
 /**
