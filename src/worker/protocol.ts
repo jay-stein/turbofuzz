@@ -799,6 +799,8 @@ export type GetTimeSeriesRequest = {
   mode: TsMode;
   /** Also send every model's backtest forecasts (for the backtest export). */
   backtest?: boolean;
+  /** Also send the Trend flexibility validation curve. */
+  flexCurve?: boolean;
 };
 
 export interface TimeSeriesMessage {

@@ -393,7 +393,7 @@ function regFit(A: Aggregated, table: TsTable, drivers: TsDriver[], y: Float64Ar
   }
   for (let a = 0; a < p; a++) for (let c = 0; c < a; c++) M[c * p + a] = M[a * p + c];
   // Each bend is shrunk relative to its own scale, so late bends are as free as early ones.
-  const rel = 0.3 * Math.pow(10, (5 - flex) / 2.5);
+  const rel = flexDetail(T, flex).lambda;
   M[1 * p + 1] += 1e-6 * cnt;
   for (let k = 0; k < K; k++) { const j = (2 + k) * p + (2 + k); M[j] += Math.max(M[j] * rel, 1e-6 * cnt); }
   for (let k = 2 + K; k < p; k++) M[k * p + k] += 1e-4 * cnt;
@@ -508,8 +508,15 @@ export function horizonOf(A: Aggregated, cfg: TsConfig): number { return Math.ma
 /** Holt-Winters starting points carried between runs of the same series. */
 export type HwWarm = Map<string, HwParams>;
 
-/** Fits every model on [0, T) and backtests it from earlier origins. */
-export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq: number | null, H: number, warm: HwWarm): (ModelRun & { internal: RunInternal }) | ModelError {
+interface BacktestPlan { T: number; origins: number[]; step: number; rolling: boolean; trainLen: number | null; startOf: (o: number) => number; scale: number }
+
+/**
+ * Where the backtest folds start and what each trains on. Up to 10 origins, H/3 apart,
+ * ending H before the split. MASE's scale is the in-sample error of repeating the last
+ * cycle on the training data before the first origin only (fpp3 5.8), so no test
+ * period leaks into it.
+ */
+function backtestPlan(A: Aggregated, cfg: TsConfig, splitReq: number | null, H: number): BacktestPlan | ModelError {
   const g = A.g, N = A.modelN, m = A.modelM;
   const minTrain = Math.max(m + Math.max(4, Math.ceil(m / 4)), 8);
   const step = Math.max(1, Math.round(H / 3));
@@ -525,9 +532,47 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   const rolling = cfg.cv === "rolling" && R > 1;
   const trainLen = rolling ? origins[0]! : null;
   const startOf = (o: number): number => (rolling ? Math.max(0, Math.floor((o - trainLen!) / Math.max(1, m)) * Math.max(1, m)) : 0);
+  const scaleEnd = R ? origins[0]! : T;
   let scale = 0, sc = 0;
-  for (let t = m; t < T; t++) { scale += Math.abs(y[t] - y[t - m]); sc++; }
+  for (let t = m; t < scaleEnd; t++) { const d = Math.abs(y[t] - y[t - m]); if (d === d) { scale += d; sc++; } }
   scale = scale / (sc || 1) || 1;
+  return { T, origins, step, rolling, trainLen, startOf, scale };
+}
+
+/**
+ * A validation curve for Trend flexibility: the backtest MASE of the trend, seasons and
+ * drivers model at every setting from 1 to 10, on the same folds as the board. A curve
+ * that keeps falling as the trend gets bendier is real structure; one that turns back
+ * up is the model starting to fit noise.
+ */
+export function flexCurve(A: Aggregated, table: TsTable, cfg: TsConfig, H: number): { flex: number; mase: number }[] {
+  const plan = backtestPlan(A, cfg, cfg.split, H);
+  if ("error" in plan) return [];
+  const y = A.yModel, out: { flex: number; mase: number }[] = [];
+  for (let flex = 1; flex <= 10; flex++) {
+    let ae = 0, ac = 0;
+    for (const o of plan.origins) {
+      const f = regFit(A, table, cfg.drivers, y, o, flex, plan.rolling ? o - plan.startOf(o) : Infinity);
+      for (let h = 0; h < H; h++) { if (A.made[o + h]) continue; const e = Math.abs(y[o + h] - regAt(f, o + h)); if (e === e) { ae += e; ac++; } }
+    }
+    out.push({ flex, mase: ae / (ac || 1) / plan.scale });
+  }
+  return out;
+}
+
+/** The trend's hinge count and ridge penalty at a flexibility, as the page explains them. */
+export function flexDetail(T: number, flex: number): { hinges: number; lambda: number } {
+  return { hinges: Math.max(1, Math.min(10, Math.floor(T / 10))), lambda: 0.3 * Math.pow(10, (5 - flex) / 2.5) };
+}
+
+/** Fits every model on [0, T) and backtests it from earlier origins. */
+export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq: number | null, H: number, warm: HwWarm): (ModelRun & { internal: RunInternal }) | ModelError {
+  const g = A.g, m = A.modelM;
+  const plan = backtestPlan(A, cfg, splitReq, H);
+  if ("error" in plan) return plan;
+  const { T, origins, step, rolling, trainLen, startOf, scale } = plan;
+  const y = A.yModel;
+  const R = origins.length;
   const oc = Object.fromEntries(MODEL_KEYS.map((k) => [k, new Float64Array(R * H)])) as Record<ModelKey, Float64Array>;
 
   origins.forEach((o, k) => { for (let h = 0; h < H; h++) oc.sn[k * H + h] = y[o - m + (h % m)]; });

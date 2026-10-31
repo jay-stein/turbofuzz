@@ -28,6 +28,16 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-20 — Time Series engine: validation curve for Trend flexibility; MASE scaled on training data only
+
+- **Status:** Verified
+- **Scope:**
+  - **Backtest setup:** factored into `backtestPlan`, shared by the models and the new `flexCurve`, which gives backtest MASE of the trend, seasons and drivers model at flexibility 1-10 (computed only on request).
+  - **MASE scale:** now from the training data before the first origin (fpp3 §5.8), no longer the whole history up to the split, so test periods no longer leak into the denominator. Rankings are unchanged (every model shares the scale); absolute MASE values shift slightly.
+- **Tests run and results:** Time Series unit tests (35) pass.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-19 — Time Series: "Periods" becomes a clear data table
 
 - **Status:** Verified

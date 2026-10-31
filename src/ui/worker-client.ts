@@ -419,6 +419,7 @@ export class SearchWorkerClient {
     mode: TsMode;
     view?: ViewDef;
     backtest?: boolean;
+    flexCurve?: boolean;
   }): Promise<TimeSeriesMessage> {
     return this.request<TimeSeriesMessage>({ type: "getTimeSeries", ...input });
   }
