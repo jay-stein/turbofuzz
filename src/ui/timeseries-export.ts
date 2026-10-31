@@ -51,7 +51,7 @@ export function scorecardRows(s: TsSnapshot, metric: MetricKey, picked: ModelKey
   order.forEach((k, i) => {
     const m = M.models[k], held = futures[k].held;
     rows.push([
-      MODEL_INFO[k].name, MODEL_INFO[k].meth, String(i + 1), k === M.bestBy[metric] ? "yes" : "", k === picked ? "yes" : "",
+      MODEL_INFO[k].name, MODEL_INFO[k].meth, String(i + 1), k === M.auto[metric].pick ? "yes" : "", k === picked ? "yes" : "",
       ...METRIC_KEYS.map((mk) => num(m.metrics[mk])), num(m.ratio), grade(m.ratio, k).text, k === "sn" ? "" : String(m.folds.won), String(m.folds.of),
       m.check ? String(m.check.hit) : "", m.check ? String(m.check.tot) : "", held ? num(held.mae) : "", held ? String(held.hit) : "", held ? String(held.tot) : "",
       M.cv, M.trainLen === null ? "all before each fold" : String(M.trainLen), String(M.H), String(M.step),

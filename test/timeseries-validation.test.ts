@@ -27,7 +27,7 @@ test("every model gets MAE, RMSE, MASE, WAPE, sMAPE, MAPE and bias from its back
     assert.equal(m.folds.of, M.origins.length - (M.lockbox ? 1 : 0), "fold wins count the selection folds");
   }
   assert.equal(M.models.sn.folds.won, 0, "the baseline never beats itself");
-  assert.equal(M.best, M.bestBy.mase);
+  assert.equal(M.best, M.auto.mase.pick);
   const byMae = Object.values(M.models).reduce((a, b) => (b.metrics.mae < a.metrics.mae ? b : a)).key;
   assert.equal(M.bestBy.mae, byMae);
 });

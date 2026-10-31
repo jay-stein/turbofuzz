@@ -2115,7 +2115,7 @@ What it says:
 - Keep the full Monash run as a manual report.
 - Download the data on demand into a gitignored folder, never into the bundle (the app stays offline).
 
-**Phase 1: selection that does not overfit** (weak point 1; biggest win, cheapest).
+**Phase 1: selection that does not overfit** (weak point 1; biggest win, cheapest). SHIPPED 2026-10-31 (CHG-2026-10-31-29): Auto is the Combination up to 24-period seasons; M3 monthly 0.854 (target 0.86), quarterly 1.103 (target 1.10, within 0.3%); the weekly part of the target waits for Phase 2.
 - Make the default forecast a fixed combination, ETS + Theta + damped (fpp3 §13.4, M4 "Comb"), for monthly, quarterly, yearly and weekly data.
 - Keep the backtest for (a) showing every model honestly, (b) the Deep check and lockbox, and (c) high-frequency data, where the family really differs (repeat-last-cycle and Fourier regression win there).
 - Auto may override the combination only when a rival beats it on the selection folds *and* the lockbox, and is significantly better (DM).

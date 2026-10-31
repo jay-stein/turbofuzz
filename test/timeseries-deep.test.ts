@@ -26,7 +26,7 @@ test("Deep check: significance against every rival, error by horizon, calibratio
   const s = e.compute({ ...defaultConfig(e.info()), grain: "month", horizon: 12 }, "forecast", { deep: "ets" });
   if ("error" in s.models || !s.deep) throw new Error("no deep check");
   const d = s.deep;
-  assert.equal(d.dm.length, 6);
+  assert.equal(d.dm.length, MODEL_KEYS.length - 1);
   for (const t of d.dm) assert.ok(t.p >= 0 && t.p <= 1, `${t.other} p ${t.p}`);
   // Repeat-last-cycle copies a year of noise and misses the trend: ETS should be significantly better.
   const vsBase = d.dm.find((t) => t.other === "sn")!;

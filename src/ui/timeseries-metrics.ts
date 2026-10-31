@@ -94,10 +94,11 @@ export const MODEL_GUIDE: Record<ModelKey, { shines: string; doubt: string }> = 
   reg: { shines: "Several seasons at once (day, week, year), and drivers such as temperature or promotions. The trend can bend.", doubt: "A Bendy trend can chase noise, which is overfitting; watch the backtest as you raise it. Drivers must be known ahead." },
   theta: { shines: "Simple smoothing plus half the long-run slope. It won the M3 competition, and is hard to beat on short, noisy series.", doubt: "It ignores drivers and follows breaks slowly." },
   clim: { shines: "The average of the same point in every cycle. Good when there is a season but no trend.", doubt: "Any trend: it forecasts the past average." },
-  ens: { shines: "The average of best smoothing, steady trend and drivers. Different models' misses partly cancel, so blends are often the safest pick.", doubt: "When one model wins clearly and in every fold, the blend dilutes it." },
+  ens: { shines: "The average of best smoothing, steady trend and the trend, seasons and drivers model: the way to let drivers pull on an otherwise smoothing-based forecast.", doubt: "On monthly, quarterly and yearly data the regression is usually the weakest of its three parts, so the Combination tends to beat it." },
+  comb: { shines: "The average of best smoothing, steady trend and smooth and damp. Auto's default: it beat every published classical method on M3 monthly and quarterly and on tourism data, because the three misses partly cancel and the average has no parameters of its own to overfit.", doubt: "Intermittent demand (many zeros), where plain smoothing or Croston's method does better, and series where one member is clearly wrong." },
 };
 
-const MODEL_ORDER: ModelKey[] = ["sn", "clim", "hw", "ets", "theta", "reg", "ens"];
+const MODEL_ORDER: ModelKey[] = ["sn", "clim", "hw", "ets", "theta", "reg", "ens", "comb"];
 
 /** Little train/test strips for four folds. */
 function foldsDiagram(kind: "expanding" | "rolling"): HTMLElement {
@@ -136,6 +137,13 @@ export function openModelGuide(names: Record<ModelKey, string>): void {
       <li><b>Folds beaten</b>: in how many folds the model beat repeating the last cycle. One that is best overall but wins few folds may have been lucky once.</li>
       <li><b>Close scores</b>: when two models score within about 5%, prefer the simpler one. It has less room to have learned noise.</li>
       <li><b>Expanding vs rolling</b>: if a model ranks well under one and badly under the other, it depends on how much history it gets.</li>
+    </ul>
+    <h3>How Auto chooses</h3>
+    <p>Picking the best of eight models from a few short, overlapping folds is noisy, and the noise costs accuracy: on the Monash archive, always using ETS beat "pick the backtest winner" on 15 of 19 low-frequency datasets. fpp3 (13.4) and the M4 competition favour averaging, so:</p>
+    <ul>
+      <li><b>Seasons up to 24 periods</b> (monthly, quarterly, yearly, daily): Auto uses the <b>Combination</b> of best smoothing, steady trend and smooth and damp. A rival replaces it only if it beats the Combination on the selection folds, <i>and</i> on the unseen lockbox fold, <i>and</i> a Diebold–Mariano test finds it significantly more accurate. The model card says which step stopped a rival.</li>
+      <li><b>Longer seasons</b> (weekly, hourly): the families differ a lot and the Combination's members are not designed for 52 or 168 periods, so Auto picks the backtest winner.</li>
+      <li>You can always pick any model by hand; the board keeps every score honest.</li>
     </ul>
     <h3>Validation window</h3>
     <div class="ts-cv-explain">

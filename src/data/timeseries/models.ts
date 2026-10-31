@@ -1,5 +1,5 @@
 /**
- * Time Series page, layer 3: forecasts. Seven models, every one backtested from earlier
+ * Time Series page, layer 3: forecasts. Eight models, every one backtested from earlier
  * dates against "repeat the last cycle"; bands come from those backtest errors, not
  * from a formula. No dependencies: a few hundred lines of typed arrays.
  */
@@ -10,8 +10,8 @@ import { decompose, preferScaled } from "./decompose.js";
 import { cap, nounFor } from "./format.js";
 import { chiSquareSf, tTwoSided } from "./stats.js";
 
-export type ModelKey = "sn" | "hw" | "ets" | "reg" | "theta" | "clim" | "ens";
-export const MODEL_KEYS: readonly ModelKey[] = ["sn", "hw", "ets", "reg", "theta", "clim", "ens"];
+export type ModelKey = "sn" | "hw" | "ets" | "reg" | "theta" | "clim" | "ens" | "comb";
+export const MODEL_KEYS: readonly ModelKey[] = ["sn", "hw", "ets", "reg", "theta", "clim", "ens", "comb"];
 export const MODEL_INFO: Readonly<Record<ModelKey, { name: string; meth: string }>> = {
   sn: { name: "Repeat last cycle", meth: "Seasonal naive" },
   hw: { name: "Smooth and damp", meth: "Holt-Winters, damped trend" },
@@ -19,7 +19,8 @@ export const MODEL_INFO: Readonly<Record<ModelKey, { name: string; meth: string 
   theta: { name: "Steady trend", meth: "Theta method" },
   clim: { name: "Seasonal average", meth: "Mean of the same point in earlier cycles" },
   ets: { name: "Best smoothing", meth: "ETS, picked by AICc (trend none, additive or damped; season none, additive or multiplicative)" },
-  ens: { name: "Blend", meth: "Average of best smoothing, steady trend and drivers" },
+  ens: { name: "Blend with regression", meth: "Average of best smoothing, steady trend and the trend, seasons and drivers model" },
+  comb: { name: "Combination", meth: "Average of best smoothing, steady trend and smooth and damp (the M4 \"Comb\" benchmark, fpp3 13.4)" },
 };
 
 interface BandQ { q10: number; q90: number; q025: number; q975: number }
@@ -36,6 +37,7 @@ interface ThetaFit { prof: Float64Array | null; scale: Float64Array | null; b0: 
 export type MetricKey = "mase" | "mae" | "rmse" | "wape" | "smape" | "mape" | "bias";
 export const METRIC_KEYS: readonly MetricKey[] = ["mase", "mae", "rmse", "wape", "smape", "mape", "bias"];
 export type Metrics = Record<MetricKey, number>;
+const METRIC_INFO_LABEL: Record<MetricKey, string> = { mase: "MASE", mae: "MAE", rmse: "RMSE", wape: "WAPE", smape: "sMAPE", mape: "MAPE", bias: "bias" };
 
 /** What the page shows about one model (no closures, so it can leave the worker). */
 export interface ModelSummary {
@@ -70,6 +72,14 @@ export interface ModelRun {
   bestBy: Record<MetricKey, ModelKey>;
   /** The last fold is held back from selection and only scored (a lockbox). */
   lockbox: boolean;
+  /**
+   * What Auto picks for each measure, and why. With a season of 24 periods or less the
+   * Combination is the default and a rival replaces it only by winning the selection
+   * folds, then the lockbox fold, then a Diebold-Mariano test; with longer seasons Auto
+   * picks the backtest winner.
+   */
+  auto: Record<MetricKey, { pick: ModelKey; why: string }>;
+  autoPolicy: "combination" | "backtest";
   cv: "expanding" | "rolling";
   /** Periods each rolling fold trains on; null when expanding. */
   trainLen: number | null;
@@ -635,18 +645,22 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   origins.forEach((o, k) => { const means = phaseMeans(y, o, climM, rolling ? Math.max(0, Math.floor((o - trainLen!) / climM) * climM) : 0); for (let h = 0; h < H; h++) oc.clim[k * H + h] = means[(o + h) % climM]; });
   const climMeans = phaseMeans(y, T, climM);
 
-  for (let i = 0; i < R * H; i++) oc.ens[i] = (oc.ets[i] + oc.reg[i] + oc.theta[i]) / 3;
+  for (let i = 0; i < R * H; i++) {
+    oc.ens[i] = (oc.ets[i] + oc.reg[i] + oc.theta[i]) / 3;
+    oc.comb[i] = (oc.ets[i] + oc.theta[i] + oc.hw[i]) / 3;
+  }
 
   const models = {} as Record<ModelKey, ModelSummary>;
   const q = {} as Record<ModelKey, BandQ[]>;
   const foldMae = {} as Record<ModelKey, Float64Array>;
+  const errsAll = {} as Record<ModelKey, Float64Array>;
   // With 4 or more folds the last is a lockbox: models are ranked and the Auto pick is
   // made on the others only, then the pick is scored once on data the choice never saw.
   // The best of seven on the same folds is optimistic (selection bias); the lockbox is not.
   const lockbox = R >= 4;
   const sel = (k: number): boolean => !lockbox || k < R - 1;
   for (const key of MODEL_KEYS) {
-    const errs = new Float64Array(R * H).fill(NaN);
+    const errs = (errsAll[key] = new Float64Array(R * H).fill(NaN));
     const fm = (foldMae[key] = new Float64Array(R));
     const all = newAcc(), last = newAcc();
     origins.forEach((o, k) => {
@@ -685,11 +699,40 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   models.reg.reg = { K: reg.K, Ky: reg.Ky, Kw: reg.Kw, Kd: reg.Kd, logY: reg.logY, drivers: reg.drv.map((v, j) => ({ col: v.d.col, log: v.log, beta: reg.beta[reg.iDrv + j], flag: !!table.flags[v.d.col] })) };
   models.theta.theta = { alpha: theta.alpha, b0: theta.b0, seasonal: theta.prof !== null || theta.scale !== null };
   models.clim.clim = { m: climM };
-  const order: ModelKey[] = ["ets", "hw", "reg", "ens", "theta", "clim", "sn"];
+  const order: ModelKey[] = ["comb", "ets", "hw", "reg", "ens", "theta", "clim", "sn"];
   const size = (key: ModelKey, mk: MetricKey): number => { const v = models[key].metrics[mk]; return v === v ? (mk === "bias" ? Math.abs(v) : v) : Infinity; };
   const bestBy = Object.fromEntries(METRIC_KEYS.map((mk) => [mk, order.reduce((a, b) => (size(b, mk) < size(a, mk) ? b : a))])) as Record<MetricKey, ModelKey>;
-  const best = bestBy.mase;
-  const out: ModelRun = { T, H, m, origins, step, models, best, bestBy, lockbox, cv: rolling ? "rolling" : "expanding", trainLen, rough: R < 3, profile: seriesProfile(A, T) };
+  // Auto. fpp3 5.10 and 13.4: choosing the winner of several models from a few short,
+  // overlapping folds is noisy, and the average of ETS, Theta and a damped trend rarely
+  // loses to it (it beats every published classical method on M3 monthly and quarterly,
+  // Monash benchmark, CHG-2026-10-31-27). So up to the 24-period seasons that seasonal ETS
+  // handles, the Combination is the default and a rival has to earn the pick.
+  const autoPolicy: ModelRun["autoPolicy"] = m <= 24 ? "combination" : "backtest";
+  const dmLag = Math.max(0, Math.ceil(H / step) - 1);
+  const lockSize = (key: ModelKey, mk: MetricKey): number => { const v = models[key].lock?.[mk] ?? NaN; return v === v ? (mk === "bias" ? Math.abs(v) : v) : Infinity; };
+  const nm = (k: ModelKey): string => MODEL_INFO[k].name;
+  const auto = {} as ModelRun["auto"];
+  for (const mk of METRIC_KEYS) {
+    if (autoPolicy === "backtest") {
+      // The Combination's members are the seasonal-smoothing family, so it is not a candidate here.
+      const pool = order.filter((k) => k !== "comb");
+      auto[mk] = { pick: pool.reduce((a, b) => (size(b, mk) < size(a, mk) ? b : a)), why: `A season of ${m} periods is longer than seasonal ETS and Theta handle well (R's ets() stops at 24), so Auto picks the backtest winner on the selection folds, and the Combination of those models is not a candidate.` };
+      continue;
+    }
+    const rivals = order.filter((k) => k !== "comb");
+    const cand = rivals.reduce((a, b) => (size(b, mk) < size(a, mk) ? b : a));
+    const label = METRIC_INFO_LABEL[mk];
+    if (!(size(cand, mk) < size("comb", mk))) auto[mk] = { pick: "comb", why: `The Combination is Auto's default, and no other model beat it on ${label} over the selection folds.` };
+    else if (!lockbox) auto[mk] = { pick: "comb", why: `${nm(cand)} led the Combination on ${label}, but with under 4 folds there is no unseen fold to confirm it, so the Combination stays.` };
+    else if (!(lockSize(cand, mk) < lockSize("comb", mk))) auto[mk] = { pick: "comb", why: `${nm(cand)} led the Combination on ${label} over the selection folds but not on the unseen lockbox fold, so the Combination stays.` };
+    else {
+      const dm = dmTest(errsAll[cand], errsAll["comb"], lockbox ? R - 1 : R, H, dmLag);
+      if (dm.p < 0.05 && dm.diff < 0) auto[mk] = { pick: cand, why: `${nm(cand)} replaced the Combination: it led on ${label} over the selection folds and on the lockbox fold, and a Diebold-Mariano test finds it more accurate (p = ${dm.p < 0.001 ? "< 0.001" : dm.p.toFixed(3)}).` };
+      else auto[mk] = { pick: "comb", why: `${nm(cand)} led the Combination on ${label} over the selection folds and the lockbox fold, but not significantly (Diebold-Mariano p = ${dm.p === dm.p ? dm.p.toFixed(2) : "n/a"} over ${dm.n} folds), so the Combination stays.` };
+    }
+  }
+  const best = auto.mase.pick;
+  const out: ModelRun = { T, H, m, origins, step, models, best, bestBy, lockbox, auto, autoPolicy, cv: rolling ? "rolling" : "expanding", trainLen, rough: R < 3, profile: seriesProfile(A, T) };
   return { ...out, internal: { ...out, oc, etsFinal, etsFit, hwFinal: run.final, hwParams, regFit: reg, thetaFit: theta, climM, climMeans, q } };
 }
 
@@ -716,7 +759,7 @@ export function computeFutures(A: Aggregated, run: RunInternal): Futures {
   const { T, H, m } = run;
   const y = A.yModel;
   const F: Record<ModelKey, Float64Array> = {
-    sn: new Float64Array(H), hw: new Float64Array(H), ets: new Float64Array(H), reg: new Float64Array(H), theta: new Float64Array(H), clim: new Float64Array(H), ens: new Float64Array(H),
+    sn: new Float64Array(H), hw: new Float64Array(H), ets: new Float64Array(H), reg: new Float64Array(H), theta: new Float64Array(H), clim: new Float64Array(H), ens: new Float64Array(H), comb: new Float64Array(H),
   };
   hwForecast(run.hwFinal, m, run.hwParams[3], T, H, F.hw, 0);
   etsForecast(run.etsFinal, run.etsFit, T, H, F.ets, 0);
@@ -726,6 +769,7 @@ export function computeFutures(A: Aggregated, run: RunInternal): Futures {
     F.theta[h] = thetaAt(run.thetaFit, h);
     F.clim[h] = run.climMeans[(T + h) % run.climM];
     F.ens[h] = (F.ets[h] + F.reg[h] + F.theta[h]) / 3;
+    F.comb[h] = (F.ets[h] + F.theta[h] + F.hw[h]) / 3;
   }
   const floor0 = A.nonNeg ? (v: number): number => Math.max(0, v) : (v: number): number => v;
   const out = {} as Futures;
@@ -814,6 +858,7 @@ function oneStepErrors(A: Aggregated, run: RunInternal, key: ModelKey): { e: Flo
       for (let t = m; t < T - hs; t++) {
         const k = t % m, yt = sub[t];
         pred[hs + t] = l + ph * b + sv[k];
+        if (A.made[hs + t]) { l += ph * b; b *= ph; continue; }
         const ln = a * (yt - sv[k]) + (1 - a) * (l + ph * b);
         b = be * (ln - l) + (1 - be) * ph * b; sv[k] = ga * (yt - ln) + (1 - ga) * sv[k]; l = ln;
       }
@@ -822,6 +867,14 @@ function oneStepErrors(A: Aggregated, run: RunInternal, key: ModelKey): { e: Flo
     case "ets": etsPred(); break;
     case "reg": regPred(); kind = "fitted"; break;
     case "theta": thetaPred(); kind = "one-step (approximate)"; break;
+    case "comb": {
+      etsPred(); const pe = pred.slice(); pred.fill(NaN);
+      thetaPred(); const pt = pred.slice(); pred.fill(NaN);
+      oneStepErrorsHw(A, run, pred);
+      for (let t = 0; t < T; t++) pred[t] = (pe[t]! + pt[t]! + pred[t]!) / 3;
+      kind = "one-step (approximate)";
+      break;
+    }
     case "ens": {
       etsPred(); const pe = pred.slice(); pred.fill(NaN);
       regPred(); const pr = pred.slice(); pred.fill(NaN);
@@ -852,21 +905,7 @@ export function deepCheck(A: Aggregated, run: RunInternal, pick: ModelKey): Deep
   const dm: DeepCheck["dm"] = [];
   for (const other of MODEL_KEYS) {
     if (other === pick) continue;
-    const d: number[] = [];
-    for (let f = 0; f < selR; f++) {
-      let s = 0, c = 0;
-      for (let h = 0; h < H; h++) { const a = errs[pick][f * H + h]!, b = errs[other][f * H + h]!; if (a === a && b === b) { s += Math.abs(a) - Math.abs(b); c++; } }
-      if (c) d.push(s / c);
-    }
-    const n = d.length;
-    if (n < 3) { dm.push({ other, n, diff: NaN, stat: NaN, p: NaN }); continue; }
-    const mean = d.reduce((x, v) => x + v, 0) / n, L = Math.min(dmLag, n - 1);
-    const gamma = (j: number): number => { let s = 0; for (let i = j; i < n; i++) s += (d[i]! - mean) * (d[i - j]! - mean); return s / n; };
-    let v = gamma(0);
-    for (let j = 1; j <= L; j++) v += 2 * (1 - j / (L + 1)) * gamma(j);
-    const hh = L + 1, hln = (n + 1 - 2 * hh + (hh * (hh - 1)) / n) / n;
-    const stat = v > 0 ? (mean / Math.sqrt(v / n)) * (hln > 0 ? Math.sqrt(hln) : 1) : mean === 0 ? 0 : Math.sign(mean) * Infinity;
-    dm.push({ other, n, diff: mean, stat, p: Number.isFinite(stat) ? tTwoSided(stat, n - 1) : 0 });
+    dm.push({ other, ...dmTest(errs[pick], errs[other], selR, H, dmLag) });
   }
   // Error by horizon.
   const nSteps = Math.min(H, 60), steps = Array.from({ length: nSteps }, (_, i) => Math.round(1 + (i * (H - 1)) / Math.max(1, nSteps - 1)));
@@ -914,4 +953,43 @@ export function deepCheck(A: Aggregated, run: RunInternal, pick: ModelKey): Deep
     resid = { kind, n, mean, acf, crit: 1.96 / Math.sqrt(n), m, lb: { lag, q, p: chiSquareSf(q, lag) } };
   }
   return { pick, dm, dmLag, horizon: { steps, mae }, calib, resid, ms: performance.now() - t0 };
+}
+
+/**
+ * Diebold-Mariano test (fpp3 5.10) that model A's absolute error is below model B's, over
+ * the first `folds` folds. The loss is each fold's mean absolute error; overlapping folds
+ * are dependent, so the variance is Bartlett (Newey-West) with lag `lag`, with the
+ * Harvey-Leybourne-Newbold small-sample correction and a t distribution on n - 1 df.
+ * diff < 0 means A is more accurate. NaN with fewer than 3 folds.
+ */
+export function dmTest(errA: Float64Array, errB: Float64Array, folds: number, H: number, lag: number): { n: number; diff: number; stat: number; p: number } {
+  const d: number[] = [];
+  for (let f = 0; f < folds; f++) {
+    let s = 0, c = 0;
+    for (let h = 0; h < H; h++) { const a = errA[f * H + h]!, b = errB[f * H + h]!; if (a === a && b === b) { s += Math.abs(a) - Math.abs(b); c++; } }
+    if (c) d.push(s / c);
+  }
+  const n = d.length;
+  if (n < 3) return { n, diff: NaN, stat: NaN, p: NaN };
+  const mean = d.reduce((x, v) => x + v, 0) / n, L = Math.min(lag, n - 1);
+  const gamma = (j: number): number => { let s = 0; for (let i = j; i < n; i++) s += (d[i]! - mean) * (d[i - j]! - mean); return s / n; };
+  let v = gamma(0);
+  for (let j = 1; j <= L; j++) v += 2 * (1 - j / (L + 1)) * gamma(j);
+  const hh = L + 1, hln = (n + 1 - 2 * hh + (hh * (hh - 1)) / n) / n;
+  const stat = v > 0 ? (mean / Math.sqrt(v / n)) * (hln > 0 ? Math.sqrt(hln) : 1) : mean === 0 ? 0 : Math.sign(mean) * Infinity;
+  return { n, diff: mean, stat, p: Number.isFinite(stat) ? tTwoSided(stat, n - 1) : 0 };
+}
+
+/** The damped Holt-Winters one-step forecasts on the fitting window, written into pred (NaN elsewhere). */
+function oneStepErrorsHw(A: Aggregated, run: RunInternal, pred: Float64Array): void {
+  const { T, m } = run, y = A.yModel, hs = fitFrom(T, m), sub = y.subarray(hs), [a, be, ga, ph] = run.hwParams, st = hwInit(sub, m, T - hs);
+  let l = st.l, b = st.b;
+  const sv = st.s;
+  for (let t = m; t < T - hs; t++) {
+    const k = t % m, yt = sub[t];
+    pred[hs + t] = l + ph * b + sv[k];
+    if (A.made[hs + t]) { l += ph * b; b *= ph; continue; }
+    const ln = a * (yt - sv[k]) + (1 - a) * (l + ph * b);
+    b = be * (ln - l) + (1 - be) * ph * b; sv[k] = ga * (yt - ln) + (1 - ga) * sv[k]; l = ln;
+  }
 }

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildTable } from "../src/data/timeseries/base.js";
 import { defaultConfig, TsEngine } from "../src/data/timeseries/engine.js";
+import { MODEL_INFO, MODEL_KEYS } from "../src/data/timeseries/models.js";
 import { backtestRows, forecastRows, scorecardRows } from "../src/ui/timeseries-export.js";
 
 function snap(backtest: boolean) {
@@ -29,16 +30,16 @@ test("forecast, scorecard and backtest CSVs hold what an analyst needs", () => {
   assert.ok(Number(f[1]![6]) <= Number(f[1]![4]) && Number(f[1]![4]) <= Number(f[1]![3]), "95% low under 80% low under forecast");
 
   const sc = scorecardRows(s, "mase", "ets", iso);
-  assert.equal(sc.length, 8);
+  assert.equal(sc.length, MODEL_KEYS.length + 1);
   const head = sc[0]!;
   for (const col of ["mase", "mae", "rmse", "wape", "smape", "mape", "bias", "folds_beaten", "validation", "parameters"]) assert.ok(head.includes(col), col);
   const ets = sc.find((r) => r[0] === "Best smoothing")!;
   assert.match(ets[head.indexOf("parameters")]!, /^ETS\(A,(N|A|Ad),(N|A|M)\) alpha=/);
   assert.equal(sc[1]![head.indexOf("rank")], "1");
-  assert.equal(sc.find((r) => r[head.indexOf("auto_pick")] === "yes")![0], sc[1]![0], "the top-ranked is the Auto pick");
+  assert.equal(sc.find((r) => r[head.indexOf("auto_pick")] === "yes")![0], MODEL_INFO[s.models.auto.mase.pick].name, "the Auto pick is marked");
 
   const bt = backtestRows(s, s.backtest!, starts(s), iso);
-  assert.equal(bt.length - 1, 7 * s.models.origins.length * s.models.H);
+  assert.equal(bt.length - 1, MODEL_KEYS.length * s.models.origins.length * s.models.H);
   // MAE recomputed from the export (selection folds, the last one is the lockbox) matches the board.
   const R = s.models.origins.length;
   const sn = bt.slice(1).filter((r) => r[0] === "Repeat last cycle" && r[8] !== "" && Number(r[1]) < R);

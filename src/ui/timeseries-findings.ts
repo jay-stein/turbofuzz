@@ -78,7 +78,7 @@ export function seasonName(g: Grain, d: Pick<Decomposition, "m"> & { parts?: unk
 
 export function selectedModel(s: TsSnapshot, view: TsView): ModelKey | null {
   if ("error" in s.models) return null;
-  return view.model === "auto" ? s.models.bestBy?.[view.metric ?? "mase"] ?? s.models.best : view.model;
+  return view.model === "auto" ? s.models.auto?.[view.metric ?? "mase"]?.pick ?? s.models.best : view.model;
 }
 /** Error relative to repeating the last cycle: on held-out actuals when there are some. */
 export function ratioOf(s: TsSnapshot, key: ModelKey): number {
@@ -318,6 +318,8 @@ export function modelRows(s: TsSnapshot, sel: ModelKey, metric: MetricKey = "mas
   if ("error" in s.models || !s.futures) return [];
   const M = s.models, g = s.A.g, m = M.models[sel], A = s.A, word = measureWord(s);
   const rows: [string, string][] = [["Model set", M.profile]];
+  if (M.auto) rows.push(["Auto", `${escapeHtml(M.auto[metric].why)}${sel !== M.auto[metric].pick ? ` You have picked ${MODEL_INFO[sel].name} instead.` : ""}`]);
+  if (sel === "comb") rows.push(["Combination", `the plain average of the Best smoothing, Steady trend and Smooth and damp forecasts (fpp3 13.4). Each is an imperfect view of the same series, and their misses partly cancel; the average has no parameters of its own to overfit`]);
   const hw = M.models.hw.hw;
   if ((sel === "hw" || sel === "ens") && hw) {
     const [a, b, gm, ph] = hw.params;
@@ -353,7 +355,7 @@ export function modelRows(s: TsSnapshot, sel: ModelKey, metric: MetricKey = "mas
   if (m.metrics) rows.push([M.lockbox ? "Scores (selection folds)" : "Scores", METRIC_KEYS.map((k) => `${METRIC_INFO[k].label} ${metricText(k, m.metrics[k])}`).join(" · ")]);
   if (M.lockbox && m.lock) rows.push(["Scores (lockbox fold)", `${METRIC_KEYS.map((k) => `${METRIC_INFO[k].label} ${metricText(k, m.lock![k])}`).join(" · ")}. The last fold is held back: models are ranked and Auto picks on the other folds, then scored once here, so this score carries no selection bias`]);
   if (sel !== "sn" && m.folds?.of) {
-    const luck = m.folds.won * 2 < m.folds.of && sel === (M.bestBy?.[metric] ?? M.best);
+    const luck = m.folds.won * 2 < m.folds.of && sel === (M.auto?.[metric]?.pick ?? M.best);
     rows.push(["Folds beaten", `beat repeating the last cycle in ${m.folds.won} of ${m.folds.of} folds${luck ? `. <span class="ts-warn">Best overall but wins under half the folds: its lead may come from one lucky stretch.</span>` : ""}`]);
   }
   if (m.metrics) {

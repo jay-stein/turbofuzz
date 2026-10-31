@@ -28,6 +28,20 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-29 — Time Series: Auto defaults to the Combination (fundamentals plan, Phase 1)
+
+- **Status:** Verified
+- **Related issue:** next_steps.md "BIG TODO: get the forecasting fundamentals right", weak point 1. The Monash benchmark showed that "pick the backtest winner of 7 models" (Auto) was worse than always using ETS on 15 of 19 low-frequency datasets: selection from about 10 short, overlapping folds is noisy.
+- **Scope:**
+  - **New model "Combination":** the plain average of best smoothing, steady trend and smooth and damp (fpp3 13.4; the M4 "Comb" benchmark). The old Blend is renamed "Blend with regression" (it still adds the drivers model).
+  - **Auto policy:** with a season of 24 periods or less (what seasonal ETS handles), Auto is the Combination; a rival replaces it only if it beats it on the selection folds, then on the unseen lockbox fold, then in a Diebold-Mariano test at 5% (`dmTest`, shared with the Deep check). With a longer season (weekly, hourly) Auto still picks the backtest winner, and the Combination is not a candidate. `ModelRun.auto` records the pick and the reason per measure; the model card, forecast strip, legend and guide explain it.
+  - Also fixed: the Deep check's damped Holt-Winters one-step residuals no longer learn from filled periods.
+  - Gate fixture enlarged to 141 series (220 KB) so small datasets no longer swing the gate; baseline rewritten.
+- **Result** (Monash, mean MASE, Auto before -> after; up to 200 series per dataset): M3 monthly 0.900 -> 0.854, M3 quarterly 1.333 -> 1.103, M3 yearly 3.465 -> 2.616, M1 monthly 1.053 -> 0.956, M1 yearly 4.493 -> 3.628, tourism monthly 1.565 -> 1.432, tourism quarterly 1.747 -> 1.508, tourism yearly 3.195 -> 2.503, hospital 0.771 -> 0.741, FRED-MD 0.500 -> 0.472, sunspot 0.301 -> 0.227. Better on 19 of 29 datasets, worse on 3 (car parts +1.9%, electricity weekly +2.4%, traffic weekly +1.1%, before the weekly fix above, and the car parts case is the sporadic-demand gap for Phase 4). Auto now beats every published `forecast` classical method on M3 monthly and quarterly, tourism monthly and quarterly, M1 monthly, hospital and NN5 daily.
+- **Tests run and results:** new `test/timeseries-auto.test.ts` (3: policy and reasons, long-season policy, Diebold-Mariano); the Deep check, export and validation tests updated; Time Series e2e (17) and full e2e (111) pass; gate passes on the new baseline; bench:timeseries within budget on most runs (the daily open case sits at its budget, +1 ms from this change).
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-28 — Accuracy gate for the Time Series forecasts (fundamentals plan, Phase 0)
 
 - **Status:** Verified

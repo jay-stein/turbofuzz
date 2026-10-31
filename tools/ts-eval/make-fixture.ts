@@ -17,13 +17,13 @@ import { FREQ, readTsf, runSeries, type FreqName, type Series } from "./lib.js";
 
 /** dataset file, how many series, longest history kept (0 = all), horizon when the file has none. */
 const PICKS: [string, number, number, number?][] = [
-  ["m3_monthly_dataset", 5, 0], ["m3_quarterly_dataset", 4, 0], ["m3_yearly_dataset", 4, 0], ["m3_other_dataset", 3, 0, 8],
-  ["m1_monthly_dataset", 3, 0, 18], ["tourism_monthly_dataset", 4, 0, 24], ["tourism_quarterly_dataset", 3, 0, 8], ["tourism_yearly_dataset", 3, 0, 4],
-  ["hospital_dataset", 4, 0, 12], ["fred_md_dataset", 2, 0, 12], ["covid_deaths_dataset", 2, 0, 30],
-  ["nn5_daily_dataset_with_missing_values", 3, 0, 56], ["nn5_weekly_dataset", 2, 0, 8],
-  ["m4_weekly_dataset", 3, 300], ["electricity_weekly_dataset", 2, 156, 8], ["traffic_weekly_dataset", 2, 104, 8],
-  ["m4_hourly_dataset", 3, 800], ["pedestrian_counts_dataset", 2, 800, 24],
-  ["car_parts_dataset_with_missing_values", 4, 0, 12], ["vehicle_trips_dataset_with_missing_values", 3, 0, 30],
+  ["m3_monthly_dataset", 10, 0], ["m3_quarterly_dataset", 8, 0], ["m3_yearly_dataset", 8, 0], ["m3_other_dataset", 6, 0, 8],
+  ["m1_monthly_dataset", 8, 0, 18], ["tourism_monthly_dataset", 8, 0, 24], ["tourism_quarterly_dataset", 6, 0, 8], ["tourism_yearly_dataset", 6, 0, 4],
+  ["hospital_dataset", 8, 0, 12], ["fred_md_dataset", 6, 0, 12], ["covid_deaths_dataset", 6, 0, 30],
+  ["nn5_daily_dataset_with_missing_values", 5, 0, 56], ["nn5_weekly_dataset", 6, 0, 8],
+  ["m4_weekly_dataset", 6, 300], ["electricity_weekly_dataset", 6, 156, 8], ["traffic_weekly_dataset", 8, 104, 8],
+  ["m4_hourly_dataset", 5, 800], ["pedestrian_counts_dataset", 3, 800, 24],
+  ["car_parts_dataset_with_missing_values", 12, 0, 12], ["vehicle_trips_dataset_with_missing_values", 10, 0, 30],
 ];
 
 const dir = process.argv[2];

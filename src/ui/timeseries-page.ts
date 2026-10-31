@@ -1012,7 +1012,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if ((ui.mode === "explore" || ui.mode === "decompose") && trendShift(s, ui)) lg.push(`<span style="color:${C.warn}"><i class="dash"></i>Trend shift (estimated)</span>`);
     if ((ui.mode === "explore" || ui.mode === "decompose") && s.dec.anomalies.length) lg.push(`<span style="color:${C.danger}">◯ Unusual</span>`);
     const fk = selectedModel(s, ui);
-    if (ui.mode === "forecast" && s.futures) lg.push(`<span style="color:${C.forecast}"><i class="dash"></i>Forecast: <b>${fk ? MODEL_INFO[fk].name : ""}</b> <small>${ui.model === "auto" ? `Auto, best on ${METRIC_INFO[ui.metric].label}` : "picked"}</small></span>`)
+    if (ui.mode === "forecast" && s.futures) lg.push(`<span style="color:${C.forecast}"><i class="dash"></i>Forecast: <b>${fk ? MODEL_INFO[fk].name : ""}</b> <small>${ui.model === "auto" ? autoLabel() : "picked"}</small></span>`)
     renderHeroBadge(s, fk);
     if (ui.mode === "forecast" && s.futures) lg.push(`<span style="color:${C.forecast}"><span style="color:${C.forecast}"><i class="band"></i>${ui.level === "fan" ? "80% and 95%" : "80%"} range</span>`);
     if (a.filled.some((x) => x)) lg.push(`<span style="color:${C.dim}">○ Filled</span>`);
@@ -1264,9 +1264,17 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const better = key === "sn" ? "the baseline every other model is measured against" : r < 1 ? `${Math.round((1 - r) * 100)}% less error than repeating the last cycle` : `${Math.round((r - 1) * 100)}% <b>more</b> error than repeating the last cycle`;
     const lucky = key !== "sn" && m.folds.of > 0 && m.folds.won * 2 < m.folds.of;
     const band = f.held ? `${f.held.hit} of ${f.held.tot} held-out actuals inside the 80% band` : m.check ? `${m.check.hit} of ${m.check.tot} inside the 80% band on the latest fold` : "";
-    badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ${gd.cls}">${gd.text}</span><small>${ui.model === "auto" ? `Auto · best on ${METRIC_INFO[ui.metric].label}` : "picked by you"}</small></div>
+    badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ${gd.cls}">${gd.text}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small></div>
       <div class="ts-badge-body">${better} at the same horizons, ${heldMode ? "on the held-out actuals" : `over ${M.origins.length} backtest folds`} · ${METRIC_INFO[ui.metric].label} ${metricText(ui.metric, m.metrics[ui.metric])}${ui.metric === "mase" ? " (scaled by the in-sample one-cycle naive error, so multi-step forecasts often sit above 1)" : ""}${key !== "sn" ? ` · beat it in ${m.folds.won} of ${m.folds.of} folds` : ""}${band ? ` · ${band}` : ""}${lucky ? ` · <span class="ts-warn">wins under half its folds: may be luck</span>` : ""}${M.rough ? ` · <span class="ts-warn">under 3 folds: rough</span>` : ""}</div>${lockLine(M, key)}`;
     badge.hidden = false;
+  }
+  /** What Auto did, in a few words for the legend and the strip. */
+  function autoLabel(): string {
+    const M = models();
+    if (!M) return "Auto";
+    const a = M.auto[ui.metric];
+    if (M.autoPolicy === "backtest") return `Auto · backtest winner on ${METRIC_INFO[ui.metric].label}`;
+    return a.pick === "comb" ? "Auto · the combination (default)" : `Auto · beat the combination on folds, lockbox and significance`;
   }
   /** How the pick did on the lockbox fold, which the choice never saw. */
   function lockLine(M: ModelRun, key: ModelKey): string {
@@ -1326,7 +1334,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   let deep: { key: string; result: DeepCheck | null } | null = null;
   let deepBusy = false;
   /** Rough complexity, for "prefer the simpler model when it is not significantly worse". */
-  const COMPLEXITY: Record<ModelKey, number> = { sn: 0, clim: 1, theta: 2, hw: 3, ets: 3, reg: 4, ens: 5 };
+  const COMPLEXITY: Record<ModelKey, number> = { sn: 0, clim: 1, theta: 2, hw: 3, ets: 3, comb: 4, reg: 4, ens: 5 };
   const deepKey = (s: TsSnapshot, pick: ModelKey): string => `${curveKey(s)}|${s.cfg.flex}|${pick}`;
   function runDeep(): void {
     const s = snap, pick = s ? selectedModel(s, ui) : null;
@@ -1434,7 +1442,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (!M || !s.futures) { board.innerHTML = `<tbody><tr><td class="ts-emptycell">${"error" in s.models ? escapeHtml(s.models.error) : ""}</td></tr></tbody>`; card.innerHTML = ""; return; }
     const sel = selectedModel(s, ui) as ModelKey, fut = s.futures;
     const heldMode = M.T < s.A.modelN && fut.sn.held?.ratio != null;
-    const mk = ui.metric, best = M.bestBy[mk];
+    const mk = ui.metric, best = M.auto[mk].pick;
     const size = (k: ModelKey): number => { const v = M.models[k].metrics[mk]; return v === v ? (mk === "bias" ? Math.abs(v) : v) : Infinity; };
     const maxV = Math.max(...MODEL_KEYS.map(size).filter(Number.isFinite), 1e-12);
     const keys = [...MODEL_KEYS].sort((p, q) => size(p) - size(q));
@@ -1799,7 +1807,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const st = target.closest<HTMLElement>("[data-stat]");
     if (st) change({ smoothStat: st.dataset.stat as TsConfig["smoothStat"] }, { fade: false });
     const row = target.closest<HTMLElement>("tr[data-model]");
-    if (row && snap) { const M = models(), k = row.dataset.model as ModelKey; uiChange({ model: M && k === M.bestBy[ui.metric] && ui.model !== "auto" ? "auto" : k }); }
+    if (row && snap) { const M = models(), k = row.dataset.model as ModelKey; uiChange({ model: M && k === M.auto[ui.metric].pick && ui.model !== "auto" ? "auto" : k }); }
     const tab = target.closest<HTMLElement>(".ts-modes [data-mode]");
     if (tab) setMode(tab.dataset.mode as TsMode);
     const preset = target.closest<HTMLElement>("[data-span]");

@@ -42,7 +42,7 @@ function readCsv(path: string): { head: string[]; rows: string[][] } {
   return { head: cells(lines[0]!), rows: lines.slice(1).map(cells) };
 }
 
-const COMPLEXITY: Record<ModelKey, number> = { sn: 0, clim: 1, theta: 2, hw: 3, ets: 3, reg: 4, ens: 5 };
+const COMPLEXITY: Record<ModelKey, number> = { sn: 0, clim: 1, theta: 2, hw: 3, ets: 3, comb: 4, reg: 4, ens: 5 };
 const name = (k: ModelKey): string => MODEL_INFO[k].name;
 const dir = process.argv[2];
 if (!dir) throw new Error("usage: npx tsx tools/ts-eval/run.ts <folder>");
