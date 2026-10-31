@@ -28,6 +28,14 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-14 — Time Series: auto-ETS, and backtests that never test on tuned data
+
+- **Status:** Verified
+- **Scope:** A new model "Best smoothing": ETS with additive errors over trend none / additive / damped and season none / additive / multiplicative (positive series), each fitted by least squares and the lowest AICc kept (Hyndman & Athanasopoulos, fpp3 ch. 8). The model card names the form, e.g. ETS(A,Ad,M), and its parameters. The Blend now averages best smoothing, steady trend and drivers. Overfitting fix: the backtest's smoothing parameters (ETS and Holt-Winters) are now fitted on data before the first backtest origin only; before, Holt-Winters was tuned on all the history including the stretches it was scored on. ETS fits the latest ~800 periods (or six seasons), the backtest cut is rounded down to a coarse step and fits are cached, so a horizon drag refits nothing.
+- **Tests run and results:** `test/timeseries-ets.test.ts` (a growing seasonal series picks a multiplicative season and beats additive Holt-Winters); bench:timeseries within budgets; full suite green.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-13 — New column from examples
 
 - **Status:** Verified

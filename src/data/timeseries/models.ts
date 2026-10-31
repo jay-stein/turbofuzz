@@ -1,5 +1,5 @@
 /**
- * Time Series page, layer 3: forecasts. Six models, every one backtested from earlier
+ * Time Series page, layer 3: forecasts. Seven models, every one backtested from earlier
  * dates against "repeat the last cycle"; bands come from those backtest errors, not
  * from a formula. No dependencies: a few hundred lines of typed arrays.
  */
@@ -9,15 +9,16 @@ import { regular, type Aggregated, type TsConfig, type TsDriver } from "./aggreg
 import { decompose, preferScaled } from "./decompose.js";
 import { cap, nounFor } from "./format.js";
 
-export type ModelKey = "sn" | "hw" | "reg" | "theta" | "clim" | "ens";
-export const MODEL_KEYS: readonly ModelKey[] = ["sn", "hw", "reg", "theta", "clim", "ens"];
+export type ModelKey = "sn" | "hw" | "ets" | "reg" | "theta" | "clim" | "ens";
+export const MODEL_KEYS: readonly ModelKey[] = ["sn", "hw", "ets", "reg", "theta", "clim", "ens"];
 export const MODEL_INFO: Readonly<Record<ModelKey, { name: string; meth: string }>> = {
   sn: { name: "Repeat last cycle", meth: "Seasonal naive" },
   hw: { name: "Smooth and damp", meth: "Holt-Winters, damped trend" },
   reg: { name: "Trend, seasons and drivers", meth: "Prophet-style regression" },
   theta: { name: "Steady trend", meth: "Theta method" },
   clim: { name: "Seasonal average", meth: "Mean of the same point in earlier cycles" },
-  ens: { name: "Blend", meth: "Average of smooth-and-damp, steady trend and drivers" },
+  ets: { name: "Best smoothing", meth: "ETS, picked by AICc (trend none, additive or damped; season none, additive or multiplicative)" },
+  ens: { name: "Blend", meth: "Average of best smoothing, steady trend and drivers" },
 };
 
 interface BandQ { q10: number; q90: number; q025: number; q975: number }
@@ -39,6 +40,8 @@ export interface ModelSummary {
   /** On the latest backtest: how many periods fell inside the 80% band built from the others. */
   check: { hit: number; tot: number } | null;
   hw?: { params: HwParams };
+  /** ETS components, e.g. "A,Ad,M" (error, trend, season), and its smoothing parameters. */
+  ets?: { spec: string; alpha: number; beta: number; gamma: number; phi: number; aicc: number; tried: number };
   reg?: { K: number; Ky: number; Kw: number; Kd: number; logY: boolean; drivers: { col: string; log: boolean; beta: number; flag: boolean }[] };
   theta?: { alpha: number; b0: number; seasonal: boolean };
   clim?: { m: number };
@@ -63,7 +66,7 @@ export interface Future {
 export type Futures = Record<ModelKey, Future>;
 
 /** Inside the worker only: the run plus what the futures need (fits with closures). */
-interface RunInternal extends ModelRun { hwFinal: HwState; hwParams: HwParams; regFit: RegFit; thetaFit: ThetaFit; climM: number; climMeans: Float64Array; q: Record<ModelKey, BandQ[]> }
+interface RunInternal extends ModelRun { etsFinal: EtsState; etsFit: EtsFit; hwFinal: HwState; hwParams: HwParams; regFit: RegFit; thetaFit: ThetaFit; climM: number; climMeans: Float64Array; q: Record<ModelKey, BandQ[]> }
 
 function hwInit(y: Float64Array, m: number, limit: number): HwState {
   let l = 0;
@@ -131,6 +134,150 @@ function hwForecast(st: HwState, m: number, ph: number, t0: number, H: number, o
   let damp = 0, pw = 1;
   for (let h = 0; h < H; h++) { pw *= ph; damp += pw; out[off + h] = st.l + damp * st.b + st.s[(t0 + h) % m]; }
 }
+// ---------------------------------------------------------------- ETS (auto)
+// Exponential smoothing with additive errors, as in Hyndman & Athanasopoulos,
+// Forecasting: Principles and Practice (3rd ed.), ch. 8: trend none (N), additive (A)
+// or damped (Ad); season none (N), additive (A) or multiplicative (M, positive series
+// only). Each is fitted by least squares and the one with the lowest AICc is kept.
+
+type EtsTrend = "N" | "A" | "Ad";
+type EtsSeason = "N" | "A" | "M";
+interface EtsState { l: number; b: number; s: Float64Array }
+interface EtsFit { trend: EtsTrend; season: EtsSeason; m: number; a: number; be: number; ga: number; ph: number; aicc: number; tried: number }
+
+function etsInit(y: Float64Array, from: number, m: number, fit: Pick<EtsFit, "trend" | "season">): EtsState {
+  const mm = fit.season === "N" ? 1 : m;
+  let l = 0;
+  for (let i = 0; i < mm; i++) l += y[from + i];
+  l /= mm;
+  let b = 0;
+  if (fit.trend !== "N" && y.length - from >= 2 * mm) { let l2 = 0; for (let i = mm; i < 2 * mm; i++) l2 += y[from + i]; b = (l2 / mm - l) / mm; }
+  const s = new Float64Array(Math.max(1, m)).fill(fit.season === "M" ? 1 : 0);
+  if (fit.season === "A") for (let i = 0; i < m; i++) s[(from + i) % m] = y[from + i] - l;
+  if (fit.season === "M") for (let i = 0; i < m; i++) s[(from + i) % m] = l !== 0 ? y[from + i] / l : 1;
+  return { l, b, s };
+}
+
+/** One step: the forecast for t, then the state after seeing y[t]. NaN when the state breaks (a zero level or season). */
+function etsStep(st: EtsState, y: number, k: number, f: Omit<EtsFit, "aicc" | "tried">): number {
+  const damped = f.trend === "N" ? 0 : f.ph;
+  const base = st.l + damped * st.b;
+  const sk = st.s[k];
+  const pred = f.season === "M" ? base * sk : f.season === "A" ? base + sk : base;
+  if (!(y === y)) return pred; // a gap: carry the state
+  const des = f.season === "M" ? (sk !== 0 ? y / sk : NaN) : f.season === "A" ? y - sk : y;
+  const ln = f.a * des + (1 - f.a) * base;
+  if (f.trend !== "N") st.b = f.be * (ln - st.l) + (1 - f.be) * damped * st.b;
+  if (f.season === "M") st.s[k] = ln !== 0 ? f.ga * (y / ln) + (1 - f.ga) * sk : NaN;
+  else if (f.season === "A") st.s[k] = f.ga * (y - ln) + (1 - f.ga) * sk;
+  st.l = ln;
+  return pred;
+}
+
+function etsSSE(y: Float64Array, from: number, T: number, f: Omit<EtsFit, "aicc" | "tried">): { sse: number; n: number } {
+  const st = etsInit(y, from, f.m, f);
+  const start = from + (f.season === "N" ? 1 : f.m);
+  let sse = 0, n = 0;
+  for (let t = start; t < T; t++) {
+    const pred = etsStep(st, y[t], t % f.m, f);
+    if (!Number.isFinite(pred) || !Number.isFinite(st.l)) return { sse: Infinity, n: 1 };
+    if (y[t] === y[t]) { const e = y[t] - pred; sse += e * e; n++; }
+  }
+  return { sse, n };
+}
+
+/** Least-squares smoothing parameters for one ETS form (coordinate search, as for Holt-Winters). */
+function etsFitOne(y: Float64Array, from: number, T: number, m: number, trend: EtsTrend, season: EtsSeason): EtsFit | null {
+  const free = [true, trend !== "N", season !== "N", trend === "Ad"];
+  const lo = [0.01, 0.001, 0.001, 0.8], hi = [0.99, 0.5, 0.7, 0.98];
+  let p = [0.3, trend === "N" ? 0 : 0.05, season === "N" ? 0 : 0.15, trend === "Ad" ? 0.95 : 1];
+  const sse = (q: number[]): number => etsSSE(y, from, T, { trend, season, m, a: q[0]!, be: q[1]!, ga: q[2]!, ph: q[3]! }).sse;
+  let best = sse(p);
+  const step = [0.12, 0.04, 0.1, 0.04];
+  for (let round = 0; round < 5; round++) {
+    for (let j = 0; j < 4; j++) {
+      if (!free[j]) continue;
+      for (const dir of [1, -1]) {
+        const q = [...p];
+        q[j] = Math.min(hi[j]!, Math.max(lo[j]!, q[j]! + dir * step[j]!));
+        const e = sse(q);
+        if (e < best) { best = e; p = q; }
+      }
+    }
+    for (let j = 0; j < 4; j++) step[j]! *= 0.5;
+  }
+  const { n } = etsSSE(y, from, T, { trend, season, m, a: p[0]!, be: p[1]!, ga: p[2]!, ph: p[3]! });
+  // Parameters plus initial states: level, trend, and m - 1 free seasonal starts.
+  const k = free.filter(Boolean).length + 1 + (trend !== "N" ? 1 : 0) + (season !== "N" ? m - 1 : 0);
+  if (!Number.isFinite(best) || n - k - 1 <= 0 || best <= 0) return null;
+  const aicc = n * Math.log(best / n) + 2 * k + (2 * k * (k + 1)) / (n - k - 1);
+  return { trend, season, m, a: p[0]!, be: p[1]!, ga: p[2]!, ph: p[3]!, aicc, tried: 0 };
+}
+
+/** ETS learns its smoothing from the latest stretch: older periods barely move it but cost as much to fit. */
+function etsFrom(T: number, m: number): number {
+  const w = Math.max(800, 6 * m);
+  return T > w ? Math.floor((T - w) / Math.max(1, m)) * Math.max(1, m) : 0;
+}
+
+/** Fitted forms kept for the same stretch of the same series (a horizon drag refits nothing). */
+const etsCache = new Map<string, EtsFit>();
+
+/** The ETS form with the lowest AICc over [from, T), from the cache when this stretch was fitted before. */
+function etsSelect(y: Float64Array, from: number, T: number, m: number): EtsFit {
+  let sum = 0;
+  for (let t = from; t < T; t += Math.max(1, Math.floor((T - from) / 64))) sum += y[t] === y[t] ? y[t] : 0.5;
+  const key = `${from}|${T}|${m}|${sum}|${y[T - 1]}`;
+  const hit = etsCache.get(key);
+  if (hit) return hit;
+  const fit = etsSelectFresh(y, from, T, m);
+  if (etsCache.size > 64) etsCache.clear();
+  etsCache.set(key, fit);
+  return fit;
+}
+
+function etsSelectFresh(y: Float64Array, from: number, T: number, m: number): EtsFit {
+  let positive = true;
+  for (let t = from; t < T; t++) if (y[t] === y[t] && !(y[t] > 0)) { positive = false; break; }
+  const seasons: EtsSeason[] = m >= 2 && T - from >= 2 * m + 2 ? (positive ? ["N", "A", "M"] : ["N", "A"]) : ["N"];
+  let best: EtsFit | null = null, tried = 0;
+  for (const season of seasons) {
+    for (const trend of ["N", "A", "Ad"] as EtsTrend[]) {
+      const fit = etsFitOne(y, from, T, season === "N" ? 1 : m, trend, season);
+      tried++;
+      if (fit && (best === null || fit.aicc < best.aicc)) best = fit;
+    }
+  }
+  return { ...(best ?? { trend: "N", season: "N", m: 1, a: 0.3, be: 0, ga: 0, ph: 1, aicc: NaN, tried: 0 }), tried };
+}
+
+/** Runs a fitted ETS from `from` to T, keeping the state at each origin. */
+function etsRun(y: Float64Array, from: number, T: number, f: EtsFit, origins: number[]): { snaps: Map<number, EtsState>; final: EtsState } {
+  const st = etsInit(y, from, f.m, f);
+  const snaps = new Map<number, EtsState>();
+  let oi = 0;
+  while (oi < origins.length && origins[oi]! < from + f.m) oi++;
+  for (let t = from + (f.season === "N" ? 1 : f.m); t < T; t++) {
+    while (oi < origins.length && origins[oi] === t) { snaps.set(t, { l: st.l, b: st.b, s: st.s.slice() }); oi++; }
+    etsStep(st, y[t], t % f.m, f);
+  }
+  return { snaps, final: { l: st.l, b: st.b, s: st.s.slice() } };
+}
+
+function etsForecast(st: EtsState, f: EtsFit, t0: number, H: number, out: Float64Array, off: number): void {
+  let damp = 0, pw = 1;
+  for (let h = 0; h < H; h++) {
+    if (f.trend === "Ad") { pw *= f.ph; damp += pw; } else if (f.trend === "A") damp = h + 1;
+    const base = st.l + damp * st.b, sk = st.s[(t0 + h) % f.m] ?? 0;
+    out[off + h] = f.season === "M" ? base * sk : f.season === "A" ? base + sk : base;
+  }
+}
+
+/** "A,Ad,M": error, trend and season, as ETS is usually written. */
+export function etsSpec(f: Pick<EtsFit, "trend" | "season">): string {
+  return `A,${f.trend},${f.season}`;
+}
+
 function cholSolve(Am: Float64Array, bv: Float64Array, p: number): Float64Array {
   const L = new Float64Array(p * p);
   for (let i = 0; i < p; i++) {
@@ -368,12 +515,31 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
 
   origins.forEach((o, k) => { for (let h = 0; h < H; h++) oc.sn[k * H + h] = y[o - m + (h % m)]; });
 
+  // Smoothing parameters for the backtest are fitted on data before the first origin
+  // only, so no model is scored on periods it was tuned on (that would flatter it).
   const wkey = [cfg.grain, cfg.agg, cfg.measure, cfg.group, cfg.gaps].join("|");
+  const first0 = origins.length ? origins[0] : T;
+  // The cut is rounded down to a coarse step: still before every origin (honest), and
+  // the same while the horizon is dragged, so fits are reused.
+  const quantum = Math.max(m, 64);
+  const cut = Math.max(Math.min(first0, 2 * m + 10), Math.floor(first0 / quantum) * quantum);
+  const hb = etsFrom(cut, m);
+  const hwBack = cut - hb >= 2 * m + 2 ? hwFit(y.subarray(hb), cut - hb, m, warm.get(wkey)) : null;
   const hs = fitFrom(T, m);
   const hwParams = hwFit(y.subarray(hs), T - hs, m, warm.get(wkey));
   warm.set(wkey, hwParams);
-  const run = hwRun(y, T, m, hwParams, origins);
-  origins.forEach((o, k) => { const st = run.snaps.get(o); if (st) hwForecast(st, m, hwParams[3], o, H, oc.hw, k * H); });
+  const backRun = hwRun(y, T, m, hwBack ?? hwParams, origins);
+  origins.forEach((o, k) => { const st = backRun.snaps.get(o); if (st) hwForecast(st, m, (hwBack ?? hwParams)[3], o, H, oc.hw, k * H); });
+  const run = hwRun(y, T, m, hwParams, []);
+
+  // ETS: the form and its parameters chosen before the first origin for the backtest, again on all data for the forecast.
+  const eb = etsFrom(cut, m);
+  const etsBack = etsSelect(y, eb, cut, m);
+  const etsBackRun = etsRun(y, eb, T, etsBack, origins);
+  origins.forEach((o, k) => { const st = etsBackRun.snaps.get(o); if (st) etsForecast(st, etsBack, o, H, oc.ets, k * H); else for (let h = 0; h < H; h++) oc.ets[k * H + h] = oc.hw[k * H + h]; });
+  const es = etsFrom(T, m);
+  const etsFit = etsSelect(y, es, T, m);
+  const etsFinal = etsRun(y, es, T, etsFit, []).final;
 
   origins.forEach((o, k) => { const f = regFit(A, table, cfg.drivers, y, o, cfg.flex); for (let h = 0; h < H; h++) oc.reg[k * H + h] = regAt(f, o + h); });
   const reg = regFit(A, table, cfg.drivers, y, T, cfg.flex);
@@ -386,7 +552,7 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   origins.forEach((o, k) => { const means = phaseMeans(y, o, climM); for (let h = 0; h < H; h++) oc.clim[k * H + h] = means[(o + h) % climM]; });
   const climMeans = phaseMeans(y, T, climM);
 
-  for (let i = 0; i < R * H; i++) oc.ens[i] = (oc.hw[i] + oc.reg[i] + oc.theta[i]) / 3;
+  for (let i = 0; i < R * H; i++) oc.ens[i] = (oc.ets[i] + oc.reg[i] + oc.theta[i]) / 3;
 
   const models = {} as Record<ModelKey, ModelSummary>;
   const q = {} as Record<ModelKey, BandQ[]>;
@@ -413,12 +579,13 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   const base = models.sn.mase || 1;
   for (const key of MODEL_KEYS) models[key].ratio = models[key].mase / base;
   models.hw.hw = { params: hwParams };
+  models.ets.ets = { spec: etsSpec(etsFit), alpha: etsFit.a, beta: etsFit.be, gamma: etsFit.ga, phi: etsFit.ph, aicc: etsFit.aicc, tried: etsFit.tried };
   models.reg.reg = { K: reg.K, Ky: reg.Ky, Kw: reg.Kw, Kd: reg.Kd, logY: reg.logY, drivers: reg.drv.map((v, j) => ({ col: v.d.col, log: v.log, beta: reg.beta[reg.iDrv + j], flag: !!table.flags[v.d.col] })) };
   models.theta.theta = { alpha: theta.alpha, b0: theta.b0, seasonal: theta.prof !== null || theta.scale !== null };
   models.clim.clim = { m: climM };
-  const best = (["hw", "reg", "ens", "theta", "clim", "sn"] as ModelKey[]).reduce((a, b) => (models[b].mase < models[a].mase ? b : a));
+  const best = (["ets", "hw", "reg", "ens", "theta", "clim", "sn"] as ModelKey[]).reduce((a, b) => (models[b].mase < models[a].mase ? b : a));
   const out: ModelRun = { T, H, m, origins, step, models, best, rough: R < 3, profile: seriesProfile(A, T) };
-  return { ...out, internal: { ...out, hwFinal: run.final, hwParams, regFit: reg, thetaFit: theta, climM, climMeans, q } };
+  return { ...out, internal: { ...out, etsFinal, etsFit, hwFinal: run.final, hwParams, regFit: reg, thetaFit: theta, climM, climMeans, q } };
 }
 
 /** Future values and bands for every model. */
@@ -426,15 +593,16 @@ export function computeFutures(A: Aggregated, run: RunInternal): Futures {
   const { T, H, m } = run;
   const y = A.yModel;
   const F: Record<ModelKey, Float64Array> = {
-    sn: new Float64Array(H), hw: new Float64Array(H), reg: new Float64Array(H), theta: new Float64Array(H), clim: new Float64Array(H), ens: new Float64Array(H),
+    sn: new Float64Array(H), hw: new Float64Array(H), ets: new Float64Array(H), reg: new Float64Array(H), theta: new Float64Array(H), clim: new Float64Array(H), ens: new Float64Array(H),
   };
   hwForecast(run.hwFinal, m, run.hwParams[3], T, H, F.hw, 0);
+  etsForecast(run.etsFinal, run.etsFit, T, H, F.ets, 0);
   for (let h = 0; h < H; h++) {
     F.reg[h] = regAt(run.regFit, T + h);
     F.sn[h] = y[T - m + (h % m)];
     F.theta[h] = thetaAt(run.thetaFit, h);
     F.clim[h] = run.climMeans[(T + h) % run.climM];
-    F.ens[h] = (F.hw[h] + F.reg[h] + F.theta[h]) / 3;
+    F.ens[h] = (F.ets[h] + F.reg[h] + F.theta[h]) / 3;
   }
   const floor0 = A.nonNeg ? (v: number): number => Math.max(0, v) : (v: number): number => v;
   const out = {} as Futures;

@@ -57,7 +57,7 @@ test("the Time Series tab reads the loaded table and says what it plots", async 
 test("forecast, decompose and patterns each draw from the worker", async ({ page }) => {
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();
-  await expect(page.locator(".ts-board tbody tr")).toHaveCount(6);
+  await expect(page.locator(".ts-board tbody tr")).toHaveCount(7);
   await page.locator(".ts-page [data-ref=hNum]").fill("30");
   await page.locator(".ts-page [data-ref=hNum]").press("Enter");
   await expect(page.locator(".ts-page [data-ref=hUnit]")).toHaveText("days");

@@ -317,6 +317,13 @@ export function modelRows(s: TsSnapshot, sel: ModelKey): [string, string][] {
     const [a, b, gm, ph] = hw.params;
     rows.push(["Smooth and damp", `level ${a.toFixed(2)}, trend ${b.toFixed(3)}, season ${gm.toFixed(2)}, damping ${ph.toFixed(2)} (season of ${M.m} ${g.nouns})`]);
   }
+  const ets = M.models.ets.ets;
+  if ((sel === "ets" || sel === "ens") && ets) {
+    const [, trend, season] = ets.spec.split(",");
+    const trendWord = trend === "N" ? "no trend" : trend === "A" ? "a straight-line trend" : "a trend that flattens out (damped)";
+    const seasonWord = season === "N" ? "no season" : season === "A" ? "a season of fixed size" : "a season that grows with the level (multiplicative)";
+    rows.push(["Best smoothing", `ETS(${escapeHtml(ets.spec)}): ${trendWord} and ${seasonWord}, the lowest AICc of ${ets.tried} forms tried; level ${ets.alpha.toFixed(2)}${trend !== "N" ? `, trend ${ets.beta.toFixed(3)}` : ""}${season !== "N" ? `, season ${ets.gamma.toFixed(2)}` : ""}${trend === "Ad" ? `, damping ${ets.phi.toFixed(2)}` : ""}. AICc rewards a close fit but charges for every extra part, so a richer form only wins when it earns its keep.`]);
+  }
   const reg = M.models.reg.reg;
   if ((sel === "reg" || sel === "ens") && reg) {
     const waves = [[reg.Ky, "yearly"], [reg.Kw, "weekly"], [reg.Kd, "daily"]].filter(([k]) => k).map(([k, w]) => `${k} ${w}`).join(", ") || "no";
