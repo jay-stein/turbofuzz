@@ -11955,3 +11955,18 @@ button.qp-tile:hover {
 .newcol-rule .hidden, .newcol-pane .map-field.hidden { display: none; }
 .newcol-small { width: 70px !important; }
 .newcol-quick-formula { padding: 2px 8px; border-radius: 4px; background: var(--panel-2); font-family: var(--mono); font-size: var(--fs-sm); }
+
+/* Table: frozen columns and the File row column stay put when scrolling sideways. */
+.td.frozen, .td.file-row { position: sticky; z-index: 1; background: var(--panel); }
+.th.frozen, .th.file-row-head { position: sticky; z-index: 3; background: var(--panel-2); }
+.tr:nth-child(even) .td.frozen, .tr:nth-child(even) .td.file-row { background: color-mix(in srgb, var(--panel-2) 55%, var(--panel)); }
+.td.frozen:has(+ .td:not(.frozen)), .th.frozen:has(+ .th:not(.frozen)) { box-shadow: 2px 0 0 color-mix(in srgb, var(--accent) 35%, var(--border)); }
+/* Headers: the column number only on hover, so the name has the room. */
+.th .th-index { display: none; }
+.th:hover .th-index, .th:focus-within .th-index { display: inline; }
+.table-rows .empty .link { color: var(--accent); }
+/* Table bar: the cell under the cursor, and hidden columns. */
+.table-nav-peek { max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-family: var(--mono); }
+.table-nav-peek:empty { display: none; }
+.table-nav-peek b { font-family: inherit; color: var(--text-dim); font-weight: 500; }
+.context-search { margin: 4px 6px 6px; width: calc(100% - 12px); }

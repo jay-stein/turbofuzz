@@ -36,6 +36,8 @@ export interface TableNavOptions {
   /** Back to the file's own order: no sort, no shuffle, not reversed. */
   onFileOrder(): void;
   onShowFileRow(on: boolean): void;
+  /** Shows every hidden column again. */
+  onShowAllColumns(): void;
 }
 
 const nf = new Intl.NumberFormat("en");
@@ -62,6 +64,8 @@ export class TableNav {
   private readonly limit: HTMLButtonElement;
   private readonly orderLabel: HTMLElement;
   private readonly fileOrder: HTMLButtonElement;
+  private readonly peek: HTMLElement;
+  private readonly hiddenNote: HTMLButtonElement;
   private readonly pop: HTMLElement;
   private readonly input: HTMLInputElement;
   private readonly message: HTMLElement;
@@ -87,6 +91,9 @@ export class TableNav {
     this.fileOrder = el("button", { class: "table-nav-link", type: "button", title: "Clear the sort, shuffle and reverse" }, ["Back to file order"]) as HTMLButtonElement;
     const addColumn = button("table-nav-add", "Add column", "A new column from a formula over the others, or one value for every row", ICONS.add);
     addColumn.addEventListener("click", () => options.onAddColumn());
+    this.peek = el("span", { class: "table-nav-peek", "aria-live": "polite" });
+    this.hiddenNote = el("button", { class: "table-nav-link hidden", type: "button", title: "Show every hidden column" }) as HTMLButtonElement;
+    this.hiddenNote.addEventListener("click", () => options.onShowAllColumns());
     const goTo = button("table-nav-goto", "Go to…", "Go to a row or column (Ctrl+G)");
     goTo.append(el("span", { class: "kbd" }, ["Ctrl G"]));
 
@@ -121,7 +128,9 @@ export class TableNav {
       this.fileRow,
       el("span", { class: "table-nav-sep", "aria-hidden": "true" }),
       el("span", { class: "table-nav-order-wrap" }, [el("span", { class: "table-nav-dim" }, ["Order:"]), this.orderLabel, this.fileOrder]),
+      this.hiddenNote,
       el("span", { class: "grow" }),
+      this.peek,
       addColumn,
       goTo,
       this.pop,
@@ -206,6 +215,18 @@ export class TableNav {
       pick("tail", 10), pick("tail", 100), pick("tail", 1000), other("tail"),
       { label: "All rows", disabled: current === null, action: () => this.options.onRowLimit(null) },
     ]);
+  }
+
+  /** The cell under the cursor, in full: "Amount · row 12: 45,000". */
+  setPeek(cell: { column: string; position: number; value: string } | null): void {
+    if (cell === null) { this.peek.replaceChildren(); this.peek.title = ""; return; }
+    this.peek.replaceChildren(el("b", {}, [`${cell.column} · row ${nf.format(cell.position + 1)}: `]), cell.value === "" ? "(empty)" : cell.value);
+    this.peek.title = cell.value;
+  }
+
+  setHiddenCount(count: number): void {
+    this.hiddenNote.classList.toggle("hidden", count === 0);
+    this.hiddenNote.textContent = `${count} hidden column${count === 1 ? "" : "s"} · Show all`;
   }
 
   setShowFileRow(on: boolean): void {

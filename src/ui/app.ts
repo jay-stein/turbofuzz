@@ -499,6 +499,9 @@ export class App {
   private showFileRow = readFlag(FILE_ROW_KEY);
   /** First / last N rows, as the worker last reported it (a filter chip shows it). */
   private rowLimit: RowLimit | null = null;
+  /** Columns hidden from the Table (display only); cleared with a new table. */
+  private hiddenColumns = new Set<number>();
+  private frozenThrough = -1;
   /** Cell edits ask first, until "Don't ask again for this session" (DEC-2026-10-31-02). */
   private askEditConfirm = true;
   /** A cell just edited: the cursor goes back to it once the cleaned rows arrive. */
@@ -2191,6 +2194,9 @@ export class App {
   }
 
   private openWorkspace(loaded: LoadedMessage | TransformedMessage): void {
+    // A new table shows every column, none frozen.
+    this.hiddenColumns = new Set();
+    this.frozenThrough = -1;
     // A new dataset always opens in General; Research is switched on by the person each time.
     if (loaded.type === "loaded" && this.mode !== "general") {
       this.mode = "general";
@@ -2396,6 +2402,7 @@ export class App {
       onReverse: (on) => this.reverseTable(on),
       onRowLimit: (limit) => this.setRowLimit(limit),
       onAddColumn: () => void this.openNewColumn(),
+      onShowAllColumns: () => this.setHiddenColumns(new Set()),
       currentRowLimit: () => this.rowLimit,
       onFileOrder: () => {
         this.changeSort(-1, 0);
@@ -2451,6 +2458,9 @@ export class App {
       onViewport: (first, last, count) => this.tableNav?.setViewport(first, last, count),
       onAddColumn: () => void this.openNewColumn(),
       onEditCell: (edit) => void this.editCell(edit),
+      onCursor: (cell) => this.tableNav?.setPeek(cell),
+      onPasteCells: (paste) => void this.pasteCells(paste),
+      onClearFilters: () => this.clearFilters(),
     });
     this.tableNav.setShowFileRow(this.showFileRow);
     this.tableHost.append(this.tableNav.element);
@@ -3448,6 +3458,45 @@ export class App {
         : [...before, { kind: "setCells", edits: [{ row, from: edit.from, to: edit.to }] }];
     this.pendingEditRestore = { row, column: edit.column };
     this.applyClean([{ column: edit.column, ops: next }]);
+  }
+
+  private setHiddenColumns(columns: Set<number>): void {
+    this.hiddenColumns = columns;
+    this.table?.setHidden(columns);
+    this.tableNav?.setHiddenCount(columns.size);
+    this.setAction(columns.size === 0 ? "Every column is shown" : `${columns.size} column${columns.size === 1 ? "" : "s"} hidden (still in filters, charts and exports)`);
+  }
+
+  /**
+   * Cells pasted at the cursor (from a spreadsheet): one confirm for the block, then a
+   * setCells step per column on the rows' file numbers.
+   */
+  private async pasteCells(paste: { position: number; columns: number[]; rows: string[][] }): Promise<void> {
+    const rows = paste.rows.slice(0, Math.max(0, this.resultCount - paste.position));
+    const cells = rows.reduce((n, r) => n + Math.min(r.length, paste.columns.length), 0);
+    if (cells === 0) return;
+    if (cells > 5000) { this.setAction("Paste up to 5,000 cells at a time"); return; }
+    const ok = await openConfirm({
+      title: `Change ${cells.toLocaleString()} cell${cells === 1 ? "" : "s"}?`,
+      body: `Pasting ${rows.length.toLocaleString()} row${rows.length === 1 ? "" : "s"} × ${Math.min(paste.columns.length, Math.max(...rows.map((r) => r.length)))} column${paste.columns.length === 1 ? "" : "s"} from row ${(paste.position + 1).toLocaleString()}. Each column's edits are one Recipe step, undone from the Recipe.`,
+      confirmLabel: "Paste",
+    });
+    if (!ok) return;
+    const ids = await this.client.getRowIds(paste.position, paste.position + rows.length).catch(() => null);
+    if (ids === null) return;
+    const current = await this.client.getRows(paste.position, paste.position + rows.length).catch(() => null);
+    const updates: CleanUpdate[] = [];
+    paste.columns.forEach((column, k) => {
+      const edits = rows.flatMap((r, i) => (k < r.length && ids.ids[i] !== undefined ? [{ row: ids.ids[i]!, from: current?.rows[i]?.[column] ?? "", to: r[k]! }] : []));
+      if (edits.length === 0) return;
+      const before = this.cleanedColumns.get(column) ?? [];
+      const last = before[before.length - 1];
+      const merged = last?.kind === "setCells"
+        ? [...last.edits.filter((e) => !edits.some((x) => x.row === e.row)), ...edits.map((x) => ({ ...x, from: last.edits.find((e) => e.row === x.row)?.from ?? x.from }))]
+        : edits;
+      updates.push({ column, ops: last?.kind === "setCells" ? [...before.slice(0, -1), { kind: "setCells", edits: merged }] : [...before, { kind: "setCells", edits: merged }] });
+    });
+    this.applyClean(updates);
   }
 
   /** Keeps only the first or last N rows of the current order (null for all rows). */
@@ -6627,9 +6676,35 @@ export class App {
       menu.append(el("div", { class: "context-header" }, [label]));
     };
 
+    // Type to narrow the menu: items (and their section headings) that do not match hide.
+    const search = el("input", { class: "text-input context-search", type: "search", placeholder: "Find an action…", "aria-label": "Find an action" }) as HTMLInputElement;
+    search.addEventListener("input", () => {
+      const q = search.value.trim().toLowerCase();
+      let header: HTMLElement | null = null, shown = 0;
+      const settle = (): void => { if (header) header.classList.toggle("hidden", shown === 0 && q !== ""); };
+      for (const child of Array.from(menu.children) as HTMLElement[]) {
+        if (child === search) continue;
+        if (child.classList.contains("context-header")) { settle(); header = child; shown = 0; continue; }
+        const match = q === "" || (child.textContent ?? "").toLowerCase().includes(q);
+        child.classList.toggle("hidden", !match);
+        if (match) shown++;
+      }
+      settle();
+    });
+    search.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") (menu.querySelector(".context-item:not(.hidden)") as HTMLButtonElement | null)?.click();
+    });
+    menu.append(search);
+    window.setTimeout(() => search.focus(), 0);
     addItem("Filter this column", () => this.focusFilterColumn(column));
 
     addHeader("Column");
+    addItem("Hide column", () => this.setHiddenColumns(new Set([...this.hiddenColumns, column])));
+    addItem(this.frozenThrough === column ? "Unfreeze columns" : "Freeze columns up to here", () => {
+      this.frozenThrough = this.frozenThrough === column ? -1 : column;
+      this.table?.setFrozen(this.frozenThrough);
+      this.setAction(this.frozenThrough < 0 ? "Columns no longer frozen" : `Columns up to ${meta.name} stay in place when scrolling sideways`);
+    });
     addItem("Insert column left…", () => void this.openNewColumn(column));
     addItem("Insert column right…", () => void this.openNewColumn(column + 1));
     addItem("Rename column…", () => void this.renameColumn(column));

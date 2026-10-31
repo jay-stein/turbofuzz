@@ -28,6 +28,16 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-12 — Table usability: headers, menu search, hide and freeze columns, cell peek, paste a block
+
+- **Status:** Verified
+- **Related issue / decision:** next_steps.md "BIG TODO: the Table view" step 5 (and pasting a block from step 6).
+- **Scope:** Columns start wide enough for their name and typical value (110-360 px) and the column number shows on hover only, so names stop being cut. The header menu has a search box (type, Enter runs the first match). Hide column (display only; a "N hidden · Show all" note in the Table bar; the cursor skips hidden columns). Freeze columns up to here (sticky, with the row numbers and File row). The Table bar shows the cell under the cursor in full. Paste a block of cells at the cursor: one confirm, a setCells step per column on file rows (up to 5,000 cells). An empty result offers Clear filters.
+- **Not done:** row density (the virtual grid's row height is fixed), moving first-run hints off the rows.
+- **Tests run and results:** `test/e2e/table-usability.spec.ts` (4); full suite green.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-11 — New column: If / then builder and quick columns
 
 - **Status:** Verified

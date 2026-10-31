@@ -103,6 +103,12 @@ export interface ResultTableOptions {
   onRequestRowIds?: (start: number, end: number, done: (start: number, ids: Uint32Array) => void) => void;
   /** A cell edited in place (Enter, Tab or a click away): the page confirms and records it. */
   onEditCell?: (edit: { position: number; column: number; from: string; to: string; anchor: DOMRect }) => void;
+  /** The cell under the cursor (null when none), for the Table bar's peek. */
+  onCursor?: (cell: { column: string; position: number; value: string } | null) => void;
+  /** Cells pasted at the cursor: rows of values from the clipboard, by position and column. */
+  onPasteCells?: (paste: { position: number; columns: number[]; rows: string[][] }) => void;
+  /** "Clear filters" in the empty state. */
+  onClearFilters?: () => void;
   /** The + at the end of the header row: a new column at the end. */
   onAddColumn?: () => void;
   /** The rows on screen changed: first and last visible position (0-based), and the row count. */
@@ -158,6 +164,9 @@ export class ResultTable {
   private flashRow: number | null = null;
   private flashRowTimer: number | null = null;
   private showFileRow = false;
+  /** Columns hidden from view (display only), and the last frozen column (-1 for none). */
+  private hidden = new Set<number>();
+  private frozenThrough = -1;
   /** The cell cursor: position in the current order and column, or null. */
   private cursor: { row: number; col: number } | null = null;
   private editor: HTMLInputElement | null = null;
@@ -187,6 +196,18 @@ export class ResultTable {
       this.setCursor(at.row, at.col, false);
       this.scroller.focus({ preventScroll: true });
     });
+    // Cells copied from a spreadsheet, pasted at the cursor.
+    this.scroller.addEventListener("paste", (event) => {
+      if (event.target !== this.scroller || this.cursor === null || this.options.onPasteCells === undefined) return;
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      if (text === "") return;
+      event.preventDefault();
+      const rows = text.replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n").map((line) => line.split("\t"));
+      const vis = this.visibleColumns();
+      const from = vis.indexOf(this.cursor.col);
+      const width = Math.max(...rows.map((r) => r.length));
+      this.options.onPasteCells({ position: this.cursor.row, columns: vis.slice(from, from + width), rows });
+    });
     this.rowsHost.addEventListener("dblclick", (event) => {
       const at = this.cellAt(event.target);
       if (at !== null) this.startEdit(at.row, at.col);
@@ -210,7 +231,7 @@ export class ResultTable {
       if (width !== undefined) previous.set(column.name, width);
     });
     this.columns = columns;
-    this.widths = columns.map((column) => previous.get(column.name) ?? DEFAULT_COL_WIDTH);
+    this.widths = columns.map((column) => previous.get(column.name) ?? autoWidth(column));
     this.renderHeader();
     this.invalidateRows();
   }
@@ -255,7 +276,7 @@ export class ResultTable {
   flashColumn(column: number): void {
     if (column < 0 || column >= this.columns.length) return;
     const offset =
-      this.leadWidth() + this.widths.slice(0, column).reduce((sum, width) => sum + width, 0);
+      this.leftOf(column);
     if (typeof this.scroller.scrollTo === "function") {
       this.scroller.scrollTo({ left: Math.max(0, offset - 120), behavior: "smooth" });
     }
@@ -424,17 +445,52 @@ export class ResultTable {
     return Math.max(INDEX_WIDTH, 30 + 8 * String(Math.max(1, this.count)).length);
   }
 
+  /** Columns on screen, in order (hidden ones left out). */
+  visibleColumns(): number[] {
+    const out: number[] = [];
+    for (let c = 0; c < this.columns.length; c++) if (!this.hidden.has(c)) out.push(c);
+    return out;
+  }
+
+  /** Left edge of a column inside the grid (after the row numbers and visible columns before it). */
+  private leftOf(column: number): number {
+    let left = this.leadWidth();
+    for (const c of this.visibleColumns()) { if (c === column) break; left += this.widths[c] ?? 0; }
+    return left;
+  }
+
+  /** Hides columns from view (display only: the data, filters and exports keep them). */
+  setHidden(columns: ReadonlySet<number>): void {
+    this.hidden = new Set(columns);
+    if (this.cursor !== null && this.hidden.has(this.cursor.col)) this.cursor = null;
+    this.renderHeader();
+    this.spacer.style.width = `${this.totalWidth()}px`;
+    this.repaintRows();
+  }
+
+  /** Keeps columns up to this one (and the row numbers) in place when scrolling sideways; -1 for none. */
+  setFrozen(through: number): void {
+    this.frozenThrough = through;
+    this.renderHeader();
+    this.repaintRows();
+  }
+
+  /** Sticky left offset for a frozen column, or null when it scrolls. */
+  private frozenLeft(column: number): number | null {
+    return column <= this.frozenThrough && !this.hidden.has(column) ? this.leftOf(column) : null;
+  }
+
   /** Width of the row-number columns before the data: # and, when shown, File row. */
   private leadWidth(): number {
     return this.indexWidth() + (this.showFileRow ? FILE_ROW_WIDTH : 0);
   }
 
   private gridTemplate(): string {
-    return [`${this.indexWidth()}px`, ...(this.showFileRow ? [`${FILE_ROW_WIDTH}px`] : []), ...this.widths.map((width) => `${width}px`)].join(" ");
+    return [`${this.indexWidth()}px`, ...(this.showFileRow ? [`${FILE_ROW_WIDTH}px`] : []), ...this.visibleColumns().map((c) => `${this.widths[c]}px`)].join(" ");
   }
 
   private totalWidth(): number {
-    return this.leadWidth() + this.widths.reduce((total, width) => total + width, 0);
+    return this.leadWidth() + this.visibleColumns().reduce((total, c) => total + (this.widths[c] ?? 0), 0);
   }
 
   /** The header has one more track than the rows: the + for a new column. */
@@ -492,15 +548,18 @@ export class ResultTable {
     this.header.append(indexHead);
     if (this.showFileRow) {
       this.header.append(
-        el("div", { class: "th file-row-head", title: "The row's number in the loaded data: it stays with the row through sorting, filtering and shuffling" }, [
+        el("div", { class: "th file-row-head", style: `left: ${this.indexWidth()}px`, title: "The row's number in the loaded data: it stays with the row through sorting, filtering and shuffling" }, [
           el("span", { class: "th-index" }, ["File row"]),
         ]),
       );
     }
 
     this.columns.forEach((column, index) => {
+      if (this.hidden.has(index)) return;
       const name = column.name;
       const cell = el("div", { class: "th" });
+      const frozenAt = this.frozenLeft(index);
+      if (frozenAt !== null) { cell.classList.add("frozen"); cell.style.left = `${frozenAt}px`; }
       if (this.flashIndex === index) cell.classList.add("flash-column");
       if (column.type === "integer" || column.type === "number") {
         cell.classList.add("num-head");
@@ -529,7 +588,7 @@ export class ResultTable {
         this.startResize(event as PointerEvent, index),
       );
       grip.addEventListener("dblclick", () => {
-        this.widths[index] = DEFAULT_COL_WIDTH;
+        this.widths[index] = autoWidth(this.columns[index]!);
         this.applyWidths();
       });
 
@@ -1076,7 +1135,13 @@ export class ResultTable {
 
     if (this.count === 0) {
       this.rowsHost.style.transform = "translateY(0px)";
-      this.rowsHost.append(el("div", { class: "empty" }, ["No matching rows"]));
+      const empty = el("div", { class: "empty" }, ["No matching rows. "]);
+      if (this.options.onClearFilters !== undefined) {
+        const clear = el("button", { class: "link", type: "button" }, ["Clear filters"]);
+        clear.addEventListener("click", () => this.options.onClearFilters?.());
+        empty.append(clear);
+      }
+      this.rowsHost.append(empty);
       return;
     }
 
@@ -1142,6 +1207,11 @@ export class ResultTable {
   /** Moves the cursor's mark on the cells already drawn (no repaint, so a double-click still lands). */
   private markCursor(): void {
     for (const cell of this.rowsHost.querySelectorAll(".cursor-cell")) cell.classList.remove("cursor-cell");
+    this.options.onCursor?.(
+      this.cursor === null
+        ? null
+        : { column: this.columns[this.cursor.col]?.name ?? "", position: this.cursor.row, value: this.cache.get(this.cursor.row)?.[this.cursor.col] ?? "" },
+    );
     if (this.cursor === null) return;
     this.rowsHost.querySelector(`.tr[data-pos="${this.cursor.row}"] .td[data-col="${this.cursor.col}"]`)?.classList.add("cursor-cell");
   }
@@ -1150,9 +1220,11 @@ export class ResultTable {
     const body = this.scroller.clientHeight - this.header.offsetHeight;
     if (row * ROW_HEIGHT < this.scroller.scrollTop) this.scroller.scrollTop = row * ROW_HEIGHT;
     else if ((row + 1) * ROW_HEIGHT > this.scroller.scrollTop + body) this.scroller.scrollTop = (row + 1) * ROW_HEIGHT - body;
-    const lead = this.leadWidth();
-    const left = lead + this.widths.slice(0, col).reduce((a, b) => a + b, 0);
+    let lead = this.leadWidth();
+    for (const c of this.visibleColumns()) if (c <= this.frozenThrough) lead += this.widths[c] ?? 0;
+    const left = this.leftOf(col);
     const right = left + (this.widths[col] ?? 0);
+    if (col <= this.frozenThrough) return;
     if (left - lead < this.scroller.scrollLeft) this.scroller.scrollLeft = left - lead;
     else if (right > this.scroller.scrollLeft + this.scroller.clientWidth) this.scroller.scrollLeft = right - this.scroller.clientWidth;
   }
@@ -1162,15 +1234,19 @@ export class ResultTable {
     const ctrl = event.ctrlKey || event.metaKey;
     const c = this.cursor ?? { row: Math.floor(this.scroller.scrollTop / ROW_HEIGHT), col: 0 };
     const page = Math.max(1, Math.floor((this.scroller.clientHeight - this.header.offsetHeight) / ROW_HEIGHT) - 1);
-    const last = this.columns.length - 1;
+    const vis = this.visibleColumns();
+    if (vis.length === 0) return;
+    const at = Math.max(0, vis.indexOf(c.col));
+    const last = vis[vis.length - 1]!;
+    const step = (d: number): number => vis[Math.max(0, Math.min(vis.length - 1, at + d))]!;
     const moves: Record<string, () => [number, number]> = {
       ArrowDown: () => [ctrl ? this.count - 1 : c.row + 1, c.col],
       ArrowUp: () => [ctrl ? 0 : c.row - 1, c.col],
-      ArrowRight: () => [c.row, ctrl ? last : c.col + 1],
-      ArrowLeft: () => [c.row, ctrl ? 0 : c.col - 1],
+      ArrowRight: () => [c.row, ctrl ? last : step(1)],
+      ArrowLeft: () => [c.row, ctrl ? vis[0]! : step(-1)],
       PageDown: () => [c.row + page, c.col],
       PageUp: () => [c.row - page, c.col],
-      Home: () => [ctrl ? 0 : c.row, 0],
+      Home: () => [ctrl ? 0 : c.row, vis[0]!],
       End: () => [ctrl ? this.count - 1 : c.row, last],
     };
     const move = moves[event.key];
@@ -1309,13 +1385,18 @@ export class ResultTable {
     tr.append(indexCell);
     if (this.showFileRow) {
       const id = this.ids.get(index);
-      tr.append(el("div", { class: "td file-row" }, [id === undefined ? "" : String(id + 1)]));
+      const fileCell = el("div", { class: "td file-row" }, [id === undefined ? "" : String(id + 1)]);
+      fileCell.style.left = `${this.indexWidth()}px`;
+      tr.append(fileCell);
     }
 
     const changedRow = this.changedRows.get(index);
     for (let c = 0; c < this.columns.length; c++) {
+      if (this.hidden.has(c)) continue;
       const type = this.columns[c]?.type;
       const cell = el("div", { class: "td" });
+      const frozenAt = this.frozenLeft(c);
+      if (frozenAt !== null) { cell.classList.add("frozen"); cell.style.left = `${frozenAt}px`; }
       cell.dataset.col = String(c);
       if (this.cursor !== null && this.cursor.row === index && this.cursor.col === c) cell.classList.add("cursor-cell");
       if (this.flashIndex === c) cell.classList.add("flash-column");
@@ -1571,4 +1652,11 @@ function openHeaderFilterPanel(
     below + popover.offsetHeight > window.innerHeight - 8
       ? `${Math.max(8, rect.top - popover.offsetHeight - 6)}px`
       : `${below}px`;
+}
+
+/** A starting width that fits the name and the column's typical value (110 to 360 px). */
+function autoWidth(column: ColumnMeta): number {
+  const name = column.name.length * 7.4 + 78;
+  const typical = Math.min(40, (column.stats.avgLength ?? 8) * 1.3) * 7 + 24;
+  return Math.round(Math.max(110, Math.min(360, Math.max(name, typical))));
 }
