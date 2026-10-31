@@ -319,11 +319,14 @@ export function modelRows(s: TsSnapshot, sel: ModelKey, metric: MetricKey = "mas
   const M = s.models, g = s.A.g, m = M.models[sel], A = s.A, word = measureWord(s);
   const rows: [string, string][] = [["Model set", M.profile]];
   if (M.auto) rows.push(["Auto", `${escapeHtml(M.auto[metric].why)}${sel !== M.auto[metric].pick ? ` You have picked ${MODEL_INFO[sel].name} instead.` : ""}`]);
+  if (M.season && sel !== "sn" && sel !== "clim" && sel !== "reg") rows.push(["Season", escapeHtml(M.season.why)]);
   if (sel === "comb") rows.push(["Combination", `the plain average of the Best smoothing, Steady trend and Smooth and damp forecasts (fpp3 13.4). Each is an imperfect view of the same series, and their misses partly cancel; the average has no parameters of its own to overfit`]);
   const hw = M.models.hw.hw;
   if ((sel === "hw" || sel === "ens") && hw) {
     const [a, b, gm, ph] = hw.params;
-    rows.push(["Smooth and damp", `level ${a.toFixed(2)}, trend ${b.toFixed(3)}, season ${gm.toFixed(2)}, damping ${ph.toFixed(2)} (season of ${M.m} ${g.nouns})`]);
+    rows.push(["Smooth and damp", M.season?.mode === "native" || !M.season
+      ? `level ${a.toFixed(2)}, trend ${b.toFixed(3)}, season ${gm.toFixed(2)}, damping ${ph.toFixed(2)} (season of ${M.m} ${g.nouns})`
+      : `a damped trend with level ${a.toFixed(2)}, trend ${b.toFixed(3)} and damping ${ph.toFixed(2)}${M.season.mode === "mstl" ? ", run on the seasonally adjusted series with the season added back" : ", with no season"}`]);
   }
   const ets = M.models.ets.ets;
   if ((sel === "ets" || sel === "ens") && ets) {

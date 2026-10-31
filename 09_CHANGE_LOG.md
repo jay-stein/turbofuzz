@@ -28,6 +28,24 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-31 — Time Series: long seasons are removed with MSTL before smoothing; the weekly MASE scale is corrected (fundamentals plan, Phase 2)
+
+- **Status:** Verified
+- **Related issue:** next_steps.md "BIG TODO: get the forecasting fundamentals right", weak points 2 and 3: ETS and Holt-Winters learned 52 or 168 seasonal states from a few cycles; R's ets() refuses seasons over 24 and says to use stlf().
+- **Scope:**
+  - **Season handling,** decided once on the history before the first backtest fold: *native* (seasons of 24 periods or less: seasonal ETS and Holt-Winters states, as before), *mstl* (longer seasons: the season or seasons that fit, e.g. 24 and 168 hours, are removed with MSTL; Best smoothing, trend forms only, and a damped trend run on the seasonally adjusted series; each seasonal component's last cycle is added back, as forecast::stlf does) or *none* (the seasonality test finds nothing at a long season).
+  - **The test** is the Theta method's, as in forecast::thetaf. It decides for Theta, and for seasons over 24 periods, where it is made at the shortest period that fits (at 168 hours its error bar sums 167 squared autocorrelations and sees nothing). At seasons of 24 or less it does not decide for ETS and Holt-Winters: letting it switch the season off cost 1-4% on several monthly and quarterly datasets, because a trend inflates its error bar. It also can call a trending or smooth series seasonal; that is harmless.
+  - **MSTL path details:** one pass over the periods (R and statsmodels make two) and a window of about six cycles; measured as accurate (slightly better on M4 hourly, ETS 1.329 vs 1.355) at half the cost, while a window of 840 hours was worse. The decomposition is redone on each fold's own history; the Deep check's residuals use the adjusted fit; filled periods are decomposed as filled values and masked out of the smoothing.
+  - The model card gains a Season row and the Smooth and damp row says what ran.
+  - **MASE scale corrected.** The archive scales weekly MASE by the 52-week seasonal naive; the benchmark protocol had used 1. The earlier finding that weekly data was 2-4.5x worse than published was this error, not a modelling failure: with the right scale our ETS on M4 weekly is 0.506 against the published 0.575 (Theta 0.566 vs 0.546; Auto 0.496, TBATS 0.504), and NN5 weekly matches (ETS 0.899, Theta 0.893 vs 0.911 and 0.885). The gate fixture's baseline is rescaled.
+  - Speed: STL was made 3.5x faster without changing its output (powers replaced by products, no per-call allocation).
+- **Result** (Monash, Auto mean MASE, 200 series per dataset, Phase 1 -> Phase 2, same scale): M4 hourly 1.564 -> 1.269 (-19%), pedestrians 0.239 -> 0.232, Aus. electricity half-hourly 1.251 -> 1.222, KDD 1.220 -> 1.217; weekly, on the corrected scale and the old code against the new: M4 weekly 0.512 -> 0.496, electricity weekly 0.818 -> 0.759 (the best published classical is TBATS 0.792), NN5 weekly 0.855 -> 0.848, traffic weekly unchanged. The ETS alone improves most where the season is long: hourly 3.086 -> 1.246, pedestrians 0.705 -> 0.317, electricity weekly 1.017 -> 0.826, M4 weekly 0.550 -> 0.506. Low-frequency data moves by under 1% except M1 monthly, which is 3.9% worse (0.956 -> 0.993) from Theta's seasonality test, against small gains on M3 monthly (-0.9%), hospital (-1.1%) and car parts (-1.5%).
+- **Not achieved:** sunspot (0.227; the target was 0.15: Theta alone gets 0.120, but Auto's default Combination includes an ETS that keeps a weekly season the daily sunspot series does not have; the autocorrelation test calls a smooth series seasonal, so it cannot fix this); Fourier terms for the non-integer 52.18-week year (weekly data uses a season of 52); the regression model is kept, because it is the only model that uses drivers and Auto never picks it unless it earns it (it wins on some hourly data).
+- **Speed:** hourly open 182-212 ms (budget 220) and horizon drag 95-101 ms (budget 110) after the extra decompositions; daily unchanged.
+- **Tests run and results:** `test/timeseries-season.test.ts` (5: the test, MSTL path on a daily and weekly cycle, no season, 24-or-less keeps the season, Deep check on the adjusted fit); gate rebaselined (M1 monthly +2%, pedestrians +3% on 8 and 3 series, both explained above); 1,179 unit and 112 end-to-end pass.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-30 — Time Series: STL and MSTL decomposition, and the Theta seasonality test
 
 - **Status:** Verified
@@ -72,7 +90,7 @@ Add entries here. Keep unsuccessful attempts too if they reveal useful constrain
 - **Findings:**
   - Our ETS is on par with `forecast::ets` on monthly, quarterly and yearly data, and our combination beats every published classical method on M3 monthly and quarterly and tourism monthly and quarterly.
   - Auto (pick the backtest winner) is worse than always-ETS on 15 of 19 low-frequency datasets.
-  - Weekly data is 2-4.5x worse than published (seasonal models with m = 52).
+  - Weekly data looked 2-4.5x worse than published. That was a protocol error, corrected in CHG-2026-10-31-31: the archive scales weekly MASE by the 52-week seasonal naive, and the protocol had used 1.
   - Intermittent and noisy daily counts are about 35% worse than SES.
   - Short series (about half of M3 and M1 yearly) cannot be forecast.
 - **Decision:** Ship (tooling and plan; no behaviour change)

@@ -9,6 +9,8 @@ import { regular, type Aggregated, type TsConfig, type TsDriver } from "./aggreg
 import { decompose, preferScaled } from "./decompose.js";
 import { cap, nounFor } from "./format.js";
 import { chiSquareSf, tTwoSided } from "./stats.js";
+import { seasonalityTest, type SeasonalityTest } from "./seasonality.js";
+import { mstl } from "./stl.js";
 
 export type ModelKey = "sn" | "hw" | "ets" | "reg" | "theta" | "clim" | "ens" | "comb";
 export const MODEL_KEYS: readonly ModelKey[] = ["sn", "hw", "ets", "reg", "theta", "clim", "ens", "comb"];
@@ -20,7 +22,7 @@ export const MODEL_INFO: Readonly<Record<ModelKey, { name: string; meth: string 
   clim: { name: "Seasonal average", meth: "Mean of the same point in earlier cycles" },
   ets: { name: "Best smoothing", meth: "ETS, picked by AICc (trend none, additive or damped; season none, additive or multiplicative)" },
   ens: { name: "Blend with regression", meth: "Average of best smoothing, steady trend and the trend, seasons and drivers model" },
-  comb: { name: "Combination", meth: "Average of best smoothing, steady trend and smooth and damp (the M4 \"Comb\" benchmark, fpp3 13.4)" },
+  comb: { name: "Combination", meth: "Average of best smoothing, steady trend and smooth and damp (forecast combination, fpp3 13.4)" },
 };
 
 interface BandQ { q10: number; q90: number; q025: number; q975: number }
@@ -55,11 +57,26 @@ export interface ModelSummary {
   folds: { won: number; of: number };
   hw?: { params: HwParams };
   /** ETS components, e.g. "A,Ad,M" (error, trend, season), and its smoothing parameters. */
-  ets?: { spec: string; alpha: number; beta: number; gamma: number; phi: number; aicc: number; tried: number };
+  ets?: { spec: string; alpha: number; beta: number; gamma: number; phi: number; aicc: number; tried: number; adjusted: boolean };
   reg?: { K: number; Ky: number; Kw: number; Kd: number; logY: boolean; drivers: { col: string; log: boolean; beta: number; flag: boolean }[] };
   theta?: { alpha: number; b0: number; seasonal: boolean };
   clim?: { m: number };
 }
+/** How the smoothing models treated the season (see runModels). */
+export interface SeasonInfo {
+  /**
+   * none: no season, so ETS, Holt-Winters and Theta run without one; native: seasonal
+   * ETS and Holt-Winters states (seasons up to 24 periods); mstl: the season is removed
+   * first with MSTL and the adjusted series is smoothed (forecast::stlf).
+   */
+  mode: "none" | "native" | "mstl";
+  /** Periods removed by MSTL, shortest first (empty unless mode is mstl). */
+  periods: number[];
+  /** The test on the history before the first backtest fold, at the main period. */
+  test: SeasonalityTest | null;
+  why: string;
+}
+
 export interface ModelRun {
   T: number;
   H: number;
@@ -80,6 +97,7 @@ export interface ModelRun {
    */
   auto: Record<MetricKey, { pick: ModelKey; why: string }>;
   autoPolicy: "combination" | "backtest";
+  season: SeasonInfo;
   cv: "expanding" | "rolling";
   /** Periods each rolling fold trains on; null when expanding. */
   trainLen: number | null;
@@ -95,7 +113,9 @@ export interface Future {
 export type Futures = Record<ModelKey, Future>;
 
 /** Inside the worker only: the run plus what the futures need (fits with closures). */
-interface RunInternal extends ModelRun { oc: Record<ModelKey, Float64Array>; etsFinal: EtsState; etsFit: EtsFit; hwFinal: HwState; hwParams: HwParams; regFit: RegFit; thetaFit: ThetaFit; climM: number; climMeans: Float64Array; q: Record<ModelKey, BandQ[]> }
+/** The final seasonally adjusted fit when the season is removed with MSTL. */
+interface LongFinal { s: number; adj: Float64Array; adjM: Float64Array; etsFc: Float64Array; hwFc: Float64Array }
+interface RunInternal extends ModelRun { mS: number; long: LongFinal | null; oc: Record<ModelKey, Float64Array>; etsFinal: EtsState; etsFit: EtsFit; hwFinal: HwState; hwParams: HwParams; regFit: RegFit; thetaFit: ThetaFit; climM: number; climMeans: Float64Array; q: Record<ModelKey, BandQ[]> }
 
 function hwInit(y: Float64Array, m: number, limit: number): HwState {
   let l = 0;
@@ -362,7 +382,11 @@ function harmonics(x: Float64Array, k: number, a: number, K: number): number {
   return k;
 }
 
-/** Prophet-style regression on log values: trend with shrunk bends, Fourier seasons, any driver columns. */
+/**
+ * Regression in the design of Prophet (Taylor and Letham 2018) on log values: a piecewise
+ * linear trend with shrunk bends, Fourier seasons (fpp3 7.4), any driver columns, fitted in
+ * closed form by ridge regression (Hoerl and Kennard 1970).
+ */
 function regFit(A: Aggregated, table: TsTable, drivers: TsDriver[], y: Float64Array, T: number, flex: number, win = Infinity): RegFit {
   const g: Grain = A.g, from = Math.max(0, T - Math.min(REG_WIN, win)), W = T - from;
   // A season needs data to learn it from: yearly terms only with a full year, weekly and daily with three cycles.
@@ -439,10 +463,13 @@ function regAt(fit: RegFit, i: number): number {
   return fit.logY ? Math.exp(Math.min(s, fit.maxLog + 3)) * fit.smear : s;
 }
 /** Theta method: simple smoothing plus half the long-run slope, on the deseasonalised series. */
-function thetaFit(y: Float64Array, o: number, m: number, start = 0, skip?: Uint8Array): ThetaFit {
+function thetaFit(y: Float64Array, o: number, m: number, start = 0, skip?: Uint8Array, testM = m): ThetaFit {
   const s = Math.max(fitFrom(o, m), start);
-  if (s) return thetaFit(y.subarray(s, o), o - s, m, 0, skip?.subarray(s, o));
-  const add = m > 1 && o >= 2 * m + 2 ? decompose(y, o, m) : null;
+  if (s) return thetaFit(y.subarray(s, o), o - s, m, 0, skip?.subarray(s, o), testM);
+  // As forecast::thetaf: deseasonalise only when the seasonality test says there is a season
+  // (with under three cycles it cannot be tested, and the season is kept).
+  const seasonal = m > 1 && o >= 2 * m + 2 && (o < 3 * testM || seasonalityTest(y, o, testM).seasonal);
+  const add = seasonal ? decompose(y, o, m) : null;
   const d = add ? preferScaled(y, o, add) : null;
   // A scaled season comes out as factors around 1 (its profile is amounts at the average level).
   const scale = d?.scaled ? d.prof.map((v) => 1 + v / d.level) : null;
@@ -608,37 +635,101 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   // the same while the horizon is dragged, so fits are reused.
   const quantum = Math.max(m, 64);
   const cut = Math.max(Math.min(first0, 2 * m + 10), Math.floor(first0 / quantum) * quantum);
-  const hb = etsFrom(cut, m);
-  const hwBack = cut - hb >= 2 * m + 2 ? hwFit(yM.subarray(hb), cut - hb, m, warm.get(wkey), y.subarray(hb)) : null;
-  const hs = fitFrom(T, m);
-  const hwParams = hwFit(yM.subarray(hs), T - hs, m, warm.get(wkey), y.subarray(hs));
-  warm.set(wkey, hwParams);
-  const backRun = hwRun(yM, T, m, hwBack ?? hwParams, origins, y);
-  origins.forEach((o, k) => {
-    const s0 = startOf(o), p = hwBack ?? hwParams;
-    const st = s0 > 0 ? hwRun(yM.subarray(s0), o - s0, m, p, [], y.subarray(s0)).final : backRun.snaps.get(o);
-    if (st) hwForecast(st, m, p[3], o - s0, H, oc.hw, k * H);
-  });
-  const run = hwRun(yM, T, m, hwParams, [], y);
 
-  // ETS: the form and its parameters chosen before the first origin for the backtest, again on all data for the forecast.
-  const eb = etsFrom(cut, m);
-  const etsBack = etsSelect(yM, eb, cut, m, y);
-  const etsBackRun = etsRun(yM, eb, T, etsBack, origins, y);
-  origins.forEach((o, k) => {
-    const s0 = startOf(o);
-    const st = s0 > 0 ? etsRun(yM, s0, o, etsBack, [], y).final : etsBackRun.snaps.get(o);
-    if (st) etsForecast(st, etsBack, o, H, oc.ets, k * H); else for (let h = 0; h < H; h++) oc.ets[k * H + h] = oc.hw[k * H + h];
-  });
-  const es = etsFrom(T, m);
-  const etsFit = etsSelect(yM, es, T, m, y);
-  const etsFinal = etsRun(yM, es, T, etsFit, [], y).final;
+  // What to do about the season, decided once on the history before the first fold so it
+  // is the same procedure in every fold and for the forecast. forecast::ets refuses seasons
+  // over 24 ("try stlf()"), and thetaf tests before it deseasonalises.
+  // The test is made at the shortest period that fits: at a long period (168 hours) its
+  // standard error sums the squared autocorrelations of 167 lags, which a trend inflates
+  // until it can see nothing.
+  const pFit = g.periods.filter((p) => p >= 2 && cut >= 2 * p + 2).sort((a, b) => a - b);
+  const testM = m > 24 && pFit.length ? pFit[0]! : m;
+  const test = testM > 1 ? seasonalityTest(y.subarray(Math.max(0, cut - 4000), cut), Math.min(cut, 4000), testM) : null;
+  const testWords = test && test.tested ? `lag-${testM} autocorrelation ${test.r.toFixed(2)} against a bar of ${test.limit.toFixed(2)}` : "";
+  let season: SeasonInfo;
+  if (m <= 1) season = { mode: "none", periods: [], test, why: "There is no season at this grain, or too little history for one, so the smoothing models run without it." };
+  else if (m > 24 && test && test.tested && !test.seasonal) season = { mode: "none", periods: [], test, why: `The seasonality test (${testWords}) finds no season in the history before the first fold, so ETS and Holt-Winters run without one. Theta applies the same test, as forecast::thetaf does.` };
+  else if (m > 24) season = { mode: "mstl", periods: pFit.length ? pFit : [m], test, why: `A season of ${m} periods is longer than seasonal ETS can learn (R's ets() stops at 24 and says to try stlf()). The ${pFit.length > 1 ? `seasons (${pFit.join(", ")})` : `season (${m})`} are removed with ${pFit.length > 1 ? "MSTL" : "STL"}, ETS and damped Holt run on the seasonally adjusted series, and each seasonal component is repeated (forecast::stlf).` };
+  else season = { mode: "native", periods: [], test, why: test && test.tested ? `ETS and Holt-Winters learn seasonal states of ${m} periods, and AICc may drop them from ETS. The seasonality test (${testWords}) ${test.seasonal ? "finds a season" : "finds none, but a trend inflates its error bar and can hide a real season (it cost 1-4% on several monthly and quarterly datasets when it was allowed to switch the season off), so it does not decide at seasons of 24 periods or less"}.` : `Under three cycles of history is too little to test for a season, so seasonal states of ${m} periods are kept and AICc may drop them from ETS.` };
+  const mS = season.mode === "native" ? m : 1;
+
+  let hwParams: HwParams, etsFit: EtsFit, etsFinal: EtsState, hwFinal: HwState, long: LongFinal | null = null;
+  if (season.mode === "mstl") {
+    // The season is removed with MSTL on each fold's own history; ETS and damped Holt then
+    // smooth the adjusted series, with parameters fitted before the first fold.
+    // One MSTL pass over about six cycles: measured as accurate as the default two passes
+    // over eight cycles on the hourly Monash datasets, at under half the cost (CHG-2026-10-31-31).
+    const win = Math.max(1000, 6 * m);
+    const adjustedAt = (e: number, s0: number): { s: number; n: number; adj: Float64Array; adjM: Float64Array; seasonFc: Float64Array } => {
+      const s = Math.max(s0, e - win, 0), n = e - s;
+      const ps = season.periods.filter((p) => n >= 2 * p + 2);
+      const adj = y.slice(s, e), adjM = new Float64Array(n), seasonFc = new Float64Array(H);
+      if (ps.length) {
+        const dec = mstl(adj, ps, 1);
+        ps.forEach((p, i) => {
+          const comp = dec.seasonal[i]!;
+          for (let t = 0; t < n; t++) adj[t] -= comp[t]!;
+          for (let h = 0; h < H; h++) seasonFc[h] += comp[n - p + (h % p)]!;
+        });
+      }
+      for (let t = 0; t < n; t++) adjM[t] = A.made[s + t] ? NaN : adj[t]!;
+      return { s, n, adj, adjM, seasonFc };
+    };
+    const dc = adjustedAt(cut, 0);
+    const etsBackL = etsSelect(dc.adjM, 0, dc.n, 1, dc.adj);
+    const hwBackL = hwFit(dc.adjM, dc.n, 1, warm.get(wkey + "|adj"), dc.adj);
+    const tmp = new Float64Array(H);
+    origins.forEach((o, k) => {
+      const d = adjustedAt(o, startOf(o));
+      etsForecast(etsRun(d.adjM, 0, d.n, etsBackL, [], d.adj).final, etsBackL, d.n, H, tmp, 0);
+      for (let h = 0; h < H; h++) oc.ets[k * H + h] = tmp[h]! + d.seasonFc[h]!;
+      hwForecast(hwRun(d.adjM, d.n, 1, hwBackL, [], d.adj).final, 1, hwBackL[3], d.n, H, tmp, 0);
+      for (let h = 0; h < H; h++) oc.hw[k * H + h] = tmp[h]! + d.seasonFc[h]!;
+    });
+    const df = adjustedAt(T, 0);
+    etsFit = etsSelect(df.adjM, 0, df.n, 1, df.adj);
+    hwParams = hwFit(df.adjM, df.n, 1, warm.get(wkey + "|adj"), df.adj);
+    warm.set(wkey + "|adj", hwParams);
+    etsFinal = etsRun(df.adjM, 0, df.n, etsFit, [], df.adj).final;
+    hwFinal = hwRun(df.adjM, df.n, 1, hwParams, [], df.adj).final;
+    const etsFc = new Float64Array(H), hwFc = new Float64Array(H);
+    etsForecast(etsFinal, etsFit, df.n, H, etsFc, 0);
+    hwForecast(hwFinal, 1, hwParams[3], df.n, H, hwFc, 0);
+    for (let h = 0; h < H; h++) { etsFc[h] += df.seasonFc[h]!; hwFc[h] += df.seasonFc[h]!; }
+    long = { s: df.s, adj: df.adj, adjM: df.adjM, etsFc, hwFc };
+  } else {
+    const hb = etsFrom(cut, mS);
+    const hwBack = cut - hb >= 2 * mS + 2 ? hwFit(yM.subarray(hb), cut - hb, mS, warm.get(wkey), y.subarray(hb)) : null;
+    const hs = fitFrom(T, mS);
+    hwParams = hwFit(yM.subarray(hs), T - hs, mS, warm.get(wkey), y.subarray(hs));
+    warm.set(wkey, hwParams);
+    const backRun = hwRun(yM, T, mS, hwBack ?? hwParams, origins, y);
+    origins.forEach((o, k) => {
+      const s0 = startOf(o), p = hwBack ?? hwParams;
+      const st = s0 > 0 ? hwRun(yM.subarray(s0), o - s0, mS, p, [], y.subarray(s0)).final : backRun.snaps.get(o);
+      if (st) hwForecast(st, mS, p[3], o - s0, H, oc.hw, k * H);
+    });
+    hwFinal = hwRun(yM, T, mS, hwParams, [], y).final;
+
+    // ETS: the form and its parameters chosen before the first origin for the backtest, again on all data for the forecast.
+    const eb = etsFrom(cut, mS);
+    const etsBack = etsSelect(yM, eb, cut, mS, y);
+    const etsBackRun = etsRun(yM, eb, T, etsBack, origins, y);
+    origins.forEach((o, k) => {
+      const s0 = startOf(o);
+      const st = s0 > 0 ? etsRun(yM, s0, o, etsBack, [], y).final : etsBackRun.snaps.get(o);
+      if (st) etsForecast(st, etsBack, o, H, oc.ets, k * H); else for (let h = 0; h < H; h++) oc.ets[k * H + h] = oc.hw[k * H + h];
+    });
+    const es = etsFrom(T, mS);
+    etsFit = etsSelect(yM, es, T, mS, y);
+    etsFinal = etsRun(yM, es, T, etsFit, [], y).final;
+  }
 
   origins.forEach((o, k) => { const f = regFit(A, table, cfg.drivers, y, o, cfg.flex, rolling ? o - startOf(o) : Infinity); for (let h = 0; h < H; h++) oc.reg[k * H + h] = regAt(f, o + h); });
   const reg = regFit(A, table, cfg.drivers, y, T, cfg.flex);
 
-  origins.forEach((o, k) => { const f = thetaFit(y, o, m, startOf(o), A.made); for (let h = 0; h < H; h++) oc.theta[k * H + h] = thetaAt(f, h); });
-  const theta = thetaFit(y, T, m, 0, A.made);
+  origins.forEach((o, k) => { const f = thetaFit(y, o, m, startOf(o), A.made, testM); for (let h = 0; h < H; h++) oc.theta[k * H + h] = thetaAt(f, h); });
+  const theta = thetaFit(y, T, m, 0, A.made, testM);
 
   const first = origins.length ? origins[0] : T;
   const climM = g.periods.filter((pp) => first >= pp).pop() || m;
@@ -695,16 +786,16 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   const base = models.sn.mase || 1;
   for (const key of MODEL_KEYS) models[key].ratio = models[key].mase / base;
   models.hw.hw = { params: hwParams };
-  models.ets.ets = { spec: etsSpec(etsFit), alpha: etsFit.a, beta: etsFit.be, gamma: etsFit.ga, phi: etsFit.ph, aicc: etsFit.aicc, tried: etsFit.tried };
+  models.ets.ets = { spec: etsSpec(etsFit), alpha: etsFit.a, beta: etsFit.be, gamma: etsFit.ga, phi: etsFit.ph, aicc: etsFit.aicc, tried: etsFit.tried, adjusted: season.mode === "mstl" };
   models.reg.reg = { K: reg.K, Ky: reg.Ky, Kw: reg.Kw, Kd: reg.Kd, logY: reg.logY, drivers: reg.drv.map((v, j) => ({ col: v.d.col, log: v.log, beta: reg.beta[reg.iDrv + j], flag: !!table.flags[v.d.col] })) };
   models.theta.theta = { alpha: theta.alpha, b0: theta.b0, seasonal: theta.prof !== null || theta.scale !== null };
   models.clim.clim = { m: climM };
   const order: ModelKey[] = ["comb", "ets", "hw", "reg", "ens", "theta", "clim", "sn"];
   const size = (key: ModelKey, mk: MetricKey): number => { const v = models[key].metrics[mk]; return v === v ? (mk === "bias" ? Math.abs(v) : v) : Infinity; };
   const bestBy = Object.fromEntries(METRIC_KEYS.map((mk) => [mk, order.reduce((a, b) => (size(b, mk) < size(a, mk) ? b : a))])) as Record<MetricKey, ModelKey>;
-  // Auto. fpp3 5.10 and 13.4: choosing the winner of several models from a few short,
-  // overlapping folds is noisy, and the average of ETS, Theta and a damped trend rarely
-  // loses to it (it beats every published classical method on M3 monthly and quarterly,
+  // Auto. Choosing the winner of several models from a few short, overlapping folds is
+  // noisy (Cawley and Talbot 2010), and an average of forecasts (fpp3 13.4; Bates and
+  // Granger 1969; the M4 competition) rarely loses to it (it beats every published classical method on M3 monthly and quarterly,
   // Monash benchmark, CHG-2026-10-31-27). So up to the 24-period seasons that seasonal ETS
   // handles, the Combination is the default and a rival has to earn the pick.
   const autoPolicy: ModelRun["autoPolicy"] = m <= 24 ? "combination" : "backtest";
@@ -732,8 +823,8 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
     }
   }
   const best = auto.mase.pick;
-  const out: ModelRun = { T, H, m, origins, step, models, best, bestBy, lockbox, auto, autoPolicy, cv: rolling ? "rolling" : "expanding", trainLen, rough: R < 3, profile: seriesProfile(A, T) };
-  return { ...out, internal: { ...out, oc, etsFinal, etsFit, hwFinal: run.final, hwParams, regFit: reg, thetaFit: theta, climM, climMeans, q } };
+  const out: ModelRun = { T, H, m, origins, step, models, best, bestBy, lockbox, auto, autoPolicy, season, cv: rolling ? "rolling" : "expanding", trainLen, rough: R < 3, profile: seriesProfile(A, T) };
+  return { ...out, internal: { ...out, mS, long, oc, etsFinal, etsFit, hwFinal, hwParams, regFit: reg, thetaFit: theta, climM, climMeans, q } };
 }
 
 interface ErrAcc { ae: number; ac: number; se: number; ay: number; sum: number; sm: number; smc: number; mp: number; mpc: number }
@@ -761,8 +852,11 @@ export function computeFutures(A: Aggregated, run: RunInternal): Futures {
   const F: Record<ModelKey, Float64Array> = {
     sn: new Float64Array(H), hw: new Float64Array(H), ets: new Float64Array(H), reg: new Float64Array(H), theta: new Float64Array(H), clim: new Float64Array(H), ens: new Float64Array(H), comb: new Float64Array(H),
   };
-  hwForecast(run.hwFinal, m, run.hwParams[3], T, H, F.hw, 0);
-  etsForecast(run.etsFinal, run.etsFit, T, H, F.ets, 0);
+  if (run.long) { F.hw.set(run.long.hwFc); F.ets.set(run.long.etsFc); }
+  else {
+    hwForecast(run.hwFinal, run.mS, run.hwParams[3], T, H, F.hw, 0);
+    etsForecast(run.etsFinal, run.etsFit, T, H, F.ets, 0);
+  }
   for (let h = 0; h < H; h++) {
     F.reg[h] = regAt(run.regFit, T + h);
     F.sn[h] = y[T - m + (h % m)];
@@ -808,10 +902,10 @@ export function grade(ratio: number, key: ModelKey): { cls: "base" | "good" | "o
 }
 
 // ---------------------------------------------------------------- Deep check (on request)
-// The checks fpp3 asks of a forecast, run only when the person asks (no latency budget):
-// is the pick significantly better than each rival (Diebold–Mariano, §5.10), how does
-// each model's error grow with the horizon (§5.10), are the bands calibrated on every
-// fold (§5.9), and do the pick's one-step residuals look like white noise (§5.4).
+// Checks run only when the person asks (no latency budget): is the pick significantly
+// better than each rival (Diebold and Mariano 1995), how does each model's error grow with
+// the horizon (fpp3 5.10), are the bands calibrated on every fold (fpp3 5.9), and do the
+// pick's one-step residuals look like white noise (Ljung and Box 1978; fpp3 5.4).
 
 export interface DeepCheck {
   pick: ModelKey;
@@ -832,7 +926,13 @@ export interface DeepCheck {
 function oneStepErrors(A: Aggregated, run: RunInternal, key: ModelKey): { e: Float64Array; kind: string } {
   const { T, m } = run, y = A.yModel, e = new Float64Array(T).fill(NaN), pred = new Float64Array(T).fill(NaN);
   const etsPred = (): void => {
-    const f = run.etsFit, es = etsFrom(T, m), st = etsInit(y, es, f.m, f);
+    const f = run.etsFit, L = run.long;
+    if (L) {
+      const st = etsInit(L.adj, 0, 1, f);
+      for (let t = 1; t < L.adj.length; t++) pred[L.s + t] = etsStep(st, L.adjM[t]!, 0, f);
+      return;
+    }
+    const es = etsFrom(T, run.mS), st = etsInit(y, es, f.m, f);
     for (let t = es + (f.season === "N" ? 1 : f.m); t < T; t++) pred[t] = etsStep(st, y[t], t % f.m, f);
   };
   const regPred = (): void => { for (let t = Math.max(0, T - REG_WIN); t < T; t++) pred[t] = regAt(run.regFit, t); };
@@ -851,19 +951,7 @@ function oneStepErrors(A: Aggregated, run: RunInternal, key: ModelKey): { e: Flo
   switch (key) {
     case "sn": for (let t = m; t < T; t++) pred[t] = y[t - m]; break;
     case "clim": for (let t = 0; t < T; t++) pred[t] = run.climMeans[t % run.climM]!; kind = "fitted"; break;
-    case "hw": {
-      const hs = fitFrom(T, m), sub = y.subarray(hs), [a, be, ga, ph] = run.hwParams, st = hwInit(sub, m, T - hs);
-      let l = st.l, b = st.b;
-      const sv = st.s;
-      for (let t = m; t < T - hs; t++) {
-        const k = t % m, yt = sub[t];
-        pred[hs + t] = l + ph * b + sv[k];
-        if (A.made[hs + t]) { l += ph * b; b *= ph; continue; }
-        const ln = a * (yt - sv[k]) + (1 - a) * (l + ph * b);
-        b = be * (ln - l) + (1 - be) * ph * b; sv[k] = ga * (yt - ln) + (1 - ga) * sv[k]; l = ln;
-      }
-      break;
-    }
+    case "hw": oneStepErrorsHw(A, run, pred); break;
     case "ets": etsPred(); break;
     case "reg": regPred(); kind = "fitted"; break;
     case "theta": thetaPred(); kind = "one-step (approximate)"; break;
@@ -956,7 +1044,7 @@ export function deepCheck(A: Aggregated, run: RunInternal, pick: ModelKey): Deep
 }
 
 /**
- * Diebold-Mariano test (fpp3 5.10) that model A's absolute error is below model B's, over
+ * Diebold-Mariano test (Diebold and Mariano 1995; as in forecast::dm.test) that model A's absolute error is below model B's, over
  * the first `folds` folds. The loss is each fold's mean absolute error; overlapping folds
  * are dependent, so the variance is Bartlett (Newey-West) with lag `lag`, with the
  * Harvey-Leybourne-Newbold small-sample correction and a t distribution on n - 1 df.
@@ -982,7 +1070,8 @@ export function dmTest(errA: Float64Array, errB: Float64Array, folds: number, H:
 
 /** The damped Holt-Winters one-step forecasts on the fitting window, written into pred (NaN elsewhere). */
 function oneStepErrorsHw(A: Aggregated, run: RunInternal, pred: Float64Array): void {
-  const { T, m } = run, y = A.yModel, hs = fitFrom(T, m), sub = y.subarray(hs), [a, be, ga, ph] = run.hwParams, st = hwInit(sub, m, T - hs);
+  // With the season removed by MSTL the one-step errors are those of the seasonally adjusted series.
+  const L = run.long, T = run.T, m = L ? 1 : run.mS, hs = L ? L.s : fitFrom(T, m), sub = L ? L.adj : A.yModel.subarray(hs), [a, be, ga, ph] = run.hwParams, st = hwInit(sub, m, T - hs);
   let l = st.l, b = st.b;
   const sv = st.s;
   for (let t = m; t < T - hs; t++) {

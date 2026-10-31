@@ -16,7 +16,7 @@ export const FREQ: Record<FreqName, { grain: GrainId; add: (t: number, i: number
   yearly: { grain: "year", add: (t, i) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear() + i, d.getUTCMonth(), 1); }, season: 1 },
   quarterly: { grain: "quarter", add: (t, i) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 3 * i, 1); }, season: 4 },
   monthly: { grain: "month", add: (t, i) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + i, 1); }, season: 12 },
-  weekly: { grain: "week", add: (t, i) => t + i * 7 * 86_400_000, season: 1 },
+  weekly: { grain: "week", add: (t, i) => t + i * 7 * 86_400_000, season: 52 },
   daily: { grain: "day", add: (t, i) => t + i * 86_400_000, season: 7 },
   hourly: { grain: "hour", add: (t, i) => t + i * 3_600_000, season: 24 },
   half_hourly: { grain: "min30", add: (t, i) => t + i * 1_800_000, season: 48 },
