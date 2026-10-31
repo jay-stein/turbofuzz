@@ -42,6 +42,11 @@ export interface TsConfig {
   /** Trend flexibility for the regression, 1 to 10. */
   flex: number;
   drivers: TsDriver[];
+  /**
+   * How the backtest trains: "expanding" on everything before each origin, "rolling" on
+   * a fixed-length window ending at it (as long as the first fold's history).
+   */
+  cv?: "expanding" | "rolling";
 }
 
 export interface Aggregated {

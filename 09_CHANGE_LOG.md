@@ -28,6 +28,21 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-15 — Time Series: validation window, seven accuracy measures, "Which model, and why?"
+
+- **Status:** Verified
+- **Related issue / decision:** next_steps.md "Time Series (owner, 2026-10-31): why one model over another, overfitting, AutoARIMA".
+- **Scope:**
+  - **Validate** on the Forecast board: an *Expanding window* (default; each fold trains on all history before it) or a *Rolling window* (each fold trains on the first fold's length, sliding forward). It applies to every model; repeat-last-cycle needs no training.
+  - **Measures:** every model gets MAE, RMSE, MASE, WAPE, sMAPE, MAPE and bias from the same backtest errors, with no extra fitting. **Rank by** picks the measure, and the Auto pick follows it (bias by its size).
+  - **Board:** new columns for the chosen measure and **Folds beaten** (folds where the model beat repeating the last cycle).
+  - **Model card:** says how the folds trained, lists all the scores, warns when the best model wins under half its folds (a possible lucky lead), and flags a close call (within 5%; prefer the simpler model).
+  - **"Which model, and why?" window:** how the scores avoid overfitting, the two windows with fold diagrams, when each model shines and when to doubt it, and the measures table: Metric | Why it's good (strengths) | When to use it | Math (formula).
+- **Not done:** the in-sample "fit gap" from the plan. One-step in-sample errors are not comparable with multi-step backtests, so fold wins and the expanding-vs-rolling comparison carry that signal instead.
+- **Tests run and results:** `test/timeseries-validation.test.ts` (2), a Time Series e2e case; bench:timeseries within budgets; full suite green.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-14 — Time Series: auto-ETS, and backtests that never test on tuned data
 
 - **Status:** Verified

@@ -165,3 +165,28 @@ test("decompose: half-hourly data splits into daily + weekly, and one click read
   await regrain.click();
   await expect(seasons).toContainText("Daily + weekly");
 });
+
+test("the board validates on an expanding or rolling window, ranks by any measure, and explains them", async ({ page }) => {
+  await openPage(page);
+  await page.locator(".ts-modes [data-mode=forecast]").click();
+  const card = page.locator(".ts-page [data-ref=modelCard]");
+  await expect(card).toContainText("expanding window");
+  await expect(card).toContainText(/MASE \d.*WAPE \d.*sMAPE \d/);
+
+  await page.getByRole("button", { name: "Rolling window" }).click();
+  await expect(page.getByRole("button", { name: "Rolling window" })).toHaveAttribute("aria-pressed", "true");
+  await expect(card).toContainText(/each trained on the \d+ days before it \(rolling window\)/);
+
+  await page.getByLabel("Rank by").selectOption("wape");
+  await expect(page.locator(".ts-board thead th").nth(1)).toContainText("WAPE");
+  await expect(page.locator(".ts-board tbody tr").first().locator("td").nth(1)).toHaveText(/%$/);
+  await expect(page.locator(".ts-board thead")).toContainText("Folds beaten");
+
+  await page.getByRole("button", { name: "Which model, and why?" }).click();
+  const guide = page.getByRole("dialog", { name: "Which model, and why?" });
+  await expect(guide.locator(".ts-metric-table").last().locator("thead th")).toHaveText(["Metric", "Why it's good (strengths)", "When to use it", "Math (formula)"]);
+  await expect(guide.locator(".ts-metric-table").last().locator("tbody tr")).toHaveCount(7);
+  await expect(guide).toContainText("Overfitting");
+  await page.keyboard.press("Escape");
+  await expect(guide).toHaveCount(0);
+});

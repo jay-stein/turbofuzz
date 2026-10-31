@@ -104,7 +104,7 @@ export class TsEngine {
     const t2 = performance.now();
     const H = horizonOf(A, cfg);
     const drvKey = cfg.drivers.map((d) => `${d.col}:${d.rule}:${d.pct}`).join(",");
-    const modKey = aggKey + "|" + [cfg.split, H, cfg.flex, drvKey].join("|");
+    const modKey = aggKey + "|" + [cfg.split, H, cfg.flex, cfg.cv, drvKey].join("|");
     if (modKey !== this.keys.mod || !this.MOD) {
       this.MOD = runModels(A, this.table, cfg, cfg.split, H, this.warm);
       this.FUT = "error" in this.MOD ? null : computeFutures(A, this.MOD.internal);
@@ -149,6 +149,7 @@ export function sanitizeTsConfig(cfg: TsConfig, info: TsTableInfo): TsConfig {
     group: cfg.group >= 0 && cfg.group < info.groups.length && info.groupCol !== null ? cfg.group : -1,
     smoothW: Math.max(2, Math.round(cfg.smoothW)),
     flex: Math.min(10, Math.max(1, cfg.flex)),
+    cv: cfg.cv === "rolling" ? "rolling" : "expanding",
     drivers: cfg.drivers.filter((d) => names.has(d.col) && d.col !== measure),
   };
 }
@@ -159,6 +160,6 @@ export function defaultConfig(info: TsTableInfo): TsConfig {
   return {
     grain, agg: info.eventLike ? "count" : "sum", measure: info.defMeasure, group: -1, gaps: "leave", partial: "exclude",
     smoothW: GRAINS[grain].smooth, smoothStat: "mean", smoothCentred: false, period: null, sens: 4.5,
-    split: null, horizon: null, flex: 5, drivers: [],
+    split: null, horizon: null, flex: 5, drivers: [], cv: "expanding",
   };
 }

@@ -11,7 +11,8 @@ import {
   aNoun, cap, compact, dfDM, dfMonShort, dfTime, dfWd, fmtInstant, MONTHS, nf, nounFor, pct, periodLabel, rateK, rateText,
   shortPeriod, signed, WEEKDAYS,
 } from "../data/timeseries/format.js";
-import { grade, MODEL_INFO, type Future, type ModelKey, type ModelRun } from "../data/timeseries/models.js";
+import { grade, METRIC_KEYS, MODEL_INFO, type Future, type MetricKey, type ModelKey, type ModelRun } from "../data/timeseries/models.js";
+import { METRIC_INFO, metricText } from "./timeseries-metrics.js";
 
 /** What a finding's button does; the page carries it out. */
 export type TsAction =
@@ -39,6 +40,8 @@ export interface TsView {
   mode: TsMode;
   model: ModelKey | "auto";
   showShift: boolean;
+  /** What the board ranks by, and Auto picks the best of. */
+  metric?: MetricKey;
 }
 
 export const escapeHtml = (t: string): string => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -75,7 +78,7 @@ export function seasonName(g: Grain, d: Pick<Decomposition, "m"> & { parts?: unk
 
 export function selectedModel(s: TsSnapshot, view: TsView): ModelKey | null {
   if ("error" in s.models) return null;
-  return view.model === "auto" ? s.models.best : view.model;
+  return view.model === "auto" ? s.models.bestBy?.[view.metric ?? "mase"] ?? s.models.best : view.model;
 }
 /** Error relative to repeating the last cycle: on held-out actuals when there are some. */
 export function ratioOf(s: TsSnapshot, key: ModelKey): number {
@@ -308,7 +311,7 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
 }
 
 /** The model card: how the chosen model works and how far to trust it. */
-export function modelRows(s: TsSnapshot, sel: ModelKey): [string, string][] {
+export function modelRows(s: TsSnapshot, sel: ModelKey, metric: MetricKey = "mase"): [string, string][] {
   if ("error" in s.models || !s.futures) return [];
   const M = s.models, g = s.A.g, m = M.models[sel], A = s.A, word = measureWord(s);
   const rows: [string, string][] = [["Model set", M.profile]];
@@ -343,7 +346,18 @@ export function modelRows(s: TsSnapshot, sel: ModelKey): [string, string][] {
   if (sel === "clim") rows.push(["Seasonal average", climM > 1 ? `each ${g.noun} is the mean of the same point in every earlier cycle of ${climM} ${g.nouns}; strong when there is a season but no trend` : `the mean of all earlier ${g.nouns}; there is no season at this grain`]);
   if (sel === "sn") rows.push(["Repeat last cycle", M.m > 1 ? `each ${g.noun} copies the same ${g.noun} one season (${M.m} ${g.nouns}) earlier` : `each ${g.noun} repeats the last one; there is no season at this grain`]);
   rows.push(["Fitted on", `${shortPeriod(g, A.t[0])} to ${shortPeriod(g, A.t[M.T - 1])} (${M.T} ${g.nouns})`]);
-  rows.push(["Backtest", `${M.origins.length} forecasts from earlier dates, ${M.H} ${g.nouns} each; error ${m.ratio.toFixed(2)}× repeating the last cycle`]);
+  rows.push(["Backtest", `${M.origins.length} forecasts from earlier dates, ${M.H} ${g.nouns} each, ${M.cv === "rolling" && M.trainLen ? `each trained on the ${M.trainLen} ${g.nouns} before it (rolling window)` : "each trained on all the history before it (expanding window)"}; settings chosen before the first one, so nothing is scored on data it was tuned on. Error ${m.ratio.toFixed(2)}× repeating the last cycle`]);
+  if (m.metrics) rows.push(["Scores", METRIC_KEYS.map((k) => `${METRIC_INFO[k].label} ${metricText(k, m.metrics[k])}`).join(" · ")]);
+  if (sel !== "sn" && m.folds?.of) {
+    const luck = m.folds.won * 2 < m.folds.of && sel === (M.bestBy?.[metric] ?? M.best);
+    rows.push(["Folds beaten", `beat repeating the last cycle in ${m.folds.won} of ${m.folds.of} folds${luck ? `. <span class="ts-warn">Best overall but wins under half the folds: its lead may come from one lucky stretch.</span>` : ""}`]);
+  }
+  if (m.metrics) {
+    const size = (k: ModelKey): number => { const v = M.models[k].metrics?.[metric] ?? NaN; return metric === "bias" ? Math.abs(v) : v; };
+    const others = (Object.keys(M.models) as ModelKey[]).filter((k) => k !== sel && k !== "sn" && size(k) === size(k)).sort((a, b) => size(a) - size(b));
+    const next = others[0], mine = size(sel);
+    if (next && mine === mine && mine > 0 && Math.abs(size(next) - mine) / mine < 0.05) rows.push(["Close call", `${MODEL_INFO[next].name} scores within 5% on ${METRIC_INFO[metric].label}; when scores are this close, the simpler model is the safer bet (less room to have learned noise)`]);
+  }
   const f = s.futures[sel];
   if (f.held) rows.push(["Held-out check", `${f.held.hit} of ${f.held.tot} actual ${g.nouns} after the split fell inside the 80% band (${f.held.tot ? ((f.held.hit / f.held.tot) * 100).toFixed(0) : 0}%)${f.held.tot && f.held.hit / f.held.tot < 0.6 ? `. <span class="ts-warn">The band was too narrow here: the series changed after the backtest stretch.</span>` : ""}`]);
   else if (m.check) rows.push(["Band check", `on the latest backtest, ${m.check.hit} of ${m.check.tot} ${g.nouns} fell inside the 80% band built from the others`]);

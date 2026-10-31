@@ -31,6 +31,11 @@ interface RegFit {
 /** prof: the season added back; scale: the season as factors (one that grows with the level). */
 interface ThetaFit { prof: Float64Array | null; scale: Float64Array | null; b0: number; alpha: number; level: number; o: number; m: number }
 
+/** Accuracy measures, all from the same backtest errors (see METRIC_INFO). */
+export type MetricKey = "mase" | "mae" | "rmse" | "wape" | "smape" | "mape" | "bias";
+export const METRIC_KEYS: readonly MetricKey[] = ["mase", "mae", "rmse", "wape", "smape", "mape", "bias"];
+export type Metrics = Record<MetricKey, number>;
+
 /** What the page shows about one model (no closures, so it can leave the worker). */
 export interface ModelSummary {
   key: ModelKey;
@@ -39,6 +44,9 @@ export interface ModelSummary {
   ratio: number;
   /** On the latest backtest: how many periods fell inside the 80% band built from the others. */
   check: { hit: number; tot: number } | null;
+  metrics: Metrics;
+  /** Backtest folds where this model's error was below repeating the last cycle. */
+  folds: { won: number; of: number };
   hw?: { params: HwParams };
   /** ETS components, e.g. "A,Ad,M" (error, trend, season), and its smoothing parameters. */
   ets?: { spec: string; alpha: number; beta: number; gamma: number; phi: number; aicc: number; tried: number };
@@ -54,6 +62,11 @@ export interface ModelRun {
   step: number;
   models: Record<ModelKey, ModelSummary>;
   best: ModelKey;
+  /** The best model by each measure (bias by its size). */
+  bestBy: Record<MetricKey, ModelKey>;
+  cv: "expanding" | "rolling";
+  /** Periods each rolling fold trains on; null when expanding. */
+  trainLen: number | null;
   rough: boolean;
   profile: string;
 }
@@ -330,8 +343,8 @@ function harmonics(x: Float64Array, k: number, a: number, K: number): number {
 }
 
 /** Prophet-style regression on log values: trend with shrunk bends, Fourier seasons, any driver columns. */
-function regFit(A: Aggregated, table: TsTable, drivers: TsDriver[], y: Float64Array, T: number, flex: number): RegFit {
-  const g: Grain = A.g, from = Math.max(0, T - REG_WIN), W = T - from;
+function regFit(A: Aggregated, table: TsTable, drivers: TsDriver[], y: Float64Array, T: number, flex: number, win = Infinity): RegFit {
+  const g: Grain = A.g, from = Math.max(0, T - Math.min(REG_WIN, win)), W = T - from;
   // A season needs data to learn it from: yearly terms only with a full year, weekly and daily with three cycles.
   const Ky = W >= g.perYear ? Math.max(0, Math.min(4, Math.floor((g.perYear - 1) / 2))) : 0;
   const wk = g.unit === "day" && g.n === 1 ? 7 : g.perDay ? 7 * g.perDay : 0;
@@ -406,8 +419,8 @@ function regAt(fit: RegFit, i: number): number {
   return fit.logY ? Math.exp(Math.min(s, fit.maxLog + 3)) * fit.smear : s;
 }
 /** Theta method: simple smoothing plus half the long-run slope, on the deseasonalised series. */
-function thetaFit(y: Float64Array, o: number, m: number): ThetaFit {
-  const s = fitFrom(o, m);
+function thetaFit(y: Float64Array, o: number, m: number, start = 0): ThetaFit {
+  const s = Math.max(fitFrom(o, m), start);
   if (s) return thetaFit(y.subarray(s, o), o - s, m);
   const add = m > 1 && o >= 2 * m + 2 ? decompose(y, o, m) : null;
   const d = add ? preferScaled(y, o, add) : null;
@@ -433,12 +446,12 @@ function thetaAt(f: ThetaFit, h: number): number {
   return f.scale ? flat * f.scale[(f.o + h) % f.m] : flat + (f.prof ? f.prof[(f.o + h) % f.m] : 0);
 }
 /** Climatology: the average of the same point in every earlier cycle. */
-function phaseMeans(y: Float64Array, o: number, m: number): Float64Array {
+function phaseMeans(y: Float64Array, o: number, m: number, start = 0): Float64Array {
   const sum = new Float64Array(m), cnt = new Float64Array(m);
   let all = 0;
-  for (let i = 0; i < o; i++) { sum[i % m] += y[i]; cnt[i % m]++; all += y[i]; }
+  for (let i = start; i < o; i++) { sum[i % m] += y[i]; cnt[i % m]++; all += y[i]; }
   const out = new Float64Array(m);
-  for (let k = 0; k < m; k++) out[k] = cnt[k] ? sum[k] / cnt[k] : all / o;
+  for (let k = 0; k < m; k++) out[k] = cnt[k] ? sum[k] / cnt[k] : all / (o - start || 1);
   return out;
 }
 /** What the series looks like decides which model families apply (the model router). */
@@ -508,6 +521,10 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   for (let k = 0; k < 10; k++) { const o = T - H - k * step; if (o < minTrain) break; origins.push(o); }
   origins.reverse();
   const R = origins.length;
+  // Rolling: every fold trains on the same length as the first (whole cycles, so phases keep their place).
+  const rolling = cfg.cv === "rolling" && R > 1;
+  const trainLen = rolling ? origins[0]! : null;
+  const startOf = (o: number): number => (rolling ? Math.max(0, Math.floor((o - trainLen!) / Math.max(1, m)) * Math.max(1, m)) : 0);
   let scale = 0, sc = 0;
   for (let t = m; t < T; t++) { scale += Math.abs(y[t] - y[t - m]); sc++; }
   scale = scale / (sc || 1) || 1;
@@ -529,43 +546,66 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   const hwParams = hwFit(y.subarray(hs), T - hs, m, warm.get(wkey));
   warm.set(wkey, hwParams);
   const backRun = hwRun(y, T, m, hwBack ?? hwParams, origins);
-  origins.forEach((o, k) => { const st = backRun.snaps.get(o); if (st) hwForecast(st, m, (hwBack ?? hwParams)[3], o, H, oc.hw, k * H); });
+  origins.forEach((o, k) => {
+    const s0 = startOf(o), p = hwBack ?? hwParams;
+    const st = s0 > 0 ? hwRun(y.subarray(s0), o - s0, m, p, []).final : backRun.snaps.get(o);
+    if (st) hwForecast(st, m, p[3], o - s0, H, oc.hw, k * H);
+  });
   const run = hwRun(y, T, m, hwParams, []);
 
   // ETS: the form and its parameters chosen before the first origin for the backtest, again on all data for the forecast.
   const eb = etsFrom(cut, m);
   const etsBack = etsSelect(y, eb, cut, m);
   const etsBackRun = etsRun(y, eb, T, etsBack, origins);
-  origins.forEach((o, k) => { const st = etsBackRun.snaps.get(o); if (st) etsForecast(st, etsBack, o, H, oc.ets, k * H); else for (let h = 0; h < H; h++) oc.ets[k * H + h] = oc.hw[k * H + h]; });
+  origins.forEach((o, k) => {
+    const s0 = startOf(o);
+    const st = s0 > 0 ? etsRun(y, s0, o, etsBack, []).final : etsBackRun.snaps.get(o);
+    if (st) etsForecast(st, etsBack, o, H, oc.ets, k * H); else for (let h = 0; h < H; h++) oc.ets[k * H + h] = oc.hw[k * H + h];
+  });
   const es = etsFrom(T, m);
   const etsFit = etsSelect(y, es, T, m);
   const etsFinal = etsRun(y, es, T, etsFit, []).final;
 
-  origins.forEach((o, k) => { const f = regFit(A, table, cfg.drivers, y, o, cfg.flex); for (let h = 0; h < H; h++) oc.reg[k * H + h] = regAt(f, o + h); });
+  origins.forEach((o, k) => { const f = regFit(A, table, cfg.drivers, y, o, cfg.flex, rolling ? o - startOf(o) : Infinity); for (let h = 0; h < H; h++) oc.reg[k * H + h] = regAt(f, o + h); });
   const reg = regFit(A, table, cfg.drivers, y, T, cfg.flex);
 
-  origins.forEach((o, k) => { const f = thetaFit(y, o, m); for (let h = 0; h < H; h++) oc.theta[k * H + h] = thetaAt(f, h); });
+  origins.forEach((o, k) => { const f = thetaFit(y, o, m, startOf(o)); for (let h = 0; h < H; h++) oc.theta[k * H + h] = thetaAt(f, h); });
   const theta = thetaFit(y, T, m);
 
   const first = origins.length ? origins[0] : T;
   const climM = g.periods.filter((pp) => first >= pp).pop() || m;
-  origins.forEach((o, k) => { const means = phaseMeans(y, o, climM); for (let h = 0; h < H; h++) oc.clim[k * H + h] = means[(o + h) % climM]; });
+  origins.forEach((o, k) => { const means = phaseMeans(y, o, climM, rolling ? Math.max(0, Math.floor((o - trainLen!) / climM) * climM) : 0); for (let h = 0; h < H; h++) oc.clim[k * H + h] = means[(o + h) % climM]; });
   const climMeans = phaseMeans(y, T, climM);
 
   for (let i = 0; i < R * H; i++) oc.ens[i] = (oc.ets[i] + oc.reg[i] + oc.theta[i]) / 3;
 
   const models = {} as Record<ModelKey, ModelSummary>;
   const q = {} as Record<ModelKey, BandQ[]>;
+  const foldMae = {} as Record<ModelKey, Float64Array>;
   for (const key of MODEL_KEYS) {
     const errs = new Float64Array(R * H).fill(NaN);
-    let ae = 0, ac = 0;
+    const fm = (foldMae[key] = new Float64Array(R));
+    let ae = 0, ac = 0, se = 0, ay = 0, sum = 0, sm = 0, smc = 0, mp = 0, mpc = 0;
     origins.forEach((o, k) => {
+      let fae = 0, fc = 0;
       for (let h = 0; h < H; h++) {
         if (A.made[o + h]) continue;
-        const e = y[o + h] - oc[key][k * H + h];
-        errs[k * H + h] = e; ae += Math.abs(e); ac++;
+        const act = y[o + h], f = oc[key][k * H + h], e = act - f;
+        if (!(e === e)) continue;
+        errs[k * H + h] = e; ae += Math.abs(e); ac++; fae += Math.abs(e); fc++;
+        se += e * e; ay += Math.abs(act); sum -= e;
+        const d = Math.abs(act) + Math.abs(f);
+        if (d > 0) { sm += (2 * Math.abs(e)) / d; smc++; }
+        if (act !== 0) { mp += Math.abs(e / act); mpc++; }
       }
+      fm[k] = fc ? fae / fc : NaN;
     });
+    const mae = ae / (ac || 1);
+    const metrics: Metrics = {
+      mase: mae / scale, mae, rmse: Math.sqrt(se / (ac || 1)),
+      wape: ay > 0 ? ae / ay : NaN, smape: smc ? sm / smc : NaN, mape: mpc ? mp / mpc : NaN,
+      bias: ay > 0 ? sum / ay : NaN,
+    };
     q[key] = bandQuantiles(errs, origins.map((_, k) => k), H);
     let check: ModelSummary["check"] = null;
     if (R >= 4) {
@@ -574,7 +614,12 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
       for (let h = 0; h < H; h++) { const e = errs[(R - 1) * H + h]; if (e !== e) continue; tot++; if (e >= qx[h].q10 && e <= qx[h].q90) hit++; }
       check = { hit, tot };
     }
-    models[key] = { key, mase: ae / (ac || 1) / scale, ratio: 0, check };
+    models[key] = { key, mase: metrics.mase, ratio: 0, check, metrics, folds: { won: 0, of: 0 } };
+  }
+  for (const key of MODEL_KEYS) {
+    let won = 0, of = 0;
+    for (let k = 0; k < R; k++) { const a = foldMae[key][k]!, b = foldMae.sn[k]!; if (a === a && b === b) { of++; if (a < b) won++; } }
+    models[key].folds = { won, of };
   }
   const base = models.sn.mase || 1;
   for (const key of MODEL_KEYS) models[key].ratio = models[key].mase / base;
@@ -583,8 +628,11 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   models.reg.reg = { K: reg.K, Ky: reg.Ky, Kw: reg.Kw, Kd: reg.Kd, logY: reg.logY, drivers: reg.drv.map((v, j) => ({ col: v.d.col, log: v.log, beta: reg.beta[reg.iDrv + j], flag: !!table.flags[v.d.col] })) };
   models.theta.theta = { alpha: theta.alpha, b0: theta.b0, seasonal: theta.prof !== null || theta.scale !== null };
   models.clim.clim = { m: climM };
-  const best = (["ets", "hw", "reg", "ens", "theta", "clim", "sn"] as ModelKey[]).reduce((a, b) => (models[b].mase < models[a].mase ? b : a));
-  const out: ModelRun = { T, H, m, origins, step, models, best, rough: R < 3, profile: seriesProfile(A, T) };
+  const order: ModelKey[] = ["ets", "hw", "reg", "ens", "theta", "clim", "sn"];
+  const size = (key: ModelKey, mk: MetricKey): number => { const v = models[key].metrics[mk]; return v === v ? (mk === "bias" ? Math.abs(v) : v) : Infinity; };
+  const bestBy = Object.fromEntries(METRIC_KEYS.map((mk) => [mk, order.reduce((a, b) => (size(b, mk) < size(a, mk) ? b : a))])) as Record<MetricKey, ModelKey>;
+  const best = bestBy.mase;
+  const out: ModelRun = { T, H, m, origins, step, models, best, bestBy, cv: rolling ? "rolling" : "expanding", trainLen, rough: R < 3, profile: seriesProfile(A, T) };
   return { ...out, internal: { ...out, etsFinal, etsFit, hwFinal: run.final, hwParams, regFit: reg, thetaFit: theta, climM, climMeans, q } };
 }
 

@@ -13,7 +13,8 @@ import type { TsSnapshot } from "../data/timeseries/engine.js";
 import {
   compact, dfDate, dfDM, dfMonShort, dfTime, fmtNum, full, nf, nounFor, pct, periodLabel, shortPeriod, signed,
 } from "../data/timeseries/format.js";
-import { grade, MODEL_INFO, MODEL_KEYS, type Future, type ModelKey, type ModelRun } from "../data/timeseries/models.js";
+import { grade, METRIC_KEYS, MODEL_INFO, MODEL_KEYS, type Future, type MetricKey, type ModelKey, type ModelRun } from "../data/timeseries/models.js";
+import { METRIC_INFO, metricText, openModelGuide } from "./timeseries-metrics.js";
 import type { ColumnMeta, TimeSeriesMessage } from "../worker/protocol.js";
 import { downloadCsv } from "./chart-export.js";
 import {
@@ -55,7 +56,7 @@ export interface TsPreset {
 }
 
 type Level = "80" | "fan";
-interface UiState { mode: TsMode; showSmooth: boolean; lastYear: boolean; showShift: boolean; level: Level; model: ModelKey | "auto" }
+interface UiState { mode: TsMode; showSmooth: boolean; lastYear: boolean; showShift: boolean; level: Level; model: ModelKey | "auto"; metric: MetricKey }
 type TokenKey = "grain" | "agg" | "measure" | "group" | "gaps" | "partial" | "date" | "groupBy" | "source";
 interface Colors { bg: string; panel: string; panel2: string; border: string; text: string; dim: string; accent: string; forecast: string; season2: string; raw: string; danger: string; warn: string; grid: string }
 interface Proj { T: number; H: number; f: Future; key: ModelKey }
@@ -146,6 +147,11 @@ const TEMPLATE = `
       </section>
       <section class="ts-card ts-panel" data-panel="forecast" hidden>
         <div class="ts-panel-head"><h3>Models</h3><p>Drag the split line on the chart to backtest from any date, or the handle at the end of the band to change how far ahead it forecasts. Hover a model to compare it.</p></div>
+        <div class="ts-boardbar">
+          <div class="ts-ctl"><span>Validate</span><div class="ts-seg" data-ref="cvSeg" role="group" aria-label="Validation window"><button type="button" data-cv="expanding" title="Each backtest trains on everything before it">Expanding window</button><button type="button" data-cv="rolling" title="Each backtest trains on a fixed-length window that slides forward">Rolling window</button></div></div>
+          <div class="ts-ctl"><label for="ts-metric">Rank by</label><select id="ts-metric" class="ts-select" data-ref="metricSel">${METRIC_KEYS.map((k) => `<option value="${k}">${METRIC_INFO[k].label} · ${METRIC_INFO[k].short}</option>`).join("")}</select></div>
+          <button class="ts-ghost ts-guide-btn" type="button" data-ref="guideBtn">Which model, and why?</button>
+        </div>
         <div class="ts-boardwrap"><table class="ts-board" data-ref="board"></table></div>
         <div class="ts-ctl"><label>Trend flexibility</label><input type="range" data-ref="flex" min="1" max="10" step="1" aria-label="Trend flexibility"><output data-ref="flexOut"></output><span class="ts-note">for the trend, seasons and drivers model</span></div>
         <dl class="ts-modelcard" data-ref="modelCard"></dl>
@@ -189,7 +195,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   let shape: SeriesShape | null = null;
   // Mixed-series warnings the person kept as they are (date|split|group), for this session.
   const keptMixed = new Set<string>();
-  const ui: UiState = { mode: "explore", showSmooth: true, lastYear: false, showShift: true, level: "fan", model: "auto" };
+  const ui: UiState = { mode: "explore", showSmooth: true, lastYear: false, showShift: true, level: "fan", model: "auto", metric: "mase" };
   let INS: TsFinding[] = [];
   let view: [number, number] | null = null;
   let hoverIdx = -1, ghostModel: ModelKey | null = null;
@@ -1161,19 +1167,26 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (!M || !s.futures) { board.innerHTML = `<tbody><tr><td class="ts-emptycell">${"error" in s.models ? escapeHtml(s.models.error) : ""}</td></tr></tbody>`; card.innerHTML = ""; return; }
     const sel = selectedModel(s, ui) as ModelKey, fut = s.futures;
     const heldMode = M.T < s.A.modelN && fut.sn.held?.ratio != null;
-    const maxR = Math.max(...MODEL_KEYS.map((k) => ratioOf(s, k)), 1);
-    const keys = [...MODEL_KEYS].sort((p, q) => ratioOf(s, p) - ratioOf(s, q));
-    board.innerHTML = `<thead><tr><th>Model</th><th>${heldMode ? "Held-out" : "Backtest"} error vs repeat-last-cycle</th><th>Grade</th><th>${heldMode ? "Held-out check" : "Band check"}</th></tr></thead><tbody>` +
+    const mk = ui.metric, best = M.bestBy[mk];
+    const size = (k: ModelKey): number => { const v = M.models[k].metrics[mk]; return v === v ? (mk === "bias" ? Math.abs(v) : v) : Infinity; };
+    const maxV = Math.max(...MODEL_KEYS.map(size).filter(Number.isFinite), 1e-12);
+    const keys = [...MODEL_KEYS].sort((p, q) => size(p) - size(q));
+    const info = METRIC_INFO[mk];
+    for (const b of ref("cvSeg").querySelectorAll<HTMLButtonElement>("button")) b.setAttribute("aria-pressed", String(b.dataset.cv === M.cv));
+    ref<HTMLSelectElement>("metricSel").value = mk;
+    board.innerHTML = `<thead><tr><th>Model</th><th title="${info.short}: ${mk === "bias" ? "nearer zero is better" : "lower is better"}">${info.label} <small>${mk === "bias" ? "nearer 0 is better" : "lower is better"}</small></th><th>${heldMode ? "Held-out" : "Backtest"} error vs repeat-last-cycle</th><th>Grade</th><th title="Backtest folds where it beat repeating the last cycle">Folds beaten</th><th>${heldMode ? "Held-out check" : "Band check"}</th></tr></thead><tbody>` +
       keys.map((k) => {
-        const m = M.models[k], r = ratioOf(s, k), gd = grade(r, k), f = fut[k];
+        const m = M.models[k], r = ratioOf(s, k), gd = grade(r, k), f = fut[k], v = size(k);
         const chk = f.held ? `${f.held.hit} of ${f.held.tot} inside 80%` : m.check ? `${m.check.hit} of ${m.check.tot} inside 80%` : "–";
         return `<tr data-model="${k}" aria-selected="${k === sel}">
-          <td><span class="ts-mname">${MODEL_INFO[k].name}</span>${k === M.best && ui.model === "auto" ? `<span class="ts-auto">Auto</span>` : ""}<span class="ts-mmeth">${MODEL_INFO[k].meth}</span></td>
-          <td><span class="ts-errbar" style="width:${Math.max(4, (r / maxR) * 90).toFixed(0)}px;opacity:${k === "sn" ? 0.35 : 0.85}"></span>${r.toFixed(2)}×${heldMode ? ` <small>backtest ${m.ratio.toFixed(2)}×</small>` : ""}</td>
+          <td><span class="ts-mname">${MODEL_INFO[k].name}</span>${k === best && ui.model === "auto" ? `<span class="ts-auto">Auto</span>` : ""}<span class="ts-mmeth">${MODEL_INFO[k].meth}</span></td>
+          <td><span class="ts-errbar" style="width:${Number.isFinite(v) ? Math.max(4, (v / maxV) * 90).toFixed(0) : 0}px;opacity:${k === "sn" ? 0.35 : 0.85}"></span>${metricText(mk, m.metrics[mk])}</td>
+          <td>${r.toFixed(2)}×${heldMode ? ` <small>backtest ${m.ratio.toFixed(2)}×</small>` : ""}</td>
           <td><span class="ts-pill ${gd.cls}">${gd.text}</span></td>
+          <td>${k === "sn" ? "–" : `${m.folds.won} of ${m.folds.of}`}</td>
           <td>${chk}</td></tr>`;
       }).join("") + "</tbody>";
-    card.innerHTML = modelRows(s, sel).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+    card.innerHTML = modelRows(s, sel, mk).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
   }
   function renderDrivers(): void {
     const s = snap as TsSnapshot;
@@ -1477,7 +1490,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const st = target.closest<HTMLElement>("[data-stat]");
     if (st) change({ smoothStat: st.dataset.stat as TsConfig["smoothStat"] }, { fade: false });
     const row = target.closest<HTMLElement>("tr[data-model]");
-    if (row && snap) { const M = models(), k = row.dataset.model as ModelKey; uiChange({ model: M && k === M.best && ui.model !== "auto" ? "auto" : k }); }
+    if (row && snap) { const M = models(), k = row.dataset.model as ModelKey; uiChange({ model: M && k === M.bestBy[ui.metric] && ui.model !== "auto" ? "auto" : k }); }
     const tab = target.closest<HTMLElement>(".ts-modes [data-mode]");
     if (tab) setMode(tab.dataset.mode as TsMode);
     const preset = target.closest<HTMLElement>("[data-span]");
@@ -1522,6 +1535,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   on("showShift", "change", (e) => uiChange({ showShift: (e.target as HTMLInputElement).checked }));
   on("sens", "input", (e) => change({ sens: Number((e.target as HTMLInputElement).value) }, { fade: false }));
   on("flex", "input", (e) => change({ flex: Number((e.target as HTMLInputElement).value) }, { fade: false }));
+  on("cvSeg", "click", (e) => { const b = (e.target as Element).closest<HTMLButtonElement>("button[data-cv]"); if (b) change({ cv: b.dataset.cv as TsConfig["cv"] }, { fade: false }); });
+  on("metricSel", "change", (e) => { uiChange({ metric: (e.target as HTMLSelectElement).value as MetricKey }); invalidate("panel"); });
+  on("guideBtn", "click", () => openModelGuide(Object.fromEntries(MODEL_KEYS.map((k) => [k, MODEL_INFO[k].name])) as Record<ModelKey, string>));
   on("hMinus", "click", () => { if (snap) change({ horizon: Math.max(1, snap.H - 1) }, { fade: false }); });
   on("hPlus", "click", () => { if (snap) change({ horizon: Math.min(snap.maxH, snap.H + 1) }, { fade: false }); });
   on("splitReset", "click", () => change({ split: null }, { fade: false }));

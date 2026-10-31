@@ -1922,7 +1922,7 @@ explaining the metrics: Metric, Why it's good, When to use it, Math."
   backtest was scored on. That flattered it, which is overfitting by another name. Now ETS and
   Holt-Winters backtests use parameters fitted only on data before the first origin.
 
-### Validation and metrics (in progress)
+### Validation and metrics (shipped 2026-10-31, CHG-2026-10-31-15; the fit gap was dropped, see the changelog)
 
 1. **Validation window**, a visible choice on the Forecast board:
    - *Expanding* (default): each backtest trains on everything before its origin.
