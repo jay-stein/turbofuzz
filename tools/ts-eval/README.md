@@ -19,3 +19,15 @@ The data is not kept in the repo. Download into one folder:
 | `gym_stats.csv` | the owner's gym crowdedness file (10-minute counts, 2015-2017) |
 
 Findings of the first run (2026-10-31) are in `next_steps.md`, "Evaluation on 13 real series".
+
+## Benchmark against the Monash archive and R's forecast package
+
+`monash.ts` follows the protocol of the Monash Time Series Forecasting Archive
+(https://forecastingdata.org/; Godahewa et al., 2021, NeurIPS Datasets & Benchmarks):
+- train on each series minus its last *h* points and forecast *h*;
+- score MASE against the training data's seasonal naive (seasonality 12 monthly, 4 quarterly, 7 daily, 24 hourly, 48 half-hourly, 1 otherwise);
+- average over series and print beside the archive's published results for SES, Theta, TBATS, ETS and ARIMA, which were made with Rob Hyndman's R `forecast` package.
+
+    npx tsx tools/ts-eval/monash.ts <folder of .tsf files> [max series per dataset, default 300] [file-name filter]
+
+Download the `.tsf` zips from each dataset's Zenodo record (linked from forecastingdata.org) into one folder and unzip them. Missing values are carried forward, as in the archive's "without missing values" versions. Series too short for our backtest are skipped and counted, so a dataset's mean can be over a longer-series subset; the output says how many ran.

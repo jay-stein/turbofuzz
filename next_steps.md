@@ -2023,3 +2023,129 @@ Findings:
 4. **Bands run slightly narrow.** Leave-one-fold-out coverage of the 80% band is 61-79% (median about 75%) and of the 95% band 89-94%. **To build:** a finite-sample (conformal-style) adjustment of the band quantiles, i.e. the ⌈(n+1)q⌉/n quantile, re-checked with this harness.
 5. **No better default for Trend flexibility.** The best setting per series ranges over 1-10 (median about 7) and the curves are often flat. Keep 5, and rely on the per-series validation curve.
 6. **Residuals of hourly series are rarely white** (Ljung–Box p < 0.05 on 10 of 13). Expected with several seasons. It argues for the Deep check's honesty, not for a model change yet.
+
+## BIG TODO (owner, 2026-10-31): get the forecasting fundamentals right. fpp3 is the north star
+
+Owner: "I really really want us to get our fundamentals right. This textbook needs to be your
+northern star and the forecast package is best practice. Find our weak points and develop
+a plan to overcome them." The plan and its evidence are below.
+
+### Evidence: the Monash benchmark (`tools/ts-eval/monash.ts`, 2026-10-31)
+
+The protocol follows the Monash archive (forecastingdata.org; Godahewa et al. 2021):
+- 29 datasets in 19 collections;
+- training on all but the last h points;
+- mean MASE, at most 200 series per dataset;
+- compared with the published results of R's forecast package.
+
+"ours ETS" is our auto-ETS alone; "ours combo" is the mean of our ETS, Theta and damped Holt-Winters. Our numbers are over the series our engine could forecast; "ran" shows how many.
+
+| Dataset (h) | ran | ours Auto | ours ETS | ours combo | pkg ETS | pkg Theta | pkg TBATS | pkg ARIMA |
+|---|---|---|---|---|---|---|---|---|
+| M3 monthly (18) | 200/200 | 0.900 | 0.876 | **0.856** | 0.865 | 0.864 | 0.861 | 0.873 |
+| M3 quarterly (8) | 188/200 | 1.333 | 1.189 | **1.095** | 1.170 | 1.117 | 1.256 | 1.240 |
+| M3 yearly (6) | 103/200 | 3.465 | 2.846 | 2.677 | 2.860 | 2.774 | 3.127 | 3.417 |
+| M3 other (8) | 174/174 | 2.168 | 2.115 | 2.023 | **1.814** | 2.271 | 1.848 | 1.831 |
+| M1 monthly (18) | 151/200 | 1.053 | 0.966 | 0.946 | 1.074 | 1.091 | 1.118 | 1.164 |
+| M1 quarterly (8) | 171/200 | 1.880 | 1.846 | 1.765 | **1.658** | 1.702 | 1.694 | 1.787 |
+| M1 yearly (6) | 81/181 | 4.493 | 3.790 | 3.787 | 3.771 | 4.191 | 3.499 | 4.479 |
+| Tourism monthly (24) | 200/200 | 1.565 | 1.455 | **1.439** | 1.526 | 1.649 | 1.751 | 1.589 |
+| Tourism quarterly (8) | 200/200 | 1.747 | 1.559 | **1.493** | 1.592 | 1.661 | 1.835 | 1.782 |
+| Tourism yearly (4) | 161/200 | 3.195 | 2.465 | 2.379 | 3.395 | 3.015 | 3.685 | 3.775 |
+| CIF 2016 (12) | 62/72 | 0.965 | 0.946 | 0.929 | **0.841** | 0.997 | 0.861 | 0.929 |
+| Hospital (12) | 200/200 | 0.771 | 0.744 | **0.742** | 0.765 | 0.761 | 0.768 | 0.787 |
+| FRED-MD (12) | 107/107 | 0.500 | **0.460** | 0.487 | 0.468 | 0.698 | 0.502 | 0.533 |
+| NN5 daily (56) | 111/111 | 0.827 | 0.830 | 0.826 | 0.865 | 0.885 | 0.858 | 1.013 |
+| COVID deaths (30) | 200/200 | 4.675 | **3.784** | 4.540 | 5.326 | 7.793 | 5.719 | 6.117 |
+| Car parts, intermittent (12) | 200/200 | 1.242 | 1.249 | 1.287 | 0.925 | 0.914 | 0.998 | 0.926 (SES **0.897**) |
+| Vehicle trips (30) | 183/200 | 1.635 | 1.640 | 1.629 | 1.305 | 1.244 | 1.860 | 1.282 (SES **1.224**) |
+| NN5 weekly (8) | 111/111 | 0.941 | 0.986 | 0.927 | 0.911 | 0.885 | **0.872** | 0.887 |
+| M4 weekly (13) | 200/200 | 2.519 | 2.631 | 2.407 | 0.575 | 0.546 | **0.504** | 0.550 |
+| Electricity weekly (8) | 200/200 | 1.842 | 2.220 | 2.205 | 1.526 | 1.476 | **0.792** | 0.878 |
+| Traffic weekly (8) | 200/200 | 2.105 | 2.142 | 2.134 | 1.125 | 1.121 | 1.148 | 1.191 |
+| M4 hourly (48) | 200/200 | **1.559** | 3.086 | 2.482 | 26.69 | 11.524 | 2.663 | 13.557 |
+| Pedestrians, hourly (24) | 66/66 | **0.239** | 0.705 | 0.900 | 1.190 | 0.958 | 1.297 | 3.947 |
+| KDD Cup, hourly (168) | 200/200 | **1.218** | 1.768 | 1.960 | 1.787 | 1.646 | 1.394 | 1.982 |
+| Aus. electricity, half-hourly (336) | 5/5 | 1.251 | 1.823 | 3.277 | 5.663 | 1.867 | **1.174** | 2.574 |
+| US births, daily (30) | 1/1 | 2.042 | 1.593 | 1.663 | 1.529 | 2.138 | **1.453** | 1.917 |
+| Saugeen river, daily (30) | 1/1 | 1.588 | 1.681 | 1.556 | 2.036 | **1.425** | 1.477 | 1.485 |
+| Sunspot, daily (30) | 1/1 | 0.301 | 0.301 | 0.227 | 0.128 | 0.128 | **0.067** | **0.067** |
+| Rideshare, hourly (168) | 0/200 | – | – | – | 4.040 | 3.641 | 3.067 | **1.530** |
+
+What it says:
+- **Monthly, quarterly and yearly (the M and tourism competitions):** our ETS is on par with `forecast::ets`. The ETS + Theta + damped combination beats every published classical method on M3 monthly and quarterly, tourism monthly and quarterly, and hospital. This is the core of the textbook, and it holds up.
+- **Auto is worse than always using ETS** on 15 of the 19 monthly, quarterly, yearly and other datasets: by 3-12% on monthly, 7-23% on yearly. Picking the best of 7 models on about 10 short, overlapping folds is noisy, and that noise costs accuracy (selection overfitting, the owner's concern, now measured at scale). On hourly data Auto wins: it can pick repeat-last-week or the Fourier regression, which suit long seasons.
+- **Weekly is badly broken:** 2-4.5x the published error, from seasonal models with m = 52.
+- **Intermittent demand** (car parts) and **noisy daily counts** (vehicle trips) are about 35% worse than SES: we have no Croston or SBA, and no plain SES.
+- **Short series cannot be forecast at all:** 48% of the sampled M3 yearly series, 55% of M1 yearly, 20% of tourism yearly and 14% of CIF, because the engine insists on room for 3 backtest folds. `forecast` forecasts every one of them.
+- **Seasonal models run on non-seasonal data:** daily sunspots, ETS 0.301 against Theta 0.120.
+- **The Prophet-style "trend, seasons and drivers" model** is the worst model on every monthly, quarterly and yearly dataset (often 1.5-3x ETS), but helps at hourly and half-hourly grain.
+- **Rideshare** (hourly, many missing values) fails entirely.
+
+### Weak points, against fpp3 and the forecast package
+
+1. **Model selection.** Auto picks the backtest winner of 7. fpp3 §5.10 and §13.4: selection by cross-validation is noisy when there is little data, and combinations are robust. M4: the ETS/Theta/damped combination ("Comb") is a hard benchmark.
+2. **Long seasons (m > 24).** We fit seasonal ETS, Holt-Winters, Theta and the seasonal average with m = 52 or 168. `forecast::ets` refuses m > 24. fpp3 §12.1 handles weekly, daily and sub-daily data with STL/MSTL decomposition plus ETS on the seasonally adjusted series (`stlf`), or dynamic harmonic regression (Fourier terms).
+3. **No seasonality test.** The season is chosen from history length alone. `thetaf` tests the seasonal ACF; ETS lets AICc decide, which only works with honest AICc (point 4). fpp3 §4.3 measures seasonal strength.
+4. **ETS fidelity** (fpp3 ch. 8, `forecast::ets`):
+   - initial states are taken from the first cycle and never optimised, yet AICc counts them as estimated;
+   - parameter bounds are a box, not the admissible region (beta < alpha, gamma < 1 - alpha, phi in [0.8, 0.98]);
+   - the optimiser is a 5-round coordinate search rather than Nelder-Mead;
+   - additive errors only;
+   - fitted on the last 800 periods only;
+   - no model-based prediction intervals.
+5. **Theta fidelity** (`thetaf`): alpha comes from a grid (0.05 steps), not estimated; there is no seasonality test before deseasonalising; the decomposition is ours, not classical multiplicative.
+6. **Missing benchmarks** (fpp3 §5.2): naive, drift, mean and plain SES. SES alone beats us on car parts and vehicle trips.
+7. **Short series.** Backtest-or-nothing: no forecast below the 3-fold minimum. fpp3 always fits; with little data, select within ETS by AICc and use model-based intervals.
+8. **Intermittent demand** (fpp3 §13.2): no Croston, SBA or TSB, and no detection (ADI / CV² classification).
+9. **Transformations** (fpp3 §3.1, §5.6): no Box-Cox with bias-adjusted back-transform; only the regression uses logs.
+10. **Calendar and data checks** (fpp3 §2, §3.1):
+    - no month-length adjustment;
+    - weeks are Monday-based, while much data is stamped on Sundays: a partial first or last week appears;
+    - no daylight-saving or time-zone check (Chadstone parking);
+    - fixed: the empty extra period after monthly series (CHG-2026-10-31-26).
+11. **Prediction intervals** (fpp3 §5.5): empirical only. The 80% band covers about 75%; there is no finite-sample correction and nothing model-based for short series.
+12. **No accuracy gate.** Speed has budgets in the gate; accuracy does not. A model change can silently make forecasts worse.
+
+### Plan, in order (each phase re-run on the benchmark; targets are mean MASE)
+
+**Phase 0: an accuracy gate.**
+- A fixed benchmark subset (about 30 series from M3 monthly, quarterly and yearly, tourism, hospital, NN5 daily, M4 weekly and hourly, car parts), small enough to run in about a minute.
+- Store the current scores and fail the gate when any dataset gets more than 2% worse.
+- Keep the full Monash run as a manual report.
+- Download the data on demand into a gitignored folder, never into the bundle (the app stays offline).
+
+**Phase 1: selection that does not overfit** (weak point 1; biggest win, cheapest).
+- Make the default forecast a fixed combination, ETS + Theta + damped (fpp3 §13.4, M4 "Comb"), for monthly, quarterly, yearly and weekly data.
+- Keep the backtest for (a) showing every model honestly, (b) the Deep check and lockbox, and (c) high-frequency data, where the family really differs (repeat-last-cycle and Fourier regression win there).
+- Auto may override the combination only when a rival beats it on the selection folds *and* the lockbox, and is significantly better (DM).
+- Target: Auto <= combo on every low-frequency dataset; M3 monthly <= 0.86, quarterly <= 1.10.
+
+**Phase 2: long and multiple seasons** (weak points 2 and 3).
+- For m > 24: STL (or MSTL for several seasons) to remove the season, ETS, damped trend or Theta on the seasonally adjusted series, and the seasonal component added back (`stlf`).
+- For weekly data (52.18 weeks a year): Fourier terms for the yearly cycle, or non-seasonal models.
+- A seasonal-strength test (F_s from STL, fpp3 §4.3) decides whether any seasonal model runs at all.
+- Restrict the Prophet-style regression to daily and finer data, or drop it after re-benchmarking.
+- Targets: M4 weekly <= 0.60; electricity and traffic weekly at or below published ETS; sunspot <= 0.15; M4 hourly keeps <= 1.6.
+
+**Phase 3: ETS and Theta as the textbook defines them** (weak points 4 and 5).
+- **ETS:** the admissible parameter region; Nelder-Mead over parameters *and* initial states (heuristic starting values as in `forecast`: the first few years' decomposition); multiplicative-error forms, giving the full set of 15 minus the unstable ones; seasonal only for m <= 24; fitted on all data, unless the window is shown to cost nothing; analytical prediction intervals for the additive forms (fpp3 §8.7) as a second band source.
+- **Theta:** alpha by optimisation (SES MLE) and `thetaf`'s seasonality test and classical decomposition.
+- **Parity:** a script fits statsforecast's AutoETS and Theta (Apache-2.0, already in `.venv-recipe-parity`) on 200 M3 monthly series. Pass when our chosen ETS form matches most of the time, and our mean MASE is within 2% of theirs, series by series.
+
+**Phase 4: benchmarks, short series and intermittent demand** (weak points 6, 7 and 8).
+- Add naive, drift, mean and SES as models (shown as benchmarks; SES also joins the combination's candidates).
+- **Short series:** when the 3-fold backtest does not fit, still forecast: ETS by AICc (or the combination), model-based intervals, and a plain "too short to backtest" note. Target: forecast 100% of M1, M3 and tourism yearly.
+- **Intermittent series:** detect them (average demand interval > 1.32 or CV² < 0.49, Syntetos-Boylan) and switch to Croston, SBA or TSB. Target: car parts <= 0.93.
+
+**Phase 5: transformations, intervals, calendar** (weak points 9, 10 and 11).
+- Box-Cox with lambda by Guerrero's method, a bias-adjusted back-transform, and shown in the model card.
+- A conformal-style finite-sample correction of the empirical bands, plus coverage reported by the benchmark (target: 80% band covers 78-82%).
+- Calendar checks:
+  - week start chosen from the data (Sunday-stamped weeks become Sunday weeks);
+  - an optional month-length adjustment;
+  - the daylight-saving shift detector (deferred by the owner, still on the list).
+
+**Later:** hierarchical reconciliation (fpp3 ch. 11) for split series such as car parks; ARIMA (on hold); bagged ETS.
+
+Everything stays dependency-free in the app. statsforecast lives only in the dev venv, for parity checks.

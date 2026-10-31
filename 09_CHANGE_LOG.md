@@ -28,6 +28,21 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-27 — Monash benchmark against R's forecast package; fundamentals plan
+
+- **Status:** Verified (tooling and plan)
+- **Scope:**
+  - **`tools/ts-eval/monash.ts`:** the Monash archive protocol (train on all but the last h, mean MASE against the training seasonal naive) on 29 datasets, with the published SES, Theta, TBATS, ETS and ARIMA results of R's forecast package alongside. It also scores fixed combinations (ETS + Theta, ETS + Theta + damped).
+  - **Plan:** the results and a phased fundamentals plan are in next_steps.md ("BIG TODO: get the forecasting fundamentals right").
+- **Findings:**
+  - Our ETS is on par with `forecast::ets` on monthly, quarterly and yearly data, and our combination beats every published classical method on M3 monthly and quarterly and tourism monthly and quarterly.
+  - Auto (pick the backtest winner) is worse than always-ETS on 15 of 19 low-frequency datasets.
+  - Weekly data is 2-4.5x worse than published (seasonal models with m = 52).
+  - Intermittent and noisy daily counts are about 35% worse than SES.
+  - Short series (about half of M3 and M1 yearly) cannot be forecast.
+- **Decision:** Ship (tooling and plan; no behaviour change)
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-26 — Fix: an empty extra period after monthly, quarterly and yearly series
 
 - **Status:** Verified
