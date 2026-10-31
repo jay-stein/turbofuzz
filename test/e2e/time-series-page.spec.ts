@@ -182,7 +182,9 @@ test("the board validates on an expanding or rolling window, ranks by any measur
   await expect(page.locator(".ts-board tbody tr").first().locator("td").nth(1)).toHaveText(/%$/);
   await expect(page.locator(".ts-board thead")).toContainText("Folds beaten");
 
-  await page.getByRole("button", { name: "Which model, and why?" }).click();
+  await expect(page.locator(".ts-page [data-ref=legend]")).toContainText("Auto, best on WAPE");
+  await expect(page.locator(".ts-page [data-ref=boardNote]")).toContainText("Ranked by WAPE");
+  await page.getByRole("button", { name: "Which model, and why?", exact: true }).click();
   const guide = page.getByRole("dialog", { name: "Which model, and why?" });
   await expect(guide.locator(".ts-metric-table").last().locator("thead th")).toHaveText(["Metric", "Why it's good (strengths)", "When to use it", "Math (formula)"]);
   await expect(guide.locator(".ts-metric-table").last().locator("tbody tr")).toHaveCount(7);

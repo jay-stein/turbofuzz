@@ -28,6 +28,19 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-17 — Time Series: Rank by up front
+
+- **Status:** Verified
+- **Related issue:** Owner: "Rank by" was hard to see, though it drives the page (it picks the Auto model, the line on the chart).
+- **Scope:**
+  - **Rank by** (default MASE, marked "(default)") and **Validate** moved from the Models panel into the Forecast toolbar beside Forecast ahead. Rank by is highlighted, with a "?" that opens Which model, and why?.
+  - The chart legend names the forecast's model: "Forecast: Best smoothing · Auto, best on MASE", or "picked".
+  - The summary strip's Forecast cell names the model.
+  - The Models panel says what it is ranked by, the window and the number of folds.
+- **Tests run and results:** Time Series e2e (12) pass.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-16 — Time Series: better gap fills, and a smart one for the models
 
 - **Status:** Verified

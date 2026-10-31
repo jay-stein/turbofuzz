@@ -112,6 +112,8 @@ const TEMPLATE = `
           </div>
           <div class="ts-tb" data-for="forecast" hidden>
             <div class="ts-ctl"><span>Forecast ahead</span><div class="ts-stepper"><button type="button" data-ref="hMinus" aria-label="Forecast less far ahead">&minus;</button><span class="ts-stepnum"><input type="number" class="ts-num" data-ref="hNum" min="1" step="1" aria-label="How far ahead to forecast"><span class="ts-numunit" data-ref="hUnit"></span></span><button type="button" data-ref="hPlus" aria-label="Forecast further ahead">+</button></div><div class="ts-seg" data-ref="hPresets" role="group" aria-label="How far ahead"></div><span class="ts-note" data-ref="hMax"></span></div>
+            <div class="ts-ctl ts-ctl-key"><label for="ts-metric">Rank by</label><select id="ts-metric" class="ts-select ts-select-key" data-ref="metricSel" title="Picks the Auto model, the line on the chart">${METRIC_KEYS.map((k) => `<option value="${k}">${METRIC_INFO[k].label} · ${METRIC_INFO[k].short}${k === "mase" ? " (default)" : ""}</option>`).join("")}</select><button type="button" class="ts-help-dot" data-ref="guideBtn2" aria-label="Which model, and why? What each measure means" title="What each measure means">?</button></div>
+            <div class="ts-ctl"><span>Validate</span><div class="ts-seg" data-ref="cvSeg" role="group" aria-label="Validation window"><button type="button" data-cv="expanding" title="Each backtest trains on everything before it">Expanding window</button><button type="button" data-cv="rolling" title="Each backtest trains on a fixed-length window that slides forward">Rolling window</button></div></div>
             <div class="ts-ctl"><span>Band</span><div class="ts-seg" data-ref="levelSeg" role="group" aria-label="Interval"><button type="button" data-level="80">80%</button><button type="button" data-level="fan">80% + 95%</button></div></div>
             <div class="ts-ctl"><span>Drivers</span><div class="ts-drivers" data-ref="drivers"></div></div>
             <span class="ts-note" data-ref="trainNote"></span>
@@ -152,8 +154,7 @@ const TEMPLATE = `
       <section class="ts-card ts-panel" data-panel="forecast" hidden>
         <div class="ts-panel-head"><h3>Models</h3><p>Drag the split line on the chart to backtest from any date, or the handle at the end of the band to change how far ahead it forecasts. Hover a model to compare it.</p></div>
         <div class="ts-boardbar">
-          <div class="ts-ctl"><span>Validate</span><div class="ts-seg" data-ref="cvSeg" role="group" aria-label="Validation window"><button type="button" data-cv="expanding" title="Each backtest trains on everything before it">Expanding window</button><button type="button" data-cv="rolling" title="Each backtest trains on a fixed-length window that slides forward">Rolling window</button></div></div>
-          <div class="ts-ctl"><label for="ts-metric">Rank by</label><select id="ts-metric" class="ts-select" data-ref="metricSel">${METRIC_KEYS.map((k) => `<option value="${k}">${METRIC_INFO[k].label} · ${METRIC_INFO[k].short}</option>`).join("")}</select></div>
+          <span class="ts-note" data-ref="boardNote"></span>
           <button class="ts-ghost ts-guide-btn" type="button" data-ref="guideBtn">Which model, and why?</button>
         </div>
         <div class="ts-boardwrap"><table class="ts-board" data-ref="board"></table></div>
@@ -978,7 +979,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const key = selectedModel(s, ui);
     if (key) {
       const r = ratioOf(s, key), gd = grade(r, key);
-      cells.push(["Forecast", `<span class="ts-pill ${gd.cls}">${gd.text}</span> <small>${key === "sn" ? "baseline" : (r - 1 >= 0 ? "+" : "−") + Math.abs((r - 1) * 100).toFixed(0) + "% error vs naive"}</small>`]);
+      cells.push(["Forecast", `${MODEL_INFO[key].name} <span class="ts-pill ${gd.cls}">${gd.text}</span> <small>${key === "sn" ? "baseline" : (r - 1 >= 0 ? "+" : "−") + Math.abs((r - 1) * 100).toFixed(0) + "% error vs naive"}</small>`]);
     }
     ref("strip").innerHTML = cells.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join("");
 
@@ -988,7 +989,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (ui.mode === "decompose") lg.push(`<span style="color:${C.accent}"><i></i>Trend</span>`);
     if ((ui.mode === "explore" || ui.mode === "decompose") && trendShift(s, ui)) lg.push(`<span style="color:${C.warn}"><i class="dash"></i>Trend shift (estimated)</span>`);
     if ((ui.mode === "explore" || ui.mode === "decompose") && s.dec.anomalies.length) lg.push(`<span style="color:${C.danger}">◯ Unusual</span>`);
-    if (ui.mode === "forecast" && s.futures) lg.push(`<span style="color:${C.forecast}"><i class="dash"></i>Forecast</span><span style="color:${C.forecast}"><i class="band"></i>${ui.level === "fan" ? "80% and 95%" : "80%"} range</span>`);
+    const fk = selectedModel(s, ui);
+    if (ui.mode === "forecast" && s.futures) lg.push(`<span style="color:${C.forecast}"><i class="dash"></i>Forecast: <b>${fk ? MODEL_INFO[fk].name : ""}</b> <small>${ui.model === "auto" ? `Auto, best on ${METRIC_INFO[ui.metric].label}` : "picked"}</small></span>`)
+    if (ui.mode === "forecast" && s.futures) lg.push(`<span style="color:${C.forecast}"><span style="color:${C.forecast}"><i class="band"></i>${ui.level === "fan" ? "80% and 95%" : "80%"} range</span>`);
     if (a.filled.some((x) => x)) lg.push(`<span style="color:${C.dim}">○ Filled</span>`);
     ref("legend").innerHTML = lg.join("");
     ref("insights").innerHTML = INS.map((it, k) => `
@@ -1178,6 +1181,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const info = METRIC_INFO[mk];
     for (const b of ref("cvSeg").querySelectorAll<HTMLButtonElement>("button")) b.setAttribute("aria-pressed", String(b.dataset.cv === M.cv));
     ref<HTMLSelectElement>("metricSel").value = mk;
+    ref("boardNote").innerHTML = `Ranked by <b>${info.label}</b> (${info.short.toLowerCase()}), ${M.cv} window, ${M.origins.length} folds. Change both in the toolbar above the chart.`;
     board.innerHTML = `<thead><tr><th>Model</th><th title="${info.short}: ${mk === "bias" ? "nearer zero is better" : "lower is better"}">${info.label} <small>${mk === "bias" ? "nearer 0 is better" : "lower is better"}</small></th><th>${heldMode ? "Held-out" : "Backtest"} error vs repeat-last-cycle</th><th>Grade</th><th title="Backtest folds where it beat repeating the last cycle">Folds beaten</th><th>${heldMode ? "Held-out check" : "Band check"}</th></tr></thead><tbody>` +
       keys.map((k) => {
         const m = M.models[k], r = ratioOf(s, k), gd = grade(r, k), f = fut[k], v = size(k);
@@ -1541,6 +1545,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   on("flex", "input", (e) => change({ flex: Number((e.target as HTMLInputElement).value) }, { fade: false }));
   on("cvSeg", "click", (e) => { const b = (e.target as Element).closest<HTMLButtonElement>("button[data-cv]"); if (b) change({ cv: b.dataset.cv as TsConfig["cv"] }, { fade: false }); });
   on("metricSel", "change", (e) => { uiChange({ metric: (e.target as HTMLSelectElement).value as MetricKey }); invalidate("panel"); });
+  on("guideBtn2", "click", () => openModelGuide(Object.fromEntries(MODEL_KEYS.map((k) => [k, MODEL_INFO[k].name])) as Record<ModelKey, string>));
   on("guideBtn", "click", () => openModelGuide(Object.fromEntries(MODEL_KEYS.map((k) => [k, MODEL_INFO[k].name])) as Record<ModelKey, string>));
   on("hMinus", "click", () => { if (snap) change({ horizon: Math.max(1, snap.H - 1) }, { fade: false }); });
   on("hPlus", "click", () => { if (snap) change({ horizon: Math.min(snap.maxH, snap.H + 1) }, { fade: false }); });

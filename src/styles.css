@@ -11996,3 +11996,10 @@ button.qp-tile:hover {
 .ts-fold-test, .ts-fold-key.test { background: #f59e0b; margin-left: 2px; }
 .ts-fold-key { display: inline-block; width: 12px; height: 8px; border-radius: 2px; vertical-align: middle; }
 @media (max-width: 640px) { .ts-cv-explain { grid-template-columns: 1fr; } .ts-boardbar .ts-guide-btn { margin-left: 0; } }
+
+/* Rank by drives the Auto model: make it stand out in the Forecast toolbar */
+.ts-ctl-key label { color: var(--text); font-weight: 600; }
+.ts-select-key { border-color: var(--ts-forecast); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ts-forecast) 18%, transparent); font-weight: 600; }
+.ts-help-dot { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--border); background: var(--panel); color: var(--ts-dim); font: 600 12px/1 inherit; cursor: pointer; padding: 0; }
+.ts-help-dot:hover { color: var(--text); border-color: var(--ts-forecast); }
+.ts-legend small { opacity: 0.8; font-weight: 400; }
