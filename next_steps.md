@@ -2003,3 +2003,23 @@ Ranked improvements, overfitting first (items 1-6 shipped 2026-10-31: lockbox CH
 8. **ETS with multiplicative errors (§8.5).** Point forecasts are the same, but the intervals and likelihood differ, as does AICc across error types.
 9. **ARIMA (ch. 9).** See the AutoARIMA plan above. The Difference plot in Explore is its first step.
 10. **Bagged ETS (§12.5)** for robustness, and **reconciliation (ch. 11)** for split series that should add up to the total.
+
+### Evaluation on 13 real series (2026-10-31, `tools/ts-eval`)
+
+The series:
+- monthly: airline passengers, Quebec car sales, shampoo, sunspots;
+- daily: Melbourne minimum temperature, California female births;
+- hourly: gym occupancy, and Chadstone parking (five car parks and their total).
+
+Findings:
+1. **Auto holds up.** On the unseen lockbox fold the Auto pick ranked #1.92 of 7 on average (#1 in 8 of 13).
+2. **Rules that switch Auto to a simpler model did worse on unseen data:**
+   - simpler when Diebold–Mariano is not significant: mean rank #2.38. It switched 6 times; with 9 folds the test has little power, so it drops real gains. On the gym data it gave up a 28% better model at p = 0.23, and the replacement ranked #6.
+   - simplest within 2% of the best: #2.15;
+   - simplest within 5%: #2.08.
+
+   Decision: Auto stays as is. The Deep check keeps the DM verdicts as advice, not as an automatic switch. Revisit with more series.
+3. **Chadstone parking: timestamps ignore daylight saving.** After Melbourne's clocks went forward (4 Oct 2026), the hour-of-week pattern sits one hour earlier in the recorded times: correlation 0.991 at a one-hour shift, against 0.925 unshifted. Repeat-last-week (MASE 0.6-1.2) then beats every model that blends older weeks (about 2), because their forecasts land an hour late. **To build:** a detector for a persistent phase shift in the daily profile (DST-like when near a March/April or September-November change), with a one-click fix that shifts the periods before (or after) the change by the detected hours.
+4. **Bands run slightly narrow.** Leave-one-fold-out coverage of the 80% band is 61-79% (median about 75%) and of the 95% band 89-94%. **To build:** a finite-sample (conformal-style) adjustment of the band quantiles, i.e. the ⌈(n+1)q⌉/n quantile, re-checked with this harness.
+5. **No better default for Trend flexibility.** The best setting per series ranges over 1-10 (median about 7) and the curves are often flat. Keep 5, and rely on the per-series validation curve.
+6. **Residuals of hourly series are rarely white** (Ljung–Box p < 0.05 on 10 of 13). Expected with several seasons. It argues for the Deep check's honesty, not for a model change yet.

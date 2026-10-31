@@ -28,6 +28,23 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-25 — Time Series evaluation harness and findings on 13 real series
+
+- **Status:** Verified
+- **Scope:** `tools/ts-eval/run.ts` (+ README with data sources) runs the engine on a folder of CSVs and reports, per series:
+  - the Auto pick and its lockbox rank;
+  - Diebold–Mariano verdicts;
+  - three "prefer simpler" rules;
+  - the best flexibility, residual tests and band coverage.
+- **Findings** (next_steps.md, "Evaluation on 13 real series"):
+  - Auto ranks #1.92 of 7 on unseen data, and every "prefer simpler" rule did worse (#2.08-2.38), so Auto is unchanged.
+  - The Chadstone parking timestamps ignore daylight saving (the pattern shifts an hour on 4 Oct 2026); that is why repeat-last-week wins there.
+  - 80% bands cover about 75%.
+  - Flexibility 5 stays the default.
+- **Tests run and results:** harness run on 13 series; typecheck.
+- **Decision:** Ship (tooling and docs)
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-24 — Time Series: no model learns from filled periods
 
 - **Status:** Verified
