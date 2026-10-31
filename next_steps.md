@@ -1907,3 +1907,74 @@ the preview and a few aliases (`&`/`CONCAT`, `COALESCE`/`IFBLANK`).
 "first N / last N" limits what Copy, Chart and Export see, like any other filter; the
 cell-edit confirm is on by default, with "don't ask again this session". No open
 questions remain for the Table plan.
+
+## Time Series (owner, 2026-10-31): why one model over another, overfitting, AutoARIMA
+
+Owner: "I want the time series user to understand a bit more why they may go with one
+model over another. Overfitting is a major concern... rolling window training and
+testing... different performance metrics like WAPE, MAE, sMAPE... a pop-out window
+explaining the metrics: Metric, Why it's good, When to use it, Math."
+
+### Done first (2026-10-31, CHG-2026-10-31-14): auto-ETS, and an honest backtest
+
+- "Best smoothing": ETS(error A; trend N / A / Ad; season N / A / M), the lowest AICc.
+- Holt-Winters used to be tuned on all the history, including the periods its
+  backtest was scored on. That flattered it, which is overfitting by another name. Now ETS and
+  Holt-Winters backtests use parameters fitted only on data before the first origin.
+
+### Validation and metrics (in progress)
+
+1. **Validation window**, a visible choice on the Forecast board:
+   - *Expanding* (default): each backtest trains on everything before its origin.
+     This is the classic time-series cross-validation (fpp3 §5.10).
+   - *Rolling*: each trains on a fixed-length window ending at its origin, so old
+     regimes are forgotten. It shows whether a model only does well with lots of history.
+   - Number of folds (3 to 10) and the spacing between them stay automatic (H/3), and are shown.
+2. **Metrics**, computed from the same backtest errors (no extra fitting):
+   MAE, RMSE, MASE, WAPE, sMAPE, MAPE, bias. A "Rank by" picker on the board; the Auto
+   pick follows it.
+3. **Overfitting signals** on the board, per model:
+   - *Consistency*: the spread of error across folds. A model that wins one fold
+     and loses the rest is luck, not skill.
+   - *Fit gap*: in-sample error against backtest error. A small fit error with a large
+     backtest error means the model learned noise.
+4. **"Which model and why" pop-out**: one line per model (when it shines, when it
+   fails), plus the metrics table: Metric | Why it's good (strengths) | When to use
+   it | Math (formula).
+
+### AutoARIMA (plan only)
+
+The goal is statsforecast's AutoARIMA level, with no dependencies.
+
+- **Search**: Hyndman–Khandakar stepwise (Hyndman & Khandakar 2008, J. Stat. Software 27(3)):
+  - start from (2,d,2)(1,D,1), (0,d,0)(0,D,0), (1,d,0)(1,D,0) and (0,d,1)(0,D,1);
+  - move p, q, P and Q by ±1 while AICc improves;
+  - limits p, q ≤ 5 and P, Q ≤ 2.
+- **Differencing**:
+  - d from repeated KPSS tests at 5%;
+  - D from the seasonal-strength measure (F_s > 0.64, as statsforecast does);
+  - never more than d + D = 2.
+- **Likelihood**: exact Gaussian likelihood through a state-space form and a Kalman
+  filter, with CSS for the starting values, then a bounded quasi-Newton optimiser
+  (an L-BFGS-B port, about 300 lines). Stationarity and invertibility are enforced by
+  reparametrising through partial autocorrelations.
+- **Long seasons** (half-hourly 48, hourly 168, daily 365): full seasonal ARIMA becomes
+  slow and unstable when m is above about 24. For those, take the season out with the
+  existing decomposition (or MSTL), fit a plain ARIMA on what remains, and add the season back.
+  This is what statsforecast's MSTL + AutoARIMA recipe does.
+- **Cost**: tens of fits of O(n·r²) Kalman passes. That is fine for a few thousand points,
+  too slow for the instant budgets. So it runs on a background tick after the other models
+  draw (as Patterns does), marked "Fitting ARIMA…". It is never in the bench
+  open/drag paths. Fits are cached per series and window, and the backtest reuses the order
+  chosen before the first origin (the same honesty rule as ETS).
+- **Prediction intervals**: from the model (ψ-weights), shown beside the backtest-error
+  band, so the two can be compared.
+- **Parity**: the `.venv-recipe-parity` venv gets `statsforecast`. A script fits
+  AirPassengers, a few M4 monthly and quarterly series, and the bundled energy series.
+  Pass when the chosen order matches most of the time and MAE is within about 5%.
+- **Licence**: written from the published method and statsforecast's Apache-2.0 docs.
+  R `forecast` is GPL; do not copy its code.
+- **Expected gain**: honest. On M4-style benchmarks AutoARIMA and auto-ETS land within
+  a few percent of each other, and the blend of both beats either. The win is a second
+  strong, very different model for the Blend, plus a name forecasters trust. It is not
+  a leap in accuracy.
