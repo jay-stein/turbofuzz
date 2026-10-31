@@ -1,4 +1,5 @@
 import type { TsConfig, TsMode } from "../data/timeseries/aggregate.js";
+import type { ModelKey } from "../data/timeseries/models.js";
 import type { HeaderLayout } from "../parse/header-detect.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { ChartExclusion } from "../data/chart-exclusions.js";
@@ -420,6 +421,7 @@ export class SearchWorkerClient {
     view?: ViewDef;
     backtest?: boolean;
     flexCurve?: boolean;
+    deep?: ModelKey;
   }): Promise<TimeSeriesMessage> {
     return this.request<TimeSeriesMessage>({ type: "getTimeSeries", ...input });
   }

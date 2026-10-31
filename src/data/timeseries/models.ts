@@ -8,6 +8,7 @@ import { eventWindowLen, type Grain, type TsTable } from "./base.js";
 import { regular, type Aggregated, type TsConfig, type TsDriver } from "./aggregate.js";
 import { decompose, preferScaled } from "./decompose.js";
 import { cap, nounFor } from "./format.js";
+import { chiSquareSf, tTwoSided } from "./stats.js";
 
 export type ModelKey = "sn" | "hw" | "ets" | "reg" | "theta" | "clim" | "ens";
 export const MODEL_KEYS: readonly ModelKey[] = ["sn", "hw", "ets", "reg", "theta", "clim", "ens"];
@@ -753,4 +754,157 @@ export function grade(ratio: number, key: ModelKey): { cls: "base" | "good" | "o
   if (ratio < 0.8) return { cls: "good", text: "Good" };
   if (ratio < 1) return { cls: "okay", text: "OK" };
   return { cls: "poor", text: "Poor" };
+}
+
+// ---------------------------------------------------------------- Deep check (on request)
+// The checks fpp3 asks of a forecast, run only when the person asks (no latency budget):
+// is the pick significantly better than each rival (Diebold–Mariano, §5.10), how does
+// each model's error grow with the horizon (§5.10), are the bands calibrated on every
+// fold (§5.9), and do the pick's one-step residuals look like white noise (§5.4).
+
+export interface DeepCheck {
+  pick: ModelKey;
+  /** Diebold–Mariano on absolute error, pick against each rival, over the selection folds. */
+  dm: { other: ModelKey; n: number; diff: number; stat: number; p: number }[];
+  /** HAC lag used for the DM variance (folds overlap when they are closer than the horizon). */
+  dmLag: number;
+  /** MAE by step ahead (1-based steps, sampled to at most 60) on the selection folds. */
+  horizon: { steps: number[]; mae: Record<ModelKey, number[]> };
+  /** Leave-one-fold-out band coverage on every fold, and the mean 80% Winkler score scaled like MASE. */
+  calib: Record<ModelKey, { n: number; cov80: number; cov95: number; winkler: number }>;
+  /** The pick's one-step (or fitted) residuals on the training data. */
+  resid: { kind: string; n: number; mean: number; acf: number[]; crit: number; m: number; lb: { lag: number; q: number; p: number } } | null;
+  ms: number;
+}
+
+/** In-sample one-step errors of a model on its own fitting window (NaN where not defined or filled). */
+function oneStepErrors(A: Aggregated, run: RunInternal, key: ModelKey): { e: Float64Array; kind: string } {
+  const { T, m } = run, y = A.yModel, e = new Float64Array(T).fill(NaN), pred = new Float64Array(T).fill(NaN);
+  const etsPred = (): void => {
+    const f = run.etsFit, es = etsFrom(T, m), st = etsInit(y, es, f.m, f);
+    for (let t = es + (f.season === "N" ? 1 : f.m); t < T; t++) pred[t] = etsStep(st, y[t], t % f.m, f);
+  };
+  const regPred = (): void => { for (let t = Math.max(0, T - REG_WIN); t < T; t++) pred[t] = regAt(run.regFit, t); };
+  const thetaPred = (): void => {
+    const tf = run.thetaFit, s = T - tf.o;
+    const mul = (i: number): number => (tf.scale ? tf.scale[i % tf.m]! : 1), add = (i: number): number => (tf.prof ? tf.prof[i % tf.m]! : 0);
+    const z = (i: number): number => (tf.scale ? y[s + i] / mul(i) : y[s + i] - add(i));
+    let l = z(0);
+    for (let i = 1; i < tf.o; i++) {
+      const flat = l + tf.b0 / 2;
+      pred[s + i] = tf.scale ? flat * mul(i) : flat + add(i);
+      l += tf.alpha * (z(i) - l);
+    }
+  };
+  let kind = "one-step";
+  switch (key) {
+    case "sn": for (let t = m; t < T; t++) pred[t] = y[t - m]; break;
+    case "clim": for (let t = 0; t < T; t++) pred[t] = run.climMeans[t % run.climM]!; kind = "fitted"; break;
+    case "hw": {
+      const hs = fitFrom(T, m), sub = y.subarray(hs), [a, be, ga, ph] = run.hwParams, st = hwInit(sub, m, T - hs);
+      let l = st.l, b = st.b;
+      const sv = st.s;
+      for (let t = m; t < T - hs; t++) {
+        const k = t % m, yt = sub[t];
+        pred[hs + t] = l + ph * b + sv[k];
+        const ln = a * (yt - sv[k]) + (1 - a) * (l + ph * b);
+        b = be * (ln - l) + (1 - be) * ph * b; sv[k] = ga * (yt - ln) + (1 - ga) * sv[k]; l = ln;
+      }
+      break;
+    }
+    case "ets": etsPred(); break;
+    case "reg": regPred(); kind = "fitted"; break;
+    case "theta": thetaPred(); kind = "one-step (approximate)"; break;
+    case "ens": {
+      etsPred(); const pe = pred.slice(); pred.fill(NaN);
+      regPred(); const pr = pred.slice(); pred.fill(NaN);
+      thetaPred(); const pt = pred.slice();
+      for (let t = 0; t < T; t++) pred[t] = (pe[t]! + pr[t]! + pt[t]!) / 3;
+      kind = "mixed one-step and fitted";
+      break;
+    }
+  }
+  for (let t = 0; t < T; t++) if (!A.made[t]) e[t] = y[t] - pred[t]!;
+  return { e, kind };
+}
+
+/** Runs every Deep check for the pick. */
+export function deepCheck(A: Aggregated, run: RunInternal, pick: ModelKey): DeepCheck {
+  const t0 = performance.now();
+  const { origins, H, step, T, m } = run, R = origins.length, y = A.yModel;
+  const selR = run.lockbox ? R - 1 : R;
+  const errs = {} as Record<ModelKey, Float64Array>;
+  for (const k of MODEL_KEYS) {
+    const a = (errs[k] = new Float64Array(R * H).fill(NaN));
+    origins.forEach((o, f) => { for (let h = 0; h < H; h++) if (!A.made[o + h]) a[f * H + h] = y[o + h] - run.oc[k][f * H + h]!; });
+  }
+  // Diebold–Mariano on fold means of |e_pick| - |e_other|: overlapping folds are dependent,
+  // so a Bartlett (Newey–West) variance with lag = overlap - 1, the Harvey–Leybourne–Newbold
+  // small-sample correction, and t with n - 1 degrees of freedom.
+  const dmLag = Math.max(0, Math.ceil(H / step) - 1);
+  const dm: DeepCheck["dm"] = [];
+  for (const other of MODEL_KEYS) {
+    if (other === pick) continue;
+    const d: number[] = [];
+    for (let f = 0; f < selR; f++) {
+      let s = 0, c = 0;
+      for (let h = 0; h < H; h++) { const a = errs[pick][f * H + h]!, b = errs[other][f * H + h]!; if (a === a && b === b) { s += Math.abs(a) - Math.abs(b); c++; } }
+      if (c) d.push(s / c);
+    }
+    const n = d.length;
+    if (n < 3) { dm.push({ other, n, diff: NaN, stat: NaN, p: NaN }); continue; }
+    const mean = d.reduce((x, v) => x + v, 0) / n, L = Math.min(dmLag, n - 1);
+    const gamma = (j: number): number => { let s = 0; for (let i = j; i < n; i++) s += (d[i]! - mean) * (d[i - j]! - mean); return s / n; };
+    let v = gamma(0);
+    for (let j = 1; j <= L; j++) v += 2 * (1 - j / (L + 1)) * gamma(j);
+    const hh = L + 1, hln = (n + 1 - 2 * hh + (hh * (hh - 1)) / n) / n;
+    const stat = v > 0 ? (mean / Math.sqrt(v / n)) * (hln > 0 ? Math.sqrt(hln) : 1) : mean === 0 ? 0 : Math.sign(mean) * Infinity;
+    dm.push({ other, n, diff: mean, stat, p: Number.isFinite(stat) ? tTwoSided(stat, n - 1) : 0 });
+  }
+  // Error by horizon.
+  const nSteps = Math.min(H, 60), steps = Array.from({ length: nSteps }, (_, i) => Math.round(1 + (i * (H - 1)) / Math.max(1, nSteps - 1)));
+  const mae = {} as Record<ModelKey, number[]>;
+  for (const k of MODEL_KEYS) mae[k] = steps.map((st) => { let s = 0, c = 0; for (let f = 0; f < selR; f++) { const e = errs[k][f * H + st - 1]!; if (e === e) { s += Math.abs(e); c++; } } return c ? s / c : NaN; });
+  // Calibration: each fold's errors against bands built from the other folds.
+  let scale = 0, sc = 0;
+  for (let t = m; t < (R ? origins[0]! : T); t++) { const v = Math.abs(y[t] - y[t - m]); if (v === v) { scale += v; sc++; } }
+  scale = scale / (sc || 1) || 1;
+  const nh = Math.min(H, 120);
+  const hs = Array.from(new Set(Array.from({ length: nh }, (_, i) => Math.floor((i * H) / nh))));
+  const calib = {} as DeepCheck["calib"];
+  for (const k of MODEL_KEYS) {
+    let n = 0, in80 = 0, in95 = 0, wk = 0;
+    if (R >= 3) for (let f = 0; f < R; f++) {
+      const qx = bandQuantiles(errs[k], origins.map((_, j) => j).filter((j) => j !== f), H);
+      for (const h of hs) {
+        const e = errs[k][f * H + h]!, q = qx[h]!;
+        if (!(e === e)) continue;
+        n++;
+        if (e >= q.q10 && e <= q.q90) in80++;
+        if (e >= q.q025 && e <= q.q975) in95++;
+        wk += q.q90 - q.q10 + (e < q.q10 ? 10 * (q.q10 - e) : e > q.q90 ? 10 * (e - q.q90) : 0);
+      }
+    }
+    calib[k] = { n, cov80: n ? in80 / n : NaN, cov95: n ? in95 / n : NaN, winkler: n ? wk / n / scale : NaN };
+  }
+  // Residuals of the pick: ACF and Ljung–Box (lag 2m for seasonal data, 10 otherwise, at most n/5).
+  let resid: DeepCheck["resid"] = null;
+  const { e, kind } = oneStepErrors(A, run, pick);
+  const r: number[] = [];
+  for (let t = Math.max(0, T - 3000); t < T; t++) if (e[t] === e[t]) r.push(e[t]!);
+  const n = r.length;
+  if (n >= 20) {
+    const mean = r.reduce((x, v) => x + v, 0) / n;
+    let c0 = 0;
+    for (const v of r) c0 += (v - mean) * (v - mean);
+    const maxLag = Math.min(Math.max(m > 1 ? 2 * m : 20, 20), Math.floor(n / 4), 400);
+    const acf: number[] = [];
+    for (let k = 1; k <= maxLag; k++) { let s = 0; for (let i = k; i < n; i++) s += (r[i]! - mean) * (r[i - k]! - mean); acf.push(c0 > 0 ? s / c0 : 0); }
+    const lag = Math.max(1, Math.min(m > 1 ? 2 * m : 10, Math.floor(n / 5), acf.length));
+    let q = 0;
+    for (let k = 1; k <= lag; k++) q += (acf[k - 1]! * acf[k - 1]!) / (n - k);
+    q *= n * (n + 2);
+    resid = { kind, n, mean, acf, crit: 1.96 / Math.sqrt(n), m, lb: { lag, q, p: chiSquareSf(q, lag) } };
+  }
+  return { pick, dm, dmLag, horizon: { steps, mae }, calib, resid, ms: performance.now() - t0 };
 }

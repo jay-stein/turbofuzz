@@ -1,5 +1,6 @@
 import type { TsConfig, TsMode } from "../data/timeseries/aggregate.js";
 import type { TsSnapshot } from "../data/timeseries/engine.js";
+import type { ModelKey } from "../data/timeseries/models.js";
 import type { SeriesShape } from "../data/timeseries/shape.js";
 import type { LengthFence, ValueFence } from "../data/anomalies.js";
 import type { ChartExclusion } from "../data/chart-exclusions.js";
@@ -801,6 +802,8 @@ export type GetTimeSeriesRequest = {
   backtest?: boolean;
   /** Also send the Trend flexibility validation curve. */
   flexCurve?: boolean;
+  /** Also run the Deep check for this model. */
+  deep?: ModelKey;
 };
 
 export interface TimeSeriesMessage {

@@ -12045,3 +12045,32 @@ button.qp-tile:hover {
 
 .ts-badge-lock { margin-top: 4px; padding-top: 4px; border-top: 1px dashed color-mix(in srgb, var(--ts-forecast) 30%, var(--border)); color: var(--ts-dim); }
 .ts-badge-lock b { color: var(--text); }
+
+/* Deep check */
+.ts-deep { margin: 12px 0; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--ts-forecast) 35%, var(--border)); border-radius: 10px; }
+.ts-deep-head { display: flex; align-items: baseline; gap: 12px; }
+.ts-deep-head h3 { margin: 0; font-size: 15px; }
+.ts-deep section { margin-top: 14px; }
+.ts-deep h4 { margin: 0 0 6px; font-size: 13.5px; }
+.ts-deep h4 small, .ts-deep-table th small { font-weight: 400; color: var(--ts-dim); text-transform: none; letter-spacing: 0; }
+.ts-deep-table { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.ts-deep-table th { text-align: left; font-size: 12px; color: var(--ts-dim); font-weight: 600; padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: bottom; }
+.ts-deep-table td { padding: 5px 8px; border-bottom: 1px solid var(--border-subtle, var(--border)); }
+.ts-deep-table td.ts-warn { color: var(--ts-warn); font-weight: 600; }
+.ts-deep-pick td { font-weight: 600; background: color-mix(in srgb, var(--ts-forecast-soft) 60%, transparent); }
+.ts-deep .ts-ok { color: var(--qa-good, #16a34a); font-weight: 600; }
+.ts-deep .ts-note { display: block; margin: 6px 0 0; font-size: 12px; line-height: 1.5; }
+.ts-deep-row { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: flex-start; }
+.ts-deep-svg { flex: none; max-width: 100%; height: auto; }
+.ts-deep-svg path { fill: none; stroke-width: 2; }
+.ts-deep-svg text { font-size: 10px; fill: var(--ts-dim); }
+.ts-deep-legend { flex: 1 1 220px; font-size: 12.5px; }
+.ts-deep-legend span { display: inline-flex; align-items: center; gap: 5px; margin-right: 12px; }
+.ts-deep-legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+.ts-deep-read { flex: 1 1 260px; font-size: 12.5px; line-height: 1.5; }
+.ts-deep-read p { margin: 0 0 6px; }
+.ts-acf rect { fill: color-mix(in srgb, var(--ts-forecast) 55%, transparent); }
+.ts-acf rect.out { fill: var(--ts-warn); }
+.ts-acf rect.season { stroke: var(--text); stroke-width: 0.75; }
+.ts-acf .crit { stroke: var(--ts-dim); stroke-dasharray: 4 3; }
+.ts-acf .zero { stroke: var(--border); }

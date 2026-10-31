@@ -10,6 +10,7 @@ import type { SeriesShape } from "../data/timeseries/shape.js";
 import type { TsViewSource } from "../data/timeseries/view-source.js";
 import type { TsAgg, TsConfig, TsGaps, TsMode } from "../data/timeseries/aggregate.js";
 import type { TsSnapshot } from "../data/timeseries/engine.js";
+import type { DeepCheck } from "../data/timeseries/models.js";
 import {
   compact, dfDate, dfDM, dfMonShort, dfTime, fmtNum, full, nf, nounFor, pct, periodLabel, shortPeriod, signed,
 } from "../data/timeseries/format.js";
@@ -27,7 +28,7 @@ import { niceTicks, patternsHtml } from "./timeseries-patterns.js";
 
 export interface TimeSeriesPageOptions {
   /** source "" reads the Table's rows; a Pivot View id reads that view's periods. */
-  request: (input: { dateColumn: number; groupColumn: number; config: TsConfig | null; mode: TsMode; source: string; backtest?: boolean; flexCurve?: boolean }) => Promise<TimeSeriesMessage | null>;
+  request: (input: { dateColumn: number; groupColumn: number; config: TsConfig | null; mode: TsMode; source: string; backtest?: boolean; flexCurve?: boolean; deep?: ModelKey }) => Promise<TimeSeriesMessage | null>;
   /** Pivot Views the page can read: complete, grouped by a time grain, with a measure. */
   viewSources: () => TsViewSource[];
   /** Filter the table to one period of the date column (UTC ms, inclusive) and show it. */
@@ -161,7 +162,9 @@ const TEMPLATE = `
         <div class="ts-boardbar">
           <span class="ts-note" data-ref="boardNote"></span>
           <button class="ts-ghost ts-guide-btn" type="button" data-ref="guideBtn">Which model, and why?</button>
+          <button class="ts-ghost ts-deep-btn" type="button" data-ref="deepBtn" title="Significance tests, error by steps ahead, band calibration on every fold and residual diagnostics. Slower: runs only when asked.">Deep check</button>
         </div>
+        <div class="ts-deep" data-ref="deepBox" hidden></div>
         <div class="ts-boardwrap"><table class="ts-board" data-ref="board"></table></div>
         <div class="ts-flexbox">
           <div class="ts-ctl"><label>Trend flexibility</label><input type="range" data-ref="flex" min="1" max="10" step="1" aria-label="Trend flexibility"><output data-ref="flexOut"></output><span class="ts-note">trend, seasons and drivers model (and the Blend)</span><button class="ts-ghost" type="button" data-ref="flexCheck" title="Backtest every setting from 1 to 10 on the same folds: a validation curve">Check every setting</button></div>
@@ -1166,6 +1169,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       // The training period: everything before the split line.
       ref("trainNote").textContent = M ? `Learns from ${shortPeriod(gr, a.t[0])} to ${shortPeriod(gr, a.t[M.T - 1])}${M.T < a.modelN ? " (drag the split line to change)" : ""}` : "";
       renderBoard();
+      renderDeep();
     }
     if (ui.mode === "patterns") renderPatterns();
   }
@@ -1270,7 +1274,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (!M.lockbox || !m.lock) return "";
     const R = M.origins.length, rank = lockRank(M, key, mk), base = M.models.sn.lock?.[mk] ?? NaN, v = m.lock[mk];
     const beats = key === "sn" ? "" : v === v && base === base ? (Math.abs(v) < Math.abs(base) ? " and beat repeating the last cycle" : `, <span class="ts-warn">but did not beat repeating the last cycle (${metricText(mk, base)})</span>`) : "";
-    const verdict = rank <= 2 ? "the pick holds up" : rank <= 4 ? "middling: the pick's lead looks partly like luck" : "<span class=\"ts-warn\">the pick fell apart on unseen data: treat its score as overfitted to the folds</span>";
+    const verdict = rank <= 2 ? "The pick holds up" : rank <= 4 ? "Middling: the pick's lead looks partly like luck" : "<span class=\"ts-warn\">The pick fell apart on unseen data: treat its score as overfitted to the folds</span>";
     return `<div class="ts-badge-lock"><b>Lockbox check</b>: picked on folds 1–${R - 1}; on fold ${R}, which the choice never saw, it ranked <b>#${rank} of ${MODEL_KEYS.length}</b> (${METRIC_INFO[mk].label} ${metricText(mk, v)})${beats}. ${verdict}.</div>`;
   }
   let curve: { key: string; points: { flex: number; mase: number }[] } | null = null;
@@ -1318,6 +1322,85 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       invalidate("ui", "panel");
     });
   }
+  // ---------------------------------------------------------------- Deep check
+  let deep: { key: string; result: DeepCheck | null } | null = null;
+  let deepBusy = false;
+  /** Rough complexity, for "prefer the simpler model when it is not significantly worse". */
+  const COMPLEXITY: Record<ModelKey, number> = { sn: 0, clim: 1, theta: 2, hw: 3, ets: 3, reg: 4, ens: 5 };
+  const deepKey = (s: TsSnapshot, pick: ModelKey): string => `${curveKey(s)}|${s.cfg.flex}|${pick}`;
+  function runDeep(): void {
+    const s = snap, pick = s ? selectedModel(s, ui) : null;
+    if (!s || !cfg || !pick || deepBusy) return;
+    deepBusy = true;
+    ref("deepBtn").textContent = "Checking…";
+    const key = deepKey(s, pick);
+    void options.request({ dateColumn, groupColumn, config: cfg, mode: "forecast", source, deep: pick }).then((msg) => {
+      deepBusy = false;
+      deep = { key, result: msg?.snapshot?.deep ?? null };
+      invalidate("ui", "panel");
+    });
+  }
+  function renderDeep(): void {
+    const s = snap as TsSnapshot, M = models(), box = ref("deepBox"), pick = selectedModel(s, ui);
+    const btn = ref("deepBtn");
+    if (!M || !pick || !deep || deep.key !== deepKey(s, pick) || !deep.result) { box.hidden = true; btn.textContent = deepBusy ? "Checking…" : "Deep check"; return; }
+    btn.textContent = "Run deep check again";
+    const d = deep.result, name = (k: ModelKey): string => MODEL_INFO[k].name, gr = s.A.g;
+    const pv = (p: number): string => (!(p === p) ? "–" : p < 0.001 ? "< 0.001" : p.toFixed(3));
+    // 1. Significance.
+    const dmRows = [...d.dm].sort((a, b) => a.p - b.p).map((t) => {
+      let verdict: string;
+      if (!(t.p === t.p)) verdict = "too few folds";
+      else if (t.p < 0.05) verdict = t.diff < 0 ? `<span class="ts-ok">significantly better</span>` : `<span class="ts-warn">significantly worse</span>`;
+      else verdict = COMPLEXITY[t.other] < COMPLEXITY[pick] ? `no significant difference: <b>prefer ${name(t.other)}</b>, the simpler model` : "no significant difference";
+      return `<tr><td>${name(t.other)}</td><td>${t.diff === t.diff ? signed(t.diff) : "–"}</td><td>${t.stat === t.stat ? t.stat.toFixed(2) : "–"}</td><td>${pv(t.p)}</td><td>${verdict}</td></tr>`;
+    }).join("");
+    const nF = d.dm[0]?.n ?? 0;
+    const sig = `<section><h4>Is ${name(pick)} really better? <small>Diebold–Mariano tests</small></h4>
+      <table class="ts-deep-table"><thead><tr><th>Against</th><th>Mean |error| difference <small>${escapeHtml(measureWord(s))}, negative = ${name(pick)} better</small></th><th>DM statistic</th><th>p-value</th><th>Verdict at 5%</th></tr></thead><tbody>${dmRows}</tbody></table>
+      <p class="ts-note">Loss: absolute error, averaged per fold over the ${nF} selection folds (the lockbox is left out). Overlapping folds are dependent, so the variance is Newey–West with lag ${d.dmLag}, with the Harvey–Leybourne–Newbold small-sample correction and a t distribution on ${Math.max(0, nF - 1)} degrees of freedom. ${nF < 10 ? `With only ${nF} folds the test has little power: "no significant difference" is common, and it means the data cannot separate the two, so the simpler one is the safer choice.` : ""}</p></section>`;
+    // 2. Error by horizon: the pick, the runner-up and the baseline.
+    const ranked = [...MODEL_KEYS].filter((k) => k !== pick && k !== "sn").sort((a, b) => M.models[a].mase - M.models[b].mase);
+    const show: [ModelKey, string][] = [[pick, "var(--ts-forecast)"], ...(ranked[0] ? [[ranked[0], "var(--ts-season2)"] as [ModelKey, string]] : []), ["sn", "var(--ts-dim)"]];
+    const W = 420, Hh = 150, L = 46, B = 22, top = 8, steps = d.horizon.steps;
+    const allV = show.flatMap(([k]) => d.horizon.mae[k]).filter((v) => v === v);
+    const hi = Math.max(...allV, 1e-9) * 1.05;
+    const sx = (i: number): number => L + (steps.length > 1 ? (i / (steps.length - 1)) * (W - L - 8) : 0), sy = (v: number): number => top + (1 - v / hi) * (Hh - top - B);
+    // Steps with no scored actual (e.g. weekends with no rows) are skipped; the line joins across them.
+    const pathOf = (vals: number[]): string => { let started = false; return vals.map((v, i) => { if (!(v === v)) return ""; const c = `${started ? "L" : "M"}${sx(i).toFixed(1)},${sy(v).toFixed(1)}`; started = true; return c; }).join(""); };
+    const lines = show.map(([k, col]) => `<path d="${pathOf(d.horizon.mae[k])}" style="stroke:${col}"/>`).join("");
+    const hz = `<section><h4>Error by steps ahead <small>MAE on the selection folds</small></h4>
+      <div class="ts-deep-row"><svg viewBox="0 0 ${W} ${Hh}" width="${W}" height="${Hh}" class="ts-deep-svg" role="img" aria-label="Error by steps ahead">${lines}<text x="${L - 4}" y="${sy(hi / 1.05) + 4}" text-anchor="end">${compact(hi / 1.05)}</text><text x="${L - 4}" y="${sy(0) + 4}" text-anchor="end">0</text><text x="${L}" y="${Hh - 6}">1 ${gr.noun}</text><text x="${W - 8}" y="${Hh - 6}" text-anchor="end">${steps[steps.length - 1]} ${nounFor(gr, steps[steps.length - 1] ?? 1)} ahead</text></svg>
+      <div class="ts-deep-legend">${show.map(([k, col]) => `<span><i style="background:${col}"></i>${name(k)}</span>`).join("")}<p class="ts-note">One average hides where a model wins: a model can lead a few ${gr.nouns} ahead and fall behind further out. If you care about a particular horizon, judge the models there.</p></div></div></section>`;
+    // 3. Calibration.
+    const cRows = [...MODEL_KEYS].map((k) => {
+      const c = d.calib[k], bad80 = c.cov80 < 0.7 || c.cov80 > 0.9, bad95 = c.cov95 < 0.88;
+      return `<tr${k === pick ? ' class="ts-deep-pick"' : ""}><td>${name(k)}</td><td${bad80 ? ' class="ts-warn"' : ""}>${c.n ? `${Math.round(c.cov80 * 100)}%` : "–"}</td><td${bad95 ? ' class="ts-warn"' : ""}>${c.n ? `${Math.round(c.cov95 * 100)}%` : "–"}</td><td>${c.winkler === c.winkler ? c.winkler.toFixed(2) : "–"}</td></tr>`;
+    }).join("");
+    const cal = `<section><h4>Are the bands honest? <small>coverage on every fold</small></h4>
+      <table class="ts-deep-table"><thead><tr><th>Model</th><th>Inside 80% band <small>aim 80%</small></th><th>Inside 95% band <small>aim 95%</small></th><th>Winkler score (80%) <small>scaled like MASE, lower is better</small></th></tr></thead><tbody>${cRows}</tbody></table>
+      <p class="ts-note">Each fold's actuals are checked against bands built from the other folds' errors (leave one fold out), so no fold judges a band it helped build. Too low means the band is overconfident; well above means it is too wide to be useful. The Winkler score (fpp3 §5.9) is the band's width plus a penalty of 2/α (10 for 80%) times any miss, so it rewards bands that are narrow <i>and</i> right.</p></section>`;
+    // 4. Residuals.
+    let res = `<section><h4>Residuals of ${name(pick)}</h4><p class="ts-note">Too few residuals to test.</p></section>`;
+    if (d.resid) {
+      const r = d.resid, n = r.acf.length, RW = 420, RH = 130, rl = 30, rb = 18;
+      const amax = Math.max(r.crit * 1.6, ...r.acf.map(Math.abs)) * 1.05;
+      const bx = (k: number): number => rl + ((k - 0.5) / n) * (RW - rl - 6), by = (v: number): number => (RH - rb) / 2 - (v / amax) * ((RH - rb) / 2 - 4);
+      const bw = Math.max(1, (RW - rl - 6) / n - 1);
+      const bars = r.acf.map((v, i) => { const k = i + 1, y0 = by(0), y1 = by(v); return `<rect x="${(bx(k) - bw / 2).toFixed(1)}" y="${Math.min(y0, y1).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.abs(y1 - y0).toFixed(1)}" class="${Math.abs(v) > r.crit ? "out" : ""}${r.m > 1 && k % r.m === 0 ? " season" : ""}"><title>Lag ${k}: ${v.toFixed(3)}</title></rect>`; }).join("");
+      const crit = [r.crit, -r.crit].map((c) => `<line x1="${rl}" x2="${RW - 6}" y1="${by(c).toFixed(1)}" y2="${by(c).toFixed(1)}" class="crit"/>`).join("");
+      const outside = r.acf.filter((v) => Math.abs(v) > r.crit).length, expected = Math.round(0.05 * n);
+      const white = r.lb.p >= 0.05;
+      res = `<section><h4>Residuals of ${name(pick)} <small>${escapeHtml(r.kind)} errors on the training data</small></h4>
+        <div class="ts-deep-row"><svg viewBox="0 0 ${RW} ${RH}" width="${RW}" height="${RH}" class="ts-deep-svg ts-acf" role="img" aria-label="Autocorrelation of residuals"><line x1="${rl}" x2="${RW - 6}" y1="${by(0)}" y2="${by(0)}" class="zero"/>${crit}${bars}<text x="${rl - 4}" y="${by(r.crit) + 3}" text-anchor="end">${r.crit.toFixed(2)}</text><text x="${rl}" y="${RH - 4}">lag 1</text><text x="${RW - 6}" y="${RH - 4}" text-anchor="end">lag ${n}</text></svg>
+        <div class="ts-deep-read"><p><b>Ljung–Box</b>: Q = ${r.lb.q.toFixed(1)} on ${r.lb.lag} lags, p = ${pv(r.lb.p)}. ${white ? `<span class="ts-ok">Consistent with white noise</span>: no pattern left that the model missed.` : `<span class="ts-warn">Structure left in the residuals</span>: the model misses some autocorrelation${r.m > 1 && r.acf[r.m - 1]! > r.crit ? `, notably at the seasonal lag ${r.m}` : ""}, so a better model may exist and the bands may be too narrow.`}</p>
+        <p>${outside} of ${n} lags fall outside ±${r.crit.toFixed(2)} (about ${expected} would by chance). Mean residual ${signed(r.mean)}${Math.abs(r.mean) > 0 ? " (a mean far from 0 means bias)" : ""}. Seasonal lags are outlined.</p>
+        <p class="ts-note">fpp3 §5.4: good residuals are uncorrelated with mean zero. Clean residuals do not prove the model is right: an overfitted model can have very clean in-sample residuals and still forecast badly, which is why the backtest and the lockbox, not the residuals, rank the models. ${r.kind !== "one-step" ? "For this model the residuals are fitted values, not one-step forecasts, so they flatter it." : ""}</p></div></div></section>`;
+    }
+    box.innerHTML = `<div class="ts-deep-head"><h3>Deep check of ${name(pick)}</h3><span class="ts-note">took ${Math.round(d.ms)} ms</span></div>${sig}${hz}${cal}${res}`;
+    box.hidden = false;
+  }
+
   /** Technical notes for each gap choice, with this series' own numbers. */
   function gapOpts(s: TsSnapshot): [TsGaps, string, string][] {
     const a = s.A, g = a.g, m = a.modelM, fit = g.periods.filter((p) => a.modelN >= 2 * p + 2);
@@ -1762,6 +1845,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   on("sens", "input", (e) => change({ sens: Number((e.target as HTMLInputElement).value) }, { fade: false }));
   on("flex", "input", (e) => change({ flex: Number((e.target as HTMLInputElement).value) }, { fade: false }));
   on("flexCheck", "click", () => checkFlex());
+  on("deepBtn", "click", () => runDeep());
   on("flexCurve", "click", (e) => { const b = (e.target as Element).closest<HTMLElement>("[data-flexpick]"); if (b) change({ flex: Number(b.dataset.flexpick) }, { fade: false }); });
   on("diffOn", "change", (e) => uiChange({ diff: (e.target as HTMLInputElement).checked, diffLag: ui.diffLag || defaultLag() }));
   on("diffLag", "change", (e) => { const v = Math.round(Number((e.target as HTMLInputElement).value)); if (v >= 1) uiChange({ diff: true, diffLag: v }); });

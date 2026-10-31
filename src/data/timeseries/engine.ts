@@ -8,7 +8,7 @@
 import { defaultGrain, GRAIN_ORDER, GRAINS, tooFine, type GrainId, type TsTable } from "./base.js";
 import { aggregate, rolling, type Aggregated, type TsConfig, type TsMode } from "./aggregate.js";
 import { computeDecomposition, type DecompResult } from "./decompose.js";
-import { computeFutures, driverRecent, flexCurve, horizonOf, maxHorizon, runModels, type Futures, type HwWarm, type ModelKey, type ModelRun } from "./models.js";
+import { computeFutures, deepCheck, driverRecent, flexCurve, type DeepCheck, horizonOf, maxHorizon, runModels, type Futures, type HwWarm, type ModelKey, type ModelRun } from "./models.js";
 import { computePatterns, type Patterns } from "./patterns.js";
 
 /** The series as the page draws it: Aggregated without the per-column means. */
@@ -64,6 +64,8 @@ export interface TsSnapshot {
   backtest?: TsBacktest;
   /** Backtest MASE of the trend, seasons and drivers model at flexibility 1 to 10 (only when asked). */
   flexCurve?: { flex: number; mase: number }[];
+  /** Significance, error by horizon, calibration and residual checks for one model (only when asked). */
+  deep?: DeepCheck;
   ms: { agg: number; dec: number; mod: number; pat: number };
 }
 
@@ -93,7 +95,7 @@ export class TsEngine {
     };
   }
 
-  compute(cfg: TsConfig, mode: TsMode, opts: { backtest?: boolean; flexCurve?: boolean } = {}): TsSnapshot {
+  compute(cfg: TsConfig, mode: TsMode, opts: { backtest?: boolean; flexCurve?: boolean; deep?: ModelKey } = {}): TsSnapshot {
     const t0 = performance.now();
     const aggKey = [cfg.grain, cfg.agg, cfg.measure, cfg.group, cfg.gaps, cfg.partial].join("|");
     if (aggKey !== this.keys.agg || !this.A) {
@@ -130,6 +132,7 @@ export class TsEngine {
       table: this.info(), cfg, A: series, smooth: this.SM, dec: this.DEC, models, futures: this.FUT, maxH: maxHorizon(A), H,
       driverRecent: recent, driverSeries: Object.fromEntries(cfg.drivers.filter((d) => colMean[d.col]).map((d) => [d.col, colMean[d.col]])), patterns: mode === "patterns" ? this.PAT : null,
       ms: { agg: t1 - t0, dec: t2 - t1, mod: t3 - t2, pat: t4 - t3 },
+      ...(opts.deep && !("error" in mod) ? { deep: deepCheck(A, mod.internal, opts.deep) } : {}),
       ...(opts.flexCurve ? { flexCurve: flexCurve(A, this.table, cfg, H) } : {}),
       ...(opts.backtest && !("error" in mod) ? { backtest: { origins: mod.origins, H: mod.H, forecasts: mod.internal.oc } } : {}),
     };

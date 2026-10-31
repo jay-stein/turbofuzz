@@ -28,6 +28,20 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-23 — Time Series: Deep check (significance, horizon, calibration, residuals)
+
+- **Status:** Verified
+- **Related issue:** next_steps.md "Review against fpp3", items 2-5. The owner is happy for an on-demand button to break the latency budgets.
+- **Scope:** **Deep check** on the Models panel, run only when asked, for the shown model:
+  - **Diebold–Mariano** against each of the six rivals, on per-fold mean absolute-error differences over the selection folds. It uses a Newey–West variance (lag = fold overlap − 1), the Harvey–Leybourne–Newbold correction and a t distribution on n − 1 df. Each rival gets a verdict at 5%. "No significant difference" from a simpler rival says to prefer it, with a warning on low power when there are few folds.
+  - **Error by steps ahead:** MAE per step for the pick, the runner-up and repeating the last cycle.
+  - **Band calibration on every fold**, leave one fold out: 80% and 95% coverage and the 80% Winkler score (scaled like MASE), with off-target coverage flagged.
+  - **The pick's residuals:** ACF with ±1.96/√n, seasonal lags outlined, and a Ljung–Box test (lag 2m, or 10 when not seasonal; at most n/5), with a verdict. It also states which models' residuals are fitted rather than one-step, and that clean residuals do not prove a model is not overfitted.
+- **How:** `src/data/timeseries/stats.ts` adds the t and chi-square tails (incomplete beta and gamma), checked against tables. The check travels only when asked (`deep` on getTimeSeries); about 45 ms on the test series.
+- **Tests run and results:** `test/timeseries-deep.test.ts` (2); a Time Series e2e case; Time Series e2e (17) pass.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-22 — Time Series: a lockbox fold against selection bias
 
 - **Status:** Verified

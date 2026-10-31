@@ -267,3 +267,18 @@ test("Explore can plot the difference from n periods earlier, and gap choices st
   await expect(smart).toContainText(/Gaps of up to \d+ days? \(a quarter of the shortest season, 7\)/);
   await expect(page.locator(".ts-popover button", { hasText: /^filled with the nearby typical value/ })).toContainText("t ± k·");
 });
+
+test("Deep check tests the pick against every rival, by horizon, for calibration and in its residuals", async ({ page }) => {
+  await openPage(page);
+  await page.locator(".ts-modes [data-mode=forecast]").click();
+  await expect(page.locator(".ts-board tbody tr")).toHaveCount(7);
+  await page.getByRole("button", { name: "Deep check" }).click();
+  const box = page.locator(".ts-page [data-ref=deepBox]");
+  await expect(box).toBeVisible();
+  await expect(box.locator("section").first().locator("tbody tr")).toHaveCount(6);
+  await expect(box).toContainText("Diebold–Mariano");
+  await expect(box).toContainText("Error by steps ahead");
+  await expect(box).toContainText("Are the bands honest?");
+  await expect(box).toContainText(/Ljung–Box: Q = [\d.]+ on \d+ lags, p = /);
+  await expect(page.getByRole("button", { name: "Run deep check again" })).toBeVisible();
+});
