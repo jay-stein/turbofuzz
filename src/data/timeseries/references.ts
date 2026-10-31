@@ -98,6 +98,11 @@ export const REFERENCES: Record<string, Reference> = {
     full: "Smith, J. and Wallis, K. F. (2009). A simple explanation of the forecast combination puzzle. Oxford Bulletin of Economics and Statistics, 71(3), 331-355.",
     used: "Why equal weights are hard to beat: estimated weights add error.",
   },
+  nelder: {
+    short: "Nelder & Mead (1965)",
+    full: "Nelder, J. A. and Mead, R. (1965). A simplex method for function minimization. The Computer Journal, 7(4), 308-313.",
+    used: "The simplex optimiser that fits the ETS smoothing parameters and starting states (as in R's ets()).",
+  },
   stl: {
     short: "Cleveland, Cleveland, McRae & Terpenning (1990)",
     full: "Cleveland, R. B., Cleveland, W. S., McRae, J. E. and Terpenning, I. (1990). STL: A seasonal-trend decomposition procedure based on loess. Journal of Official Statistics, 6(1), 3-73.",
@@ -206,7 +211,7 @@ export const REFERENCES: Record<string, Reference> = {
 /** Ids in a stable order for the Sources list: grouped by what they support. */
 export const REFERENCE_ORDER: string[] = [
   "fpp3", "forecastpkg", "monash",
-  "ets2002", "holt", "winters", "damped", "aicc",
+  "ets2002", "holt", "winters", "damped", "aicc", "nelder",
   "theta", "thetabillah", "m3", "m4", "tourism",
   "bates", "clemen", "smithwallis",
   "stl", "mstl", "bartlett",

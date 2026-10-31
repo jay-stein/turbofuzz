@@ -111,11 +111,11 @@ export function runSeries(s: Series, freq: FreqName, H: number): { mase: Record<
 }
 
 /** Our ETS and Theta forecasts and the ETS form chosen, for comparison with a reference implementation. */
-export function forecastsOf(s: Series, freq: FreqName, H: number): { ets: number[]; theta: number[]; spec: string; etsMase: number; thetaMase: number } | { skip: string } {
+export function forecastsOf(s: Series, freq: FreqName, H: number): { ets: number[]; theta: number[]; spec: string; etsMase: number; thetaMase: number; aicc: number; n: number } | { skip: string } {
   const r = setup(s, freq, H);
   if ("skip" in r) return r;
   const { snap, train, test, fq } = r, F = snap.futures!, M = snap.models as Exclude<typeof snap.models, { error: string }>;
-  return { ets: Array.from(F.ets.F), theta: Array.from(F.theta.F), spec: M.models.ets.ets!.spec, etsMase: mase(train, test, F.ets.F, fq.season), thetaMase: mase(train, test, F.theta.F, fq.season) };
+  return { ets: Array.from(F.ets.F), theta: Array.from(F.theta.F), spec: M.models.ets.ets!.spec, etsMase: mase(train, test, F.ets.F, fq.season), thetaMase: mase(train, test, F.theta.F, fq.season), aicc: M.models.ets.ets!.aicc, n: train.length };
 }
 
 export const meanOf = (a: number[]): number => { const v = a.filter((x) => Number.isFinite(x)); return v.reduce((x, y) => x + y, 0) / (v.length || 1); };

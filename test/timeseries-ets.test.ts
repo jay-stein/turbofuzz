@@ -17,7 +17,7 @@ test("auto-ETS picks a multiplicative season for a swing that grows with the lev
   if ("error" in snap.models) throw new Error(snap.models.error);
   const ets = snap.models.models.ets;
   assert.match(ets.ets!.spec, /,M$/);
-  assert.equal(ets.ets!.tried, 9);
+  assert.equal(ets.ets!.tried, 15, "every allowed form: 6 with additive errors, 9 with multiplicative");
   assert.ok(ets.mase < snap.models.models.hw.mase, `ETS ${ets.mase.toFixed(3)} vs HW ${snap.models.models.hw.mase.toFixed(3)}`);
   assert.equal(snap.futures!.ets.F.length, 12);
 });

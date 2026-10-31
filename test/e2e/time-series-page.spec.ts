@@ -291,7 +291,7 @@ test("each model has a technical page with its equations, this series' fit and i
   const win = page.getByRole("dialog", { name: "How the forecasts work" });
   await expect(win.locator("h2").nth(1)).toContainText("Best smoothing");
   await expect(win).toContainText("On this series");
-  await expect(win).toContainText("AICc = n ln(SSE / n)");
+  await expect(win).toContainText("AICc = −2 ln L + 2k");
   await expect(win).toContainText("Where this differs from the textbook");
   // A citation jumps to the Sources list and shows what it was used for.
   await win.locator("a.ts-cite", { hasText: "Hyndman & Khandakar (2008)" }).first().click();

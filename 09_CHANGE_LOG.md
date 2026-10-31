@@ -28,6 +28,41 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-35 — Time Series: Theta on maximum-likelihood smoothing, and on the adjusted series for long seasons (fundamentals plan, Phase 3)
+
+- **Status:** Verified
+- **Scope:**
+  - **Theta now follows thetaf():** simple exponential smoothing with the parameter and starting level estimated by maximum likelihood (the same fit as ETS(A,N,N)), and the classical decomposition (multiplicative for a positive series) for the season, behind the Theta method's seasonality test. It had used a 0.05 grid for the parameter and this app's own decomposition.
+  - **Long seasons:** like ETS and Holt-Winters, Theta runs on the MSTL-adjusted series with the season added back (stlf with Theta). A first version that deseasonalised a 168-hour season with the classical decomposition (about five cycles) made hourly Theta 40% worse (1.681 -> 2.350); on the adjusted series it is 1.206 on M4 hourly (was 1.681), 0.296 on pedestrians (was 1.367) and 1.403 on KDD (was 1.719).
+- **Parity with statsforecast's Theta (620 series):** median forecast difference 0.0-0.4% on every dataset, mean error within 0.4% of the reference (1.329 vs 1.323).
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
+### CHG-2026-10-31-34 — Time Series: ETS in the state-space form, fitted by maximum likelihood (fundamentals plan, Phase 3)
+
+- **Status:** Verified
+- **Related issue:** next_steps.md "BIG TODO: get the forecasting fundamentals right", weak point 4: starting states were heuristic and never estimated, errors were additive only, parameter bounds were a box, and the optimiser was a short coordinate search.
+- **Scope:**
+  - `src/data/timeseries/ets.ts`: the innovations form of fpp3 ch. 8 for error A or M, trend N, A or damped, season N, A or M; 15 forms for a positive series (6 otherwise); additive errors never with a multiplicative season, as in R. Parameters and starting states are estimated together by Nelder-Mead (`optimize.ts`) on -2 ln L from forecast::ets's heuristic start (classical decomposition of the first cycles; a straight line through the first max(10, 2m) adjusted points), inside the usual region (0 < beta < alpha, 0 < gamma < 1 - alpha, 0.8 < phi < 0.98), selected by AICc. Fitting every form with every state free took about 1.1 s per monthly series, so the search is two-stage: all forms with the seasonal starting states held at the heuristic, then the best three with every state free (about 0.13 s, same choice, no worse likelihood).
+  - The window is the latest max(300, 6m) periods (was 800), and a rolling-window or per-fold decomposition recomputes the starting state at its own start.
+  - The model card says when the errors are multiplicative; the model pages describe the new ETS and Theta and what they still differ in.
+- **Checked against references:**
+  - Equations vs statsmodels' ETSModel (innovations form) with identical parameters and starting states: one-step forecasts agree to 1e-13 for all seven non-seasonal and additive-season forms. For a multiplicative season statsmodels updates the season with the current level where fpp3 8.3 and R's code use the previous level; those forms are tested against the textbook's component form.
+  - Fit vs statsforecast's AutoETS (a port of R's ets) on 620 series: same form on 53-88% of series (85-88% on quarterly and yearly), median forecast difference 0.0-2.6%, mean error +2.0% overall (M3 monthly -0.2%, quarterly +2.2%, yearly +10.3%, tourism monthly +0.9%, tourism quarterly +0.1%, hospital -1.8%, M1 monthly -1.5%); the M3 yearly gap is a handful of short, trending series where the two optimisers land in different places. Where both choose the same form, our AICc equals the reference's (median difference 0.000; on a 150-series subset ours was better by more than 0.5 on 23 of 108 same-form series and worse on 6). More optimiser effort did not help.
+  - An early calibration of the AICc constant by regression gave a misleading "reference is better" reading; the raw difference is exactly 0, so the likelihood conventions are identical. Recorded because it nearly led to a wrong conclusion.
+- **Result** (Monash, mean MASE over up to 200 series, Phase 2 -> Phase 3; Auto):
+  - Better on 14 of 29 datasets, level on 2, worse on 12 (mostly under 2%).
+  - Gains: M3 yearly 2.616 -> 2.471 (-5.5%), M3 other -4.5%, M1 quarterly -4.0%, FRED-MD -3.2%, covid -2.8%, sunspot 0.227 -> 0.170 (-25%; the target was 0.15), M3 monthly -1.4%, M3 quarterly -1.4%.
+  - Losses: tourism yearly +6.3% (2.503 -> 2.661), M1 yearly +3.9%, nn5 daily +2.2%, tourism monthly +1.5%, tourism quarterly +1.0%, hospital +1.2%.
+  - Long seasons, re-run with the final code: electricity weekly 0.759 -> 0.742, M4 hourly 1.269 -> 1.223 (the Combination, 1.204, is now slightly better than the backtest winner there), KDD 1.217 -> 1.221, pedestrians 0.232 -> 0.233, NN5 weekly and traffic weekly unchanged; M4 weekly 0.496 -> 0.522 (still better than published ETS 0.575 and Theta 0.546) and Australian electricity (5 series) 1.222 -> 1.399.
+  - ETS alone is not more accurate for being more faithful: it matches the reference but our earlier cruder ETS scored better than the reference on several datasets (tourism yearly 2.465 vs R's published 3.395; now 3.000). The textbook method is weaker on short, trending yearly series; the Combination (Auto's default) limits the cost.
+- **Speed:** the two-stage search keeps every case inside the 500 ms ceiling: daily open 114-140 ms, hourly open about 181 ms, horizon drag 93-118 ms (flagged "slow" against the old soft targets, as intended). The accuracy gate takes about 15 s (was 2 s).
+- **Not done:** the admissibility check on top of the usual region; the model's own analytic prediction intervals (the bands stay empirical); optimising every starting state in every form.
+- **Gate:** baseline accepted. 12 small-sample checks moved by more than 2%, e.g. one weekly-traffic series where Auto let the historical mean replace the Combination after passing the folds, the lockbox and the significance test, then missed a level shift (MASE 2.87 vs 0.42): the winner's curse in one series. On the full 200-series weekly traffic set Auto (1.300) is slightly better than the Combination (1.316), so the override rule is unchanged.
+- **Tests run and results:** `test/timeseries-ets-form.test.ts` (5: statsmodels agreement for seven forms, textbook component form for multiplicative seasons, selection finds the generating form, non-positive series, maximum-likelihood SES); the ETS and export tests updated; 1,184 unit and 112 end-to-end pass; build clean.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-33 — Time Series: 500 ms latency ceiling, with a "Calculating..." spinner
 
 - **Status:** Verified

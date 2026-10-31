@@ -34,7 +34,7 @@ test("forecast, scorecard and backtest CSVs hold what an analyst needs", () => {
   const head = sc[0]!;
   for (const col of ["mase", "mae", "rmse", "wape", "smape", "mape", "bias", "folds_beaten", "validation", "parameters"]) assert.ok(head.includes(col), col);
   const ets = sc.find((r) => r[0] === "Best smoothing")!;
-  assert.match(ets[head.indexOf("parameters")]!, /^ETS\(A,(N|A|Ad),(N|A|M)\) alpha=/);
+  assert.match(ets[head.indexOf("parameters")]!, /^ETS\((A|M),(N|A|Ad),(N|A|M)\) alpha=/);
   assert.equal(sc[1]![head.indexOf("rank")], "1");
   assert.equal(sc.find((r) => r[head.indexOf("auto_pick")] === "yes")![0], MODEL_INFO[s.models.auto.mase.pick].name, "the Auto pick is marked");
 

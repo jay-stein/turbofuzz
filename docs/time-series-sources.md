@@ -28,6 +28,8 @@ Everything was reimplemented from the published methods. No code was copied from
   Used for: The damped trend.
 - **Hurvich & Tsai (1989).** Hurvich, C. M. and Tsai, C.-L. (1989). Regression and time series model selection in small samples. Biometrika, 76(2), 297-307.
   Used for: AICc, the small-sample corrected Akaike criterion used to choose the ETS form.
+- **Nelder & Mead (1965).** Nelder, J. A. and Mead, R. (1965). A simplex method for function minimization. The Computer Journal, 7(4), 308-313.
+  Used for: The simplex optimiser that fits the ETS smoothing parameters and starting states (as in R's ets()).
 - **Assimakopoulos & Nikolopoulos (2000).** Assimakopoulos, V. and Nikolopoulos, K. (2000). The theta model: a decomposition approach to forecasting. International Journal of Forecasting, 16(4), 521-530.
   Used for: The Theta method and its test for seasonality.
 - **Hyndman & Billah (2003).** Hyndman, R. J. and Billah, B. (2003). Unmasking the Theta method. International Journal of Forecasting, 19(2), 287-290.

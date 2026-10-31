@@ -2130,7 +2130,7 @@ What it says:
 - Restrict the Prophet-style regression to daily and finer data, or drop it after re-benchmarking.
 - Targets: M4 weekly <= 0.60; electricity and traffic weekly at or below published ETS; sunspot <= 0.15; M4 hourly keeps <= 1.6.
 
-**Phase 3: ETS and Theta as the textbook defines them** (weak points 4 and 5).
+**Phase 3: ETS and Theta as the textbook defines them** (weak points 4 and 5). SHIPPED 2026-10-31 (CHG-2026-10-31-34, -35): state-space ETS with A and M errors, estimated starting states, usual region, Nelder-Mead and a two-stage fit; Theta with maximum-likelihood SES and the classical decomposition. Parity with statsforecast: Theta within 0.4%, ETS +2.0% on 620 series with the same likelihood where the forms agree. Not done: the admissibility check, analytic intervals.
 - **ETS:** the admissible parameter region; Nelder-Mead over parameters *and* initial states (heuristic starting values as in `forecast`: the first few years' decomposition); multiplicative-error forms, giving the full set of 15 minus the unstable ones; seasonal only for m <= 24; fitted on all data, unless the window is shown to cost nothing; analytical prediction intervals for the additive forms (fpp3 §8.7) as a second band source.
 - **Theta:** alpha by optimisation (SES MLE) and `thetaf`'s seasonality test and classical decomposition.
 - **Parity:** a script fits statsforecast's AutoETS and Theta (Apache-2.0, already in `.venv-recipe-parity`) on 200 M3 monthly series. Pass when our chosen ETS form matches most of the time, and our mean MASE is within 2% of theirs, series by series.

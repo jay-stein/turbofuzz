@@ -330,10 +330,11 @@ export function modelRows(s: TsSnapshot, sel: ModelKey, metric: MetricKey = "mas
   }
   const ets = M.models.ets.ets;
   if ((sel === "ets" || sel === "ens") && ets) {
-    const [, trend, season] = ets.spec.split(",");
+    const [err, trend, season] = ets.spec.split(",");
+    const errWord = err === "M" ? "multiplicative errors (the noise grows with the level)" : "additive errors";
     const trendWord = trend === "N" ? "no trend" : trend === "A" ? "a straight-line trend" : "a trend that flattens out (damped)";
     const seasonWord = season === "N" ? "no season" : season === "A" ? "a season of fixed size" : "a season that grows with the level (multiplicative)";
-    rows.push(["Best smoothing", `ETS(${escapeHtml(ets.spec)}): ${trendWord} and ${seasonWord}, the lowest AICc of ${ets.tried} forms tried; level ${ets.alpha.toFixed(2)}${trend !== "N" ? `, trend ${ets.beta.toFixed(3)}` : ""}${season !== "N" ? `, season ${ets.gamma.toFixed(2)}` : ""}${trend === "Ad" ? `, damping ${ets.phi.toFixed(2)}` : ""}. AICc rewards a close fit but charges for every extra part, so a richer form only wins when it earns its keep.`]);
+    rows.push(["Best smoothing", `ETS(${escapeHtml(ets.spec)}): ${errWord}, ${trendWord} and ${seasonWord}, the lowest AICc of ${ets.tried} forms tried; level ${ets.alpha.toFixed(2)}${trend !== "N" ? `, trend ${ets.beta.toFixed(3)}` : ""}${season !== "N" ? `, season ${ets.gamma.toFixed(2)}` : ""}${trend === "Ad" ? `, damping ${ets.phi.toFixed(2)}` : ""}. AICc rewards a close fit but charges for every extra part, so a richer form only wins when it earns its keep.`]);
   }
   const reg = M.models.reg.reg;
   if ((sel === "reg" || sel === "ens") && reg) {

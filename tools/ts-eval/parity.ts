@@ -35,7 +35,7 @@ for (const [ds, entry] of Object.entries(ref)) {
   let n = 0, full = 0, shape = 0;
   const oursE: number[] = [], refE: number[] = [], oursT: number[] = [], refT: number[] = [], gapE: number[] = [], gapT: number[] = [];
   const miss: Record<string, number> = {};
-  for (const row of entry.series) {
+  for (const row of entry.series.slice(0, Number(process.env.PARITY_LIMIT ?? 0) || undefined)) {
     const s = byName.get(row.name);
     if (!s || !row.ets_fc || !row.theta_fc) continue;
     const mine = forecastsOf(s, FREQ_OF[ds]!, entry.h);
