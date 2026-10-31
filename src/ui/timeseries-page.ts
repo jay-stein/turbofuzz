@@ -17,6 +17,7 @@ import {
 import { flexDetail, grade, METRIC_KEYS, MODEL_INFO, MODEL_KEYS, type Future, type MetricKey, type ModelKey, type ModelRun } from "../data/timeseries/models.js";
 import { METRIC_INFO, metricText, openModelGuide } from "./timeseries-metrics.js";
 import { backtestRows, forecastRows, scorecardRows } from "./timeseries-export.js";
+import { openModelDetails } from "./timeseries-model-docs.js";
 import { openMenu } from "./menu.js";
 import type { ColumnMeta, TimeSeriesMessage } from "../worker/protocol.js";
 import { downloadCsv } from "./chart-export.js";
@@ -162,6 +163,7 @@ const TEMPLATE = `
         <div class="ts-boardbar">
           <span class="ts-note" data-ref="boardNote"></span>
           <button class="ts-ghost ts-guide-btn" type="button" data-ref="guideBtn">Which model, and why?</button>
+          <button class="ts-ghost" type="button" data-ref="docsBtn" title="Equations, fitting, forecasts, bands, differences from the textbook, and sources for every model">How the models work</button>
           <button class="ts-ghost ts-deep-btn" type="button" data-ref="deepBtn" title="Significance tests, error by steps ahead, band calibration on every fold and residual diagnostics. Slower: runs only when asked.">Deep check</button>
         </div>
         <div class="ts-deep" data-ref="deepBox" hidden></div>
@@ -1264,10 +1266,11 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const better = key === "sn" ? "the baseline every other model is measured against" : r < 1 ? `${Math.round((1 - r) * 100)}% less error than repeating the last cycle` : `${Math.round((r - 1) * 100)}% <b>more</b> error than repeating the last cycle`;
     const lucky = key !== "sn" && m.folds.of > 0 && m.folds.won * 2 < m.folds.of;
     const band = f.held ? `${f.held.hit} of ${f.held.tot} held-out actuals inside the 80% band` : m.check ? `${m.check.hit} of ${m.check.tot} inside the 80% band on the latest fold` : "";
-    badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ${gd.cls}">${gd.text}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small></div>
+    badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ${gd.cls}">${gd.text}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small><button type="button" class="ts-link" data-info="${key}">How it works</button></div>
       <div class="ts-badge-body">${better} at the same horizons, ${heldMode ? "on the held-out actuals" : `over ${M.origins.length} backtest folds`} · ${METRIC_INFO[ui.metric].label} ${metricText(ui.metric, m.metrics[ui.metric])}${ui.metric === "mase" ? " (scaled by the in-sample one-cycle naive error, so multi-step forecasts often sit above 1)" : ""}${key !== "sn" ? ` · beat it in ${m.folds.won} of ${m.folds.of} folds` : ""}${band ? ` · ${band}` : ""}${lucky ? ` · <span class="ts-warn">wins under half its folds: may be luck</span>` : ""}${M.rough ? ` · <span class="ts-warn">under 3 folds: rough</span>` : ""}</div>${lockLine(M, key)}`;
     badge.hidden = false;
   }
+  function openDocs(open: string): void { openModelDetails({ snap, open, metric: ui.metric }); }
   /** What Auto did, in a few words for the legend and the strip. */
   function autoLabel(): string {
     const M = models();
@@ -1455,7 +1458,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         const m = M.models[k], r = ratioOf(s, k), gd = grade(r, k), f = fut[k], v = size(k);
         const chk = f.held ? `${f.held.hit} of ${f.held.tot} inside 80%` : m.check ? `${m.check.hit} of ${m.check.tot} inside 80%` : "–";
         return `<tr data-model="${k}" aria-selected="${k === sel}">
-          <td><span class="ts-mname">${MODEL_INFO[k].name}</span>${k === best && ui.model === "auto" ? `<span class="ts-auto">Auto</span>` : ""}<span class="ts-mmeth">${MODEL_INFO[k].meth}</span></td>
+          <td><span class="ts-mname">${MODEL_INFO[k].name}</span><button type="button" class="ts-info" data-info="${k}" aria-label="How ${MODEL_INFO[k].name} works" title="How ${MODEL_INFO[k].name} works: equations, fitting, sources">ⓘ</button>${k === best && ui.model === "auto" ? `<span class="ts-auto">Auto</span>` : ""}<span class="ts-mmeth">${MODEL_INFO[k].meth}</span></td>
           <td><span class="ts-errbar" style="width:${Number.isFinite(v) ? Math.max(4, (v / maxV) * 90).toFixed(0) : 0}px;opacity:${k === "sn" ? 0.35 : 0.85}"></span>${metricText(mk, m.metrics[mk])}</td>
           <td>${r.toFixed(2)}×${heldMode ? ` <small>backtest ${m.ratio.toFixed(2)}×</small>` : ""}</td>
           <td><span class="ts-pill ${gd.cls}">${gd.text}</span></td>
@@ -1806,6 +1809,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (lvl) uiChange({ level: lvl.dataset.level as Level });
     const st = target.closest<HTMLElement>("[data-stat]");
     if (st) change({ smoothStat: st.dataset.stat as TsConfig["smoothStat"] }, { fade: false });
+    const info = target.closest<HTMLElement>("[data-info]");
+    if (info) { openDocs(info.dataset.info!); return; }
     const row = target.closest<HTMLElement>("tr[data-model]");
     if (row && snap) { const M = models(), k = row.dataset.model as ModelKey; uiChange({ model: M && k === M.auto[ui.metric].pick && ui.model !== "auto" ? "auto" : k }); }
     const tab = target.closest<HTMLElement>(".ts-modes [data-mode]");
@@ -1861,6 +1866,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   on("cvSeg", "click", (e) => { const b = (e.target as Element).closest<HTMLButtonElement>("button[data-cv]"); if (b) change({ cv: b.dataset.cv as TsConfig["cv"] }, { fade: false }); });
   on("metricSel", "change", (e) => { uiChange({ metric: (e.target as HTMLSelectElement).value as MetricKey }); invalidate("panel"); });
   on("guideBtn2", "click", () => openModelGuide(Object.fromEntries(MODEL_KEYS.map((k) => [k, MODEL_INFO[k].name])) as Record<ModelKey, string>));
+  on("docsBtn", "click", () => openDocs(snap && selectedModel(snap, ui) || "auto"));
   on("guideBtn", "click", () => openModelGuide(Object.fromEntries(MODEL_KEYS.map((k) => [k, MODEL_INFO[k].name])) as Record<ModelKey, string>));
   on("hMinus", "click", () => { if (snap) change({ horizon: Math.max(1, snap.H - 1) }, { fade: false }); });
   on("hPlus", "click", () => { if (snap) change({ horizon: Math.min(snap.maxH, snap.H + 1) }, { fade: false }); });

@@ -25,7 +25,7 @@ Findings of the first run (2026-10-31) are in `next_steps.md`, "Evaluation on 13
 `monash.ts` follows the protocol of the Monash Time Series Forecasting Archive
 (https://forecastingdata.org/; Godahewa et al., 2021, NeurIPS Datasets & Benchmarks):
 - train on each series minus its last *h* points and forecast *h*;
-- score MASE against the training data's seasonal naive (seasonality 12 monthly, 4 quarterly, 7 daily, 24 hourly, 48 half-hourly, 1 otherwise);
+- score MASE against the training data's seasonal naive (seasonality 12 monthly, 4 quarterly, 52 weekly, 7 daily, 24 hourly, 48 half-hourly, 1 yearly);
 - average over series and print beside the archive's published results for SES, Theta, TBATS, ETS and ARIMA, which were made with Rob Hyndman's R `forecast` package.
 
     npx tsx tools/ts-eval/monash.ts <folder of .tsf files> [max series per dataset, default 300] [file-name filter]
@@ -36,3 +36,6 @@ Download the `.tsf` zips from each dataset's Zenodo record (linked from forecast
 
 `bench/accuracy.ts` runs the fixed series in `test/fixtures/accuracy` (see its SOURCE.md) on the same protocol in about a second and compares each dataset's mean MASE with `baseline.json`. The Auto forecast and the ETS + Theta + damped combination may not get more than 2% worse on any dataset. A change that is meant to move the numbers is accepted with `npm run bench:accuracy -- --update`, and the changelog says why. `make-fixture.ts` rebuilds the fixture from the downloaded `.tsf` files. `lib.ts` holds the protocol both scripts share.
 
+## STL reference and sources document
+
+`make-stl-reference.py` (run with the dev venv's Python, which has statsmodels) writes `test/fixtures/stl-reference.json`, the reference output our STL and MSTL are tested against. `make-sources-doc.ts` writes `docs/time-series-sources.md` from `src/data/timeseries/references.ts`, the list of sources behind the app's *Sources and credits* page.

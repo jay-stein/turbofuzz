@@ -2059,10 +2059,10 @@ The protocol follows the Monash archive (forecastingdata.org; Godahewa et al. 20
 | COVID deaths (30) | 200/200 | 4.675 | **3.784** | 4.540 | 5.326 | 7.793 | 5.719 | 6.117 |
 | Car parts, intermittent (12) | 200/200 | 1.242 | 1.249 | 1.287 | 0.925 | 0.914 | 0.998 | 0.926 (SES **0.897**) |
 | Vehicle trips (30) | 183/200 | 1.635 | 1.640 | 1.629 | 1.305 | 1.244 | 1.860 | 1.282 (SES **1.224**) |
-| NN5 weekly (8) | 111/111 | 0.941 | 0.986 | 0.927 | 0.911 | 0.885 | **0.872** | 0.887 |
-| M4 weekly (13) | 200/200 | 2.519 | 2.631 | 2.407 | 0.575 | 0.546 | **0.504** | 0.550 |
-| Electricity weekly (8) | 200/200 | 1.842 | 2.220 | 2.205 | 1.526 | 1.476 | **0.792** | 0.878 |
-| Traffic weekly (8) | 200/200 | 2.105 | 2.142 | 2.134 | 1.125 | 1.121 | 1.148 | 1.191 |
+| NN5 weekly (8) † | 111/111 | 0.941 | 0.986 | 0.927 | 0.911 | 0.885 | **0.872** | 0.887 |
+| M4 weekly (13) † | 200/200 | 2.519 | 2.631 | 2.407 | 0.575 | 0.546 | **0.504** | 0.550 |
+| Electricity weekly (8) † | 200/200 | 1.842 | 2.220 | 2.205 | 1.526 | 1.476 | **0.792** | 0.878 |
+| Traffic weekly (8) † | 200/200 | 2.105 | 2.142 | 2.134 | 1.125 | 1.121 | 1.148 | 1.191 |
 | M4 hourly (48) | 200/200 | **1.559** | 3.086 | 2.482 | 26.69 | 11.524 | 2.663 | 13.557 |
 | Pedestrians, hourly (24) | 66/66 | **0.239** | 0.705 | 0.900 | 1.190 | 0.958 | 1.297 | 3.947 |
 | KDD Cup, hourly (168) | 200/200 | **1.218** | 1.768 | 1.960 | 1.787 | 1.646 | 1.394 | 1.982 |
@@ -2072,10 +2072,12 @@ The protocol follows the Monash archive (forecastingdata.org; Godahewa et al. 20
 | Sunspot, daily (30) | 1/1 | 0.301 | 0.301 | 0.227 | 0.128 | 0.128 | **0.067** | **0.067** |
 | Rideshare, hourly (168) | 0/200 | – | – | – | 4.040 | 3.641 | 3.067 | **1.530** |
 
+† **Correction (2026-10-31, CHG-2026-10-31-31):** the weekly rows were scored with the wrong MASE scale (seasonal naive of 1; the archive uses 52), so they overstated our error about fivefold. On the right scale M4 weekly Auto is 0.496 (published ETS 0.575, Theta 0.546, TBATS 0.504) and NN5 weekly 0.848 (published 0.872-0.911).
+
 What it says:
 - **Monthly, quarterly and yearly (the M and tourism competitions):** our ETS is on par with `forecast::ets`. The ETS + Theta + damped combination beats every published classical method on M3 monthly and quarterly, tourism monthly and quarterly, and hospital. This is the core of the textbook, and it holds up.
 - **Auto is worse than always using ETS** on 15 of the 19 monthly, quarterly, yearly and other datasets: by 3-12% on monthly, 7-23% on yearly. Picking the best of 7 models on about 10 short, overlapping folds is noisy, and that noise costs accuracy (selection overfitting, the owner's concern, now measured at scale). On hourly data Auto wins: it can pick repeat-last-week or the Fourier regression, which suit long seasons.
-- **Weekly is badly broken:** 2-4.5x the published error, from seasonal models with m = 52.
+- **Weekly looked badly broken** (2-4.5× the published error). That was a protocol error: see the correction above. The real long-season problem was seasonal ETS and Holt-Winters learning 52 or 168 seasonal states; Phase 2 fixed it.
 - **Intermittent demand** (car parts) and **noisy daily counts** (vehicle trips) are about 35% worse than SES: we have no Croston or SBA, and no plain SES.
 - **Short series cannot be forecast at all:** 48% of the sampled M3 yearly series, 55% of M1 yearly, 20% of tourism yearly and 14% of CIF, because the engine insists on room for 3 backtest folds. `forecast` forecasts every one of them.
 - **Seasonal models run on non-seasonal data:** daily sunspots, ETS 0.301 against Theta 0.120.
@@ -2121,7 +2123,7 @@ What it says:
 - Auto may override the combination only when a rival beats it on the selection folds *and* the lockbox, and is significantly better (DM).
 - Target: Auto <= combo on every low-frequency dataset; M3 monthly <= 0.86, quarterly <= 1.10.
 
-**Phase 2: long and multiple seasons** (weak points 2 and 3).
+**Phase 2: long and multiple seasons** (weak points 2 and 3). SHIPPED 2026-10-31 (CHG-2026-10-31-30, -31, -32): STL and MSTL (matching statsmodels to machine precision), the Theta seasonality test, long seasons removed with MSTL before ETS and damped Holt (hourly Auto 1.564 -> 1.269; ETS 3.086 -> 1.246; electricity weekly 0.818 -> 0.759), the weekly MASE scale corrected, and a "How the models work" window with sources. Not done: Fourier terms for the 52.18-week year, the sunspot target (see the changelog), and the regression is kept rather than restricted (it is the only driver-aware model; Auto does not pick it unless it earns it).
 - For m > 24: STL (or MSTL for several seasons) to remove the season, ETS, damped trend or Theta on the seasonally adjusted series, and the seasonal component added back (`stlf`).
 - For weekly data (52.18 weeks a year): Fourier terms for the yearly cycle, or non-seasonal models.
 - A seasonal-strength test (F_s from STL, fpp3 §4.3) decides whether any seasonal model runs at all.

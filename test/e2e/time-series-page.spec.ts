@@ -282,3 +282,30 @@ test("Deep check tests the pick against every rival, by horizon, for calibration
   await expect(box).toContainText(/Ljung–Box: Q = [\d.]+ on \d+ lags, p = /);
   await expect(page.getByRole("button", { name: "Run deep check again" })).toBeVisible();
 });
+
+test("each model has a technical page with its equations, this series' fit and its sources", async ({ page }) => {
+  await openPage(page);
+  await page.locator(".ts-modes [data-mode=forecast]").click();
+  await expect(page.locator(".ts-board tbody tr")).toHaveCount(8);
+  await page.getByRole("button", { name: "How Best smoothing works" }).click();
+  const win = page.getByRole("dialog", { name: "How the forecasts work" });
+  await expect(win.locator("h2").nth(1)).toContainText("Best smoothing");
+  await expect(win).toContainText("On this series");
+  await expect(win).toContainText("AICc = n ln(SSE / n)");
+  await expect(win).toContainText("Where this differs from the textbook");
+  // A citation jumps to the Sources list and shows what it was used for.
+  await win.locator("a.ts-cite", { hasText: "Hyndman & Khandakar (2008)" }).first().click();
+  await expect(win.locator("h2").nth(1)).toContainText("Sources and credits");
+  await expect(win.locator("#src-forecastpkg")).toContainText("Journal of Statistical Software, 27(3)");
+  await expect(win).toContainText("no code was copied from other projects");
+  // Topics.
+  await win.getByRole("button", { name: "How Auto chooses" }).click();
+  await expect(win).toContainText("Diebold–Mariano test");
+  await win.getByRole("button", { name: "Seasons: testing and removing them" }).click();
+  await expect(win).toContainText("Cleveland");
+  await page.keyboard.press("Escape");
+  await expect(win).toHaveCount(0);
+  // The same window opens from the button beside the guide.
+  await page.getByRole("button", { name: "How the models work" }).click();
+  await expect(page.getByRole("dialog", { name: "How the forecasts work" })).toBeVisible();
+});

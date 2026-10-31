@@ -28,6 +28,19 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-10-31-32 — Time Series: "How the models work" window, with sources and credits (fundamentals plan, Phase 2)
+
+- **Status:** Verified
+- **Related issue:** Owner, 2026-10-31: users should be able to click for more information on the models, in a pop-out with a great level of technical detail, and anything learnt from elsewhere (Hyndman, Monash University and others) must be attributed.
+- **Scope:**
+  - **Window:** an ⓘ on every model row, a "How the models work" button beside the guide and a "How it works" link on the forecast strip open a window with a page per model and per topic. A model page shows, in order: what it is; this series' own fit (parameters, season handling, scores, folds, Auto's reasoning); the equations as implemented; how it is fitted; how its forecast and band are made; when it shines and when to doubt it; and where this implementation differs from the textbook, said plainly. Topics: How Auto chooses, Seasons: testing and removing them, Backtest, lockbox, scores and bands, Gaps and filled periods, Evidence, Sources and credits.
+  - **Sources:** `src/data/timeseries/references.ts` holds 35 sources, each with what this project took from it; the documentation cites them by id and every citation links to the Sources list. `docs/time-series-sources.md` is generated from the same list (`tools/ts-eval/make-sources-doc.ts`). The page states that everything was reimplemented from the published methods, that no code was copied (R's forecast package is GPL-3), that statsmodels (BSD-3-Clause) and statsforecast (Apache-2.0) are development-only references, and that the Monash data (CC BY 4.0) is test data only.
+  - **Attribution fixes found in an audit of the existing code:** the Combination was called "the M4 Comb benchmark" but M4's Comb averages simple, Holt and damped smoothing, so it is now described as in the spirit of it; the Diebold-Mariano test was credited to fpp3 but is Diebold and Mariano (1995), with the Harvey-Leybourne-Newbold correction and a Newey-West variance, so it now cites those; the regression model credits Prophet (Taylor and Letham 2018), ridge regression, Fourier terms and Duan's smearing; "fpp3 5.10" was removed as the source of the claim that selecting among models on few folds is noisy (it is cited to Cawley and Talbot 2010 and Varma and Simon 2006).
+  - Honest notes in the model pages: the ETS and Holt-Winters recursions are the classical smoothing form, not ETS's innovations form; ETS starting states are heuristic yet counted in AICc; Theta's alpha comes from a grid; the regression is Prophet's design, not Prophet.
+- **Tests run and results:** `test/timeseries-docs.test.ts` (every model documented; every citation resolves; the Sources list is complete and each entry says what it was used for); an end-to-end test that opens a model page, follows a citation to the Sources list, visits two topics and closes with Escape; full suite green.
+- **Decision:** Ship
+- **Date:** 2026-10-31
+
 ### CHG-2026-10-31-31 — Time Series: long seasons are removed with MSTL before smoothing; the weekly MASE scale is corrected (fundamentals plan, Phase 2)
 
 - **Status:** Verified
