@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { missingnessGrid } from "../src/data/missingness.js";
-import { bucketTooltip, columnTooltip, nullityProfile } from "../src/ui/missingness.js";
+import { bucketTooltip, columnTooltip, nullityProfile, gapIntensity } from "../src/ui/missingness.js";
 import { BitSet } from "../src/search/bitset.js";
 
 test("missingnessGrid buckets exact missing counts per column", () => {
@@ -117,4 +117,11 @@ test("columnTooltip names the column and counts its missing cells", () => {
     columnTooltip(complete, 2, 4, 40, ["Car", "Price"], 1),
     "“Price” · complete — no missing cells",
   );
+});
+
+test("a single gap in a block is clearly visible, and more gaps are stronger", () => {
+  assert.equal(gapIntensity(0), 0);
+  assert.ok(gapIntensity(0.01) >= 0.55, "even 1% of a block shows");
+  assert.ok(gapIntensity(0.25) > gapIntensity(0.05));
+  assert.equal(gapIntensity(1), 1);
 });

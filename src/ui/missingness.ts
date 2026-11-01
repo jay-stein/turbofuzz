@@ -6,11 +6,23 @@ import { el } from "./dom.js";
 const MATRIX_MIN_HEIGHT = 96;
 const MATRIX_MAX_HEIGHT = 420;
 const BUCKET_HEIGHT = 1.4;
-const LABEL_HEIGHT = 14;
+/** Header band above the map: column name, then its share missing. */
+const HEAD_HEIGHT = 34;
 const SPARK_GAP = 8;
 const MIN_SPARK_BARS = 26;
-const MISSING_RGB: readonly [number, number, number] = [63, 70, 80];
-const MISSING_RGB_CSS = `rgb(${MISSING_RGB[0]}, ${MISSING_RGB[1]}, ${MISSING_RGB[2]})`;
+/** Present data is quiet; a gap is the loudest colour on the page (orange, readable on light and dark). */
+const MISSING_LIGHT: readonly [number, number, number] = [234, 88, 12];
+const MISSING_DARK: readonly [number, number, number] = [251, 146, 60];
+const MONO = '"JetBrains Mono", ui-monospace, Consolas, monospace';
+
+function mix(a: readonly number[], b: readonly number[], t: number): [number, number, number] {
+  return [0, 1, 2].map((i) => Math.round(a[i] + (b[i] - a[i]) * t)) as [number, number, number];
+}
+
+/** How strongly a block shows a gap: any missing cell is clearly visible, more is stronger. */
+export function gapIntensity(ratio: number): number {
+  return ratio <= 0 ? 0 : Math.min(1, 0.5 + 0.5 * Math.sqrt(ratio));
+}
 
 function cssVar(name: string, fallback: string): string {
   if (typeof getComputedStyle !== "function") return fallback;
@@ -155,7 +167,7 @@ export class MissingnessChart {
   private readonly tooltip: HTMLElement;
   private message: MissingnessMessage | null = null;
   private profile: NullityProfile | null = null;
-  private geometry: { matrixW: number; matrixHeight: number } | null = null;
+  private geometry: { matrixW: number; matrixHeight: number; top: number } | null = null;
   private hoverBucket: number | null = null;
   private hoverColumn: number | null = null;
   private observer: ResizeObserver | null = null;
@@ -223,7 +235,7 @@ export class MissingnessChart {
       const perBlock = Math.max(1, Math.round(message.totalRows / message.buckets));
       parts.push(`≈ ${perBlock.toLocaleString()} rows per block`);
     }
-    parts.push("blue = data · grey = missing");
+    parts.push("grey = data · orange = missing");
     if (affected > 0) {
       parts.push(
         `${affected.toLocaleString()} ${affected === 1 ? "column" : "columns"} affected`,
@@ -324,7 +336,8 @@ export class MissingnessChart {
       Math.max(MATRIX_MIN_HEIGHT, Math.round(buckets * BUCKET_HEIGHT)),
     );
     const showLabels = message.columns <= 32 && matrixW / message.columns >= 26;
-    const height = matrixHeight + (showLabels ? LABEL_HEIGHT : 0);
+    const top = showLabels ? HEAD_HEIGHT : 0;
+    const height = top + matrixHeight;
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = Math.round(width * dpr);
     this.canvas.height = Math.round(height * dpr);
@@ -333,10 +346,17 @@ export class MissingnessChart {
     const ctx = this.canvas.getContext("2d");
     if (ctx === null) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.geometry = { matrixW, matrixHeight };
+    this.geometry = { matrixW, matrixHeight, top };
 
-    const data = hexToRgb(cssVar("--accent", "#2563eb"));
+    const panel = hexToRgb(cssVar("--panel", "#ffffff"));
+    const dim = hexToRgb(cssVar("--text-dim", "#62707f"));
+    const dark = panel[0] + panel[1] + panel[2] < 384;
+    const data = mix(panel, dim, dark ? 0.35 : 0.3);
+    const gap = dark ? MISSING_DARK : MISSING_LIGHT;
     const cellW = matrixW / message.columns;
+
+    if (showLabels) this.drawHeaders(ctx, message, cellW, dim);
+    ctx.translate(0, top);
     const cellH = matrixHeight / buckets;
 
     for (let bucket = 0; bucket < buckets; bucket++) {
@@ -347,9 +367,8 @@ export class MissingnessChart {
           1,
           (message.cells[bucket * message.columns + column] ?? 0) / rowsInBucket,
         );
-        const channel = (index: number): number =>
-          Math.round(data[index] + (MISSING_RGB[index] - data[index]) * ratio);
-        ctx.fillStyle = `rgb(${channel(0)}, ${channel(1)}, ${channel(2)})`;
+        const c = mix(data, gap, gapIntensity(ratio));
+        ctx.fillStyle = `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
         ctx.fillRect(column * cellW, y, cellW + 0.5, cellH + 0.5);
       }
     }
@@ -372,19 +391,32 @@ export class MissingnessChart {
     }
 
     this.drawSparkline(ctx, message, matrixW, gutter, matrixHeight);
+    ctx.translate(0, -top);
+  }
 
-    if (!showLabels) return;
-    ctx.font = "10px system-ui, sans-serif";
+  /** Above each strip: the column's name, then its share of missing cells, in monospace. */
+  private drawHeaders(
+    ctx: CanvasRenderingContext2D,
+    message: MissingnessMessage,
+    cellW: number,
+    dim: readonly number[],
+  ): void {
+    const ink = cssVar("--text", "#1c2430");
+    const accent = cssVar("--accent", "#2563eb");
     ctx.textAlign = "center";
-    const labelColor = cssVar("--text-dim", "#62707f");
     message.columnNames.forEach((name, column) => {
-      ctx.fillStyle =
-        column === this.hoverColumn ? cssVar("--accent", "#2563eb") : labelColor;
-      ctx.fillText(
-        fit(ctx, name, Math.max(8, cellW - 4)),
-        (column + 0.5) * cellW,
-        matrixHeight + 11,
-      );
+      let missing = 0;
+      for (let bucket = 0; bucket < message.buckets; bucket++) missing += message.cells[bucket * message.columns + column] ?? 0;
+      const share = message.totalRows === 0 ? 0 : missing / message.totalRows;
+      const hot = column === this.hoverColumn;
+      const x = (column + 0.5) * cellW;
+      ctx.font = `600 11px ${MONO}`;
+      ctx.fillStyle = hot ? accent : ink;
+      ctx.fillText(fit(ctx, name, Math.max(8, cellW - 6)), x, 13);
+      ctx.font = `400 11px ${MONO}`;
+      ctx.fillStyle = share > 0 ? cssVar("--danger", "#b42318") : `rgb(${dim[0]}, ${dim[1]}, ${dim[2]})`;
+      const text = share === 0 ? "0%" : share < 0.001 ? "<0.1%" : `${(share * 100).toFixed(share < 0.1 ? 1 : 0)}%`;
+      ctx.fillText(text, x, 28);
     });
     ctx.textAlign = "left";
   }
@@ -421,8 +453,8 @@ export class MissingnessChart {
       if (bucket === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = MISSING_RGB_CSS;
-    ctx.globalAlpha = 0.75;
+    ctx.strokeStyle = cssVar("--text-dim", "#62707f");
+    ctx.globalAlpha = 0.8;
     ctx.lineWidth = 1.2;
     ctx.lineJoin = "round";
     ctx.stroke();
@@ -459,12 +491,12 @@ export class MissingnessChart {
     if (message === null || geometry === null || message.columns === 0) return;
     const rect = this.canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const yRaw = event.clientY - rect.top;
+    const y = yRaw - geometry.top;
     // Matrix or label strip: name the column — the labels are tiny (they have
     // to fit hundreds of columns), so hover is the readable path.
-    const inLabels =
-      y > geometry.matrixHeight && y <= geometry.matrixHeight + LABEL_HEIGHT;
-    if (x < geometry.matrixW && y >= 0 && (y <= geometry.matrixHeight || inLabels)) {
+    const inLabels = yRaw >= 0 && yRaw < geometry.top;
+    if (x < geometry.matrixW && (inLabels || (y >= 0 && y <= geometry.matrixHeight))) {
       const cellW = geometry.matrixW / message.columns;
       const column = Math.max(0, Math.min(message.columns - 1, Math.floor(x / cellW)));
       this.tooltip.textContent = columnTooltip(

@@ -28,6 +28,15 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-03 — Overview: the Missing values map is readable
+
+- **Status:** Verified
+- **Scope:** Present data is a quiet grey and gaps are orange, so they stand out in both themes (before: bright blue data with grey gaps that were hard to see). Any missing cell in a row block now shows clearly (`gapIntensity`: 1% of a block already reads as about 55% strength), so scattered gaps appear as streaks instead of vanishing. Column names move to a header above each strip, in monospace, with each column's share missing beneath (`0%`, `5.9%`, `<0.1%`); hovering the header still names the column. Caption now reads "grey = data · orange = missing" (DEC-2026-11-01-02).
+- **Files / components changed:** src/ui/missingness.ts, test/missingness.test.ts, test/ui-overview.test.ts
+- **Tests run and results:** typecheck clean; unit tests pass (new gapIntensity test); e2e pass; checked by screenshot, light and dark, on a file with a missing block, patchy values and scattered gaps
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-02 — Analyst console look, phase 1: fonts, tokens, dark top bar, numbered tabs
 
 - **Status:** Verified

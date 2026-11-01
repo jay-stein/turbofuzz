@@ -389,7 +389,7 @@ test("the missing values map reports columns, rows and affected columns", () => 
   });
   const caption = host.querySelector(".missingness-caption")?.textContent ?? "";
   assert.match(caption, /2 columns × 10 rows/);
-  assert.match(caption, /blue = data/);
+  assert.match(caption, /grey = data/);
   assert.match(caption, /1 column affected/);
   assert.match(
     host.querySelector(".missingness-canvas")?.getAttribute("aria-label") ?? "",
