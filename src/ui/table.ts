@@ -20,6 +20,24 @@ import { formatDurationMs, toDateTimeInputValue } from "../parse/dates.js";
 
 const ROW_HEIGHT = 28;
 /** Short header glyphs for the column types (the full name is the select's title). */
+const compactNumber = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 2 });
+
+/** The second header line: what is in the column, in a few monospace characters. */
+function columnFacts(column: ColumnMeta): string {
+  const { min, max, distinct } = column.stats;
+  if ((column.type === "integer" || column.type === "number") && min !== null && max !== null) {
+    return `${compactNumber.format(min)}–${compactNumber.format(max)}`;
+  }
+  return `${compactNumber.format(distinct)} distinct`;
+}
+
+function columnFactsTitle(column: ColumnMeta): string {
+  const { min, max, distinct, nulls } = column.stats;
+  const parts = [`${distinct.toLocaleString()} distinct`, `${nulls.toLocaleString()} empty`];
+  if (min !== null && max !== null) parts.unshift(`${min.toLocaleString()} to ${max.toLocaleString()}`);
+  return parts.join(" · ");
+}
+
 const TYPE_GLYPHS: Partial<Record<ColumnType, string>> = {
   string: "Aa",
   category: "Cat",
@@ -723,7 +741,8 @@ export class ResultTable {
         filterInput.addEventListener("blur", applyQuickFilter);
         filterInput.addEventListener("click", (event) => event.stopPropagation());
         quickFilter.append(filterMark, filterInput);
-      }      cell.append(qa, top, typeWrap, quickFilter);
+      }      const facts = el("span", { class: "th-facts", title: columnFactsTitle(column) }, [columnFacts(column)]);
+      cell.append(qa, top, typeWrap, facts, quickFilter);
       cell.addEventListener("contextmenu", (event) => {
         event.preventDefault();
         this.options.onColumnContext(index, event.clientX, event.clientY);
@@ -1400,8 +1419,9 @@ export class ResultTable {
       cell.dataset.col = String(c);
       if (this.cursor !== null && this.cursor.row === index && this.cursor.col === c) cell.classList.add("cursor-cell");
       if (this.flashIndex === c) cell.classList.add("flash-column");
-      if (type === "integer" || type === "number") cell.classList.add("num-cell");
+      if (type === "integer" || type === "number") cell.classList.add("num-cell", "mono-cell");
       else if (type === "boolean") cell.classList.add("bool-cell");
+      else if (type === "date" || type === "datetime" || type === "time" || type === "duration" || type === "identifier") cell.classList.add("mono-cell");
       if (row !== undefined) this.fillCell(cell, row[c] ?? "", c);
       if (changedRow !== undefined && changedRow[c] === 1) {
         cell.classList.add("changed-cell");
@@ -1658,5 +1678,7 @@ function openHeaderFilterPanel(
 function autoWidth(column: ColumnMeta): number {
   const name = column.name.length * 7.4 + 78;
   const typical = Math.min(40, (column.stats.avgLength ?? 8) * 1.3) * 7 + 24;
-  return Math.round(Math.max(110, Math.min(360, Math.max(name, typical))));
+  // The second header line (type, facts, filter) must fit too.
+  const facts = columnFacts(column).length * 6.8 + 84;
+  return Math.round(Math.max(110, Math.min(360, Math.max(name, typical, facts))));
 }

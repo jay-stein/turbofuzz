@@ -38,7 +38,9 @@ for (const { width, height, chrome } of VIEWPORTS) {
       header: Math.round(document.querySelector(".table-header")!.getBoundingClientRect().height),
       bar: Math.round(document.querySelector(".results-bar")!.getBoundingClientRect().height),
     }));
-    expect(table.header).toBeLessThanOrEqual(64);
+    // 64 before the analyst console look (DEC-2026-11-01-02): each column header now carries a second
+    // line of facts (type, range or distinct count, filter) so full names are never cut short.
+    expect(table.header).toBeLessThanOrEqual(84);
     // Phones get 40px tap targets, so their one-row toolbar is taller.
     expect(table.bar).toBeLessThanOrEqual(width < 720 ? 60 : 56);
   });

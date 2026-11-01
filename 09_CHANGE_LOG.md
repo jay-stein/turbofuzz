@@ -28,6 +28,19 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-04 — Analyst console look, phase 2: the Table
+
+- **Status:** Verified
+- **Scope:**
+  - Column headers show the full name on its own line, then a second monospace line: the type glyph, the column's facts (`13–58` for numbers, `730 distinct` otherwise; the tooltip adds the empty count) and the filter. Default column widths now allow for that line, so names and facts are not cut short ("orde…", "r…" before).
+  - Numbers, dates, times, durations and identifiers are monospace in the grid; row and file-row numbers are small monospace; names are semibold.
+  - The position and navigation bar under the grid is the dark status bar (monospace, in both themes); collapsed filter cards in the sidebar are slimmer.
+  - The header-height budget in the compact-chrome test goes from 64 to 84 px: the second header line is the point of this phase.
+- **Files / components changed:** src/ui/table.ts, src/styles.css, test/e2e/polish.spec.ts
+- **Tests run and results:** typecheck clean; 1185 unit tests pass; e2e 113 pass; checked by screenshot, light and dark
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-03 — Overview: the Missing values map is readable
 
 - **Status:** Verified

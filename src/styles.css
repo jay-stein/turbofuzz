@@ -9176,11 +9176,12 @@ label.null-row {
 
 .th:not(.row-index-head) {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
     "qa qa qa"
-    "top type filter";
-  grid-template-rows: auto auto;
+    "top top top"
+    "type facts filter";
+  grid-template-rows: auto auto auto;
   align-content: end;
   align-items: center;
   position: relative;
@@ -12199,3 +12200,39 @@ button.qp-tile:hover {
 @media (min-width: 1280px) {
   .view-tabs .view-tab-label { max-width: none; padding-left: 6px; opacity: 1; }
 }
+
+/* ---------- Table: the analyst console grid (DEC-2026-11-01-02) ---------- */
+.th-facts {
+  grid-area: facts;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+.th.num-head .th-facts { text-align: right; padding-right: 6px; }
+.th-label { font-weight: 600; font-size: 12.5px; }
+.td { font-size: 13px; border-bottom-color: var(--border-subtle); }
+.td.mono-cell { font-family: var(--mono); font-size: 12px; }
+.row-number, .td.file-row { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+
+/* The position read-out and navigation become the dark status bar. */
+.table-nav {
+  background: var(--chrome-bg);
+  border-top-color: var(--chrome-bg);
+  color: var(--chrome-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.table-nav :where(button, .table-nav-btn, .table-nav-pos, .table-nav-link) { color: var(--chrome-dim); background: transparent; border-color: transparent; }
+.table-nav :where(button, .table-nav-btn, .table-nav-pos, .table-nav-link):hover { color: var(--chrome-fg); background: var(--chrome-2); }
+.table-nav-pos { color: var(--chrome-fg) !important; font-weight: 600; }
+.table-nav-order { color: var(--chrome-fg); }
+.table-nav-sep { background: var(--chrome-border); }
+.table-nav :focus-visible { outline: 2px solid var(--chrome-accent); outline-offset: 1px; box-shadow: none; }
+.table-nav kbd, .table-nav .kbd { color: var(--chrome-faint); border-color: var(--chrome-border); background: transparent; }
+
+/* Filters sidebar: slimmer collapsed rows */
+.filter-card { padding: 6px 10px 5px; border-radius: var(--radius-sm); }
