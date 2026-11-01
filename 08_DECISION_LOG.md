@@ -23,6 +23,21 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-01-02 — The whole app takes the "analyst console" look
+
+- **Status:** Accepted (owner, 2026-11-01)
+- **Context:** The Forecast tab looked better than the Table and the other pages. A canvas ("Table page: three looks") compared a calm workspace, an analyst console, a report style and today's page; the owner picked the analyst console for every page.
+- **Decision:**
+  - Sans serif (Inter) for all labels and prose; a monospace face (JetBrains Mono) for the file path, file facts, counts, timings, row numbers, column facts, numbers and dates in the grid, formulas and pandas code.
+  - A dark top bar and a dark status bar frame every page in both themes; the content area stays light in the light theme.
+  - Dense, hairline grid lines; column headers show the full name with a second monospace line of facts (`int · 13–58`); compact controls with small radii; one dark primary button per area.
+  - Page tabs show their number key.
+  - Both fonts are bundled (SIL Open Font License 1.1, licence files shipped beside them) so the app stays offline.
+- **Trade-offs:** More monospace makes the app look technical and can feel colder; denser rows suit analysts more than casual users. Fonts add roughly 150 KB to the bundle.
+- **Features / journeys affected:** every page.
+- **Acceptance criteria:** every page uses the shared tokens; no column name is cut short at the default width when it fits; contrast passes 4.5:1 in both themes; e2e passes; the latency benches are unchanged.
+- **Date / owner:** 2026-11-01 / owner
+
 ### DEC-2026-11-01-01 — Forecast tab: three layers, Compare models closed by default, "Doubtful" in red
 
 - **Status:** Accepted (owner, 2026-11-01)

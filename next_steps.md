@@ -2204,3 +2204,13 @@ The Forecast tab now shows everything at once: eight models in a board with six 
 - Should the compact board be open or closed on first view?
 - Is the trust verdict wording right, and should it ever say "Doubtful" in red?
 - Should a person be able to set the detail they want once ("Simple" / "Detailed") instead of opening sections one by one?
+
+
+## The analyst console look, app-wide (owner, 2026-11-01; DEC-2026-11-01-02)
+
+Chosen from the canvas "Table page: three looks" (option B). Rolled out in phases, each its own commit, each checked with screenshots of every page in both themes and the full gate.
+
+1. **Foundation (shell and tokens).** Bundle Inter and JetBrains Mono; font tokens (`--font-sans`, `--mono`); tighter radii and flatter shadows; chrome tokens for the dark top bar; the top bar goes dark (file path in monospace, file facts, command box, quality score); page tabs show their number key.
+2. **Table.** Two-line column headers (full name, then monospace facts) instead of truncated names; hairline grid; compact rows; numbers and dates in monospace; the filters sidebar slimmed; a dark status bar for the position read-out and navigation.
+3. **Every other page.** Overview, Data Quality, Pivot View, Chart, Outliers, Relationships, Time Series and Map take the same headers, cards, KPI strips and buttons; one dark primary button per area.
+4. **Dark theme and polish.** Contrast checks, focus rings, dialogs and menus, screenshot sweep.
