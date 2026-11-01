@@ -614,6 +614,7 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
       document.removeEventListener("keydown", onKey);
       resolve(result);
     };
+    // No closing on a click beside the window: a formula is work worth keeping; Cancel, × and Esc close.
     const add = (): void => {
       const text = currentFormula();
       if (text === null || text === "" || !last?.ok) return;
@@ -626,7 +627,6 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
     closeButton.addEventListener("click", () => finish(null));
     cancel.addEventListener("click", () => finish(null));
     addButton.addEventListener("click", add);
-    overlay.addEventListener("mousedown", (event) => { if (event.target === overlay) finish(null); });
     document.addEventListener("keydown", onKey);
 
     overlay.append(modal);

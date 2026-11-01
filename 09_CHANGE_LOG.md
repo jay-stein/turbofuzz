@@ -28,6 +28,18 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-02-08 — Dialogs no longer close (and lose work) when scrolled by their scrollbar
+
+- **Status:** Verified (unit, e2e, browser)
+- **Related issue / decision:** owner bug: in New column the Add column button was below the screen; scrolling down closed the window and cleared the formula.
+- **Problem addressed:** every dialog closed on a mousedown on its backdrop, and a tall dialog's scrollbar belongs to the backdrop, so grabbing it counted as a click outside. New column was also taller than short screens, so its buttons were out of sight.
+- **Scope:** src/ui/dialog.ts guardBackdropScrollbars(), installed once in main.ts: a press on a backdrop's scrollbar never reaches its close handler (all ~30 dialogs). New column no longer closes on a click beside it at all (Cancel, × and Esc still do), and it fits the screen: its body scrolls inside the window and the Add column footer stays in view.
+- **Files / components changed:** src/ui/dialog.ts, main.ts, new-column-dialog.ts, styles.css
+- **Tests run and results:** unit 1248 pass; e2e 125 pass (two known load flakes, map and sensitive export, pass on rerun).
+- **Manual browser verification:** 463px-tall window: footer in view; a click on the backdrop keeps the dialog and the formula.
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-07 — Charts credit Storytelling with Data
 
 - **Status:** Verified (unit, browser)

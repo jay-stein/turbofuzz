@@ -52,6 +52,23 @@ export function setupDialog(overlay: HTMLElement, label: string): void {
   }
 }
 
+/**
+ * A press on a backdrop's own scrollbar is not a click outside the window: without
+ * this, scrolling a tall dialog by its scrollbar closed it and lost what was typed.
+ * Installed once; it stops the event before any backdrop's close handler sees it.
+ */
+export function guardBackdropScrollbars(): void {
+  const onScrollbar = (event: MouseEvent): void => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || !target.classList.contains("modal-overlay")) return;
+    const box = target.getBoundingClientRect();
+    if (event.clientX >= box.left + target.clientWidth || event.clientY >= box.top + target.clientHeight) {
+      event.stopPropagation();
+    }
+  };
+  for (const type of ["mousedown", "mouseup", "click"] as const) window.addEventListener(type, onScrollbar, true);
+}
+
 export interface PromptOptions {
   title: string;
   label: string;
