@@ -73,3 +73,11 @@ test("heads-up notes appear only when they are true", () => {
   const short = trustVerdict({ ...base, rough: true, periods: 22 });
   assert.ok(short.headsUp.some((h) => /only 22 periods of history/.test(h)));
 });
+
+test("a simple benchmark that beat the pick on unseen data is named in a heads-up", () => {
+  const v = trustVerdict({ ...base, beatenBy: ["Repeat last value", "Simple smoothing"] });
+  assert.ok(v.headsUp.some((h) => /Repeat last value and Simple smoothing did better than this forecast on data it never saw/.test(h)));
+  assert.deepEqual(trustVerdict({ ...base, beatenBy: [] }).headsUp, []);
+  // The benchmark itself is never told it was beaten by a benchmark.
+  assert.deepEqual(trustVerdict({ ...base, baseline: true, beatenBy: ["Overall average"] }).headsUp, []);
+});

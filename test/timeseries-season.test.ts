@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { buildTable } from "../src/data/timeseries/base.js";
 import { defaultConfig, TsEngine } from "../src/data/timeseries/engine.js";
 import { seasonalityTest } from "../src/data/timeseries/seasonality.js";
+import { MODEL_KEYS } from "../src/data/timeseries/models.js";
 
 let seed = 9;
 const rnd = (): number => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31 - 0.5);
@@ -64,5 +65,5 @@ test("the Deep check works on the seasonally adjusted fit", () => {
   const { s } = run(e, "hour", 48, "ets");
   const d = s.deep!;
   assert.ok(d.resid && d.resid.n > 100 && Number.isFinite(d.resid.lb.q), "residuals of the adjusted fit");
-  assert.equal(d.dm.length, 7);
+  assert.equal(d.dm.length, MODEL_KEYS.length - 1);
 });

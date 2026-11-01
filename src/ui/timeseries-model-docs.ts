@@ -49,6 +49,49 @@ export const MODEL_DOCS: Record<ModelKey, ModelDoc> = {
     forecasting: [BAND],
     differs: ["Not a textbook named method: it is the mean method applied within each phase of the season."],
   },
+  naive: {
+    kind: "Benchmark",
+    summary: "Every future period is forecast as the last observed value: the naive method [ref:fpp3] (5.2). It is the right yardstick for a series that wanders with no season, and it is the seasonal naive when the season is one period long.",
+    equations: [
+      "ŷ<sub>T+h|T</sub> = y<sub>T</sub>",
+      "The forecast is flat: one value for every step ahead.",
+    ],
+    fitting: ["Nothing is fitted. Filled periods count as missing, so the last value is the last real reading."],
+    forecasting: [BAND],
+    differs: ["None: it is the textbook method. Its bands come from its own backtest errors, not from the random-walk formula (σ√h) the textbook gives."],
+  },
+  drift: {
+    kind: "Benchmark",
+    summary: "The naive forecast plus the average change per period over the whole history: a straight line through the first and last values, extended [ref:fpp3] (5.2). It suits a steady trend with no season.",
+    equations: [
+      "ŷ<sub>T+h|T</sub> = y<sub>T</sub> + h · (y<sub>T</sub> − y<sub>1</sub>) / (T − 1)",
+    ],
+    fitting: ["Nothing is fitted: the slope is the average change between the first and last real readings. For each backtest fold it is recomputed on that fold's history (the latest fixed-length window when the validation window is rolling)."],
+    forecasting: [BAND],
+    differs: ["None: it is the textbook method. A turn in the series is not noticed until it is too late: the slope averages the whole history."],
+  },
+  mean: {
+    kind: "Benchmark",
+    summary: "Every future period is forecast as the average of the whole history: the mean method [ref:fpp3] (5.2). It suits a series that bounces around one fixed level, and fails on any trend.",
+    equations: [
+      "ŷ<sub>T+h|T</sub> = (y<sub>1</sub> + … + y<sub>T</sub>) / T",
+    ],
+    fitting: ["Nothing is fitted. Filled periods count as missing and are left out of the average."],
+    forecasting: [BAND],
+    differs: ["None: it is the textbook method."],
+  },
+  ses: {
+    kind: "Benchmark",
+    summary: "Simple exponential smoothing: a level that moves toward each new value by a fraction α, with no trend and no season [ref:fpp3] (8.1) [ref:ets2002]. Recent values count most, so it follows a series that drifts slowly.",
+    equations: [
+      "ℓ<sub>t</sub> = α y<sub>t</sub> + (1 − α) ℓ<sub>t−1</sub>",
+      "ŷ<sub>T+h|T</sub> = ℓ<sub>T</sub>",
+      "α = 1 is the naive method; α near 0 approaches the mean.",
+    ],
+    fitting: ["α and the starting level are found by maximum likelihood in the same state-space form as Best smoothing (error additive, no trend, no season), on the latest 300 periods or six cycles. For the backtest it is refitted on each fold."],
+    forecasting: [BAND],
+    differs: ["It is the ETS(A,N,N) model of Best smoothing's family, fitted by the same code, with no AICc choice among forms."],
+  },
   hw: {
     kind: "Exponential smoothing",
     summary: "Holt-Winters smoothing with an additive season and a damped additive trend [ref:holt] [ref:winters] [ref:damped]. The level, trend and season each follow the data through their own smoothing weight, and the damping φ makes the trend flatten out so a long forecast does not run away.",

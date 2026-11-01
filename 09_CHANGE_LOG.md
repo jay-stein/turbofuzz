@@ -28,6 +28,16 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-09 — Time Series: four benchmark models (naive, drift, mean, simple smoothing) (fundamentals plan, Phase 4a)
+
+- **Status:** Verified
+- **Scope:** The textbook benchmarks (fpp3 5.2, 8.1) join the board as yardsticks: **Repeat last value** (naive), **Straight line on** (drift), **Overall average** (mean) and **Simple smoothing** (SES, fitted by maximum likelihood in the same code as Best smoothing). Each is backtested on every fold, forecast, banded and exported like the others, has its own technical page with equations and a "when it shines / when to doubt it" entry, and is a rival in the Deep check. They are benchmarks: Auto never picks them and the Combination does not use them, so the accuracy gate is unchanged. The trust verdict still ranks a model among the original eight, and now adds a heads-up when one of these simple methods beat the pick on the unseen lockbox fold ("Repeat last value did better than this forecast on data it never saw, so a simple method is hard to beat here"). On the Compare board each shows "Benchmark", or "Beat the pick on unseen data" in red when it did.
+- **Evidence (Monash protocol, our flat, unadjusted SES):** M3 monthly naive 1.367, drift 1.360, mean 2.249, SES 1.259; tourism yearly naive 2.959, drift 2.673, mean 8.189, SES 2.918; car parts naive 1.265, mean 1.224, SES 1.189. The archive's published SES (forecast package) is lower on M3 monthly (1.091) and car parts (0.897); the cause is not established (our Theta, which contains an SES, matches the archive on M3 monthly: 0.865 against 0.864), so the SES row is a yardstick and not a claim of parity.
+- **Files / components changed:** src/data/timeseries/benchmarks.ts (new), models.ts, verdict.ts, src/ui/timeseries-page.ts, timeseries-model-docs.ts, timeseries-metrics.ts, tools/ts-eval/monash.ts, tests
+- **Tests run and results:** typecheck clean; 1200 unit tests pass (new: benchmarks on worked examples, the beaten-by heads-up); e2e 117 pass; accuracy gate unchanged ("passed"); latency bench inside the 500 ms ceiling
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-08 — Forecast tab: the trust verdict, compact Compare board, and scoring controls under the hood
 
 - **Status:** Verified

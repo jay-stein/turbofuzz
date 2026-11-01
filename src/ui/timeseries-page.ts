@@ -14,7 +14,7 @@ import type { DeepCheck } from "../data/timeseries/models.js";
 import {
   compact, dfDate, dfDM, dfMonShort, dfTime, fmtNum, full, nf, nounFor, pct, periodLabel, shortPeriod, signed,
 } from "../data/timeseries/format.js";
-import { flexDetail, grade, METRIC_KEYS, MODEL_INFO, MODEL_KEYS, type Future, type MetricKey, type ModelKey, type ModelRun } from "../data/timeseries/models.js";
+import { BENCHMARK_KEYS, CORE_KEYS, flexDetail, grade, METRIC_KEYS, MODEL_INFO, MODEL_KEYS, type Future, type MetricKey, type ModelKey, type ModelRun } from "../data/timeseries/models.js";
 import { METRIC_INFO, metricText, openModelGuide } from "./timeseries-metrics.js";
 import { backtestRows, forecastRows, scorecardRows } from "./timeseries-export.js";
 import { openModelDetails } from "./timeseries-model-docs.js";
@@ -62,7 +62,7 @@ export interface TsPreset {
 
 type Level = "80" | "fan";
 /** The models that are yardsticks, not recommendations. */
-const BENCHMARKS: readonly ModelKey[] = ["sn", "clim"];
+const BENCHMARKS: readonly ModelKey[] = BENCHMARK_KEYS;
 interface UiState { mode: TsMode; showSmooth: boolean; lastYear: boolean; showShift: boolean; level: Level; model: ModelKey | "auto"; metric: MetricKey; diff: boolean; diffLag: number }
 type TokenKey = "grain" | "agg" | "measure" | "group" | "gaps" | "partial" | "date" | "groupBy" | "source";
 interface Colors { bg: string; panel: string; panel2: string; border: string; text: string; dim: string; accent: string; forecast: string; season2: string; raw: string; danger: string; warn: string; grid: string }
@@ -1232,9 +1232,11 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (id === "compare") { line((i) => a.y[i], rgba(C.raw, 0.6), 1, a.g.ly); ctx.setLineDash([3, 2]); line((i) => (i - a.g.ly >= 0 ? a.y[i - a.g.ly] : NaN), C.dim, 1, a.g.ly); ctx.setLineDash([]); }
   }
   /** A model's rank among the seven on the lockbox fold, by the chosen measure. */
+  /** A model's score on the lockbox fold (bias by its size); Infinity when it has none. */
+  function lockValue(M: ModelRun, key: ModelKey, mk: MetricKey): number { const x = M.models[key].lock?.[mk] ?? NaN; return x === x ? (mk === "bias" ? Math.abs(x) : x) : Infinity; }
+  /** Place on the lockbox fold among the core models (the four extra yardsticks are not counted). */
   function lockRank(M: ModelRun, key: ModelKey, mk: MetricKey): number {
-    const v = (k: ModelKey): number => { const x = M.models[k].lock?.[mk] ?? NaN; return x === x ? (mk === "bias" ? Math.abs(x) : x) : Infinity; };
-    return 1 + MODEL_KEYS.filter((k) => v(k) < v(key)).length;
+    return 1 + CORE_KEYS.filter((k) => lockValue(M, k, mk) < lockValue(M, key, mk)).length;
   }
 
   // ---------------------------------------------------------------- difference (Explore)
@@ -1291,7 +1293,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const m = M.models[key], f = s.futures![key];
     const band = f.held ? { hit: f.held.hit, tot: f.held.tot, aim: 0.8 } : m.check ? { hit: m.check.hit, tot: m.check.tot, aim: 0.8 } : null;
     return trustVerdict({
-      baseline: key === "sn", ratio: ratioOf(s, key), lockRank: M.lockbox && m.lock ? lockRank(M, key, ui.metric) : null, models: MODEL_KEYS.length,
+      baseline: key === "sn", ratio: ratioOf(s, key), lockRank: M.lockbox && m.lock ? lockRank(M, key, ui.metric) : null, models: CORE_KEYS.length,
+      beatenBy: M.lockbox && m.lock && !BENCHMARK_KEYS.includes(key) ? BENCHMARK_KEYS.filter((b) => !CORE_KEYS.includes(b) && lockValue(M, b, ui.metric) < lockValue(M, key, ui.metric)).map((b) => MODEL_INFO[b].name) : [],
       foldsWon: m.folds.won, foldsOf: m.folds.of, band, rough: M.rough, periods: s.A.modelN, cycle: cycleWord(s),
     });
   }
@@ -1326,8 +1329,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (!M.lockbox || !m.lock) return "";
     const R = M.origins.length, rank = lockRank(M, key, mk), base = M.models.sn.lock?.[mk] ?? NaN, v = m.lock[mk];
     const beats = key === "sn" ? "" : v === v && base === base ? (Math.abs(v) < Math.abs(base) ? " and beat repeating the last cycle" : `, <span class="ts-warn">but did not beat repeating the last cycle (${metricText(mk, base)})</span>`) : "";
-    const verdict = rank <= 2 ? "The pick holds up" : rank <= 4 ? "Middling: the pick's lead looks partly like luck" : "<span class=\"ts-warn\">The pick fell apart on unseen data: treat its score as overfitted to the folds</span>";
-    return `<div class="ts-badge-lock"><b>Lockbox check</b>: picked on folds 1–${R - 1}; on fold ${R}, which the choice never saw, it ranked <b>#${rank} of ${MODEL_KEYS.length}</b> (${METRIC_INFO[mk].label} ${metricText(mk, v)})${beats}. ${verdict}.</div>`;
+    const level = snap ? verdictFor(snap, M, key).level : "middling";
+    const verdict = level === "holds" ? "The pick holds up" : level === "middling" ? "Middling: the pick's lead looks partly like luck" : level === "baseline" ? "The baseline every other model is measured against" : "<span class=\"ts-warn\">The pick fell apart on unseen data: treat its score as overfitted to the folds</span>";
+    return `<div class="ts-badge-lock"><b>Lockbox check</b>: picked on folds 1–${R - 1}; on fold ${R}, which the choice never saw, it ranked <b>#${rank} of ${CORE_KEYS.length}</b> (${METRIC_INFO[mk].label} ${metricText(mk, v)})${beats}. ${verdict}.</div>`;
   }
   let curve: { key: string; points: { flex: number; mase: number }[] } | null = null;
   let curveBusy = false;
@@ -1378,7 +1382,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   let deep: { key: string; result: DeepCheck | null } | null = null;
   let deepBusy = false;
   /** Rough complexity, for "prefer the simpler model when it is not significantly worse". */
-  const COMPLEXITY: Record<ModelKey, number> = { sn: 0, clim: 1, theta: 2, hw: 3, ets: 3, comb: 4, reg: 4, ens: 5 };
+  const COMPLEXITY: Record<ModelKey, number> = { sn: 0, naive: 0, mean: 0, drift: 1, ses: 1, clim: 1, theta: 2, hw: 3, ets: 3, comb: 4, reg: 4, ens: 5 };
   const deepKey = (s: TsSnapshot, pick: ModelKey): string => `${curveKey(s)}|${s.cfg.flex}|${pick}`;
   function runDeep(): void {
     const s = snap, pick = s ? selectedModel(s, ui) : null;
@@ -1498,11 +1502,13 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const rows = groups.filter(([, ks]) => ks.length > 0).map(([label, ks]) =>
       `<tbody><tr class="ts-group"><th colspan="3" scope="colgroup">${label}</th></tr>${ks.map((k) => {
         const r = ratioOf(s, k), v = verdictFor(s, M, k), m = M.models[k];
-        const place = M.lockbox && m.lock && k !== "sn" ? ` (${ordinal(lockRank(M, k, mk))} of ${MODEL_KEYS.length})` : "";
+        const core = CORE_KEYS.includes(k);
+        const place = core && M.lockbox && m.lock && k !== "sn" ? ` (${ordinal(lockRank(M, k, mk))} of ${CORE_KEYS.length})` : "";
+        const beat = !core && M.lockbox && m.lock && lockValue(M, k, mk) < lockValue(M, pick, mk);
         return `<tr data-model="${k}" aria-selected="${k === sel}">
           <td><span class="ts-mname">${MODEL_INFO[k].name}</span>${k === pick ? '<span class="ts-autotag">Auto</span>' : ""}<button type="button" class="ts-info" data-info="${k}" aria-label="How ${MODEL_INFO[k].name} works" title="How ${MODEL_INFO[k].name} works: equations, fitting, sources">ⓘ</button><div class="ts-plain">${PLAIN[k] ?? ""}</div></td>
           <td><span class="ts-errtrack"><span class="ts-errbar" style="width:${Number.isFinite(r) ? Math.min(100, Math.max(3, (r / top) * 100)).toFixed(0) : 0}%;opacity:${k === "sn" || k === "clim" ? 0.4 : 0.85}"></span></span><span class="ts-ratio">${Number.isFinite(r) ? r.toFixed(2) : "–"}×</span></td>
-          <td><span class="ts-dot" style="background:${dot[v.cls]}"></span>${v.level === "baseline" ? "Baseline" : escapeHtml(v.label) + place}</td></tr>`;
+          <td>${core ? `<span class="ts-dot" style="background:${dot[v.cls]}"></span>${v.level === "baseline" ? "Baseline" : escapeHtml(v.label) + place}` : `<span class="ts-dot" style="background:${beat ? dot.poor : dot.base}"></span>${beat ? "Beat the pick on unseen data" : "Benchmark"}`}</td></tr>`;
       }).join("")}</tbody>`).join("");
     table.innerHTML = `<thead><tr><th>Model</th><th title="Error divided by the error of repeating the last cycle: below 1× is better">Error against repeating the last ${cycleWord(s)}</th><th>On data it never saw</th></tr></thead>${rows}`;
   }

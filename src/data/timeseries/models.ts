@@ -12,9 +12,14 @@ import { seasonalityTest, type SeasonalityTest } from "./seasonality.js";
 import { classicalFigure, etsFitted, etsForecast, etsFrom, etsRun, etsSelect, etsSpec, fitSes, type EtsFit, type EtsState } from "./ets.js";
 export { etsSpec } from "./ets.js";
 import { mstl } from "./stl.js";
+import { driftSlope, meanLevel, naiveLevel } from "./benchmarks.js";
 
-export type ModelKey = "sn" | "hw" | "ets" | "reg" | "theta" | "clim" | "ens" | "comb";
-export const MODEL_KEYS: readonly ModelKey[] = ["sn", "hw", "ets", "reg", "theta", "clim", "ens", "comb"];
+export type ModelKey = "sn" | "hw" | "ets" | "reg" | "theta" | "clim" | "ens" | "comb" | "naive" | "drift" | "mean" | "ses";
+export const MODEL_KEYS: readonly ModelKey[] = ["sn", "hw", "ets", "reg", "theta", "clim", "ens", "comb", "naive", "drift", "mean", "ses"];
+/** Yardsticks: shown and ranked, but never picked by Auto and never part of the Combination. */
+export const BENCHMARK_KEYS: readonly ModelKey[] = ["sn", "clim", "naive", "drift", "mean", "ses"];
+/** The models Auto chooses among and ranks itself against; the other benchmarks are only yardsticks beside them. */
+export const CORE_KEYS: readonly ModelKey[] = ["sn", "hw", "ets", "reg", "theta", "clim", "ens", "comb"];
 export const MODEL_INFO: Readonly<Record<ModelKey, { name: string; meth: string }>> = {
   sn: { name: "Repeat last cycle", meth: "Seasonal naive" },
   hw: { name: "Smooth and damp", meth: "Holt-Winters, damped trend" },
@@ -24,6 +29,10 @@ export const MODEL_INFO: Readonly<Record<ModelKey, { name: string; meth: string 
   ets: { name: "Best smoothing", meth: "ETS, picked by AICc (error additive or multiplicative; trend none, additive or damped; season none, additive or multiplicative)" },
   ens: { name: "Blend with regression", meth: "Average of best smoothing, steady trend and the trend, seasons and drivers model" },
   comb: { name: "Combination", meth: "Average of best smoothing, steady trend and smooth and damp (forecast combination, fpp3 13.4)" },
+  naive: { name: "Repeat last value", meth: "Naive" },
+  drift: { name: "Straight line on", meth: "Drift: the line through the first and last points, extended" },
+  mean: { name: "Overall average", meth: "Mean of the whole history" },
+  ses: { name: "Simple smoothing", meth: "Simple exponential smoothing" },
 };
 
 interface BandQ { q10: number; q90: number; q025: number; q975: number }
@@ -116,7 +125,7 @@ export type Futures = Record<ModelKey, Future>;
 /** Inside the worker only: the run plus what the futures need (fits with closures). */
 /** The final seasonally adjusted fit when the season is removed with MSTL. */
 interface LongFinal { s: number; adj: Float64Array; adjM: Float64Array; etsFc: Float64Array; hwFc: Float64Array; thetaFc: Float64Array }
-interface RunInternal extends ModelRun { mS: number; long: LongFinal | null; oc: Record<ModelKey, Float64Array>; etsFinal: EtsState; etsFit: EtsFit; hwFinal: HwState; hwParams: HwParams; regFit: RegFit; thetaFit: ThetaFit; climM: number; climMeans: Float64Array; q: Record<ModelKey, BandQ[]> }
+interface RunInternal extends ModelRun { mS: number; long: LongFinal | null; oc: Record<ModelKey, Float64Array>; etsFinal: EtsState; etsFit: EtsFit; hwFinal: HwState; hwParams: HwParams; regFit: RegFit; thetaFit: ThetaFit; climM: number; climMeans: Float64Array; q: Record<ModelKey, BandQ[]>; bench: { naive: number; slope: number; mean: number; ses: number } }
 
 function hwInit(y: Float64Array, m: number, limit: number): HwState {
   let l = 0;
@@ -482,6 +491,16 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   const oc = Object.fromEntries(MODEL_KEYS.map((k) => [k, new Float64Array(R * H)])) as Record<ModelKey, Float64Array>;
 
   origins.forEach((o, k) => { for (let h = 0; h < H; h++) oc.sn[k * H + h] = y[o - m + (h % m)]; });
+  // The other benchmarks (fpp3 5.2), on each fold's training stretch; filled periods count as missing.
+  const sesAt = (o: number, from: number): number => { const seg = yM.subarray(from, o); return seg.length >= 2 ? fitSes(seg, seg.length).level : naiveLevel(seg, seg.length); };
+  origins.forEach((o, k) => {
+    const from = startOf(o), seg = yM.subarray(from, o), last = naiveLevel(seg, seg.length), slope = driftSlope(seg, seg.length), mu = meanLevel(seg, seg.length);
+    const level = sesAt(o, Math.max(from, etsFrom(o, m)));
+    for (let h = 0; h < H; h++) {
+      oc.naive[k * H + h] = last; oc.drift[k * H + h] = last + slope * (h + 1); oc.mean[k * H + h] = mu; oc.ses[k * H + h] = level;
+    }
+  });
+  const benchFinal = { naive: naiveLevel(yM, T), slope: driftSlope(yM, T), mean: meanLevel(yM, T), ses: sesAt(T, etsFrom(T, m)) };
 
   // Smoothing parameters for the backtest are fitted on data before the first origin
   // only, so no model is scored on periods it was tuned on (that would flatter it).
@@ -689,7 +708,7 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   }
   const best = auto.mase.pick;
   const out: ModelRun = { T, H, m, origins, step, models, best, bestBy, lockbox, auto, autoPolicy, season, cv: rolling ? "rolling" : "expanding", trainLen, rough: R < 3, profile: seriesProfile(A, T) };
-  return { ...out, internal: { ...out, mS, long, oc, etsFinal, etsFit, hwFinal, hwParams, regFit: reg, thetaFit: theta, climM, climMeans, q } };
+  return { ...out, internal: { ...out, bench: benchFinal, mS, long, oc, etsFinal, etsFit, hwFinal, hwParams, regFit: reg, thetaFit: theta, climM, climMeans, q } };
 }
 
 interface ErrAcc { ae: number; ac: number; se: number; ay: number; sum: number; sm: number; smc: number; mp: number; mpc: number }
@@ -716,6 +735,7 @@ export function computeFutures(A: Aggregated, run: RunInternal): Futures {
   const y = A.yModel;
   const F: Record<ModelKey, Float64Array> = {
     sn: new Float64Array(H), hw: new Float64Array(H), ets: new Float64Array(H), reg: new Float64Array(H), theta: new Float64Array(H), clim: new Float64Array(H), ens: new Float64Array(H), comb: new Float64Array(H),
+    naive: new Float64Array(H), drift: new Float64Array(H), mean: new Float64Array(H), ses: new Float64Array(H),
   };
   if (run.long) { F.hw.set(run.long.hwFc); F.ets.set(run.long.etsFc); }
   else {
@@ -729,6 +749,7 @@ export function computeFutures(A: Aggregated, run: RunInternal): Futures {
     F.clim[h] = run.climMeans[(T + h) % run.climM];
     F.ens[h] = (F.ets[h] + F.reg[h] + F.theta[h]) / 3;
     F.comb[h] = (F.ets[h] + F.theta[h] + F.hw[h]) / 3;
+    F.naive[h] = run.bench.naive; F.drift[h] = run.bench.naive + run.bench.slope * (h + 1); F.mean[h] = run.bench.mean; F.ses[h] = run.bench.ses;
   }
   const floor0 = A.nonNeg ? (v: number): number => Math.max(0, v) : (v: number): number => v;
   const out = {} as Futures;

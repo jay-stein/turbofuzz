@@ -29,6 +29,8 @@ export interface VerdictInput {
   periods: number;
   /** What the seasonal naive repeats, in a word: "year", "week", "day", or "cycle". */
   cycle: string;
+  /** Names of simple benchmarks that did better than this model on the lockbox fold. */
+  beatenBy?: string[];
 }
 
 export interface Verdict {
@@ -79,6 +81,9 @@ export function trustVerdict(v: VerdictInput): Verdict {
     if (Math.abs(off) > 0.05) {
       headsUp.push(`past ranges held the real value ${Math.round(share * 100)}% of the time against an aim of ${Math.round(v.band.aim * 100)}%, so treat this range as ${off < 0 ? "slightly narrow" : "wider than it needs to be"}.`);
     }
+  }
+  if (!v.baseline && v.beatenBy && v.beatenBy.length > 0) {
+    headsUp.push(`${v.beatenBy.join(" and ")} did better than this forecast on data it never saw, so a simple method is hard to beat here.`);
   }
   if (lucky) headsUp.push(`this model's lead came from ${v.foldsWon} of ${v.foldsOf} tests. A lead like that is often luck, so look at the next best too.`);
   if (v.rough) headsUp.push(`only ${v.periods} periods of history, too few to test forecasts properly. Read the range as a rough guide.`);

@@ -95,10 +95,14 @@ export const MODEL_GUIDE: Record<ModelKey, { shines: string; doubt: string }> = 
   theta: { shines: "Simple smoothing plus half the long-run slope. It won the M3 competition, and is hard to beat on short, noisy series.", doubt: "It ignores drivers and follows breaks slowly." },
   clim: { shines: "The average of the same point in every cycle. Good when there is a season but no trend.", doubt: "Any trend: it forecasts the past average." },
   ens: { shines: "The average of best smoothing, steady trend and the trend, seasons and drivers model: the way to let drivers pull on an otherwise smoothing-based forecast.", doubt: "On monthly, quarterly and yearly data the regression is usually the weakest of its three parts, so the Combination tends to beat it." },
+  naive: { shines: "The last value, repeated. Hard to beat on a series that wanders (prices, stock levels), and the right yardstick when there is no season.", doubt: "Any season or steady trend: it ignores both." },
+  drift: { shines: "The line from the first value to the last, extended: the naive method plus the average change. Fine for a steady trend with no season.", doubt: "A turn in the series, and any season." },
+  mean: { shines: "The average of everything so far. Good for a series that bounces around one fixed level.", doubt: "A trend or a season: it forecasts the past average." },
+  ses: { shines: "Simple smoothing: a level that follows recent values, with no trend or season. A quick, sensible forecast for a series that moves slowly and has neither.", doubt: "A trend or a season: the forecast is flat." },
   comb: { shines: "The average of best smoothing, steady trend and smooth and damp. Auto's default: it beat every published classical method on M3 monthly and quarterly and on tourism data, because the three misses partly cancel and the average has no parameters of its own to overfit.", doubt: "Intermittent demand (many zeros), where plain smoothing or Croston's method does better, and series where one member is clearly wrong." },
 };
 
-const MODEL_ORDER: ModelKey[] = ["sn", "clim", "hw", "ets", "theta", "reg", "ens", "comb"];
+const MODEL_ORDER: ModelKey[] = ["sn", "naive", "drift", "mean", "ses", "clim", "hw", "ets", "theta", "reg", "ens", "comb"];
 
 /** Little train/test strips for four folds. */
 function foldsDiagram(kind: "expanding" | "rolling"): HTMLElement {
