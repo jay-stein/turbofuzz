@@ -125,6 +125,36 @@ export function columnAtCaret(text: string, caret: number): { start: number; que
   return { start: open, query: before.slice(open + 1) };
 }
 
+/**
+ * The function name being typed at the caret, or null: letters right before the caret,
+ * outside quotes and column brackets, not followed by more letters or an open bracket.
+ */
+export function functionWordAtCaret(text: string, caret: number): { start: number; query: string } | null {
+  const before = text.slice(0, caret);
+  const m = /[A-Za-z_]+$/.exec(before);
+  if (m === null) return null;
+  const start = caret - m[0].length;
+  // Part of a number or name like 2E or Q1x, or right after a column reference.
+  if (start > 0 && /[0-9.\]]/.test(text[start - 1]!)) return null;
+  if (/^\s*[A-Za-z_(]/.test(text.slice(caret))) return null;
+  if ((before.slice(0, start).match(/"/g)?.length ?? 0) % 2 === 1) return null;
+  if (columnAtCaret(text, caret) !== null) return null;
+  // TRUE and FALSE are values, not functions.
+  if (/^(true|false)$/i.test(m[0])) return null;
+  return { start, query: m[0] };
+}
+
+/** Functions whose name fits what is typed, best first: the name's start, then anywhere. */
+export function functionMatches(query: string, limit = 8): string[] {
+  const q = query.toUpperCase();
+  const names = Object.keys(FUNCTIONS);
+  const starts = names.filter((n) => n.startsWith(q)).sort((a, b) => a.length - b.length || a.localeCompare(b));
+  // Near misses ("ROUDN") only once there is enough typed to judge.
+  if (starts.length >= limit || q.length < 3) return starts.slice(0, limit);
+  const rest = fuzzyRank(names.filter((n) => !n.startsWith(q)), q, (n) => n);
+  return [...starts, ...rest].slice(0, limit);
+}
+
 /** The function whose brackets the caret is inside (the nearest one), or null. */
 export function functionAtCaret(text: string, caret: number): string | null {
   let depth = 0;
@@ -333,7 +363,7 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
       "aria-label": "Formula",
     }) as HTMLTextAreaElement;
     formula.value = options.formula ?? "";
-    const suggest = el("ul", { class: "newcol-suggest hidden", role: "listbox", "aria-label": "Columns" });
+    const suggest = el("ul", { class: "newcol-suggest hidden", role: "listbox", "aria-label": "Suggestions" });
     const fnHelp = el("div", { class: "newcol-fnhelp", "aria-live": "polite" });
     const problem = el("div", { class: "newcol-problem", role: "alert" });
     const colList = el("div", { class: "newcol-list" });
@@ -468,13 +498,20 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
       );
     }
 
-    // Column suggestions after [ and function help at the caret.
+    // Column suggestions after [, function names as they are typed, and function help at the caret.
     let hits: string[] = [];
+    let hitKind: "column" | "function" = "column";
     let active = 0;
     function onFormulaInput(): void {
       const caret = formula.selectionStart;
       const at = columnAtCaret(formula.value, caret);
-      hits = at === null ? [] : fuzzyRank(options.columns.map((c) => c.name), at.query, (n) => n).slice(0, 8);
+      const word = at === null && caret === formula.selectionEnd ? functionWordAtCaret(formula.value, caret) : null;
+      hitKind = at === null ? "function" : "column";
+      hits = at !== null
+        ? fuzzyRank(options.columns.map((c) => c.name), at.query, (n) => n).slice(0, 8)
+        : word !== null ? functionMatches(word.query) : [];
+      // A finished name with nothing else to offer needs no list.
+      if (word !== null && hits.length === 1 && hits[0] === word.query.toUpperCase() && FUNCTIONS[hits[0]]!.max !== 0) hits = [];
       active = 0;
       drawSuggest();
       const fn = functionAtCaret(formula.value, caret);
@@ -484,14 +521,28 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
     }
     function drawSuggest(): void {
       suggest.classList.toggle("hidden", hits.length === 0);
+      suggest.classList.toggle("fn", hitKind === "function");
       suggest.replaceChildren(...hits.map((name, k) => {
-        const li = el("li", { role: "option", "aria-selected": String(k === active) }, [name]);
+        const spec = hitKind === "function" ? FUNCTIONS[name] : undefined;
+        const li = el("li", { role: "option", "aria-selected": String(k === active) },
+          spec === undefined ? [name] : [el("span", { class: "newcol-suggest-name" }, [name]), el("span", { class: "newcol-suggest-sig" }, [spec.sig])]);
+        if (spec !== undefined) li.title = spec.help;
         li.addEventListener("mousedown", (event) => { event.preventDefault(); pick(k); });
         return li;
       }));
     }
     function pick(k: number): void {
       const name = hits[k];
+      if (hitKind === "function") {
+        const word = functionWordAtCaret(formula.value, formula.selectionStart);
+        if (name === undefined || word === null) return;
+        // TODAY() and ROWNUMBER() take nothing; the rest leave the caret inside the bracket.
+        formula.setRangeText(FUNCTIONS[name]!.max === 0 ? `${name}()` : `${name}(`, word.start, formula.selectionStart, "end");
+        hits = [];
+        drawSuggest();
+        onFormulaInput();
+        return;
+      }
       const at = columnAtCaret(formula.value, formula.selectionStart);
       if (name === undefined || at === null) return;
       const caret = formula.selectionStart;

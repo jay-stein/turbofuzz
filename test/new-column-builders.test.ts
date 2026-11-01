@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ifThenFormula, QUICK_PICKS } from "../src/ui/new-column-dialog.js";
+import { functionMatches, functionWordAtCaret, ifThenFormula, QUICK_PICKS } from "../src/ui/new-column-dialog.js";
 import { compileFormula } from "../src/data/column-formula.js";
 import type { ColumnType } from "../src/types.js";
 
@@ -34,4 +34,24 @@ test("every quick column writes a formula that compiles", () => {
     assert.equal(compileFormula(f, info).ok, true, `${p.id}: ${f}`);
     assert.ok(p.name(a, "Status").length > 0);
   }
+});
+
+test("function names are offered while typed, outside text, columns and numbers", () => {
+  const at = (text: string) => functionWordAtCaret(text, text.length);
+  assert.deepEqual(at("rou"), { start: 0, query: "rou" });
+  assert.deepEqual(at("[Price] * ye"), { start: 10, query: "ye" });
+  assert.equal(at('"rou'), null, "inside quoted text");
+  assert.equal(at("[rou"), null, "inside a column name");
+  assert.equal(at("[Price]x"), null, "straight after a column");
+  assert.equal(at("Q1x"), null, "part of a longer word");
+  assert.equal(at("true"), null, "TRUE is a value");
+  assert.equal(functionWordAtCaret("ROUND(", 5), null, "already a call");
+  assert.equal(at("1 + "), null);
+});
+
+test("function matches put the name's start first, and catch a slip once three letters are in", () => {
+  assert.deepEqual(functionMatches("le"), ["LEN", "LEFT"]);
+  assert.equal(functionMatches("ro")[0], "ROUND");
+  assert.ok(functionMatches("roudn").includes("ROUND"));
+  assert.deepEqual(functionMatches("zz"), []);
 });

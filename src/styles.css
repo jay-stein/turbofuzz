@@ -2246,6 +2246,22 @@ button:disabled {
   font-size: var(--fs-md);
 }
 
+.newcol-suggest.fn li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.newcol-suggest-name {
+  font-weight: 600;
+}
+
+.newcol-suggest-sig {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
 .newcol-suggest li[aria-selected="true"],
 .newcol-suggest li:hover {
   background: var(--accent-soft);

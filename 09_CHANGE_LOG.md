@@ -28,6 +28,17 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-02-06 — New column: function names complete as you type
+
+- **Status:** Verified (unit, e2e, browser)
+- **Related issue / decision:** owner: wants function-name autocomplete in the New column formula box.
+- **Scope:** src/ui/new-column-dialog.ts: typing letters (outside quotes and [column] brackets, not after a number or column) lists the functions that fit, with their signatures, names that start with the letters first; from three letters a slip is forgiven (ROUDN → ROUND). Tab, Enter or a click inserts NAME( (TODAY() and ROWNUMBER() whole); arrows move, Esc closes. TRUE and FALSE are left alone. Same list as the [column suggestions. New exports functionWordAtCaret, functionMatches.
+- **Files / components changed:** src/ui/new-column-dialog.ts, styles.css; test/new-column-builders.test.ts (2)
+- **Tests run and results:** unit 1248 pass; e2e 125 pass (one map test flaked once under load, passes on rerun).
+- **Manual browser verification:** "rou" → ROUND first; Tab, [ann, Enter → ROUND([Annual Usage], 0) previews.
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-05 — Front page: About this app and Version
 
 - **Status:** Verified (unit, e2e)
