@@ -1336,6 +1336,14 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   // ---------------------------------------------------------------- forecast badge and trend flexibility
   /** The cycle the seasonal naive repeats, in a word ("year", "week"). */
   const cycleWord = (s: TsSnapshot): string => s.A.g.lyShort.replace(/^last /i, "").toLowerCase() || "cycle";
+  /**
+   * The simple method a model is judged against: the best of the simple methods in the backtests, or repeating the last cycle when
+   * none of them beat that. An analyst may well choose it, so the page names it, tags it on the board and offers it.
+   */
+  function yardstickOf(s: TsSnapshot, M: ModelRun, key: ModelKey): { key: ModelKey; name: string; ratio: number } {
+    const simples = BENCHMARK_KEYS.filter((k) => k !== "sn" && k !== key && M.shown.includes(k)).map((k) => ({ key: k, name: MODEL_INFO[k].name, ratio: ratioOf(s, k) })).filter((x) => Number.isFinite(x.ratio) && x.ratio < 1);
+    return simples.length ? simples.reduce((p, q) => (q.ratio < p.ratio ? q : p)) : { key: "sn", name: MODEL_INFO.sn.name, ratio: 1 };
+  }
   /** Everything the trust verdict needs about one model, from results the page already holds. */
   function verdictFor(s: TsSnapshot, M: ModelRun, key: ModelKey): Verdict {
     const m = M.models[key], f = s.futures![key];
@@ -1346,8 +1354,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const topV = top ? lockValue(M, top, ui.metric) : Infinity;
     const leader = top && top !== key && Number.isFinite(own) && own > 0 && Number.isFinite(topV) ? { name: MODEL_INFO[top].name, gapPct: Math.max(0, ((own - topV) / own) * 100) } : null;
     // The simple method that did best in the backtests (other than repeating the last cycle): the model has to beat that too.
-    const simples = BENCHMARK_KEYS.filter((k) => k !== "sn" && k !== key && M.shown.includes(k)).map((k) => ({ name: MODEL_INFO[k].name, ratio: ratioOf(s, k) })).filter((x) => Number.isFinite(x.ratio) && x.ratio < 1);
-    const bestSimple = simples.length ? simples.reduce((p, q) => (q.ratio < p.ratio ? q : p)) : null;
+    const yard = yardstickOf(s, M, key);
+    const bestSimple = yard.key === "sn" ? null : { name: yard.name, ratio: yard.ratio };
     return trustVerdict({
       baseline: key === "sn", ratio: ratioOf(s, key), lockRank: M.lockbox && m.lock ? lockRank(M, key, ui.metric) : null, models: CORE_KEYS.length,
       intermittent: M.intermittent, leader, bestSimple,
@@ -1378,6 +1386,11 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     badge.dataset.level = v.level;
     badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ts-verdict ${v.cls}">${v.label}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small><button type="button" class="ts-link" data-hood="1" title="The numbers behind this verdict, and how each model did">Details</button><button type="button" class="ts-link" data-info="verdict" title="What Reliable and Use with care mean, and how they were checked">How this is decided</button></div>
       <div class="ts-qa">${v.answers.map((a) => `<div class="ts-qa-row"><span class="ts-qa-q">${escapeHtml(a.q)}</span><span class="ts-qa-a"><span class="ts-pill ${a.cls}">${escapeHtml(a.a)}</span></span><span class="ts-qa-t">${escapeHtml(a.text)}</span></div>`).join("")}</div>
+      ${(() => {
+        if (key === "sn" || v.level === "baseline" || v.level === "untested") return "";
+        const y = yardstickOf(s, M, key);
+        return `<div class="ts-yard" data-yard="${y.key}">Compared with <b>${escapeHtml(y.name)}</b>, ${y.key === "sn" ? "the simplest yardstick" : "the best simple method in the backtests"}. <button type="button" class="ts-link" data-yard-use="${y.key}" title="Show ${escapeHtml(y.name)} as the forecast. Hover to see it on the chart.">Use it instead</button></div>`;
+      })()}
       ${v.headsUp.map((h) => `<div class="ts-headsup"><b>Also:</b> ${escapeHtml(h)}</div>`).join("")}`;
     badge.hidden = false;
     // The numbers behind the verdict, for analysts, at the top of Under the hood.
@@ -1736,6 +1749,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const s = snap as TsSnapshot, table = ref("boardCompact"), M = models();
     if (!M || !s.futures) { table.innerHTML = ""; return; }
     const sel = selectedModel(s, ui) as ModelKey, mk = ui.metric, pick = M.auto[mk].pick;
+    const yardKey = sel === "sn" ? null : yardstickOf(s, M, sel).key;
     const size = (k: ModelKey): number => { const v = M.models[k].metrics[mk]; return v === v ? (mk === "bias" ? Math.abs(v) : v) : Infinity; };
     const byError = [...M.shown].sort((p, q) => size(p) - size(q));
     const groups: [string, ModelKey[]][] = [
@@ -1753,7 +1767,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         const place = core && M.lockbox && m.lock && k !== "sn" ? ` (${ordinal(lockRank(M, k, mk))} of ${CORE_KEYS.length})` : "";
         const beat = !core && M.lockbox && m.lock && lockValue(M, k, mk) < lockValue(M, pick, mk);
         return `<tr data-model="${k}" aria-selected="${k === sel}">
-          <td><span class="ts-mname">${MODEL_INFO[k].name}</span>${k === pick ? '<span class="ts-autotag">Auto</span>' : ""}<button type="button" class="ts-info" data-info="${k}" aria-label="How ${MODEL_INFO[k].name} works" title="How ${MODEL_INFO[k].name} works: equations, fitting, sources">ⓘ</button><div class="ts-plain">${PLAIN[k] ?? ""}</div></td>
+          <td><span class="ts-mname">${MODEL_INFO[k].name}</span>${k === pick ? '<span class="ts-autotag">Auto</span>' : ""}${k === yardKey ? '<span class="ts-yardtag" title="The simple method the verdict compares the forecast with">Yardstick</span>' : ""}<button type="button" class="ts-info" data-info="${k}" aria-label="How ${MODEL_INFO[k].name} works" title="How ${MODEL_INFO[k].name} works: equations, fitting, sources">ⓘ</button><div class="ts-plain">${PLAIN[k] ?? ""}</div></td>
           <td><span class="ts-errtrack"><span class="ts-errbar" style="width:${Number.isFinite(r) ? Math.min(100, Math.max(3, (r / top) * 100)).toFixed(0) : 0}%;opacity:${k === "sn" || k === "clim" ? 0.4 : 0.85}"></span></span><span class="ts-ratio">${Number.isFinite(r) ? r.toFixed(2) : "–"}×</span></td>
           <td>${core ? `<span class="ts-dot" style="background:${dot[v.cls]}"></span>${v.level === "baseline" ? "Baseline" : escapeHtml(v.label) + place}` : `<span class="ts-dot" style="background:${beat ? dot.poor : dot.base}"></span>${beat ? "Beat the pick on unseen data" : "Benchmark"}`}</td></tr>`;
       }).join("")}</tbody>`);
@@ -1775,6 +1789,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const M = models();
     if (!M || !s.futures) { board.innerHTML = `<tbody><tr><td class="ts-emptycell">${"error" in s.models ? escapeHtml(s.models.error) : ""}</td></tr></tbody>`; card.innerHTML = ""; ref("boardCompact").innerHTML = ""; return; }
     const sel = selectedModel(s, ui) as ModelKey, fut = s.futures;
+    const fullYard = sel === "sn" ? null : yardstickOf(s, M, sel).key;
     const heldMode = M.T < s.A.modelN && fut.sn.held?.ratio != null;
     const mk = ui.metric, best = M.auto[mk].pick;
     const size = (k: ModelKey): number => { const v = M.models[k].metrics[mk]; return v === v ? (mk === "bias" ? Math.abs(v) : v) : Infinity; };
@@ -1790,7 +1805,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         const m = M.models[k], r = ratioOf(s, k), gd = grade(r, k), f = fut[k], v = size(k);
         const chk = f.held ? `${f.held.hit} of ${f.held.tot} inside 80%` : m.check ? `${m.check.hit} of ${m.check.tot} inside 80%` : "–";
         return `<tr data-model="${k}" aria-selected="${k === sel}">
-          <td><span class="ts-mname">${MODEL_INFO[k].name}</span><button type="button" class="ts-info" data-info="${k}" aria-label="How ${MODEL_INFO[k].name} works" title="How ${MODEL_INFO[k].name} works: equations, fitting, sources">ⓘ</button>${k === best && ui.model === "auto" ? `<span class="ts-auto">Auto</span>` : ""}<span class="ts-mmeth">${MODEL_INFO[k].meth}</span></td>
+          <td><span class="ts-mname">${MODEL_INFO[k].name}</span>${k === fullYard ? '<span class="ts-yardtag" title="The simple method the verdict compares the forecast with">Yardstick</span>' : ""}<button type="button" class="ts-info" data-info="${k}" aria-label="How ${MODEL_INFO[k].name} works" title="How ${MODEL_INFO[k].name} works: equations, fitting, sources">ⓘ</button>${k === best && ui.model === "auto" ? `<span class="ts-auto">Auto</span>` : ""}<span class="ts-mmeth">${MODEL_INFO[k].meth}</span></td>
           <td><span class="ts-errbar" style="width:${Number.isFinite(v) ? Math.max(4, (v / maxV) * 90).toFixed(0) : 0}px;opacity:${k === "sn" ? 0.35 : 0.85}"></span>${metricText(mk, m.metrics[mk])}</td>
           <td>${r.toFixed(2)}×${heldMode ? ` <small>backtest ${m.ratio.toFixed(2)}×</small>` : ""}</td>
           <td><span class="ts-pill ${gd.cls}">${gd.text}</span></td>
@@ -2179,6 +2194,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (st) change({ smoothStat: st.dataset.stat as TsConfig["smoothStat"] }, { fade: false });
     const info = target.closest<HTMLElement>("[data-info]");
     if (info) { openDocs(info.dataset.info!); return; }
+    const yardUse = target.closest<HTMLElement>("[data-yard-use]");
+    if (yardUse) { uiChange({ model: yardUse.dataset.yardUse as ModelKey }); return; }
     if (target.closest("[data-hood]")) { folds.hood = true; applyFolds(); try { localStorage.setItem("ts.forecast.folds", JSON.stringify(folds)); } catch { /* ignore */ } ref("heroDetail").scrollIntoView({ block: "start", behavior: "smooth" }); return; }
     const arimaRowEl = target.closest<HTMLElement>("tr[data-arima]");
     if (arimaRowEl && !info) { folds.compute = true; applyFolds(); ref("arimaOut").scrollIntoView({ block: "start", behavior: "smooth" }); return; }
@@ -2267,13 +2284,14 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   on("splitReset", "click", () => change({ split: null }, { fade: false }));
   on("exportBtn", "click", () => openExportMenu(ref("exportBtn")));
   const hoverRow = (e: Event): void => {
-    const t = e.target as Element, r = t.closest<HTMLElement>("tr[data-model]");
-    const k = (r?.dataset.model as ModelKey | undefined) ?? null, ar = !!t.closest("tr[data-arima]");
+    const t = e.target as Element, r = t.closest<HTMLElement>("tr[data-model], [data-yard]");
+    const k = ((r?.dataset.model ?? r?.dataset.yard) as ModelKey | undefined) ?? null, ar = !!t.closest("tr[data-arima]");
     if (k !== ghostModel || ar !== ghostArima) { ghostModel = k; ghostArima = ar; invalidate("stat"); }
   };
   const hoverEnd = (): void => { ghostModel = null; ghostArima = false; invalidate("stat"); };
   on("board", "pointerover", hoverRow); on("board", "pointerleave", hoverEnd);
   on("boardCompact", "pointerover", hoverRow); on("boardCompact", "pointerleave", hoverEnd);
+  on("heroBadge", "pointerover", hoverRow); on("heroBadge", "pointerleave", hoverEnd);
   on("tableBtn", "click", (e) => {
     tableOpen = !tableOpen;
     (e.currentTarget as HTMLElement).setAttribute("aria-expanded", String(tableOpen));

@@ -28,6 +28,15 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-02-02 — The simple method a forecast is judged against is named, tagged and one click away
+
+- **Status:** Verified
+- **Scope:** The verdict names its yardstick in a sentence, but nothing marked that model and an analyst might well prefer it. The badge now has its own line: "Compared with Seasonal average, the best simple method in the backtests" (or "the simplest yardstick" when none of the simple methods beat repeating the last cycle), with **Use it instead**, which makes it the forecast ("picked by you"). Hovering the line draws that method's forecast on the chart, the same ghost the board uses. The Compare board and the full board tag the row **Yardstick**. One function decides which method it is, so the verdict, the badge and the boards cannot disagree.
+- **Files / components changed:** src/ui/timeseries-page.ts, src/styles.css, test/e2e/time-series-page.spec.ts
+- **Tests run and results:** e2e: the badge names it, the board tags exactly that row, Use it instead picks it; contrast passes
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-01 — Forecast verdict calibrated on 497 random series: "Not reliable" retired, Reliable confirmed
 
 - **Status:** Verified

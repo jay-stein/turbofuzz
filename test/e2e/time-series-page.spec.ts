@@ -234,6 +234,24 @@ test("the data table says which rows are actual, filled or forecast", async ({ p
   await expect(table.locator(".ts-table-note")).toContainText("in view");
 });
 
+test("the simple method a forecast is judged against is named in the badge, tagged on the board, and one click away", async ({ page }) => {
+  await openPage(page);
+  await page.locator(".ts-modes [data-mode=forecast]").click();
+  const badge = page.locator(".ts-page [data-ref=heroBadge]");
+  const yard = badge.locator(".ts-yard");
+  await expect(yard).toContainText("Compared with");
+  const name = ((await yard.locator("b").textContent()) ?? "").trim();
+  expect(name.length).toBeGreaterThan(2);
+  // The board marks the same method, so the analyst can see where it ranks.
+  await page.locator(".ts-fold[data-fold=compare]").click();
+  await expect(page.locator("[data-ref=boardCompact] tr", { hasText: name }).first().locator(".ts-yardtag")).toHaveText("Yardstick");
+  await expect(page.locator("[data-ref=boardCompact] .ts-yardtag")).toHaveCount(1);
+  // One click makes it the forecast.
+  await yard.getByRole("button", { name: "Use it instead" }).click();
+  await expect(badge).toContainText("picked by you");
+  await expect(badge.locator(".ts-badge-top b").first()).toHaveText(name);
+});
+
 test("the chart names the forecast model and how it did; Trend flexibility explains itself and draws its validation curve", async ({ page }) => {
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();

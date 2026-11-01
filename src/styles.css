@@ -12387,3 +12387,8 @@ button.qp-tile:hover {
 /* The Map page is the map: the card's own "Map: rows from Table" line repeats the page title, and the display menu needs its words. */
 .map-page .chart-summary { display: none; }
 .map-page .chart-bubble-settings select[aria-label="Map display mode"] { min-width: 168px; }
+
+/* Which simple method the verdict is judged against: named in the badge, tagged on the board, one click to use it. */
+.ts-yard { margin-top: 6px; font-size: var(--fs-sm); color: var(--text-dim); }
+.ts-yard b { color: var(--text); }
+.ts-yardtag { margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.03em; color: var(--text); border: 1px solid var(--border); background: var(--panel-2); }
