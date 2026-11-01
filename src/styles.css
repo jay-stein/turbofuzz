@@ -33,9 +33,9 @@
   --qa-warn-border: #fbbf24;
   --qa-warn-soft: #fef3c7;
   --qa-warn-text: #7c4a03;
-  --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 8px 24px rgb(16 24 40 / 8%);
-  --radius: 10px;
-  --radius-sm: 6px;
+  --shadow: 0 1px 2px rgb(16 24 40 / 5%), 0 4px 12px rgb(16 24 40 / 6%);
+  --radius: 8px;
+  --radius-sm: 5px;
   --fs-xs: 11px;
   --fs-sm: 12px;
   --fs-md: 13px;
@@ -12197,7 +12197,11 @@ button.qp-tile:hover {
   margin-right: 6px;
 }
 .view-tabs button.active { color: var(--text); font-weight: 600; }
-@media (min-width: 1280px) {
+/* Every tab shows its name when they all fit: five tabs from 1100px, nine (Research on) from 1760px. */
+@media (min-width: 1100px) {
+  .view-tabs:not(:has(.view-tabs-research:not(.hidden))) .view-tab-label { max-width: none; padding-left: 6px; opacity: 1; }
+}
+@media (min-width: 1760px) {
   .view-tabs .view-tab-label { max-width: none; padding-left: 6px; opacity: 1; }
 }
 
@@ -12238,3 +12242,24 @@ button.qp-tile:hover {
 .filter-card { padding: 6px 10px 5px; border-radius: var(--radius-sm); }
 
 .chart-field-hint { font-size: var(--fs-xs); color: var(--text-dim); font-family: var(--mono); white-space: nowrap; }
+
+/* ---------- Every page: the analyst console look (phase 3, DEC-2026-11-01-02) ----------
+   Numbers are monospace and tabular; section labels are small, spaced capitals; cards are flat with hairline borders. */
+.stat-value, .health-value, .qp-ring-value, .qp-dim-score, .qp-tile-value, .quality-score,
+.ts-strip dd, .score-tile-value, .chart-kpi-value, .views-card-count {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.ts-strip dd { font-size: 14px; }
+.overview-heading, .quality-section-title, .qp-section-title, .outliers-section-title, .ts-kick {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.health-tile, .qp-tile, .ts-card, .overview-card, .filter-card, .views-card, .chart-card {
+  box-shadow: none;
+}
+.mode-switch, .view-tabs { font-feature-settings: "tnum"; }

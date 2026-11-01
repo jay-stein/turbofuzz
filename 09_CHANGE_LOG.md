@@ -28,6 +28,15 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-06 — Analyst console look, phase 3: every other page
+
+- **Status:** Verified
+- **Scope:** Shared styling for Overview, Data Quality, Pivot View, Chart, Outliers, Relationships, Time Series and Map: big numbers (tile values, the quality score, the Time Series strip, view counts) are monospace and tabular; section labels are small spaced capitals; cards are flat with hairline borders; corner radii and shadows are tighter and lighter (`--radius` 10 to 8, `--radius-sm` 6 to 5). The tab names now show only when they all fit (five tabs from 1100px, nine with Research on from 1760px), which fixes "Relationships" being cut off. Page layouts are unchanged.
+- **Files / components changed:** src/styles.css
+- **Tests run and results:** typecheck clean; 1186 unit tests pass; e2e 115 pass; checked by screenshot in both themes: Overview, Data Quality, Pivot View, Outliers, Time Series
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-05 — Map: sandy land and light-blue water, Fit all, open Markers panel, pasted column layouts, a clearer heat grid
 
 - **Status:** Verified
