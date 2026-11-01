@@ -12,6 +12,7 @@ import { seasonalityTest, type SeasonalityTest } from "./seasonality.js";
 import { classicalFigure, etsFitted, etsForecast, etsFrom, etsRun, etsSelect, etsSpec, fitSes, type EtsFit, type EtsState } from "./ets.js";
 export { etsSpec } from "./ets.js";
 import { mstl } from "./stl.js";
+import { allPositive, boxCox, guerrero, invBoxCox } from "./boxcox.js";
 import { crostonRate, demandProfile, driftSlope, fitIntermittent, isIntermittent, meanLevel, naiveLevel, sbaRate, tsbRate } from "./benchmarks.js";
 
 export type ModelKey = "sn" | "hw" | "ets" | "reg" | "theta" | "clim" | "ens" | "comb" | "naive" | "drift" | "mean" | "ses" | "croston" | "sba" | "tsb";
@@ -114,6 +115,8 @@ export interface ModelRun {
    */
   auto: Record<MetricKey, { pick: ModelKey; why: string }>;
   autoPolicy: "combination" | "backtest" | "intermittent";
+  /** The power transformation the smoothing and regression models were fitted on, or null for none. */
+  transform: { lambda: number; method: "guerrero" | "log" } | null;
   /** The history is mostly zeros with now and then a sale (average demand interval above 1.32). */
   intermittent: boolean;
   /** The models the page lists: the intermittent-demand methods only appear for an intermittent series. */
@@ -136,7 +139,7 @@ export type Futures = Record<ModelKey, Future>;
 /** Inside the worker only: the run plus what the futures need (fits with closures). */
 /** The final seasonally adjusted fit when the season is removed with MSTL. */
 interface LongFinal { s: number; adj: Float64Array; adjM: Float64Array; etsFc: Float64Array; hwFc: Float64Array; thetaFc: Float64Array }
-interface RunInternal extends ModelRun { mS: number; long: LongFinal | null; oc: Record<ModelKey, Float64Array>; etsFinal: EtsState; etsFit: EtsFit; hwFinal: HwState; hwParams: HwParams; regFit: RegFit; thetaFit: ThetaFit; climM: number; climMeans: Float64Array; q: Record<ModelKey, BandQ[]>; bench: { naive: number; slope: number; mean: number; ses: number; croston: number; sba: number; tsb: number } }
+interface RunInternal extends ModelRun { mS: number; long: LongFinal | null; oc: Record<ModelKey, Float64Array>; etsFinal: EtsState; etsFit: EtsFit; hwFinal: HwState; hwParams: HwParams; regFit: RegFit; thetaFit: ThetaFit; climM: number; climMeans: Float64Array; q: Record<ModelKey, BandQ[]>; yFit: Float64Array; bench: { naive: number; slope: number; mean: number; ses: number; croston: number; sba: number; tsb: number } }
 
 function hwInit(y: Float64Array, m: number, limit: number): HwState {
   let l = 0;
@@ -484,11 +487,15 @@ export function flexCurve(A: Aggregated, table: TsTable, cfg: TsConfig, H: numbe
   const plan = backtestPlan(A, cfg, cfg.split, H);
   if ("error" in plan) return [];
   const y = A.yModel, out: { flex: number; mase: number }[] = [];
+  // The regression learns on the transformed scale when the board's does; its error is scored on the original one.
+  const bc = pickTransform(y, cfg, A.modelM || 1, plan.origins, plan.T);
+  const yFit = bc ? boxCox(y, bc.lambda) : y;
+  const back = (w: number): number => (bc ? invBoxCox(w, bc.lambda) : w);
   for (let flex = 1; flex <= 10; flex++) {
     let ae = 0, ac = 0;
     for (const o of plan.origins) {
-      const f = regFit(A, table, cfg.drivers, y, o, flex, plan.rolling ? o - plan.startOf(o) : Infinity);
-      for (let h = 0; h < H; h++) { if (A.made[o + h]) continue; const e = Math.abs(y[o + h] - regAt(f, o + h)); if (e === e) { ae += e; ac++; } }
+      const f = regFit(A, table, cfg.drivers, yFit, o, flex, plan.rolling ? o - plan.startOf(o) : Infinity);
+      for (let h = 0; h < H; h++) { if (A.made[o + h]) continue; const e = Math.abs(y[o + h] - back(regAt(f, o + h))); if (e === e) { ae += e; ac++; } }
     }
     out.push({ flex, mase: ae / (ac || 1) / plan.scale });
   }
@@ -500,24 +507,42 @@ export function flexDetail(T: number, flex: number): { hinges: number; lambda: n
   return { hinges: Math.max(1, Math.min(10, Math.floor(T / 10))), lambda: 0.3 * Math.pow(10, (5 - flex) / 2.5) };
 }
 
+/** The power transformation asked for, or null when none is wanted or the series cannot take one (see runModels). */
+function pickTransform(yO: Float64Array, cfg: TsConfig, m: number, origins: number[], T: number): ModelRun["transform"] {
+  if (cfg.transform === "none" || !allPositive(yO, 0, T)) return null;
+  if (cfg.transform === "log") return { lambda: 0, method: "log" };
+  const basis = origins.length && origins[0]! >= 3 * Math.max(m, 2) ? origins[0]! : T;
+  const lam = guerrero(yO, 0, basis, m);
+  return lam === null ? null : { lambda: lam, method: "guerrero" };
+}
+
 /** Fits every model on [0, T) and backtests it from earlier origins. */
 export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq: number | null, H: number, warm: HwWarm): (ModelRun & { internal: RunInternal }) | ModelError {
   const g = A.g, m = A.modelM;
   const plan = backtestPlan(A, cfg, splitReq, H);
   if ("error" in plan) return plan;
   const { T, origins, step, rolling, trainLen, startOf, scale } = plan;
-  const y = A.yModel;
+  // yO is the series as it is scored; y is what the smoothing and regression models learn from: the same unless a
+  // power transformation applies (the benchmarks, the seasonal naive and the seasonal average stay on the original scale).
+  const yO = A.yModel;
+  // The power is decided on the history before the first fold (all of it when there is no fold), once, so every fold
+  // and the forecast use the same transformation; only a series above zero everywhere can be transformed.
+  const bc = pickTransform(yO, cfg, m, origins, T);
+  const y = bc ? boxCox(yO, bc.lambda) : yO;
+  const inv = (w: number): number => (bc ? invBoxCox(w, bc.lambda) : w);
   // The smoothing models see filled periods as missing: they bridge them but never learn from them.
   const yM = y.slice();
   for (let t = 0; t < yM.length; t++) if (A.made[t]) yM[t] = NaN;
+  const yMo = yO.slice();
+  for (let t = 0; t < yMo.length; t++) if (A.made[t]) yMo[t] = NaN;
   const R = origins.length;
   const oc = Object.fromEntries(MODEL_KEYS.map((k) => [k, new Float64Array(R * H)])) as Record<ModelKey, Float64Array>;
 
-  origins.forEach((o, k) => { for (let h = 0; h < H; h++) oc.sn[k * H + h] = y[o - m + (h % m)]; });
+  origins.forEach((o, k) => { for (let h = 0; h < H; h++) oc.sn[k * H + h] = yO[o - m + (h % m)]; });
   // The other benchmarks (fpp3 5.2), on each fold's training stretch; filled periods count as missing.
-  const sesAt = (o: number, from: number): number => { const seg = yM.subarray(from, o); return seg.length >= 2 ? fitSes(seg, seg.length).level : naiveLevel(seg, seg.length); };
+  const sesAt = (o: number, from: number): number => { const seg = yMo.subarray(from, o); return seg.length >= 2 ? fitSes(seg, seg.length).level : naiveLevel(seg, seg.length); };
   origins.forEach((o, k) => {
-    const from = startOf(o), seg = yM.subarray(from, o), last = naiveLevel(seg, seg.length), slope = driftSlope(seg, seg.length), mu = meanLevel(seg, seg.length);
+    const from = startOf(o), seg = yMo.subarray(from, o), last = naiveLevel(seg, seg.length), slope = driftSlope(seg, seg.length), mu = meanLevel(seg, seg.length);
     const level = sesAt(o, Math.max(from, etsFrom(o, m)));
     for (let h = 0; h < H; h++) {
       oc.naive[k * H + h] = last; oc.drift[k * H + h] = last + slope * (h + 1); oc.mean[k * H + h] = mu; oc.ses[k * H + h] = level;
@@ -525,17 +550,17 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   });
   // Intermittent demand is decided once, on all the history the forecast is fitted on (up to the split), so the
   // same methods are used in every fold; the kind of series is not something the held-out values can change.
-  const intermittent = isIntermittent(yM, T);
+  const intermittent = isIntermittent(yMo, T);
   const rates = (seg: Float64Array): [number, number, number] => {
     const f = fitIntermittent(seg, seg.length);
     return f ? [crostonRate(f), sbaRate(f), tsbRate(f)] : [0, 0, 0];
   };
   origins.forEach((o, k) => {
-    const [cr, sb, ts] = intermittent ? rates(yM.subarray(startOf(o), o)) : [NaN, NaN, NaN];
+    const [cr, sb, ts] = intermittent ? rates(yMo.subarray(startOf(o), o)) : [NaN, NaN, NaN];
     for (let h = 0; h < H; h++) { oc.croston[k * H + h] = cr; oc.sba[k * H + h] = sb; oc.tsb[k * H + h] = ts; }
   });
-  const [crF, sbF, tsF] = intermittent ? rates(yM.subarray(0, T)) : [NaN, NaN, NaN];
-  const benchFinal = { naive: naiveLevel(yM, T), slope: driftSlope(yM, T), mean: meanLevel(yM, T), ses: sesAt(T, etsFrom(T, m)), croston: crF, sba: sbF, tsb: tsF };
+  const [crF, sbF, tsF] = intermittent ? rates(yMo.subarray(0, T)) : [NaN, NaN, NaN];
+  const benchFinal = { naive: naiveLevel(yMo, T), slope: driftSlope(yMo, T), mean: meanLevel(yMo, T), ses: sesAt(T, etsFrom(T, m)), croston: crF, sba: sbF, tsb: tsF };
 
   // Smoothing parameters for the backtest are fitted on data before the first origin
   // only, so no model is scored on periods it was tuned on (that would flatter it).
@@ -652,9 +677,10 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
 
   const first = origins.length ? origins[0] : T;
   const climM = g.periods.filter((pp) => first >= pp).pop() || m;
-  origins.forEach((o, k) => { const means = phaseMeans(y, o, climM, rolling ? Math.max(0, Math.floor((o - trainLen!) / climM) * climM) : 0); for (let h = 0; h < H; h++) oc.clim[k * H + h] = means[(o + h) % climM]; });
-  const climMeans = phaseMeans(y, T, climM);
+  origins.forEach((o, k) => { const means = phaseMeans(yO, o, climM, rolling ? Math.max(0, Math.floor((o - trainLen!) / climM) * climM) : 0); for (let h = 0; h < H; h++) oc.clim[k * H + h] = means[(o + h) % climM]; });
+  const climMeans = phaseMeans(yO, T, climM);
 
+  if (bc) for (const key of ["hw", "ets", "reg", "theta"] as const) for (let i = 0; i < R * H; i++) oc[key][i] = inv(oc[key][i]!);
   for (let i = 0; i < R * H; i++) {
     oc.ens[i] = (oc.ets[i] + oc.reg[i] + oc.theta[i]) / 3;
     oc.comb[i] = (oc.ets[i] + oc.theta[i] + oc.hw[i]) / 3;
@@ -671,9 +697,9 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
     if (!long) {
       const from = etsFrom(T, mS), pred = new Float64Array(T);
       etsFitted(yM, from, T, etsFit, pred);
-      for (let t = from; t < T; t++) { const e = yM[t]! - pred[t]!; if (e === e) { s2 += e * e; c++; } }
+      for (let t = from; t < T; t++) { const e = yMo[t]! - inv(pred[t]!); if (e === e) { s2 += e * e; c++; } }
     }
-    if (c < 3) { s2 = 0; c = 0; for (let t = 1; t < T; t++) { const e = yM[t]! - yM[t - 1]!; if (e === e) { s2 += e * e; c++; } } }
+    if (c < 3) { s2 = 0; c = 0; for (let t = 1; t < T; t++) { const e = yMo[t]! - yMo[t - 1]!; if (e === e) { s2 += e * e; c++; } } }
     return (sigmaCache = c ? Math.sqrt(s2 / c) : 0);
   };
   const foldMae = {} as Record<ModelKey, Float64Array>;
@@ -692,7 +718,7 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
       let fae = 0, fc = 0;
       for (let h = 0; h < H; h++) {
         if (A.made[o + h]) continue;
-        const act = y[o + h], f = oc[key][k * H + h], e = act - f;
+        const act = yO[o + h], f = oc[key][k * H + h], e = act - f;
         if (!(e === e)) continue;
         errs[k * H + h] = e; fae += Math.abs(e); fc++;
         addErr(acc, act, f);
@@ -740,7 +766,7 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   const dmLag = Math.max(0, Math.ceil(H / step) - 1);
   const lockSize = (key: ModelKey, mk: MetricKey): number => { const v = models[key].lock?.[mk] ?? NaN; return v === v ? (mk === "bias" ? Math.abs(v) : v) : Infinity; };
   const nm = (k: ModelKey): string => MODEL_INFO[k].name;
-  const demandInterval = demandProfile(yM, T).adi;
+  const demandInterval = demandProfile(yMo, T).adi;
   const auto = {} as ModelRun["auto"];
   for (const mk of METRIC_KEYS) {
     if (autoPolicy === "intermittent") {
@@ -768,8 +794,8 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   }
   const best = auto.mase.pick;
   const shown = MODEL_KEYS.filter((k) => intermittent || !INTERMITTENT_KEYS.includes(k));
-  const out: ModelRun = { T, H, m, origins, step, models, best, bestBy, lockbox, auto, autoPolicy, intermittent, shown, season, cv: rolling ? "rolling" : "expanding", trainLen, rough: R < 3, profile: seriesProfile(A, T) };
-  return { ...out, internal: { ...out, bench: benchFinal, mS, long, oc, etsFinal, etsFit, hwFinal, hwParams, regFit: reg, thetaFit: theta, climM, climMeans, q } };
+  const out: ModelRun = { T, H, m, origins, step, models, best, bestBy, lockbox, auto, autoPolicy, transform: bc, intermittent, shown, season, cv: rolling ? "rolling" : "expanding", trainLen, rough: R < 3, profile: seriesProfile(A, T) };
+  return { ...out, internal: { ...out, yFit: y, bench: benchFinal, mS, long, oc, etsFinal, etsFit, hwFinal, hwParams, regFit: reg, thetaFit: theta, climM, climMeans, q } };
 }
 
 interface ErrAcc { ae: number; ac: number; se: number; ay: number; sum: number; sm: number; smc: number; mp: number; mpc: number }
@@ -804,10 +830,15 @@ export function computeFutures(A: Aggregated, run: RunInternal): Futures {
     hwForecast(run.hwFinal, run.mS, run.hwParams[3], T, H, F.hw, 0);
     etsForecast(run.etsFinal, run.etsFit, T, H, F.ets, 0);
   }
+  const bc = run.transform, inv = (w: number): number => (bc ? invBoxCox(w, bc.lambda) : w);
   for (let h = 0; h < H; h++) {
     F.reg[h] = regAt(run.regFit, T + h);
-    F.sn[h] = y[T - m + (h % m)];
     F.theta[h] = run.long ? run.long.thetaFc[h]! : thetaAt(run.thetaFit, h);
+  }
+  // The models fitted on the transformed scale are brought back before anything is combined or banded.
+  if (bc) for (const key of ["hw", "ets", "reg", "theta"] as const) for (let h = 0; h < H; h++) F[key][h] = inv(F[key][h]!);
+  for (let h = 0; h < H; h++) {
+    F.sn[h] = y[T - m + (h % m)];
     F.clim[h] = run.climMeans[(T + h) % run.climM];
     F.ens[h] = (F.ets[h] + F.reg[h] + F.theta[h]) / 3;
     F.comb[h] = (F.ets[h] + F.theta[h] + F.hw[h]) / 3;
@@ -874,7 +905,9 @@ export interface DeepCheck {
 
 /** In-sample one-step errors of a model on its own fitting window (NaN where not defined or filled). */
 function oneStepErrors(A: Aggregated, run: RunInternal, key: ModelKey): { e: Float64Array; kind: string } {
-  const { T, m } = run, y = A.yModel, e = new Float64Array(T).fill(NaN), pred = new Float64Array(T).fill(NaN);
+  const { T, m } = run, y = A.yModel, yF = run.yFit, e = new Float64Array(T).fill(NaN), pred = new Float64Array(T).fill(NaN);
+  // The fitted models learn on the transformed scale; their one-step predictions are brought back so the residuals are on the scale of the data.
+  const bcl = run.transform, invP = (arr: Float64Array): void => { if (bcl) for (let t = 0; t < arr.length; t++) arr[t] = invBoxCox(arr[t]!, bcl.lambda); };
   const etsPred = (): void => {
     const f = run.etsFit, L = run.long;
     if (L) {
@@ -883,7 +916,7 @@ function oneStepErrors(A: Aggregated, run: RunInternal, key: ModelKey): { e: Flo
       for (let t = 0; t < tmp.length; t++) pred[L.s + t] = tmp[t]!;
       return;
     }
-    const masked = y.slice();
+    const masked = yF.slice();
     for (let t = 0; t < masked.length; t++) if (A.made[t]) masked[t] = NaN;
     etsFitted(masked, etsFrom(T, run.mS), T, f, pred);
   };
@@ -891,7 +924,7 @@ function oneStepErrors(A: Aggregated, run: RunInternal, key: ModelKey): { e: Flo
   const thetaPred = (): void => {
     const tf = run.thetaFit, L = run.long, s = L ? L.s : T - tf.o;
     const mul = (i: number): number => (tf.scale ? tf.scale[i % tf.m]! : 1), add = (i: number): number => (tf.prof ? tf.prof[i % tf.m]! : 0);
-    const val = (i: number): number => (L ? L.adj[i]! : y[s + i]!);
+    const val = (i: number): number => (L ? L.adj[i]! : yF[s + i]!);
     const z = (i: number): number => (tf.scale ? val(i) / mul(i) : val(i) - add(i));
     let l = z(0);
     for (let i = 1; i < tf.o; i++) {
@@ -904,22 +937,22 @@ function oneStepErrors(A: Aggregated, run: RunInternal, key: ModelKey): { e: Flo
   switch (key) {
     case "sn": for (let t = m; t < T; t++) pred[t] = y[t - m]; break;
     case "clim": for (let t = 0; t < T; t++) pred[t] = run.climMeans[t % run.climM]!; kind = "fitted"; break;
-    case "hw": oneStepErrorsHw(A, run, pred); break;
-    case "ets": etsPred(); break;
-    case "reg": regPred(); kind = "fitted"; break;
-    case "theta": thetaPred(); kind = "one-step (approximate)"; break;
+    case "hw": oneStepErrorsHw(A, run, pred); invP(pred); break;
+    case "ets": etsPred(); invP(pred); break;
+    case "reg": regPred(); invP(pred); kind = "fitted"; break;
+    case "theta": thetaPred(); invP(pred); kind = "one-step (approximate)"; break;
     case "comb": {
-      etsPred(); const pe = pred.slice(); pred.fill(NaN);
-      thetaPred(); const pt = pred.slice(); pred.fill(NaN);
-      oneStepErrorsHw(A, run, pred);
+      etsPred(); invP(pred); const pe = pred.slice(); pred.fill(NaN);
+      thetaPred(); invP(pred); const pt = pred.slice(); pred.fill(NaN);
+      oneStepErrorsHw(A, run, pred); invP(pred);
       for (let t = 0; t < T; t++) pred[t] = (pe[t]! + pt[t]! + pred[t]!) / 3;
       kind = "one-step (approximate)";
       break;
     }
     case "ens": {
-      etsPred(); const pe = pred.slice(); pred.fill(NaN);
-      regPred(); const pr = pred.slice(); pred.fill(NaN);
-      thetaPred(); const pt = pred.slice();
+      etsPred(); invP(pred); const pe = pred.slice(); pred.fill(NaN);
+      regPred(); invP(pred); const pr = pred.slice(); pred.fill(NaN);
+      thetaPred(); invP(pred); const pt = pred.slice();
       for (let t = 0; t < T; t++) pred[t] = (pe[t]! + pr[t]! + pt[t]!) / 3;
       kind = "mixed one-step and fitted";
       break;
@@ -1024,7 +1057,7 @@ export function dmTest(errA: Float64Array, errB: Float64Array, folds: number, H:
 /** The damped Holt-Winters one-step forecasts on the fitting window, written into pred (NaN elsewhere). */
 function oneStepErrorsHw(A: Aggregated, run: RunInternal, pred: Float64Array): void {
   // With the season removed by MSTL the one-step errors are those of the seasonally adjusted series.
-  const L = run.long, T = run.T, m = L ? 1 : run.mS, hs = L ? L.s : fitFrom(T, m), sub = L ? L.adj : A.yModel.subarray(hs), [a, be, ga, ph] = run.hwParams, st = hwInit(sub, m, T - hs);
+  const L = run.long, T = run.T, m = L ? 1 : run.mS, hs = L ? L.s : fitFrom(T, m), sub = L ? L.adj : run.yFit.subarray(hs), [a, be, ga, ph] = run.hwParams, st = hwInit(sub, m, T - hs);
   let l = st.l, b = st.b;
   const sv = st.s;
   for (let t = m; t < T - hs; t++) {

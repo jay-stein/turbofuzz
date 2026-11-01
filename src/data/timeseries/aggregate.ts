@@ -36,6 +36,8 @@ export interface TsConfig {
   period: number | null;
   /** Robust z beyond which a period is flagged as unusual. */
   sens: number;
+  /** A power (Box-Cox) transformation for the smoothing and regression models: none, Guerrero's choice, or the log. */
+  transform: "none" | "auto" | "log";
   /** Forecast from this period (a backtest); null is the latest. */
   split: number | null;
   horizon: number | null;

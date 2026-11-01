@@ -170,6 +170,7 @@ const TEMPLATE = `
         <div class="ts-fold-body" data-ref="foldHood" hidden>
         <div class="ts-hood-controls">
           <div class="ts-ctl ts-ctl-key"><label for="ts-metric">Rank by</label><select id="ts-metric" class="ts-select ts-select-key" data-ref="metricSel" title="Picks the Auto model, the line on the chart">${METRIC_KEYS.map((k) => `<option value="${k}">${METRIC_INFO[k].label} · ${METRIC_INFO[k].short}${k === "mase" ? " (default)" : ""}</option>`).join("")}</select><button type="button" class="ts-help-dot" data-ref="guideBtn2" aria-label="Which model, and why? What each measure means" title="What each measure means">?</button></div>
+          <div class="ts-ctl"><span title="A power transformation makes swings that grow with the level steadier before the smoothing and regression models learn. Off by default: on five monthly benchmark sets it did not help.">Transform</span><div class="ts-seg" data-ref="trSeg" role="group" aria-label="Transformation"><button type="button" data-tr="none" title="Models learn from the series as it is">None</button><button type="button" data-tr="auto" title="Box-Cox, with the power chosen by Guerrero's method on the history before the first fold">Box-Cox (auto)</button><button type="button" data-tr="log" title="The natural log: swings that grow in proportion to the level become steady">Log</button></div></div>
           <div class="ts-ctl"><span>Validate</span><div class="ts-seg" data-ref="cvSeg" role="group" aria-label="Validation window"><button type="button" data-cv="expanding" title="Each backtest trains on everything before it">Expanding window</button><button type="button" data-cv="rolling" title="Each backtest trains on a fixed-length window that slides forward">Rolling window</button></div></div>
         </div>
         <div class="ts-boardbar">
@@ -1525,6 +1526,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const keys = [...M.shown].sort((p, q) => size(p) - size(q));
     const info = METRIC_INFO[mk];
     for (const b of ref("cvSeg").querySelectorAll<HTMLButtonElement>("button")) b.setAttribute("aria-pressed", String(b.dataset.cv === M.cv));
+    for (const b of ref("trSeg").querySelectorAll<HTMLButtonElement>("button")) b.setAttribute("aria-pressed", String(b.dataset.tr === s.cfg.transform));
     ref<HTMLSelectElement>("metricSel").value = mk;
     ref("boardNote").innerHTML = `Ranked by <b>${info.label}</b> (${info.short.toLowerCase()}), ${M.cv} window, ${M.origins.length} folds. Change both in the toolbar above the chart.`;
     board.innerHTML = `<thead><tr><th>Model</th><th title="${info.short}: ${mk === "bias" ? "nearer zero is better" : "lower is better"}">${info.label} <small>${mk === "bias" ? "nearer 0 is better" : "lower is better"}</small></th><th>${heldMode ? "Held-out" : "Backtest"} error vs repeat-last-cycle</th><th>Grade</th><th title="Selection folds where it beat repeating the last cycle">Folds beaten</th>${M.lockbox ? `<th title="The last fold, held back: never used to rank or pick, so its score is not flattered by the choice">Unseen fold <small>${info.label}, rank</small></th>` : ""}<th>${heldMode ? "Held-out check" : "Band check"}</th></tr></thead><tbody>` +
@@ -1955,6 +1957,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   on("diffOn", "change", (e) => uiChange({ diff: (e.target as HTMLInputElement).checked, diffLag: ui.diffLag || defaultLag() }));
   on("diffLag", "change", (e) => { const v = Math.round(Number((e.target as HTMLInputElement).value)); if (v >= 1) uiChange({ diff: true, diffLag: v }); });
   on("diffPresets", "click", (e) => { const b = (e.target as Element).closest<HTMLElement>("[data-lag]"); if (b) uiChange({ diff: true, diffLag: Number(b.dataset.lag) }); });
+  on("trSeg", "click", (e) => { const b = (e.target as Element).closest<HTMLButtonElement>("button[data-tr]"); if (b) change({ transform: b.dataset.tr as TsConfig["transform"] }); });
   on("cvSeg", "click", (e) => { const b = (e.target as Element).closest<HTMLButtonElement>("button[data-cv]"); if (b) change({ cv: b.dataset.cv as TsConfig["cv"] }, { fade: false }); });
   on("metricSel", "change", (e) => { uiChange({ metric: (e.target as HTMLSelectElement).value as MetricKey }); invalidate("panel"); });
   on("guideBtn2", "click", () => openModelGuide(Object.fromEntries(MODEL_KEYS.map((k) => [k, MODEL_INFO[k].name])) as Record<ModelKey, string>));

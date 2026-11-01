@@ -318,6 +318,11 @@ export function modelRows(s: TsSnapshot, sel: ModelKey, metric: MetricKey = "mas
   if ("error" in s.models || !s.futures) return [];
   const M = s.models, g = s.A.g, m = M.models[sel], A = s.A, word = measureWord(s);
   const rows: [string, string][] = [["Model set", M.profile]];
+  if (s.cfg.transform !== "none") {
+    rows.push(["Transform", M.transform
+      ? `Box-Cox with λ = ${M.transform.lambda.toFixed(2)}${M.transform.method === "log" ? " (the log, as you chose)" : " (Guerrero's method on the history before the first fold)"}. Best smoothing, Smooth and damp, Steady trend and the regression learn on the transformed series; their forecasts are mapped back, so they are medians, not means. The benchmarks, Repeat last cycle and Seasonal average stay on the original scale.`
+      : "Asked for, but not applied: a power transformation needs every value above zero, and enough history to choose a power."]);
+  }
   if (M.auto) rows.push(["Auto", `${escapeHtml(M.auto[metric].why)}${sel !== M.auto[metric].pick ? ` You have picked ${MODEL_INFO[sel].name} instead.` : ""}`]);
   if (M.season && sel !== "sn" && sel !== "clim" && sel !== "reg") rows.push(["Season", escapeHtml(M.season.why)]);
   if (sel === "comb") rows.push(["Combination", `the plain average of the Best smoothing, Steady trend and Smooth and damp forecasts (fpp3 13.4). Each is an imperfect view of the same series, and their misses partly cancel; the average has no parameters of its own to overfit`]);

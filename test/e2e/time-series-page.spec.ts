@@ -358,3 +358,17 @@ test("a slow calculation shows a Calculating pill with a spinner, and quick ones
   await page.waitForTimeout(400);
   await expect(busy).toBeHidden();
 });
+
+test("Transform under the hood asks for a power transformation and the model card says what happened", async ({ page }) => {
+  await openPage(page);
+  await page.locator(".ts-modes [data-mode=forecast]").click();
+  await page.locator(".ts-fold[data-fold=hood]").click();
+  const seg = page.locator("[data-ref=trSeg]");
+  await expect(seg.locator("button[data-tr=none]")).toHaveAttribute("aria-pressed", "true");
+  await seg.locator("button[data-tr=log]").click();
+  await expect(seg.locator("button[data-tr=log]")).toHaveAttribute("aria-pressed", "true");
+  // Applied (the series is above zero) or declined with the reason: either way the card says so.
+  await expect(page.locator("[data-ref=modelCard]")).toContainText(/Transform\s*(Box-Cox with λ = 0\.00 \(the log, as you chose\)|Asked for, but not applied)/);
+  await seg.locator("button[data-tr=none]").click();
+  await expect(page.locator("[data-ref=modelCard]")).not.toContainText("Transform");
+});

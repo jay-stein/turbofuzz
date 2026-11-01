@@ -284,6 +284,15 @@ export const TOPICS: Topic[] = [
       <p>These fills are this project's own design, chosen by measurement: on real hourly gym counts with stretches hidden and refilled, the usual pattern was best up to about six hours and the nearby median missed 20–40% less beyond that. The smoothing models treat filled periods as missing (their state carries across, nothing is learnt), the regression leaves them out of its fit, and forecast errors are never scored on them. Seasonal naive for gaps is Hyndman's seasonal naive method [ref:fpp3].</p>`,
   },
   {
+    id: "transform",
+    title: "Transformations (Box-Cox)",
+    html: `
+      <p>When the swings in a series grow with its level, a power transformation [ref:boxcox] can make them steadier before the models learn [ref:fpp3] (3.1): <i>w</i> = (<i>y</i><sup>λ</sup> − 1) / λ, or ln <i>y</i> when λ = 0. <b>Box-Cox (auto)</b> picks λ with Guerrero's method [ref:guerrero]: cut the history into one-season stretches, and take the λ in [−1, 2] that makes each stretch's spread, relative to its level, as steady as possible. It uses the history before the first backtest fold, once, so every fold and the forecast share it. Our code gives λ = −0.29 for the airline passengers, as R's <code>BoxCox.lambda</code> does.</p>
+      <p>Only a series above zero everywhere can be transformed. Best smoothing, Smooth and damp, Steady trend and the regression learn on the transformed series and their forecasts are mapped back, which gives medians rather than means; the accuracy measures here are absolute errors, which the median minimises, so no bias adjustment is applied. The benchmarks, Repeat last cycle and Seasonal average are left on the original scale, so they stay honest yardsticks.</p>
+      <h4>It is off by default, on evidence</h4>
+      <p>On the Monash archive [ref:monash], with 200 series per dataset, Auto's mean MASE with and without the automatic transformation: M3 monthly 0.834 against 0.853, M1 monthly 1.037 against 1.045, tourism monthly 1.453 against 1.481, hospital 0.742 against 0.743, and FRED-MD 0.457 against 0.646 (the transformation was worse on every one). An earlier run on a 141-series sample looked better on monthly data (−3% to −7%) and worse on yearly, quarterly and pedestrian data (up to +35%); the larger runs showed that to be noise. A transformation is worth trying on a series you know has variance that grows with its level, and judging by the backtest, not by how it looks.</p>`,
+  },
+  {
     id: "evidence",
     title: "Evidence: how this was checked",
     html: `

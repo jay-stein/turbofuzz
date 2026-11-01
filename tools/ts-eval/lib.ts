@@ -90,7 +90,9 @@ function setup(s: Series, freq: FreqName, H: number): Setup | { skip: string } {
   // A first period not aligned to the grain (a Sunday week, an hourly series starting at noon) adds empty leading periods.
   // A trailing period the readings only partly cover (Sunday-stamped weeks against Monday weeks) is left out, as the page does by default.
   const off = leadOffset(engine, times[0]!, fq.grain);
-  const cfg = { ...defaultConfig(engine.info()), grain: fq.grain, agg: "sum" as const, measure: "value", horizon: H, split: off + n - H };
+  // TS_TRANSFORM=auto|log runs the benchmark with a Box-Cox transformation (default: none, as the page ships).
+  const transform = (process.env.TS_TRANSFORM as "none" | "auto" | "log" | undefined) ?? "none";
+  const cfg = { ...defaultConfig(engine.info()), grain: fq.grain, agg: "sum" as const, measure: "value", horizon: H, split: off + n - H, transform };
   const snap = engine.compute(cfg, "forecast");
   if ("error" in snap.models) return { skip: snap.models.error.slice(0, 60) };
   if (!snap.futures || snap.models.T !== off + n - H || snap.A.modelN - off !== n || snap.models.H !== H) return { skip: `T ${snap.models.T}/${off + n - H}, n ${snap.A.modelN - off}/${n}, H ${snap.models.H}/${H}` };
@@ -98,7 +100,7 @@ function setup(s: Series, freq: FreqName, H: number): Setup | { skip: string } {
 }
 
 /** MASE of every model, the Auto pick and the combinations on one series; or why it could not run. */
-export function runSeries(s: Series, freq: FreqName, H: number): { mase: Record<Key, number>; auto: ModelKey } | { skip: string } {
+export function runSeries(s: Series, freq: FreqName, H: number): { mase: Record<Key, number>; auto: ModelKey; cover: { n: number; in80: number; in95: number } } | { skip: string } {
   const r = setup(s, freq, H);
   if ("skip" in r) return r;
   const { snap, train, test, fq } = r, F = snap.futures!, M = snap.models as Exclude<typeof snap.models, { error: string }>;
@@ -107,7 +109,18 @@ export function runSeries(s: Series, freq: FreqName, H: number): { mase: Record<
   out.auto = mase(train, test, F[M.best].F, fq.season);
   out.et = mase(train, test, Array.from({ length: H }, (_, h) => (F.ets.F[h]! + F.theta.F[h]!) / 2), fq.season);
   out.eth = mase(train, test, Array.from({ length: H }, (_, h) => (F.ets.F[h]! + F.theta.F[h]! + F.hw.F[h]!) / 3), fq.season);
-  return { mase: out, auto: M.best };
+  // How often the held-out actuals fell inside the Auto forecast's bands (the 80% and 95% ones the page draws).
+  const fb = F[M.best], cover = { n: 0, in80: 0, in95: 0 };
+  for (let h = 0; h < H; h++) {
+    const v = test[h]!;
+    if (!Number.isFinite(v)) continue;
+    cover.n++;
+    // TS_BAND_SCALE=1.3 widens both bands around the forecast by that factor (to see what width would calibrate them).
+    const c = Number(process.env.TS_BAND_SCALE ?? 1), f = fb.F[h]!;
+    if (v >= f - c * (f - fb.lo80[h]!) && v <= f + c * (fb.hi80[h]! - f)) cover.in80++;
+    if (v >= f - c * (f - fb.lo95[h]!) && v <= f + c * (fb.hi95[h]! - f)) cover.in95++;
+  }
+  return { mase: out, auto: M.best, cover };
 }
 
 /** Our ETS and Theta forecasts and the ETS form chosen, for comparison with a reference implementation. */

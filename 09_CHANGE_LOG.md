@@ -28,6 +28,20 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-12 — Time Series: Box-Cox transformation (opt-in) and a band-coverage tool (fundamentals plan, Phase 5a)
+
+- **Status:** Verified
+- **Scope:**
+  - **Transform** under the hood: None, Box-Cox (auto) or Log. Auto takes Guerrero's power (Guerrero 1993) on the history before the first backtest fold, once, so every fold and the forecast share it; it reproduces R's `BoxCox.lambda` on the airline passengers (-0.29). Best smoothing, Smooth and damp, Steady trend and the regression learn on the transformed series and are mapped back before they are combined, scored or banded (medians, not means: no bias adjustment, because the measures are absolute errors); the benchmarks, Repeat last cycle and Seasonal average stay on the original scale. A series with any value at or below zero is never transformed, and the model card says so. The Deep check's residuals and the Trend-flexibility curve follow the same transformation. A docs topic and two sources (Box and Cox 1964, Guerrero 1993) explain it.
+  - **Off by default, on evidence.** Auto's mean MASE with and without the automatic transformation, 200 series per dataset: M3 monthly 0.834 / 0.853, M1 monthly 1.037 / 1.045, tourism monthly 1.453 / 1.481, hospital 0.742 / 0.743, FRED-MD 0.457 / 0.646: worse on all five. A first run on the 141-series gate fixture looked better on monthly data (-3% to -7%) and worse on yearly, quarterly and pedestrian data (up to +35%); the larger runs showed that to be noise, which is why the default stays off.
+  - **A bug found and fixed on the way:** the engine's model cache key left out the transformation, so switching it would have shown the previous result.
+  - **`tools/ts-eval/coverage.ts`** reports how often the held-out actuals fall inside the Auto forecast's 80% and 95% bands, on the accuracy gate's series or a folder of Monash files.
+- **Finding, not yet acted on:** on the 141-series fixture the 80% band holds the real value 69.0% of the time and the 95% band 84.4% (monthly series near 83% and 94%; quarterly 38% and 72%; yearly 60% and 77%; car parts 28% and 38%). The bands are too narrow, as fpp3 5.5 warns prediction intervals usually are.
+- **Files / components changed:** src/data/timeseries/boxcox.ts (new), models.ts, aggregate.ts, engine.ts, references.ts, src/ui/timeseries-page.ts, timeseries-findings.ts, timeseries-model-docs.ts, tools/ts-eval/lib.ts and coverage.ts (new), tests
+- **Tests run and results:** typecheck clean; 1214 unit tests pass (new: Box-Cox and Guerrero including the airline series against R, the engine's transformation, the cache); e2e for the Transform control passes; accuracy gate unchanged
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-11 — Time Series: short series are forecast, not refused (fundamentals plan, Phase 4c)
 
 - **Status:** Verified

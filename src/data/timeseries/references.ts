@@ -233,10 +233,23 @@ REFERENCES.kolassa2016 = {
   used: "Why absolute-error measures (MAE, MASE) reward forecasting zero for a series that is mostly zeros: the median is zero, though the mean demand is not.",
 };
 
+REFERENCES.guerrero = {
+  short: "Guerrero (1993)",
+  full: "Guerrero, V. M. (1993). Time-series analysis supported by power transformations. Journal of Forecasting, 12(1), 37-48.",
+  url: "https://doi.org/10.1002/for.3980120104",
+  used: "The choice of the Box-Cox power: the one that makes the spread of each short stretch, relative to its level, steadiest.",
+};
+REFERENCES.boxcox = {
+  short: "Box & Cox (1964)",
+  full: "Box, G. E. P. and Cox, D. R. (1964). An analysis of transformations. Journal of the Royal Statistical Society B, 26(2), 211-252.",
+  url: "https://doi.org/10.1111/j.2517-6161.1964.tb00553.x",
+  used: "The power transformation family.",
+};
+
 /** Ids in a stable order for the Sources list: grouped by what they support. */
 export const REFERENCE_ORDER: string[] = [
   "fpp3", "forecastpkg", "monash",
-  "ets2002", "holt", "winters", "damped", "aicc", "nelder", "croston", "syntetos2005", "teunter2011", "kolassa2016",
+  "ets2002", "holt", "winters", "damped", "aicc", "nelder", "croston", "syntetos2005", "teunter2011", "kolassa2016", "boxcox", "guerrero",
   "theta", "thetabillah", "m3", "m4", "tourism",
   "bates", "clemen", "smithwallis",
   "stl", "mstl", "bartlett",
