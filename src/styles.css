@@ -12274,3 +12274,22 @@ button.qp-tile:hover {
 .column-matrix-label.role-category { color: var(--role-category); }
 .column-matrix-label.role-numeric { color: var(--role-numeric); }
 .outliers-chip.active, .outliers-method-run { color: var(--accent-ink); }
+
+/* Forecast tab: the verdict strip, the compact Compare board and the scoring controls under the hood */
+.ts-headsup { margin: 6px 0 0; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--ts-warn-soft); color: var(--ts-warn); font-size: 12.5px; line-height: 1.45; }
+.ts-headsup b { color: inherit; }
+.ts-board-compact { table-layout: fixed; }
+.ts-board-compact th:nth-child(1) { width: 46%; }
+.ts-board-compact th:nth-child(2) { width: 30%; }
+.ts-board-compact td { white-space: normal; padding: 8px 8px; }
+.ts-board-compact .ts-group th { background: var(--panel-2); font-size: var(--fs-xs); padding: 5px 8px; border-top: 1px solid var(--border-subtle); }
+.ts-plain { margin-top: 1px; font-size: 12px; color: var(--text-dim); font-weight: 400; white-space: normal; }
+.ts-autotag { margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: var(--ts-forecast-soft); color: var(--ts-forecast); font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+.ts-errtrack { display: inline-block; width: 60%; height: 8px; border-radius: 4px; background: var(--panel-2); vertical-align: middle; overflow: hidden; }
+.ts-errtrack .ts-errbar { display: block; height: 8px; margin: 0; border-radius: 4px; }
+.ts-ratio { margin-left: 8px; font-family: var(--mono); font-weight: 600; font-size: 12.5px; }
+.ts-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: -1px; }
+.ts-hood-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin: 0 0 12px; }
+.ts-hood-detail { margin: 0 0 10px; }
+.ts-fold .ts-note { margin: 0; line-height: 1.3; }
+.ts-fold { min-height: 44px; }

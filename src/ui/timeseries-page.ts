@@ -18,6 +18,7 @@ import { flexDetail, grade, METRIC_KEYS, MODEL_INFO, MODEL_KEYS, type Future, ty
 import { METRIC_INFO, metricText, openModelGuide } from "./timeseries-metrics.js";
 import { backtestRows, forecastRows, scorecardRows } from "./timeseries-export.js";
 import { openModelDetails } from "./timeseries-model-docs.js";
+import { ordinal, PLAIN, trustVerdict, type Verdict } from "../data/timeseries/verdict.js";
 import { openMenu } from "./menu.js";
 import type { ColumnMeta, TimeSeriesMessage } from "../worker/protocol.js";
 import { downloadCsv } from "./chart-export.js";
@@ -60,6 +61,8 @@ export interface TsPreset {
 }
 
 type Level = "80" | "fan";
+/** The models that are yardsticks, not recommendations. */
+const BENCHMARKS: readonly ModelKey[] = ["sn", "clim"];
 interface UiState { mode: TsMode; showSmooth: boolean; lastYear: boolean; showShift: boolean; level: Level; model: ModelKey | "auto"; metric: MetricKey; diff: boolean; diffLag: number }
 type TokenKey = "grain" | "agg" | "measure" | "group" | "gaps" | "partial" | "date" | "groupBy" | "source";
 interface Colors { bg: string; panel: string; panel2: string; border: string; text: string; dim: string; accent: string; forecast: string; season2: string; raw: string; danger: string; warn: string; grid: string }
@@ -119,8 +122,6 @@ const TEMPLATE = `
           </div>
           <div class="ts-tb" data-for="forecast" hidden>
             <div class="ts-ctl"><span>Forecast ahead</span><div class="ts-stepper"><button type="button" data-ref="hMinus" aria-label="Forecast less far ahead">&minus;</button><span class="ts-stepnum"><input type="number" class="ts-num" data-ref="hNum" min="1" step="1" aria-label="How far ahead to forecast"><span class="ts-numunit" data-ref="hUnit"></span></span><button type="button" data-ref="hPlus" aria-label="Forecast further ahead">+</button></div><div class="ts-seg" data-ref="hPresets" role="group" aria-label="How far ahead"></div><span class="ts-note" data-ref="hMax"></span></div>
-            <div class="ts-ctl ts-ctl-key"><label for="ts-metric">Rank by</label><select id="ts-metric" class="ts-select ts-select-key" data-ref="metricSel" title="Picks the Auto model, the line on the chart">${METRIC_KEYS.map((k) => `<option value="${k}">${METRIC_INFO[k].label} · ${METRIC_INFO[k].short}${k === "mase" ? " (default)" : ""}</option>`).join("")}</select><button type="button" class="ts-help-dot" data-ref="guideBtn2" aria-label="Which model, and why? What each measure means" title="What each measure means">?</button></div>
-            <div class="ts-ctl"><span>Validate</span><div class="ts-seg" data-ref="cvSeg" role="group" aria-label="Validation window"><button type="button" data-cv="expanding" title="Each backtest trains on everything before it">Expanding window</button><button type="button" data-cv="rolling" title="Each backtest trains on a fixed-length window that slides forward">Rolling window</button></div></div>
             <div class="ts-ctl"><span>Band</span><div class="ts-seg" data-ref="levelSeg" role="group" aria-label="Interval"><button type="button" data-level="80">80%</button><button type="button" data-level="fan">80% + 95%</button></div></div>
             <div class="ts-ctl"><span>Drivers</span><div class="ts-drivers" data-ref="drivers"></div></div>
             <span class="ts-note" data-ref="trainNote"></span>
@@ -161,19 +162,25 @@ const TEMPLATE = `
       </section>
       <section class="ts-card ts-panel" data-panel="forecast" hidden>
         <div class="ts-panel-head"><h3>Models</h3><p>Drag the split line on the chart to backtest from any date, or the handle at the end of the band to change how far ahead it forecasts. Hover a model to compare it.</p></div>
-        <button class="ts-fold" type="button" data-fold="compare" aria-expanded="false"><span class="ts-fold-chev" aria-hidden="true"></span><b>Compare models</b><span class="ts-note">8 models: see how the forecast stacks up against the others</span></button>
+        <button class="ts-fold" type="button" data-fold="compare" aria-expanded="false"><span class="ts-fold-chev" aria-hidden="true"></span><b>Compare models</b><span class="ts-note">See how the forecast stacks up against the other models</span></button>
         <div class="ts-fold-body" data-ref="foldCompare" hidden>
-          <span class="ts-note" data-ref="boardNote"></span>
-        <div class="ts-boardwrap"><table class="ts-board" data-ref="board"></table></div>
+        <div class="ts-boardwrap"><table class="ts-board ts-board-compact" data-ref="boardCompact" aria-label="Models, compared"></table></div>
         </div>
         <button class="ts-fold" type="button" data-fold="hood" aria-expanded="false"><span class="ts-fold-chev" aria-hidden="true"></span><b>Under the hood</b><span class="ts-note">Checks, validation, flexibility and the model card, for analysts</span></button>
         <div class="ts-fold-body" data-ref="foldHood" hidden>
+        <div class="ts-hood-controls">
+          <div class="ts-ctl ts-ctl-key"><label for="ts-metric">Rank by</label><select id="ts-metric" class="ts-select ts-select-key" data-ref="metricSel" title="Picks the Auto model, the line on the chart">${METRIC_KEYS.map((k) => `<option value="${k}">${METRIC_INFO[k].label} · ${METRIC_INFO[k].short}${k === "mase" ? " (default)" : ""}</option>`).join("")}</select><button type="button" class="ts-help-dot" data-ref="guideBtn2" aria-label="Which model, and why? What each measure means" title="What each measure means">?</button></div>
+          <div class="ts-ctl"><span>Validate</span><div class="ts-seg" data-ref="cvSeg" role="group" aria-label="Validation window"><button type="button" data-cv="expanding" title="Each backtest trains on everything before it">Expanding window</button><button type="button" data-cv="rolling" title="Each backtest trains on a fixed-length window that slides forward">Rolling window</button></div></div>
+        </div>
         <div class="ts-boardbar">
           <button class="ts-ghost ts-guide-btn" type="button" data-ref="guideBtn">Which model, and why?</button>
           <button class="ts-ghost" type="button" data-ref="docsBtn" title="Equations, fitting, forecasts, bands, differences from the textbook, and sources for every model">How the models work</button>
           <button class="ts-ghost ts-deep-btn" type="button" data-ref="deepBtn" title="Significance tests, error by steps ahead, band calibration on every fold and residual diagnostics. Slower: runs only when asked.">Deep check</button>
         </div>
         <div class="ts-deep" data-ref="deepBox" hidden></div>
+        <div class="ts-hood-detail" data-ref="heroDetail"></div>
+        <span class="ts-note" data-ref="boardNote"></span>
+        <div class="ts-boardwrap"><table class="ts-board" data-ref="board"></table></div>
         <div class="ts-flexbox">
           <div class="ts-ctl"><label>Trend flexibility</label><input type="range" data-ref="flex" min="1" max="10" step="1" aria-label="Trend flexibility"><output data-ref="flexOut"></output><span class="ts-note">trend, seasons and drivers model (and the Blend)</span><button class="ts-ghost" type="button" data-ref="flexCheck" title="Backtest every setting from 1 to 10 on the same folds: a validation curve">Check every setting</button></div>
           <p class="ts-flexnote" data-ref="flexNote"></p>
@@ -1277,30 +1284,32 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   }
 
   // ---------------------------------------------------------------- forecast badge and trend flexibility
-  /** The trust verdict: how the pick did on the fold the choice never saw, else on the ratio to the baseline. */
-  function verdictOf(M: ModelRun, key: ModelKey, gd: { cls: string; text: string }): { cls: string; text: string } {
-    if (key === "sn") return { cls: "base", text: "Baseline" };
-    const m = M.models[key], lucky = m.folds.of > 0 && m.folds.won * 2 < m.folds.of;
-    const r = ratioOf(snap!, key);
-    if (M.lockbox && m.lock) {
-      const rank = lockRank(M, key, ui.metric), n = MODEL_KEYS.length;
-      if (r >= 1 || rank * 3 > n * 2) return { cls: "poor", text: "Doubtful" };
-      if (rank <= 2 && !lucky) return { cls: "good", text: "Holds up" };
-      return { cls: "okay", text: "Middling" };
-    }
-    return gd.cls === "good" ? { cls: "good", text: "Holds up" } : gd.cls === "okay" ? { cls: "okay", text: "Middling" } : { cls: "poor", text: "Doubtful" };
+  /** The cycle the seasonal naive repeats, in a word ("year", "week"). */
+  const cycleWord = (s: TsSnapshot): string => s.A.g.lyShort.replace(/^last /i, "").toLowerCase() || "cycle";
+  /** Everything the trust verdict needs about one model, from results the page already holds. */
+  function verdictFor(s: TsSnapshot, M: ModelRun, key: ModelKey): Verdict {
+    const m = M.models[key], f = s.futures![key];
+    const band = f.held ? { hit: f.held.hit, tot: f.held.tot, aim: 0.8 } : m.check ? { hit: m.check.hit, tot: m.check.tot, aim: 0.8 } : null;
+    return trustVerdict({
+      baseline: key === "sn", ratio: ratioOf(s, key), lockRank: M.lockbox && m.lock ? lockRank(M, key, ui.metric) : null, models: MODEL_KEYS.length,
+      foldsWon: m.folds.won, foldsOf: m.folds.of, band, rough: M.rough, periods: s.A.modelN, cycle: cycleWord(s),
+    });
   }
   function renderHeroBadge(s: TsSnapshot, key: ModelKey | null): void {
     const badge = ref("heroBadge"), M = models();
     if (ui.mode !== "forecast" || !M || !s.futures || !key) { badge.hidden = true; return; }
-    const m = M.models[key], r = ratioOf(s, key), gd = grade(r, key), vd = verdictOf(M, key, gd), f = s.futures[key];
+    const v = verdictFor(s, M, key);
+    badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ${v.cls}">${v.label}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small><button type="button" class="ts-link" data-info="${key}">How it works</button></div>
+      <div class="ts-badge-body">${escapeHtml(v.sentence)}</div>
+      ${v.headsUp.map((h) => `<div class="ts-headsup"><b>Heads up:</b> ${escapeHtml(h)}</div>`).join("")}`;
+    badge.hidden = false;
+    // The numbers behind the verdict, for analysts, at the top of Under the hood.
+    const m = M.models[key], r = ratioOf(s, key), f = s.futures[key];
     const heldMode = M.T < s.A.modelN && f.held?.ratio != null;
     const better = key === "sn" ? "the baseline every other model is measured against" : r < 1 ? `${Math.round((1 - r) * 100)}% less error than repeating the last cycle` : `${Math.round((r - 1) * 100)}% <b>more</b> error than repeating the last cycle`;
     const lucky = key !== "sn" && m.folds.of > 0 && m.folds.won * 2 < m.folds.of;
     const band = f.held ? `${f.held.hit} of ${f.held.tot} held-out actuals inside the 80% band` : m.check ? `${m.check.hit} of ${m.check.tot} inside the 80% band on the latest fold` : "";
-    badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ${vd.cls}">${vd.text}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small><button type="button" class="ts-link" data-info="${key}">How it works</button></div>
-      <div class="ts-badge-body">${better} at the same horizons, ${heldMode ? "on the held-out actuals" : `over ${M.origins.length} backtest folds`} · ${METRIC_INFO[ui.metric].label} ${metricText(ui.metric, m.metrics[ui.metric])}${ui.metric === "mase" ? " (scaled by the in-sample one-cycle naive error, so multi-step forecasts often sit above 1)" : ""}${key !== "sn" ? ` · beat it in ${m.folds.won} of ${m.folds.of} folds` : ""}${band ? ` · ${band}` : ""}${lucky ? ` · <span class="ts-warn">wins under half its folds: may be luck</span>` : ""}${M.rough ? ` · <span class="ts-warn">under 3 folds: rough</span>` : ""}</div>${lockLine(M, key)}`;
-    badge.hidden = false;
+    ref("heroDetail").innerHTML = `<div class="ts-badge-body"><b>${MODEL_INFO[key].name}</b>: ${better} at the same horizons, ${heldMode ? "on the held-out actuals" : `over ${M.origins.length} backtest folds`} · ${METRIC_INFO[ui.metric].label} ${metricText(ui.metric, m.metrics[ui.metric])}${ui.metric === "mase" ? " (scaled by the in-sample one-cycle naive error, so multi-step forecasts often sit above 1)" : ""}${key !== "sn" ? ` · beat it in ${m.folds.won} of ${m.folds.of} folds` : ""}${band ? ` · ${band}` : ""}${lucky ? ` · <span class="ts-warn">wins under half its folds: may be luck</span>` : ""}${M.rough ? ` · <span class="ts-warn">under 3 folds: rough</span>` : ""}</div>${lockLine(M, key)}`;
   }
   function openDocs(open: string): void { openModelDetails({ snap, open, metric: ui.metric }); }
   /** What Auto did, in a few words for the legend and the strip. */
@@ -1471,10 +1480,36 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     return GAP_OPTS.map(([k, label]) => [k, label, notes[k]]);
   }
 
+  /** Compare models: three columns (model, error against repeating the last cycle, how it did on unseen data), grouped. */
+  function renderCompact(): void {
+    const s = snap as TsSnapshot, table = ref("boardCompact"), M = models();
+    if (!M || !s.futures) { table.innerHTML = ""; return; }
+    const sel = selectedModel(s, ui) as ModelKey, mk = ui.metric, pick = M.auto[mk].pick;
+    const size = (k: ModelKey): number => { const v = M.models[k].metrics[mk]; return v === v ? (mk === "bias" ? Math.abs(v) : v) : Infinity; };
+    const byError = [...MODEL_KEYS].sort((p, q) => size(p) - size(q));
+    const groups: [string, ModelKey[]][] = [
+      ["Recommended", [pick]],
+      ["Alternatives", byError.filter((k) => k !== pick && !BENCHMARKS.includes(k))],
+      ["Benchmarks: what to beat", BENCHMARKS.filter((k) => k !== pick)],
+    ];
+    // A full bar is 1.5x the error of repeating the last cycle: one wild model must not squash the rest into dots.
+    const top = 1.5;
+    const dot = { good: "var(--ok)", okay: "var(--qa-warn)", poor: "var(--danger)", base: "var(--text-dim)" } as const;
+    const rows = groups.filter(([, ks]) => ks.length > 0).map(([label, ks]) =>
+      `<tbody><tr class="ts-group"><th colspan="3" scope="colgroup">${label}</th></tr>${ks.map((k) => {
+        const r = ratioOf(s, k), v = verdictFor(s, M, k), m = M.models[k];
+        const place = M.lockbox && m.lock && k !== "sn" ? ` (${ordinal(lockRank(M, k, mk))} of ${MODEL_KEYS.length})` : "";
+        return `<tr data-model="${k}" aria-selected="${k === sel}">
+          <td><span class="ts-mname">${MODEL_INFO[k].name}</span>${k === pick ? '<span class="ts-autotag">Auto</span>' : ""}<button type="button" class="ts-info" data-info="${k}" aria-label="How ${MODEL_INFO[k].name} works" title="How ${MODEL_INFO[k].name} works: equations, fitting, sources">ⓘ</button><div class="ts-plain">${PLAIN[k] ?? ""}</div></td>
+          <td><span class="ts-errtrack"><span class="ts-errbar" style="width:${Number.isFinite(r) ? Math.min(100, Math.max(3, (r / top) * 100)).toFixed(0) : 0}%;opacity:${k === "sn" || k === "clim" ? 0.4 : 0.85}"></span></span><span class="ts-ratio">${Number.isFinite(r) ? r.toFixed(2) : "–"}×</span></td>
+          <td><span class="ts-dot" style="background:${dot[v.cls]}"></span>${v.level === "baseline" ? "Baseline" : escapeHtml(v.label) + place}</td></tr>`;
+      }).join("")}</tbody>`).join("");
+    table.innerHTML = `<thead><tr><th>Model</th><th title="Error divided by the error of repeating the last cycle: below 1× is better">Error against repeating the last ${cycleWord(s)}</th><th>On data it never saw</th></tr></thead>${rows}`;
+  }
   function renderBoard(): void {
     const s = snap as TsSnapshot, board = ref("board"), card = ref("modelCard");
     const M = models();
-    if (!M || !s.futures) { board.innerHTML = `<tbody><tr><td class="ts-emptycell">${"error" in s.models ? escapeHtml(s.models.error) : ""}</td></tr></tbody>`; card.innerHTML = ""; return; }
+    if (!M || !s.futures) { board.innerHTML = `<tbody><tr><td class="ts-emptycell">${"error" in s.models ? escapeHtml(s.models.error) : ""}</td></tr></tbody>`; card.innerHTML = ""; ref("boardCompact").innerHTML = ""; return; }
     const sel = selectedModel(s, ui) as ModelKey, fut = s.futures;
     const heldMode = M.T < s.A.modelN && fut.sn.held?.ratio != null;
     const mk = ui.metric, best = M.auto[mk].pick;
@@ -1498,6 +1533,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
           <td>${chk}</td></tr>`;
       }).join("") + "</tbody>";
     card.innerHTML = modelRows(s, sel, mk).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+    renderCompact();
   }
   function renderDrivers(): void {
     const s = snap as TsSnapshot;
@@ -1923,6 +1959,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   on("exportBtn", "click", () => openExportMenu(ref("exportBtn")));
   on("board", "pointerover", (e) => { const r = (e.target as Element).closest<HTMLElement>("tr[data-model]"); const k = (r?.dataset.model as ModelKey | undefined) ?? null; if (k !== ghostModel) { ghostModel = k; invalidate("stat"); } });
   on("board", "pointerleave", () => { ghostModel = null; invalidate("stat"); });
+  on("boardCompact", "pointerover", (e) => { const r = (e.target as Element).closest<HTMLElement>("tr[data-model]"); const k = (r?.dataset.model as ModelKey | undefined) ?? null; if (k !== ghostModel) { ghostModel = k; invalidate("stat"); } });
+  on("boardCompact", "pointerleave", () => { ghostModel = null; invalidate("stat"); });
   on("tableBtn", "click", (e) => {
     tableOpen = !tableOpen;
     (e.currentTarget as HTMLElement).setAttribute("aria-expanded", String(tableOpen));

@@ -28,6 +28,19 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-08 — Forecast tab: the trust verdict, compact Compare board, and scoring controls under the hood
+
+- **Status:** Verified
+- **Scope:** The rest of the layered Forecast tab (DEC-2026-11-01-01).
+  - **Trust verdict as a pure function** (`src/data/timeseries/verdict.ts`, 8 tests): *Holds up* (top two on the lockbox fold the choice never saw, and not a lucky lead), *Middling*, *Doubtful* (bottom third on unseen data, or no better than repeating the last cycle), *Baseline* for the benchmark. It writes one plain sentence ("Did well on data it never saw (2nd of 8 models) and beat repeating the last year in 8 of 9 tests") and a "Heads up" note only when true: the band held the real value more than 5 points away from its aim over at least 20 checks, a lead from under half the folds, or too little history. With no fold to hold back it judges on the backtests and says it is less certain.
+  - **The badge above the chart is that verdict**; the old technical line (MASE, folds, lockbox text) moved to the top of Under the hood.
+  - **Compare models is a compact three-column board**: model with a one-line plain descriptor, error against repeating the last cycle as a bar and a ratio, and how it did on unseen data (a dot and its place). Grouped Recommended, Alternatives and Benchmarks; the pick is marked Auto; clicking a row shows it on the chart; hover still compares; the (i) opens its technical page. A full bar is capped at 1.5x so one wild model cannot squash the rest.
+  - **Under the hood** now holds Rank by and Validate (moved from the toolbar), the full seven-measure board with its note, the guide and docs buttons, Deep check, Trend flexibility and the model card. The toolbar keeps Forecast ahead, Band and Drivers.
+- **Files / components changed:** src/data/timeseries/verdict.ts (new), src/ui/timeseries-page.ts, src/styles.css, test/timeseries-verdict.test.ts (new), test/e2e/time-series-page.spec.ts
+- **Tests run and results:** typecheck clean; 1194 unit tests pass; e2e 117 pass; checked by screenshot (closed, Compare open, Under the hood open)
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-07 — Analyst console look, phase 4: contrast, focus and overlays
 
 - **Status:** Verified

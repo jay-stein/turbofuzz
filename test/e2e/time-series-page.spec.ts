@@ -57,7 +57,7 @@ test("the Time Series tab reads the loaded table and says what it plots", async 
 test("forecast, decompose and patterns each draw from the worker", async ({ page }) => {
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();
-  await expect(page.locator(".ts-board tbody tr")).toHaveCount(8);
+  await expect(page.locator("[data-ref=board] tbody tr")).toHaveCount(8);
   await page.locator(".ts-page [data-ref=hNum]").fill("30");
   await page.locator(".ts-page [data-ref=hNum]").press("Enter");
   await expect(page.locator(".ts-page [data-ref=hUnit]")).toHaveText("days");
@@ -173,18 +173,18 @@ test("the board validates on an expanding or rolling window, ranks by any measur
   await expect(card).toContainText("expanding window");
   await expect(card).toContainText(/MASE \d.*WAPE \d.*sMAPE \d/);
 
+  await page.locator(".ts-fold[data-fold=hood]").click();
   await page.getByRole("button", { name: "Rolling window" }).click();
   await expect(page.getByRole("button", { name: "Rolling window" })).toHaveAttribute("aria-pressed", "true");
   await expect(card).toContainText(/each trained on the \d+ days before it \(rolling window\)/);
 
   await page.getByLabel("Rank by").selectOption("wape");
-  await expect(page.locator(".ts-board thead th").nth(1)).toContainText("WAPE");
-  await expect(page.locator(".ts-board tbody tr").first().locator("td").nth(1)).toHaveText(/%$/);
-  await expect(page.locator(".ts-board thead")).toContainText("Folds beaten");
+  await expect(page.locator("[data-ref=board] thead th").nth(1)).toContainText("WAPE");
+  await expect(page.locator("[data-ref=board] tbody tr").first().locator("td").nth(1)).toHaveText(/%$/);
+  await expect(page.locator("[data-ref=board] thead")).toContainText("Folds beaten");
 
   await expect(page.locator(".ts-page [data-ref=legend]")).toContainText(/Auto · /);
   await expect(page.locator(".ts-page [data-ref=boardNote]")).toContainText("Ranked by WAPE");
-  await page.locator(".ts-fold[data-fold=hood]").click();
   await page.getByRole("button", { name: "Which model, and why?", exact: true }).click();
   const guide = page.getByRole("dialog", { name: "Which model, and why?" });
   await expect(guide.locator(".ts-metric-table").last().locator("thead th")).toHaveText(["Metric", "Why it's good (strengths)", "When to use it", "Math (formula)"]);
@@ -197,7 +197,7 @@ test("the board validates on an expanding or rolling window, ranks by any measur
 test("Export offers the forecast, the series, the model scorecard and the backtest", async ({ page }) => {
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();
-  await expect(page.locator(".ts-board tbody tr")).toHaveCount(8);
+  await expect(page.locator("[data-ref=board] tbody tr")).toHaveCount(8);
   const grab = async (item: string): Promise<string> => {
     await page.getByRole("button", { name: "Export ▾" }).click();
     const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("menuitem", { name: item }).click()]);
@@ -222,7 +222,7 @@ test("Export offers the forecast, the series, the model scorecard and the backte
 test("the data table says which rows are actual, filled or forecast", async ({ page }) => {
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();
-  await expect(page.locator(".ts-board tbody tr")).toHaveCount(8);
+  await expect(page.locator("[data-ref=board] tbody tr")).toHaveCount(8);
   await page.getByRole("button", { name: "Show data table" }).click();
   await expect(page.getByRole("button", { name: "Hide data table" })).toHaveAttribute("aria-expanded", "true");
   const table = page.locator(".ts-page [data-ref=tableWrap]");
@@ -241,11 +241,21 @@ test("the chart names the forecast model and how it did; Trend flexibility expla
   await expect(badge).toBeVisible();
   await expect(badge).toContainText(/Auto · /);
   await expect(badge).toContainText(/Holds up|Middling|Doubtful/);
+  // One plain sentence says why, with the model's place among the others.
+  await expect(badge).toContainText(/data it never saw \(\d+(st|nd|rd|th) of 8 models\)/);
   await expect(page.locator(".ts-fold[data-fold=compare]")).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".ts-page [data-ref=foldHood]")).toBeHidden();
-  await expect(badge).toContainText(/repeating the last cycle at the same horizons, over \d+ backtest folds · MASE \d\.\d\d/);
-  await expect(badge).toContainText(/Lockbox check: picked on folds 1–\d+; on fold \d+, which the choice never saw, it ranked #\d of 8/);
-  await expect(page.locator(".ts-board thead")).toContainText("Unseen fold");
+  // The numbers behind the verdict are under the hood.
+  const detail = page.locator(".ts-page [data-ref=heroDetail]");
+  await expect(detail).toContainText(/repeating the last cycle at the same horizons, over \d+ backtest folds · MASE \d\.\d\d/);
+  await expect(detail).toContainText(/Lockbox check: picked on folds 1–\d+; on fold \d+, which the choice never saw, it ranked #\d of 8/);
+  // Compare models: three columns, grouped, the pick marked Auto.
+  const compact = page.locator("[data-ref=boardCompact]");
+  await expect(compact.locator("thead th")).toHaveCount(3);
+  await expect(compact.locator("tr[data-model]")).toHaveCount(8);
+  await expect(compact.locator(".ts-group th")).toHaveText(["Recommended", "Alternatives", "Benchmarks: what to beat"]);
+  await expect(compact.locator(".ts-autotag")).toHaveCount(1);
+  await expect(page.locator("[data-ref=board] thead")).toContainText("Unseen fold");
   await expect(page.locator(".ts-page [data-ref=flexNote]")).toContainText(/ridge \(L2\) penalty of λ = /);
   await page.locator(".ts-fold[data-fold=hood]").click();
   await page.getByRole("button", { name: "Check every setting" }).click();
@@ -276,7 +286,7 @@ test("Explore can plot the difference from n periods earlier, and gap choices st
 test("Deep check tests the pick against every rival, by horizon, for calibration and in its residuals", async ({ page }) => {
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();
-  await expect(page.locator(".ts-board tbody tr")).toHaveCount(8);
+  await expect(page.locator("[data-ref=board] tbody tr")).toHaveCount(8);
   await page.locator(".ts-fold[data-fold=hood]").click();
   await page.getByRole("button", { name: "Deep check" }).click();
   const box = page.locator(".ts-page [data-ref=deepBox]");
@@ -292,7 +302,7 @@ test("Deep check tests the pick against every rival, by horizon, for calibration
 test("each model has a technical page with its equations, this series' fit and its sources", async ({ page }) => {
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();
-  await expect(page.locator(".ts-board tbody tr")).toHaveCount(8);
+  await expect(page.locator("[data-ref=board] tbody tr")).toHaveCount(8);
   await page.locator(".ts-fold[data-fold=compare]").click();
   await page.getByRole("button", { name: "How Best smoothing works" }).click();
   const win = page.getByRole("dialog", { name: "How the forecasts work" });
