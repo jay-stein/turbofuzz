@@ -1,3 +1,9 @@
+/* Bundled fonts (SIL Open Font License 1.1; licences in src/assets/fonts) so the app stays offline. */
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("./assets/fonts/inter-latin-wght-normal.woff2") format("woff2-variations"), url("./assets/fonts/inter-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("./assets/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("./assets/fonts/jetbrains-mono-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url("./assets/fonts/jetbrains-mono-latin-600-normal.woff2") format("woff2"); }
+
 :root {
   --bg: #f6f7f9;
   --panel: #ffffff;
@@ -57,7 +63,19 @@
   --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
   --shadow-pop: 0 8px 24px rgb(16 24 40 / 18%);
   --dur: 120ms;
-  --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+  --font-sans: "Inter", -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* The analyst console look (DEC-2026-11-01-02): dark chrome in both themes, a dark primary button. */
+  --chrome-bg: #11161d;
+  --chrome-2: #1a2129;
+  --chrome-border: #2a333f;
+  --chrome-fg: #e6e9ee;
+  --chrome-dim: #8fa1b5;
+  --chrome-faint: #6d7c8e;
+  --chrome-accent: #5fd0a5;
+  --chrome-accent-soft: #163b2c;
+  --primary-bg: #151a21;
+  --primary-fg: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -91,6 +109,10 @@
     --chart-5: #f472b6;
     --chart-6: #22d3ee;
     --shadow-pop: 0 8px 24px #00000059;
+    --primary-bg: #e6e9ee;
+    --primary-fg: #11161d;
+    --chrome-bg: #0b0f14;
+    --chrome-2: #141a21;
   }
 }
 
@@ -125,6 +147,10 @@
   --chart-5: #f472b6;
   --chart-6: #22d3ee;
   --shadow-pop: 0 8px 24px #00000059;
+  --primary-bg: #e6e9ee;
+  --primary-fg: #11161d;
+  --chrome-bg: #0b0f14;
+  --chrome-2: #141a21;
 }
 
 * {
@@ -140,7 +166,8 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.45 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font: 14px/1.45 var(--font-sans);
+  font-feature-settings: "cv11", "ss03";
 }
 
 #app {
@@ -246,9 +273,9 @@ button {
 }
 
 .primary {
-  background: var(--accent);
-  color: var(--on-accent);
-  border-color: var(--accent);
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  border-color: var(--primary-bg);
   font-weight: 600;
 }
 
@@ -12119,3 +12146,56 @@ button.qp-tile:hover {
 .ts-fold[aria-expanded="true"] .ts-fold-chev { transform: rotate(45deg); }
 .ts-fold-body { padding: 10px 0 2px; }
 .ts-fold-body[hidden] { display: none; }
+
+/* ---------- The analyst console shell (DEC-2026-11-01-02) ---------- */
+.topbar {
+  background: var(--chrome-bg);
+  color: var(--chrome-fg);
+  border-bottom-color: var(--chrome-bg);
+}
+.topbar .brand { color: var(--chrome-fg); }
+.topbar .meta {
+  border: 0;
+  background: transparent;
+  color: var(--chrome-dim);
+  font-size: 12.5px;
+  max-width: 420px;
+  padding: 3px 4px;
+}
+.topbar .meta::before { content: "~/data/"; color: var(--chrome-accent); }
+.topbar .ghost {
+  border-color: var(--chrome-border);
+  color: var(--chrome-fg);
+  background: transparent;
+}
+.topbar .ghost:hover { background: var(--chrome-2); }
+.topbar .palette-button {
+  background: var(--chrome-2);
+  border-color: var(--chrome-border);
+  color: var(--chrome-dim);
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.topbar .palette-button:hover { color: var(--chrome-fg); border-color: var(--chrome-accent); }
+.topbar .palette-button .kbd { background: transparent; border-color: var(--chrome-border); color: var(--chrome-faint); }
+.topbar .score-tile { font-family: var(--mono); background: var(--chrome-2); }
+.topbar .score-tile-value { font-size: var(--fs-md); font-weight: 600; }
+.topbar .score-tile-value.band-good, .topbar .score-tile-delta.up { color: var(--chrome-accent); }
+.topbar .score-tile-value.band-fair { color: #fbbf24; }
+.topbar .score-tile-value.band-poor, .topbar .score-tile-delta.down { color: #f97066; }
+.topbar .score-tile-label { color: var(--chrome-faint); }
+.topbar :focus-visible { outline: 2px solid var(--chrome-accent); outline-offset: 2px; }
+
+/* Page tabs carry their number key, in monospace; drawn by CSS so the tab's text and name stay its label. */
+.view-tab-key::before { content: attr(data-key) / ""; }
+.view-tab-key {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  opacity: 0.75;
+  margin-right: 6px;
+}
+.view-tabs button.active { color: var(--text); font-weight: 600; }
+@media (min-width: 1280px) {
+  .view-tabs .view-tab-label { max-width: none; padding-left: 6px; opacity: 1; }
+}

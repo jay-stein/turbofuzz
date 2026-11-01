@@ -28,6 +28,15 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-02 — Analyst console look, phase 1: fonts, tokens, dark top bar, numbered tabs
+
+- **Status:** Verified
+- **Scope:** Inter and JetBrains Mono bundled (113 KB, SIL OFL 1.1, licences in src/assets/fonts); font and chrome tokens; the top bar is dark in both themes with the file as a monospace path (`~/data/…`), a monospace command box and a dark quality score; primary buttons are dark (light in the dark theme); page tabs show their number key (drawn by CSS, so names and tests are unchanged) and, from 1280 px, every tab shows its name (DEC-2026-11-01-02).
+- **Files / components changed:** src/styles.css, src/ui/view-tabs.ts, src/assets/fonts/*
+- **Tests run and results:** typecheck clean; 1184 unit tests pass; e2e 113 pass; build includes the four font files
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-01 — Time Series Forecast tab: answer first, Compare models and Under the hood on demand
 
 - **Status:** Verified

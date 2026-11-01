@@ -115,7 +115,7 @@ export class ViewTabs {
           id: `view-tab-${id}`,
           title: LABELS[id].title,
         },
-        [svgIcon(ICONS[id], "view-tab-icon"), el("span", { class: "view-tab-label" }, [LABELS[id].label])],
+        [el("span", { class: "view-tab-key", "data-key": String(VIEW_ORDER.indexOf(id) + 1) }), svgIcon(ICONS[id], "view-tab-icon"), el("span", { class: "view-tab-label" }, [LABELS[id].label])],
       ) as HTMLButtonElement;
       button.addEventListener("click", () => this.select(id));
       this.buttons.set(id, button);
