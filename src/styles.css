@@ -12392,3 +12392,8 @@ button.qp-tile:hover {
 .ts-yard { margin-top: 6px; font-size: var(--fs-sm); color: var(--text-dim); }
 .ts-yard b { color: var(--text); }
 .ts-yardtag { margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.03em; color: var(--text); border: 1px solid var(--border); background: var(--panel-2); }
+
+/* The mode bar (Explore, Decompose, Forecast, Patterns, Export) stays in view while the page scrolls under it. */
+/* top: -12px cancels the scroll area's own 12px of padding, so the bar sits flush with the top and nothing shows above it. */
+.ts-modebar { flex: 0 0 auto; overflow: visible; position: sticky; top: -12px; z-index: 15; display: flex; align-items: center; margin: 0 -14px 8px; padding: 8px 14px; background: var(--bg); border-bottom: 1px solid var(--border-subtle); }
+.ts-modebar .ts-top-actions { margin-left: 0; width: 100%; justify-content: space-between; }

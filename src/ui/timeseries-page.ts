@@ -91,16 +91,18 @@ const MODE_LABEL: Record<TsMode, string> = { explore: "Explore", decompose: "Dec
 const TEMPLATE = `
 <div class="ts-empty" data-ref="empty" hidden></div>
 <div class="ts-body" data-ref="body" hidden>
+  <div class="ts-modebar">
+  <div class="ts-top-actions">
+    <div class="ts-modes" role="tablist" aria-label="Analysis">${MODES.map((m, k) => `<button role="tab" type="button" data-mode="${m}" aria-selected="${k === 0}" tabindex="${k === 0 ? 0 : -1}">${MODE_LABEL[m]}</button>`).join("")}</div>
+    <button class="ts-export-btn" type="button" data-ref="exportBtn" aria-haspopup="menu" title="Download the forecast, the series, the model scorecard or the backtest as CSV">Export ▾</button>
+  </div>
+  </div>
   <header class="ts-top">
     <section class="ts-sentence" aria-label="Series">
       <h2 data-ref="sentence"></h2>
       <p class="ts-sub" data-ref="subline"></p>
       <p class="ts-why" data-ref="why"></p>
     </section>
-    <div class="ts-top-actions">
-      <div class="ts-modes" role="tablist" aria-label="Analysis">${MODES.map((m, k) => `<button role="tab" type="button" data-mode="${m}" aria-selected="${k === 0}" tabindex="${k === 0 ? 0 : -1}">${MODE_LABEL[m]}</button>`).join("")}</div>
-      <button class="ts-export-btn" type="button" data-ref="exportBtn" aria-haspopup="menu" title="Download the forecast, the series, the model scorecard or the backtest as CSV">Export ▾</button>
-    </div>
   </header>
   <div class="ts-mixed" data-ref="mixed" role="status" hidden></div>
   <dl class="ts-strip" data-ref="strip"></dl>

@@ -28,6 +28,15 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-02-03 — Time Series: the mode bar stays in view
+
+- **Status:** Verified
+- **Scope:** Explore, Decompose, Forecast, Patterns and Export sat in the sentence header and scrolled away with it. They are now a row of their own at the top of the page (modes on the left, Export on the right) that sticks to the top of the scroll area, opaque, so the page scrolls underneath. Two things found on the way: a class of the same name (`ts-bar`, the 6px meter bar) squashed and clipped the first attempt, so the new row is `ts-modebar`; and the scroll area's own 12px of padding left a gap above a stuck bar, cancelled with an offset.
+- **Files / components changed:** src/ui/timeseries-page.ts, src/styles.css, test/e2e/time-series-page.spec.ts
+- **Tests run and results:** e2e: after scrolling to the bottom the bar is within the top 70px, a whole row (not squashed) and opaque, and switching mode from down there works; contrast passes in both themes
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-02 — The simple method a forecast is judged against is named, tagged and one click away
 
 - **Status:** Verified

@@ -234,6 +234,26 @@ test("the data table says which rows are actual, filled or forecast", async ({ p
   await expect(table.locator(".ts-table-note")).toContainText("in view");
 });
 
+test("the mode bar stays in view while the page scrolls", async ({ page }) => {
+  await openPage(page);
+  await page.locator(".ts-modes [data-mode=forecast]").click();
+  const host = page.locator(".timeseries-host");
+  const top = (await host.boundingBox())!.y;
+  await host.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await page.waitForTimeout(300);
+  const bar = (await page.locator(".ts-modes").boundingBox())!;
+  expect(bar.y).toBeGreaterThanOrEqual(top - 1);
+  expect(bar.y).toBeLessThan(top + 70);
+  // The bar is a whole row, not squashed, and opaque, so what scrolls under it does not show through.
+  const row = (await page.locator(".ts-modebar").boundingBox())!;
+  expect(row.height).toBeGreaterThan(bar.height);
+  expect(await page.locator(".ts-modebar").evaluate((e) => getComputedStyle(e).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+  // And it still works from down there.
+  await page.locator(".ts-modes [data-mode=explore]").click();
+  await expect(page.locator(".ts-modes [data-mode=explore]")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".ts-modebar")).toBeVisible();
+});
+
 test("the simple method a forecast is judged against is named in the badge, tagged on the board, and one click away", async ({ page }) => {
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();
