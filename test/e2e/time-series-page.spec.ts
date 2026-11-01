@@ -43,7 +43,7 @@ test("the Time Series tab reads the loaded table and says what it plots", async 
   await expect(sentence).toContainText(/Daily sum of points/);
   await expect(page.locator(".ts-page [data-ref=subline]")).toContainText("order_date");
   // Weekends never have rows here: that is said, not counted as missing.
-  await expect(page.locator(".ts-insight", { hasText: "Data" })).toContainText(/Saturdays and Sundays never have rows/);
+  await expect(page.locator(".ts-insight", { hasText: /never have rows/ })).toContainText(/Saturdays and Sundays never have rows/);
 
   // Split by a category column, then pick one value.
   await page.locator(".ts-tok[data-tok=groupBy]").click();
@@ -240,12 +240,20 @@ test("the chart names the forecast model and how it did; Trend flexibility expla
   const badge = page.locator(".ts-page [data-ref=heroBadge]");
   await expect(badge).toBeVisible();
   await expect(badge).toContainText(/Auto · /);
-  await expect(badge).toContainText(/Holds up|Middling|Doubtful/);
-  // One plain sentence says why, with the model's place among the others.
-  await expect(badge).toContainText(/(data it never saw \(\d+(st|nd|rd|th) of 8 models\)|Ranked \d+(st|nd|rd|th) of 8 models on data it never saw)/);
-  // The forecast line and the shaded range are judged apart, and the range row is labelled as such, not as a warning.
+  // One verdict, in the words people ask in, and the three questions answered in order.
+  await expect(badge.locator(".ts-verdict")).toHaveText(/^(Reliable|Use with care|Not reliable|Can't judge yet)$/);
+  await expect(badge.locator(".ts-qa-q")).toContainText(["Does it beat a simple method?", "Is it the best available?", "Can you trust the shaded band?"]);
+  await expect(badge.locator(".ts-qa-row").first()).toContainText(/less error than|no better than|too little history|did better on data it never saw|beats repeating|beat repeating the last year in only|did poorly/);
+  // The strip and the findings say the same word as the badge, not a second grade.
+  const word = (await badge.locator(".ts-verdict").textContent()) ?? "";
+  await expect(page.locator(".ts-page [data-ref=strip]")).toContainText(word);
+  await expect(page.locator(".ts-page [data-ref=insights]")).toContainText(`Forecast · ${word}`);
+  await expect(page.locator(".ts-page")).not.toContainText(/Heads up:|error vs naive|Holds up|Middling|Doubtful/);
   await expect(badge).not.toContainText("lead");
-  if (await badge.locator(".ts-rangenote").count()) await expect(badge.locator(".ts-rangenote")).toContainText(/The shaded range\s*(Reliable|Too narrow|Wider than needed)/);
+  // Details opens the numbers under the hood.
+  await badge.getByRole("button", { name: "Details" }).click();
+  await expect(page.locator(".ts-fold[data-fold=hood]")).toHaveAttribute("aria-expanded", "true");
+  await page.locator(".ts-fold[data-fold=hood]").click();
   await expect(page.locator(".ts-fold[data-fold=compare]")).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".ts-page [data-ref=foldHood]")).toBeHidden();
   // The numbers behind the verdict are under the hood.

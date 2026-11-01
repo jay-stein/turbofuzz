@@ -295,7 +295,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         shape = msg.shape ?? null;
         cfg = msg.snapshot.cfg;
         allT = null;
-        INS = buildInsights(snap, ui);
+        INS = makeInsights();
         ref("empty").hidden = true;
         ref("body").hidden = false;
         if (first || !view) { layout(); view = clampView(ui.mode === "forecast" ? forecastView() : fullView()); }
@@ -1051,8 +1051,14 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (d) cells.push(["Season", `${seasonName(gr, d).replace(/^./, (ch) => ch.toUpperCase())} <small>strength ${d.fs.toFixed(2)}</small>`]);
     const key = selectedModel(s, ui);
     if (key) {
-      const r = ratioOf(s, key), gd = grade(r, key);
-      cells.push(["Forecast", `${MODEL_INFO[key].name} <span class="ts-pill ${gd.cls}">${gd.text}</span> <small>${key === "sn" ? "baseline" : (r - 1 >= 0 ? "+" : "−") + Math.abs((r - 1) * 100).toFixed(0) + "% error vs naive"}</small>`]);
+      const r = ratioOf(s, key), M0 = models();
+      if (M0 && s.futures) {
+        const v = verdictFor(s, M0, key);
+        cells.push(["Forecast", `${MODEL_INFO[key].name} <span class="ts-pill ts-verdict ${v.cls}">${v.label}</span> <small>${escapeHtml(v.why)}</small>`]);
+      } else {
+        const gd = grade(r, key);
+        cells.push(["Forecast", `${MODEL_INFO[key].name} <span class="ts-pill ${gd.cls}">${gd.text}</span>`]);
+      }
     }
     ref("strip").innerHTML = cells.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join("");
 
@@ -1334,21 +1340,45 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   function verdictFor(s: TsSnapshot, M: ModelRun, key: ModelKey): Verdict {
     const m = M.models[key], f = s.futures![key];
     const band = f.held ? { hit: f.held.hit, tot: f.held.tot, aim: 0.8 } : m.check ? { hit: m.check.hit, tot: m.check.tot, aim: 0.8 } : null;
+    // The model that did best on the held-back test, and how much less error it had than this one.
+    const own = M.lockbox && m.lock ? lockValue(M, key, ui.metric) : Infinity;
+    const top = M.lockbox ? CORE_KEYS.reduce((p, k) => (lockValue(M, k, ui.metric) < lockValue(M, p, ui.metric) ? k : p), CORE_KEYS[0]!) : null;
+    const topV = top ? lockValue(M, top, ui.metric) : Infinity;
+    const leader = top && top !== key && Number.isFinite(own) && own > 0 && Number.isFinite(topV) ? { name: MODEL_INFO[top].name, gapPct: Math.max(0, ((own - topV) / own) * 100) } : null;
+    // The simple method that did best in the backtests (other than repeating the last cycle): the model has to beat that too.
+    const simples = BENCHMARK_KEYS.filter((k) => k !== "sn" && k !== key && M.shown.includes(k)).map((k) => ({ name: MODEL_INFO[k].name, ratio: ratioOf(s, k) })).filter((x) => Number.isFinite(x.ratio) && x.ratio < 1);
+    const bestSimple = simples.length ? simples.reduce((p, q) => (q.ratio < p.ratio ? q : p)) : null;
     return trustVerdict({
       baseline: key === "sn", ratio: ratioOf(s, key), lockRank: M.lockbox && m.lock ? lockRank(M, key, ui.metric) : null, models: CORE_KEYS.length,
-      intermittent: M.intermittent,
+      intermittent: M.intermittent, leader, bestSimple,
       beatenBy: M.lockbox && m.lock && !BENCHMARK_KEYS.includes(key) ? BENCHMARK_KEYS.filter((b) => !CORE_KEYS.includes(b) && lockValue(M, b, ui.metric) < lockValue(M, key, ui.metric)).map((b) => MODEL_INFO[b].name) : [],
       foldsWon: m.folds.won, foldsOf: m.folds.of, band, rough: M.rough, periods: s.A.modelN, cycle: cycleWord(s),
     });
+  }
+  /** The findings, with the forecast card worded by the same verdict as the badge and the strip. */
+  function makeInsights(): TsFinding[] {
+    const s = snap as TsSnapshot, list = buildInsights(s, ui), M = models(), key = M && s.futures ? selectedModel(s, ui) : null;
+    if (!M || !s.futures || !key) return list;
+    const at = list.findIndex((f) => f.tone === "forecast" && f.kind.startsWith("Forecast"));
+    if (at < 0) return list;
+    const v = verdictFor(s, M, key), f = s.futures[key];
+    let avg = 0, lo = 0, hi = 0;
+    for (let k = 0; k < M.H; k++) { avg += f.F[k]; lo += f.lo80[k]; hi += f.hi80[k]; }
+    const tone: TsTone = v.level === "holds" ? "forecast" : v.level === "middling" ? "warn" : v.level === "doubtful" ? "danger" : "dim";
+    list[at] = {
+      ...list[at]!, tone, kind: `Forecast · ${v.label}`,
+      html: `<b>${MODEL_INFO[key].name}</b>: ${escapeHtml(v.sentence)} Next ${M.H} ${nounFor(s.A.g, M.H)}: <b>${compact(avg / M.H)}</b> on average, most likely between ${compact(lo / M.H)} and ${compact(hi / M.H)}.`,
+    };
+    return list;
   }
   function renderHeroBadge(s: TsSnapshot, key: ModelKey | null): void {
     const badge = ref("heroBadge"), M = models();
     if (ui.mode !== "forecast" || !M || !s.futures || !key) { badge.hidden = true; return; }
     const v = verdictFor(s, M, key);
-    badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ${v.cls}">${v.label}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small><button type="button" class="ts-link" data-info="${key}">How it works</button></div>
-      <div class="ts-badge-body">${escapeHtml(v.sentence)}</div>
-      ${v.range ? `<div class="ts-rangenote"><b>The shaded range</b><span class="ts-pill ${v.range.cls}">${escapeHtml(v.range.label)}</span><span>${escapeHtml(v.range.text)}</span></div>` : ""}
-      ${v.headsUp.map((h) => `<div class="ts-headsup"><b>Heads up:</b> ${escapeHtml(h)}</div>`).join("")}`;
+    badge.dataset.level = v.level;
+    badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ts-verdict ${v.cls}">${v.label}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small><button type="button" class="ts-link" data-hood="1" title="The numbers behind this verdict, and how each model did">Details</button></div>
+      <div class="ts-qa">${v.answers.map((a) => `<div class="ts-qa-row"><span class="ts-qa-q">${escapeHtml(a.q)}</span><span class="ts-qa-a"><span class="ts-pill ${a.cls}">${escapeHtml(a.a)}</span></span><span class="ts-qa-t">${escapeHtml(a.text)}</span></div>`).join("")}</div>
+      ${v.headsUp.map((h) => `<div class="ts-headsup"><b>Also:</b> ${escapeHtml(h)}</div>`).join("")}`;
     badge.hidden = false;
     // The numbers behind the verdict, for analysts, at the top of Under the hood.
     const m = M.models[key], r = ratioOf(s, key), f = s.futures[key];
@@ -1374,7 +1404,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const R = M.origins.length, rank = lockRank(M, key, mk), base = M.models.sn.lock?.[mk] ?? NaN, v = m.lock[mk];
     const beats = key === "sn" ? "" : v === v && base === base ? (Math.abs(v) < Math.abs(base) ? " and beat repeating the last cycle" : `, <span class="ts-warn">but did not beat repeating the last cycle (${metricText(mk, base)})</span>`) : "";
     const level = snap ? verdictFor(snap, M, key).level : "middling";
-    const verdict = level === "holds" ? "The pick holds up" : level === "middling" ? "Middling: the pick's lead looks partly like luck" : level === "baseline" ? "The baseline every other model is measured against" : "<span class=\"ts-warn\">The pick fell apart on unseen data: treat its score as overfitted to the folds</span>";
+    const verdict = level === "holds" ? "Reliable: it beats the simple methods on data it never saw" : level === "middling" ? "Use with care: its edge over the simple methods is not clear" : level === "baseline" ? "The baseline every other model is measured against" : "<span class=\"ts-warn\">Not reliable: it did not hold up on unseen data, so treat its earlier scores as too good</span>";
     return `<div class="ts-badge-lock"><b>Lockbox check</b>: picked on folds 1–${R - 1}; on fold ${R}, which the choice never saw, it ranked <b>#${rank} of ${CORE_KEYS.length}</b> (${METRIC_INFO[mk].label} ${metricText(mk, v)})${beats}. ${verdict}.</div>`;
   }
   let curve: { key: string; points: { flex: number; mase: number }[] } | null = null;
@@ -1854,7 +1884,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   }
   function uiChange(patch: Partial<UiState>): void {
     Object.assign(ui, patch);
-    if (snap) INS = buildInsights(snap, ui);
+    if (snap) INS = makeInsights();
     invalidate("ui", "stat", "nav", "ov");
   }
   function flyTo(target: [number, number]): void {
@@ -1876,7 +1906,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     ui.mode = mode;
     allT = null; hoverIdx = -1; ghostModel = null;
     if (mode === "forecast") { reveal = 0; revealStart = performance.now(); }
-    INS = buildInsights(snap, ui);
+    INS = makeInsights();
     if (mode === "forecast") view = clampView(forecastView());
     else if (wasAtEnd || !view) view = clampView([fullView()[1] - (v[1] - v[0]), fullView()[1]]);
     else view = clampView(view);
@@ -2149,6 +2179,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (st) change({ smoothStat: st.dataset.stat as TsConfig["smoothStat"] }, { fade: false });
     const info = target.closest<HTMLElement>("[data-info]");
     if (info) { openDocs(info.dataset.info!); return; }
+    if (target.closest("[data-hood]")) { folds.hood = true; applyFolds(); try { localStorage.setItem("ts.forecast.folds", JSON.stringify(folds)); } catch { /* ignore */ } ref("heroDetail").scrollIntoView({ block: "start", behavior: "smooth" }); return; }
     const arimaRowEl = target.closest<HTMLElement>("tr[data-arima]");
     if (arimaRowEl && !info) { folds.compute = true; applyFolds(); ref("arimaOut").scrollIntoView({ block: "start", behavior: "smooth" }); return; }
     const row = target.closest<HTMLElement>("tr[data-model]");
