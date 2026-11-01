@@ -401,6 +401,13 @@ export function quantile(sorted: ArrayLike<number>, q: number): number {
   const pos = (sorted.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
 }
+/** Normal-error bands that widen like a random walk (sigma times the square root of the steps ahead): used only with no backtest to read them from. */
+function normalBands(sigma: number, H: number): BandQ[] {
+  const out: BandQ[] = [];
+  for (let h = 0; h < H; h++) { const w = sigma * Math.sqrt(h + 1); out.push({ q10: -1.2816 * w, q90: 1.2816 * w, q025: -1.96 * w, q975: 1.96 * w }); }
+  return out;
+}
+
 function bandQuantiles(errs: Float64Array, ks: number[], H: number): BandQ[] {
   const w = Math.max(1, Math.round(H / 8));
   const out: BandQ[] = [];
@@ -424,7 +431,9 @@ export function maxHorizon(A: Aggregated): number {
   const m = A.modelM || 1, minTrain = Math.max(m + Math.max(4, Math.ceil(m / 4)), 8);
   let H = Math.max(1, Math.floor((3 * (A.modelN - minTrain)) / 5));
   while (H > 1 && minTrain + H + 2 * Math.max(1, Math.round(H / 3)) > A.modelN) H--;
-  return Math.min(H, 20_000);
+  // A short series can still be forecast without a full backtest: up to half its length, leaving the minimum to train on.
+  const short = Math.min(Math.floor(A.modelN / 2), A.modelN - minTrain);
+  return Math.min(Math.max(H, short), 20_000);
 }
 export function horizonOf(A: Aggregated, cfg: TsConfig): number { return Math.max(1, Math.min(maxHorizon(A), cfg.horizon ?? A.g.horizon)); }
 
@@ -444,8 +453,11 @@ function backtestPlan(A: Aggregated, cfg: TsConfig, splitReq: number | null, H: 
   const minTrain = Math.max(m + Math.max(4, Math.ceil(m / 4)), 8);
   const step = Math.max(1, Math.round(H / 3));
   const minSplit = minTrain + H + 2 * step;
-  if (N < minSplit) return { error: `A ${H}-${g.noun} forecast needs at least ${minSplit} ${g.nouns} of history; this series has ${N}. Forecast less far ahead or pick a finer grain.` };
-  const T = splitReq == null ? N : Math.max(minSplit, Math.min(N, splitReq));
+  // Too little history for several folds is not a reason to refuse: forecast from the whole history with few
+  // folds (or none) and say so. Only a series that cannot even hold the training stretch plus the horizon fails.
+  if (N < minTrain + H) return { error: `A ${H}-${g.noun} forecast needs at least ${minTrain + H} ${g.nouns} of history; this series has ${N}. Forecast less far ahead or pick a finer grain.` };
+  // A requested split is honoured down to the shortest training stretch: earlier than the fold room it leaves few folds (or none).
+  const T = splitReq == null ? N : Math.max(minTrain, Math.min(N, splitReq));
   const y = A.yModel;
   const origins: number[] = [];
   for (let k = 0; k < 10; k++) { const o = T - H - k * step; if (o < minTrain) break; origins.push(o); }
@@ -650,6 +662,20 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
 
   const models = {} as Record<ModelKey, ModelSummary>;
   const q = {} as Record<ModelKey, BandQ[]>;
+  // The one-step error of the fitted ETS over its own history (or of the first differences when there is none):
+  // the width of a band with no backtest to read it from.
+  let sigmaCache = NaN;
+  const shortSigma = (): number => {
+    if (sigmaCache === sigmaCache) return sigmaCache;
+    let s2 = 0, c = 0;
+    if (!long) {
+      const from = etsFrom(T, mS), pred = new Float64Array(T);
+      etsFitted(yM, from, T, etsFit, pred);
+      for (let t = from; t < T; t++) { const e = yM[t]! - pred[t]!; if (e === e) { s2 += e * e; c++; } }
+    }
+    if (c < 3) { s2 = 0; c = 0; for (let t = 1; t < T; t++) { const e = yM[t]! - yM[t - 1]!; if (e === e) { s2 += e * e; c++; } } }
+    return (sigmaCache = c ? Math.sqrt(s2 / c) : 0);
+  };
   const foldMae = {} as Record<ModelKey, Float64Array>;
   const errsAll = {} as Record<ModelKey, Float64Array>;
   // With 4 or more folds the last is a lockbox: models are ranked and the Auto pick is
@@ -675,6 +701,11 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
     });
     const metrics = metricsOf(all, scale);
     q[key] = bandQuantiles(errs, origins.map((_, k) => k), H);
+    // Under three folds, or ten scored errors, an empirical band is not a band (two folds can both miss the same way,
+    // and the band then sits to one side of the forecast): use the series' own one-step error instead.
+    let usable = 0;
+    for (let i = 0; i < errs.length; i++) if (errs[i]! === errs[i]!) usable++;
+    if (R < 3 || usable < 10) q[key] = normalBands(shortSigma(), H);
     let check: ModelSummary["check"] = null;
     if (R >= 4) {
       const qx = bandQuantiles(errs, origins.slice(0, -1).map((_, k) => k), H);
@@ -725,7 +756,8 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
     const rivals = order.filter((k) => k !== "comb");
     const cand = rivals.reduce((a, b) => (size(b, mk) < size(a, mk) ? b : a));
     const label = METRIC_INFO_LABEL[mk];
-    if (!(size(cand, mk) < size("comb", mk))) auto[mk] = { pick: "comb", why: `The Combination is Auto's default, and no other model beat it on ${label} over the selection folds.` };
+    if (R === 0) auto[mk] = { pick: "comb", why: `Only ${T} ${g.nouns} of history: too few for a backtest of ${H} ${g.nouns} ahead, so nothing could be compared and Auto uses the Combination, the most dependable default (fpp3 13.4). Its range is the fitted model's own one-step error, widened like a random walk: a rough guide.` };
+    else if (!(size(cand, mk) < size("comb", mk))) auto[mk] = { pick: "comb", why: `The Combination is Auto's default, and no other model beat it on ${label} over the selection folds.` };
     else if (!lockbox) auto[mk] = { pick: "comb", why: `${nm(cand)} led the Combination on ${label}, but with under 4 folds there is no unseen fold to confirm it, so the Combination stays.` };
     else if (!(lockSize(cand, mk) < lockSize("comb", mk))) auto[mk] = { pick: "comb", why: `${nm(cand)} led the Combination on ${label} over the selection folds but not on the unseen lockbox fold, so the Combination stays.` };
     else {
@@ -813,6 +845,7 @@ export function computeFutures(A: Aggregated, run: RunInternal): Futures {
 
 export function grade(ratio: number, key: ModelKey): { cls: "base" | "good" | "okay" | "poor"; text: string } {
   if (key === "sn") return { cls: "base", text: "Baseline" };
+  if (!Number.isFinite(ratio)) return { cls: "base", text: "Untested" };
   if (ratio < 0.8) return { cls: "good", text: "Good" };
   if (ratio < 1) return { cls: "okay", text: "OK" };
   return { cls: "poor", text: "Poor" };

@@ -113,7 +113,7 @@ test("finds a weekly season in daily data", () => {
   assert.ok((D.dec?.fs ?? 0) > 0.8);
 });
 
-test("the longest forecast offered is one the history can backtest", () => {
+test("the longest forecast offered is one the history can forecast, and no longer", () => {
   const { times, values } = hourly(40);
   const t = buildTable(input(times, values));
   assert.ok(t);
@@ -123,7 +123,8 @@ test("the longest forecast offered is one the history can backtest", () => {
   assert.ok(H > 24 * 7, `max ${H}`);
   const ok = runModels(A, t, c, null, H, new Map());
   assert.ok(!("error" in ok));
-  const tooFar = runModels(A, t, c, null, H + 1, new Map());
+  // Far past what the history can hold, even with no backtest: refused, and the message says how much history is needed.
+  const tooFar = runModels(A, t, c, null, A.modelN, new Map());
   assert.ok("error" in tooFar);
 });
 

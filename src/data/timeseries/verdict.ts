@@ -8,7 +8,7 @@
  * benchmark is Hyndman and Athanasopoulos, Forecasting: Principles and Practice (3rd ed.), 5.8 and 5.10.
  */
 
-export type VerdictLevel = "holds" | "middling" | "doubtful" | "baseline";
+export type VerdictLevel = "holds" | "middling" | "doubtful" | "baseline" | "untested";
 
 export interface VerdictInput {
   /** The model is the benchmark itself (repeat the last cycle). */
@@ -79,6 +79,10 @@ export function trustVerdict(v: VerdictInput): Verdict {
   const pct = Math.round(Math.abs(1 - v.ratio) * 100);
   const folds = v.foldsOf > 0 ? ` and beat repeating the last ${v.cycle} in ${v.foldsWon} of ${v.foldsOf} tests` : "";
 
+  // No backtest at all (a short series): there is no evidence either way, and saying so beats a guess.
+  if (!v.baseline && !Number.isFinite(v.ratio)) {
+    return { level: "untested", label: "Untested", cls: "okay", headsUp: [], sentence: `Only ${v.periods} periods of history: too few to test this forecast on data it has not seen, so there is no evidence yet on how well it works. Read the range as a rough guide.` };
+  }
   if (v.band !== null && v.band.tot >= 20) {
     const share = v.band.hit / v.band.tot, off = share - v.band.aim;
     // 5 points off the aim, over at least 20 checks, is more than a flat run of luck would usually show.

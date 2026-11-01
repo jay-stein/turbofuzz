@@ -28,6 +28,20 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-11 — Time Series: short series are forecast, not refused (fundamentals plan, Phase 4c)
+
+- **Status:** Verified
+- **Scope:**
+  - **A series too short for several backtest folds is forecast anyway.** Before, a forecast needed room for the training stretch, the horizon and two more folds, and the page refused or cut the horizon. Now it needs only the training stretch (at least 8 periods, more for a seasonal series) plus the horizon. With room for one or two folds the backtest is marked rough; with none, nothing can be compared and the verdict says **Untested**.
+  - **Bands with no backtest to read them from:** under three folds, or ten scored errors, the empirical band (quantiles of backtest errors) is replaced by one from the fitted model's own one-step error over its history, widened like a random walk (sigma times the square root of the steps ahead). Two folds can both miss the same way and leave the band to one side of the forecast, which the old code did; this is why it is not used under three folds. The page and the Auto note both call it a rough guide.
+  - **Auto** uses the Combination when there is no backtest, and says why. A requested backtest split is honoured down to the shortest training stretch, so the held-out actuals are still scored against the forecast. The longest horizon offered is up to half the history (leaving the minimum to train on), longer than what a full backtest allows.
+  - The trust verdict gains **Untested** (the plain sentence says how little history there is); a model with no backtest ratio is graded Untested, not Poor.
+- **Evidence (Monash protocol, series forecast of those offered):** M1 yearly 81 of 181 before, 181 of 181 now; M3 yearly 152 of 300 sampled before, 300 of 300; tourism yearly 242 of 300 before, 291 of 291 offered. Mean MASE on the newly covered sets (Auto): M1 yearly 3.810 (published: ETS 3.771, Theta 4.191, ARIMA 4.479), M3 yearly 2.577 (Theta 2.774, ETS 2.860), tourism yearly 3.057 (Theta 3.015, ETS 3.395). The plan's target (forecast all of M1, M3 and tourism yearly) is met.
+- **Files / components changed:** src/data/timeseries/models.ts, verdict.ts, src/ui/timeseries-page.ts, tests (new: timeseries-short)
+- **Tests run and results:** typecheck clean; 1206 unit tests pass (new: a 16-year series, a 10-year split with no fold, the refusal below the minimum); e2e 116 pass and one unrelated map test that passes alone; accuracy gate passes
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-10 — Time Series: intermittent demand (Croston, SBA, TSB) (fundamentals plan, Phase 4b)
 
 - **Status:** Verified
