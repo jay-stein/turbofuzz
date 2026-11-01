@@ -221,11 +221,11 @@ export const MODEL_DOCS: Record<ModelKey, ModelDoc> = {
   },
   comb: {
     kind: "Combination",
-    summary: "The plain average of Best smoothing, Steady trend and Smooth and damp. Averaging forecasts has been recommended since Bates and Granger [ref:bates] [ref:clemen], is hard to beat with estimated weights [ref:smithwallis], and is in the spirit of the M4 competition's Comb benchmark (an average of simple, Holt and damped smoothing) [ref:m4] and of fpp3's advice [ref:fpp3] (13.4). It is Auto's default.",
-    equations: ["ŷ<sub>T+h|T</sub> = ( ŷ<sup>ETS</sup> + ŷ<sup>Theta</sup> + ŷ<sup>Holt-Winters</sup> ) / 3"],
+    summary: "The plain average of Best smoothing, Steady trend and Smooth and damp (with no season at this grain, of Best smoothing and Smooth and damp only). Averaging forecasts has been recommended since Bates and Granger [ref:bates] [ref:clemen], is hard to beat with estimated weights [ref:smithwallis], and is in the spirit of the M4 competition's Comb benchmark (an average of simple, Holt and damped smoothing) [ref:m4] and of fpp3's advice [ref:fpp3] (13.4). It is Auto's default.",
+    equations: ["ŷ<sub>T+h|T</sub> = ( ŷ<sup>ETS</sup> + ŷ<sup>Theta</sup> + ŷ<sup>Holt-Winters</sup> ) / 3", "With no season (yearly data): ŷ<sub>T+h|T</sub> = ( ŷ<sup>ETS</sup> + ŷ<sup>Holt-Winters</sup> ) / 2"],
     fitting: ["No parameters of its own, so nothing of its own to overfit: the three members are fitted as described under their names, each on the same folds. Equal weights are used because estimating weights adds error that often cancels the gain [ref:smithwallis]."],
     forecasting: ["Each member's misses are partly independent, so the average's error is smaller than the members' typical error. " + BAND],
-    differs: ["The members differ from M4's Comb (which averages simple, Holt and damped smoothing on seasonally adjusted data), so the Monash/M4 results for Comb are not ours. Ours are measured separately (see Evidence)."],
+    differs: ["With no season the Theta member is dropped. Theta is built for a deseasonalised series and, on short yearly series, scored worse than the other two. Measured on the Monash yearly sets and M3 Other, the two-way average beat the three-way one by 2.5% (M1 yearly), 2.8% (tourism yearly) and 7.0% (M3 Other) and tied it on M3 yearly (+0.1%): about 950 series. The rule was chosen after seeing those four sets, so it is tested on no other; it applies only when the grain has no season.", "The members differ from M4's Comb (which averages simple, Holt and damped smoothing on seasonally adjusted data), so the Monash/M4 results for Comb are not ours. Ours are measured separately (see Evidence)."],
   },
 };
 

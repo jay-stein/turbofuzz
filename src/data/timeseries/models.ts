@@ -33,7 +33,7 @@ export const MODEL_INFO: Readonly<Record<ModelKey, { name: string; meth: string 
   clim: { name: "Seasonal average", meth: "Mean of the same point in earlier cycles" },
   ets: { name: "Best smoothing", meth: "ETS, picked by AICc (error additive or multiplicative; trend none, additive or damped; season none, additive or multiplicative)" },
   ens: { name: "Blend with regression", meth: "Average of best smoothing, steady trend and the trend, seasons and drivers model" },
-  comb: { name: "Combination", meth: "Average of best smoothing, steady trend and smooth and damp (forecast combination, fpp3 13.4)" },
+  comb: { name: "Combination", meth: "Average of best smoothing, steady trend and smooth and damp (forecast combination, fpp3 13.4); with no season, best smoothing and smooth and damp" },
   naive: { name: "Repeat last value", meth: "Naive" },
   drift: { name: "Straight line on", meth: "Drift: the line through the first and last points, extended" },
   mean: { name: "Overall average", meth: "Mean of the whole history" },
@@ -681,9 +681,12 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   const climMeans = phaseMeans(yO, T, climM);
 
   if (bc) for (const key of ["hw", "ets", "reg", "theta"] as const) for (let i = 0; i < R * H; i++) oc[key][i] = inv(oc[key][i]!);
+  // With no season at this grain the Combination leaves Theta out: Theta is built for a deseasonalised series, and on
+  // the yearly Monash sets (about 770 series) Best smoothing with Smooth and damp beat the three-way average (see the changelog).
+  const noSeason = m <= 1;
   for (let i = 0; i < R * H; i++) {
     oc.ens[i] = (oc.ets[i] + oc.reg[i] + oc.theta[i]) / 3;
-    oc.comb[i] = (oc.ets[i] + oc.theta[i] + oc.hw[i]) / 3;
+    oc.comb[i] = noSeason ? (oc.ets[i] + oc.hw[i]) / 2 : (oc.ets[i] + oc.theta[i] + oc.hw[i]) / 3;
   }
 
   const models = {} as Record<ModelKey, ModelSummary>;
@@ -779,6 +782,11 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
       auto[mk] = { pick: pool.reduce((a, b) => (size(b, mk) < size(a, mk) ? b : a)), why: `A season of ${m} periods is longer than seasonal ETS and Theta handle well (R's ets() stops at 24), so Auto picks the backtest winner on the selection folds, and the Combination of those models is not a candidate.` };
       continue;
     }
+    if (noSeason && R > 0) {
+      // Short, non-seasonal series give a backtest of a few folds, and picking a winner from those lost to simply keeping the average.
+      auto[mk] = { pick: "comb", why: "With no season at this grain Auto is the Combination of Best smoothing and Smooth and damp, and no rival replaces it: on the yearly Monash sets, letting a few short folds pick a winner was no better than keeping the average, and on M3 Other it was worse (1.95 against 1.84)." };
+      continue;
+    }
     const rivals = order.filter((k) => k !== "comb");
     const cand = rivals.reduce((a, b) => (size(b, mk) < size(a, mk) ? b : a));
     const label = METRIC_INFO_LABEL[mk];
@@ -841,7 +849,7 @@ export function computeFutures(A: Aggregated, run: RunInternal): Futures {
     F.sn[h] = y[T - m + (h % m)];
     F.clim[h] = run.climMeans[(T + h) % run.climM];
     F.ens[h] = (F.ets[h] + F.reg[h] + F.theta[h]) / 3;
-    F.comb[h] = (F.ets[h] + F.theta[h] + F.hw[h]) / 3;
+    F.comb[h] = run.m <= 1 ? (F.ets[h] + F.hw[h]) / 2 : (F.ets[h] + F.theta[h] + F.hw[h]) / 3;
     F.naive[h] = run.bench.naive; F.drift[h] = run.bench.naive + run.bench.slope * (h + 1); F.mean[h] = run.bench.mean; F.ses[h] = run.bench.ses;
     F.croston[h] = run.bench.croston; F.sba[h] = run.bench.sba; F.tsb[h] = run.bench.tsb;
   }

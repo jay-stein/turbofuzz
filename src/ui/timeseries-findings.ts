@@ -325,7 +325,7 @@ export function modelRows(s: TsSnapshot, sel: ModelKey, metric: MetricKey = "mas
   }
   if (M.auto) rows.push(["Auto", `${escapeHtml(M.auto[metric].why)}${sel !== M.auto[metric].pick ? ` You have picked ${MODEL_INFO[sel].name} instead.` : ""}`]);
   if (M.season && sel !== "sn" && sel !== "clim" && sel !== "reg") rows.push(["Season", escapeHtml(M.season.why)]);
-  if (sel === "comb") rows.push(["Combination", `the plain average of the Best smoothing, Steady trend and Smooth and damp forecasts (fpp3 13.4). Each is an imperfect view of the same series, and their misses partly cancel; the average has no parameters of its own to overfit`]);
+  if (sel === "comb") rows.push(["Combination", `the plain average of the ${M.m <= 1 ? "Best smoothing and Smooth and damp forecasts (Steady trend is left out when there is no season)" : "Best smoothing, Steady trend and Smooth and damp forecasts"} (fpp3 13.4). Each is an imperfect view of the same series, and their misses partly cancel; the average has no parameters of its own to overfit`]);
   const hw = M.models.hw.hw;
   if ((sel === "hw" || sel === "ens") && hw) {
     const [a, b, gm, ph] = hw.params;

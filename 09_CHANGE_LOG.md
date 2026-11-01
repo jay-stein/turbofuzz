@@ -28,6 +28,18 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-14 — Time Series: with no season, Auto is the two-way Combination and no rival replaces it
+
+- **Status:** Verified
+- **Scope:** For a series with no season at its grain (yearly data, and any grain with a period of 1) the Combination is the average of **Best smoothing and Smooth and damp** (Theta is left out), and **Auto keeps it: no rival can replace it**. Seasonal series are unchanged.
+- **Why:** on every non-seasonal Monash set we have, Smooth and damp beat Auto and Theta was the weakest member. Theta is built for a deseasonalised series [Assimakopoulos and Nikolopoulos 2000], and on short yearly series (M1 yearly Theta 4.19, ETS 3.85) it dragged the three-way average down. The second change comes from the same numbers: on M3 Other the three-way Combination with the usual rival test scored 1.973, the two-way average with rivals allowed 1.951 and without them 1.836, because a winner picked from the few short folds of such a series was worse than keeping the average (Cawley and Talbot 2010).
+- **Evidence (Auto's mean MASE, all series offered, Monash protocol):** M1 yearly 3.810 to 3.715 (-2.5%), M3 yearly 2.577 to 2.582 (+0.2%), tourism yearly 3.057 to 2.974 (-2.7%), M3 Other 1.973 to 1.836 (-6.9%). On the accuracy gate's 141 series: M3 yearly -3.7%, M3 Other -2.2%, tourism yearly -3.2%, nothing worse.
+- **Caution:** the rule was found by looking at these four sets (about 950 series) and tried on no other, since we hold no other non-seasonal data. Four independent sets all moved the same way or stood still, which is the evidence; a new non-seasonal set that went the other way would be reason to revisit it. It is documented on the Combination's page.
+- **Files / components changed:** src/data/timeseries/models.ts, src/ui/timeseries-model-docs.ts, timeseries-findings.ts, timeseries-metrics.ts, tools/ts-eval/lib.ts (`forecastsAll`), test/fixtures/accuracy/baseline.json
+- **Tests run and results:** typecheck clean; 1218 unit tests pass; accuracy gate passes, baseline updated; latency unchanged
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-13 — Time Series: week start from the data, and an honest note on the ranges (fundamentals plan, Phase 5b)
 
 - **Status:** Verified

@@ -123,6 +123,15 @@ export function runSeries(s: Series, freq: FreqName, H: number): { mase: Record<
   return { mase: out, auto: M.best, cover };
 }
 
+/** Every model's forecast for the held-out stretch, with the training and test values and the archive's MASE seasonality (for trying combinations). */
+export function forecastsAll(s: Series, freq: FreqName, H: number): { F: Record<ModelKey, number[]>; train: number[]; test: number[]; season: number; auto: ModelKey } | { skip: string } {
+  const r = setup(s, freq, H);
+  if ("skip" in r) return r;
+  const { snap, train, test, fq } = r, M = snap.models as Exclude<typeof snap.models, { error: string }>;
+  const F = Object.fromEntries(MODEL_KEYS.map((k) => [k, Array.from(snap.futures![k].F)])) as Record<ModelKey, number[]>;
+  return { F, train, test, season: fq.season, auto: M.best };
+}
+
 /** Our ETS and Theta forecasts and the ETS form chosen, for comparison with a reference implementation. */
 export function forecastsOf(s: Series, freq: FreqName, H: number): { ets: number[]; theta: number[]; spec: string; etsMase: number; thetaMase: number; aicc: number; n: number } | { skip: string } {
   const r = setup(s, freq, H);
