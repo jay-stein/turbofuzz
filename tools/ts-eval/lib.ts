@@ -100,7 +100,7 @@ function setup(s: Series, freq: FreqName, H: number): Setup | { skip: string } {
 }
 
 /** MASE of every model, the Auto pick and the combinations on one series; or why it could not run. */
-export function runSeries(s: Series, freq: FreqName, H: number): { mase: Record<Key, number>; auto: ModelKey; cover: { n: number; in80: number; in95: number } } | { skip: string } {
+export function runSeries(s: Series, freq: FreqName, H: number): { mase: Record<Key, number>; auto: ModelKey; cover: { n: number; in80: number; in95: number; winkler80: number } } | { skip: string } {
   const r = setup(s, freq, H);
   if ("skip" in r) return r;
   const { snap, train, test, fq } = r, F = snap.futures!, M = snap.models as Exclude<typeof snap.models, { error: string }>;
@@ -110,14 +110,21 @@ export function runSeries(s: Series, freq: FreqName, H: number): { mase: Record<
   out.et = mase(train, test, Array.from({ length: H }, (_, h) => (F.ets.F[h]! + F.theta.F[h]!) / 2), fq.season);
   out.eth = mase(train, test, Array.from({ length: H }, (_, h) => (F.ets.F[h]! + F.theta.F[h]! + F.hw.F[h]!) / 3), fq.season);
   // How often the held-out actuals fell inside the Auto forecast's bands (the 80% and 95% ones the page draws).
-  const fb = F[M.best], cover = { n: 0, in80: 0, in95: 0 };
+  const fb = F[M.best], cover = { n: 0, in80: 0, in95: 0, winkler80: 0 };
+  // The scale of the Winkler score (fpp3 5.9): the training data's mean seasonal naive error, as for MASE.
+  let dScale = 0, dc = 0;
+  const sm = fq.season > 0 && train.length > fq.season ? fq.season : 1;
+  for (let t = sm; t < train.length; t++) { dScale += Math.abs(train[t]! - train[t - sm]!); dc++; }
+  dScale = dc ? dScale / dc : 1;
   for (let h = 0; h < H; h++) {
     const v = test[h]!;
     if (!Number.isFinite(v)) continue;
     cover.n++;
     // TS_BAND_SCALE=1.3 widens both bands around the forecast by that factor (to see what width would calibrate them).
     const c = Number(process.env.TS_BAND_SCALE ?? 1), f = fb.F[h]!;
-    if (v >= f - c * (f - fb.lo80[h]!) && v <= f + c * (fb.hi80[h]! - f)) cover.in80++;
+    const lo = f - c * (f - fb.lo80[h]!), hi = f + c * (fb.hi80[h]! - f);
+    cover.winkler80 += (hi - lo + (v < lo ? (2 / 0.2) * (lo - v) : 0) + (v > hi ? (2 / 0.2) * (v - hi) : 0)) / (dScale || 1);
+    if (v >= lo && v <= hi) cover.in80++;
     if (v >= f - c * (f - fb.lo95[h]!) && v <= f + c * (fb.hi95[h]! - f)) cover.in95++;
   }
   return { mase: out, auto: M.best, cover };

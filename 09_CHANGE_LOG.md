@@ -28,6 +28,21 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-15 — Time Series: the ranges are a normal band from the spread of the backtest errors, and they now hold the real value about as often as promised
+
+- **Status:** Verified
+- **Scope:** The 80% and 95% ranges were quantiles of the backtest errors (the 10%, 90%, 2.5% and 97.5% points); they are now a **normal band**: the forecast plus or minus 1.28 (80%) or 1.96 (95%) times the root mean square of this model's own backtest errors at that step, pooled over the folds and the neighbouring steps. That is fpp3 5.5's construction, with sigma estimated from the backtest instead of from in-sample residuals. With under three folds, or ten scored errors, the band still comes from the fitted model's own one-step error (CHG-2026-11-01-11). The Deep check's calibration test, the model card, the model pages and the "How far to trust the ranges" topic are updated.
+- **Why the old band was too narrow:** a quantile of a handful of errors sits inside the true spread (the tails of the error distribution are exactly where few folds say least), and a miss only counts as far as the quantile. The root mean square counts every miss at full size.
+- **Evidence (`tools/ts-eval/coverage.ts`, Winkler score as fpp3 5.9, scaled by the training data's seasonal naive error):**
+  - 141 gate series, 2,370 points: 80% band 68.3% to **83.5%**, 95% band 83.4% to **93.5%**, Winkler 7.04 to **6.42**.
+  - Checked on 60 further series from each of 11 datasets that the choice was not made on: 80% coverage 81-83% on M3 monthly and quarterly, tourism, hospital, FRED-MD, NN5 and pedestrian counts; 76% M1 monthly; 72% M4 weekly; 65% M3 yearly. The Winkler score improved on ten of eleven (FRED-MD 2.52 to 2.70 was the exception).
+  - Tried and **rejected**: scaling errors by the series' level (no gain, Winkler 7.09); a small-sample t correction (coverage 86.2% against an aim of 80%, Winkler 6.51, worse than plain normal 6.42).
+  - **Still too narrow** on short yearly series and weekly ones; the topic says so and tells the reader to take the range as a minimum there.
+- **Files / components changed:** src/data/timeseries/models.ts, src/ui/timeseries-model-docs.ts, timeseries-findings.ts, tools/ts-eval/lib.ts and coverage.ts (Winkler score, series offset)
+- **Tests run and results:** typecheck clean; 1218 unit tests pass; Time Series e2e 20 pass; accuracy gate passes (the band does not enter the point forecast); latency unchanged
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-14 — Time Series: with no season, Auto is the two-way Combination and no rival replaces it
 
 - **Status:** Verified

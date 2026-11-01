@@ -24,7 +24,7 @@ export interface ModelDoc {
   differs: string[];
 }
 
-const BAND = "The 80% and 95% bands are not model-based. For each step ahead they are quantiles of this model's own backtest errors at that step (pooled over the folds and over the neighbouring steps, a window of H/8 either side), added to the forecast, with the 95% tails widened to at least 1.53 times the 80% half-width (the ratio of the normal 97.5% and 90% quantiles) when the sample is thin. They are checked fold by fold in the Deep check. [ref:fpp3] 5.5 describes the same idea as empirical (bootstrapped) intervals. They are narrower than they should be: see \"How far to trust the ranges\".";
+const BAND = "The 80% and 95% bands are not model-based. At each step ahead the spread (root mean square) of this model's own backtest errors at that step, pooled over the folds and the neighbouring steps (a window of H/8 either side), gives a normal band around the forecast: plus or minus 1.28 times that spread for 80% and 1.96 times for 95% [ref:fpp3] (5.5). They are checked fold by fold in the Deep check. Bands like these still tend to be too narrow: see \"How far to trust the ranges\".";
 
 export const MODEL_DOCS: Record<ModelKey, ModelDoc> = {
   sn: {
@@ -176,7 +176,7 @@ export const MODEL_DOCS: Record<ModelKey, ModelDoc> = {
     differs: [
       "Checked against Nixtla's statsforecast (a port of R's ets()) on 620 series: it chooses the same form on 53–88% of series (85–88% on quarterly and yearly data), the median difference between the two forecasts is 0.0–2.6%, and where both choose the same form our AICc is equal to the reference's (median difference 0.000; on a 150-series subset, 108 had the same form, and ours was better by more than 0.5 on 23 of those and worse on 6). Mean error is within 2% of the reference's overall (+2.0%), driven by a few short, trending yearly series where optimisers land in different places.",
       "The equations are checked against statsmodels' ETSModel to 1e-13 for every non-seasonal and additive-season form. For a multiplicative season statsmodels updates the season with the current level; fpp3 (8.3) and R's code use the previous level, as here, and those forms are checked against the textbook's component form.",
-      "The usual region is enforced but not the admissibility check on top of it; the optimiser is our own Nelder–Mead, not R's; the two-stage fit above is ours; and the bands are empirical, not the model's own analytic intervals ([ref:fpp3] 8.7), which are not implemented.",
+      "The usual region is enforced but not the admissibility check on top of it; the optimiser is our own Nelder–Mead, not R's; the two-stage fit above is ours; and the bands come from backtest errors, not the model's own analytic intervals ([ref:fpp3] 8.7), which are not implemented.",
     ],
   },
   theta: {
@@ -209,7 +209,7 @@ export const MODEL_DOCS: Record<ModelKey, ModelDoc> = {
       "Closed form: the normal equations are solved by Cholesky decomposition on the latest 4,000 periods, refitted on every fold. Filled periods are left out of the fit. There is nothing to iterate, so the only choice that can overfit is the trend flexibility, which the Trend flexibility panel validates on the same folds.",
     ],
     forecasting: ["The trend is extended with the last slope, which includes any changepoint slopes in force at the end of the data: the usual way this model overfits. " + BAND],
-    differs: ["It is Prophet's design, not Prophet: a closed-form ridge fit instead of MAP estimation in Stan, piecewise-linear trend only, no holidays, and empirical bands instead of simulated ones.", "On monthly, quarterly and yearly series it is usually the weakest model; its place is hourly and daily data and series with drivers."],
+    differs: ["It is Prophet's design, not Prophet: a closed-form ridge fit instead of MAP estimation in Stan, piecewise-linear trend only, no holidays, and bands from its backtest errors instead of simulated ones.", "On monthly, quarterly and yearly series it is usually the weakest model; its place is hourly and daily data and series with drivers."],
   },
   ens: {
     kind: "Combination",
@@ -287,15 +287,10 @@ export const TOPICS: Topic[] = [
     id: "ranges",
     title: "How far to trust the ranges",
     html: `
-      <p>The shaded range is built from this model's own backtest errors at each step ahead, so it is as wide as the model was wrong on earlier dates. Prediction ranges are almost always <b>too narrow</b>, and the textbook says so [ref:fpp3] (5.5): they assume the model is right and ignore uncertainty about its settings and about which model was chosen.</p>
-      <p>We measured it. On 141 real series from 20 datasets of the Monash archive [ref:monash], each forecast from all but its last stretch, the real values fell inside the <b>80% range 69%</b> of the time and inside the <b>95% range 84%</b> of the time (2,370 forecast points; <code>tools/ts-eval/coverage.ts</code>). It varies a lot by kind of series:</p>
-      <ul>
-        <li><b>Monthly</b>: the 80% range held 69% to 83% (M3 monthly 83%, tourism 69%, M1 73%, hospital 73%, FRED-MD 72%).</li>
-        <li><b>Quarterly and yearly</b>: 38% to 67%. These series are short, the folds are few, and the last stretch often differs from the ones before it.</li>
-        <li><b>Weekly</b>: 53% to 85%. <b>Hourly and daily</b>: 70% to 86%.</li>
-        <li><b>Mostly-zero sales</b> (car parts): 28%. The range says little about a single period there.</li>
-      </ul>
-      <p>So read a range as a <b>minimum</b>: the real value will leave it more often than the label says. We have not stretched the ranges by one fixed amount to hide this: a factor that fixes the average would make monthly ranges too wide and still leave quarterly ones too narrow. Where the history is long enough, the Heads up note says when this series' own ranges held the value less often than promised.</p>`,
+      <p>The shaded range is a normal band around the forecast, as wide as this model's own backtest errors at each step ahead say it should be [ref:fpp3] (5.5). Prediction ranges tend to be <b>too narrow</b>, and the textbook says so: they assume the model is right and ignore uncertainty about its settings and about which model was chosen.</p>
+      <p>We measured it, on the Monash archive [ref:monash] with each forecast made from all but its last stretch (<code>tools/ts-eval/coverage.ts</code>). On 141 series from 20 datasets (2,370 forecast points) the real value fell inside the <b>80% range 83.5%</b> of the time and inside the <b>95% range 93.5%</b> of the time. An earlier version took the 10% and 90% quantiles of the same errors instead; with a handful of folds those sat well inside the true spread and the 80% range held 68%, with a worse Winkler score [ref:fpp3] (5.9) of 7.04 against 6.42 (lower is better).</p>
+      <p>The choice was checked on series it was not chosen on: 60 further series from each of 11 datasets. The 80% range held <b>81 to 83%</b> on M3 monthly and quarterly, tourism, hospital, FRED-MD, NN5 and pedestrian counts, <b>76%</b> on M1 monthly, <b>72%</b> on M4 weekly and <b>65%</b> on M3 yearly, and the Winkler score was better than before on ten of the eleven. Where the history is long enough, the Heads up note says when this series' own ranges held the value less often than promised.</p>
+      <p>So the ranges are close to honest for most monthly, quarterly and daily series, and <b>still too narrow for short yearly series and for weekly ones</b>: read them there as a minimum. We have not stretched them by a fixed factor, and a small-sample (<i>t</i>) correction was tried and rejected: it over-covered (86% against an aim of 80%) and scored worse.</p>`,
   },
   {
     id: "transform",

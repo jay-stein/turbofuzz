@@ -377,7 +377,7 @@ export function modelRows(s: TsSnapshot, sel: ModelKey, metric: MetricKey = "mas
   if (f.held) rows.push(["Held-out check", `${f.held.hit} of ${f.held.tot} actual ${g.nouns} after the split fell inside the 80% band (${f.held.tot ? ((f.held.hit / f.held.tot) * 100).toFixed(0) : 0}%)${f.held.tot && f.held.hit / f.held.tot < 0.6 ? `. <span class="ts-warn">The band was too narrow here: the series changed after the backtest stretch.</span>` : ""}`]);
   else if (m.check) rows.push(["Band check", `on the latest backtest, ${m.check.hit} of ${m.check.tot} ${g.nouns} fell inside the 80% band built from the others`]);
   if (M.rough) rows.push(["Note", `<span class="ts-warn">Under three backtests fit in this history, so the range is wide and rough.</span>`]);
-  rows.push(["Band", `built from the backtest errors at each step ahead, not from a formula; it widens the further ahead it goes${A.nonNeg ? " and stays at or above zero, as the series does" : ""}`]);
+  rows.push(["Band", `a normal band (1.28 and 1.96 times the spread of this model's backtest errors at each step ahead); it widens the further ahead it goes${A.nonNeg ? " and stays at or above zero, as the series does" : ""}`]);
   return rows;
 }
 function fmtNum(v: number): string { return Math.abs(v - Math.round(v)) < 1e-9 ? nf.format(v) : v.toFixed(2); }
