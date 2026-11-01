@@ -309,6 +309,7 @@ export function buildIssueCard(
     fix: (issue: PageIssue) => void;
     show: (issue: PageIssue) => void;
     optional?: (issue: PageIssue, optional: boolean) => void;
+    dismiss?: (issue: PageIssue) => void;
     /** Open the one-by-one review for an issue that has choices to make. */
     review?: (issue: PageIssue) => void;
   },
@@ -357,6 +358,12 @@ export function buildIssueCard(
     show.addEventListener("click", () => actions.show(issue));
     buttons.append(show);
   }
+  if (issue.check !== undefined && issue.kind !== "empty" && actions.dismiss !== undefined) {
+    const ok = el("button", { class: "link", type: "button", "data-qp": "dismiss" }, ["Not a problem"]);
+    ok.title = "I have looked at these rows and they are fine. Set this aside and leave it out of the score; it comes back if more rows are affected.";
+    ok.addEventListener("click", () => actions.dismiss?.(issue));
+    buttons.append(ok);
+  }
   if (issue.kind === "empty" && issue.column !== null && actions.optional !== undefined) {
     const marked = issue.optional === true;
     const toggle = el("button", { class: "link", type: "button" }, [
@@ -381,6 +388,11 @@ export function buildIssuesTab(
     openChecks: () => void;
     undo: (entry: FixedEntry) => void;
     optional?: (issue: PageIssue, optional: boolean) => void;
+    /** Sets an issue aside as reviewed ("not a problem"); omitted when the page cannot remember it. */
+    dismiss?: (issue: PageIssue) => void;
+    /** Issues set aside earlier, and how to put one back. */
+    reviewed?: readonly { id: string; title: string; rows: number }[];
+    restore?: (id: string) => void;
     /** Previews and applies every safe fix together; omitted when none is available. */
     applyAllSafe?: () => void;
     safeCount?: number;
@@ -448,6 +460,23 @@ export function buildIssuesTab(
       const undo = el("button", { class: "ghost small", type: "button" }, ["Undo"]);
       undo.addEventListener("click", () => actions.undo(entry));
       row.append(undo);
+      group.append(row);
+    }
+    root.append(group);
+  }
+  if (actions.reviewed !== undefined && actions.reviewed.length > 0) {
+    const group = el("section", { class: "qp-fixed qp-reviewed", "aria-label": "Reviewed and set aside" }, [
+      el("h3", { class: "qp-section-title" }, ["Reviewed and set aside"]),
+      el("p", { class: "qp-note" }, ["You looked at these and they are fine, so they are left out of the score. One comes back if more rows are affected."]),
+    ]);
+    for (const entry of actions.reviewed) {
+      const row = el("div", { class: "qp-fixed-row" }, [
+        el("span", { class: "qp-fixed-check", "aria-hidden": "true" }, ["\u2713"]),
+        el("span", { class: "qp-fixed-title" }, [entry.title]),
+      ]);
+      const back = el("button", { class: "ghost small", type: "button", "data-qp": "restore" }, ["Put back"]);
+      back.addEventListener("click", () => actions.restore?.(entry.id));
+      row.append(back);
       group.append(row);
     }
     root.append(group);

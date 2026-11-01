@@ -77,6 +77,12 @@ export interface QualityPageCallbacks {
   onReviewIssue?(issue: PageIssue): Promise<FixOutcome | null>;
   /** Show the rows behind an issue (filters the table or runs its finding action). */
   onShowIssue?(issue: PageIssue): void;
+  /** The user reviewed an issue and set it aside ("not a problem"). */
+  onDismissIssue?(issue: PageIssue): void;
+  /** Issues set aside earlier for this file. */
+  reviewedList?(): { id: string; title: string; rows: number }[];
+  /** Put a set-aside issue back. */
+  onRestoreReviewed?(id: string): void;
   /** The user marked a column optional (true) or required (false). */
   onOptionalChange?(columnName: string, optional: boolean): void;
   /** The Rules tab body, built by the app (which owns the rules). */
@@ -318,6 +324,9 @@ export class QualityPage {
             applyAllSafe: () => void this.fix(safe),
             ...(this.callbacks.onReviewIssue === undefined ? {} : { review: (issue: PageIssue) => void this.review(issue) }),
             safeCount: safe.length,
+            ...(this.callbacks.onDismissIssue === undefined ? {} : { dismiss: (issue: PageIssue) => this.callbacks.onDismissIssue?.(issue) }),
+            reviewed: this.callbacks.reviewedList?.() ?? [],
+            restore: (id: string) => this.callbacks.onRestoreReviewed?.(id),
             fix: (issue) => void this.fixOne(issue),
             show: (issue) => this.callbacks.onShowIssue?.(issue),
             ...(this.callbacks.onOptionalChange === undefined

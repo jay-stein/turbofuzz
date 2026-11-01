@@ -12,6 +12,11 @@
   --border-subtle: #eceff2;
   --text: #1c2430;
   --text-dim: #556170;
+  --ty-text: #475569; --ty-text-bg: #e8edf3;
+  --ty-cat: #6d28d9; --ty-cat-bg: #ede9fe;
+  --ty-num: #1d4ed8; --ty-num-bg: #dbeafe;
+  --ty-date: #0f766e; --ty-date-bg: #ccfbf1;
+  --ty-bool: #15803d; --ty-bool-bg: #dcfce7;
   --accent: #2563eb;
   --accent-soft: #dbe6ff;
   --on-accent: #ffffff;
@@ -87,6 +92,11 @@
     --border-subtle: #222b36;
     --text: #e7ecf2;
     --text-dim: #a1aebd;
+    --ty-text: #cbd5e1; --ty-text-bg: #2a3342;
+    --ty-cat: #c4b5fd; --ty-cat-bg: #2e2650;
+    --ty-num: #93c5fd; --ty-num-bg: #1e3a5f;
+    --ty-date: #5eead4; --ty-date-bg: #134e4a;
+    --ty-bool: #86efac; --ty-bool-bg: #14351f;
     --accent: #60a5fa;
     --accent-soft: #1e3a5f;
     --on-accent: #0b1220;
@@ -125,6 +135,11 @@
   --border-subtle: #222b36;
   --text: #e7ecf2;
   --text-dim: #a1aebd;
+  --ty-text: #cbd5e1; --ty-text-bg: #2a3342;
+  --ty-cat: #c4b5fd; --ty-cat-bg: #2e2650;
+  --ty-num: #93c5fd; --ty-num-bg: #1e3a5f;
+  --ty-date: #5eead4; --ty-date-bg: #134e4a;
+  --ty-bool: #86efac; --ty-bool-bg: #14351f;
   --accent: #60a5fa;
   --accent-soft: #1e3a5f;
   --on-accent: #0b1220;
@@ -9246,6 +9261,23 @@ label.null-row {
 .th-type-wrap::after {
   content: attr(data-glyph);
 }
+
+/* The type reads as a chip tinted by its family, so a column of the wrong type stands out. The glyph stays the label: colour is never the only cue. */
+.th-type-wrap[data-fam] {
+  padding: 0 8px;
+  height: 20px;
+  border-radius: 5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--fam-fg);
+  background: var(--fam-bg);
+}
+.th-type-wrap[data-fam="text"] { --fam-fg: var(--ty-text); --fam-bg: var(--ty-text-bg); }
+.th-type-wrap[data-fam="category"] { --fam-fg: var(--ty-cat); --fam-bg: var(--ty-cat-bg); }
+.th-type-wrap[data-fam="number"] { --fam-fg: var(--ty-num); --fam-bg: var(--ty-num-bg); }
+.th-type-wrap[data-fam="time"] { --fam-fg: var(--ty-date); --fam-bg: var(--ty-date-bg); }
+.th-type-wrap[data-fam="boolean"] { --fam-fg: var(--ty-bool); --fam-bg: var(--ty-bool-bg); }
+.th-type-wrap[data-fam]:hover { color: var(--accent); background: var(--accent-soft); }
 
 .th-type-wrap:hover {
   color: var(--accent);

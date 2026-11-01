@@ -97,6 +97,8 @@ export interface DQScoreConfig {
   bandFair?: number;
   /** Per column name: true marks it optional, false marks it required. */
   optional?: Record<string, boolean>;
+  /** Checks the analyst reviewed and set aside, by id, with the failing count they reviewed: they stop counting until more rows fail. */
+  reviewed?: Record<string, number>;
   /** false keeps the plain number-only band (the pre-cap behaviour). */
   capBand?: boolean;
 }
@@ -380,6 +382,14 @@ export function computeDQScore(
     fixLabel: stats.duplicateRows > 0 ? "Show duplicates" : null,
   });
 
+  const reviewed = config.reviewed ?? {};
+  for (let i = 0; i < checks.length; i++) {
+    const check = checks[i]!;
+    const seen = reviewed[check.id];
+    if (seen !== undefined && check.fail > 0 && check.fail <= seen) {
+      checks[i] = { ...check, pass: check.pass + check.fail, fail: 0, detail: `${check.detail} · reviewed and set aside` };
+    }
+  }
   const byDimension = new Map<ScoreDimension, ScoreCheck[]>();
   for (const check of checks) {
     const list = byDimension.get(check.dimension);

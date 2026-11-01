@@ -89,6 +89,9 @@ export class FilterPanel {
     card.scrollIntoView({ behavior: "smooth", block: "center" });
     card.classList.add("flash");
     window.setTimeout(() => card.classList.remove("flash"), 1200);
+    // Ready to type: a card opened from another page used to leave focus on the card, so the first keystrokes went nowhere.
+    const field = card.querySelector<HTMLInputElement>("input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden])");
+    if (field !== null) window.requestAnimationFrame(() => field.focus({ preventScroll: true }));
   }
 
   /**
@@ -378,6 +381,7 @@ export class FilterPanel {
         ]
       : [
           ["between", "Between"],
+          ["outside", "Outside"],
           ["eq", "Equals"],
           ["ne", "Does not equal"],
           ["gt", "Greater than"],
@@ -456,6 +460,7 @@ export class FilterPanel {
       if (state.max !== null) maxInput.value = this.formatRangeValue(state.max, meta);
     } else if (state?.kind === "compare" && state.value !== undefined) {
       minInput.value = this.formatRangeValue(state.value, meta);
+      if (state.op === "outside" && state.value2 !== undefined) maxInput.value = this.formatRangeValue(state.value2, meta);
     }
     const dateMin =
       dateLike && meta.stats.min !== null ? this.formatRangeValue(meta.stats.min, meta) : "";
@@ -498,6 +503,11 @@ export class FilterPanel {
         const min = this.readRangeValue(minInput.value, meta);
         const max = this.readRangeValue(maxInput.value, meta);
         filter = min === null && max === null ? null : { kind: "range", min, max };
+      } else if (mode === "outside") {
+        // Rows below the first bound or above the second: what a plausible-range check flags.
+        const min = this.readRangeValue(minInput.value, meta);
+        const max = this.readRangeValue(maxInput.value, meta);
+        filter = min === null || max === null ? null : { kind: "compare", op: "outside", value: min, value2: max };
       } else {
         const value = this.readRangeValue(minInput.value, meta);
         if (value !== null) {
@@ -562,11 +572,12 @@ export class FilterPanel {
     const updateMode = (): void => {
       const mode = modeSelect.value;
       const between = mode === "between";
-      const needsValue = !between && mode !== "aboveAvg" && mode !== "belowAvg" && mode !== "blank" && mode !== "notBlank";
-      minInput.hidden = !between && !needsValue;
-      minInput.placeholder = between ? (meta.type === "duration" ? "H:MM:SS" : "Min") : "Value";
-      maxInput.hidden = !between;
-      separator.hidden = !between;
+      const two = between || mode === "outside";
+      const needsValue = !two && mode !== "aboveAvg" && mode !== "belowAvg" && mode !== "blank" && mode !== "notBlank";
+      minInput.hidden = !two && !needsValue;
+      minInput.placeholder = two ? (meta.type === "duration" ? "H:MM:SS" : "Min") : "Value";
+      maxInput.hidden = !two;
+      separator.hidden = !two;
       if (slider !== null) slider.el.classList.toggle("hidden", !between);
       if (!needsValue) emit(false);
       else if (minInput.value.trim() !== "") emit(false);

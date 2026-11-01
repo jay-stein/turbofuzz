@@ -208,3 +208,22 @@ test("provenance columns are excluded from the quality score", () => {
   assert.ok(checks.some((check) => check.label.includes("value")));
   assert.equal(checks.some((check) => check.label.includes("_input_filename")), false);
 });
+test("a range check the analyst reviewed stops counting, and comes back when more rows are affected", () => {
+  const year = (count: number) => meta({
+    name: "birth year",
+    type: "integer",
+    rangeViolation: { rule: "year", sentence: "A year is between 1900 and 2027", min: 1900, max: 2027, count, checked: 100, examples: ["-63", "14"] },
+  });
+  const rangeCheck = (config: Parameters<typeof computeDQScore>[3], count: number) =>
+    computeDQScore([year(count)], stats({ totalCells: 100 }), 100, config).dimensions.flatMap((d) => d.checks).find((c) => c.id === "validity.range.0");
+  const plain = rangeCheck({}, 9);
+  assert.equal(plain?.fail, 9);
+  // Reviewed at 9 rows: set aside, counted as passing.
+  const setAside = rangeCheck({ reviewed: { "validity.range.0": 9 } }, 9);
+  assert.equal(setAside?.fail, 0);
+  assert.equal(setAside?.pass, 100);
+  assert.match(setAside?.detail ?? "", /reviewed and set aside/);
+  // Fewer rows later: still set aside. More rows: it counts again.
+  assert.equal(rangeCheck({ reviewed: { "validity.range.0": 9 } }, 4)?.fail, 0);
+  assert.equal(rangeCheck({ reviewed: { "validity.range.0": 9 } }, 12)?.fail, 12);
+});

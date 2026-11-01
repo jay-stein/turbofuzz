@@ -1,3 +1,4 @@
+import { clearReviewed, getReviewed, setReviewed } from "./reviewed-issues.js";
 import { getOptionalMarks, setOptionalMark } from "./optional-marks.js";
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
 import {
@@ -4502,7 +4503,7 @@ export class App {
       this.metas,
       stats,
       this.rowCount,
-      { ...this.dqConfig, optional: getOptionalMarks() },
+      { ...this.dqConfig, optional: getOptionalMarks(), reviewed: this.reviewedRows() },
       this.dqUserChecks,
     );
     this.dqScore = score;
@@ -4562,6 +4563,16 @@ export class App {
       this.openMerge(check.column);
       return;
     }
+    // A column named like an age, a percentage or a year, with values outside what the name implies: show those rows.
+    if (check.id.startsWith("validity.range.")) {
+      const range = this.metas[check.column]?.rangeViolation;
+      if (range !== null && range !== undefined) {
+        this.changeFilter(check.column, { kind: "compare", op: "outside", value: range.min, value2: range.max });
+        this.setView("table");
+        this.table?.flashColumn(check.column);
+        return;
+      }
+    }
     if (check.filter === "nulls" || check.filter === "pattern" || check.filter === "valueAnomalies") {
       const active = this.columnSpecials.get(check.column)?.has(check.filter) ?? false;
       if (!active) this.toggleColumnSpecial(check.column, check.filter);
@@ -4592,6 +4603,13 @@ export class App {
       onFixIssues: (issues) => this.fixIssues(issues),
       onShowIssue: (issue) => this.showIssue(issue),
       onReviewIssue: (issue) => this.reviewIssue(issue),
+      onDismissIssue: (issue) => this.dismissIssue(issue),
+      reviewedList: () => Object.entries(getReviewed(this.datasetName)).map(([id, mark]) => ({ id, title: mark.title, rows: mark.rows })),
+      onRestoreReviewed: (id) => {
+        clearReviewed(this.datasetName, id);
+        this.refreshScore();
+        this.setAction("Put back: it counts in the score again.");
+      },
       buildRulesPanel: () => this.rulesPanel(),
       ruleCount: () => this.rules.length,
       buildHistoryPanel: () => this.historyPanel(),
@@ -4729,6 +4747,19 @@ export class App {
     }
     this.sensitiveNotes = notes;
     this.table?.setSensitive(notes);
+  }
+
+  /** The failing count the analyst reviewed, per check, for the score to leave out. */
+  private reviewedRows(): Record<string, number> {
+    return Object.fromEntries(Object.entries(getReviewed(this.datasetName)).map(([id, mark]) => [id, mark.rows]));
+  }
+
+  /** "Not a problem": the analyst looked at the rows and they are fine (a Roman emperor's birth year). */
+  private dismissIssue(issue: PageIssue): void {
+    if (issue.check === undefined) return;
+    setReviewed(this.datasetName, issue.check.id, { rows: issue.check.fail, title: issue.title });
+    this.refreshScore();
+    this.setAction(`Set aside: ${issue.title}. It stays out of the score unless more rows are affected.`);
   }
 
   /** The table drill-down behind an issue: its check's rows, or its finding's action. */
@@ -5797,7 +5828,9 @@ export class App {
           lte: "≤",
           aboveAvg: "above average",
           belowAvg: "below average",
+          outside: "outside",
         }[filter.op];
+        if (filter.op === "outside" && filter.value !== undefined && filter.value2 !== undefined) return `outside ${filter.value.toLocaleString()} – ${filter.value2.toLocaleString()}`;
         return filter.value === undefined ? op : `${op} ${filter.value.toLocaleString()}`;
       }
       case "blank":
@@ -5865,10 +5898,13 @@ export class App {
   }
 
   private focusFilterColumn(column: number): void {
+    const from = this.view;
     this.setView("table");
     this.ensureFilters();
     this.setSidebarCollapsed(false);
     this.filterPanel?.focusColumn(column);
+    // Filters live on the Table and apply to every page: say so when this took the person off the page they were on.
+    if (from !== "table") this.setAction(`Filters live on the Table and apply to every page. Type in the box for “${this.metas[column]?.name ?? "this column"}”, then go back to your page.`);
   }
 
   /** `+ Add filter`: a searchable column list that opens that column's card. */

@@ -51,6 +51,12 @@ const TYPE_GLYPHS: Partial<Record<ColumnType, string>> = {
   identifier: "ID",
 };
 
+/** The colour family of a type: five hues, so the header can be scanned for a column of the wrong kind. */
+const TYPE_FAMILY: Record<ColumnType, string> = {
+  string: "text", identifier: "text", category: "category", integer: "number", number: "number",
+  date: "time", datetime: "time", time: "time", duration: "time", boolean: "boolean",
+};
+
 const DEFAULT_COL_WIDTH = 180;
 const MIN_COL_WIDTH = 56;
 const MAX_COL_WIDTH = 720;
@@ -638,10 +644,12 @@ export class ResultTable {
       const typeWrap = el("span", {
         class: "th-type-wrap",
         "data-glyph": TYPE_GLYPHS[column.type] ?? "",
+        "data-fam": TYPE_FAMILY[column.type] ?? "text",
       });
       typeWrap.append(typeSelect);
       typeSelect.addEventListener("change", () => {
         typeWrap.dataset.glyph = TYPE_GLYPHS[typeSelect.value as ColumnType] ?? "";
+        typeWrap.dataset.fam = TYPE_FAMILY[typeSelect.value as ColumnType] ?? "text";
       });
       typeSelect.addEventListener("change", () => {
         const previous = column.type;
@@ -1604,7 +1612,9 @@ function describeHeaderFilter(filter: ColumnFilter, meta: ColumnMeta): string {
       lte: "≤",
       aboveAvg: "above avg",
       belowAvg: "below avg",
+      outside: "outside",
     }[filter.op];
+    if (filter.op === "outside") return `outside ${formatHeaderValue(filter.value, meta)} – ${formatHeaderValue(filter.value2, meta)}`;
     const value = formatHeaderValue(filter.value, meta);
     return value === "" ? label : `${label} ${value}`;
   }

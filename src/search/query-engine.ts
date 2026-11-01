@@ -8,8 +8,10 @@ export type ColumnFilter =
   | { kind: "range"; min: number | null; max: number | null }
   | {
       kind: "compare";
-      op: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "aboveAvg" | "belowAvg";
+      op: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "aboveAvg" | "belowAvg" | "outside";
       value?: number;
+      /** The upper bound of "outside": rows below `value` or above `value2`. */
+      value2?: number;
     }
   | { kind: "blank"; negate: boolean }
   | { kind: "values"; selected: number[] };
@@ -207,7 +209,7 @@ export class QueryEngine {
         return this.rangeBits(columnIndex, filter.min, filter.max);
 
       case "compare":
-        return this.compareBits(columnIndex, filter.op, filter.value);
+        return this.compareBits(columnIndex, filter.op, filter.value, filter.value2);
 
       case "blank":
         return this.blankBits(columnIndex, filter.negate);
@@ -219,8 +221,9 @@ export class QueryEngine {
 
   private compareBits(
     columnIndex: number,
-    op: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "aboveAvg" | "belowAvg",
+    op: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "aboveAvg" | "belowAvg" | "outside",
     value?: number,
+    value2?: number,
   ): BitSet {
     const rowCount = this.dataset.rowCount;
     const numbers = this.dataset.columns[columnIndex].numbers();
@@ -240,6 +243,14 @@ export class QueryEngine {
         const current = numbers[row] ?? Number.NaN;
         if (!Number.isFinite(current)) continue;
         if (op === "aboveAvg" ? current > average : current < average) bits.set(row);
+      }
+      return bits;
+    }
+    if (op === "outside") {
+      if (!Number.isFinite(value) || !Number.isFinite(value2)) return bits;
+      for (let row = 0; row < rowCount; row++) {
+        const current = numbers[row] ?? Number.NaN;
+        if (Number.isFinite(current) && (current < value! || current > value2!)) bits.set(row);
       }
       return bits;
     }
