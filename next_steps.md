@@ -2147,6 +2147,12 @@ What it says:
 - **Month-length adjustment:** tried, not built. Dividing monthly values by the days in the month and multiplying back changed Auto's MASE by +0.012 (M3 monthly), 0.000 (M1), -0.009 (tourism) and 0.000 (hospital): no gain.
 - The daylight-saving shift detector stays shelved (owner, 2026-10-31).
 
+**After Phase 5 (owner's order, 2026-11-01):**
+1. *Non-seasonal series:* SHIPPED (CHG-2026-11-01-14). The Combination drops Theta and Auto keeps it, no rival replaces it: M1 yearly -2.5%, tourism yearly -2.7%, M3 Other -6.9%, M3 yearly +0.2%.
+2. *Ranges:* SHIPPED (CHG-2026-11-01-15). A normal band from the spread of the backtest errors: the 80% band holds 83.5% (was 68%) and the 95% band 93.5% (was 83%); checked on 11 datasets of series not used to choose it. Still too narrow for short yearly and weekly series.
+3. *Unusual periods (fpp3 13.9, tsclean): TRIED, NOT SHIPPED.* Bridging the periods the page flags (robust z at or above 4.5) in what the models learn from, while scoring on the real values, moved Auto's MASE by -24% (tourism yearly), -3% to +1% on four others, and **+17% (covid) and +49% (FRED-MD)** on 200-series samples. The big gains are probably leakage: the flags come from a decomposition of the whole series, including the held-out end. A fair test needs a detector that sees only the history before each fold, which means one decomposition per fold; revisit then, and only with FRED-MD and covid in the test.
+4. *AutoARIMA:* assessed, not built (see the owner's request for an effort estimate).
+
 **Later:** hierarchical reconciliation (fpp3 ch. 11) for split series such as car parks; ARIMA (on hold); bagged ETS.
 
 Everything stays dependency-free in the app. statsforecast lives only in the dev venv, for parity checks.

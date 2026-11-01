@@ -28,6 +28,16 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-16 — Time Series: bridging unusual periods in the fit: tried, not shipped
+
+- **Status:** Attempted, not shipped (recorded so it is not repeated)
+- **What was tried:** the periods the page flags as unusual (robust z at or above its 4.5 default) were treated like filled ones in what the models learn from (bridged, not learned), while every score stayed on the real values: the idea of R's `tsclean` (fpp3 13.9).
+- **Result (Auto's mean MASE, with against without):** tourism yearly 2.912 to 2.207 (-24%), M3 quarterly 1.098 to 1.090, tourism quarterly 1.523 to 1.497, tourism monthly 1.453 to 1.444, M3 yearly 2.520 to 2.502, NN5 weekly 0.847 to 0.854, **covid 4.493 to 5.266 (+17%), FRED-MD 0.457 to 0.681 (+49%)**. On the 141-series gate fixture 7 checks went more than 2% worse.
+- **Why not:** the one large gain is probably leakage (the flags come from a decomposition that has seen the held-out end of the series, so a point just before the split can be flagged because of where the series goes next), and where the series has level shifts or steady growth the flagged points are real structure, which bridging removes. A fair test needs flags from the history before each fold only; that costs a decomposition per fold, and FRED-MD and covid must be in it.
+- **Files / components changed:** none (the experiment was reverted)
+- **Decision:** Do not ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-15 — Time Series: the ranges are a normal band from the spread of the backtest errors, and they now hold the real value about as often as promised
 
 - **Status:** Verified
