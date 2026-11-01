@@ -111,3 +111,19 @@ test("a list of city names becomes markers", async () => {
   assert.deepEqual(r.markers.map((m) => m.label), ["Tokyo", "Nairobi"]);
   assert.equal(r.skipped.length, 1);
 });
+
+test("rows pasted as space-separated columns are understood, with or without a header", () => {
+  const style = { symbol: "pin" as const, color: "#dc2626" };
+  const pasted = "label    lat    long\npony    -33    151\nunicorn    -40    121\nrandom    -42    110.5";
+  const a = parseMarkers(pasted, style);
+  assert.deepEqual(a.markers.map((m) => [m.label, m.lat, m.lon]), [["pony", -33, 151], ["unicorn", -40, 121], ["random", -42, 110.5]]);
+  assert.equal(a.skipped.length, 0);
+  // Tabs and commas still work, and a label of several words survives.
+  const b = parseMarkers("label\tlat\tlon\nOpera House\t-33.85\t151.21", style);
+  assert.equal(b.markers[0]!.label, "Opera House");
+  const c = parseMarkers("Sydney Opera House -33.85 151.21\nAuckland -36.85 174.76", style);
+  assert.deepEqual(c.markers.map((m) => [m.label, m.lat, m.lon]), [["Sydney Opera House", -33.85, 151.21], ["Auckland", -36.85, 174.76]]);
+  const d = parseMarkers("name lat lon\nSydney Opera House -33.85 151.21", style);
+  assert.equal(d.markers[0]!.label, "Sydney Opera House");
+  assert.equal(d.markers[0]!.lat, -33.85);
+});

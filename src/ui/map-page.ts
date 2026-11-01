@@ -147,6 +147,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     ["Click map to add"],
   ) as HTMLButtonElement;
   const addMarkers = el("button", { type: "button", class: "map-dock-btn primary", title: "Paste rows, load a CSV or find a city" }, ["+ Add markers…"]);
+  const fitMarkers = el("button", { type: "button", class: "map-dock-btn", title: "Zoom to show everything plotted and all your markers (the Cities layer is ignored)" }, ["Fit all"]) as HTMLButtonElement;
   const dock = el("div", { class: "map-dock", role: "toolbar", "aria-label": "Map layers and markers" }, [
     el("label", { class: "map-dock-item map-switch", title: "The largest cities in view, with names (bundled, offline)" }, [
       citiesToggle,
@@ -161,6 +162,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     ]),
     el("span", { class: "map-dock-sep", "aria-hidden": "true" }),
     pickToggle,
+    fitMarkers,
     addMarkers,
   ]);
   const empty = el("div", { class: "map-empty hidden" });
@@ -194,6 +196,17 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   });
   pickToggle.addEventListener("click", () => markersPanel.setPicking(pickToggle.getAttribute("aria-pressed") !== "true"));
   addMarkers.addEventListener("click", () => markersPanel.openAdd());
+  fitMarkers.addEventListener("click", () => card?.fitMapAll());
+  // Rows pasted anywhere on the page (not into a field) open Add markers with them.
+  document.addEventListener("paste", (event) => {
+    if (!visible || document.querySelector(".modal-overlay") !== null) return;
+    const target = event.target as HTMLElement;
+    if (target.closest?.("input, textarea, select, [contenteditable=true], .map-markers") != null) return;
+    const text = event.clipboardData?.getData("text/plain") ?? "";
+    if (text.trim() === "") return;
+    event.preventDefault();
+    markersPanel.openAdd(text);
+  });
 
   let metas: readonly ColumnMeta[] = [];
   let rowCount = 0;

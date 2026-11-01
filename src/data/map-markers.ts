@@ -121,7 +121,10 @@ export function parseMarkers(
 ): MarkerParse {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const sample = lines.find((l) => l.trim() !== "") ?? "";
-  const delim = sample.includes("\t") ? "\t" : sample.includes(";") ? ";" : ",";
+  // No tab, semicolon or comma at all: a paste from a document or a spreadsheet shown in a column layout,
+  // split on runs of spaces. A label may then hold spaces, so the extra words are folded back into it below.
+  const spaced = !/[\t;,]/.test(sample) && /\s\S/.test(sample.trim());
+  const delim = sample.includes("\t") ? "\t" : sample.includes(";") ? ";" : spaced ? " " : ",";
   const out: MarkerParse = { markers: [], skipped: [], over: 0 };
   let map: Partial<Record<Field, number>> | null = null;
   let first = true;
@@ -129,7 +132,12 @@ export function parseMarkers(
     if (line.trim() === "") return;
     // A line without the file's separator may use another (a hand-typed paste).
     const own = line.includes(delim) ? delim : line.includes("\t") ? "\t" : line.includes(";") ? ";" : line.includes(",") ? "," : delim;
-    const row = cells(line, own);
+    let row = own === " " ? line.trim().split(/\s+/) : cells(line, own);
+    // Space-separated, with a header: words beyond the header's width belong to the label ("Sydney Opera House -33.8 151.2").
+    if (own === " " && map !== null && map.label !== undefined && row.length > Object.keys(map).length) {
+      const extra = row.length - Object.keys(map).length;
+      row = [...row.slice(0, map.label), row.slice(map.label, map.label + extra + 1).join(" "), ...row.slice(map.label + extra + 1)];
+    }
     if (first) {
       first = false;
       const named: typeof map = {};
@@ -158,7 +166,8 @@ export function parseMarkers(
         if (a !== null && b !== null && /\d/.test(row[k]!) && /\d/.test(row[k + 1]!)) { lat = a; lon = b; latAt = k; break; }
       }
       const rest = latAt < 0 && map !== null ? [] : row.filter((_, k) => k !== latAt && k !== latAt + 1);
-      if (latAt >= 0 || map === null) label = rest[0] ?? "";
+      // Space-separated rows: every word that is not a coordinate is the label ("Sydney Opera House -33.8 151.2").
+      if (latAt >= 0 || map === null) label = own === " " ? rest.join(" ") : rest[0] ?? "";
       for (const extra of rest.slice(1)) {
         if (HEX.test(extra.trim()) || NAMED[extra.trim().toLowerCase()] !== undefined) color = normaliseColor(extra, color);
         else symbol = normaliseSymbol(extra, symbol, customIds);

@@ -28,6 +28,20 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-05 — Map: sandy land and light-blue water, Fit all, open Markers panel, pasted column layouts, a clearer heat grid
+
+- **Status:** Verified
+- **Scope:**
+  - **Colours:** the world map has light-blue water and sandy-yellow land with a soft tan coastline (a deep blue-grey and muted tan in the dark theme). Over a loaded background picture it keeps the old faint tint so the picture shows.
+  - **The automatic view covers what is plotted and the page's own markers.** A marker inside the plotted area changes nothing; one outside widens the view to take it in (25% room, undistorted), and markers alone get a regional view of at least a few degrees. The dock gets **Fit all** and the card's "Fit data" is now "Fit all"; both return to that view and ignore the Cities layer, which would span the world.
+  - **Markers panel starts open**, so Add markers, + Row, Download and Clear are in view.
+  - **Paste anywhere on the page** (not into a field) opens Add markers with the rows. Rows can now be separated by runs of spaces as well as tabs, commas or semicolons; `label lat long` headers work, and a label of several words ("Sydney Opera House -33.85 151.21") is kept whole.
+  - **Grid is explained:** on the map it is now "Heat cells", shown only in the Heat grid view (the dots view has no cells), with a tooltip saying what small and large values do (10 to 20 broad and smooth, 80 to 120 fine but patchy, 30 to 60 suits most data) and a live note of each cell's size in degrees.
+- **Files / components changed:** src/ui/chart-card.ts, src/ui/map-page.ts, src/ui/map-markers-panel.ts, src/data/map-markers.ts, src/styles.css, test/map-page.test.ts, test/ui-charts.test.ts, test/e2e/map-page.spec.ts
+- **Tests run and results:** typecheck clean; 1186 unit tests pass (new parser test uses the owner's sample); e2e 115 pass (new tests cover the open panel, page paste, Fit all and the heat cells field); checked by screenshot
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-04 — Analyst console look, phase 2: the Table
 
 - **Status:** Verified

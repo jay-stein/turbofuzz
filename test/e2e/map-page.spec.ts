@@ -135,11 +135,37 @@ test("marker size: set in the Add window, per row, and for every marker from the
 
 test("an uploaded SVG becomes a symbol; its scripts are never run", async ({ page }) => {
   await openMap(page);
-  await page.locator(".map-markers summary").click();
   await page.getByRole("button", { name: "+ Row" }).click();
   await page.getByRole("button", { name: "Symbol for row 1" }).click();
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><script>window.__svgRan = true</script><rect x="1" y="1" width="8" height="8" onload="window.__svgRan = true"/></svg>`;
   await page.locator('input[aria-label="SVG symbol file"]').setInputFiles({ name: "box.svg", mimeType: "image/svg+xml", buffer: Buffer.from(svg) });
   await expect(page.getByRole("button", { name: "Symbol for row 1" }).locator("svg path")).toHaveCount(1);
   expect(await page.evaluate(() => (window as unknown as { __svgRan?: boolean }).__svgRan)).toBeUndefined();
+});
+
+test("the markers panel starts open, a pasted column layout is understood, and Fit all covers the markers and what is plotted", async ({ page }) => {
+  await openMap(page);
+  await expect(page.locator("details.map-markers")).toHaveAttribute("open", "");
+  // Paste anywhere on the page, not into a field.
+  await page.evaluate(() => {
+    const data = new DataTransfer();
+    data.setData("text/plain", "label    lat    long\npony    -33    151\nunicorn    -40    121\nrandom    -42    110.5");
+    document.body.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  const dialog = page.getByRole("dialog", { name: "Add markers" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator(".map-add-text")).toHaveValue(/pony/);
+  await expect(dialog).toContainText("3 markers");
+  await dialog.getByRole("button", { name: /^Add 3 markers/ }).click();
+  await expect(page.locator(".map-mk-table tbody tr")).toHaveCount(3);
+  await page.getByRole("button", { name: "Fit all" }).first().click();
+});
+
+test("the heat grid setting only shows for the heat view, and says how big each cell is", async ({ page }) => {
+  await openMap(page);
+  const grid = page.locator(".map-page .chart-field", { hasText: "Heat cells" });
+  await expect(grid).toBeHidden();
+  await page.locator(".map-page select:visible").filter({ has: page.locator('option[value="heat"]') }).first().selectOption("heat");
+  await expect(grid).toBeVisible();
+  await expect(grid).toContainText(/each cell ≈ [\d.]+° × [\d.]+°/);
 });

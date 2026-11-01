@@ -12236,3 +12236,5 @@ button.qp-tile:hover {
 
 /* Filters sidebar: slimmer collapsed rows */
 .filter-card { padding: 6px 10px 5px; border-radius: var(--radius-sm); }
+
+.chart-field-hint { font-size: var(--fs-xs); color: var(--text-dim); font-family: var(--mono); white-space: nowrap; }

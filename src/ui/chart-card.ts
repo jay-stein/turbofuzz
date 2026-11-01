@@ -1139,6 +1139,8 @@ export class ChartCard {
   private animationTimer: number | null = null;
   private animationSetupOpen = false;
   private readonly bubbleBinsInput: HTMLInputElement;
+  private readonly gridField: HTMLElement;
+  private readonly gridHint: HTMLElement;
   private readonly bubbleAggSelect: HTMLSelectElement;
   private readonly bubbleScaleSelect: HTMLSelectElement;
   private readonly animateButton: HTMLButtonElement;
@@ -2054,10 +2056,13 @@ export class ChartCard {
     this.bubbleBinsInput.addEventListener("change", bubbleBinsChange);
     const bubbleField = el("label", { class: "chart-field" });
     bubbleField.title = "How many cells each axis is divided into before counting rows";
+    this.gridHint = el("span", { class: "chart-field-hint" });
     bubbleField.append(
       el("span", { class: "chart-field-label" }, ["Grid"]),
       this.bubbleBinsInput,
+      this.gridHint,
     );
+    this.gridField = bubbleField;
     this.bubbleAggSelect = el("select", {
       class: "chart-picker chart-picker-small",
       "aria-label": "Bubble size measure",
@@ -2145,6 +2150,7 @@ export class ChartCard {
     this.mapModeSelect.value = this.config.mapMode ?? "points";
     this.mapModeSelect.addEventListener("change", () => {
       this.config.mapMode = this.mapModeSelect.value as "points" | "heat";
+      this.gridField.classList.toggle("hidden", this.config.mapMode !== "heat");
       this.generation++;
       this.refreshMapGrid();
       this.syncSourceControls();
@@ -2682,10 +2688,10 @@ export class ChartCard {
       {
         class: "chart-map-control chart-map-fit",
         type: "button",
-        title: "Fit the map to the data",
-        "aria-label": "Fit the map to the data",
+        title: "Fit the map to what is plotted and your markers",
+        "aria-label": "Fit the map to what is plotted and your markers",
       },
-      ["Fit data"],
+      ["Fit all"],
     ) as HTMLButtonElement;
     mapFit.addEventListener("click", () => this.resetMapZoom());
     mapControls.append(mapZoomIn, mapZoomOut, mapFit);
@@ -4812,8 +4818,14 @@ export class ChartCard {
     this.bubbleTitle.textContent = mapKind ? "Map" : "Bubbles";
     this.bubbleScaleField.classList.toggle("hidden", mapKind);
     this.mapModeSelect.value = this.config.mapMode ?? "points";
+    // On a map the grid only matters for the heat view: the plain dots need no cells.
+    this.gridField.classList.toggle("hidden", mapKind && this.config.mapMode !== "heat");
+    (this.gridField.firstElementChild as HTMLElement).textContent = mapKind ? "Heat cells" : "Grid";
+    this.gridField.title = mapKind
+      ? "Heat view only. The map is cut into this many cells across and down, and the rows in each cell are counted. Fewer cells (10 to 20): broad, smooth regions. More cells (80 to 120): fine detail, but each cell holds few rows so it looks patchy. 30 to 60 suits most data."
+      : "Bubble view. The chart is cut into this many cells along each axis and the rows in each cell become one bubble. Fewer: bigger, smoother bubbles. More: finer, patchier.";
     this.bubbleBinsInput.title = mapKind
-      ? "Heat grid resolution per axis (4–120)"
+      ? "Heat cells across and down (4–120): fewer = coarse and smooth, more = fine and patchy"
       : "Bubble grid resolution per axis (4–120)";
     // Reduce stays visible so the option is discoverable; it only becomes
     // usable once a Size column is chosen.
@@ -8088,6 +8100,21 @@ export class ChartCard {
 
   /** Auto viewport: custom regions, then heat grid, then point percentiles. */
   private mapViewOrAuto(): MapViewport {
+    const base = this.dataViewOrNull();
+    const markers = this.markerBox();
+    if (markers === null) return base ?? { lonMin: -180, lonMax: 180, latMin: -90, latMax: 90 };
+    if (base === null) return this.frameBox(markers);
+    // Markers inside what is plotted change nothing; one outside widens the view to take it in, so none is ever off screen.
+    const inside = markers.lonMin >= base.lonMin && markers.lonMax <= base.lonMax && markers.latMin >= base.latMin && markers.latMax <= base.latMax;
+    if (inside) return base;
+    return this.frameBox({
+      lonMin: Math.min(base.lonMin, markers.lonMin), lonMax: Math.max(base.lonMax, markers.lonMax),
+      latMin: Math.min(base.latMin, markers.latMin), latMax: Math.max(base.latMax, markers.latMax),
+    });
+  }
+
+  /** The view for what is plotted alone (regions, heat grid, or the middle 98% of the points). */
+  private dataViewOrNull(): MapViewport | null {
     if (this.geoDataset !== null) return { ...this.geoDataset.bounds };
     if (this.mapGrid !== null) {
       return {
@@ -8101,7 +8128,7 @@ export class ChartCard {
       const fitted = fitMapView(this.seriesResult.x, this.seriesResult.y);
       if (fitted !== null) return fitted;
     }
-    return { lonMin: -180, lonMax: 180, latMin: -90, latMax: 90 };
+    return null;
   }
   private resetMapZoom(): void {
     let changed = false;
@@ -9253,6 +9280,38 @@ export class ChartCard {
     this.render();
   }
 
+  /** Back to the automatic view, which covers what is plotted and the page's own markers. */
+  fitMapAll(): void {
+    if (this.config.kind !== "map") return;
+    this.mapView = null;
+    this.render();
+  }
+
+  /** A box around the page's own markers: room each side, a few degrees at least, in the plot's own shape. */
+  private markerBox(): MapViewport | null {
+    if (this.mapMarkers.length === 0) return null;
+    let lonMin = Infinity, lonMax = -Infinity, latMin = Infinity, latMax = -Infinity;
+    for (const m of this.mapMarkers) {
+      lonMin = Math.min(lonMin, m.lon); lonMax = Math.max(lonMax, m.lon);
+      latMin = Math.min(latMin, m.lat); latMax = Math.max(latMax, m.lat);
+    }
+    return { lonMin, lonMax, latMin, latMax };
+  }
+
+  /** The viewport that frames `box` with 25% room each side, at least a few degrees across, undistorted. */
+  private frameBox(box: MapViewport): MapViewport {
+    const aspect = this.lastFrame !== null && this.lastFrame.plotH > 0 ? this.lastFrame.plotW / this.lastFrame.plotH : 2;
+    let lonSpan = Math.max(6, (box.lonMax - box.lonMin) * 1.5);
+    let latSpan = Math.max(3, (box.latMax - box.latMin) * 1.5);
+    if (lonSpan / latSpan < aspect) lonSpan = latSpan * aspect;
+    else latSpan = lonSpan / aspect;
+    lonSpan = Math.min(360, lonSpan);
+    latSpan = Math.min(170, latSpan);
+    const left = Math.min(180 - lonSpan, Math.max(-180, (box.lonMin + box.lonMax) / 2 - lonSpan / 2));
+    const bottom = Math.min(85 - latSpan, Math.max(-85, (box.latMin + box.latMax) / 2 - latSpan / 2));
+    return { lonMin: left, lonMax: left + lonSpan, latMin: bottom, latMax: bottom + latSpan };
+  }
+
   /** While set, a click on the map calls it with the lon/lat under the pointer instead of filtering. */
   setMapPicker(picker: ((lon: number, lat: number) => void) | null): void {
     this.mapPicker = picker;
@@ -9372,9 +9431,19 @@ export class ChartCard {
     ctx.rect(x0, y0, w, h);
     ctx.clip();
 
-    // A barely tinted ocean separates water from the panel background.
-    ctx.fillStyle = frame.border;
-    ctx.globalAlpha = 0.12;
+    // Water is a light blue (a deep blue-grey in the dark theme); over a loaded picture it stays a faint tint.
+    const rootStyle = getComputedStyle(document.documentElement);
+    const [pr, pg, pb] = hexToRgb(rootStyle.getPropertyValue("--panel").trim() || "#ffffff");
+    const darkTheme = pr + pg + pb < 384;
+    const waterColor = darkTheme ? "#16222e" : "#cfe5f4";
+    const landColor = darkTheme ? "#3a3626" : "#f0e2b6";
+    const coastColor = darkTheme ? "#6f6747" : "#b3a36e";
+    if (this.mapBackground === null) {
+      ctx.fillStyle = waterColor;
+    } else {
+      ctx.fillStyle = frame.border;
+      ctx.globalAlpha = 0.12;
+    }
     ctx.fillRect(x0, y0, w, h);
     ctx.globalAlpha = 1;
 
@@ -9519,12 +9588,12 @@ export class ChartCard {
       }
       // Over a picture the land is outline only, so the picture shows through.
       if (background === null) {
-        ctx.fillStyle = frame.border;
-        ctx.globalAlpha = 0.4;
+        ctx.fillStyle = landColor;
+        ctx.globalAlpha = 1;
         ctx.fill();
       }
-      ctx.globalAlpha = 0.75;
-      ctx.strokeStyle = frame.dim;
+      ctx.globalAlpha = background === null ? 0.9 : 0.75;
+      ctx.strokeStyle = background === null ? coastColor : frame.dim;
       ctx.lineWidth = 0.75;
       ctx.stroke();
       ctx.globalAlpha = 1;
@@ -9542,8 +9611,8 @@ export class ChartCard {
           ctx.closePath();
         }
       }
-      ctx.strokeStyle = frame.dim;
-      ctx.globalAlpha = 0.28;
+      ctx.strokeStyle = background === null ? coastColor : frame.dim;
+      ctx.globalAlpha = background === null ? 0.55 : 0.28;
       ctx.lineWidth = 0.6;
       ctx.stroke();
       ctx.globalAlpha = 1;
@@ -9570,6 +9639,8 @@ export class ChartCard {
       const colors = colorRamp(ramp, 32, rampColor);
       const cellLon = (grid.xMax - grid.xMin) / grid.bins;
       const cellLat = (grid.yMax - grid.yMin) / grid.bins;
+      const degrees = (d: number): string => (d >= 10 ? d.toFixed(0) : d >= 1 ? d.toFixed(1) : d.toFixed(2));
+      this.gridHint.textContent = `each cell ≈ ${degrees(cellLon)}° × ${degrees(cellLat)}°`;
       for (let cy = 0; cy < grid.bins; cy++) {
         for (let cx = 0; cx < grid.bins; cx++) {
           const index = cy * grid.bins + cx;

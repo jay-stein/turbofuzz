@@ -3000,7 +3000,7 @@ test("map cards expose visible zoom/fit controls and clearer layer labels", asyn
   const labels = [...controls.querySelectorAll("button")].map(
     (button) => button.getAttribute("aria-label") ?? button.textContent,
   );
-  assert.deepEqual(labels, ["Zoom the map in", "Zoom the map out", "Fit the map to the data"]);
+  assert.deepEqual(labels, ["Zoom the map in", "Zoom the map out", "Fit the map to what is plotted and your markers"]);
   const settings = host.querySelector(".chart-bubble-settings")?.textContent ?? "";
   assert.match(settings, /Load extra map data/);
   assert.match(settings, /Clear extra map data/);

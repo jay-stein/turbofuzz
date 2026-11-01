@@ -101,7 +101,7 @@ export function createMarkersPanel(options: MarkersPanelOptions): MarkersPanel {
   const hint = el("p", { class: "map-mk-hint" }, [
     "Edit any marker here. Paste rows anywhere in this panel to open Add markers with them. Up to 100 markers; degrees can be decimal (51.5074) or 51°30'26\"N.",
   ]);
-  const root = el("details", { class: "map-markers", tabindex: "-1" }, [
+  const root = el("details", { class: "map-markers", tabindex: "-1", open: "" }, [
     el("summary", {}, [el("span", { class: "map-mk-title" }, ["Markers"]), count]),
     el("div", { class: "map-mk-bar" }, [addButton, addRow, downloadButton, clearButton, svgInput]),
     hint,
