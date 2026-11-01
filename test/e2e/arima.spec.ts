@@ -32,9 +32,8 @@ test("AutoARIMA runs on request and returns the parameters, fit, residual check,
   await open(page);
   const out = page.locator(".ts-page [data-ref=arimaOut]");
   await expect(out).toBeHidden();
-  // Plain auto.arima, to compare with R: the differencing vote is on by default and has its own test below.
-  await expect(page.locator(".ts-page [data-ref=arimaVote]")).toBeChecked();
-  await page.locator(".ts-page [data-ref=arimaVote]").uncheck();
+  // Plain auto.arima, to compare with R: the differencing vote is an option, off by default, with its own test below.
+  await expect(page.locator(".ts-page [data-ref=arimaVote]")).not.toBeChecked();
   await page.locator(".ts-page [data-ref=arimaBtn]").click();
   await expect(out).toContainText("ARIMA(2,1,1)(0,1,0)[12]", { timeout: 90_000 });
   await expect(out).not.toContainText("How the differencing was chosen");
@@ -79,6 +78,7 @@ test("DV-ARIMA: the differencing is voted on, the unit-root test's choice and pl
   test.setTimeout(180_000);
   await open(page);
   const out = page.locator(".ts-page [data-ref=arimaOut]");
+  await page.locator(".ts-page [data-ref=arimaVote]").check();
   await page.locator(".ts-page [data-ref=arimaBtn]").click();
   await expect(out.locator("h4", { hasText: "How the differencing was chosen" })).toBeVisible({ timeout: 150_000 });
   const vote = out.locator(".ts-arima-table").first().locator("tbody tr");

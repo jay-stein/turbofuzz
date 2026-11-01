@@ -30,7 +30,7 @@ export interface ArimaJob {
   nonNeg: boolean;
   /** Try every order, not only the stepwise neighbourhood (slow). */
   exhaustive: boolean;
-  /** DV-ARIMA: choose the differencing by a forecast vote beside the unit-root test (on unless false; not with every order). */
+  /** DV-ARIMA: choose the differencing by a forecast vote beside the unit-root test. Off unless asked for; not with every order. */
   vote?: boolean;
 }
 
@@ -109,7 +109,7 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
   // DV-ARIMA: the search again at the neighbouring differencings, and the forecast chosen across all of them.
   let team = akaikeWeights(found.fits);
   let voteRows: ArimaVoteRow[] | null = null;
-  if (job.vote !== false && !job.exhaustive) {
+  if (job.vote === true && !job.exhaustive) {
     const v = differencingVote(y, m, job.H, dd, team, {
       approximate, cancelled,
       onGroup: (d, D) => onProgress({ stage: "Voting on the differencing", tried: found.tried.length, best: specLabel(found.best.spec), bestAicc: found.best.aicc, current: "", detail: `trying d = ${d}, D = ${D}` }),

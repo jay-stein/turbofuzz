@@ -211,10 +211,10 @@ test("DV-ARIMA: the vote runs the search at the unit-root choice and its neighbo
   assert.equal(v.groups.reduce((a, b) => (b.weight > a.weight ? b : a)), lowest);
 });
 
-test("runAutoArima: the vote is on by default, reports plain auto.arima's choice, and vote:false returns the plain answer", () => {
+test("runAutoArima: the vote is off unless asked for; vote:true reports plain auto.arima's choice beside it", () => {
   const y = Float64Array.from(ref.series.air!);
   const job = { y, T: y.length, H: 12, m: 12, seasonMode: "native" as const, origins: [], rolling: false, trainLen: null, lockbox: false, lambda: null, nonNeg: false, exhaustive: false };
-  const on = runAutoArima(job), off = runAutoArima({ ...job, vote: false });
+  const on = runAutoArima({ ...job, vote: true }), off = runAutoArima(job);
   assert.ok(on.ok && off.ok);
   if (!on.ok || !off.ok) return;
   assert.equal(off.vote, null);
@@ -223,7 +223,7 @@ test("runAutoArima: the vote is on by default, reports plain auto.arima's choice
   assert.equal(on.plainLabel, "ARIMA(2,1,1)(0,1,0)[12]", "the plain choice is reported alongside");
   near(on.averaged.reduce((a, t) => a + t.weight, 0), 1, 1e-9, "forecast weights");
   assert.ok(on.forecast.F.every((v) => Number.isFinite(v)) && on.forecast.lo95.every((v, h) => v < on.forecast.F[h]!));
-  // Exhaustive search is plain.
-  const ex = runAutoArima({ ...job, y: y.slice(0, 60), T: 60, H: 6, m: 1, seasonMode: "none", exhaustive: true });
+  // Exhaustive search is plain even when asked for.
+  const ex = runAutoArima({ ...job, y: y.slice(0, 60), T: 60, H: 6, m: 1, seasonMode: "none", exhaustive: true, vote: true });
   assert.ok(ex.ok && ex.vote === null);
 });
