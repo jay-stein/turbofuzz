@@ -23,6 +23,9 @@ export interface TsTableInfo {
   end: number;
   /** Monday-0 weekday of the start, and its year * 12 + month (see TimeBase). */
   woff: number;
+  /** Where weeks begin (see TsTable). */
+  wbase: number;
+  wstart: number;
   m0: number;
   slot: number;
   spd: number;
@@ -86,7 +89,7 @@ export class TsEngine {
     let firstMs = Infinity, lastMs = -Infinity;
     for (const v of t.times) { if (v < firstMs) firstMs = v; if (v > lastMs) lastMs = v; }
     return {
-      dateCol: t.dateCol, groupCol: t.groupCol, groups: t.groups, start: t.start, end: t.end, woff: t.woff, m0: t.m0, slot: t.slot, spd: t.spd,
+      dateCol: t.dateCol, groupCol: t.groupCol, groups: t.groups, start: t.start, end: t.end, woff: t.woff, wbase: t.wbase, wstart: t.wstart, m0: t.m0, slot: t.slot, spd: t.spd,
       cadence: t.cadence, cadSlots: t.cadSlots, subDay: t.subDay, eventLike: t.eventLike, structural: Array.from(t.structural), closedHours: Array.from(t.closedHours),
       rows: t.times.length, dropped: t.dropped, firstMs, lastMs,
       columns: Object.keys(t.cols).map((name) => ({ name, flag: !!t.flags[name], timeLike: t.timeLike[name] ?? null, repeated: !!t.repeated[name] })),

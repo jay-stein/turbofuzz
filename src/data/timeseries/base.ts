@@ -155,6 +155,10 @@ export interface TsTable extends TsInput {
   m0: number;
   /** Monday-0 weekday of the start. */
   woff: number;
+  /** Where weeks begin, for the week grains: the offset that puts a week boundary on the data's own weekday (Monday unless the rows sit on one other weekday every 7 days). */
+  wbase: number;
+  /** The weekday (Monday = 0) that weeks start on. */
+  wstart: number;
   /** Weekday of each slot. */
   swd: Uint8Array;
   rowSlot: Int32Array;
@@ -233,6 +237,16 @@ export function buildTable(input: TsInput): TsTable | null {
   const s = new Date(start);
   const woff = (s.getUTCDay() + 6) % 7;
   const spd = Math.round(DAY / slot);
+  // Weekly rows stamped on one weekday (Sunday-ending weeks, Friday closes) start their weeks there, not on Monday:
+  // a period then runs from stamp to stamp, and the dates shown are the stamps. Anything else starts weeks on Monday.
+  let wstart = 0;
+  if (cadence >= 6.5 && cadence <= 7.5 && obs.length >= 8) {
+    const days = new Array<number>(7).fill(0);
+    for (const d of obs) days[(Math.floor(d / spd) + woff) % 7]++;
+    const top = days.indexOf(Math.max(...days));
+    if (days[top]! >= 0.9 * obs.length) wstart = top;
+  }
+  const wbase = (((woff - wstart) % 7) + 7) % 7;
   // Weekdays that (almost) never have rows are structural, not gaps.
   const structural = new Uint8Array(7);
   if (cadence <= 1.5) {
@@ -317,7 +331,7 @@ export function buildTable(input: TsInput): TsTable | null {
   const swd = new Uint8Array(nslots);
   for (let d = 0; d < nslots; d++) swd[d] = (Math.floor(d / spd) + woff) % 7;
   return {
-    ...input, start, slot, spd, nslots, end: start + (nslots - 1) * slot, m0: s.getUTCFullYear() * 12 + s.getUTCMonth(), woff, swd,
+    ...input, start, slot, spd, nslots, end: start + (nslots - 1) * slot, m0: s.getUTCFullYear() * 12 + s.getUTCMonth(), woff, wbase, wstart, swd,
     rowSlot, cadence, cadSlots, subDay: slot < DAY, structural, closedHours, eventLike: eventLike || defMeasure === null, timeLike, repeated,
     observed: obs, defMeasure: defMeasure ?? measures[0] ?? null, bucketCache: new Map(),
   };
@@ -334,11 +348,11 @@ function monthIndex(t: TsTable, d: number): number { const dt = new Date(t.start
 export function bucketOfSlot(t: TsTable, g: Grain, d: number): number {
   if (g.unit === "min") return Math.floor((d * t.slot) / (g.n * MINUTE));
   if (g.unit === "day") return Math.floor(dayOf(t, d) / g.n);
-  if (g.unit === "week") return Math.floor((dayOf(t, d) + t.woff) / (7 * g.n));
+  if (g.unit === "week") return Math.floor((dayOf(t, d) + t.wbase) / (7 * g.n));
   return Math.floor(monthIndex(t, d) / g.n) - Math.floor(t.m0 / g.n);
 }
 /** What placing periods on the calendar needs: the start, its weekday and its month. */
-export type TimeBase = Pick<TsTable, "start" | "woff" | "m0">;
+export type TimeBase = Pick<TsTable, "start" | "woff" | "wbase" | "m0">;
 /** Whether rows are expected at this instant: not a weekday or an hour that never has rows. */
 export function openAt(t: TimeBase & { structural: ArrayLike<number>; closedHours: ArrayLike<number> }, ms: number): boolean {
   if (t.structural[weekdayAt(t, ms)]) return false;
@@ -354,7 +368,7 @@ export function weekdayAt(t: TimeBase, ms: number): number { return (((Math.floo
 export function bucketStart(t: TimeBase, g: Grain, b: number): number {
   if (g.unit === "min") return t.start + b * g.n * MINUTE;
   if (g.unit === "day") return t.start + b * g.n * DAY;
-  if (g.unit === "week") return t.start + (b * 7 * g.n - t.woff) * DAY;
+  if (g.unit === "week") return t.start + (b * 7 * g.n - t.wbase) * DAY;
   const mi = (Math.floor(t.m0 / g.n) + b) * g.n;
   return Date.UTC(Math.floor(mi / 12), mi % 12, 1);
 }

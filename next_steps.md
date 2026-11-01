@@ -2135,18 +2135,17 @@ What it says:
 - **Theta:** alpha by optimisation (SES MLE) and `thetaf`'s seasonality test and classical decomposition.
 - **Parity:** a script fits statsforecast's AutoETS and Theta (Apache-2.0, already in `.venv-recipe-parity`) on 200 M3 monthly series. Pass when our chosen ETS form matches most of the time, and our mean MASE is within 2% of theirs, series by series.
 
-**Phase 4: benchmarks, short series and intermittent demand** (weak points 6, 7 and 8).
-- Add naive, drift, mean and SES as models (shown as benchmarks; SES also joins the combination's candidates).
-- **Short series:** when the 3-fold backtest does not fit, still forecast: ETS by AICc (or the combination), model-based intervals, and a plain "too short to backtest" note. Target: forecast 100% of M1, M3 and tourism yearly.
-- **Intermittent series:** detect them (average demand interval > 1.32 or CV² < 0.49, Syntetos-Boylan) and switch to Croston, SBA or TSB. Target: car parts <= 0.93.
+**Phase 4: benchmarks, short series and intermittent demand.** SHIPPED 2026-11-01 (CHG-2026-11-01-09, -10, -11).
+- **Benchmarks:** naive, drift, mean and simple smoothing are on the board as yardsticks (Auto never picks them; the Combination does not use them; SES does not join it: it would have changed Auto for no measured gain). The trust verdict names any that beat the pick on the unseen fold.
+- **Short series:** a series with room to train and forecast but not to backtest is forecast anyway, with a rough or no backtest, bands from the fitted model's own one-step error (widening like a random walk), and an *Untested* verdict. Target met: M1 yearly 181 of 181 series (was 81), M3 yearly 300 of 300 (was 152), tourism yearly 291 of 291 offered (was 242 of 300).
+- **Intermittent demand:** detected by an average demand interval above 1.32 (leading zeros ignored); Croston, Croston with the bias correction and TSB appear for those series, and Auto uses TSB. **Target dropped, on evidence:** the plan asked for car parts at or under 0.93. MASE is an absolute error, so a flat forecast of zero scores 0.763 on car parts, better than every method; chasing 0.93 would reward the wrong forecast (Kolassa 2016). On the 489 intermittent series TSB (1.113) tied the Combination (1.127); Croston and SBA with a fixed 0.1 were clearly worse (1.40 and 1.37). The gap to the archive's published SES (0.897 against our 1.06) is unexplained.
 
-**Phase 5: transformations, intervals, calendar** (weak points 9, 10 and 11).
-- Box-Cox with lambda by Guerrero's method, a bias-adjusted back-transform, and shown in the model card.
-- A conformal-style finite-sample correction of the empirical bands, plus coverage reported by the benchmark (target: 80% band covers 78-82%).
-- Calendar checks:
-  - week start chosen from the data (Sunday-stamped weeks become Sunday weeks);
-  - an optional month-length adjustment;
-  - the daylight-saving shift detector (shelved by the owner, 2026-10-31: not important).
+**Phase 5: transformations, intervals, calendar.** SHIPPED 2026-11-01 (CHG-2026-11-01-12 to -14), with three plan items changed by what we measured.
+- **Box-Cox with Guerrero's power:** built, in the model card and a docs topic, and matching R on the airline data (-0.29), but **off by default**. On five monthly datasets (200 series each) it did not help (FRED-MD 0.457 to 0.646), and a first, smaller run that seemed to show -3% to -7% on monthly data was noise. No bias adjustment: the measures are absolute errors, which the median minimises.
+- **Bands:** the planned "finite-sample correction" would not have moved coverage, and a single widening factor would have been a one-parameter fit that over-covers monthly series and still under-covers quarterly ones. Measured coverage of the 80% band is 69% (95%: 84%) on 141 series; fpp3 5.5 says ranges are usually too narrow and asks us to say so, which the page now does (a docs topic, "How far to trust the ranges", and the per-series Heads up). `tools/ts-eval/coverage.ts` reports it. **Open:** if the owner wants the bands widened anyway, the one defensible way is a factor chosen on one set of series and checked on another.
+- **Week start from the data:** weekly rows stamped on one weekday start their weeks there (Sunday weeks, Friday closes); accuracy is unchanged, the periods and dates are right.
+- **Month-length adjustment:** tried, not built. Dividing monthly values by the days in the month and multiplying back changed Auto's MASE by +0.012 (M3 monthly), 0.000 (M1), -0.009 (tourism) and 0.000 (hospital): no gain.
+- The daylight-saving shift detector stays shelved (owner, 2026-10-31).
 
 **Later:** hierarchical reconciliation (fpp3 ch. 11) for split series such as car parks; ARIMA (on hold); bagged ETS.
 

@@ -24,7 +24,7 @@ export interface ModelDoc {
   differs: string[];
 }
 
-const BAND = "The 80% and 95% bands are not model-based. For each step ahead they are quantiles of this model's own backtest errors at that step (pooled over the folds and over the neighbouring steps, a window of H/8 either side), added to the forecast, with the 95% tails widened to at least 1.53 times the 80% half-width (the ratio of the normal 97.5% and 90% quantiles) when the sample is thin. They are checked fold by fold in the Deep check. [ref:fpp3] 5.5 describes the same idea as empirical (bootstrapped) intervals.";
+const BAND = "The 80% and 95% bands are not model-based. For each step ahead they are quantiles of this model's own backtest errors at that step (pooled over the folds and over the neighbouring steps, a window of H/8 either side), added to the forecast, with the 95% tails widened to at least 1.53 times the 80% half-width (the ratio of the normal 97.5% and 90% quantiles) when the sample is thin. They are checked fold by fold in the Deep check. [ref:fpp3] 5.5 describes the same idea as empirical (bootstrapped) intervals. They are narrower than they should be: see \"How far to trust the ranges\".";
 
 export const MODEL_DOCS: Record<ModelKey, ModelDoc> = {
   sn: {
@@ -282,6 +282,20 @@ export const TOPICS: Topic[] = [
     html: `
       <p>Periods with no rows can be left empty or filled for display. Whatever is shown, the models need an unbroken series and bridge gaps with the <b>smart fill</b>: the usual pattern (a straight line through the deseasonalised level plus the robust phase profile) for gaps up to a quarter of the shortest season, the <b>median of the same phase in the nearest cycles</b> either side for longer ones.</p>
       <p>These fills are this project's own design, chosen by measurement: on real hourly gym counts with stretches hidden and refilled, the usual pattern was best up to about six hours and the nearby median missed 20–40% less beyond that. The smoothing models treat filled periods as missing (their state carries across, nothing is learnt), the regression leaves them out of its fit, and forecast errors are never scored on them. Seasonal naive for gaps is Hyndman's seasonal naive method [ref:fpp3].</p>`,
+  },
+  {
+    id: "ranges",
+    title: "How far to trust the ranges",
+    html: `
+      <p>The shaded range is built from this model's own backtest errors at each step ahead, so it is as wide as the model was wrong on earlier dates. Prediction ranges are almost always <b>too narrow</b>, and the textbook says so [ref:fpp3] (5.5): they assume the model is right and ignore uncertainty about its settings and about which model was chosen.</p>
+      <p>We measured it. On 141 real series from 20 datasets of the Monash archive [ref:monash], each forecast from all but its last stretch, the real values fell inside the <b>80% range 69%</b> of the time and inside the <b>95% range 84%</b> of the time (2,370 forecast points; <code>tools/ts-eval/coverage.ts</code>). It varies a lot by kind of series:</p>
+      <ul>
+        <li><b>Monthly</b>: the 80% range held 69% to 83% (M3 monthly 83%, tourism 69%, M1 73%, hospital 73%, FRED-MD 72%).</li>
+        <li><b>Quarterly and yearly</b>: 38% to 67%. These series are short, the folds are few, and the last stretch often differs from the ones before it.</li>
+        <li><b>Weekly</b>: 53% to 85%. <b>Hourly and daily</b>: 70% to 86%.</li>
+        <li><b>Mostly-zero sales</b> (car parts): 28%. The range says little about a single period there.</li>
+      </ul>
+      <p>So read a range as a <b>minimum</b>: the real value will leave it more often than the label says. We have not stretched the ranges by one fixed amount to hide this: a factor that fixes the average would make monthly ranges too wide and still leave quarterly ones too narrow. Where the history is long enough, the Heads up note says when this series' own ranges held the value less often than promised.</p>`,
   },
   {
     id: "transform",

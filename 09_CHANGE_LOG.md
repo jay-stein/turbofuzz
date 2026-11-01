@@ -28,6 +28,18 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-13 — Time Series: week start from the data, and an honest note on the ranges (fundamentals plan, Phase 5b)
+
+- **Status:** Verified
+- **Scope:**
+  - **Week start:** weekly rows stamped on one weekday (90% or more of them, at a 7-day spacing, at least 8 rows) start their weeks on that weekday: Sunday-ending weeks, Friday closes. A period then runs from stamp to stamp and is labelled with the stamp, with no empty lead period and no partial tail. Anything else, including daily rows grouped into weeks, keeps Monday weeks. Accuracy is unchanged (the gate is identical on the four weekly datasets): only the periods and the dates shown change.
+  - **How far to trust the ranges:** a new docs topic and a line in each model's band note. On 141 series the 80% band held the real value 69% of the time and the 95% band 84%, as fpp3 5.5 warns ranges usually do; by frequency: monthly 69-83%, quarterly and yearly 38-67%, weekly 53-85%, hourly and daily 70-86%, mostly-zero sales 28%. The ranges are not stretched by one fixed amount: a factor that fixes the average (about 1.6) would make monthly ranges too wide (92%) and still leave quarterly ones too narrow (50%).
+  - **Month-length adjustment: tried, not built.** Dividing monthly values by the days in the month and multiplying the forecasts back changed Auto's MASE by +0.012 (M3 monthly), 0.000 (M1 monthly), -0.009 (tourism monthly) and 0.000 (hospital): no gain.
+- **Files / components changed:** src/data/timeseries/base.ts, engine.ts, src/ui/timeseries-model-docs.ts, next_steps.md, tests (new: timeseries-weekstart)
+- **Tests run and results:** typecheck clean; 1218 unit tests pass; accuracy gate unchanged
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-12 — Time Series: Box-Cox transformation (opt-in) and a band-coverage tool (fundamentals plan, Phase 5a)
 
 - **Status:** Verified
