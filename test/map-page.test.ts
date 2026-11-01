@@ -1,51 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { backgroundOps, mercY, parseWorldFile, placementProblem, WHOLE_WORLD } from "../src/data/map-background.js";
 import { autoLabel, markersToCsv, MAX_MARKER_SIZE, MAX_MARKERS, parseMarkers } from "../src/data/map-markers.js";
 
 const near = (a: number, b: number, eps = 1e-6): void => assert.ok(Math.abs(a - b) < eps, `${a} vs ${b}`);
-
-test("a world file in degrees places a plate carree picture", () => {
-  // 0.1 degree pixels, top-left pixel centre at (-9.95, 59.95), 200 x 100 pixels.
-  const p = parseWorldFile("0.1\n0\n0\n-0.1\n-9.95\n59.95\n", 200, 100);
-  assert.ok(!("error" in p));
-  assert.equal(p.projection, "plate");
-  near(p.west, -10); near(p.east, 10); near(p.north, 60); near(p.south, 50);
-});
-
-test("a world file in metres is Web Mercator, converted to degrees", () => {
-  const R = 6378137, x = (lon: number): number => (lon * Math.PI * R) / 180, y = (lat: number): number => mercY(lat) * R;
-  const w = 512, h = 512, px = (x(10) - x(0)) / w, py = (y(50) - y(55)) / h;
-  const text = [px, 0, 0, py, x(0) + px / 2, y(55) + py / 2].join("\n");
-  const p = parseWorldFile(text, w, h);
-  assert.ok(!("error" in p));
-  assert.equal(p.projection, "mercator");
-  near(p.west, 0, 1e-6); near(p.east, 10, 1e-6); near(p.north, 55, 1e-6); near(p.south, 50, 1e-6);
-});
-
-test("rotated or malformed world files are refused with a reason", () => {
-  assert.ok("error" in parseWorldFile("0.1\n0.01\n0\n-0.1\n0\n0", 10, 10));
-  assert.ok("error" in parseWorldFile("not a world file", 10, 10));
-  assert.match(placementProblem({ ...WHOLE_WORLD, west: 20, east: 10 }) ?? "", /West must be less than east/);
-});
-
-test("a plate carree picture is cropped to the visible window", () => {
-  const ops = backgroundOps(WHOLE_WORLD, 3600, 1800, { lonMin: 0, lonMax: 90, latMin: 0, latMax: 45 }, 0, 0, 900, 450);
-  assert.equal(ops.length, 1);
-  const [o] = ops;
-  near(o!.sx, 1800); near(o!.sw, 900); near(o!.sy, 450); near(o!.sh, 450);
-  near(o!.dx, 0); near(o!.dw, 900); near(o!.dy, 0); near(o!.dh, 450);
-});
-
-test("a mercator picture is drawn in strips that follow latitude", () => {
-  const p = { west: -180, east: 180, south: -60, north: 60, projection: "mercator" as const };
-  const ops = backgroundOps(p, 1000, 1000, { lonMin: -180, lonMax: 180, latMin: -60, latMax: 60 }, 0, 0, 720, 240, 24);
-  assert.equal(ops.length, 24);
-  // Rows near the poles cover more picture per screen pixel than rows at the equator.
-  const first = ops[0]!, middle = ops[12]!;
-  assert.ok(first.sh / first.dh > middle.sh / middle.dh);
-  near(ops[0]!.sy, 0); near(ops[23]!.sy + ops[23]!.sh, 1000, 1e-6);
-});
 
 test("markers read from pasted cells with a header, in any column order", () => {
   const r = parseMarkers("Name\tLongitude\tLatitude\tColour\nLondon\t-0.1276\t51.5072\tblue\nNowhere\tabc\t\n", { symbol: "pin", color: "#dc2626" });

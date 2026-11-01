@@ -43,7 +43,7 @@ import { timeDimension, viewSeriesInput } from "../data/timeseries/view-source.j
 import { compileFormula, evaluateFormula } from "../data/column-formula.js";
 import { formulasFromExamples } from "../data/formula-examples.js";
 import { missingnessGrid } from "../data/missingness.js";
-import { categoryCodes, computeSeries } from "../data/chart-series.js";
+import { categoryCodes, computeSeries, groupPlaces } from "../data/chart-series.js";
 import {
   computeBoxStats,
   computeCorrelation,
@@ -1555,21 +1555,23 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
   const ids = chartScopedIds(message.respectFilters, message.chartFilter, message.chartExclude);
   const xNumbers = xColumn.numbers();
   const yNumbers = yColumn.numbers();
-  const result = computeSeries(
-    xNumbers,
-    yNumbers,
-    ids,
-    colorValues,
-    colorCodes,
-    size,
-    {
-      mode: message.mode,
-      limit: message.limit ?? 20_000,
-      gridCols: 128,
-      gridRows: 72,
-      clip: message.clip,
-    },
-  );
+  const result = message.places
+    ? groupPlaces(xNumbers, yNumbers, ids, size, message.places.agg, message.limit ?? 20_000)
+    : computeSeries(
+      xNumbers,
+      yNumbers,
+      ids,
+      colorValues,
+      colorCodes,
+      size,
+      {
+        mode: message.mode,
+        limit: message.limit ?? 20_000,
+        gridCols: 128,
+        gridRows: 72,
+        clip: message.clip,
+      },
+    );
   const correlation = computeCorrelation([xNumbers, yNumbers], ids).values[1] ?? Number.NaN;
 
   const transfer: Transferable[] = [];
@@ -1580,6 +1582,7 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
     if (result.colorValues !== null) transfer.push(result.colorValues.buffer);
     if (result.colorCodes !== null) transfer.push(result.colorCodes.buffer);
     if (result.size !== null) transfer.push(result.size.buffer);
+    if (result.counts) transfer.push(result.counts.buffer);
   }
 
   post(

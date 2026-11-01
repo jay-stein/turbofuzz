@@ -4179,7 +4179,6 @@ export class App {
         releaseCard: (card) => charts.releaseDetachedCard(card),
         datasetName: () => this.datasetName,
         onAction: (message) => this.setAction(message),
-        openGuide: () => openHelpDrawer("map"),
       });
     }
     this.mapPage.setData(this.metas, this.resultCount);

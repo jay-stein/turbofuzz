@@ -1546,8 +1546,7 @@ Still to do (later, not blocking the Map page):
 ### 1. Maps get their own page (out of Chart)
 
 **Shipped 2026-10-30 (CHG-2026-10-30-08):** Map tab with the map card at full width,
-offline background pictures (whole world / world file / edges, plate carrée or Web
-Mercator), up to 100 markers (table, paste, CSV, city search, click; 9 shapes or an
+up to 100 markers (table, paste, CSV, city search, click; 9 shapes or an
 SVG; colour), and a bundled world-cities layer (Natural Earth, public domain). The map
 card stays in Chart with "Open in Map →" (same call as the line card), so saved charts
 need no migration. **2026-10-31 (CHG-2026-10-31-02):** dock on the map (cities, marker
@@ -2226,3 +2225,6 @@ Chosen from the canvas "Table page: three looks" (option B). Rolled out in phase
 - Tried and dropped (see DEC-2026-11-01-03): variogram-matched coefficients, revision-corrected forecasts, drift vote, drift damping and shrinkage, ARIMA blended with the Combination.
 - Open ideas, none started: an archive-learned prior for very short series (judge only on datasets it did not learn from); scoring models by forecasting backwards in time as a second structure vote; drivers.
 - Done 2026-11-01: seasons over 24 periods now fit ARIMA on the STL-adjusted series, season added back (stlf); the old "not built yet" refusal is gone.
+
+- Removed 2026-11-01 (owner): the Map page's background picture (whole world / world file / edges). Placing a picture means supplying its geographic edges, which is GIS work; the map's own land and water already work offline.
+- Open: calibrate the forecast verdict (DEC-2026-11-01-05). On random Monash series, compare the verdict the page gives from the backtests with whether the model really beat the best simple method on the true future; tune the 10% and two-thirds thresholds only on one set and judge on another.

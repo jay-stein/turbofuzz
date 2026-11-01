@@ -30,6 +30,9 @@ export interface SeriesPoints {
   yMin: number;
   yMax: number;
   sampled: boolean;
+  /** One dot per distinct place: `size` holds each place's value and `counts` the rows behind it. */
+  places?: boolean;
+  counts?: Float64Array | null;
 }
 
 export interface SeriesGrid {
@@ -77,6 +80,65 @@ function padded(min: number, max: number): [number, number] {
   if (max > min) return [min, max];
   const pad = Math.max(1, Math.abs(min) * 0.05);
   return [min - pad, max + pad];
+}
+
+export type PlaceAgg = "count" | "sum" | "mean" | "min" | "max";
+
+/**
+ * Groups rows that sit at the same place (to about a metre: five decimals of a degree) into one point each. The place's value is its
+ * row count, or an aggregate of the size column when there is one; its position is the first row's. When there are more places than
+ * `limit`, the busiest are kept and the result says it was sampled. The extent is the data's own (no clipping), as maps need.
+ */
+export function groupPlaces(
+  x: Float64Array,
+  y: Float64Array,
+  ids: Uint32Array,
+  size: Float64Array | null,
+  agg: PlaceAgg,
+  limit: number,
+): SeriesPoints {
+  const index = new Map<number, number>();
+  const px: number[] = [], py: number[] = [], rows: number[] = [], sum: number[] = [], seen: number[] = [], lo: number[] = [], hi: number[] = [];
+  let total = 0, outside = 0;
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i]!;
+    const xv = x[id]!, yv = y[id]!;
+    if (!Number.isFinite(xv) || !Number.isFinite(yv)) continue;
+    const kx = Math.round(xv * 1e5), ky = Math.round(yv * 1e5);
+    if (Math.abs(kx) > 2e7 || Math.abs(ky) > 1e7) { outside++; continue; }
+    const key = (kx + 2e7) * 4e7 + (ky + 1e7);
+    let at = index.get(key);
+    if (at === undefined) {
+      at = px.length;
+      index.set(key, at);
+      px.push(xv); py.push(yv); rows.push(0); sum.push(0); seen.push(0); lo.push(Infinity); hi.push(-Infinity);
+    }
+    rows[at]!++;
+    total++;
+    if (size !== null) {
+      const sv = size[id]!;
+      if (Number.isFinite(sv)) { sum[at]! += sv; seen[at]!++; if (sv < lo[at]!) lo[at] = sv; if (sv > hi[at]!) hi[at] = sv; }
+    }
+  }
+  let order = px.map((_, k) => k);
+  const sampled = order.length > limit;
+  if (sampled) order = order.sort((a, b) => rows[b]! - rows[a]!).slice(0, Math.max(1, limit));
+  const n = order.length;
+  const ox = new Float64Array(n), oy = new Float64Array(n), osize = new Float64Array(n), ocount = new Float64Array(n);
+  let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+  order.forEach((k, j) => {
+    ox[j] = px[k]!; oy[j] = py[k]!; ocount[j] = rows[k]!;
+    osize[j] = size === null || agg === "count" ? rows[k]!
+      : agg === "sum" ? sum[k]!
+        : agg === "mean" ? (seen[k]! > 0 ? sum[k]! / seen[k]! : Number.NaN)
+          : agg === "min" ? (seen[k]! > 0 ? lo[k]! : Number.NaN) : (seen[k]! > 0 ? hi[k]! : Number.NaN);
+    if (ox[j]! < xMin) xMin = ox[j]!; if (ox[j]! > xMax) xMax = ox[j]!;
+    if (oy[j]! < yMin) yMin = oy[j]!; if (oy[j]! > yMax) yMax = oy[j]!;
+  });
+  if (n === 0) { xMin = 0; xMax = 1; yMin = 0; yMax = 1; }
+  [xMin, xMax] = padded(xMin, xMax);
+  [yMin, yMax] = padded(yMin, yMax);
+  return { mode: "points", x: ox, y: oy, colorValues: null, colorCodes: null, size: osize, counts: ocount, places: true, shown: n, total, outside, xMin, xMax, yMin, yMax, sampled };
 }
 
 /**

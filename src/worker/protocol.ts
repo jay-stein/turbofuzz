@@ -400,6 +400,8 @@ export type GetChartSeriesRequest = {
   colorColumn?: number;
   sizeColumn?: number;
   mode: SeriesMode;
+  /** Map cards: one dot per distinct place, valued by the row count or this aggregate of the size column. */
+  places?: { agg: "count" | "sum" | "mean" | "min" | "max" };
   limit?: number;
   /** false keeps the full data range; the map card sets this. */
   clip?: boolean;

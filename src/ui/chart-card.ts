@@ -125,7 +125,6 @@ import {
   projectLon,
 } from "../data/topo.js";
 import { parseGeoFile, type GeoDataset } from "../data/geo-file.js";
-import { backgroundOps, type MapPlacement } from "../data/map-background.js";
 
 /** Rectangle brush result: lon/lat bounds for the two coordinate columns. */
 export interface MapViewport {
@@ -260,21 +259,6 @@ export interface MapMarkerDraw {
   /** Radius in CSS pixels (7 when absent). */
   size?: number;
   draw(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void;
-}
-
-/** The person's own map picture under a map card (Map page), placed by its edges. */
-export interface MapBackgroundImage {
-  /** The picture to draw (already greyscale when the page asks for it); width x height pixels. */
-  image: CanvasImageSource;
-  width: number;
-  height: number;
-  placement: MapPlacement;
-  /** 0 to 1. */
-  opacity: number;
-  /** Draw the bundled coastlines and borders on top. */
-  outline: boolean;
-  /** Credit line drawn in the corner, and so in PNG exports. */
-  attribution: string;
 }
 
 interface Basemap {
@@ -588,7 +572,7 @@ export interface ChartCardConfig {
   /** How bubble radius maps from the measure value. */
   bubbleScale?: "area" | "radius" | "log";
   /** Map display: one dot per row, or an aggregated heat grid. */
-  mapMode?: "points" | "heat";
+  mapMode?: "points" | "heat" | "places";
   /** Card width in the grid: normal cell or the whole row. */
   span?: "auto" | "full";
   /** Time column for frame animation (-1 = off). */
@@ -1142,6 +1126,7 @@ export class ChartCard {
   private readonly gridField: HTMLElement;
   private readonly gridHint: HTMLElement;
   private readonly bubbleAggSelect: HTMLSelectElement;
+  private bubbleAggHint!: HTMLElement;
   private readonly bubbleScaleSelect: HTMLSelectElement;
   private readonly animateButton: HTMLButtonElement;
   private readonly widthButton: HTMLButtonElement;
@@ -1160,7 +1145,6 @@ export class ChartCard {
   private mapGrid: GridCountsResult | null = null;
   /** Map viewport in degrees (null = the whole world). */
   private mapView: MapViewport | null = null;
-  private mapBackground: MapBackgroundImage | null = null;
   private mapMarkers: readonly MapMarkerDraw[] = [];
   private mapPicker: ((lon: number, lat: number) => void) | null = null;
   private mapOverlay: MapOverlay | null = null;
@@ -2092,6 +2076,7 @@ export class ChartCard {
         | "max";
       this.generation++;
       this.refreshBubble();
+      this.refreshSeries();
       this.refreshMapGrid();
       this.refreshAnimation();
       this.render();
@@ -2099,9 +2084,11 @@ export class ChartCard {
     const bubbleAggField = el("label", { class: "chart-field" });
     this.bubbleAggField = bubbleAggField;
     bubbleAggField.title = "How the rows in each area combine into one value";
+    this.bubbleAggHint = el("span", { class: "chart-field-hint" });
     bubbleAggField.append(
-      el("span", { class: "chart-field-label" }, ["Reduce"]),
+      el("span", { class: "chart-field-label" }, ["Aggregate"]),
       this.bubbleAggSelect,
+      this.bubbleAggHint,
     );
     this.bubbleScaleSelect = el("select", {
       class: "chart-picker chart-picker-small",
@@ -2148,15 +2135,17 @@ export class ChartCard {
     this.mapModeSelect = this.buildSelect("chart-picker chart-picker-small", "Map display mode");
     for (const [value, label] of [
       ["points", "One dot per row"],
+      ["places", "One dot per place"],
       ["heat", "Heat grid"],
     ] as const) {
       this.mapModeSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
     }
     this.mapModeSelect.value = this.config.mapMode ?? "points";
     this.mapModeSelect.addEventListener("change", () => {
-      this.config.mapMode = this.mapModeSelect.value as "points" | "heat";
+      this.config.mapMode = this.mapModeSelect.value as "points" | "heat" | "places";
       this.gridField.classList.toggle("hidden", this.config.mapMode !== "heat");
       this.generation++;
+      this.refreshSeries();
       this.refreshMapGrid();
       this.syncSourceControls();
       this.render();
@@ -2258,7 +2247,7 @@ export class ChartCard {
       geoField("Feature", this.geoFeatureSelect),
       geoField("Matches", this.geoMatchSelect),
       geoField("Measure", this.geoMeasureSelect),
-      geoField("Reduce", this.geoAggSelect),
+      geoField("Aggregate", this.geoAggSelect),
     ]);
     for (const select of [
       this.geoFeatureSelect,
@@ -4853,9 +4842,11 @@ export class ChartCard {
     this.bubbleAggSelect.disabled = !reduceEnabled;
     this.bubbleAggField.title = reduceEnabled
       ? mapKind
-        ? "How the rows in each grid cell combine into one heat value"
+        ? "How the rows in each grid cell or place combine into one value"
         : "How the rows in each area combine into one value"
       : "Pick a numeric column under Size first - then choose how rows combine";
+    // Said on the page, not only in a tooltip: a greyed-out control with no reason reads as broken.
+    this.bubbleAggHint.textContent = reduceEnabled ? "" : "(pick a Size column first)";
     if (!reduceEnabled) this.bubbleAggSelect.value = "count";
     this.topLabel.parentElement?.classList.toggle("hidden", bubbleOnly);
     this.multiInput.parentElement?.classList.toggle("hidden", bubbleOnly);
@@ -5202,6 +5193,7 @@ export class ChartCard {
         : defaultChartTitle(`${data.measureName} by ${data.rowName} x ${data.colName}`);
     }
     if (this.usesAggregate()) return "Aggregate";
+    if (this.config.kind === "map") return "Map";
     if (isPairKind(this.config.kind)) {
       return defaultChartTitle(this.pairLabel("vs"));
     }
@@ -5638,8 +5630,10 @@ export class ChartCard {
     const generation = ++this.generation;
     const mode: SeriesMode =
       this.config.kind === "density" ? "density" : map ? "points" : this.config.mode === "auto" ? "points" : this.config.mode;
+    const places = map && this.config.mapMode === "places" ? { agg: this.config.bubbleAgg ?? "count" } : undefined;
     void this.options
       .requestSeries({
+        ...(places ? { places } : {}),
         xColumn: this.config.x,
         yColumn: this.config.y,
         colorColumn: this.config.colorColumn,
@@ -6883,8 +6877,8 @@ export class ChartCard {
     this.drawBrushOverlay(ctx);
     this.drawLinkedOverlay(ctx);
     if (this.brushSpace !== null && this.noteEl.textContent?.includes("Shift+drag") !== true) {
-      const note = this.noteEl.textContent ?? "";
-      this.noteEl.textContent = note === "" ? "Shift+drag to filter" : `${note} · Shift+drag to filter`;
+      // Appended, not rewritten from the text: the note can hold a link (the density map, one dot per place) that must stay one.
+      this.noteEl.append(this.noteEl.textContent === "" ? "Shift+drag to filter" : " · Shift+drag to filter");
     }
     this.syncDataIssues();
     this.syncLegend();
@@ -9277,12 +9271,6 @@ export class ChartCard {
    * coordinate points drawn in world space. Drag a rectangle to filter both
    * coordinate columns to that area (plan §8).
    */
-  /** The Map page's background picture (null removes it). */
-  setMapBackground(background: MapBackgroundImage | null): void {
-    this.mapBackground = background;
-    this.render();
-  }
-
   /** The box around the canvas, for controls that float over the chart (the Map page's dock). */
   get canvasHost(): HTMLElement {
     return this.canvasWrap;
@@ -9452,39 +9440,8 @@ export class ChartCard {
     const waterColor = darkTheme ? "#16222e" : "#cfe5f4";
     const landColor = darkTheme ? "#3a3626" : "#f0e2b6";
     const coastColor = darkTheme ? "#6f6747" : "#b3a36e";
-    if (this.mapBackground === null) {
-      ctx.fillStyle = waterColor;
-    } else {
-      ctx.fillStyle = frame.border;
-      ctx.globalAlpha = 0.12;
-    }
+    ctx.fillStyle = waterColor;
     ctx.fillRect(x0, y0, w, h);
-    ctx.globalAlpha = 1;
-
-    const background = this.mapBackground;
-    if (background !== null) {
-      ctx.globalAlpha = background.opacity;
-      for (const op of backgroundOps(background.placement, background.width, background.height, view, x0, y0, w, h)) {
-        ctx.drawImage(background.image, op.sx, op.sy, op.sw, op.sh, op.dx, op.dy, op.dw, op.dh);
-      }
-      ctx.globalAlpha = 1;
-      if (background.attribution !== "") {
-        ctx.save();
-        const size = 10 * frame.ui;
-        ctx.font = `${size}px system-ui, sans-serif`;
-        const text = background.attribution;
-        const tw = ctx.measureText(text).width;
-        ctx.fillStyle = "#ffffff";
-        ctx.globalAlpha = 0.7;
-        ctx.fillRect(x0 + w - tw - 8, y0 + h - size - 6, tw + 8, size + 6);
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = "#333333";
-        ctx.textAlign = "right";
-        ctx.textBaseline = "bottom";
-        ctx.fillText(text, x0 + w - 4, y0 + h - 3);
-        ctx.restore();
-      }
-    }
 
     // Graticule: 30° at world scale, finer as the viewport zooms in.
     const gridStep = lonSpan > 180 ? 30 : lonSpan > 60 ? 10 : lonSpan > 20 ? 5 : 1;
@@ -9588,7 +9545,7 @@ export class ChartCard {
         }
       }
       ctx.globalAlpha = 1;
-    } else if (background === null || background.outline) {
+    } else {
       // Land polygons: one fill path, then one stroke path for the coast.
       ctx.beginPath();
       for (const ring of map.land) {
@@ -9600,14 +9557,11 @@ export class ChartCard {
         }
         ctx.closePath();
       }
-      // Over a picture the land is outline only, so the picture shows through.
-      if (background === null) {
-        ctx.fillStyle = landColor;
-        ctx.globalAlpha = 1;
-        ctx.fill();
-      }
-      ctx.globalAlpha = background === null ? 0.9 : 0.75;
-      ctx.strokeStyle = background === null ? coastColor : frame.dim;
+      ctx.fillStyle = landColor;
+      ctx.globalAlpha = 1;
+      ctx.fill();
+      ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = coastColor;
       ctx.lineWidth = 0.75;
       ctx.stroke();
       ctx.globalAlpha = 1;
@@ -9625,8 +9579,8 @@ export class ChartCard {
           ctx.closePath();
         }
       }
-      ctx.strokeStyle = background === null ? coastColor : frame.dim;
-      ctx.globalAlpha = background === null ? 0.55 : 0.28;
+      ctx.strokeStyle = coastColor;
+      ctx.globalAlpha = 0.55;
       ctx.lineWidth = 0.6;
       ctx.stroke();
       ctx.globalAlpha = 1;
@@ -9792,17 +9746,25 @@ export class ChartCard {
     this.noteEl.textContent = `${result.shown.toLocaleString()} of ${result.total.toLocaleString()} points${sampled}${
       extras === "" ? "" : ` · ${extras}`
     }${detailNote === "" ? "" : ` · ${detailNote}`} — scroll to zoom · drag to pan · shift-drag to filter · double-click resets`;
-    // Too many points to draw one by one: offer the fancier view instead of choosing it for the person.
-    if (result.sampled && this.config.kind === "scatter") {
-      const nudge = el("button", { class: "link small chart-density-nudge", type: "button", title: "Count every row in a grid and colour it by how many fall in each cell" }, ["Show all of them as a density map"]);
-      nudge.addEventListener("click", () => {
-        this.config.mode = "density";
-        this.generation++;
-        this.renderControls();
-        this.refreshSeries();
-        this.render();
-      });
-      this.noteEl.append(" ", nudge);
+    // Many rows on few spots (trips between stations): one dot per place says more than a stack of dots.
+    if (result.places !== true && result.shown >= 50) {
+      const spots = new Set<string>();
+      for (let i = 0; i < result.shown; i++) spots.add(`${Math.round((result.x[i] ?? 0) * 1e5)}|${Math.round((result.y[i] ?? 0) * 1e5)}`);
+      if (spots.size * 2 <= result.shown) {
+        const nudge = el("button", { class: "link small chart-density-nudge", type: "button", title: "Group the rows that sit at the same place into one dot, sized by how many rows it holds" }, [`${result.shown.toLocaleString()} rows sit on ${spots.size.toLocaleString()} places: show one dot per place`]);
+        nudge.addEventListener("click", () => {
+          this.config.mapMode = "places";
+          this.mapModeSelect.value = "places";
+          this.generation++;
+          this.refreshSeries();
+          this.render();
+        });
+        this.noteEl.append(" ", nudge);
+      }
+    }
+    if (result.places === true) {
+      const top = result.counts ? Math.max(...Array.from(result.counts.subarray(0, Math.min(result.shown, 2000)))) : 0;
+      this.noteEl.textContent = `${result.shown.toLocaleString()} places from ${result.total.toLocaleString()} rows${result.sampled ? " (the busiest shown)" : ""}${top > 0 ? ` · the busiest holds ${top.toLocaleString()}` : ""} · dot size = ${this.config.sizeColumn >= 0 ? `${this.config.bubbleAgg ?? "count"} of ${this.meta(this.config.sizeColumn)?.name ?? "the size column"}` : "rows"} · scroll to zoom · drag to pan · double-click resets`;
     }
   }
 
@@ -11688,7 +11650,7 @@ export class ChartCard {
   }
 
   private pointSizes(result: SeriesPoints, ui: number): Float64Array | null {
-    if (result.size === null || this.config.sizeColumn < 0) return null;
+    if (result.size === null || (result.places !== true && this.config.sizeColumn < 0)) return null;
     let min = Infinity;
     let max = -Infinity;
     for (let i = 0; i < result.shown; i++) {
@@ -11702,7 +11664,7 @@ export class ChartCard {
     for (let i = 0; i < result.shown; i++) {
       const value = result.size[i];
       const t = Number.isFinite(value) ? (max > min ? (value - min) / (max - min) : 0.5) : 0;
-      sizes[i] = (1.6 + 3.4 * Math.sqrt(t)) * ui;
+      sizes[i] = result.places === true ? (3 + 11 * Math.sqrt(t)) * ui : (1.6 + 3.4 * Math.sqrt(t)) * ui;
     }
     return sizes;
   }
@@ -11903,6 +11865,19 @@ export class ChartCard {
     notes.push("scroll to zoom · drag to pan · double-click resets");
     if (this.seriesMs > 0) notes.push(`${Math.round(this.seriesMs)} ms`);
     this.noteEl.textContent = notes.join(" · ");
+    // Too many points to draw one by one: offer the fancier view instead of choosing it for the person.
+    if (result.sampled && this.config.kind === "scatter") {
+      const nudge = el("button", { class: "link small chart-density-nudge", type: "button", title: "Count every row in a grid and colour it by how many fall in each cell" }, ["Show all of them as a density map"]);
+      nudge.addEventListener("click", () => {
+        this.config.mode = "density";
+        this.modeSelect.value = "density";
+        this.generation++;
+        this.renderControls();
+        this.refreshSeries();
+        this.render();
+      });
+      this.noteEl.append(" ", nudge);
+    }
   }
 
   private drawDensity(

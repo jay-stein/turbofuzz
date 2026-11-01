@@ -28,6 +28,34 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-32 — Map: one dot per place, "Aggregate", and no background picture
+
+- **Status:** Verified
+- **Scope:**
+  - **One dot per place.** Show offers a third option beside "One dot per row" and "Heat grid": rows at the same place (to about a metre) become one dot, sized by how many rows it holds, or by an aggregate of the Size column. It is worked out in the worker over every row, not a sample (the busiest 20,000 places are kept if there are more, and the note says so). When many rows sit on few places, the note says "600 rows sit on 24 places" and offers the switch in one click; with the option on it reads "24 places from 600 rows, the busiest holds 25, dot size = rows".
+  - **"Reduce" is "Aggregate"**, the word the chart page already uses, and a greyed-out control now says why on the page ("pick a Size column first") instead of only in a tooltip. The map's title is "Map", not "start station longitude vs start station latitude"; the card's repeated "Map: rows from Table" line is hidden on the Map page, and the card's own Fit all is hidden there because the dock has one (it stays on map cards in the Chart page).
+  - **The background picture is removed** (owner: placing it needs a geographic anchor, which is GIS work). The Background image button, the offline-map guide, the placement controls (whole world, world file, edges, projection, opacity, greyscale, credit), their storage and tests, and the helper module are gone. Markers, cities, and the bundled land and water are unchanged, and the markers' database keeps the schema it was created with.
+  - **Two fixes found on the way.** The "show all of them as a density map" link on a large scatter never appeared: it had been placed in the map's note routine, and the card also rebuilt the note from its text, which flattened any link in it into plain words. The link is in the scatter's note now, styled as a link, and the note is appended to rather than rewritten.
+- **Files / components changed:** src/data/chart-series.ts, src/worker/protocol.ts, search.worker.ts, src/ui/chart-card.ts, map-page.ts, help-content.ts, app.ts, src/styles.css, bench/map.ts; removed src/data/map-background.ts
+- **Tests run and results:** groupPlaces unit tests (grouping, a metre apart, aggregates, missing values, the cap, empty); e2e on trip-shaped data for the note, the switch, the Aggregate wording and the single Fit all, and for the scatter link; the picture tests were removed with the feature
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
+### CHG-2026-11-01-31 — Forecast verdict, second pass: one verdict, three questions, judged against the best simple method
+
+- **Status:** Verified
+- **Scope:** Replaces the wording of CHG-2026-11-01-30. The owner's test: "is the model reliable and is it the best available for the job? It must comprehensively beat a simple model. The bands are a nice to have; anything more is jargon. Details under the hood. A big issue must be clear at the top."
+  - **One verdict, one vocabulary.** Five places graded the forecast in two scales (the badge said Middling while the top strip and the findings said Good). All now use the same words from the same function: Reliable, Use with care, Not reliable, Can't judge yet (and Baseline for the yardstick itself). The old "Holds up / Middling / Doubtful" and the separate Good / OK / Poor on the surface are gone; the Grade column stays under the hood.
+  - **The badge answers the owner's three questions, in order**, each a bold question, a one-word answer and one sentence: "Does it beat a simple method?", "Is it the best available?", "Can you trust the shaded band?". Numbers and jargon (lockbox, folds, MASE, AICc, naive) are not on the surface and a test keeps it so; Details opens the numbers under the hood.
+  - **"Reliable" is one thing: it comprehensively beats the best simple method.** At least 10% less error than the best of the six simple methods in the backtests (not only repeating the last cycle, which is a poor yardstick for noise), winning at least two thirds of the tests, no simple method doing better on the held-back test, and not in the bottom third there. With no test held back it cannot be called reliable. This is a rule of thumb, not a statistical test, and has not been calibrated against real out-of-sample results yet (see the plan note).
+  - **Reliable and best are separate answers.** A model can be reliable and rank mid-table; its place and the leader's margin are said without alarm (never red; red is only for failing the simple-method test).
+  - **A problem is loud.** Not reliable is a red card and Use with care an amber one; the verdict is also in the top strip on every tab. The shaded band is judged on its own and never changes the verdict on the line.
+  - Found on random-looking data: the first version called pure noise "Reliable" because it beat repeating last year by 27%. Against the best simple method (the seasonal average) the margin is 3%, and it now says Use with care, "only just".
+- **Files / components changed:** src/data/timeseries/verdict.ts, src/ui/timeseries-page.ts, src/styles.css, test/timeseries-verdict.test.ts, test/e2e/time-series-page.spec.ts, test/e2e/arima.spec.ts
+- **Tests run and results:** verdict unit tests (17) pin each answer's wording and the plain-language rule; the Time Series page e2e checks one word across the badge, strip and findings
+- **Decision:** Ship; owner to review the labels and the 10% / two-thirds thresholds
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-30 — Forecast verdict: the line and the shaded range are judged apart, in plain words
 
 - **Status:** Verified

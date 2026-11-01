@@ -23,6 +23,15 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-01-05 — The forecast is judged by one verdict that means "comprehensively beats a simple method"
+
+- **Status:** Proposed (built and shipped for review; owner to confirm the labels and thresholds)
+- **Context:** Owner: the user wants to know whether the model is reliable, whether it is the best available, and whether the shaded band is the likely upper and lower limit. It must comprehensively beat a simple model; everything else is jargon for under the hood; a big issue must be at the top. The page had five places grading the forecast in two scales.
+- **Decision:** One function gives the verdict everywhere: Reliable (at least 10% less error than the best simple method in the backtests, wins at least two thirds of the tests, no simple method better on the held-back test, not bottom third there, and a held-back test exists), Not reliable (no better than the best simple method, or bottom third on unseen data), otherwise Use with care; Can't judge yet with too little history. The badge answers three questions (beats a simple method, best available, band) and keeps numbers under the hood.
+- **Trade-offs:** The thresholds are rules of thumb, chosen before seeing results and not yet calibrated; with the best of six simple methods as the yardstick, a good model can be called Use with care by a small margin. Short series, which cannot hold a test back, are never Reliable.
+- **Revisit trigger:** A calibration on random Monash series: of the series called Reliable, how many beat the simple method on the true future, against those called Use with care or Not reliable. If Reliable does not predict out-of-sample wins clearly, change the thresholds.
+- **Date / owner:** 2026-11-01 / owner
+
 ### DEC-2026-11-01-04 — A scatter draws points; density is something the analyst chooses
 
 - **Status:** Accepted (owner: "default to points and then offer something more fancy; the auto render isn't helpful")

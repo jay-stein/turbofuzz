@@ -11,7 +11,6 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==", "base64");
 
 function sites(): string {
   const lines = ["site,lat,lon,visits"];
@@ -38,19 +37,6 @@ test("the Map tab plots the coordinate columns at full width", async ({ page }) 
   await openMap(page);
   await expect(page.locator(".map-sub")).toHaveText("lat / lon");
   await expect(page.locator(".map-empty")).toBeHidden();
-});
-
-test("a background picture is placed, and bad edges are explained", async ({ page }) => {
-  await openMap(page);
-  await page.locator('.map-page input[aria-label="Background image and world file"]').setInputFiles({ name: "world.png", mimeType: "image/png", buffer: PNG });
-  await expect(page.locator(".map-bg-name")).toContainText("world.png");
-  await expect(page.locator('.map-seg [data-mode="world"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator('.map-page input[aria-label="West edge in degrees"]')).toHaveValue("-180");
-  await page.locator('.map-page input[aria-label="East edge in degrees"]').fill("-200");
-  await expect(page.locator(".map-problem")).toContainText("West must be less than east");
-  await page.locator('.map-page input[aria-label="East edge in degrees"]').fill("30");
-  await expect(page.locator(".map-problem")).toBeEmpty();
-  await expect(page.locator('.map-seg [data-mode="edges"]')).toHaveAttribute("aria-pressed", "true");
 });
 
 test("markers come from a CSV, the table and clicks on the map", async ({ page }) => {
