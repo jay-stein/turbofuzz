@@ -14,7 +14,7 @@ test("ordinals read naturally, including the teens", () => {
 });
 
 test("the labels are the words people ask in: reliable, use with care, not reliable", () => {
-  assert.deepEqual(VERDICT_LABEL, { holds: "Reliable", middling: "Use with care", doubtful: "Not reliable", untested: "Can't judge yet", baseline: "Baseline" });
+  assert.deepEqual(VERDICT_LABEL, { holds: "Reliable", middling: "Use with care", untested: "Can't judge yet", baseline: "Baseline" });
 });
 
 test("a model that clearly beats the simple method on data it never saw is reliable, and the first answer says by how much", () => {
@@ -56,18 +56,24 @@ test("a simple method that did better on data it never saw is named, and the mod
   assert.equal(trustVerdict({ ...base, baseline: true, beatenBy: ["Overall average"] }).level, "baseline");
 });
 
-test("no better than the simple method is not reliable, and it says to use the simple method", () => {
+test("no edge over the simple method is use-with-care, not a red alarm: there is no evidence either way, and the simple method is named as a safe alternative", () => {
   const v = trustVerdict({ ...base, ratio: 1.04 });
-  assert.equal(v.level, "doubtful");
-  assert.equal(v.label, "Not reliable");
-  assert.equal(v.answers[0]!.a, "No");
-  assert.match(v.answers[0]!.text, /did no better than repeating the last year.*Use that simple method, or add more history/);
+  assert.equal(v.level, "middling");
+  assert.equal(v.label, "Use with care");
+  assert.equal(v.cls, "okay");
+  assert.equal(v.answers[0]!.a, "Not shown");
+  assert.match(v.answers[0]!.text, /did no better than repeating the last year, so there is no evidence it adds value here.*a safe alternative/);
+  // There is no "not reliable" level at all: the calibration found no backtest signal that picks out losers.
+  for (const input of [{ ...base, ratio: 1.6 }, { ...base, ratio: 3, foldsWon: 0, lockRank: 8 }, { ...base, lockRank: 8 }]) {
+    assert.notEqual(trustVerdict(input).level, "doubtful" as never);
+    assert.ok(["holds", "middling"].includes(trustVerdict(input).level));
+  }
 });
 
-test("falling apart on data it never saw is not reliable, even with a good backtest ratio", () => {
+test("a model that fell into the bottom third on data it never saw cannot be reliable, and the reason is given", () => {
   const v = trustVerdict({ ...base, lockRank: 7, ratio: 0.5 });
-  assert.equal(v.level, "doubtful");
-  assert.match(v.answers[0]!.text, /did poorly on data it never saw \(7th of 8 models\).*probably too good/);
+  assert.equal(v.level, "middling");
+  assert.match(v.answers[0]!.text, /It ranked 7th of 8 models on data it never saw/);
 });
 
 test("reliable and the best are separate answers: a reliable model can rank mid-table, and its place is said without alarm", () => {
@@ -151,8 +157,8 @@ test("every sentence is plain: no model-selection jargon on the surface", () => 
 test("the yardstick is the best simple method, so beating a weak one proves nothing", () => {
   // On noise, repeating the last year is a poor method and the plain average is a good one: 27% better than the first can be no better than the second.
   const noise = trustVerdict({ ...base, ratio: 0.73, bestSimple: { name: "Overall average", ratio: 0.72 } });
-  assert.equal(noise.level, "doubtful");
-  assert.match(noise.answers[0]!.text, /did no better than the simple "Overall average" method.*Use that simple method/);
+  assert.equal(noise.level, "middling");
+  assert.match(noise.answers[0]!.text, /did no better than the simple "Overall average" method.*a safe alternative/);
   assert.equal(noise.why, 'no better than the simple "Overall average" method');
   // The same model against a simple method it really does beat: reliable, and the sentence names the one it beat.
   const real = trustVerdict({ ...base, ratio: 0.62, bestSimple: { name: "Overall average", ratio: 0.75 } });

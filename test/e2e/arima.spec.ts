@@ -66,7 +66,7 @@ test("AutoARIMA runs on request and returns the parameters, fit, residual check,
   await expect(lb).toHaveCount(1);
   await expect(lb).toContainText("ARIMA(2,1,1)(0,1,0)[12]");
   await expect(lb).toContainText(/\d\.\d\d×/);
-  await expect(lb).toContainText(/Reliable|Use with care|Not reliable/);
+  await expect(lb).toContainText(/Reliable|Use with care/);
   await expect(page.locator("[data-ref=boardCompact] .ts-group th", { hasText: "Run by you" })).toBeVisible();
   const full = page.locator("[data-ref=board] tr[data-arima]");
   await expect(full).toHaveCount(1);

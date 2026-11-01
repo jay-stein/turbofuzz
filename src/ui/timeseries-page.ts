@@ -1364,7 +1364,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const v = verdictFor(s, M, key), f = s.futures[key];
     let avg = 0, lo = 0, hi = 0;
     for (let k = 0; k < M.H; k++) { avg += f.F[k]; lo += f.lo80[k]; hi += f.hi80[k]; }
-    const tone: TsTone = v.level === "holds" ? "forecast" : v.level === "middling" ? "warn" : v.level === "doubtful" ? "danger" : "dim";
+    const tone: TsTone = v.level === "holds" ? "forecast" : v.level === "middling" ? "warn" : "dim";
     list[at] = {
       ...list[at]!, tone, kind: `Forecast · ${v.label}`,
       html: `<b>${MODEL_INFO[key].name}</b>: ${escapeHtml(v.sentence)} Next ${M.H} ${nounFor(s.A.g, M.H)}: <b>${compact(avg / M.H)}</b> on average, most likely between ${compact(lo / M.H)} and ${compact(hi / M.H)}.`,
@@ -1376,7 +1376,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (ui.mode !== "forecast" || !M || !s.futures || !key) { badge.hidden = true; return; }
     const v = verdictFor(s, M, key);
     badge.dataset.level = v.level;
-    badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ts-verdict ${v.cls}">${v.label}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small><button type="button" class="ts-link" data-hood="1" title="The numbers behind this verdict, and how each model did">Details</button></div>
+    badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ts-verdict ${v.cls}">${v.label}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small><button type="button" class="ts-link" data-hood="1" title="The numbers behind this verdict, and how each model did">Details</button><button type="button" class="ts-link" data-info="verdict" title="What Reliable and Use with care mean, and how they were checked">How this is decided</button></div>
       <div class="ts-qa">${v.answers.map((a) => `<div class="ts-qa-row"><span class="ts-qa-q">${escapeHtml(a.q)}</span><span class="ts-qa-a"><span class="ts-pill ${a.cls}">${escapeHtml(a.a)}</span></span><span class="ts-qa-t">${escapeHtml(a.text)}</span></div>`).join("")}</div>
       ${v.headsUp.map((h) => `<div class="ts-headsup"><b>Also:</b> ${escapeHtml(h)}</div>`).join("")}`;
     badge.hidden = false;
@@ -1404,7 +1404,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const R = M.origins.length, rank = lockRank(M, key, mk), base = M.models.sn.lock?.[mk] ?? NaN, v = m.lock[mk];
     const beats = key === "sn" ? "" : v === v && base === base ? (Math.abs(v) < Math.abs(base) ? " and beat repeating the last cycle" : `, <span class="ts-warn">but did not beat repeating the last cycle (${metricText(mk, base)})</span>`) : "";
     const level = snap ? verdictFor(snap, M, key).level : "middling";
-    const verdict = level === "holds" ? "Reliable: it beats the simple methods on data it never saw" : level === "middling" ? "Use with care: its edge over the simple methods is not clear" : level === "baseline" ? "The baseline every other model is measured against" : "<span class=\"ts-warn\">Not reliable: it did not hold up on unseen data, so treat its earlier scores as too good</span>";
+    const verdict = level === "holds" ? "Reliable: it beats the simple methods on data it never saw" : level === "middling" ? "Use with care: its edge over the simple methods is not clear" : level === "baseline" ? "The baseline every other model is measured against" : "Can't judge yet: too little history to hold a test back";
     return `<div class="ts-badge-lock"><b>Lockbox check</b>: picked on folds 1–${R - 1}; on fold ${R}, which the choice never saw, it ranked <b>#${rank} of ${CORE_KEYS.length}</b> (${METRIC_INFO[mk].label} ${metricText(mk, v)})${beats}. ${verdict}.</div>`;
   }
   let curve: { key: string; points: { flex: number; mase: number }[] } | null = null;

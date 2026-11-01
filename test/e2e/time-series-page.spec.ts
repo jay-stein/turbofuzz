@@ -241,7 +241,7 @@ test("the chart names the forecast model and how it did; Trend flexibility expla
   await expect(badge).toBeVisible();
   await expect(badge).toContainText(/Auto · /);
   // One verdict, in the words people ask in, and the three questions answered in order.
-  await expect(badge.locator(".ts-verdict")).toHaveText(/^(Reliable|Use with care|Not reliable|Can't judge yet)$/);
+  await expect(badge.locator(".ts-verdict")).toHaveText(/^(Reliable|Use with care|Can't judge yet)$/);
   await expect(badge.locator(".ts-qa-q")).toContainText(["Does it beat a simple method?", "Is it the best available?", "Can you trust the shaded band?"]);
   await expect(badge.locator(".ts-qa-row").first()).toContainText(/less error than|no better than|too little history|did better on data it never saw|beats repeating|beat repeating the last year in only|did poorly/);
   // The strip and the findings say the same word as the badge, not a second grade.

@@ -284,6 +284,33 @@ export const TOPICS: Topic[] = [
       <p>These fills are this project's own design, chosen by measurement: on real hourly gym counts with stretches hidden and refilled, the usual pattern was best up to about six hours and the nearby median missed 20–40% less beyond that. The smoothing models treat filled periods as missing (their state carries across, nothing is learnt), the regression leaves them out of its fit, and forecast errors are never scored on them. Seasonal naive for gaps is Hyndman's seasonal naive method [ref:fpp3].</p>`,
   },
   {
+    id: "verdict",
+    title: "How the forecast verdict is decided, and how it was checked",
+    html: `
+      <p>The badge above a forecast answers what a person wants to know: <b>does it beat a simple method, is it the best available, and can you trust the shaded band</b>. The word beside the model comes from the first answer.</p>
+      <h4>What the words mean</h4>
+      <ul>
+        <li><b>Reliable</b>: it beats the best simple method comprehensively. In the backtests it had at least 10% less error than the best of six simple methods (repeat the last cycle, the seasonal average, repeat the last value, a straight line on, the overall average, simple smoothing), it beat repeating the last cycle in at least two thirds of the tests, no simple method did better on the test that was held back, and a test was held back at all.</li>
+        <li><b>Use with care</b>: the page cannot show that it beats a simple method. That is not a finding that it is bad: the margin may be thin, the record short, or no test could be held back, or in the backtests it did no better than a simple method. The simple method it names is a safe alternative.</li>
+        <li><b>Can't judge yet</b>: too little history to test it against anything.</li>
+      </ul>
+      <p>The shaded band is judged on its own, by how often past bands held the real value against the share they aim for (80%), and never changes the word on the forecast. Is it the best available is a separate answer: a model can be reliable and still not first.</p>
+      <h4>How it was checked</h4>
+      <p>On 497 series drawn at random from the Monash archive [ref:monash] (M1, M3, tourism, hospital, FRED-MD and CIF, in two sets of about 250 that the rules were not tuned on), the models were run on all but the last stretch of each series, the verdict was built from the backtests alone, and the model Auto picked was then scored on the stretch held out, against the yardstick its verdict named.</p>
+      <table class="ts-board"><thead><tr><th>The page said</th><th>Series</th><th>Beat the simple method on the real future</th><th>By 10% or more</th><th>Typical error against it</th></tr></thead><tbody>
+        <tr><td>Reliable</td><td>60</td><td>87%</td><td>75%</td><td>31% less</td></tr>
+        <tr><td>Use with care</td><td>414</td><td>59%</td><td>43%</td><td>13% less</td></tr>
+        <tr><td>Can't judge yet</td><td>23</td><td>87%</td><td>52%</td><td>too few to say</td></tr>
+      </tbody></table>
+      <p>Two things follow. <b>Reliable is a strong claim and it held up</b>: nearly nine times in ten it beat the simple method, by a good margin. And <b>no backtest signal found a group of series where the model usually loses</b>: even where the backtests showed no edge over a simple method (the bulk of "Use with care"), the pick still won 59% of the time. That is why there is no red "Not reliable": a label that is wrong about as often as it is right is not information. What the page can honestly say is whether it has shown an edge.</p>
+      <h4>Limits</h4>
+      <ul>
+        <li>The ten per cent and two-thirds thresholds are rules of thumb chosen before the check, not a statistical test. Reliable is precise but not common: about one series in eight earned it.</li>
+        <li>These are the archive's series, mostly business and economic data with a steady pattern. A series with sudden breaks or one-off events may behave differently, and the backtests cannot see a break that has not happened yet.</li>
+        <li>With under about four backtests no test is held back, so a short series is never called Reliable.</li>
+      </ul>`,
+  },
+  {
     id: "ranges",
     title: "How far to trust the ranges",
     html: `

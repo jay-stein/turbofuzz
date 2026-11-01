@@ -2227,4 +2227,4 @@ Chosen from the canvas "Table page: three looks" (option B). Rolled out in phase
 - Done 2026-11-01: seasons over 24 periods now fit ARIMA on the STL-adjusted series, season added back (stlf); the old "not built yet" refusal is gone.
 
 - Removed 2026-11-01 (owner): the Map page's background picture (whole world / world file / edges). Placing a picture means supplying its geographic edges, which is GIS work; the map's own land and water already work offline.
-- Open: calibrate the forecast verdict (DEC-2026-11-01-05). On random Monash series, compare the verdict the page gives from the backtests with whether the model really beat the best simple method on the true future; tune the 10% and two-thirds thresholds only on one set and judge on another.
+- Done 2026-11-02: the forecast verdict was calibrated on 497 random Monash series (DEC-2026-11-01-05, CHG-2026-11-02-01). Open: the same check on the owner's own kinds of series, and a way to tell series where the model loses (so a red label could come back with evidence).

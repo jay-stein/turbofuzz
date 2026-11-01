@@ -77,10 +77,10 @@ export type Key = ModelKey | "auto" | "et" | "eth";
 /** Fixed combinations: ETS + Theta, and ETS + Theta + damped Holt-Winters (like M4's "Comb" benchmark). */
 export const KEYS: Key[] = ["auto", "et", "eth", ...MODEL_KEYS];
 
-interface Setup { snap: ReturnType<TsEngine["compute"]>; train: number[]; test: number[]; fq: (typeof FREQ)[FreqName] }
+export interface Setup { snap: ReturnType<TsEngine["compute"]>; train: number[]; test: number[]; fq: (typeof FREQ)[FreqName] }
 
 /** The engine run for one series on the archive's protocol, or why it could not be done. */
-function setup(s: Series, freq: FreqName, H: number): Setup | { skip: string } {
+export function setup(s: Series, freq: FreqName, H: number): Setup | { skip: string } {
   const fq = FREQ[freq], n = s.values.length;
   if (n <= H + 2) return { skip: "too short" };
   const times = Float64Array.from({ length: n }, (_, i) => fq.add(s.start, i));

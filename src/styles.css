@@ -12372,9 +12372,8 @@ button.qp-tile:hover {
 .ts-qa-t { color: var(--text-dim); }
 @media (max-width: 760px) { .ts-qa-row { grid-template-columns: 1fr; } }
 .ts-hero-badge[data-level="middling"] { border-color: color-mix(in srgb, var(--qa-warn) 60%, var(--border)); background: color-mix(in srgb, var(--qa-warn) 9%, var(--panel)); }
-.ts-hero-badge[data-level="doubtful"] { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--panel)); }
 .ts-hero-badge[data-level="untested"] { border-color: var(--border); background: var(--panel-2); }
-.ts-hero-badge[data-level="doubtful"] .ts-badge-top b, .ts-hero-badge[data-level="middling"] .ts-badge-top b { color: var(--text); }
+.ts-hero-badge[data-level="middling"] .ts-badge-top b { color: var(--text); }
 .ts-pill.ts-verdict { font-weight: 700; padding: 3px 10px; font-size: var(--fs-sm); }
 
 /* A one-click offer inside a chart note (the density map for a big scatter, one dot per place for a map): reads as a link. */

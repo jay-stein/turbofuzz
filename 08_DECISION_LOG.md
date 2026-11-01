@@ -25,11 +25,12 @@ Add decisions here. Do not treat AI-generated suggestions as accepted decisions 
 
 ### DEC-2026-11-01-05 — The forecast is judged by one verdict that means "comprehensively beats a simple method"
 
-- **Status:** Proposed (built and shipped for review; owner to confirm the labels and thresholds)
+- **Status:** Accepted, after calibration (CHG-2026-11-02-01)
 - **Context:** Owner: the user wants to know whether the model is reliable, whether it is the best available, and whether the shaded band is the likely upper and lower limit. It must comprehensively beat a simple model; everything else is jargon for under the hood; a big issue must be at the top. The page had five places grading the forecast in two scales.
-- **Decision:** One function gives the verdict everywhere: Reliable (at least 10% less error than the best simple method in the backtests, wins at least two thirds of the tests, no simple method better on the held-back test, not bottom third there, and a held-back test exists), Not reliable (no better than the best simple method, or bottom third on unseen data), otherwise Use with care; Can't judge yet with too little history. The badge answers three questions (beats a simple method, best available, band) and keeps numbers under the hood.
-- **Trade-offs:** The thresholds are rules of thumb, chosen before seeing results and not yet calibrated; with the best of six simple methods as the yardstick, a good model can be called Use with care by a small margin. Short series, which cannot hold a test back, are never Reliable.
-- **Revisit trigger:** A calibration on random Monash series: of the series called Reliable, how many beat the simple method on the true future, against those called Use with care or Not reliable. If Reliable does not predict out-of-sample wins clearly, change the thresholds.
+- **Decision:** One function gives the verdict everywhere. Reliable: at least 10% less error than the best simple method in the backtests, wins at least two thirds of the tests, no simple method better on the held-back test, not bottom third there, and a held-back test exists. Use with care: everything else that has a backtest, with the reason said (a thin margin, a short record, or no evidence it beats a simple method). Can't judge yet: too little history. The badge answers three questions (beats a simple method, best available, band) and keeps numbers under the hood. There is no "Not reliable".
+- **Evidence:** 497 random Monash series, not used to set the rules: Reliable beat the simple method on the real future 87% of the time (60 series, about 31% less error); the rest 59% (414 series, about 13% less). No backtest signal found a group where the model usually loses, so a red label would have been wrong about as often as right.
+- **Trade-offs:** Reliable is precise but uncommon (about one series in eight). The thresholds are rules of thumb. The archive's series are steady business data; sudden breaks may behave differently. Short series are never Reliable.
+- **Revisit trigger:** A calibration on the owner's own kinds of series, or a rule that does pick out series where the model loses (then a red label can come back, with its evidence).
 - **Date / owner:** 2026-11-01 / owner
 
 ### DEC-2026-11-01-04 — A scatter draws points; density is something the analyst chooses

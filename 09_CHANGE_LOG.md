@@ -28,6 +28,19 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-02-01 — Forecast verdict calibrated on 497 random series: "Not reliable" retired, Reliable confirmed
+
+- **Status:** Verified
+- **Scope:** CHG-2026-11-01-31 shipped thresholds chosen before any check. They are now checked (tools/ts-eval/verdict-calibration.ts): for random Monash series the engine is run on the training part only, the verdict is built from the backtests alone (never the held-out actuals), and the pick is scored on the real future against the yardstick the verdict named. Two sets of about 250 series (seeds 51 and 52), neither used to tune anything.
+  - **Reliable held up:** 60 series, 87% beat the simple method on the real future (88% and 86% on the two sets), 75% by at least 10%, about 31% less error. About one series in eight earns it.
+  - **"Not reliable" did not, and is gone.** Under the first rules 299 series were called Not reliable; they still beat the yardstick 58% of the time with about 10% less error. Every backtest signal tried (error against the best simple method, against repeating the last cycle, the share of tests won, the rank on the held-back test) left the pick winning more than half the time in every bucket, even at a backtest edge of 1.2 or worse. The best simple method is chosen for looking best in the same backtests, which flatters it. A red label that is wrong about as often as right is not information. A forecast that shows no edge is now "Use with care: In the backtests it did no better than the simple method, so there is no evidence it adds value here. It may still be fine, but that simple method is a safe alternative."
+  - **Final rules, same two sets:** Reliable 60 series (87%), Use with care 414 (59% win, 43% by 10% or more, 13% less error), Can't judge yet 23 (87%, too few to say). A bottom-third rank on the held-back test still keeps a model from being Reliable, as a guard, not a finding (rank was a weak signal).
+  - **Written down for the user:** a new documentation topic "How the forecast verdict is decided, and how it was checked", linked from the badge ("How this is decided"), with these numbers, the thresholds as rules of thumb, and the limits (archive series are steady business data; short series are never Reliable).
+- **Files / components changed:** src/data/timeseries/verdict.ts, src/ui/timeseries-page.ts, src/ui/timeseries-model-docs.ts, src/styles.css, tools/ts-eval/verdict-calibration.ts, tools/ts-eval/lib.ts, test/timeseries-verdict.test.ts, test/e2e/time-series-page.spec.ts, test/e2e/arima.spec.ts
+- **Tests run and results:** verdict unit tests (17); Time Series and AutoARIMA e2e pass; the calibration itself is the evidence
+- **Decision:** Ship (DEC-2026-11-01-05 accepted with this change)
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-01-32 — Map: one dot per place, "Aggregate", and no background picture
 
 - **Status:** Verified
@@ -49,7 +62,7 @@ Add entries here. Keep unsuccessful attempts too if they reveal useful constrain
   - **The badge answers the owner's three questions, in order**, each a bold question, a one-word answer and one sentence: "Does it beat a simple method?", "Is it the best available?", "Can you trust the shaded band?". Numbers and jargon (lockbox, folds, MASE, AICc, naive) are not on the surface and a test keeps it so; Details opens the numbers under the hood.
   - **"Reliable" is one thing: it comprehensively beats the best simple method.** At least 10% less error than the best of the six simple methods in the backtests (not only repeating the last cycle, which is a poor yardstick for noise), winning at least two thirds of the tests, no simple method doing better on the held-back test, and not in the bottom third there. With no test held back it cannot be called reliable. This is a rule of thumb, not a statistical test, and has not been calibrated against real out-of-sample results yet (see the plan note).
   - **Reliable and best are separate answers.** A model can be reliable and rank mid-table; its place and the leader's margin are said without alarm (never red; red is only for failing the simple-method test).
-  - **A problem is loud.** Not reliable is a red card and Use with care an amber one; the verdict is also in the top strip on every tab. The shaded band is judged on its own and never changes the verdict on the line.
+  - **A problem is loud.** Use with care is an amber card (a red Not reliable was in this version and was retired by CHG-2026-11-02-01); the verdict is also in the top strip on every tab. The shaded band is judged on its own and never changes the verdict on the line.
   - Found on random-looking data: the first version called pure noise "Reliable" because it beat repeating last year by 27%. Against the best simple method (the seasonal average) the margin is 3%, and it now says Use with care, "only just".
 - **Files / components changed:** src/data/timeseries/verdict.ts, src/ui/timeseries-page.ts, src/styles.css, test/timeseries-verdict.test.ts, test/e2e/time-series-page.spec.ts, test/e2e/arima.spec.ts
 - **Tests run and results:** verdict unit tests (17) pin each answer's wording and the plain-language rule; the Time Series page e2e checks one word across the badge, strip and findings

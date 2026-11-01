@@ -8,21 +8,25 @@
  * benchmark is Hyndman and Athanasopoulos, Forecasting: Principles and Practice (3rd ed.), 5.8 and 5.10.
  */
 
-export type VerdictLevel = "holds" | "middling" | "doubtful" | "baseline" | "untested";
+export type VerdictLevel = "holds" | "middling" | "baseline" | "untested";
 
 /**
  * What the labels mean (the codes above are kept; the words are what people see):
  *   holds     "Reliable"       it beats the best simple method comprehensively, on data it never saw
- *   middling  "Use with care"  it beats repeating the last cycle, but not clearly, or not on a test it never saw
- *   doubtful  "Not reliable"   it does no better than repeating the last cycle, or fell apart on data it never saw
+ *   middling  "Use with care"  no clear evidence it beats a simple method (a thin margin, a short record, no test held back, or no
+ *                              better than a simple method in the backtests)
  *   untested  "Can't judge yet" too little history to test against anything
+ * There is no "Not reliable". Checked on 497 random series the model had never been tuned on, no backtest signal (error against the
+ * best simple method, against repeating the last cycle, the share of tests won, the rank on the held-back test) found a group where
+ * the pick usually loses on the real future: even where the backtests showed no edge it still won 59% of the time, so a red label
+ * would have been wrong about as often as right. What the backtests can show is the opposite: Reliable won 87% (tools/ts-eval/verdict-calibration.ts).
  *   baseline  "Baseline"       the yardstick itself
  * "Comprehensively" is a rule of thumb, not a statistical test: at least 10% less error than repeating the last cycle, wins at
  * least two thirds of the backtests, no simple method does better on the held-back test, and it did not fall into the bottom
- * third there. Whether it is also the best of the models is a separate answer (it can be reliable without being first).
+ * third there (a guard, not a finding: rank was a weak signal in the calibration). Whether it is also the best of the models is a separate answer (it can be reliable without being first).
  */
 export const VERDICT_LABEL: Readonly<Record<VerdictLevel, string>> = {
-  holds: "Reliable", middling: "Use with care", doubtful: "Not reliable", untested: "Can't judge yet", baseline: "Baseline",
+  holds: "Reliable", middling: "Use with care", untested: "Can't judge yet", baseline: "Baseline",
 };
 
 /** Share of the benchmark's error a model must stay under to be called a clear win: 0.9 is 10% less error. */
@@ -167,12 +171,10 @@ export function trustVerdict(v: VerdictInput): Verdict {
   let beats: Answer;
   const q1 = "Does it beat a simple method?";
   if (edge >= 1) {
-    level = "doubtful";
-    beats = { q: q1, a: "No", cls: "poor", text: `It did no better than ${simple}, so a forecast model adds nothing here. Use that simple method, or add more history.` };
-  } else if (v.lockRank !== null && v.lockRank * 3 > v.models * 2) {
-    level = "doubtful";
-    beats = { q: q1, a: "No", cls: "poor", text: `It did poorly on data it never saw (${place}), so its earlier results are probably too good.` };
-  } else if (edge <= CLEAR_WIN && winsMost && v.lockRank !== null && beatenNames.length === 0 && !v.rough) {
+    // Not "not reliable": on the calibration series a pick that showed no edge in the backtests still won 59% of the time.
+    level = "middling";
+    beats = { q: q1, a: "Not shown", cls: "okay", text: `In the backtests it did no better than ${simple}, so there is no evidence it adds value here. It may still be fine, but that simple method is a safe alternative.` };
+  } else if (edge <= CLEAR_WIN && winsMost && v.lockRank !== null && v.lockRank * 3 <= v.models * 2 && beatenNames.length === 0 && !v.rough) {
     level = "holds";
     beats = { q: q1, a: "Yes, clearly", cls: "good", text: `${pct}% less error than ${simple}${simple === `repeating the last ${v.cycle}` ? `, winning ${record}` : `, and it beat repeating the last ${v.cycle} in ${record}`}, including on data it never saw.` };
   } else {
@@ -182,6 +184,7 @@ export function trustVerdict(v: VerdictInput): Verdict {
     if (edge > CLEAR_WIN) reasons.push(`it beats ${simple} by only ${pct}%`);
     if (!winsMost && v.foldsOf > 0) reasons.push(`it beat repeating the last ${v.cycle} in only ${record}`);
     if (v.lockRank === null) reasons.push("there was too little history to hold a test back");
+    else if (v.lockRank * 3 > v.models * 2) reasons.push(`it ranked ${place} on data it never saw`);
     if (reasons.length === 0) reasons.push("it did not clear every test");
     beats = { q: q1, a: edge > CLEAR_WIN && beatenNames.length === 0 ? "Only just" : "Not clearly", cls: "okay", text: `${cap(reasons.join("; "))}.` };
   }
@@ -203,5 +206,5 @@ export function trustVerdict(v: VerdictInput): Verdict {
   }
 
   const why = edge >= 1 ? `no better than ${simple}` : `${pct}% less error than ${simple}`;
-  return wrap(level, level === "holds" ? "good" : level === "middling" ? "okay" : "poor", [beats, best, band], why);
+  return wrap(level, level === "holds" ? "good" : "okay", [beats, best, band], why);
 }
