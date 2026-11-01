@@ -28,6 +28,15 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-02-05 — Front page: About this app and Version
+
+- **Status:** Verified (unit, e2e)
+- **Related issue / decision:** owner: an About section (analyst Swiss Army knife, browser only, author links, a few acknowledgements) and a Version placeholder.
+- **Scope:** src/ui/about.ts (new): two cards under the load card: what the app is for, the four kinds of tool (Data quality, Cleaning, Analysis, Research), that it runs only in the browser, a short acknowledgement paragraph (fpp3, Monash/M4, STL, Tukey, Great Expectations, Papa Parse/SheetJS/hyparquet) with one link, and Made by Jay Stein with LinkedIn and GitHub links. Version card says details are to come.
+- **Files / components changed:** src/ui/about.ts (new), app.ts, styles.css
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-04 — Chart page: one chart per tab
 
 - **Status:** Verified (unit, e2e)

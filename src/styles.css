@@ -374,8 +374,10 @@ textarea:focus {
   inset: 48px 0 0 0;
   z-index: 45;
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 14px;
   padding: 6vh 20px 20px;
   overflow: auto;
   background: var(--bg);
@@ -398,6 +400,149 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* ---------- front page: about and version ---------- */
+
+.about-card {
+  width: min(760px, 100%);
+  flex: none;
+  padding: 22px 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.about-eyebrow {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.about-card h2 {
+  margin: -4px 0 0;
+  font-size: var(--fs-xl);
+  letter-spacing: -0.01em;
+}
+
+.about-lead,
+.about-private,
+.about-thanks,
+.about-dim {
+  margin: 0;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+
+.about-kit {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 2px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.about-kit li {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-left: 2px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+
+.about-kit-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.about-kit-text {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
+.about-private strong {
+  color: var(--text);
+}
+
+.about-thanks {
+  font-size: var(--fs-sm);
+}
+
+.about-thanks a {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  text-underline-offset: 2px;
+}
+
+.about-author {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-dim);
+}
+
+.about-author strong {
+  color: var(--text);
+}
+
+.about-author-links {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+}
+
+.about-link:hover,
+.about-link:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.about-link-arrow {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+.about-version {
+  gap: 6px;
+  padding-block: 14px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 600px) {
+  .about-card {
+    padding: 18px 16px;
+  }
+
+  .about-kit {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .paste-card h1 {

@@ -197,6 +197,7 @@ import type { GrainId } from "../data/timeseries/base.js";
 import { timeDimension, type TsViewSource } from "../data/timeseries/view-source.js";
 import { fuzzyRank } from "../search/fuzzy-match.js";
 import { createMapPage, type MapPageHandle } from "./map-page.js";
+import { buildAbout, buildVersion } from "./about.js";
 import {
   coMissingnessFindings,
   distributionFindings,
@@ -960,7 +961,7 @@ export class App {
     });
     card.append(sampleButton);
 
-    view.append(card);
+    view.append(card, buildAbout(), buildVersion());
     return view;
   }
 
