@@ -372,7 +372,7 @@ export function openChartSetupDialog(
       el("p", { class: "confirm-body" }, [
         editing
           ? "Changes update this card in place; Cancel leaves it unchanged."
-          : "The card is added at the end of the grid and briefly highlighted; Cancel adds nothing.",
+          : "The chart opens in a new tab and is briefly highlighted; Cancel adds nothing.",
       ]),
     );
     const errorEl = el("div", { class: "chart-setup-error", role: "alert" });

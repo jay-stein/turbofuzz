@@ -423,6 +423,8 @@ export interface ChartCardOptions {
   currentFilter?(column: number): ColumnFilter | null;
   onRemove(card: ChartCard): void;
   onDuplicate(card: ChartCard): void;
+  /** The card's title may have changed (typed, or its columns changed): tabs follow it. */
+  onTitleChange?(card: ChartCard): void;
   onExport(card: ChartCard): void;
   /** Edit this card through the shared setup dialog. */
   onEdit?(card: ChartCard): void;
@@ -2501,6 +2503,7 @@ export class ChartCard {
     this.titleInput.addEventListener("input", () => {
       this.config.title = this.titleInput.value;
       this.render();
+      this.options.onTitleChange?.(this);
     });
     const axisTitleInput = (
       label: string,
@@ -5159,10 +5162,10 @@ export class ChartCard {
   }
 
   /** Removing a chart asks first: the action is not part of the Recipe. */
-  private confirmRemove(): void {
+  confirmRemove(): void {
     void openConfirm({
       title: "Remove this chart?",
-      body: `“${this.chartName()}” will be removed from the grid. Chart settings are not part of the Recipe, so this cannot be undone with Undo.`,
+      body: `“${this.chartName()}” will be removed with its tab. Chart settings are not part of the Recipe, so this cannot be undone with Undo.`,
       confirmLabel: "Remove",
       danger: true,
     }).then((confirmed) => {
@@ -5179,6 +5182,20 @@ export class ChartCard {
     const y = this.meta(this.config.y)?.name ?? "";
     if (x === "" || y === "") return CHART_KIND_LABELS[this.config.kind];
     return `${x} ${separator} ${y}`;
+  }
+
+  /** The title as shown: the person's own, or the one the chart's fields give it. */
+  displayTitle(): string {
+    const own = this.config.title.trim();
+    return own === "" ? this.defaultTitle() : own;
+  }
+
+  /** Renames the chart; an empty name goes back to the automatic title. */
+  setTitle(title: string): void {
+    this.config.title = title;
+    this.titleInput.value = title;
+    this.render();
+    this.options.onTitleChange?.(this);
   }
 
   private defaultTitle(): string {
@@ -6836,6 +6853,7 @@ export class ChartCard {
   }
 
   private render(): void {
+    this.options.onTitleChange?.(this);
     this.syncScope();
     this.syncDeepDive();
     this.canvas.setAttribute("aria-label", this.canvasLabel());

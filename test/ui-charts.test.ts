@@ -664,8 +664,12 @@ test("charts panel adds, duplicates and removes independent cards", async () => 
   const cards = host.querySelectorAll(".chart-card");
   assert.equal(cards.length, 2);
   const kinds = host.querySelectorAll<HTMLSelectElement>(".chart-kind");
-  assert.equal(kinds[0].value, "scatter", "the new Scatter card goes to the top");
-  assert.equal(kinds[1].value, "bar", "city is the best default category");
+  assert.equal(kinds[0].value, "bar", "city is the best default category");
+  assert.equal(kinds[1].value, "scatter", "the new Scatter card gets its own tab, at the end");
+  const tabs = [...host.querySelectorAll(".charts-tab")];
+  assert.equal(tabs.length, 2, "one tab per chart");
+  assert.equal(tabs[1].getAttribute("aria-selected"), "true", "the new chart's tab is open");
+  assert.ok(cards[0].classList.contains("hidden") && !cards[1].classList.contains("hidden"), "only the open tab's chart shows");
 
   const doc = (globalThis as Record<string, unknown>).document as Window["document"];
   const openCardMenu = (card: Element): void => {
@@ -694,14 +698,7 @@ test("charts panel adds, duplicates and removes independent cards", async () => 
   await tick();
   assert.equal(host.querySelectorAll(".chart-card").length, 2);
 
-  const layout = host.querySelector<HTMLSelectElement>('select[aria-label="Charts per row"]');
-  const grid = host.querySelector<HTMLElement>(".charts-grid");
-  assert.ok(layout !== null && grid !== null);
-  layout.value = "4";
-  (layout as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(
-    new window.Event("change"),
-  );
-  assert.equal(grid.dataset.cols, "4");
+  assert.equal(host.querySelectorAll(".charts-tab").length, 2, "removing a chart closes its tab");
 
   const firstKind = host.querySelector<HTMLSelectElement>(".chart-kind");
   assert.ok(firstKind !== null);
@@ -3458,7 +3455,7 @@ test("the add-chart builder recommends charts for the picked fields", async () =
   panel.dispose();
 });
 
-test("new charts land at the top of the grid, are announced and can be undone", async () => {
+test("new charts open in a new tab at the end, are announced and can be undone", async () => {
   const window = setupDom();
   captureMockContext(window, []);
   const host = document.createElement("div");
@@ -3474,15 +3471,17 @@ test("new charts land at the top of the grid, are announced and can be undone", 
   panel.setRowCount(100);
   const first = panel.addCard({ kind: "bar", column: 0 });
   const second = panel.addChart({ kind: "histogram", column: 1 });
-  const roots = [...host.querySelectorAll(".charts-grid > .chart-card")];
-  assert.equal(roots[0], second.root, "the new chart is first in the grid");
-  assert.equal(roots[1], first.root, "earlier charts keep their order below it");
+  const tabs = [...host.querySelectorAll(".charts-tab")];
+  assert.equal(tabs.length, 2);
+  assert.equal(tabs[1].getAttribute("aria-selected"), "true", "the new chart's tab is last and open");
+  assert.ok(first.root.classList.contains("hidden"), "the earlier chart waits in its own tab");
   assert.ok(second.root.classList.contains("chart-card-new"), "the new chart is highlighted");
   assert.equal(added.length, 1);
   assert.equal(added[0].label, "Histogram");
   added[0].undo?.();
   assert.equal(host.querySelectorAll(".chart-card").length, 1, "Undo removes only the new chart");
   assert.equal(host.querySelector(".chart-card"), first.root);
+  assert.ok(!first.root.classList.contains("hidden"), "its neighbour's tab opens");
   panel.dispose();
 });
 

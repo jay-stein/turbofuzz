@@ -2508,7 +2508,7 @@ export class App {
           ? "Table"
           : "Table (filtered)",
       onCardAdded: (label, undo) => {
-        const message = `Added a ${label} chart at the top of the grid`;
+        const message = `Added a ${label} chart in a new tab`;
         this.setAction(message);
         if (undo !== undefined) this.showToast(message, undo);
       },

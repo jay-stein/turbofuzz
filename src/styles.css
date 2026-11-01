@@ -6494,27 +6494,132 @@ select.chart-number {
   box-shadow: var(--shadow);
 }
 
+/* One chart per tab: the open tab's card takes the full width. */
 .charts-grid {
   display: grid;
   gap: 12px;
   align-items: start;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.charts-grid[data-cols="1"] {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.charts-grid[data-cols="2"] {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+/* The chart tabs: a row of pages, the open one underlined like the page tabs. */
+.charts-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  border-bottom: 1px solid var(--border);
 }
 
-.charts-grid[data-cols="3"] {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.charts-tab-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  max-width: 260px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
 }
 
-.charts-grid[data-cols="4"] {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+.charts-tab-wrap:hover {
+  background: var(--tab-hover-bg);
+}
+
+.charts-tab-wrap.active {
+  border-bottom-color: var(--tab-indicator);
+}
+
+.charts-tab {
+  min-width: 0;
+  height: 32px;
+  padding: 0 4px 0 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--tab-fg);
+  font-size: var(--fs-md);
+  cursor: pointer;
+}
+
+.charts-tab-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.charts-tab:hover,
+.charts-tab.active {
+  background: transparent;
+  color: var(--tab-fg-active);
+}
+
+.charts-tab.active {
+  font-weight: 600;
+}
+
+.charts-tab.orphan .charts-tab-label {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.charts-tab.drop-target {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.charts-tab-close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-right: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0;
+}
+
+.charts-tab-wrap:hover .charts-tab-close,
+.charts-tab-wrap.active .charts-tab-close,
+.charts-tab-close:focus-visible {
+  opacity: 1;
+}
+
+.charts-tab-close:hover {
+  background: var(--panel-2);
+  color: var(--danger);
+}
+
+.charts-tab-add {
+  flex: none;
+  align-self: center;
+  width: 28px;
+  height: 26px;
+  margin-left: 4px;
+  padding: 0;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.charts-tab-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.charts-tab-rename {
+  width: 180px;
+  height: 24px;
+  padding: 0 6px;
+  font-size: var(--fs-md);
 }
 
 .chart-card {
@@ -6753,21 +6858,6 @@ select.chart-number {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: center;
-}
-
-@media (max-width: 1100px) {
-  .charts-grid[data-cols="3"],
-  .charts-grid[data-cols="4"] {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 720px) {
-  .charts-grid[data-cols="2"],
-  .charts-grid[data-cols="3"],
-  .charts-grid[data-cols="4"] {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .export-modal {

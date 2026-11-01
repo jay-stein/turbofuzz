@@ -28,6 +28,19 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-02-04 — Chart page: one chart per tab
+
+- **Status:** Verified (unit, e2e)
+- **Related issue / decision:** owner: several charts on one page gets messy; wants tabs inside the Chart page, one chart per tab.
+- **Problem addressed:** the Chart page was a grid of cards (1-4 per row) that grew long and hard to scan.
+- **Scope:** src/ui/chart-panel.ts: a tab row under the toolbar, one card per tab, only the open tab's card shown at full width. "+ Add chart" and the "+" at the end of the tab row open the builder; a new chart opens in a new tab at the end; Duplicate, Compare and drill open next to the chart they came from. Tabs are named by the chart's title (automatic until renamed); double-click or F2 renames in place, an empty name goes back to the automatic title. Arrow keys, Home and End move between tabs; drag reorders, and the saved order follows the tabs. × on a tab removes the chart (with the same confirmation). A restored set opens on its first tab; a chart missing a column shows as a "Needs a column" tab. The Charts-per-row control is gone. src/ui/chart-card.ts: displayTitle(), setTitle(), confirmRemove() public, onTitleChange callback.
+- **Known limitations:** hovering one chart can no longer light the same slice in another, since only one chart is in view (the linked-highlight code stays; its three e2e tests were removed). Hidden tabs still update with filters, as hidden cards did before.
+- **Files / components changed:** src/ui/chart-panel.ts, chart-card.ts, chart-setup.ts, app.ts, styles.css; test/ui-charts.test.ts, test/e2e/chart-brush.spec.ts
+- **Tests run and results:** unit 1246 pass; e2e 125 pass.
+- **Manual browser verification:** sample data, two charts, rename, switch; the opened tab repaints at full width.
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-03 — Time Series: the mode bar stays in view
 
 - **Status:** Verified
