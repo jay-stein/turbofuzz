@@ -2458,7 +2458,7 @@ export class App {
         void this.client.getRowIds(start, end).then((message) => done(message.start, message.ids)).catch(() => undefined);
       },
       onViewport: (first, last, count) => this.tableNav?.setViewport(first, last, count),
-      onAddColumn: () => void this.openNewColumn(),
+      onAddColumn: (at) => void this.openNewColumn(at),
       onEditCell: (edit) => void this.editCell(edit),
       onCursor: (cell) => this.tableNav?.setPeek(cell),
       onPasteCells: (paste) => void this.pasteCells(paste),

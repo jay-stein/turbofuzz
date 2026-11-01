@@ -2481,6 +2481,62 @@ button:disabled {
   min-width: 0;
 }
 
+/* Add a column between two: a strip on the lower part of the edge (the name row keeps
+   its resize grip), invisible until the pointer is on it, then a small + on a guide line.
+   Frozen headers are already sticky, which places the strip too. */
+.table-header > .th:not(.frozen):not(.row-index-head):not(.file-row-head):not(.add-col-head) {
+  position: relative;
+}
+
+.th-insert {
+  position: absolute;
+  z-index: 4;
+  top: 30px;
+  bottom: 0;
+  right: -7px;
+  width: 14px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  cursor: copy;
+  opacity: 0;
+  transition: opacity var(--dur) ease;
+}
+
+.th-insert::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 6px;
+  width: 2px;
+  background: var(--accent);
+}
+
+.th-insert::after {
+  content: "+";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+}
+
+.th-insert:hover,
+.th-insert:focus-visible {
+  opacity: 1;
+  outline: none;
+}
+
 .th-top {
   display: flex;
   align-items: stretch;

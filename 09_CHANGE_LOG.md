@@ -28,6 +28,15 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-02-09 — Table: a small + between columns adds one there
+
+- **Status:** Verified (e2e, browser)
+- **Related issue / decision:** owner: a small + to add a column, shown on hover at the boundary between columns so it takes no room.
+- **Scope:** src/ui/table.ts: each header has a thin strip on its right edge (below the name row, which keeps its resize grip); hovering shows an accent guide line and a 14px +, and a click opens New column placed after that column. The + at the end of the header row stays. onAddColumn takes the position.
+- **Files / components changed:** src/ui/table.ts, app.ts, styles.css; test/e2e/new-column.spec.ts (1)
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-08 — Dialogs no longer close (and lose work) when scrolled by their scrollbar
 
 - **Status:** Verified (unit, e2e, browser)

@@ -103,3 +103,20 @@ test("From examples finds the rule from one typed result", async ({ page }) => {
   await expect(dialog.locator(".newcol-found button").first()).toHaveText('[first] & " " & [last]');
   await expect(dialog.locator(".newcol-preview:not(.newcol-examples) tbody td.newcol-out")).toHaveText(["Ada Lovelace", "Alan Turing", "Grace Hopper"]);
 });
+
+test("the + on a column's edge adds the column after it, and a click beside the window keeps the work", async ({ page }) => {
+  await openTable(page);
+  const edge = page.getByRole("button", { name: "Insert a column after first" });
+  await edge.hover();
+  await expect(edge).toHaveCSS("opacity", "1");
+  await edge.click();
+  const dialog = page.getByRole("dialog", { name: "New column" });
+  await expect(dialog.getByLabel("Where the column goes")).toHaveValue("1");
+  await dialog.getByLabel("Formula").fill("LEN([last])");
+  await page.mouse.click(5, 450);
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("Formula")).toHaveValue("LEN([last])");
+  await expect(dialog.getByRole("button", { name: "Add column" })).toBeInViewport();
+  await dialog.getByRole("button", { name: "Add column" }).click();
+  await expect.poll(() => headers(page)).toEqual(["first", "New column", "last", "price", "qty", "ordered"]);
+});

@@ -134,7 +134,8 @@ export interface ResultTableOptions {
   /** "Clear filters" in the empty state. */
   onClearFilters?: () => void;
   /** The + at the end of the header row: a new column at the end. */
-  onAddColumn?: () => void;
+  /** New column; `at` is where it goes (after the column whose edge was clicked), else at the end. */
+  onAddColumn?: (at?: number) => void;
   /** The rows on screen changed: first and last visible position (0-based), and the row count. */
   onViewport?: (first: number, last: number, count: number) => void;
   onRequestRows: (
@@ -751,6 +752,20 @@ export class ResultTable {
         quickFilter.append(filterMark, filterInput);
       }      const facts = el("span", { class: "th-facts", title: columnFactsTitle(column) }, [columnFacts(column)]);
       cell.append(qa, top, typeWrap, facts, quickFilter);
+      if (this.options.onAddColumn !== undefined) {
+        // A small + on the edge between this column and the next, shown when the pointer is on that edge.
+        const insert = el("button", {
+          class: "th-insert",
+          type: "button",
+          title: `Insert a column after “${name}”`,
+          "aria-label": `Insert a column after ${name}`,
+        });
+        insert.addEventListener("click", (event) => {
+          event.stopPropagation();
+          this.options.onAddColumn?.(index + 1);
+        });
+        cell.append(insert);
+      }
       cell.addEventListener("contextmenu", (event) => {
         event.preventDefault();
         this.options.onColumnContext(index, event.clientX, event.clientY);
