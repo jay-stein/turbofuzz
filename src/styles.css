@@ -11,7 +11,7 @@
   --border: #d8dde3;
   --border-subtle: #eceff2;
   --text: #1c2430;
-  --text-dim: #62707f;
+  --text-dim: #556170;
   --accent: #2563eb;
   --accent-soft: #dbe6ff;
   --on-accent: #ffffff;
@@ -71,7 +71,7 @@
   --chrome-border: #2a333f;
   --chrome-fg: #e6e9ee;
   --chrome-dim: #8fa1b5;
-  --chrome-faint: #6d7c8e;
+  --chrome-faint: #8c9bad;
   --chrome-accent: #5fd0a5;
   --chrome-accent-soft: #163b2c;
   --primary-bg: #151a21;
@@ -86,7 +86,7 @@
     --border: #2c3745;
     --border-subtle: #222b36;
     --text: #e7ecf2;
-    --text-dim: #93a1b1;
+    --text-dim: #a1aebd;
     --accent: #60a5fa;
     --accent-soft: #1e3a5f;
     --on-accent: #0b1220;
@@ -124,7 +124,7 @@
   --border: #2c3745;
   --border-subtle: #222b36;
   --text: #e7ecf2;
-  --text-dim: #93a1b1;
+  --text-dim: #a1aebd;
   --accent: #60a5fa;
   --accent-soft: #1e3a5f;
   --on-accent: #0b1220;
@@ -12185,7 +12185,7 @@ button.qp-tile:hover {
 .topbar .score-tile-value.band-fair { color: #fbbf24; }
 .topbar .score-tile-value.band-poor, .topbar .score-tile-delta.down { color: #f97066; }
 .topbar .score-tile-label { color: var(--chrome-faint); }
-.topbar :focus-visible { outline: 2px solid var(--chrome-accent); outline-offset: 2px; }
+.topbar :focus-visible { outline: 2px solid var(--chrome-accent); outline-offset: 2px; box-shadow: none; }
 
 /* Page tabs carry their number key, in monospace; drawn by CSS so the tab's text and name stay its label. */
 .view-tab-key::before { content: attr(data-key) / ""; }
@@ -12263,3 +12263,14 @@ button.qp-tile:hover {
   box-shadow: none;
 }
 .mode-switch, .view-tabs { font-feature-settings: "tnum"; }
+
+/* Contrast pass (phase 4): every text colour reaches 4.5:1 on its own background in both themes. */
+:root { --role-text: #2563eb; --role-category: #b45309; --role-numeric: #6d28d9; --accent-ink: #1d4ed8; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --role-text: #8bb8ff; --role-category: #f5a53d; --role-numeric: #bba2ff; --accent-ink: var(--accent); }
+}
+:root[data-theme="dark"] { --role-text: #8bb8ff; --role-category: #f5a53d; --role-numeric: #bba2ff; --accent-ink: var(--accent); }
+.column-matrix-label.role-text { color: var(--role-text); }
+.column-matrix-label.role-category { color: var(--role-category); }
+.column-matrix-label.role-numeric { color: var(--role-numeric); }
+.outliers-chip.active, .outliers-method-run { color: var(--accent-ink); }

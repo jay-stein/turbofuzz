@@ -28,6 +28,16 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-07 — Analyst console look, phase 4: contrast, focus and overlays
+
+- **Status:** Verified
+- **Scope:** An automated audit of every visible text colour against its own background, on Overview, Data Quality, Table, Pivot View, Chart, Outliers, Relationships, Time Series and Map in both themes, found 14 groups under WCAG AA (4.5:1). All are fixed: muted text is darker in the light theme and lighter in the dark one (`--text-dim` `#62707f` to `#556170`, `#93a1b1` to `#a1aebd`); the dim text on the dark top bar and status bar is lighter (`--chrome-faint`); the active Outliers chips use a darker blue in the light theme; the Relationships column labels (text, category, numeric) have lighter dark-theme colours, which were as low as 2.4:1. The top bar's keyboard focus ring is one clear ring, not two. Menus, the command palette, the Help drawer and the header filter popover were checked by screenshot in both themes and needed no change.
+- **New test:** `test/e2e/contrast.spec.ts` runs the same audit on seven pages in both themes and fails on any text under AA, so the look cannot slip back.
+- **Files / components changed:** src/styles.css, test/e2e/contrast.spec.ts
+- **Tests run and results:** typecheck clean; unit pass; e2e pass including the new contrast test
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-06 — Analyst console look, phase 3: every other page
 
 - **Status:** Verified
