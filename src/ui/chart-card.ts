@@ -1754,9 +1754,8 @@ export class ChartCard {
 
     this.modeSelect = this.buildSelect("chart-picker chart-picker-small", "Render mode");
     ([
-      ["auto", "Auto"],
       ["points", "Points"],
-      ["density", "Density"],
+      ["density", "Density (heat map)"],
     ] as const).forEach(([value, label]) => {
       this.modeSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
     });
@@ -1909,6 +1908,12 @@ export class ChartCard {
       ["Customize"],
     ) as HTMLButtonElement;
     this.sidebarToggle.addEventListener("click", () => this.toggleSidebar());
+    // A visible way out: the drawer overlays the card, so it carries its own Done button at the top, always in view.
+    const sideHead = el("div", { class: "chart-side-head" }, [el("b", {}, ["Chart settings"])]);
+    const sideDone = el("button", { class: "ghost small", type: "button", "aria-label": "Close the settings drawer", title: "Close the settings (Escape)" }, ["Done"]);
+    sideDone.addEventListener("click", () => { this.toggleSidebar(); this.sidebarToggle.focus(); });
+    sideHead.append(sideDone);
+    this.sidebar.prepend(sideHead);
     this.sidebar.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" || !this.sidebarShown) return;
       event.stopPropagation();
@@ -2826,6 +2831,7 @@ export class ChartCard {
       this.noteEl,
     ]);
     this.layoutEl = el("div", { class: "chart-card-layout" }, [this.sidebar, main]);
+
     this.root.append(this.layoutEl, this.tooltipEl);
 
     this.syncSwatches();
@@ -2843,11 +2849,23 @@ export class ChartCard {
    * Settings live in a drawer that overlays the card, closed by default so the
    * chart keeps the full width. Escape closes it and returns focus to Customize.
    */
+  /** Escape closes an open drawer wherever focus is (the chart itself cannot hold focus). */
+  private readonly onDrawerEscape = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape" || !this.sidebarShown || event.defaultPrevented) return;
+    this.toggleSidebar();
+    this.sidebarToggle.focus();
+  };
+
   private toggleSidebar(): void {
     this.sidebarShown = !this.sidebarShown;
+    if (this.sidebarShown) document.addEventListener("keydown", this.onDrawerEscape);
+    else document.removeEventListener("keydown", this.onDrawerEscape);
     this.layoutEl.classList.toggle("sidebar-open", this.sidebarShown);
     this.layoutEl.classList.toggle("sidebar-collapsed", !this.sidebarShown);
     this.sidebarToggle.setAttribute("aria-expanded", String(this.sidebarShown));
+    this.sidebarToggle.textContent = this.sidebarShown ? "Done" : "Customize";
+    this.sidebarToggle.setAttribute("aria-label", this.sidebarShown ? "Close the chart settings" : "Customize this chart");
+    this.sidebarToggle.title = this.sidebarShown ? "Close the settings drawer (Escape)" : "Open the settings drawer: type, fields, colours";
     // The canvas width changes, so redraw at the new size.
     requestAnimationFrame(() => this.render());
   }
@@ -2902,6 +2920,7 @@ export class ChartCard {
 
   dispose(): void {
     this.disposed = true;
+    document.removeEventListener("keydown", this.onDrawerEscape);
     if (openSettingsDisclosure === this.settingsDisclosure) openSettingsDisclosure = null;
     this.unbindSettingsDismiss();
     this.closeFocus();
@@ -4544,7 +4563,8 @@ export class ChartCard {
           ? "Count (rows)"
           : "None";
     }
-    this.modeSelect.value = this.config.mode;
+    // "Auto" is retired: older charts that had it draw points, the plain default.
+    this.modeSelect.value = this.config.mode === "auto" ? "points" : this.config.mode;
     this.densityStyleSelect.value = this.config.densityStyle;
 
     const numeric = this.allowedIndexes((meta) => isNumericType(meta.type));
@@ -5617,7 +5637,7 @@ export class ChartCard {
     }
     const generation = ++this.generation;
     const mode: SeriesMode =
-      this.config.kind === "density" ? "density" : map ? "points" : this.config.mode;
+      this.config.kind === "density" ? "density" : map ? "points" : this.config.mode === "auto" ? "points" : this.config.mode;
     void this.options
       .requestSeries({
         xColumn: this.config.x,
@@ -8856,13 +8876,7 @@ export class ChartCard {
     if (this.config.kind === "scatter" || this.config.kind === "density") {
       const x = this.meta(this.config.x)?.name ?? "X";
       const y = this.meta(this.config.y)?.name ?? "Y";
-      // Say when an auto-mode scatter actually rendered as a density grid.
-      const autoDensity =
-        this.config.kind === "scatter" &&
-        this.config.mode === "auto" &&
-        this.seriesResult?.mode === "density";
-      const mode = autoDensity ? "Density (auto) · " : "";
-      return `${x} vs ${y} · ${mode}${rows}`;
+      return `${x} vs ${y} · ${rows}`;
     }
     if (this.config.kind === "box") {
       const value = this.meta(this.config.x)?.name ?? "Value";
@@ -9778,6 +9792,18 @@ export class ChartCard {
     this.noteEl.textContent = `${result.shown.toLocaleString()} of ${result.total.toLocaleString()} points${sampled}${
       extras === "" ? "" : ` · ${extras}`
     }${detailNote === "" ? "" : ` · ${detailNote}`} — scroll to zoom · drag to pan · shift-drag to filter · double-click resets`;
+    // Too many points to draw one by one: offer the fancier view instead of choosing it for the person.
+    if (result.sampled && this.config.kind === "scatter") {
+      const nudge = el("button", { class: "link small chart-density-nudge", type: "button", title: "Count every row in a grid and colour it by how many fall in each cell" }, ["Show all of them as a density map"]);
+      nudge.addEventListener("click", () => {
+        this.config.mode = "density";
+        this.generation++;
+        this.renderControls();
+        this.refreshSeries();
+        this.render();
+      });
+      this.noteEl.append(" ", nudge);
+    }
   }
 
   /**

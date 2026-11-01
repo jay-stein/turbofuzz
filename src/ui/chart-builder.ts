@@ -17,7 +17,7 @@ export function defaultChartConfig(): ChartCardConfig {
     y: -1,
     colorColumn: -1,
     sizeColumn: -1,
-    mode: "auto",
+    mode: "points",
     densityStyle: "both",
     kde: true,
     color: CHART_COLORS[0],
