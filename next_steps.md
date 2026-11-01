@@ -2219,3 +2219,9 @@ Chosen from the canvas "Table page: three looks" (option B). Rolled out in phase
 2. **Table.** Two-line column headers (full name, then monospace facts) instead of truncated names; hairline grid; compact rows; numbers and dates in monospace; the filters sidebar slimmed; a dark status bar for the position read-out and navigation.
 3. **Every other page.** Overview, Data Quality, Pivot View, Chart, Outliers, Relationships, Time Series and Map take the same headers, cards, KPI strips and buttons; one dark primary button per area.
 4. **Dark theme and polish.** Contrast checks, focus rings, dialogs and menus, screenshot sweep.
+
+### AutoARIMA research notes (2026-11-01)
+
+- Shipped: forecast averaged by Akaike weights (about 2% better than the single best model, two unseen sets), quick search for long series, and DV-ARIMA (differencing chosen by a forecast vote; 2 to 3% better, 275 wins to 193 losses over four unseen sets of 150).
+- Tried and dropped (see DEC-2026-11-01-03): variogram-matched coefficients, revision-corrected forecasts, drift vote, drift damping and shrinkage, ARIMA blended with the Combination.
+- Open ideas, none started: an archive-learned prior for very short series (judge only on datasets it did not learn from); scoring models by forecasting backwards in time as a second structure vote; ARIMA on the STL-adjusted series for seasons over 24 (stlf); drivers.

@@ -5,7 +5,7 @@
  */
 
 import {
-  akaikeWeights, averageForecasts, autoArimaSearch, chooseDifferences, fitArima, forecastArima, residualCheck, specLabel,
+  akaikeWeights, averageForecasts, autoArimaSearch, chooseDifferences, differencingVote, fitArima, forecastArima, residualCheck, specLabel,
   type ArimaCoef, type ArimaFit, type ArimaSpec, type ResidualCheck, type TriedModel,
 } from "./arima.js";
 import { boxCox, invBoxCox } from "./boxcox.js";
@@ -30,9 +30,14 @@ export interface ArimaJob {
   nonNeg: boolean;
   /** Try every order, not only the stepwise neighbourhood (slow). */
   exhaustive: boolean;
+  /** DV-ARIMA: choose the differencing by a forecast vote beside the unit-root test (on unless false; not with every order). */
+  vote?: boolean;
 }
 
 export interface ArimaProgress { stage: string; tried: number; best: string; bestAicc: number; current: string; detail: string }
+
+/** One candidate differencing in the vote, with its share. */
+export interface ArimaVoteRow { d: number; D: number; label: string; err: number; weight: number; unitRoot: boolean }
 
 /** The models averaged into the forecast, with their weights. */
 export interface ArimaAveraged { label: string; weight: number }
@@ -66,6 +71,10 @@ export type ArimaResult =
     /** The best model's own forecast and ranges. */
     forecastBest: { F: number[]; lo80: number[]; hi80: number[]; lo95: number[]; hi95: number[] };
     averaged: ArimaAveraged[];
+    /** The differencing vote, or null when it was off or could not be run. */
+    vote: ArimaVoteRow[] | null;
+    /** What plain auto.arima (the unit-root tests alone) settles on, for comparison. */
+    plainLabel: string;
     resid: ResidualCheck | null;
     backtest: ArimaBacktest | null;
     lambda: number | null;
@@ -97,15 +106,31 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
     onProgress: (p) => onProgress({ stage: job.exhaustive ? "Trying every order" : "Searching the orders", tried: p.tried, best: p.best, bestAicc: p.bestAicc, current: p.current, detail: `d = ${dd.d}, D = ${dd.D}` }),
   });
   if (!found) return { ok: false, reason: cancelled() ? "Stopped." : "No ARIMA model could be fitted to this series." };
-  // The chosen model again, with standard errors from the numerical Hessian.
-  onProgress({ stage: "Standard errors", tried: found.tried.length, best: specLabel(found.best.spec), bestAicc: found.best.aicc, current: "", detail: "" });
-  const best = fitArima(y, found.best.spec, { se: true }) ?? found.best;
+  // DV-ARIMA: the search again at the neighbouring differencings, and the forecast chosen across all of them.
+  let team = akaikeWeights(found.fits);
+  let voteRows: ArimaVoteRow[] | null = null;
+  if (job.vote !== false && !job.exhaustive) {
+    const v = differencingVote(y, m, job.H, dd, team, {
+      approximate, cancelled,
+      onGroup: (d, D) => onProgress({ stage: "Voting on the differencing", tried: found.tried.length, best: specLabel(found.best.spec), bestAicc: found.best.aicc, current: "", detail: `trying d = ${d}, D = ${D}` }),
+    });
+    if (v) {
+      team = v.team;
+      const label = (g: { d: number; D: number }): string => `d = ${g.d}${m > 1 ? `, D = ${g.D}` : ""}`;
+      voteRows = v.groups.map((g) => ({ d: g.d, D: g.D, label: label(g), err: g.err, weight: g.weight, unitRoot: g.unitRoot })).sort((a, b) => b.weight - a.weight);
+    }
+  }
+  if (cancelled()) return { ok: false, reason: "Stopped." };
+  // The leading model again, with standard errors from the numerical Hessian.
+  const lead = voteRows ? team[0]!.fit : found.best;
+  onProgress({ stage: "Standard errors", tried: found.tried.length, best: specLabel(lead.spec), bestAicc: lead.aicc, current: "", detail: "" });
+  const best = fitArima(y, lead.spec, { se: true }) ?? lead;
   const inv = (v: number): number => (bc === null ? v : invBoxCox(v, bc));
   const floor = (v: number): number => (job.nonNeg ? Math.max(0, v) : v);
   const fc = forecastArima(y, best, job.H);
   const back = (a: Float64Array | number[]): number[] => Array.from(a, (v) => floor(inv(v)));
   // Averaging over the models the search tried, by Akaike weights, steadies the forecast against the luck of which one had the lowest AICc.
-  const team = akaikeWeights(found.fits.map((f) => (f.spec.p === best.spec.p && f.spec.q === best.spec.q && f.spec.P === best.spec.P && f.spec.Q === best.spec.Q && f.spec.constant === best.spec.constant ? best : f)));
+  team = team.map((t) => (t.fit === lead ? { fit: best, weight: t.weight } : t));
   const avgFc = averageForecasts(y, team, job.H);
   const toBack = (f: { F: ArrayLike<number>; lo80: ArrayLike<number>; hi80: ArrayLike<number>; lo95: ArrayLike<number>; hi95: ArrayLike<number> }) => ({ F: back(Array.from(f.F)), lo80: back(Array.from(f.lo80)), hi80: back(Array.from(f.hi80)), lo95: back(Array.from(f.lo95)), hi95: back(Array.from(f.hi95)) });
   const resid = residualCheck(best);
@@ -170,6 +195,8 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
     forecast: toBack(avgFc),
     forecastBest: toBack(fc),
     averaged: team.map((t) => ({ label: specLabel(t.fit.spec), weight: t.weight })),
+    vote: voteRows,
+    plainLabel: specLabel(found.best.spec),
     resid,
     backtest,
     lambda: bc,

@@ -32,8 +32,12 @@ test("AutoARIMA runs on request and returns the parameters, fit, residual check,
   await open(page);
   const out = page.locator(".ts-page [data-ref=arimaOut]");
   await expect(out).toBeHidden();
+  // Plain auto.arima, to compare with R: the differencing vote is on by default and has its own test below.
+  await expect(page.locator(".ts-page [data-ref=arimaVote]")).toBeChecked();
+  await page.locator(".ts-page [data-ref=arimaVote]").uncheck();
   await page.locator(".ts-page [data-ref=arimaBtn]").click();
   await expect(out).toContainText("ARIMA(2,1,1)(0,1,0)[12]", { timeout: 90_000 });
+  await expect(out).not.toContainText("How the differencing was chosen");
   // R's auto.arima on these data: ar1 0.5960, ar2 0.2143, ma1 -0.9819; AICc 1018.17.
   const rows = out.locator(".ts-arima-table tbody tr");
   await expect(rows).toHaveCount(3);
@@ -69,6 +73,22 @@ test("AutoARIMA runs on request and returns the parameters, fit, residual check,
   // Changing what is plotted retires the row: it belongs to the series it was run on.
   await page.locator(".ts-page [data-ref=trSeg] button[data-tr=log]").click();
   await expect(page.locator("[data-ref=boardCompact] tr[data-arima]")).toHaveCount(0);
+});
+
+test("DV-ARIMA: the differencing is voted on, the unit-root test's choice and plain auto.arima's answer are shown, and the forecast is a mixture", async ({ page }) => {
+  test.setTimeout(180_000);
+  await open(page);
+  const out = page.locator(".ts-page [data-ref=arimaOut]");
+  await page.locator(".ts-page [data-ref=arimaBtn]").click();
+  await expect(out.locator("h4", { hasText: "How the differencing was chosen" })).toBeVisible({ timeout: 150_000 });
+  const vote = out.locator(".ts-arima-table").first().locator("tbody tr");
+  expect(await vote.count()).toBeGreaterThanOrEqual(2);
+  await expect(out.locator(".ts-arima-table").first()).toContainText("the unit-root test's choice");
+  await expect(out).toContainText(/plain auto\.arima would have settled on ARIMA\(2,1,1\)\(0,1,0\)\[12\]/);
+  const shares = await vote.locator("td:nth-child(3)").allTextContents();
+  expect(shares.reduce((a, t) => a + Number(/(\d+)%/.exec(t)?.[1] ?? 0), 0)).toBeGreaterThanOrEqual(98);
+  await expect(out).toContainText(/the single most-weighted model/);
+  await expect(out.locator(".ts-arima-help")).toBeVisible();
 });
 
 test("a long AutoARIMA run shows the donut and its progress, and Stop ends it without a result", async ({ page }) => {

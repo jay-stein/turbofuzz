@@ -28,6 +28,18 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-20 — AutoARIMA: DV-ARIMA, the differencing chosen by a forecast vote
+
+- **Status:** Verified
+- **Scope:**
+  - **The vote.** Besides the unit-root test's differencing, the search runs at its neighbours (one plain difference more or fewer, the seasonal difference switched). Each choice's best three models forecast the last stretch of the history from three origins; the choices are weighted by inverse squared error, Akaike weights decide inside a choice, and the forecast and its ranges are the mixture over up to twelve models. On by default; a tick box ("Choose the differencing by forecast vote") gives plain auto.arima back, and is not used with "Try every order".
+  - **On the page.** A "How the differencing was chosen" table (error against the best choice, share of the forecast, the unit-root test's choice marked), plain auto.arima's own answer stated beside it, and the parameters of the single most-weighted model. The model docs gain a section that says what it is, that it is not new in its parts and was not found in R's forecast, statsforecast or pmdarima, how much it gains (2 to 3% on average) and what was tried and dropped. Sources added: Diebold and Kilian (2000), Hansen (2010).
+  - **Evidence and tooling.** tools/ts-eval/arima-dv.ts (the vote and its variants), arima-vm.ts (variogram-matched coefficients), arima-rev.ts (revision-corrected forecast), arima-invent.ts (damping, shrinkage, averaging, blending): seeded random series from the Monash archive, scored on its protocol. Decision in DEC-2026-11-01-03.
+- **Files / components changed:** src/data/timeseries/arima.ts, arima-run.ts, references.ts, src/ui/timeseries-page.ts, timeseries-model-docs.ts, test/timeseries-arima.test.ts, test/e2e/arima.spec.ts, tools/ts-eval/arima-*.ts
+- **Tests run and results:** typecheck clean; ARIMA unit tests (16) and e2e (3) pass, the R-parity e2e with the vote switched off; full suites in the commit
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-19 — AutoARIMA: forecast averaged over the models the search tried; quick search for long series
 
 - **Status:** Verified

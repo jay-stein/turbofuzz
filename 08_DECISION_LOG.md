@@ -23,6 +23,18 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-01-03 — AutoARIMA's differencing is chosen by a forecast vote (DV-ARIMA), on by default in the deep run
+
+- **Status:** Accepted (owner: "ship DV-ARIMA and explain it is not novel but can't find it implemented anywhere before; small gain in performance")
+- **Context:** The owner asked for a genuinely new derivative of auto.arima. Four candidate ideas were developed on one set of random Monash series and judged on others never used for choosing (seeds fixed in advance, bar set before testing: at least 1% better on both fresh sets, more wins than losses).
+- **Decision:** Ship the differencing vote. The search runs at the unit-root test's choice and its neighbours; each choice's best three models forecast the last stretch of the history from three origins; choices are weighted by inverse squared error, Akaike weights decide within a choice; the forecast and ranges are the mixture. A tick box turns it off for plain auto.arima, and the page shows plain auto.arima's choice either way.
+- **Evidence:** Mean MASE against the AutoARIMA already shipped, four unseen sets of 150 series: 5.9% and 3.8% lower (seeds 12, 13), 0.0% and 0.5% lower (seeds 42, 43); 275 wins to 193 losses. A fair estimate is 2 to 3%, and the first two sets flattered it. It does not beat the board's Combination.
+- **Not shipped, and why:** variogram-matched coefficients (0.8% and 1.2% better, short of the bar, ranges unchanged; p about 0.08 pooled); revision-corrected forecast (under 1% even on the development set: AutoARIMA's revisions have a median persistence of -0.01, so there is nothing to correct); drift vote (7% better on the development set, 0.4% better and 1.0% worse on the fresh sets); forecast damping or shrinking of the drift (mixed); blending ARIMA with the Combination (the Combination alone is as good).
+- **Novelty, stated honestly:** the parts are old (forecast averaging; the econometric argument between unit-root pretesting and averaging over the restriction, Diebold and Kilian 2000, Hansen 2010, in autoregressions). We found it applied to the differencing order of an automatic ARIMA, scored by forecast error, in none of R's forecast, statsforecast or pmdarima; that is weaker than "nobody has done it" and the page says so.
+- **Trade-offs:** 3 to 5 times slower than the plain search (about 4 s against 1 s on the airline passengers; 11 to 15 s on monthly series of 150 to 330 points); the headline model can differ from R's on the same data. The knobs (three origins, top three models, inverse squared error) were fixed before the fresh sets were seen.
+- **Revisit trigger:** A larger run (all series, not 150) that moves the estimate outside 1 to 4%, or a variant that clears the bar on two fresh sets.
+- **Date / owner:** 2026-11-01 / owner
+
 ### DEC-2026-11-01-02 — The whole app takes the "analyst console" look
 
 - **Status:** Accepted (owner, 2026-11-01)

@@ -2,9 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  akaikeWeights, armaLik, averageForecasts, autoArimaSearch, chooseDifferences, difference, diffPoly, expandAr, expandMa, fitArima, forecastArima, invPartrans,
+  akaikeWeights, armaLik, averageForecasts, differencingVote, autoArimaSearch, chooseDifferences, difference, diffPoly, expandAr, expandMa, fitArima, forecastArima, invPartrans,
   isStationary, kpssLevel, maInvert, partrans, polyRoots, residualCheck, seasonalStrength, specLabel, type ArimaSpec,
 } from "../src/data/timeseries/arima.js";
+import { runAutoArima } from "../src/data/timeseries/arima-run.js";
 
 const ref = JSON.parse(readFileSync("test/fixtures/arima-reference.json", "utf8")) as {
   series: Record<string, number[]>;
@@ -189,4 +190,40 @@ test("Akaike weights sum to one, favour the lower AICc, and the averaged forecas
   const avg = averageForecasts(y, team, 12), one = forecastArima(y, team[0]!.fit, 12);
   for (let h = 0; h < 12; h++) assert.ok(avg.se[h]! >= Math.min(...team.map((t) => forecastArima(y, t.fit, 12).se[h]!)) - 1e-9);
   assert.ok(Math.abs(avg.F[11]! - one.F[11]!) < 0.2 * Math.abs(one.F[11]!), "close to the leader");
+});
+
+test("DV-ARIMA: the vote runs the search at the unit-root choice and its neighbours, shares sum to one, and it can be switched off", () => {
+  const y = Float64Array.from(ref.series.air!), dd = chooseDifferences(y, 12);
+  const found = autoArimaSearch(y, 12, dd.d, dd.D)!;
+  const base = akaikeWeights(found.fits);
+  const v = differencingVote(y, 12, 12, dd, base)!;
+  assert.ok(v, "the vote ran");
+  assert.ok(v.groups.length >= 2 && v.groups.length <= 4);
+  assert.equal(v.groups.filter((g) => g.unitRoot).length, 1, "one group is the unit-root choice");
+  const keys = new Set(v.groups.map((g) => `${g.d},${g.D}`));
+  assert.equal(keys.size, v.groups.length, "no differencing twice");
+  for (const g of v.groups) assert.ok(g.d + g.D <= 2 && g.err > 0);
+  near(v.groups.reduce((a, g) => a + g.weight, 0), 1, 1e-9, "group shares");
+  near(v.team.reduce((a, t) => a + t.weight, 0), 1, 1e-9, "model weights");
+  assert.ok(v.team.length <= 12);
+  // The group with the lowest error gets the largest share.
+  const lowest = v.groups.reduce((a, b) => (b.err < a.err ? b : a));
+  assert.equal(v.groups.reduce((a, b) => (b.weight > a.weight ? b : a)), lowest);
+});
+
+test("runAutoArima: the vote is on by default, reports plain auto.arima's choice, and vote:false returns the plain answer", () => {
+  const y = Float64Array.from(ref.series.air!);
+  const job = { y, T: y.length, H: 12, m: 12, seasonMode: "native" as const, origins: [], rolling: false, trainLen: null, lockbox: false, lambda: null, nonNeg: false, exhaustive: false };
+  const on = runAutoArima(job), off = runAutoArima({ ...job, vote: false });
+  assert.ok(on.ok && off.ok);
+  if (!on.ok || !off.ok) return;
+  assert.equal(off.vote, null);
+  assert.equal(off.label, "ARIMA(2,1,1)(0,1,0)[12]", "plain answer is R's");
+  assert.ok(on.vote && on.vote.length >= 2);
+  assert.equal(on.plainLabel, "ARIMA(2,1,1)(0,1,0)[12]", "the plain choice is reported alongside");
+  near(on.averaged.reduce((a, t) => a + t.weight, 0), 1, 1e-9, "forecast weights");
+  assert.ok(on.forecast.F.every((v) => Number.isFinite(v)) && on.forecast.lo95.every((v, h) => v < on.forecast.F[h]!));
+  // Exhaustive search is plain.
+  const ex = runAutoArima({ ...job, y: y.slice(0, 60), T: 60, H: 6, m: 1, seasonMode: "none", exhaustive: true });
+  assert.ok(ex.ok && ex.vote === null);
 });

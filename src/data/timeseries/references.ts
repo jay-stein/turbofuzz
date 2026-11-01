@@ -264,6 +264,18 @@ REFERENCES.jones1980 = {
   url: "https://doi.org/10.1080/00401706.1980.10486171",
   used: "Fitting by the Kalman filter with missing values skipped, and the mapping of partial autocorrelations to a stationary autoregression.",
 };
+REFERENCES.hansen2010 = {
+  short: "Hansen (2010)",
+  full: "Hansen, B. E. (2010). Averaging estimators for autoregressions with a near unit root. Journal of Econometrics, 158(1), 142-155.",
+  url: "https://doi.org/10.1016/j.jeconom.2010.03.006",
+  used: "The argument that averaging over the unit-root restriction forecasts better than pretesting for it, which is the idea DV-ARIMA applies to the choice of differencing.",
+};
+REFERENCES.diebold2000 = {
+  short: "Diebold & Kilian (2000)",
+  full: "Diebold, F. X. and Kilian, L. (2000). Unit-root tests are useful for selecting forecasting models. Journal of Business & Economic Statistics, 18(3), 265-273.",
+  url: "https://doi.org/10.1080/07350015.2000.10524868",
+  used: "The case for letting a unit-root test choose between a differenced and an undifferenced forecasting model, which DV-ARIMA keeps as one of its candidates.",
+};
 REFERENCES.kpss = {
   short: "Kwiatkowski, Phillips, Schmidt & Shin (1992)",
   full: "Kwiatkowski, D., Phillips, P. C. B., Schmidt, P. and Shin, Y. (1992). Testing the null hypothesis of stationarity against the alternative of a unit root. Journal of Econometrics, 54(1-3), 159-178.",
@@ -286,7 +298,7 @@ REFERENCES.statsforecast = {
 /** Ids in a stable order for the Sources list: grouped by what they support. */
 export const REFERENCE_ORDER: string[] = [
   "fpp3", "forecastpkg", "monash",
-  "ets2002", "holt", "winters", "damped", "aicc", "nelder", "croston", "syntetos2005", "teunter2011", "kolassa2016", "boxcox", "guerrero", "boxjenkins", "gardner1980", "jones1980", "kpss", "wang2006",
+  "ets2002", "holt", "winters", "damped", "aicc", "nelder", "croston", "syntetos2005", "teunter2011", "kolassa2016", "boxcox", "guerrero", "boxjenkins", "gardner1980", "jones1980", "kpss", "hansen2010", "diebold2000", "wang2006",
   "theta", "thetabillah", "m3", "m4", "tourism",
   "bates", "clemen", "smithwallis",
   "stl", "mstl", "bartlett",

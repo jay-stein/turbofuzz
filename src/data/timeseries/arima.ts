@@ -878,6 +878,78 @@ export function averageForecasts(y: ArrayLike<number>, team: { fit: ArimaFit; we
   return { F, se, lo80: mk(1.2815516, -1), hi80: mk(1.2815516, 1), lo95: mk(1.959964, -1), hi95: mk(1.959964, 1) };
 }
 
+export type WeightedFit = { fit: ArimaFit; weight: number };
+
+/** One candidate differencing in the vote. */
+export interface VoteGroup {
+  d: number; D: number;
+  /** Models of this differencing with their Akaike weights inside the group (summing to one). */
+  team: WeightedFit[];
+  /** Mean absolute h-step error on the modelled scale, from origins at the end of the history; NaN when it could not be scored. */
+  err: number;
+  /** The group's share of the vote, summing to one over the scored groups. */
+  weight: number;
+  /** The unit-root tests' choice. */
+  unitRoot: boolean;
+}
+
+/**
+ * DV-ARIMA: the differencing is chosen by a forecast vote, not only by the unit-root test. The search is run at the KPSS choice
+ * and its neighbours (one more or fewer plain difference, the seasonal difference switched); each group's top three models, with
+ * their orders held and coefficients refitted by the quick fit, forecast H steps from the last three origins (half a horizon
+ * apart) of the history, and the groups are weighted by the inverse of their squared error. Inside a group, where the models
+ * share a likelihood, Akaike weights decide. The forecast is the mixture over every model, each weighted by its group's share
+ * times its own. Returns null when fewer than two groups can be scored (the plain AutoARIMA answer then stands).
+ */
+export function differencingVote(
+  y: Float64Array, m: number, H: number, dd: { d: number; D: number }, base: WeightedFit[],
+  opts: { approximate?: boolean; cancelled?: () => boolean; onGroup?: (d: number, D: number) => void } = {},
+): { groups: VoteGroup[]; team: WeightedFit[] } | null {
+  const keys: [number, number][] = [[dd.d, dd.D]];
+  for (const d of [dd.d - 1, dd.d + 1]) if (d >= 0 && d <= 2 && d + dd.D <= 2) keys.push([d, dd.D]);
+  if (m > 1 && dd.d + (1 - dd.D) <= 2) keys.push([dd.d, 1 - dd.D]);
+  const n = y.length, step = Math.max(1, Math.round(H / 2)), floor = Math.max(3 * m, 20);
+  const groups: VoteGroup[] = [];
+  for (const [d, D] of keys) {
+    if (opts.cancelled?.()) return null;
+    const unitRoot = d === dd.d && D === dd.D;
+    let team = base;
+    if (!unitRoot) {
+      opts.onGroup?.(d, D);
+      const found = autoArimaSearch(y, m, d, D, { approximate: opts.approximate, cancelled: opts.cancelled });
+      team = found ? akaikeWeights(found.fits) : [];
+    }
+    if (!team.length) continue;
+    const top = team.slice(0, 3), tw = top.reduce((a, b) => a + b.weight, 0);
+    let ae = 0, an = 0;
+    for (let k = 0; k < 3; k++) {
+      const o = n - H - k * step;
+      if (o < floor) break;
+      const seg = y.slice(0, o);
+      const pred = new Float64Array(H);
+      let ok = true;
+      for (const tm of top) {
+        const f = fitArima(seg, tm.fit.spec, { css: true });
+        if (!f) { ok = false; break; }
+        const F = forecastArima(seg, f, H).F;
+        for (let h = 0; h < H; h++) pred[h] = pred[h]! + (tm.weight / tw) * F[h]!;
+      }
+      if (!ok) continue;
+      for (let h = 0; h < H; h++) { const e = Math.abs(y[o + h]! - pred[h]!); if (e === e) { ae += e; an++; } }
+    }
+    groups.push({ d, D, team, err: an ? ae / an : NaN, weight: 0, unitRoot });
+  }
+  const scored = groups.filter((g) => Number.isFinite(g.err) && g.err > 0);
+  if (scored.length < 2) return null;
+  const inv = scored.map((g) => 1 / (g.err * g.err)), tot = inv.reduce((a, b) => a + b, 0);
+  scored.forEach((g, i) => { g.weight = inv[i]! / tot; });
+  const all: WeightedFit[] = [];
+  for (const g of scored) for (const tm of g.team) all.push({ fit: tm.fit, weight: g.weight * tm.weight });
+  all.sort((a, b) => b.weight - a.weight);
+  const top = all.filter((x) => x.weight >= 1e-3).slice(0, 12), sum = top.reduce((a, b) => a + b.weight, 0);
+  return { groups: scored, team: top.map((x) => ({ fit: x.fit, weight: x.weight / sum })) };
+}
+
 export interface ResidualCheck { n: number; lag: number; q: number; p: number; acf: number[]; crit: number }
 
 /** Ljung-Box on the standardised one-step errors, with the degrees of freedom reduced by the ARMA parameters. */

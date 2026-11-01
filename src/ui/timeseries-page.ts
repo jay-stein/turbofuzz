@@ -184,6 +184,7 @@ const TEMPLATE = `
         <div class="ts-arima">
           <div class="ts-arima-bar">
             <button class="ts-ghost ts-deep-btn" type="button" data-ref="arimaBtn" title="Searches seasonal ARIMA models for this series and reports the one it settles on, with its parameters. A deep run you start yourself: no time limit.">AutoARIMA…</button>
+            <label class="ts-check" title="DV-ARIMA. Besides the unit-root test's choice of differencing, the search is run at its neighbours (one more or one fewer difference, the seasonal difference switched), each is scored on forecasts from the end of your history, and the forecast averages them by how well they did. A small gain on average, and 3 to 5 times slower. Not used with Try every order."><input type="checkbox" data-ref="arimaVote" checked> Choose the differencing by forecast vote (DV-ARIMA)</label>
             <label class="ts-check" title="Tries every order up to ARIMA(5,d,5)(2,D,2) within five terms, not just the neighbours of the best so far. Much slower."><input type="checkbox" data-ref="arimaAll"> Try every order (much slower)</label>
             <span class="ts-note">A deep run in the background, with no time limit: it searches ARIMA models by the textbook's method and shows the parameters it settles on.</span>
           </div>
@@ -1453,7 +1454,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     for (let t = 0; t < y.length; t++) if (a.made[t]) y[t] = NaN;
     const job: ArimaJob = {
       y, T: M.T, H: M.H, m: M.m, seasonMode: M.season.mode, origins: M.origins, rolling: M.cv === "rolling", trainLen: M.trainLen, lockbox: M.lockbox,
-      lambda: M.transform ? M.transform.lambda : null, nonNeg: a.nonNeg, exhaustive: ref<HTMLInputElement>("arimaAll").checked,
+      lambda: M.transform ? M.transform.lambda : null, nonNeg: a.nonNeg, exhaustive: ref<HTMLInputElement>("arimaAll").checked, vote: ref<HTMLInputElement>("arimaVote").checked,
     };
     const run = startArima(job, (p) => { if (arima) { arima.progress = p; ref("arimaProg").innerHTML = arimaProgressText(); } });
     arima = { key: arimaKey(s), result: null, running: run, progress: null, started: performance.now() };
@@ -1517,10 +1518,20 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     void comb; void pickM;
     const T = times(), P = M.T;
     const fcRows = r.forecast.F.map((f, h) => `<tr><td>${periodLabel(s.A.g, T[P + h] ?? NaN)}</td><td>${full(f)}</td><td>${full(r.forecast.lo80[h]!)} to ${full(r.forecast.hi80[h]!)}</td><td>${full(r.forecast.lo95[h]!)} to ${full(r.forecast.hi95[h]!)}</td></tr>`).join("");
+    const voteHtml = r.vote
+      ? `<h4>How the differencing was chosen <small>DV-ARIMA</small></h4>
+      <p>The unit-root test (KPSS) chose <b>${r.differences.d ? `d = ${r.differences.d}` : "no plain difference"}${m > 1 ? `, D = ${r.differences.D}` : ""}</b>, and plain <code>auto.arima</code> would have settled on <b>${escapeHtml(r.plainLabel)}</b>. A test is only a guess about whether the series wanders, so the search was run again at the neighbouring choices, and each was scored on forecasts of the last stretch of your history (three starting points, orders held, coefficients refitted). The forecast below is the weighted average of every model from every choice; the share is each choice's weight, from its error.</p>
+      <table class="ts-board ts-arima-table"><thead><tr><th>Differencing</th><th>Forecast error</th><th>Share of the forecast</th></tr></thead><tbody>${(() => {
+        const lo = Math.min(...r.vote.map((v) => v.err));
+        return r.vote.map((v) => `<tr><td class="ts-mono">${v.label}</td><td>${(v.err / lo).toFixed(2)}× the best${v.err === lo ? " (lowest)" : ""}</td><td>${Math.round(v.weight * 100)}%${v.unitRoot ? " <small>the unit-root test's choice</small>" : ""}</td></tr>`).join("");
+      })()}</tbody></table>
+      <p class="ts-note">The parameters below are those of the single most-weighted model, ${escapeHtml(r.label)}.</p>`
+      : "";
     const tried = r.tried.slice(0, 12).map((t) => `<tr><td class="ts-mono">${escapeHtml(t.label.replace(/^ARIMA/, ""))}</td><td class="ts-mono">${t.ok && Number.isFinite(t.aicc) ? t.aicc.toFixed(2) : "no fit"}</td></tr>`).join("");
     return `
       <h4>${escapeHtml(r.label)} <small>${r.searched === "stepwise" ? "stepwise search" : "every order tried"}: ${r.tried.length} model${r.tried.length === 1 ? "" : "s"} in ${r.seconds < 10 ? r.seconds.toFixed(1) : Math.round(r.seconds)} s</small></h4>
-      <p>${diffWords ? `The series is ${diffWords}. ` : ""}${terms.length ? `The model adds ${terms.join(", ")} term${sp.p + sp.q + sp.P + sp.Q === 1 ? "" : "s"}` : "The model has no autoregressive or moving-average terms"}${sp.constant ? `, with a ${sp.d + sp.D === 0 ? "constant mean" : "drift"}` : ""}.${r.lambda !== null ? ` Fitted on the Box-Cox transformed series (λ = ${r.lambda.toFixed(2)}) and mapped back.` : ""}</p>
+      ${voteHtml}
+      <p>${diffWords && !r.vote ? `The series is ${diffWords}. ` : ""}${terms.length ? `The model adds ${terms.join(", ")} term${sp.p + sp.q + sp.P + sp.Q === 1 ? "" : "s"}` : "The model has no autoregressive or moving-average terms"}${sp.constant ? `, with a ${sp.d + sp.D === 0 ? "constant mean" : "drift"}` : ""}.${r.lambda !== null ? ` Fitted on the Box-Cox transformed series (λ = ${r.lambda.toFixed(2)}) and mapped back.` : ""}</p>
       <h5>Parameters</h5>
       <table class="ts-board ts-arima-table"><thead><tr><th>Term</th><th>Estimate</th><th>Std. error</th><th>z</th><th>What it says about this series</th></tr></thead><tbody>${coefRows || `<tr><td colspan="5">None: a random walk${sp.constant ? " with drift" : ""}.</td></tr>`}</tbody></table>
       <dl class="ts-modelcard ts-arima-fit">
@@ -2154,6 +2165,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   on("arimaBtn", "click", () => runArima());
   on("arimaCancel", "click", () => { arima?.running?.cancel(); arima = null; invalidate("ui", "panel"); });
   on("arimaAll", "change", () => invalidate("ui", "panel"));
+  on("arimaVote", "change", () => invalidate("ui", "panel"));
   ref("arimaOut").addEventListener("click", (e) => { if ((e.target as Element).closest("[data-ref=arimaCsv]")) downloadArima(); });
   on("flexCurve", "click", (e) => { const b = (e.target as Element).closest<HTMLElement>("[data-flexpick]"); if (b) change({ flex: Number(b.dataset.flexpick) }, { fade: false }); });
   on("diffOn", "change", (e) => uiChange({ diff: (e.target as HTMLInputElement).checked, diffLag: ui.diffLag || defaultLag() }));
