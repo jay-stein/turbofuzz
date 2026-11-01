@@ -20,6 +20,7 @@ import { backtestRows, forecastRows, scorecardRows } from "./timeseries-export.j
 import { cite, openModelDetails } from "./timeseries-model-docs.js";
 import { ordinal, PLAIN, trustVerdict, type Verdict } from "../data/timeseries/verdict.js";
 import type { ArimaJob, ArimaProgress, ArimaResult } from "../data/timeseries/arima-run.js";
+import type { ArimaCoef } from "../data/timeseries/arima.js";
 import { startArima, type ArimaRun } from "./timeseries-arima.js";
 import { openMenu } from "./menu.js";
 import type { ColumnMeta, TimeSeriesMessage } from "../worker/protocol.js";
@@ -243,7 +244,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   const ui: UiState = { mode: "explore", showSmooth: true, lastYear: false, showShift: true, level: "fan", model: "auto", metric: "mase", diff: false, diffLag: 0 };
   let INS: TsFinding[] = [];
   let view: [number, number] | null = null;
-  let hoverIdx = -1, ghostModel: ModelKey | null = null;
+  let hoverIdx = -1, ghostModel: ModelKey | null = null, ghostArima = false;
   let pulse: { indices: number[]; rule: number | null; start: number } | null = null;
   let reveal = 1, revealStart = 0;
   let fade: { canvas: HTMLCanvasElement; start: number } | null = null;
@@ -663,6 +664,13 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         const gf = s.futures[ghostModel];
         ctx.strokeStyle = C.dim; ctx.setLineDash([2, 3]); ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.moveTo(xs0, Y(y0)); for (let h = 0; h < P.H; h++) ctx.lineTo(X(T[split + h]), Y(gf.F[h])); ctx.stroke(); ctx.setLineDash([]);
+      }
+      if (ghostArima) {
+        const ar = arimaLive();
+        if (ar && ar.forecast.F.length >= P.H) {
+          ctx.strokeStyle = C.dim; ctx.setLineDash([2, 3]); ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(xs0, Y(y0)); for (let h = 0; h < P.H; h++) ctx.lineTo(X(T[split + h]), Y(ar.forecast.F[h]!)); ctx.stroke(); ctx.setLineDash([]);
+        }
       }
       ctx.strokeStyle = C.forecast; ctx.lineWidth = 2.25; ctx.setLineDash([7, 4]);
       ctx.beginPath(); ctx.moveTo(xs0, Y(y0)); for (let h = 0; h < P.H; h++) ctx.lineTo(X(T[split + h]), Y(P.f.F[h])); ctx.stroke(); ctx.setLineDash([]);
@@ -1412,7 +1420,25 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   }
   // ---------------------------------------------------------------- AutoARIMA (a deep run, started by hand)
   let arima: { key: string; result: ArimaResult | null; running: ArimaRun | null; progress: ArimaProgress | null; started: number } | null = null;
-  const arimaKey = (s: TsSnapshot): string => `${curveKey(s)}|${ref<HTMLInputElement>("arimaAll").checked ? "all" : "step"}`;
+  const arimaKey = (s: TsSnapshot): string => curveKey(s);
+  type ArimaOk = Extract<ArimaResult, { ok: true }>;
+  /** The finished run, when it still belongs to the series on screen. */
+  function arimaLive(): ArimaOk | null {
+    const s = snap;
+    if (!s || !arima || arima.running || !arima.result || !arima.result.ok || arima.key !== arimaKey(s)) return null;
+    return arima.result;
+  }
+  type ArimaRow = { label: string; ratio: number; mase: number; lockMase: number | null; rank: number | null; verdict: Verdict; won: number; of: number };
+  /** What the leaderboards show for the AutoARIMA run: the same numbers as any other model, from its own backtest on the same folds. */
+  function arimaRow(s: TsSnapshot, M: ModelRun): ArimaRow | null {
+    const r = arimaLive();
+    if (!r || !r.backtest || !Number.isFinite(r.backtest.ratio)) return null;
+    const bt = r.backtest;
+    const lock = bt.lockMase;
+    const rank = M.lockbox && lock !== null ? 1 + CORE_KEYS.filter((k) => (M.models[k].lock?.mase ?? Infinity) < lock).length : null;
+    const verdict = trustVerdict({ baseline: false, ratio: bt.ratio, lockRank: rank, models: CORE_KEYS.length, foldsWon: bt.foldsWon, foldsOf: bt.foldsOf, band: null, rough: M.rough, periods: s.A.modelN, cycle: cycleWord(s) });
+    return { label: r.label, ratio: bt.ratio, mase: bt.mase, lockMase: lock, rank, verdict, won: bt.foldsWon, of: bt.foldsOf };
+  }
   function arimaProgressText(): string {
     if (!arima) return "";
     const p = arima.progress, secs = Math.round((performance.now() - arima.started) / 1000);
@@ -1439,18 +1465,36 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     // The elapsed seconds keep ticking while the search is quiet.
     const tick = window.setInterval(() => { if (!arima?.running) window.clearInterval(tick); else ref("arimaProg").innerHTML = arimaProgressText(); }, 1000);
   }
-  const arimaWord = (name: string): string => {
-    const k = /^(sar|sma|ar|ma)(\d+)$/.exec(name);
+  /** What one coefficient says about this series, in its own numbers. */
+  function arimaReading(c: ArimaCoef, r: ArimaOk, s: TsSnapshot): string {
+    const sp = r.spec, g = s.A.g, unit = measureWord(s), m = sp.m, v = c.value;
+    const diffd = sp.d + sp.D > 0, what = diffd ? "change" : "departure from the average";
+    const fmt = (x: number): string => full(x);
+    const z = c.se !== null && c.se > 0 ? Math.abs(v / c.se) : NaN;
+    const sure = !Number.isFinite(z) ? "" : z >= 2 ? ` Clearly not zero (z ${z.toFixed(1)}).` : ` Could be zero (z ${z.toFixed(1)}, under 2): it stays because dropping it did not lower the AICc.`;
+    const k = /^(sar|sma|ar|ma)(\d+)$/.exec(c.name);
     if (k) {
-      const n = Number(k[2]), seasonal = k[1]!.startsWith("s"), ar = k[1]!.endsWith("ar");
-      const when = seasonal ? (n === 1 ? "one season earlier" : `${n} seasons earlier`) : n === 1 ? "one period earlier" : `${n} periods earlier`;
-      return ar ? `weight on the value ${when}${seasonal ? "" : " (after differencing)"}` : `weight on the error ${when}`;
+      const n = Number(k[2]), seasonal = k[1]!.startsWith("s"), isAr = k[1]!.endsWith("ar");
+      const when = seasonal ? (n === 1 ? `one season earlier (${m} ${g.nouns})` : `${n} seasons earlier`) : n === 1 ? `the ${g.noun} before` : `${n} ${g.nouns} earlier`;
+      if (isAr) {
+        const lead = n === 1 && !seasonal
+          ? v > 0 ? `<b>Momentum.</b> About ${Math.round(v * 100)}% of the last ${g.noun}'s ${what} carries into this one${Math.abs(v) < 1 && Math.abs(v) > 0.05 ? `, and an effect fades to half in about ${(Math.log(0.5) / Math.log(Math.abs(v))).toFixed(1)} ${g.nouns}` : ""}.`
+          : `<b>Bounce-back.</b> A rise in the ${what} tends to be followed by a fall (${Math.round(-v * 100)}% of it reverses).`
+          : `<b>${seasonal ? "The same time last season." : "Longer memory."}</b> The ${what} ${when} counts ${v >= 0 ? "for" : "against"} this one with weight ${v.toFixed(2)}${seasonal && v > 0 ? ": a pattern that repeats from season to season carries on" : ""}.`;
+        return lead + sure;
+      }
+      const lead = seasonal
+        ? `<b>Seasonal shock.</b> ${Math.round(Math.abs(v) * 100)}% of the surprise ${when} is ${v >= 0 ? "added again" : "taken back"} now${v <= -0.7 && sp.D > 0 ? ". Near −1 with a seasonal difference means a stable seasonal shape: the model averages many past seasons instead of copying only the last one" : ""}.`
+        : `<b>Echo of a surprise.</b> ${Math.round(Math.abs(v) * 100)}% of the forecast error from ${when} is ${v >= 0 ? "carried into" : "reversed in"} this ${g.noun}${v <= -0.9 && diffd ? `. Near −1 beside a difference, the model is largely undoing it: the series sits closer to a steady level or trend than to a wandering path, so forecasts lean on the long-run level and not on the last value` : ""}.`;
+      return lead + sure;
     }
-    return name === "drift" ? "the average change per period the forecast keeps adding" : name === "mean" ? "the level the differenced series settles around" : "";
-  };
+    if (c.name === "drift") return `<b>Trend.</b> The forecast climbs ${v >= 0 ? "" : "(falls) "}by ${fmt(Math.abs(v))} ${unit} each ${g.noun}${m > 1 ? `, about ${fmt(Math.abs(v) * m)} per season` : ""}: the average change over the whole history.${sure}`;
+    if (c.name === "mean") return `<b>Level.</b> The series settles around ${fmt(v)} ${unit}; forecasts pull towards it.${sure}`;
+    return "";
+  }
   function arimaHtml(r: Extract<ArimaResult, { ok: true }>, s: TsSnapshot, M: ModelRun): string {
     const sp = r.spec, d = r.differences, m = sp.m;
-    const word = arimaWord;
+    const diffd = sp.d + sp.D > 0;
     const diffWords = [
       d.d ? `differenced ${d.d === 1 ? "once" : "twice"} (the KPSS test found the series wandering: statistic ${d.kpss.map((v) => v.toFixed(2)).join(" then ")} against 0.46)` : `not differenced (the KPSS test found it steady: statistic ${d.kpss[0]?.toFixed(2) ?? "–"}, under 0.46)`,
       m > 1 ? (d.D ? `seasonally differenced once (seasonal strength ${d.strength.toFixed(2)}, above 0.64)` : `not seasonally differenced (seasonal strength ${d.strength.toFixed(2)}, under 0.64)`) : "",
@@ -1458,7 +1502,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const terms = [sp.p ? `${sp.p} autoregressive` : "", sp.q ? `${sp.q} moving-average` : "", sp.P ? `${sp.P} seasonal autoregressive` : "", sp.Q ? `${sp.Q} seasonal moving-average` : ""].filter(Boolean);
     const coefRows = r.coefs.map((c) => {
       const z = c.se !== null && c.se > 0 ? c.value / c.se : NaN;
-      return `<tr><td class="ts-mono">${c.name}</td><td class="ts-mono">${c.value.toFixed(4)}</td><td class="ts-mono">${c.se !== null ? c.se.toFixed(4) : "–"}</td><td class="ts-mono">${Number.isFinite(z) ? z.toFixed(1) : "–"}</td><td>${word(c.name)}</td></tr>`;
+      return `<tr><td class="ts-mono">${c.name}</td><td class="ts-mono">${c.value.toFixed(4)}</td><td class="ts-mono">${c.se !== null ? c.se.toFixed(4) : "–"}</td><td class="ts-mono">${Number.isFinite(z) ? z.toFixed(1) : "–"}</td><td>${arimaReading(c, r, s)}</td></tr>`;
     }).join("");
     const rc = r.resid;
     const resid = rc
@@ -1478,7 +1522,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       <h4>${escapeHtml(r.label)} <small>${r.searched === "stepwise" ? "stepwise search" : "every order tried"}: ${r.tried.length} model${r.tried.length === 1 ? "" : "s"} in ${r.seconds < 10 ? r.seconds.toFixed(1) : Math.round(r.seconds)} s</small></h4>
       <p>${diffWords ? `The series is ${diffWords}. ` : ""}${terms.length ? `The model adds ${terms.join(", ")} term${sp.p + sp.q + sp.P + sp.Q === 1 ? "" : "s"}` : "The model has no autoregressive or moving-average terms"}${sp.constant ? `, with a ${sp.d + sp.D === 0 ? "constant mean" : "drift"}` : ""}.${r.lambda !== null ? ` Fitted on the Box-Cox transformed series (λ = ${r.lambda.toFixed(2)}) and mapped back.` : ""}</p>
       <h5>Parameters</h5>
-      <table class="ts-board ts-arima-table"><thead><tr><th>Term</th><th>Estimate</th><th>Std. error</th><th>z</th><th>What it does</th></tr></thead><tbody>${coefRows || `<tr><td colspan="5">None: a random walk${sp.constant ? " with drift" : ""}.</td></tr>`}</tbody></table>
+      <table class="ts-board ts-arima-table"><thead><tr><th>Term</th><th>Estimate</th><th>Std. error</th><th>z</th><th>What it says about this series</th></tr></thead><tbody>${coefRows || `<tr><td colspan="5">None: a random walk${sp.constant ? " with drift" : ""}.</td></tr>`}</tbody></table>
       <dl class="ts-modelcard ts-arima-fit">
         <dt>Error variance σ²</dt><dd class="ts-mono">${r.sigma2.toPrecision(5)}</dd>
         <dt>Log-likelihood</dt><dd class="ts-mono">${r.loglik.toFixed(2)}</dd>
@@ -1488,6 +1532,19 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       </dl>
       ${resid}
       ${backtest}
+      <details class="ts-arima-help" open><summary>What every number here means</summary>
+        <dl>
+          <dt>${escapeHtml(r.label.replace(/ with .*$/, ""))}</dt><dd>The shape of the model: <b>p</b> = ${sp.p} autoregressive terms (this period depends on recent values), <b>d</b> = ${sp.d} ordinary difference${sp.d === 1 ? "" : "s"}, <b>q</b> = ${sp.q} moving-average terms (it depends on recent forecast errors)${m > 1 ? `; in the second bracket the same three letters for the season: <b>P</b> = ${sp.P}, <b>D</b> = ${sp.D}, <b>Q</b> = ${sp.Q}, and <b>[${m}]</b> is the season's length in ${s.A.g.nouns}` : ""}. Differencing replaces the series by its changes (or, by the season, its change from the same time last season), so the model describes how the changes behave.</dd>
+          <dt>Estimate</dt><dd>The best-fitting weight for each term. The model says: today's ${diffd ? "change" : "departure from the average"} = (weights × recent ${diffd ? "changes" : "departures"}) + (weights × recent errors) + a new random error.</dd>
+          <dt>Std. error and z</dt><dd>How precisely the data pin the weight down. <b>z</b> is the estimate over its standard error: above about 2 in size the term is clearly not zero; below 2 it could be (the search still keeps it if it lowers the AICc).</dd>
+          <dt>Error variance σ²</dt><dd>The size of the model's typical one-step surprise, squared: its square root, ${Math.sqrt(r.sigma2).toPrecision(3)}, is the usual miss in the units of the ${diffd ? "differenced" : ""} series${r.lambda !== null ? " (transformed)" : ""}. Smaller is a tighter fit, but it is only comparable between models that difference the same way.</dd>
+          <dt>Log-likelihood</dt><dd>How probable the model finds the data: higher is better.</dd>
+          <dt>AIC, AICc, BIC</dt><dd>The log-likelihood with a price for each parameter, so a model cannot win just by having more. <b>Lower is better.</b> AICc adds a correction for short series and is what the search uses; BIC charges more per parameter. Gaps under about 2 are ties. Only compare them across models fitted to the same differenced series.</dd>
+          <dt>Observations · parameters</dt><dd>${r.nUsed} points were scored: differencing uses up ${sp.d + sp.D * m} at the start. The parameter count includes the error variance.</dd>
+          <dt>Ljung–Box</dt><dd>Asks whether the model's errors still contain a pattern. A p-value above 0.05 means they look like noise (good); below, the model has left something on the table.</dd>
+          <dt>The ranges</dt><dd>Computed from the model's own formulas, so they assume it is right. They are narrower than the board's, which come from its backtest errors; take them as the best case.</dd>
+        </dl>
+      </details>
       <h5>Forecast <small>${M.H} ${s.A.g.nouns}, analytic ranges</small></h5>
       <div class="ts-boardwrap"><table class="ts-board"><thead><tr><th>Period</th><th>Forecast</th><th>80% range</th><th>95% range</th></tr></thead><tbody>${fcRows}</tbody></table></div>
       <details class="ts-arima-tried"><summary>Models tried, best first</summary><table class="ts-board"><thead><tr><th>Model</th><th>AICc</th></tr></thead><tbody>${tried}</tbody></table></details>
@@ -1506,6 +1563,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (!res) { out.hidden = true; return; }
     out.hidden = false;
     out.innerHTML = res.ok ? cite(arimaHtml(res, s, M).replace("[auto.arima]", "[ref:forecastpkg]")) : `<p class="ts-warn">${escapeHtml(res.reason)}</p>`;
+    renderCompact();
   }
   function downloadArima(): void {
     const s = snap, M = models(), res = arima?.result;
@@ -1621,7 +1679,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     // A full bar is 1.5x the error of repeating the last cycle: one wild model must not squash the rest into dots.
     const top = 1.5;
     const dot = { good: "var(--ok)", okay: "var(--qa-warn)", poor: "var(--danger)", base: "var(--text-dim)" } as const;
-    const rows = groups.filter(([, ks]) => ks.length > 0).map(([label, ks]) =>
+    const bodies = groups.filter(([, ks]) => ks.length > 0).map(([label, ks]) =>
       `<tbody><tr class="ts-group"><th colspan="3" scope="colgroup">${label}</th></tr>${ks.map((k) => {
         const r = ratioOf(s, k), v = verdictFor(s, M, k), m = M.models[k];
         const core = CORE_KEYS.includes(k);
@@ -1631,7 +1689,18 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
           <td><span class="ts-mname">${MODEL_INFO[k].name}</span>${k === pick ? '<span class="ts-autotag">Auto</span>' : ""}<button type="button" class="ts-info" data-info="${k}" aria-label="How ${MODEL_INFO[k].name} works" title="How ${MODEL_INFO[k].name} works: equations, fitting, sources">ⓘ</button><div class="ts-plain">${PLAIN[k] ?? ""}</div></td>
           <td><span class="ts-errtrack"><span class="ts-errbar" style="width:${Number.isFinite(r) ? Math.min(100, Math.max(3, (r / top) * 100)).toFixed(0) : 0}%;opacity:${k === "sn" || k === "clim" ? 0.4 : 0.85}"></span></span><span class="ts-ratio">${Number.isFinite(r) ? r.toFixed(2) : "–"}×</span></td>
           <td>${core ? `<span class="ts-dot" style="background:${dot[v.cls]}"></span>${v.level === "baseline" ? "Baseline" : escapeHtml(v.label) + place}` : `<span class="ts-dot" style="background:${beat ? dot.poor : dot.base}"></span>${beat ? "Beat the pick on unseen data" : "Benchmark"}`}</td></tr>`;
-      }).join("")}</tbody>`).join("");
+      }).join("")}</tbody>`);
+    const ar = arimaRow(s, M);
+    if (ar) {
+      const at = bodies.findIndex((b) => b.includes("Benchmarks: what to beat"));
+      const place = ar.rank !== null ? ` (${ordinal(ar.rank)} of ${CORE_KEYS.length})` : "";
+      const body = `<tbody><tr class="ts-group"><th colspan="3" scope="colgroup">Run by you</th></tr><tr data-arima="1" title="Click for the parameters">
+          <td><span class="ts-mname ts-mono">${escapeHtml(ar.label)}</span><span class="ts-autotag">AutoARIMA</span><button type="button" class="ts-info" data-info="autoarima" aria-label="How AutoARIMA works" title="How AutoARIMA works: the method, how it was checked, sources">ⓘ</button><div class="ts-plain">The textbook's automatic ARIMA search, run by you: click for its parameters</div></td>
+          <td><span class="ts-errtrack"><span class="ts-errbar" style="width:${Math.min(100, Math.max(3, (ar.ratio / top) * 100)).toFixed(0)}%;opacity:0.85"></span></span><span class="ts-ratio">${ar.ratio.toFixed(2)}×</span></td>
+          <td><span class="ts-dot" style="background:${dot[ar.verdict.cls]}"></span>${escapeHtml(ar.verdict.label)}${place}</td></tr></tbody>`;
+      if (at >= 0) bodies.splice(at, 0, body); else bodies.push(body);
+    }
+    const rows = bodies.join("");
     table.innerHTML = `<thead><tr><th>Model</th><th title="Error divided by the error of repeating the last cycle: below 1× is better">Error against repeating the last ${cycleWord(s)}</th><th>On data it never saw</th></tr></thead>${rows}`;
   }
   function renderBoard(): void {
@@ -1660,7 +1729,13 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
           <td><span class="ts-pill ${gd.cls}">${gd.text}</span></td>
           <td>${k === "sn" ? "–" : `${m.folds.won} of ${m.folds.of}`}</td>${M.lockbox ? `<td>${m.lock ? `${metricText(mk, m.lock[mk])} <small>#${lockRank(M, k, mk)}</small>` : "–"}</td>` : ""}
           <td>${chk}</td></tr>`;
-      }).join("") + "</tbody>";
+      }).join("") + (() => {
+        const ar = arimaRow(s, M);
+        if (!ar) return "";
+        const gd = grade(ar.ratio, "ets");
+        return `<tr data-arima="1" title="Click for the parameters"><td><span class="ts-mname ts-mono">${escapeHtml(ar.label)}</span><button type="button" class="ts-info" data-info="autoarima" aria-label="How AutoARIMA works" title="How AutoARIMA works">ⓘ</button><span class="ts-auto">Run by you</span><span class="ts-mmeth">AutoARIMA, the textbook's automatic search; scored on these folds with its order held</span></td>
+          <td>${mk === "mase" ? ar.mase.toFixed(2) : "<small>MASE only</small>"}</td><td>${ar.ratio.toFixed(2)}×</td><td><span class="ts-pill ${gd.cls}">${gd.text}</span></td><td>${ar.won} of ${ar.of}</td>${M.lockbox ? `<td>${ar.lockMase !== null ? `${ar.lockMase.toFixed(2)}${ar.rank !== null ? ` <small>#${ar.rank}</small>` : ""}` : "–"}</td>` : ""}<td>–</td></tr>`;
+      })() + "</tbody>";
     card.innerHTML = modelRows(s, sel, mk).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
     renderCompact();
   }
@@ -2008,6 +2083,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (st) change({ smoothStat: st.dataset.stat as TsConfig["smoothStat"] }, { fade: false });
     const info = target.closest<HTMLElement>("[data-info]");
     if (info) { openDocs(info.dataset.info!); return; }
+    const arimaRowEl = target.closest<HTMLElement>("tr[data-arima]");
+    if (arimaRowEl && !info) { folds.hood = true; applyFolds(); ref("arimaOut").scrollIntoView({ block: "start", behavior: "smooth" }); return; }
     const row = target.closest<HTMLElement>("tr[data-model]");
     if (row && snap) { const M = models(), k = row.dataset.model as ModelKey; uiChange({ model: M && k === M.auto[ui.metric].pick && ui.model !== "auto" ? "auto" : k }); }
     const tab = target.closest<HTMLElement>(".ts-modes [data-mode]");
@@ -2091,10 +2168,14 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   on("hPlus", "click", () => { if (snap) change({ horizon: Math.min(snap.maxH, snap.H + 1) }, { fade: false }); });
   on("splitReset", "click", () => change({ split: null }, { fade: false }));
   on("exportBtn", "click", () => openExportMenu(ref("exportBtn")));
-  on("board", "pointerover", (e) => { const r = (e.target as Element).closest<HTMLElement>("tr[data-model]"); const k = (r?.dataset.model as ModelKey | undefined) ?? null; if (k !== ghostModel) { ghostModel = k; invalidate("stat"); } });
-  on("board", "pointerleave", () => { ghostModel = null; invalidate("stat"); });
-  on("boardCompact", "pointerover", (e) => { const r = (e.target as Element).closest<HTMLElement>("tr[data-model]"); const k = (r?.dataset.model as ModelKey | undefined) ?? null; if (k !== ghostModel) { ghostModel = k; invalidate("stat"); } });
-  on("boardCompact", "pointerleave", () => { ghostModel = null; invalidate("stat"); });
+  const hoverRow = (e: Event): void => {
+    const t = e.target as Element, r = t.closest<HTMLElement>("tr[data-model]");
+    const k = (r?.dataset.model as ModelKey | undefined) ?? null, ar = !!t.closest("tr[data-arima]");
+    if (k !== ghostModel || ar !== ghostArima) { ghostModel = k; ghostArima = ar; invalidate("stat"); }
+  };
+  const hoverEnd = (): void => { ghostModel = null; ghostArima = false; invalidate("stat"); };
+  on("board", "pointerover", hoverRow); on("board", "pointerleave", hoverEnd);
+  on("boardCompact", "pointerover", hoverRow); on("boardCompact", "pointerleave", hoverEnd);
   on("tableBtn", "click", (e) => {
     tableOpen = !tableOpen;
     (e.currentTarget as HTMLElement).setAttribute("aria-expanded", String(tableOpen));

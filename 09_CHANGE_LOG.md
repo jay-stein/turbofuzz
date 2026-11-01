@@ -28,6 +28,18 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-18 — AutoARIMA: every parameter explained in the series' own numbers, and a place on the leaderboards
+
+- **Status:** Verified
+- **Scope:**
+  - **Each coefficient is read for this series**, in a column of its own: a weight on the last period's change becomes "Momentum. About 60% of the last month's change carries into this one, and an effect fades to half in about 1.3 months"; a negative one is "Bounce-back"; a seasonal weight is "the same time last season"; a moving-average weight is an "Echo of a surprise" (98% of last month's forecast error reversed), with a plain note when it sits near -1 beside a difference (the model is largely undoing it, so forecasts lean on the long-run level); a drift becomes a change per period and per season, a mean the level it settles around. Each says whether the term is clearly not zero (z of 2 or more) or could be, and why it stays.
+  - **A glossary under the table**, open by default: what the letters of ARIMA(p,d,q)(P,D,Q)[m] mean for this series, estimate, standard error and z, the error variance (and its square root as the usual miss), log-likelihood, AIC, AICc and BIC (lower is better, ties under about 2, only comparable across the same differencing), the observations used and why differencing loses some, the Ljung-Box check, and why the ranges are the best case.
+  - **A "Run by you" row** on the Compare models board and on the full board once the run has finished: its error against repeating the last cycle (the same quantity as every model's), its folds beaten, its MASE and its place on the unseen lockbox fold among the eight core models, with the same Holds up, Middling or Doubtful verdict. Hovering the row draws its forecast on the chart; clicking it opens the parameters. The row belongs to the series it was run on and disappears when the series, forecast length or transformation changes, not when the tick box is toggled.
+- **Files / components changed:** src/data/timeseries/arima-run.ts (MASE, folds beaten), src/ui/timeseries-page.ts, timeseries-model-docs.ts, src/styles.css, test/e2e/arima.spec.ts
+- **Tests run and results:** typecheck clean; AutoARIMA e2e covers the readings, the glossary, the leaderboard rows and their removal; full suites in the commit
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-17 — Time Series: AutoARIMA as a deep run the analyst starts by hand
 
 - **Status:** Verified

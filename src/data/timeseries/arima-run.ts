@@ -38,8 +38,12 @@ export interface ArimaBacktest {
   folds: number;
   /** Mean absolute error on the selection folds, and the same for repeating the last cycle: the ratio is the board's "error against". */
   mae: number; maeSeasonalNaive: number; ratio: number;
+  /** MASE, as the board's default measure: the error over the in-sample error of repeating the last cycle before the first fold. */
+  mase: number;
   /** The same on the lockbox fold, or null. */
-  lockMae: number | null; lockRatio: number | null;
+  lockMae: number | null; lockRatio: number | null; lockMase: number | null;
+  /** Selection folds where it beat repeating the last cycle, out of those scored. */
+  foldsWon: number; foldsOf: number;
 }
 
 export type ArimaResult =
@@ -94,7 +98,12 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
   const R = job.origins.length;
   if (R > 0) {
     const sel = job.lockbox ? R - 1 : R;
-    let ae = 0, an = 0, se = 0, sn = 0, lockAe = 0, lockSe = 0, lc = 0, lockN = 0;
+    let ae = 0, an = 0, se = 0, lockAe = 0, lockSe = 0, lockN = 0, won = 0, of = 0;
+    // The MASE scale: the in-sample error of repeating the last cycle on the history before the first fold.
+    let scale = 0, sc = 0;
+    const lag = Math.max(1, job.m);
+    for (let t = lag; t < job.origins[0]!; t++) { const dv = Math.abs(job.y[t]! - job.y[t - lag]!); if (dv === dv) { scale += dv; sc++; } }
+    scale = scale / (sc || 1) || 1;
     for (let k = 0; k < R; k++) {
       if (cancelled()) break;
       const o = job.origins[k]!;
@@ -104,6 +113,7 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
       const f = fitArima(seg, best.spec);
       if (!f) continue;
       const pred = forecastArima(seg, f, job.H).F;
+      let foldAe = 0, foldSe = 0, foldN = 0;
       for (let h = 0; h < job.H; h++) {
         const actual = job.y[o + h]!;
         if (!(actual === actual)) continue;
@@ -111,15 +121,16 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
         const ref = job.y[o - Math.max(1, job.m) + (h % Math.max(1, job.m))];
         const s = ref === ref ? Math.abs(actual - ref!) : NaN;
         if (!(e === e) || !(s === s)) continue;
-        if (job.lockbox && k === R - 1) { lockAe += e; lockSe += s; lc++; lockN++; }
-        else { ae += e; se += s; an++; sn++; }
+        if (job.lockbox && k === R - 1) { lockAe += e; lockSe += s; lockN++; }
+        else { ae += e; se += s; an++; foldAe += e; foldSe += s; foldN++; }
       }
+      if (!(job.lockbox && k === R - 1) && foldN > 0) { of++; if (foldAe < foldSe) won++; }
     }
-    void sn; void lc;
     if (an > 0) {
       backtest = {
-        folds: sel, mae: ae / an, maeSeasonalNaive: se / an, ratio: se > 0 ? ae / se : NaN,
-        lockMae: lockN > 0 ? lockAe / lockN : null, lockRatio: lockN > 0 && lockSe > 0 ? lockAe / lockSe : null,
+        folds: sel, mae: ae / an, maeSeasonalNaive: se / an, ratio: se > 0 ? ae / se : NaN, mase: ae / an / scale,
+        lockMae: lockN > 0 ? lockAe / lockN : null, lockRatio: lockN > 0 && lockSe > 0 ? lockAe / lockSe : null, lockMase: lockN > 0 ? lockAe / lockN / scale : null,
+        foldsWon: won, foldsOf: of,
       };
     }
   }

@@ -48,6 +48,26 @@ test("AutoARIMA runs on request and returns the parameters, fit, residual check,
   await expect(out.locator(".ts-arima-tried summary")).toContainText("Models tried");
   await expect(page.locator(".ts-page [data-ref=arimaBtn]")).toHaveText("Run AutoARIMA again");
   await expect(page.locator(".ts-page [data-ref=arimaRun]")).toBeHidden();
+  // Each parameter is read in this series' own numbers, and a glossary explains every figure.
+  await expect(rows.nth(0)).toContainText(/Momentum\. About 60% of the last month's change carries into this one/);
+  await expect(rows.nth(2)).toContainText(/Echo of a surprise\. 98% of the forecast error/);
+  await expect(out.locator(".ts-arima-help")).toContainText("Std. error and z");
+  await expect(out.locator(".ts-arima-help")).toContainText("Ljung–Box");
+  // It joins the leaderboards as a row of its own, scored on the board's folds.
+  await page.locator(".ts-fold[data-fold=compare]").click();
+  const lb = page.locator("[data-ref=boardCompact] tr[data-arima]");
+  await expect(lb).toHaveCount(1);
+  await expect(lb).toContainText("ARIMA(2,1,1)(0,1,0)[12]");
+  await expect(lb).toContainText(/\d\.\d\d×/);
+  await expect(lb).toContainText(/Holds up|Middling|Doubtful/);
+  await expect(page.locator("[data-ref=boardCompact] .ts-group th", { hasText: "Run by you" })).toBeVisible();
+  const full = page.locator("[data-ref=board] tr[data-arima]");
+  await expect(full).toHaveCount(1);
+  await expect(full).toContainText(/Run by you/);
+  await expect(full).toContainText(/\d of \d/);
+  // Changing what is plotted retires the row: it belongs to the series it was run on.
+  await page.locator(".ts-page [data-ref=trSeg] button[data-tr=log]").click();
+  await expect(page.locator("[data-ref=boardCompact] tr[data-arima]")).toHaveCount(0);
 });
 
 test("a long AutoARIMA run shows the donut and its progress, and Stop ends it without a result", async ({ page }) => {

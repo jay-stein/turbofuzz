@@ -296,7 +296,7 @@ export const TOPICS: Topic[] = [
     id: "autoarima",
     title: "AutoARIMA (the deep run)",
     html: `
-      <p>AutoARIMA is a deep run you start by hand under the hood: no time limit, in the background, with a Stop button. It fits the seasonal ARIMA model of Box and Jenkins [ref:boxjenkins] that the search of Hyndman and Khandakar [ref:forecastpkg] (R's <code>auto.arima</code>) settles on, and shows its parameters. It is not on the board and Auto never uses it: it is there to be read and compared.</p>
+      <p>AutoARIMA is a deep run you start by hand under the hood: no time limit, in the background, with a Stop button. It fits the seasonal ARIMA model of Box and Jenkins [ref:boxjenkins] that the search of Hyndman and Khandakar [ref:forecastpkg] (R's <code>auto.arima</code>) settles on, and shows its parameters. Auto never uses it. Once you have run it, it joins the Compare models board in a group of its own ("Run by you"), scored on the same backtest folds as the other models; the row goes away if you change the series, the forecast length or the transformation, because it belongs to the series it was run on. Hover its row to see its forecast on the chart.</p>
       <p><b>The model.</b> φ(B) Φ(B<sup>m</sup>) (1 − B)<sup>d</sup> (1 − B<sup>m</sup>)<sup>D</sup> (y<sub>t</sub> − μ) = θ(B) Θ(B<sup>m</sup>) ε<sub>t</sub>, with ε normal and the same variance throughout. <i>d</i> and <i>D</i> are how many times the series is differenced, plainly and by the season; φ and Φ are autoregressive weights on earlier values, θ and Θ moving-average weights on earlier errors, and μ is a mean (no differencing) or a drift (one difference).</p>
       <h4>How it searches</h4>
       <ol>
