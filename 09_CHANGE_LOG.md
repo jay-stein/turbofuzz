@@ -28,6 +28,23 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-17 — Time Series: AutoARIMA as a deep run the analyst starts by hand
+
+- **Status:** Verified
+- **Scope:**
+  - **A new "AutoARIMA…" button under the hood** starts a search for a seasonal ARIMA model, by the method of Hyndman and Khandakar (R's `auto.arima`), in its own worker: **no time limit**, a spinning donut with the live count of models tried and the best so far, and a **Stop** button that ends it. A tick box tries every order instead of the stepwise neighbourhood (far slower). It is not on the board, not part of Auto and not in the exports: it is there to be read.
+  - **The result is the parameters:** the model as ARIMA(p,d,q)(P,D,Q)[m] with a plain-words reading; a table of every coefficient with its estimate, standard error, z and what it does (autoregressive weight on the value one period earlier, and so on, a drift or mean); the error variance, log-likelihood, AIC, AICc and BIC; why it differenced (the KPSS and seasonal-strength numbers); the Ljung-Box check on its errors; its score on the board's own backtest folds (order held, coefficients refitted on each fold) beside the board's Auto pick and the Combination; the forecast table with the model's own analytic 80% and 95% ranges; the models tried, best first; and a CSV of the parameters and forecast.
+  - **Seasonality:** yes, seasonal ARIMA (the (P,D,Q)[m] part) for seasons up to 24 periods. A longer season (hourly data with a week) is declined with an explanation, as R advises removing the season first, which is not built. Box-Cox, when switched on, is applied and mapped back.
+- **The engine** (`src/data/timeseries/arima.ts`, written from the published method, no code copied): exact Gaussian likelihood by Kalman filter on the state-space form with missing values skipped; CSS then ML by BFGS; stationary autoregression through partial autocorrelations, free moving average with roots reflected afterwards; KPSS and seasonal-strength tests for the differences; the four starting models and the neighbour rules of `auto.arima`; AICc; psi-weight ranges; standard errors from the numerical Hessian.
+- **Checks against independent references:** the airline model on the logged passengers gives theta -0.4018, Theta -0.5570, sigma^2 0.001348, loglik 244.70, AIC -483.39 and standard errors 0.0896 and 0.0731, as published; the search on the raw passengers returns R's ARIMA(2,1,1)(0,1,0)[12], coefficients 0.5960, 0.2143, -0.9819, loglik -504.92, AICc 1018.17. On ten fixed models the likelihood agrees with statsmodels' SARIMAX to 0.02 and the estimates to 0.02. Against Nixtla's statsforecast AutoARIMA on six series it chose the same differences every time and never a higher AICc (it found a lower one on three; statsforecast's optimiser stops a little short, e.g. theta -0.377 against -0.4018 on the airline model).
+- **Two things the references taught:** statsmodels' `trend="t"` handles the differencing states differently, so drift models are compared on the differenced series; and R's KPSS lag is floor(3 sqrt(n) / 13), not the 4 (n/100)^0.25 first used, which changed the differencing of the logged passengers.
+- **Speed:** a monthly series takes 1 to 3 seconds, daily or weekly a few seconds, a 24-period season on 600 points about 40 seconds; the worker keeps the page and the table responsive throughout.
+- **Not done:** seasons over 24 periods, exogenous regressors, R's approximate search on long series (every model here is fitted exactly), ARIMA on the board or in the Combination (on the Monash sets the published ARIMA is rarely better than the Combination).
+- **Files / components changed:** src/data/timeseries/arima.ts, arima-run.ts, references.ts; src/worker/arima.worker.ts; src/ui/timeseries-arima.ts, timeseries-page.ts, timeseries-model-docs.ts; src/styles.css; tools/ts-eval/make-arima-reference.py; test/fixtures/arima-reference.json; tests (12 unit, 2 e2e)
+- **Tests run and results:** typecheck clean; 1230 unit tests pass; AutoARIMA e2e (a full run to R's answer, and a long run stopped) pass
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-16 — Time Series: bridging unusual periods in the fit: tried, not shipped
 
 - **Status:** Attempted, not shipped (recorded so it is not repeated)

@@ -246,15 +246,52 @@ REFERENCES.boxcox = {
   used: "The power transformation family.",
 };
 
+REFERENCES.boxjenkins = {
+  short: "Box, Jenkins, Reinsel & Ljung (2015)",
+  full: "Box, G. E. P., Jenkins, G. M., Reinsel, G. C. and Ljung, G. M. (2015). Time Series Analysis: Forecasting and Control, 5th edition. Wiley.",
+  url: "https://www.wiley.com/en-us/Time+Series+Analysis%3A+Forecasting+and+Control%2C+5th+Edition-p-9781118675021",
+  used: "The ARIMA model class and the airline model (0,1,1)(0,1,1) that the AutoARIMA run is checked against.",
+};
+REFERENCES.gardner1980 = {
+  short: "Gardner, Harvey & Phillips (1980)",
+  full: "Gardner, G., Harvey, A. C. and Phillips, G. D. A. (1980). Algorithm AS 154: An algorithm for exact maximum likelihood estimation of autoregressive-moving average models by means of Kalman filtering. Journal of the Royal Statistical Society C, 29(3), 311-322.",
+  url: "https://doi.org/10.2307/2346910",
+  used: "The state-space form of an ARMA model and the exact Gaussian likelihood by Kalman filter that AutoARIMA uses.",
+};
+REFERENCES.jones1980 = {
+  short: "Jones (1980)",
+  full: "Jones, R. H. (1980). Maximum likelihood fitting of ARMA models to time series with missing observations. Technometrics, 22(3), 389-395.",
+  url: "https://doi.org/10.1080/00401706.1980.10486171",
+  used: "Fitting by the Kalman filter with missing values skipped, and the mapping of partial autocorrelations to a stationary autoregression.",
+};
+REFERENCES.kpss = {
+  short: "Kwiatkowski, Phillips, Schmidt & Shin (1992)",
+  full: "Kwiatkowski, D., Phillips, P. C. B., Schmidt, P. and Shin, Y. (1992). Testing the null hypothesis of stationarity against the alternative of a unit root. Journal of Econometrics, 54(1-3), 159-178.",
+  url: "https://doi.org/10.1016/0304-4076(92)90104-Y",
+  used: "The KPSS test AutoARIMA uses to decide how many times to difference.",
+};
+REFERENCES.wang2006 = {
+  short: "Wang, Smith & Hyndman (2006)",
+  full: "Wang, X., Smith, K. and Hyndman, R. (2006). Characteristic-based clustering for time series data. Data Mining and Knowledge Discovery, 13(3), 335-364.",
+  url: "https://doi.org/10.1007/s10618-005-0039-x",
+  used: "The seasonal strength (1 minus the variance of the remainder over that of season plus remainder) and its 0.64 cut, which decide whether to difference seasonally.",
+};
+REFERENCES.statsforecast = {
+  short: "Nixtla statsforecast",
+  full: "Nixtla (2022-). statsforecast: lightning fast forecasting with statistical and econometric models (Apache-2.0). https://github.com/Nixtla/statsforecast",
+  url: "https://github.com/Nixtla/statsforecast",
+  used: "Development only: its AutoARIMA (a port of R's auto.arima) is the reference our search is compared with. No code copied.",
+};
+
 /** Ids in a stable order for the Sources list: grouped by what they support. */
 export const REFERENCE_ORDER: string[] = [
   "fpp3", "forecastpkg", "monash",
-  "ets2002", "holt", "winters", "damped", "aicc", "nelder", "croston", "syntetos2005", "teunter2011", "kolassa2016", "boxcox", "guerrero",
+  "ets2002", "holt", "winters", "damped", "aicc", "nelder", "croston", "syntetos2005", "teunter2011", "kolassa2016", "boxcox", "guerrero", "boxjenkins", "gardner1980", "jones1980", "kpss", "wang2006",
   "theta", "thetabillah", "m3", "m4", "tourism",
   "bates", "clemen", "smithwallis",
   "stl", "mstl", "bartlett",
   "prophet", "ridge", "duan",
   "mase", "smape", "wape", "cv", "winkler", "scoring", "ljung",
   "dm", "hln", "newey", "selection", "varma",
-  "statsmodels",
+  "statsmodels", "statsforecast",
 ];

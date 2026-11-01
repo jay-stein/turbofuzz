@@ -293,6 +293,32 @@ export const TOPICS: Topic[] = [
       <p>So the ranges are close to honest for most monthly, quarterly and daily series, and <b>still too narrow for short yearly series and for weekly ones</b>: read them there as a minimum. We have not stretched them by a fixed factor, and a small-sample (<i>t</i>) correction was tried and rejected: it over-covered (86% against an aim of 80%) and scored worse.</p>`,
   },
   {
+    id: "autoarima",
+    title: "AutoARIMA (the deep run)",
+    html: `
+      <p>AutoARIMA is a deep run you start by hand under the hood: no time limit, in the background, with a Stop button. It fits the seasonal ARIMA model of Box and Jenkins [ref:boxjenkins] that the search of Hyndman and Khandakar [ref:forecastpkg] (R's <code>auto.arima</code>) settles on, and shows its parameters. It is not on the board and Auto never uses it: it is there to be read and compared.</p>
+      <p><b>The model.</b> φ(B) Φ(B<sup>m</sup>) (1 − B)<sup>d</sup> (1 − B<sup>m</sup>)<sup>D</sup> (y<sub>t</sub> − μ) = θ(B) Θ(B<sup>m</sup>) ε<sub>t</sub>, with ε normal and the same variance throughout. <i>d</i> and <i>D</i> are how many times the series is differenced, plainly and by the season; φ and Φ are autoregressive weights on earlier values, θ and Θ moving-average weights on earlier errors, and μ is a mean (no differencing) or a drift (one difference).</p>
+      <h4>How it searches</h4>
+      <ol>
+        <li><b>Differences.</b> The seasonal strength of an STL fit with a periodic season [ref:wang2006] above 0.64 means one seasonal difference. Then a KPSS test [ref:kpss], with a window of ⌊3√n/13⌋ lags and a 5% level (0.463), adds up to two plain differences while the series still looks like it wanders.</li>
+        <li><b>Four starting models</b>: (2,d,2)(1,D,1), (0,d,0)(0,D,0), (1,d,0)(1,D,0) and (0,d,1)(0,D,1), each with and without the constant when one is allowed (a mean if nothing is differenced, a drift if one difference is).</li>
+        <li><b>Neighbours.</b> From the best so far it tries one more or one fewer of each order, both together, and the constant switched, and moves to any that lowers the corrected Akaike criterion (AICc) [ref:aicc], until none does. The orders stop at p, q ≤ 5, P, Q ≤ 2 and five terms in all. "Try every order" fits every order within those limits instead, which is far slower.</li>
+      </ol>
+      <h4>How each model is fitted</h4>
+      <p>The likelihood is the exact Gaussian one: the model is put in state-space form [ref:gardner1980] and the Kalman filter scores every observation, skipping missing ones [ref:jones1980], with the error variance concentrated out. Estimation is R's "CSS-ML": a conditional sum of squares first, then the exact likelihood from there, by BFGS. Autoregressive weights are mapped to the stationary region through partial autocorrelations; moving-average weights are left free and any root inside the unit circle is reflected afterwards, which leaves the likelihood unchanged and is what R does. Standard errors come from the numerical Hessian of the likelihood.</p>
+      <h4>Forecasts and ranges</h4>
+      <p>Forecasts come from the filter's state, with the differences integrated back. The 80% and 95% ranges are the model's own: the forecast ± z × σ √(ψ<sub>0</sub>² + … + ψ<sub>h−1</sub>²), with ψ the weights of the whole model, differencing included [ref:fpp3] (9.8). They assume the model is right, so they are narrower than the board's, which are built from its backtest errors. The run also scores the order on the board's backtest folds (the order held, the coefficients refitted on each fold's history) so it can be set beside the board's models; if the series has a Box-Cox power switched on, the model is fitted on the transformed series and mapped back.</p>
+      <h4>What it does not do</h4>
+      <ul>
+        <li>A season longer than 24 periods (hourly data with a week) is not handled: R's advice is to remove the season first and fit the adjusted series, which is not built.</li>
+        <li>R uses a quicker approximate fit during the search on long series (over 150 points or a season over 12) and refits the winner exactly; here every model in the search is fitted exactly, so it can be slower and, now and then, choose differently.</li>
+        <li>Exogenous regressors (drivers) are not used.</li>
+      </ul>
+      <h4>How it was checked</h4>
+      <p>It reproduces R's published results: the airline model on the logged passengers (θ = −0.4018, Θ = −0.5570, σ² = 0.001348, log-likelihood 244.70, AIC −483.4, standard errors 0.090 and 0.073), and <code>auto.arima</code> on the raw passengers: ARIMA(2,1,1)(0,1,0)[12] with coefficients 0.5960, 0.2143 and −0.9819, AICc 1018.17. On ten fixed models its log-likelihood matches statsmodels' [ref:statsmodels] to 0.02 and its estimates to 0.02 (on the differenced series, for models with a drift). Against Nixtla's statsforecast [ref:statsforecast], a port of <code>auto.arima</code>, on six series it chose the same differences every time and never ended with a higher AICc. A monthly series of a few hundred points takes a few seconds; a 24-period season on 600 points took about 40 seconds.</p>
+      <p>On the Monash archive [ref:monash] the published ARIMA scores are rarely better than the Combination's, so it is not part of Auto. On a single series it can win: on the raw passengers its backtest error is 0.61 times that of repeating the last cycle, against 0.69 for the board's Auto pick.</p>`,
+  },
+  {
     id: "transform",
     title: "Transformations (Box-Cox)",
     html: `

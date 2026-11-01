@@ -12293,3 +12293,21 @@ button.qp-tile:hover {
 .ts-hood-detail { margin: 0 0 10px; }
 .ts-fold .ts-note { margin: 0; line-height: 1.3; }
 .ts-fold { min-height: 44px; }
+
+/* AutoARIMA: a deep run started by hand */
+.ts-arima { margin: 0 0 12px; }
+.ts-arima-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.ts-arima-run { display: flex; align-items: center; gap: 14px; margin: 10px 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-2); }
+.ts-arima-prog { flex: 1; min-width: 0; font-size: 13px; line-height: 1.5; }
+.ts-donut { flex: none; width: 30px; height: 30px; border-radius: 50%; border: 4px solid color-mix(in srgb, var(--ts-forecast) 22%, transparent); border-top-color: var(--ts-forecast); animation: ts-spin 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .ts-donut { animation: ts-pulse 1.4s ease-in-out infinite; } }
+.ts-arima-out { margin: 10px 0 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+.ts-arima-out h4 { margin: 0 0 6px; font-family: var(--mono); font-size: 16px; }
+.ts-arima-out h4 small { font-family: var(--font-sans); font-weight: 400; font-size: 12px; color: var(--text-dim); }
+.ts-arima-out h5 { margin: 14px 0 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
+.ts-arima-out h5 small { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.ts-arima-table td, .ts-arima-table th { white-space: normal; }
+.ts-arima-fit { margin: 10px 0; }
+.ts-arima-tried { margin: 10px 0; }
+.ts-arima-tried summary { cursor: pointer; font-size: 13px; color: var(--text-dim); }
+.ts-mono { font-family: var(--mono); }

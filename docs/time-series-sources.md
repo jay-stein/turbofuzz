@@ -30,6 +30,28 @@ Everything was reimplemented from the published methods. No code was copied from
   Used for: AICc, the small-sample corrected Akaike criterion used to choose the ETS form.
 - **Nelder & Mead (1965).** Nelder, J. A. and Mead, R. (1965). A simplex method for function minimization. The Computer Journal, 7(4), 308-313.
   Used for: The simplex optimiser that fits the ETS smoothing parameters and starting states (as in R's ets()).
+- **Croston (1972).** Croston, J. D. (1972). Forecasting and stock control for intermittent demands. Operational Research Quarterly, 23(3), 289-303. https://doi.org/10.1057/jors.1972.50
+  Used for: The first method for intermittent demand: the size of a sale and the gap between sales are smoothed separately.
+- **Syntetos & Boylan (2005).** Syntetos, A. A. and Boylan, J. E. (2005). The accuracy of intermittent demand estimates. International Journal of Forecasting, 21(2), 303-314. https://doi.org/10.1016/j.ijforecast.2004.10.001
+  Used for: The bias in Croston's rate and its correction (the factor 1 - alpha/2), and the cut that calls demand intermittent (an average demand interval above 1.32, with Croston).
+- **Teunter, Syntetos & Babai (2011).** Teunter, R. H., Syntetos, A. A. and Babai, M. Z. (2011). Intermittent demand: linking forecasting to inventory obsolescence. European Journal of Operational Research, 214(3), 606-615. https://doi.org/10.1016/j.ejor.2011.05.018
+  Used for: The TSB method: the chance of a sale is updated every period, so the forecast fades when sales stop.
+- **Kolassa (2016).** Kolassa, S. (2016). Evaluating predictive count data distributions in retail sales forecasting. International Journal of Forecasting, 32(3), 788-803. https://doi.org/10.1016/j.ijforecast.2015.12.004
+  Used for: Why absolute-error measures (MAE, MASE) reward forecasting zero for a series that is mostly zeros: the median is zero, though the mean demand is not.
+- **Box & Cox (1964).** Box, G. E. P. and Cox, D. R. (1964). An analysis of transformations. Journal of the Royal Statistical Society B, 26(2), 211-252. https://doi.org/10.1111/j.2517-6161.1964.tb00553.x
+  Used for: The power transformation family.
+- **Guerrero (1993).** Guerrero, V. M. (1993). Time-series analysis supported by power transformations. Journal of Forecasting, 12(1), 37-48. https://doi.org/10.1002/for.3980120104
+  Used for: The choice of the Box-Cox power: the one that makes the spread of each short stretch, relative to its level, steadiest.
+- **Box, Jenkins, Reinsel & Ljung (2015).** Box, G. E. P., Jenkins, G. M., Reinsel, G. C. and Ljung, G. M. (2015). Time Series Analysis: Forecasting and Control, 5th edition. Wiley. https://www.wiley.com/en-us/Time+Series+Analysis%3A+Forecasting+and+Control%2C+5th+Edition-p-9781118675021
+  Used for: The ARIMA model class and the airline model (0,1,1)(0,1,1) that the AutoARIMA run is checked against.
+- **Gardner, Harvey & Phillips (1980).** Gardner, G., Harvey, A. C. and Phillips, G. D. A. (1980). Algorithm AS 154: An algorithm for exact maximum likelihood estimation of autoregressive-moving average models by means of Kalman filtering. Journal of the Royal Statistical Society C, 29(3), 311-322. https://doi.org/10.2307/2346910
+  Used for: The state-space form of an ARMA model and the exact Gaussian likelihood by Kalman filter that AutoARIMA uses.
+- **Jones (1980).** Jones, R. H. (1980). Maximum likelihood fitting of ARMA models to time series with missing observations. Technometrics, 22(3), 389-395. https://doi.org/10.1080/00401706.1980.10486171
+  Used for: Fitting by the Kalman filter with missing values skipped, and the mapping of partial autocorrelations to a stationary autoregression.
+- **Kwiatkowski, Phillips, Schmidt & Shin (1992).** Kwiatkowski, D., Phillips, P. C. B., Schmidt, P. and Shin, Y. (1992). Testing the null hypothesis of stationarity against the alternative of a unit root. Journal of Econometrics, 54(1-3), 159-178. https://doi.org/10.1016/0304-4076(92)90104-Y
+  Used for: The KPSS test AutoARIMA uses to decide how many times to difference.
+- **Wang, Smith & Hyndman (2006).** Wang, X., Smith, K. and Hyndman, R. (2006). Characteristic-based clustering for time series data. Data Mining and Knowledge Discovery, 13(3), 335-364. https://doi.org/10.1007/s10618-005-0039-x
+  Used for: The seasonal strength (1 minus the variance of the remainder over that of season plus remainder) and its 0.64 cut, which decide whether to difference seasonally.
 - **Assimakopoulos & Nikolopoulos (2000).** Assimakopoulos, V. and Nikolopoulos, K. (2000). The theta model: a decomposition approach to forecasting. International Journal of Forecasting, 16(4), 521-530.
   Used for: The Theta method and its test for seasonality.
 - **Hyndman & Billah (2003).** Hyndman, R. J. and Billah, B. (2003). Unmasking the Theta method. International Journal of Forecasting, 19(2), 287-290.
@@ -84,3 +106,5 @@ Everything was reimplemented from the published methods. No code was copied from
   Used for: The size of that optimism.
 - **Seabold & Perktold (2010).** Seabold, S. and Perktold, J. (2010). statsmodels: Econometric and statistical modeling with Python. Proceedings of the 9th Python in Science Conference.
   Used for: Development only: its STL and MSTL are the reference our implementation is checked against. No code copied.
+- **Nixtla statsforecast.** Nixtla (2022-). statsforecast: lightning fast forecasting with statistical and econometric models (Apache-2.0). https://github.com/Nixtla/statsforecast https://github.com/Nixtla/statsforecast
+  Used for: Development only: its AutoARIMA (a port of R's auto.arima) is the reference our search is compared with. No code copied.

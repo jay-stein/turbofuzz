@@ -17,8 +17,10 @@ import {
 import { BENCHMARK_KEYS, CORE_KEYS, flexDetail, grade, METRIC_KEYS, MODEL_INFO, MODEL_KEYS, type Future, type MetricKey, type ModelKey, type ModelRun } from "../data/timeseries/models.js";
 import { METRIC_INFO, metricText, openModelGuide } from "./timeseries-metrics.js";
 import { backtestRows, forecastRows, scorecardRows } from "./timeseries-export.js";
-import { openModelDetails } from "./timeseries-model-docs.js";
+import { cite, openModelDetails } from "./timeseries-model-docs.js";
 import { ordinal, PLAIN, trustVerdict, type Verdict } from "../data/timeseries/verdict.js";
+import type { ArimaJob, ArimaProgress, ArimaResult } from "../data/timeseries/arima-run.js";
+import { startArima, type ArimaRun } from "./timeseries-arima.js";
 import { openMenu } from "./menu.js";
 import type { ColumnMeta, TimeSeriesMessage } from "../worker/protocol.js";
 import { downloadCsv } from "./chart-export.js";
@@ -177,6 +179,15 @@ const TEMPLATE = `
           <button class="ts-ghost ts-guide-btn" type="button" data-ref="guideBtn">Which model, and why?</button>
           <button class="ts-ghost" type="button" data-ref="docsBtn" title="Equations, fitting, forecasts, bands, differences from the textbook, and sources for every model">How the models work</button>
           <button class="ts-ghost ts-deep-btn" type="button" data-ref="deepBtn" title="Significance tests, error by steps ahead, band calibration on every fold and residual diagnostics. Slower: runs only when asked.">Deep check</button>
+        </div>
+        <div class="ts-arima">
+          <div class="ts-arima-bar">
+            <button class="ts-ghost ts-deep-btn" type="button" data-ref="arimaBtn" title="Searches seasonal ARIMA models for this series and reports the one it settles on, with its parameters. A deep run you start yourself: no time limit.">AutoARIMA…</button>
+            <label class="ts-check" title="Tries every order up to ARIMA(5,d,5)(2,D,2) within five terms, not just the neighbours of the best so far. Much slower."><input type="checkbox" data-ref="arimaAll"> Try every order (much slower)</label>
+            <span class="ts-note">A deep run in the background, with no time limit: it searches ARIMA models by the textbook's method and shows the parameters it settles on.</span>
+          </div>
+          <div class="ts-arima-run" data-ref="arimaRun" hidden role="status" aria-live="polite"><span class="ts-donut" aria-hidden="true"></span><div class="ts-arima-prog" data-ref="arimaProg"></div><button class="ts-ghost" type="button" data-ref="arimaCancel">Stop</button></div>
+          <div class="ts-arima-out" data-ref="arimaOut" hidden></div>
         </div>
         <div class="ts-deep" data-ref="deepBox" hidden></div>
         <div class="ts-hood-detail" data-ref="heroDetail"></div>
@@ -1199,6 +1210,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       ref("trainNote").textContent = M ? `Learns from ${shortPeriod(gr, a.t[0])} to ${shortPeriod(gr, a.t[M.T - 1])}${M.T < a.modelN ? " (drag the split line to change)" : ""}` : "";
       renderBoard();
       renderDeep();
+      renderArima();
     }
     if (ui.mode === "patterns") renderPatterns();
   }
@@ -1397,6 +1409,114 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       deep = { key, result: msg?.snapshot?.deep ?? null };
       invalidate("ui", "panel");
     });
+  }
+  // ---------------------------------------------------------------- AutoARIMA (a deep run, started by hand)
+  let arima: { key: string; result: ArimaResult | null; running: ArimaRun | null; progress: ArimaProgress | null; started: number } | null = null;
+  const arimaKey = (s: TsSnapshot): string => `${curveKey(s)}|${ref<HTMLInputElement>("arimaAll").checked ? "all" : "step"}`;
+  function arimaProgressText(): string {
+    if (!arima) return "";
+    const p = arima.progress, secs = Math.round((performance.now() - arima.started) / 1000);
+    if (!p) return `Starting… ${secs} s`;
+    return `<b>${escapeHtml(p.stage)}</b>${p.tried ? ` · ${p.tried} model${p.tried === 1 ? "" : "s"} tried` : ""}${p.best ? ` · best so far <span class="ts-mono">${escapeHtml(p.best)}</span> (AICc ${Number.isFinite(p.bestAicc) ? p.bestAicc.toFixed(1) : "–"})` : ""}${p.current ? `<br><small>trying <span class="ts-mono">${escapeHtml(p.current)}</span></small>` : ""} · ${secs} s`;
+  }
+  function runArima(): void {
+    const s = snap;
+    if (!s || "error" in s.models || arima?.running) return;
+    const M = s.models as ModelRun, a = s.A;
+    const y = a.yModel.slice(0, a.modelN);
+    for (let t = 0; t < y.length; t++) if (a.made[t]) y[t] = NaN;
+    const job: ArimaJob = {
+      y, T: M.T, H: M.H, m: M.m, seasonMode: M.season.mode, origins: M.origins, rolling: M.cv === "rolling", trainLen: M.trainLen, lockbox: M.lockbox,
+      lambda: M.transform ? M.transform.lambda : null, nonNeg: a.nonNeg, exhaustive: ref<HTMLInputElement>("arimaAll").checked,
+    };
+    const run = startArima(job, (p) => { if (arima) { arima.progress = p; ref("arimaProg").innerHTML = arimaProgressText(); } });
+    arima = { key: arimaKey(s), result: null, running: run, progress: null, started: performance.now() };
+    ref("arimaProg").innerHTML = arimaProgressText();
+    invalidate("ui", "panel");
+    void run.done.then((result) => {
+      if (arima && arima.running === run) { arima.result = result; arima.running = null; invalidate("ui", "panel"); }
+    });
+    // The elapsed seconds keep ticking while the search is quiet.
+    const tick = window.setInterval(() => { if (!arima?.running) window.clearInterval(tick); else ref("arimaProg").innerHTML = arimaProgressText(); }, 1000);
+  }
+  const arimaWord = (name: string): string => {
+    const k = /^(sar|sma|ar|ma)(\d+)$/.exec(name);
+    if (k) {
+      const n = Number(k[2]), seasonal = k[1]!.startsWith("s"), ar = k[1]!.endsWith("ar");
+      const when = seasonal ? (n === 1 ? "one season earlier" : `${n} seasons earlier`) : n === 1 ? "one period earlier" : `${n} periods earlier`;
+      return ar ? `weight on the value ${when}${seasonal ? "" : " (after differencing)"}` : `weight on the error ${when}`;
+    }
+    return name === "drift" ? "the average change per period the forecast keeps adding" : name === "mean" ? "the level the differenced series settles around" : "";
+  };
+  function arimaHtml(r: Extract<ArimaResult, { ok: true }>, s: TsSnapshot, M: ModelRun): string {
+    const sp = r.spec, d = r.differences, m = sp.m;
+    const word = arimaWord;
+    const diffWords = [
+      d.d ? `differenced ${d.d === 1 ? "once" : "twice"} (the KPSS test found the series wandering: statistic ${d.kpss.map((v) => v.toFixed(2)).join(" then ")} against 0.46)` : `not differenced (the KPSS test found it steady: statistic ${d.kpss[0]?.toFixed(2) ?? "–"}, under 0.46)`,
+      m > 1 ? (d.D ? `seasonally differenced once (seasonal strength ${d.strength.toFixed(2)}, above 0.64)` : `not seasonally differenced (seasonal strength ${d.strength.toFixed(2)}, under 0.64)`) : "",
+    ].filter(Boolean).join("; ");
+    const terms = [sp.p ? `${sp.p} autoregressive` : "", sp.q ? `${sp.q} moving-average` : "", sp.P ? `${sp.P} seasonal autoregressive` : "", sp.Q ? `${sp.Q} seasonal moving-average` : ""].filter(Boolean);
+    const coefRows = r.coefs.map((c) => {
+      const z = c.se !== null && c.se > 0 ? c.value / c.se : NaN;
+      return `<tr><td class="ts-mono">${c.name}</td><td class="ts-mono">${c.value.toFixed(4)}</td><td class="ts-mono">${c.se !== null ? c.se.toFixed(4) : "–"}</td><td class="ts-mono">${Number.isFinite(z) ? z.toFixed(1) : "–"}</td><td>${word(c.name)}</td></tr>`;
+    }).join("");
+    const rc = r.resid;
+    const resid = rc
+      ? `<p>Ljung–Box on the model's errors (${rc.lag} lags, ${rc.n} errors): Q = ${rc.q.toFixed(1)}, p = ${rc.p < 0.001 ? "< 0.001" : rc.p.toFixed(3)}. ${rc.p >= 0.05 ? `<span class="ts-ok">The errors look like noise: no pattern the model left behind.</span>` : `<span class="ts-warn">The errors still show a pattern (p under 0.05): the model has missed something.</span>`}</p>`
+      : "";
+    const bt = r.backtest;
+    const comb = M.models.comb, pickKey = M.auto[ui.metric].pick, pickM = M.models[pickKey];
+    const boardRatio = (k: ModelKey): number => ratioOf(s, k);
+    const backtest = bt
+      ? `<p>Scored on the board's ${bt.folds} backtest fold${bt.folds === 1 ? "" : "s"}, the order held and the coefficients refitted on each fold's history: error <b>${bt.ratio.toFixed(2)}×</b> that of repeating the last cycle (the board's ${MODEL_INFO[pickKey].name}: ${Number.isFinite(boardRatio(pickKey)) ? boardRatio(pickKey).toFixed(2) + "×" : "–"}; the Combination: ${Number.isFinite(boardRatio("comb")) ? boardRatio("comb").toFixed(2) + "×" : "–"}).${bt.lockRatio !== null ? ` On the lockbox fold, which nothing was chosen on: ${bt.lockRatio.toFixed(2)}×.` : ""}</p>`
+      : `<p class="ts-note">Too little history for a backtest, so there is no score for this model beyond how well it fits.</p>`;
+    void comb; void pickM;
+    const T = times(), P = M.T;
+    const fcRows = r.forecast.F.map((f, h) => `<tr><td>${periodLabel(s.A.g, T[P + h] ?? NaN)}</td><td>${full(f)}</td><td>${full(r.forecast.lo80[h]!)} to ${full(r.forecast.hi80[h]!)}</td><td>${full(r.forecast.lo95[h]!)} to ${full(r.forecast.hi95[h]!)}</td></tr>`).join("");
+    const tried = r.tried.slice(0, 12).map((t) => `<tr><td class="ts-mono">${escapeHtml(t.label.replace(/^ARIMA/, ""))}</td><td class="ts-mono">${t.ok && Number.isFinite(t.aicc) ? t.aicc.toFixed(2) : "no fit"}</td></tr>`).join("");
+    return `
+      <h4>${escapeHtml(r.label)} <small>${r.searched === "stepwise" ? "stepwise search" : "every order tried"}: ${r.tried.length} model${r.tried.length === 1 ? "" : "s"} in ${r.seconds < 10 ? r.seconds.toFixed(1) : Math.round(r.seconds)} s</small></h4>
+      <p>${diffWords ? `The series is ${diffWords}. ` : ""}${terms.length ? `The model adds ${terms.join(", ")} term${sp.p + sp.q + sp.P + sp.Q === 1 ? "" : "s"}` : "The model has no autoregressive or moving-average terms"}${sp.constant ? `, with a ${sp.d + sp.D === 0 ? "constant mean" : "drift"}` : ""}.${r.lambda !== null ? ` Fitted on the Box-Cox transformed series (λ = ${r.lambda.toFixed(2)}) and mapped back.` : ""}</p>
+      <h5>Parameters</h5>
+      <table class="ts-board ts-arima-table"><thead><tr><th>Term</th><th>Estimate</th><th>Std. error</th><th>z</th><th>What it does</th></tr></thead><tbody>${coefRows || `<tr><td colspan="5">None: a random walk${sp.constant ? " with drift" : ""}.</td></tr>`}</tbody></table>
+      <dl class="ts-modelcard ts-arima-fit">
+        <dt>Error variance σ²</dt><dd class="ts-mono">${r.sigma2.toPrecision(5)}</dd>
+        <dt>Log-likelihood</dt><dd class="ts-mono">${r.loglik.toFixed(2)}</dd>
+        <dt>AIC · AICc · BIC</dt><dd class="ts-mono">${r.aic.toFixed(2)} · ${r.aicc.toFixed(2)} · ${r.bic.toFixed(2)}</dd>
+        <dt>Observations · parameters</dt><dd class="ts-mono">${r.nUsed} · ${r.k} (the variance included)</dd>
+        ${r.converged ? "" : `<dt>Note</dt><dd><span class="ts-warn">The optimiser stopped before it fully converged; treat the estimates as approximate.</span></dd>`}
+      </dl>
+      ${resid}
+      ${backtest}
+      <h5>Forecast <small>${M.H} ${s.A.g.nouns}, analytic ranges</small></h5>
+      <div class="ts-boardwrap"><table class="ts-board"><thead><tr><th>Period</th><th>Forecast</th><th>80% range</th><th>95% range</th></tr></thead><tbody>${fcRows}</tbody></table></div>
+      <details class="ts-arima-tried"><summary>Models tried, best first</summary><table class="ts-board"><thead><tr><th>Model</th><th>AICc</th></tr></thead><tbody>${tried}</tbody></table></details>
+      <p class="ts-note">Method: Hyndman and Khandakar 2008 [auto.arima]; the likelihood is exact, by Kalman filter; ranges from the model's own formulas. Not part of Auto and not on the board: it is here to be read and compared.</p>
+      <div class="ts-boardbar"><button type="button" class="ts-ghost" data-ref="arimaCsv">Download parameters and forecast (CSV)</button></div>`;
+  }
+  function renderArima(): void {
+    const s = snap as TsSnapshot, M = models(), btn = ref("arimaBtn"), run = ref("arimaRun"), out = ref("arimaOut");
+    if (!M) { run.hidden = true; out.hidden = true; return; }
+    const running = !!arima?.running;
+    run.hidden = !running;
+    btn.textContent = running ? "Searching…" : arima?.result ? "Run AutoARIMA again" : "AutoARIMA…";
+    (btn as HTMLButtonElement).disabled = running;
+    if (running) ref("arimaProg").innerHTML = arimaProgressText();
+    const res = arima && !arima.running && arima.key === arimaKey(s) ? arima.result : null;
+    if (!res) { out.hidden = true; return; }
+    out.hidden = false;
+    out.innerHTML = res.ok ? cite(arimaHtml(res, s, M).replace("[auto.arima]", "[ref:forecastpkg]")) : `<p class="ts-warn">${escapeHtml(res.reason)}</p>`;
+  }
+  function downloadArima(): void {
+    const s = snap, M = models(), res = arima?.result;
+    if (!s || !M || !res || !res.ok) return;
+    const rows: string[][] = [["section", "name", "value", "std_error", "extra"]];
+    rows.push(["model", res.label, "", "", `${res.searched}; ${res.tried.length} tried`]);
+    for (const c of res.coefs) rows.push(["parameter", c.name, String(c.value), c.se === null ? "" : String(c.se), ""]);
+    rows.push(["fit", "sigma2", String(res.sigma2), "", ""], ["fit", "loglik", String(res.loglik), "", ""], ["fit", "aic", String(res.aic), "", ""], ["fit", "aicc", String(res.aicc), "", ""], ["fit", "bic", String(res.bic), "", ""]);
+    const T = times();
+    res.forecast.F.forEach((f, h) => rows.push(["forecast", new Date(T[M.T + h] ?? NaN).toISOString().slice(0, 10), String(f), "", `lo80 ${res.forecast.lo80[h]}; hi80 ${res.forecast.hi80[h]}; lo95 ${res.forecast.lo95[h]}; hi95 ${res.forecast.hi95[h]}`]));
+    if (downloadCsv(`${csvBase(s)}-autoarima.csv`, rows)) options.onAction(`Exported the AutoARIMA parameters and ${res.forecast.F.length}-${s.A.g.noun} forecast`);
   }
   function renderDeep(): void {
     const s = snap as TsSnapshot, M = models(), box = ref("deepBox"), pick = selectedModel(s, ui);
@@ -1953,6 +2073,10 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   });
   applyFolds();
   on("deepBtn", "click", () => runDeep());
+  on("arimaBtn", "click", () => runArima());
+  on("arimaCancel", "click", () => { arima?.running?.cancel(); arima = null; invalidate("ui", "panel"); });
+  on("arimaAll", "change", () => invalidate("ui", "panel"));
+  ref("arimaOut").addEventListener("click", (e) => { if ((e.target as Element).closest("[data-ref=arimaCsv]")) downloadArima(); });
   on("flexCurve", "click", (e) => { const b = (e.target as Element).closest<HTMLElement>("[data-flexpick]"); if (b) change({ flex: Number(b.dataset.flexpick) }, { fade: false }); });
   on("diffOn", "change", (e) => uiChange({ diff: (e.target as HTMLInputElement).checked, diffLag: ui.diffLag || defaultLag() }));
   on("diffLag", "change", (e) => { const v = Math.round(Number((e.target as HTMLInputElement).value)); if (v >= 1) uiChange({ diff: true, diffLag: v }); });

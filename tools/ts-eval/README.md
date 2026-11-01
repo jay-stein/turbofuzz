@@ -38,4 +38,4 @@ Download the `.tsf` zips from each dataset's Zenodo record (linked from forecast
 
 ## STL reference and sources document
 
-`make-stl-reference.py` (run with the dev venv's Python, which has statsmodels) writes `test/fixtures/stl-reference.json`, the reference output our STL and MSTL are tested against. `make-sources-doc.ts` writes `docs/time-series-sources.md` from `src/data/timeseries/references.ts`, the list of sources behind the app's *Sources and credits* page.
+`make-arima-reference.py` writes `test/fixtures/arima-reference.json`: statsmodels' SARIMAX fits of ten fixed models, and Nixtla's statsforecast AutoARIMA on six series, which the ARIMA tests compare our engine with. `make-stl-reference.py` (run with the dev venv's Python, which has statsmodels) writes `test/fixtures/stl-reference.json`, the reference output our STL and MSTL are tested against. `make-sources-doc.ts` writes `docs/time-series-sources.md` from `src/data/timeseries/references.ts`, the list of sources behind the app's *Sources and credits* page.
