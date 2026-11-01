@@ -511,7 +511,12 @@ export class ChartsPanel {
     ]);
 
     this.root.classList.add("charts-panel");
-    const main = el("div", { class: "charts-main" }, [toolbar, this.tabStrip, this.addPanel.root, this.grid, this.empty]);
+    const credit = el("p", { class: "charts-credit" }, [
+      "Chart design inspired by ",
+      el("cite", {}, ["Storytelling with Data: A Data Visualization Guide for Business Professionals"]),
+      " by Cole Nussbaumer Knaflic.",
+    ]);
+    const main = el("div", { class: "charts-main" }, [toolbar, this.tabStrip, this.addPanel.root, this.grid, this.empty, credit]);
     this.root.append(el("div", { class: "charts-layout" }, [main]));
     this.syncEmpty();
   }

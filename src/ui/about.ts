@@ -42,7 +42,9 @@ export function buildAbout(): HTMLElement {
     el("p", { class: "about-thanks" }, [
       "Standing on good shoulders: the forecasting follows Hyndman & Athanasopoulos' ",
       el("a", { href: "https://otexts.com/fpp3/", target: "_blank", rel: "noopener noreferrer" }, ["Forecasting: Principles and Practice"]),
-      " and is measured on the Monash archive and the M4 competition; decomposition comes from Cleveland's STL, box plots from Tukey, and the quality checks borrow from Great Expectations. ",
+      " and is measured on the Monash archive and the M4 competition. The charts take their lead from Cole Nussbaumer Knaflic's ",
+      el("cite", {}, ["Storytelling with Data"]),
+      "; decomposition comes from Cleveland's STL, box plots from Tukey, and the quality checks borrow from Great Expectations. ",
       "Files are opened with Papa Parse, SheetJS and hyparquet.",
     ]),
     el("div", { class: "about-author" }, [

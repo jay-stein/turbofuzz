@@ -10467,6 +10467,17 @@ body:has(.modal-overlay) .hint-callout {
   background: var(--qa-warn-soft);
 }
 
+.charts-credit {
+  margin: 4px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.charts-credit cite {
+  font-style: italic;
+}
+
 .chart-guide-foot {
   display: flex;
   flex-wrap: wrap;

@@ -28,6 +28,15 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-02-07 — Charts credit Storytelling with Data
+
+- **Status:** Verified (unit, browser)
+- **Related issue / decision:** owner: attribute the Chart page's inspiration to Storytelling with Data: A Data Visualization Guide for Business Professionals by Cole Nussbaumer Knaflic.
+- **Scope:** a quiet line under the Chart page; the Chart guide's credit and the front page About name the book and author.
+- **Files / components changed:** src/ui/chart-panel.ts, guide.json, about.ts, styles.css
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-06 — New column: function names complete as you type
 
 - **Status:** Verified (unit, e2e, browser)
