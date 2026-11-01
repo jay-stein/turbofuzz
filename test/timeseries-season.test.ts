@@ -65,5 +65,5 @@ test("the Deep check works on the seasonally adjusted fit", () => {
   const { s } = run(e, "hour", 48, "ets");
   const d = s.deep!;
   assert.ok(d.resid && d.resid.n > 100 && Number.isFinite(d.resid.lb.q), "residuals of the adjusted fit");
-  assert.equal(d.dm.length, MODEL_KEYS.length - 1);
+  assert.equal(d.dm.length, (s.models as unknown as { shown: unknown[] }).shown.length - 1);
 });

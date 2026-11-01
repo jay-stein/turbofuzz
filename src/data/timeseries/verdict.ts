@@ -31,6 +31,8 @@ export interface VerdictInput {
   cycle: string;
   /** Names of simple benchmarks that did better than this model on the lockbox fold. */
   beatenBy?: string[];
+  /** The series is mostly zeros with now and then a sale. */
+  intermittent?: boolean;
 }
 
 export interface Verdict {
@@ -66,7 +68,9 @@ export const PLAIN: Readonly<Record<string, string>> = {
   drift: "The last value plus the average change so far",
   mean: "The average of everything so far",
   ses: "Simple smoothing: a level that follows recent values",
-  croston: "For sales that are mostly zero: average size and gap between sales",
+  croston: "For sales that are mostly zero: average size divided by the usual gap between sales",
+  sba: "Croston with its upward bias taken out",
+  tsb: "For sales that are mostly zero: the chance of a sale this period times its usual size, fading through long gaps",
 };
 
 export function trustVerdict(v: VerdictInput): Verdict {
@@ -84,6 +88,9 @@ export function trustVerdict(v: VerdictInput): Verdict {
   }
   if (!v.baseline && v.beatenBy && v.beatenBy.length > 0) {
     headsUp.push(`${v.beatenBy.join(" and ")} did better than this forecast on data it never saw, so a simple method is hard to beat here.`);
+  }
+  if (v.intermittent && !v.baseline) {
+    headsUp.push("most periods have no sales, and error measures such as MASE and MAE reward forecasting zero. Look at RMSE and bias too (Under the hood), and read the range as how many sales to expect, not a typical period.");
   }
   if (lucky) headsUp.push(`this model's lead came from ${v.foldsWon} of ${v.foldsOf} tests. A lead like that is often luck, so look at the next best too.`);
   if (v.rough) headsUp.push(`only ${v.periods} periods of history, too few to test forecasts properly. Read the range as a rough guide.`);

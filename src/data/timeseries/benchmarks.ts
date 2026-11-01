@@ -90,7 +90,10 @@ export const tsbRate = (f: Intermittent): number => f.prob * f.tsbSize;
 /** Average demand interval and squared coefficient of variation of the sales, over the observed periods in [0, o). */
 export function demandProfile(y: ArrayLike<number>, o: number): { adi: number; cv2: number; zeros: number; sales: number; n: number } {
   let n = 0, sales = 0, sum = 0, sum2 = 0;
-  for (let t = 0; t < o; t++) {
+  // Periods before the first sale are a product that did not exist yet (or an outbreak not yet begun), not a gap in demand.
+  let from = 0;
+  while (from < o && !(y[from]! > 0)) from++;
+  for (let t = from; t < o; t++) {
     const v = y[t]!;
     if (!(v === v)) continue;
     n++;
@@ -108,5 +111,5 @@ export function isIntermittent(y: ArrayLike<number>, o: number): boolean {
   for (let t = 0; t < o; t++) if (y[t]! === y[t]! && y[t]! < min) min = y[t]!;
   if (min < 0) return false;
   const p = demandProfile(y, o);
-  return p.n >= 12 && p.sales >= 3 && p.adi > ADI_CUT;
+  return p.n >= 8 && p.sales >= 1 && p.adi > ADI_CUT;
 }

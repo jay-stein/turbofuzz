@@ -1294,6 +1294,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const band = f.held ? { hit: f.held.hit, tot: f.held.tot, aim: 0.8 } : m.check ? { hit: m.check.hit, tot: m.check.tot, aim: 0.8 } : null;
     return trustVerdict({
       baseline: key === "sn", ratio: ratioOf(s, key), lockRank: M.lockbox && m.lock ? lockRank(M, key, ui.metric) : null, models: CORE_KEYS.length,
+      intermittent: M.intermittent,
       beatenBy: M.lockbox && m.lock && !BENCHMARK_KEYS.includes(key) ? BENCHMARK_KEYS.filter((b) => !CORE_KEYS.includes(b) && lockValue(M, b, ui.metric) < lockValue(M, key, ui.metric)).map((b) => MODEL_INFO[b].name) : [],
       foldsWon: m.folds.won, foldsOf: m.folds.of, band, rough: M.rough, periods: s.A.modelN, cycle: cycleWord(s),
     });
@@ -1348,8 +1349,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     ref("flexCheck").textContent = "Check again";
     const pts = curve.points, best = pts.reduce((p, q) => (q.mase < p.mase ? q : p));
     const pick = pts.find((p) => p.mase <= best.mase * 1.05) ?? best; // the stiffest within 5% of the best
-    const ref0 = M ? Math.min(...MODEL_KEYS.filter((k) => k !== "reg" && k !== "ens" && k !== "sn").map((k) => M.models[k].mase)) : NaN;
-    const refKey = M ? MODEL_KEYS.filter((k) => k !== "reg" && k !== "ens" && k !== "sn").find((k) => M.models[k].mase === ref0) : undefined;
+    const ref0 = M ? Math.min(...M.shown.filter((k) => k !== "reg" && k !== "ens" && k !== "sn").map((k) => M.models[k].mase)) : NaN;
+    const refKey = M ? M.shown.filter((k) => k !== "reg" && k !== "ens" && k !== "sn").find((k) => M.models[k].mase === ref0) : undefined;
     const W = 360, Hh = 120, L = 34, B = 20, top = 8;
     const vals = [...pts.map((p) => p.mase), ...(ref0 === ref0 ? [ref0] : [])];
     const lo = Math.min(...vals) * 0.95, hi = Math.max(...vals) * 1.05 || 1;
@@ -1382,7 +1383,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   let deep: { key: string; result: DeepCheck | null } | null = null;
   let deepBusy = false;
   /** Rough complexity, for "prefer the simpler model when it is not significantly worse". */
-  const COMPLEXITY: Record<ModelKey, number> = { sn: 0, naive: 0, mean: 0, drift: 1, ses: 1, clim: 1, theta: 2, hw: 3, ets: 3, comb: 4, reg: 4, ens: 5 };
+  const COMPLEXITY: Record<ModelKey, number> = { croston: 1, sba: 1, tsb: 1, sn: 0, naive: 0, mean: 0, drift: 1, ses: 1, clim: 1, theta: 2, hw: 3, ets: 3, comb: 4, reg: 4, ens: 5 };
   const deepKey = (s: TsSnapshot, pick: ModelKey): string => `${curveKey(s)}|${s.cfg.flex}|${pick}`;
   function runDeep(): void {
     const s = snap, pick = s ? selectedModel(s, ui) : null;
@@ -1429,7 +1430,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       <div class="ts-deep-row"><svg viewBox="0 0 ${W} ${Hh}" width="${W}" height="${Hh}" class="ts-deep-svg" role="img" aria-label="Error by steps ahead">${lines}<text x="${L - 4}" y="${sy(hi / 1.05) + 4}" text-anchor="end">${compact(hi / 1.05)}</text><text x="${L - 4}" y="${sy(0) + 4}" text-anchor="end">0</text><text x="${L}" y="${Hh - 6}">1 ${gr.noun}</text><text x="${W - 8}" y="${Hh - 6}" text-anchor="end">${steps[steps.length - 1]} ${nounFor(gr, steps[steps.length - 1] ?? 1)} ahead</text></svg>
       <div class="ts-deep-legend">${show.map(([k, col]) => `<span><i style="background:${col}"></i>${name(k)}</span>`).join("")}<p class="ts-note">One average hides where a model wins: a model can lead a few ${gr.nouns} ahead and fall behind further out. If you care about a particular horizon, judge the models there.</p></div></div></section>`;
     // 3. Calibration.
-    const cRows = [...MODEL_KEYS].map((k) => {
+    const cRows = [...(models()?.shown ?? MODEL_KEYS)].map((k) => {
       const c = d.calib[k], bad80 = c.cov80 < 0.7 || c.cov80 > 0.9, bad95 = c.cov95 < 0.88;
       return `<tr${k === pick ? ' class="ts-deep-pick"' : ""}><td>${name(k)}</td><td${bad80 ? ' class="ts-warn"' : ""}>${c.n ? `${Math.round(c.cov80 * 100)}%` : "–"}</td><td${bad95 ? ' class="ts-warn"' : ""}>${c.n ? `${Math.round(c.cov95 * 100)}%` : "–"}</td><td>${c.winkler === c.winkler ? c.winkler.toFixed(2) : "–"}</td></tr>`;
     }).join("");
@@ -1490,7 +1491,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (!M || !s.futures) { table.innerHTML = ""; return; }
     const sel = selectedModel(s, ui) as ModelKey, mk = ui.metric, pick = M.auto[mk].pick;
     const size = (k: ModelKey): number => { const v = M.models[k].metrics[mk]; return v === v ? (mk === "bias" ? Math.abs(v) : v) : Infinity; };
-    const byError = [...MODEL_KEYS].sort((p, q) => size(p) - size(q));
+    const byError = [...M.shown].sort((p, q) => size(p) - size(q));
     const groups: [string, ModelKey[]][] = [
       ["Recommended", [pick]],
       ["Alternatives", byError.filter((k) => k !== pick && !BENCHMARKS.includes(k))],
@@ -1520,8 +1521,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const heldMode = M.T < s.A.modelN && fut.sn.held?.ratio != null;
     const mk = ui.metric, best = M.auto[mk].pick;
     const size = (k: ModelKey): number => { const v = M.models[k].metrics[mk]; return v === v ? (mk === "bias" ? Math.abs(v) : v) : Infinity; };
-    const maxV = Math.max(...MODEL_KEYS.map(size).filter(Number.isFinite), 1e-12);
-    const keys = [...MODEL_KEYS].sort((p, q) => size(p) - size(q));
+    const maxV = Math.max(...M.shown.map(size).filter(Number.isFinite), 1e-12);
+    const keys = [...M.shown].sort((p, q) => size(p) - size(q));
     const info = METRIC_INFO[mk];
     for (const b of ref("cvSeg").querySelectorAll<HTMLButtonElement>("button")) b.setAttribute("aria-pressed", String(b.dataset.cv === M.cv));
     ref<HTMLSelectElement>("metricSel").value = mk;

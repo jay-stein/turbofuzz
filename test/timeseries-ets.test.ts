@@ -31,6 +31,7 @@ test("smoothing models bridge a long gap without learning from the filled values
   const snap = engine.compute({ ...defaultConfig(engine.info()), grain: "month", horizon: 12 }, "forecast");
   if ("error" in snap.models) throw new Error(snap.models.error);
   assert.ok(snap.A.made.some((x) => x), "the gap is filled for the models");
-  for (const m of Object.values(snap.models.models)) assert.ok(Number.isFinite(m.metrics.mae), m.key);
-  for (const f of Object.values(snap.futures!)) assert.ok(f.F.every((v) => Number.isFinite(v)));
+  // The intermittent-demand methods are computed only for a series that is mostly zeros: this one is not.
+  for (const k of snap.models.shown) assert.ok(Number.isFinite(snap.models.models[k].metrics.mae), k);
+  for (const k of snap.models.shown) assert.ok(snap.futures![k].F.every((v) => Number.isFinite(v)), k);
 });

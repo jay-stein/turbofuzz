@@ -208,10 +208,35 @@ export const REFERENCES: Record<string, Reference> = {
   },
 };
 
+REFERENCES.croston = {
+  short: "Croston (1972)",
+  full: "Croston, J. D. (1972). Forecasting and stock control for intermittent demands. Operational Research Quarterly, 23(3), 289-303.",
+  url: "https://doi.org/10.1057/jors.1972.50",
+  used: "The first method for intermittent demand: the size of a sale and the gap between sales are smoothed separately.",
+};
+REFERENCES.syntetos2005 = {
+  short: "Syntetos & Boylan (2005)",
+  full: "Syntetos, A. A. and Boylan, J. E. (2005). The accuracy of intermittent demand estimates. International Journal of Forecasting, 21(2), 303-314.",
+  url: "https://doi.org/10.1016/j.ijforecast.2004.10.001",
+  used: "The bias in Croston's rate and its correction (the factor 1 - alpha/2), and the cut that calls demand intermittent (an average demand interval above 1.32, with Croston).",
+};
+REFERENCES.teunter2011 = {
+  short: "Teunter, Syntetos & Babai (2011)",
+  full: "Teunter, R. H., Syntetos, A. A. and Babai, M. Z. (2011). Intermittent demand: linking forecasting to inventory obsolescence. European Journal of Operational Research, 214(3), 606-615.",
+  url: "https://doi.org/10.1016/j.ejor.2011.05.018",
+  used: "The TSB method: the chance of a sale is updated every period, so the forecast fades when sales stop.",
+};
+REFERENCES.kolassa2016 = {
+  short: "Kolassa (2016)",
+  full: "Kolassa, S. (2016). Evaluating predictive count data distributions in retail sales forecasting. International Journal of Forecasting, 32(3), 788-803.",
+  url: "https://doi.org/10.1016/j.ijforecast.2015.12.004",
+  used: "Why absolute-error measures (MAE, MASE) reward forecasting zero for a series that is mostly zeros: the median is zero, though the mean demand is not.",
+};
+
 /** Ids in a stable order for the Sources list: grouped by what they support. */
 export const REFERENCE_ORDER: string[] = [
   "fpp3", "forecastpkg", "monash",
-  "ets2002", "holt", "winters", "damped", "aicc", "nelder",
+  "ets2002", "holt", "winters", "damped", "aicc", "nelder", "croston", "syntetos2005", "teunter2011", "kolassa2016",
   "theta", "thetabillah", "m3", "m4", "tourism",
   "bates", "clemen", "smithwallis",
   "stl", "mstl", "bartlett",

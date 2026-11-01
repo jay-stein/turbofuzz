@@ -47,7 +47,7 @@ export function scorecardRows(s: TsSnapshot, metric: MetricKey, picked: ModelKey
   if ("error" in s.models || !s.futures) return rows;
   const M = s.models, futures = s.futures;
   const size = (k: ModelKey): number => { const v = M.models[k].metrics[metric]; return v === v ? (metric === "bias" ? Math.abs(v) : v) : Infinity; };
-  const order = [...MODEL_KEYS].sort((a, b) => size(a) - size(b));
+  const order = [...M.shown].sort((a, b) => size(a) - size(b));
   order.forEach((k, i) => {
     const m = M.models[k], held = futures[k].held;
     rows.push([
@@ -65,7 +65,7 @@ export function scorecardRows(s: TsSnapshot, metric: MetricKey, picked: ModelKey
 export function backtestRows(s: TsSnapshot, bt: TsBacktest, starts: ArrayLike<number>, iso: (ms: number) => string): string[][] {
   const rows = [["model", "fold", "fold_origin", "step_ahead", "period_start", "actual", "forecast", "error", "abs_error", "filled"]];
   const y = s.A.y, made = s.A.made;
-  for (const k of MODEL_KEYS) {
+  for (const k of s.models && !("error" in s.models) ? s.models.shown : MODEL_KEYS) {
     const fc = bt.forecasts[k];
     bt.origins.forEach((o, f) => {
       for (let h = 0; h < bt.H; h++) {

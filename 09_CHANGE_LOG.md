@@ -28,6 +28,22 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-10 — Time Series: intermittent demand (Croston, SBA, TSB) (fundamentals plan, Phase 4b)
+
+- **Status:** Verified
+- **Scope:**
+  - **Detection:** a series with no negative values and an average demand interval above 1.32 (demand in fewer than three of every four periods; Syntetos, Boylan and Croston 2005) is intermittent. Periods before the first sale are not counted (a product not yet launched, an outbreak not yet begun). The cut is made once on the history the forecast is fitted on, so every fold uses the same methods.
+  - **Three methods**, shown only for such a series: **Croston** (size and gap smoothed separately, forecast = size / gap), **Croston, corrected** (SBA: times 1 - alpha/2) and **Fading demand** (TSB: the chance of a sale is smoothed every period, so it fades through a long gap). Smoothing is fixed at 0.1 (the default of R's forecast::croston), not tuned. Each has a technical page with equations and sources, and a "when it shines / when to doubt it" entry; four sources added (Croston 1972, Syntetos and Boylan 2005, Teunter, Syntetos and Babai 2011, Kolassa 2016).
+  - **Auto uses TSB** for an intermittent series (policy "intermittent"), and says why. The verdict adds a plain heads-up: most periods have no sales, MASE and MAE reward forecasting zero, so look at RMSE and bias too.
+  - **The list of models is now per series** (`ModelRun.shown`): the board, the Deep check, the exports and the model pages list only the models that apply.
+- **Evidence (Monash car parts, 489 intermittent series, MASE):** TSB 1.113, SES 1.116, the Combination 1.127, ETS 1.104, Croston 1.401, Croston corrected 1.370, naive 1.270. TSB tied the Combination on MASE and led on RMSE (0.997 against 1.038 on the first 368 series), so Auto's change costs nothing on the main measure. **The plan's target (0.93 on car parts) is not met on this protocol, and the target itself is unsound:** a flat forecast of zero scored 0.763 on 889 car-parts series, better than every method here, because the median of such a series is zero and MASE is absolute error (Kolassa 2016). We do not chase it. Our SES does not reproduce the archive's published 0.897 either (1.062 by maximum likelihood, 0.999 by least squares over the same 889 series); the cause is not established.
+  - **Choice of Auto's method:** TSB was picked after seeing these numbers, from the two candidates the literature recommends (SBA and TSB), on one dataset, with a tie on MASE. That is a thin basis, and it is stated on the method's page. Covid deaths (daily counts) and car parts are the only intermittent sets in our corpus.
+- **Accuracy gate:** car parts Auto 0.443 to 0.410 (-7.3%) and covid deaths 1.522 to 1.464 (-3.8%): both better; every other dataset unchanged. Baseline updated.
+- **Files / components changed:** src/data/timeseries/benchmarks.ts, models.ts, verdict.ts, references.ts, src/ui/timeseries-page.ts, timeseries-model-docs.ts, timeseries-metrics.ts, timeseries-export.ts, tools/ts-eval/monash.ts, test/fixtures/accuracy/baseline.json, tests
+- **Tests run and results:** typecheck clean; 1203 unit tests pass (new: classification, the three methods, the engine's choice); e2e 117 pass; gate passes; latency inside the ceiling
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-09 — Time Series: four benchmark models (naive, drift, mean, simple smoothing) (fundamentals plan, Phase 4a)
 
 - **Status:** Verified

@@ -12,11 +12,15 @@ import { seasonalityTest, type SeasonalityTest } from "./seasonality.js";
 import { classicalFigure, etsFitted, etsForecast, etsFrom, etsRun, etsSelect, etsSpec, fitSes, type EtsFit, type EtsState } from "./ets.js";
 export { etsSpec } from "./ets.js";
 import { mstl } from "./stl.js";
-import { driftSlope, meanLevel, naiveLevel } from "./benchmarks.js";
+import { crostonRate, demandProfile, driftSlope, fitIntermittent, isIntermittent, meanLevel, naiveLevel, sbaRate, tsbRate } from "./benchmarks.js";
 
-export type ModelKey = "sn" | "hw" | "ets" | "reg" | "theta" | "clim" | "ens" | "comb" | "naive" | "drift" | "mean" | "ses";
-export const MODEL_KEYS: readonly ModelKey[] = ["sn", "hw", "ets", "reg", "theta", "clim", "ens", "comb", "naive", "drift", "mean", "ses"];
+export type ModelKey = "sn" | "hw" | "ets" | "reg" | "theta" | "clim" | "ens" | "comb" | "naive" | "drift" | "mean" | "ses" | "croston" | "sba" | "tsb";
+export const MODEL_KEYS: readonly ModelKey[] = ["sn", "hw", "ets", "reg", "theta", "clim", "ens", "comb", "naive", "drift", "mean", "ses", "croston", "sba", "tsb"];
+/** The intermittent-demand methods: computed and shown only for a series that is mostly zeros. */
+export const INTERMITTENT_KEYS: readonly ModelKey[] = ["croston", "sba", "tsb"];
 /** Yardsticks: shown and ranked, but never picked by Auto and never part of the Combination. */
+/** Auto's choice for intermittent demand: the Syntetos-Boylan approximation. */
+export const INTERMITTENT_PICK: ModelKey = "tsb";
 export const BENCHMARK_KEYS: readonly ModelKey[] = ["sn", "clim", "naive", "drift", "mean", "ses"];
 /** The models Auto chooses among and ranks itself against; the other benchmarks are only yardsticks beside them. */
 export const CORE_KEYS: readonly ModelKey[] = ["sn", "hw", "ets", "reg", "theta", "clim", "ens", "comb"];
@@ -33,6 +37,9 @@ export const MODEL_INFO: Readonly<Record<ModelKey, { name: string; meth: string 
   drift: { name: "Straight line on", meth: "Drift: the line through the first and last points, extended" },
   mean: { name: "Overall average", meth: "Mean of the whole history" },
   ses: { name: "Simple smoothing", meth: "Simple exponential smoothing" },
+  croston: { name: "Croston", meth: "Croston's method for intermittent demand" },
+  sba: { name: "Croston, corrected", meth: "Croston with the Syntetos-Boylan bias correction (SBA)" },
+  tsb: { name: "Fading demand", meth: "Teunter-Syntetos-Babai (TSB) method for intermittent demand" },
 };
 
 interface BandQ { q10: number; q90: number; q025: number; q975: number }
@@ -106,7 +113,11 @@ export interface ModelRun {
    * picks the backtest winner.
    */
   auto: Record<MetricKey, { pick: ModelKey; why: string }>;
-  autoPolicy: "combination" | "backtest";
+  autoPolicy: "combination" | "backtest" | "intermittent";
+  /** The history is mostly zeros with now and then a sale (average demand interval above 1.32). */
+  intermittent: boolean;
+  /** The models the page lists: the intermittent-demand methods only appear for an intermittent series. */
+  shown: ModelKey[];
   season: SeasonInfo;
   cv: "expanding" | "rolling";
   /** Periods each rolling fold trains on; null when expanding. */
@@ -125,7 +136,7 @@ export type Futures = Record<ModelKey, Future>;
 /** Inside the worker only: the run plus what the futures need (fits with closures). */
 /** The final seasonally adjusted fit when the season is removed with MSTL. */
 interface LongFinal { s: number; adj: Float64Array; adjM: Float64Array; etsFc: Float64Array; hwFc: Float64Array; thetaFc: Float64Array }
-interface RunInternal extends ModelRun { mS: number; long: LongFinal | null; oc: Record<ModelKey, Float64Array>; etsFinal: EtsState; etsFit: EtsFit; hwFinal: HwState; hwParams: HwParams; regFit: RegFit; thetaFit: ThetaFit; climM: number; climMeans: Float64Array; q: Record<ModelKey, BandQ[]>; bench: { naive: number; slope: number; mean: number; ses: number } }
+interface RunInternal extends ModelRun { mS: number; long: LongFinal | null; oc: Record<ModelKey, Float64Array>; etsFinal: EtsState; etsFit: EtsFit; hwFinal: HwState; hwParams: HwParams; regFit: RegFit; thetaFit: ThetaFit; climM: number; climMeans: Float64Array; q: Record<ModelKey, BandQ[]>; bench: { naive: number; slope: number; mean: number; ses: number; croston: number; sba: number; tsb: number } }
 
 function hwInit(y: Float64Array, m: number, limit: number): HwState {
   let l = 0;
@@ -500,7 +511,19 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
       oc.naive[k * H + h] = last; oc.drift[k * H + h] = last + slope * (h + 1); oc.mean[k * H + h] = mu; oc.ses[k * H + h] = level;
     }
   });
-  const benchFinal = { naive: naiveLevel(yM, T), slope: driftSlope(yM, T), mean: meanLevel(yM, T), ses: sesAt(T, etsFrom(T, m)) };
+  // Intermittent demand is decided once, on all the history the forecast is fitted on (up to the split), so the
+  // same methods are used in every fold; the kind of series is not something the held-out values can change.
+  const intermittent = isIntermittent(yM, T);
+  const rates = (seg: Float64Array): [number, number, number] => {
+    const f = fitIntermittent(seg, seg.length);
+    return f ? [crostonRate(f), sbaRate(f), tsbRate(f)] : [0, 0, 0];
+  };
+  origins.forEach((o, k) => {
+    const [cr, sb, ts] = intermittent ? rates(yM.subarray(startOf(o), o)) : [NaN, NaN, NaN];
+    for (let h = 0; h < H; h++) { oc.croston[k * H + h] = cr; oc.sba[k * H + h] = sb; oc.tsb[k * H + h] = ts; }
+  });
+  const [crF, sbF, tsF] = intermittent ? rates(yM.subarray(0, T)) : [NaN, NaN, NaN];
+  const benchFinal = { naive: naiveLevel(yM, T), slope: driftSlope(yM, T), mean: meanLevel(yM, T), ses: sesAt(T, etsFrom(T, m)), croston: crF, sba: sbF, tsb: tsF };
 
   // Smoothing parameters for the backtest are fitted on data before the first origin
   // only, so no model is scored on periods it was tuned on (that would flatter it).
@@ -682,12 +705,17 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   // Granger 1969; the M4 competition) rarely loses to it (it beats every published classical method on M3 monthly and quarterly,
   // Monash benchmark, CHG-2026-10-31-27). So up to the 24-period seasons that seasonal ETS
   // handles, the Combination is the default and a rival has to earn the pick.
-  const autoPolicy: ModelRun["autoPolicy"] = m <= 24 ? "combination" : "backtest";
+  const autoPolicy: ModelRun["autoPolicy"] = intermittent ? "intermittent" : m <= 24 ? "combination" : "backtest";
   const dmLag = Math.max(0, Math.ceil(H / step) - 1);
   const lockSize = (key: ModelKey, mk: MetricKey): number => { const v = models[key].lock?.[mk] ?? NaN; return v === v ? (mk === "bias" ? Math.abs(v) : v) : Infinity; };
   const nm = (k: ModelKey): string => MODEL_INFO[k].name;
+  const demandInterval = demandProfile(yM, T).adi;
   const auto = {} as ModelRun["auto"];
   for (const mk of METRIC_KEYS) {
+    if (autoPolicy === "intermittent") {
+      auto[mk] = { pick: INTERMITTENT_PICK, why: `Most periods have no demand (an average of ${demandInterval.toFixed(1)} periods between sales, above the 1.32 that marks intermittent demand), where smoothing and trend models forecast a steady level that never happens. Auto uses ${nm(INTERMITTENT_PICK)} (Teunter, Syntetos and Babai 2011), which updates its chance of a sale every period so it fades through a long run of zeros, and is fixed in advance rather than chosen from a few folds. MASE and MAE reward forecasting zero on data like this, so check RMSE and bias too.` };
+      continue;
+    }
     if (autoPolicy === "backtest") {
       // The Combination's members are the seasonal-smoothing family, so it is not a candidate here.
       const pool = order.filter((k) => k !== "comb");
@@ -707,7 +735,8 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
     }
   }
   const best = auto.mase.pick;
-  const out: ModelRun = { T, H, m, origins, step, models, best, bestBy, lockbox, auto, autoPolicy, season, cv: rolling ? "rolling" : "expanding", trainLen, rough: R < 3, profile: seriesProfile(A, T) };
+  const shown = MODEL_KEYS.filter((k) => intermittent || !INTERMITTENT_KEYS.includes(k));
+  const out: ModelRun = { T, H, m, origins, step, models, best, bestBy, lockbox, auto, autoPolicy, intermittent, shown, season, cv: rolling ? "rolling" : "expanding", trainLen, rough: R < 3, profile: seriesProfile(A, T) };
   return { ...out, internal: { ...out, bench: benchFinal, mS, long, oc, etsFinal, etsFit, hwFinal, hwParams, regFit: reg, thetaFit: theta, climM, climMeans, q } };
 }
 
@@ -736,6 +765,7 @@ export function computeFutures(A: Aggregated, run: RunInternal): Futures {
   const F: Record<ModelKey, Float64Array> = {
     sn: new Float64Array(H), hw: new Float64Array(H), ets: new Float64Array(H), reg: new Float64Array(H), theta: new Float64Array(H), clim: new Float64Array(H), ens: new Float64Array(H), comb: new Float64Array(H),
     naive: new Float64Array(H), drift: new Float64Array(H), mean: new Float64Array(H), ses: new Float64Array(H),
+    croston: new Float64Array(H), sba: new Float64Array(H), tsb: new Float64Array(H),
   };
   if (run.long) { F.hw.set(run.long.hwFc); F.ets.set(run.long.etsFc); }
   else {
@@ -750,6 +780,7 @@ export function computeFutures(A: Aggregated, run: RunInternal): Futures {
     F.ens[h] = (F.ets[h] + F.reg[h] + F.theta[h]) / 3;
     F.comb[h] = (F.ets[h] + F.theta[h] + F.hw[h]) / 3;
     F.naive[h] = run.bench.naive; F.drift[h] = run.bench.naive + run.bench.slope * (h + 1); F.mean[h] = run.bench.mean; F.ses[h] = run.bench.ses;
+    F.croston[h] = run.bench.croston; F.sba[h] = run.bench.sba; F.tsb[h] = run.bench.tsb;
   }
   const floor0 = A.nonNeg ? (v: number): number => Math.max(0, v) : (v: number): number => v;
   const out = {} as Futures;
@@ -871,7 +902,7 @@ export function deepCheck(A: Aggregated, run: RunInternal, pick: ModelKey): Deep
   const { origins, H, step, T, m } = run, R = origins.length, y = A.yModel;
   const selR = run.lockbox ? R - 1 : R;
   const errs = {} as Record<ModelKey, Float64Array>;
-  for (const k of MODEL_KEYS) {
+  for (const k of run.shown) {
     const a = (errs[k] = new Float64Array(R * H).fill(NaN));
     origins.forEach((o, f) => { for (let h = 0; h < H; h++) if (!A.made[o + h]) a[f * H + h] = y[o + h] - run.oc[k][f * H + h]!; });
   }
@@ -880,14 +911,14 @@ export function deepCheck(A: Aggregated, run: RunInternal, pick: ModelKey): Deep
   // small-sample correction, and t with n - 1 degrees of freedom.
   const dmLag = Math.max(0, Math.ceil(H / step) - 1);
   const dm: DeepCheck["dm"] = [];
-  for (const other of MODEL_KEYS) {
+  for (const other of run.shown) {
     if (other === pick) continue;
     dm.push({ other, ...dmTest(errs[pick], errs[other], selR, H, dmLag) });
   }
   // Error by horizon.
   const nSteps = Math.min(H, 60), steps = Array.from({ length: nSteps }, (_, i) => Math.round(1 + (i * (H - 1)) / Math.max(1, nSteps - 1)));
   const mae = {} as Record<ModelKey, number[]>;
-  for (const k of MODEL_KEYS) mae[k] = steps.map((st) => { let s = 0, c = 0; for (let f = 0; f < selR; f++) { const e = errs[k][f * H + st - 1]!; if (e === e) { s += Math.abs(e); c++; } } return c ? s / c : NaN; });
+  for (const k of run.shown) mae[k] = steps.map((st) => { let s = 0, c = 0; for (let f = 0; f < selR; f++) { const e = errs[k][f * H + st - 1]!; if (e === e) { s += Math.abs(e); c++; } } return c ? s / c : NaN; });
   // Calibration: each fold's errors against bands built from the other folds.
   let scale = 0, sc = 0;
   for (let t = m; t < (R ? origins[0]! : T); t++) { const v = Math.abs(y[t] - y[t - m]); if (v === v) { scale += v; sc++; } }
@@ -895,7 +926,7 @@ export function deepCheck(A: Aggregated, run: RunInternal, pick: ModelKey): Deep
   const nh = Math.min(H, 120);
   const hs = Array.from(new Set(Array.from({ length: nh }, (_, i) => Math.floor((i * H) / nh))));
   const calib = {} as DeepCheck["calib"];
-  for (const k of MODEL_KEYS) {
+  for (const k of run.shown) {
     let n = 0, in80 = 0, in95 = 0, wk = 0;
     if (R >= 3) for (let f = 0; f < R; f++) {
       const qx = bandQuantiles(errs[k], origins.map((_, j) => j).filter((j) => j !== f), H);

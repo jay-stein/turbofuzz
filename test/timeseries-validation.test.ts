@@ -20,7 +20,7 @@ test("every model gets MAE, RMSE, MASE, WAPE, sMAPE, MAPE and bias from its back
   const M = run(engine(), "expanding");
   assert.equal(M.cv, "expanding");
   assert.equal(M.trainLen, null);
-  for (const m of Object.values(M.models)) {
+  for (const m of M.shown.map((k) => M.models[k])) {
     for (const k of METRIC_KEYS) assert.ok(Number.isFinite(m.metrics[k]), `${m.key} ${k}`);
     assert.ok(m.metrics.rmse >= m.metrics.mae - 1e-9, "RMSE is never below MAE");
     assert.ok(m.metrics.wape >= 0 && m.metrics.smape >= 0 && m.metrics.smape <= 2);
@@ -36,7 +36,7 @@ test("the last fold is a lockbox: never used to pick, scored on its own", () => 
   const M = run(engine(), "expanding");
   assert.ok(M.origins.length >= 4);
   assert.equal(M.lockbox, true);
-  for (const m of Object.values(M.models)) assert.ok(m.lock && Number.isFinite(m.lock.mae));
+  for (const m of M.shown.map((k) => M.models[k])) assert.ok(m.lock && Number.isFinite(m.lock.mae));
 });
 
 test("rolling folds train on the first fold's length and score differently from expanding", () => {

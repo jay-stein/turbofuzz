@@ -10,7 +10,14 @@
   "theta": 0.5613,
   "clim": 1.1185,
   "ens": 0.6023,
-  "comb": 0.563
+  "comb": 0.563,
+  "naive": 0.9011,
+  "drift": 0.9391,
+  "mean": 1.1301,
+  "ses": 0.7363,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "m3_quarterly": {
   "auto": 0.9142,
@@ -23,7 +30,14 @@
   "theta": 1.0324,
   "clim": 2.3095,
   "ens": 1.1759,
-  "comb": 0.9346
+  "comb": 0.9346,
+  "naive": 1.4599,
+  "drift": 1.6538,
+  "mean": 2.3161,
+  "ses": 1.2221,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "m3_yearly": {
   "auto": 2.4248,
@@ -36,7 +50,14 @@
   "theta": 2.6929,
   "clim": 12.1418,
   "ens": 2.4813,
-  "comb": 2.3616
+  "comb": 2.3616,
+  "naive": 3.1289,
+  "drift": 2.7151,
+  "mean": 12.1418,
+  "ses": 3.1246,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "m3_other": {
   "auto": 2.3306,
@@ -49,7 +70,14 @@
   "theta": 2.4308,
   "clim": 3.6803,
   "ens": 2.9852,
-  "comb": 2.3306
+  "comb": 2.3306,
+  "naive": 2.0817,
+  "drift": 2.3799,
+  "mean": 3.6803,
+  "ses": 2.2022,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "m1_monthly": {
   "auto": 0.7764,
@@ -62,7 +90,14 @@
   "theta": 0.8823,
   "clim": 2.0272,
   "ens": 0.7614,
-  "comb": 0.7924
+  "comb": 0.7924,
+  "naive": 1.281,
+  "drift": 1.1383,
+  "mean": 2.2433,
+  "ses": 1.2409,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "tourism_monthly": {
   "auto": 1.646,
@@ -75,7 +110,14 @@
   "theta": 1.9386,
   "clim": 7.1174,
   "ens": 1.7963,
-  "comb": 1.646
+  "comb": 1.646,
+  "naive": 3.9447,
+  "drift": 3.7733,
+  "mean": 7.1103,
+  "ses": 3.7458,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "tourism_quarterly": {
   "auto": 1.3228,
@@ -88,7 +130,14 @@
   "theta": 1.549,
   "clim": 6.9566,
   "ens": 1.7334,
-  "comb": 1.3228
+  "comb": 1.3228,
+  "naive": 3.3233,
+  "drift": 3.1954,
+  "mean": 6.9624,
+  "ses": 2.9893,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "tourism_yearly": {
   "auto": 3.3387,
@@ -101,7 +150,14 @@
   "theta": 3.5961,
   "clim": 8.0455,
   "ens": 3.025,
-  "comb": 3.3387
+  "comb": 3.3387,
+  "naive": 3.9534,
+  "drift": 3.3845,
+  "mean": 8.0455,
+  "ses": 3.9429,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "hospital": {
   "auto": 0.7308,
@@ -114,7 +170,14 @@
   "theta": 0.7901,
   "clim": 1.2334,
   "ens": 0.7805,
-  "comb": 0.727
+  "comb": 0.727,
+  "naive": 0.8283,
+  "drift": 0.8465,
+  "mean": 1.2379,
+  "ses": 0.7849,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "fred_md": {
   "auto": 0.366,
@@ -127,10 +190,17 @@
   "theta": 0.382,
   "clim": 18.4927,
   "ens": 0.6071,
-  "comb": 0.366
+  "comb": 0.366,
+  "naive": 0.4218,
+  "drift": 0.377,
+  "mean": 18.4926,
+  "ses": 0.4099,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "covid_deaths": {
-  "auto": 1.5223,
+  "auto": 1.4644,
   "et": 1.761,
   "eth": 1.5513,
   "sn": 2.8081,
@@ -140,7 +210,14 @@
   "theta": 2.6756,
   "clim": 13.532,
   "ens": 2.2145,
-  "comb": 1.5513
+  "comb": 1.5513,
+  "naive": 2.3441,
+  "drift": 3.0073,
+  "mean": 13.5008,
+  "ses": 2.4242,
+  "croston": 1.1218,
+  "sba": 1.0657,
+  "tsb": 0.0002
  },
  "nn5_daily": {
   "auto": 0.7272,
@@ -153,7 +230,14 @@
   "theta": 0.7589,
   "clim": 1.9328,
   "ens": 0.723,
-  "comb": 0.7272
+  "comb": 0.7272,
+  "naive": 1.9207,
+  "drift": 1.9026,
+  "mean": 1.6429,
+  "ses": 1.5953,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "nn5_weekly": {
   "auto": 0.507,
@@ -166,7 +250,14 @@
   "theta": 0.6279,
   "clim": 1.1748,
   "ens": 0.5161,
-  "comb": 0.6479
+  "comb": 0.6479,
+  "naive": 0.8032,
+  "drift": 0.8048,
+  "mean": 0.9124,
+  "ses": 0.6612,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "m4_weekly": {
   "auto": 0.8522,
@@ -179,7 +270,14 @@
   "theta": 0.6504,
   "clim": 2.1742,
   "ens": 0.6494,
-  "comb": 0.6613
+  "comb": 0.6613,
+  "naive": 0.9888,
+  "drift": 0.9814,
+  "mean": 2.2955,
+  "ses": 1.0056,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "electricity_weekly": {
   "auto": 0.457,
@@ -192,7 +290,14 @@
   "theta": 0.5652,
   "clim": 0.9997,
   "ens": 0.4808,
-  "comb": 0.5684
+  "comb": 0.5684,
+  "naive": 1.1419,
+  "drift": 1.1918,
+  "mean": 1.354,
+  "ses": 1.1313,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "traffic_weekly": {
   "auto": 1.1366,
@@ -205,7 +310,14 @@
   "theta": 0.8927,
   "clim": 0.9004,
   "ens": 0.8346,
-  "comb": 0.838
+  "comb": 0.838,
+  "naive": 0.836,
+  "drift": 0.8648,
+  "mean": 1.2755,
+  "ses": 0.8269,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "m4_hourly": {
   "auto": 0.9943,
@@ -218,7 +330,14 @@
   "theta": 0.7634,
   "clim": 1.6441,
   "ens": 0.8053,
-  "comb": 0.7621
+  "comb": 0.7621,
+  "naive": 2.9597,
+  "drift": 2.9867,
+  "mean": 3.004,
+  "ses": 2.9597,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "pedestrian_counts": {
   "auto": 0.7864,
@@ -231,10 +350,17 @@
   "theta": 0.8561,
   "clim": 0.8629,
   "ens": 0.8101,
-  "comb": 0.8657
+  "comb": 0.8657,
+  "naive": 3.3541,
+  "drift": 3.4654,
+  "mean": 2.8911,
+  "ses": 3.3541,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  },
  "car_parts": {
-  "auto": 0.4429,
+  "auto": 0.4105,
   "et": 0.5062,
   "eth": 0.527,
   "sn": 0.2551,
@@ -244,7 +370,14 @@
   "theta": 0.3817,
   "clim": 0.6923,
   "ens": 0.3904,
-  "comb": 0.4429
+  "comb": 0.4429,
+  "naive": 0.1346,
+  "drift": 0.1346,
+  "mean": 0.6593,
+  "ses": 0.5141,
+  "croston": 1.8523,
+  "sba": 1.7664,
+  "tsb": 0.4105
  },
  "vehicle_trips": {
   "auto": 1.8208,
@@ -257,6 +390,13 @@
   "theta": 1.7276,
   "clim": 2.2412,
   "ens": 1.8843,
-  "comb": 1.8985
+  "comb": 1.8985,
+  "naive": 2.6824,
+  "drift": 2.6946,
+  "mean": 2.9464,
+  "ses": 2.5869,
+  "croston": 0,
+  "sba": 0,
+  "tsb": 0
  }
 }

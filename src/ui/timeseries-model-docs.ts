@@ -92,6 +92,48 @@ export const MODEL_DOCS: Record<ModelKey, ModelDoc> = {
     forecasting: [BAND],
     differs: ["It is the ETS(A,N,N) model of Best smoothing's family, fitted by the same code, with no AICc choice among forms."],
   },
+  croston: {
+    kind: "Intermittent demand",
+    summary: "For a series that is mostly zeros with now and then a sale. The size of a sale and the number of periods between sales are each smoothed with simple exponential smoothing, and the forecast is size divided by gap: the demand per period [ref:croston].",
+    equations: [
+      "z<sub>t</sub> = z<sub>t−1</sub> + α (y<sub>t</sub> − z<sub>t−1</sub>), p<sub>t</sub> = p<sub>t−1</sub> + α (q − p<sub>t−1</sub>), updated only in periods with a sale; q is the number of periods since the last sale",
+      "ŷ<sub>T+h|T</sub> = z<sub>T</sub> / p<sub>T</sub>, the same for every step ahead",
+      "α = 0.1, fixed.",
+    ],
+    fitting: ["The start is the first sale and the wait before it. α is fixed at 0.1 (the default of R's forecast::croston) and not tuned: a series with so few sales has little to tune on. Periods before the first sale are not counted: the product did not exist yet."],
+    forecasting: [BAND],
+    differs: [
+      "Croston's rate is biased upward [ref:syntetos2005]; the corrected method is shown beside it.",
+      "It appears only for a series whose average demand interval is above 1.32 (demand in fewer than three of every four periods) and never negative [ref:syntetos2005].",
+      "On a series that is mostly zeros, absolute-error measures (MAE, MASE) reward forecasting zero [ref:kolassa2016]; this method forecasts the mean, which is what stock planning needs, so judge it by RMSE and bias as well.",
+    ],
+  },
+  sba: {
+    kind: "Intermittent demand",
+    summary: "Croston's method with its upward bias removed: the forecast is multiplied by 1 − α/2 [ref:syntetos2005]. The usual choice for sales that come now and then.",
+    equations: [
+      "ŷ<sub>T+h|T</sub> = (1 − α / 2) · z<sub>T</sub> / p<sub>T</sub>",
+      "z and p are Croston's smoothed size and gap; α = 0.1, fixed.",
+    ],
+    fitting: ["As Croston: the start is the first sale, α is fixed at 0.1, and periods before the first sale are not counted."],
+    forecasting: [BAND],
+    differs: ["Shown only for intermittent series (an average demand interval above 1.32). It does not fade through a long run of zeros; the Fading demand method does. Absolute-error measures reward forecasting zero on this kind of data [ref:kolassa2016]."],
+  },
+  tsb: {
+    kind: "Intermittent demand",
+    summary: "The chance that a period has a sale is smoothed every period, including the periods with none, and multiplied by the smoothed size of a sale [ref:teunter2011]. When sales stop the chance, and the forecast, fade.",
+    equations: [
+      "d<sub>t</sub> = 1 if y<sub>t</sub> > 0, else 0;   π<sub>t</sub> = π<sub>t−1</sub> + β (d<sub>t</sub> − π<sub>t−1</sub>)",
+      "z<sub>t</sub> = z<sub>t−1</sub> + α (y<sub>t</sub> − z<sub>t−1</sub>), only in periods with a sale",
+      "ŷ<sub>T+h|T</sub> = π<sub>T</sub> · z<sub>T</sub>;   α = β = 0.1, fixed.",
+    ],
+    fitting: ["The chance starts at the share of periods with a sale and the size at the first sale. α and β are fixed at 0.1 and not tuned. Periods before the first sale are not counted."],
+    forecasting: [BAND],
+    differs: [
+      "Shown only for intermittent series. It is Auto's choice for them: on 489 car-parts series (Monash protocol) it matched the Combination on MASE (1.113 and 1.127) and was best on RMSE, and Croston with the bias correction was clearly worse (1.370). That is one dataset, so the choice rests on the method's design as well [ref:teunter2011].",
+      "Absolute-error measures reward forecasting zero on a series like this [ref:kolassa2016]: a flat zero forecast scored 0.763 on the same series, better than every method here, and no use for planning stock.",
+    ],
+  },
   hw: {
     kind: "Exponential smoothing",
     summary: "Holt-Winters smoothing with an additive season and a damped additive trend [ref:holt] [ref:winters] [ref:damped]. The level, trend and season each follow the data through their own smoothing weight, and the damping φ makes the trend flatten out so a long forecast does not run away.",
@@ -307,7 +349,7 @@ export function openModelDetails(options: { snap: TsSnapshot | null; open: Model
   const autoPick = s && !("error" in s.models) ? s.models.auto[options.metric].pick : null;
   let current = options.open;
   const render = (focusRef?: string): void => {
-    nav.innerHTML = `<h4>Models</h4>${MODEL_KEYS.map((k) => `<button type="button" data-doc="${k}" aria-current="${k === current}">${MODEL_INFO[k].name}${k === autoPick ? ' <small class="ts-auto">Auto</small>' : ""}</button>`).join("")}
+    nav.innerHTML = `<h4>Models</h4>${(s ? (s.models as { shown: ModelKey[] }).shown : MODEL_KEYS).map((k) => `<button type="button" data-doc="${k}" aria-current="${k === current}">${MODEL_INFO[k].name}${k === autoPick ? ' <small class="ts-auto">Auto</small>' : ""}</button>`).join("")}
       <h4>Topics</h4>${[...TOPICS, { id: "sources", title: "Sources and credits", html: "" }].map((t) => `<button type="button" data-doc="${t.id}" aria-current="${t.id === current}">${t.title}</button>`).join("")}`;
     const topic = TOPICS.find((t) => t.id === current);
     if (current === "sources") body.innerHTML = `<h2>Sources and credits</h2>${sourcesHtml(focusRef)}`;

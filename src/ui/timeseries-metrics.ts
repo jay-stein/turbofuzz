@@ -99,10 +99,13 @@ export const MODEL_GUIDE: Record<ModelKey, { shines: string; doubt: string }> = 
   drift: { shines: "The line from the first value to the last, extended: the naive method plus the average change. Fine for a steady trend with no season.", doubt: "A turn in the series, and any season." },
   mean: { shines: "The average of everything so far. Good for a series that bounces around one fixed level.", doubt: "A trend or a season: it forecasts the past average." },
   ses: { shines: "Simple smoothing: a level that follows recent values, with no trend or season. A quick, sensible forecast for a series that moves slowly and has neither.", doubt: "A trend or a season: the forecast is flat." },
+  croston: { shines: "Sales that come now and then (mostly zeros): it forecasts the average demand per period, the number a stock plan needs.", doubt: "It leans high (Croston's rate is biased up), and an absolute-error measure such as MASE rewards a forecast of zero on this kind of data, so it can look worse than it is." },
+  sba: { shines: "Croston with its bias taken out: the usual choice for sales that come now and then.", doubt: "A product whose sales have dried up: it does not fade through a long gap. An absolute-error measure rewards forecasting zero here." },
+  tsb: { shines: "Sales that come now and then, including products whose sales are fading: its chance of a sale falls through a long gap.", doubt: "It fades even when the gap is only chance. An absolute-error measure rewards forecasting zero on this kind of data." },
   comb: { shines: "The average of best smoothing, steady trend and smooth and damp. Auto's default: it beat every published classical method on M3 monthly and quarterly and on tourism data, because the three misses partly cancel and the average has no parameters of its own to overfit.", doubt: "Intermittent demand (many zeros), where plain smoothing or Croston's method does better, and series where one member is clearly wrong." },
 };
 
-const MODEL_ORDER: ModelKey[] = ["sn", "naive", "drift", "mean", "ses", "clim", "hw", "ets", "theta", "reg", "ens", "comb"];
+const MODEL_ORDER: ModelKey[] = ["sn", "naive", "drift", "mean", "ses", "croston", "sba", "tsb", "clim", "hw", "ets", "theta", "reg", "ens", "comb"];
 
 /** Little train/test strips for four folds. */
 function foldsDiagram(kind: "expanding" | "rolling"): HTMLElement {
