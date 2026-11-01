@@ -38,7 +38,7 @@ import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
 import { binValues, groupedBinValues } from "../data/chart-bins.js";
 import { buildTable, type TsInput } from "../data/timeseries/base.js";
 import { defaultConfig, sanitizeTsConfig, TsEngine } from "../data/timeseries/engine.js";
-import { seriesShape, type SeriesShape, type ShapeCandidate } from "../data/timeseries/shape.js";
+import { seriesShape, type SeriesShape, type ShapeCandidate, type EntityCandidate } from "../data/timeseries/shape.js";
 import { timeDimension, viewSeriesInput } from "../data/timeseries/view-source.js";
 import { compileFormula, evaluateFormula } from "../data/column-formula.js";
 import { formulasFromExamples } from "../data/formula-examples.js";
@@ -1921,10 +1921,13 @@ let timeSeriesCache: {
   /** Shape of the rows per group shown (-1 = all), worked out on first ask. */
   shapes: Map<number, SeriesShape>;
   candidates: ShapeCandidate[] | null;
+  entities: EntityCandidate[] | null;
 } | null = null;
 
 /** Category columns the Time Series page can split by (as its own list), coded per series row. */
 const TS_SPLIT_LIMIT = 50;
+/** Most distinct values a column may have to be suggested as the one that names a series (a station, a store, a sensor). */
+const TS_ENTITY_LIMIT = 1000;
 /**
  * First and last timestamp of a date column over the rows, and the usual gap between
  * its distinct timestamps (the median).
@@ -1942,6 +1945,27 @@ function rawEdges(dataset: Dataset, ids: Uint32Array, column: number): { min: nu
 
 /** Most view groups read as a series (periods times split values). */
 const TS_VIEW_LIMIT = 200_000;
+function entityCandidates(dataset: Dataset, keep: readonly number[], dateColumn: number): EntityCandidate[] {
+  const out: EntityCandidate[] = [];
+  dataset.columns.forEach((column, index) => {
+    if (index === dateColumn || column.role === "provenance") return;
+    if (column.type !== "category" && column.type !== "string" && column.type !== "boolean") return;
+    const distinct = column.categorySummary().labels.length;
+    if (distinct < 2 || distinct > TS_ENTITY_LIMIT) return;
+    const codeOf = new Map<string, number>();
+    const labels: string[] = [];
+    const codes = new Int32Array(keep.length);
+    keep.forEach((id, i) => {
+      if (column.nullMask.get(id)) { codes[i] = -1; return; }
+      const value = (column.raw[id] ?? "").trim();
+      let code = codeOf.get(value);
+      if (code === undefined) { code = labels.length; codeOf.set(value, code); labels.push(value); }
+      codes[i] = code;
+    });
+    out.push({ column: index, name: column.name, codes, labels });
+  });
+  return out;
+}
 function shapeCandidates(dataset: Dataset, keep: readonly number[], dateColumn: number): ShapeCandidate[] {
   const out: ShapeCandidate[] = [];
   dataset.columns.forEach((column, index) => {
@@ -2037,7 +2061,7 @@ function handleGetTimeSeries(message: GetTimeSeriesRequest): void {
       post({ type: "timeSeries", requestId: message.requestId, snapshot: null, error, ms: performance.now() - started });
       return;
     }
-    timeSeriesCache = { key, ids, dataset, engine: new TsEngine(table), keep: built.keep, input: built.input, shapes: new Map(), candidates: built.candidates ?? null };
+    timeSeriesCache = { key, ids, dataset, engine: new TsEngine(table), keep: built.keep, input: built.input, shapes: new Map(), candidates: built.candidates ?? null, entities: null };
   }
   const cache = timeSeriesCache;
   const engine = cache.engine;
@@ -2049,7 +2073,9 @@ function handleGetTimeSeries(message: GetTimeSeriesRequest): void {
     cache.candidates ??= shapeCandidates(dataset, cache.keep, message.dateColumn);
     const { rowGroup, times } = cache.input;
     const keep = config.group >= 0 ? Uint8Array.from(rowGroup, (g) => (g === config.group ? 1 : 0)) : null;
-    shape = seriesShape(times, keep, cache.candidates);
+    // Suggestions are for the whole series; once one value is picked, the rows are already one series.
+    if (config.group < 0) cache.entities ??= cache.keep.length === times.length ? entityCandidates(dataset, cache.keep, message.dateColumn) : [];
+    shape = seriesShape(times, keep, cache.candidates, config.group < 0 ? cache.entities ?? [] : []);
     cache.shapes.set(config.group, shape);
   }
   post({ type: "timeSeries", requestId: message.requestId, snapshot, shape, ms: performance.now() - started });

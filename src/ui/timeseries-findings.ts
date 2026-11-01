@@ -160,7 +160,7 @@ function explain(s: TsSnapshot, i: number, expected: number): string {
     if (Math.abs(ch) > 0.05) return `<b>${escapeHtml(d.col)}</b> was ${Math.abs(ch * 100).toFixed(0)}% ${ch < 0 ? "below" : "above"} its usual level that ${A.g.noun}.`;
   }
   const groups = s.table.groups;
-  if (s.cfg.agg !== "sum" || s.cfg.group >= 0 || groups.length < 2) return "";
+  if (s.cfg.agg !== "sum" || s.cfg.group >= 0 || groups.length < 2 || (A.groupVal[0]?.length ?? 0) < A.modelN) return "";
   const excess = A.y[i] - expected;
   let tot = 0;
   const shares = groups.map((_, r) => { let v = 0; for (let k = 0; k < A.modelN; k++) v += A.groupVal[r][k]; tot += v; return v; });

@@ -73,7 +73,7 @@ interface Proj { T: number; H: number; f: Future; key: ModelKey }
 interface DecRow { name: string; get: (i: number) => number; color: string; kind: "line" | "bars"; zero?: boolean; yy?: (v: number) => number }
 type DragKind = "pan" | "box" | "split" | "horizon";
 
-const GROUP_LIMIT = 50;
+const GROUP_LIMIT = 1000;
 const AGG_OPTS: [TsAgg, string][] = [["sum", "sum"], ["mean", "mean"], ["twmean", "time-weighted mean"], ["median", "median"], ["min", "min"], ["max", "max"], ["first", "first"], ["last", "last"], ["count", "count of rows"]];
 const GAP_OPTS: [TsGaps, string, string][] = [
   ["smart", "filled smartly", "recommended: the usual pattern for short gaps, the nearby typical value for long ones"],
@@ -169,6 +169,19 @@ const TEMPLATE = `
         <div class="ts-fold-body" data-ref="foldCompare" hidden>
         <div class="ts-boardwrap"><table class="ts-board ts-board-compact" data-ref="boardCompact" aria-label="Models, compared"></table></div>
         </div>
+        <button class="ts-fold" type="button" data-fold="compute" aria-expanded="false"><span class="ts-fold-chev" aria-hidden="true"></span><svg class="ts-fold-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5.5A3 3 0 0 0 6.3 4.3 3.5 3.5 0 0 0 4 8a3.5 3.5 0 0 0 .8 2.3A3.6 3.6 0 0 0 4 12.5a3.5 3.5 0 0 0 2 3.2A3.2 3.2 0 0 0 9 19.5a3 3 0 0 0 3-2.2V5.5Z"/><path d="M12 5.5a3 3 0 0 1 5.7-1.2A3.5 3.5 0 0 1 20 8a3.5 3.5 0 0 1-.8 2.3 3.6 3.6 0 0 1 .8 2.2 3.5 3.5 0 0 1-2 3.2 3.2 3.2 0 0 1-3 3.8 3 3 0 0 1-3-2.2V5.5Z"/><path d="M8 9.5a2 2 0 0 1 2-1M16 9.5a2 2 0 0 0-2-1M8 14a2.2 2.2 0 0 0 2.2 1.2M16 14a2.2 2.2 0 0 1-2.2 1.2"/></svg><b>Compute-intense models</b><span class="ts-note">Deep runs you start yourself: AutoARIMA, and a variant that votes on the differencing</span></button>
+        <div class="ts-fold-body" data-ref="foldCompute" hidden>
+        <div class="ts-arima">
+          <div class="ts-arima-bar">
+            <button class="ts-ghost ts-deep-btn" type="button" data-ref="arimaBtn" title="Searches seasonal ARIMA models for this series by the textbook's method (R's auto.arima) and reports the one it settles on, with its parameters. A deep run you start yourself: no time limit.">AutoARIMA…</button>
+            <button class="ts-ghost ts-deep-btn" type="button" data-ref="arimaVoteBtn" title="DV-ARIMA: the same search, but the differencing is chosen by a vote on forecasts of your own history, not only by the unit-root test, and the forecast averages the choices. An alternative that may help a little: about 2 to 3% better on archive series, not on every series, and 3 to 5 times slower. Not used with Try every order.">DV-ARIMA…</button>
+            <label class="ts-check" title="Tries every order up to ARIMA(5,d,5)(2,D,2) within five terms, not just the neighbours of the best so far. Much slower."><input type="checkbox" data-ref="arimaAll"> Try every order (much slower)</label>
+            <span class="ts-note">Deep runs in the background with no time limit: they search ARIMA models and show the parameters they settle on. DV-ARIMA is an alternative that chooses the differencing by forecast vote.</span>
+          </div>
+          <div class="ts-arima-run" data-ref="arimaRun" hidden role="status" aria-live="polite"><span class="ts-donut" aria-hidden="true"></span><div class="ts-arima-prog" data-ref="arimaProg"></div><button class="ts-ghost" type="button" data-ref="arimaCancel">Stop</button></div>
+          <div class="ts-arima-out" data-ref="arimaOut" hidden></div>
+        </div>
+        </div>
         <button class="ts-fold" type="button" data-fold="hood" aria-expanded="false"><span class="ts-fold-chev" aria-hidden="true"></span><b>Under the hood</b><span class="ts-note">Checks, validation, flexibility and the model card, for analysts</span></button>
         <div class="ts-fold-body" data-ref="foldHood" hidden>
         <div class="ts-hood-controls">
@@ -180,16 +193,6 @@ const TEMPLATE = `
           <button class="ts-ghost ts-guide-btn" type="button" data-ref="guideBtn">Which model, and why?</button>
           <button class="ts-ghost" type="button" data-ref="docsBtn" title="Equations, fitting, forecasts, bands, differences from the textbook, and sources for every model">How the models work</button>
           <button class="ts-ghost ts-deep-btn" type="button" data-ref="deepBtn" title="Significance tests, error by steps ahead, band calibration on every fold and residual diagnostics. Slower: runs only when asked.">Deep check</button>
-        </div>
-        <div class="ts-arima">
-          <div class="ts-arima-bar">
-            <button class="ts-ghost ts-deep-btn" type="button" data-ref="arimaBtn" title="Searches seasonal ARIMA models for this series and reports the one it settles on, with its parameters. A deep run you start yourself: no time limit.">AutoARIMA…</button>
-            <label class="ts-check" title="DV-ARIMA. Besides the unit-root test's choice of differencing, the search is run at its neighbours (one more or one fewer difference, the seasonal difference switched), each is scored on forecasts from the end of your history, and the forecast averages them by how well they did. An alternative to plain auto.arima, not a replacement: a small gain on average (2 to 3% on archive series), not on every series, and 3 to 5 times slower. Not used with Try every order."><input type="checkbox" data-ref="arimaVote"> Try the differencing vote (DV-ARIMA, may help a little)</label>
-            <label class="ts-check" title="Tries every order up to ARIMA(5,d,5)(2,D,2) within five terms, not just the neighbours of the best so far. Much slower."><input type="checkbox" data-ref="arimaAll"> Try every order (much slower)</label>
-            <span class="ts-note">A deep run in the background, with no time limit: it searches ARIMA models by the textbook's method and shows the parameters it settles on.</span>
-          </div>
-          <div class="ts-arima-run" data-ref="arimaRun" hidden role="status" aria-live="polite"><span class="ts-donut" aria-hidden="true"></span><div class="ts-arima-prog" data-ref="arimaProg"></div><button class="ts-ghost" type="button" data-ref="arimaCancel">Stop</button></div>
-          <div class="ts-arima-out" data-ref="arimaOut" hidden></div>
         </div>
         <div class="ts-deep" data-ref="deepBox" hidden></div>
         <div class="ts-hood-detail" data-ref="heroDetail"></div>
@@ -1054,7 +1057,10 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     ref("strip").innerHTML = cells.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join("");
 
     const dlg = diffLag();
-    const lg = [`<span style="color:${C.text}"><i></i>${dlg ? `${measureWord(s)} − ${measureWord(s)} ${dlg} ${nounFor(gr, dlg)} earlier` : measureWord(s)}</span>`];
+    // The line is drawn in the text colour, or in grey when a rolling mean sits over a daily or finer series (see the draw's `emphasis`).
+    const rawGrey = ui.mode === "explore" && !dlg && ui.showSmooth && (a.g.unit === "day" || a.g.unit === "min");
+    // The swatch takes the line's own colour; the words stay in the text colour so they remain readable.
+    const lg = [`<span style="color:${C.text}"><i${rawGrey ? ` style="border-top-color:${C.raw}"` : ""}></i>${dlg ? `${measureWord(s)} − ${measureWord(s)} ${dlg} ${nounFor(gr, dlg)} earlier` : measureWord(s)}</span>`];
     if (ui.mode === "explore" && !dlg && ui.showSmooth) lg.push(`<span style="color:${C.accent}"><i></i>Rolling ${c.smoothStat}</span>`);
     if (ui.mode === "explore" && !dlg && ui.lastYear) lg.push(`<span style="color:${C.dim}"><i class="dash"></i>${gr.lyShort}</span>`);
     if (ui.mode === "decompose") lg.push(`<span style="color:${C.accent}"><i></i>Trend</span>`);
@@ -1085,26 +1091,40 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const box = ref("mixed");
     const s = snap, c = cfg;
     const keepKey = `${dateColumn}|${groupColumn}|${c?.group ?? -1}`;
-    if (!s || !c || !shape || (shape.typical < 2 && shape.repeatShare < 0.5) || c.agg === "count" || keptMixed.has(keepKey)) {
+    const repeats = !!shape && (shape.typical >= 2 || shape.repeatShare >= 0.5);
+    // Event rows (trips, orders) rarely share a timestamp, but a period can still add up hundreds of them from many places.
+    const crowded = !!shape && s !== null && c !== null && c.group < 0 && shape.suggest.length > 0 && s.A.n > 0 && shape.rows / s.A.n >= 3;
+    if (!s || !c || !shape || !(repeats || crowded) || c.agg === "count" || keptMixed.has(keepKey)) {
       box.hidden = true;
       return false;
     }
     const key = shape.keys[0];
+    const sug = shape.suggest[0];
     const date = escapeHtml(s.table.dateCol);
     const usual = Math.max(2, shape.typical);
-    const where = shape.repeatShare >= 0.9
-      ? `Each moment in <b>${date}</b> holds <b>${nf.format(usual)} rows</b>`
-      : `<b>${Math.round(shape.repeatShare * 100)}%</b> of moments in <b>${date}</b> hold more than one row (usually ${nf.format(usual)})`;
+    const perPeriod = Math.round(shape.rows / Math.max(1, s.A.n));
+    const where = !repeats
+      ? `Each ${escapeHtml(s.A.g.noun)} holds about <b>${nf.format(perPeriod)} rows</b>${sug ? `, from <b>${nf.format(sug.distinct)} different ${escapeHtml(sug.name)}</b> values` : ""}`
+      : shape.repeatShare >= 0.9
+        ? `Each moment in <b>${date}</b> holds <b>${nf.format(usual)} rows</b>`
+        : `<b>${Math.round(shape.repeatShare * 100)}%</b> of moments in <b>${date}</b> hold more than one row (usually ${nf.format(usual)})`;
     const verb = c.agg === "sum" ? "adds" : c.agg === "mean" || c.agg === "twmean" ? "averages" : c.agg === "median" ? "takes the median of" : "combines";
     const series = key ? `${nf.format(key.distinct)} ${escapeHtml(key.name)} series` : `${nf.format(usual)} different series`;
     const name = key ? escapeHtml(key.name) : "";
     const lead = `${where}${key ? `, one per <b>${name}</b>` : ""}${shape.most > usual ? ` (up to ${nf.format(shape.most)})` : ""}. This line ${verb} ${series} together, and trend, seasons and forecasts need one series.`;
-    const tail = key ? "" : " No single column tells these rows apart, so filter the Table to one series first.";
+    const tail = key ? "" : sug ? ` Pick one <b>${escapeHtml(sug.name)}</b> to see a single series:` : " No single column tells these rows apart, so filter the Table to one series first.";
     const acts: string[] = [];
     if (key) acts.push(`<button type="button" class="primary" data-mixed="one" data-col="${key.column}">One ${name} at a time</button>`);
+    else if (sug) {
+      const short = (t: string): string => (t.length > 28 ? `${t.slice(0, 27)}…` : t);
+      for (const v of sug.values.slice(0, 3)) acts.push(`<button type="button" class="primary" data-mixed="pick" data-col="${sug.column}" data-label="${escapeHtml(v.label)}" title="${nf.format(v.rows)} rows">${escapeHtml(short(v.label))} <small>${nf.format(v.rows)}</small></button>`);
+      acts.push(`<button type="button" data-mixed="more" data-col="${sug.column}">All ${nf.format(sug.distinct)}…</button>`);
+    }
+    const others = shape.suggest.slice(1).map((o) => `<button type="button" class="link" data-mixed="more" data-col="${o.column}">${escapeHtml(o.name)} (${nf.format(o.distinct)})</button>`).join(" ");
+    const alt = !key && sug && others ? `<p class="ts-mixed-alt">Or pick by ${others}</p>` : "";
     if (c.agg === "sum") acts.push(`<button type="button" data-mixed="mean">Average them instead</button>`);
     acts.push(`<button type="button" data-mixed="keep">Keep the ${escapeHtml(c.agg === "twmean" ? "time-weighted mean" : c.agg)}</button>`);
-    box.innerHTML = `<div class="ts-mixed-icon" aria-hidden="true">!</div><div class="ts-mixed-body"><b class="ts-mixed-title">Several series in one line</b><p>${lead}${tail}</p><div class="ts-mixed-acts">${acts.join("")}</div></div>`;
+    box.innerHTML = `<div class="ts-mixed-icon" aria-hidden="true">!</div><div class="ts-mixed-body"><b class="ts-mixed-title">Several series in one line</b><p>${lead}${tail}</p><div class="ts-mixed-acts">${acts.join("")}</div>${alt}</div>`;
     box.dataset.keep = keepKey;
     box.hidden = false;
     return true;
@@ -1327,6 +1347,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const v = verdictFor(s, M, key);
     badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ${v.cls}">${v.label}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small><button type="button" class="ts-link" data-info="${key}">How it works</button></div>
       <div class="ts-badge-body">${escapeHtml(v.sentence)}</div>
+      ${v.range ? `<div class="ts-rangenote"><b>The shaded range</b><span class="ts-pill ${v.range.cls}">${escapeHtml(v.range.label)}</span><span>${escapeHtml(v.range.text)}</span></div>` : ""}
       ${v.headsUp.map((h) => `<div class="ts-headsup"><b>Heads up:</b> ${escapeHtml(h)}</div>`).join("")}`;
     badge.hidden = false;
     // The numbers behind the verdict, for analysts, at the top of Under the hood.
@@ -1420,7 +1441,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     });
   }
   // ---------------------------------------------------------------- AutoARIMA (a deep run, started by hand)
-  let arima: { key: string; result: ArimaResult | null; running: ArimaRun | null; progress: ArimaProgress | null; started: number } | null = null;
+  let arima: { key: string; result: ArimaResult | null; running: ArimaRun | null; progress: ArimaProgress | null; started: number; vote: boolean } | null = null;
   const arimaKey = (s: TsSnapshot): string => curveKey(s);
   type ArimaOk = Extract<ArimaResult, { ok: true }>;
   /** The finished run, when it still belongs to the series on screen. */
@@ -1429,7 +1450,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (!s || !arima || arima.running || !arima.result || !arima.result.ok || arima.key !== arimaKey(s)) return null;
     return arima.result;
   }
-  type ArimaRow = { label: string; ratio: number; mase: number; lockMase: number | null; rank: number | null; verdict: Verdict; won: number; of: number };
+  type ArimaRow = { dv: boolean; label: string; ratio: number; mase: number; lockMase: number | null; rank: number | null; verdict: Verdict; won: number; of: number };
   /** What the leaderboards show for the AutoARIMA run: the same numbers as any other model, from its own backtest on the same folds. */
   function arimaRow(s: TsSnapshot, M: ModelRun): ArimaRow | null {
     const r = arimaLive();
@@ -1438,7 +1459,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const lock = bt.lockMase;
     const rank = M.lockbox && lock !== null ? 1 + CORE_KEYS.filter((k) => (M.models[k].lock?.mase ?? Infinity) < lock).length : null;
     const verdict = trustVerdict({ baseline: false, ratio: bt.ratio, lockRank: rank, models: CORE_KEYS.length, foldsWon: bt.foldsWon, foldsOf: bt.foldsOf, band: null, rough: M.rough, periods: s.A.modelN, cycle: cycleWord(s) });
-    return { label: r.label, ratio: bt.ratio, mase: bt.mase, lockMase: lock, rank, verdict, won: bt.foldsWon, of: bt.foldsOf };
+    return { dv: r.vote !== null, label: r.label, ratio: bt.ratio, mase: bt.mase, lockMase: lock, rank, verdict, won: bt.foldsWon, of: bt.foldsOf };
   }
   function arimaProgressText(): string {
     if (!arima) return "";
@@ -1446,18 +1467,18 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (!p) return `Starting… ${secs} s`;
     return `<b>${escapeHtml(p.stage)}</b>${p.tried ? ` · ${p.tried} model${p.tried === 1 ? "" : "s"} tried` : ""}${p.best ? ` · best so far <span class="ts-mono">${escapeHtml(p.best)}</span> (AICc ${Number.isFinite(p.bestAicc) ? p.bestAicc.toFixed(1) : "–"})` : ""}${p.current ? `<br><small>trying <span class="ts-mono">${escapeHtml(p.current)}</span></small>` : ""} · ${secs} s`;
   }
-  function runArima(): void {
+  function runArima(vote: boolean): void {
     const s = snap;
     if (!s || "error" in s.models || arima?.running) return;
     const M = s.models as ModelRun, a = s.A;
     const y = a.yModel.slice(0, a.modelN);
     for (let t = 0; t < y.length; t++) if (a.made[t]) y[t] = NaN;
     const job: ArimaJob = {
-      y, T: M.T, H: M.H, m: M.m, seasonMode: M.season.mode, origins: M.origins, rolling: M.cv === "rolling", trainLen: M.trainLen, lockbox: M.lockbox,
-      lambda: M.transform ? M.transform.lambda : null, nonNeg: a.nonNeg, exhaustive: ref<HTMLInputElement>("arimaAll").checked, vote: ref<HTMLInputElement>("arimaVote").checked,
+      y, T: M.T, H: M.H, m: M.m, seasonMode: M.season.mode, periods: M.season.periods, origins: M.origins, rolling: M.cv === "rolling", trainLen: M.trainLen, lockbox: M.lockbox,
+      lambda: M.transform ? M.transform.lambda : null, nonNeg: a.nonNeg, exhaustive: ref<HTMLInputElement>("arimaAll").checked, vote,
     };
     const run = startArima(job, (p) => { if (arima) { arima.progress = p; ref("arimaProg").innerHTML = arimaProgressText(); } });
-    arima = { key: arimaKey(s), result: null, running: run, progress: null, started: performance.now() };
+    arima = { key: arimaKey(s), result: null, running: run, progress: null, started: performance.now(), vote };
     ref("arimaProg").innerHTML = arimaProgressText();
     invalidate("ui", "panel");
     void run.done.then((result) => {
@@ -1529,6 +1550,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       : "";
     const tried = r.tried.slice(0, 12).map((t) => `<tr><td class="ts-mono">${escapeHtml(t.label.replace(/^ARIMA/, ""))}</td><td class="ts-mono">${t.ok && Number.isFinite(t.aicc) ? t.aicc.toFixed(2) : "no fit"}</td></tr>`).join("");
     return `
+      ${r.adjusted ? `<p class="ts-note"><b>The season was taken out first.</b> This series repeats every ${r.adjusted.periods.map((p) => nf.format(p)).join(" and ")} periods, longer than ARIMA handles directly, so, as the textbook advises [ref:fpp3] (12.1) and R's <code>stlf</code> does, that season was removed with STL, ARIMA was fitted to what was left (the last ${nf.format(r.adjusted.used)} readings), and the seasonal pattern was added back to the forecast and its ranges.</p>` : ""}
       <h4>${escapeHtml(r.label)} <small>${r.searched === "stepwise" ? "stepwise search" : "every order tried"}: ${r.tried.length} model${r.tried.length === 1 ? "" : "s"} in ${r.seconds < 10 ? r.seconds.toFixed(1) : Math.round(r.seconds)} s</small></h4>
       ${voteHtml}
       <p>${diffWords && !r.vote ? `The series is ${diffWords}. ` : ""}${terms.length ? `The model adds ${terms.join(", ")} term${sp.p + sp.q + sp.P + sp.Q === 1 ? "" : "s"}` : "The model has no autoregressive or moving-average terms"}${sp.constant ? `, with a ${sp.d + sp.D === 0 ? "constant mean" : "drift"}` : ""}.${r.lambda !== null ? ` Fitted on the Box-Cox transformed series (λ = ${r.lambda.toFixed(2)}) and mapped back.` : ""}</p>
@@ -1564,12 +1586,15 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       <div class="ts-boardbar"><button type="button" class="ts-ghost" data-ref="arimaCsv">Download parameters and forecast (CSV)</button></div>`;
   }
   function renderArima(): void {
-    const s = snap as TsSnapshot, M = models(), btn = ref("arimaBtn"), run = ref("arimaRun"), out = ref("arimaOut");
+    const s = snap as TsSnapshot, M = models(), btn = ref("arimaBtn"), vbtn = ref("arimaVoteBtn"), run = ref("arimaRun"), out = ref("arimaOut");
     if (!M) { run.hidden = true; out.hidden = true; return; }
     const running = !!arima?.running;
     run.hidden = !running;
-    btn.textContent = running ? "Searching…" : arima?.result ? "Run AutoARIMA again" : "AutoARIMA…";
+    const label = (voted: boolean, name: string): string => (running && arima!.vote === voted ? "Searching…" : arima?.result && arima.vote === voted ? `Run ${name} again` : `${name}…`);
+    btn.textContent = label(false, "AutoARIMA");
+    vbtn.textContent = label(true, "DV-ARIMA");
     (btn as HTMLButtonElement).disabled = running;
+    (vbtn as HTMLButtonElement).disabled = running;
     if (running) ref("arimaProg").innerHTML = arimaProgressText();
     const res = arima && !arima.running && arima.key === arimaKey(s) ? arima.result : null;
     if (!res) { out.hidden = true; return; }
@@ -1707,7 +1732,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       const at = bodies.findIndex((b) => b.includes("Benchmarks: what to beat"));
       const place = ar.rank !== null ? ` (${ordinal(ar.rank)} of ${CORE_KEYS.length})` : "";
       const body = `<tbody><tr class="ts-group"><th colspan="3" scope="colgroup">Run by you</th></tr><tr data-arima="1" title="Click for the parameters">
-          <td><span class="ts-mname ts-mono">${escapeHtml(ar.label)}</span><span class="ts-autotag">AutoARIMA</span><button type="button" class="ts-info" data-info="autoarima" aria-label="How AutoARIMA works" title="How AutoARIMA works: the method, how it was checked, sources">ⓘ</button><div class="ts-plain">The textbook's automatic ARIMA search, run by you: click for its parameters</div></td>
+          <td><span class="ts-mname ts-mono">${escapeHtml(ar.label)}</span><span class="ts-autotag">${ar.dv ? "DV-ARIMA" : "AutoARIMA"}</span><button type="button" class="ts-info" data-info="autoarima" aria-label="How AutoARIMA works" title="How AutoARIMA works: the method, how it was checked, sources">ⓘ</button><div class="ts-plain">${ar.dv ? "AutoARIMA with the differencing chosen by a forecast vote, run by you" : "The textbook's automatic ARIMA search, run by you"}: click for its parameters</div></td>
           <td><span class="ts-errtrack"><span class="ts-errbar" style="width:${Math.min(100, Math.max(3, (ar.ratio / top) * 100)).toFixed(0)}%;opacity:0.85"></span></span><span class="ts-ratio">${ar.ratio.toFixed(2)}×</span></td>
           <td><span class="ts-dot" style="background:${dot[ar.verdict.cls]}"></span>${escapeHtml(ar.verdict.label)}${place}</td></tr></tbody>`;
       if (at >= 0) bodies.splice(at, 0, body); else bodies.push(body);
@@ -1745,7 +1770,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         const ar = arimaRow(s, M);
         if (!ar) return "";
         const gd = grade(ar.ratio, "ets");
-        return `<tr data-arima="1" title="Click for the parameters"><td><span class="ts-mname ts-mono">${escapeHtml(ar.label)}</span><button type="button" class="ts-info" data-info="autoarima" aria-label="How AutoARIMA works" title="How AutoARIMA works">ⓘ</button><span class="ts-auto">Run by you</span><span class="ts-mmeth">AutoARIMA, the textbook's automatic search; scored on these folds with its order held</span></td>
+        return `<tr data-arima="1" title="Click for the parameters"><td><span class="ts-mname ts-mono">${escapeHtml(ar.label)}</span><button type="button" class="ts-info" data-info="autoarima" aria-label="How AutoARIMA works" title="How AutoARIMA works">ⓘ</button><span class="ts-auto">Run by you</span><span class="ts-mmeth">${ar.dv ? "DV-ARIMA, AutoARIMA with the differencing chosen by a forecast vote" : "AutoARIMA, the textbook's automatic search"}; scored on these folds with its order held</span></td>
           <td>${mk === "mase" ? ar.mase.toFixed(2) : "<small>MASE only</small>"}</td><td>${ar.ratio.toFixed(2)}×</td><td><span class="ts-pill ${gd.cls}">${gd.text}</span></td><td>${ar.won} of ${ar.of}</td>${M.lockbox ? `<td>${ar.lockMase !== null ? `${ar.lockMase.toFixed(2)}${ar.rank !== null ? ` <small>#${ar.rank}</small>` : ""}` : "–"}</td>` : ""}<td>–</td></tr>`;
       })() + "</tbody>";
     card.innerHTML = modelRows(s, sel, mk).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
@@ -1876,6 +1901,18 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       case "agg": choose("agg", act.agg); break;
     }
   }
+  /** Split by this column and show the one value: the rows of a single station, store or sensor. */
+  function pickSeries(col: number, label: string): void {
+    if (!cfg) return;
+    const apply = (): void => { const i = snap?.table.groups.indexOf(label) ?? -1; if (i >= 0) change({ group: i }); };
+    if (col !== groupColumn) { groupColumn = col; cfg = { ...cfg, group: -1 }; afterFetch = apply; fetchSeries(); } else apply();
+  }
+  /** Split by this column and open the list of its values, searchable. */
+  function openSeriesPicker(col: number): void {
+    if (!cfg) return;
+    const open = (): void => { window.setTimeout(() => { const b = host.querySelector<HTMLElement>('.ts-tok[data-tok="group"]'); if (b) openPop(b, "group"); }, 80); };
+    if (col !== groupColumn) { groupColumn = col; cfg = { ...cfg, group: -1 }; afterFetch = open; fetchSeries(); } else open();
+  }
   function choose(key: TokenKey, val: string): void {
     if (!cfg) return;
     if (key === "date") {
@@ -1986,6 +2023,21 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       const off = key === "grain" && info.tooFine[val as GrainId];
       return `<button type="button" role="menuitemradio" data-val="${escapeHtml(val)}" aria-checked="${cur === val}"${off ? ` disabled title="Finer than the data: most periods would be empty"` : ""}>${escapeHtml(label)}${hint ? ` <small>${escapeHtml(hint)}</small>` : ""}</button>`;
     }).join("");
+    // Hundreds of stations or stores: a search box above the list, filtering as you type.
+    const options = POP.querySelectorAll<HTMLButtonElement>("button[data-val]");
+    if (options.length > 12) {
+      const search = document.createElement("input");
+      search.type = "search"; search.placeholder = `Find among ${options.length}…`; search.className = "ts-pop-search"; search.setAttribute("aria-label", "Find a value");
+      search.addEventListener("input", () => {
+        const q = search.value.trim().toLowerCase();
+        options.forEach((b) => { b.hidden = q !== "" && !(b.textContent ?? "").toLowerCase().includes(q); });
+      });
+      search.addEventListener("keydown", (e) => { if (e.key === "Enter") POP.querySelector<HTMLButtonElement>("button[data-val]:not([hidden])")?.click(); });
+      POP.prepend(search);
+      placePop(anchor);
+      search.focus();
+      return;
+    }
     placePop(anchor);
     (POP.querySelector<HTMLButtonElement>('[aria-checked="true"]') ?? POP.querySelector<HTMLButtonElement>("button"))?.focus();
   }
@@ -2065,7 +2117,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         const col = Number(mixedAct.dataset.col);
         if (col !== groupColumn) { groupColumn = col; cfg = { ...cfg, group: 0 }; fetchSeries(); }
         else change({ group: 0 });
-      } else if (what === "mean") change({ agg: "mean" });
+      } else if (what === "pick") pickSeries(Number(mixedAct.dataset.col), mixedAct.dataset.label ?? "");
+      else if (what === "more") openSeriesPicker(Number(mixedAct.dataset.col));
+      else if (what === "mean") change({ agg: "mean" });
       else if (what === "keep") {
         keptMixed.add(ref("mixed").dataset.keep ?? "");
         renderUI();
@@ -2096,7 +2150,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const info = target.closest<HTMLElement>("[data-info]");
     if (info) { openDocs(info.dataset.info!); return; }
     const arimaRowEl = target.closest<HTMLElement>("tr[data-arima]");
-    if (arimaRowEl && !info) { folds.hood = true; applyFolds(); ref("arimaOut").scrollIntoView({ block: "start", behavior: "smooth" }); return; }
+    if (arimaRowEl && !info) { folds.compute = true; applyFolds(); ref("arimaOut").scrollIntoView({ block: "start", behavior: "smooth" }); return; }
     const row = target.closest<HTMLElement>("tr[data-model]");
     if (row && snap) { const M = models(), k = row.dataset.model as ModelKey; uiChange({ model: M && k === M.auto[ui.metric].pick && ui.model !== "auto" ? "auto" : k }); }
     const tab = target.closest<HTMLElement>(".ts-modes [data-mode]");
@@ -2144,14 +2198,14 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   on("sens", "input", (e) => change({ sens: Number((e.target as HTMLInputElement).value) }, { fade: false }));
   on("flex", "input", (e) => change({ flex: Number((e.target as HTMLInputElement).value) }, { fade: false }));
   on("flexCheck", "click", () => checkFlex());
-  /** Compare models and Under the hood start closed; a person's choice is remembered in this browser. */
-  const folds: Record<string, boolean> = { compare: false, hood: false };
+  /** Compare models, Compute-intense models and Under the hood start closed; a person's choice is remembered in this browser. */
+  const folds: Record<string, boolean> = { compare: false, compute: false, hood: false };
   try { Object.assign(folds, JSON.parse(localStorage.getItem("ts.forecast.folds") || "{}")); } catch { /* storage unavailable */ }
   function applyFolds(): void {
     for (const b of host.querySelectorAll<HTMLButtonElement>(".ts-fold")) {
       const k = b.dataset.fold ?? "", open = !!folds[k];
       b.setAttribute("aria-expanded", String(open));
-      ref(k === "hood" ? "foldHood" : "foldCompare").hidden = !open;
+      ref(k === "hood" ? "foldHood" : k === "compute" ? "foldCompute" : "foldCompare").hidden = !open;
     }
   }
   for (const b of host.querySelectorAll<HTMLButtonElement>(".ts-fold")) b.addEventListener("click", () => {
@@ -2162,10 +2216,10 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   });
   applyFolds();
   on("deepBtn", "click", () => runDeep());
-  on("arimaBtn", "click", () => runArima());
+  on("arimaBtn", "click", () => runArima(false));
+  on("arimaVoteBtn", "click", () => runArima(true));
   on("arimaCancel", "click", () => { arima?.running?.cancel(); arima = null; invalidate("ui", "panel"); });
   on("arimaAll", "change", () => invalidate("ui", "panel"));
-  on("arimaVote", "change", () => invalidate("ui", "panel"));
   ref("arimaOut").addEventListener("click", (e) => { if ((e.target as Element).closest("[data-ref=arimaCsv]")) downloadArima(); });
   on("flexCurve", "click", (e) => { const b = (e.target as Element).closest<HTMLElement>("[data-flexpick]"); if (b) change({ flex: Number(b.dataset.flexpick) }, { fade: false }); });
   on("diffOn", "change", (e) => uiChange({ diff: (e.target as HTMLInputElement).checked, diffLag: ui.diffLag || defaultLag() }));

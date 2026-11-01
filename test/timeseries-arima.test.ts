@@ -227,3 +227,30 @@ test("runAutoArima: the vote is off unless asked for; vote:true reports plain au
   const ex = runAutoArima({ ...job, y: y.slice(0, 60), T: 60, H: 6, m: 1, seasonMode: "none", exhaustive: true, vote: true });
   assert.ok(ex.ok && ex.vote === null);
 });
+
+test("a season too long for ARIMA is removed with STL first, ARIMA is fitted to the rest, and the season comes back in the forecast", () => {
+  const m = 48, n = 10 * m, H = m;
+  // A level, a slow trend and a strong daily shape, with a little noise (a fixed generator, so the run repeats).
+  let seed = 7;
+  const noise = (): number => { seed = (seed * 1664525 + 1013904223) >>> 0; return (seed / 4294967296 - 0.5) * 2; };
+  const shape = (t: number): number => 20 * Math.sin((2 * Math.PI * t) / m) + 8 * Math.cos((4 * Math.PI * t) / m);
+  const y = Float64Array.from({ length: n + H }, (_, t) => 100 + 0.05 * t + shape(t) + noise());
+  const job = { y, T: n, H, m, seasonMode: "mstl" as const, periods: [m], origins: [n - 2 * H, n - H], rolling: false, trainLen: null, lockbox: false, lambda: null, nonNeg: false, exhaustive: false };
+  const r = runAutoArima(job);
+  assert.ok(r.ok, r.ok ? "" : r.reason);
+  if (!r.ok) return;
+  assert.equal(r.spec.m, 1, "ARIMA itself is not seasonal here");
+  assert.deepEqual(r.adjusted?.periods, [m]);
+  // The forecast carries the daily shape: it follows the true pattern, not a flat line.
+  const truth = Array.from({ length: H }, (_, h) => y[n + h]!);
+  const flatErr = truth.reduce((a, v) => a + Math.abs(v - r.forecast.F[H - 1]!), 0) / H;
+  const err = truth.reduce((a, v, h) => a + Math.abs(v - r.forecast.F[h]!), 0) / H;
+  assert.ok(err < 3, `error ${err.toFixed(2)} is small beside the swing of 28`);
+  assert.ok(err < flatErr / 3, "much better than a flat forecast");
+  assert.ok(r.forecast.lo95.every((v, h) => v < r.forecast.F[h]! && r.forecast.hi95[h]! > r.forecast.F[h]!), "ranges surround the forecast");
+  assert.ok(r.backtest !== null && r.backtest.foldsOf === 2 && Number.isFinite(r.backtest.ratio));
+  // Too little history to see two cycles: a plain message that says what to do.
+  const short = runAutoArima({ ...job, y: y.slice(0, 80), T: 80, origins: [] });
+  assert.equal(short.ok, false);
+  if (!short.ok) assert.match(short.reason, /two full cycles/);
+});

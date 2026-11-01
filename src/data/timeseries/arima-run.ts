@@ -9,6 +9,7 @@ import {
   type ArimaCoef, type ArimaFit, type ArimaSpec, type ResidualCheck, type TriedModel,
 } from "./arima.js";
 import { boxCox, invBoxCox } from "./boxcox.js";
+import { mstl } from "./stl.js";
 
 export interface ArimaJob {
   /** The modelled series up to the end of the data, NaN where a period was filled in (the fit skips those). */
@@ -30,6 +31,8 @@ export interface ArimaJob {
   nonNeg: boolean;
   /** Try every order, not only the stepwise neighbourhood (slow). */
   exhaustive: boolean;
+  /** The seasons removed first when the season is too long for ARIMA (mode "mstl"), shortest first. */
+  periods?: number[];
   /** DV-ARIMA: choose the differencing by a forecast vote beside the unit-root test. Off unless asked for; not with every order. */
   vote?: boolean;
 }
@@ -75,6 +78,8 @@ export type ArimaResult =
     vote: ArimaVoteRow[] | null;
     /** What plain auto.arima (the unit-root tests alone) settles on, for comparison. */
     plainLabel: string;
+    /** Set when a season too long for ARIMA was removed with STL first: the periods removed, and how much history was used. */
+    adjusted: { periods: number[]; used: number } | null;
     resid: ResidualCheck | null;
     backtest: ArimaBacktest | null;
     lambda: number | null;
@@ -84,13 +89,48 @@ export type ArimaResult =
 
 export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => void = () => {}, cancelled: () => boolean = () => false): ArimaResult {
   const t0 = Date.now();
-  if (job.seasonMode === "mstl") {
-    return { ok: false, reason: `This series has a season of ${job.m} periods, longer than ARIMA handles directly. R's advice is to remove the season first and fit ARIMA to the adjusted series (stlf); that is not built yet.` };
-  }
   const m = job.seasonMode === "native" ? job.m : 1;
   const bc = job.lambda;
   const yFull = bc === null ? job.y : boxCox(job.y, bc);
-  const y = yFull.slice(0, job.T);
+  // A season too long for ARIMA (a week of half-hours, a day of minutes) is removed with STL first and ARIMA is fitted to what is
+  // left, the seasonal part added back to the forecast: the textbook's way (fpp3 12.1, R's stlf), and what the board's models do.
+  const long = job.seasonMode === "mstl";
+  const periodsAll = job.periods && job.periods.length ? job.periods : [job.m];
+  const win = Math.max(1000, 6 * job.m);
+  const strip = (s0: number, e: number): { s: number; adj: Float64Array; sf: Float64Array; ps: number[] } | null => {
+    const s = Math.max(s0, e - win, 0), n = e - s;
+    const ps = periodsAll.filter((p) => n >= 2 * p + 2);
+    if (ps.length === 0) return null;
+    const raw = yFull.slice(s, e);
+    // The decomposition needs every period: fill gaps by straight lines (the fit itself skips them again).
+    const filled = Float64Array.from(raw);
+    let prev = -1;
+    for (let t = 0; t < n; t++) {
+      if (filled[t]! !== filled[t]!) continue;
+      if (prev >= 0 && t - prev > 1) for (let k = prev + 1; k < t; k++) filled[k] = filled[prev]! + ((filled[t]! - filled[prev]!) * (k - prev)) / (t - prev);
+      else if (prev < 0) for (let k = 0; k < t; k++) filled[k] = filled[t]!;
+      prev = t;
+    }
+    if (prev < 0) return null;
+    for (let k = prev + 1; k < n; k++) filled[k] = filled[prev]!;
+    const dec = mstl(filled, ps, 1);
+    const part = new Float64Array(n), sf = new Float64Array(job.H);
+    ps.forEach((p, i) => {
+      const comp = dec.seasonal[i]!;
+      for (let t = 0; t < n; t++) part[t] = part[t]! + comp[t]!;
+      for (let h = 0; h < job.H; h++) sf[h] = sf[h]! + comp[n - p + (h % p)]!;
+    });
+    const adj = new Float64Array(n);
+    for (let t = 0; t < n; t++) adj[t] = raw[t]! === raw[t]! ? raw[t]! - part[t]! : Number.NaN;
+    return { s, adj, sf, ps };
+  };
+  const strip0 = long ? strip(0, job.T) : null;
+  if (long && strip0 === null) {
+    const need = 2 * Math.min(...periodsAll) + 2;
+    return { ok: false, reason: `This series repeats every ${job.m} periods, and ARIMA needs the season taken out first, which takes at least two full cycles of history (${need.toLocaleString()} readings here). There are ${job.T.toLocaleString()}. Use a coarser period (hourly instead of half-hourly, say) or more history.` };
+  }
+  const sf0 = strip0 ? strip0.sf : new Float64Array(job.H);
+  const y = strip0 ? strip0.adj : yFull.slice(0, job.T);
   const known = y.reduce((n, v) => n + (v === v ? 1 : 0), 0);
   if (known < 12) return { ok: false, reason: `Only ${known} readings: too few to fit an ARIMA model.` };
   onProgress({ stage: "Choosing the differences", tried: 0, best: "", bestAicc: NaN, current: "", detail: "" });
@@ -132,7 +172,10 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
   // Averaging over the models the search tried, by Akaike weights, steadies the forecast against the luck of which one had the lowest AICc.
   team = team.map((t) => (t.fit === lead ? { fit: best, weight: t.weight } : t));
   const avgFc = averageForecasts(y, team, job.H);
-  const toBack = (f: { F: ArrayLike<number>; lo80: ArrayLike<number>; hi80: ArrayLike<number>; lo95: ArrayLike<number>; hi95: ArrayLike<number> }) => ({ F: back(Array.from(f.F)), lo80: back(Array.from(f.lo80)), hi80: back(Array.from(f.hi80)), lo95: back(Array.from(f.lo95)), hi95: back(Array.from(f.hi95)) });
+  const toBack = (f: { F: ArrayLike<number>; lo80: ArrayLike<number>; hi80: ArrayLike<number>; lo95: ArrayLike<number>; hi95: ArrayLike<number> }) => {
+    const sh = (a: ArrayLike<number>): number[] => back(Array.from(a, (v, h) => v + sf0[h]!));
+    return { F: sh(f.F), lo80: sh(f.lo80), hi80: sh(f.hi80), lo95: sh(f.lo95), hi95: sh(f.hi95) };
+  };
   const resid = residualCheck(best);
 
   // Backtest: the order is held, the coefficients refitted on each fold's history, scored on the original scale.
@@ -152,7 +195,10 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
       const o = job.origins[k]!;
       onProgress({ stage: `Backtest, fold ${k + 1} of ${R}`, tried: found.tried.length, best: specLabel(best.spec), bestAicc: best.aicc, current: "", detail: "" });
       const start = job.rolling && job.trainLen !== null ? Math.max(0, Math.floor((o - job.trainLen) / Math.max(1, m)) * Math.max(1, m)) : 0;
-      const seg = yFull.slice(start, o);
+      const cut = long ? strip(start, o) : null;
+      if (long && cut === null) continue;
+      const seg = cut ? cut.adj : yFull.slice(start, o);
+      const seas = cut ? cut.sf : sf0;
       const f = fitArima(seg, best.spec);
       if (!f) continue;
       // The averaged forecast: each member's order refitted on this fold, with the weights from the full history.
@@ -161,7 +207,8 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
       const wsum = memberFc.reduce((a, b) => a + b.w, 0) || 1;
       const pred = new Float64Array(job.H);
       memberFc.forEach((mm) => { for (let h = 0; h < job.H; h++) pred[h] = pred[h]! + (mm.w / wsum) * mm.F[h]!; });
-      const bestPred = forecastArima(seg, f, job.H).F;
+      for (let h = 0; h < job.H; h++) pred[h] = pred[h]! + seas[h]!;
+      const bestPred = Float64Array.from(forecastArima(seg, f, job.H).F, (v, h) => v + seas[h]!);
       let foldAe = 0, foldSe = 0, foldN = 0;
       for (let h = 0; h < job.H; h++) {
         const actual = job.y[o + h]!;
@@ -197,6 +244,7 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
     averaged: team.map((t) => ({ label: specLabel(t.fit.spec), weight: t.weight })),
     vote: voteRows,
     plainLabel: specLabel(found.best.spec),
+    adjusted: strip0 ? { periods: strip0.ps, used: y.length } : null,
     resid,
     backtest,
     lambda: bc,

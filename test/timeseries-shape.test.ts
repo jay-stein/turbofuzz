@@ -70,3 +70,26 @@ test("spacing: regular, regular with missing periods, and irregular", () => {
   const months = Array.from({ length: 36 }, (_, i) => Date.UTC(2020, i, 1));
   assert.equal(spacingOf(months)?.kind, "regular");
 });
+
+test("suggests the columns that could name a series, many-valued ones before flags, with the largest values first", async () => {
+  const { suggestSeries } = await import("../src/data/timeseries/shape.js");
+  // 1,200 trips at unique seconds: 30 stations of 40 trips each, a two-way user type, and a column that is mostly one-off.
+  const n = 1200;
+  const times = Float64Array.from({ length: n }, (_, i) => 1_700_000_000_000 + i * 60_000);
+  const idx = Array.from({ length: n }, (_, i) => i);
+  const station = Int32Array.from({ length: n }, (_, i) => i % 30);
+  const labels = Array.from({ length: 30 }, (_, i) => `Station ${i}`);
+  const user = Int32Array.from({ length: n }, (_, i) => i % 2);
+  const oneOff = Int32Array.from({ length: n }, (_, i) => i);
+  const out = suggestSeries(times, idx, [
+    { column: 4, name: "usertype", codes: user, labels: ["Subscriber", "Customer"] },
+    { column: 3, name: "station", codes: station, labels },
+    { column: 5, name: "trip id", codes: oneOff, labels: Array.from({ length: n }, (_, i) => `T${i}`) },
+  ]);
+  assert.deepEqual(out.map((o) => o.name), ["station", "usertype"], "a column whose values never reach 24 moments is not suggested; the flag comes after");
+  assert.equal(out[0]!.distinct, 30);
+  assert.ok(out[0]!.coverage >= 0.99);
+  assert.equal(out[0]!.values.length, 8);
+  assert.equal(out[0]!.values[0]!.rows, 40);
+  assert.deepEqual(suggestSeries(times, idx, []), []);
+});

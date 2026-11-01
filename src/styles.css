@@ -17,11 +17,6 @@
   --ty-num: #1d4ed8; --ty-num-bg: #dbeafe;
   --ty-date: #0f766e; --ty-date-bg: #ccfbf1;
   --ty-bool: #15803d; --ty-bool-bg: #dcfce7;
-  --ty-text: #475569; --ty-text-bg: #e8edf3;
-  --ty-cat: #6d28d9; --ty-cat-bg: #ede9fe;
-  --ty-num: #1d4ed8; --ty-num-bg: #dbeafe;
-  --ty-date: #0f766e; --ty-date-bg: #ccfbf1;
-  --ty-bool: #15803d; --ty-bool-bg: #dcfce7;
   --accent: #2563eb;
   --accent-soft: #dbe6ff;
   --on-accent: #ffffff;
@@ -102,11 +97,6 @@
     --ty-num: #93c5fd; --ty-num-bg: #1e3a5f;
     --ty-date: #5eead4; --ty-date-bg: #134e4a;
     --ty-bool: #86efac; --ty-bool-bg: #14351f;
-    --ty-text: #cbd5e1; --ty-text-bg: #2a3342;
-    --ty-cat: #c4b5fd; --ty-cat-bg: #2e2650;
-    --ty-num: #93c5fd; --ty-num-bg: #1e3a5f;
-    --ty-date: #5eead4; --ty-date-bg: #134e4a;
-    --ty-bool: #86efac; --ty-bool-bg: #14351f;
     --accent: #60a5fa;
     --accent-soft: #1e3a5f;
     --on-accent: #0b1220;
@@ -145,11 +135,6 @@
   --border-subtle: #222b36;
   --text: #e7ecf2;
   --text-dim: #a1aebd;
-  --ty-text: #cbd5e1; --ty-text-bg: #2a3342;
-  --ty-cat: #c4b5fd; --ty-cat-bg: #2e2650;
-  --ty-num: #93c5fd; --ty-num-bg: #1e3a5f;
-  --ty-date: #5eead4; --ty-date-bg: #134e4a;
-  --ty-bool: #86efac; --ty-bool-bg: #14351f;
   --ty-text: #cbd5e1; --ty-text-bg: #2a3342;
   --ty-cat: #c4b5fd; --ty-cat-bg: #2e2650;
   --ty-num: #93c5fd; --ty-num-bg: #1e3a5f;
@@ -9294,23 +9279,6 @@ label.null-row {
 .th-type-wrap[data-fam="boolean"] { --fam-fg: var(--ty-bool); --fam-bg: var(--ty-bool-bg); }
 .th-type-wrap[data-fam]:hover { color: var(--accent); background: var(--accent-soft); }
 
-/* The type reads as a chip tinted by its family, so a column of the wrong type stands out. The glyph stays the label: colour is never the only cue. */
-.th-type-wrap[data-fam] {
-  padding: 0 8px;
-  height: 20px;
-  border-radius: 5px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--fam-fg);
-  background: var(--fam-bg);
-}
-.th-type-wrap[data-fam="text"] { --fam-fg: var(--ty-text); --fam-bg: var(--ty-text-bg); }
-.th-type-wrap[data-fam="category"] { --fam-fg: var(--ty-cat); --fam-bg: var(--ty-cat-bg); }
-.th-type-wrap[data-fam="number"] { --fam-fg: var(--ty-num); --fam-bg: var(--ty-num-bg); }
-.th-type-wrap[data-fam="time"] { --fam-fg: var(--ty-date); --fam-bg: var(--ty-date-bg); }
-.th-type-wrap[data-fam="boolean"] { --fam-fg: var(--ty-bool); --fam-bg: var(--ty-bool-bg); }
-.th-type-wrap[data-fam]:hover { color: var(--accent); background: var(--accent-soft); }
-
 .th-type-wrap:hover {
   color: var(--accent);
   background: var(--accent-soft);
@@ -12207,8 +12175,18 @@ button.qp-tile:hover {
 /* Forecast tab: Compare models and Under the hood open on demand */
 .ts-fold { display: flex; align-items: center; gap: 10px; width: 100%; margin: 8px 0 0; padding: 11px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .ts-fold:hover { background: var(--panel-2); }
-.ts-fold-chev { width: 7px; height: 7px; border-right: 2px solid var(--ts-dim); border-bottom: 2px solid var(--ts-dim); transform: rotate(-45deg); transition: transform 0.15s; }
-.ts-fold[aria-expanded="true"] .ts-fold-chev { transform: rotate(45deg); }
+/* A plus to open and a minus to close, in a small box, on the section bars and the in-page disclosures. */
+.ts-fold-chev, .ts-arima-help > summary::before, .ts-arima-tried > summary::before {
+  content: "+"; display: inline-grid; place-items: center; flex: none; width: 18px; height: 18px; box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: 5px; background: var(--panel-2); color: var(--text-dim);
+  font: 600 14px/1 var(--mono);
+}
+.ts-fold-chev::before { content: "+"; }
+.ts-fold[aria-expanded="true"] .ts-fold-chev::before { content: "\2212"; }
+.ts-arima-help[open] > summary::before, .ts-arima-tried[open] > summary::before { content: "\2212"; }
+.ts-arima-help > summary, .ts-arima-tried > summary { list-style: none; display: flex; align-items: center; gap: 8px; }
+.ts-arima-help > summary::-webkit-details-marker, .ts-arima-tried > summary::-webkit-details-marker { display: none; }
+.ts-fold-icon { flex: none; color: var(--accent); }
 .ts-fold-body { padding: 10px 0 2px; }
 .ts-fold-body[hidden] { display: none; }
 
@@ -12386,3 +12364,13 @@ button.qp-tile:hover {
 /* The settings drawer's own header: always in view, with the way out. */
 .chart-side-head { position: sticky; top: -4px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 -12px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border-subtle); font-size: var(--fs-md); }
 .chart-sidebar-toggle[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+
+/* The several-series banner: the suggested values as buttons, with their row counts, and other columns to pick by. */
+.ts-mixed-acts small { opacity: 0.75; font-weight: 400; margin-left: 4px; }
+.ts-mixed-alt { margin: 8px 0 0; font-size: var(--fs-sm); color: var(--ts-dim); }
+.ts-pop-search { display: block; width: calc(100% - 16px); margin: 8px; padding: 6px 8px; box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); color: var(--text); font: inherit; }
+.ts-popover { max-height: min(420px, 70vh); overflow-y: auto; }
+
+/* The shaded range is judged apart from the forecast line: a labelled row, not a warning. */
+.ts-rangenote { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--border-subtle); font-size: var(--fs-sm); color: var(--text-dim); line-height: 1.45; }
+.ts-rangenote > b { color: var(--text); font-weight: 600; }

@@ -28,6 +28,96 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-30 — Forecast verdict: the line and the shaded range are judged apart, in plain words
+
+- **Status:** Verified
+- **Scope:** The Forecast badge mixed two questions: how good the forecast line is, and how far the shaded range can be trusted. It also said "its lead may be partly luck" of a model that ranked 3rd. Now the sentence is only about the line ("Ranked 3rd of 8 models on data it never saw: in line with the others, not clearly better", with any simple method that did better named in the same sentence), and the range has its own labelled row: Reliable, Too narrow or Wider than needed, with the share of past ranges that held the real value against the aim. "Heads up" is kept for genuine cautions (too little history, mostly-zero sales). A "lead" is only mentioned for a top-two model with a thin record, with the numbers.
+- **Files / components changed:** src/data/timeseries/verdict.ts, src/ui/timeseries-page.ts, src/styles.css, test/timeseries-verdict.test.ts, test/e2e/time-series-page.spec.ts
+- **Tests run and results:** verdict unit tests (10) and the Time Series page e2e pass
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
+### CHG-2026-11-01-29 — AutoARIMA on seasons longer than 24 periods
+
+- **Status:** Verified
+- **Scope:** A series with a season ARIMA cannot hold (a week of half-hours is 336) was refused with "R's advice is to remove the season first ... (stlf); that is not built yet". It is built now: the season is removed with STL (MSTL, up to about six cycles of history, as the board's models do), ARIMA is fitted to what is left, and the seasonal pattern is added back to the forecast and its ranges. The backtest does the same on each fold's own history. The page says the season was taken out first. With under two full cycles of history the run now says what is missing and what to change, in plain words.
+- **Files / components changed:** src/data/timeseries/arima-run.ts, src/ui/timeseries-page.ts, src/ui/timeseries-model-docs.ts, test/timeseries-arima.test.ts, next_steps.md
+- **Tests run and results:** a synthetic daily-shaped series (period 48 forced down the long-season path): the forecast follows the true shape (error under 3 against a swing of 28, much better than flat), ranges surround it, backtest scored; the short-history message is tested
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
+### CHG-2026-11-01-28 — Time Series: when rows from many places share a line, suggest the column and the values to pick
+
+- **Status:** Verified
+- **Scope:** The page only noticed several series when one column told rows at the same moment apart, and only for columns with up to 50 values. Citi Bike-style data (one row per trip, each at its own second, 330 stations) was summed silently. Now the page also notices when a period holds many rows (three or more) and a column could name the series. The detector ranks columns whose values each appear at 24 or more moments (a station or a store before a two-way flag), with their largest values and row counts. The banner offers the three largest values as buttons, "All N…" for a searchable list, and the other columns to pick by. One click splits by that column and shows that station alone. The split limit rises from 50 to 1,000 values; per-group totals (used only for one finding) are skipped when groups times periods would be very large, so memory stays bounded.
+- **Files / components changed:** src/data/timeseries/shape.ts, aggregate.ts, src/worker/search.worker.ts, src/ui/timeseries-page.ts, timeseries-findings.ts, src/styles.css, test/timeseries-shape.test.ts, test/e2e/ts-series-suggest.spec.ts
+- **Tests run and results:** detector unit test (ranking, coverage, largest values); e2e on trip-shaped data: banner, three value buttons, one click to a single series, searchable list
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
+### CHG-2026-11-01-27 — Chart: scatter plots points by default; density is offered, not chosen
+
+- **Status:** Verified
+- **Scope:** A scatter used "Auto", which silently switched to a density grid on large data. It now draws points, thinned to a sample when there are too many (the note says "5,000 of 224,000 points (sampled)"), with a "Show all of them as a density map" link beside the note. The Render menu offers Points and Density (heat map); older charts saved with Auto draw points.
+- **Files / components changed:** src/ui/chart-builder.ts, src/ui/chart-card.ts
+- **Tests run and results:** chart UI tests (80) pass
+- **Decision:** Ship (owner: "it should default to points and then offer something more fancy; the auto render isn't helpful")
+- **Date:** 2026-11-01
+
+### CHG-2026-11-01-26 — Chart: the Customize drawer has a way out
+
+- **Status:** Verified
+- **Scope:** The settings drawer overlays the chart and closed only by pressing the same Customize button, whose label never changed, and Escape worked only with focus inside it. The button now reads Done while open, the drawer has its own Done at the top (always in view), and Escape closes it wherever focus is.
+- **Files / components changed:** src/ui/chart-card.ts, src/styles.css, test/e2e/chart-customize.spec.ts
+- **Tests run and results:** e2e: Customize, Done, Escape with focus on the chart
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
+### CHG-2026-11-01-25 — Time Series legend swatches match the line
+
+- **Status:** Verified
+- **Scope:** With a rolling mean over daily or finer data the chart draws the raw series in grey, but the legend swatch was always the text colour (white in dark, black in light). The swatch now takes the line's own colour; the words stay in the text colour so they stay readable (the first attempt, grey words, failed the contrast test at 3.5:1).
+- **Files / components changed:** src/ui/timeseries-page.ts
+- **Tests run and results:** contrast e2e passes in both themes
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
+### CHG-2026-11-01-24 — Data Quality: Show rows shows the flagged rows, and a reviewed issue can be set aside
+
+- **Status:** Verified
+- **Scope:**
+  - **Bug.** For "birth year has 9 values outside 1900 to 2027", Show rows opened the Table filtered to 1,900 and up: the 40 good rows, with the 3 bad ones filtered out. The sidebar number card did not know an "outside" operator and rewrote the filter. Now a new "Outside" operator (below the first bound or above the second) exists in the filter engine, the sidebar card, the filter chips and the column header, and Show rows uses it, so only the flagged rows appear.
+  - **Not a problem.** Each check-based issue has a "Not a problem" button: the analyst looked, the rows are fine (a Roman emperor's birth year). It leaves the issue out of the score and the list, remembers the count it reviewed, brings the issue back if more rows are affected, and lists it under "Reviewed and set aside" with "Put back". Session-only, like the optional marks, keyed by file name and check.
+- **Files / components changed:** src/search/query-engine.ts, src/data/score.ts, src/ui/reviewed-issues.ts (new), quality-layout.ts, quality-page.ts, filters.ts, table.ts, app.ts, test/score.test.ts, test/e2e/dq-reviewed.spec.ts
+- **Tests run and results:** score unit test (reviewed, fewer rows, more rows); e2e: Show rows gives exactly the three flagged rows, Not a problem removes and lists it, Put back restores it
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
+### CHG-2026-11-01-23 — Opening a filter from another page focuses its box and says where you went
+
+- **Status:** Verified
+- **Scope:** "+ Add filter" on the Time Series page (or any non-Table page) silently opened the Table's left pane, with focus on the column card rather than its filter box, so typing went nowhere. The box is now focused, and a message says filters live on the Table and apply to every page.
+- **Files / components changed:** src/ui/filters.ts, src/ui/app.ts
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
+### CHG-2026-11-01-22 — Time Series: "Compute-intense models" section; plus and minus on the section bars
+
+- **Status:** Verified
+- **Scope:** AutoARIMA was hidden inside "Under the hood". It now has a section of its own between Compare models and Under the hood, "Compute-intense models" (brain icon), with two run buttons: AutoARIMA and DV-ARIMA, plus "Try every order". The leaderboard row says which one ran. The rotated tick on the section bars (and the in-page disclosures) becomes a plus in a small box when closed and a minus when open.
+- **Files / components changed:** src/ui/timeseries-page.ts, src/styles.css, test/e2e/arima.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
+### CHG-2026-11-01-21 — Table header: the column type is a coloured chip
+
+- **Status:** Verified
+- **Scope:** The type ("Aa", "123", "Date") was a small grey glyph in the same style as the stats beside it. It is now a chip tinted by family (text and ID slate, category violet, numbers blue, date and time teal, true/false green), larger and bolder, with the glyph still the label so colour is never the only cue. Tuned for both themes and checked by the contrast test.
+- **Files / components changed:** src/ui/table.ts, src/styles.css
+- **Tests run and results:** contrast e2e passes in light and dark
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-20 — AutoARIMA: DV-ARIMA, the differencing chosen by a forecast vote (opt-in)
 
 - **Status:** Verified

@@ -16,6 +16,24 @@ export interface ShapeCandidate {
   codes: Int32Array;
 }
 
+/** A column with its values named, for suggesting which one to pick a single series by. */
+export interface EntityCandidate extends ShapeCandidate {
+  /** The value behind each code. */
+  labels: string[];
+}
+
+/** A column that probably names the series in the rows, with its largest values. */
+export interface SeriesSuggestion {
+  column: number;
+  name: string;
+  /** Distinct values among the rows. */
+  distinct: number;
+  /** Share of rows whose value appears at 24 or more moments, so its rows can make a series of their own. */
+  coverage: number;
+  /** Largest values first. */
+  values: { label: string; rows: number; moments: number }[];
+}
+
 export interface SeriesKey {
   column: number;
   name: string;
@@ -49,8 +67,13 @@ export interface SeriesShape {
   repeatShare: number;
   /** Columns that explain the repeats, best first. */
   keys: SeriesKey[];
+  /** Columns to pick one series by, best first (a few at most), when the rows mix several. */
+  suggest: SeriesSuggestion[];
   spacing: SeriesSpacing | null;
 }
+
+/** A value needs this many moments of its own before its rows read as a series. */
+const MIN_MOMENTS = 24;
 
 /** Repeated moments checked per column; a long table is sampled evenly. */
 const MAX_RUNS = 5000;
@@ -61,7 +84,7 @@ const KEY_COVERAGE = 0.95;
  * Reads the shape of the rows `keep` selects (all rows when null). `times` are UTC
  * milliseconds per row; candidates are category columns coded per row.
  */
-export function seriesShape(times: Float64Array, keep: Uint8Array | null, candidates: readonly ShapeCandidate[]): SeriesShape {
+export function seriesShape(times: Float64Array, keep: Uint8Array | null, candidates: readonly ShapeCandidate[], entities: readonly EntityCandidate[] = []): SeriesShape {
   const idx: number[] = [];
   for (let i = 0; i < times.length; i++) if ((keep === null || keep[i]) && Number.isFinite(times[i])) idx.push(i);
   idx.sort((a, b) => times[a] - times[b]);
@@ -116,8 +139,52 @@ export function seriesShape(times: Float64Array, keep: Uint8Array | null, candid
     most,
     repeatShare: moments.length ? runs.length / moments.length : 0,
     keys,
+    suggest: suggestSeries(times, idx, entities),
     spacing: spacingOf(moments),
   };
+}
+
+/**
+ * Which columns could name the series: for each candidate, how many rows sit in values seen at enough moments to make a series
+ * of their own. Columns with a handful or more of such values come first (a station or a store, not a two-way flag), the one
+ * with fewer values first among those; a few at most, each with its largest values.
+ */
+export function suggestSeries(times: Float64Array, idx: readonly number[], entities: readonly EntityCandidate[]): SeriesSuggestion[] {
+  if (entities.length === 0 || idx.length === 0) return [];
+  const momentOf = new Int32Array(idx.length);
+  let id = -1, prev = Number.NaN;
+  for (let k = 0; k < idx.length; k++) {
+    const t = times[idx[k]];
+    if (t !== prev) { id++; prev = t; }
+    momentOf[k] = id;
+  }
+  const out: SeriesSuggestion[] = [];
+  for (const cand of entities) {
+    const n = cand.labels.length;
+    const rows = new Uint32Array(n), moments = new Uint32Array(n), last = new Int32Array(n).fill(-1);
+    for (let k = 0; k < idx.length; k++) {
+      const code = cand.codes[idx[k]];
+      if (code < 0 || code >= n) continue;
+      rows[code]++;
+      if (last[code] !== momentOf[k]) { last[code] = momentOf[k]; moments[code]++; }
+    }
+    let total = 0, covered = 0, distinct = 0;
+    for (let c = 0; c < n; c++) {
+      if (rows[c] === 0) continue;
+      distinct++; total += rows[c];
+      if (moments[c] >= MIN_MOMENTS) covered += rows[c];
+    }
+    if (total === 0 || distinct < 2 || covered / total < 0.5) continue;
+    const order: number[] = [];
+    for (let c = 0; c < n; c++) if (rows[c] > 0) order.push(c);
+    order.sort((a, b) => rows[b] - rows[a]);
+    out.push({
+      column: cand.column, name: cand.name, distinct, coverage: covered / total,
+      values: order.slice(0, 8).map((c) => ({ label: cand.labels[c], rows: rows[c], moments: moments[c] })),
+    });
+  }
+  out.sort((a, b) => Number(b.distinct >= 5) - Number(a.distinct >= 5) || a.distinct - b.distinct || b.coverage - a.coverage);
+  return out.slice(0, 3);
 }
 
 /**

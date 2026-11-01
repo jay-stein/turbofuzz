@@ -99,13 +99,15 @@ export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): 
   const firstV = new Float64Array(n).fill(NaN), lastV = new Float64Array(n).fill(NaN);
   const firstD = new Int32Array(n).fill(2147483647), lastD = new Int32Array(n).fill(-1);
   const vals: number[][] | null = cfg.agg === "median" ? Array.from({ length: n }, () => []) : null;
-  const groupVal = T.groups.map(() => new Float64Array(n));
+  // Per-group totals feed only the "which group drove it" finding; with very many groups x periods they are skipped, not allocated.
+  const keepGroups = T.groups.length * n <= 16_000_000;
+  const groupVal = T.groups.map(() => new Float64Array(keepGroups ? n : 0));
   const seen = new Uint8Array(T.nslots);
   let naRows = 0;
   for (let i = 0; i < nr; i++) {
     const d = T.rowSlot[i], b = bod[d], gr = T.rowGroup[i];
     const v = count ? 1 : src ? src[i] : NaN;
-    if (v === v) groupVal[gr][b] += v;
+    if (keepGroups && v === v) groupVal[gr][b] += v;
     if (!allG && gr !== cfg.group) continue;
     seen[d] = 1;
     rowsIn[b]++;

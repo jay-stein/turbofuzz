@@ -35,15 +35,25 @@ export interface VerdictInput {
   intermittent?: boolean;
 }
 
+/** How far the shaded range can be trusted, said apart from how good the forecast line is. */
+export interface RangeNote {
+  cls: "good" | "okay";
+  /** A short badge: "Reliable", "Too narrow", "Wider than needed". */
+  label: string;
+  text: string;
+}
+
 export interface Verdict {
   level: VerdictLevel;
   /** The badge text. */
   label: string;
   /** The pill colour class the page already styles. */
   cls: "good" | "okay" | "poor" | "base";
-  /** One plain sentence saying why. */
+  /** One plain sentence about the forecast line itself: where it ranked on data it never saw, and what beat it. */
   sentence: string;
-  /** Things to act on, each one sentence: only what is true of this forecast. */
+  /** The shaded range, judged on its own by how often past ranges held the real value; null when there is too little to say. */
+  range: RangeNote | null;
+  /** Other things to act on, each one sentence: only what is true of this forecast. */
   headsUp: string[];
 }
 
@@ -78,51 +88,59 @@ export function trustVerdict(v: VerdictInput): Verdict {
   const lucky = !v.baseline && v.foldsOf >= 3 && v.foldsWon * 2 < v.foldsOf;
   const pct = Math.round(Math.abs(1 - v.ratio) * 100);
   const folds = v.foldsOf > 0 ? ` and beat repeating the last ${v.cycle} in ${v.foldsWon} of ${v.foldsOf} tests` : "";
+  const named = (names: string[]): string => (names.length > 2 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names.join(" and "));
+  // Simple methods that did better on the same unseen data are part of how good the forecast line is, so they ride in its sentence.
+  const beaten = !v.baseline && v.beatenBy && v.beatenBy.length > 0 ? ` ${named(v.beatenBy)} did better still, so a simple method is hard to beat here.` : "";
 
-  // No backtest at all (a short series): there is no evidence either way, and saying so beats a guess.
-  if (!v.baseline && !Number.isFinite(v.ratio)) {
-    return { level: "untested", label: "Untested", cls: "okay", headsUp: [], sentence: `Only ${v.periods} periods of history: too few to test this forecast on data it has not seen, so there is no evidence yet on how well it works. Read the range as a rough guide.` };
-  }
+  // The range is judged on its own: how often past ranges held the real value, against the share they aim for.
+  let range: RangeNote | null = null;
   if (v.band !== null && v.band.tot >= 20) {
     const share = v.band.hit / v.band.tot, off = share - v.band.aim;
+    const got = `${Math.round(share * 100)}%`, aim = `${Math.round(v.band.aim * 100)}%`;
     // 5 points off the aim, over at least 20 checks, is more than a flat run of luck would usually show.
-    if (Math.abs(off) > 0.05) {
-      headsUp.push(`past ranges held the real value ${Math.round(share * 100)}% of the time against an aim of ${Math.round(v.band.aim * 100)}%, so treat this range as ${off < 0 ? "slightly narrow" : "wider than it needs to be"}.`);
-    }
+    if (Math.abs(off) <= 0.05) range = { cls: "good", label: "Reliable", text: `In past tests the shaded range caught the real value ${got} of the time (it aims for ${aim}), so it can be taken at face value.` };
+    else if (off < 0) range = { cls: "okay", label: "Too narrow", text: `In past tests the shaded range caught the real value only ${got} of the time (it aims for ${aim}). Expect real values to fall outside it more often than the band suggests.` };
+    else range = { cls: "okay", label: "Wider than needed", text: `In past tests the shaded range caught the real value ${got} of the time (it aims for ${aim}), so it is wider than it needs to be: real values will usually sit well inside it.` };
   }
-  if (!v.baseline && v.beatenBy && v.beatenBy.length > 0) {
-    headsUp.push(`${v.beatenBy.join(" and ")} did better than this forecast on data it never saw, so a simple method is hard to beat here.`);
-  }
+
   if (v.intermittent && !v.baseline) {
     headsUp.push("most periods have no sales, and error measures such as MASE and MAE reward forecasting zero. Look at RMSE and bias too (Under the hood), and read the range as how many sales to expect, not a typical period.");
   }
-  if (lucky) headsUp.push(`this model's lead came from ${v.foldsWon} of ${v.foldsOf} tests. A lead like that is often luck, so look at the next best too.`);
   if (v.rough) headsUp.push(`only ${v.periods} periods of history, too few to test forecasts properly. Read the range as a rough guide.`);
 
+  // No backtest at all (a short series): there is no evidence either way, and saying so beats a guess.
+  if (!v.baseline && !Number.isFinite(v.ratio)) {
+    return { level: "untested", label: "Untested", cls: "okay", range, headsUp: [], sentence: `Only ${v.periods} periods of history: too few to test this forecast on data it has not seen, so there is no evidence yet on how well it works. Read the range as a rough guide.` };
+  }
+
   if (v.baseline) {
-    return { level: "baseline", label: "Baseline", cls: "base", headsUp, sentence: `The yardstick every other model is measured against: it repeats the last ${v.cycle}.` };
+    return { level: "baseline", label: "Baseline", cls: "base", range, headsUp, sentence: `The yardstick every other model is measured against: it repeats the last ${v.cycle}.` };
   }
 
   if (v.lockRank !== null) {
     const place = `${ordinal(v.lockRank)} of ${v.models} models`;
     if (v.ratio >= 1) {
-      return { level: "doubtful", label: "Doubtful", cls: "poor", headsUp, sentence: `Did no better than simply repeating the last ${v.cycle}, so there is little reason to trust it over that (${place} on data it never saw).` };
+      return { level: "doubtful", label: "Doubtful", cls: "poor", range, headsUp, sentence: `Did no better than simply repeating the last ${v.cycle}, so there is little reason to trust it over that (${place} on data it never saw).${beaten}` };
     }
     if (v.lockRank * 3 > v.models * 2) {
-      return { level: "doubtful", label: "Doubtful", cls: "poor", headsUp, sentence: `Fell apart on data it never saw (${place}). Its score on the earlier tests is probably too good.` };
+      return { level: "doubtful", label: "Doubtful", cls: "poor", range, headsUp, sentence: `Fell apart on data it never saw (${place}). Its score on the earlier tests is probably too good.${beaten}` };
     }
     if (v.lockRank <= 2 && !lucky) {
-      return { level: "holds", label: "Holds up", cls: "good", headsUp, sentence: `Did well on data it never saw (${place})${folds}.` };
+      return { level: "holds", label: "Holds up", cls: "good", range, headsUp, sentence: `Did well on data it never saw (${place})${folds}.${beaten}` };
     }
-    return { level: "middling", label: "Middling", cls: "okay", headsUp, sentence: `Did about as well as the others on data it never saw (${place}). Its lead may be partly luck.` };
+    // Near the top but with a thin record, or in the middle of the pack: say which, without calling a middle place a "lead".
+    const sentence = v.lockRank <= 2
+      ? `Ranked ${place} on data it never saw, but it beat repeating the last ${v.cycle} in only ${v.foldsWon} of ${v.foldsOf} earlier tests, so its place may be partly luck.`
+      : `Ranked ${place} on data it never saw: in line with the others, not clearly better.`;
+    return { level: "middling", label: "Middling", cls: "okay", range, headsUp, sentence: `${sentence}${beaten}` };
   }
 
   // Too little history to hold a fold back: judge on the backtests alone, and say so.
   if (v.ratio < 0.8) {
-    return { level: "holds", label: "Holds up", cls: "good", headsUp, sentence: `Beat repeating the last ${v.cycle} by ${pct}% in the tests, but there was too little history to hold one back, so this is less certain.` };
+    return { level: "holds", label: "Holds up", cls: "good", range, headsUp, sentence: `Beat repeating the last ${v.cycle} by ${pct}% in the tests, but there was too little history to hold one back, so this is less certain.` };
   }
   if (v.ratio < 1) {
-    return { level: "middling", label: "Middling", cls: "okay", headsUp, sentence: `Only slightly better than repeating the last ${v.cycle} (${pct}% less error), and there was too little history to hold a test back.` };
+    return { level: "middling", label: "Middling", cls: "okay", range, headsUp, sentence: `Only slightly better than repeating the last ${v.cycle} (${pct}% less error), and there was too little history to hold a test back.` };
   }
-  return { level: "doubtful", label: "Doubtful", cls: "poor", headsUp, sentence: `No better than repeating the last ${v.cycle} in the tests.` };
+  return { level: "doubtful", label: "Doubtful", cls: "poor", range, headsUp, sentence: `No better than repeating the last ${v.cycle} in the tests.` };
 }

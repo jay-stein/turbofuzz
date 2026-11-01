@@ -24,7 +24,7 @@ async function open(page: Page): Promise<void> {
   await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
   await page.locator(".ts-modes [data-mode=forecast]").click();
   await expect(page.locator(".ts-page [data-ref=heroBadge]")).toBeVisible();
-  await page.locator(".ts-fold[data-fold=hood]").click();
+  await page.locator(".ts-fold[data-fold=compute]").click();
 }
 
 test("AutoARIMA runs on request and returns the parameters, fit, residual check, backtest and forecast", async ({ page }) => {
@@ -32,8 +32,11 @@ test("AutoARIMA runs on request and returns the parameters, fit, residual check,
   await open(page);
   const out = page.locator(".ts-page [data-ref=arimaOut]");
   await expect(out).toBeHidden();
-  // Plain auto.arima, to compare with R: the differencing vote is an option, off by default, with its own test below.
-  await expect(page.locator(".ts-page [data-ref=arimaVote]")).not.toBeChecked();
+  // The deep runs have a section of their own, between Compare models and Under the hood.
+  await expect(page.locator(".ts-page .ts-fold b")).toHaveText(["Compare models", "Compute-intense models", "Under the hood"]);
+  await expect(page.locator(".ts-page .ts-fold[data-fold=compute]")).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator(".ts-page [data-ref=arimaVoteBtn]")).toHaveText("DV-ARIMA…");
+  // Plain auto.arima, to compare with R: the differencing vote is its own button, with its own test below.
   await page.locator(".ts-page [data-ref=arimaBtn]").click();
   await expect(out).toContainText("ARIMA(2,1,1)(0,1,0)[12]", { timeout: 90_000 });
   await expect(out).not.toContainText("How the differencing was chosen");
@@ -69,7 +72,8 @@ test("AutoARIMA runs on request and returns the parameters, fit, residual check,
   await expect(full).toHaveCount(1);
   await expect(full).toContainText(/Run by you/);
   await expect(full).toContainText(/\d of \d/);
-  // Changing what is plotted retires the row: it belongs to the series it was run on.
+  // Changing what is plotted retires the row: it belongs to the series it was run on (the Transform control is under the hood).
+  await page.locator(".ts-fold[data-fold=hood]").click();
   await page.locator(".ts-page [data-ref=trSeg] button[data-tr=log]").click();
   await expect(page.locator("[data-ref=boardCompact] tr[data-arima]")).toHaveCount(0);
 });
@@ -78,8 +82,7 @@ test("DV-ARIMA: the differencing is voted on, the unit-root test's choice and pl
   test.setTimeout(180_000);
   await open(page);
   const out = page.locator(".ts-page [data-ref=arimaOut]");
-  await page.locator(".ts-page [data-ref=arimaVote]").check();
-  await page.locator(".ts-page [data-ref=arimaBtn]").click();
+  await page.locator(".ts-page [data-ref=arimaVoteBtn]").click();
   await expect(out.locator("h4", { hasText: "How the differencing was chosen" })).toBeVisible({ timeout: 150_000 });
   const vote = out.locator(".ts-arima-table").first().locator("tbody tr");
   expect(await vote.count()).toBeGreaterThanOrEqual(2);

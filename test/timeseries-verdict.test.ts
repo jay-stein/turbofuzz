@@ -20,11 +20,15 @@ test("a top-two model that beat the benchmark in most tests holds up, and the se
   assert.deepEqual(v.headsUp, []);
 });
 
-test("a middle-ranked model is middling", () => {
+test("a middle-ranked model is middling, and a middle place is never called a lead", () => {
   const v = trustVerdict({ ...base, lockRank: 4, foldsWon: 5 });
   assert.equal(v.level, "middling");
-  assert.match(v.sentence, /4th of 8 models/);
-  assert.match(v.sentence, /partly luck/);
+  assert.equal(v.sentence, "Ranked 4th of 8 models on data it never saw: in line with the others, not clearly better.");
+  assert.doesNotMatch(v.sentence, /lead|luck/);
+  // Near the top with a thin record: say the place may be luck, with the numbers.
+  const thin = trustVerdict({ ...base, lockRank: 1, foldsWon: 3, foldsOf: 9 });
+  assert.equal(thin.level, "middling");
+  assert.match(thin.sentence, /Ranked 1st of 8 models.*only 3 of 9 earlier tests.*partly luck/);
 });
 
 test("a model in the bottom third on unseen data is doubtful, even with a good backtest ratio", () => {
@@ -59,25 +63,37 @@ test("with no fold to hold back, the verdict rests on the backtests and says it 
   assert.equal(trustVerdict({ ...base, lockRank: null, ratio: 1.2 }).level, "doubtful");
 });
 
+test("the shaded range is judged on its own, apart from the forecast line", () => {
+  assert.equal(trustVerdict({ ...base, band: null }).range, null, "no band checked: nothing said");
+  const ok = trustVerdict({ ...base, band: { hit: 25, tot: 30, aim: 0.8 } });
+  assert.equal(ok.range?.label, "Reliable");
+  assert.match(ok.range?.text ?? "", /83% of the time \(it aims for 80%\).*face value/);
+  const narrow = trustVerdict({ ...base, band: { hit: 22, tot: 30, aim: 0.8 } });
+  assert.equal(narrow.range?.label, "Too narrow");
+  assert.match(narrow.range?.text ?? "", /only 73% of the time.*more often than the band suggests/);
+  const wide = trustVerdict({ ...base, band: { hit: 29, tot: 30, aim: 0.8 } });
+  assert.equal(wide.range?.label, "Wider than needed");
+  assert.match(wide.range?.text ?? "", /97%.*wider than it needs to be/);
+  // Too few checks to judge a band: nothing said. And the range note never changes the forecast's verdict.
+  assert.equal(trustVerdict({ ...base, band: { hit: 3, tot: 10, aim: 0.8 } }).range, null);
+  assert.equal(narrow.level, trustVerdict(base).level);
+  assert.equal(narrow.sentence, trustVerdict(base).sentence);
+  assert.deepEqual(narrow.headsUp, []);
+});
+
 test("heads-up notes appear only when they are true", () => {
   assert.deepEqual(trustVerdict(base).headsUp, []);
-  const narrow = trustVerdict({ ...base, band: { hit: 22, tot: 30, aim: 0.8 } });
-  assert.match(narrow.headsUp[0]!, /73% of the time against an aim of 80%.*slightly narrow/);
-  const wide = trustVerdict({ ...base, band: { hit: 29, tot: 30, aim: 0.8 } });
-  assert.match(wide.headsUp[0]!, /97%.*wider than it needs to be/);
-  // Too few checks to judge a band: nothing said.
-  assert.deepEqual(trustVerdict({ ...base, band: { hit: 3, tot: 10, aim: 0.8 } }).headsUp, []);
   const luck = trustVerdict({ ...base, foldsWon: 3, foldsOf: 9 });
-  assert.ok(luck.headsUp.some((h) => /3 of 9 tests.*luck/.test(h)));
   assert.notEqual(luck.level, "holds");
   const short = trustVerdict({ ...base, rough: true, periods: 22 });
   assert.ok(short.headsUp.some((h) => /only 22 periods of history/.test(h)));
 });
 
-test("a simple benchmark that beat the pick on unseen data is named in a heads-up", () => {
-  const v = trustVerdict({ ...base, beatenBy: ["Repeat last value", "Simple smoothing"] });
-  assert.ok(v.headsUp.some((h) => /Repeat last value and Simple smoothing did better than this forecast on data it never saw/.test(h)));
-  assert.deepEqual(trustVerdict({ ...base, beatenBy: [] }).headsUp, []);
+test("a simple benchmark that beat the pick on unseen data is named in the forecast's own sentence", () => {
+  const v = trustVerdict({ ...base, lockRank: 3, beatenBy: ["Repeat last value", "Simple smoothing"] });
+  assert.match(v.sentence, /Repeat last value and Simple smoothing did better still, so a simple method is hard to beat here\.$/);
+  assert.deepEqual(v.headsUp, []);
+  assert.doesNotMatch(trustVerdict({ ...base, lockRank: 3, beatenBy: [] }).sentence, /did better still/);
   // The benchmark itself is never told it was beaten by a benchmark.
-  assert.deepEqual(trustVerdict({ ...base, baseline: true, beatenBy: ["Overall average"] }).headsUp, []);
+  assert.doesNotMatch(trustVerdict({ ...base, baseline: true, beatenBy: ["Overall average"] }).sentence, /did better still/);
 });

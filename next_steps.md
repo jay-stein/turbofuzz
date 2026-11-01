@@ -2224,4 +2224,5 @@ Chosen from the canvas "Table page: three looks" (option B). Rolled out in phase
 
 - Shipped: forecast averaged by Akaike weights (about 2% better than the single best model, two unseen sets), quick search for long series, and DV-ARIMA as an opt-in (differencing chosen by a forecast vote; 2 to 3% better, 275 wins to 193 losses over four unseen sets of 150).
 - Tried and dropped (see DEC-2026-11-01-03): variogram-matched coefficients, revision-corrected forecasts, drift vote, drift damping and shrinkage, ARIMA blended with the Combination.
-- Open ideas, none started: an archive-learned prior for very short series (judge only on datasets it did not learn from); scoring models by forecasting backwards in time as a second structure vote; ARIMA on the STL-adjusted series for seasons over 24 (stlf); drivers.
+- Open ideas, none started: an archive-learned prior for very short series (judge only on datasets it did not learn from); scoring models by forecasting backwards in time as a second structure vote; drivers.
+- Done 2026-11-01: seasons over 24 periods now fit ARIMA on the STL-adjusted series, season added back (stlf); the old "not built yet" refusal is gone.

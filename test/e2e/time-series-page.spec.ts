@@ -242,7 +242,10 @@ test("the chart names the forecast model and how it did; Trend flexibility expla
   await expect(badge).toContainText(/Auto · /);
   await expect(badge).toContainText(/Holds up|Middling|Doubtful/);
   // One plain sentence says why, with the model's place among the others.
-  await expect(badge).toContainText(/data it never saw \(\d+(st|nd|rd|th) of 8 models\)/);
+  await expect(badge).toContainText(/(data it never saw \(\d+(st|nd|rd|th) of 8 models\)|Ranked \d+(st|nd|rd|th) of 8 models on data it never saw)/);
+  // The forecast line and the shaded range are judged apart, and the range row is labelled as such, not as a warning.
+  await expect(badge).not.toContainText("lead");
+  if (await badge.locator(".ts-rangenote").count()) await expect(badge.locator(".ts-rangenote")).toContainText(/The shaded range\s*(Reliable|Too narrow|Wider than needed)/);
   await expect(page.locator(".ts-fold[data-fold=compare]")).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".ts-page [data-ref=foldHood]")).toBeHidden();
   // The numbers behind the verdict are under the hood.

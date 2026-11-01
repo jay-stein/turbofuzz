@@ -23,6 +23,13 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-01-04 — A scatter draws points; density is something the analyst chooses
+
+- **Status:** Accepted (owner: "default to points and then offer something more fancy; the auto render isn't helpful")
+- **Decision:** The scatter's Render menu is Points or Density. Points are thinned to a sample when there are too many, said in the note, with a one-click link to the density map. Charts saved with "Auto" draw points.
+- **Trade-offs:** A very large scatter shows a sample of its points until density is chosen; the note and the link say so.
+- **Date / owner:** 2026-11-01 / owner
+
 ### DEC-2026-11-01-03 — AutoARIMA's differencing can be chosen by a forecast vote (DV-ARIMA), an opt-in alternative in the deep run
 
 - **Status:** Accepted (owner: "ship DV-ARIMA and explain it is not novel but can't find it implemented anywhere before; small gain in performance")
