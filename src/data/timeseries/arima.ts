@@ -644,18 +644,24 @@ export interface SearchOptions {
   maxP?: number; maxQ?: number; maxPS?: number; maxQS?: number; maxOrder?: number;
   /** Search every order, not just the stepwise neighbourhood. */
   exhaustive?: boolean;
+  /**
+   * Fit each model during the search by the conditional sum of squares (scored with the exact likelihood at that estimate), then refit
+   * the best few exactly. R does this for long series (over 150 points, or a season over 12), where the exact fit of every model is slow.
+   */
+  approximate?: boolean;
   /** Called after each model is fitted. */
   onProgress?: (info: { tried: number; best: string; bestAicc: number; current: string }) => void;
   /** Return true to stop early. */
   cancelled?: () => boolean;
 }
 
-export function autoArimaSearch(y: ArrayLike<number>, m: number, d: number, D: number, opts: SearchOptions = {}): { best: ArimaFit; tried: TriedModel[] } | null {
+export function autoArimaSearch(y: ArrayLike<number>, m: number, d: number, D: number, opts: SearchOptions = {}): { best: ArimaFit; tried: TriedModel[]; fits: ArimaFit[] } | null {
   const maxP = opts.maxP ?? 5, maxQ = opts.maxQ ?? 5, maxPS = m > 1 ? opts.maxPS ?? 2 : 0, maxQS = m > 1 ? opts.maxQS ?? 2 : 0, maxOrder = opts.maxOrder ?? 5;
   const allowMean = d + D === 0, allowDrift = d + D === 1;
   const constantOk = allowMean || allowDrift;
   const cache = new Map<string, { fit: ArimaFit | null }>();
   const tried: TriedModel[] = [];
+  const fits: ArimaFit[] = [];
   let best: ArimaFit | null = null;
   const key = (s: ArimaSpec): string => `${s.p},${s.q},${s.P},${s.Q},${s.constant ? 1 : 0}`;
   const fit = (p: number, q: number, P: number, Q: number, constant: boolean, force = false): ArimaFit | null => {
@@ -667,23 +673,48 @@ export function autoArimaSearch(y: ArrayLike<number>, m: number, d: number, D: n
     if (hit) return hit.fit;
     if (opts.cancelled?.()) return null;
     let f: ArimaFit | null = null;
-    try { f = fitArima(y, spec); } catch { f = null; }
+    try { f = fitArima(y, spec, opts.approximate ? { css: true } : {}); } catch { f = null; }
     if (f && !Number.isFinite(f.aicc)) f = null;
     cache.set(k, { fit: f });
     tried.push({ label: specLabel(spec), aicc: f ? f.aicc : NaN, ok: !!f });
+    if (f) fits.push(f);
     if (f && (!best || f.aicc < best.aicc)) best = f;
     opts.onProgress?.({ tried: tried.length, best: best ? specLabel(best.spec) : "", bestAicc: best ? best.aicc : NaN, current: specLabel(spec) });
     return f;
   };
   const betterThan = (f: ArimaFit | null, ref: ArimaFit | null): boolean => !!f && (!ref || f.aicc < ref.aicc);
   const c0 = constantOk;
+  /** With an approximate search, the best few are refitted exactly and the winner is chosen among those. */
+  const finish = (): { best: ArimaFit; tried: TriedModel[]; fits: ArimaFit[] } | null => {
+    if (!best) return null;
+    if (opts.approximate) {
+      const leaders = [...fits].sort((a, b) => a.aicc - b.aicc).slice(0, 3);
+      const exact: ArimaFit[] = [];
+      for (const f of leaders) {
+        if (opts.cancelled?.()) break;
+        const e = fitArima(y, f.spec);
+        if (e && Number.isFinite(e.aicc)) {
+          exact.push(e);
+          const at = tried.findIndex((t) => t.label === specLabel(f.spec));
+          if (at >= 0) tried[at] = { label: tried[at]!.label, aicc: e.aicc, ok: true };
+        }
+      }
+      if (exact.length) {
+        best = exact.reduce((a, b) => (b.aicc < a.aicc ? b : a));
+        const keep = new Set(exact.map((e) => specLabel(e.spec)));
+        for (let i = 0; i < fits.length; i++) { const e = exact.find((x) => specLabel(x.spec) === specLabel(fits[i]!.spec)); if (e) fits[i] = e; }
+        void keep;
+      }
+    }
+    return { best, tried, fits };
+  };
   if (opts.exhaustive) {
     for (let p = 0; p <= maxP; p++) for (let q = 0; q <= maxQ; q++) for (let P = 0; P <= maxPS; P++) for (let Q = 0; Q <= maxQS; Q++) {
       if (p + q + P + Q > maxOrder) continue;
       fit(p, q, P, Q, c0);
       if (constantOk) fit(p, q, P, Q, false);
     }
-    return best ? { best, tried } : null;
+    return finish();
   }
   // The four starting models of auto.arima.
   fit(Math.min(2, maxP), Math.min(2, maxQ), Math.min(1, maxPS), Math.min(1, maxQS), c0, true);
@@ -715,7 +746,7 @@ export function autoArimaSearch(y: ArrayLike<number>, m: number, d: number, D: n
     }
     if (!moved) break;
   }
-  return best ? { best, tried } : null;
+  return finish();
 }
 
 // ---------------------------------------------------------------- forecasts and checks
@@ -812,6 +843,39 @@ export function forecastArima(y: ArrayLike<number>, fit: ArimaFit, H: number): A
   const z80 = 1.2815516, z95 = 1.959964;
   const mk = (zv: number, sign: number): Float64Array => Float64Array.from(F, (f, h) => f + sign * zv * se[h]!);
   return { F, se, lo80: mk(z80, -1), hi80: mk(z80, 1), lo95: mk(z95, -1), hi95: mk(z95, 1) };
+}
+
+/**
+ * Akaike weights (Buckland, Burnham and Augustin 1997): each model's weight is exp(-delta AICc / 2), normalised, over the models that
+ * share the differencing. Those under a thousandth of the total are dropped, and at most eight kept.
+ */
+export function akaikeWeights(fits: ArimaFit[]): { fit: ArimaFit; weight: number }[] {
+  const ok = fits.filter((f) => Number.isFinite(f.aicc)).sort((a, b) => a.aicc - b.aicc);
+  if (!ok.length) return [];
+  const top = ok[0]!.aicc;
+  let rows = ok.map((f) => ({ fit: f, weight: Math.exp(-(f.aicc - top) / 2) }));
+  const total = rows.reduce((a, b) => a + b.weight, 0);
+  rows = rows.filter((r) => r.weight >= 1e-3 * total).slice(0, 8);
+  const kept = rows.reduce((a, b) => a + b.weight, 0);
+  return rows.map((r) => ({ fit: r.fit, weight: r.weight / kept }));
+}
+
+/**
+ * The weighted average of the models' forecasts, with the 80% and 95% ranges from the mixture's variance: the weighted sum of each
+ * model's squared standard error plus the squared distance of its forecast from the average.
+ */
+export function averageForecasts(y: ArrayLike<number>, team: { fit: ArimaFit; weight: number }[], H: number): ArimaForecast {
+  const parts = team.map((t) => ({ f: forecastArima(y, t.fit, H), w: t.weight }));
+  const F = new Float64Array(H), se = new Float64Array(H);
+  for (let h = 0; h < H; h++) {
+    let mu = 0;
+    for (const p of parts) mu += p.w * p.f.F[h]!;
+    let v = 0;
+    for (const p of parts) v += p.w * (p.f.se[h]! ** 2 + (p.f.F[h]! - mu) ** 2);
+    F[h] = mu; se[h] = Math.sqrt(v);
+  }
+  const mk = (zv: number, sign: number): Float64Array => Float64Array.from(F, (f, h) => f + sign * zv * se[h]!);
+  return { F, se, lo80: mk(1.2815516, -1), hi80: mk(1.2815516, 1), lo95: mk(1.959964, -1), hi95: mk(1.959964, 1) };
 }
 
 export interface ResidualCheck { n: number; lag: number; q: number; p: number; acf: number[]; crit: number }

@@ -28,6 +28,20 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-01-19 — AutoARIMA: forecast averaged over the models the search tried; quick search for long series
+
+- **Status:** Verified
+- **Scope:**
+  - **Tested on random series.** 20 random Monash series (seed 1), then 100 (seed 2) and 150 (seed 3) the earlier choices never saw, scored on the archive's protocol (last h held out, MASE), beside the board's Auto. Plain auto.arima: about 6.5% worse than the board's Auto by geometric mean on seeds 2 and 3 (1.069, 1.066), best on monthly seasonal series, worst on short yearly ones where a fitted drift runs away.
+  - **What helped, on both unseen sets:** averaging the models the search fitted, weighted by Akaike weights (exp(-delta AICc / 2)), beat the lowest-AICc model by 2.3% on each (wins 59 of 100 and 82 of 150). The shipped forecast is that average, with ranges from the mixture variance (each model's variance plus the spread of the forecasts); the best model's parameters are shown unchanged, and the backtest scores the average. An equal average of the best three did the same (0.983, 0.980), so the gain is from averaging, not the weights.
+  - **What did not:** dropping the drift helped on seed 3 (0.953) and hurt on seed 2 (1.032), so it is not shipped. Blending ARIMA with the board's Combination gave 0.919 against the base alone, but Combination by itself scored 0.919 and 0.980 of Auto, so ARIMA adds nothing to it: ARIMA stays out of Auto and the Combination.
+  - **Speed:** as R does for long series (over 150 readings or a season over 12), the search fits each model by conditional sum of squares and refits the best three exactly. On the reference series 4-13 times faster, the same model on four of five (the fifth within 0.5 AICc).
+  - **Tooling:** tools/ts-eval/arima-eval.ts (random draw, repeatable by seed), arima-variants.ts (variants from one search per series).
+- **Files / components changed:** src/data/timeseries/arima.ts, arima-run.ts, src/ui/timeseries-page.ts, test/timeseries-arima.test.ts, tools/ts-eval/arima-eval.ts, arima-variants.ts
+- **Tests run and results:** typecheck clean; ARIMA unit (14) and e2e (2) pass; full suites in the commit
+- **Decision:** Ship
+- **Date:** 2026-11-01
+
 ### CHG-2026-11-01-18 — AutoARIMA: every parameter explained in the series' own numbers, and a place on the leaderboards
 
 - **Status:** Verified

@@ -5,8 +5,8 @@
  */
 
 import {
-  autoArimaSearch, chooseDifferences, fitArima, forecastArima, residualCheck, specLabel,
-  type ArimaCoef, type ArimaSpec, type ResidualCheck, type TriedModel,
+  akaikeWeights, averageForecasts, autoArimaSearch, chooseDifferences, fitArima, forecastArima, residualCheck, specLabel,
+  type ArimaCoef, type ArimaFit, type ArimaSpec, type ResidualCheck, type TriedModel,
 } from "./arima.js";
 import { boxCox, invBoxCox } from "./boxcox.js";
 
@@ -34,6 +34,9 @@ export interface ArimaJob {
 
 export interface ArimaProgress { stage: string; tried: number; best: string; bestAicc: number; current: string; detail: string }
 
+/** The models averaged into the forecast, with their weights. */
+export interface ArimaAveraged { label: string; weight: number }
+
 export interface ArimaBacktest {
   folds: number;
   /** Mean absolute error on the selection folds, and the same for repeating the last cycle: the ratio is the board's "error against". */
@@ -44,6 +47,8 @@ export interface ArimaBacktest {
   lockMae: number | null; lockRatio: number | null; lockMase: number | null;
   /** Selection folds where it beat repeating the last cycle, out of those scored. */
   foldsWon: number; foldsOf: number;
+  /** The same ratio for the single best model alone, to show what the averaging did. */
+  ratioBestOnly: number;
 }
 
 export type ArimaResult =
@@ -56,7 +61,11 @@ export type ArimaResult =
     sigma2: number; loglik: number; aic: number; aicc: number; bic: number; nUsed: number; k: number; converged: boolean;
     differences: { d: number; D: number; kpss: number[]; strength: number; m: number };
     tried: TriedModel[];
+    /** The forecast the page shows: the weighted average of the models the search found, ranges including their disagreement. */
     forecast: { F: number[]; lo80: number[]; hi80: number[]; lo95: number[]; hi95: number[] };
+    /** The best model's own forecast and ranges. */
+    forecastBest: { F: number[]; lo80: number[]; hi80: number[]; lo95: number[]; hi95: number[] };
+    averaged: ArimaAveraged[];
     resid: ResidualCheck | null;
     backtest: ArimaBacktest | null;
     lambda: number | null;
@@ -78,8 +87,12 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
   onProgress({ stage: "Choosing the differences", tried: 0, best: "", bestAicc: NaN, current: "", detail: "" });
   const dd = chooseDifferences(y, m);
   onProgress({ stage: "Searching the orders", tried: 0, best: "", bestAicc: NaN, current: "", detail: `d = ${dd.d}, D = ${dd.D}` });
+  // As R does, a long series (over 150 readings, or a season over 12) is searched with the quick fit and its best three refitted
+  // exactly; a shorter one has every model fitted exactly. Trying every order is always exact.
+  const approximate = !job.exhaustive && (known > 150 || m > 12);
   const found = autoArimaSearch(y, m, dd.d, dd.D, {
     exhaustive: job.exhaustive,
+    approximate,
     cancelled,
     onProgress: (p) => onProgress({ stage: job.exhaustive ? "Trying every order" : "Searching the orders", tried: p.tried, best: p.best, bestAicc: p.bestAicc, current: p.current, detail: `d = ${dd.d}, D = ${dd.D}` }),
   });
@@ -90,15 +103,20 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
   const inv = (v: number): number => (bc === null ? v : invBoxCox(v, bc));
   const floor = (v: number): number => (job.nonNeg ? Math.max(0, v) : v);
   const fc = forecastArima(y, best, job.H);
-  const back = (a: Float64Array): number[] => Array.from(a, (v) => floor(inv(v)));
+  const back = (a: Float64Array | number[]): number[] => Array.from(a, (v) => floor(inv(v)));
+  // Averaging over the models the search tried, by Akaike weights, steadies the forecast against the luck of which one had the lowest AICc.
+  const team = akaikeWeights(found.fits.map((f) => (f.spec.p === best.spec.p && f.spec.q === best.spec.q && f.spec.P === best.spec.P && f.spec.Q === best.spec.Q && f.spec.constant === best.spec.constant ? best : f)));
+  const avgFc = averageForecasts(y, team, job.H);
+  const toBack = (f: { F: ArrayLike<number>; lo80: ArrayLike<number>; hi80: ArrayLike<number>; lo95: ArrayLike<number>; hi95: ArrayLike<number> }) => ({ F: back(Array.from(f.F)), lo80: back(Array.from(f.lo80)), hi80: back(Array.from(f.hi80)), lo95: back(Array.from(f.lo95)), hi95: back(Array.from(f.hi95)) });
   const resid = residualCheck(best);
 
   // Backtest: the order is held, the coefficients refitted on each fold's history, scored on the original scale.
   let backtest: ArimaBacktest | null = null;
   const R = job.origins.length;
+  const teamSpecs = team.map((t) => t.fit.spec), teamW = team.map((t) => t.weight);
   if (R > 0) {
     const sel = job.lockbox ? R - 1 : R;
-    let ae = 0, an = 0, se = 0, lockAe = 0, lockSe = 0, lockN = 0, won = 0, of = 0;
+    let ae = 0, an = 0, se = 0, lockAe = 0, lockSe = 0, lockN = 0, won = 0, of = 0, bestAe = 0;
     // The MASE scale: the in-sample error of repeating the last cycle on the history before the first fold.
     let scale = 0, sc = 0;
     const lag = Math.max(1, job.m);
@@ -112,17 +130,24 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
       const seg = yFull.slice(start, o);
       const f = fitArima(seg, best.spec);
       if (!f) continue;
-      const pred = forecastArima(seg, f, job.H).F;
+      // The averaged forecast: each member's order refitted on this fold, with the weights from the full history.
+      const memberFc: { F: Float64Array; w: number }[] = [];
+      teamSpecs.forEach((sp, i) => { const mf = sp === best.spec ? f : fitArima(seg, sp); if (mf) memberFc.push({ F: forecastArima(seg, mf, job.H).F, w: teamW[i]! }); });
+      const wsum = memberFc.reduce((a, b) => a + b.w, 0) || 1;
+      const pred = new Float64Array(job.H);
+      memberFc.forEach((mm) => { for (let h = 0; h < job.H; h++) pred[h] = pred[h]! + (mm.w / wsum) * mm.F[h]!; });
+      const bestPred = forecastArima(seg, f, job.H).F;
       let foldAe = 0, foldSe = 0, foldN = 0;
       for (let h = 0; h < job.H; h++) {
         const actual = job.y[o + h]!;
         if (!(actual === actual)) continue;
         const e = Math.abs(actual - floor(inv(pred[h]!)));
+        const eBest = Math.abs(actual - floor(inv(bestPred[h]!)));
         const ref = job.y[o - Math.max(1, job.m) + (h % Math.max(1, job.m))];
         const s = ref === ref ? Math.abs(actual - ref!) : NaN;
-        if (!(e === e) || !(s === s)) continue;
+        if (!(e === e) || !(s === s) || !(eBest === eBest)) continue;
         if (job.lockbox && k === R - 1) { lockAe += e; lockSe += s; lockN++; }
-        else { ae += e; se += s; an++; foldAe += e; foldSe += s; foldN++; }
+        else { ae += e; se += s; an++; foldAe += e; foldSe += s; foldN++; bestAe += eBest; }
       }
       if (!(job.lockbox && k === R - 1) && foldN > 0) { of++; if (foldAe < foldSe) won++; }
     }
@@ -130,7 +155,7 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
       backtest = {
         folds: sel, mae: ae / an, maeSeasonalNaive: se / an, ratio: se > 0 ? ae / se : NaN, mase: ae / an / scale,
         lockMae: lockN > 0 ? lockAe / lockN : null, lockRatio: lockN > 0 && lockSe > 0 ? lockAe / lockSe : null, lockMase: lockN > 0 ? lockAe / lockN / scale : null,
-        foldsWon: won, foldsOf: of,
+        foldsWon: won, foldsOf: of, ratioBestOnly: se > 0 ? bestAe / se : NaN,
       };
     }
   }
@@ -142,7 +167,9 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
     sigma2: best.sigma2, loglik: best.loglik, aic: best.aic, aicc: best.aicc, bic: best.bic, nUsed: best.nUsed, k: best.k, converged: best.converged,
     differences: { d: dd.d, D: dd.D, kpss: dd.kpss, strength: dd.strength, m },
     tried: [...found.tried].sort((a, b) => (Number.isFinite(a.aicc) ? a.aicc : Infinity) - (Number.isFinite(b.aicc) ? b.aicc : Infinity)),
-    forecast: { F: back(fc.F), lo80: back(fc.lo80), hi80: back(fc.hi80), lo95: back(fc.lo95), hi95: back(fc.hi95) },
+    forecast: toBack(avgFc),
+    forecastBest: toBack(fc),
+    averaged: team.map((t) => ({ label: specLabel(t.fit.spec), weight: t.weight })),
     resid,
     backtest,
     lambda: bc,

@@ -1548,7 +1548,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       <h5>Forecast <small>${M.H} ${s.A.g.nouns}, analytic ranges</small></h5>
       <div class="ts-boardwrap"><table class="ts-board"><thead><tr><th>Period</th><th>Forecast</th><th>80% range</th><th>95% range</th></tr></thead><tbody>${fcRows}</tbody></table></div>
       <details class="ts-arima-tried"><summary>Models tried, best first</summary><table class="ts-board"><thead><tr><th>Model</th><th>AICc</th></tr></thead><tbody>${tried}</tbody></table></details>
-      <p class="ts-note">Method: Hyndman and Khandakar 2008 [auto.arima]; the likelihood is exact, by Kalman filter; ranges from the model's own formulas. Not part of Auto and not on the board: it is here to be read and compared.</p>
+      <p class="ts-note">Method: Hyndman and Khandakar 2008 [auto.arima]; the likelihood is exact, by Kalman filter; ranges from the model's own formulas. Not part of Auto: it is here to be read and compared, and joins the board once run.</p>
+      ${r.averaged.length > 1 ? `<p class="ts-note"><b>The forecast averages ${r.averaged.length} models.</b> The search tried many orders and several were nearly as good as the winner, so the forecast below is their average, weighted by how well each fitted (Akaike weights: ${r.averaged.slice(0, 4).map((a) => `${escapeHtml(a.label)} ${Math.round(a.weight * 100)}%`).join(", ")}${r.averaged.length > 4 ? ", …" : ""}). On 250 series the archive was not tuned on, this beat the single lowest-AICc model by about 2%. The ranges include the models' disagreement. The parameters above are the top model's.</p>` : ""}
       <div class="ts-boardbar"><button type="button" class="ts-ghost" data-ref="arimaCsv">Download parameters and forecast (CSV)</button></div>`;
   }
   function renderArima(): void {

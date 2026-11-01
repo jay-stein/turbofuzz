@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  armaLik, autoArimaSearch, chooseDifferences, difference, diffPoly, expandAr, expandMa, fitArima, forecastArima, invPartrans,
+  akaikeWeights, armaLik, averageForecasts, autoArimaSearch, chooseDifferences, difference, diffPoly, expandAr, expandMa, fitArima, forecastArima, invPartrans,
   isStationary, kpssLevel, maInvert, partrans, polyRoots, residualCheck, seasonalStrength, specLabel, type ArimaSpec,
 } from "../src/data/timeseries/arima.js";
 
@@ -165,4 +165,28 @@ test("the residual check, and exhaustive search never ending above the stepwise 
 
 test("a series too short for the model is declined, not guessed", () => {
   assert.equal(fitArima([1, 2, 3, 2, 1, 2], spec(2, 0, 2, 1, 0, 1, 12)), null);
+});
+
+test("the approximate search (as R's, for long series) refits its best three exactly and lands on the same model, faster", () => {
+  for (const [name, m] of [["air", 12], ["logair", 12], ["ar1", 1]] as [string, number][]) {
+    const y = ref.series[name]!, dd = chooseDifferences(y, m);
+    const t0 = performance.now();
+    const exact = autoArimaSearch(y, m, dd.d, dd.D)!, t1 = performance.now();
+    const quick = autoArimaSearch(y, m, dd.d, dd.D, { approximate: true })!, t2 = performance.now();
+    assert.equal(specLabel(quick.best.spec), specLabel(exact.best.spec), `${name} same model`);
+    near(quick.best.aicc, exact.best.aicc, 0.01, `${name} the winner is fitted exactly`);
+    if (m > 1) assert.ok(t2 - t1 < t1 - t0, `${name} the quick search is faster`);
+  }
+});
+
+test("Akaike weights sum to one, favour the lower AICc, and the averaged forecast lies between its members with wider ranges", () => {
+  const y = ref.series.air!, dd = chooseDifferences(y, 12);
+  const found = autoArimaSearch(y, 12, dd.d, dd.D)!;
+  const team = akaikeWeights(found.fits);
+  near(team.reduce((a, t) => a + t.weight, 0), 1, 1e-9, "weights sum");
+  assert.ok(team.length >= 1 && team.length <= 8);
+  for (let i = 1; i < team.length; i++) assert.ok(team[i]!.weight <= team[i - 1]!.weight + 1e-12, "ordered by AICc");
+  const avg = averageForecasts(y, team, 12), one = forecastArima(y, team[0]!.fit, 12);
+  for (let h = 0; h < 12; h++) assert.ok(avg.se[h]! >= Math.min(...team.map((t) => forecastArima(y, t.fit, 12).se[h]!)) - 1e-9);
+  assert.ok(Math.abs(avg.F[11]! - one.F[11]!) < 0.2 * Math.abs(one.F[11]!), "close to the leader");
 });

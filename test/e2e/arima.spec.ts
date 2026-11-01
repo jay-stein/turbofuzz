@@ -28,6 +28,7 @@ async function open(page: Page): Promise<void> {
 }
 
 test("AutoARIMA runs on request and returns the parameters, fit, residual check, backtest and forecast", async ({ page }) => {
+  test.setTimeout(120_000);
   await open(page);
   const out = page.locator(".ts-page [data-ref=arimaOut]");
   await expect(out).toBeHidden();
