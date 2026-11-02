@@ -87,6 +87,7 @@ import {
   defaultChartTitle,
   sourceOption,
   formatChartNumber,
+  formatCompact,
   autoShortStep,
   calendarTicks,
   describeStep,
@@ -311,6 +312,9 @@ function loadBasemap(detail: BasemapDetail = "110m"): Promise<Basemap> {
 }
 
 export type DensityStyle = "heat" | "contours" | "both";
+
+/** Above this many categories a value bar chart reads better on its side, with its names in full. */
+const RANKED_BARS_ABOVE = 12;
 
 export interface SeriesRequestInput {
   xColumn: number;
@@ -4926,6 +4930,7 @@ export class ChartCard {
     this.barSettings.classList.toggle(
       "hidden",
       kind !== "bar" &&
+        kind !== "barplot" &&
         kind !== "box" &&
         kind !== "heatmap" &&
         kind !== "treemap" &&
@@ -7434,7 +7439,6 @@ export class ChartCard {
     if (this.config.groupColumn >= 0) {
       details.push(`Grouped by ${this.meta(this.config.groupColumn)?.name ?? "group"}`);
     }
-    details.push(`${this.rowCount.toLocaleString()} rows in scope`);
     details.push(this.scopeEl.textContent ?? "");
     if (this.canExclude() && (region.actions.length > 0 || (region.contextActions?.length ?? 0) > 0)) {
       details.push("Right-click to leave this out of this chart");
@@ -7443,7 +7447,7 @@ export class ChartCard {
       el(
         "div",
         { class: "chart-tooltip-detail" },
-        details.filter((line) => line.trim() !== ""),
+        details.filter((line) => line.trim() !== "").map((line) => el("div", {}, [line])),
       ),
     );
     this.tooltipEl.classList.remove("hidden");
@@ -8998,14 +9002,17 @@ export class ChartCard {
           two ? ` by ${result.dimensionNames[1] ?? "group"}` : ""
         } per ${this.stepNoun()} · ${two ? `${periods.toLocaleString()} values` : `${periods.toLocaleString()} ${periods === 1 ? unit : `${unit}s`}`}`;
       }
-      return `${result.measureNames[0] ?? "measure"} by ${result.dimensionNames[0] ?? "group"}${
+      return `${plainMeasureName(result.measureNames[0] ?? "measure")} by ${result.dimensionNames[0] ?? "group"}${
         two ? ` and ${result.dimensionNames[1] ?? "group"}` : ""
       } · ${result.groupCount.toLocaleString()} ${two ? "values" : "groups"}`;
     }
     if (this.config.kind === "scatter" || this.config.kind === "density") {
       const x = this.meta(this.config.x)?.name ?? "X";
       const y = this.meta(this.config.y)?.name ?? "Y";
-      return `${x} vs ${y} · ${rows}`;
+      const series = this.seriesResult;
+      // Not "30,021 rows shown" over a plot of a sample of them.
+      const sample = series !== null && series.mode === "points" && series.sampled ? `${series.shown.toLocaleString()} points sampled from ${series.total.toLocaleString()}` : rows;
+      return `${x} vs ${y} · ${sample}`;
     }
     if (this.config.kind === "box") {
       const value = this.meta(this.config.x)?.name ?? "Value";
@@ -9287,7 +9294,7 @@ export class ChartCard {
       ctx.lineTo(frame.left + frame.plotW, y + 0.5);
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillText(formatChartNumber(value), frame.left - 6 * ui, y + 3 * ui);
+      ctx.fillText(formatCompact(value), frame.left - 6 * ui, y + 3 * ui);
     }
     ctx.textAlign = "left";
     ctx.beginPath();
@@ -10049,6 +10056,69 @@ export class ChartCard {
     return true;
   }
 
+  /**
+   * Many categories: horizontal bars, every name readable, the first Top N in the chart's order.
+   * A total can gather the rest into Other; an average cannot, so the note counts what is left out.
+   */
+  private drawRankedBars(ctx: CanvasRenderingContext2D, frame: Frame, result: AggregateMessage, values: Float64Array): void {
+    const ui = frame.ui;
+    const n = result.groupCount;
+    const limit = Math.min(n, Math.max(1, this.config.topN));
+    const measure = plainMeasureName(result.measureNames[0] ?? "value");
+    const agg = this.config.valueAgg ?? "mean";
+    const additive = (this.config.valueColumn ?? -1) < 0 || agg === "sum" || agg === "count";
+    let rest = 0;
+    for (let i = limit; i < n; i++) if (Number.isFinite(values[i])) rest += values[i]!;
+    const withOther = additive && this.config.groupOther && limit < n;
+    const rows: { label: string; value: number; index: number }[] = [];
+    for (let i = 0; i < limit; i++) rows.push({ label: result.labels[i] === "" ? "(blank)" : (result.labels[i] ?? ""), value: values[i] ?? Number.NaN, index: i });
+    if (withOther) rows.push({ label: `Other (${(n - limit).toLocaleString()})`, value: rest, index: -1 });
+    let top = 0;
+    for (const row of rows) if (Number.isFinite(row.value)) top = Math.max(top, Math.abs(row.value));
+    top = Math.max(top, 1e-12);
+    this.font(ctx, ui, 11);
+    let widest = 0;
+    for (const row of rows) widest = Math.max(widest, ctx.measureText(row.label).width);
+    const labelW = Math.min(frame.plotW * 0.34, widest + 8 * ui);
+    const left = Math.max(frame.left, labelW + 10 * ui);
+    const valueW = 62 * ui;
+    const barsW = Math.max(10, frame.left + frame.plotW - left - valueW);
+    const slot = frame.plotH / rows.length;
+    const barH = Math.max(3, Math.min(slot * 0.72, 30 * ui));
+    const dimensionColumn = this.config.source === "" ? this.config.column : -1;
+    const codes = this.meta(dimensionColumn)?.categories?.labels ?? [];
+    this.hitRegions = [];
+    rows.forEach((row, k) => {
+      const y = frame.top + k * slot;
+      const width = Number.isFinite(row.value) ? (Math.abs(row.value) / top) * barsW : 0;
+      ctx.fillStyle = row.index < 0 ? frame.dim : this.primaryColor();
+      ctx.globalAlpha = row.index < 0 ? 0.5 : 0.85;
+      ctx.fillRect(left, y + (slot - barH) / 2, width, barH);
+      ctx.globalAlpha = 1;
+      const middle = y + slot / 2 + 4 * ui;
+      this.font(ctx, ui, 11);
+      ctx.textAlign = "right";
+      ctx.fillStyle = frame.text;
+      ctx.fillText(this.fit(ctx, row.label, labelW), left - 6 * ui, middle);
+      ctx.textAlign = "left";
+      ctx.fillStyle = frame.dim;
+      ctx.fillText(Number.isFinite(row.value) ? formatCompact(row.value) : "—", left + width + 5 * ui, middle);
+      const code = row.index < 0 ? -1 : codes.indexOf(result.labels[row.index] ?? "");
+      this.hitRegions.push({
+        x: 0,
+        y,
+        w: frame.left + frame.plotW,
+        h: slot,
+        lines: [row.label, `${measure}: ${Number.isFinite(row.value) ? formatChartNumber(row.value) : "—"}`],
+        actions: code >= 0 ? [{ kind: "values", column: dimensionColumn, code }] : [],
+      });
+    });
+    ctx.textAlign = "left";
+    const ordered = (this.config.chartSort ?? "none") === "none" || this.config.chartSort === "valueDesc";
+    const leftOut = withOther ? "" : limit < n ? ` · ${(n - limit).toLocaleString()} more not shown (raise Top bars in Customize)` : "";
+    this.noteEl.textContent = `${ordered ? "Top" : "First"} ${limit.toLocaleString()} of ${n.toLocaleString()} ${result.dimensionNames[0] ?? "groups"}${leftOut}`;
+  }
+
   private drawViewAggregate(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const result = this.aggregateResult();
     if (result === null || result.groupCount === 0) {
@@ -10073,6 +10143,10 @@ export class ChartCard {
       this.drawKpi(ctx, frame, result, values);
       return;
     }
+    if (result.dimensionIsTime[0] !== true && result.groupCount > RANKED_BARS_ABOVE) {
+      this.drawRankedBars(ctx, frame, result, values);
+      return;
+    }
     const ui = frame.ui;
     const n = result.groupCount;
     let max = 0;
@@ -10095,7 +10169,7 @@ export class ChartCard {
       ctx.lineTo(frame.left + frame.plotW, y + 0.5);
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillText(formatChartNumber(value), frame.left - 6 * ui, y + 3 * ui);
+      ctx.fillText(formatCompact(value), frame.left - 6 * ui, y + 3 * ui);
     }
     ctx.textAlign = "left";
     ctx.beginPath();
@@ -10211,7 +10285,7 @@ export class ChartCard {
       }
     }
     ctx.textAlign = "left";
-    const measure = result.measureNames[0] ?? "value";
+    const measure = plainMeasureName(result.measureNames[0] ?? "value");
     ctx.fillText(measure, frame.left, frame.top - 6 * ui);
     if (gapPeriods > 0) {
       ctx.textAlign = "right";
@@ -11435,7 +11509,7 @@ export class ChartCard {
       ctx.lineTo(frame.left + frame.plotW, y + 0.5);
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillText(formatChartNumber(value), frame.left - 6 * ui, y + 3 * ui);
+      ctx.fillText(formatCompact(value), frame.left - 6 * ui, y + 3 * ui);
     }
     ctx.textAlign = "center";
     for (const value of xTicks) {
@@ -11510,7 +11584,7 @@ export class ChartCard {
       const measure = name(this.config.valueColumn ?? -1);
       return {
         x: name(this.config.column),
-        y: measure === null ? null : `${this.config.valueAgg ?? "mean"}(${measure})`,
+        y: measure === null ? null : plainMeasureName(`${this.config.valueAgg ?? "mean"}(${measure})`),
       };
     }
     // Aggregate cards (bound views and own value lines) draw from the
@@ -11641,7 +11715,8 @@ export class ChartCard {
       });
     }
     const ui = frame.ui;
-    const maxCount = Math.max(1, ...bars.map((bar) => bar.count));
+    // Headroom above the tallest bar, so its count and share sit on the page, not on the bar.
+    const maxCount = Math.max(1, ...bars.map((bar) => bar.count)) * 1.12;
     const slotW = frame.plotW / bars.length;
     const barW = Math.max(4, slotW - Math.min(18 * ui, slotW * 0.25));
     const labels = meta.categories?.labels ?? [];

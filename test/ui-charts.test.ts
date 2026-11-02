@@ -3908,3 +3908,42 @@ test("switching chart type keeps the fields that still fit", async () => {
   card.dispose();
 });
 
+test("many categories lie on their side: every name is readable, Top N apply, a total gathers the rest", async () => {
+  const window = setupDom();
+  const drawn: string[] = [];
+  captureMockContext(window, drawn);
+  const host = document.createElement("div");
+  const labels = Array.from({ length: 54 }, (_, i) => `Place ${i}`);
+  const answer = (): AggregateMessage => ({
+    ...viewResult("sum(volume)", 54),
+    labels,
+    dimensions: [labels],
+    dimensionNames: ["place"],
+    dimensionIsTime: [false],
+    measures: [Float64Array.from(labels, (_, i) => 5400 - i * 100)],
+  });
+  const card = new ChartCard(host, { ...stubCardOptions(), requestAggregate: async () => answer() }, { kind: "barplot", column: 0, valueColumn: 1, valueAgg: "sum" });
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 900, configurable: true });
+  card.setColumns([
+    meta({ name: "place", type: "category", categories: { labels, counts: labels.map(() => 1) } }),
+    meta({ name: "volume", type: "number", stats: { ...meta().stats, distinct: 54 } }),
+  ]);
+  await tick();
+  await tick();
+  drawn.length = 0;
+  card.repaint();
+  for (let i = 0; i < 10; i++) assert.ok(drawn.includes(`Place ${i}`), `Place ${i} is named`);
+  assert.ok(!drawn.includes("Place 10"));
+  assert.ok(drawn.includes("Other (44)"), "a total gathers the rest");
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /Top 10 of 54 place/);
+  card.applyConfig({ valueAgg: "mean" });
+  await tick();
+  await tick();
+  drawn.length = 0;
+  card.repaint();
+  assert.ok(!drawn.some((text) => text.startsWith("Other")), "an average has no Other");
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /44 more not shown/);
+  card.dispose();
+});
+

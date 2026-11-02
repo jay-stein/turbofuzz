@@ -93,6 +93,19 @@ export function profile(col: RecColumn, nRows: number): RecProfile {
 
 const AGG_WORD: Record<string, string> = { sum: "Total", mean: "Average", none: "", count: "Count of" };
 
+/** "Total sales", but not "Total total_volume" or "Average average_price": a name that already says it stands alone. */
+function measureLead(agg: string, name: string): string {
+  const word = AGG_WORD[agg] ?? "";
+  const says = agg === "sum" ? /(^|[^a-z])(total|sum)([^a-z]|$)/i : agg === "mean" ? /(^|[^a-z])(average|avg|mean)([^a-z]|$)/i : null;
+  return `${says?.test(name) === true ? "" : word} ${name}`.trim();
+}
+
+/** The bucket a time series chart opens with when left on Auto, so a recommendation names what the chart will show. */
+export function chartResolution(spanMs: number): string {
+  const days = spanMs / 86_400_000;
+  return days <= 2 ? "hour" : days <= 120 ? "day" : days <= 840 ? "week" : "month";
+}
+
 /* ------------------------------------------------------------- resolution */
 
 const UNITS: readonly (readonly [string, number])[] = [
@@ -191,7 +204,7 @@ export function recommend(
   const [c1, c2] = C;
   const [m1, m2] = M;
   const agg = (m: RecProfile): string => (view ? "none" : aggFor(m.name));
-  const lead = (m: RecProfile): string => `${AGG_WORD[agg(m)] ?? ""} ${m.name}`.trim();
+  const lead = (m: RecProfile): string => measureLead(agg(m), m.name);
   const sortFor = (c: RecProfile): string => (c.col.ordinal === true ? "natural" : "value-desc");
   const many = (c: RecProfile): boolean => c.role !== "cat-low";
 
@@ -239,10 +252,11 @@ export function recommend(
     const span = spanOf(t.col);
     const res = t.unit ?? ctx.resolution ?? (span !== null ? autoResolution(span) : "day");
     const cfg = { resolution: res, agg: m1 ? agg(m1) : "count", measure: m1?.name ?? null };
+    const shown = t.unit ?? ctx.resolution ?? (span !== null ? chartResolution(span) : res);
     add(
       "timeseries",
       "primary",
-      m1 ? `${lead(m1)} by ${res}: the line shows the trend.` : `Rows per ${res}: shows when activity happens.`,
+      m1 ? `${lead(m1)} by ${shown}: the line shows the trend.` : `Rows per ${shown}: shows when activity happens.`,
       cfg,
     );
     if (m1) {
@@ -376,7 +390,7 @@ export function quickStarts(columns: readonly RecColumn[], nRows: number, { max 
       });
     }
   };
-  const lead = (p: RecProfile): string => `${AGG_WORD[aggFor(p.name)]} ${p.name}`.trim();
+  const lead = (p: RecProfile): string => measureLead(aggFor(p.name), p.name);
 
   if (times[0] !== undefined && m !== undefined) {
     const span = spanOf(times[0].col);

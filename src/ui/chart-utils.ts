@@ -605,6 +605,17 @@ export function formatChartNumber(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
+/** An axis tick or bar label short enough to scan: 10B, 2.5M, 50k; exact below ten thousand. */
+export function formatCompact(value: number): string {
+  const abs = Math.abs(value);
+  const short = (n: number, unit: string): string => `${Number(n.toPrecision(3)).toLocaleString("en")}${unit}`;
+  if (abs >= 1e12) return short(value / 1e12, "T");
+  if (abs >= 1e9) return short(value / 1e9, "B");
+  if (abs >= 1e6) return short(value / 1e6, "M");
+  if (abs >= 1e4) return short(value / 1e3, "k");
+  return formatChartNumber(value);
+}
+
 /** Parses a bin bound, tolerating spaces, underscores and thousands commas. */
 export function parseChartNumber(text: string): number | null {
   const cleaned = text.replace(/[,\s_]/g, "");

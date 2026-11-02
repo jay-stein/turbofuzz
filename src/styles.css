@@ -10183,6 +10183,15 @@ body:has(.modal-overlay) .hint-callout {
   max-width: 220px;
 }
 
+/* A long column name must not turn a quick start into a paragraph. */
+.chart-add-quick-btn {
+  display: block;
+  max-width: min(360px, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chart-add-field[aria-pressed="true"] {
   border-color: var(--accent);
   background: var(--accent-soft);
