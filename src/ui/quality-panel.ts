@@ -2,7 +2,7 @@ import type { DQScore, ScoreCheck, ScoreDimension } from "../data/score.js";
 import { setupDialog } from "./dialog.js";
 import { clear, el } from "./dom.js";
 
-export type DQExportKind = "markdown" | "json" | "html" | "supplier" | "sodacl" | "dbt" | "gx" | "dqdl";
+export type DQExportKind = "markdown" | "html" | "sodacl" | "dbt" | "gx" | "dqdl";
 
 export interface QualityPanelCallbacks {
   /** Filter the table to the failing rows of a check (undo via the toast). */
@@ -165,13 +165,6 @@ export function openQualityPanel(score: DQScore, callbacks: QualityPanelCallback
   copyReport.addEventListener("click", () => {
     void callbacks.onExport("markdown").then((ok) => swapLabel(copyReport, "Copy report", ok));
   });
-  const downloadJson = el("button", { class: "ghost", type: "button" }, [
-    "Download JSON",
-  ]) as HTMLButtonElement;
-  downloadJson.title = "Download the report as a JSON file";
-  downloadJson.addEventListener("click", () => {
-    void callbacks.onExport("json");
-  });
   const targetSelect = el("select", {
     class: "recipe-target",
     "aria-label": "Pipeline format",
@@ -193,7 +186,7 @@ export function openQualityPanel(score: DQScore, callbacks: QualityPanelCallback
     const kind = targetSelect.value as DQExportKind;
     void callbacks.onExport(kind).then((ok) => swapLabel(copyAs, "Copy as…", ok));
   });
-  footer.append(copyReport, downloadJson, el("span", { class: "grow" }), targetSelect, copyAs);
+  footer.append(copyReport, el("span", { class: "grow" }), targetSelect, copyAs);
   modal.append(footer);
 
   const renderCheck = (check: ScoreCheck): HTMLElement => {

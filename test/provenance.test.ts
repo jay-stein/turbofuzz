@@ -11,7 +11,7 @@ import {
   type ProvenanceInput,
   type ReportProvenance,
 } from "../src/data/provenance.js";
-import { buildDQReport, dqReportHtml, dqReportJson, dqReportMarkdown } from "../src/data/dq-report.js";
+import { buildDQReport, dqReportHtml, dqReportMarkdown } from "../src/data/dq-report.js";
 import { builtInNullTokens } from "../src/parse/null-tokens.js";
 
 const bytes = (text: string): ArrayBuffer => new TextEncoder().encode(text).buffer as ArrayBuffer;
@@ -160,13 +160,9 @@ function report(provenance: ReportProvenance | undefined) {
   return buildDQReport(SCORE, "survey.csv", 28_245, 21, "2026-11-02T00:00:00.000Z", provenance === undefined ? {} : { provenance });
 }
 
-test("the report carries the provenance in JSON, Markdown and HTML, and none when there is none", () => {
+test("the report carries the provenance in Markdown and HTML, and none when there is none", () => {
   const p = buildProvenance(input());
   const withIt = report(p);
-  const json = JSON.parse(dqReportJson(withIt)) as { provenance: ReportProvenance };
-  assert.equal(json.provenance.source.files[0]!.sha256, "ab".repeat(32));
-  assert.equal(json.provenance.read.missingWords.length, 4, "the JSON keeps the full structure and word list");
-
   const markdown = dqReportMarkdown(withIt);
   assert.match(markdown, /## Provenance/);
   assert.match(markdown, new RegExp(`- SHA-256: ${"ab".repeat(32)}`));
@@ -177,7 +173,6 @@ test("the report carries the provenance in JSON, Markdown and HTML, and none whe
   assert.ok(html.indexOf("Provenance") < html.indexOf("<h2>Dimensions"), "provenance comes before the findings");
 
   const without = report(undefined);
-  assert.equal(JSON.parse(dqReportJson(without)).provenance, undefined);
   assert.doesNotMatch(dqReportMarkdown(without), /Provenance/);
   assert.doesNotMatch(dqReportHtml(without), /Provenance/);
 });

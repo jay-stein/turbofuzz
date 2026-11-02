@@ -4,7 +4,6 @@ import { computeDQScore } from "../src/data/score.js";
 import {
   buildDQReport,
   dqReportCsv,
-  dqReportJson,
   dqReportMarkdown,
   emitDQChecks,
 } from "../src/data/dq-report.js";
@@ -71,10 +70,6 @@ test("the report serialises the score as markdown, json and csv", () => {
   assert.match(markdown, /\| Completeness \| 90\.0 \| 30 \|/);
   assert.match(markdown, /“email” is populated/);
 
-  const json = JSON.parse(dqReportJson(report)) as { dataset: string; overall: number };
-  assert.equal(json.dataset, "melb");
-  assert.ok(json.overall > 80);
-
   const csv = dqReportCsv(report);
   assert.match(csv.split("\n")[0] ?? "", /dimension,check,detail,pass,fail,na/);
   assert.match(csv, /"“email” is populated"/);
@@ -111,7 +106,7 @@ test("emitters translate discovered checks and note what they cannot", () => {
 });
 
 test("the HTML report is self-contained, escapes text and hides values of flagged columns", async () => {
-  const { buildDQReport, dqReportHtml, supplierMessage } = await import("../src/data/dq-report.js");
+  const { buildDQReport, dqReportHtml } = await import("../src/data/dq-report.js");
   const score = {
     overall: 80,
     band: "fair",
@@ -144,7 +139,4 @@ test("the HTML report is self-contained, escapes text and hides values of flagge
   assert.match(html, /&lt;b&gt;sales&lt;\/b&gt;/);
   assert.doesNotMatch(html, /<script|<link|src=/);
   assert.equal(report.scoreVersion, 3);
-  const message = supplierMessage(report);
-  assert.match(message, /city has 2 spellings \(3 rows\)/);
-  assert.match(message, /scored 80\.0 out of 100/);
 });

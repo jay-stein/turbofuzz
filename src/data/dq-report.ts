@@ -134,10 +134,6 @@ export function buildDQReport(
   };
 }
 
-export function dqReportJson(report: DQReport): string {
-  return `${JSON.stringify(report, null, 2)}\n`;
-}
-
 export function dqReportMarkdown(report: DQReport): string {
   const lines: string[] = [];
   lines.push(`# Data quality report — ${report.dataset}`);
@@ -263,21 +259,6 @@ ${parts}
 <p class="meta">Score version ${report.scoreVersion ?? SCORE_VERSION}. Flagged columns show counts only; no values from them appear in this file.</p>
 </body></html>
 `;
-}
-
-/** A short plain message for whoever supplies the data, ready to paste into an email. */
-export function supplierMessage(report: DQReport): string {
-  const issues = (report.issues ?? []).filter((issue) => issue.severity === "fix").slice(0, 8);
-  const lines = [`Hi,`, ``, `I ran ${report.dataset} (${report.rows.toLocaleString()} rows) through a data quality check${report.overall === null ? "" : ` and it scored ${report.overall.toFixed(1)} out of 100`}.`];
-  if (issues.length === 0) {
-    lines.push(``, `Nothing needs fixing on this one.`);
-  } else {
-    lines.push(``, `These things need fixing at the source:`);
-    for (const issue of issues) lines.push(`- ${issue.title} (${issue.rows.toLocaleString()} ${issue.rows === 1 ? "row" : "rows"})`);
-    lines.push(``, `I can send the list of affected rows as a CSV if that helps.`);
-  }
-  lines.push(``, `Thanks`);
-  return `${lines.join("\n")}\n`;
 }
 
 export function dqReportCsv(report: DQReport): string {

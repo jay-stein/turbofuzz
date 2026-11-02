@@ -264,12 +264,10 @@ export class QualityPage {
         {
           fixTop: () => void this.fix(safe.slice(0, 3)),
           copy: () => void this.callbacks.onExport("markdown"),
-          download: () => void this.callbacks.onExport("json"),
           ...(this.callbacks.onExceptions === undefined
             ? {}
             : { exceptions: (includeRaw: boolean) => void this.callbacks.onExceptions?.(includeRaw) }),
           html: () => void this.callbacks.onExport("html"),
-          supplier: () => void this.callbacks.onExport("supplier"),
           weights: () => {
             this.tab = "checks";
             this.settingsOpen = !this.settingsOpen;

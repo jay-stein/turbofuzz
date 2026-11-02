@@ -36,7 +36,7 @@ No browser verification was performed for this inventory. All discoverability sc
 | F-011 | Existing | One-click fix suggestions | Repair a recognised issue | Per-column header chips, sidebar suggestion chips, Overview next steps | Core | D0 — not tested | Source-verified. Sentinel tokens, mixed decimals, type conflicts, formula-like cells, boolean/number/date conversion. | Fixes are logged and reversible from Recipe. |
 | F-012 | Existing | Review-all triage queue | Work through issues in one place | Overview “N issues found — Review all” | Useful | D0 — not tested | Source-verified. Fixes apply immediately; resolved items tick and leave the list. | Component-tested; no App-level test. |
 | F-013 | Existing | Data Quality dashboard | Diagnose dataset quality | Topbar DQ score tile; “Data Quality” tab; keyboard `2`; palette “quality”/“score”/“dq”/“data quality” | Core | D0 — not tested | Source-verified. Score is dataset-level and ignores filters. Six dimensions; weights/bands persisted. Failing checks with no filter/convert action have no drill-down button. | `QualityPage` is live; `quality-panel.ts` is legacy/unmounted. Verify the UX for non-actionable checks. |
-| F-014 | Existing | DQ report export | Share/retain the diagnosis | Quality page “Copy report” (Markdown) and “Download JSON” | Useful | D0 — not tested | Clipboard/download; browser-unverified. SodaCL/dbt/GX/DQDL emitters exist in code but are not exposed by the live page. | See “Hidden / uncertain” below. |
+| F-014 | Existing | DQ report export | Share/retain the diagnosis | Quality page “Copy report” (Markdown) and “Download HTML report” | Useful | D0 — not tested | Clipboard/download; browser-unverified. SodaCL/dbt/GX/DQDL emitters exist in code but are not exposed by the live page. | See “Hidden / uncertain” below. |
 | F-015 | Existing | Filter sidebar | Find records by value/range | Left “Filters” sidebar; “Find a column…”; per-column cards | Core | D0 — not tested | Source-verified. Contains/Exact/Fuzzy/Sounds like; value checkboxes; numeric/date/time/duration ranges and histogram slider. | **No direct tests for `FilterPanel`.** |
 | F-016 | Existing | Filter chips and quick add | See/remove active filters | Results bar: active chips, “+ Add filter”; sidebar “Clear all” | Core | D0 — not tested | Source-verified. | No App-level test. |
 | F-017 | Existing | Table grid | Inspect records | “Table” tab; Overview “Explore the table” / “Open Table”; keyboard `3` | Core | D0 — not tested | Source-verified. Virtualized rows, sort, column resize by divider drag (double-click resets), row-index header, group separators. | Core workspace. |
@@ -88,7 +88,7 @@ No browser verification was performed for this inventory. All discoverability sc
 | F-DQ-08 | Existing | Local history and drift | See change between loads | History tab | IndexedDB, counts and rates only, can be switched off and cleared. |
 | F-DQ-09 | Existing | Offline reference accuracy | Catch misspelt countries and similar | All checks (Accuracy) | Lists load on demand; weight 0 by default. |
 | F-DQ-10 | Existing | Duplicates ignoring an id; suggested pair checks | Find repeats and impossible orderings | Issues tab; All checks | Name-pair checks can be turned off for the session. |
-| F-DQ-11 | Existing | HTML report, supplier message | Share results | Data Quality hero | One self-contained printable page; no values from flagged columns. |
+| F-DQ-11 | Existing | HTML report | Share results | Data Quality hero | One self-contained printable page; no values from flagged columns. |
 
 ## Hidden, planned or uncertain capabilities
 
@@ -96,7 +96,7 @@ These are not counted as current user-facing features unless a reachable UI path
 
 | Item | Status | Evidence | Notes |
 |---|---|---|---|
-| SodaCL export | Hidden / not reachable | `src/data/dq-report.ts` (`emitDQChecks`), legacy `src/ui/quality-panel.ts:180-195` | Live `QualityPage` exposes only “Copy report” (Markdown) and “Download JSON”. |
+| SodaCL export | Hidden / not reachable | `src/data/dq-report.ts` (`emitDQChecks`), legacy `src/ui/quality-panel.ts:180-195` | Live `QualityPage` exposes only “Copy report” (Markdown) and “Download HTML report”. |
 | dbt export | Hidden / not reachable | Same as above | Same. |
 | Great Expectations export | Hidden / not reachable | Same as above | Same. |
 | Deequ/DQDL export | Hidden / not reachable | Same as above | Same. |

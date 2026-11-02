@@ -138,10 +138,8 @@ import { builtInNullTokens } from "../parse/null-tokens.js";
 import {
   SCORE_VERSION,
   buildDQReport,
-  dqReportJson,
   dqReportMarkdown,
   dqReportHtml,
-  supplierMessage,
   type DQReport,
   emitDQChecks,
 } from "../data/dq-report.js";
@@ -5701,22 +5699,6 @@ export class App {
       anchor.click();
       URL.revokeObjectURL(url);
       this.setAction("Downloaded the data-quality report (HTML)");
-      return true;
-    }
-    if (kind === "supplier") {
-      const ok = await copyText(supplierMessage(report));
-      this.setAction(ok ? "Copied a message for the data supplier" : "Clipboard blocked — copy failed");
-      return ok;
-    }
-    if (kind === "json") {
-      const blob = new Blob([dqReportJson(report)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${safeFileName(this.datasetName === "" ? "dataset" : this.datasetName)}-dq-report.json`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-      this.setAction("Downloaded the data-quality report (JSON)");
       return true;
     }
     let text: string;

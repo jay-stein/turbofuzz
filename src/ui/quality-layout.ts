@@ -46,11 +46,9 @@ export function buildHero(
   actions: {
     fixTop: () => void;
     copy: () => void;
-    download: () => void;
     weights: () => void;
     exceptions?: (includeRaw: boolean) => void;
     html?: () => void;
-    supplier?: () => void;
   },
 ): HTMLElement {
   const hero = el("section", { class: "qp-hero2", "aria-label": "Data quality summary" });
@@ -96,21 +94,14 @@ export function buildHero(
   primary.addEventListener("click", actions.fixTop);
   const copy = el("button", { class: "ghost small", type: "button" }, ["Copy report"]);
   copy.addEventListener("click", actions.copy);
-  const download = el("button", { class: "ghost small", type: "button" }, ["Download JSON"]);
-  download.addEventListener("click", actions.download);
   const weights = el("button", { class: "ghost small", type: "button" }, ["Score & weights"]);
   weights.addEventListener("click", actions.weights);
-  buttons.append(primary, copy, download, weights);
+  buttons.append(primary, copy, weights);
   if (actions.html !== undefined) {
     const html = el("button", { class: "ghost small", type: "button", "data-qp": "html-report" }, ["Download HTML report"]);
     html.title = "One printable page: score, top issues, columns, rules and trend. No values from flagged columns.";
     html.addEventListener("click", actions.html);
     buttons.append(html);
-  }
-  if (actions.supplier !== undefined) {
-    const supplier = el("button", { class: "ghost small", type: "button", "data-qp": "supplier-message" }, ["Copy message for data supplier"]);
-    supplier.addEventListener("click", actions.supplier);
-    buttons.append(supplier);
   }
   const exceptions = actions.exceptions;
   if (exceptions !== undefined) {
