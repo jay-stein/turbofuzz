@@ -10516,6 +10516,13 @@ body:has(.modal-overlay) .hint-callout {
   display: none;
 }
 
+.chart-card button.chart-animate-btn[aria-disabled="true"],
+.chart-card button.chart-animate-btn[aria-disabled="true"]:hover {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: transparent;
+}
+
 .chart-card button.chart-focus-btn > span,
 .chart-card button.chart-png-btn > span,
 .chart-card button.chart-animate-btn > span {

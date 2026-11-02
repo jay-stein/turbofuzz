@@ -1070,6 +1070,9 @@ function missingOrTokens(missing: number, tokens: number): boolean {
 /** Width of the Gaussian that smooths a histogram's bins into its KDE curve, in bins. */
 const KDE_SIGMA_BINS = 1.4;
 
+/** Map joins these only in one dot per place: see animatesPlaces. */
+const ANIMATED_KINDS: ReadonlySet<ChartCardKind> = new Set<ChartCardKind>(["bar", "bubble", "histogram", "treemap", "density", "map"]);
+
 const MAP_COLOR_AGG_NAMES = { mean: "average", sum: "total", min: "lowest", max: "highest" } as const;
 
 export class ChartCard {
@@ -2709,15 +2712,7 @@ export class ChartCard {
     }) as HTMLSelectElement;
     this.animationTimeSelect.addEventListener("change", () => {
       const value = Number(this.animationTimeSelect.value);
-      this.config.animationTimeColumn = Number.isFinite(value) ? value : -1;
-      if ((this.config.animationTimeColumn ?? -1) >= 0) {
-        this.config.animationGrain = this.defaultGrainFor(this.config.animationTimeColumn ?? -1);
-        this.animationGrainSelect.value = this.config.animationGrain;
-      }
-      this.stopAnimation();
-      this.generation++;
-      this.refreshAnimation();
-      this.render();
+      this.setAnimationTime(Number.isFinite(value) ? value : -1);
     });
     this.animationGrainSelect = el("select", {
       class: "chart-picker chart-picker-small",
@@ -5522,24 +5517,12 @@ export class ChartCard {
         kind !== "treemap" &&
         kind !== "bubble",
     );
-    const animatable =
-      kind === "bar" ||
-      kind === "bubble" ||
-      kind === "histogram" ||
-      kind === "treemap" ||
-      kind === "density" ||
-      this.animatesPlaces();
-    const hasDates = this.columns.some((meta) => this.isDateLike(meta));
-    this.animateButton.classList.toggle("hidden", !animatable);
-    this.animateButton.disabled = !hasDates;
-    this.animateButton.title = hasDates
-      ? "Step this chart through time"
-      : "Animating needs a date or datetime column in the file";
-    this.animateButton.classList.toggle("active", this.animationSetupOpen && hasDates);
-    this.animationSetup.classList.toggle(
-      "hidden",
-      !(animatable && hasDates && this.animationSetupOpen),
-    );
+    // Always there, so it can be found: grey says why it cannot run yet. Not truly disabled, or hover and focus could miss the reason.
+    const animateBlock = this.animationBlock();
+    this.animateButton.setAttribute("aria-disabled", String(animateBlock !== null));
+    this.animateButton.title = animateBlock ?? "Step this chart through time";
+    this.animateButton.classList.toggle("active", this.animationSetupOpen && animateBlock === null);
+    this.animationSetup.classList.toggle("hidden", !(animateBlock === null && this.animationSetupOpen));
     const bubbleOnly = kind === "bubble";
     this.bubbleSettings.classList.toggle("hidden", !bubbleOnly && !mapKind);
     this.bubbleTitle.textContent = mapKind ? "Map" : "Bubbles";
@@ -7122,12 +7105,56 @@ export class ChartCard {
     };
   }
 
-  private toggleAnimationSetup(): void {    if (!this.columns.some((meta) => this.isDateLike(meta))) {
-      this.noteEl.textContent = "Animating needs a date or datetime column in the file.";
+  /** Why this chart cannot step through time right now; null when it can. */
+  private animationBlock(): string | null {
+    const kind = this.config.kind;
+    if (kind === "map" && !this.animatesPlaces()) return "To animate a map, set Show to One dot per place";
+    if (!ANIMATED_KINDS.has(kind)) {
+      return `${CHART_KIND_LABELS[kind]} charts can't animate. Bar, Bubble, Histogram, Treemap, Density and Map can`;
+    }
+    if (this.config.source !== "") return "Charts from a Pivot View can't animate: set Source to Table";
+    if (!this.columns.some((meta) => this.isDateLike(meta))) {
+      return "Animating needs a date or datetime column. If yours was read as text, use Convert types";
+    }
+    if (kind === "bubble" || kind === "density" || kind === "map") {
+      const x = this.meta(this.config.x);
+      const y = this.meta(this.config.y);
+      if (x === undefined || y === undefined || !isNumericType(x.type) || !isNumericType(y.type)) {
+        return kind === "map" ? "Choose numeric longitude and latitude columns first" : "Choose numeric X and Y columns first";
+      }
+      return null;
+    }
+    const column = this.meta(this.config.column);
+    if (kind === "histogram") return column !== undefined && isNumericType(column.type) ? null : "Choose a numeric column first";
+    return column !== undefined && isGroupable(column) ? null : "Choose a category column first";
+  }
+
+  private setAnimationTime(column: number): void {
+    this.config.animationTimeColumn = column;
+    if (column >= 0) {
+      this.config.animationGrain = this.defaultGrainFor(column);
+      this.animationGrainSelect.value = this.config.animationGrain;
+    }
+    this.animationTimeSelect.value = String(column);
+    this.stopAnimation();
+    this.generation++;
+    this.refreshAnimation();
+    this.render();
+  }
+
+  private toggleAnimationSetup(): void {
+    const blocked = this.animationBlock();
+    if (blocked !== null) {
+      this.noteEl.textContent = `${blocked}.`;
       return;
     }
     this.animationSetupOpen = !this.animationSetupOpen;
     this.renderControls();
+    // One click starts it: the first date column is ready to play, and the row beside it can change that or turn it off.
+    if (this.animationSetupOpen && (this.config.animationTimeColumn ?? -1) < 0) {
+      const first = this.columns.findIndex((meta) => this.isDateLike(meta));
+      if (first >= 0) this.setAnimationTime(first);
+    }
   }
 
   private toggleAnimation(): void {

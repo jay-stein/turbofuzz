@@ -4,6 +4,14 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-03-05 — The Animate button is always there and one click starts it
+
+- **Status:** Verified (unit, e2e)
+- **Related issue / decision:** owner: keep it visible and grey, with a reason on hover.
+- **What changed:** the button no longer disappears by chart type. Grey with a hover reason when the file has no date column, the chart type cannot animate, a map is not in one dot per place, the source is a Pivot View, or the fields are not chosen. Live, one click picks the first date column and shows the playback bar; playing still waits for Play.
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
 ### CHG-2026-11-03-04 — Extract stats on every chart
 
 - **Status:** Verified (unit, e2e, browser on Citi Bike trip data)

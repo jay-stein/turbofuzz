@@ -107,10 +107,10 @@ test("one dot per place can be coloured by the average of a number, blue to red,
   await expect(card.getByRole("combobox", { name: "Colour map" })).toHaveValue("Blue to red");
   await expect(card.getByRole("combobox", { name: "Colour of a place" })).toHaveValue("mean");
 
+  // One click: the first date column, by the day, ready to play.
   await card.locator(".chart-animate-btn").click();
-  const time = card.getByRole("combobox", { name: "Animate over time" });
-  await time.selectOption((await time.locator("option", { hasText: "starttime" }).getAttribute("value"))!);
-  await card.getByRole("combobox", { name: "Frame length" }).selectOption("day");
+  await expect(card.getByRole("combobox", { name: "Animate over time" }).locator("option:checked")).toHaveText("starttime");
+  await expect(card.getByRole("combobox", { name: "Frame length" })).toHaveValue("day");
   await expect(card.getByRole("button", { name: /Play/ })).toBeVisible();
   await expect(notes).toContainText("12 places");
   const first = await notes.textContent();
@@ -121,5 +121,8 @@ test("one dot per place can be coloured by the average of a number, blue to red,
 
   // Another way of showing the data has no frames to step through.
   await card.getByRole("combobox", { name: "Map display mode" }).selectOption("heat");
-  await expect(card.locator(".chart-animate-btn")).toBeHidden();
+  const grey = card.locator(".chart-animate-btn");
+  await expect(grey).toBeVisible();
+  await expect(grey).toHaveAttribute("aria-disabled", "true");
+  await expect(grey).toHaveAttribute("title", /One dot per place/);
 });

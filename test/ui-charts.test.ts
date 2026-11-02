@@ -1856,7 +1856,7 @@ test("the Animate button sits in the toolbar and reveals the setup row", async (
   await tick();
   const button = host.querySelector(".chart-animate-btn") as HTMLButtonElement;
   assert.ok(button !== null, "the Animate button is in the toolbar");
-  assert.equal(button.disabled, false);
+  assert.equal(button.getAttribute("aria-disabled"), "false");
   const setup = host.querySelector(".chart-animate-setup") as HTMLElement;
   assert.equal(setup.classList.contains("hidden"), true, "setup starts collapsed");
   assert.ok(setup.querySelector('select[aria-label="Animate over time"]') !== null);
@@ -1865,13 +1865,15 @@ test("the Animate button sits in the toolbar and reveals the setup row", async (
   await tick();
   assert.equal(setup.classList.contains("hidden"), false, "clicking reveals the setup row");
   assert.ok(button.classList.contains("active"));
+  assert.equal(card.getConfig().animationTimeColumn, 1, "and picks the date column, with no Off step first");
+  assert.equal(card.getConfig().animationGrain, "day", "two months go by the day");
   button.click();
   await tick();
   assert.equal(setup.classList.contains("hidden"), true);
   card.dispose();
 });
 
-test("the Animate button is disabled when the file has no date column", async () => {
+test("the Animate button stays visible and grey, and says why, whenever it cannot run", async () => {
   const window = setupDom();
   captureMockContext(window, []);
   const host = document.createElement("div");
@@ -1881,8 +1883,33 @@ test("the Animate button is disabled when the file has no date column", async ()
   ]);
   await tick();
   const button = host.querySelector(".chart-animate-btn") as HTMLButtonElement;
-  assert.equal(button.disabled, true);
-  assert.match(button.title, /needs a date or datetime column/);
+  assert.equal(button.disabled, false, "not truly disabled, so hover and focus reach the reason");
+  assert.equal(button.getAttribute("aria-disabled"), "true");
+  assert.equal(button.classList.contains("hidden"), false);
+  assert.match(button.title, /needs a date or datetime column.*Convert types/);
+  button.click();
+  await tick();
+  const setup = host.querySelector(".chart-animate-setup") as HTMLElement;
+  assert.equal(setup.classList.contains("hidden"), true, "a grey click opens nothing");
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /needs a date or datetime column/);
+
+  card.setColumns([
+    meta({ name: "status", type: "category", categories: { labels: ["open"], counts: [1] } }),
+    meta({ name: "when", type: "date", stats: { ...meta().stats, min: 0, max: 1e10, distinct: 60 } }),
+    meta({ name: "lat", type: "number" }),
+    meta({ name: "lon", type: "number" }),
+  ]);
+  card.applyConfig({ kind: "barplot", column: 0 });
+  await tick();
+  assert.equal(button.getAttribute("aria-disabled"), "true");
+  assert.match(button.title, /^Barplot charts can't animate/);
+  card.applyConfig({ kind: "map", x: 3, y: 2, mapMode: "heat" });
+  await tick();
+  assert.match(button.title, /set Show to One dot per place/);
+  card.applyConfig({ mapMode: "places" });
+  await tick();
+  assert.equal(button.getAttribute("aria-disabled"), "false");
+  assert.equal(button.title, "Step this chart through time");
   card.dispose();
 });
 
