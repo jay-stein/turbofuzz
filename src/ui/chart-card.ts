@@ -19,6 +19,7 @@ import type { AnimationResult } from "../data/chart-frames.js";
 import { encodeGif, type GifFrameInput } from "../data/gif.js";
 import { contourLevels, marchingSquares, smoothGrid, smoothSeries } from "../data/kde.js";
 import { squarifyLayout } from "../data/treemap.js";
+import { dataRange, DOT_SCALES, dotRadii, type DotScale } from "../data/dot-size.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import {
   CUSTOM_PALETTE,
@@ -82,6 +83,7 @@ import {
   CHART_KIND_LABELS,
   type ChartCardKind,
   correlationCell,
+  DEFAULT_MAP_MODE,
   defaultChartTitle,
   formatChartNumber,
   autoShortStep,
@@ -315,6 +317,8 @@ export interface SeriesRequestInput {
   colorColumn: number;
   sizeColumn: number;
   mode: SeriesMode;
+  /** Map cards: one dot per distinct place, valued by the row count or this aggregate of the size column. */
+  places?: { agg: "count" | "sum" | "mean" | "min" | "max" };
   limit?: number;
   /** false keeps the full data range; the map card sets this. */
   clip?: boolean;
@@ -573,8 +577,19 @@ export interface ChartCardConfig {
   bubbleAgg?: "count" | "sum" | "mean" | "min" | "max";
   /** How bubble radius maps from the measure value. */
   bubbleScale?: "area" | "radius" | "log";
-  /** Map display: one dot per row, or an aggregated heat grid. */
+  /** Map display: one dot per place (default), one dot per row, or an aggregated heat grid. */
   mapMode?: "points" | "heat" | "places";
+  /**
+   * Map dots. Radius in pixels of the smallest and largest dot (one size for all when nothing
+   * sizes them), the value range those radii span (unset: the data's own), how value becomes
+   * radius, and how see-through the dots are.
+   */
+  dotMinRadius?: number;
+  dotMaxRadius?: number;
+  dotValueMin?: number | null;
+  dotValueMax?: number | null;
+  dotScale?: DotScale;
+  dotOpacity?: number;
   /** Card width in the grid: normal cell or the whole row. */
   span?: "auto" | "full";
   /** Time column for frame animation (-1 = off). */
@@ -1142,6 +1157,19 @@ export class ChartCard {
   private readonly bubbleScaleField: HTMLElement;
   private readonly mapModeSelect: HTMLSelectElement;
   private readonly mapModeWrap: HTMLElement;
+  /** The Dots row under the map's settings: radius, value range, scale and opacity. */
+  private readonly dotSettings: HTMLElement;
+  private readonly dotMinInput: HTMLInputElement;
+  private readonly dotMaxInput: HTMLInputElement;
+  private readonly dotMaxWrap: HTMLElement;
+  private readonly dotMinLabel: HTMLElement;
+  private readonly dotValueMinInput: HTMLInputElement;
+  private readonly dotValueMaxInput: HTMLInputElement;
+  private readonly dotValuesWrap: HTMLElement;
+  private readonly dotScaleSelect: HTMLSelectElement;
+  private readonly dotScaleWrap: HTMLElement;
+  private readonly dotOpacityInput: HTMLInputElement;
+  private readonly dotOpacityOut: HTMLElement;
   private readonly resetViewButton: HTMLButtonElement;
   /** Map heat grid (count or measure per cell), computed by the worker. */
   private mapGrid: GridCountsResult | null = null;
@@ -1716,7 +1744,7 @@ export class ChartCard {
       // Picking a column for a bubble or heat map means "measure by this
       // column": switch the measure away from count so the choice takes
       // effect immediately, and back to count when the column is cleared.
-      if (this.config.kind === "bubble" || (this.config.kind === "map" && this.config.mapMode === "heat")) {
+      if (this.config.kind === "bubble" || (this.config.kind === "map" && (this.config.mapMode ?? DEFAULT_MAP_MODE) !== "points")) {
         if (this.config.sizeColumn < 0) {
           this.config.bubbleAgg = "count";
           this.bubbleAggSelect.value = "count";
@@ -2136,13 +2164,13 @@ export class ChartCard {
     this.bubbleTitle = el("span", { class: "chart-animate-title" }, ["Bubbles"]);
     this.mapModeSelect = this.buildSelect("chart-picker chart-picker-small", "Map display mode");
     for (const [value, label] of [
-      ["points", "One dot per row"],
       ["places", "One dot per place"],
+      ["points", "One dot per row"],
       ["heat", "Heat grid"],
     ] as const) {
       this.mapModeSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
     }
-    this.mapModeSelect.value = this.config.mapMode ?? "points";
+    this.mapModeSelect.value = this.config.mapMode ?? DEFAULT_MAP_MODE;
     this.mapModeSelect.addEventListener("change", () => {
       this.config.mapMode = this.mapModeSelect.value as "points" | "heat" | "places";
       this.gridField.classList.toggle("hidden", this.config.mapMode !== "heat");
@@ -2150,6 +2178,7 @@ export class ChartCard {
       this.refreshSeries();
       this.refreshMapGrid();
       this.syncSourceControls();
+      this.renderControls();
       this.render();
     });
     this.mapModeWrap = this.tagged("Show", this.mapModeSelect).wrap;
@@ -2272,6 +2301,91 @@ export class ChartCard {
       bubbleAggField,
       bubbleScaleField,
     ]);
+
+    // Dots: what a GIS calls proportional symbols. Radius of the smallest and largest dot, the value
+    // range they span, how value becomes radius, and opacity. Pure drawing, so nothing is refetched.
+    const dotNumber = (label: string, title: string, min: string, step: string): HTMLInputElement =>
+      el("input", {
+        class: "chart-number chart-dot-number",
+        type: "number",
+        min,
+        step,
+        "aria-label": label,
+        title,
+      }) as HTMLInputElement;
+    this.dotMinInput = dotNumber("Smallest dot radius (pixels)", "Radius in pixels of the smallest dot (or of every dot when nothing sizes them)", "0.5", "0.5");
+    this.dotMaxInput = dotNumber("Largest dot radius (pixels)", "Radius in pixels of the largest dot", "0.5", "0.5");
+    this.dotValueMinInput = dotNumber("Value for the smallest dot", "The value that gets the smallest dot; smaller values are drawn the same size. Leave empty to use the lowest value in the data.", "", "any");
+    this.dotValueMaxInput = dotNumber("Value for the largest dot", "The value that gets the largest dot; larger values are drawn the same size. Leave empty to use the highest value in the data.", "", "any");
+    this.dotScaleSelect = el("select", {
+      class: "chart-picker chart-picker-small",
+      "aria-label": "How value becomes dot radius",
+      title: "How value becomes radius",
+    }) as HTMLSelectElement;
+    for (const scale of DOT_SCALES) {
+      this.dotScaleSelect.append(el("option", { value: scale.id, title: scale.hint }, [scale.label]) as HTMLOptionElement);
+    }
+    this.dotOpacityInput = el("input", {
+      type: "range",
+      min: "10",
+      max: "100",
+      step: "5",
+      class: "chart-dot-opacity",
+      "aria-label": "Dot opacity",
+      title: "How see-through the dots are: lower shows where dots pile up",
+    }) as HTMLInputElement;
+    this.dotOpacityOut = el("output", { class: "chart-field-hint" });
+    const dotField = (label: string, children: (HTMLElement | string)[], title: string): HTMLElement =>
+      el("label", { class: "chart-field", title }, [el("span", { class: "chart-field-label" }, [label]), ...children]);
+    this.dotMinLabel = el("span", { class: "chart-field-label" }, ["Radius"]);
+    this.dotMaxWrap = el("span", { class: "chart-dot-to" }, ["to ", this.dotMaxInput]);
+    const dotRadiusField = el("label", { class: "chart-field", title: "Radius of the dots, in pixels" }, [
+      this.dotMinLabel,
+      this.dotMinInput,
+      this.dotMaxWrap,
+      el("span", { class: "chart-field-hint" }, ["px"]),
+    ]);
+    this.dotValuesWrap = dotField("Values", [this.dotValueMinInput, "to", this.dotValueMaxInput], "The value range the radii span: values outside it get the smallest or largest dot, so one extreme cannot shrink the rest");
+    this.dotScaleWrap = dotField("Scale", [this.dotScaleSelect], "How value becomes radius");
+    this.dotSettings = el("div", { class: "chart-bubble-settings chart-dot-settings hidden" }, [
+      el("span", { class: "chart-animate-title" }, ["Dots"]),
+      dotRadiusField,
+      this.dotValuesWrap,
+      this.dotScaleWrap,
+      dotField("Opacity", [this.dotOpacityInput, this.dotOpacityOut], "How see-through the dots are"),
+    ]);
+    const dotNumberValue = (input: HTMLInputElement): number | null => {
+      const text = input.value.trim();
+      const value = Number(text);
+      return text !== "" && Number.isFinite(value) ? value : null;
+    };
+    this.dotMinInput.addEventListener("input", () => {
+      const value = dotNumberValue(this.dotMinInput);
+      if (value !== null && value > 0) this.config.dotMinRadius = value;
+      this.render();
+    });
+    this.dotMaxInput.addEventListener("input", () => {
+      const value = dotNumberValue(this.dotMaxInput);
+      if (value !== null && value > 0) this.config.dotMaxRadius = value;
+      this.render();
+    });
+    this.dotValueMinInput.addEventListener("input", () => {
+      this.config.dotValueMin = dotNumberValue(this.dotValueMinInput);
+      this.render();
+    });
+    this.dotValueMaxInput.addEventListener("input", () => {
+      this.config.dotValueMax = dotNumberValue(this.dotValueMaxInput);
+      this.render();
+    });
+    this.dotScaleSelect.addEventListener("change", () => {
+      this.config.dotScale = this.dotScaleSelect.value as DotScale;
+      this.render();
+    });
+    this.dotOpacityInput.addEventListener("input", () => {
+      this.config.dotOpacity = Number(this.dotOpacityInput.value) / 100;
+      this.dotOpacityOut.textContent = `${this.dotOpacityInput.value}%`;
+      this.render();
+    });
 
     this.correlationSelect = el("select", {
       class: "chart-multiselect",
@@ -2815,6 +2929,7 @@ export class ChartCard {
       this.scopeEl,
       this.animationSetup,
       this.bubbleSettings,
+      this.dotSettings,
       this.exclusionBar,
       canvasWrap,
       this.animationBar,
@@ -4829,7 +4944,8 @@ export class ChartCard {
     this.bubbleSettings.classList.toggle("hidden", !bubbleOnly && !mapKind);
     this.bubbleTitle.textContent = mapKind ? "Map" : "Bubbles";
     this.bubbleScaleField.classList.toggle("hidden", mapKind);
-    this.mapModeSelect.value = this.config.mapMode ?? "points";
+    this.mapModeSelect.value = this.config.mapMode ?? DEFAULT_MAP_MODE;
+    this.syncDotControls(mapKind);
     // On a map the grid only matters for the heat view: the plain dots need no cells.
     this.gridField.classList.toggle("hidden", mapKind && this.config.mapMode !== "heat");
     (this.gridField.firstElementChild as HTMLElement).textContent = mapKind ? "Heat cells" : "Grid";
@@ -9692,9 +9808,10 @@ export class ChartCard {
       return;
     }
     // Points: sized and coloured by the chosen columns, batched by colour.
-    const sizes = this.pointSizes(result, ui);
+    const sizes = this.mapRadii(result, ui);
     const buckets = this.colorBuckets(result);
-    const baseRadius = 2.2 * ui;
+    const baseRadius = (this.config.dotMinRadius ?? 2.2) * ui;
+    const dotAlpha = this.config.dotOpacity ?? 0.6;
     const drawAt = (index: number): void => {
       const lon = result.x[index] ?? Number.NaN;
       const lat = result.y[index] ?? Number.NaN;
@@ -9719,12 +9836,12 @@ export class ChartCard {
     };
     if (buckets === null) {
       ctx.fillStyle = this.primaryColor();
-      ctx.globalAlpha = 0.6;
+      ctx.globalAlpha = dotAlpha;
       for (let i = 0; i < result.shown; i++) drawAt(i);
     } else {
       for (let bucket = 0; bucket < buckets.colors.length; bucket++) {
         ctx.fillStyle = buckets.colors[bucket] ?? this.primaryColor();
-        ctx.globalAlpha = 0.62;
+        ctx.globalAlpha = dotAlpha;
         for (let i = 0; i < result.shown; i++) {
           if (buckets.buckets[i] === bucket) drawAt(i);
         }
@@ -11182,6 +11299,67 @@ export class ChartCard {
   }
 
   /** Human description of what the bubble sizes represent. */
+  /** What sizes the map's dots: a Size column, or the rows at each place. Null when every dot is alike. */
+  private dotsAreSized(): boolean {
+    return (this.config.mapMode ?? DEFAULT_MAP_MODE) === "places" || this.config.sizeColumn >= 0;
+  }
+
+  /** The radii the Dots row currently stands for; a lone radius when nothing sizes the dots. */
+  private dotDefaults(): { min: number; max: number } {
+    if (!this.dotsAreSized()) return { min: 2.2, max: 2.2 };
+    return (this.config.mapMode ?? DEFAULT_MAP_MODE) === "places" ? { min: 3, max: 14 } : { min: 2, max: 9 };
+  }
+
+  private syncDotControls(mapKind: boolean): void {
+    const heat = this.config.mapMode === "heat";
+    this.dotSettings.classList.toggle("hidden", !mapKind || heat);
+    if (!mapKind || heat) return;
+    const sized = this.dotsAreSized();
+    const defaults = this.dotDefaults();
+    this.dotMaxWrap.classList.toggle("hidden", !sized);
+    this.dotValuesWrap.classList.toggle("hidden", !sized);
+    this.dotScaleWrap.classList.toggle("hidden", !sized);
+    this.dotMinLabel.textContent = sized ? "Radius" : "Dot radius";
+    const set = (input: HTMLInputElement, value: number | null | undefined): void => {
+      if (document.activeElement !== input) input.value = value === null || value === undefined ? "" : String(value);
+    };
+    set(this.dotMinInput, this.config.dotMinRadius ?? defaults.min);
+    set(this.dotMaxInput, this.config.dotMaxRadius ?? defaults.max);
+    set(this.dotValueMinInput, this.config.dotValueMin);
+    set(this.dotValueMaxInput, this.config.dotValueMax);
+    this.dotScaleSelect.value = this.config.dotScale ?? "linear";
+    const opacity = Math.round((this.config.dotOpacity ?? 0.6) * 100);
+    this.dotOpacityInput.value = String(opacity);
+    this.dotOpacityOut.textContent = `${opacity}%`;
+    // Colour needs the rows themselves: a place holds many, with many colours.
+    const places = (this.config.mapMode ?? DEFAULT_MAP_MODE) === "places";
+    this.colorSelect.disabled = places;
+    this.colorWrap.title = places ? "Colour needs one dot per row: a place holds many rows, and they can differ" : "";
+  }
+
+  /** Radii for the map's dots from the Dots row; null when every dot is one size. */
+  private mapRadii(result: SeriesPoints, ui: number): Float64Array | null {
+    if (result.size === null || !this.dotsAreSized()) return null;
+    const defaults = this.dotDefaults();
+    const range = dataRange(result.size, result.shown);
+    if (range !== null) {
+      this.dotValueMinInput.placeholder = `auto: ${formatChartNumber(range.min)}`;
+      this.dotValueMaxInput.placeholder = `auto: ${formatChartNumber(range.max)}`;
+    }
+    return dotRadii(
+      result.size,
+      result.shown,
+      {
+        minRadius: this.config.dotMinRadius ?? defaults.min,
+        maxRadius: this.config.dotMaxRadius ?? defaults.max,
+        valueMin: this.config.dotValueMin ?? null,
+        valueMax: this.config.dotValueMax ?? null,
+        scale: this.config.dotScale ?? "linear",
+      },
+      ui,
+    );
+  }
+
   private bubbleSizeLabel(): string {
     const measure = this.bubbleMeasure();
     if (measure === undefined) return "rows per cell";

@@ -34,6 +34,9 @@ export type ChartCardKind =
   | "slopegraph"
   | "waterfall";
 
+/** What a map shows until told otherwise: one dot per place, so stacked rows do not hide each other. */
+export const DEFAULT_MAP_MODE = "places" as const;
+
 export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   histogram: "Histogram",
   line: "Time series",

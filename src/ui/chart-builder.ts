@@ -5,7 +5,7 @@ import type { ChartCardConfig } from "./chart-card.js";
 import { fitChartKind } from "./chart-gallery.js";
 import { aggFor } from "./chart-names.js";
 import { profile, type RecProfile } from "./chart-recommender.js";
-import { CHART_COLORS, toRecColumn, type ChartCardKind } from "./chart-utils.js";
+import { CHART_COLORS, DEFAULT_MAP_MODE, toRecColumn, type ChartCardKind } from "./chart-utils.js";
 
 /** Fresh defaults for every chart entry point: add, edit, duplicate, reset. */
 export function defaultChartConfig(): ChartCardConfig {
@@ -38,7 +38,7 @@ export function defaultChartConfig(): ChartCardConfig {
     bubbleBins: 40,
     bubbleAgg: "count",
     bubbleScale: "area",
-    mapMode: "points",
+    mapMode: DEFAULT_MAP_MODE,
     span: "auto",
     animationTimeColumn: -1,
     animationGrain: "day",

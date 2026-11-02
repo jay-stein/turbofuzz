@@ -28,6 +28,18 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-02-10 — Map dots: size scaling (radius, value range, scale, opacity) and one dot per place by default
+
+- **Status:** Verified (unit, e2e, benches)
+- **Related issue / decision:** owner: "one dot per row" kept tripping them up; the dot size had no real control ("something cleverer": scale around min and max value, opacity, linear by default or logarithmic, as QGIS does).
+- **Scope:** the Map's Show defaults to One dot per place (listed first); One dot per row stays one pick away and still offers the grouping when rows stack. A Dots row under the map settings (map and Chart map cards, not the heat grid): radius of the smallest and largest dot in px (one Dot radius when nothing sizes them), the value range they span (empty = the data's own, shown as a placeholder; values outside get the end sizes), Scale (Linear default, Area, Flannery, Logarithmic) and Opacity. Choosing a Size column in places mode now switches Aggregate off count so it takes effect (as the heat grid already did). Colour waits for one dot per row, since a place holds many rows (greyed with the reason). Dot settings survive Duplicate. src/data/dot-size.ts is the pure scaling, over the shown points only. The scatter's size scaling is unchanged.
+- **Explicit non-goals:** a size legend; colouring a place by its rows (would need an aggregate per place); the scatter chart's dot sizing.
+- **Files / components changed:** src/data/dot-size.ts (new), src/ui/chart-card.ts, chart-spec.ts, chart-builder.ts, chart-utils.ts, help-content.ts, styles.css; test/dot-size.test.ts (9), test/ui-charts.test.ts (4), test/e2e/map-places.spec.ts, map-dots.spec.ts
+- **Tests run and results:** unit 1261 pass; e2e 129 pass; bench:map and bench:chartspec within budget.
+- **Manual browser verification:** 12 cities of 2 to 70 rows, logarithmic scale and a 22 px largest radius.
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-09 — Table: a small + between columns adds one there
 
 - **Status:** Verified (e2e, browser)

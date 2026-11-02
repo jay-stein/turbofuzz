@@ -12,8 +12,8 @@ import {
   type ChartCardOptions,
 } from "../src/ui/chart-card.js";
 import type { ViewDef } from "../src/data/aggregate.js";
-import type { SeriesGrid } from "../src/data/chart-series.js";
-import { chartSpecJson } from "../src/ui/chart-spec.js";
+import type { SeriesGrid, SeriesPoints } from "../src/data/chart-series.js";
+import { chartSpecJson, chartSpecToConfig } from "../src/ui/chart-spec.js";
 import type {
   AggregateMessage,
   BoxStatsMessage,
@@ -722,7 +722,7 @@ test("charts panel adds, duplicates and removes independent cards", async () => 
   panel.dispose();
 });
 
-function captureMockContext(window: Window, drawn: string[]): void {
+function captureMockContext(window: Window, drawn: string[], arcs: number[] = []): void {
   class MockContext {
     font = "";
     fillStyle = "";
@@ -739,7 +739,9 @@ function captureMockContext(window: Window, drawn: string[]): void {
     closePath(): void {}
     moveTo(): void {}
     lineTo(): void {}
-    arc(): void {}
+    arc(_x: number, _y: number, radius: number): void {
+      arcs.push(radius);
+    }
     rect(): void {}
     clip(): void {}
     stroke(): void {}
@@ -3001,6 +3003,132 @@ test("map cards expose visible zoom/fit controls and clearer layer labels", asyn
   const settings = host.querySelector(".chart-bubble-settings")?.textContent ?? "";
   assert.match(settings, /Load extra map data/);
   assert.match(settings, /Clear extra map data/);
+  card.dispose();
+});
+
+/** Three places of 1, 10 and 100 rows near Melbourne, as the worker returns them for one dot per place. */
+function placesSeries(): ChartSeriesMessage {
+  const base = series();
+  return {
+    ...base,
+    result: {
+      ...(base.result as SeriesPoints),
+      x: Float64Array.from([144.9, 145.0, 145.1]),
+      y: Float64Array.from([-37.9, -37.8, -37.7]),
+      size: Float64Array.from([1, 10, 100]),
+      counts: Float64Array.from([1, 10, 100]),
+      places: true,
+      shown: 3,
+      total: 111,
+    },
+  };
+}
+
+async function placesCard(preset: Record<string, unknown> = {}): Promise<{
+  card: ChartCard;
+  host: HTMLElement;
+  arcs: number[];
+  requests: { places?: unknown }[];
+  radii(): Promise<number[]>;
+}> {
+  const window = setupDom();
+  const arcs: number[] = [];
+  captureMockContext(window, [], arcs);
+  const host = document.createElement("div");
+  const requests: { places?: unknown }[] = [];
+  const card = new ChartCard(
+    host,
+    {
+      ...stubCardOptions(),
+      requestSeries: (input) => {
+        requests.push({ places: input.places });
+        return Promise.resolve(placesSeries());
+      },
+    },
+    { kind: "map", x: 1, y: 0, ...preset },
+  );
+  const wrap = host.querySelector(".chart-canvas-wrap") as HTMLElement;
+  Object.defineProperty(wrap, "clientWidth", { value: 800, configurable: true });
+  card.setColumns([
+    meta({ name: "lat", type: "number", stats: { ...meta().stats, min: -37.9, max: -37.7 } }),
+    meta({ name: "lon", type: "number", stats: { ...meta().stats, min: 144.9, max: 145.1 } }),
+    meta({ name: "sales", type: "number", stats: { ...meta().stats, min: 1, max: 100 } }),
+  ]);
+  await tick();
+  // The dots are the circles of a few pixels; the rest of the canvas draws none.
+  const radii = async (): Promise<number[]> => {
+    arcs.length = 0;
+    card.repaint();
+    await tick();
+    return arcs.filter((r) => r >= 0.5 && r <= 60).slice(-3).sort((a, b) => a - b);
+  };
+  return { card, host, arcs, requests, radii };
+}
+
+test("a map shows one dot per place unless told otherwise, and says so first in the list", async () => {
+  const { card, host, requests } = await placesCard();
+  assert.equal(card.getConfig().mapMode ?? "places", "places");
+  const mode = host.querySelector('select[aria-label="Map display mode"]') as HTMLSelectElement;
+  assert.equal(mode.value, "places");
+  assert.deepEqual([...mode.options].map((o) => o.textContent), ["One dot per place", "One dot per row", "Heat grid"]);
+  assert.ok(requests.some((r) => r.places !== undefined), "the worker is asked for places");
+  card.dispose();
+});
+
+test("the Dots row sizes places between a smallest and a largest radius, on a chosen scale", async () => {
+  const { card, radii } = await placesCard();
+  const linear = await radii();
+  assert.equal(linear.length, 3, "three dots are drawn");
+  assert.ok(Math.abs(linear[2]! / linear[0]! - 14 / 3) < 0.05, `places run 3 to 14 px by default (${linear.join(", ")})`);
+
+  card.applyConfig({ dotMinRadius: 5, dotMaxRadius: 10 });
+  const narrow = await radii();
+  assert.ok(Math.abs(narrow[2]! / narrow[0]! - 2) < 0.05, "a chosen radius range is used");
+
+  card.applyConfig({ dotMinRadius: 3, dotMaxRadius: 14, dotScale: "log" });
+  const log = await radii();
+  assert.ok(log[1]! > linear[1]! + 1, "log lifts the middle place off the smallest");
+
+  card.applyConfig({ dotScale: "linear", dotValueMax: 10 });
+  const clamped = await radii();
+  assert.ok(Math.abs(clamped[2]! - clamped[1]!) < 1e-6, "values past the chosen largest value share the largest dot");
+  card.dispose();
+});
+
+test("the Dots row shows what applies: sized or one radius, none on a heat grid, and colour waits for rows", async () => {
+  const { card, host } = await placesCard();
+  const dots = host.querySelector(".chart-dot-settings") as HTMLElement;
+  const colour = host.querySelector('select[aria-label="Colour column"]') as HTMLSelectElement;
+  const field = (label: string): HTMLElement | null => host.querySelector(`[aria-label="${label}"]`);
+  assert.equal(dots.classList.contains("hidden"), false);
+  assert.equal(field("Largest dot radius (pixels)")?.closest(".chart-dot-to")?.classList.contains("hidden"), false);
+  assert.equal(colour.disabled, true, "a place holds many rows, so colour waits for one dot per row");
+
+  card.applyConfig({ mapMode: "points" });
+  await tick();
+  assert.equal(colour.disabled, false);
+  assert.equal(field("Largest dot radius (pixels)")?.closest(".chart-dot-to")?.classList.contains("hidden"), true, "no Size column: one radius for every dot");
+  assert.equal((field("Smallest dot radius (pixels)") as HTMLInputElement).value, "2.2");
+
+  card.applyConfig({ mapMode: "heat" });
+  await tick();
+  assert.equal(dots.classList.contains("hidden"), true, "a heat grid has no dots");
+  card.dispose();
+});
+
+test("duplicating a map keeps its dot settings", async () => {
+  const { card } = await placesCard({ dotMinRadius: 4, dotMaxRadius: 20, dotScale: "flannery", dotValueMin: 2, dotOpacity: 0.3 });
+  const config = chartSpecToConfig(card.getSpec(), [
+    meta({ name: "lat", type: "number" }),
+    meta({ name: "lon", type: "number" }),
+    meta({ name: "sales", type: "number" }),
+  ]).config;
+  assert.ok(config !== null);
+  assert.equal(config.dotMinRadius, 4);
+  assert.equal(config.dotMaxRadius, 20);
+  assert.equal(config.dotScale, "flannery");
+  assert.equal(config.dotValueMin, 2);
+  assert.equal(config.dotOpacity, 0.3);
   card.dispose();
 });
 

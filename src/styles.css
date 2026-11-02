@@ -6452,6 +6452,26 @@ mark {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
+.chart-dot-settings .chart-dot-number {
+  width: 64px;
+}
+
+/* The value range shows the data's own ends as a placeholder, so it needs the room. */
+.chart-dot-settings .chart-dot-number[aria-label^="Value for"] {
+  width: 104px;
+}
+
+.chart-dot-settings .chart-dot-opacity {
+  width: 90px;
+  accent-color: var(--accent);
+}
+
+.chart-dot-to {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .chart-animate-title {
   display: inline-flex;
   align-items: center;

@@ -5,6 +5,7 @@ import type { ChartCardConfig } from "./chart-card.js";
 import { defaultChartConfig } from "./chart-builder.js";
 import {
   CHART_KIND_LABELS,
+  DEFAULT_MAP_MODE,
   isGroupable,
   isNumericType,
   type ChartCardKind,
@@ -71,6 +72,12 @@ export interface ChartSpec {
     bubbleAgg: NonNullable<ChartCardConfig["bubbleAgg"]>;
     bubbleScale: NonNullable<ChartCardConfig["bubbleScale"]>;
     mapMode: NonNullable<ChartCardConfig["mapMode"]>;
+    dotMinRadius?: number;
+    dotMaxRadius?: number;
+    dotValueMin?: number | null;
+    dotValueMax?: number | null;
+    dotScale?: ChartCardConfig["dotScale"];
+    dotOpacity?: number;
     span: "auto" | "full";
     animationGrain: TimeGrain;
     animationSpeed: number;
@@ -190,7 +197,13 @@ export function chartSpecFromConfig(
       bubbleBins: config.bubbleBins ?? 40,
       bubbleAgg: config.bubbleAgg ?? "count",
       bubbleScale: config.bubbleScale ?? "area",
-      mapMode: config.mapMode ?? "points",
+      mapMode: config.mapMode ?? DEFAULT_MAP_MODE,
+      ...(config.dotMinRadius === undefined ? {} : { dotMinRadius: config.dotMinRadius }),
+      ...(config.dotMaxRadius === undefined ? {} : { dotMaxRadius: config.dotMaxRadius }),
+      ...(config.dotValueMin == null ? {} : { dotValueMin: config.dotValueMin }),
+      ...(config.dotValueMax == null ? {} : { dotValueMax: config.dotValueMax }),
+      ...(config.dotScale === undefined ? {} : { dotScale: config.dotScale }),
+      ...(config.dotOpacity === undefined ? {} : { dotOpacity: config.dotOpacity }),
       span: config.span ?? "auto",
       animationGrain: config.animationGrain ?? "day",
       animationSpeed: config.animationSpeed ?? 1,
@@ -270,6 +283,12 @@ export function chartSpecToConfig(
   config.bubbleAgg = spec.presentation.bubbleAgg;
   config.bubbleScale = spec.presentation.bubbleScale;
   config.mapMode = spec.presentation.mapMode;
+  if (spec.presentation.dotMinRadius !== undefined) config.dotMinRadius = spec.presentation.dotMinRadius;
+  if (spec.presentation.dotMaxRadius !== undefined) config.dotMaxRadius = spec.presentation.dotMaxRadius;
+  if (spec.presentation.dotValueMin !== undefined) config.dotValueMin = spec.presentation.dotValueMin;
+  if (spec.presentation.dotValueMax !== undefined) config.dotValueMax = spec.presentation.dotValueMax;
+  if (spec.presentation.dotScale !== undefined) config.dotScale = spec.presentation.dotScale;
+  if (spec.presentation.dotOpacity !== undefined) config.dotOpacity = spec.presentation.dotOpacity;
   config.span = spec.presentation.span;
   config.animationGrain = spec.presentation.animationGrain;
   config.animationSpeed = spec.presentation.animationSpeed;

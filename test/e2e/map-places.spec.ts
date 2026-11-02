@@ -21,10 +21,16 @@ async function openMap(page: Page): Promise<void> {
   await page.locator(".chart-note").first().waitFor();
 }
 
-test("the Map says when many rows share a place, offers one dot per place, and the controls say what they are for", async ({ page }) => {
+test("the Map groups rows into one dot per place, offers one dot per row, and the controls say what they are for", async ({ page }) => {
   await openMap(page);
   const note = page.locator(".chart-note").first();
-  // Four hundred trips on 24 stations: stacked dots hide that, so the note says it and offers the fix.
+  const mode = page.locator("select[aria-label='Map display mode']");
+  // Four hundred trips on 24 stations: stacked dots would hide that, so places are the default.
+  await expect(mode).toHaveValue("places");
+  await expect(note).toContainText("24 places from 400 rows", { timeout: 10_000 });
+  await expect(note).toContainText("dot size = rows");
+  // One dot per row is one pick away, and then the note offers the grouping back.
+  await mode.selectOption("points");
   await expect(note).toContainText("400 rows sit on 24 places");
   // The control is "Aggregate", as on the chart page, with the reason it is greyed out on the page, not only in a tooltip.
   const combine = page.locator(".chart-field", { hasText: "Aggregate" });
@@ -36,8 +42,7 @@ test("the Map says when many rows share a place, offers one dot per place, and t
   // One click: 24 dots sized by how many trips each station holds.
   await note.locator("button.chart-density-nudge").click();
   await expect(note).toContainText("24 places from 400 rows", { timeout: 10_000 });
-  await expect(note).toContainText("dot size = rows");
-  await expect(page.locator("select[aria-label='Map display mode']")).toHaveValue("places");
+  await expect(mode).toHaveValue("places");
 });
 
 test("a scatter of more points than it can draw says so, and offers the density map", async ({ page }) => {
