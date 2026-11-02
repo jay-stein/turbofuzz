@@ -444,7 +444,6 @@ export interface ChartCardOptions {
   /** Open the shared setup dialog for a new breakdown chart. */
   onBreakDown?(card: ChartCard): void;
   /** Duplicate the current chart as an explicit comparison. */
-  onCompare?(card: ChartCard): void;
   /** Open this line card's series on the Time Series page. */
   onDeepDive?(series: ChartSeriesTarget): void;
   /** Open this map card full width on the Map page. */
@@ -1025,13 +1024,6 @@ function movieIcon(): SVGElement {
 }
 
 /** Arrows pushing out to two side walls: the card fills the whole row. */
-function widthIcon(): SVGElement {
-  return svgIcon(
-    '<path d="M3.5 5v14"/><path d="M20.5 5v14"/><path d="M8 12h8"/><path d="m10.5 9.5-2.5 2.5 2.5 2.5"/><path d="m13.5 9.5 2.5 2.5-2.5 2.5"/>',
-    "chart-width-icon",
-  );
-}
-
 /** A window with an arrow leaving its corner: pop this chart out to look closer. */
 function focusIcon(): SVGElement {
   return svgIcon(
@@ -1147,7 +1139,6 @@ export class ChartCard {
   private bubbleAggHint!: HTMLElement;
   private readonly bubbleScaleSelect: HTMLSelectElement;
   private readonly animateButton: HTMLButtonElement;
-  private readonly widthButton: HTMLButtonElement;
   private readonly focusButton: HTMLButtonElement;
   private readonly pngButton: HTMLButtonElement;
   private focusOverlay: HTMLElement | null = null;
@@ -1374,21 +1365,6 @@ export class ChartCard {
     this.config = chartConfigWithDefaults(preset);
 
     const head = el("div", { class: "chart-card-head" });
-    const removeButton = el(
-      "button",
-      {
-        class: "chart-remove",
-        type: "button",
-        title: "Remove this chart…",
-        "aria-label": "Remove this chart",
-      },
-      ["×"],
-    ) as HTMLButtonElement;
-    removeButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      this.confirmRemove();
-    });
-    head.append(removeButton);
     // Source selector: the filtered table or a saved aggregate view. A card
     // bound to a view reads that view's result; there is no raw-row path.
     const sourceWrap = el("label", { class: "chart-field chart-source-field" });
@@ -1818,13 +1794,6 @@ export class ChartCard {
       this.xWrap,
       this.yWrap,
     ]);
-    this.widthButton = el(
-      "button",
-      { class: "ghost small chart-width-btn", type: "button", "aria-label": "Chart width", title: "Make this chart wider" },
-      [],
-    ) as HTMLButtonElement;
-    this.widthButton.append(widthIcon(), el("span", {}, ["Wide"]));
-    this.widthButton.addEventListener("click", () => this.toggleSpan());
     this.focusButton = el(
       "button",
       {
@@ -1939,7 +1908,6 @@ export class ChartCard {
     head.append(
       el("span", { class: "grow" }),
       this.focusButton,
-      this.widthButton,
       this.pngButton,
       this.animateButton,
       more,
@@ -2943,7 +2911,6 @@ export class ChartCard {
     this.root.append(this.layoutEl, this.tooltipEl);
 
     this.syncSwatches();
-    this.applySpan();
     this.syncOptions();
     this.renderControls();
     // Skip the first paint while the lens is hidden: a 1x1 canvas would flash
@@ -5315,6 +5282,17 @@ export class ChartCard {
     this.options.onTitleChange?.(this);
   }
 
+  /** "average_price over date", "total_volume by geography": what an aggregate chart shows, for its tab and placeholder. */
+  private aggregateTitle(): string {
+    if (this.config.source !== "") return this.sources.find((source) => source.id === this.config.source)?.name ?? "View";
+    const measure = this.meta(this.config.valueColumn ?? -1)?.name ?? "Rows";
+    const dimension = this.meta(this.config.column)?.name;
+    const group = this.meta(this.config.groupColumn)?.name;
+    if (dimension === undefined) return measure;
+    const link = this.isDateLike(this.meta(this.config.column)) ? "over" : "by";
+    return `${measure} ${link} ${dimension}${group === undefined ? "" : ` by ${group}`}`;
+  }
+
   private defaultTitle(): string {
     if (this.config.kind === "kpi") {
       const measure = this.meta(this.config.valueColumn ?? -1)?.name ?? "Count of rows";
@@ -5326,7 +5304,7 @@ export class ChartCard {
         ? "Pivot heatmap"
         : defaultChartTitle(`${data.measureName} by ${data.rowName} x ${data.colName}`);
     }
-    if (this.usesAggregate()) return "Aggregate";
+    if (this.usesAggregate()) return this.aggregateTitle();
     if (this.config.kind === "map") return "Map";
     if (isPairKind(this.config.kind)) {
       return defaultChartTitle(this.pairLabel("vs"));
@@ -5466,12 +5444,6 @@ export class ChartCard {
               },
             ]),
         {
-          label: "Duplicate for comparison",
-          title: "Add an editable copy of this chart for side-by-side comparison",
-          disabled: this.options.onCompare === undefined,
-          action: () => this.options.onCompare?.(this),
-        },
-        {
           label: "Duplicate",
           title: "Duplicate this chart",
           action: () => this.options.onDuplicate(this),
@@ -5509,11 +5481,6 @@ export class ChartCard {
           title: "Download Polars code that rebuilds the supported chart aggregation",
           disabled: pivotHeatmap,
           action: () => this.downloadChartCode(false),
-        },
-        {
-          label: `${this.config.span === "full" ? "● " : ""}Full row width`,
-          title: "Span the whole row, or return to the normal grid cell",
-          action: () => this.toggleSpan(),
         },
         {
           label: "Remove chart",
@@ -6408,21 +6375,6 @@ export class ChartCard {
           error instanceof Error ? error.message : "Could not build the animation frames.";
         this.render();
       });
-  }
-
-  private toggleSpan(): void {
-    this.config.span = this.config.span === "full" ? "auto" : "full";
-    this.applySpan();
-  }
-
-  /** Applies the full-row width class and keeps the button state in sync. */
-  private applySpan(): void {
-    const full = this.config.span === "full";
-    this.root.classList.toggle("span-full", full);
-    this.widthButton.classList.toggle("active", full);
-    this.widthButton.title = full
-      ? "Back to the normal grid cell width"
-      : "Make this chart span the full row";
   }
 
   /**

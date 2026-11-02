@@ -834,7 +834,6 @@ export class ChartsPanel {
         onDrill: (target, filters, label) =>
           void this.drillCard(target, filters, label),
         onBreakDown: (target) => this.breakDownCard(target),
-        onCompare: (target) => this.compareCard(target),
         onDeepDive: this.options.onDeepDive,
         onOpenMap: this.options.onOpenMap,
         research: this.options.research,
@@ -949,17 +948,6 @@ export class ChartsPanel {
     );
   }
 
-  /** Explicit duplicate in the next tab for comparison; both charts stay editable. */
-  private compareCard(card: ChartCard): void {
-    const config =
-      chartSpecToConfig(card.getSpec(), this.columns).config ?? card.getConfig();
-    this.addCard({
-      ...config,
-      title: config.title === "" ? "Comparison" : `${config.title} (comparison)`,
-      suggested: "",
-    }, card);
-    this.options.onCardAdded?.(CHART_KIND_LABELS[config.kind]);
-  }
   private resetCard(card: ChartCard): void {
     const next = suggestedChartConfig(card.getConfig(), this.columns, this.rowCount);
     if (next === null) {

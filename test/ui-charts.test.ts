@@ -1212,14 +1212,14 @@ test("the red x removes a chart only after confirmation", async () => {
   panel.addCard({ kind: "bar", column: 0 });
   await tick();
   const doc = (globalThis as Record<string, unknown>).document as Window["document"];
-  (host.querySelector(".chart-remove") as unknown as { click(): void }).click();
+  (host.querySelector(".charts-tab-close") as unknown as { click(): void }).click();
   const cancel = [...doc.querySelectorAll(".modal .ghost")].find((button) =>
     (button.textContent ?? "").includes("Cancel"),
   );
   assert.ok(cancel !== undefined, "removal asks for confirmation");
   (cancel as unknown as { click(): void }).click();
   assert.equal(host.querySelectorAll(".chart-card").length, 1, "cancel keeps the chart");
-  (host.querySelector(".chart-remove") as unknown as { click(): void }).click();
+  (host.querySelector(".charts-tab-close") as unknown as { click(): void }).click();
   const confirm = [...doc.querySelectorAll(".modal .primary")].pop() as unknown as {
     click(): void;
   };
@@ -2149,28 +2149,6 @@ test("single-axis kinds keep the X/Y controls hidden through filter updates", as
     ?.closest(".chart-tag");
   assert.ok(xWrap?.classList.contains("hidden"), "X stays hidden on a bar chart");
   assert.ok(yWrap?.classList.contains("hidden"), "Y stays hidden on a bar chart");
-  card.dispose();
-});
-
-test("the Wide button makes a card span the full row", async () => {
-  const window = setupDom();
-  captureMockContext(window, []);
-  const host = document.createElement("div");
-  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
-  card.setColumns([
-    meta({ name: "city", type: "category", categories: { labels: ["a"], counts: [1] } }),
-  ]);
-  await tick();
-  const button = host.querySelector(".chart-width-btn") as HTMLButtonElement;
-  assert.ok(button !== null, "the width control renders");
-  assert.equal(card.root.classList.contains("span-full"), false);
-  button.click();
-  assert.equal(card.root.classList.contains("span-full"), true);
-  assert.equal(card.getConfig().span, "full");
-  assert.ok(button.classList.contains("active"));
-  button.click();
-  assert.equal(card.root.classList.contains("span-full"), false);
-  assert.equal(card.getConfig().span, "auto");
   card.dispose();
 });
 
@@ -3873,4 +3851,26 @@ test("a waterfall runs a total, colours steps and closes with a Total bar", asyn
   assert.ok(out.texts.includes("−30"), "a loss reads as a minus");
   assert.match(out.note, /running total \(green up, red down\)/);
   assert.equal(out.hits, 4, "three steps plus the total");
+});
+
+test("a tab is named after what its chart shows, and two different charts never share a name", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  panel.setColumns([
+    meta({ name: "when", type: "date", stats: { ...meta().stats, min: 0, max: 1e11 } }),
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+    meta({ name: "sales", type: "number" }),
+  ]);
+  panel.addCard({ kind: "line", column: 0, valueColumn: 2, valueAgg: "mean" });
+  panel.addCard({ kind: "barplot", column: 1, valueColumn: 2, valueAgg: "sum" });
+  panel.addCard({ kind: "line", column: 0, valueColumn: 2, valueAgg: "mean", groupColumn: 1 });
+  await tick();
+  assert.deepEqual([...host.querySelectorAll(".charts-tab-label")].map((label) => label.textContent), [
+    "sales over when",
+    "sales by city",
+    "sales over when by city",
+  ]);
+  panel.dispose();
 });
