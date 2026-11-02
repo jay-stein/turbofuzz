@@ -127,12 +127,16 @@ import {
 import { openMergePanel } from "./merge-panel.js";
 import { normalize } from "../search/normalize.js";
 import {
+  DEFAULT_DQ_CONFIG,
   computeDQScore,
   type DQScore,
   type DQScoreConfig,
   type ScoreCheck,
 } from "../data/score.js";
+import { APP_BUILD, APP_VERSION, buildProvenance, fingerprintBytes, type Fingerprint, type ProvenanceFile, type ReportProvenance } from "../data/provenance.js";
+import { builtInNullTokens } from "../parse/null-tokens.js";
 import {
+  SCORE_VERSION,
   buildDQReport,
   dqReportJson,
   dqReportMarkdown,
@@ -465,12 +469,74 @@ interface ImportSource {
   reload: (layout: HeaderLayout | null) => Promise<void>;
 }
 
+/** A file the person gave the app, kept so a report can fingerprint it and notice if it changed. */
+interface SourceHandle {
+  name: string;
+  bytes: number | null;
+  modified: number | null;
+  /** Reads the original bytes again. */
+  read: () => Promise<ArrayBuffer>;
+  /** The SHA-256, worked out the first time a report needs it. */
+  fingerprint: Promise<Fingerprint> | null;
+}
+
+interface UploadedSource {
+  kind: ReportProvenance["source"]["kind"];
+  handles: SourceHandle[];
+}
+
+/** How the load about to run reads its source; picked up when its table opens. */
+interface LoadContext {
+  name: string;
+  /** Another read of the same source (a new header row): what is known of where it came from still holds. */
+  reuse: boolean;
+  header: string;
+  sampled: string | null;
+}
+
+/** Where the table on screen was read from, for a report's provenance. */
+interface SourceFacts {
+  kind: ReportProvenance["source"]["kind"];
+  handles: SourceHandle[];
+  inside: string | null;
+  encoding: string | null;
+  delimiter: string | null;
+  delimiterChosen: boolean;
+  header: string;
+  rows: number;
+  columns: number;
+  sampled: string | null;
+}
+
 const HEADER_PREVIEW_ROWS = 60;
 
 /** Copies bytes into a standalone ArrayBuffer that can be transferred to the worker. */
 function bytesToBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
+function fileHandle(file: File): SourceHandle {
+  return { name: file.name, bytes: file.size, modified: file.lastModified, read: () => file.arrayBuffer(), fingerprint: null };
+}
+
+/** Pasted text is fingerprinted straight away, so its bytes are not kept. */
+function textHandle(text: string, name: string): SourceHandle {
+  let bytes: ArrayBuffer | null = bytesToBuffer(new TextEncoder().encode(text));
+  const size = bytes.byteLength;
+  const fingerprint = fingerprintBytes(async () => bytes as ArrayBuffer, size).then((result) => {
+    bytes = null;
+    return result;
+  });
+  return {
+    name,
+    bytes: size,
+    modified: null,
+    read: async () => {
+      throw new Error("Pasted text is not kept");
+    },
+    fingerprint,
+  };
+}
+
 const MULTI_FILE_HEADER_NOTE =
   "Shown for the first file. The same rows to skip and header rows apply to every file, so they need a consistent layout.";
 const HEADER_PREVIEW_BYTES = 1_000_000;
@@ -604,6 +670,12 @@ export class App {
   private scoreTile!: HTMLButtonElement;
   /** Input size in bytes for the dataset line (file or pasted text). */
   private sourceBytes: number | null = null;
+  /** The file or files just chosen, until the table they open is ready. */
+  private pendingUpload: UploadedSource | null = null;
+  private loadContext: LoadContext | null = null;
+  private sourceFacts: SourceFacts | null = null;
+  /** The sample button was pressed: the text about to load is the built-in sample. */
+  private sampleRequested = false;
   private sidebarEl!: HTMLElement;
   private sidebarToggle!: HTMLButtonElement;
   private sidebarCollapsed = false;
@@ -957,7 +1029,8 @@ export class App {
     ]);
     sampleButton.addEventListener("click", () => {
       this.textarea.value = sampleCsv();
-      this.loadFromTextarea();
+      this.sampleRequested = true;
+      void this.loadFromTextarea();
     });
     card.append(sampleButton);
 
@@ -1351,6 +1424,9 @@ export class App {
       return;
     }
     const bytes = new TextEncoder().encode(text).byteLength;
+    const sample = this.sampleRequested;
+    this.sampleRequested = false;
+    this.pendingUpload = sample ? { kind: "built-in sample", handles: [] } : { kind: "pasted text", handles: [textHandle(text, "Pasted data")] };
     this.showLoadProgress("Pasted data", bytes);
     this.sampleNote = null;
     let maxRows: number | undefined;
@@ -1383,6 +1459,7 @@ export class App {
           text,
           name: "Pasted data",
           source: "paste",
+          reuseSource: true,
           maxRows,
           headerLayout: next ?? undefined,
           importSource: importSource(next),
@@ -1407,6 +1484,8 @@ export class App {
     deferStats?: boolean;
     headerLayout?: HeaderLayout;
     importSource?: ImportSource;
+    /** A re-read of the source already loaded, so its provenance carries over. */
+    reuseSource?: boolean;
   }): Promise<void> {
     if (this.loading) return;
     this.loading = true;
@@ -1426,6 +1505,12 @@ export class App {
           : (options.buffer?.byteLength ?? null);
 
     try {
+      this.loadContext = {
+        name: options.name,
+        reuse: options.reuseSource === true,
+        header: this.headerText(options.headerLayout),
+        sampled: this.sampleNote === null ? null : this.sampleNote.replace(/^sample: /, ""),
+      };
       const loaded = await this.client.load({
         name: options.name,
         delimiter: this.delimiterSelect.value as Delimiter | "auto",
@@ -1529,6 +1614,7 @@ export class App {
       );
       return;
     }
+    this.pendingUpload = { kind: "files", handles: files.map(fileHandle) };
     await this.appendSources(
       files.map((file) => ({
         name: file.name,
@@ -1629,6 +1715,7 @@ export class App {
             files: again,
             name: label,
             source: "file",
+            reuseSource: true,
             maxRows,
             headerLayout: next ?? undefined,
             importSource: importSource(next),
@@ -1682,6 +1769,7 @@ export class App {
   }
 
   private async loadFile(file: File): Promise<void> {
+    this.pendingUpload = { kind: "file", handles: [fileHandle(file)] };
     try {
       this.showLoadProgress(file.name, file.size);
       const extension = extensionOf(file.name);
@@ -1735,6 +1823,7 @@ export class App {
             buffer: await file.arrayBuffer(),
             name: file.name,
             source: "file",
+            reuseSource: true,
             maxRows: sampleRows,
             headerLayout: next ?? undefined,
             importSource: importSource(next),
@@ -1967,6 +2056,7 @@ export class App {
           buffer: await reopen(),
           name,
           source: "file",
+          reuseSource: true,
           headerLayout: next ?? undefined,
           importSource: importSource(next),
         }),
@@ -2042,15 +2132,15 @@ export class App {
    * Applies header detection to a raw grid (skipping title rows and merging
    * multi-level headers) when "first row is header" is enabled.
    */
-  private async loadGrid(grid: string[][], name: string, layout?: HeaderLayout): Promise<void> {
+  private async loadGrid(grid: string[][], name: string, layout?: HeaderLayout, reuse = false): Promise<void> {
     const source: ImportSource = {
       name,
       layout: layout ?? null,
       readPreview: async () => grid.slice(0, HEADER_PREVIEW_ROWS),
-      reload: (next) => this.loadGrid(grid, name, next ?? undefined),
+      reload: (next) => this.loadGrid(grid, name, next ?? undefined, true),
     };
     if (layout === undefined && !this.headersCheckbox.checked) {
-      await this.loadTable(grid, name, false);
+      await this.loadTable(grid, name, false, { reuse, header: this.headerText(undefined) });
       this.setImportSource(source);
       return;
     }
@@ -2060,7 +2150,14 @@ export class App {
       detected.headerRows > 0 ? [detected.headers, ...detected.rows] : detected.rows;
     if (combined.length === 0) throw new Error("That table has no data");
 
-    await this.loadTable(combined, name, detected.headerRows > 0);
+    const found = [
+      detected.skipRows > 0 ? `${detected.skipRows} title row${detected.skipRows === 1 ? "" : "s"} skipped` : "",
+      detected.headerRows > 1 ? `${detected.headerRows} header rows` : "",
+    ].filter(Boolean);
+    await this.loadTable(combined, name, detected.headerRows > 0, {
+      reuse,
+      header: layout !== undefined ? this.headerText(layout) : `found automatically${found.length > 0 ? `: ${found.join(", ")}` : ""}`,
+    });
     this.setImportSource(source);
 
     if (detected.skipRows > 0 || detected.headerRows > 1) {
@@ -2077,6 +2174,7 @@ export class App {
     rows: string[][],
     name: string,
     hasHeadersOverride?: boolean,
+    context: { reuse: boolean; header: string } = { reuse: false, header: "found automatically" },
   ): Promise<void> {
     if (this.loading) return;
     this.loading = true;
@@ -2086,6 +2184,12 @@ export class App {
     this.setImportSource(null);
 
     try {
+      this.loadContext = {
+        name,
+        reuse: context.reuse,
+        header: context.header,
+        sampled: this.sampleNote === null ? null : this.sampleNote.replace(/^sample: /, ""),
+      };
       const hasHeaders = hasHeadersOverride ?? this.headersCheckbox.checked;
       const loaded = await this.client.load({
         name,
@@ -2256,6 +2360,7 @@ export class App {
       this.historySnapshots = [];
     }
     this.datasetName = loaded.name;
+    if (loaded.type === "loaded") this.recordSource(loaded);
     this.workspaceTitle.textContent = `${loaded.name} — ${loaded.rowCount.toLocaleString()} rows`;
     this.filters.clear();
     this.renderFilterChips();
@@ -5412,8 +5517,99 @@ export class App {
     this.qualityPage?.setAdvanced(section);
   }
 
+  /** How the header row was found, in words, for the provenance block. */
+  private headerText(layout: HeaderLayout | undefined): string {
+    if (layout === undefined) return this.headersCheckbox.checked ? "found automatically" : "none: columns named automatically";
+    const rows = (n: number): string => `${n} row${n === 1 ? "" : "s"}`;
+    return layout.headerRows === 0
+      ? `none, as chosen: ${rows(layout.skipRows)} skipped, columns named automatically`
+      : `chosen by hand: ${rows(layout.skipRows)} skipped, ${rows(layout.headerRows)} of header`;
+  }
+
+  /** Remembers where the table that just loaded came from; a re-read of the same source keeps its files. */
+  private recordSource(loaded: LoadedMessage): void {
+    const context = this.loadContext;
+    this.loadContext = null;
+    const pending = context?.reuse === true ? null : this.pendingUpload;
+    this.pendingUpload = null;
+    const previous = this.sourceFacts;
+    const kept = pending === null ? previous : null;
+    const kind = pending?.kind ?? kept?.kind ?? "file";
+    const handles = pending?.handles ?? kept?.handles ?? [];
+    const label = context?.name ?? loaded.name;
+    this.sourceFacts = {
+      kind,
+      handles,
+      // A file that held several tables: which one was read.
+      inside: kind === "file" && handles.length === 1 && label !== handles[0]!.name ? label : null,
+      encoding: loaded.encoding === null ? null : loaded.encoding === "utf-8" ? "UTF-8" : loaded.encoding,
+      delimiter: delimiterLabel(loaded.delimiter),
+      delimiterChosen: this.delimiterSelect.value !== "auto",
+      header: context?.header ?? "found automatically",
+      rows: loaded.rowCount,
+      columns: loaded.columnCount,
+      sampled: context?.sampled ?? null,
+    };
+  }
+
+  /**
+   * The provenance block: the source file(s) and their SHA-256, worked out now by reading each
+   * again (so loading stays fast), how it was read, what changed since, and the settings in force.
+   */
+  private async sourceProvenance(score: DQScore): Promise<ReportProvenance | undefined> {
+    const facts = this.sourceFacts;
+    if (facts === null) return undefined;
+    if (facts.handles.some((handle) => handle.fingerprint === null && (handle.bytes ?? 0) > 50 * 1024 * 1024)) {
+      this.setAction("Fingerprinting the source file…");
+    }
+    const files: ProvenanceFile[] = [];
+    // One at a time: each is read whole, and two large files at once would double the memory.
+    for (const handle of facts.handles) {
+      handle.fingerprint ??= fingerprintBytes(handle.read, handle.bytes);
+      const print = await handle.fingerprint;
+      files.push({
+        name: handle.name,
+        bytes: handle.bytes,
+        modified: handle.modified === null ? null : new Date(handle.modified).toISOString(),
+        sha256: print.sha256,
+        hashNote: print.note,
+      });
+    }
+    return buildProvenance({
+      kind: facts.kind,
+      files,
+      inside: facts.inside,
+      encoding: facts.encoding,
+      delimiter: facts.delimiter,
+      delimiterChosen: facts.delimiterChosen,
+      header: facts.header,
+      rowsRead: facts.rows,
+      columnsRead: facts.columns,
+      sampled: facts.sampled,
+      missingWords: builtInNullTokens(),
+      columnOverrides: this.metas
+        .filter((meta) => meta.nullPolicy.extra.length > 0 || meta.nullPolicy.keep.length > 0)
+        .map((meta) => ({ column: meta.name, counted: [...meta.nullPolicy.extra], kept: [...meta.nullPolicy.keep] })),
+      steps: this.stepEntries().map((entry) => entry.label),
+      rowsNow: this.rowCount,
+      columnsNow: this.metas.length,
+      scoreVersion: SCORE_VERSION,
+      weights: Object.fromEntries(score.dimensions.map((dimension) => [dimension.dimension, dimension.weight])),
+      defaultWeights: DEFAULT_DQ_CONFIG.weights,
+      bands: { good: this.dqConfig.bandGood ?? DEFAULT_DQ_CONFIG.bandGood, fair: this.dqConfig.bandFair ?? DEFAULT_DQ_CONFIG.bandFair },
+      optionalColumns: score.optionalColumns.map((column) => this.metas[column]?.name).filter((name): name is string => name !== undefined),
+      reviewedChecks: Object.keys(getReviewed(this.datasetName)).length,
+      freshness:
+        this.freshnessRule === null
+          ? null
+          : `${this.metas[this.freshnessRule.column]?.name ?? "a date column"} no older than ${this.freshnessRule.days} day${this.freshnessRule.days === 1 ? "" : "s"}`,
+      rules: this.rules.length,
+      tool: { version: APP_VERSION, build: APP_BUILD },
+    });
+  }
+
   /** The report with its extra sections; flagged columns contribute counts only. */
-  private buildReport(score: DQScore): DQReport {
+  private buildReport(score: DQScore, provenance?: ReportProvenance): DQReport {
     const stats = this.latestStats;
     const sensitiveCards = this.sensitiveCards().filter((card) => card.dismissed !== true);
     const flagged = new Set(sensitiveCards.map((card) => card.column));
@@ -5437,6 +5633,7 @@ export class App {
       {
         bandReason: score.bandCap === null ? null : `${score.bandCap.band} because ${score.bandCap.reason}`,
         sensitiveColumns: flagged,
+        ...(provenance === undefined ? {} : { provenance }),
         issues: issues.map((issue) => ({
           severity: issue.severity,
           title: issue.title,
@@ -5494,7 +5691,7 @@ export class App {
   private async exportQuality(kind: DQExportKind): Promise<boolean> {
     const score = this.dqScore;
     if (score === null) return false;
-    const report = this.buildReport(score);
+    const report = this.buildReport(score, await this.sourceProvenance(score));
     if (kind === "html") {
       const blob = new Blob([dqReportHtml(report)], { type: "text/html" });
       const url = URL.createObjectURL(blob);
@@ -6171,6 +6368,9 @@ export class App {
     this.headerRowButton.disabled = true;
     this.lastLoaded = null;
     this.datasetName = "";
+    this.sourceFacts = null;
+    this.pendingUpload = null;
+    this.loadContext = null;
     this.archetypeOverride = null;
     this.sampleNote = null;
     this.workspace.classList.add("hidden");

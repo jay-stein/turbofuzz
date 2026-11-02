@@ -126,6 +126,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "History keeps a small record of each load of a file on this device: scores, row counts and fill rates, never cell values. It shows the trend and what changed since the last load. It can be switched off and cleared.",
         "Download exceptions CSV gives one row per failing cell (row, column, check, value, reason) to send to whoever owns the source.",
         "All checks lists every check with exact pass · fail · n-a counts and a heat matrix. Copy report and Download JSON export the breakdown.",
+        "Every report opens with a Provenance block so it can be audited and repeated: the file or files it was read from (name, exact size, modified time and SHA-256, worked out when you export, so loading stays fast; not worked out above 512 MB or if the file changed), how it was read (encoding, delimiter, header row, rows and columns, whether only a sample was loaded), the words counted as missing, every change made since loading (so a report on a cleaned table says so), the score settings (weights, optional columns, reviewed issues, freshness rule, your rules) and the TurboFuzz version and build. Pasted text is fingerprinted too. Only names, counts and settings appear, never a cell value.",
       ),
       note(
         "Accuracy applies offline to columns named like country, currency, state, weekday or month, using lists bundled with the app (loaded only when needed). Accuracy carries zero weight by default, so it never moves the score unless you give it weight.",

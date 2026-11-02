@@ -90,6 +90,14 @@ const COMPACT_NULLS = new Set([
   "error",
 ]);
 
+/**
+ * The words and symbols counted as missing in every column, for a report to name. A cell that is
+ * empty or only spaces always is, and the compact forms ("N / A", "N.A.") fold onto the same words.
+ */
+export function builtInNullTokens(): string[] {
+  return [...EXACT_NULLS].filter((token) => token.trim() !== "");
+}
+
 const ZERO_WIDTH = new Set([0x200b, 0x200c, 0x200d, 0x2060, 0xfeff]);
 
 // First letters of every COMPACT_NULLS key: n, m, u, t, e, b.

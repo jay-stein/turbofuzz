@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-02-19 — Data Quality report: a provenance block
+
+- **Status:** Verified (unit, e2e, browser)
+- **Related issue / decision:** a data-governance review of the page: the report had no way to show which file it described, how it was read, or what had been done to the table first.
+- **Scope:** every report (HTML, JSON, Markdown) opens with a Provenance block: the source (file, appended files, pasted text or built-in sample) with each file's name, exact size, modified time and SHA-256; the archive entry or sheet when the file held several; encoding, delimiter (detected or chosen), how the header row was found, rows and columns read, and any sample note; the built-in missing-value words and per-column overrides; every step applied since loading (the Recipe) with the rows and columns now, so a report on a cleaned table says it is not the file as it arrived; the score settings (version, weights and whether customised, bands, optional columns, reviewed issues, freshness rule, own rules); and the TurboFuzz version and build (commit, with + for uncommitted changes). The JSON carries the full structure and word list. The SHA-256 is worked out when a report is exported, by reading the file again, so loading is no slower: about 130 ms for a 5 MB file. Over 512 MB, if the file changed or cannot be read again, or on an insecure page, the block says why it is missing instead. A re-read of the same file (another header row) keeps its record; pasted text is hashed at once and not kept.
+- **Not included:** cell values, the file's path (browsers do not give one). The Copy report and supplier message are unchanged.
+- **Files / components changed:** src/data/provenance.ts (new), dq-report.ts; src/parse/null-tokens.ts; src/ui/app.ts, help-content.ts; vite.config.ts; test/provenance.test.ts (9), e2e/dq-provenance.spec.ts (4)
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-18 — Formulas: 38 more functions, including TEXT
 
 - **Status:** Verified (unit, parity against Python)

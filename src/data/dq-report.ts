@@ -1,6 +1,7 @@
 import type { DQScore } from "./score.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import { emitRules, type Rule } from "./rules.js";
+import { provenanceRows, type ReportProvenance } from "./provenance.js";
 
 export interface DQReport {
   dataset: string;
@@ -35,6 +36,8 @@ export interface DQReport {
   sensitive?: { name: string; class: string; label: string }[];
   rules?: { text: string; fail: number; compared: number; severity: string }[];
   trend?: { at: string; overall: number | null }[];
+  /** Where the numbers came from: the file and its SHA-256, how it was read, what changed since, the score settings, the build. */
+  provenance?: ReportProvenance;
 }
 
 export interface ReportIssue {
@@ -66,6 +69,7 @@ export interface ReportExtras {
   trend?: { at: number; overall: number | null }[];
   /** Columns flagged as possibly sensitive: their example values are left out. */
   sensitiveColumns?: ReadonlySet<number>;
+  provenance?: ReportProvenance;
 }
 
 /** Report payload from the current score (pure; no data leaves the browser). */
@@ -93,6 +97,7 @@ export function buildDQReport(
       : { columnTable: extras.columnTable.map(({ column: _column, ...row }) => row) }),
     ...(extras.sensitive === undefined ? {} : { sensitive: extras.sensitive }),
     ...(extras.rules === undefined ? {} : { rules: extras.rules }),
+    ...(extras.provenance === undefined ? {} : { provenance: extras.provenance }),
     ...(extras.trend === undefined
       ? {}
       : { trend: extras.trend.map((point) => ({ at: new Date(point.at).toISOString(), overall: point.overall })) }),
@@ -147,6 +152,11 @@ export function dqReportMarkdown(report: DQReport): string {
   );
   lines.push(`- Generated: ${report.generatedAt} · by TurboFuzz (fully offline)`);
   lines.push("");
+  if (report.provenance !== undefined) {
+    lines.push("## Provenance", "");
+    for (const [label, value] of provenanceRows(report.provenance)) lines.push(`- ${label}: ${value}`);
+    lines.push("");
+  }
   lines.push("| Dimension | Score | Weight | Pass | Fail | N.A. |");
   lines.push("|---|---|---|---|---|---|");
   for (const dimension of report.dimensions) {
@@ -190,6 +200,14 @@ export function dqReportHtml(report: DQReport): string {
   const issues = (report.issues ?? []).slice(0, 12);
   const trend = report.trend ?? [];
   const parts = [
+    section(
+      "Provenance",
+      report.provenance === undefined
+        ? ""
+        : `<table class="prov"><tbody>${provenanceRows(report.provenance)
+            .map(([label, value]) => `<tr><th scope="row">${esc(label)}</th><td>${label.startsWith("SHA-256") ? `<code>${esc(value)}</code>` : esc(value)}</td></tr>`)
+            .join("")}</tbody></table>`,
+    ),
     section(
       "Dimensions",
       table(
@@ -236,7 +254,7 @@ body{font:14px/1.5 system-ui,sans-serif;max-width:900px;margin:24px auto;padding
 h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:24px 0 8px;border-bottom:1px solid #d0d7de;padding-bottom:4px}
 .score{font-size:40px;font-weight:700;font-variant-numeric:tabular-nums}.band{font-weight:600;text-transform:capitalize}
 table{border-collapse:collapse;width:100%;font-size:13px}th,td{border:1px solid #d0d7de;padding:4px 8px;text-align:left;vertical-align:top}th{background:#f3f4f6}
-.meta{color:#57606a}@media print{body{margin:0}section{break-inside:avoid}}
+.meta{color:#57606a}.prov th{width:200px;font-weight:600}.prov code{font:12px ui-monospace,monospace;word-break:break-all}@media print{body{margin:0}section{break-inside:avoid}}
 </style></head><body>
 <h1>Data quality report: ${esc(report.dataset)}</h1>
 <p class="meta">${report.rows.toLocaleString()} rows &middot; ${report.columns.toLocaleString()} columns &middot; generated ${esc(report.generatedAt)} by TurboFuzz, computed in the browser</p>
