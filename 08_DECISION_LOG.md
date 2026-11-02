@@ -23,6 +23,16 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-02-01 — Formula functions: row-local ones are cheap to add; each needs a Python port and a parity case
+
+- **Status:** Accepted (owner, 2026-11-02)
+- **Context:** TEXT([date], "dddd") did not exist, and the owner asked how much more of Excel could be supported without slowing the app.
+- **Evidence:** Formulas compile once to closures and run row by row in the worker: 80 to 750 ns per row on the existing functions, so a million rows takes 0.1 to 0.7 s, and a new row-local function costs about as much as YEAR or CONCAT. What each function really costs is its port into the pandas and Polars recipes (the cell must match) and its test.
+- **Decision:** 38 functions added. Text: TEXT, VALUE, SUBSTITUTE, REPLACE, PROPER, SEARCH, EXACT, TEXTBEFORE, TEXTAFTER, TEXTJOIN. Numbers: INT, TRUNC, MOD, SQRT, POWER, LN, ROUNDUP, ROUNDDOWN, CEILING, FLOOR, SUM, AVERAGE (SUM and AVERAGE read the values on the row, as MIN and MAX do). Logic: IFS, SWITCH, IFERROR, ISNUMBER, ISTEXT. Dates: HOUR, MINUTE, SECOND, EDATE, EOMONTH, WEEKNUM, DAYS, NOW. Whole column, the same value on every row: COLUMNMEAN, COLUMNMEDIAN, COLUMNSTDEV (named apart from SUM and AVERAGE so a row-wise AVERAGE is never read as a column mean). TEXT supports a documented subset of Excel formats (dates: y m d h s, AM/PM, quoted and escaped text; numbers: 0 # , . %, a currency sign or text around the digits, up to three sections) and refuses scientific, fraction, thousands-scaling, fractional-second and text-between-digits formats instead of guessing.
+- **Not added:** lookups across ranges (VLOOKUP, XLOOKUP, INDEX/MATCH: there are no cell addresses, and a second table is another feature), array and dynamic functions (FILTER, SORT, UNIQUE, LET), RAND and other volatile ones (a recipe could not reproduce them), regular expressions (a pattern from the user can run for ever on a long cell).
+- **Acceptance criteria:** test/formula-python-parity.test.ts runs every formula in the app and in the exported Python over the same cells and compares each one; it is skipped only where Python is not installed. A new function is not done until it is in that list.
+- **Date / owner:** 2026-11-02 / owner
+
 ### DEC-2026-11-01-05 — The forecast is judged by one verdict that means "comprehensively beats a simple method"
 
 - **Status:** Accepted, after calibration (CHG-2026-11-02-01)

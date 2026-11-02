@@ -16,6 +16,8 @@
 
 import type { ColumnType } from "../types.js";
 import { fuzzyRank } from "../search/fuzzy-match.js";
+import { isoWeek } from "./aggregate.js";
+import { formatForText } from "./formula-text.js";
 
 export type FType = "number" | "text" | "bool" | "date" | "datetime" | "any";
 export type CellValue = number | string | boolean | null;
@@ -80,11 +82,49 @@ export const FUNCTIONS: Readonly<Record<string, { min: number; max: number; sig:
   PERCENTOFTOTAL: { min: 1, max: 1, sig: "PERCENTOFTOTAL([column])", help: "The value as a percentage of the column's total.", example: "PERCENTOFTOTAL([Sales])" },
   RUNNINGSUM: { min: 1, max: 1, sig: "RUNNINGSUM([column])", help: "The total so far, down the stored order; blanks add nothing and stay blank.", example: "RUNNINGSUM([Sales])" },
   PREVIOUS: { min: 1, max: 1, sig: "PREVIOUS([column])", help: "The value on the row above in the stored order (blank on the first row).", example: "[Sales] - PREVIOUS([Sales])" },
+  TEXT: { min: 2, max: 2, sig: 'TEXT(value, "format")', help: 'A number or date written in a format: "dddd" Monday, "d mmm yyyy", "yyyy-mm-dd", "#,##0.00", "0%". Text passes through.', example: 'TEXT([Order date], "dddd")' },
+  VALUE: { min: 1, max: 1, sig: "VALUE(text)", help: "Text read as a number: 1,234.5, 12% and $5 all read; an error when it is not a number.", example: "VALUE([Price text])" },
+  SUBSTITUTE: { min: 3, max: 4, sig: "SUBSTITUTE(text, old, new, instance)", help: "Swaps the old text for the new, everywhere or only the nth time. Case matters.", example: 'SUBSTITUTE([Phone], "-", "")' },
+  REPLACE: { min: 4, max: 4, sig: "REPLACE(text, start, count, new)", help: "Swaps count characters from a position (the first is 1) for the new text.", example: 'REPLACE([Code], 1, 2, "XX")' },
+  PROPER: { min: 1, max: 1, sig: "PROPER(text)", help: "A capital letter at the start of each word and small letters after it.", example: "PROPER([Name])" },
+  SEARCH: { min: 2, max: 3, sig: "SEARCH(find, text, start)", help: "Where the text first appears, whatever the case (1 is the first character); an error when it does not.", example: 'SEARCH("unit", [Address])' },
+  EXACT: { min: 2, max: 2, sig: "EXACT(text1, text2)", help: "TRUE when the two texts match, case included.", example: "EXACT([Code], [Other code])" },
+  TEXTBEFORE: { min: 2, max: 3, sig: "TEXTBEFORE(text, delimiter, instance)", help: "Everything before the delimiter: the first one, the nth, or counting from the end when negative. An error when it is not there. Case matters.", example: 'TEXTBEFORE([Email], "@")' },
+  TEXTAFTER: { min: 2, max: 3, sig: "TEXTAFTER(text, delimiter, instance)", help: "Everything after the delimiter: the first one, the nth, or counting from the end when negative. An error when it is not there. Case matters.", example: 'TEXTAFTER([Email], "@")' },
+  TEXTJOIN: { min: 3, max: -1, sig: "TEXTJOIN(delimiter, skip_empty, text1, …)", help: "Joins texts with a delimiter between them; TRUE leaves empty ones out.", example: 'TEXTJOIN(", ", TRUE, [City], [State], [Country])' },
+  INT: { min: 1, max: 1, sig: "INT(number)", help: "The number rounded down to a whole number (-2.5 gives -3).", example: "INT([Price])" },
+  TRUNC: { min: 1, max: 2, sig: "TRUNC(number, digits)", help: "Cuts off decimals without rounding (-2.5 gives -2).", example: "TRUNC([Price], 1)" },
+  MOD: { min: 2, max: 2, sig: "MOD(number, divisor)", help: "The remainder after dividing; it takes the divisor's sign.", example: "MOD([Qty], 12)" },
+  SQRT: { min: 1, max: 1, sig: "SQRT(number)", help: "The square root; an error for a negative number.", example: "SQRT([Area])" },
+  POWER: { min: 2, max: 2, sig: "POWER(number, power)", help: "The number raised to a power; the same as ^.", example: "POWER([Side], 2)" },
+  LN: { min: 1, max: 1, sig: "LN(number)", help: "The natural logarithm; an error for 0 or less.", example: "LN([Sales])" },
+  ROUNDUP: { min: 1, max: 2, sig: "ROUNDUP(number, digits)", help: "Rounds away from zero to that many decimals.", example: "ROUNDUP([Hours], 0)" },
+  ROUNDDOWN: { min: 1, max: 2, sig: "ROUNDDOWN(number, digits)", help: "Rounds toward zero to that many decimals.", example: "ROUNDDOWN([Hours], 0)" },
+  CEILING: { min: 1, max: 2, sig: "CEILING(number, multiple)", help: "Rounds up to the next multiple (1 if no multiple).", example: "CEILING([Minutes], 15)" },
+  FLOOR: { min: 1, max: 2, sig: "FLOOR(number, multiple)", help: "Rounds down to a multiple (1 if no multiple).", example: "FLOOR([Age], 10)" },
+  SUM: { min: 1, max: -1, sig: "SUM(value1, value2, …)", help: "The total of the values on the row; blanks are skipped.", example: "SUM([Q1], [Q2], [Q3], [Q4])" },
+  AVERAGE: { min: 1, max: -1, sig: "AVERAGE(value1, value2, …)", help: "The mean of the values on the row; blanks are skipped.", example: "AVERAGE([Q1], [Q2], [Q3])" },
+  IFS: { min: 2, max: -1, sig: "IFS(test1, value1, test2, value2, …)", help: "The value of the first test that is true; an error when none is (finish with TRUE for an else).", example: 'IFS([Score] >= 90, "A", [Score] >= 80, "B", TRUE, "C")' },
+  SWITCH: { min: 3, max: -1, sig: "SWITCH(value, match1, result1, …, else)", help: "The result of the first match. One more value after the pairs is the else.", example: 'SWITCH([Code], "N", "North", "S", "South", "Other")' },
+  IFERROR: { min: 2, max: 2, sig: "IFERROR(value, fallback)", help: "The value, or the fallback when the value is an error.", example: "IFERROR([Total] / [Qty], 0)" },
+  ISNUMBER: { min: 1, max: 1, sig: "ISNUMBER(value)", help: "TRUE when the value is a number or a date (text that looks like a number is text).", example: "ISNUMBER([Id])" },
+  ISTEXT: { min: 1, max: 1, sig: "ISTEXT(value)", help: "TRUE when the value is text.", example: "ISTEXT([Id])" },
+  HOUR: { min: 1, max: 1, sig: "HOUR(datetime)", help: "The hour of a time, 0 to 23.", example: "HOUR([Opened])" },
+  MINUTE: { min: 1, max: 1, sig: "MINUTE(datetime)", help: "The minute of a time, 0 to 59.", example: "MINUTE([Opened])" },
+  SECOND: { min: 1, max: 1, sig: "SECOND(datetime)", help: "The second of a time, 0 to 59.", example: "SECOND([Opened])" },
+  EDATE: { min: 2, max: 2, sig: "EDATE(date, months)", help: "The date that many months later (earlier when negative), on the same day of the month or the month's last day.", example: "EDATE([Start], 6)" },
+  EOMONTH: { min: 2, max: 2, sig: "EOMONTH(date, months)", help: "The last day of the month that many months away (0 is this month).", example: "EOMONTH([Date], 0)" },
+  WEEKNUM: { min: 1, max: 2, sig: "WEEKNUM(date, type)", help: "The week of the year: type 1 (default) weeks start on Sunday, 2 on Monday, 21 is the ISO week.", example: "WEEKNUM([Date], 2)" },
+  DAYS: { min: 2, max: 2, sig: "DAYS(end, start)", help: "Whole days from the start date to the end date.", example: "DAYS([Shipped], [Ordered])" },
+  NOW: { min: 0, max: 0, sig: "NOW()", help: "The date and time now (UTC), when the column is made.", example: 'DATEDIF([Joined], NOW(), "y")' },
+  COLUMNMEAN: { min: 1, max: 1, sig: "COLUMNMEAN([column])", help: "The mean of the whole column, the same on every row.", example: "[Score] - COLUMNMEAN([Score])" },
+  COLUMNMEDIAN: { min: 1, max: 1, sig: "COLUMNMEDIAN([column])", help: "The median of the whole column, the same on every row.", example: "[Score] - COLUMNMEDIAN([Score])" },
+  COLUMNSTDEV: { min: 1, max: 1, sig: "COLUMNSTDEV([column])", help: "The sample standard deviation of the whole column; z-score is ([x] - COLUMNMEAN([x])) / COLUMNSTDEV([x]).", example: "([Score] - COLUMNMEAN([Score])) / COLUMNSTDEV([Score])" },
   BIN: { min: 2, max: 2, sig: "BIN([column], count)", help: "Which of count equal-width bands from the smallest to the largest value (1 = lowest).", example: "BIN([Age], 5)" },
 };
 
 /** Functions that read a whole column (worked out once, then read row by row). */
-export const WINDOW_FUNCTIONS: ReadonlySet<string> = new Set(["RANK", "PERCENTOFTOTAL", "RUNNINGSUM", "PREVIOUS", "BIN"]);
+export const WINDOW_FUNCTIONS: ReadonlySet<string> = new Set(["RANK", "PERCENTOFTOTAL", "RUNNINGSUM", "PREVIOUS", "BIN", "COLUMNMEAN", "COLUMNMEDIAN", "COLUMNSTDEV"]);
 
 // ---------------------------------------------------------------- tokenizer
 
@@ -256,6 +296,9 @@ function parse(text: string, columns: readonly FormulaColumnInfo[]): Node {
       if (WINDOW_FUNCTIONS.has(name) && args[0] !== undefined && args[0].k !== "col") {
         throw new ParseError(`${name} reads a whole column: ${spec.sig}`, t.at, t.end);
       }
+      if (name === "IFS" && args.length % 2 !== 0) {
+        throw new ParseError("IFS takes pairs of a test and a value: IFS(test1, value1, test2, value2, …)", t.at, t.end);
+      }
       if (name === "BIN" && args[1] !== undefined && args[1].k !== "num") {
         throw new ParseError("BIN needs a count of bands as a number, e.g. BIN([Age], 5)", t.at, t.end);
       }
@@ -325,11 +368,20 @@ export function typeOf(node: Node, columns: readonly FormulaColumnInfo[]): FType
       const args = node.args.map((n) => typeOf(n, columns));
       switch (node.fn) {
         case "IF": return unify(args[1]!, args[2] ?? "any");
-        case "AND": case "OR": case "NOT": case "CONTAINS": case "ISBLANK": return "bool";
+        case "AND": case "OR": case "NOT": case "CONTAINS": case "ISBLANK": case "EXACT": case "ISNUMBER": case "ISTEXT": return "bool";
         case "MIN": case "MAX": return args.every(isDate) ? args.reduce(unify) : "number";
         case "LEFT": case "RIGHT": case "MID": case "UPPER": case "LOWER": case "TRIM": case "CONCAT": return "text";
-        case "DATE": case "TODAY": return "date";
-        case "COALESCE": case "IFBLANK": return args.reduce(unify);
+        case "TEXT": case "SUBSTITUTE": case "REPLACE": case "PROPER": case "TEXTBEFORE": case "TEXTAFTER": case "TEXTJOIN": return "text";
+        case "DATE": case "TODAY": case "EDATE": case "EOMONTH": return "date";
+        case "NOW": return "datetime";
+        case "COALESCE": case "IFBLANK": case "IFERROR": return args.reduce(unify);
+        case "IFS": return args.filter((_, i) => i % 2 === 1).reduce(unify);
+        case "SWITCH": {
+          // Results sit at 2, 4, …; one value past the pairs is the else.
+          const results = args.filter((_, i) => i >= 2 && i % 2 === 0);
+          if (args.length % 2 === 0) results.push(args[args.length - 1]!);
+          return results.reduce(unify);
+        }
         case "PREVIOUS": return args[0]!;
         default: return "number";
       }
@@ -401,6 +453,24 @@ function asNumber(v: CellValue): number | null | CellError {
   if (t === "") return null;
   const n = Number(t);
   return Number.isFinite(n) ? n : new CellError(`“${t.length > 20 ? t.slice(0, 20) + "…" : t}” is not a number`);
+}
+
+const NUMBER_PLAIN = /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
+const NUMBER_GROUPED = /^[+-]?\d{1,3}(,\d{3})+(\.\d*)?$/;
+
+/** VALUE: 1,234.5, 12% and $5 read as numbers; anything else is an error. The Python port is _value. */
+function parseNumberText(s: string): number | CellError {
+  let t = s.trim();
+  let percent = false;
+  if (t.endsWith("%")) {
+    percent = true;
+    t = t.slice(0, -1).trim();
+  }
+  t = t.replace(/^([+-]?)\s*[$€£]\s*/, "$1");
+  if (NUMBER_GROUPED.test(t)) t = t.replace(/,/g, "");
+  const x = NUMBER_PLAIN.test(t) ? Number(t) : Number.NaN;
+  if (!Number.isFinite(x)) return new CellError(`“${s.length > 20 ? s.slice(0, 20) + "…" : s}” is not a number`);
+  return percent ? x / 100 : x;
 }
 
 function asBool(v: CellValue): boolean {
@@ -694,6 +764,9 @@ export function evaluator(ast: Node, columns: readonly FormulaSource[], now = Da
       case "PERCENTOFTOTAL":
       case "RUNNINGSUM":
       case "PREVIOUS":
+      case "COLUMNMEAN":
+      case "COLUMNMEDIAN":
+      case "COLUMNSTDEV":
       case "BIN": {
         // Worked out over every row on first use, then read by row.
         let values: (CellValue | CellError)[] | null = null;
@@ -707,6 +780,273 @@ export function evaluator(ast: Node, columns: readonly FormulaSource[], now = Da
           }
           return values[row] ?? null;
         };
+      }
+      case "TEXT":
+        return (row) => {
+          const v = fs[0]!(row), f = text(1, row);
+          if (v instanceof CellError) return v;
+          if (f instanceof CellError) return f;
+          if (v === null || f === null) return null;
+          if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
+          if (typeof v === "string") return v;
+          const r = formatForText(v, f, isDate(ts[0]!), numberText);
+          return r.ok ? (r.text === "" ? null : r.text) : new CellError(r.reason);
+        };
+      case "VALUE":
+        return (row) => {
+          const s = text(0, row);
+          return s instanceof CellError || s === null ? s : parseNumberText(s);
+        };
+      case "SUBSTITUTE":
+        return (row) => {
+          const s = text(0, row), from = text(1, row), to = text(2, row);
+          const which = fs[3] === undefined ? 0 : num(3, row);
+          if (s instanceof CellError || s === null) return s;
+          if (from instanceof CellError) return from;
+          if (to instanceof CellError) return to;
+          if (which instanceof CellError) return which;
+          if (from === null) return s;
+          let out: string;
+          if (fs[3] === undefined) {
+            out = s.split(from).join(to ?? "");
+          } else {
+            if (which === null || which < 1) return new CellError("SUBSTITUTE needs an instance of 1 or more");
+            let at = -1, next = 0;
+            for (let c = 0; c < Math.trunc(which); c++) {
+              at = s.indexOf(from, next);
+              if (at < 0) break;
+              next = at + from.length;
+            }
+            out = at < 0 ? s : s.slice(0, at) + (to ?? "") + s.slice(at + from.length);
+          }
+          return out === "" ? null : out;
+        };
+      case "REPLACE":
+        return (row) => {
+          const s = text(0, row), st = num(1, row), k = num(2, row), to = text(3, row);
+          if (s instanceof CellError || s === null) return s;
+          if (st instanceof CellError) return st;
+          if (k instanceof CellError) return k;
+          if (to instanceof CellError) return to;
+          if (st === null || k === null || st < 1 || k < 0) return new CellError("REPLACE needs a start of 1 or more and a count of 0 or more");
+          const chars = [...s];
+          const out = chars.slice(0, Math.trunc(st) - 1).join("") + (to ?? "") + chars.slice(Math.trunc(st) - 1 + Math.trunc(k)).join("");
+          return out === "" ? null : out;
+        };
+      case "PROPER":
+        return (row) => {
+          const s = text(0, row);
+          if (s instanceof CellError || s === null) return s;
+          return s.toLowerCase().replace(/(\p{L})(\p{L}*)/gu, (_, first: string, rest: string) => first.toUpperCase() + rest);
+        };
+      case "SEARCH":
+        return (row) => {
+          const needle = text(0, row), hay = text(1, row), st = opt(2, row, 1);
+          if (needle instanceof CellError) return needle;
+          if (hay instanceof CellError) return hay;
+          if (st instanceof CellError) return st;
+          if (hay === null) return null;
+          const at = hay.toLowerCase().indexOf((needle ?? "").toLowerCase(), Math.max(0, Math.trunc(st) - 1));
+          return at < 0 ? new CellError(`“${needle ?? ""}” not found`) : at + 1;
+        };
+      case "EXACT":
+        return (row) => {
+          const a = text(0, row), b = text(1, row);
+          if (a instanceof CellError) return a;
+          if (b instanceof CellError) return b;
+          return (a ?? "") === (b ?? "");
+        };
+      case "TEXTBEFORE":
+      case "TEXTAFTER": {
+        const before = n.fn === "TEXTBEFORE";
+        return (row) => {
+          const s = text(0, row), d = text(1, row), which = opt(2, row, 1);
+          if (s instanceof CellError) return s;
+          if (d instanceof CellError) return d;
+          if (which instanceof CellError) return which;
+          if (s === null) return null;
+          if (d === null) return new CellError(`${n.fn} needs a delimiter`);
+          const k = Math.trunc(which);
+          if (k === 0) return new CellError(`${n.fn} needs an instance other than 0`);
+          let at = -1;
+          if (k > 0) {
+            let next = 0;
+            for (let c = 0; c < k; c++) {
+              at = s.indexOf(d, next);
+              if (at < 0) break;
+              next = at + d.length;
+            }
+          } else {
+            // From the end, one match after another that does not overlap the last.
+            at = s.lastIndexOf(d);
+            for (let c = 1; c < -k && at >= 0; c++) at = at - d.length >= 0 ? s.lastIndexOf(d, at - d.length) : -1;
+          }
+          if (at < 0) return new CellError(`“${d}” not found`);
+          const out = before ? s.slice(0, at) : s.slice(at + d.length);
+          return out === "" ? null : out;
+        };
+      }
+      case "TEXTJOIN":
+        return (row) => {
+          const d = text(0, row), skipValue = fs[1]!(row);
+          if (d instanceof CellError) return d;
+          if (skipValue instanceof CellError) return skipValue;
+          const skip = asBool(skipValue);
+          const parts: string[] = [];
+          for (let k = 2; k < fs.length; k++) {
+            const part = text(k, row);
+            if (part instanceof CellError) return part;
+            if (part === null && skip) continue;
+            parts.push(part ?? "");
+          }
+          const out = parts.join(d ?? "");
+          return out === "" ? null : out;
+        };
+      case "INT":
+        return (row) => { const x = num(0, row); return x instanceof CellError || x === null ? x : Math.floor(x); };
+      case "TRUNC":
+      case "ROUNDDOWN":
+      case "ROUNDUP": {
+        const up = n.fn === "ROUNDUP";
+        return (row) => {
+          const x = num(0, row), d = opt(1, row, 0);
+          if (x instanceof CellError || x === null) return x;
+          if (d instanceof CellError) return d;
+          const f = Math.pow(10, Math.trunc(d));
+          const scaled = Math.abs(x) * f;
+          return (Math.sign(x) * (up ? Math.ceil(scaled - 1e-9) : Math.floor(scaled + 1e-9))) / f;
+        };
+      }
+      case "MOD":
+        return (row) => {
+          const a = num(0, row), b = num(1, row);
+          if (a instanceof CellError) return a;
+          if (b instanceof CellError) return b;
+          if (a === null || b === null) return null;
+          return b === 0 ? new CellError("divide by zero") : a - b * Math.floor(a / b);
+        };
+      case "SQRT":
+        return (row) => {
+          const x = num(0, row);
+          if (x instanceof CellError || x === null) return x;
+          return x < 0 ? new CellError("SQRT needs a number of 0 or more") : Math.sqrt(x);
+        };
+      case "POWER":
+        return (row) => {
+          const a = num(0, row), b = num(1, row);
+          if (a instanceof CellError) return a;
+          if (b instanceof CellError) return b;
+          if (a === null || b === null) return null;
+          const r = Math.pow(a, b);
+          return Number.isFinite(r) ? r : new CellError("the power is out of range");
+        };
+      case "LN":
+        return (row) => {
+          const x = num(0, row);
+          if (x instanceof CellError || x === null) return x;
+          return x > 0 ? Math.log(x) : new CellError("LN needs a number above 0");
+        };
+      case "CEILING":
+      case "FLOOR": {
+        const up = n.fn === "CEILING";
+        return (row) => {
+          const x = num(0, row), m = opt(1, row, 1);
+          if (x instanceof CellError || x === null) return x;
+          if (m instanceof CellError) return m;
+          if (m === 0 || x === 0) return 0;
+          if (x > 0 && m < 0) return new CellError(`${n.fn} needs a positive multiple for a positive number`);
+          return up ? Math.ceil(x / m - 1e-9) * m : Math.floor(x / m + 1e-9) * m;
+        };
+      }
+      case "SUM":
+      case "AVERAGE": {
+        const mean = n.fn === "AVERAGE";
+        return (row) => {
+          let total = 0, count = 0;
+          for (let k = 0; k < fs.length; k++) {
+            const x = num(k, row);
+            if (x instanceof CellError) return x;
+            if (x !== null) { total += x; count++; }
+          }
+          if (!mean) return total;
+          return count === 0 ? new CellError("AVERAGE needs at least one number") : total / count;
+        };
+      }
+      case "IFS":
+        return (row) => {
+          for (let k = 0; k + 1 < fs.length; k += 2) {
+            const c = fs[k]!(row);
+            if (c instanceof CellError) return c;
+            if (asBool(c)) return fs[k + 1]!(row);
+          }
+          return new CellError("IFS: no test is true");
+        };
+      case "SWITCH": {
+        // Each match is the same comparison as =, so text ignores case and numbers compare as numbers.
+        const matches: Fn[] = [];
+        for (let k = 1; k + 1 < n.args.length; k += 2) matches.push(buildBin({ k: "bin", op: "=", a: n.args[0]!, b: n.args[k]!, at: n.at }));
+        const hasElse = n.args.length % 2 === 0;
+        return (row) => {
+          for (let i = 0; i < matches.length; i++) {
+            const m = matches[i]!(row);
+            if (m instanceof CellError) return m;
+            if (m === true) return fs[2 + 2 * i]!(row);
+          }
+          return hasElse ? fs[fs.length - 1]!(row) : new CellError("SWITCH: no case matches");
+        };
+      }
+      case "IFERROR":
+        return (row) => { const v = fs[0]!(row); return v instanceof CellError ? fs[1]!(row) : v; };
+      case "ISNUMBER":
+        return (row) => typeof fs[0]!(row) === "number";
+      case "ISTEXT":
+        return (row) => typeof fs[0]!(row) === "string";
+      case "HOUR":
+      case "MINUTE":
+      case "SECOND": {
+        const fn = n.fn;
+        return (row) => {
+          const d = date(0, row);
+          if (d instanceof CellError || d === null) return d;
+          return fn === "HOUR" ? d.getUTCHours() : fn === "MINUTE" ? d.getUTCMinutes() : d.getUTCSeconds();
+        };
+      }
+      case "EDATE":
+      case "EOMONTH": {
+        const end = n.fn === "EOMONTH";
+        return (row) => {
+          const d = date(0, row), m = num(1, row);
+          if (d instanceof CellError || d === null) return d;
+          if (m instanceof CellError) return m;
+          if (m === null) return null;
+          const total = d.getUTCFullYear() * 12 + d.getUTCMonth() + Math.trunc(m);
+          const year = Math.floor(total / 12), month = total - year * 12;
+          const last = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+          return end ? Date.UTC(year, month, last) : Date.UTC(year, month, Math.min(d.getUTCDate(), last));
+        };
+      }
+      case "WEEKNUM":
+        return (row) => {
+          const d = date(0, row), kind = opt(1, row, 1);
+          if (d instanceof CellError || d === null) return d;
+          if (kind instanceof CellError) return kind;
+          if (kind === 21) return isoWeek(d.getTime());
+          if (kind !== 1 && kind !== 2) return new CellError("WEEKNUM type is 1, 2 or 21");
+          const year = d.getUTCFullYear();
+          const dayOfYear = Math.floor((Date.UTC(year, d.getUTCMonth(), d.getUTCDate()) - Date.UTC(year, 0, 1)) / DAY_MS);
+          const jan1 = (new Date(Date.UTC(year, 0, 1)).getUTCDay() - (kind === 1 ? 0 : 1) + 7) % 7;
+          return Math.floor((dayOfYear + jan1) / 7) + 1;
+        };
+      case "DAYS":
+        return (row) => {
+          const e = date(0, row), b = date(1, row);
+          if (e instanceof CellError || e === null) return e;
+          if (b instanceof CellError || b === null) return b;
+          return Math.floor(e.getTime() / DAY_MS) - Math.floor(b.getTime() / DAY_MS);
+        };
+      case "NOW": {
+        const stamp = Math.floor(now);
+        return () => stamp;
       }
       case "ISBLANK":
         return (row) => { const v = fs[0]!(row); return v instanceof CellError ? v : v === null || v === ""; };
@@ -749,6 +1089,28 @@ export function windowValues(fn: string, values: readonly CellValue[], count = 0
       const first = new Map<number, number>();
       sorted.forEach((x, i) => { if (!first.has(x)) first.set(x, i + 1); });
       return nums.map((x) => (x === null ? null : first.get(x)!));
+    }
+    case "COLUMNMEAN":
+    case "COLUMNMEDIAN":
+    case "COLUMNSTDEV": {
+      const present = nums.filter((x): x is number => x !== null);
+      if (present.length === 0) return nums.map(() => null);
+      let total = 0;
+      for (const x of present) total += x;
+      const mean = total / present.length;
+      let result: number | CellError;
+      if (fn === "COLUMNMEAN") result = mean;
+      else if (fn === "COLUMNMEDIAN") {
+        const sorted = [...present].sort((a, b) => a - b);
+        const mid = sorted.length >> 1;
+        result = sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+      } else if (present.length < 2) result = new CellError("COLUMNSTDEV needs at least two values");
+      else {
+        let squares = 0;
+        for (const x of present) squares += (x - mean) * (x - mean);
+        result = Math.sqrt(squares / (present.length - 1));
+      }
+      return nums.map(() => result);
     }
     case "BIN": {
       const present = nums.filter((x): x is number => x !== null);

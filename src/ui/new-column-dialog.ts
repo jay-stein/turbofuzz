@@ -38,10 +38,11 @@ const TYPE_LABEL: Partial<Record<string, string>> = {
   boolean: "Yes/No", identifier: "ID", time: "Time", duration: "Duration",
 };
 const FUNCTION_GROUPS: [string, string[]][] = [
-  ["Logic", ["IF", "AND", "OR", "NOT", "ISBLANK", "COALESCE", "IFBLANK"]],
-  ["Numbers", ["ROUND", "ABS", "MIN", "MAX"]],
-  ["Text", ["CONCAT", "UPPER", "LOWER", "TRIM", "LEN", "LEFT", "RIGHT", "MID", "FIND", "CONTAINS"]],
-  ["Dates", ["YEAR", "MONTH", "DAY", "WEEKDAY", "DATEDIF", "DATE", "TODAY"]],
+  ["Logic", ["IF", "IFS", "SWITCH", "IFERROR", "AND", "OR", "NOT", "ISBLANK", "ISNUMBER", "ISTEXT", "COALESCE", "IFBLANK"]],
+  ["Numbers", ["ROUND", "ROUNDUP", "ROUNDDOWN", "INT", "TRUNC", "MOD", "ABS", "SQRT", "POWER", "LN", "CEILING", "FLOOR", "MIN", "MAX", "SUM", "AVERAGE"]],
+  ["Text", ["TEXT", "VALUE", "CONCAT", "TEXTJOIN", "UPPER", "LOWER", "PROPER", "TRIM", "LEN", "LEFT", "RIGHT", "MID", "FIND", "SEARCH", "SUBSTITUTE", "REPLACE", "TEXTBEFORE", "TEXTAFTER", "CONTAINS", "EXACT"]],
+  ["Dates", ["YEAR", "MONTH", "DAY", "WEEKDAY", "HOUR", "MINUTE", "SECOND", "WEEKNUM", "DAYS", "DATEDIF", "DATE", "EDATE", "EOMONTH", "TODAY", "NOW"]],
+  ["Whole column", ["RANK", "PERCENTOFTOTAL", "RUNNINGSUM", "PREVIOUS", "BIN", "COLUMNMEAN", "COLUMNMEDIAN", "COLUMNSTDEV"]],
 ];
 const nf = new Intl.NumberFormat("en");
 
@@ -377,7 +378,7 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
       fnList.append(el("div", { class: "newcol-group" }, [group]));
       for (const name of names) {
         const b = el("button", { type: "button", class: "newcol-chip fn", title: `${FUNCTIONS[name]!.sig}: ${FUNCTIONS[name]!.help}` }, [name]);
-        b.addEventListener("click", () => insert(name === "TODAY" ? "TODAY()" : `${name}(`));
+        b.addEventListener("click", () => insert(FUNCTIONS[name]!.max === 0 ? `${name}()` : `${name}(`));
         fnList.append(b);
       }
     }

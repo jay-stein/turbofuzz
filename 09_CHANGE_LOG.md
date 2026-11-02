@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-02-18 — Formulas: 38 more functions, including TEXT
+
+- **Status:** Verified (unit, parity against Python)
+- **Related issue / decision:** owner: TEXT([date], "dddd") was missing; how much more could be supported without slowing things down (DEC-2026-11-02-01).
+- **Scope:** Text TEXT, VALUE, SUBSTITUTE, REPLACE, PROPER, SEARCH, EXACT, TEXTBEFORE, TEXTAFTER, TEXTJOIN. Numbers INT, TRUNC, MOD, SQRT, POWER, LN, ROUNDUP, ROUNDDOWN, CEILING, FLOOR, SUM, AVERAGE. Logic IFS, SWITCH, IFERROR, ISNUMBER, ISTEXT. Dates HOUR, MINUTE, SECOND, EDATE, EOMONTH, WEEKNUM, DAYS, NOW. Whole column COLUMNMEAN, COLUMNMEDIAN, COLUMNSTDEV. The formatter behind TEXT is src/data/formula-text.ts (dates: y m d h s, AM/PM, "quoted" and \escaped text, m read as minutes after h or before s; numbers: 0 # , . %, currency or other text around the digits, three sections; scientific and other formats are refused). Each function has a Python port in the pandas and Polars recipes. The function chips in New column are grouped (Logic, Numbers, Text, Dates, Whole column); typing a name already completes it from the same table.
+- **Speed:** existing functions run at 80 to 750 ns per row (a million rows in 0.1 to 0.7 s); the new ones are the same kind of closure.
+- **Files / components changed:** src/data/column-formula.ts, formula-text.ts (new), formula-export.ts; src/ui/new-column-dialog.ts, help-content.ts; test/formula-text.test.ts (7), column-formula.test.ts (7), formula-python-parity.test.ts (150 formulas by 10 rows)
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-17 — Pivot View dates: quarter, minute and second parts, in a clearer order
 
 - **Status:** Verified (unit, browser)

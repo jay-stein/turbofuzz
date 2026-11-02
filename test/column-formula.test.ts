@@ -198,3 +198,106 @@ test("a leading = is ignored, as typed in Excel, and error positions still point
   assert.equal(compileFormula("==[Price]", info).ok, false);
   assert.equal(compileFormula("=", info).ok, false);
 });
+
+test("TEXT writes dates and numbers in a format, and passes text through", () => {
+  assert.deepEqual(run('TEXT([Order date], "dddd")').raw, ["Monday", "Thursday", "", "Sunday"]);
+  assert.deepEqual(run('TEXT([Order date], "d mmm yyyy")').raw, ["15 Jan 2024", "29 Feb 2024", "", "31 Dec 2023"]);
+  assert.deepEqual(run('TEXT([Price], "0.00")').raw, ["10.00", "2.50", "", "4.00"]);
+  assert.deepEqual(run('TEXT([Qty] / 4, "0%")').raw, ["75%", "100%", "125%", "0%"]);
+  assert.deepEqual(run('TEXT([First], "0.00")').raw, ["Ada", "Alan", "", "Grace"]);
+  assert.equal(run('TEXT([Order date], "dddd")').type, "string");
+  assert.deepEqual(run('TEXT([Price], "0.00E+00")').errors, { "TEXT does not support this format": 3 });
+});
+
+test("VALUE reads numbers as text people write them", () => {
+  assert.deepEqual(run('VALUE("1,234.5")').raw, ["1234.5", "1234.5", "1234.5", "1234.5"]);
+  assert.equal(run('VALUE("12%")').raw[0], "0.12");
+  assert.equal(run('VALUE("$5")').raw[0], "5");
+  assert.equal(run('VALUE("-$5")').raw[0], "-5");
+  assert.deepEqual(run("VALUE([Email])").errors, {
+    "“ada@x.org” is not a number": 1,
+    "“alan@y.com” is not a number": 1,
+    "“nobody” is not a number": 1,
+  });
+});
+
+test("text functions: substitute, replace, proper, search, exact, before and after, join", () => {
+  assert.deepEqual(run('SUBSTITUTE([Email], "@", " at ")').raw, ["ada at x.org", "alan at y.com", "nobody", ""]);
+  assert.equal(run('SUBSTITUTE("a-b-c-d", "-", "+", 2)').raw[0], "a-b+c-d");
+  assert.equal(run('SUBSTITUTE("Aa", "a", "x")').raw[0], "Ax", "case matters");
+  assert.deepEqual(run('REPLACE([First], 1, 1, "X")').raw, ["Xda", "Xlan", "", "Xrace"]);
+  assert.deepEqual(run("PROPER([Status])").raw, ["Closed", "Open", "Open", ""]);
+  assert.equal(run("PROPER(\"o'brien mcdonald\")").raw[0], "O'Brien Mcdonald");
+  const search = run('SEARCH("L", [First])');
+  assert.deepEqual(search.raw, ["", "2", "", ""], "SEARCH ignores case: only Alan has an l");
+  assert.deepEqual(search.errors, { "“L” not found": 2 });
+  assert.deepEqual(run('EXACT([Status], "Open")').raw, ["FALSE", "FALSE", "TRUE", "FALSE"]);
+  assert.deepEqual(run('TEXTBEFORE([Email], "@")').raw, ["ada", "alan", "", ""]);
+  assert.deepEqual(run('TEXTBEFORE([Email], "@")').errors, { "“@” not found": 1 });
+  assert.deepEqual(run('TEXTAFTER([Email], "@")').raw, ["x.org", "y.com", "", ""]);
+  assert.deepEqual(run('TEXTAFTER([Email], ".", -1)').raw.slice(0, 2), ["org", "com"]);
+  assert.deepEqual(run('TEXTJOIN(" ", TRUE, [First], [Last])').raw, ["Ada Lovelace", "Alan Turing", "Hopper", "Grace"]);
+  assert.deepEqual(run('TEXTJOIN("-", FALSE, [First], [Last])').raw, ["Ada-Lovelace", "Alan-Turing", "-Hopper", "Grace-"]);
+});
+
+test("number functions follow Excel: INT floors, MOD takes the divisor's sign, CEILING and FLOOR go to a multiple", () => {
+  const one = (formula: string): string => run(formula).raw[0]!;
+  assert.equal(one("INT(-2.5)"), "-3");
+  assert.equal(one("TRUNC(-2.5)"), "-2");
+  assert.equal(one("TRUNC(3.14159, 2)"), "3.14");
+  assert.equal(one("ROUNDUP(2.01, 1)"), "2.1");
+  assert.equal(one("ROUNDDOWN(-2.99, 1)"), "-2.9");
+  assert.equal(one("MOD(7, 3)"), "1");
+  assert.equal(one("MOD(-7, 3)"), "2");
+  assert.equal(one("MOD(7, -3)"), "-2");
+  assert.equal(one("CEILING(2.5, 2)"), "4");
+  assert.equal(one("CEILING(-2.5, 2)"), "-2");
+  assert.equal(one("CEILING(-2.5, -2)"), "-4");
+  assert.equal(one("FLOOR(2.5, 2)"), "2");
+  assert.equal(one("FLOOR(-2.5, 2)"), "-4");
+  assert.equal(one("SQRT(16)"), "4");
+  assert.equal(one("POWER(2, 10)"), "1024");
+  assert.equal(one("LN(1)"), "0");
+  assert.deepEqual(run("MOD([Qty], [Qty] - [Qty])").errors, { "divide by zero": 4 });
+  assert.deepEqual(run("SQRT(0 - [Qty])").errors, { "SQRT needs a number of 0 or more": 3 }, "the zero is fine");
+  assert.deepEqual(run("SUM([Price], [Qty])").raw, ["13", "6.5", "5", "4"], "a blank is skipped");
+  assert.deepEqual(run("AVERAGE([Price], [Qty])").raw, ["6.5", "3.25", "5", "2"]);
+});
+
+test("IFS, SWITCH and IFERROR choose; ISNUMBER and ISTEXT ask", () => {
+  assert.deepEqual(run('IFS([Qty] > 3, "many", [Qty] > 0, "few", TRUE, "none")').raw, ["few", "many", "many", "none"]);
+  assert.deepEqual(run('IFS([Qty] > 3, "many")').errors, { "IFS: no test is true": 2 });
+  assert.equal(compileFormula('IFS([Qty] > 3, "many", 5)', info).ok, false, "pairs only");
+  assert.deepEqual(run('SWITCH([Status], "closed", 1, "open", 2, 0)').raw, ["1", "2", "2", "0"], "text matches without regard to case");
+  assert.deepEqual(run('SWITCH([Qty], 3, "three", 4, "four")').errors, { "SWITCH: no case matches": 2 });
+  assert.deepEqual(run("IFERROR([Price] / ([Qty] - 4), -1)").raw, ["-10", "-1", "", "-1"]);
+  assert.deepEqual(run("ISNUMBER([Price])").raw, ["TRUE", "TRUE", "FALSE", "TRUE"]);
+  assert.deepEqual(run("ISTEXT([First])").raw, ["TRUE", "TRUE", "FALSE", "TRUE"]);
+  assert.equal(run('ISNUMBER("5")').raw[0], "FALSE", "text that looks like a number is text");
+});
+
+test("date functions: time of day, months, weeks and days between", () => {
+  assert.deepEqual(run("EDATE([Order date], 1)").raw, ["2024-02-15", "2024-03-29", "", "2024-01-31"]);
+  assert.equal(run("EDATE(DATE(2024, 1, 31), 1)").raw[0], "2024-02-29", "clamped to the month's last day");
+  assert.deepEqual(run("EOMONTH([Order date], 0)").raw, ["2024-01-31", "2024-02-29", "", "2023-12-31"]);
+  assert.equal(run("EOMONTH(DATE(2024, 1, 15), -2)").raw[0], "2023-11-30");
+  assert.deepEqual(run("WEEKNUM([Order date], 21)").raw, ["3", "9", "", "52"]);
+  assert.equal(run("WEEKNUM(DATE(2024, 3, 5))").raw[0], "10");
+  assert.equal(run("WEEKNUM(DATE(2024, 3, 5), 2)").raw[0], "10");
+  assert.deepEqual(run("WEEKNUM([Order date], 7)").errors, { "WEEKNUM type is 1, 2 or 21": 3 });
+  assert.deepEqual(run("DAYS([Ship date], [Order date])").raw, ["5", "1", "", "0"]);
+  assert.equal(run("HOUR(0.75)").raw[0], "18", "a number is days, so three quarters of a day is 18:00");
+  const now = run("NOW()");
+  assert.equal(now.type, "datetime");
+  assert.equal(now.raw[0], "2026-10-31 15:00:00");
+});
+
+test("whole-column statistics: the same value on every row, ready for a z-score", () => {
+  assert.deepEqual(run("COLUMNMEAN([Price])").raw, ["5.5", "5.5", "5.5", "5.5"], "a blank row gets the mean too");
+  assert.deepEqual(run("COLUMNMEDIAN([Price])").raw, ["4", "4", "4", "4"]);
+  // Quantities 3, 4, 5, 0: mean 3, squared distances 0, 1, 4, 9, sample variance 14 / 3.
+  assert.ok(Math.abs(Number(run("COLUMNSTDEV([Qty])").raw[0]) - Math.sqrt(14 / 3)) < 1e-12);
+  const z = run("([Qty] - COLUMNMEAN([Qty])) / COLUMNSTDEV([Qty])").raw.map(Number);
+  assert.ok(Math.abs(z[0]!) < 1e-12 && Math.abs(z[1]! - 1 / Math.sqrt(14 / 3)) < 1e-12 && Math.abs(z[3]! + 3 / Math.sqrt(14 / 3)) < 1e-12);
+  assert.equal(compileFormula("COLUMNMEAN(1 + 2)", info).ok, false, "it reads a whole column");
+});

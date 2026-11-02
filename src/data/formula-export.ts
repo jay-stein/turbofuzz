@@ -47,6 +47,8 @@ export function formulaPython(formula: string, columns: readonly FormulaColumnIn
 /** The helpers every formula column uses; written once per script. */
 export const FORMULA_PRELUDE: readonly string[] = String.raw`# --- TurboFuzz formula helpers: the app's rules for new columns, row by row ---
 import math as _math
+import re as _re
+import calendar as _cal
 from datetime import date as _date, datetime as _datetime, timedelta as _td, timezone as _tz
 from decimal import Decimal as _Decimal
 
@@ -199,6 +201,240 @@ def _bin(op, x, y, ta, tb):
         raise _Err("the power is out of range")
     return r
 
+_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+_WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+_NO_FORMAT = "TEXT does not support this format"
+_fmt_cache = {}
+
+def _fmt_pieces(fmt):
+    out, i = [], 0
+    while i < len(fmt):
+        c = fmt[i]
+        if c == '"':
+            j = fmt.find('"', i + 1)
+            if j < 0:
+                j = len(fmt)
+            out.append((fmt[i + 1:j], True))
+            i = j + 1
+        elif c == "\\":
+            out.append((fmt[i + 1] if i + 1 < len(fmt) else "", True))
+            i += 2
+        else:
+            out.append((c, False))
+            i += 1
+    return out
+
+def _fmt_place(c, lit):
+    return (not lit) and c in ("0", "#", "?")
+
+def _fmt_section(parts):
+    s = {"pre": "", "suf": "", "imin": 0, "thou": False, "dmin": 0, "dmax": 0, "point": False, "pct": False, "lit": True}
+    state = 0
+    for k, (c, lit) in enumerate(parts):
+        if _fmt_place(c, lit):
+            if state == 2:
+                return None
+            state = 1
+            s["lit"] = False
+            if s["point"]:
+                s["dmax"] += 1
+                if c == "0":
+                    s["dmin"] += 1
+            elif c == "0":
+                s["imin"] += 1
+            continue
+        nxt = parts[k + 1] if k + 1 < len(parts) else None
+        if (not lit) and c == "." and (state == 1 or (state == 0 and nxt is not None and _fmt_place(nxt[0], nxt[1]))):
+            if s["point"]:
+                return None
+            state = 1
+            s["lit"] = False
+            s["point"] = True
+            continue
+        if (not lit) and c == "," and state == 1:
+            after = next((p for p in parts[k + 1:] if p[1] or p[0] != ","), None)
+            if s["point"] or after is None or not _fmt_place(after[0], after[1]):
+                return None
+            s["thou"] = True
+            continue
+        if (not lit) and c == "%":
+            s["pct"] = True
+        if state == 1:
+            state = 2
+        if state == 0:
+            s["pre"] += c
+        else:
+            s["suf"] += c
+    return s
+
+def _fmt_parse_number(parts, bare):
+    if _re.search(r"[eE][+-]", bare):
+        return ("error", _NO_FORMAT)
+    sections, cur = [], []
+    for part in parts:
+        if (not part[1]) and part[0] == ";":
+            sec = _fmt_section(cur)
+            if sec is None:
+                return ("error", _NO_FORMAT)
+            sections.append(sec)
+            cur = []
+        else:
+            cur.append(part)
+    sec = _fmt_section(cur)
+    if sec is None:
+        return ("error", _NO_FORMAT)
+    sections.append(sec)
+    return ("number", sections[:3])
+
+def _fmt_parse_date(fmt):
+    toks, i = [], 0
+    while i < len(fmt):
+        c = fmt[i]
+        lc = c.lower()
+        if c == '"':
+            j = fmt.find('"', i + 1)
+            if j < 0:
+                j = len(fmt)
+            toks.append(["lit", fmt[i + 1:j]])
+            i = j + 1
+        elif c == "\\":
+            toks.append(["lit", fmt[i + 1] if i + 1 < len(fmt) else ""])
+            i += 2
+        elif lc in ("y", "m", "d", "h", "s"):
+            j = i
+            while j < len(fmt) and fmt[j].lower() == lc:
+                j += 1
+            toks.append(["mo" if lc == "m" else lc, j - i])
+            i = j
+        elif lc == "a" and _re.match(r"am/pm", fmt[i:], _re.I):
+            toks.append(["ampm", True, fmt[i:i + 5] == fmt[i:i + 5].lower()])
+            i += 5
+        elif lc == "a" and _re.match(r"a/p", fmt[i:], _re.I):
+            toks.append(["ampm", False, fmt[i:i + 3] == fmt[i:i + 3].lower()])
+            i += 3
+        elif c in ("0", "#", "?"):
+            return ("error", _NO_FORMAT)
+        else:
+            toks.append(["lit", c])
+            i += 1
+    real = [t for t in toks if t[0] != "lit"]
+    for r, t in enumerate(real):
+        if t[0] == "mo" and ((r > 0 and real[r - 1][0] == "h") or (r + 1 < len(real) and real[r + 1][0] == "s")):
+            t[0] = "mi"
+    return ("date", toks, any(t[0] == "ampm" for t in toks))
+
+def _fmt_parse(fmt):
+    if fmt in _fmt_cache:
+        return _fmt_cache[fmt]
+    if fmt.strip().lower() == "general":
+        parsed = ("general",)
+    else:
+        parts = _fmt_pieces(fmt)
+        bare = "".join(c for c, lit in parts if not lit)
+        if _re.search(r"[0#?]", bare):
+            parsed = _fmt_parse_number(parts, bare)
+        elif _re.search(r"[ymdhs]", bare, _re.I) or _re.search(r"a/p", bare, _re.I):
+            parsed = _fmt_parse_date(fmt)
+        else:
+            parsed = _fmt_parse_number(parts, bare)
+    if len(_fmt_cache) >= 64:
+        _fmt_cache.clear()
+    _fmt_cache[fmt] = parsed
+    return parsed
+
+def _fmt_date(ms, toks, twelve):
+    d = _datetime(1970, 1, 1, tzinfo=_tz.utc) + _td(milliseconds=ms)
+    hour = d.hour
+    out = []
+    for t in toks:
+        k = t[0]
+        if k == "lit":
+            out.append(t[1])
+        elif k == "y":
+            out.append(("%02d" % (d.year % 100)) if t[1] <= 2 else str(d.year).rjust(4, "0"))
+        elif k == "mo":
+            m, n = d.month - 1, t[1]
+            out.append(str(m + 1) if n == 1 else ("%02d" % (m + 1)) if n == 2 else _MONTHS[m][:3] if n == 3 else _MONTHS[m] if n == 4 else _MONTHS[m][0])
+        elif k == "d":
+            w, n = (d.weekday() + 1) % 7, t[1]
+            out.append(str(d.day) if n == 1 else ("%02d" % d.day) if n == 2 else _WEEKDAYS[w][:3] if n == 3 else _WEEKDAYS[w])
+        elif k == "h":
+            h = ((hour % 12) or 12) if twelve else hour
+            out.append(str(h) if t[1] == 1 else "%02d" % h)
+        elif k == "mi":
+            out.append(str(d.minute) if t[1] == 1 else "%02d" % d.minute)
+        elif k == "s":
+            out.append(str(d.second) if t[1] == 1 else "%02d" % d.second)
+        else:
+            word = ("AM" if hour < 12 else "PM") if t[1] else ("A" if hour < 12 else "P")
+            out.append(word.lower() if t[2] else word)
+    return "".join(out)
+
+def _group3(s):
+    parts = []
+    while len(s) > 3:
+        parts.insert(0, s[-3:])
+        s = s[:-3]
+    parts.insert(0, s)
+    return ",".join(parts)
+
+def _fmt_number(value, sections):
+    negative = value < 0
+    sec = sections[0]
+    sign = "-" if negative else ""
+    if len(sections) >= 2 and negative:
+        sec = sections[1]
+        sign = ""
+    elif len(sections) >= 3 and value == 0:
+        sec = sections[2]
+    if sec["lit"]:
+        return sign + sec["pre"] + sec["suf"]
+    x = abs(value)
+    if sec["pct"]:
+        x *= 100
+    dmax = sec["dmax"]
+    shifted = x * _math.pow(10, dmax) + 0.5 + 1e-9
+    if not _math.isfinite(shifted) or not _math.floor(shifted) < 1e15:
+        raise _Err("TEXT: the number is too large for this format")
+    scaled = _math.floor(shifted)
+    digits = str(scaled).rjust(dmax + 1, "0")
+    whole = digits[:len(digits) - dmax].lstrip("0")
+    decimals = digits[len(digits) - dmax:]
+    while len(decimals) > sec["dmin"] and decimals.endswith("0"):
+        decimals = decimals[:-1]
+    if len(whole) < sec["imin"]:
+        whole = whole.rjust(sec["imin"], "0")
+    if sec["thou"]:
+        whole = _group3(whole)
+    return sign + sec["pre"] + whole + ("." + decimals if sec["point"] else "") + sec["suf"]
+
+def _fmt(value, fmt, is_date):
+    p = _fmt_parse(fmt)
+    if p[0] == "error":
+        raise _Err(p[1])
+    if p[0] == "general":
+        return _numtext(value)
+    if p[0] == "date":
+        return _fmt_date(value if is_date else value * _DAY, p[1], p[2])
+    return _fmt_number(value, p[1])
+
+_NUM_PLAIN = _re.compile(r"[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?")
+_NUM_GROUPED = _re.compile(r"[+-]?[0-9]{1,3}(,[0-9]{3})+(\.[0-9]*)?")
+
+def _value(s):
+    t = s.strip()
+    percent = False
+    if t.endswith("%"):
+        percent = True
+        t = t[:-1].strip()
+    t = _re.sub(r"^([+-]?)\s*[$€£]\s*", r"\1", t)
+    if _NUM_GROUPED.fullmatch(t):
+        t = t.replace(",", "")
+    x = float(t) if _NUM_PLAIN.fullmatch(t) else float("nan")
+    if not _math.isfinite(x):
+        raise _Err(f"“{s[:20] + '…' if len(s) > 20 else s}” is not a number")
+    return x / 100 if percent else x
+
 def _call(fn, args, ts):
     n = lambda k: _num(args[k]())
     def text(k):
@@ -322,6 +558,225 @@ def _call(fn, args, ts):
     if fn == "TODAY":
         now = _datetime.now(_tz.utc)
         return _datetime(now.year, now.month, now.day, tzinfo=_tz.utc).timestamp() * 1000
+    if fn == "TEXT":
+        v, f = args[0](), text(1)
+        if v is None or f is None:
+            return None
+        if isinstance(v, bool):
+            return "TRUE" if v else "FALSE"
+        if isinstance(v, str):
+            return v
+        return _fmt(float(v), f, ts[0] in _DATE) or None
+    if fn == "VALUE":
+        s = text(0)
+        return None if s is None else _value(s)
+    if fn == "SUBSTITUTE":
+        s = text(0)
+        if s is None:
+            return None
+        old, new = text(1), text(2)
+        if old is None:
+            return s
+        if len(args) > 3:
+            which = n(3)
+            if which is None or which < 1:
+                raise _Err("SUBSTITUTE needs an instance of 1 or more")
+            at, nxt = -1, 0
+            for _ in range(int(which)):
+                at = s.find(old, nxt)
+                if at < 0:
+                    break
+                nxt = at + len(old)
+            out = s if at < 0 else s[:at] + (new or "") + s[at + len(old):]
+        else:
+            out = s.replace(old, new or "")
+        return out or None
+    if fn == "REPLACE":
+        s, st, k, new = text(0), n(1), n(2), text(3)
+        if s is None:
+            return None
+        if st is None or k is None or st < 1 or k < 0:
+            raise _Err("REPLACE needs a start of 1 or more and a count of 0 or more")
+        chars = list(s)
+        out = "".join(chars[:int(st) - 1]) + (new or "") + "".join(chars[int(st) - 1 + int(k):])
+        return out or None
+    if fn == "PROPER":
+        s = text(0)
+        return None if s is None else s.title()
+    if fn == "SEARCH":
+        needle, hay, st = text(0), text(1), opt(2, 1)
+        if hay is None:
+            return None
+        at = hay.lower().find((needle or "").lower(), max(0, int(st) - 1))
+        if at < 0:
+            raise _Err(f"“{needle or ''}” not found")
+        return at + 1
+    if fn == "EXACT":
+        return (text(0) or "") == (text(1) or "")
+    if fn in ("TEXTBEFORE", "TEXTAFTER"):
+        s, d, which = text(0), text(1), opt(2, 1)
+        if s is None:
+            return None
+        if d is None:
+            raise _Err(f"{fn} needs a delimiter")
+        k = int(which)
+        if k == 0:
+            raise _Err(f"{fn} needs an instance other than 0")
+        at = -1
+        if k > 0:
+            nxt = 0
+            for _ in range(k):
+                at = s.find(d, nxt)
+                if at < 0:
+                    break
+                nxt = at + len(d)
+        else:
+            at = s.rfind(d)
+            for _ in range(1, -k):
+                if at < 0:
+                    break
+                at = s.rfind(d, 0, at)
+        if at < 0:
+            raise _Err(f"“{d}” not found")
+        out = s[:at] if fn == "TEXTBEFORE" else s[at + len(d):]
+        return out or None
+    if fn == "TEXTJOIN":
+        d = text(0)
+        skip = _bool(args[1]())
+        parts = []
+        for k in range(2, len(args)):
+            p = text(k)
+            if p is None and skip:
+                continue
+            parts.append(p or "")
+        return (d or "").join(parts) or None
+    if fn == "INT":
+        x = n(0)
+        return None if x is None else float(_math.floor(x))
+    if fn in ("TRUNC", "ROUNDDOWN", "ROUNDUP"):
+        x, d = n(0), opt(1, 0)
+        if x is None:
+            return None
+        f = _math.pow(10, int(d))
+        scaled = abs(x) * f
+        r = _math.ceil(scaled - 1e-9) if fn == "ROUNDUP" else _math.floor(scaled + 1e-9)
+        return _math.copysign(1.0, x) * r / f if x != 0 else 0.0
+    if fn == "MOD":
+        a, b = n(0), n(1)
+        if a is None or b is None:
+            return None
+        if b == 0:
+            raise _Err("divide by zero")
+        return a - b * _math.floor(a / b)
+    if fn == "SQRT":
+        x = n(0)
+        if x is None:
+            return None
+        if x < 0:
+            raise _Err("SQRT needs a number of 0 or more")
+        return _math.sqrt(x)
+    if fn == "POWER":
+        a, b = n(0), n(1)
+        if a is None or b is None:
+            return None
+        try:
+            r = _math.pow(a, b)
+        except (OverflowError, ValueError):
+            raise _Err("the power is out of range")
+        if not _math.isfinite(r):
+            raise _Err("the power is out of range")
+        return r
+    if fn == "LN":
+        x = n(0)
+        if x is None:
+            return None
+        if x <= 0:
+            raise _Err("LN needs a number above 0")
+        return _math.log(x)
+    if fn in ("CEILING", "FLOOR"):
+        x, m = n(0), opt(1, 1)
+        if x is None:
+            return None
+        if m == 0 or x == 0:
+            return 0.0
+        if x > 0 and m < 0:
+            raise _Err(f"{fn} needs a positive multiple for a positive number")
+        return _math.ceil(x / m - 1e-9) * m if fn == "CEILING" else _math.floor(x / m + 1e-9) * m
+    if fn in ("SUM", "AVERAGE"):
+        total, count = 0.0, 0
+        for k in range(len(args)):
+            x = n(k)
+            if x is not None:
+                total += x
+                count += 1
+        if fn == "SUM":
+            return total
+        if count == 0:
+            raise _Err("AVERAGE needs at least one number")
+        return total / count
+    if fn == "IFS":
+        k = 0
+        while k + 1 < len(args):
+            if _bool(args[k]()):
+                return args[k + 1]()
+            k += 2
+        raise _Err("IFS: no test is true")
+    if fn == "SWITCH":
+        k = 1
+        while k + 1 < len(args):
+            if _bin("=", args[0](), args[k](), ts[0], ts[k]) is True:
+                return args[k + 1]()
+            k += 2
+        if len(args) % 2 == 0:
+            return args[-1]()
+        raise _Err("SWITCH: no case matches")
+    if fn == "IFERROR":
+        try:
+            return args[0]()
+        except _Err:
+            return args[1]()
+    if fn in ("ISNUMBER", "ISTEXT"):
+        try:
+            v = args[0]()
+        except _Err:
+            return False
+        if fn == "ISNUMBER":
+            return isinstance(v, (int, float)) and not isinstance(v, bool)
+        return isinstance(v, str)
+    if fn in ("HOUR", "MINUTE", "SECOND"):
+        d = day(0)
+        if d is None:
+            return None
+        return float(d.hour if fn == "HOUR" else d.minute if fn == "MINUTE" else d.second)
+    if fn in ("EDATE", "EOMONTH"):
+        d, m = day(0), n(1)
+        if d is None or m is None:
+            return None
+        y, mo = divmod(d.year * 12 + (d.month - 1) + int(m), 12)
+        try:
+            last = _cal.monthrange(y, mo + 1)[1]
+            dd = last if fn == "EOMONTH" else min(d.day, last)
+            return _datetime(y, mo + 1, dd, tzinfo=_tz.utc).timestamp() * 1000
+        except (ValueError, OverflowError):
+            raise _Err("the date is out of range")
+    if fn == "WEEKNUM":
+        d, kind = day(0), opt(1, 1)
+        if d is None:
+            return None
+        if kind == 21:
+            return float(d.isocalendar()[1])
+        if kind not in (1, 2):
+            raise _Err("WEEKNUM type is 1, 2 or 21")
+        jan = _datetime(d.year, 1, 1, tzinfo=_tz.utc)
+        start = (((jan.weekday() + 1) % 7) - (0 if kind == 1 else 1) + 7) % 7
+        return float(((d.date() - jan.date()).days + start) // 7 + 1)
+    if fn == "DAYS":
+        e, b = day(0), day(1)
+        if e is None or b is None:
+            return None
+        return float((e.date() - b.date()).days)
+    if fn == "NOW":
+        return float(_math.floor(_datetime.now(_tz.utc).timestamp() * 1000))
     if fn == "ISBLANK":
         v = args[0]()
         return v is None or v == ""
@@ -360,6 +815,28 @@ def _window(fn, values, count):
         for k, x in enumerate(sorted((x for x in nums if x is not None), reverse=True)):
             first.setdefault(x, k + 1)
         return [None if x is None else float(first[x]) for x in nums]
+    if fn in ("COLUMNMEAN", "COLUMNMEDIAN", "COLUMNSTDEV"):
+        present = [x for x in nums if x is not None]
+        if not present:
+            return [None for _ in nums]
+        total = 0.0
+        for x in present:
+            total += x
+        mean = total / len(present)
+        if fn == "COLUMNMEAN":
+            result = mean
+        elif fn == "COLUMNMEDIAN":
+            srt = sorted(present)
+            mid = len(srt) // 2
+            result = srt[mid] if len(srt) % 2 == 1 else (srt[mid - 1] + srt[mid]) / 2
+        elif len(present) < 2:
+            result = _Err("COLUMNSTDEV needs at least two values")
+        else:
+            squares = 0.0
+            for x in present:
+                squares += (x - mean) * (x - mean)
+            result = _math.sqrt(squares / (len(present) - 1))
+        return [result for _ in nums]
     if fn == "BIN":
         present = [x for x in nums if x is not None]
         if count < 1:
