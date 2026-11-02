@@ -104,9 +104,12 @@ class ParseError extends Error {
 function tokenize(text: string): Tok[] {
   const out: Tok[] = [];
   let i = 0;
+  let skippedEquals = false;
   while (i < text.length) {
     const ch = text[i]!;
     if (/\s/.test(ch)) { i++; continue; }
+    // A formula typed the Excel way starts with =; it means nothing here, and skipping it keeps every position true.
+    if (ch === "=" && out.length === 0 && !skippedEquals) { skippedEquals = true; i++; continue; }
     const start = i;
     if (ch === "[") {
       let name = "";

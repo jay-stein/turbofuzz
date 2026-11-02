@@ -187,3 +187,14 @@ test("whole-column functions: row number, rank, percent of total, running sum, p
   const bad = compileFormula("RANK([Sales] * 2)", inf);
   assert.equal(bad.ok, false);
 });
+
+test("a leading = is ignored, as typed in Excel, and error positions still point at the typed text", () => {
+  assert.deepEqual(run("=[Price] * [Qty]"), run("[Price] * [Qty]"));
+  assert.deepEqual(run("  = UPPER([First])").raw, run("UPPER([First])").raw);
+  const bad = compileFormula("=[Price] / [Qtty]", info);
+  assert.equal(bad.ok, false);
+  if (!bad.ok) assert.equal("=[Price] / [Qtty]".slice(bad.at, bad.end), "[Qtty]", "the range still covers the typed column");
+  // Only the first = is dropped: a second one is not a formula.
+  assert.equal(compileFormula("==[Price]", info).ok, false);
+  assert.equal(compileFormula("=", info).ok, false);
+});

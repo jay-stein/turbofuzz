@@ -222,7 +222,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     blocks: [
       p("Click + after the last column, Add column in the bar under the Table, Insert column left/right in a header's menu, or type add column in the command bar. The window previews the first rows and says how many come out empty and why before anything changes. The column is one Recipe step: computed once, undone from the Recipe."),
       list(
-        "Formula: columns in brackets, [Price] * [Qty]; typing [ suggests columns. Functions as in Excel: IF, AND, OR, NOT, ISBLANK, COALESCE, IFBLANK, ROUND, ABS, MIN, MAX, CONCAT and &, UPPER, LOWER, TRIM, LEN, LEFT, RIGHT, MID, FIND, CONTAINS, YEAR, MONTH, DAY, WEEKDAY, DATEDIF, DATE, TODAY.",
+        "Formula: columns in brackets, [Price] * [Qty]; typing [ suggests columns and typing a function name suggests functions. A leading = is allowed and ignored, as in Excel. Functions as in Excel: IF, AND, OR, NOT, ISBLANK, COALESCE, IFBLANK, ROUND, ABS, MIN, MAX, CONCAT and &, UPPER, LOWER, TRIM, LEN, LEFT, RIGHT, MID, FIND, CONTAINS, YEAR, MONTH, DAY, WEEKDAY, DATEDIF, DATE, TODAY.",
         "Blank in, blank out: arithmetic with an empty cell gives an empty cell. A comparison with an empty cell is FALSE, except <>, which is TRUE. Text compares without regard to case.",
         "Dates: [End] - [Start] is days; [Date] + 30 is a date 30 days later.",
         "An error in a row (divide by zero, text that is not a number) leaves that cell empty; the preview counts them by reason.",

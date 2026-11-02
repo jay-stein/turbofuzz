@@ -618,7 +618,8 @@ export function openNewColumn(options: NewColumnOptions): Promise<NewColumnResul
     const add = (): void => {
       const text = currentFormula();
       if (text === null || text === "" || !last?.ok) return;
-      finish({ name: nameInput.value.trim() || "New column", at: Number(place.value), formula: text });
+      // The leading = of an Excel-style formula is not part of it.
+      finish({ name: nameInput.value.trim() || "New column", at: Number(place.value), formula: text.replace(/^\s*=\s*/, "") });
     };
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === "Escape") finish(null);

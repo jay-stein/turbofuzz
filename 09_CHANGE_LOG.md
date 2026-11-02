@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-02-13 — Formulas: a leading = is ignored
+
+- **Status:** Verified (unit)
+- **Related issue / decision:** owner: typing = first is instinctive.
+- **Scope:** the formula reader skips one leading = (so every error position still points at the typed text), and New column saves the formula without it. A second = is still an error.
+- **Files / components changed:** src/data/column-formula.ts, src/ui/new-column-dialog.ts, src/ui/help-content.ts; test/column-formula.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-12 — Time Series: calendar columns are not offered as the series
 
 - **Status:** Verified (unit, e2e, browser)
