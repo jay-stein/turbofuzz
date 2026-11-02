@@ -177,6 +177,9 @@ export interface ViewDef {
   pivotMeasure?: number;
   /** Pivot key ordering: label ascending (default) or first-seen source order. */
   pivotSort?: "label" | "source";
+  /** Row and column order set by dragging headers: label paths in the wanted sequence (see pivot-order.ts). */
+  pivotRowOrder?: string[];
+  pivotColOrder?: string[];
   /** Safe custom lambda values shown after the ordinary measures. */
   pivotLambdas?: PivotLambdaSpec[];
   /** Pivot CSV headers: flat for Excel, or pandas-style repeated multi-row. */

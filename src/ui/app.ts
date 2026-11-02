@@ -2683,7 +2683,7 @@ export class App {
   private pivotForSource(source: string): Promise<PivotMessage | null> {
     const def = this.viewsPanel?.pivotDef(source);
     if (def === undefined) return Promise.resolve(null);
-    return this.client.getPivot(def);
+    return this.client.getPivot(def).then((message) => this.viewsPanel?.orderPivot(source, message) ?? message);
   }
 
   private ensureFilters(): void {

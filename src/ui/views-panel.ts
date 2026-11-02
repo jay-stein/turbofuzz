@@ -18,6 +18,7 @@ import {
 } from "../data/aggregate.js";
 import { isNumericLikeType, TYPE_LABELS } from "../types.js";
 import { compilePivotLambda } from "../data/pivot-lambda.js";
+import { groupLabels, moveBlock, reorderGroups, reorderPivot } from "../data/pivot-order.js";
 import { downloadCsv } from "./chart-export.js";
 import { pivotCsvRows } from "./pivot-export.js";
 import { safeFileName } from "./chart-utils.js";
@@ -724,7 +725,21 @@ export function starterViews(
  * view is a definition, never a copied dataset — the worker recomputes it from
  * the current rows and the Table and Recipe are untouched.
  */
+/** How many trailing rows and columns of a pivot are margins, which stay last when dragging. */
+function pivotPins(def: ViewDef, pivot: PivotMessage): { rows: number; cols: number } {
+  return {
+    rows: def.margins === true && pivot.rowNames.length > 0 ? 1 : 0,
+    cols: def.margins === true && pivot.colNames.length > 0 ? 1 : 0,
+  };
+}
+
+function orderedPivot(def: ViewDef, pivot: PivotMessage): PivotMessage {
+  const pins = pivotPins(def, pivot);
+  return reorderPivot(pivot, def.pivotRowOrder, def.pivotColOrder, pins.rows, pins.cols);
+}
+
 export class ViewsPanel {
+  private readonly dockEl: HTMLElement;
   private readonly stackEl: HTMLElement;
   private readonly builderEl: HTMLElement;
   private readonly optionsEl: HTMLElement;
@@ -744,12 +759,17 @@ export class ViewsPanel {
   private fieldSearch = "";
   /** Index of a just-added view whose name field should open for editing. */
   private pendingRename: number | null = null;
+  /** The open card should be brought into view after the next render. */
+  private pendingScroll = false;
+  /** The header being dragged to reorder: its kind and level, and its position. */
+  private reorderDrag: { group: string; index: number } | null = null;
 
   constructor(
     private readonly root: HTMLElement,
     private readonly options: ViewsPanelOptions,
   ) {
     this.root.classList.add("views-panel");
+    this.dockEl = el("nav", { class: "views-dock", "aria-label": "Pivot views" });
     this.stackEl = el("div", { class: "views-stack" });
     this.builderEl = el("div", { class: "views-builder" });
     this.optionsEl = el("div", { class: "views-options" });
@@ -757,7 +777,7 @@ export class ViewsPanel {
     this.noteEl = el("div", { class: "views-note" });
     this.tableEl = el("div", { class: "views-table-host" });
     this.actionsEl = el("div", { class: "views-actions" });
-    this.root.append(this.stackEl);
+    this.root.append(this.dockEl, this.stackEl);
   }
 
   setColumns(metas: ColumnMeta[], rowCount: number): void {
@@ -875,7 +895,7 @@ export class ViewsPanel {
         .requestPivot(pivotDefFromView(def, pivots))
         .then((message) => {
           if (generation !== this.generation) return;
-          entry.pivotResult = message;
+          entry.pivotResult = orderedPivot(def, message);
           entry.loading = false;
           entry.stale = false;
           this.render();
@@ -930,7 +950,7 @@ export class ViewsPanel {
     ])
       .then(([message, rows, cols, total]) => {
         if (generation !== this.generation) return;
-        entry.result = message;
+        entry.result = message === undefined ? message : reorderGroups(message, def.pivotRowOrder);
         entry.margins =
           marginViews.length === 3
             ? { rows: rows ?? null, cols: cols ?? null, total: total ?? null }
@@ -1022,6 +1042,7 @@ export class ViewsPanel {
     const index = at === undefined ? this.views.length : Math.max(0, Math.min(at, this.views.length));
     this.views.splice(index, 0, entry);
     this.active = index;
+    this.pendingScroll = true;
     // A fresh view starts in rename mode so naming it is the obvious next step.
     this.pendingRename = index;
     this.options.onViewsChanged?.();
@@ -1079,13 +1100,66 @@ export class ViewsPanel {
     const entry = this.views[this.active];
     if (entry === undefined) return;
     this.transientNote = null;
+    const shape = (): string => JSON.stringify([entry.def.dimensions, this.pivotIndexes(entry.def)]);
+    const before = shape();
+    const rowOrder = entry.def.pivotRowOrder;
+    const colOrder = entry.def.pivotColOrder;
     mutate(entry.def);
+    // Different fields mean different labels, so a dragged order no longer applies (Transpose carries its own across).
+    if (shape() !== before && entry.def.pivotRowOrder === rowOrder && entry.def.pivotColOrder === colOrder) {
+      delete entry.def.pivotRowOrder;
+      delete entry.def.pivotColOrder;
+    }
     entry.stale = true;
     this.options.onViewsChanged?.();
     this.refresh();
   }
 
+  /** The strip docked at the top of the page: every view by name, and the way to add one. */
+  private renderDock(): void {
+    clear(this.dockEl);
+    const tabs = el("div", { class: "views-dock-tabs" });
+    this.views.forEach((entry, index) => {
+      const open = index === this.active;
+      const tab = el(
+        "button",
+        {
+          class: `views-dock-tab${open ? " active" : ""}`,
+          type: "button",
+          title: entry.def.name,
+          ...(open ? { "aria-current": "true" } : {}),
+        },
+        [entry.def.name],
+      ) as HTMLButtonElement;
+      tab.addEventListener("click", () => this.openView(index));
+      tabs.append(tab);
+    });
+    const add = el(
+      "button",
+      {
+        class: "primary small views-dock-add",
+        type: "button",
+        title: this.views.length >= MAX_VIEWS ? `${MAX_VIEWS} views maximum: remove one to add another` : "Add a view and go to it",
+      },
+      ["+ New view"],
+    ) as HTMLButtonElement;
+    add.disabled = this.views.length >= MAX_VIEWS;
+    add.addEventListener("click", () => this.addView());
+    this.dockEl.append(tabs, add);
+  }
+
+  /** Open a view from the dock, minimising the others, and go to it. */
+  private openView(index: number): void {
+    this.pendingScroll = true;
+    if (this.active === index) {
+      this.render();
+      return;
+    }
+    this.toggleCard(index);
+  }
+
   private render(): void {
+    this.renderDock();
     clear(this.stackEl);
     this.views.forEach((entry, index) => {
       const { card, name } = this.renderCard(entry, index, index === this.active);
@@ -1111,6 +1185,10 @@ export class ViewsPanel {
     this.renderNote(entry);
     this.renderTable(entry);
     this.renderActions();
+    if (this.pendingScroll) {
+      this.pendingScroll = false;
+      this.stackEl.children[this.active]?.scrollIntoView?.({ block: "start" });
+    }
   }
 
   /** One card: header (always visible) + editor/table/actions when expanded. */
@@ -1310,13 +1388,6 @@ export class ViewsPanel {
       this.stackEl.append(row);
       return;
     }
-    const add = el(
-      "button",
-      { class: "primary small", type: "button", title: "Add an aggregate view at the end" },
-      ["+ New view"],
-    ) as HTMLButtonElement;
-    add.addEventListener("click", () => this.addView());
-    row.append(add);
     if (this.cohortColumns() !== null) {
       const cohort = el(
         "button",
@@ -1329,8 +1400,8 @@ export class ViewsPanel {
       ) as HTMLButtonElement;
       cohort.addEventListener("click", () => this.addCohortView());
       row.append(cohort);
+      this.stackEl.append(row);
     }
-    this.stackEl.append(row);
   }
 
   /** Entity + date columns for a retention cohort view, when available. */
@@ -1619,9 +1690,16 @@ export class ViewsPanel {
         if ((entry.def.pivotSort ?? "label") === value) option.selected = true;
         orderSelect.append(option);
       }
+      if ((entry.def.pivotRowOrder?.length ?? 0) > 0 || (entry.def.pivotColOrder?.length ?? 0) > 0) {
+        const dragged = el("option", { value: "dragged" }, ["As dragged"]) as HTMLOptionElement;
+        dragged.selected = true;
+        orderSelect.append(dragged);
+      }
       orderSelect.addEventListener("change", () =>
         this.update((view) => {
           view.pivotSort = orderSelect.value === "source" ? "source" : "label";
+          delete view.pivotRowOrder;
+          delete view.pivotColOrder;
         }),
       );
       orderLabel.append("Order", orderSelect);
@@ -2455,6 +2533,9 @@ export class ViewsPanel {
       view.pivotColumns = nextColumns;
       view.pivot = nextColumns[0];
       view.fillValue = undefined;
+      const rowOrder = view.pivotRowOrder;
+      view.pivotRowOrder = view.pivotColOrder ?? [];
+      view.pivotColOrder = rowOrder ?? [];
     });
   }
   /** Swap a field with its neighbour inside the same well. */
@@ -3920,7 +4001,9 @@ export class ViewsPanel {
       headRow.append(this.sortableHeader(entry.def, `dim${d}`, name, "views-dim-head"));
     });
     result.measureNames.forEach((name, m) => {
-      headRow.append(this.sortableHeader(entry.def, `m${m}`, this.prettyMeasure(result, m), "views-num-head"));
+      const th = this.sortableHeader(entry.def, `m${m}`, this.prettyMeasure(result, m), "views-num-head");
+      this.wireReorder(th, "measure", m, "column", (from, after) => this.moveMeasure(from, m, after));
+      headRow.append(th);
     });
     head.append(headRow);
     table.append(head);
@@ -3954,6 +4037,7 @@ export class ViewsPanel {
       }
       result.dimensionNames.forEach((_, d) => {
         const cell = el("td", { class: "views-dim" }, [result.dimensions[d][row]]);
+        this.wireReorder(cell, `row-${d}`, row, "row", (from, after) => this.moveRows(entry, groupLabels(result), d, from, row, after));
         if (result.partials?.[row] === true && result.dimensionIsTime[d] === true) {
           const marker = el("span", { class: "views-partial", title: "Incomplete period — the data starts or ends inside it" }, [" ◔"]);
           cell.append(marker);
@@ -4137,33 +4221,35 @@ export class ViewsPanel {
       }
       if (multipleMeasures && depth < 2) {
         pivot.measures.forEach((_, index) => {
-          headRow.append(
-            el(
-              "th",
-              {
-                class: depth === 0 ? "views-value-head" : "views-col-head",
-                colspan: String(colCount),
-              },
-              [depth === 0 ? valueLabel(index) : aggLabel(index)],
-            ),
+          const th = el(
+            "th",
+            {
+              class: depth === 0 ? "views-value-head" : "views-col-head",
+              colspan: String(colCount),
+            },
+            [depth === 0 ? valueLabel(index) : aggLabel(index)],
           );
+          this.wireReorder(th, `measure-${depth}`, index, "column", (from, after) => this.moveMeasure(from, index, after));
+          headRow.append(th);
         });
         head.append(headRow);
         continue;
       }
       const colDepth = depth - measureLevels;
-      let start = 0;
-      while (start < colCount) {
-        const prefix = (pivot.colLabels[start] ?? []).slice(0, colDepth + 1);
-        let end = start + 1;
-        while (
-          end < colCount &&
-          prefix.every((part, index) => (pivot.colLabels[end]?.[index] ?? "") === part)
-        ) {
-          end++;
-        }
-        headRow.append(
-          el(
+      const pins = pivotPins(entry.def, pivot);
+      // Each measure has its own run of columns under its heading.
+      for (let repeat = 0; repeat < pivot.measures.length; repeat++) {
+        let start = 0;
+        while (start < colCount) {
+          const prefix = (pivot.colLabels[start] ?? []).slice(0, colDepth + 1);
+          let end = start + 1;
+          while (
+            end < colCount &&
+            prefix.every((part, index) => (pivot.colLabels[end]?.[index] ?? "") === part)
+          ) {
+            end++;
+          }
+          const th = el(
             "th",
             {
               class: colDepth === colHeaderDepth - 1 ? "views-num-head" : "views-col-head",
@@ -4171,9 +4257,17 @@ export class ViewsPanel {
               title: prefix.join(" / "),
             },
             [prefix[colDepth] || "All"],
-          ),
-        );
-        start = end;
+          );
+          const at = start;
+          if (pivot.colNames.length > 0 && at < colCount - pins.cols) {
+            this.wireReorder(th, `col-${colDepth}`, at, "column", (from, after) => {
+              const order = moveBlock(pivot.colLabels, colDepth, from, at, after, pins.cols);
+              if (order !== null) this.applyOrder(entry, { pivotColOrder: order });
+            });
+          }
+          headRow.append(th);
+          start = end;
+        }
       }
       head.append(headRow);
     }
@@ -4182,8 +4276,16 @@ export class ViewsPanel {
     for (let row = 0; row < rowCount; row++) {
       const tr = el("tr", { class: "views-row" });
       const parts = pivot.rowLabels[row] ?? [];
+      const pins = pivotPins(entry.def, pivot);
       for (let level = 0; level < rowHeaderCount; level++) {
-        tr.append(el("td", { class: "views-dim" }, [parts[level] || "All"]));
+        const cell = el("td", { class: "views-dim" }, [parts[level] || "All"]);
+        if (pivot.rowNames.length > 0 && row < rowCount - pins.rows) {
+          this.wireReorder(cell, `row-${level}`, row, "row", (from, after) => {
+            const order = moveBlock(pivot.rowLabels, level, from, row, after, pins.rows);
+            if (order !== null) this.applyOrder(entry, { pivotRowOrder: order });
+          });
+        }
+        tr.append(cell);
       }
       for (let measureIndex = 0; measureIndex < pivot.measures.length; measureIndex++) {
         const measure = pivot.measures[measureIndex]!;
@@ -4290,9 +4392,103 @@ export class ViewsPanel {
           key,
           dir: active && view.sort.dir === "desc" ? "asc" : "desc",
         };
+        delete view.pivotRowOrder;
       }),
     );
     th.append(button);
     return th;
+  }
+
+  /**
+   * Lets a header be dragged onto others of the same group. `drop` gets the dragged position and whether it landed on
+   * the far side of this header; a line shows where it will go.
+   */
+  private wireReorder(
+    cell: HTMLElement,
+    group: string,
+    index: number,
+    axis: "row" | "column",
+    drop: (from: number, after: boolean) => void,
+  ): void {
+    cell.draggable = true;
+    cell.classList.add("views-draggable");
+    if (cell.title === "") cell.title = axis === "row" ? "Drag up or down to reorder" : "Drag sideways to reorder";
+    const mark = (): HTMLElement => (axis === "row" ? (cell.parentElement ?? cell) : cell);
+    const unmark = (): void => mark().classList.remove("views-drop-before", "views-drop-after");
+    const landsAfter = (event: DragEvent): boolean => {
+      const box = cell.getBoundingClientRect();
+      return axis === "row" ? event.clientY > box.top + box.height / 2 : event.clientX > box.left + box.width / 2;
+    };
+    cell.addEventListener("dragstart", (event) => {
+      this.reorderDrag = { group, index };
+      if (event.dataTransfer !== null) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", cell.textContent ?? "");
+      }
+      event.stopPropagation();
+    });
+    cell.addEventListener("dragover", (event) => {
+      if (this.reorderDrag?.group !== group || this.reorderDrag.index === index) return;
+      event.preventDefault();
+      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "move";
+      const after = landsAfter(event);
+      mark().classList.toggle("views-drop-before", !after);
+      mark().classList.toggle("views-drop-after", after);
+    });
+    cell.addEventListener("dragleave", unmark);
+    cell.addEventListener("dragend", () => {
+      this.reorderDrag = null;
+      unmark();
+    });
+    cell.addEventListener("drop", (event) => {
+      const dragged = this.reorderDrag;
+      this.reorderDrag = null;
+      unmark();
+      if (dragged?.group !== group || dragged.index === index) return;
+      event.preventDefault();
+      event.stopPropagation();
+      drop(dragged.index, landsAfter(event));
+    });
+  }
+
+  /** A new row or column order: applied to the result already here, with no recompute. */
+  private applyOrder(entry: ViewEntry, order: { pivotRowOrder?: string[]; pivotColOrder?: string[] }): void {
+    Object.assign(entry.def, order);
+    if (entry.pivotResult !== null) entry.pivotResult = orderedPivot(entry.def, entry.pivotResult);
+    if (entry.result !== null) entry.result = reorderGroups(entry.result, entry.def.pivotRowOrder);
+    this.options.onViewsChanged?.();
+    this.render();
+  }
+
+  private moveRows(entry: ViewEntry, labels: string[][], level: number, from: number, to: number, after: boolean): void {
+    const order = moveBlock(labels, level, from, to, after);
+    if (order !== null) this.applyOrder(entry, { pivotRowOrder: order });
+  }
+
+  /** Dragging a value's heading moves that value among the others; the result is recomputed in the new order. */
+  private moveMeasure(from: number, to: number, after: boolean): void {
+    this.update((view) => {
+      if (from >= view.measures.length || to >= view.measures.length) return;
+      const [moved] = view.measures.splice(from, 1);
+      if (moved === undefined) return;
+      const target = to > from ? to - 1 : to;
+      const insertAt = after ? target + 1 : target;
+      view.measures.splice(insertAt, 0, moved);
+      // The sort and the pivot's shown measure stay on the value they named.
+      const follow = (index: number): number => {
+        if (index === from) return insertAt;
+        const without = index > from ? index - 1 : index;
+        return without >= insertAt ? without + 1 : without;
+      };
+      const sorted = /^m(\d+)$/.exec(view.sort.key);
+      if (sorted !== null) view.sort = { ...view.sort, key: `m${follow(Number(sorted[1]))}` };
+      if (view.pivotMeasure !== undefined) view.pivotMeasure = follow(view.pivotMeasure);
+    });
+  }
+
+  /** A Pivot View's matrix in the order set on the page, for what else reads it. */
+  orderPivot(id: string, pivot: PivotMessage): PivotMessage {
+    const def = this.viewDef(id);
+    return def === undefined ? pivot : orderedPivot(def, pivot);
   }
 }

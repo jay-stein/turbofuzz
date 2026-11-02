@@ -444,7 +444,7 @@ test("the cohort button builds a retention view and renders a pivot matrix", asy
   const pivot = host.querySelector(".views-pivot");
   assert.ok(pivot !== null, "the matrix renders");
   const header = pivot.querySelectorAll("thead th");
-  assert.equal(header.length, 8, "values + agg levels and nested period columns");
+  assert.equal(header.length, 11, "values + agg levels and the period columns under each value");
   assert.equal(header[1]?.textContent, "city");
   assert.equal(header[5]?.textContent, "P0");
   assert.match(host.querySelector(".views-pivot-note")?.textContent ?? "", /Spreading/);
@@ -993,3 +993,34 @@ test("date fields can add a multi-level Year and Month hierarchy", async () => {
     ["value", { time: "year" }, { time: "month" }],
   );
 });
+
+test("the dock names every view; + New view minimises the others and opens the new one", async () => {
+  const host = document.createElement("div");
+  const panel = new ViewsPanel(host as unknown as HTMLElement, {
+    requestAggregate: async (view) => aggregateFor(view),
+    onDrill: () => {},
+    onChart: () => {},
+    onCopyPandas: async () => {},
+  });
+  panel.setColumns(metas, 100);
+  await tick();
+  const tabs = (): HTMLElement[] => [...host.querySelectorAll(".views-dock-tab")] as unknown as HTMLElement[];
+  const cards = host.querySelectorAll(".views-card");
+  assert.equal(tabs().length, cards.length, "one name per view");
+  assert.ok(tabs()[0]!.classList.contains("active"));
+  const add = host.querySelector(".views-dock-add") as unknown as HTMLElement;
+  assert.equal(add.textContent, "+ New view");
+  add.click();
+  await tick();
+  assert.equal(tabs().length, cards.length + 1);
+  assert.ok(tabs().at(-1)!.classList.contains("active"), "the new view is the open one");
+  assert.equal(host.querySelectorAll(".views-card.expanded").length, 1, "the others are minimised");
+  assert.ok(host.querySelectorAll(".views-card")[cards.length]!.classList.contains("expanded"));
+  tabs()[0]!.click();
+  await tick();
+  assert.ok(host.querySelectorAll(".views-card")[0]!.classList.contains("expanded"));
+  tabs()[0]!.click();
+  await tick();
+  assert.ok(host.querySelectorAll(".views-card")[0]!.classList.contains("expanded"), "a name opens its view; it never closes it");
+});
+

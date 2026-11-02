@@ -3553,7 +3553,7 @@ mark {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 14px 18px;
+  padding: 0 14px 18px;
 }
 
 .views-stack {
@@ -3561,6 +3561,88 @@ mark {
   flex-direction: column;
   gap: 8px;
   margin-bottom: 8px;
+}
+
+.views-stack > .views-card {
+  scroll-margin-top: 64px;
+}
+
+/* Docked at the top of the page: every view by name, and + New view. */
+.views-dock {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  margin-bottom: 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.views-dock-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.views-dock-tab {
+  flex: 0 0 auto;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 10px;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.views-dock-tab:hover {
+  color: var(--text);
+  background: var(--panel);
+}
+
+.views-dock-tab.active {
+  color: var(--text);
+  background: var(--panel);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.views-dock-add {
+  flex: 0 0 auto;
+}
+
+.views-draggable {
+  cursor: grab;
+}
+
+.views-draggable:active {
+  cursor: grabbing;
+}
+
+th.views-drop-before {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+th.views-drop-after {
+  box-shadow: inset -3px 0 0 var(--accent);
+}
+
+tr.views-drop-before > td {
+  box-shadow: inset 0 3px 0 var(--accent);
+}
+
+tr.views-drop-after > td {
+  box-shadow: inset 0 -3px 0 var(--accent);
 }
 
 .views-card {
