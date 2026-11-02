@@ -23,6 +23,14 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-03-01 — Extract stats reports what was drawn, and says what was left out
+
+- **Status:** Accepted (owner asked for the feature; the design is the agent's, for the owner's review)
+- **Context:** Charting packages rarely hand over the numbers behind a picture: bin counts, box ranges, curve parameters.
+- **Decision:** One button on the chart, one window: facts about how it was drawn, then tables, with copy and CSV. Numbers are those the chart drew from, not a recalculation, so they cannot disagree with it. Anything estimated or partial says so: the mean from bins is labelled an estimate, the KDE is described as smoothed bin counts rather than a fit to rows, and rows outside an automatic histogram range are counted.
+- **Trade-offs:** The window shows 200 rows of a long table; Copy and Download have them all.
+- **Date / owner:** 2026-11-03 / owner
+
 ### DEC-2026-11-02-02 — The Chart page is one workspace; a click selects, and filtering is a second step
 
 - **Status:** Accepted (owner, 2026-11-02, after a UX review on real files)

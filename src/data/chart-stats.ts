@@ -8,7 +8,10 @@ export interface BoxGroupStats {
   max: number;
   whiskerLow: number;
   whiskerHigh: number;
+  /** Up to a cap of them, for drawing. */
   outliers: Float64Array;
+  /** How many there are in all. */
+  outlierCount: number;
   other: boolean;
 }
 
@@ -162,6 +165,7 @@ export function computeBoxStats(
       whiskerLow: low < sorted.length ? sorted[low] : sorted[0] ?? 0,
       whiskerHigh: high >= 0 ? sorted[high] : sorted[sorted.length - 1] ?? 0,
       outliers: sampleOutliers(sorted, low, high, cap),
+      outlierCount: low + (sorted.length - 1 - high),
       other: definition.other,
     };
   });

@@ -17,6 +17,9 @@ import type {
 } from "../data/chart-stats.js";
 import type { AnimationResult } from "../data/chart-frames.js";
 import { encodeGif, type GifFrameInput } from "../data/gif.js";
+import { binnedSummary, binRows, linearFit, num, seriesRows, summarise, type ChartExtract, type ExtractSection } from "../data/chart-extract.js";
+import { symlog as symlogValue, symlogInverse } from "../data/symlog.js";
+import { openChartStats } from "./chart-stats-dialog.js";
 import { contourLevels, marchingSquares, smoothGrid, smoothSeries } from "../data/kde.js";
 import { squarifyLayout } from "../data/treemap.js";
 import { dataRange, robustRange, DOT_SCALES, dotRadii, type DotScale } from "../data/dot-size.js";
@@ -1064,6 +1067,9 @@ function missingOrTokens(missing: number, tokens: number): boolean {
  * density grid from the worker and drop stale responses via a generation
  * counter.
  */
+/** Width of the Gaussian that smooths a histogram's bins into its KDE curve, in bins. */
+const KDE_SIGMA_BINS = 1.4;
+
 const MAP_COLOR_AGG_NAMES = { mean: "average", sum: "total", min: "lowest", max: "highest" } as const;
 
 export class ChartCard {
@@ -1156,6 +1162,7 @@ export class ChartCard {
   private readonly animateButton: HTMLButtonElement;
   private readonly focusButton: HTMLButtonElement;
   readonly pngButton: HTMLButtonElement;
+  private readonly statsButton: HTMLButtonElement;
   private kindButton: HTMLButtonElement | null = null;
   private undoButton: HTMLButtonElement | null = null;
   /** Earlier settings of this chart, newest last, as JSON. */
@@ -1850,6 +1857,12 @@ export class ChartCard {
     ) as HTMLButtonElement;
     this.pngButton.append(pngIcon(), el("span", {}, ["PNG"]));
     this.pngButton.addEventListener("click", () => this.options.onExport(this));
+    this.statsButton = el(
+      "button",
+      { class: "ghost small chart-stats-btn", type: "button", "aria-label": "Extract chart stats", title: "See and copy the numbers behind this chart: bin counts, box ranges, curve and line parameters" },
+      [el("span", { class: "chart-stats-long" }, ["Extract stats"]), el("span", { class: "chart-stats-short" }, ["Stats"])],
+    ) as HTMLButtonElement;
+    this.statsButton.addEventListener("click", () => this.openStats());
     this.animateButton = el(
       "button",
       {
@@ -1940,6 +1953,7 @@ export class ChartCard {
     head.append(
       el("span", { class: "grow" }),
       this.focusButton,
+      this.statsButton,
       this.pngButton,
       this.animateButton,
       more,
@@ -4337,6 +4351,231 @@ export class ChartCard {
   }
 
   /** Download the data already behind this chart, not a re-query of the table. */
+  private openStats(): void {
+    const extract = this.chartExtract();
+    if (extract.sections.length === 0) {
+      this.noteEl.textContent = "No chart numbers are ready yet: finish choosing the fields, or wait for the chart to draw.";
+      return;
+    }
+    openChartStats(extract, `${safeFileName(this.options.datasetName())}-${safeFileName(this.chartName())}-stats.csv`);
+  }
+
+  /** What Extract stats shows: how the chart was drawn, then the numbers it was drawn from. */
+  chartExtract(): ChartExtract {
+    const kind = this.config.kind;
+    const facts: [string, string][] = [];
+    const scope = this.scopeEl.textContent?.trim() ?? "";
+    if (scope !== "") facts.push(["Data", scope]);
+    const sections: ExtractSection[] = [];
+    const title = this.summaryEl.textContent?.trim() || this.chartName();
+    const done = (): ChartExtract => ({ title, facts, sections });
+    const table = (name: string, rows: string[][]): void => {
+      if (rows.length >= 2) sections.push({ title: name, rows });
+    };
+
+    if (this.animationResult !== null && this.animationResult.places === undefined) {
+      facts.push(["Animation", "These numbers cover all periods together, not the frame showing"]);
+    }
+    if (kind === "histogram" && this.groupResult === null) {
+      this.histogramExtract(facts, table);
+      return done();
+    }
+    if (kind === "map" && this.config.mapMode !== "heat") {
+      this.mapExtract(facts, table);
+      return done();
+    }
+    if (kind === "scatter" && this.seriesResult?.mode === "points") {
+      const points = this.seriesResult;
+      if (Number.isFinite(this.seriesCorrelation)) facts.push(["Pearson r, every row", this.seriesCorrelation.toFixed(4)]);
+      const fit = linearFit(points.x, points.y, points.shown);
+      if (fit !== null) {
+        const where = points.sampled ? `the ${points.shown.toLocaleString()} points sampled from ${points.total.toLocaleString()}` : `all ${points.shown.toLocaleString()} points`;
+        facts.push(["Straight line y = a + b·x, on " + where, `a = ${fit.intercept}, b = ${fit.slope}, R² = ${fit.r2.toFixed(4)}`]);
+      }
+      table("Points", this.chartCsvRows());
+      return done();
+    }
+    if (kind === "box") {
+      facts.push(["Box rule", "Tukey: the box is Q1 to Q3; whiskers reach the furthest values within 1.5 × IQR; beyond them are outliers. Every row counts; only the outliers drawn are thinned when there are many"]);
+      const result = this.boxResult;
+      if (result !== null) {
+        const rows = this.chartCsvRows();
+        const iqrAt = rows[0]!.indexOf("q3") + 1;
+        rows[0]!.splice(iqrAt, 0, "iqr");
+        result.groups.forEach((group, index) => rows[index + 1]?.splice(iqrAt, 0, num(group.q3 - group.q1)));
+        table("Ranges by group", rows);
+      }
+      return done();
+    }
+    const aggregate = this.aggregateResult();
+    if (aggregate !== null && aggregate.groupCount > 0 && new Set<ChartCardKind>(VALUE_AGGREGATE_KINDS).has(kind)) {
+      const labels = aggregate.dimensions[0] ?? [];
+      const summary: string[][] = [["measure", "groups", "total", "mean", "sd", "lowest", "lowest_at", "highest", "highest_at"]];
+      aggregate.measures.forEach((values, index) => {
+        const stats = summarise(values);
+        if (stats === null) return;
+        summary.push([
+          plainMeasureName(aggregate.measureNames[index] ?? "value"),
+          String(stats.n),
+          num(stats.sum),
+          num(stats.mean),
+          num(stats.sd),
+          num(stats.min),
+          labels[stats.minAt] ?? "",
+          num(stats.max),
+          labels[stats.maxAt] ?? "",
+        ]);
+      });
+      table("Summary", summary);
+      const series = aggregate.dimensions[1];
+      if (series !== undefined && aggregate.measures[0] !== undefined) {
+        table(`Each ${aggregate.dimensionNames[1] ?? "series"}`, seriesRows([aggregate.dimensionNames[1] ?? "series"], series, labels, aggregate.measures[0]));
+      }
+      table("Values", this.chartCsvRows());
+      return done();
+    }
+    table("Values", this.chartCsvRows());
+    return done();
+  }
+
+  /** The bins a histogram draws, with their edges: the automatic ones (on a log-like scale when skewed) or the chosen. */
+  private drawnBins(): { bins: readonly number[]; edges: number[]; overflow: number; symlog: boolean; below: number; above: number } | null {
+    const meta = this.meta(this.config.column);
+    const automatic = meta?.histogram;
+    if (meta === undefined || automatic === null || automatic === undefined) return null;
+    const custom = this.binResult;
+    const live = this.histograms[this.config.column] ?? automatic.bins;
+    const bins: readonly number[] = custom !== null ? custom.bins : this.withoutExcludedBins(live, automatic.min, automatic.max);
+    if (bins.length === 0) return null;
+    const min = this.chartXZoom?.min ?? this.config.binOptions?.min ?? automatic.min;
+    const max = this.chartXZoom?.max ?? this.config.binOptions?.max ?? automatic.max;
+    const symlog = custom === null && automatic.symlog;
+    const edges = Array.from({ length: bins.length + 1 }, (_, index) => {
+      const share = index / bins.length;
+      if (index === 0) return min;
+      if (index === bins.length) return max;
+      if (symlog) return symlogInverse(symlogValue(min) + share * (symlogValue(max) - symlogValue(min)));
+      return min + share * (max - min);
+    });
+    return {
+      bins,
+      edges,
+      overflow: custom?.overflow ?? 0,
+      symlog,
+      below: custom === null ? automatic.below : 0,
+      above: custom === null ? automatic.above : 0,
+    };
+  }
+
+  private histogramExtract(facts: [string, string][], table: (name: string, rows: string[][]) => void): void {
+    const drawn = this.drawnBins();
+    const meta = this.meta(this.config.column);
+    if (drawn === null || meta === undefined) return;
+    const { bins, edges, overflow, symlog, below, above } = drawn;
+    const dated = meta.type === "date" || meta.type === "datetime";
+    const format = dated ? (value: number): string => (Number.isFinite(value) ? new Date(value).toISOString() : "") : num;
+    const fact = dated ? format : formatChartNumber;
+    facts.push(["Bins", `${bins.length}, from ${fact(edges[0]!)} to ${fact(edges[bins.length]!)}`]);
+    facts.push(["Bin width", symlog ? "even on a log-like scale, so the edges below are not evenly spaced" : dated ? `${num((edges[1]! - edges[0]!) / 86_400_000)} days` : num(edges[1]! - edges[0]!)]);
+    if (overflow > 0) facts.push(["Above the last bin", overflow.toLocaleString()]);
+    if (below + above > 0) {
+      facts.push(["Left out of the bins", `${below.toLocaleString()} below the first, ${above.toLocaleString()} above the last: the automatic range is the 1st to 99th percentile, so a few extremes cannot flatten the rest. Set a range in the settings to include them`]);
+    }
+    const summary = binnedSummary(bins, edges);
+    if (summary !== null) {
+      facts.push(["Rows in the bins", summary.n.toLocaleString()]);
+      if (!dated) {
+        facts.push(["Mean, estimated from the bins", formatChartNumber(summary.mean)]);
+        facts.push(["Standard deviation, estimated from the bins", formatChartNumber(summary.sd)]);
+      }
+    }
+    if (this.binMedian !== null && !dated) facts.push(["Median", num(this.binMedian)]);
+    const kde = this.config.kde && bins.length >= 4;
+    if (kde) {
+      facts.push(["KDE curve", `Gaussian kernel, width ${KDE_SIGMA_BINS} bins${symlog ? "" : ` = ${num(KDE_SIGMA_BINS * (edges[1]! - edges[0]!))} in the column's units`}. It smooths the bin counts rather than being fitted to each row, and is on the count scale`]);
+    }
+    table("Bins", binRows(bins, edges, kde ? smoothSeries(bins, KDE_SIGMA_BINS) : null, format, overflow));
+  }
+
+  private mapExtract(facts: [string, string][], table: (name: string, rows: string[][]) => void): void {
+    const colorMeta = this.meta(this.config.colorColumn);
+    const agg = this.config.mapColorAgg ?? "mean";
+    const places = (this.config.mapMode ?? DEFAULT_MAP_MODE) === "places";
+    const colorName = colorMeta === undefined ? "colour" : places ? `${MAP_COLOR_AGG_NAMES[agg]}_${colorMeta.name}` : colorMeta.name;
+    const sizeName = this.config.sizeColumn >= 0 ? `${this.config.bubbleAgg ?? "count"}_${this.meta(this.config.sizeColumn)?.name ?? "size"}` : "";
+    const anim = this.animationResult?.places;
+    const frames = this.animationResult?.frames ?? [];
+    const lonName = this.meta(this.config.x)?.name ?? "longitude";
+    const latName = this.meta(this.config.y)?.name ?? "latitude";
+    if (anim !== undefined && this.placeFrame() !== null) {
+      facts.push(["Places", `${anim.shown.toLocaleString()} of ${anim.totalPlaces.toLocaleString()}${anim.shown < anim.totalPlaces ? " (the busiest)" : ""}, over ${frames.length.toLocaleString()} periods`]);
+      if (anim.colorRange !== null) facts.push(["Colour scale", `${formatChartNumber(this.config.colorMin ?? anim.colorRange.min)} to ${formatChartNumber(this.config.colorMax ?? anim.colorRange.max)}, the same in every period; the automatic range is the middle 90% of place values`]);
+      if (anim.sizeRange !== null) facts.push(["Size scale", `${num(this.config.dotValueMin ?? anim.sizeRange.min)} to ${num(this.config.dotValueMax ?? anim.sizeRange.max)}`]);
+      const perFrame: string[][] = [["period", "places", "rows", ...(anim.color === null ? [] : [`${colorName}_overall`, `lowest_place`, `highest_place`])]];
+      const every: string[][] = [["period", lonName, latName, "rows", ...(sizeName === "" ? [] : [sizeName]), ...(anim.color === null ? [] : [colorName])]];
+      frames.forEach((frame, index) => {
+        const offset = index * anim.shown;
+        let rows = 0;
+        let active = 0;
+        let weighted = 0;
+        let weight = 0;
+        const values: number[] = [];
+        for (let place = 0; place < anim.shown; place++) {
+          const count = anim.counts[offset + place]!;
+          if (count === 0) continue;
+          rows += count;
+          active++;
+          const color = anim.color?.[offset + place] ?? Number.NaN;
+          if (Number.isFinite(color)) {
+            values.push(color);
+            weighted += color * count;
+            weight += count;
+          }
+          every.push([
+            frame.label,
+            num(anim.x[place]),
+            num(anim.y[place]),
+            String(count),
+            ...(sizeName === "" ? [] : [num(anim.size[offset + place])]),
+            ...(anim.color === null ? [] : [num(color)]),
+          ]);
+        }
+        const stats = summarise(values);
+        // An average of places weighted by their rows is the plain average of the rows; other roll-ups add or spread.
+        const overall = agg === "mean" ? (weight > 0 ? weighted / weight : Number.NaN) : agg === "sum" ? (stats?.sum ?? Number.NaN) : agg === "min" ? (stats?.min ?? Number.NaN) : (stats?.max ?? Number.NaN);
+        perFrame.push([
+          frame.label,
+          String(active),
+          String(rows),
+          ...(anim.color === null ? [] : [num(overall), num(stats?.min), num(stats?.max)]),
+        ]);
+      });
+      table("Each period", perFrame);
+      table("Every place in every period", every);
+      return;
+    }
+    const result = this.seriesResult;
+    if (result === null || result.mode !== "points") return;
+    facts.push([places ? "Places" : "Points", `${result.shown.toLocaleString()} from ${result.total.toLocaleString()} rows${result.sampled ? (places ? " (the busiest)" : " (a sample)") : ""}`]);
+    if (result.colorValues !== null && result.places === true) {
+      const range = robustRange(result.colorValues, result.shown);
+      if (range !== null) facts.push(["Colour scale", `${formatChartNumber(this.config.colorMin ?? range.min)} to ${formatChartNumber(this.config.colorMax ?? range.max)}; the automatic range is the middle 90% of place values`]);
+    }
+    const rows: string[][] = [[lonName, latName, ...(result.counts ? ["rows"] : []), ...(result.size === null ? [] : [sizeName || "size"]), ...(colorMeta === undefined ? [] : [colorName])]];
+    for (let index = 0; index < result.shown; index++) {
+      rows.push([
+        num(result.x[index]),
+        num(result.y[index]),
+        ...(result.counts ? [String(result.counts[index] ?? 0)] : []),
+        ...(result.size === null ? [] : [num(result.size[index])]),
+        ...(colorMeta === undefined
+          ? []
+          : [result.colorValues !== null ? num(result.colorValues[index]) : result.colorCodes !== null ? (this.seriesLabels?.[result.colorCodes[index] ?? -1] ?? "") : ""]),
+      ]);
+    }
+    table(places ? "Places" : "Points", rows);
+  }
+
   private exportCsv(): void {
     const rows = this.chartCsvRows();
     if (rows.length < 2) {
@@ -4427,7 +4666,10 @@ export class ChartCard {
       }
       const bins = this.config.kind === "line" ? this.lineBinResult : this.binResult;
       const range = this.binRangeFor(this.config.kind);
-      if (bins === null || range === null) return [];
+      if (bins === null || range === null) {
+        const drawn = this.config.kind === "histogram" ? this.drawnBins() : null;
+        return drawn === null ? [] : binRows(drawn.bins, drawn.edges, null).map((row) => row.slice(0, 3));
+      }
       const step = (range.max - range.min) / Math.max(1, bins.bins.length);
       const rows: string[][] = [["bin_start", "bin_end", "count"]];
       for (let bin = 0; bin < bins.bins.length; bin++) {
@@ -4515,7 +4757,7 @@ export class ChartCard {
           number(group.max),
           number(group.whiskerLow),
           number(group.whiskerHigh),
-          String(group.outliers.length),
+          String(group.outlierCount),
         ]),
       ];
     }
@@ -10980,7 +11222,7 @@ export class ChartCard {
     }
 
     if (kind === "histogram" && this.config.kde && bins.length >= 4) {
-      const smooth = smoothSeries(bins, 1.4);
+      const smooth = smoothSeries(bins, KDE_SIGMA_BINS);
       ctx.beginPath();
       for (let i = 0; i < smooth.length; i++) {
         const x = frame.left + (i + 0.5) * slotW;

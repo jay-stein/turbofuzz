@@ -133,6 +133,7 @@ function boxStats(): BoxStatsMessage {
           whiskerLow: 1,
           whiskerHigh: 3,
           outliers: new Float64Array(0),
+          outlierCount: 0,
           other: false,
         },
         {
@@ -146,6 +147,7 @@ function boxStats(): BoxStatsMessage {
           whiskerLow: 4,
           whiskerHigh: 5,
           outliers: new Float64Array([9]),
+          outlierCount: 0,
           other: false,
         },
       ],
@@ -4004,6 +4006,27 @@ test("adding a chart opens its own tab instead of pushing the current chart down
   assert.equal(grid.classList.contains("hidden"), false);
   assert.equal(host.querySelector(".charts-tab.draft"), null);
   panel.dispose();
+  void window;
+});
+
+test("Extract stats gives a histogram's bins from the edges drawn, with the KDE's width and the same counts", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, { ...stubCardOptions(), requestBins: () => new Promise(() => {}) }, { kind: "histogram", column: 0, kde: true });
+  card.setColumns([meta({ name: "amount", type: "number", stats: { ...meta().stats, distinct: 900 }, histogram: { bins: [2, 6, 2, 1, 1], min: 0, max: 50, symlog: false, below: 3, above: 1, p05: 0, p95: 50 } })]);
+  card.refresh();
+  await tick();
+  const extract = card.chartExtract();
+  const bins = extract.sections.find((section) => section.title === "Bins");
+  assert.ok(bins !== undefined);
+  assert.deepEqual(bins.rows[0], ["bin_start", "bin_end", "count", "share", "cumulative_share", "kde_curve"]);
+  assert.equal(Number(bins.rows.at(-1)![4]), 1, "the running share ends at everything");
+  const kde = extract.facts.find(([label]) => label === "KDE curve");
+  assert.match(kde?.[1] ?? "", /Gaussian kernel, width 1\.4 bins = 14 in the column's units/);
+  assert.deepEqual(bins.rows[2]!.slice(0, 3), ["10", "20", "6"]);
+  assert.match(extract.facts.find(([label]) => label === "Left out of the bins")?.[1] ?? "", /^3 below the first, 1 above the last/);
+  card.dispose();
   void window;
 });
 

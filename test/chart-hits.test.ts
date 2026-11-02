@@ -143,6 +143,7 @@ test("box regions carry the five-number summary and no filter", () => {
     whiskerLow: 1,
     whiskerHigh: 9,
     outliers: new Float64Array(0),
+    outlierCount: 0,
     other: false,
   };
   const regions = boxHitRegions(geom, [group]);

@@ -4,6 +4,42 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-03-04 — Extract stats on every chart
+
+- **Status:** Verified (unit, e2e, browser on Citi Bike trip data)
+- **Related issue / decision:** owner: most charting packages miss the chance to hand over the numbers behind a chart; DEC-2026-11-03-01.
+- **What changed:** an Extract stats button on the chart opens a window with the facts of how the chart was drawn and its tables, with Copy table, Copy all (tab-separated, for a spreadsheet) and Download CSV. Histogram: bin edges, counts, shares, the KDE's kernel and width, what the automatic range left out. Box: quartiles, IQR, whiskers, the full outlier count. Scatter: r and the straight line. Value charts: a summary per measure and per series. Map: each period's overall figure, and every place in every period. Other charts: their values.
+- **Also fixed:** Download data (CSV) of an automatic histogram came back empty; a box plot's outlier_count stopped at the drawing cap.
+- **Not included:** per-group KDE on grouped histograms; confidence intervals.
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
+### CHG-2026-11-03-03 — Map: colour places by a number, and animate them
+
+- **Status:** Verified (unit, e2e, browser on Citi Bike trip data, numbers checked against the raw CSV)
+- **Related issue / decision:** owner: colour Citi Bike dots blue to red by average trip duration, day by day.
+- **What changed:** one dot per place can be coloured by the average, total, lowest or highest of a number; a new Blue to red palette is the default for it; the automatic colour scale spans the middle 90% of place values. Maps now animate through time with one colour and size scale across all frames. Maps were not animatable before; the owner remembered otherwise.
+- **Not included:** a category colour on one dot per place; animating the heat grid or one dot per row.
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
+### CHG-2026-11-03-02 — Pivot View: Filters pane, dock, drag to reorder
+
+- **Status:** Verified (unit, e2e)
+- **Related issue / decision:** owner request.
+- **What changed:** opening the Pivot View minimises the Filters pane and leaving restores it; a dock at the top names every view with + New view, which goes straight to the new one; row, column and value headers drag to reorder, kept by label through recomputes, with margins last; CSV export and charts of the view follow; the Order box shows As dragged. Fixed: with several values, column headers covered one run of cells instead of one per value.
+- **Not included:** keyboard reordering; reordering Index field levels by dragging their headers (the Rows and Columns wells do that); charts built from a rows-only view keep their own sort.
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
+### CHG-2026-11-03-01 — Data Quality: two buttons removed
+
+- **Status:** Verified (unit, e2e)
+- **Related issue / decision:** owner request.
+- **What changed:** Download JSON and Copy message for data supplier are gone, with the code behind them. Copy report and Download HTML report stay; the provenance block is in both.
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
 ### CHG-2026-11-02-20 — Chart page quick fixes and one workspace
 
 - **Status:** Verified (unit, e2e, browser on avocado, salary survey and Citi Bike data)
