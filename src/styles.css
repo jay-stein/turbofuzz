@@ -9938,12 +9938,6 @@ body:has(.modal-overlay) .hint-callout {
   color: var(--text);
 }
 
-.chart-card button.chart-remove:hover {
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
-  color: var(--danger);
-}
-
-.chart-card button.chart-width-btn.active,
 .chart-card button.chart-png-btn.active,
 .chart-card button.chart-animate-btn.active {
   border-color: var(--accent);
@@ -9952,11 +9946,9 @@ body:has(.modal-overlay) .hint-callout {
 }
 
 .chart-card button.chart-focus-btn:focus-visible,
-.chart-card button.chart-width-btn:focus-visible,
 .chart-card button.chart-png-btn:focus-visible,
 .chart-card button.chart-animate-btn:focus-visible,
-.chart-card button.chart-more:focus-visible,
-.chart-card button.chart-remove:focus-visible {
+.chart-card button.chart-more:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
@@ -9967,24 +9959,17 @@ body:has(.modal-overlay) .hint-callout {
 }
 
 .chart-card button.chart-focus-btn > span,
-.chart-card button.chart-width-btn > span,
 .chart-card button.chart-png-btn > span,
 .chart-card button.chart-animate-btn > span {
   display: none;
 }
 
 .chart-card button.chart-focus-btn svg,
-.chart-card button.chart-width-btn svg,
 .chart-card button.chart-png-btn svg,
 .chart-card button.chart-animate-btn svg {
   width: 16px;
   height: 16px;
   flex: none;
-}
-
-/* The remove button joins the row (last) instead of floating over it. */
-.chart-card button.chart-remove {
-  order: 99;
 }
 
 .chart-card .chart-card-head {
@@ -10102,8 +10087,7 @@ body:has(.modal-overlay) .hint-callout {
   .chart-card button.chart-focus-btn,
     .chart-card button.chart-png-btn,
   .chart-card button.chart-animate-btn,
-  .chart-card button.chart-more,
-  .chart-card button.chart-remove {
+  .chart-card button.chart-more {
     width: 40px;
     min-width: 40px;
     height: 40px;
@@ -11790,7 +11774,7 @@ button.qp-tile:hover {
 .map-empty { color: var(--text-dim); border: 1px dashed var(--border); border-radius: var(--radius); padding: 8px 12px; }
 .map-empty p { margin: 0; }
 .map-card.chart-card { max-width: none; }
-.map-page .chart-remove, .map-page .chart-kind { display: none; }
+.map-page .chart-kind { display: none; }
 .map-markers summary { cursor: pointer; display: flex; align-items: baseline; gap: 10px; }
 .map-mk-title { font-weight: 650; }
 .map-mk-count { color: var(--text-dim); font-variant-numeric: tabular-nums; }

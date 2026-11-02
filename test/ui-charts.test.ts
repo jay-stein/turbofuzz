@@ -3874,3 +3874,37 @@ test("a tab is named after what its chart shows, and two different charts never 
   ]);
   panel.dispose();
 });
+
+test("switching chart type keeps the fields that still fit", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "scatter", x: 2, y: 3 });
+  card.setColumns([
+    meta({ name: "when", type: "date", stats: { ...meta().stats, min: 0, max: 1e11 } }),
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+    meta({ name: "volume", type: "number", stats: { ...meta().stats, distinct: 900 } }),
+    meta({ name: "price", type: "number", stats: { ...meta().stats, distinct: 900 } }),
+  ]);
+  await tick();
+  const select = host.querySelector("select.chart-kind") as HTMLSelectElement;
+  const to = (kind: string): ReturnType<ChartCard["getConfig"]> => {
+    select.value = kind;
+    (select as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(new window.Event("change"));
+    return card.getConfig();
+  };
+  const bars = to("barplot");
+  assert.equal(bars.valueColumn, 3, "the measure on Y becomes the Value");
+  assert.equal(bars.column, 1, "and the bars are laid out by a category");
+  const line = to("line");
+  assert.equal(line.column, 0);
+  assert.equal(line.valueColumn, 3, "the Value carries over to a time series");
+  const back = to("scatter");
+  assert.equal(back.y, 3, "back on a scatter the measure is on Y");
+  assert.equal(back.x, 0, "and X takes the date it was charted over");
+  const histogram = to("histogram");
+  assert.equal(histogram.column, 3, "a histogram plots the measure itself");
+  assert.equal(histogram.valueColumn, -1);
+  card.dispose();
+});
+

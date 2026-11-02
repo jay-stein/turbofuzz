@@ -2900,9 +2900,10 @@ export class ChartCard {
       this.bubbleSettings,
       this.dotSettings,
       this.exclusionBar,
+      // Above the plot: naming the lines must never take a scroll.
+      this.legendEl,
       canvasWrap,
       this.animationBar,
-      this.legendEl,
       this.deepDiveEl,
       this.noteEl,
     ]);
@@ -4442,8 +4443,29 @@ export class ChartCard {
     ).slice(0, 8);
   }
 
+  /**
+   * The fields a chart was using, so a new chart type starts from them: its measures (numeric
+   * columns plotted as values), then the date and category columns it was split or laid out by.
+   */
+  private fieldsInUse(): { measures: number[]; dimensions: number[] } {
+    const c = this.config;
+    const pair = isPairKind(c.kind);
+    const used = pair ? [c.y, c.x] : [c.valueColumn ?? -1, c.column, c.groupColumn];
+    const measures: number[] = [];
+    const dimensions: number[] = [];
+    for (const index of used) {
+      const meta = this.meta(index);
+      if (meta === undefined) continue;
+      const measure = isNumericType(meta.type) && (pair || index === c.valueColumn || !isGroupable(meta));
+      const list = measure ? measures : dimensions;
+      if (!list.includes(index)) list.push(index);
+    }
+    return { measures, dimensions };
+  }
+
   private setKind(kind: ChartCardKind): void {
     if (kind === this.config.kind) return;
+    const { measures, dimensions } = this.fieldsInUse();
     this.config.kind = kind;
     this.plotView = null;
     this.mapView = null;
@@ -4453,6 +4475,12 @@ export class ChartCard {
     if (isPairKind(kind)) {
       const xAllowed = this.allowedIndexes((meta) => this.allowsX(meta));
       const yAllowed = this.allowedIndexes((meta) => this.allowsY(meta));
+      // Keep what was charted: a measure goes on Y, and X takes the next field that fits.
+      const fromField = [...dimensions, ...measures];
+      const y = measures.find((index) => yAllowed.includes(index));
+      if (y !== undefined) this.config.y = y;
+      const x = fromField.find((index) => index !== this.config.y && xAllowed.includes(index));
+      if (x !== undefined) this.config.x = x;
       if (!xAllowed.includes(this.config.x)) this.config.x = xAllowed[0] ?? -1;
       if (!yAllowed.includes(this.config.y) || (this.config.y === this.config.x && yAllowed.length > 1)) {
         this.config.y = yAllowed.find((index) => index !== this.config.x) ?? yAllowed[0] ?? -1;
@@ -4467,7 +4495,18 @@ export class ChartCard {
       }
     } else {
       const primary = this.allowedIndexes((meta) => this.allowsPrimary(meta));
+      const takesValue = VALUE_AGGREGATE_KINDS.includes(kind) || kind === "treemap";
+      // A chart of one column plots the measure itself; one with a Value keeps the measure there
+      // and is laid out by the date or category it had.
+      const lead = kind === "histogram" ? [...measures, ...dimensions] : [...dimensions, ...measures];
+      const column = lead.find((index) => primary.includes(index));
+      if (column !== undefined) this.config.column = column;
       if (!primary.includes(this.config.column)) this.config.column = primary[0] ?? -1;
+      // A count plot counts rows; every other chart with a Value keeps the measure.
+      if (takesValue && kind !== "histogram" && kind !== "bar") {
+        const value = measures.find((index) => index !== this.config.column);
+        if (value !== undefined && (this.config.valueColumn ?? -1) < 0) this.config.valueColumn = value;
+      } else if (kind === "histogram") this.config.valueColumn = -1;
       if (kind === "histogram") this.applyColumnDefaults();
     }
     this.generation++;
@@ -4476,6 +4515,7 @@ export class ChartCard {
     this.syncPlaceholder();
     this.renderControls();
     this.refreshBins();
+    this.refreshValue();
     this.refreshSeries();
     this.refreshTreemap();
     this.refreshText();
@@ -7981,6 +8021,9 @@ export class ChartCard {
   /** Wheel zoom on the map, anchored at the pointer; clamped to the world. */
   private onWheel(event: WheelEvent): void {
     const kind = this.config.kind;
+    // The wheel scrolls the page unless the person asks to zoom: a chart fills the screen, and
+    // trapping the wheel there hides whatever is below it. A map keeps plain wheel zoom, as maps do.
+    if (kind !== "map" && !event.ctrlKey && !event.metaKey) return;
     if (
       (kind !== "map" &&
         kind !== "scatter" &&
@@ -10509,7 +10552,7 @@ export class ChartCard {
       const outside = automatic.below + automatic.above;
       if (outside > 0) notes.push(`${outside.toLocaleString()} values beyond the p1-p99 chart range`);
     }
-    notes.push("scroll to zoom · drag to pan · double-click resets");
+    notes.push("Ctrl+scroll to zoom · drag to pan · double-click resets");
     this.noteEl.textContent = notes.join(" · ");
   }
 
@@ -11693,7 +11736,7 @@ export class ChartCard {
     this.noteEl.textContent = `${bars.length} bars covering ${shown.toLocaleString()} values — top ${Math.min(
       this.config.topN,
       bars.length,
-    )}${this.config.groupOther && bars.some((bar) => bar.other === true) ? " + Other" : ""}${windowNote} · scroll to zoom · drag to pan · double-click resets`;
+    )}${this.config.groupOther && bars.some((bar) => bar.other === true) ? " + Other" : ""}${windowNote} · Ctrl+scroll to zoom · drag to pan · double-click resets`;
   }
 
   private drawScatterLike(ctx: CanvasRenderingContext2D, frame: Frame): void {
@@ -12016,7 +12059,7 @@ export class ChartCard {
     if (colorText !== null) notes.push(colorText);
     const sizeMeta = this.meta(this.config.sizeColumn);
     if (sizes !== null && sizeMeta !== undefined) notes.push(`size: ${sizeMeta.name}`);
-    notes.push("scroll to zoom · drag to pan · double-click resets");
+    notes.push("Ctrl+scroll to zoom · drag to pan · double-click resets");
     if (this.seriesMs > 0) notes.push(`${Math.round(this.seriesMs)} ms`);
     this.noteEl.textContent = notes.join(" · ");
     // Too many points to draw one by one: offer the fancier view instead of choosing it for the person.
@@ -12096,7 +12139,7 @@ export class ChartCard {
       style === "heat" ? "heat" : style === "contours" ? "5 contour levels" : "heat + contour lines",
     );
     if (result.outside > 0) notes.push(`${result.outside.toLocaleString()} outside p1–p99`);
-    notes.push("scroll to zoom · drag to pan · double-click resets");
+    notes.push("Ctrl+scroll to zoom · drag to pan · double-click resets");
     if (this.seriesMs > 0) notes.push(`${Math.round(this.seriesMs)} ms`);
     this.noteEl.textContent = notes.join(" · ");
   }
