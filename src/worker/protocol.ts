@@ -401,7 +401,7 @@ export type GetChartSeriesRequest = {
   sizeColumn?: number;
   mode: SeriesMode;
   /** Map cards: one dot per distinct place, valued by the row count or this aggregate of the size column. */
-  places?: { agg: "count" | "sum" | "mean" | "min" | "max" };
+  places?: { agg: "count" | "sum" | "mean" | "min" | "max"; colorAgg?: "sum" | "mean" | "min" | "max" };
   limit?: number;
   /** false keeps the full data range; the map card sets this. */
   clip?: boolean;
@@ -986,7 +986,7 @@ export interface GridCountsMessage {
   ms: number;
 }
 
-export type AnimationChart = "bar" | "bubble" | "histogram";
+export type AnimationChart = "bar" | "bubble" | "histogram" | "places";
 
 export type GetAnimationRequest = {
   type: "getAnimation";
@@ -1006,6 +1006,8 @@ export type GetAnimationRequest = {
   measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
   /** bubble: optional category column splitting the bubbles into sets. */
   groupColumn?: number;
+  /** places: what colours the dots, per place and frame. */
+  colorMeasure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
   chartFilter?: { column: number; code: number };
   /** Chart-scoped exclusions applied after the filter above. */
   chartExclude?: ChartExclusion[];

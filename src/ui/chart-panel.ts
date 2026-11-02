@@ -131,13 +131,14 @@ export interface ChartsPanelOptions {
   requestAnimation?(input: {
     timeColumn: number;
     grain: TimeGrain;
-    chart: "bar" | "bubble" | "histogram";
+    chart: "bar" | "bubble" | "histogram" | "places";
     column: number;
     yColumn: number;
     bins?: number;
     topN?: number;
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
     groupColumn?: number;
+    colorMeasure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
     chartFilter?: { column: number; code: number };
     chartExclude?: ChartExclusion[];
     respectFilters?: boolean;

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { groupPlaces } from "../src/data/chart-series.js";
+import { robustRange } from "../src/data/dot-size.js";
 
 const ids = (n: number): Uint32Array => Uint32Array.from({ length: n }, (_, i) => i);
 
@@ -65,3 +66,24 @@ test("nothing plottable gives an empty result with a usable extent", () => {
   assert.equal(r.shown, 0);
   assert.ok(r.xMax > r.xMin && r.yMax > r.yMin);
 });
+
+test("a colour column gives each place its average, or the chosen roll-up, and ignores blanks", () => {
+  const lon = Float64Array.of(1, 1, 1, 2);
+  const lat = Float64Array.of(1, 1, 1, 2);
+  const duration = Float64Array.of(10, 30, Number.NaN, Number.NaN);
+  const mean = groupPlaces(lon, lat, ids(4), null, "count", 100, { values: duration, agg: "mean" });
+  assert.equal(mean.mode === "points" && mean.colorValues![0], 20);
+  assert.equal(mean.mode === "points" && Number.isNaN(mean.colorValues![1]), true);
+  const max = groupPlaces(lon, lat, ids(4), null, "count", 100, { values: duration, agg: "max" });
+  assert.equal(max.mode === "points" && max.colorValues![0], 30);
+  const none = groupPlaces(lon, lat, ids(4), null, "count", 100);
+  assert.equal(none.mode === "points" && none.colorValues, null);
+});
+
+test("the default colour range ignores the tails, so one wild value cannot wash out the rest", () => {
+  const values = Float64Array.from({ length: 100 }, (_, i) => (i === 99 ? 585_281 : 500 + i));
+  assert.deepEqual(robustRange(values, 100), { min: 505, max: 594 });
+  assert.deepEqual(robustRange(Float64Array.of(5, 5, 5, 5, 9), 5), { min: 5, max: 9 }, "no span in the middle: the full range");
+  assert.equal(robustRange(Float64Array.of(Number.NaN), 1), null);
+});
+

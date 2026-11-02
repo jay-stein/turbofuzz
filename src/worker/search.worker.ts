@@ -51,7 +51,7 @@ import {
   computeGridCounts,
   type GridMeasure,
 } from "../data/chart-stats.js";
-import { computeBarFrames, computeBubbleFrames, computeHistogramFrames } from "../data/chart-frames.js";
+import { computeBarFrames, computeBubbleFrames, computeHistogramFrames, computePlaceFrames } from "../data/chart-frames.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import {
@@ -1556,7 +1556,15 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
   const xNumbers = xColumn.numbers();
   const yNumbers = yColumn.numbers();
   const result = message.places
-    ? groupPlaces(xNumbers, yNumbers, ids, size, message.places.agg, message.limit ?? 20_000)
+    ? groupPlaces(
+      xNumbers,
+      yNumbers,
+      ids,
+      size,
+      message.places.agg,
+      message.limit ?? 20_000,
+      colorValues === null ? undefined : { values: colorValues, agg: message.places.colorAgg ?? "mean" },
+    )
     : computeSeries(
       xNumbers,
       yNumbers,
@@ -2496,6 +2504,30 @@ function handleGetAnimation(message: GetAnimationRequest): void {
     post(
       { type: "animation", requestId: message.requestId, result, ms: performance.now() - started },
       result.hist === undefined ? [] : [result.hist.counts.buffer],
+    );
+    return;
+  }
+  if (message.chart === "places") {
+    const x = dataset.columns[message.column];
+    const y = dataset.columns[message.yColumn];
+    if (x === undefined || y === undefined) throw new Error("Unknown column");
+    const colorColumn = message.colorMeasure === undefined ? undefined : dataset.columns[message.colorMeasure.column];
+    const result = computePlaceFrames(
+      times,
+      x.numbers(),
+      y.numbers(),
+      ids,
+      message.grain,
+      message.bins ?? 20_000,
+      gridMeasure(dataset, message.measure),
+      colorColumn === undefined || message.colorMeasure === undefined ? undefined : { values: colorColumn.numbers(), agg: message.colorMeasure.agg },
+    );
+    const places = result.places!;
+    const transfer: Transferable[] = [places.x.buffer, places.y.buffer, places.counts.buffer, places.size.buffer];
+    if (places.color !== null) transfer.push(places.color.buffer);
+    post(
+      { type: "animation", requestId: message.requestId, result, ms: performance.now() - started },
+      transfer,
     );
     return;
   }

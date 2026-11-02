@@ -57,6 +57,8 @@ export const PALETTES: readonly PaletteDef[] = [
   { name: "flare", kind: "sequential", colors: ["#f7e6c4", "#f3b987", "#ea8a6a", "#e05a59", "#c93a60", "#a52b66", "#7a2064", "#4f1856", "#2c113f"] },
   { name: "crest", kind: "sequential", colors: ["#e6f0d9", "#c8e0b5", "#a5cd96", "#7bb77f", "#559d72", "#3a7f68", "#2b6158", "#234447", "#1c2e36"] },
 
+  // Cold to hot with no pale middle, so a mid value still shows on the land of a map.
+  { name: "Blue to red", kind: "diverging", colors: ["#1f4e9c", "#4a7fc1", "#8fa9d6", "#c49ab8", "#e8796b", "#d73027", "#a50f15"] },
   { name: "BrBG", kind: "diverging", colors: ["#543005", "#8c510a", "#bf812d", "#dfc27d", "#f6e8c3", "#f5f5f5", "#c7eae5", "#80cdc1", "#35978f", "#01665e", "#003c30"] },
   { name: "PiYG", kind: "diverging", colors: ["#8e0152", "#c51b7d", "#de77ae", "#f1b6da", "#fde0ef", "#f7f7f7", "#e6f5d0", "#b8e186", "#7fbc41", "#4d9221", "#276419"] },
   { name: "PRGn", kind: "diverging", colors: ["#40004b", "#762a83", "#9970ab", "#c2a5cf", "#e7d4e8", "#f7f7f7", "#d9f0d3", "#a6dba0", "#5aae61", "#1b7837", "#00441b"] },

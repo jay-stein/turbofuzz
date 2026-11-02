@@ -3080,14 +3080,14 @@ test("the Dots row sizes places between a smallest and a largest radius, on a ch
   card.dispose();
 });
 
-test("the Dots row shows what applies: sized or one radius, none on a heat grid, and colour waits for rows", async () => {
+test("the Dots row shows what applies: sized or one radius, none on a heat grid, and how a place gets its colour", async () => {
   const { card, host } = await placesCard();
   const dots = host.querySelector(".chart-dot-settings") as HTMLElement;
   const colour = host.querySelector('select[aria-label="Colour column"]') as HTMLSelectElement;
   const field = (label: string): HTMLElement | null => host.querySelector(`[aria-label="${label}"]`);
   assert.equal(dots.classList.contains("hidden"), false);
   assert.equal(field("Largest dot radius (pixels)")?.closest(".chart-dot-to")?.classList.contains("hidden"), false);
-  assert.equal(colour.disabled, true, "a place holds many rows, so colour waits for one dot per row");
+  assert.equal(colour.disabled, false, "a place's rows combine into one colour");
 
   card.applyConfig({ mapMode: "points" });
   await tick();

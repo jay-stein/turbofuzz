@@ -83,6 +83,7 @@ function padded(min: number, max: number): [number, number] {
 }
 
 export type PlaceAgg = "count" | "sum" | "mean" | "min" | "max";
+export type PlaceMeasureAgg = Exclude<PlaceAgg, "count">;
 
 /**
  * Groups rows that sit at the same place (to about a metre: five decimals of a degree) into one point each. The place's value is its
@@ -96,9 +97,11 @@ export function groupPlaces(
   size: Float64Array | null,
   agg: PlaceAgg,
   limit: number,
+  color?: { values: Float64Array; agg: PlaceMeasureAgg },
 ): SeriesPoints {
   const index = new Map<number, number>();
   const px: number[] = [], py: number[] = [], rows: number[] = [], sum: number[] = [], seen: number[] = [], lo: number[] = [], hi: number[] = [];
+  const colorSum: number[] = [], colorSeen: number[] = [], colorLo: number[] = [], colorHi: number[] = [];
   let total = 0, outside = 0;
   for (let i = 0; i < ids.length; i++) {
     const id = ids[i]!;
@@ -112,6 +115,7 @@ export function groupPlaces(
       at = px.length;
       index.set(key, at);
       px.push(xv); py.push(yv); rows.push(0); sum.push(0); seen.push(0); lo.push(Infinity); hi.push(-Infinity);
+      colorSum.push(0); colorSeen.push(0); colorLo.push(Infinity); colorHi.push(-Infinity);
     }
     rows[at]!++;
     total++;
@@ -119,12 +123,17 @@ export function groupPlaces(
       const sv = size[id]!;
       if (Number.isFinite(sv)) { sum[at]! += sv; seen[at]!++; if (sv < lo[at]!) lo[at] = sv; if (sv > hi[at]!) hi[at] = sv; }
     }
+    if (color !== undefined) {
+      const cv = color.values[id]!;
+      if (Number.isFinite(cv)) { colorSum[at]! += cv; colorSeen[at]!++; if (cv < colorLo[at]!) colorLo[at] = cv; if (cv > colorHi[at]!) colorHi[at] = cv; }
+    }
   }
   let order = px.map((_, k) => k);
   const sampled = order.length > limit;
   if (sampled) order = order.sort((a, b) => rows[b]! - rows[a]!).slice(0, Math.max(1, limit));
   const n = order.length;
   const ox = new Float64Array(n), oy = new Float64Array(n), osize = new Float64Array(n), ocount = new Float64Array(n);
+  const ocolor = color === undefined ? null : new Float64Array(n);
   let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
   order.forEach((k, j) => {
     ox[j] = px[k]!; oy[j] = py[k]!; ocount[j] = rows[k]!;
@@ -132,13 +141,19 @@ export function groupPlaces(
       : agg === "sum" ? sum[k]!
         : agg === "mean" ? (seen[k]! > 0 ? sum[k]! / seen[k]! : Number.NaN)
           : agg === "min" ? (seen[k]! > 0 ? lo[k]! : Number.NaN) : (seen[k]! > 0 ? hi[k]! : Number.NaN);
+    if (ocolor !== null && color !== undefined) {
+      ocolor[j] = colorSeen[k]! === 0 ? Number.NaN
+        : color.agg === "sum" ? colorSum[k]!
+          : color.agg === "mean" ? colorSum[k]! / colorSeen[k]!
+            : color.agg === "min" ? colorLo[k]! : colorHi[k]!;
+    }
     if (ox[j]! < xMin) xMin = ox[j]!; if (ox[j]! > xMax) xMax = ox[j]!;
     if (oy[j]! < yMin) yMin = oy[j]!; if (oy[j]! > yMax) yMax = oy[j]!;
   });
   if (n === 0) { xMin = 0; xMax = 1; yMin = 0; yMax = 1; }
   [xMin, xMax] = padded(xMin, xMax);
   [yMin, yMax] = padded(yMin, yMax);
-  return { mode: "points", x: ox, y: oy, colorValues: null, colorCodes: null, size: osize, counts: ocount, places: true, shown: n, total, outside, xMin, xMax, yMin, yMax, sampled };
+  return { mode: "points", x: ox, y: oy, colorValues: ocolor, colorCodes: null, size: osize, counts: ocount, places: true, shown: n, total, outside, xMin, xMax, yMin, yMax, sampled };
 }
 
 /**

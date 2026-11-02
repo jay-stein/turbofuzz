@@ -4,6 +4,7 @@ import { computeGridCounts } from "../src/data/chart-stats.js";
 import {
   computeBarFrames,
   computeBubbleFrames,
+  computePlaceFrames,
   computeHistogramFrames,
 } from "../src/data/chart-frames.js";
 
@@ -180,3 +181,35 @@ test("grouped grid counts build one grid per category over shared bounds", () =>
   assert.equal(result.counts.reduce((a, b) => a + b, 0), 3, "the combined grid covers every row");
   assert.equal(result.maxCount, 2);
 });
+
+test("place frames hold each place's measures per period, on one scale across periods", () => {
+  const day = 86_400_000;
+  // Two stations over two days; station A has one row on day 2 only of a far larger duration.
+  const times = Float64Array.of(0, 0, 0, day, day);
+  const x = Float64Array.of(1, 1, 2, 1, 2);
+  const y = Float64Array.of(5, 5, 6, 5, 6);
+  const duration = Float64Array.of(10, 30, 100, 40, Number.NaN);
+  const result = computePlaceFrames(times, x, y, allIds(5), "day", 100, undefined, { values: duration, agg: "mean" });
+  const places = result.places!;
+  assert.equal(result.frames.length, 2);
+  assert.equal(places.shown, 2);
+  assert.deepEqual([...places.x], [1, 2]);
+  assert.deepEqual([...places.counts], [2, 1, 1, 1]);
+  assert.deepEqual([...places.size], [2, 1, 1, 1], "with no size column a dot is sized by its rows");
+  assert.deepEqual([...places.color!].slice(0, 3), [20, 100, 40]);
+  assert.ok(Number.isNaN(places.color![3]), "rows with no value leave the colour empty");
+  assert.deepEqual(places.sizeRange, { min: 1, max: 2 });
+  assert.ok(places.colorRange !== null);
+});
+
+test("place frames keep the busiest places when frames times places would be too many", () => {
+  const n = 40;
+  const times = Float64Array.from({ length: n }, () => 0);
+  const x = Float64Array.from({ length: n }, (_, i) => (i < 30 ? 1 : i - 28));
+  const y = new Float64Array(n);
+  const result = computePlaceFrames(times, x, y, allIds(n), "day", 2);
+  assert.equal(result.places!.shown, 2);
+  assert.equal(result.places!.totalPlaces, 11);
+  assert.equal(result.places!.x[0], 1, "the busiest stays");
+});
+

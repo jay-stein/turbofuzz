@@ -1,5 +1,6 @@
 import { timeBucket, timeLabel, type TimeGrain } from "./aggregate.js";
 import type { GridMeasure } from "./chart-stats.js";
+import { robustRange } from "./dot-size.js";
 
 export interface AnimationFrame {
   time: number;
@@ -39,6 +40,23 @@ export interface HistogramAnimation {
   counts: Uint32Array;
 }
 
+export interface PlaceAnimation {
+  /** The places, the same for every frame so a dot stays where it is. */
+  x: Float64Array;
+  y: Float64Array;
+  shown: number;
+  /** How many places the rows hold; when above `shown`, the busiest are kept. */
+  totalPlaces: number;
+  /** frames × places, row-major per frame. A place with no rows in a frame has no dot in it. */
+  counts: Uint32Array;
+  /** The size and colour values, same layout; size is the row count when no column sizes the dots. */
+  size: Float64Array;
+  color: Float64Array | null;
+  /** One scale across every frame, so a colour or a size means the same thing all the way through. */
+  sizeRange: { min: number; max: number } | null;
+  colorRange: { min: number; max: number } | null;
+}
+
 export interface AnimationResult {
   frames: AnimationFrame[];
   maxCount: number;
@@ -47,6 +65,144 @@ export interface AnimationResult {
   bar?: BarAnimation;
   bubble?: BubbleAnimation;
   hist?: HistogramAnimation;
+  places?: PlaceAnimation;
+}
+
+export type FrameAgg = "sum" | "mean" | "min" | "max";
+
+/** The frame × place matrix of one measure, in a single pass over the rows that count. */
+class PlaceMeasure {
+  private readonly sum: Float64Array;
+  private readonly seen: Uint32Array;
+  private readonly lo: Float64Array;
+  private readonly hi: Float64Array;
+
+  constructor(private readonly values: Float64Array, private readonly agg: FrameAgg, cells: number) {
+    this.sum = new Float64Array(cells);
+    this.seen = new Uint32Array(cells);
+    this.lo = new Float64Array(cells).fill(Number.POSITIVE_INFINITY);
+    this.hi = new Float64Array(cells).fill(Number.NEGATIVE_INFINITY);
+  }
+
+  add(cell: number, row: number): void {
+    const value = this.values[row]!;
+    if (!Number.isFinite(value)) return;
+    this.sum[cell]! += value;
+    this.seen[cell]!++;
+    if (value < this.lo[cell]!) this.lo[cell] = value;
+    if (value > this.hi[cell]!) this.hi[cell] = value;
+  }
+
+  finish(): Float64Array {
+    const out = new Float64Array(this.sum.length);
+    for (let cell = 0; cell < out.length; cell++) {
+      const seen = this.seen[cell]!;
+      out[cell] = seen === 0 ? Number.NaN
+        : this.agg === "sum" ? this.sum[cell]!
+          : this.agg === "mean" ? this.sum[cell]! / seen
+            : this.agg === "min" ? this.lo[cell]! : this.hi[cell]!;
+    }
+    return out;
+  }
+}
+
+/** frames × places is held in memory several times over, so it has a ceiling: beyond it the busiest places are kept. */
+const MAX_PLACE_CELLS = 2_000_000;
+
+/**
+ * Per-time-bucket values at each place, for the map: places as `groupPlaces` finds them (to about a metre), with a
+ * size and a colour measure for every frame, and one scale for each across all frames.
+ */
+export function computePlaceFrames(
+  times: Float64Array,
+  x: Float64Array,
+  y: Float64Array,
+  ids: Uint32Array,
+  grain: TimeGrain,
+  limit: number,
+  size?: GridMeasure,
+  color?: { values: Float64Array; agg: FrameAgg },
+): AnimationResult {
+  const { frames, index, missing } = frameTimes(times, ids, grain);
+  const places = new Map<number, number>();
+  const px: number[] = [];
+  const py: number[] = [];
+  const rows: number[] = [];
+  const placeOf = new Int32Array(ids.length).fill(-1);
+  let total = 0;
+  for (let position = 0; position < ids.length; position++) {
+    const row = ids[position]!;
+    const xv = x[row]!;
+    const yv = y[row]!;
+    if (!Number.isFinite(xv) || !Number.isFinite(yv) || !Number.isFinite(times[row]!)) continue;
+    const kx = Math.round(xv * 1e5);
+    const ky = Math.round(yv * 1e5);
+    if (Math.abs(kx) > 2e7 || Math.abs(ky) > 1e7) continue;
+    const key = (kx + 2e7) * 4e7 + (ky + 1e7);
+    let at = places.get(key);
+    if (at === undefined) {
+      at = px.length;
+      places.set(key, at);
+      px.push(xv);
+      py.push(yv);
+      rows.push(0);
+    }
+    rows[at]!++;
+    placeOf[position] = at;
+    total++;
+  }
+  const frameCount = Math.max(1, frames.length);
+  const keep = Math.max(1, Math.min(limit, Math.floor(MAX_PLACE_CELLS / frameCount)));
+  let order = px.map((_, place) => place);
+  if (order.length > keep) order = order.sort((a, b) => rows[b]! - rows[a]!).slice(0, keep);
+  const slot = new Int32Array(px.length).fill(-1);
+  order.forEach((place, position) => {
+    slot[place] = position;
+  });
+  const shown = order.length;
+  const cells = frames.length * shown;
+  const counts = new Uint32Array(cells);
+  const sizeMeasure = size === undefined ? null : new PlaceMeasure(size.values, size.agg, cells);
+  const colorMeasure = color === undefined ? null : new PlaceMeasure(color.values, color.agg, cells);
+  for (let position = 0; position < ids.length; position++) {
+    const place = placeOf[position]!;
+    if (place < 0) continue;
+    const at = slot[place]!;
+    if (at < 0) continue;
+    const row = ids[position]!;
+    const cell = index.get(timeBucket(times[row]!, grain))! * shown + at;
+    counts[cell]!++;
+    sizeMeasure?.add(cell, row);
+    colorMeasure?.add(cell, row);
+  }
+  const sizes = sizeMeasure?.finish() ?? Float64Array.from(counts, (count) => (count === 0 ? Number.NaN : count));
+  const colors = colorMeasure?.finish() ?? null;
+  let lo = Number.POSITIVE_INFINITY;
+  let hi = Number.NEGATIVE_INFINITY;
+  for (const value of sizes) {
+    if (!Number.isFinite(value)) continue;
+    if (value < lo) lo = value;
+    if (value > hi) hi = value;
+  }
+  let maxCount = 0;
+  for (const count of counts) if (count > maxCount) maxCount = count;
+  return {
+    frames,
+    maxCount,
+    total,
+    missing,
+    places: {
+      x: Float64Array.from(order, (place) => px[place]!),
+      y: Float64Array.from(order, (place) => py[place]!),
+      shown,
+      totalPlaces: px.length,
+      counts,
+      size: sizes,
+      color: colors,
+      sizeRange: lo === Number.POSITIVE_INFINITY ? null : { min: lo, max: hi },
+      colorRange: colors === null ? null : robustRange(colors, colors.length),
+    },
+  };
 }
 
 function frameTimes(

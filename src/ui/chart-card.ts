@@ -19,7 +19,7 @@ import type { AnimationResult } from "../data/chart-frames.js";
 import { encodeGif, type GifFrameInput } from "../data/gif.js";
 import { contourLevels, marchingSquares, smoothGrid, smoothSeries } from "../data/kde.js";
 import { squarifyLayout } from "../data/treemap.js";
-import { dataRange, DOT_SCALES, dotRadii, type DotScale } from "../data/dot-size.js";
+import { dataRange, robustRange, DOT_SCALES, dotRadii, type DotScale } from "../data/dot-size.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import {
   CUSTOM_PALETTE,
@@ -414,13 +414,14 @@ export interface ChartCardOptions {
   requestAnimation?(input: {
     timeColumn: number;
     grain: TimeGrain;
-    chart: "bar" | "bubble" | "histogram";
+    chart: "bar" | "bubble" | "histogram" | "places";
     column: number;
     yColumn: number;
     bins?: number;
     topN?: number;
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
     groupColumn?: number;
+    colorMeasure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
     chartFilter?: { column: number; code: number };
     chartExclude?: ChartExclusion[];
     respectFilters?: boolean;
@@ -599,6 +600,8 @@ export interface ChartCardConfig {
   dotValueMin?: number | null;
   dotValueMax?: number | null;
   dotScale?: DotScale;
+  /** One dot per place: how the rows at a place combine into its colour. */
+  mapColorAgg?: "sum" | "mean" | "min" | "max";
   dotOpacity?: number;
   /** Card width in the grid: normal cell or the whole row. */
   span?: "auto" | "full";
@@ -1061,6 +1064,8 @@ function missingOrTokens(missing: number, tokens: number): boolean {
  * density grid from the worker and drop stale responses via a generation
  * counter.
  */
+const MAP_COLOR_AGG_NAMES = { mean: "average", sum: "total", min: "lowest", max: "highest" } as const;
+
 export class ChartCard {
   readonly root: HTMLElement;
 
@@ -1180,6 +1185,8 @@ export class ChartCard {
   private readonly dotValuesWrap: HTMLElement;
   private readonly dotScaleSelect: HTMLSelectElement;
   private readonly dotScaleWrap: HTMLElement;
+  private readonly mapColorAggSelect: HTMLSelectElement;
+  private readonly mapColorAggWrap: HTMLElement;
   private readonly dotOpacityInput: HTMLInputElement;
   private readonly dotOpacityOut: HTMLElement;
   private readonly resetViewButton: HTMLButtonElement;
@@ -1733,6 +1740,9 @@ export class ChartCard {
       this.config.colorColumn = Number(this.colorSelect.value);
       this.generation++;
       this.refreshSeries();
+      this.refreshAnimation();
+      this.renderControls();
+      this.syncPalette();
       this.render();
     });
     this.colorWrap = this.tagged("Colour", this.colorSelect).wrap;
@@ -2165,9 +2175,13 @@ export class ChartCard {
     this.mapModeSelect.addEventListener("change", () => {
       this.config.mapMode = this.mapModeSelect.value as "points" | "heat" | "places";
       this.gridField.classList.toggle("hidden", this.config.mapMode !== "heat");
+      // A place holds many rows: a number can be averaged across them, a category cannot.
+      const colorMeta = this.meta(this.config.colorColumn);
+      if (this.config.mapMode === "places" && colorMeta !== undefined && !isNumericType(colorMeta.type)) this.config.colorColumn = -1;
       this.generation++;
       this.refreshSeries();
       this.refreshMapGrid();
+      this.refreshAnimation();
       this.syncSourceControls();
       this.renderControls();
       this.render();
@@ -2338,11 +2352,24 @@ export class ChartCard {
     ]);
     this.dotValuesWrap = dotField("Values", [this.dotValueMinInput, "to", this.dotValueMaxInput], "The value range the radii span: values outside it get the smallest or largest dot, so one extreme cannot shrink the rest");
     this.dotScaleWrap = dotField("Scale", [this.dotScaleSelect], "How value becomes radius");
+    this.mapColorAggSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Colour of a place" }) as HTMLSelectElement;
+    for (const [value, label] of [["mean", "Average"], ["sum", "Total"], ["min", "Lowest"], ["max", "Highest"]] as const) {
+      this.mapColorAggSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+    }
+    this.mapColorAggSelect.addEventListener("change", () => {
+      this.config.mapColorAgg = this.mapColorAggSelect.value as "sum" | "mean" | "min" | "max";
+      this.generation++;
+      this.refreshSeries();
+      this.refreshAnimation();
+      this.render();
+    });
+    this.mapColorAggWrap = dotField("Colour is the", [this.mapColorAggSelect], "How the rows at a place combine into its colour");
     this.dotSettings = el("div", { class: "chart-bubble-settings chart-dot-settings hidden" }, [
       el("span", { class: "chart-animate-title" }, ["Dots"]),
       dotRadiusField,
       this.dotValuesWrap,
       this.dotScaleWrap,
+      this.mapColorAggWrap,
       dotField("Opacity", [this.dotOpacityInput, this.dotOpacityOut], "How see-through the dots are"),
     ]);
     const dotNumberValue = (input: HTMLInputElement): number | null => {
@@ -5258,7 +5285,8 @@ export class ChartCard {
       kind === "bubble" ||
       kind === "histogram" ||
       kind === "treemap" ||
-      kind === "density";
+      kind === "density" ||
+      this.animatesPlaces();
     const hasDates = this.columns.some((meta) => this.isDateLike(meta));
     this.animateButton.classList.toggle("hidden", !animatable);
     this.animateButton.disabled = !hasDates;
@@ -5526,8 +5554,16 @@ export class ChartCard {
       });
   }
 
+  /** Blue for low and red for high on a map coloured by a number, unless a palette was chosen. */
+  private rampPaletteName(): string {
+    const chosen = this.config.palette ?? DEFAULT_PALETTE;
+    const meta = this.meta(this.config.colorColumn);
+    // A list of separate colours cannot show low to high, so it is no choice for this.
+    return !isRampPalette(chosen) && this.config.kind === "map" && meta !== undefined && isNumericType(meta.type) ? "Blue to red" : chosen;
+  }
+
   private syncPalette(): void {
-    this.paletteSelect.value = this.config.palette ?? DEFAULT_PALETTE;
+    this.paletteSelect.value = this.rampPaletteName();
     this.paletteReverseInput.checked = this.config.paletteReversed === true;
     clear(this.palettePreview);
     for (const color of this.paletteColors(10)) {
@@ -5542,7 +5578,7 @@ export class ChartCard {
       !isCategoryType(colorMeta.type) &&
       colorMeta.type !== "boolean";
     const ramp =
-      isRampPalette(this.config.palette ?? DEFAULT_PALETTE) ||
+      isRampPalette(this.rampPaletteName()) ||
       this.config.kind === "pivotHeatmap" ||
       numericColor;
     this.colorDomainRow.classList.toggle("hidden", !ramp);
@@ -6094,7 +6130,7 @@ export class ChartCard {
     const generation = ++this.generation;
     const mode: SeriesMode =
       this.config.kind === "density" ? "density" : map ? "points" : this.config.mode === "auto" ? "points" : this.config.mode;
-    const places = map && this.config.mapMode === "places" ? { agg: this.config.bubbleAgg ?? "count" } : undefined;
+    const places = map && this.config.mapMode === "places" ? { agg: this.config.bubbleAgg ?? "count", colorAgg: this.config.mapColorAgg ?? "mean" } : undefined;
     void this.options
       .requestSeries({
         ...(places ? { places } : {}),
@@ -6656,7 +6692,8 @@ export class ChartCard {
       kind === "bubble" ||
       kind === "histogram" ||
       kind === "treemap" ||
-      kind === "density";
+      kind === "density" ||
+      this.animatesPlaces();
     const request = this.options.requestAnimation;
     if (
       !animatable ||
@@ -6672,7 +6709,7 @@ export class ChartCard {
       this.animationResult = null;
       return;
     }
-    const isPair = kind === "bubble" || kind === "density";
+    const isPair = kind === "bubble" || kind === "density" || kind === "map";
     const isCategory = kind === "bar" || kind === "treemap";
     if (isPair) {
       const x = this.meta(this.config.x);
@@ -6701,7 +6738,10 @@ export class ChartCard {
     }
     const generation = ++this.generation;
     this.animationFrame = 0;
-    const chart: "bar" | "bubble" | "histogram" = isPair
+    const colorMeta = this.meta(this.config.colorColumn);
+    const chart: "bar" | "bubble" | "histogram" | "places" = kind === "map"
+      ? "places"
+      : isPair
       ? "bubble"
       : isCategory
         ? "bar"
@@ -6716,12 +6756,16 @@ export class ChartCard {
       chart,
       column: isPair ? this.config.x : this.config.column,
       yColumn: isPair ? this.config.y : -1,
-      bins: chart === "histogram" ? histogramBins : (this.config.bubbleBins ?? 40),
+      bins: chart === "histogram" ? histogramBins : chart === "places" ? POINT_LIMIT : (this.config.bubbleBins ?? 40),
       topN: this.config.topN,
       measure: isPair ? this.bubbleMeasure() : undefined,
       // Density is a single aggregate heat map, so grouping is ignored there;
       // bubble charts carry the group dimension.
       groupColumn: kind === "bubble" ? this.bubbleGroupColumn() : undefined,
+      colorMeasure:
+        chart === "places" && colorMeta !== undefined && isNumericType(colorMeta.type)
+          ? { column: this.config.colorColumn, agg: this.config.mapColorAgg ?? "mean" }
+          : undefined,
       ...this.chartScope(),
     })
       .then((message) => {
@@ -6793,6 +6837,47 @@ export class ChartCard {
     this.focusButton.classList.remove("active");
     this.focusButton.title = "Expand this chart for a closer look (Esc to close)";
     this.render();
+  }
+
+  /** A map animates its places: each dot stays put while its size and colour change. */
+  private animatesPlaces(): boolean {
+    return this.config.kind === "map" && (this.config.mapMode ?? DEFAULT_MAP_MODE) === "places";
+  }
+
+  /** The dots of the current frame, in the shape the map draws; null when the map is not stepping through time. */
+  private placeFrame(): SeriesPoints | null {
+    const result = this.animationResult;
+    const anim = result?.places;
+    if (result === null || anim === undefined || !this.animatesPlaces() || result.frames.length === 0) return null;
+    const frame = Math.min(Math.max(0, this.animationFrame), result.frames.length - 1);
+    const offset = frame * anim.shown;
+    const keep: number[] = [];
+    let total = 0;
+    for (let place = 0; place < anim.shown; place++) {
+      const count = anim.counts[offset + place]!;
+      if (count === 0) continue;
+      keep.push(place);
+      total += count;
+    }
+    const pick = (values: ArrayLike<number>, base: number): Float64Array => Float64Array.from(keep, (place) => values[base + place]!);
+    return {
+      mode: "points",
+      x: pick(anim.x, 0),
+      y: pick(anim.y, 0),
+      colorValues: anim.color === null ? null : pick(anim.color, offset),
+      colorCodes: null,
+      size: pick(anim.size, offset),
+      counts: pick(anim.counts, offset),
+      places: true,
+      shown: keep.length,
+      total,
+      outside: 0,
+      xMin: 0,
+      xMax: 1,
+      yMin: 0,
+      yMax: 1,
+      sampled: anim.shown < anim.totalPlaces,
+    };
   }
 
   private toggleAnimationSetup(): void {    if (!this.columns.some((meta) => this.isDateLike(meta))) {
@@ -7320,7 +7405,9 @@ export class ChartCard {
       const scroller = this.root.closest(".workspace-body");
       const top = wrap.getBoundingClientRect().top + (scroller?.scrollTop ?? 0);
       this.dockedTop = top;
-      cap = Math.max(300, Math.round(window.innerHeight - top - 74));
+      // The playback bar sits under the plot when there are frames to step through.
+      const playback = (this.animationResult?.frames.length ?? 0) > 1 ? 48 : 0;
+      cap = Math.max(300, Math.round(window.innerHeight - top - 74 - playback));
       cssHeight = Math.min(cap, Math.round(cssWidth * 0.8));
     }
     const dpr = window.devicePixelRatio || 1;
@@ -10144,7 +10231,7 @@ export class ChartCard {
       } · scroll to zoom · drag to pan · double-click resets`;
       return;
     }
-    const result = this.seriesResult;
+    const result = this.placeFrame() ?? this.seriesResult;
     if (result === null) {
       this.noteEl.textContent = "Pick numeric longitude and latitude columns.";
       return;
@@ -10263,7 +10350,21 @@ export class ChartCard {
     }
     if (result.places === true) {
       const top = result.counts ? Math.max(...Array.from(result.counts.subarray(0, Math.min(result.shown, 2000)))) : 0;
-      this.noteEl.textContent = `${result.shown.toLocaleString()} places from ${result.total.toLocaleString()} rows${result.sampled ? " (the busiest shown)" : ""}${top > 0 ? ` · the busiest holds ${top.toLocaleString()}` : ""} · dot size = ${this.config.sizeColumn >= 0 ? `${this.config.bubbleAgg ?? "count"} of ${this.meta(this.config.sizeColumn)?.name ?? "the size column"}` : "rows"} · scroll to zoom · drag to pan · double-click resets`;
+      const colorMeta = this.meta(this.config.colorColumn);
+      const colorPart = result.colorValues === null || colorMeta === undefined ? "" : ` · colour = ${MAP_COLOR_AGG_NAMES[this.config.mapColorAgg ?? "mean"]} ${colorMeta.name}${this.config.colorMin == null || this.config.colorMax == null ? " (the scale spans the middle 90% of values)" : ""}`;
+      const stepping = this.animationResult?.places !== undefined && this.placeFrame() !== null;
+      const time = stepping ? (this.animationResult?.frames[Math.min(this.animationFrame, this.animationResult.frames.length - 1)]?.label ?? "") : "";
+      this.noteEl.textContent = `${time === "" ? "" : `${time} · `}${result.shown.toLocaleString()} places from ${result.total.toLocaleString()} rows${result.sampled ? " (the busiest shown)" : ""}${top > 0 ? ` · the busiest holds ${top.toLocaleString()}` : ""} · dot size = ${this.config.sizeColumn >= 0 ? `${this.config.bubbleAgg ?? "count"} of ${this.meta(this.config.sizeColumn)?.name ?? "the size column"}` : "rows"}${colorPart} · scroll to zoom · drag to pan · double-click resets`;
+      if (time !== "") {
+        this.font(ctx, ui, 13, "600");
+        const width = ctx.measureText(time).width;
+        ctx.fillStyle = frame.text;
+        ctx.globalAlpha = 0.1;
+        ctx.fillRect(frame.left + 8 * ui, frame.top + 8 * ui, width + 12 * ui, 22 * ui);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = frame.text;
+        ctx.fillText(time, frame.left + 14 * ui, frame.top + 24 * ui);
+      }
     }
   }
 
@@ -11774,17 +11875,24 @@ export class ChartCard {
     const opacity = Math.round((this.config.dotOpacity ?? 0.6) * 100);
     this.dotOpacityInput.value = String(opacity);
     this.dotOpacityOut.textContent = `${opacity}%`;
-    // Colour needs the rows themselves: a place holds many, with many colours.
+    // A place holds many rows: a number combines into one colour, a category does not.
     const places = (this.config.mapMode ?? DEFAULT_MAP_MODE) === "places";
-    this.colorSelect.disabled = places;
-    this.colorWrap.title = places ? "Colour needs one dot per row: a place holds many rows, and they can differ" : "";
+    for (const option of this.colorSelect.options) {
+      const meta = this.meta(Number(option.value));
+      option.disabled = places && meta !== undefined && !isNumericType(meta.type);
+    }
+    this.colorWrap.title = places ? "A number combines into one colour for each place; a category needs One dot per row" : "";
+    this.mapColorAggSelect.value = this.config.mapColorAgg ?? "mean";
+    this.mapColorAggWrap.classList.toggle("hidden", !places || this.config.colorColumn < 0);
   }
 
   /** Radii for the map's dots from the Dots row; null when every dot is one size. */
   private mapRadii(result: SeriesPoints, ui: number): Float64Array | null {
     if (result.size === null || !this.dotsAreSized()) return null;
     const defaults = this.dotDefaults();
-    const range = dataRange(result.size, result.shown);
+    // While stepping through time one size means one value in every frame.
+    const fixed = this.placeFrame() === null ? null : (this.animationResult?.places?.sizeRange ?? null);
+    const range = fixed ?? dataRange(result.size, result.shown);
     if (range !== null) {
       this.dotValueMinInput.placeholder = `auto: ${formatChartNumber(range.min)}`;
       this.dotValueMaxInput.placeholder = `auto: ${formatChartNumber(range.max)}`;
@@ -11795,8 +11903,8 @@ export class ChartCard {
       {
         minRadius: this.config.dotMinRadius ?? defaults.min,
         maxRadius: this.config.dotMaxRadius ?? defaults.max,
-        valueMin: this.config.dotValueMin ?? null,
-        valueMax: this.config.dotValueMax ?? null,
+        valueMin: this.config.dotValueMin ?? fixed?.min ?? null,
+        valueMax: this.config.dotValueMax ?? fixed?.max ?? null,
         scale: this.config.dotScale ?? "linear",
       },
       ui,
@@ -12331,15 +12439,18 @@ export class ChartCard {
         if (value > max) max = value;
       }
       if (min === Infinity) return null;
+      // Places are averages over few rows or many, so their tails are wild: the scale spans the middle of them,
+      // the same scale for every frame while stepping through time.
+      const robust = result.places !== true ? null : (this.placeFrame() === null ? robustRange(result.colorValues, n) : (this.animationResult?.places?.colorRange ?? null));
       const domain = resolveColorDomain({
-        autoMin: min,
-        autoMax: max,
+        autoMin: robust?.min ?? min,
+        autoMax: robust?.max ?? max,
         min: this.config.colorMin,
         max: this.config.colorMax,
         center: this.config.colorCenter,
       });
       const buckets = new Uint8Array(n).fill(16);
-      const paletteName = this.config.palette ?? DEFAULT_PALETTE;
+      const paletteName = this.rampPaletteName();
       const ramp = isRampPalette(paletteName) ? this.rampStopsFor(paletteName) : null;
       const colors = colorRamp(ramp, 16, rampColor);
       colors.push(this.primaryColor());

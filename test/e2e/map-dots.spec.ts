@@ -56,10 +56,7 @@ test("the Dots row resizes the data dots: radius, scale and opacity redraw the m
   await dots.getByLabel("Dot opacity").fill("20");
   await page.waitForTimeout(300);
   expect(await drawn()).not.toBe(log);
-  // Colour needs one dot per row: it waits here, and comes back when rows are shown singly.
-  await expect(page.getByLabel("Colour column")).toBeDisabled();
   await page.locator("select[aria-label='Map display mode']").selectOption("points");
-  await expect(page.getByLabel("Colour column")).toBeEnabled();
   // One dot per row with no Size column: one radius for all, no range to span.
   await expect(dots.getByLabel("Largest dot radius (pixels)")).toBeHidden();
   await page.locator("select[aria-label='Map display mode']").selectOption("heat");
@@ -81,4 +78,48 @@ test("Clear asks first, and a cancelled Clear keeps every marker", async ({ page
   await page.getByRole("button", { name: "Clear", exact: true }).click();
   await page.getByRole("dialog", { name: "Clear all 2 markers?" }).getByRole("button", { name: "Clear 2 markers" }).click();
   await expect(rows).toHaveCount(0);
+});
+
+test("one dot per place can be coloured by the average of a number, blue to red, and stepped through the days", async ({ page }) => {
+  const lines = ["tripduration,starttime,usertype,start station latitude,start station longitude"];
+  for (let i = 0; i < 300; i++) {
+    const k = i % 12;
+    const day = String(1 + (i % 5)).padStart(2, "0");
+    lines.push(`${200 + (k * 40) + (i % 5) * 100},2014-02-${day} 08:00:00,${i % 2 ? "Subscriber" : "Customer"},${40.7 + (k % 4) * 0.012},${-74 + Math.floor(k / 4) * 0.03}`);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "trips.csv", mimeType: "text/csv", buffer: Buffer.from(lines.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator('.mode-switch-option[data-mode="research"]').click();
+  await page.locator(".view-tabs button", { hasText: "Map" }).first().click();
+  const card = page.locator(".map-card");
+  const notes = card.locator(".chart-note");
+  await expect(notes).toContainText("places from");
+  await card.locator(".chart-sidebar-toggle").click();
+
+  // A category cannot combine into one colour for a place; a number can.
+  const colour = card.getByRole("combobox", { name: "Colour column" });
+  await expect(colour.locator("option", { hasText: "usertype" })).toHaveAttribute("disabled");
+  await colour.selectOption((await colour.locator("option", { hasText: "tripduration" }).getAttribute("value"))!);
+  await expect(notes).toContainText("colour = average tripduration");
+  await expect(card.getByRole("combobox", { name: "Colour map" })).toHaveValue("Blue to red");
+  await expect(card.getByRole("combobox", { name: "Colour of a place" })).toHaveValue("mean");
+
+  await card.locator(".chart-animate-btn").click();
+  const time = card.getByRole("combobox", { name: "Animate over time" });
+  await time.selectOption((await time.locator("option", { hasText: "starttime" }).getAttribute("value"))!);
+  await card.getByRole("combobox", { name: "Frame length" }).selectOption("day");
+  await expect(card.getByRole("button", { name: /Play/ })).toBeVisible();
+  await expect(notes).toContainText("12 places");
+  const first = await notes.textContent();
+  expect(first).toMatch(/2014/);
+  await card.locator(".chart-animation-slider").fill("2");
+  await expect.poll(() => notes.textContent()).not.toBe(first);
+  await expect(notes).toContainText("colour = average tripduration");
+
+  // Another way of showing the data has no frames to step through.
+  await card.getByRole("combobox", { name: "Map display mode" }).selectOption("heat");
+  await expect(card.locator(".chart-animate-btn")).toBeHidden();
 });

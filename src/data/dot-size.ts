@@ -90,6 +90,24 @@ export function dotRadii(values: ArrayLike<number>, shown: number, spec: DotSize
 }
 
 /** The smallest and largest value that are numbers, for showing the data's own range. */
+/**
+ * The range a colour scale spans by default: the 5th to 95th percentile, so one station with one very long trip
+ * cannot wash every other dot to one colour. Falls back to the full range when that leaves no span.
+ */
+export function robustRange(values: ArrayLike<number>, shown: number): { min: number; max: number } | null {
+  const finite: number[] = [];
+  for (let i = 0; i < shown; i++) {
+    const value = values[i]!;
+    if (Number.isFinite(value)) finite.push(value);
+  }
+  if (finite.length === 0) return null;
+  finite.sort((a, b) => a - b);
+  const at = (share: number): number => finite[Math.round(share * (finite.length - 1))]!;
+  const min = at(0.05);
+  const max = at(0.95);
+  return max > min ? { min, max } : { min: finite[0]!, max: finite[finite.length - 1]! };
+}
+
 export function dataRange(values: ArrayLike<number>, shown: number): { min: number; max: number } | null {
   let min = Infinity;
   let max = -Infinity;
