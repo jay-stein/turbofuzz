@@ -99,9 +99,9 @@ test('two measures -> scatter, but density when rows would overplot', () => {
   assert.equal(top([col(C, 'distance_km'), col(C, 'fare')], C).options[0].chart, 'density');
 });
 
-test('lat/lon pair -> map', () => {
+test('a lat/lon pair is plotted as numbers: maps have their own page', () => {
   const ll: RecColumn[] = [{ name: 'lat', type: 'number', distinct: 900 }, { name: 'lng', type: 'number', distinct: 900 }];
-  assert.equal(R.recommend(ll, { rows: 1000 }).options[0].chart, 'map');
+  assert.equal(R.recommend(ll, { rows: 1000 }).options[0].chart, 'scatter');
 });
 
 test('structure rules', () => {

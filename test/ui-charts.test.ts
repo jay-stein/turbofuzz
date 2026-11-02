@@ -2058,7 +2058,7 @@ test("the add-chart builder lists every type, explains unfit ones and adds direc
   await tick();
   assert.equal(host.querySelector(".charts-rail"), null, "the duplicate left rail is gone");
   const chips = [...host.querySelectorAll(".chart-add-type")] as HTMLButtonElement[];
-  assert.equal(chips.length, 19, "one chip per chart type");
+  assert.equal(chips.length, 18, "one chip per chart type; maps are on their own page");
   const bubble = chips.find((chip) => (chip.textContent ?? "").startsWith("Bubble"));
   assert.ok(bubble !== undefined, "the builder offers Bubble");
   const disabled = chips.find((chip) => chip.getAttribute("aria-disabled") === "true");

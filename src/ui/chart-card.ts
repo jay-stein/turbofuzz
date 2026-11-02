@@ -469,7 +469,7 @@ export interface ChartCardOptions {
   /** Open this line card's series on the Time Series page. */
   onDeepDive?(series: ChartSeriesTarget): void;
   /** Open this map card full width on the Map page. */
-  onOpenMap?(config: ChartCardConfig): void;
+  onOpenMap?(preset: Partial<ChartCardConfig>): void;
   /** False in General mode: the Time Series and Map pages are hidden, so are links to them. */
   research?(): boolean;
   /** Map card with no coordinate columns: leave them unset instead of picking any number columns. */
@@ -1454,6 +1454,8 @@ export class ChartCard {
       "aria-label": "Chart type",
     }) as HTMLSelectElement;
     (Object.keys(CHART_KIND_LABELS) as ChartCardKind[]).forEach((kind) => {
+      // Maps are the Map page's; a card there or from an old spec still needs its own name here.
+      if (kind === "map" && this.config.kind !== "map") return;
       this.kindSelect.append(
         el("option", { value: kind }, [CHART_KIND_LABELS[kind]]) as HTMLOptionElement,
       );

@@ -1,3 +1,4 @@
+import { detectGeoPair } from "../data/geo.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import { aggFor } from "./chart-names.js";
 import {
@@ -25,6 +26,8 @@ export interface ChartAddPanelOptions {
   onShelfChange?(): void;
   /** The panel opened or closed. */
   onVisibility?(open: boolean): void;
+  /** Go to the Map page in Research with these coordinate columns. */
+  onOpenMap?(preset: Partial<ChartCardConfig>): void;
 }
 
 const ROLE_GLYPH: Record<RecRole, string> = {
@@ -217,6 +220,20 @@ export class ChartAddPanel {
     const cols = this.columns;
     const rec = cols.map((meta, index) => ({ meta, index, p: profile(toRecColumn(meta, index, this.rowCount), this.rowCount) }));
     const out: HTMLElement[] = [];
+
+    // Coordinates belong on the Map page: say where it is, one click away.
+    const geo = detectGeoPair(cols, this.rowCount);
+    const openMap = this.options.onOpenMap;
+    if (geo !== null && openMap !== undefined) {
+      const go = el("button", { class: "link small chart-add-map-go", type: "button", title: "Switch to Research and open the Map page on these columns" }, ["Open the map in Research →"]);
+      go.addEventListener("click", () => openMap({ x: geo.lon, y: geo.lat }));
+      out.push(
+        el("div", { class: "chart-add-map-hint" }, [
+          el("span", {}, [`This file has coordinates (${cols[geo.lat]?.name ?? "latitude"}, ${cols[geo.lon]?.name ?? "longitude"}). Maps have their own page, with sized and coloured dots, animation, your own markers and world cities.`]),
+          go,
+        ]),
+      );
+    }
 
     // 1. Quick starts: one click selects the fields and makes the chart.
     const ideas = suggestCharts(cols, this.rowCount);

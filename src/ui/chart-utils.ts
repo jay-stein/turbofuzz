@@ -387,17 +387,10 @@ function ideaFor(start: QuickStart): ChartIdea | null {
 
 /**
  * Up to three starting charts, chosen by column role and name hints rather
- * than file order. Maps are reserved first when real coordinates exist.
+ * than file order. Maps are not among them: they have their own page in Research.
  */
 export function suggestCharts(columns: readonly ColumnMeta[], rowCount = 0): ChartIdea[] {
   const ideas: ChartIdea[] = [];
-  const geo = detectGeoPair(columns, rowCount);
-  if (geo !== null) {
-    ideas.push({
-      label: "Map of coordinates",
-      preset: { kind: "map", x: geo.lon, y: geo.lat },
-    });
-  }
   const rec: RecColumn[] = [];
   columns.forEach((meta, index) => {
     if (meta.role !== "provenance") rec.push(toRecColumn(meta, index, rowCount));

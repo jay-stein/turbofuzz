@@ -78,7 +78,7 @@ test("mapBrushBounds converts a rectangle to lon/lat bounds", () => {
   assert.equal(zoomed.latMax, -35);
 });
 
-test("the gallery offers a map when coordinates are detected", () => {
+test("coordinates are detected for the Map page, and the Chart page's suggestions leave maps to it", () => {
   const columns = [
     num("pickup_latitude", -37.9, -37.7),
     num("pickup_longitude", 144.8, 145.1),
@@ -94,8 +94,8 @@ test("the gallery offers a map when coordinates are detected", () => {
 
   const ideas = suggestCharts(columns, 100);
   assert.ok(
-    ideas.some((idea) => idea.preset.kind === "map"),
-    "the suggestion strip offers the map",
+    ideas.every((idea) => idea.preset.kind !== "map"),
+    "the map has its own page in Research",
   );
 });
 

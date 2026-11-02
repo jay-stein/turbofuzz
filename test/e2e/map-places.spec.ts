@@ -62,3 +62,22 @@ test("a scatter of more points than it can draw says so, and offers the density 
   await note.locator("button.chart-density-nudge").click();
   await expect(page.locator("select[aria-label='Render mode']")).toHaveValue("density");
 });
+
+test("the Chart page offers no map: it says where the map is, and one click goes there", async ({ page }) => {
+  const lines = ["place,latitude,longitude,value"];
+  for (let i = 0; i < 40; i++) lines.push(`P${i % 6},${40 + (i % 6) * 0.1},${-74 + (i % 6) * 0.1},${i}`);
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "p.csv", mimeType: "text/csv", buffer: Buffer.from(lines.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator(".view-tabs button", { hasText: "Chart" }).click();
+  await page.locator(".chart-add-panel").waitFor();
+  await expect(page.locator(".chart-add-type", { hasText: /^Map/ })).toHaveCount(0);
+  await expect(page.locator(".chart-add-quick-btn", { hasText: /map/i })).toHaveCount(0);
+  await expect(page.locator(".chart-add-map-hint")).toContainText("latitude, longitude");
+  await page.locator(".chart-add-map-go").click();
+  await expect(page.locator(".map-page")).toBeVisible();
+  await expect(page.locator(".view-tabs button", { hasText: "Map" }).first()).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".map-card .chart-note")).toContainText("6 places");
+});
+

@@ -4293,10 +4293,12 @@ export class App {
     this.mapPage.setData(this.metas, this.resultCount);
   }
 
-  /** A Chart map card, opened full width on the Map page with the same columns. */
-  private openMap(config: ChartCardConfig): void {
+  /** The Map page in Research, on these columns: from the Chart page's hint, or a chart spec that holds a map. */
+  private openMap(config: Partial<ChartCardConfig>): void {
     this.ensureMap();
-    this.mapPage?.open({ x: config.x, y: config.y, mapMode: config.mapMode, colorColumn: config.colorColumn, sizeColumn: config.sizeColumn });
+    // What was not given stays as the page has it.
+    const given = Object.entries({ x: config.x, y: config.y, mapMode: config.mapMode, colorColumn: config.colorColumn, sizeColumn: config.sizeColumn }).filter(([, value]) => value !== undefined);
+    this.mapPage?.open(Object.fromEntries(given) as Partial<ChartCardConfig>);
     this.setView("map");
   }
 

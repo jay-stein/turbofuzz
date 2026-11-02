@@ -97,7 +97,6 @@ test("the gallery groups every chart type by the question it answers", () => {
       "histogram",
       "kpi",
       "line",
-      "map",
       "scatter",
       "slopegraph",
       "smallmultiples",

@@ -168,7 +168,7 @@ export interface ChartsPanelOptions {
   /** Open a line card's series on the Time Series page. */
   onDeepDive?(series: ChartSeriesTarget): void;
   /** Open a map card full width on the Map page. */
-  onOpenMap?(config: ChartCardConfig): void;
+  onOpenMap?(preset: Partial<ChartCardConfig>): void;
   /** False in General mode: cards then hide their Time Series and Map links. */
   research?(): boolean;
   /** Convert placeholder tokens through the existing null-policy path. */
@@ -495,6 +495,7 @@ export class ChartsPanel {
     this.addButton = add;
     this.addPanel = new ChartAddPanel({
       onCreate: (config, label) => this.placeNewCard(config, label),
+      onOpenMap: (preset) => this.options.onOpenMap?.(preset),
       onShelfChange: () => this.guide?.refresh(),
       onVisibility: () => {
         if (this.body !== undefined) this.syncBody();

@@ -504,8 +504,7 @@ test("coordinate data reserves a map suggestion before the three-idea cap", () =
     typed("lon", "number", 4000),
   ];
   const ideas = suggestCharts(columns, 12000);
-  assert.equal(ideas[0]?.label, "Map of coordinates");
-  assert.equal(ideas[0]?.preset.kind, "map");
+  assert.ok(ideas.every((idea) => idea.preset.kind !== "map"), "maps have their own page in Research");
   assert.equal(ideas.length, 3);
 });
 test("chart exclusions are saved by column name and follow a reorder or delete", () => {

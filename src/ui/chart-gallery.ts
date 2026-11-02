@@ -355,7 +355,6 @@ export function fitChartKind(
 /** The gallery groups tiles by the question they answer. */
 export const QUESTION_GROUPS: readonly { question: string; kinds: readonly ChartCardKind[] }[] = [
   { question: "What is the headline number?", kinds: ["kpi"] },
-  { question: "Where is it?", kinds: ["map"] },
   { question: "How is it distributed?", kinds: ["histogram", "box", "density"] },
   { question: "How does it change over time?", kinds: ["line", "smallmultiples", "slopegraph"] },
   { question: "How do groups compare?", kinds: ["bar", "barplot", "dotplot", "treemap", "heatmap"] },

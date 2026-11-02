@@ -293,11 +293,7 @@ export function recommend(
     );
     add("smallmultiples", "alt", "One panel per measure, each on its own scale.", { measures: ms.map((m) => m.name) });
   } else if (M.length === 2 && T.length === 0 && C.length === 0) {
-    if (RX.lat.test(m1.name) && RX.lon.test(m2.name)) {
-      add("map", "primary", "Latitude and longitude: plot the points on a map.", { lat: m1.name, lon: m2.name });
-    } else if (RX.lat.test(m2.name) && RX.lon.test(m1.name)) {
-      add("map", "primary", "Latitude and longitude: plot the points on a map.", { lat: m2.name, lon: m1.name });
-    } else if (nRows > 5000) {
+    if (nRows > 5000) {
       add("density", "primary", `${nRows.toLocaleString("en-US")} points would overplot a scatter, so density shows where they cluster.`, { x: m1.name, y: m2.name });
       add("scatter", "alt", "Individual points, sampled to keep it fast.", { x: m1.name, y: m2.name, sample: 5000 });
     } else {
