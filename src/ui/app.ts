@@ -677,6 +677,9 @@ export class App {
   private sidebarEl!: HTMLElement;
   private sidebarToggle!: HTMLButtonElement;
   private sidebarCollapsed = false;
+  private pivotPageOpen = false;
+  /** How the Filters pane was before the Pivot View minimised it; null once set by hand. */
+  private filtersBeforePivot: boolean | null = null;
   private filterChipsEl!: HTMLElement;
   private addFilterButton!: HTMLButtonElement;
   private latestFacets: Record<number, number[]> = {};
@@ -3951,6 +3954,7 @@ export class App {
     // switch modes (and say so) rather than open a page with no tab.
     if (isResearchView(view) && this.mode !== "research") this.setMode("research");
     if (!isResearchView(view)) this.lastGeneralView = view;
+    this.syncPivotFilters(view);
     this.view = view;
     if (view === "table" || view === "chart" || view === "views") this.ensureFilters();
     if (view === "table") this.ensureTable();
@@ -5917,11 +5921,28 @@ export class App {
     ]);
   }
 
-  private setSidebarCollapsed(collapsed: boolean): void {
+  /** The Pivot View opens with the Filters pane minimised, for room; leaving puts the pane back as it was. */
+  private syncPivotFilters(view: ViewId): void {
+    if (view === "views") {
+      if (this.pivotPageOpen) return;
+      this.pivotPageOpen = true;
+      this.filtersBeforePivot = this.sidebarCollapsed;
+      this.setSidebarCollapsed(true, false);
+      return;
+    }
+    this.pivotPageOpen = false;
+    if (this.filtersBeforePivot !== null) this.setSidebarCollapsed(this.filtersBeforePivot, false);
+    this.filtersBeforePivot = null;
+  }
+
+  private setSidebarCollapsed(collapsed: boolean, remember = true): void {
     this.sidebarCollapsed = collapsed;
     this.sidebarEl.classList.toggle("collapsed", collapsed);
     this.sidebarToggle.textContent = collapsed ? "»" : "«";
     this.sidebarToggle.title = collapsed ? "Show filters" : "Collapse filters";
+    if (!remember) return;
+    // Set by hand on the Pivot View, it stays that way on leaving.
+    this.filtersBeforePivot = null;
     try {
       sessionStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
     } catch {
