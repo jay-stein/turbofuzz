@@ -75,6 +75,15 @@ export interface SeriesShape {
 /** A value needs this many moments of its own before its rows read as a series. */
 const MIN_MOMENTS = 24;
 
+/** Rows needed before "this column changes slowly along time" can be judged. */
+const MIN_SLOW_ROWS = 60;
+/**
+ * Agreement of neighbouring rows beyond chance (Cohen's kappa) above which a column says when,
+ * not which series: a weekday, a month, an hour, a holiday or semester flag. A column that names
+ * series (a store, a station) sits near zero or below, however skewed its values are.
+ */
+const SLOW_KAPPA = 0.5;
+
 /** Repeated moments checked per column; a long table is sampled evenly. */
 const MAX_RUNS = 5000;
 /** A column explains the repeats when it differs within this share of repeated moments. */
@@ -145,9 +154,33 @@ export function seriesShape(times: Float64Array, keep: Uint8Array | null, candid
 }
 
 /**
+ * Whether a column keeps its value from one row to the next, in time order, far more often than its value mix would by chance.
+ * Calendar columns (day_of_week, month, hour, is_weekend, is_holiday, semester flags) do; so does anything else that describes
+ * the moment. Rows of different series interleave, so a column that names them does not.
+ */
+export function changesSlowly(codes: ArrayLike<number>, idx: readonly number[], values: number): boolean {
+  if (idx.length < MIN_SLOW_ROWS) return false;
+  const rows = new Float64Array(values);
+  let total = 0, pairs = 0, same = 0, prev = -1;
+  for (let k = 0; k < idx.length; k++) {
+    const code = codes[idx[k]];
+    if (code < 0 || code >= values) { prev = -1; continue; }
+    rows[code]++; total++;
+    if (prev >= 0) { pairs++; if (code === prev) same++; }
+    prev = code;
+  }
+  if (pairs === 0) return false;
+  let chance = 0;
+  for (let c = 0; c < values; c++) chance += (rows[c] / total) ** 2;
+  if (!(chance < 1)) return false;
+  return (same / pairs - chance) / (1 - chance) >= SLOW_KAPPA;
+}
+
+/**
  * Which columns could name the series: for each candidate, how many rows sit in values seen at enough moments to make a series
  * of their own. Columns with a handful or more of such values come first (a station or a store, not a two-way flag), the one
- * with fewer values first among those; a few at most, each with its largest values.
+ * with fewer values first among those; a few at most, each with its largest values. A column that changes slowly along time
+ * (the weekday, the month, an hour, a holiday flag) describes the moment, not a series, and is left out.
  */
 export function suggestSeries(times: Float64Array, idx: readonly number[], entities: readonly EntityCandidate[]): SeriesSuggestion[] {
   if (entities.length === 0 || idx.length === 0) return [];
@@ -175,6 +208,7 @@ export function suggestSeries(times: Float64Array, idx: readonly number[], entit
       if (moments[c] >= MIN_MOMENTS) covered += rows[c];
     }
     if (total === 0 || distinct < 2 || covered / total < 0.5) continue;
+    if (changesSlowly(cand.codes, idx, n)) continue;
     const order: number[] = [];
     for (let c = 0; c < n; c++) if (rows[c] > 0) order.push(c);
     order.sort((a, b) => rows[b] - rows[a]);

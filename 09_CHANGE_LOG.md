@@ -4,6 +4,17 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-02-12 — Time Series: calendar columns are not offered as the series
+
+- **Status:** Verified (unit, e2e, browser)
+- **Related issue / decision:** owner: gym_stats.csv (one gym, a reading every 10 minutes) was called "several series in one line".
+- **Problem addressed:** the page groups 10-minute readings by day, sees about 107 rows per day, and offered day_of_week, month and is_weekend as columns that tell series apart ("from 7 different day_of_week values. This line adds 2 different series together").
+- **Scope:** src/data/timeseries/shape.ts: a column that keeps its value from one row to the next, in time order, far more often than its value mix would by chance (agreement beyond chance, Cohen's kappa, 0.5 or more) describes the moment, not a series, and is dropped from the suggestions. Measured on the gym file: day_of_week 0.99, is_weekend 0.99, is_holiday 0.99, month 1.00, hour 0.80. A column that names series sits near 0 (rows of several stores at each moment, or trips from stations in random order, however skewed). Under 60 rows it is not judged. Rows that share a moment still raise the banner as before.
+- **Not changed:** the default aggregate is still sum, which for a level read repeatedly (people in the gym) depends on how many readings a day has.
+- **Files / components changed:** src/data/timeseries/shape.ts, src/ui/help-content.ts; test/timeseries-shape.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-YYYY-MM-DD-NN — Short title
 
 - **Status:** Planned / In progress / Verified / Rolled back

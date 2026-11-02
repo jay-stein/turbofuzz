@@ -93,3 +93,38 @@ test("suggests the columns that could name a series, many-valued ones before fla
   assert.equal(out[0]!.values[0]!.rows, 40);
   assert.deepEqual(suggestSeries(times, idx, []), []);
 });
+
+test("calendar columns are not offered as the series: weekday, month, hour and flags change slowly along time", async () => {
+  const { suggestSeries, changesSlowly } = await import("../src/data/timeseries/shape.js");
+  // One gym, a reading every 10 minutes for 60 days: the weekday, month, hour and weekend flag describe the moment.
+  const n = 60 * 144;
+  const start = Date.UTC(2015, 7, 14);
+  const times = Float64Array.from({ length: n }, (_, i) => start + i * 10 * MIN);
+  const idx = Array.from({ length: n }, (_, i) => i);
+  const at = (i: number): Date => new Date(times[i]!);
+  const weekday = Int32Array.from({ length: n }, (_, i) => at(i).getUTCDay());
+  const month = Int32Array.from({ length: n }, (_, i) => at(i).getUTCMonth());
+  const hour = Int32Array.from({ length: n }, (_, i) => at(i).getUTCHours());
+  const weekend = Int32Array.from({ length: n }, (_, i) => (at(i).getUTCDay() % 6 === 0 ? 1 : 0));
+  const names = (len: number): string[] => Array.from({ length: len }, (_, i) => String(i));
+  const calendar = [
+    { column: 3, name: "day_of_week", codes: weekday, labels: names(7) },
+    { column: 9, name: "month", codes: month, labels: names(12) },
+    { column: 10, name: "hour", codes: hour, labels: names(24) },
+    { column: 4, name: "is_weekend", codes: weekend, labels: names(2) },
+  ];
+  assert.deepEqual(suggestSeries(times, idx, calendar), [], "one series sampled often is not several");
+  for (const c of calendar) assert.equal(changesSlowly(c.codes, idx, c.labels.length), true, c.name);
+
+  // Eight sensors reporting in turn at the same beat do interleave: the column naming them stays on offer.
+  const sensor = Int32Array.from({ length: n }, (_, i) => i % 8);
+  assert.deepEqual(suggestSeries(times, idx, [...calendar, { column: 1, name: "sensor", codes: sensor, labels: names(8) }]).map((s) => s.name), ["sensor"]);
+  // So does a skewed one in random order, as trips from busy and quiet stations arrive.
+  let seed = 7;
+  const rand = (): number => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  const station = Int32Array.from({ length: n }, () => (rand() < 0.6 ? 0 : 1 + Math.floor(rand() * 9)));
+  assert.equal(changesSlowly(station, idx, 10), false);
+  assert.deepEqual(suggestSeries(times, idx, [{ column: 2, name: "station", codes: station, labels: names(10) }]).map((s) => s.name), ["station"]);
+  // Too few rows to judge: left on offer rather than dropped on a guess.
+  assert.equal(changesSlowly(weekday, idx.slice(0, 30), 7), false);
+});
