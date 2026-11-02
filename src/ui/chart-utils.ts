@@ -526,6 +526,13 @@ export function rampColor(t: number): string {
   return `rgb(${channel(from[0], to[0])}, ${channel(from[1], to[1])}, ${channel(from[2], to[2])})`;
 }
 
+/** The outline of a filled marker: its own colour, darker, so overlapping markers stay separate. */
+export function darkerColor(color: string, by = 0.38): string {
+  const [r, g, b] = hexToRgb(color);
+  const part = (value: number): string => Math.round(value * (1 - by)).toString(16).padStart(2, "0");
+  return `#${part(r)}${part(g)}${part(b)}`;
+}
+
 export function hexToRgb(hex: string): [number, number, number] {
   const trimmed = hex.trim();
   const rgbMatch = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(trimmed);

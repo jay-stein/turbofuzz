@@ -536,3 +536,13 @@ test("chart exclusions are saved by column name and follow a reorder or delete",
     "an exclusion on a removed column is dropped, the rest stay",
   );
 });
+
+test("a marker's outline is its own colour, darker", async () => {
+  const { darkerColor, hexToRgb } = await import("../src/ui/chart-utils.js");
+  assert.equal(darkerColor("#000000"), "#000000");
+  const [r, g, b] = hexToRgb("#2563eb");
+  const [dr, dg, db] = hexToRgb(darkerColor("#2563eb"));
+  assert.ok(dr < r && dg < g && db < b);
+  assert.ok(Math.abs(dr / r - dg / g) < 0.02 && Math.abs(dg / g - db / b) < 0.02, "the same hue");
+});
+

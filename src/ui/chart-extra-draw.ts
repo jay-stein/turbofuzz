@@ -1,3 +1,4 @@
+import { darkerColor } from "./chart-utils.js";
 import type { AggregateMessage } from "../worker/protocol.js";
 import type { HitAction, HitRegion } from "./chart-card.js";
 import {
@@ -116,6 +117,9 @@ export function drawDotPlot(ctx: CanvasRenderingContext2D, frame: PlotFrame, p: 
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = darkerColor(p.primaryColor());
+    ctx.lineWidth = 1;
+    ctx.stroke();
     ctx.fillStyle = frame.text;
     p.font(ctx, ui, 10);
     ctx.textAlign = "right";

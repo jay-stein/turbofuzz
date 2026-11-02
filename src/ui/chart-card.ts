@@ -101,6 +101,7 @@ import {
   fillTimeAxis,
   formatCount,
   formatTick,
+  darkerColor,
   hexToRgb,
   isCategoryType,
   isGroupable,
@@ -10837,18 +10838,24 @@ export class ChartCard {
       if (result.shown <= 5000) {
         ctx.beginPath();
         ctx.arc(px(lon), py(lat), Math.max(0.5, r), 0, Math.PI * 2);
+        ctx.globalAlpha = dotAlpha;
         ctx.fill();
+        ctx.globalAlpha = Math.min(1, dotAlpha + 0.3);
+        ctx.stroke();
       } else {
         ctx.fillRect(px(lon) - r, py(lat) - r, r * 2, r * 2);
       }
     };
+    ctx.lineWidth = Math.max(0.75, 0.8 * ui);
     if (buckets === null) {
       ctx.fillStyle = this.primaryColor();
+      ctx.strokeStyle = darkerColor(this.primaryColor());
       ctx.globalAlpha = dotAlpha;
       for (let i = 0; i < result.shown; i++) drawAt(i);
     } else {
       for (let bucket = 0; bucket < buckets.colors.length; bucket++) {
         ctx.fillStyle = buckets.colors[bucket] ?? this.primaryColor();
+        ctx.strokeStyle = darkerColor(buckets.colors[bucket] ?? this.primaryColor());
         ctx.globalAlpha = dotAlpha;
         for (let i = 0; i < result.shown; i++) {
           if (buckets.buckets[i] === bucket) drawAt(i);
@@ -12625,8 +12632,8 @@ export class ChartCard {
           ctx.beginPath();
           ctx.arc(x, y, radius, 0, Math.PI * 2);
           ctx.fill();
-          ctx.globalAlpha = 0.75;
-          ctx.strokeStyle = layer.color;
+          ctx.globalAlpha = 0.9;
+          ctx.strokeStyle = darkerColor(layer.color);
           ctx.lineWidth = 1;
           ctx.stroke();
           ctx.globalAlpha = 1;
@@ -13173,6 +13180,7 @@ export class ChartCard {
     const buckets = this.colorBuckets(result);
     const radius = 2.2 * frame.ui;
     const circular = result.shown <= 5000;
+    ctx.lineWidth = Math.max(0.75, 0.8 * frame.ui);
 
     const drawAt = (index: number): void => {
       const r = sizes === null ? radius : sizes[index];
@@ -13181,7 +13189,10 @@ export class ChartCard {
       if (circular) {
         ctx.beginPath();
         ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
+        ctx.globalAlpha = 0.55;
         ctx.fill();
+        ctx.globalAlpha = 0.9;
+        ctx.stroke();
       } else {
         ctx.fillRect(x - r, y - r, r * 2, r * 2);
       }
@@ -13195,10 +13206,12 @@ export class ChartCard {
     ctx.globalAlpha = 0.55;
     if (buckets === null) {
       ctx.fillStyle = this.primaryColor();
+      ctx.strokeStyle = darkerColor(this.primaryColor());
       for (let i = 0; i < result.shown; i++) drawAt(i);
     } else {
       for (let bucket = 0; bucket < buckets.colors.length; bucket++) {
         ctx.fillStyle = buckets.colors[bucket];
+        ctx.strokeStyle = darkerColor(buckets.colors[bucket]!);
         for (let i = 0; i < result.shown; i++) {
           if (buckets.buckets[i] === bucket) drawAt(i);
         }
