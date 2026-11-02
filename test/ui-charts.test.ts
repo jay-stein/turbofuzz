@@ -1475,7 +1475,7 @@ test("the source label says Table when no filters apply", async () => {
   ]);
   await tick();
   const option = host.querySelector(".chart-source option") as HTMLOptionElement;
-  assert.equal(option.textContent, "Table");
+  assert.equal(option.textContent, "▦ Table", "the table is marked with the Table tab's grid");
   card.dispose();
 });
 
@@ -3160,7 +3160,8 @@ test("chart sources group pivot views as a first-class source category", () => {
   assert.deepEqual(groups, ["Table data", "Pivot views", "Saved views"]);
   assert.equal(
     host.querySelector('.chart-source optgroup[label="Pivot views"] option')?.textContent,
-    "Pivot by month",
+    "⇄ Pivot by month",
+    "views from the Pivot View page carry its arrows",
   );
   card.dispose();
   void window;
@@ -3645,7 +3646,7 @@ test("a view-bound bar names its real type, source and measure", async () => {
   );
   card.setColumns([meta({ name: "units", type: "number" })]);
   // Before the views list arrives the select still names the source.
-  assert.equal(host.querySelector<HTMLSelectElement>(".chart-source select, select.chart-source")?.selectedOptions[0]?.textContent, "Units by region");
+  assert.equal(host.querySelector<HTMLSelectElement>(".chart-source select, select.chart-source")?.selectedOptions[0]?.textContent, "⇄ Units by region");
   card.setSources([{ id: "v1", name: "Units by region", kind: "view" }]);
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(

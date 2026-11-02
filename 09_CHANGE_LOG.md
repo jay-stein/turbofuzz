@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-02-14 — Chart Source list marks tables and pivot views
+
+- **Status:** Verified (unit)
+- **Related issue / decision:** owner: a table icon beside the table source and the pivot icon beside views from the Pivot View page.
+- **Scope:** in both Source lists (a chart card's and the Add a chart panel) the table is marked ▦ and every view from the Pivot View page ⇄, matching the Table and Pivot View tab icons. A native list cannot hold the tabs' own SVG icons, so these are glyphs.
+- **Files / components changed:** src/ui/chart-utils.ts, chart-card.ts, chart-add-panel.ts; test/ui-charts.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-13 — Formulas: a leading = is ignored
 
 - **Status:** Verified (unit)

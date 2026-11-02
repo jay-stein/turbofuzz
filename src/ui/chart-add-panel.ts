@@ -9,7 +9,7 @@ import {
 import type { ChartCardConfig } from "./chart-card.js";
 import { GALLERY_KINDS, fitChartKind, previewFor } from "./chart-gallery.js";
 import { profile, recommend, type RecRole } from "./chart-recommender.js";
-import { CHART_KIND_LABELS, suggestCharts, toRecColumn, type ChartCardKind } from "./chart-utils.js";
+import { CHART_KIND_LABELS, sourceOption, suggestCharts, toRecColumn, type ChartCardKind } from "./chart-utils.js";
 import { el } from "./dom.js";
 
 export interface ChartAddSource {
@@ -173,9 +173,9 @@ export class ChartAddPanel {
 
   private head(): HTMLElement {
     const select = el("select", { class: "chart-picker", "aria-label": "Chart source", "data-key": "source" }) as HTMLSelectElement;
-    select.append(el("option", { value: "" }, ["Table (filtered)"]) as HTMLOptionElement);
+    select.append(el("option", { value: "" }, [sourceOption("table", "Table (filtered)")]) as HTMLOptionElement);
     for (const source of this.sources) {
-      select.append(el("option", { value: source.id }, [source.name]) as HTMLOptionElement);
+      select.append(el("option", { value: source.id }, [sourceOption("view", source.name)]) as HTMLOptionElement);
     }
     select.value = this.source;
     select.addEventListener("change", () => {

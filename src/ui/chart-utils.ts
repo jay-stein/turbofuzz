@@ -34,6 +34,14 @@ export type ChartCardKind =
   | "slopegraph"
   | "waterfall";
 
+/**
+ * A source in a chart's Source list, marked like the tab it comes from: the grid of the Table tab,
+ * the opposed arrows of the Pivot View tab (a native list cannot hold the tabs' own icons).
+ */
+export function sourceOption(kind: "table" | "view", name: string): string {
+  return `${kind === "table" ? "▦" : "⇄"} ${name}`;
+}
+
 /** What a map shows until told otherwise: one dot per place, so stacked rows do not hide each other. */
 export const DEFAULT_MAP_MODE = "places" as const;
 

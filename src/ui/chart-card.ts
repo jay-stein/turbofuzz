@@ -85,6 +85,7 @@ import {
   correlationCell,
   DEFAULT_MAP_MODE,
   defaultChartTitle,
+  sourceOption,
   formatChartNumber,
   autoShortStep,
   calendarTicks,
@@ -3111,7 +3112,7 @@ export class ChartCard {
     this.sourceSelect.replaceChildren();
     const tableGroup = el("optgroup", { label: "Table data" });
     tableGroup.append(
-      el("option", { value: "" }, [this.options.tableSourceLabel?.() ?? "Table (filtered)"]) as HTMLOptionElement,
+      el("option", { value: "" }, [sourceOption("table", this.options.tableSourceLabel?.() ?? "Table (filtered)")]) as HTMLOptionElement,
     );
     this.sourceSelect.append(tableGroup);
     const pivots = this.sources.filter((source) => source.kind === "pivot");
@@ -3119,14 +3120,14 @@ export class ChartCard {
     if (pivots.length > 0) {
       const group = el("optgroup", { label: "Pivot views" });
       for (const source of pivots) {
-        group.append(el("option", { value: source.id }, [source.name]) as HTMLOptionElement);
+        group.append(el("option", { value: source.id }, [sourceOption("view", source.name)]) as HTMLOptionElement);
       }
       this.sourceSelect.append(group);
     }
     if (views.length > 0) {
       const group = el("optgroup", { label: "Saved views" });
       for (const source of views) {
-        group.append(el("option", { value: source.id }, [source.name]) as HTMLOptionElement);
+        group.append(el("option", { value: source.id }, [sourceOption("view", source.name)]) as HTMLOptionElement);
       }
       this.sourceSelect.append(group);
     }
@@ -3140,7 +3141,7 @@ export class ChartCard {
     if (current !== "" && this.sources.length === 0) {
       // Views arrive after the card on a restore; keep the select from reading blank.
       this.sourceSelect.append(
-        el("option", { value: current }, [this.config.title || "View"]) as HTMLOptionElement,
+        el("option", { value: current }, [sourceOption("view", this.config.title || "View")]) as HTMLOptionElement,
       );
     }
     this.sourceSelect.value = this.config.source;
