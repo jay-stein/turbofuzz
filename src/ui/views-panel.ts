@@ -105,6 +105,15 @@ const DATE_PARTS: readonly { value: DatePart; label: string }[] = [
   { value: "week", label: "Week of year" },
 ];
 
+/** A calendar period for a date field's second appearance, so it never repeats one already shown. */
+function unusedGrain(view: ViewDef, column: number): TimeGrain {
+  const used = new Set<TimeGrain>();
+  for (const dimension of view.dimensions) {
+    if (dimension.column === column && typeof dimension.by === "object" && "time" in dimension.by) used.add(dimension.by.time);
+  }
+  return (["month", "year", "day", "quarter", "week", "hour", "minute", "second"] as TimeGrain[]).find((grain) => !used.has(grain)) ?? "month";
+}
+
 const DATE_GROUP_CHOICES: { value: TimeGrain; label: string }[] = [
   { value: "second", label: "Seconds" },
   { value: "minute", label: "Minutes" },
@@ -329,7 +338,12 @@ export function movePivotField(
     view.pivotMeasure === undefined ? undefined : view.measures[view.pivotMeasure];
   if (source.kind === "column") {
     const column = source.index;
-    const existingDim = view.dimensions.findIndex((dimension) => dimension.column === column);
+    // A field already in the well it is dropped on is reordered; one that sits only in the other well
+    // is added again there (a date as Year down the side and Month across, day of week by hour of day).
+    const columnWell = thisPivotIndexes(view);
+    const existingDim = view.dimensions.findIndex(
+      (dimension, index) => dimension.column === column && (target === "values" || columnWell.includes(index) === (target === "columns")),
+    );
     if (target === "values") {
       if (existingDim >= 0) {
         if (view.dimensions[existingDim]?.by !== "value") {
@@ -387,7 +401,7 @@ export function movePivotField(
     const beforeSpec = before === undefined ? undefined : view.dimensions[before];
     const spec: DimensionSpec = {
       column,
-      by: dateSource ? { time: "month" } : "value",
+      by: dateSource ? { time: unusedGrain(view, column) } : "value",
     };
     if (beforeSpec === undefined) view.dimensions.push(spec);
     else view.dimensions.splice(view.dimensions.indexOf(beforeSpec), 0, spec);
@@ -3342,7 +3356,8 @@ export class ViewsPanel {
     const items: MenuItem[] = this.metas.map((meta, column) => ({
       label: meta.name,
       title: `${meta.name} — ${well === "columns" ? "spread across columns" : "group rows by this column"}`,
-      disabled: def.dimensions.some((spec) => spec.column === column),
+      // Already in this well, so there is nothing to add; one in the other well can go in this one too.
+      disabled: def.dimensions.some((spec, index) => spec.column === column && pivots.includes(index) === (well === "columns")),
       action: () =>
         this.applyPivotFieldMove(
           { kind: "column", index: column, well: "shelf" },

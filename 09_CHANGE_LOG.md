@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-02-16 — Pivot View: one field in both Rows and Columns
+
+- **Status:** Verified (unit, browser)
+- **Related issue / decision:** owner: nothing should stop a field being used in both Rows and Columns.
+- **Problem addressed:** the Add field menus greyed out a field already used, and dragging or "Add to Columns" from the shelf moved a field that was already in Rows instead of adding it. A date column could not give day of week down the side and hour of day across.
+- **Scope:** a field already in the well it is dropped on is reordered, as before; one that sits only in the other well is added again there. A date's second appearance starts as a calendar period not already used for that column (Month, then Year, Day…). The Add field menus grey out only a field already in that well. Dragging a pill between wells still moves it.
+- **Files / components changed:** src/ui/views-panel.ts; test/pivot-both-wells.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-15 — Chart page: + Add chart waits for the first chart
 
 - **Status:** Verified (unit, e2e)
