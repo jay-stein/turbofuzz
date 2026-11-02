@@ -930,7 +930,7 @@ test("a card with nothing to draw explains itself inside the plot", async () => 
   card.dispose();
 });
 
-test("chart settings live in a Customize drawer next to the canvas", async () => {
+test("on the Chart page the settings sit beside the plot, open until closed, and every chart follows", async () => {
   const window = setupDom();
   captureMockContext(window, []);
   const host = document.createElement("div");
@@ -947,14 +947,18 @@ test("chart settings live in a Customize drawer next to the canvas", async () =>
   assert.ok(layout.querySelector(".chart-card-main .chart-canvas") !== null, "the canvas sits beside it");
   const toggle = host.querySelector<HTMLButtonElement>(".chart-sidebar-toggle");
   assert.ok(toggle !== null);
-  assert.equal(toggle.textContent, "Customize", "the drawer is called Customize");
-  assert.equal(toggle.getAttribute("aria-expanded"), "false", "settings start closed so the chart keeps the full width");
-  toggle.click();
-  assert.equal(layout.classList.contains("sidebar-open"), true);
+  assert.equal(layout.firstElementChild?.classList.contains("chart-card-main"), true, "the plot comes first, settings beside it");
+  assert.equal(layout.classList.contains("docked"), true);
+  assert.equal(toggle.textContent, "Hide settings", "settings start open: nothing has to be hunted for");
   assert.equal(toggle.getAttribute("aria-expanded"), "true");
+  assert.ok(layout.querySelector(".chart-sidebar .chart-quick") !== null, "how values roll up is with the other settings");
   toggle.click();
-  assert.equal(layout.classList.contains("sidebar-open"), false);
   assert.equal(layout.classList.contains("sidebar-collapsed"), true);
+  assert.equal(toggle.textContent, "Customize");
+  panel.addCard({ kind: "bar", column: 0 });
+  await tick();
+  const layouts = host.querySelectorAll(".chart-card-layout");
+  assert.equal(layouts[1]?.classList.contains("sidebar-collapsed"), true, "a new chart opens the way the panel was left");
   panel.dispose();
 });
 
@@ -2781,7 +2785,7 @@ test("a line card splits its measure into one series per group", async () => {
   assert.equal((card as unknown as { config: { groupColumn: number } }).config.groupColumn, 2);
 
   const note = host.querySelector(".chart-note")?.textContent ?? "";
-  assert.match(note, /sum\(amount\) by city/, "the note names the split column");
+  assert.match(note, /Sum of amount by city/, "the note names the split column");
   assert.match(note, /2 of 2 series shown/);
   card.dispose();
 });
@@ -3945,5 +3949,61 @@ test("many categories lie on their side: every name is readable, Top N apply, a 
   assert.ok(!drawn.some((text) => text.startsWith("Other")), "an average has no Other");
   assert.match(host.querySelector(".chart-note")?.textContent ?? "", /44 more not shown/);
   card.dispose();
+});
+
+function workspaceColumns(): ColumnMeta[] {
+  return [
+    meta({ name: "when", type: "date", stats: { ...meta().stats, min: 0, max: 1e11 } }),
+    meta({ name: "city", type: "category", stats: { ...meta().stats, distinct: 2 }, categories: { labels: ["a", "b"], counts: [3, 1] } }),
+    meta({ name: "sales", type: "number", stats: { ...meta().stats, distinct: 900 } }),
+  ];
+}
+
+test("the field list marks what the open chart plots and offers where a field can go", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  panel.setColumns(workspaceColumns());
+  const card = panel.addCard({ kind: "barplot", column: 1, valueColumn: 2, valueAgg: "sum" });
+  await tick();
+  const row = (name: string): HTMLElement =>
+    [...host.querySelectorAll<HTMLElement>(".chart-rail-field")].find((field) => field.textContent?.includes(name)) as HTMLElement;
+  assert.equal(row("city").classList.contains("used"), true);
+  assert.equal(row("sales").classList.contains("used"), true);
+  assert.equal(row("when").classList.contains("used"), false);
+  const slots = card.fieldSlots(1);
+  assert.deepEqual(slots.map((slot) => [slot.label, slot.active]), [["Category", true], ["Group by", false]]);
+  assert.ok(card.fieldSlots(2).some((slot) => slot.label === "Value"));
+  card.fieldSlots(1).find((slot) => slot.label === "Group by")!.toggle();
+  assert.equal(card.getConfig().groupColumn, 1);
+  assert.equal(card.canUndo, true, "a change from the field list can be undone");
+  card.undo();
+  assert.equal(card.getConfig().groupColumn, -1);
+  panel.dispose();
+  void window;
+});
+
+test("adding a chart opens its own tab instead of pushing the current chart down", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  panel.setColumns(workspaceColumns());
+  panel.addCard({ kind: "barplot", column: 1, valueColumn: 2, valueAgg: "sum" });
+  await tick();
+  const grid = host.querySelector(".charts-grid") as HTMLElement;
+  const panelEl = host.querySelector(".chart-add-panel") as HTMLElement;
+  assert.equal(panelEl.classList.contains("hidden"), true);
+  ([...host.querySelectorAll("button")].find((b) => b.textContent === "+ Add chart") as HTMLButtonElement).click();
+  assert.equal(panelEl.classList.contains("hidden"), false);
+  assert.equal(grid.classList.contains("hidden"), true, "the builder takes the place of the chart");
+  assert.equal(host.querySelector(".charts-tab.draft")?.textContent, "New chart");
+  (host.querySelector(".charts-tab:not(.draft)") as HTMLButtonElement).click();
+  assert.equal(panelEl.classList.contains("hidden"), true, "going back to a chart leaves the builder");
+  assert.equal(grid.classList.contains("hidden"), false);
+  assert.equal(host.querySelector(".charts-tab.draft"), null);
+  panel.dispose();
+  void window;
 });
 

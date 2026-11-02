@@ -43,6 +43,7 @@ import {
   type ChartSpec,
 } from "./chart-spec.js";
 import { chartConfigWithDefaults } from "./chart-builder.js";
+import { fitChartKind, kindIcon, QUESTION_GROUPS } from "./chart-gallery.js";
 import { fieldsFor } from "./chart-registry.js";
 import {
   drawDotPlot,
@@ -430,6 +431,11 @@ export interface ChartCardOptions {
   onFilter?(column: number, filter: ColumnFilter | null, preview?: boolean): void;
   /** Reads the app's current filter for a column, so clicks can toggle. */
   currentFilter?(column: number): ColumnFilter | null;
+  /** On the Chart page: settings beside the plot, one headline, the plot filling the window. */
+  docked?: boolean;
+  /** Whether the docked settings panel starts open, and news of it being toggled. */
+  settingsOpen?: boolean;
+  onSettingsToggle?(open: boolean): void;
   onRemove(card: ChartCard): void;
   onDuplicate(card: ChartCard): void;
   /** The card's title may have changed (typed, or its columns changed): tabs follow it. */
@@ -1144,8 +1150,18 @@ export class ChartCard {
   private readonly bubbleScaleSelect: HTMLSelectElement;
   private readonly animateButton: HTMLButtonElement;
   private readonly focusButton: HTMLButtonElement;
-  private readonly pngButton: HTMLButtonElement;
-  private focusOverlay: HTMLElement | null = null;
+  readonly pngButton: HTMLButtonElement;
+  private kindButton: HTMLButtonElement | null = null;
+  private undoButton: HTMLButtonElement | null = null;
+  /** Earlier settings of this chart, newest last, as JSON. */
+  private undoStack: string[] = [];
+  /** The settings as they were when the person last reached for a control. */
+  private undoBefore: string | null = null;
+  /** The bar, bin or cell clicked: highlighted, with Filter to this offered beside it. */
+  private selectedRegion: HitRegion | null = null;
+  private selectionBar: HTMLElement | null = null;
+  /** Plot top the docked height was last worked out from: a legend appearing moves it. */
+  private dockedTop = -1;  private focusOverlay: HTMLElement | null = null;
   private readonly focusPlaceholder = document.createComment("chart-focus");
   private readonly animationSetup: HTMLElement;
   private readonly bubbleSettings: HTMLElement;
@@ -1347,12 +1363,14 @@ export class ChartCard {
   private lastActionRegion: HitRegion | null = null;
   private pointerFrame: number | null = null;
 
-  private readonly onResize = (): void => this.scheduleRender();
+  private readonly onResize = (): void => this.scheduleRender(this.options.docked === true);
   private readonly onThemeChange = (): void => this.scheduleRender(true);
   private renderQueued = false;
   private renderForce = false;
   /** True while the frame only shows an empty-state message, so no axes. */
   private plotMessageDrawn = false;
+  /** Set while drawing on the Chart page, where the headline above the plot says what it is. */
+  private plotHasHeadline = false;
   /** Wrap width of the last paint, used to ignore no-op resize callbacks. */
   private lastWrapWidth = -1;
   /** The width before the last repaint; a return to it is a scrollbar feedback flip. */
@@ -1903,7 +1921,7 @@ export class ChartCard {
     sideHead.append(sideDone);
     this.sidebar.prepend(sideHead);
     this.sidebar.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape" || !this.sidebarShown) return;
+      if (event.key !== "Escape" || !this.sidebarShown || this.options.docked === true) return;
       event.stopPropagation();
       this.toggleSidebar();
       this.sidebarToggle.focus();
@@ -2911,9 +2929,10 @@ export class ChartCard {
       this.deepDiveEl,
       this.noteEl,
     ]);
-    this.layoutEl = el("div", { class: "chart-card-layout" }, [this.sidebar, main]);
+    this.layoutEl = el("div", { class: "chart-card-layout" }, this.options.docked === true ? [main, this.sidebar] : [this.sidebar, main]);
 
     this.root.append(this.layoutEl, this.tooltipEl);
+    if (this.options.docked === true) this.dock(head, quickRow, sideHead, canvasWrap);
 
     this.syncSwatches();
     this.syncOptions();
@@ -2923,6 +2942,287 @@ export class ChartCard {
     if ((this.canvas.parentElement?.clientWidth ?? 0) > 1) this.render();
     window.addEventListener("resize", this.onResize);
     window.addEventListener("themechange", this.onThemeChange);
+  }
+
+  /**
+   * The Chart page's arrangement of the same controls: one headline above the plot, and every
+   * setting in one panel beside it, so the plot is never covered while it is being changed.
+   */
+  private dock(head: HTMLElement, quickRow: HTMLElement, sideHead: HTMLElement, canvasWrap: HTMLElement): void {
+    this.root.classList.add("chart-card-docked");
+    this.layoutEl.classList.add("docked");
+    sideHead.remove();
+    head.prepend(el("div", { class: "chart-headline" }, [this.summaryEl, this.scopeEl]));
+    this.undoButton = el(
+      "button",
+      { class: "ghost small chart-undo-btn", type: "button", title: "Undo the last change to this chart (Ctrl+Z)", "aria-label": "Undo the last change to this chart", disabled: "disabled" },
+      ["Undo"],
+    ) as HTMLButtonElement;
+    this.undoButton.addEventListener("click", () => this.undo());
+    head.insertBefore(this.undoButton, this.focusButton);
+    head.append(this.sidebarToggle);
+
+    // The one chart-type control: a button naming the type, opening the pictures.
+    this.kindSelect.hidden = true;
+    this.kindButton = el("button", { class: "chart-kind-button", type: "button", "aria-haspopup": "dialog", "aria-label": "Chart type" }) as HTMLButtonElement;
+    this.kindButton.addEventListener("click", () => this.openKindPicker());
+    this.kindSelect.after(this.kindButton);
+    this.syncKindButton();
+
+    // Rolled-up values, map layers and dot sizing join the rest of the settings.
+    const valueSection = this.valueWrap.parentElement;
+    if (valueSection !== null) valueSection.after(el("div", { class: "chart-side-section" }, [quickRow]));
+    const colours = this.sidebar.querySelector(".chart-side-settings");
+    this.sidebar.insertBefore(el("div", { class: "chart-side-section chart-side-map" }, [this.bubbleSettings, this.dotSettings]), colours);
+
+    this.selectionBar = el("div", { class: "chart-selection hidden", role: "group", "aria-label": "Selected in the chart" });
+    canvasWrap.append(this.selectionBar);
+
+    for (const type of ["pointerdown", "focusin"] as const) {
+      this.root.addEventListener(type, () => this.noteBeforeChange(), true);
+    }
+    this.root.addEventListener("keydown", (event) => {
+      const target = event.target as HTMLElement;
+      if (!(target instanceof HTMLInputElement && (target.type === "text" || target.type === "number"))) this.noteBeforeChange();
+    }, true);
+    for (const type of ["change", "click"] as const) {
+      this.root.addEventListener(type, () => this.noteAfterChange());
+    }
+    this.setSettingsOpen(this.options.settingsOpen ?? true);
+  }
+
+  /** The settings as they stand, before whatever the person is about to do. */
+  private noteBeforeChange(): void {
+    this.undoBefore = JSON.stringify(this.getConfig());
+  }
+
+  /** Handlers run first, so a real change shows here as a difference from the note above. */
+  private noteAfterChange(): void {
+    if (this.undoBefore === null) return;
+    const now = JSON.stringify(this.getConfig());
+    if (now === this.undoBefore) return;
+    this.undoStack.push(this.undoBefore);
+    if (this.undoStack.length > 50) this.undoStack.shift();
+    this.undoBefore = now;
+    this.syncUndo();
+  }
+
+  private syncUndo(): void {
+    if (this.undoButton !== null) this.undoButton.disabled = this.undoStack.length === 0;
+  }
+
+  get canUndo(): boolean {
+    return this.undoStack.length > 0;
+  }
+
+  /** Puts the chart back as it was before its last change. */
+  undo(): void {
+    const previous = this.undoStack.pop();
+    if (previous === undefined) return;
+    this.config = chartConfigWithDefaults(JSON.parse(previous) as Partial<ChartCardConfig>);
+    this.undoBefore = previous;
+    this.hiddenGroups.clear();
+    this.plotView = null;
+    this.mapView = null;
+    this.chartXZoom = null;
+    this.barWindow = null;
+    this.clearSelection();
+    this.pickerSignature = "";
+    this.titleInput.value = this.config.title;
+    this.setColumns(this.columns);
+    this.refreshForConfig();
+    this.syncUndo();
+    this.options.onTitleChange?.(this);
+  }
+
+  private syncKindButton(): void {
+    const button = this.kindButton;
+    if (button === null) return;
+    const kind = this.config.kind;
+    button.replaceChildren(kindIcon(kind), el("span", {}, [CHART_KIND_LABELS[kind]]), el("span", { class: "chart-kind-caret", "aria-hidden": "true" }, ["▾"]));
+    button.classList.toggle("hidden", this.config.source !== "");
+  }
+
+  /** Every chart type as a picture, grouped by the question it answers; ones the data cannot draw say why. */
+  private openKindPicker(): void {
+    const anchor = this.kindButton;
+    if (anchor === null) return;
+    const groups = QUESTION_GROUPS.map((group) =>
+      el("div", { class: "chart-kind-group" }, [
+        el("div", { class: "chart-kind-question" }, [group.question]),
+        el("div", { class: "chart-kind-options" }, group.kinds.map((kind) => {
+          const fit = fitChartKind(kind, this.columns, this.rowCount);
+          const option = el(
+            "button",
+            {
+              class: `chart-kind-option${kind === this.config.kind ? " active" : ""}`,
+              type: "button",
+              title: fit.ok ? CHART_KIND_LABELS[kind] : fit.reason,
+              ...(fit.ok || kind === this.config.kind ? {} : { disabled: "disabled" }),
+            },
+            [kindIcon(kind), el("span", {}, [CHART_KIND_LABELS[kind]])],
+          );
+          option.addEventListener("click", () => {
+            close();
+            this.noteBeforeChange();
+            this.setKind(kind);
+            this.kindSelect.value = kind;
+            this.noteAfterChange();
+            anchor.focus();
+          });
+          return option;
+        })),
+      ]),
+    );
+    const pop = el("div", { class: "chart-kind-pop", role: "dialog", "aria-label": "Chart type" }, groups);
+    const close = (): void => {
+      pop.remove();
+      document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
+    const outside = (event: Event): void => {
+      if (!pop.contains(event.target as Node)) close();
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      close();
+      anchor.focus();
+    };
+    document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("keydown", onKey, true);
+    document.body.append(pop);
+    const rect = anchor.getBoundingClientRect();
+    pop.style.top = `${Math.max(8, Math.min(rect.top, window.innerHeight - pop.offsetHeight - 8))}px`;
+    pop.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+    pop.querySelector<HTMLElement>(".chart-kind-option.active, .chart-kind-option:not([disabled])")?.focus();
+  }
+
+  /** The places a chart of this type has for a field, each one a setting already on the panel. */
+  private fieldControls(): { label: string; select: HTMLSelectElement; wrap: HTMLElement }[] {
+    const pairs: [HTMLElement, HTMLSelectElement][] = [
+      [this.primaryWrap, this.primarySelect],
+      [this.xWrap, this.xSelect],
+      [this.yWrap, this.ySelect],
+      [this.valueWrap, this.valueSelect],
+      [this.groupWrap, this.groupSelect],
+      [this.colorWrap, this.colorSelect],
+      [this.sizeWrap, this.sizeSelect],
+    ];
+    return pairs
+      .filter(([wrap, select]) => !wrap.classList.contains("hidden") && !select.disabled)
+      .map(([wrap, select]) => ({ wrap, select, label: wrap.querySelector(".chart-tag-label")?.textContent ?? "" }));
+  }
+
+  /** The columns this chart plots, for the field list to mark. */
+  usedFields(): Set<number> {
+    const used = new Set<number>();
+    for (const { select } of this.fieldControls()) {
+      const index = Number(select.value);
+      if (index >= 0) used.add(index);
+    }
+    return used;
+  }
+
+  /** Where this column can go on this chart. */
+  fieldSlots(column: number): { label: string; active: boolean; clearable: boolean; toggle(): void }[] {
+    const value = String(column);
+    const out: { label: string; active: boolean; clearable: boolean; toggle(): void }[] = [];
+    for (const { label, select } of this.fieldControls()) {
+      const option = [...select.options].find((candidate) => candidate.value === value);
+      if (option === undefined || option.disabled) continue;
+      // Offer the places a field suits: a list's "Other" group and a Value of text are there for the rare case, in the panel.
+      if ((option.parentElement as HTMLOptGroupElement | null)?.label === "Other") continue;
+      if (select === this.valueSelect && !isNumericType(this.meta(column)?.type ?? "string")) continue;
+      const clearable = [...select.options].some((candidate) => candidate.value === "-1");
+      out.push({
+        label,
+        active: select.value === value,
+        clearable,
+        toggle: () => {
+          this.noteBeforeChange();
+          select.value = select.value === value ? "-1" : value;
+          const view = select.ownerDocument.defaultView as (Window & typeof globalThis) | null;
+          select.dispatchEvent(new (view?.Event ?? Event)("change", { bubbles: true }));
+        },
+      });
+    }
+    return out;
+  }
+
+  /** Opens or closes the docked settings panel; the chart takes the room it leaves. */
+  setSettingsOpen(open: boolean): void {
+    if (this.options.docked !== true) return;
+    this.sidebarShown = open;
+    this.layoutEl.classList.toggle("sidebar-open", open);
+    this.layoutEl.classList.toggle("sidebar-collapsed", !open);
+    this.sidebarToggle.setAttribute("aria-expanded", String(open));
+    this.sidebarToggle.textContent = open ? "Hide settings" : "Customize";
+    this.sidebarToggle.setAttribute("aria-label", open ? "Hide the chart settings" : "Customize this chart");
+    this.sidebarToggle.title = open ? "Give the chart the whole width" : "Show every setting beside the chart";
+  }
+
+  /** The bar, bin or cell the person clicked: marked on the plot, with what can be done with it. */
+  private selectRegion(region: HitRegion): void {
+    const same = this.selectedRegion?.lines[0] === region.lines[0];
+    this.clearSelection();
+    this.hideTooltip();
+    if (same) {
+      this.render();
+      return;
+    }
+    this.selectedRegion = region;
+    const bar = this.selectionBar;
+    if (bar !== null) {
+      const name = region.lines[0] ?? "Selection";
+      const filter = el("button", { class: "primary small", type: "button", title: `Filter every page to ${name}` }, ["Filter to this"]);
+      filter.addEventListener("click", () => {
+        const actions = region.actions;
+        this.clearSelection();
+        for (const action of actions) this.applyHitAction(action);
+      });
+      const rows = tableFiltersForHitActions(region.actions);
+      const show = el("button", { class: "ghost small", type: "button", title: `Open the Table on the rows behind ${name}` }, ["Show rows"]);
+      show.addEventListener("click", () => {
+        this.clearSelection();
+        this.render();
+        this.options.onShowRows?.(rows, name);
+      });
+      const dismiss = el("button", { class: "icon-btn", type: "button", title: "Clear the selection", "aria-label": "Clear the selection" }, ["×"]);
+      dismiss.addEventListener("click", () => {
+        this.clearSelection();
+        this.render();
+      });
+      bar.replaceChildren(el("span", { class: "chart-selection-name", title: name }, [name]), filter, ...(this.options.onShowRows === undefined || rows.length === 0 ? [] : [show]), dismiss);
+      bar.classList.remove("hidden");
+    }
+    this.render();
+  }
+
+  private clearSelection(): void {
+    this.selectedRegion = null;
+    this.selectionBar?.classList.add("hidden");
+    this.selectionBar?.replaceChildren();
+  }
+
+  /** Marks the selected region; if the chart no longer has it (the data changed), the selection ends. */
+  private drawSelection(ctx: CanvasRenderingContext2D): void {
+    const selected = this.selectedRegion;
+    if (selected === null) return;
+    const region = this.hitRegions.find((candidate) => candidate.lines[0] === selected.lines[0]);
+    if (region === undefined) {
+      this.clearSelection();
+      return;
+    }
+    ctx.save();
+    ctx.fillStyle = this.primaryColor();
+    ctx.globalAlpha = 0.14;
+    ctx.fillRect(region.x, region.y, region.w, region.h);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = cssVar("--accent", "#2563eb");
+    ctx.lineWidth = 2;
+    ctx.strokeRect(region.x + 1, region.y + 1, Math.max(0, region.w - 2), Math.max(0, region.h - 2));
+    ctx.restore();
   }
 
   /**
@@ -2937,6 +3237,13 @@ export class ChartCard {
   };
 
   private toggleSidebar(): void {
+    if (this.options.docked === true) {
+      const open = !this.sidebarShown;
+      this.setSettingsOpen(open);
+      this.options.onSettingsToggle?.(open);
+      requestAnimationFrame(() => this.render());
+      return;
+    }
     this.sidebarShown = !this.sidebarShown;
     if (this.sidebarShown) document.addEventListener("keydown", this.onDrawerEscape);
     else document.removeEventListener("keydown", this.onDrawerEscape);
@@ -3664,6 +3971,10 @@ export class ChartCard {
       return;
     }
     const name = (index: number): string => this.meta(index)?.name ?? "value";
+    if (isPairKind(this.config.kind)) {
+      this.summaryEl.textContent = `${kind}: ${name(this.config.y)} vs ${name(this.config.x)}${this.options.docked === true ? "" : ` from ${source}`}`;
+      return;
+    }
     const agg =
       this.config.valueColumn !== undefined && this.config.valueColumn >= 0
         ? `${this.valueAggSelect.selectedOptions[0]?.textContent ?? this.config.valueAgg ?? "mean"} of ${name(this.config.valueColumn)}`
@@ -3685,7 +3996,8 @@ export class ChartCard {
       this.config.valueCalc === undefined
         ? ""
         : ` with ${this.valueCalcSelect.selectedOptions[0]?.textContent ?? this.config.valueCalc}`;
-    this.summaryEl.textContent = `${kind}: ${agg}${by}${group}${calc} from ${source}`;
+    // Docked, the scope sits beside this line and already names the source.
+    this.summaryEl.textContent = `${kind}: ${agg}${by}${group}${calc}${this.options.docked === true ? "" : ` from ${source}`}`;
   }
 
   /** Columns whose missing/placeholder state can affect this chart. */
@@ -4513,8 +4825,13 @@ export class ChartCard {
       } else if (kind === "histogram") this.config.valueColumn = -1;
       if (kind === "histogram") this.applyColumnDefaults();
     }
-    this.generation++;
     this.pickerSignature = "";
+    this.refreshForConfig();
+  }
+
+  /** Refetches and repaints everything a whole-chart settings change can touch. */
+  private refreshForConfig(): void {
+    this.generation++;
     this.syncOptions();
     this.syncPlaceholder();
     this.renderControls();
@@ -4845,7 +5162,7 @@ export class ChartCard {
             ? "Date (optional)"
             : kind === "treemap"
               ? "Group by"
-              : kind === "bar"
+              : kind === "bar" || kind === "barplot" || kind === "dotplot" || kind === "stacked100"
                 ? "Category"
                 : kind === "terms"
                   ? "Text"
@@ -4959,6 +5276,7 @@ export class ChartCard {
     this.bubbleScaleField.classList.toggle("hidden", mapKind);
     this.mapModeSelect.value = this.config.mapMode ?? DEFAULT_MAP_MODE;
     this.syncDotControls(mapKind);
+    this.syncKindButton();
     // On a map the grid only matters for the heat view: the plain dots need no cells.
     this.gridField.classList.toggle("hidden", mapKind && this.config.mapMode !== "heat");
     (this.gridField.firstElementChild as HTMLElement).textContent = mapKind ? "Heat cells" : "Grid";
@@ -4981,10 +5299,10 @@ export class ChartCard {
     this.bubbleAggHint.textContent = reduceEnabled ? "" : "(pick a Size column first)";
     if (!reduceEnabled) this.bubbleAggSelect.value = "count";
     this.topLabel.parentElement?.classList.toggle("hidden", bubbleOnly);
-    this.multiInput.parentElement?.classList.toggle("hidden", bubbleOnly);
+    this.multiInput.parentElement?.classList.toggle("hidden", bubbleOnly || kind === "barplot");
     this.correlationSettings.classList.toggle("hidden", kind !== "correlation");
     this.topLabel.textContent =
-      kind === "bar"
+      kind === "bar" || kind === "barplot"
         ? "Top bars"
         : kind === "box"
           ? "Top groups"
@@ -6993,10 +7311,18 @@ export class ChartCard {
     // world is twice as wide as tall, so it gets 16:10 and everything the controls leave,
     // not the half window that flattened it to a strip.
     const roomy = this.config.kind === "map" && this.focusOverlay === null;
-    const cap = roomy
+    let cap = roomy
       ? Math.max(380, window.innerHeight - 200)
       : Math.max(260, Math.round(window.innerHeight * (this.focusOverlay !== null ? 0.72 : 0.55)));
-    const cssHeight = Math.min(Math.round(roomy ? cssWidth * 0.625 : (cssWidth * 9) / 16), cap);
+    let cssHeight = Math.min(Math.round(roomy ? cssWidth * 0.625 : (cssWidth * 9) / 16), cap);
+    if (this.options.docked === true && this.focusOverlay === null && wrap !== null) {
+      // The plot takes what the window has left below it, so the whole chart is in view at once.
+      const scroller = this.root.closest(".workspace-body");
+      const top = wrap.getBoundingClientRect().top + (scroller?.scrollTop ?? 0);
+      this.dockedTop = top;
+      cap = Math.max(300, Math.round(window.innerHeight - top - 74));
+      cssHeight = Math.min(cap, Math.round(cssWidth * 0.8));
+    }
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = Math.round(cssWidth * dpr);
     this.canvas.height = Math.round(cssHeight * dpr);
@@ -7012,6 +7338,13 @@ export class ChartCard {
     this.valueScale = null;
     this.drawChart(ctx, cssWidth, cssHeight);
     this.drawBrushOverlay(ctx);
+    this.drawSelection(ctx);
+    // Drawing can add a legend above the plot; then the height above was worked out too low.
+    if (this.options.docked === true && this.focusOverlay === null && wrap !== null) {
+      const scroller = this.root.closest(".workspace-body");
+      const top = wrap.getBoundingClientRect().top + (scroller?.scrollTop ?? 0);
+      if (top !== this.dockedTop) this.scheduleRender(true);
+    }
     this.drawLinkedOverlay(ctx);
     if (this.brushSpace !== null && this.noteEl.textContent?.includes("Shift+drag") !== true) {
       // Appended, not rewritten from the text: the note can hold a link (the density map, one dot per place) that must stay one.
@@ -7770,6 +8103,19 @@ export class ChartCard {
       event.clientX - rect.left,
       event.clientY - rect.top,
     );
+    if (this.options.docked === true) {
+      // A click marks; filtering every page is a second, named step.
+      if (region === null || region.actions.length === 0) {
+        if (this.selectedRegion !== null) {
+          this.clearSelection();
+          this.render();
+        }
+        return;
+      }
+      this.lastActionRegion = region;
+      this.selectRegion(region);
+      return;
+    }
     if (region === null) return;
     this.lastActionRegion = region;
     for (const action of region.actions) this.applyHitAction(action);
@@ -8871,7 +9217,7 @@ export class ChartCard {
     const baseLeft = 56 * ui;
     const left = Math.max(baseLeft, tickW + 8) + labelPad;
     const right = 18 * ui;
-    const top = 58 * ui;
+    const top = (this.plotHasHeadline ? (this.config.title.trim() !== "" ? 40 : 28) : 58) * ui;
     const bottom = (40 + (xTitle ? 14 : 0)) * ui;
     return {
       ui,
@@ -9046,6 +9392,7 @@ export class ChartCard {
     this.plotMessageDrawn = false;
     const ui = this.textScale(height, forExport);
     const labels = this.axisLabels();
+    this.plotHasHeadline = this.options.docked === true && !forExport;
     const hasXTitle =
       (labels.x ?? "") !== "" || (this.config.xTitle?.trim() ?? "") !== "";
     const hasYTitle =
@@ -9073,20 +9420,29 @@ export class ChartCard {
     // generic "Aggregate" title is not drawn a second time.
     const ownTitle = this.config.title.trim();
     const genericAggregate =
-      ownTitle === "" && this.usesAggregate() && this.config.kind !== "pivotHeatmap" && this.config.kind !== "kpi";
-    if (!genericAggregate) {
+      ownTitle === "" && this.options.docked !== true && this.usesAggregate() && this.config.kind !== "pivotHeatmap" && this.config.kind !== "kpi";
+    if (this.plotHasHeadline) {
+      // One line above the plot says what this is; a title typed by the person is shown on it too.
+      if (ownTitle !== "") {
+        this.font(ctx, frame.ui, 13, "600");
+        ctx.fillStyle = frame.text;
+        ctx.fillText(this.fit(ctx, ownTitle, width - frame.left - frame.right), frame.left, 14 * frame.ui);
+      }
+    } else if (!genericAggregate) {
       const title = ownTitle === "" ? this.defaultTitle() : ownTitle;
       this.font(ctx, frame.ui, 15, "600");
       ctx.fillStyle = frame.text;
       ctx.fillText(this.fit(ctx, title, width - frame.left - frame.right), frame.left, 22 * frame.ui);
     }
-    this.font(ctx, frame.ui, genericAggregate ? 12 : 11);
-    ctx.fillStyle = frame.dim;
-    ctx.fillText(
-      this.fit(ctx, this.subtitle(), width - frame.left - frame.right),
-      frame.left,
-      (genericAggregate ? 24 : 40) * frame.ui,
-    );
+    if (!this.plotHasHeadline) {
+      this.font(ctx, frame.ui, genericAggregate ? 12 : 11);
+      ctx.fillStyle = frame.dim;
+      ctx.fillText(
+        this.fit(ctx, this.subtitle(), width - frame.left - frame.right),
+        frame.left,
+        (genericAggregate ? 24 : 40) * frame.ui,
+      );
+    }
 
     if (this.config.kind === "pivotHeatmap") {
       this.drawPivotHeatmap(ctx, frame);
@@ -9397,11 +9753,11 @@ export class ChartCard {
     const measure = result.measureNames[0] ?? "measure";
     ctx.fillStyle = frame.dim;
     ctx.fillText(
-      `${measure} · ${shown.length}${all.length > shown.length ? ` of ${all.length}` : ""} series`,
+      `${plainMeasureName(measure)} · ${shown.length}${all.length > shown.length ? ` of ${all.length}` : ""} series`,
       frame.left,
       frame.top + frame.plotH + 30 * ui,
     );
-    this.noteEl.textContent = `${measure} by ${
+    this.noteEl.textContent = `${plainMeasureName(measure)} by ${
       result.dimensionNames[1] ?? "group"
     } · ${shown.length} of ${all.length} series shown${stacked ? " (stacked)" : ""} · ${
       result.dimensionNames[0] ?? "group"
@@ -10226,12 +10582,24 @@ export class ChartCard {
       }
       flush();
     } else {
-      const barW = Math.max(1, slot - 1);
+      // A few bars get air between them and their value on top; many stay a solid profile.
+      const roomy = n <= RANKED_BARS_ABOVE && this.options.docked === true;
+      const barW = roomy ? Math.max(1, slot * 0.8) : Math.max(1, slot - 1);
+      const inset = roomy ? (slot - barW) / 2 : 0;
       for (let i = 0; i < n; i++) {
         const height = ((values[i] || 0) / top) * frame.plotH;
         if (height <= 0) continue;
         ctx.globalAlpha = 0.85;
-        this.fillTopRounded(ctx, frame.left + i * slot, frame.top + frame.plotH - height, barW, height, 3 * ui);
+        ctx.fillStyle = this.primaryColor();
+        this.fillTopRounded(ctx, frame.left + i * slot + inset, frame.top + frame.plotH - height, barW, height, 3 * ui);
+        ctx.globalAlpha = 1;
+        if (roomy) {
+          this.font(ctx, ui, 10);
+          ctx.textAlign = "center";
+          ctx.fillStyle = frame.text;
+          ctx.fillText(formatCompact(values[i] ?? 0), frame.left + (i + 0.5) * slot, Math.max(frame.top + 10 * ui, frame.top + frame.plotH - height - 4 * ui));
+          ctx.textAlign = "left";
+        }
       }
       ctx.globalAlpha = 1;
     }
@@ -10368,7 +10736,7 @@ export class ChartCard {
       partialCount > 0
         ? ` · ${partialCount} incomplete ${partialCount === 1 ? "period" : "periods"} (hatched)`
         : "";
-    this.noteEl.textContent = `${n.toLocaleString()} groups · ${measure} by ${
+    this.noteEl.textContent = `${n.toLocaleString()} groups · ${plainMeasureName(measure)} by ${
       result.dimensionNames[0] ?? "group"
     } · ${ms} ms${partialNote}`;
   }

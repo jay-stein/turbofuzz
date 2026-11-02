@@ -6719,9 +6719,401 @@ select.chart-number {
   align-items: stretch;
   gap: 2px;
   min-width: 0;
+  flex: 0 1 auto;
   overflow-x: auto;
   scrollbar-width: thin;
-  border-bottom: 1px solid var(--border);
+}
+
+.charts-tab.draft {
+  display: inline-flex;
+  align-items: center;
+  padding-right: 12px;
+  font-style: italic;
+}
+
+/* The workspace: fields on the left, the chart in the middle, settings on the right. */
+.charts-body {
+  display: grid;
+  grid-template-columns: 188px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.charts-body.drafting,
+.charts-body:has(> .chart-rail.hidden) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.charts-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chart-rail {
+  position: sticky;
+  top: 52px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: calc(100vh - 190px);
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.chart-rail-title {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.chart-rail-search {
+  width: 100%;
+  min-height: 26px;
+  font-size: var(--fs-sm);
+}
+
+.chart-rail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.chart-rail-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chart-rail-field:hover {
+  background: var(--panel-2);
+}
+
+.chart-rail-field.used {
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.chart-rail-glyph {
+  flex: none;
+  width: 18px;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--accent);
+  text-align: center;
+}
+
+.chart-rail-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The docked card: one headline, the plot, and settings beside it instead of over it. */
+.chart-card-docked {
+  padding: 8px 10px;
+}
+
+.chart-card-docked .chart-card-head {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.chart-card-docked .chart-card-head > .grow {
+  flex: 0 0 4px;
+}
+
+.chart-card-docked .chart-headline {
+  flex: 1 1 auto;
+}
+
+.chart-headline {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chart-headline .chart-summary {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-headline .chart-scope {
+  flex: none;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.chart-card-layout.docked {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 272px;
+  gap: 10px;
+  align-items: start;
+  margin-top: 6px;
+}
+
+.chart-card-layout.docked.sidebar-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.chart-card-layout.docked > .chart-sidebar {
+  position: sticky;
+  top: 52px;
+  width: auto;
+  max-height: calc(100vh - 256px);
+  box-shadow: none;
+  border-color: var(--border-subtle);
+  z-index: 1;
+}
+
+.chart-card-layout.docked.sidebar-collapsed > .chart-sidebar {
+  display: none;
+}
+
+.chart-card-layout.docked .chart-quick {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.chart-card-layout.docked .chart-bubble-settings {
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.chart-card-layout.docked .chart-side-map:not(:has(> .chart-bubble-settings:not(.hidden), > .chart-dot-settings:not(.hidden))) {
+  display: none;
+}
+
+.chart-card-layout.docked .chart-dot-settings .chart-field,
+.chart-card-layout.docked .chart-bubble-settings .chart-field {
+  flex-wrap: wrap;
+}
+
+.chart-card-layout.docked .chart-side-section:not(:has(> :not(.hidden))),
+.chart-card-layout.docked .chart-side-section:has(> .chart-quick:not(:has(> :not(.hidden)))) {
+  display: none;
+}
+
+/* A long column name must not push a dropdown out of its row. */
+.chart-card-layout.docked .chart-sidebar .chart-tag > select,
+.chart-card-layout.docked .chart-sidebar .chart-side-row select {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  max-width: none;
+}
+
+.chart-card-docked .chart-sidebar-toggle,
+.chart-card-docked .chart-undo-btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+.chart-undo-btn:disabled {
+  opacity: 0.45;
+}
+
+.chart-kind-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chart-kind-button:hover {
+  border-color: var(--accent);
+}
+
+.chart-kind-button .chart-tile-preview {
+  flex: none;
+  width: 30px;
+  height: 22px;
+}
+
+.chart-kind-button > span:not([class]) {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-kind-option .chart-tile-preview {
+  flex: none;
+  width: 42px;
+  height: 28px;
+}
+
+.chart-kind-button svg,
+.chart-kind-option svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.chart-kind-caret {
+  margin-left: auto;
+  color: var(--text-dim);
+}
+
+.chart-kind-pop {
+  position: fixed;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(460px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+}
+
+.chart-kind-question {
+  margin-bottom: 4px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.chart-kind-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.chart-kind-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.chart-kind-option:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.chart-kind-option.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.chart-kind-option:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* What a click on the plot selected, and the choice of what to do with it. */
+.chart-selection {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 16px);
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--fs-sm);
+}
+
+.chart-selection-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* By the room the page really has (the Filters sidebar takes some): the field list goes first,
+   then the settings drop under the plot. Every field is still in the settings. */
+.charts-main {
+  container-type: inline-size;
+}
+
+@container (max-width: 1040px) {
+  .charts-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chart-rail {
+    display: none;
+  }
+}
+
+@container (max-width: 760px) {
+  .chart-card-layout.docked {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chart-card-layout.docked > .chart-sidebar {
+    position: static;
+    max-height: none;
+  }
 }
 
 .charts-tab-wrap {
@@ -6804,26 +7196,6 @@ select.chart-number {
 .charts-tab-close:hover {
   background: var(--panel-2);
   color: var(--danger);
-}
-
-.charts-tab-add {
-  flex: none;
-  align-self: center;
-  width: 28px;
-  height: 26px;
-  margin-left: 4px;
-  padding: 0;
-  border: 1px dashed var(--border);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 16px;
-  line-height: 1;
-}
-
-.charts-tab-add:hover {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 .charts-tab-rename {
@@ -8177,8 +8549,8 @@ label.null-row {
 .hint-callout {
   position: fixed;
   z-index: 90;
-  right: 16px;
-  bottom: 64px;
+  left: 16px;
+  bottom: 16px;
   display: flex;
   align-items: flex-start;
   gap: 8px;

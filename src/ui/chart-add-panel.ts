@@ -23,6 +23,8 @@ export interface ChartAddPanelOptions {
   onCreate(config: Partial<ChartCardConfig>, label: string): void;
   /** The shelf changed, so anything showing it (the Guide) can refresh. */
   onShelfChange?(): void;
+  /** The panel opened or closed. */
+  onVisibility?(open: boolean): void;
 }
 
 const ROLE_GLYPH: Record<RecRole, string> = {
@@ -106,12 +108,14 @@ export class ChartAddPanel {
     if (this.isOpen && !focus) return;
     this.message = "";
     this.root.classList.remove("hidden");
+    this.options.onVisibility?.(true);
     this.render();
     if (focus) (this.root.querySelector(".chart-add-quick-btn, .chart-add-field") as HTMLElement | null)?.focus();
   }
 
   close(): void {
     this.root.classList.add("hidden");
+    this.options.onVisibility?.(false);
   }
 
   toggle(): void {

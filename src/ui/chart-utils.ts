@@ -844,6 +844,8 @@ export function calendarTicks(times: readonly number[], maxTicks = 8): CalendarT
       previous = key;
     }
   });
+  // A partial first period ("2022" for the last days of its December) would print on top of the next label.
+  if (ticks.length >= 2 && ticks[1]!.index - ticks[0]!.index < times.length / (maxTicks * 1.5)) ticks.shift();
   // Always keep the first tick even if it is a partial period; thin if still too many.
   if (ticks.length > maxTicks) {
     const stride = Math.ceil(ticks.length / maxTicks);

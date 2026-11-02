@@ -4,6 +4,17 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-02-20 — Chart page quick fixes and one workspace
+
+- **Status:** Verified (unit, e2e, browser on avocado, salary survey and Citi Bike data)
+- **Related issue / decision:** owner: the page felt clunky; a UX review on real files; DEC-2026-11-02-02.
+- **Quick fixes:** tabs named for what they show (they all read "Aggregate"); the Wide button, Duplicate for comparison and the second × removed; wheel scrolls the page; legend above the plot; switching type keeps fields; above 12 categories bars lie on their side with Top N and Other for totals; plain measure names and 10B/2.5M ticks; no "Total total_volume"; recommendations name the bucket the chart opens with; a sampled scatter says so in its subtitle; tooltip lines separate and no stale row count; count bars have headroom for their labels; a partial first period no longer prints over the next axis label.
+- **Workspace:** see DEC-2026-11-02-02: field list (src/ui/chart-field-rail.ts) with a menu of where a field can go; docked settings holding every control; one headline; plot at window height; picture type picker grouped by question; Undo and Ctrl+Z per chart (50 steps); new-chart tab; click selects with Filter to this and Show rows; PNG size asked at export, not kept on the page; hints moved to the bottom left, off the settings.
+- **Not included:** saving a session across a reload; dragging fields; size legend.
+- **Tests run and results:** see the commit; e2e chart-workspace.spec.ts (5), chart-customize.spec.ts rewritten, ui-charts tests added.
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-19 — Data Quality report: a provenance block
 
 - **Status:** Verified (unit, e2e, browser)

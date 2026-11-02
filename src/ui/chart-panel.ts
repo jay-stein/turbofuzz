@@ -40,6 +40,8 @@ import {
   fitChartKind,
 } from "./chart-gallery.js";
 import { ChartAddPanel } from "./chart-add-panel.js";
+import { ChartFieldRail } from "./chart-field-rail.js";
+import { openMenu } from "./menu.js";
 import { openChartSetupDialog } from "./chart-setup.js";
 import { nextFinerGrain, suggestedChartConfig } from "./chart-builder.js";
 import { chartSpecToConfig } from "./chart-spec.js";
@@ -408,6 +410,25 @@ function presetFor(
   return { kind: pick.kind, column: pick.column, suggested: pick.reason };
 }
 
+const SETTINGS_OPEN_KEY = "turbofuzz.charts.settingsOpen";
+
+/** Open unless the person closed it: every setting in view beats a tidy page. */
+function readSettingsOpen(): boolean {
+  try {
+    return localStorage.getItem(SETTINGS_OPEN_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function writeSettingsOpen(open: boolean): void {
+  try {
+    localStorage.setItem(SETTINGS_OPEN_KEY, open ? "1" : "0");
+  } catch {
+    // Remembering is a convenience; the panel still works.
+  }
+}
+
 type ChartEntry =
   | { type: "card"; card: ChartCard }
   | { type: "orphan"; root: HTMLElement; named: NamedChartCardConfig };
@@ -427,7 +448,8 @@ export class ChartsPanel {
   /** True when the builder opened itself because the grid was empty. */
   private addPanelAuto = false;
   private readonly empty: HTMLElement;
-  private readonly sizeSelect: HTMLSelectElement;
+  private readonly body: HTMLElement;
+  private readonly rail: ChartFieldRail;
   /** Hidden until a chart exists: the builder is already open on an empty page, so there is nothing to add yet. */
   private readonly addButton: HTMLButtonElement;
   private readonly tabStrip: HTMLElement;
@@ -444,6 +466,9 @@ export class ChartsPanel {
   private rowCount = 0;
   private totalRowCount = 0;
   private exportSizeIndex = DEFAULT_EXPORT_SIZE;
+  /** Whether the settings panel beside each chart is open; remembered, and the same on every tab. */
+  private settingsOpen = readSettingsOpen();
+  private undoKey: ((event: KeyboardEvent) => void) | null = null;
   /** True while the add-chart setup dialog is open (guards double adds). */
   private setupOpen = false;
   /** True once a dataset's columns have been seen; a cleared grid stays clear. */
@@ -463,6 +488,13 @@ export class ChartsPanel {
     this.addPanel = new ChartAddPanel({
       onCreate: (config, label) => this.placeNewCard(config, label),
       onShelfChange: () => this.guide?.refresh(),
+      onVisibility: () => {
+        if (this.body !== undefined) this.syncBody();
+      },
+    });
+    this.rail = new ChartFieldRail({
+      activeCard: () => this.activeCard(),
+      onNewChart: (kind, column) => this.addChart({ kind, column }),
     });
     const guideButton = el(
       "button",
@@ -482,28 +514,17 @@ export class ChartsPanel {
     document.addEventListener("keydown", this.guideKey);
     add.addEventListener("click", () => this.toggleAddPanel());
 
-    this.sizeSelect = el("select", {
-      class: "chart-size",
-      "aria-label": "PNG export size",
-      title: "Pixel size used by every chart's PNG button",
-    }) as HTMLSelectElement;
-    EXPORT_SIZES.forEach((size, index) => {
-      this.sizeSelect.append(
-        el("option", { value: String(index) }, [size.label]) as HTMLOptionElement,
-      );
-    });
-    this.sizeSelect.value = String(this.exportSizeIndex);
-    this.sizeSelect.addEventListener("change", () => {
-      this.exportSizeIndex = Number(this.sizeSelect.value);
-    });
-
-    toolbar.append(
-      add,
-      guideButton,
-      el("span", { class: "grow" }),
-      el("span", { class: "chart-toolbar-label" }, ["PNG size"]),
-      this.sizeSelect,
-    );
+    this.undoKey = (event: KeyboardEvent): void => {
+      if (event.key.toLowerCase() !== "z" || !(event.ctrlKey || event.metaKey) || event.shiftKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target !== null && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
+      if (this.root.offsetParent === null) return;
+      const card = this.activeCard();
+      if (card === null || !card.canUndo) return;
+      event.preventDefault();
+      card.undo();
+    };
+    document.addEventListener("keydown", this.undoKey);
 
     this.tabStrip = el("div", { class: "charts-tabs hidden", role: "tablist", "aria-label": "Charts" });
     this.tabStrip.addEventListener("keydown", (event) => this.onTabKey(event));
@@ -519,7 +540,10 @@ export class ChartsPanel {
       el("cite", {}, ["Storytelling with Data: A Data Visualization Guide for Business Professionals"]),
       " by Cole Nussbaumer Knaflic.",
     ]);
-    const main = el("div", { class: "charts-main" }, [toolbar, this.tabStrip, this.addPanel.root, this.grid, this.empty, credit]);
+    toolbar.append(this.tabStrip, add, el("span", { class: "grow" }), guideButton);
+    const content = el("div", { class: "charts-content" }, [this.addPanel.root, this.grid, this.empty, credit]);
+    this.body = el("div", { class: "charts-body" }, [this.rail.root, content]);
+    const main = el("div", { class: "charts-main" }, [toolbar, this.body]);
     this.root.append(el("div", { class: "charts-layout" }, [main]));
     this.syncEmpty();
   }
@@ -550,14 +574,16 @@ export class ChartsPanel {
     this.active = entry;
     for (const other of this.entries) this.entryRoot(other).classList.toggle("hidden", other !== entry);
     this.syncTabs();
+    this.rail.sync();
     if (entry?.type === "card") entry.card.repaint();
   }
 
   /** Redraws the tab row from the entries, in their order. */
   private syncTabs(): void {
     this.tabStrip.classList.toggle("hidden", this.entries.length === 0);
+    const drafting = this.addPanel.isOpen;
     const tabs = this.entries.map((entry, index) => {
-      const selected = entry === this.active;
+      const selected = entry === this.active && !drafting;
       const label = el("span", { class: "charts-tab-label" }, [this.entryLabel(entry)]);
       const tab = el("button", {
         class: `charts-tab${selected ? " active" : ""}${entry.type === "orphan" ? " orphan" : ""}`,
@@ -569,7 +595,10 @@ export class ChartsPanel {
         title: "Open this chart. Double-click (or F2) to rename, drag to reorder",
         "data-index": String(index),
       }, [label]) as HTMLButtonElement;
-      tab.addEventListener("click", () => { if (entry !== this.active) this.activate(entry); });
+      tab.addEventListener("click", () => {
+        if (drafting) this.addPanel.close();
+        if (entry !== this.active) this.activate(entry);
+      });
       if (entry.type === "card") tab.addEventListener("dblclick", () => this.renameTab(entry.card, label));
       tab.addEventListener("dragstart", (event) => {
         this.dragging = entry;
@@ -602,18 +631,28 @@ export class ChartsPanel {
       });
       return el("div", { class: `charts-tab-wrap${selected ? " active" : ""}` }, [tab, close]);
     });
-    const plus = el("button", {
-      class: "charts-tab-add",
-      type: "button",
-      title: "Add a chart in a new tab",
-      "aria-label": "Add a chart in a new tab",
-    }, ["+"]);
-    plus.addEventListener("click", () => this.toggleAddPanel());
-    this.tabStrip.replaceChildren(...tabs, plus);
+    // While a chart is being set up, its tab is the open one.
+    const draft = drafting && this.entries.length > 0
+      ? [el("div", { class: "charts-tab-wrap active" }, [el("span", { class: "charts-tab active draft", role: "tab", "aria-selected": "true" }, ["New chart"])])]
+      : [];
+    this.tabStrip.replaceChildren(...tabs, ...draft);
+  }
+
+  /** The builder or the open chart, never one pushing the other down the page. */
+  private syncBody(): void {
+    const drafting = this.addPanel.isOpen;
+    this.body.classList.toggle("drafting", drafting);
+    this.grid.classList.toggle("hidden", drafting || this.entries.length === 0);
+    this.empty.classList.toggle("hidden", this.entries.length > 0);
+    this.rail.root.classList.toggle("hidden", drafting || this.entries.length === 0);
+    this.syncTabs();
+    this.rail.sync();
+    if (!drafting) this.activeCard()?.repaint();
   }
 
   /** Keeps a tab's text in step with its chart's title. */
   private syncTabLabel(card: ChartCard): void {
+    if (card === this.activeCard()) this.rail.sync();
     const index = this.entries.findIndex((entry) => entry.type === "card" && entry.card === card);
     if (index < 0) return;
     const label = this.tabStrip.querySelector(`.charts-tab[data-index="${index}"] .charts-tab-label`);
@@ -774,7 +813,7 @@ export class ChartsPanel {
    */
   createDetachedCard(root: HTMLElement, preset: Partial<ChartCardConfig>, overrides: Partial<ChartCardOptions> = {}): ChartCard {
     root.classList.add("chart-card");
-    const card = new ChartCard(root, { ...this.cardOptions(), ...overrides }, preset);
+    const card = new ChartCard(root, { ...this.cardOptions(), docked: false, ...overrides }, preset);
     this.detached.push(card);
     this.syncCard(card);
     return card;
@@ -827,6 +866,13 @@ export class ChartsPanel {
         onRemove: (target) => this.removeCard(target),
         onDuplicate: (target) => this.duplicateCard(target),
         onTitleChange: (target) => this.syncTabLabel(target),
+        docked: true,
+        settingsOpen: this.settingsOpen,
+        onSettingsToggle: (open) => {
+          this.settingsOpen = open;
+          writeSettingsOpen(open);
+          for (const card of this.cards()) card.setSettingsOpen(open);
+        },
         onEdit: (target) => void this.editCard(target),
         onResetSuggested: (target) => this.resetCard(target),
         onFilterTable: this.options.onFilterTable,
@@ -839,9 +885,19 @@ export class ChartsPanel {
         research: this.options.research,
         onConvertToken: this.options.onConvertToken,
         onSuggestion: this.options.onSuggestion,
+        // The size is asked at the moment of export, not kept on the page for the rare time it matters.
         onExport: (target) => {
-          const size = EXPORT_SIZES[this.exportSizeIndex] ?? EXPORT_SIZES[DEFAULT_EXPORT_SIZE];
-          target.exportPng(size.width, size.height);
+          openMenu(target.pngButton, [
+            { label: "Download PNG at", heading: true, action: () => {} },
+            ...EXPORT_SIZES.map((size, index) => ({
+              label: size.label,
+              checked: index === this.exportSizeIndex,
+              action: () => {
+                this.exportSizeIndex = index;
+                target.exportPng(size.width, size.height);
+              },
+            })),
+          ]);
         },
     };
   }
@@ -963,6 +1019,7 @@ export class ChartsPanel {
     this.columns = withChartGroups(this.withKnownGroups(columns));
     if (this.groupsWanted) this.fetchMissingGroups(columns);
     this.addPanel.setColumns(this.columns, this.rowCount);
+    this.rail.setColumns(this.columns);
     for (const card of this.liveCards()) card.setColumns(this.columns);
     this.syncEmpty();
   }
@@ -1015,6 +1072,7 @@ export class ChartsPanel {
         }
       }
       this.columns = withChartGroups(this.withKnownGroups(columns));
+      this.rail.setColumns(this.columns);
       for (const card of this.liveCards()) card.setColumns(this.columns);
       this.syncEmpty();
     });
@@ -1035,6 +1093,7 @@ export class ChartsPanel {
   restore(configs: readonly RestoredChartConfig[], columns: ColumnMeta[]): void {
     this.rawColumns = columns;
     this.columns = withChartGroups(this.withKnownGroups(columns));
+    this.rail.setColumns(this.columns);
     for (const config of configs) {
       if ((config.missingColumns?.length ?? 0) > 0) {
         this.addOrphan(config.namedConfig ?? (config as unknown as NamedChartCardConfig));
@@ -1153,6 +1212,7 @@ export class ChartsPanel {
 
   dispose(): void {
     if (this.guideKey !== null) document.removeEventListener("keydown", this.guideKey);
+    if (this.undoKey !== null) document.removeEventListener("keydown", this.undoKey);
     this.guide?.root.remove();
     for (const card of this.liveCards()) card.dispose();
     this.entries = [];
@@ -1162,14 +1222,14 @@ export class ChartsPanel {
   private syncEmpty(): void {
     const isEmpty = this.entries.length === 0;
     this.addButton.classList.toggle("hidden", isEmpty);
-    this.empty.classList.toggle("hidden", !isEmpty);
-    this.grid.classList.toggle("hidden", isEmpty);
     if (!isEmpty) {
       // A builder opened for an empty tab folds away once any chart exists.
       if (this.addPanelAuto) this.addPanel.close();
       this.addPanelAuto = false;
+      this.syncBody();
       return;
     }
+    this.syncBody();
     this.empty.replaceChildren();
     if (this.columns.length === 0) {
       this.empty.append(

@@ -403,6 +403,11 @@ const ICONS: Record<ChartCardKind, string> = {
     '<rect x="8" y="8" width="18" height="10" fill="currentColor" opacity="0.75"/><rect x="28" y="8" width="18" height="10" fill="currentColor" opacity="0.35"/><rect x="48" y="8" width="16" height="10" fill="currentColor" opacity="0.55"/><rect x="8" y="20" width="18" height="10" fill="currentColor" opacity="0.35"/><rect x="28" y="20" width="18" height="10" fill="currentColor" opacity="0.85"/><rect x="48" y="20" width="16" height="10" fill="currentColor" opacity="0.25"/><rect x="8" y="32" width="18" height="8" fill="currentColor" opacity="0.55"/><rect x="28" y="32" width="18" height="8" fill="currentColor" opacity="0.25"/><rect x="48" y="32" width="16" height="8" fill="currentColor" opacity="0.7"/>',
 };
 
+/** A chart type's small picture, for the type picker. */
+export function kindIcon(kind: ChartCardKind): HTMLElement {
+  return svgWrap(ICONS[kind]);
+}
+
 function svgWrap(inner: string): HTMLElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 72 48");

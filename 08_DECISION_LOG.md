@@ -23,6 +23,14 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-02-02 — The Chart page is one workspace; a click selects, and filtering is a second step
+
+- **Status:** Accepted (owner, 2026-11-02, after a UX review on real files)
+- **Context:** The review found the page clunky, not the charts: the plot started 382 px down a 900 px window, controls lived in three places, the settings drawer covered the data being changed, the builder pushed the chart off screen, the wheel was trapped over charts, and one click on a bar filtered every page and tab.
+- **Decision:** Tabs along the top, fields on the left, the plot at window height, one docked settings panel (open until closed, remembered). Adding a chart opens the builder in a new-chart tab. A click on the plot marks and offers Filter to this and Show rows. Plain wheel scrolls the page; Ctrl+wheel zooms; the Map keeps plain wheel zoom, as maps do. The title drawn on the canvas moved to one headline above it, and PNGs still carry it. The Map page keeps the older arrangement.
+- **Trade-offs:** Settings take 272 px, so a narrow window loses the field list first, then the settings drop under the plot. Undo covers the settings of one chart, not filters or left-out values.
+- **Date / owner:** 2026-11-02 / owner
+
 ### DEC-2026-11-02-01 — Formula functions: row-local ones are cheap to add; each needs a Python port and a parity case
 
 - **Status:** Accepted (owner, 2026-11-02)

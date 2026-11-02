@@ -38,7 +38,6 @@ async function openTimeSeries(page: Page): Promise<void> {
   const dialog = page.locator(".modal-overlay");
   if (await dialog.count()) await dialog.getByRole("button", { name: /^(Add|Create|OK)/ }).last().click();
   await page.locator("canvas.chart-canvas").waitFor();
-  await page.getByRole("button", { name: "Customize" }).first().click();
   await page.getByLabel("Value column").selectOption({ label: "points (Integer)" });
   await page.waitForTimeout(800);
 }
