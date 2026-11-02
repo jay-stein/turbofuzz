@@ -3621,6 +3621,101 @@ mark {
   flex: 0 0 auto;
 }
 
+.chart-error-row {
+  flex-wrap: wrap;
+}
+
+.chart-error-row select {
+  flex: 1 1 100%;
+  max-width: 100%;
+}
+
+.chart-settings .chart-error-hint {
+  flex: 1 1 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.35;
+  font-family: inherit;
+}
+
+/* Over the chart while resampling. */
+.chart-progress {
+  position: absolute;
+  z-index: 6;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  max-width: calc(100% - 24px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+}
+
+.chart-progress-donut {
+  position: relative;
+  flex: 0 0 auto;
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+}
+
+.chart-progress-donut::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) 0 var(--done, 40deg), var(--border) var(--done, 40deg) 360deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
+}
+
+/* The spinner proper: a short bright arc turning over the ring, so it visibly works even between updates. */
+.chart-progress-donut::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 6px solid transparent;
+  border-top-color: var(--accent);
+  opacity: 0.55;
+  animation: load-spin 0.9s linear infinite;
+}
+
+.chart-progress-percent {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-progress-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+
+.chart-progress-detail,
+.chart-progress-time {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-progress-donut::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 .chart-stats-short {
   display: none;
 }

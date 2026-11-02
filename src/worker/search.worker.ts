@@ -3,6 +3,8 @@ import { isGroupableColumn } from "../data/groupable.js";
 import { keepRows, type ChartExclusion } from "../data/chart-exclusions.js";
 import { sliceBreakdown } from "../data/slice-breakdown.js";
 import { computeAggregate, type ViewDef } from "../data/aggregate.js";
+import type { GroupRows } from "../data/aggregate.js";
+import { errorBarKey } from "../data/error-bar-key.js";
 import { computePivot } from "../data/pivot.js";
 import { coMissingness } from "../data/comissingness.js";
 import { computeDependencies } from "../data/dependencies.js";
@@ -51,6 +53,7 @@ import {
   computeGridCounts,
   type GridMeasure,
 } from "../data/chart-stats.js";
+import { BOOTSTRAP_RESAMPLES, BOOTSTRAP_SEED, bootstrapIntervals, formulaInterval, type GroupInterval } from "../data/error-bars.js";
 import { computeBarFrames, computeBubbleFrames, computeHistogramFrames, computePlaceFrames } from "../data/chart-frames.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import type { Delimiter } from "../parse/delimiter.js";
@@ -128,6 +131,7 @@ import type {
   GetSimilarClustersRequest,
   GetGridCountsRequest,
   GetAnimationRequest,
+  GetErrorBarsRequest,
   LoadRequest,
   PreviewCleanRequest,
   PreviewTransformRequest,
@@ -532,6 +536,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getAnimation":
       handleGetAnimation(message);
+      break;
+    case "getErrorBars":
+      await handleGetErrorBars(message);
       break;
     case "renameHeaders":
       handleRenameHeaders(message);
@@ -2484,6 +2491,58 @@ function categoryCodesFor(
 }
 
 /** Per-time-bucket frames for animated bar and bubble charts. */
+/**
+ * Error bars for the first measure of an aggregate, by group. A bootstrap can take seconds, so it runs in slices: other
+ * requests go ahead between them, and a cancel or a new file stops it.
+ */
+async function handleGetErrorBars(message: GetErrorBarsRequest): Promise<void> {
+  const { dataset } = state();
+  const started = performance.now();
+  const measure = message.view.measures[0];
+  const column = measure?.column === null || measure?.column === undefined ? undefined : dataset.columns[measure.column];
+  if (measure === undefined || column === undefined) throw new Error("Error bars need a value column");
+  const collect: GroupRows = { rows: [], labels: [] };
+  const aggregate = computeAggregate(message.view, dataset.columns, dataset.rowCount, viewRowIds(message.view), collect);
+  // Only the groups the chart has: a limit can leave some out.
+  const shown = new Set(aggregate.labels.map((_, index) => errorBarKey(aggregate.dimensions.map((values) => values[index] ?? ""))));
+  const numbers = column.numbers();
+  const groups: { label: string; labels: string[]; values: Float64Array }[] = [];
+  collect.rows.forEach((rows, index) => {
+    const labels = collect.labels[index]!;
+    const label = errorBarKey(labels);
+    if (!shown.has(label)) return;
+    const finite = rows.map((row) => numbers[row]!).filter((value) => Number.isFinite(value));
+    groups.push({ label, labels, values: Float64Array.from(finite) });
+  });
+  const kind = message.kind;
+  let intervals: GroupInterval[] | null;
+  if (kind === "bootstrap") {
+    intervals = await bootstrapIntervals(groups, measure.agg, async (progress) => {
+      post({ type: "errorBarsProgress", requestId: message.requestId, ...progress });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return !cancelledScans.delete(message.requestId) && state().dataset === dataset;
+    });
+  } else {
+    intervals = groups.map((group) => formulaInterval(group.values, kind, measure.agg));
+  }
+  const list = intervals ?? [];
+  post({
+    type: "errorBars",
+    requestId: message.requestId,
+    cancelled: intervals === null,
+    keys: intervals === null ? [] : groups.map((group) => group.label),
+    labels: intervals === null ? [] : groups.map((group) => group.labels),
+    n: Uint32Array.from(list, (interval) => interval.n),
+    center: Float64Array.from(list, (interval) => interval.center),
+    low: Float64Array.from(list, (interval) => interval.low),
+    high: Float64Array.from(list, (interval) => interval.high),
+    bootSe: kind === "bootstrap" ? Float64Array.from(list, (interval) => interval.bootSe) : null,
+    resamples: kind === "bootstrap" ? BOOTSTRAP_RESAMPLES : 0,
+    seed: BOOTSTRAP_SEED,
+    ms: performance.now() - started,
+  });
+}
+
 function handleGetAnimation(message: GetAnimationRequest): void {
   const { dataset } = state();
   const timeColumn = dataset.columns[message.timeColumn];

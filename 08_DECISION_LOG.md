@@ -23,6 +23,14 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-03-02 — Error bars: formulas where they exist, a seeded bootstrap on request, warnings rather than bans
+
+- **Status:** Accepted (owner, 2026-11-03)
+- **Context:** Seaborn draws a bootstrapped CI by default. Bootstrapping costs a thousand passes over the rows, against the speed goal.
+- **Decision:** Off until ticked. A formula is the default for an average or median; the bootstrap is chosen by hand and is the only option for other statistics. It is seeded, so the same data gives the same bars. Totals, counts, lowest and highest have no bars, with the reason shown. A time series keeps its bars with a warning, by the owner's choice over disabling them. The automatic bars never hide that spread and uncertainty are different questions: the labels and notes say which is showing.
+- **Trade-offs:** Rows are treated as independent; with very large groups a CI is narrow and can look more certain than the data deserves.
+- **Date / owner:** 2026-11-03 / owner
+
 ### DEC-2026-11-03-01 — Extract stats reports what was drawn, and says what was left out
 
 - **Status:** Accepted (owner asked for the feature; the design is the agent's, for the owner's review)

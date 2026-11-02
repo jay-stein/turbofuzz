@@ -2608,6 +2608,7 @@ export class App {
       requestGridCounts: (xColumn, yColumn, bins, measure, groupColumn, scope) =>
         this.client.getGridCounts(xColumn, yColumn, bins, measure, groupColumn, scope),
       requestAnimation: (input) => this.client.getAnimation(input),
+      requestErrorBars: (input, onProgress) => this.client.getErrorBars(input, onProgress),
       tableSourceLabel: () =>
         this.filters.size === 0 &&
         this.specials.size === 0 &&

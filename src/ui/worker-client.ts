@@ -1,3 +1,5 @@
+import type { IntervalKind } from "../data/error-bars.js";
+import type { ErrorBarsMessage, ErrorBarsProgressMessage } from "../worker/protocol.js";
 import type { TsConfig, TsMode } from "../data/timeseries/aggregate.js";
 import type { ModelKey } from "../data/timeseries/models.js";
 import type { HeaderLayout } from "../parse/header-detect.js";
@@ -540,6 +542,32 @@ export class SearchWorkerClient {
     return this.request<AnimationMessage>({ type: "getAnimation", ...input });
   }
 
+  /** Error bars for a chart's aggregate: the result, progress while resampling, and a way to stop. */
+  getErrorBars(
+    input: { view: ViewDef; kind: IntervalKind },
+    onProgress: (message: ErrorBarsProgressMessage) => void,
+  ): { done: Promise<ErrorBarsMessage>; cancel: () => void } {
+    const requestId = this.nextId++;
+    this.streams.set(requestId, (message) => onProgress(message as ErrorBarsProgressMessage));
+    const done = new Promise<ErrorBarsMessage>((resolve, reject) => {
+      this.pending.set(requestId, {
+        resolve: (value) => {
+          this.streams.delete(requestId);
+          resolve(value as ErrorBarsMessage);
+        },
+        reject: (error) => {
+          this.streams.delete(requestId);
+          reject(error);
+        },
+      });
+    });
+    this.worker.postMessage({ type: "getErrorBars", requestId, ...input } as WorkerRequest);
+    return {
+      done,
+      cancel: () => this.worker.postMessage({ type: "cancelScan", scanId: requestId } as WorkerRequest),
+    };
+  }
+
   renameHeaders(headers: string[]): Promise<HeadersRenamedMessage> {
     return this.request<HeadersRenamedMessage>({ type: "renameHeaders", headers });
   }
@@ -603,7 +631,7 @@ export class SearchWorkerClient {
   private streams = new Map<number, (message: WorkerResponse) => void>();
 
   private handle(message: WorkerResponse): void {
-    if (message.type === "sensitiveColumn") {
+    if (message.type === "sensitiveColumn" || message.type === "errorBarsProgress") {
       this.streams.get(message.requestId)?.(message);
       return;
     }

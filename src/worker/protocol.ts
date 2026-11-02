@@ -16,6 +16,7 @@ import type { TextProfile } from "../data/text-profile.js";
 import type { DistributionChange } from "../data/distribution.js";
 import type { SimilarClusterEntry } from "../data/similar-clusters.js";
 import type { AnimationResult } from "../data/chart-frames.js";
+import type { BootstrapProgress, IntervalKind } from "../data/error-bars.js";
 import type { GridCountsResult } from "../data/chart-stats.js";
 import type { TimeGrain } from "../data/aggregate.js";
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
@@ -986,6 +987,37 @@ export interface GridCountsMessage {
   ms: number;
 }
 
+/** Error bars for the first measure of a chart's aggregate; progress streams back while resampling. */
+export type GetErrorBarsRequest = {
+  type: "getErrorBars";
+  requestId: number;
+  view: ViewDef;
+  kind: IntervalKind;
+};
+
+export interface ErrorBarsProgressMessage extends BootstrapProgress {
+  type: "errorBarsProgress";
+  requestId: number;
+}
+
+export interface ErrorBarsMessage {
+  type: "errorBars";
+  requestId: number;
+  cancelled: boolean;
+  /** Each group's labels, one per dimension, joined with errorBarKey. */
+  keys: string[];
+  labels: string[][];
+  n: Uint32Array;
+  center: Float64Array;
+  low: Float64Array;
+  high: Float64Array;
+  /** Spread of the resampled statistic; null when no resampling was done. */
+  bootSe: Float64Array | null;
+  resamples: number;
+  seed: number;
+  ms: number;
+}
+
 export type AnimationChart = "bar" | "bubble" | "histogram" | "places";
 
 export type GetAnimationRequest = {
@@ -1189,7 +1221,8 @@ export type WorkerRequest =
   | EvaluateRulesRequest
   | CountPairRequest
   | GetGridCountsRequest
-  | GetAnimationRequest;
+  | GetAnimationRequest
+  | GetErrorBarsRequest;
 
 export interface FileImportMeta {
   name: string;
@@ -1452,6 +1485,8 @@ export type WorkerResponse =
   | PairCountMessage
   | GridCountsMessage
   | AnimationMessage
+  | ErrorBarsProgressMessage
+  | ErrorBarsMessage
   | ExportStartedMessage
   | ChartGroupsMessage
   | CsvChunkMessage

@@ -24,7 +24,10 @@ import type {
   TextProfileMessage,
   PivotMessage,
   CategoryMeta,
+  ErrorBarsMessage,
+  ErrorBarsProgressMessage,
 } from "../worker/protocol.js";
+import type { IntervalKind } from "../data/error-bars.js";
 import { isGroupableColumn } from "../data/groupable.js";
 import {
   ChartCard,
@@ -128,6 +131,10 @@ export interface ChartsPanelOptions {
     },
   ): Promise<GridCountsMessage>;
   /** Per-time-bucket frames for animated bar, bubble, histogram and treemap charts. */
+  requestErrorBars?(
+    input: { view: ViewDef; kind: IntervalKind },
+    onProgress: (message: ErrorBarsProgressMessage) => void,
+  ): { done: Promise<ErrorBarsMessage>; cancel: () => void };
   requestAnimation?(input: {
     timeColumn: number;
     grain: TimeGrain;
@@ -855,6 +862,7 @@ export class ChartsPanel {
         requestTextProfile: this.options.requestTextProfile,
         requestGridCounts: this.options.requestGridCounts,
         requestAnimation: this.options.requestAnimation,
+        requestErrorBars: this.options.requestErrorBars,
         tableSourceLabel: this.options.tableSourceLabel,
         onFilter: this.options.onFilter,
         currentFilter: this.options.currentFilter,

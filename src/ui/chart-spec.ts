@@ -1,3 +1,4 @@
+import type { IntervalKind } from "../data/error-bars.js";
 import type { ChartBinOptions } from "../data/chart-bins.js";
 import type { TimeGrain } from "../data/aggregate.js";
 import type { ColumnMeta } from "../worker/protocol.js";
@@ -52,6 +53,8 @@ export interface ChartSpec {
     mode: ChartCardConfig["mode"];
     densityStyle: ChartCardConfig["densityStyle"];
     kde: boolean;
+    /** Error bars, when switched on. */
+    errorBars?: IntervalKind;
     color: string;
     colorCustom: boolean;
     multiColor: boolean;
@@ -178,6 +181,7 @@ export function chartSpecFromConfig(
       mode: config.mode,
       densityStyle: config.densityStyle,
       kde: config.kde,
+      ...(config.errorBars === true ? { errorBars: config.errorBarKind ?? "ci" } : {}),
       color: config.color,
       colorCustom: config.colorCustom === true,
       multiColor: config.multiColor,
@@ -263,6 +267,10 @@ export function chartSpecToConfig(
   config.mode = spec.presentation.mode;
   config.densityStyle = spec.presentation.densityStyle;
   config.kde = spec.presentation.kde;
+  if (spec.presentation.errorBars !== undefined) {
+    config.errorBars = true;
+    config.errorBarKind = spec.presentation.errorBars;
+  }
   config.color = spec.presentation.color;
   if (spec.presentation.colorCustom) config.colorCustom = true;
   config.multiColor = spec.presentation.multiColor;

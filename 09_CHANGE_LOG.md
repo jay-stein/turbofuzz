@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-03-06 — Error bars, with a seeded bootstrap
+
+- **Status:** Verified (unit, e2e, browser on Citi Bike trip data)
+- **Related issue / decision:** owner request; DEC-2026-11-03-02.
+- **What changed:** an Error bars box, off by default, on single-series bar and line charts of an average, median, standard deviation, variance or percentile. Five kinds: 95% CI by formula (t for an average, exact binomial ranks for a median), 95% CI by bootstrap, standard error, standard deviation, middle 95% of rows. The bootstrap runs in slices in the worker with a donut, progress and Cancel over the chart. Extract stats gives each group's low, high and rows, the method and seed. A time series keeps its bars and warns.
+- **Not included:** Group by (several series); dot plots and other chart kinds; levels other than 95%.
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
 ### CHG-2026-11-03-05 — The Animate button is always there and one click starts it
 
 - **Status:** Verified (unit, e2e)

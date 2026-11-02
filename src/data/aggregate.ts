@@ -1274,11 +1274,18 @@ function selectTopIndices(
  * under "(missing)" and the totals row is always computed from rows, never
  * from the grouped output.
  */
+/** Filled in by computeAggregate when given: which rows fell in each group, and the group's labels. */
+export interface GroupRows {
+  rows: number[][];
+  labels: string[][];
+}
+
 export function computeAggregate(
   view: ViewDef,
   columns: readonly ColumnData[],
   rowCount: number,
   ids: Uint32Array,
+  collect?: GroupRows,
 ): AggregateResult {
   const dimensions = view.dimensions.filter((spec) => columns[spec.column] !== undefined);
   const measures = view.measures;
@@ -1551,7 +1558,12 @@ export function computeAggregate(
       groupTimes.push(bucket ?? Number.NaN);
       accs.push(newSlotAccs());
       filled.push(false);
+      if (collect !== undefined) {
+        collect.rows.push([]);
+        collect.labels.push(dimValues.map((values) => values[index as number] ?? ""));
+      }
     }
+    collect?.rows[index]!.push(row);
     const groups = accs[index];
 
     for (let s = 0; s < slots.length; s++) {
