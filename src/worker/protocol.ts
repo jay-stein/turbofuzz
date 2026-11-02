@@ -402,7 +402,7 @@ export type GetChartSeriesRequest = {
   sizeColumn?: number;
   mode: SeriesMode;
   /** Map cards: one dot per distinct place, valued by the row count or this aggregate of the size column. */
-  places?: { agg: "count" | "sum" | "mean" | "min" | "max"; colorAgg?: "sum" | "mean" | "min" | "max" };
+  places?: { agg: "count" | "sum" | "mean" | "min" | "max"; colorAgg?: "sum" | "mean" | "min" | "max"; labelColumn?: number };
   limit?: number;
   /** false keeps the full data range; the map card sets this. */
   clip?: boolean;
@@ -422,6 +422,8 @@ export interface ChartSeriesMessage {
   colorColumn: number;
   sizeColumn: number;
   colorLabels: string[] | null;
+  /** One dot per place: what each is called, from the label column asked for. */
+  placeLabels?: string[];
   /** Worker compute time for this payload. */
   ms: number;
   /** Pearson r of the two plotted columns over the filtered pairs (NaN if undefined). */
@@ -1038,6 +1040,8 @@ export type GetAnimationRequest = {
   measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
   /** bubble: optional category column splitting the bubbles into sets. */
   groupColumn?: number;
+  /** places: the column that names each place. */
+  labelColumn?: number;
   /** places: what colours the dots, per place and frame. */
   colorMeasure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
   chartFilter?: { column: number; code: number };

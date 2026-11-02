@@ -1603,6 +1603,7 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
   post(
     {
       type: "chartSeries",
+      ...(result.mode === "points" && result.firstRows !== undefined && message.places?.labelColumn !== undefined ? { placeLabels: namesOf(message.places.labelColumn, result.firstRows) } : {}),
       requestId: message.requestId,
       xColumn: message.xColumn,
       yColumn: message.yColumn,
@@ -2543,6 +2544,14 @@ async function handleGetErrorBars(message: GetErrorBarsRequest): Promise<void> {
   });
 }
 
+/** What the label column says at each of these rows. */
+function namesOf(column: number | undefined, rows: Uint32Array): string[] | undefined {
+  if (column === undefined || column < 0) return undefined;
+  const data = state().dataset.columns[column];
+  if (data === undefined) return undefined;
+  return Array.from(rows, (row) => (data.nullMask.get(row) ? "" : (data.raw[row] ?? "")));
+}
+
 function handleGetAnimation(message: GetAnimationRequest): void {
   const { dataset } = state();
   const timeColumn = dataset.columns[message.timeColumn];
@@ -2582,6 +2591,8 @@ function handleGetAnimation(message: GetAnimationRequest): void {
       colorColumn === undefined || message.colorMeasure === undefined ? undefined : { values: colorColumn.numbers(), agg: message.colorMeasure.agg },
     );
     const places = result.places!;
+    const named = namesOf(message.labelColumn, places.firstRows);
+    if (named !== undefined) places.labels = named;
     const transfer: Transferable[] = [places.x.buffer, places.y.buffer, places.counts.buffer, places.size.buffer];
     if (places.color !== null) transfer.push(places.color.buffer);
     post(

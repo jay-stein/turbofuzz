@@ -13387,8 +13387,7 @@ button.qp-tile:hover {
 
 /* On the Map page the dock already has Fit all, and the page is always a map. */
 .map-page .chart-kind-button,
-.map-page .chart-kind-field,
-.map-page .chart-field:has(> .chart-kind-field) { display: none; }
+.map-page *:has(> .chart-kind-field) { display: none; }
 .map-page .chart-map-fit { display: none; }
 
 /* The Map page is the map: the card's own "Map: rows from Table" line repeats the page title, and the display menu needs its words. */

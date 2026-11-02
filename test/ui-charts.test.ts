@@ -3074,7 +3074,8 @@ async function placesCard(preset: Record<string, unknown> = {}): Promise<{
     arcs.length = 0;
     card.repaint();
     await tick();
-    return arcs.filter((r) => r >= 0.5 && r <= 60).slice(-3).sort((a, b) => a - b);
+    // The last two are the size legend's.
+    return arcs.filter((r) => r >= 0.5 && r <= 60).slice(-5, -2).sort((a, b) => a - b);
   };
   return { card, host, arcs, requests, radii };
 }

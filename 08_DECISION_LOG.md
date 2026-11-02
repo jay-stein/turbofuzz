@@ -23,6 +23,14 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-03-03 — A map is a Research page, not a chart type
+
+- **Status:** Accepted (owner, 2026-11-03)
+- **Context:** Maps existed twice: a chart type on the Chart page and a Research page built on the same card.
+- **Decision:** One place: the Map page in Research. The Chart page says so when a file has coordinates and clicks through. Inside, the map remains the shared chart card, so anything built for charts (colour, size, animation, Extract stats) carries over.
+- **Trade-offs:** General mode has no map without a mode switch; the click through makes that switch for you.
+- **Date / owner:** 2026-11-03 / owner
+
 ### DEC-2026-11-03-02 — Error bars: formulas where they exist, a seeded bootstrap on request, warnings rather than bans
 
 - **Status:** Accepted (owner, 2026-11-03)

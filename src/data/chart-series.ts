@@ -33,6 +33,8 @@ export interface SeriesPoints {
   /** One dot per distinct place: `size` holds each place's value and `counts` the rows behind it. */
   places?: boolean;
   counts?: Float64Array | null;
+  /** One dot per place: a row at each place, to name it from. */
+  firstRows?: Uint32Array;
 }
 
 export interface SeriesGrid {
@@ -101,7 +103,7 @@ export function groupPlaces(
 ): SeriesPoints {
   const index = new Map<number, number>();
   const px: number[] = [], py: number[] = [], rows: number[] = [], sum: number[] = [], seen: number[] = [], lo: number[] = [], hi: number[] = [];
-  const colorSum: number[] = [], colorSeen: number[] = [], colorLo: number[] = [], colorHi: number[] = [];
+  const colorSum: number[] = [], colorSeen: number[] = [], colorLo: number[] = [], colorHi: number[] = [], first: number[] = [];
   let total = 0, outside = 0;
   for (let i = 0; i < ids.length; i++) {
     const id = ids[i]!;
@@ -115,7 +117,7 @@ export function groupPlaces(
       at = px.length;
       index.set(key, at);
       px.push(xv); py.push(yv); rows.push(0); sum.push(0); seen.push(0); lo.push(Infinity); hi.push(-Infinity);
-      colorSum.push(0); colorSeen.push(0); colorLo.push(Infinity); colorHi.push(-Infinity);
+      colorSum.push(0); colorSeen.push(0); colorLo.push(Infinity); colorHi.push(-Infinity); first.push(id);
     }
     rows[at]!++;
     total++;
@@ -153,7 +155,7 @@ export function groupPlaces(
   if (n === 0) { xMin = 0; xMax = 1; yMin = 0; yMax = 1; }
   [xMin, xMax] = padded(xMin, xMax);
   [yMin, yMax] = padded(yMin, yMax);
-  return { mode: "points", x: ox, y: oy, colorValues: ocolor, colorCodes: null, size: osize, counts: ocount, places: true, shown: n, total, outside, xMin, xMax, yMin, yMax, sampled };
+  return { mode: "points", x: ox, y: oy, colorValues: ocolor, colorCodes: null, size: osize, counts: ocount, firstRows: Uint32Array.from(order, (k) => first[k]!), places: true, shown: n, total, outside, xMin, xMax, yMin, yMax, sampled };
 }
 
 /**

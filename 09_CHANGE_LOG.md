@@ -4,6 +4,23 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-03-08 — Maps move to Research, and the Map page gets the best of it
+
+- **Status:** Verified (unit, e2e, browser on Citi Bike trip data)
+- **Related issue / decision:** owner: a map is a dedicated Research view, not a chart type; DEC-2026-11-03-03.
+- **What changed:** the Chart page no longer offers a map: no type, no quick start, no recommendation. A file with coordinates gets a hint on + Add chart that clicks through to the Map page, switching to Research. The Map page now has the settings beside the map (the Chart page's workspace), hover details naming each dot, found automatically from a name column that shares a word with the coordinates, a size legend, a linear or logarithmic colour scale, and a default view that fits city-scale data. It already had size, scale, opacity, colour, animation and Extract stats from the shared chart card.
+- **Not included:** a chart spec holding a map still opens as a map chart on the Chart page, with its Open in Map link.
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
+### CHG-2026-11-03-07 — Darker outlines on filled markers
+
+- **Status:** Verified (unit, browser)
+- **Related issue / decision:** owner request.
+- **What changed:** scatter points, bubbles, map dots and dot plots are outlined in a darker version of their own fill. Above 5,000 points, scatters and maps draw small squares with no outline, for speed.
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
 ### CHG-2026-11-03-06 — Error bars, with a seeded bootstrap
 
 - **Status:** Verified (unit, e2e, browser on Citi Bike trip data)

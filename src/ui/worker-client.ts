@@ -535,6 +535,7 @@ export class SearchWorkerClient {
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
     groupColumn?: number;
     colorMeasure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
+    labelColumn?: number;
     chartFilter?: { column: number; code: number };
     chartExclude?: ChartExclusion[];
     respectFilters?: boolean;

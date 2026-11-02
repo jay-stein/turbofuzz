@@ -97,8 +97,6 @@ test("one dot per place can be coloured by the average of a number, blue to red,
   const card = page.locator(".map-card");
   const notes = card.locator(".chart-note");
   await expect(notes).toContainText("places from");
-  await card.locator(".chart-sidebar-toggle").click();
-
   // A category cannot combine into one colour for a place; a number can.
   const colour = card.getByRole("combobox", { name: "Colour column" });
   await expect(colour.locator("option", { hasText: "usertype" })).toHaveAttribute("disabled");
@@ -126,3 +124,54 @@ test("one dot per place can be coloured by the average of a number, blue to red,
   await expect(grey).toHaveAttribute("aria-disabled", "true");
   await expect(grey).toHaveAttribute("title", /One dot per place/);
 });
+
+test("the Map page has the settings beside the map, dots that say what they are, a size legend and a log colour scale", async ({ page }) => {
+  const lines = ["tripduration,starttime,start station name,end station name,start station latitude,start station longitude"];
+  for (let i = 0; i < 300; i++) {
+    const k = i % 12;
+    lines.push(`${100 + k * k * 300},2014-02-0${1 + (i % 5)} 08:00:00,Start ${k},End ${k},${40.7 + (k % 4) * 0.012},${-74 + Math.floor(k / 4) * 0.03}`);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "t.csv", mimeType: "text/csv", buffer: Buffer.from(lines.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator('.mode-switch-option[data-mode="research"]').click();
+  await page.locator(".view-tabs button", { hasText: "Map" }).first().click();
+  const card = page.locator(".map-card");
+  await expect(card.locator(".chart-note")).toContainText("12 places");
+  // Settings beside the plot, with no chart type to wander off to.
+  const canvas = (await card.locator("canvas.chart-canvas").boundingBox())!;
+  const side = (await card.locator(".chart-sidebar").boundingBox())!;
+  expect(canvas.x + canvas.width).toBeLessThanOrEqual(side.x);
+  await expect(card.locator(".chart-kind-button")).toBeHidden();
+  // The name column that goes with the coordinates is found by itself.
+  await expect(card.getByRole("combobox", { name: "Place label" }).locator("option:checked")).toHaveText("start station name");
+  const colour = card.getByRole("combobox", { name: "Colour column" });
+  await colour.selectOption((await colour.locator("option", { hasText: "tripduration" }).getAttribute("value"))!);
+  await expect(card.locator(".chart-note")).toContainText("colour = average tripduration");
+  const scale = card.getByRole("combobox", { name: "Colour scale" });
+  await scale.selectOption("log");
+  await expect(card.locator(".chart-note")).toContainText("logarithmic");
+  // Hovering the dots finds a place by name, with its numbers. Big dots, so the search below cannot step over them.
+  await card.getByLabel("Smallest dot radius (pixels)").fill("24");
+  await card.getByLabel("Largest dot radius (pixels)").fill("30");
+  const tooltip = card.locator(".chart-tooltip");
+  let found = false;
+  const wide = (await card.locator("canvas.chart-canvas").boundingBox())!;
+  // The middle column of stations, somewhere across the height.
+  for (let fx = 0.42; fx < 0.6 && !found; fx += 0.03) {
+    for (let fy = 0.15; fy < 0.85 && !found; fy += 0.03) {
+      await page.mouse.move(wide.x + wide.width * fx, wide.y + wide.height * fy);
+      await page.waitForTimeout(25);
+      found = (await tooltip.isVisible()) && /Start \d+/.test((await tooltip.textContent()) ?? "");
+    }
+  }
+  expect(found).toBe(true);
+  await expect(tooltip).toContainText("Rows:");
+  await expect(tooltip).toContainText("average tripduration:");
+  // The stats carry the names.
+  await card.locator(".chart-stats-btn").click();
+  await expect(page.getByRole("dialog", { name: "Chart stats" }).locator("th", { hasText: "start station name" })).toBeVisible();
+});
+

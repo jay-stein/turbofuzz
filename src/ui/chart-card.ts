@@ -179,21 +179,22 @@ export function fitMapView(
     latMin -= 0.25;
     latMax += 0.25;
   }
-  const lonPad = Math.max(0.05, (lonMax - lonMin) * 0.08);
-  const latPad = Math.max(0.05, (latMax - latMin) * 0.08);
+  // Room around the dots in proportion: a city's stations should fill the map, not its middle.
+  const lonPad = Math.max(0.003, (lonMax - lonMin) * 0.08);
+  const latPad = Math.max(0.003, (latMax - latMin) * 0.08);
   lonMin = Math.max(-180, lonMin - lonPad);
   lonMax = Math.min(180, lonMax + lonPad);
   latMin = Math.max(-85, latMin - latPad);
   latMax = Math.min(85, latMax + latPad);
-  if (lonMax - lonMin < 0.25) {
+  if (lonMax - lonMin < 0.04) {
     const center = (lonMin + lonMax) / 2;
-    lonMin = Math.max(-180, center - 0.125);
-    lonMax = Math.min(180, center + 0.125);
+    lonMin = Math.max(-180, center - 0.02);
+    lonMax = Math.min(180, center + 0.02);
   }
-  if (latMax - latMin < 0.25) {
+  if (latMax - latMin < 0.04) {
     const center = (latMin + latMax) / 2;
-    latMin = Math.max(-85, center - 0.125);
-    latMax = Math.min(85, center + 0.125);
+    latMin = Math.max(-85, center - 0.02);
+    latMax = Math.min(85, center + 0.02);
   }
   return { lonMin, lonMax, latMin, latMax };
 }
@@ -433,6 +434,7 @@ export interface ChartCardOptions {
     measure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
     groupColumn?: number;
     colorMeasure?: { column: number; agg: "sum" | "mean" | "min" | "max" };
+    labelColumn?: number;
     chartFilter?: { column: number; code: number };
     chartExclude?: ChartExclusion[];
     respectFilters?: boolean;
@@ -616,6 +618,10 @@ export interface ChartCardConfig {
   errorBarKind?: IntervalKind;
   /** One dot per place: how the rows at a place combine into its colour. */
   mapColorAgg?: "sum" | "mean" | "min" | "max";
+  /** How a number becomes a colour on a map: long tails read better on a logarithmic scale. */
+  mapColorScale?: "linear" | "log";
+  /** The column that names a place when hovering; undefined finds one, -1 is none. */
+  mapLabelColumn?: number;
   dotOpacity?: number;
   /** Card width in the grid: normal cell or the whole row. */
   span?: "auto" | "full";
@@ -1223,6 +1229,13 @@ export class ChartCard {
   private errorBarProgressTimer: number | null = null;
   private readonly mapColorAggSelect: HTMLSelectElement;
   private readonly mapColorAggWrap: HTMLElement;
+  private readonly mapColorScaleSelect: HTMLSelectElement;
+  private readonly mapColorScaleWrap: HTMLElement;
+  private readonly mapLabelSelect: HTMLSelectElement;
+  private readonly mapLabelWrap: HTMLElement;
+  /** Names of the places drawn, from the worker, and which place each of the current frame's dots is. */
+  private placeLabels: string[] | null = null;
+  private framePlaces: number[] | null = null;
   private readonly dotOpacityInput: HTMLInputElement;
   private readonly dotOpacityOut: HTMLElement;
   private readonly resetViewButton: HTMLButtonElement;
@@ -2433,12 +2446,32 @@ export class ChartCard {
       this.render();
     });
     this.mapColorAggWrap = dotField("Colour is the", [this.mapColorAggSelect], "How the rows at a place combine into its colour");
+    this.mapColorScaleSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Colour scale" }) as HTMLSelectElement;
+    for (const [value, label] of [["linear", "Linear"], ["log", "Logarithmic"]] as const) {
+      this.mapColorScaleSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+    }
+    this.mapColorScaleSelect.addEventListener("change", () => {
+      this.config.mapColorScale = this.mapColorScaleSelect.value as "linear" | "log";
+      this.render();
+    });
+    this.mapColorScaleWrap = dotField("Colour scale", [this.mapColorScaleSelect], "Logarithmic spreads out values with a long tail, such as durations or prices");
+    this.mapLabelSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Place label" }) as HTMLSelectElement;
+    this.mapLabelSelect.addEventListener("change", () => {
+      this.config.mapLabelColumn = Number(this.mapLabelSelect.value);
+      this.generation++;
+      this.refreshSeries();
+      this.refreshAnimation();
+      this.render();
+    });
+    this.mapLabelWrap = dotField("Label", [this.mapLabelSelect], "The column that names a place when you hover its dot");
     this.dotSettings = el("div", { class: "chart-bubble-settings chart-dot-settings hidden" }, [
       el("span", { class: "chart-animate-title" }, ["Dots"]),
       dotRadiusField,
       this.dotValuesWrap,
       this.dotScaleWrap,
       this.mapColorAggWrap,
+      this.mapColorScaleWrap,
+      this.mapLabelWrap,
       dotField("Opacity", [this.dotOpacityInput, this.dotOpacityOut], "How see-through the dots are"),
     ]);
     const dotNumberValue = (input: HTMLInputElement): number | null => {
@@ -4604,7 +4637,8 @@ export class ChartCard {
       if (anim.colorRange !== null) facts.push(["Colour scale", `${formatChartNumber(this.config.colorMin ?? anim.colorRange.min)} to ${formatChartNumber(this.config.colorMax ?? anim.colorRange.max)}, the same in every period; the automatic range is the middle 90% of place values`]);
       if (anim.sizeRange !== null) facts.push(["Size scale", `${num(this.config.dotValueMin ?? anim.sizeRange.min)} to ${num(this.config.dotValueMax ?? anim.sizeRange.max)}`]);
       const perFrame: string[][] = [["period", "places", "rows", ...(anim.color === null ? [] : [`${colorName}_overall`, `lowest_place`, `highest_place`])]];
-      const every: string[][] = [["period", lonName, latName, "rows", ...(sizeName === "" ? [] : [sizeName]), ...(anim.color === null ? [] : [colorName])]];
+      const nameColumn = this.meta(this.mapLabelColumn())?.name;
+      const every: string[][] = [["period", ...(anim.labels === undefined || nameColumn === undefined ? [] : [nameColumn]), lonName, latName, "rows", ...(sizeName === "" ? [] : [sizeName]), ...(anim.color === null ? [] : [colorName])]];
       frames.forEach((frame, index) => {
         const offset = index * anim.shown;
         let rows = 0;
@@ -4625,6 +4659,7 @@ export class ChartCard {
           }
           every.push([
             frame.label,
+            ...(anim.labels === undefined || nameColumn === undefined ? [] : [anim.labels[place] ?? ""]),
             num(anim.x[place]),
             num(anim.y[place]),
             String(count),
@@ -4653,9 +4688,11 @@ export class ChartCard {
       const range = robustRange(result.colorValues, result.shown);
       if (range !== null) facts.push(["Colour scale", `${formatChartNumber(this.config.colorMin ?? range.min)} to ${formatChartNumber(this.config.colorMax ?? range.max)}; the automatic range is the middle 90% of place values`]);
     }
-    const rows: string[][] = [[lonName, latName, ...(result.counts ? ["rows"] : []), ...(result.size === null ? [] : [sizeName || "size"]), ...(colorMeta === undefined ? [] : [colorName])]];
+    const nameColumn = result.places === true && this.placeLabels !== null ? this.meta(this.mapLabelColumn())?.name : undefined;
+    const rows: string[][] = [[...(nameColumn === undefined ? [] : [nameColumn]), lonName, latName, ...(result.counts ? ["rows"] : []), ...(result.size === null ? [] : [sizeName || "size"]), ...(colorMeta === undefined ? [] : [colorName])]];
     for (let index = 0; index < result.shown; index++) {
       rows.push([
+        ...(nameColumn === undefined ? [] : [this.placeLabels?.[index] ?? ""]),
         num(result.x[index]),
         num(result.y[index]),
         ...(result.counts ? [String(result.counts[index] ?? 0)] : []),
@@ -6453,7 +6490,7 @@ export class ChartCard {
     const generation = ++this.generation;
     const mode: SeriesMode =
       this.config.kind === "density" ? "density" : map ? "points" : this.config.mode === "auto" ? "points" : this.config.mode;
-    const places = map && this.config.mapMode === "places" ? { agg: this.config.bubbleAgg ?? "count", colorAgg: this.config.mapColorAgg ?? "mean" } : undefined;
+    const places = map && this.config.mapMode === "places" ? { agg: this.config.bubbleAgg ?? "count", colorAgg: this.config.mapColorAgg ?? "mean", ...(this.mapLabelColumn() >= 0 ? { labelColumn: this.mapLabelColumn() } : {}) } : undefined;
     void this.options
       .requestSeries({
         ...(places ? { places } : {}),
@@ -6470,6 +6507,7 @@ export class ChartCard {
         if (generation !== this.generation || this.disposed) return;
         this.seriesResult = message.result;
         this.seriesLabels = message.colorLabels;
+        this.placeLabels = message.placeLabels ?? null;
         this.seriesMs = message.ms;
         this.seriesCorrelation = message.correlation;
         this.render();
@@ -7089,6 +7127,7 @@ export class ChartCard {
         chart === "places" && colorMeta !== undefined && isNumericType(colorMeta.type)
           ? { column: this.config.colorColumn, agg: this.config.mapColorAgg ?? "mean" }
           : undefined,
+      ...(chart === "places" && this.mapLabelColumn() >= 0 ? { labelColumn: this.mapLabelColumn() } : {}),
       ...this.chartScope(),
     })
       .then((message) => {
@@ -7375,6 +7414,7 @@ export class ChartCard {
       total += count;
     }
     const pick = (values: ArrayLike<number>, base: number): Float64Array => Float64Array.from(keep, (place) => values[base + place]!);
+    this.framePlaces = keep;
     return {
       mode: "points",
       x: pick(anim.x, 0),
@@ -10779,7 +10819,7 @@ export class ChartCard {
         }
       }
       ctx.globalAlpha = 1;
-      this.drawColorBar(ctx, frame, colors, domain);
+      this.drawColorBar(ctx, frame, colors, domain, 6 * ui);
       const measureMeta = this.meta(this.config.sizeColumn);
       const agg = this.config.bubbleAgg ?? "count";
       const measure =
@@ -10838,6 +10878,8 @@ export class ChartCard {
       }
       const r = sizes === null ? baseRadius : (sizes[index] ?? baseRadius);
       if (result.shown <= 5000) {
+        const reach = Math.max(r, 5 * ui);
+        this.hitRegions.push({ x: px(lon) - reach, y: py(lat) - reach, w: reach * 2, h: reach * 2, lines: this.mapDotLines(result, index, lon, lat), actions: [] });
         ctx.beginPath();
         ctx.arc(px(lon), py(lat), Math.max(0.5, r), 0, Math.PI * 2);
         ctx.globalAlpha = dotAlpha;
@@ -10882,8 +10924,9 @@ export class ChartCard {
       ctx.globalAlpha = 1;
     }
     ctx.restore();
+    const legendHeight = this.drawMapSizeLegend(ctx, frame, result);
     if (buckets?.domain !== undefined) {
-      this.drawColorBar(ctx, frame, buckets.colors, buckets.domain);
+      this.drawColorBar(ctx, frame, buckets.colors, buckets.domain, legendHeight + 6 * ui);
     }
 
     const sampled = result.sampled ? " (sampled)" : "";
@@ -10917,7 +10960,7 @@ export class ChartCard {
     if (result.places === true) {
       const top = result.counts ? Math.max(...Array.from(result.counts.subarray(0, Math.min(result.shown, 2000)))) : 0;
       const colorMeta = this.meta(this.config.colorColumn);
-      const colorPart = result.colorValues === null || colorMeta === undefined ? "" : ` · colour = ${MAP_COLOR_AGG_NAMES[this.config.mapColorAgg ?? "mean"]} ${colorMeta.name}${this.config.colorMin == null || this.config.colorMax == null ? " (the scale spans the middle 90% of values)" : ""}`;
+      const colorPart = result.colorValues === null || colorMeta === undefined ? "" : ` · colour = ${MAP_COLOR_AGG_NAMES[this.config.mapColorAgg ?? "mean"]} ${colorMeta.name}${this.config.colorMin == null || this.config.colorMax == null ? " (the scale spans the middle 90% of values)" : ""}${this.config.mapColorScale === "log" ? ", logarithmic" : ""}`;
       const stepping = this.animationResult?.places !== undefined && this.placeFrame() !== null;
       const time = stepping ? (this.animationResult?.frames[Math.min(this.animationFrame, this.animationResult.frames.length - 1)]?.label ?? "") : "";
       this.noteEl.textContent = `${time === "" ? "" : `${time} · `}${result.shown.toLocaleString()} places from ${result.total.toLocaleString()} rows${result.sampled ? " (the busiest shown)" : ""}${top > 0 ? ` · the busiest holds ${top.toLocaleString()}` : ""} · dot size = ${this.config.sizeColumn >= 0 ? `${this.config.bubbleAgg ?? "count"} of ${this.meta(this.config.sizeColumn)?.name ?? "the size column"}` : "rows"}${colorPart} · scroll to zoom · drag to pan · double-click resets`;
@@ -12499,6 +12542,120 @@ export class ChartCard {
     this.colorWrap.title = places ? "A number combines into one colour for each place; a category needs One dot per row" : "";
     this.mapColorAggSelect.value = this.config.mapColorAgg ?? "mean";
     this.mapColorAggWrap.classList.toggle("hidden", !places || this.config.colorColumn < 0);
+    const numericColour = isNumericType(this.meta(this.config.colorColumn)?.type ?? "string");
+    this.mapColorScaleWrap.classList.toggle("hidden", !numericColour);
+    this.mapColorScaleSelect.value = this.config.mapColorScale ?? "linear";
+    this.mapLabelWrap.classList.toggle("hidden", !places);
+    const named = this.mapLabelColumn();
+    this.mapLabelSelect.replaceChildren(this.option("-1", "None"));
+    this.columns.forEach((meta, index) => {
+      if (!isNumericType(meta.type)) this.mapLabelSelect.append(this.option(String(index), meta.name));
+    });
+    this.mapLabelSelect.value = String(named);
+  }
+
+  /**
+   * The column naming a place: the one chosen, else a name-like text column, preferring one that shares a word with the
+   * coordinates, so "start station latitude" is named by "start station name" and not "end station name".
+   */
+  private mapLabelColumn(): number {
+    const chosen = this.config.mapLabelColumn;
+    if (chosen !== undefined) return chosen >= 0 && chosen < this.columns.length ? chosen : -1;
+    const words = new Set((this.meta(this.config.y)?.name ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 2 && !/^lat/.test(word)));
+    let best = -1;
+    let bestScore = 0;
+    this.columns.forEach((meta, index) => {
+      if (isNumericType(meta.type) || !/name|station|city|place|site|location|address|store|branch|suburb|town|venue/i.test(meta.name)) return;
+      const shared = meta.name.toLowerCase().split(/[^a-z0-9]+/).filter((word) => words.has(word)).length;
+      const score = 1 + shared * 2 + (/name/i.test(meta.name) ? 1 : 0);
+      if (score > bestScore) {
+        best = index;
+        bestScore = score;
+      }
+    });
+    return best;
+  }
+
+  /** One hoverable dot: what it is called and what it holds. */
+  private mapDotLines(result: SeriesPoints, index: number, lon: number, lat: number): string[] {
+    const stepping = this.animationResult?.places !== undefined && result.places === true && this.framePlaces !== null && this.animationResult.places.shown >= result.shown && this.placeFrameActive();
+    const placeIndex = stepping ? (this.framePlaces?.[index] ?? index) : index;
+    const name = stepping ? this.animationResult?.places?.labels?.[placeIndex] : this.placeLabels?.[placeIndex];
+    const lines = [name !== undefined && name !== "" ? name : `${lat.toFixed(5)}, ${lon.toFixed(5)}`];
+    if (stepping) lines.push(this.animationResult?.frames[Math.min(this.animationFrame, this.animationResult.frames.length - 1)]?.label ?? "");
+    const rows = result.counts?.[index];
+    if (rows !== undefined) lines.push(`Rows: ${rows.toLocaleString()}`);
+    const sizeMeta = this.meta(this.config.sizeColumn);
+    if (sizeMeta !== undefined && result.size !== null) lines.push(`${sizeMeta.name}: ${formatChartNumber(result.size[index]!)}`);
+    const colorMeta = this.meta(this.config.colorColumn);
+    if (colorMeta !== undefined) {
+      const colorValue = result.colorValues?.[index];
+      const code = result.colorCodes?.[index];
+      const agg = result.places === true ? `${MAP_COLOR_AGG_NAMES[this.config.mapColorAgg ?? "mean"]} ` : "";
+      if (colorValue !== undefined) lines.push(`${agg}${colorMeta.name}: ${formatChartNumber(colorValue)}`);
+      else if (code !== undefined) lines.push(`${colorMeta.name}: ${this.seriesLabels?.[code] ?? ""}`);
+    }
+    return lines;
+  }
+
+  private placeFrameActive(): boolean {
+    return this.animatesPlaces() && (this.animationResult?.frames.length ?? 0) > 0;
+  }
+
+  private plateColor(): string {
+    return getComputedStyle(document.documentElement).getPropertyValue("--panel").trim() || "#ffffff";
+  }
+
+  /** What the two sizes of dot mean, in the corner of the map. Returns how much height it took. */
+  private drawMapSizeLegend(ctx: CanvasRenderingContext2D, frame: Frame, result: SeriesPoints): number {
+    if (result.size === null || !this.dotsAreSized()) return 0;
+    const fixed = this.placeFrameActive() ? (this.animationResult?.places?.sizeRange ?? null) : null;
+    const range = fixed ?? dataRange(result.size, result.shown);
+    if (range === null) return 0;
+    const ui = frame.ui;
+    const defaults = this.dotDefaults();
+    const small = Math.max(0.5, this.config.dotMinRadius ?? defaults.min) * ui;
+    const large = Math.max(small / ui, this.config.dotMaxRadius ?? defaults.max) * ui;
+    const low = formatCompact(this.config.dotValueMin ?? range.min);
+    const high = formatCompact(this.config.dotValueMax ?? range.max);
+    const sizeMeta = this.meta(this.config.sizeColumn);
+    const title = sizeMeta === undefined ? "Rows" : sizeMeta.name;
+    this.font(ctx, ui, 9);
+    const inner = Math.max(ctx.measureText(title).width, small * 2 + large * 2 + ctx.measureText(low).width + ctx.measureText(high).width + 22 * ui);
+    const boxW = inner + 12 * ui;
+    const boxH = Math.max(large * 2, 12 * ui) + 26 * ui;
+    const x = frame.left + frame.plotW - boxW - 6 * ui;
+    const y = frame.top + frame.plotH - boxH - 6 * ui;
+    ctx.fillStyle = this.plateColor();
+    ctx.globalAlpha = 0.9;
+    ctx.fillRect(x, y, boxW, boxH);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = frame.dim;
+    ctx.fillText(this.fit(ctx, title, inner), x + 6 * ui, y + 12 * ui);
+    const cy = y + 18 * ui + Math.max(large, 6 * ui);
+    const color = this.primaryColor();
+    const dot = (cx: number, r: number): void => {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.6;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = darkerColor(color);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    };
+    let at = x + 6 * ui;
+    dot(at + small, small);
+    at += small * 2 + 3 * ui;
+    ctx.fillStyle = frame.dim;
+    ctx.fillText(low, at, cy + 3 * ui);
+    at += ctx.measureText(low).width + 8 * ui;
+    dot(at + large, large);
+    at += large * 2 + 3 * ui;
+    ctx.fillStyle = frame.dim;
+    ctx.fillText(high, at, cy + 3 * ui);
+    return boxH + 6 * ui;
   }
 
   /** Radii for the map's dots from the Dots row; null when every dot is one size. */
@@ -13069,10 +13226,14 @@ export class ChartCard {
       const ramp = isRampPalette(paletteName) ? this.rampStopsFor(paletteName) : null;
       const colors = colorRamp(ramp, 16, rampColor);
       colors.push(this.primaryColor());
+      // Only positive values have a logarithm: a range reaching zero or below stays linear.
+      const logColor = this.config.kind === "map" && this.config.mapColorScale === "log" && domain.min > 0 && domain.max > domain.min;
+      const logFraction = (value: number): number =>
+        Math.max(0, Math.min(1, Math.log(Math.max(value, domain.min) / domain.min) / Math.log(domain.max / domain.min)));
       for (let i = 0; i < n; i++) {
         const value = result.colorValues[i];
         if (!Number.isFinite(value)) continue;
-        buckets[i] = Math.round(colorFraction(value, domain) * 15);
+        buckets[i] = Math.round((logColor ? logFraction(value) : colorFraction(value, domain)) * 15);
       }
       return { buckets, colors, domain };
     }
@@ -13085,14 +13246,16 @@ export class ChartCard {
     frame: Frame,
     colors: readonly string[],
     domain: ReturnType<typeof resolveColorDomain>,
+    /** On a map: stand this far above the plot's bottom, on a solid plate, clear of the floating tools and the dots. */
+    aboveBottom?: number,
   ): void {
     const ui = frame.ui;
     const barW = Math.min(150 * ui, frame.plotW * 0.42);
     const barH = 6 * ui;
     const barX = frame.left + frame.plotW - barW - 10 * ui;
-    const barY = frame.top + 10 * ui;
-    ctx.fillStyle = frame.text;
-    ctx.globalAlpha = 0.1;
+    const barY = aboveBottom === undefined ? frame.top + 10 * ui : frame.top + frame.plotH - aboveBottom - barH - 12 * ui;
+    ctx.fillStyle = aboveBottom === undefined ? frame.text : this.plateColor();
+    ctx.globalAlpha = aboveBottom === undefined ? 0.1 : 0.9;
     ctx.fillRect(barX - 5 * ui, barY - 12 * ui, barW + 10 * ui, barH + 19 * ui);
     ctx.globalAlpha = 1;
     const gradient = ctx.createLinearGradient(barX, 0, barX + barW, 0);

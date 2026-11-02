@@ -47,6 +47,9 @@ export interface PlaceAnimation {
   shown: number;
   /** How many places the rows hold; when above `shown`, the busiest are kept. */
   totalPlaces: number;
+  /** A row at each place, to name it from, and the names when a label column was asked for. */
+  firstRows: Uint32Array;
+  labels?: string[];
   /** frames × places, row-major per frame. A place with no rows in a frame has no dot in it. */
   counts: Uint32Array;
   /** The size and colour values, same layout; size is the row count when no column sizes the dots. */
@@ -128,6 +131,7 @@ export function computePlaceFrames(
   const px: number[] = [];
   const py: number[] = [];
   const rows: number[] = [];
+  const first: number[] = [];
   const placeOf = new Int32Array(ids.length).fill(-1);
   let total = 0;
   for (let position = 0; position < ids.length; position++) {
@@ -146,6 +150,7 @@ export function computePlaceFrames(
       px.push(xv);
       py.push(yv);
       rows.push(0);
+      first.push(row);
     }
     rows[at]!++;
     placeOf[position] = at;
@@ -196,6 +201,7 @@ export function computePlaceFrames(
       y: Float64Array.from(order, (place) => py[place]!),
       shown,
       totalPlaces: px.length,
+      firstRows: Uint32Array.from(order, (place) => first[place]!),
       counts,
       size: sizes,
       color: colors,
