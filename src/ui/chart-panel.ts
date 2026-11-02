@@ -428,6 +428,8 @@ export class ChartsPanel {
   private addPanelAuto = false;
   private readonly empty: HTMLElement;
   private readonly sizeSelect: HTMLSelectElement;
+  /** Hidden until a chart exists: the builder is already open on an empty page, so there is nothing to add yet. */
+  private readonly addButton: HTMLButtonElement;
   private readonly tabStrip: HTMLElement;
   private entries: ChartEntry[] = [];
   /** The entry whose tab is open; null only while there are none. */
@@ -456,7 +458,8 @@ export class ChartsPanel {
       "button",
       { class: "primary small", type: "button", title: "Add another chart of the current result set" },
       ["+ Add chart"],
-    );
+    ) as HTMLButtonElement;
+    this.addButton = add;
     this.addPanel = new ChartAddPanel({
       onCreate: (config, label) => this.placeNewCard(config, label),
       onShelfChange: () => this.guide?.refresh(),
@@ -507,7 +510,7 @@ export class ChartsPanel {
 
     this.grid = el("div", { class: "charts-grid", role: "tabpanel" });
     this.empty = el("div", { class: "charts-empty" }, [
-      "No charts yet — use “+ Add chart” to plot the current result set.",
+      "No charts yet — pick fields or a chart type to plot the current result set.",
     ]);
 
     this.root.classList.add("charts-panel");
@@ -1170,6 +1173,7 @@ export class ChartsPanel {
 
   private syncEmpty(): void {
     const isEmpty = this.entries.length === 0;
+    this.addButton.classList.toggle("hidden", isEmpty);
     this.empty.classList.toggle("hidden", !isEmpty);
     this.grid.classList.toggle("hidden", isEmpty);
     if (!isEmpty) {
@@ -1192,7 +1196,7 @@ export class ChartsPanel {
     this.addPanel.open(false);
     this.empty.append(
       el("div", { class: "charts-empty-title" }, [
-        "No charts yet — use + Add chart to start from your fields, or choose a chart type there",
+        "No charts yet — pick your fields above, or choose a chart type, to start",
       ]),
     );
   }

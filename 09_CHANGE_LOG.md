@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-02-15 — Chart page: + Add chart waits for the first chart
+
+- **Status:** Verified (unit, e2e)
+- **Related issue / decision:** owner: on a new Chart page the instinct is to press + Add chart, which did nothing because the builder is already open.
+- **Scope:** the button is hidden while there are no charts and returns with the first one (and hides again if the page is emptied). The empty message now says to pick fields or a chart type above.
+- **Files / components changed:** src/ui/chart-panel.ts; test/ui-charts.test.ts, test/e2e/release.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-14 — Chart Source list marks tables and pivot views
 
 - **Status:** Verified (unit)

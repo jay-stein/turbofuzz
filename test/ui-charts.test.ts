@@ -2082,13 +2082,16 @@ test("the empty charts state is one clear message without auto suggestions", asy
     (button.textContent ?? "").includes("Add chart"),
   );
   assert.ok(add !== undefined);
-  add.click();
-  await tick();
+  assert.ok(add.classList.contains("hidden"), "there is nothing to add to yet, so the button waits for a first chart");
   assert.ok(
     !host.querySelector(".chart-add-panel")?.classList.contains("hidden"),
-    "Add chart opens the data-first builder",
+    "the data-first builder is already open",
   );
   assert.ok(host.querySelector(".chart-add-quick-btn") !== null, "quick starts are offered");
+  panel.addCard({ kind: "bar", column: 0 });
+  assert.ok(!add.classList.contains("hidden"), "the first chart brings the button");
+  panel.removeCard(panel.activeCard()!);
+  assert.ok(add.classList.contains("hidden"), "and an emptied page hides it again");
   panel.dispose();
 });
 
@@ -3542,8 +3545,7 @@ test("the add-chart builder makes a chart from a quick start in one click", asyn
   ]);
   panel.setRowCount(1000);
   await tick();
-  const add = [...host.querySelectorAll("button")].find((b) => (b.textContent ?? "").includes("Add chart"));
-  (add as unknown as { click(): void }).click();
+  // The builder is open on an empty page, with no Add chart button yet.
   const quick = host.querySelector(".chart-add-quick-btn") as unknown as HTMLButtonElement;
   assert.match(quick.textContent ?? "", /Total revenue over time/);
   quick.click();
@@ -3564,8 +3566,6 @@ test("the add-chart builder recommends charts for the picked fields", async () =
   ]);
   panel.setRowCount(1000);
   await tick();
-  const add = [...host.querySelectorAll("button")].find((b) => (b.textContent ?? "").includes("Add chart"));
-  (add as unknown as { click(): void }).click();
   assert.equal(host.querySelectorAll(".chart-add-tile").length, 0, "nothing is recommended before fields are picked");
   const field = (name: string): HTMLButtonElement =>
     [...host.querySelectorAll<HTMLButtonElement>(".chart-add-field")].find((b) => b.querySelector(".chart-add-field-name")?.textContent === name) as HTMLButtonElement;

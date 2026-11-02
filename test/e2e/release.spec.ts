@@ -222,7 +222,8 @@ test("chart builder adds a barplot and exposes its summary", async ({ page }) =>
   await page.getByRole("tab", { name: "Chart" }).click();
   const before = await page.locator(".chart-card").count();
 
-  await page.getByRole("button", { name: "+ Add chart" }).click();
+  // An empty page opens the builder itself and has no Add chart button until a chart exists.
+  await expect(page.getByRole("button", { name: "+ Add chart" })).toBeHidden();
   await expect(page.locator(".chart-add-panel")).toBeVisible();
   await page.locator(".chart-add-type").filter({ hasText: "Barplot" }).first().click();
   await expect(page.locator(".chart-setup-modal")).toHaveCount(0);
