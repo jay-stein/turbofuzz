@@ -19,6 +19,7 @@ import {
   type MarkerSymbol,
 } from "../data/map-markers.js";
 import { downloadCsv } from "./chart-export.js";
+import { openConfirm } from "./dialog.js";
 import { el } from "./dom.js";
 import { openAddMarkers, type MarkerStyle } from "./map-add-dialog.js";
 import { parseSvgSymbol, symbolSvg, type CustomSymbol } from "./map-symbols.js";
@@ -272,11 +273,19 @@ export function createMarkersPanel(options: MarkersPanelOptions): MarkersPanel {
   });
   clearButton.addEventListener("click", () => {
     if (rows.length === 0) return;
-    const before = rows;
-    rows = [];
-    render();
-    emit();
-    options.onAction(`Cleared ${before.length} markers`);
+    const count = rows.length;
+    void openConfirm({
+      title: count === 1 ? "Clear this marker?" : `Clear all ${count} markers?`,
+      body: "Every row in the marker table is removed, including markers you added by clicking the map. Your data and the map layers are not touched. This cannot be undone.",
+      confirmLabel: count === 1 ? "Clear marker" : `Clear ${count} markers`,
+      danger: true,
+    }).then((confirmed) => {
+      if (!confirmed) return;
+      rows = [];
+      render();
+      emit();
+      options.onAction(`Cleared ${count} marker${count === 1 ? "" : "s"}`);
+    });
   });
   addRow.addEventListener("click", () => {
     if (room() <= 0) return;

@@ -28,6 +28,17 @@ Record shipped or attempted UX changes and what was verified.
 
 Add entries here. Keep unsuccessful attempts too if they reveal useful constraints or recurring failure modes.
 
+### CHG-2026-11-02-11 — Map: taller, "Your markers" grouped, Clear asks first
+
+- **Status:** Verified (unit, e2e)
+- **Related issue / decision:** owner: the map looks squashed; the Marker size slider seemed to do nothing on the data map; Clear on custom markers needs an are-you-sure.
+- **Problem addressed:** a map card used the 16:9 / 55%-of-window cap of every chart, about 2.6 to 3.6 : 1 on a laptop. The dock's Marker size slider resizes only the markers you add, but read as the map's dot size.
+- **Scope:** a map is 16:10 and limited to the window less 200 px (never below 380 px), near the world's own 2:1. The dock puts Size, Click map to add and Add markers under a labelled "Your markers" group (the slider says it is for those markers, in a tooltip too); Fit all stands apart. Clear in the marker table opens a confirmation naming the count (Cancel keeps them all). The Show select no longer overlaps the Colour label.
+- **Files / components changed:** src/ui/chart-card.ts, map-page.ts, map-markers-panel.ts, styles.css, help-content.ts; test/e2e/map-dots.spec.ts, map-page.spec.ts
+- **Tests run and results:** e2e 129 pass (map ratio 1.6 to 2.4 at 1440×900).
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-10 — Map dots: size scaling (radius, value range, scale, opacity) and one dot per place by default
 
 - **Status:** Verified (unit, e2e, benches)

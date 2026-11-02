@@ -114,7 +114,7 @@ test("marker size: set in the Add window, per row, and for every marker from the
   await page.getByLabel("Size in pixels, row 2").fill("5");
   await expect.poll(() => values(page, ".map-cell-size")).toEqual(["16", "5"]);
 
-  await page.locator(".map-dock").getByLabel("Marker size").fill("20");
+  await page.locator(".map-dock").getByLabel("Size of your markers").fill("20");
   await expect.poll(() => values(page, ".map-cell-size")).toEqual(["20", "20"]);
   await expect(page.locator(".map-dock .map-size-out")).toHaveText("20px");
 });

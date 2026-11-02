@@ -6990,10 +6990,15 @@ export class ChartCard {
     // The canvas follows the card at any width; text has a legibility floor
     // instead of the old 300px minimum that overflowed narrow cards.
     cssWidth = Math.max(1, Math.round(cssWidth));
-    // 16:9, but never taller than the window allows: a full-width card (1 per row) or an
-    // expanded one would otherwise push its own controls off screen.
-    const cap = Math.max(260, Math.round(window.innerHeight * (this.focusOverlay !== null ? 0.72 : 0.55)));
-    const cssHeight = Math.min(Math.round((cssWidth * 9) / 16), cap);
+    // 16:9, but never taller than the window allows: a full-width card or an expanded one
+    // would otherwise push its own controls off screen. A map is the page's subject and a
+    // world is twice as wide as tall, so it gets 16:10 and everything the controls leave,
+    // not the half window that flattened it to a strip.
+    const roomy = this.config.kind === "map" && this.focusOverlay === null;
+    const cap = roomy
+      ? Math.max(380, window.innerHeight - 200)
+      : Math.max(260, Math.round(window.innerHeight * (this.focusOverlay !== null ? 0.72 : 0.55)));
+    const cssHeight = Math.min(Math.round(roomy ? cssWidth * 0.625 : (cssWidth * 9) / 16), cap);
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = Math.round(cssWidth * dpr);
     this.canvas.height = Math.round(cssHeight * dpr);

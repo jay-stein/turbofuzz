@@ -47,7 +47,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     min: String(MIN_MARKER_SIZE),
     max: String(MAX_MARKER_SIZE),
     step: "1",
-    "aria-label": "Marker size",
+    "aria-label": "Size of your markers",
   }) as HTMLInputElement;
   const sizeOut = el("output", { class: "map-size-out" });
   const pickToggle = el(
@@ -64,15 +64,20 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
       el("span", {}, ["Cities"]),
     ]),
     el("span", { class: "map-dock-sep", "aria-hidden": "true" }),
-    el("label", { class: "map-dock-item map-dock-size", title: "Resize every marker; new markers get this size too" }, [
-      el("span", {}, ["Marker size"]),
-      sizeSlider,
-      sizeOut,
+    // Everything about markers you place yourself sits together; the dots from your data are
+    // sized in the Dots row under the map's settings, and this slider does not touch them.
+    el("div", { class: "map-dock-group", role: "group", "aria-label": "Your markers" }, [
+      el("span", { class: "map-dock-caption" }, ["Your markers"]),
+      el("label", { class: "map-dock-item map-dock-size", title: "Resize every marker you added; new markers get this size too. The dots from your data are sized under the map's settings (Dots)." }, [
+        el("span", {}, ["Size"]),
+        sizeSlider,
+        sizeOut,
+      ]),
+      pickToggle,
+      addMarkers,
     ]),
     el("span", { class: "map-dock-sep", "aria-hidden": "true" }),
-    pickToggle,
     fitMarkers,
-    addMarkers,
   ]);
   const empty = el("div", { class: "map-empty hidden" });
   const cardHost = el("section", { class: "map-card" });

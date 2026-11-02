@@ -11908,6 +11908,21 @@ button.qp-tile:hover {
   cursor: pointer;
 }
 
+.map-dock-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.map-dock-caption {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
 .map-dock-sep {
   width: 1px;
   align-self: stretch;
@@ -12743,6 +12758,8 @@ button.qp-tile:hover {
 /* The Map page is the map: the card's own "Map: rows from Table" line repeats the page title, and the display menu needs its words. */
 .map-page .chart-summary { display: none; }
 .map-page .chart-bubble-settings select[aria-label="Map display mode"] { min-width: 168px; }
+/* The Show select is wider than the 150px its label would shrink to: let the label hold it. */
+.map-page .chart-bubble-settings .chart-tag:has(select[aria-label="Map display mode"]) { flex: none; }
 
 /* Which simple method the verdict is judged against: named in the badge, tagged on the board, one click to use it. */
 .ts-yard { margin-top: 6px; font-size: var(--fs-sm); color: var(--text-dim); }

@@ -21,6 +21,20 @@ async function openMap(page: Page): Promise<void> {
   await page.locator(".chart-note").first().waitFor();
 }
 
+test("the map is about twice as wide as tall, and the dock keeps your markers together", async ({ page }) => {
+  await openMap(page);
+  const box = (await page.locator(".map-card canvas.chart-canvas").boundingBox())!;
+  const ratio = box.width / box.height;
+  expect(ratio).toBeGreaterThan(1.6);
+  expect(ratio).toBeLessThan(2.4);
+  // Marker tools are one labelled group; the data dots are sized in the Dots row, not by that slider.
+  const group = page.getByRole("group", { name: "Your markers" });
+  await expect(group.getByLabel("Size of your markers")).toBeVisible();
+  await expect(group.getByRole("button", { name: "Click map to add" })).toBeVisible();
+  await expect(group.getByRole("button", { name: "+ Add markers…" })).toBeVisible();
+  await expect(group.getByRole("button", { name: "Fit all" })).toHaveCount(0);
+});
+
 test("the Dots row resizes the data dots: radius, scale and opacity redraw the map", async ({ page }) => {
   await openMap(page);
   const canvas = page.locator(".map-card canvas.chart-canvas");
@@ -50,4 +64,21 @@ test("the Dots row resizes the data dots: radius, scale and opacity redraw the m
   await expect(dots.getByLabel("Largest dot radius (pixels)")).toBeHidden();
   await page.locator("select[aria-label='Map display mode']").selectOption("heat");
   await expect(dots).toBeHidden();
+});
+
+test("Clear asks first, and a cancelled Clear keeps every marker", async ({ page }) => {
+  await openMap(page);
+  await page.getByRole("button", { name: "+ Row" }).click();
+  await page.getByRole("button", { name: "+ Row" }).click();
+  const rows = page.locator(".map-cell-label");
+  await expect(rows).toHaveCount(2);
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Clear all 2 markers?" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(rows).toHaveCount(2);
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await page.getByRole("dialog", { name: "Clear all 2 markers?" }).getByRole("button", { name: "Clear 2 markers" }).click();
+  await expect(rows).toHaveCount(0);
 });
