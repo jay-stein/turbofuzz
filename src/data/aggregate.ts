@@ -12,7 +12,7 @@ export type TimeGrain =
   | "month"
   | "quarter"
   | "year";
-export type DatePart = "dow" | "hour" | "month" | "dom" | "week";
+export type DatePart = "quarter" | "month" | "week" | "dom" | "dow" | "hour" | "minute" | "second";
 
 /** Numeric binning: equal width, N quantile groups, or explicit edges. */
 export type BinSpec =
@@ -644,6 +644,14 @@ export function datePartLabel(ms: number, part: DatePart): string {
       return DOW_LABELS[(((day + 3) % 7) + 7) % 7] ?? "?";
     case "hour":
       return pad(Math.floor((ms - day * DAY) / HOUR), 2);
+    case "minute":
+      return pad(Math.floor((ms - day * DAY) / MINUTE) % 60, 2);
+    case "second":
+      return pad(Math.floor((ms - day * DAY) / 1000) % 60, 2);
+    case "quarter": {
+      const [, month] = civilFromDays(day);
+      return `Q${Math.ceil(month / 3)}`;
+    }
     case "month": {
       const [, month] = civilFromDays(day);
       return MONTH_LABELS[month - 1] ?? "?";
@@ -1112,16 +1120,23 @@ function dimensionInto(
       return;
     }
     const day = Math.floor(value / DAY);
+    const msOfDay = value - day * DAY;
     const rank =
       by.datePart === "dow"
         ? (((day + 3) % 7) + 7) % 7
         : by.datePart === "hour"
-          ? Math.floor((value - day * DAY) / HOUR)
-          : by.datePart === "month"
-            ? civilFromDays(day)[1] - 1
-            : by.datePart === "dom"
-              ? civilFromDays(day)[2]
-              : isoWeek(value);
+          ? Math.floor(msOfDay / HOUR)
+          : by.datePart === "minute"
+            ? Math.floor(msOfDay / MINUTE) % 60
+            : by.datePart === "second"
+              ? Math.floor(msOfDay / 1000) % 60
+              : by.datePart === "quarter"
+                ? Math.ceil(civilFromDays(day)[1] / 3)
+                : by.datePart === "month"
+                  ? civilFromDays(day)[1] - 1
+                  : by.datePart === "dom"
+                    ? civilFromDays(day)[2]
+                    : isoWeek(value);
     const label = datePartLabel(value, by.datePart);
     keys.push(label);
     labels.push(label);

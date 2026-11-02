@@ -975,7 +975,7 @@ test("date fields can add a multi-level Year and Month hierarchy", async () => {
   assert.ok(monthPill !== undefined);
   (monthPill as unknown as { click(): void }).click();
   const groupItem = [...doc.querySelectorAll(".context-menu .context-item")].find(
-    (item) => (item.textContent ?? "").includes("Group by several date parts"),
+    (item) => (item.textContent ?? "").includes("Nest several calendar periods"),
   );
   assert.ok(groupItem !== undefined);
   (groupItem as unknown as { click(): void }).click();

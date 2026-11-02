@@ -7224,6 +7224,13 @@ select.chart-number {
   cursor: pointer;
 }
 
+.context-check {
+  display: inline-block;
+  width: 1.3em;
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .context-item:hover {
   background: var(--panel-2);
 }

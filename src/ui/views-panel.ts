@@ -97,13 +97,20 @@ const AGG_OPTIONS: readonly { value: Aggregate; label: string }[] = [
   { value: "p90", label: "90th percentile" },
 ];
 
+/** Recurring parts of a date, from the longest cycle to the shortest: the same part from every year, week or day lands together. */
 const DATE_PARTS: readonly { value: DatePart; label: string }[] = [
-  { value: "hour", label: "Hour of day" },
-  { value: "dow", label: "Day of week" },
+  { value: "quarter", label: "Quarter of year" },
   { value: "month", label: "Month of year" },
-  { value: "dom", label: "Day of month" },
   { value: "week", label: "Week of year" },
+  { value: "dom", label: "Day of month" },
+  { value: "dow", label: "Day of week" },
+  { value: "hour", label: "Hour of day" },
+  { value: "minute", label: "Minute of hour" },
+  { value: "second", label: "Second of minute" },
 ];
+
+/** Calendar periods from the coarsest to the finest: one bucket per actual year, month, day… in the data. */
+const TIME_GRAINS: readonly TimeGrain[] = ["year", "quarter", "month", "week", "day", "hour", "minute", "second"];
 
 /** A calendar period for a date field's second appearance, so it never repeats one already shown. */
 function unusedGrain(view: ViewDef, column: number): TimeGrain {
@@ -3212,34 +3219,39 @@ export class ViewsPanel {
         }
       });
     };
-    items.push({ label: "Exact value", action: () => setBy("value") });
+    const noop = (): void => {};
+    items.push({ label: "Exact value", checked: spec.by === "value", action: () => setBy("value") });
     if (meta.type === "date" || meta.type === "datetime") {
+      const current = spec.by;
+      const currentTime = typeof current === "object" && "time" in current ? current : null;
+      const currentPart = typeof current === "object" && "datePart" in current ? current.datePart : null;
+      // The zone, week start and fiscal year carry across a change of period; the bucket width does not.
+      const carried = currentTime === null ? {} : { weekStart: currentTime.weekStart, fiscalStartMonth: currentTime.fiscalStartMonth, tz: currentTime.tz };
+      items.push({ label: "Calendar period: one group per year, month, day…", heading: true, action: noop });
+      for (const grain of TIME_GRAINS) {
+        items.push({
+          label: GRAIN_LABELS[grain],
+          title: `One group for each ${GRAIN_LABELS[grain].toLowerCase()} in the data`,
+          checked: currentTime?.time === grain && currentTime.every === undefined,
+          action: () => setBy({ ...carried, time: grain }),
+        });
+      }
+      items.push({ label: "Repeating part: all Januaries, all Mondays, all 9ams…", heading: true, action: noop });
+      for (const part of DATE_PARTS) {
+        items.push({
+          label: part.label,
+          title: `${part.label}: the same part from every year, week or day lands in one group`,
+          checked: currentPart === part.value,
+          action: () => setBy({ datePart: part.value }),
+        });
+      }
       const group = this.pivotIndexes(def).includes(index) ? "columns" : "index";
+      items.push({ label: "More", heading: true, action: noop });
       items.push({
-        label: "Group by several date parts…",
+        label: "Nest several calendar periods…",
         title: "Add nested date fields such as Year then Month",
         action: () => this.openDateGroups(spec, group),
       });
-    }
-    if (meta.type === "date" || meta.type === "datetime") {
-      for (const grain of [
-        "day",
-        "week",
-        "month",
-        "quarter",
-        "year",
-        "hour",
-        "minute",
-        "second",
-      ] as TimeGrain[]) {
-        items.push({
-          label: `Time · ${GRAIN_LABELS[grain]}`,
-          action: () => setBy({ time: grain }),
-        });
-      }
-      for (const part of DATE_PARTS) {
-        items.push({ label: `Part · ${part.label}`, action: () => setBy({ datePart: part.value }) });
-      }
       if (typeof spec.by === "object" && "time" in spec.by) {
         const time = spec.by;
         items.push({

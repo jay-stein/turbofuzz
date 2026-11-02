@@ -4,6 +4,10 @@ export interface MenuItem {
   label: string;
   title?: string;
   disabled?: boolean;
+  /** A group label above the items that follow: not focusable, and it does nothing. */
+  heading?: boolean;
+  /** Marks the current choice with a tick; once any item sets it, every item leaves room for one. */
+  checked?: boolean;
   action: () => void;
 }
 
@@ -62,11 +66,22 @@ export function openMenu(
     }
   };
 
+  const hasChecks = items.some((item) => item.checked !== undefined);
   for (const item of items) {
+    if (item.heading === true) {
+      menu.append(el("div", { class: "context-header", role: "presentation" }, [item.label]));
+      continue;
+    }
     const node = el(
       "button",
-      { class: "context-item", type: "button", role: "menuitem", title: item.title ?? item.label },
-      [item.label],
+      {
+        class: "context-item",
+        type: "button",
+        role: hasChecks ? "menuitemradio" : "menuitem",
+        title: item.title ?? item.label,
+        ...(hasChecks ? { "aria-checked": String(item.checked === true) } : {}),
+      },
+      hasChecks ? [el("span", { class: "context-check", "aria-hidden": "true" }, [item.checked === true ? "✓" : ""]), item.label] : [item.label],
     ) as HTMLButtonElement;
     node.disabled = item.disabled === true;
     node.addEventListener("click", () => {

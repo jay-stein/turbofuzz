@@ -232,13 +232,11 @@ export function viewPandasLines(
       const accessor =
         by.datePart === "dow"
           ? "dayofweek"
-          : by.datePart === "hour"
-            ? "hour"
-            : by.datePart === "month"
-              ? "month"
-              : by.datePart === "dom"
-                ? "day"
-                : "isocalendar().week";
+          : by.datePart === "hour" || by.datePart === "minute" || by.datePart === "second" || by.datePart === "quarter" || by.datePart === "month"
+            ? by.datePart
+            : by.datePart === "dom"
+              ? "day"
+              : "isocalendar().week";
       lines.push(`${temp} = pd.to_datetime(df[${py(name)}]).dt.${accessor}`);
       return temp;
     }

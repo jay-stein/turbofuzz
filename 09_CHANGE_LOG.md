@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-02-17 — Pivot View dates: quarter, minute and second parts, in a clearer order
+
+- **Status:** Verified (unit, browser)
+- **Related issue / decision:** owner: Part had no minute or second; the options should be grouped and follow the hierarchy (month, day, hour…).
+- **Scope:** three new repeating parts, Quarter of year, Minute of hour and Second of minute, computed in the app and in the pandas and Polars recipes. A date field's By menu is now two headed groups, each from the longest to the shortest: Calendar period (one group per actual year, month, day…) from Year to Second, and Repeating part (all Januaries, all Mondays, all 9ams…) from Quarter of year to Second of minute. The current choice is ticked, and changing the period keeps the time zone, week start and fiscal year. "Group by several date parts…" is now "Nest several calendar periods…". The menu component gained headings and a tick.
+- **Files / components changed:** src/data/aggregate.ts, recipe.ts, recipe-polars.ts; src/ui/menu.ts, views-panel.ts, styles.css; test/pivot-date-parts.test.ts, views-panel.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-02
+
 ### CHG-2026-11-02-16 — Pivot View: one field in both Rows and Columns
 
 - **Status:** Verified (unit, browser)

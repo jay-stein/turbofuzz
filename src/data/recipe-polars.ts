@@ -436,13 +436,11 @@ function polarsAggregateLines(
       const accessor =
         by.datePart === "dow"
           ? "weekday() - 1"
-          : by.datePart === "hour"
-            ? "hour()"
-            : by.datePart === "month"
-              ? "month()"
-              : by.datePart === "dom"
-                ? "day()"
-                : "week()";
+          : by.datePart === "hour" || by.datePart === "minute" || by.datePart === "second" || by.datePart === "quarter" || by.datePart === "month"
+            ? `${by.datePart}()`
+            : by.datePart === "dom"
+              ? "day()"
+              : "week()";
       lines.push(`${base}.${accessor}.alias(${py(temp)})`);
       groupKeys.push(temp);
       return temp;
