@@ -59,11 +59,18 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     typeButtons.set(type, button);
     typePicker.append(button);
   }
+  const exportButton = el("button", { class: "ghost map-export", type: "button", title: "Save this map as an interactive web page or a PNG" }, ["Export map ▾"]) as HTMLButtonElement;
+  exportButton.addEventListener("click", () => card?.openExport(exportButton));
   const toolbar = el("div", { class: "map-toolbar" }, [
     el("h2", { class: "map-title" }, ["Map"]),
     typePicker,
     sub,
+    el("span", { class: "grow" }),
+    exportButton,
   ]);
+  // Typed where it reads, and carried onto what is exported.
+  const titleInput = el("input", { class: "map-title-input", type: "text", maxlength: "160", placeholder: "Add a title for this map…", "aria-label": "Map title", spellcheck: "true" }) as HTMLInputElement;
+  titleInput.addEventListener("input", () => card?.setMapTitle(titleInput.value));
 
   // The dock floats on the map itself, so its layers and marker tools are in view
   // whenever the map is: cities, marker size, click-to-add and the Add window.
@@ -79,6 +86,8 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   const sizeLabel = el("label", { class: "map-dock-item map-dock-size" }, [el("span", {}, ["Size"]), sizeSlider, sizeOut]);
   const citySize = el("input", { type: "range", min: "8", max: "20", step: "1", "aria-label": "Size of city names" }) as HTMLInputElement;
   const citySizeOut = el("output", { class: "map-size-out" });
+  const cityInside = el("input", { type: "checkbox", "aria-label": "Only show city names inside the boundaries" }) as HTMLInputElement;
+  const cityInsideLabel = el("label", { class: "map-dock-item hidden", title: "Hide city names that fall outside the regions you loaded" }, [cityInside, el("span", {}, ["Only inside boundaries"])]);
   const citySizeLabel = el("label", { class: "map-dock-item map-dock-size hidden", title: "How big the city names are; bigger names leave room for fewer of them" }, [
     el("span", {}, ["Text"]),
     citySize,
@@ -98,6 +107,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
       el("span", {}, ["Cities"]),
     ]),
     citySizeLabel,
+    cityInsideLabel,
     el("span", { class: "map-dock-sep", "aria-hidden": "true" }),
     // Everything about markers you place yourself sits together; the dots from your data are
     // sized in the Dots row under the map's settings, and this slider does not touch them.
@@ -130,7 +140,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     cities: loadCities,
   });
   // The map comes first; the marker table for editing sits under it.
-  host.append(toolbar, empty, cardHost, markersPanel.root);
+  host.append(toolbar, titleInput, empty, cardHost, markersPanel.root);
   const syncSize = (): void => {
     sizeSlider.value = String(markersPanel.size());
     sizeOut.textContent = `${markersPanel.size()}px`;
@@ -166,6 +176,10 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   let datasetKey = "";
   let pending: Partial<ChartCardConfig> | null = null;
 
+  function syncCityInside(): void {
+    cityInsideLabel.classList.toggle("hidden", !citiesToggle.checked || card?.mapRegions?.ready !== true);
+  }
+
   let noCoordinates = false;
   let regionsShowing = false;
   function syncEmpty(): void {
@@ -200,6 +214,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
       card.onRegionsChange = (showing) => {
         regionsShowing = showing;
         syncEmpty();
+        syncCityInside();
       };
       applyMarkers();
       void applyCities();
@@ -220,12 +235,28 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
 
   async function applyCities(): Promise<void> {
     citySizeLabel.classList.toggle("hidden", !citiesToggle.checked);
+    syncCityInside();
     if (!citiesToggle.checked) {
       card?.setMapOverlay(null);
       return;
     }
     const cities = await loadCities().catch(() => null);
-    if (cities !== null && citiesToggle.checked) card?.setMapOverlay(cityOverlay(cities, () => markerState.markers, () => Number(citySize.value)));
+    if (cities !== null && citiesToggle.checked) {
+      // Worked out once per boundary file: which of the thousands of cities fall inside it.
+      let inside: { version: number; marks: Uint8Array } | null = null;
+      const allowed = (): ((index: number) => boolean) | null => {
+        const regions = card?.mapRegions;
+        if (!cityInside.checked || regions === null || regions === undefined || !regions.ready) return null;
+        if (inside === null || inside.version !== regions.version) {
+          const marks = new Uint8Array(cities.names.length);
+          for (let i = 0; i < marks.length; i++) marks[i] = regions.contains(cities.lon[i]!, cities.lat[i]!) ? 1 : 0;
+          inside = { version: regions.version, marks };
+        }
+        const { marks } = inside;
+        return (index) => marks[index] === 1;
+      };
+      card?.setMapOverlay(cityOverlay(cities, () => markerState.markers, () => Number(citySize.value), allowed));
+    }
   }
 
   function applyMarkers(): void {
@@ -258,6 +289,19 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     citySizeOut.textContent = `${citySize.value}px`;
   };
   syncCitySize();
+  try {
+    cityInside.checked = localStorage.getItem("turbofuzz.map.cityInside") === "1";
+  } catch {
+    // Storage blocked: it starts off.
+  }
+  cityInside.addEventListener("change", () => {
+    try {
+      localStorage.setItem("turbofuzz.map.cityInside", cityInside.checked ? "1" : "0");
+    } catch {
+      // Not remembered; the box still works.
+    }
+    void applyCities();
+  });
   citySize.addEventListener("input", () => {
     syncCitySize();
     try {
@@ -283,6 +327,8 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
       const key = options.datasetName();
       if (key !== datasetKey) {
         datasetKey = key;
+        titleInput.value = "";
+        card?.setMapTitle("");
         markersPanel.set({ markers: [], customs: [] });
         markerState = { markers: [], customs: [] };
         syncSize();

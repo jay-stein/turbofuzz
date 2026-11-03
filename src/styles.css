@@ -3621,6 +3621,46 @@ mark {
   flex: 0 0 auto;
 }
 
+.map-toolbar .map-export {
+  align-self: center;
+}
+
+/* With cities on there is more than fits one line on a narrower map: it wraps rather than running off. */
+.map-page .map-dock {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: calc(100% - 20px);
+  border-radius: 14px;
+}
+
+.map-page input.map-title-input {
+  width: 100%;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+
+.map-page input.map-title-input::placeholder {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.map-page input.map-title-input:hover,
+.map-page input.map-title-input:focus {
+  background: var(--panel);
+  border-color: var(--border);
+  outline: none;
+}
+
+.map-page input.map-title-input:focus {
+  border-color: var(--accent);
+}
+
 .map-types {
   display: inline-flex;
   gap: 4px;

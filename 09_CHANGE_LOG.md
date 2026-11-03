@@ -4,6 +4,14 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-03-12 — Map title, Export map, and city names inside the boundaries
+
+- **Status:** Verified (unit, e2e, browser on the Ireland files)
+- **Related issue / decision:** owner: wants a title, could not find the HTML export from a choropleth, and city names outside the regions read as noise.
+- **What changed:** an editable title above the map, carried into PNG and HTML and the HTML's file name. An Export map button on the Map page with both the web page and PNG sizes; when a map cannot go out as a web page the option is greyed with the reason rather than missing. An Only inside boundaries box beside Cities, once boundaries are loaded.
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
 ### CHG-2026-11-03-11 — Maps export as an interactive web page
 
 - **Status:** Verified (e2e, offline, with no requests made; browser on real files)

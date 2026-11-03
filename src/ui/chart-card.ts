@@ -457,7 +457,7 @@ export interface ChartCardOptions {
   onDuplicate(card: ChartCard): void;
   /** The card's title may have changed (typed, or its columns changed): tabs follow it. */
   onTitleChange?(card: ChartCard): void;
-  onExport(card: ChartCard): void;
+  onExport(card: ChartCard, anchor?: HTMLElement): void;
   /** Edit this card through the shared setup dialog. */
   onEdit?(card: ChartCard): void;
   /** Rebuild this card from the gallery fit policy. */
@@ -479,6 +479,8 @@ export interface ChartCardOptions {
   research?(): boolean;
   /** Map card with no coordinate columns: leave them unset instead of picking any number columns. */
   keepEmptyMap?: boolean;
+  /** The title is shown by the page around the card: it goes on exports, not on the plot. */
+  titleOutside?: boolean;
   /** Apply the existing null-policy conversion for placeholder tokens. */
   onConvertToken?(column: number, tokens: string[]): void;
   /** Apply an existing column suggestion (for example a sentinel code). */
@@ -9133,7 +9135,37 @@ export class ChartCard {
 
   /** Heat grids are drawn as an image of cells, so they go out as a PNG. */
   get canExportMapHtml(): boolean {
-    return this.config.kind === "map" && this.config.mapMode !== "heat" && (this.regionsOn() ? this.regions?.ready === true : this.seriesResult?.mode === "points");
+    return this.mapHtmlBlock === null;
+  }
+
+  get isMap(): boolean {
+    return this.config.kind === "map";
+  }
+
+  /** Why this map cannot go out as a web page; null when it can. */
+  get mapHtmlBlock(): string | null {
+    if (this.config.mapMode === "heat") return "A heat grid exports as a PNG. Markers and Choropleth can go out as a web page";
+    if (this.regionsOn()) return this.regions?.ready === true ? null : "Load a boundary file first";
+    return this.seriesResult?.mode === "points" ? null : "This map has nothing plotted yet";
+  }
+
+  /** The export choices, opened from anywhere that offers them. */
+  openExport(anchor: HTMLElement): void {
+    this.options.onExport(this, anchor);
+  }
+
+  get mapTitle(): string {
+    return this.config.title;
+  }
+
+  setMapTitle(title: string): void {
+    this.config.title = title;
+    this.titleInput.value = title;
+  }
+
+  /** The boundaries in use, for the Map page's city names. */
+  get mapRegions(): MapRegions | null {
+    return this.regions;
   }
 
   /** The map as one web page that needs nothing else, with zoom, pan, hover and any time slider. */
@@ -9143,7 +9175,7 @@ export class ChartCard {
       this.noteEl.textContent = "This map has nothing to export yet.";
       return false;
     }
-    const name = `${safeFileName(this.options.datasetName())}-map.html`;
+    const name = `${safeFileName(this.config.title.trim() !== "" ? this.config.title.trim() : `${this.options.datasetName()}-map`)}.html`;
     const ok = downloadHtml(name, buildMapHtml(payload));
     if (ok) this.noteEl.textContent = `Saved ${name}: open it in any browser, no internet needed`;
     return ok;
@@ -9166,7 +9198,7 @@ export class ChartCard {
       .map((ring) => roundRing(ring, 3));
     const markers = this.mapMarkers.map((marker) => ({ lon: marker.lon, lat: marker.lat, label: marker.label, size: marker.size ?? 7 }));
     const shared = {
-      title: this.options.datasetName() === "" ? "Map" : this.options.datasetName(),
+      title: this.config.title.trim() !== "" ? this.config.title.trim() : this.options.datasetName() === "" ? "Map" : this.options.datasetName(),
       view,
       land,
       ...(markers.length === 0 ? {} : { markers }),
@@ -9855,7 +9887,7 @@ export class ChartCard {
     const baseLeft = 56 * ui;
     const left = Math.max(baseLeft, tickW + 8) + labelPad;
     const right = 18 * ui;
-    const top = (this.plotHasHeadline ? (this.config.title.trim() !== "" ? 40 : 28) : 58) * ui;
+    const top = (this.plotHasHeadline ? (this.config.title.trim() !== "" && this.options.titleOutside !== true ? 40 : 28) : 58) * ui;
     const bottom = (40 + (xTitle ? 14 : 0)) * ui;
     return {
       ui,
@@ -10061,7 +10093,7 @@ export class ChartCard {
       ownTitle === "" && this.options.docked !== true && this.usesAggregate() && this.config.kind !== "pivotHeatmap" && this.config.kind !== "kpi";
     if (this.plotHasHeadline) {
       // One line above the plot says what this is; a title typed by the person is shown on it too.
-      if (ownTitle !== "") {
+      if (ownTitle !== "" && this.options.titleOutside !== true) {
         this.font(ctx, frame.ui, 13, "600");
         ctx.fillStyle = frame.text;
         ctx.fillText(this.fit(ctx, ownTitle, width - frame.left - frame.right), frame.left, 14 * frame.ui);

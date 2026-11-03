@@ -229,12 +229,16 @@ test("the map exports as one interactive web page that works with nothing else",
   const value = card.getByRole("combobox", { name: "Region value" });
   await value.selectOption((await value.locator("option", { hasText: "MW" }).getAttribute("value"))!);
   await expect(card.locator(".chart-note")).toContainText("Total MW");
-  await card.locator(".chart-png-btn").click();
+  // A title goes on the page around the map and on what is exported, and the export is in plain sight.
+  await page.getByRole("textbox", { name: "Map title" }).fill("Wind <power> by county");
+  await page.getByRole("button", { name: "Export map" }).click();
   await expect(page.locator(".context-menu")).toContainText("Download PNG at");
   const [download] = await Promise.all([page.waitForEvent("download"), page.locator(".context-menu .context-item", { hasText: "Interactive web page" }).click()]);
-  expect(download.suggestedFilename()).toMatch(/-map\.html$/);
+  expect(download.suggestedFilename()).toBe("wind-power-by-county.html");
   const html = readFileSync((await download.path())!, "utf8");
   expect(html).not.toMatch(/https?:\/\//);
+  expect(html).toContain("<h1>Wind &lt;power&gt; by county</h1>");
+  expect(html).toContain("<title>Wind &lt;power&gt; by county</title>");
 
   // Offline, as it would be from an email: anything it tried to fetch would fail here.
   const viewer = await context.newPage();
@@ -291,7 +295,37 @@ test("exported dots step through time on the slider, and a table value cannot br
   expect(errors).toEqual([]);
   // Heat grids go out as a PNG only.
   await page.getByRole("radio", { name: "Heat grid" }).click();
-  await card.locator(".chart-png-btn").click();
-  await expect(page.locator(".context-menu")).not.toContainText("Interactive web page");
+  await page.getByRole("button", { name: "Export map" }).click();
+  const item = page.locator(".context-menu .context-item", { hasText: "Interactive web page" });
+  await expect(item).toBeDisabled();
+  await expect(item).toHaveAttribute("title", /heat grid exports as a PNG/i);
+});
+
+test("from a choropleth, Export map offers both; with no boundaries yet the web page says why it is unavailable", async ({ page }) => {
+  const card = await openMap(page, WIND);
+  await page.getByRole("radio", { name: "Choropleth" }).click();
+  await page.getByRole("button", { name: "Export map" }).click();
+  const item = page.locator(".context-menu .context-item", { hasText: "Interactive web page" });
+  await expect(item).toBeDisabled();
+  await expect(item).toHaveAttribute("title", /Load a boundary file first/);
+  await page.keyboard.press("Escape");
+  await load(card, counties());
+  await expect(card.locator(".map-step").nth(1)).toContainText("NAME_1 = County");
+  await page.getByRole("button", { name: "Export map" }).click();
+  await expect(page.locator(".context-menu .context-item", { hasText: "Interactive web page" })).toBeEnabled();
+  await expect(page.locator(".context-menu")).toContainText("Download PNG at");
+});
+
+test("the only-inside-boundaries box appears once there are both cities and boundaries", async ({ page }) => {
+  const card = await openMap(page, WIND);
+  const inside = page.getByRole("checkbox", { name: "Only show city names inside the boundaries" });
+  await page.getByRole("switch", { name: "Show world cities" }).check({ force: true });
+  await expect(inside).toBeHidden();
+  await page.getByRole("radio", { name: "Choropleth" }).click();
+  await load(card, counties());
+  await expect(card.locator(".map-step").nth(1)).toContainText("NAME_1 = County");
+  await expect(inside).toBeVisible();
+  await inside.check();
+  await expect(inside).toBeChecked();
 });
 

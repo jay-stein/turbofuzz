@@ -66,6 +66,7 @@ export class MapRegions {
   private property = "";
   private column = -1;
   private labelProperty = "";
+  private loadCount = 0;
   /** The person has looked and said yes: until then the pairing in use is only the suggestion. */
   private matchConfirmed = false;
   /** The pairing the app would make, and how well each boundary field and column did. */
@@ -255,6 +256,23 @@ export class MapRegions {
     return this.loaded !== null;
   }
 
+  /** Changes whenever the boundaries do, so anything worked out from them knows when to start again. */
+  get version(): number {
+    return this.loadCount;
+  }
+
+  /** Whether a place falls inside any region, at a detail far finer than a city's position needs. */
+  contains(lon: number, lat: number): boolean {
+    const loaded = this.loaded;
+    if (loaded === null) return false;
+    const level = Math.min(2, loaded.tolerances.length - 1);
+    for (const shape of loaded.shapes) {
+      if (lon < shape.bbox[0] || lat < shape.bbox[1] || lon > shape.bbox[2] || lat > shape.bbox[3]) continue;
+      if (pointInFeature({ rings: shape.levels[Math.min(level, shape.levels.length - 1)]! }, lon, lat)) return true;
+    }
+    return false;
+  }
+
   /** Showing the table's coordinates only matters when they are what connects the rows. */
   get usesCoordinates(): boolean {
     return this.mode === "location";
@@ -279,6 +297,7 @@ export class MapRegions {
       }
       this.crsWaiting = null;
       this.loaded = message;
+      this.loadCount++;
       this.values = null;
       this.shown = new Float64Array(0);
       this.breaks = [];
@@ -400,6 +419,7 @@ export class MapRegions {
   private clear(): void {
     this.generation++;
     this.loaded = null;
+    this.loadCount++;
     this.values = null;
     this.shown = new Float64Array(0);
     this.breaks = [];

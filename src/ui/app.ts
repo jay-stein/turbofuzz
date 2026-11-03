@@ -4291,7 +4291,7 @@ export class App {
     if (charts === null) return;
     if (this.mapPage === null) {
       this.mapPage = createMapPage(this.mapHost, {
-        createCard: (root, preset) => charts.createDetachedCard(root, preset, { onOpenMap: undefined, keepEmptyMap: true, docked: true }),
+        createCard: (root, preset) => charts.createDetachedCard(root, preset, { onOpenMap: undefined, keepEmptyMap: true, docked: true, titleOutside: true }),
         releaseCard: (card) => charts.releaseDetachedCard(card),
         datasetName: () => this.datasetName,
         onAction: (message) => this.setAction(message),

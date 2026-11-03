@@ -900,10 +900,10 @@ export class ChartsPanel {
         onConvertToken: this.options.onConvertToken,
         onSuggestion: this.options.onSuggestion,
         // The size is asked at the moment of export, not kept on the page for the rare time it matters.
-        onExport: (target) => {
-          openMenu(target.pngButton, [
-            ...(target.canExportMapHtml
-              ? [{ label: "Interactive web page (.html)", title: "One file with zoom, pan, hover and any time slider, that opens in any browser with no internet", action: () => void target.exportMapHtml() }]
+        onExport: (target, anchor) => {
+          openMenu(anchor ?? target.pngButton, [
+            ...(target.isMap
+              ? [{ label: "Interactive web page (.html)", title: target.mapHtmlBlock ?? "One file with zoom, pan, hover and any time slider, that opens in any browser with no internet", disabled: !target.canExportMapHtml, action: () => void target.exportMapHtml() }]
               : []),
             { label: "Download PNG at", heading: true, action: () => {} },
             ...EXPORT_SIZES.map((size, index) => ({

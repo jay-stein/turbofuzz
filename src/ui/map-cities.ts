@@ -19,7 +19,13 @@ export interface ReservedMarker {
   size?: number;
 }
 
-export function cityOverlay(cities: Cities, markers: () => readonly ReservedMarker[] = () => [], labelSize: () => number = () => 10.5): MapOverlay {
+export function cityOverlay(
+  cities: Cities,
+  markers: () => readonly ReservedMarker[] = () => [],
+  labelSize: () => number = () => 10.5,
+  /** Which cities may show, by position in the list; all of them when not given. */
+  include?: () => ((index: number) => boolean) | null,
+): MapOverlay {
   return (ctx, view, plot) => {
     const { x: x0, y: y0, w, h, ui } = plot;
     const sx = w / (view.lonMax - view.lonMin), sy = h / (view.latMax - view.latMin);
@@ -47,9 +53,11 @@ export function cityOverlay(cities: Cities, markers: () => readonly ReservedMark
       reserved.push([x - r - pad, y - Math.max(r, size / 2) - pad, x + r + tw + pad, y + Math.max(r, size / 2) + pad]);
     }
     placed.push(...reserved);
+    const allowed = include?.() ?? null;
     for (let i = 0; i < cities.names.length && placed.length - reserved.length < budget; i++) {
       const lon = cities.lon[i]!, lat = cities.lat[i]!;
       if (lon < view.lonMin || lon > view.lonMax || lat < view.latMin || lat > view.latMax) continue;
+      if (allowed !== null && !allowed(i)) continue;
       const x = x0 + (lon - view.lonMin) * sx, y = y0 + (view.latMax - lat) * sy;
       const name = cities.names[i]!;
       const tw = ctx.measureText(name).width;
