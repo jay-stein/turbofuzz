@@ -3733,6 +3733,12 @@ mark {
   grid-template-columns: minmax(0, 1fr) 296px;
 }
 
+/* The page has a title and tools above the card: the settings must end inside the window, so their scrollbar can be seen and used. */
+.map-page .chart-card-layout.docked > .chart-sidebar {
+  max-height: calc(100vh - 320px);
+  min-height: 300px;
+}
+
 .map-hide-for-regions {
   display: none !important;
 }

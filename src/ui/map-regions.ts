@@ -83,6 +83,8 @@ export class MapRegions {
   private colours: (string | undefined)[] = [];
   /** What the labels on the map say: "" for none, "value", "file:<field>" or "table:<column>". */
   private labelSource = "";
+  /** The person picked what labels say, "No labels" included: a new file no longer decides for them. */
+  private labelChosen = false;
   private labelSize = 11;
   private labelColour = "#1c2430";
   private bufferOn = true;
@@ -185,6 +187,7 @@ export class MapRegions {
     this.labelSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Label regions with" }) as HTMLSelectElement;
     this.labelSelect.addEventListener("change", () => {
       this.labelSource = this.labelSelect.value;
+      this.labelChosen = true;
       this.syncLabels();
       // Only a table column needs anything from the worker.
       if (this.labelSource.startsWith("table:")) this.refresh();
@@ -405,6 +408,10 @@ export class MapRegions {
     this.divide = "";
     this.labelSpots = null;
     this.labelProperty = message.labelProperty ?? "";
+    // Regions read better named, so they start that way; where there is no room the small ones give way by themselves.
+    const stale = this.labelSource.startsWith("file:") && !properties.includes(this.labelSource.slice(5));
+    if (!this.labelChosen || stale) this.labelSource = this.labelProperty === "" ? "" : `file:${this.labelProperty}`;
+    this.syncLabels();
     this.applyLabel();
     this.syncColumns();
   }

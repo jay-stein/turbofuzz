@@ -340,10 +340,18 @@ test("regions can be labelled from the file, the table or the value, with a size
     await page.waitForTimeout(150);
     return picture();
   };
-  const without = await settled();
   const labelWith = card.getByRole("combobox", { name: "Label regions with" });
-  await expect(labelWith).toHaveValue("");
+  // Named from the start, with no setting to find.
+  await expect(labelWith).toHaveValue("file:NAME_1");
+  const named = await settled();
+  await labelWith.selectOption("");
   await expect(card.getByRole("slider", { name: "Label size" })).toBeHidden();
+  const without = await settled();
+  expect(without).not.toBe(named);
+  // Turned off, they stay off when another file comes in.
+  await load(card, counties());
+  await expect(labelWith).toHaveValue("");
+  await expect(card.locator(".map-step").nth(1)).toContainText("NAME_1 = County");
   await expect(labelWith.locator("optgroup[label='From the boundary file'] option", { hasText: "NAME_1" })).toHaveCount(1);
   await expect(labelWith.locator("optgroup[label='From your table'] option", { hasText: "Code" })).toHaveCount(1);
 
@@ -385,5 +393,17 @@ test("regions can be labelled from the file, the table or the value, with a size
   await value.selectOption((await value.locator("option", { hasText: "MW" }).getAttribute("value"))!);
   await labelWith.selectOption("value");
   expect(await settled()).not.toBe(fromTable);
+});
+
+test("the whole settings panel can be reached: it ends inside the window and scrolls", async ({ page }) => {
+  const card = await openMap(page, WIND);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole("radio", { name: "Choropleth" }).click();
+  await load(card, counties());
+  await expect(card.locator(".map-step").nth(1)).toContainText("NAME_1 = County");
+  const side = (await card.locator(".chart-sidebar").boundingBox())!;
+  expect(side.y + side.height).toBeLessThanOrEqual(900);
+  await card.locator(".map-step").nth(4).scrollIntoViewIfNeeded();
+  await expect(card.getByRole("combobox", { name: "Label regions with" })).toBeInViewport();
 });
 
