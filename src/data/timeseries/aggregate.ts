@@ -84,7 +84,15 @@ export interface Aggregated {
   allPositive: boolean;
   nonNeg: boolean;
   naRows: number;
+  /**
+   * The rows themselves (time and value), when periods hold several of them and the
+   * values sit on the same scale as the line (not a sum or a count). Null otherwise.
+   */
+  raw: { t: Float64Array; v: Float64Array } | null;
 }
+
+/** Above this many rows the raw points are not carried: they could not be told apart anyway. */
+const RAW_MAX_ROWS = 100_000;
 
 export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): Aggregated {
   const g = GRAINS[gid];
@@ -223,9 +231,22 @@ export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): 
     const p10 = nz[Math.floor(nz.length * 0.1)], p90 = nz[Math.floor(nz.length * 0.9)];
     if (nz.length >= 10 && p90 > 1.5 * p10) spread = [p10, p90];
   }
+  // The rows behind the line, for the chart's small markers: only where the periods really add rows
+  // together, and only for a statistic whose rows share the line's scale.
+  let raw: Aggregated["raw"] = null;
+  if (src && cfg.agg !== "sum" && cfg.agg !== "count" && nr <= RAW_MAX_ROWS && rowsIn.some((c) => c > 1)) {
+    const rt: number[] = [], rv: number[] = [];
+    for (let i = 0; i < nr; i++) {
+      const v = src[i];
+      if (!(v === v) || (!allG && T.rowGroup[i] !== cfg.group)) continue;
+      rt.push(T.start + T.rowSlot[i] * T.slot); rv.push(v);
+    }
+    const order = rt.map((_, k) => k).sort((p, q) => rt[p] - rt[q]);
+    raw = { t: Float64Array.from(order, (k) => rt[k]), v: Float64Array.from(order, (k) => rv[k]) };
+  }
   return {
     g, n, t, y, filled, made, partial, partShare, spread, coverage, expected, missing, rows: rowsIn, groupVal, colMean,
-    modelN, yModel, modelM, gapRanges, allPositive, nonNeg, naRows,
+    modelN, yModel, modelM, gapRanges, allPositive, nonNeg, naRows, raw,
   };
 }
 

@@ -52,6 +52,22 @@ test("weekdays that never have rows are not gaps", () => {
   assert.equal(A.gapRanges.length, 0);
 });
 
+test("the rows behind a period are kept for the chart only when they share the line's scale", () => {
+  const { times, values } = hourly(10);
+  const t = buildTable(input(times, values));
+  assert.ok(t);
+  const mean = aggregate(t, cfg({ grain: "day", agg: "mean" }));
+  assert.ok(mean.raw);
+  assert.equal(mean.raw.v.length, values.length);
+  assert.ok(mean.raw.t.every((ms, i) => i === 0 || ms >= mean.raw!.t[i - 1]));
+  // A sum is bigger than any one row, and one row per period has nothing to add.
+  assert.equal(aggregate(t, cfg({ grain: "day", agg: "sum" })).raw, null);
+  const daily = Array.from({ length: 30 }, (_, i) => START + i * DAY);
+  const flat = buildTable(input(daily, daily.map((_, i) => i)));
+  assert.ok(flat);
+  assert.equal(aggregate(flat, cfg({ grain: "day", agg: "mean" })).raw, null);
+});
+
 test("grains finer than the data are too fine; hourly data allows hours", () => {
   const { times, values } = hourly(10);
   const t = buildTable(input(times, values));

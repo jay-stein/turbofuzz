@@ -417,6 +417,34 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
     return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
   }
+  /** Most raw markers drawn at once; past this they would only smear, so the chart says to zoom. */
+  const RAW_MARKER_CAP = 500;
+  /**
+   * The rows behind the line as small round markers, a lighter fill inside the outline.
+   * Hidden (with a note) while more than RAW_MARKER_CAP sit in the view.
+   */
+  function drawRawRows(ctx: CanvasRenderingContext2D, raw: { t: Float64Array; v: Float64Array }, fromMs: number, toMs: number, X: (ms: number) => number, Y: (v: number) => number, color: string): void {
+    let lo = 0, hi = raw.t.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (raw.t[mid] < fromMs) lo = mid + 1; else hi = mid; }
+    const first = lo;
+    hi = raw.t.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (raw.t[mid] <= toMs) lo = mid + 1; else hi = mid; }
+    const count = lo - first;
+    if (count === 0) return;
+    if (count > RAW_MARKER_CAP) {
+      ctx.save();
+      ctx.font = font(11); ctx.fillStyle = C.dim; ctx.textAlign = "left";
+      ctx.fillText(`${nf.format(count)} raw rows in view: zoom in to see each one`, geo.L + 8, geo.T + 14);
+      ctx.restore();
+      return;
+    }
+    ctx.save();
+    ctx.fillStyle = rgba(color, 0.3); ctx.strokeStyle = rgba(color, 0.9); ctx.lineWidth = 1;
+    for (let k = first; k < lo; k++) {
+      ctx.beginPath(); ctx.arc(X(raw.t[k]), Y(raw.v[k]), 2.6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+    ctx.restore();
+  }
   const font = (px: number, weight = 400): string => `${weight} ${px}px ${FONT}`;
   const toneColor = (t: TsTone): string => ({ accent: C.accent, forecast: C.forecast, danger: C.danger, warn: C.warn, dim: C.dim })[t];
 
@@ -626,6 +654,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     linePath(ctx, i0, Math.min(i1, histEnd), raw);
     ctx.stroke();
     ctx.globalAlpha = 1;
+    if (a.raw && !dl) drawRawRows(ctx, a.raw, T[i0], bucketStart(s.table, a.g, Math.min(i1, histEnd) + 1), X, Y, emphasis ? C.text : C.raw);
     if (a.partial[n - 1] && N === n - 1 && !P && !dl) {
       ctx.setLineDash([2, 3]); ctx.strokeStyle = C.dim; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(X(T[n - 2]), Y(a.y[n - 2])); ctx.lineTo(X(T[n - 1]), Y(a.y[n - 1])); ctx.stroke(); ctx.setLineDash([]);
@@ -1068,8 +1097,11 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     // The line is drawn in the text colour, or in grey when a rolling mean sits over a daily or finer series (see the draw's `emphasis`).
     const rawGrey = ui.mode === "explore" && !dlg && ui.showSmooth && (a.g.unit === "day" || a.g.unit === "min");
     // The swatch takes the line's own colour; the words stay in the text colour so they remain readable.
-    const lg = [`<span style="color:${C.text}"><i${rawGrey ? ` style="border-top-color:${C.raw}"` : ""}></i>${dlg ? `${measureWord(s)} − ${measureWord(s)} ${dlg} ${nounFor(gr, dlg)} earlier` : measureWord(s)}</span>`];
-    if (ui.mode === "explore" && !dlg && ui.showSmooth) lg.push(`<span style="color:${C.accent}"><i></i>Rolling ${c.smoothStat}</span>`);
+    // The swatch matches the stroke: grey over a daily rolling mean, otherwise the text colour at the half strength the draw fades it to.
+    const faded = ui.mode === "explore" && !dlg && ui.showSmooth && !rawGrey;
+    const lg = [`<span style="color:${C.text}"><i${rawGrey ? ` style="border-top-color:${C.raw}"` : faded ? ` style="opacity:0.5"` : ""}></i>${dlg ? `${measureWord(s)} − ${measureWord(s)} ${dlg} ${nounFor(gr, dlg)} earlier` : measureWord(s)}</span>`];
+    if (ui.mode === "explore" && !dlg && ui.showSmooth) lg.push(`<span style="color:${C.accent}"><i></i>Rolling ${c.smoothStat} - ${c.smoothW} ${c.smoothW === 1 ? gr.noun : gr.nouns.split(" ").pop()}${c.smoothCentred ? ", centred" : ""}</span>`);
+    if (a.raw && !dlg) lg.push(`<span style="color:${C.dim}"><svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><circle cx="4.5" cy="4.5" r="3.5" fill="${C.raw}" fill-opacity="0.3" stroke="${C.raw}"/></svg>Raw rows</span>`);
     if (ui.mode === "explore" && !dlg && ui.lastYear) lg.push(`<span style="color:${C.dim}"><i class="dash"></i>${gr.lyShort}</span>`);
     if (ui.mode === "decompose") lg.push(`<span style="color:${C.accent}"><i></i>Trend</span>`);
     if ((ui.mode === "explore" || ui.mode === "decompose") && trendShift(s, ui)) lg.push(`<span style="color:${C.warn}"><i class="dash"></i>Trend shift (estimated)</span>`);
