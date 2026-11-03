@@ -4,6 +4,17 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-03-17 — Earlier steps are kept when a transform is applied
+
+- **Status:** Verified (unit, e2e)
+- **Related issue / decision:** owner: after a KNN fill every other Recipe step was gone. "Steps should be appended, never removed unless the person reverses them."
+- **Problem addressed:** any transform (KNN, dedupe, a fill by group, a drop) bakes the clean, missing-value, type and row-removal changes into the data and the page then forgot them, so the Recipe, Copy recipe and Save recipe lost steps that had really happened.
+- **What changed:** those steps move into a kept record shown first in the Recipe ("kept", or a group "Earlier steps (N)"), and are included in Copy recipe, Save recipe and replay. They cannot be undone on their own, because the transform now builds on them; the Undo button and Ctrl+Z only reverse steps made after.
+- **Not included:** undoing an earlier step individually after a transform (the data was rebuilt on it).
+- **Files / components changed:** src/ui/app.ts, steps-panel.ts; test/e2e/knn-fill.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
 ### CHG-2026-11-03-16 — KNN fill you can choose, test, inspect and undo
 
 - **Status:** Verified (unit, e2e, browser on melb_house_data.csv)

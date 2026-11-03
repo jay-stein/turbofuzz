@@ -605,6 +605,14 @@ export class App {
   private newButton!: HTMLButtonElement;
   private stepsButton!: HTMLButtonElement;
   private undoButton!: HTMLButtonElement;
+  /**
+   * Cleans, missing-value and type changes made before a transform. The transform builds on the cleaned data, so they are part of
+   * it now; the record of them stays (in the Recipe and every export) instead of vanishing with the transform.
+   */
+  private bakedEntries: StepsPanelEntry[] = [];
+  private bakedCleans: { name: string; ops: CleanOp[] }[] = [];
+  private bakedTypes: { name: string; type: ColumnType }[] = [];
+  private bakedRows = 0;
   /** Recipe steps in the order they were made, one list per action, so Undo can reverse the latest. */
   private stepActions: string[][] = [];
   private exportNullAsBlank = true;
@@ -2327,7 +2335,29 @@ export class App {
     }
   }
 
+  /** Moves the clean, missing-value, type and row steps into the kept record, before a transform's data replaces the table. */
+  private bakeSteps(): void {
+    const entries = this.stepEntries().filter((entry) => entry.baked !== true && entry.kind !== "transform" && entry.kind !== "review");
+    for (const [column, ops] of this.cleanedColumns) {
+      if (ops.length > 0) this.bakedCleans.push({ name: this.metas[column]?.name ?? `Column ${column + 1}`, ops: [...ops] });
+    }
+    for (const edit of this.typeEdits) {
+      const meta = this.metas[edit.column];
+      if (meta !== undefined) this.bakedTypes.push({ name: meta.name, type: meta.type });
+    }
+    this.bakedRows += this.excludedRowCount;
+    this.bakedEntries.push(...entries.map((entry) => ({ ...entry, baked: true })));
+  }
+
   private openWorkspace(loaded: LoadedMessage | TransformedMessage): void {
+    if (loaded.type === "transformed") {
+      this.bakeSteps();
+    } else {
+      this.bakedEntries = [];
+      this.bakedCleans = [];
+      this.bakedTypes = [];
+      this.bakedRows = 0;
+    }
     // A new table shows every column, none frozen.
     this.hiddenColumns = new Set();
     this.frozenThrough = -1;
@@ -7251,7 +7281,7 @@ export class App {
 
   /** The identity of a Recipe step for the undo log: what it is, not where it sits. */
   private stepKey(entry: StepsPanelEntry): string {
-    return `${entry.kind}|${entry.column}|${entry.label}|${entry.detail ?? ""}`;
+    return `${entry.baked === true ? "baked-" : ""}${entry.kind}|${entry.column}|${entry.label}|${entry.detail ?? ""}`;
   }
 
   /** Keeps the undo log in step with the Recipe: steps that vanished leave it, steps that appeared together become one action. */
@@ -7342,7 +7372,7 @@ export class App {
   }
 
   private updateStepsButton(): void {
-    this.trackSteps(this.stepEntries());
+    this.trackSteps(this.stepEntries().filter((entry) => entry.baked !== true));
     const groups = groupSteps(this.stepEntries());
     const count = groups.length;
     this.stepsButton.textContent = count === 0 ? "Recipe" : `Recipe (${count})`;
@@ -7355,7 +7385,10 @@ export class App {
   }
 
   private stepEntries(): StepsPanelEntry[] {
-    const entries: StepsPanelEntry[] = [];
+    const entries: StepsPanelEntry[] = this.bakedEntries.map((entry) => ({
+      ...entry,
+      group: { id: "baked-earlier", label: `Earlier steps (${this.bakedEntries.length})`, detail: "made before a later step, so already part of the data" },
+    }));
     for (const [column, ops] of this.cleanedColumns) {
       const name = this.metas[column]?.name ?? `Column ${column + 1}`;
       for (let index = 0; index < ops.length; index++) {
@@ -7570,16 +7603,22 @@ export class App {
             type: meta.type,
           }));
     return {
-      cleans: [...this.cleanedColumns.entries()].map(([column, ops]) => ({
-        name: this.metas[column]?.name ?? `Column ${column + 1}`,
-        ops,
-      })),
+      cleans: [
+        ...this.bakedCleans,
+        ...[...this.cleanedColumns.entries()].map(([column, ops]) => ({
+          name: this.metas[column]?.name ?? `Column ${column + 1}`,
+          ops,
+        })),
+      ],
       transforms: this.transformOps,
       schema,
-      types: this.typeEdits.map((edit) => ({
-        name: this.metas[edit.column]?.name ?? `Column ${edit.column + 1}`,
-        type: this.metas[edit.column]?.type ?? "string",
-      })),
+      types: [
+        ...this.bakedTypes,
+        ...this.typeEdits.map((edit) => ({
+          name: this.metas[edit.column]?.name ?? `Column ${edit.column + 1}`,
+          type: this.metas[edit.column]?.type ?? "string",
+        })),
+      ],
       nulls: this.metas
         .map((meta) => ({
           name: meta.name,
@@ -7587,7 +7626,7 @@ export class App {
           keep: [...meta.nullPolicy.keep],
         }))
         .filter((entry) => entry.extra.length > 0 || entry.keep.length > 0),
-      deletedRows: this.excludedRowCount > 0 ? this.excludedRowCount : undefined,
+      deletedRows: this.bakedRows + this.excludedRowCount > 0 ? this.bakedRows + this.excludedRowCount : undefined,
     };
   }
 
@@ -7617,10 +7656,13 @@ export class App {
       name: this.datasetName,
       savedAt: new Date().toISOString(),
       columns: this.metas.map((meta) => meta.name),
-      cleans: [...this.cleanedColumns.entries()].map(([column, ops]) => ({
-        name: this.metas[column]?.name ?? `Column ${column + 1}`,
-        ops,
-      })),
+      cleans: [
+        ...this.bakedCleans,
+        ...[...this.cleanedColumns.entries()].map(([column, ops]) => ({
+          name: this.metas[column]?.name ?? `Column ${column + 1}`,
+          ops,
+        })),
+      ],
       nulls: this.metas
         .map((meta) => ({
           name: meta.name,
@@ -7628,12 +7670,13 @@ export class App {
           keep: [...meta.nullPolicy.keep],
         }))
         .filter((entry) => entry.extra.length > 0 || entry.keep.length > 0),
-      types: this.typeEdits
-        .map((edit) => ({
+      types: [
+        ...this.bakedTypes,
+        ...this.typeEdits.map((edit) => ({
           name: this.metas[edit.column]?.name ?? `Column ${edit.column + 1}`,
           type: this.metas[edit.column]?.type ?? "string",
-        }))
-        .filter((entry): entry is RecipeFileType => entry.type !== undefined),
+        })),
+      ].filter((entry): entry is RecipeFileType => entry.type !== undefined),
       baseSchema,
       transforms: JSON.parse(JSON.stringify(this.transformOps)) as TransformOp[],
       archetype: this.archetypeOverride ?? undefined,

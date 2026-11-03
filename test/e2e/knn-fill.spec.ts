@@ -55,3 +55,36 @@ test("KNN fill: choose columns with the column itself greyed out, test k, previe
   await page.locator(".nav-actions button", { hasText: /^Undo$/ }).click();
   await expect(page.locator(".nav-actions button", { hasText: /^Recipe$/ })).toBeVisible();
 });
+
+test("a KNN fill adds to the Recipe: earlier steps stay, kept as part of the data", async ({ page }) => {
+  const cities = ["Sydney", "sydney", "SYDNEY", "Melbourne", "Perth", "Hobart"];
+  const lines = ["city,rooms,area"];
+  for (let i = 0; i < 400; i++) {
+    const rooms = 1 + (i % 5);
+    lines.push(`${cities[(i * 5) % cities.length]},${rooms},${i % 4 === 0 ? "" : rooms * 40 + (i % 7)}`);
+  }
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "homes.csv", mimeType: "text/csv", buffer: Buffer.from(lines.join("\n")) });
+  await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
+
+  await page.getByRole("tab", { name: "Data Quality" }).click();
+  await page.locator(".qp-hero-actions .primary").click();
+  await page.locator(".fix-preview-modal").getByRole("button", { name: /^Apply/ }).click();
+  const recipe = page.locator(".nav-actions button", { hasText: /^Recipe/ });
+  await expect(recipe).toHaveText(/Recipe \(\d+\)/);
+
+  await page.getByRole("tab", { name: "Table" }).click();
+  await page.locator('button[title^="Fill the empty cells in one click"]').click();
+  await page.locator(".context-item", { hasText: /Fill from similar rows \(KNN\)/ }).first().click();
+  const dialog = page.getByRole("dialog", { name: "Fill empty cells from similar rows" });
+  await expect(dialog.locator(".knn-verdict")).toContainText(/Tested by hiding/);
+  await dialog.getByRole("button", { name: /^Fill \d+ cells/ }).click();
+  await page.getByRole("dialog", { name: "KNN fill result" }).getByRole("button", { name: "Done" }).click();
+
+  await recipe.click();
+  const panel = page.locator(".drawer");
+  await expect(panel).toContainText(/Recipe \(2\)/);
+  await expect(panel).toContainText(/city: Standardise/);
+  await expect(panel).toContainText("kept");
+  await expect(panel).toContainText(/KNN impute/);
+});

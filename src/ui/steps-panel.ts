@@ -15,6 +15,8 @@ export interface StepsPanelEntry {
   groupSize: number;
   /** What a review decision refers to, so it can be put back. */
   ref?: string;
+  /** Made before a later transform, so it is part of the data now: kept in the record, not undoable on its own. */
+  baked?: boolean;
   /** Optional batch membership; consecutive entries with the same id collapse. */
   group?: { id: string; label: string; detail?: string };
 }
@@ -219,6 +221,11 @@ export function openStepsPanel(
     }
     row.append(el("span", { class: "clean-op-index" }, [numberText]), info);
 
+    if (entry.baked === true) {
+      info.title = "Made before a later step, so it is part of the data now. It stays in the recipe and the export.";
+      row.append(el("span", { class: "step-count" }, ["kept"]));
+      return row;
+    }
     if (entry.kind === "clean") {
       const up = el("button", { class: "icon-btn", type: "button", title: "Move up" }, ["↑"]);
       up.disabled = entry.opIndex === 0;
@@ -292,7 +299,9 @@ export function openStepsPanel(
       el("span", { class: "clean-op-index" }, [String(display)]),
       info,
       el("span", { class: "step-count" }, [`${group.entries.length} steps`]),
-      undo("Undo this whole batch", () => callbacks.onUndoBatch(group.entries)),
+      group.entries.every((entry) => entry.baked === true)
+        ? el("span", { class: "step-count" }, ["kept"])
+        : undo("Undo this whole batch", () => callbacks.onUndoBatch(group.entries)),
       toggle,
     );
     const children = el("div", { class: "step-group-children hidden" });
@@ -314,7 +323,7 @@ export function openStepsPanel(
 
   const footer = el("div", { class: "clean-footer" });
   const undoAll = el("button", { class: "ghost", type: "button" }, ["Undo all"]);
-  undoAll.title = "Undo every applied change and restore the original data";
+  undoAll.title = "Undo every applied change. Earlier steps that a transform has already made part of the data stay.";
   undoAll.disabled = entries.length === 0;
   undoAll.addEventListener("click", () => {
     callbacks.onClearAll();
