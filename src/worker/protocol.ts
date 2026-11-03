@@ -1013,6 +1013,10 @@ export interface RegionsLoadedMessage {
   ms: number;
   /** Set when the file could not be placed on the Earth without being told what its numbers are. */
   crsNeeded?: string;
+  /** With it: the systems that would fit, what the file said, and what its numbers run over. */
+  crsGuesses?: { code: number; name: string }[];
+  crsStated?: string | null;
+  rawRange?: { xMin: number; xMax: number; yMin: number; yMax: number } | null;
 }
 
 export type SuggestRegionJoinRequest = { type: "suggestRegionJoin"; requestId: number };

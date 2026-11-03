@@ -76,6 +76,14 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     "aria-label": "Size of your markers",
   }) as HTMLInputElement;
   const sizeOut = el("output", { class: "map-size-out" });
+  const sizeLabel = el("label", { class: "map-dock-item map-dock-size" }, [el("span", {}, ["Size"]), sizeSlider, sizeOut]);
+  const citySize = el("input", { type: "range", min: "8", max: "20", step: "1", "aria-label": "Size of city names" }) as HTMLInputElement;
+  const citySizeOut = el("output", { class: "map-size-out" });
+  const citySizeLabel = el("label", { class: "map-dock-item map-dock-size hidden", title: "How big the city names are; bigger names leave room for fewer of them" }, [
+    el("span", {}, ["Text"]),
+    citySize,
+    citySizeOut,
+  ]);
   const pickToggle = el(
     "button",
     { type: "button", class: "map-dock-btn", "aria-pressed": "false", title: "Each click on the map adds a marker there; click again to stop" },
@@ -89,16 +97,13 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
       el("span", { class: "map-switch-track", "aria-hidden": "true" }),
       el("span", {}, ["Cities"]),
     ]),
+    citySizeLabel,
     el("span", { class: "map-dock-sep", "aria-hidden": "true" }),
     // Everything about markers you place yourself sits together; the dots from your data are
     // sized in the Dots row under the map's settings, and this slider does not touch them.
     el("div", { class: "map-dock-group", role: "group", "aria-label": "Your markers" }, [
       el("span", { class: "map-dock-caption" }, ["Your markers"]),
-      el("label", { class: "map-dock-item map-dock-size", title: "Resize every marker you added; new markers get this size too. The dots from your data are sized under the map's settings (Dots)." }, [
-        el("span", {}, ["Size"]),
-        sizeSlider,
-        sizeOut,
-      ]),
+      sizeLabel,
       pickToggle,
       addMarkers,
     ]),
@@ -111,6 +116,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   const markersPanel = createMarkersPanel({
     onChange(state) {
       markerState = state;
+      syncSize();
       applyMarkers();
       saveMarkers();
     },
@@ -128,6 +134,11 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   const syncSize = (): void => {
     sizeSlider.value = String(markersPanel.size());
     sizeOut.textContent = `${markersPanel.size()}px`;
+    // With no markers there is nothing for it to size.
+    const none = markerState.markers.length === 0;
+    sizeSlider.disabled = none;
+    sizeLabel.classList.toggle("map-dock-off", none);
+    sizeLabel.title = none ? "Add a marker first: this sizes the markers you add" : "Resize every marker you added; new markers get this size too. The dots from your data are sized under the map's settings (Dots).";
   };
   syncSize();
   sizeSlider.addEventListener("input", () => {
@@ -200,7 +211,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     if (names === "") {
       empty.replaceChildren(
         el("p", {}, [
-          "No latitude and longitude columns found, so the map shows your markers only. To plot rows, the table needs two number columns in degrees: a latitude (-90 to 90) and a longitude (-180 to 180), found by name (lat, latitude, lon, lng, longitude) or by range. A table of named places can still be mapped: set Show to Regions and load a boundary file.",
+          "No latitude and longitude columns found, so the map shows your markers only. To plot rows, the table needs two number columns in degrees: a latitude (-90 to 90) and a longitude (-180 to 180), found by name (lat, latitude, lon, lng, longitude) or by range. A table of named places can still be mapped: choose Choropleth above and load a boundary file.",
         ]),
       );
     }
@@ -208,12 +219,13 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   }
 
   async function applyCities(): Promise<void> {
+    citySizeLabel.classList.toggle("hidden", !citiesToggle.checked);
     if (!citiesToggle.checked) {
       card?.setMapOverlay(null);
       return;
     }
     const cities = await loadCities().catch(() => null);
-    if (cities !== null && citiesToggle.checked) card?.setMapOverlay(cityOverlay(cities, () => markerState.markers));
+    if (cities !== null && citiesToggle.checked) card?.setMapOverlay(cityOverlay(cities, () => markerState.markers, () => Number(citySize.value)));
   }
 
   function applyMarkers(): void {
@@ -235,11 +247,26 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     void store().then((db) => (markerState.markers.length || markerState.customs.length ? db?.putMarkers({ key, ...markerState }) : db?.removeMarkers(key)));
   }
 
+  citySize.value = "11";
   try {
     citiesToggle.checked = localStorage.getItem("turbofuzz.map.cities") === "1";
+    citySize.value = localStorage.getItem("turbofuzz.map.citySize") ?? "11";
   } catch {
     // Storage blocked: cities start off.
   }
+  const syncCitySize = (): void => {
+    citySizeOut.textContent = `${citySize.value}px`;
+  };
+  syncCitySize();
+  citySize.addEventListener("input", () => {
+    syncCitySize();
+    try {
+      localStorage.setItem("turbofuzz.map.citySize", citySize.value);
+    } catch {
+      // Not remembered; the slider still works.
+    }
+    void applyCities();
+  });
   citiesToggle.addEventListener("change", () => {
     try {
       localStorage.setItem("turbofuzz.map.cities", citiesToggle.checked ? "1" : "0");
@@ -258,6 +285,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
         datasetKey = key;
         markersPanel.set({ markers: [], customs: [] });
         markerState = { markers: [], customs: [] };
+        syncSize();
         applyMarkers();
         if (key !== "") {
           void store().then(async (db) => {

@@ -1,4 +1,4 @@
-import { resolveCrs, toLonLat, type ResolvedCrs } from "./geo-crs.js";
+import { crsProblem, guessCrs, resolveCrs, toLonLat, type CrsChoice, type ResolvedCrs } from "./geo-crs.js";
 
 export interface GeoFeature {
   label: string;
@@ -46,7 +46,11 @@ export class GeoCrsNeededError extends Error {
   ) {
     super(message);
     this.name = "GeoCrsNeededError";
+    this.guesses = range === null ? [] : guessCrs(range);
   }
+
+  /** The systems that would put this file somewhere they apply. */
+  readonly guesses: CrsChoice[];
 }
 
 type Geometry = {
@@ -148,7 +152,7 @@ function settleCrs(features: GeoFeature[], stated: string | null, override: stri
   if (override !== undefined && override.trim() !== "") {
     crs = resolveCrs(override);
     source = "user";
-    if (crs === null) throw new GeoCrsNeededError(`"${override.trim().slice(0, 60)}" is not a coordinate system this offline app knows. Paste its proj4 string or WKT instead (epsg.io has them).`, stated, range);
+    if (crs === null) throw new GeoCrsNeededError(crsProblem(override), stated, range);
   } else if (stated !== null) {
     crs = resolveCrs(stated);
     if (crs === null) throw new GeoCrsNeededError("The file states a coordinate system this app cannot read. Choose it below.", stated, range);

@@ -116,7 +116,7 @@ test("marker size: set in the Add window, per row, and for every marker from the
 
   await page.locator(".map-dock").getByLabel("Size of your markers").fill("20");
   await expect.poll(() => values(page, ".map-cell-size")).toEqual(["20", "20"]);
-  await expect(page.locator(".map-dock .map-size-out")).toHaveText("20px");
+  await expect(page.locator(".map-dock-group .map-size-out")).toHaveText("20px");
 });
 
 test("an uploaded SVG becomes a symbol; its scripts are never run", async ({ page }) => {

@@ -2614,6 +2614,7 @@ export class App {
         suggest: () => this.client.suggestRegionJoin(),
         values: (input) => this.client.getRegionValues(input),
         clear: () => this.client.clearRegions(),
+        preview: () => this.client.getRows(0, 100),
       },
       tableSourceLabel: () =>
         this.filters.size === 0 &&

@@ -4,6 +4,25 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-03-11 — Maps export as an interactive web page
+
+- **Status:** Verified (e2e, offline, with no requests made; browser on real files)
+- **Related issue / decision:** owner: not only a flat PNG.
+- **What changed:** beside PNG, one self-contained .html file holding the map's own data and code: zoom, pan, hover, a time slider with Play when animating, a legend, and light and dark. Regions and dots; heat grids stay PNG only. Shapes are kept to about 300,000 points so a file stays a sensible size.
+- **Also:** the map's key now draws after city names and markers, so they cannot write over it.
+- **Not included:** cities in the exported page; custom marker symbols (markers go out as plain dots with their labels).
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
+### CHG-2026-11-03-10 — Choropleth broken into steps; maps keep their true shape
+
+- **Status:** Verified (unit, e2e, browser on the Ireland files)
+- **Related issue / decision:** owner's review of the first version.
+- **What changed:** the settings are four short steps (Boundaries, Match, Value, Colours). A boundary file can be dropped on the map from any kind of map, with a landing spot when there is none yet. Match up… opens both tables to look through: the suggested column is bold and marked, a click turns the whole column green, and what did not match has its own tab. Classes and colours float beside the map. A globe button says what the file is in and where it lands, with a searchable list of systems by place, name or code, good guesses for a silent file, and pasted definitions moved under Advanced. Size, Aggregate and the general chart settings are gone from a choropleth. The marker size is off until there are markers, and city names have their own size.
+- **Fixed:** every map was stretched to fill its box, so places away from the equator looked squat; views now take the plot's shape, with a degree of longitude drawn shorter by the cosine of the latitude. Coastlines crossing the date line no longer rule lines across the world view. A height or depth system now says so rather than a bare refusal.
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
 ### CHG-2026-11-03-09 — Choropleth maps from any boundary file
 
 - **Status:** Verified (unit, e2e, browser on real ABS, Ireland, Singapore and New York files)

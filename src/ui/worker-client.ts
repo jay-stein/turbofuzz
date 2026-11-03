@@ -560,7 +560,7 @@ export class SearchWorkerClient {
         geoWorker.removeEventListener("message", onMessage);
         if (!reply.ok) {
           if ("crsNeeded" in reply) {
-            resolve({ fileName: reply.fileName, shapes: [], tolerances: [], bounds: { lonMin: 0, lonMax: 0, latMin: 0, latMax: 0 }, crs: { label: "", source: "file", converted: false }, layers: [], layer: "", labelProperty: null, points: 0, ms: 0, crsNeeded: reply.crsNeeded });
+            resolve({ fileName: reply.fileName, shapes: [], tolerances: [], bounds: { lonMin: 0, lonMax: 0, latMin: 0, latMax: 0 }, crs: { label: "", source: "file", converted: false }, layers: [], layer: "", labelProperty: null, points: 0, ms: 0, crsNeeded: reply.crsNeeded, crsGuesses: reply.guesses, crsStated: reply.stated, rawRange: reply.range });
           } else {
             reject(new Error(reply.error));
           }

@@ -3,13 +3,15 @@
  * The shapes and the matching live in the worker; this holds the choices, the settings that make them, and the drawing.
  */
 import { CLASS_METHODS, classBreaks, classCounts, classOf, varianceFit, type ClassMethod } from "../data/classify.js";
-import { COMMON_CRS } from "../data/geo-crs.js";
+import { searchCrs, type CrsChoice } from "../data/geo-crs.js";
 import { PALETTES, paletteStops, samplePalette } from "../data/palettes.js";
 import { levelFor, pointInFeature, type RegionAgg, type RegionShape } from "../data/regions.js";
 import type { ColumnMeta, JoinSuggestionsMessage, RegionsLoadedMessage, RegionValuesMessage, RegionValuesRequestInput } from "../worker/protocol.js";
 import { num } from "../data/chart-extract.js";
 import { colorForFraction } from "./color-scale.js";
 import { formatCompact, isGroupable, isNumericType, rampColor } from "./chart-utils.js";
+import { setupDialog } from "./dialog.js";
+import { roundRing, type MapHtmlLegend, type MapHtmlPayload } from "./map-html-export.js";
 import { el, svgIcon } from "./dom.js";
 
 export interface RegionHit {
@@ -27,6 +29,8 @@ export interface MapRegionsOptions {
   suggest(): Promise<JoinSuggestionsMessage>;
   values(input: RegionValuesRequestInput): Promise<RegionValuesMessage>;
   clear(): void;
+  /** The table's first rows, for looking through. */
+  preview(): Promise<{ rows: string[][] }>;
   columns(): readonly ColumnMeta[];
   /** The table's coordinate columns, when it has them. */
   coordinates(): { x: number; y: number } | null;
@@ -47,6 +51,9 @@ const SEP = " – ";
 const field = (label: string, control: HTMLElement, title = ""): HTMLElement =>
   el("label", { class: "chart-field map-region-field", title }, [el("span", { class: "chart-field-label" }, [label]), control]);
 
+const GLOBE = '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><ellipse cx="12" cy="12" rx="4" ry="9" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3.5 9h17M3.5 15h17" fill="none" stroke="currentColor" stroke-width="1.4"/>';
+const BOUNDARY_FILE = /\.(geojson|json|zip|gpkg|shp)$/i;
+
 export class MapRegions {
   readonly root: HTMLElement;
   private loaded: RegionsLoadedMessage | null = null;
@@ -58,6 +65,11 @@ export class MapRegions {
   private mode: MatchMode = "name";
   private property = "";
   private column = -1;
+  private labelProperty = "";
+  /** The person has looked and said yes: until then the pairing in use is only the suggestion. */
+  private matchConfirmed = false;
+  /** The pairing the app would make, and how well each boundary field and column did. */
+  private suggested: { property: string; column: number } | null = null;
   private measure = -1;
   private agg: RegionAgg = "sum";
   private divide = "";
@@ -68,6 +80,8 @@ export class MapRegions {
   private palette = "YlOrRd";
   private reversed = false;
   private colours: (string | undefined)[] = [];
+  /** A file waiting to be told what its numbers are. */
+  private crsWaiting: Pick<RegionsLoadedMessage, "crsNeeded" | "crsGuesses" | "crsStated" | "rawRange" | "fileName"> | null = null;
 
   /** Per frame and region, after any dividing. */
   private shown = new Float64Array(0);
@@ -76,118 +90,55 @@ export class MapRegions {
   private readonly input: HTMLInputElement;
   private readonly statusEl: HTMLElement;
   private readonly clearButton: HTMLButtonElement;
-  private readonly body: HTMLElement;
   private readonly layerSelect: HTMLSelectElement;
   private readonly layerRow: HTMLElement;
+  private readonly globeButton: HTMLButtonElement;
   private readonly crsLine: HTMLElement;
-  private readonly crsPanel: HTMLElement;
-  private readonly crsSelect: HTMLSelectElement;
-  private readonly crsText: HTMLInputElement;
-  private readonly crsMessage: HTMLElement;
-  private readonly labelSelect: HTMLSelectElement;
-  private readonly modeName: HTMLInputElement;
-  private readonly modeLocation: HTMLInputElement;
-  private readonly modeHint: HTMLElement;
-  private readonly nameRows: HTMLElement;
-  private readonly propertySelect: HTMLSelectElement;
-  private readonly columnSelect: HTMLSelectElement;
-  private readonly reportEl: HTMLElement;
+  private readonly stepMatch: HTMLElement;
+  private readonly matchLine: HTMLElement;
+  private readonly matchCounts: HTMLElement;
+  private readonly unmatchedLink: HTMLButtonElement;
+  private readonly stepValue: HTMLElement;
   private readonly measureSelect: HTMLSelectElement;
   private readonly aggSelect: HTMLSelectElement;
   private readonly divideSelect: HTMLSelectElement;
-  private readonly methodSelect: HTMLSelectElement;
-  private readonly methodHint: HTMLElement;
-  private readonly classesInput: HTMLInputElement;
-  private readonly classesRow: HTMLElement;
-  private readonly intervalInput: HTMLInputElement;
-  private readonly intervalRow: HTMLElement;
-  private readonly paletteSelect: HTMLSelectElement;
-  private readonly reverseInput: HTMLInputElement;
-  private readonly histogramEl: HTMLElement;
-  private readonly classTable: HTMLElement;
-  private readonly fitEl: HTMLElement;
+  private readonly stepColours: HTMLElement;
+  private readonly colourStrip: HTMLElement;
+  private readonly colourLine: HTMLElement;
+  private readonly dropEl: HTMLElement;
+  private dropActive = false;
+
+  // The Classes pop-out: lives while open, and is drawn again when anything changes.
+  private classesPop: HTMLElement | null = null;
 
   constructor(private readonly options: MapRegionsOptions) {
     this.input = el("input", { type: "file", accept: ".geojson,.json,.zip,.gpkg,.shp", class: "hidden", "aria-label": "Boundary file" }) as HTMLInputElement;
     this.input.addEventListener("change", () => {
       const file = this.input.files?.[0];
       this.input.value = "";
-      if (file === undefined) return;
-      this.statusEl.textContent = `Reading ${file.name}…`;
-      void file.arrayBuffer().then((buffer) => this.read({ buffer, fileName: file.name }));
+      if (file !== undefined) this.loadFile(file);
     });
-    const loadButton = el("button", { class: "ghost small", type: "button", title: "A GeoJSON file or a zipped Shapefile, from anywhere" }, ["Load boundaries…"]) as HTMLButtonElement;
+    const loadButton = el("button", { class: "ghost small", type: "button", title: "A GeoJSON file or a zipped Shapefile, from anywhere. You can also drop one on the map." }, ["Load boundaries…"]) as HTMLButtonElement;
     loadButton.addEventListener("click", () => this.input.click());
     this.clearButton = el("button", { class: "ghost small hidden", type: "button" }, ["Clear"]) as HTMLButtonElement;
     this.clearButton.addEventListener("click", () => this.clear());
-    this.statusEl = el("span", { class: "map-region-status" });
+    this.statusEl = el("span", { class: "map-region-status" }, ["or drop a file on the map"]);
 
     this.layerSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Boundary layer" }) as HTMLSelectElement;
     this.layerSelect.addEventListener("change", () => void this.read({ layer: this.layerSelect.value }));
     this.layerRow = field("Layer", this.layerSelect, "This zip holds several sets of boundaries");
 
-    // Coordinates: what the file says, with an override always within reach.
-    this.crsLine = el("span", { class: "map-region-crs" });
-    const crsToggle = el("button", { class: "link small map-region-link", type: "button" }, ["Change…"]) as HTMLButtonElement;
-    this.crsSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Coordinate system" }) as HTMLSelectElement;
-    this.crsSelect.append(el("option", { value: "" }, ["Choose…"]) as HTMLOptionElement);
-    for (const { code, name } of COMMON_CRS) this.crsSelect.append(el("option", { value: `EPSG:${code}` }, [`${name}, ${code}`]) as HTMLOptionElement);
-    this.crsSelect.addEventListener("change", () => {
-      if (this.crsSelect.value !== "") this.crsText.value = this.crsSelect.value;
-    });
-    this.crsText = el("input", { class: "chart-hex map-region-crs-text", type: "text", placeholder: "EPSG:32755, a proj4 string or WKT", spellcheck: "false", "aria-label": "Coordinate system definition" }) as HTMLInputElement;
-    const crsApply = el("button", { class: "ghost small", type: "button" }, ["Use this"]) as HTMLButtonElement;
-    crsApply.addEventListener("click", () => {
-      if (this.crsText.value.trim() !== "") void this.read({ crs: this.crsText.value.trim() });
-    });
-    const crsAuto = el("button", { class: "ghost small", type: "button", title: "Go back to what the file itself says" }, ["As the file says"]) as HTMLButtonElement;
-    crsAuto.addEventListener("click", () => {
-      this.crsText.value = "";
-      this.crsSelect.value = "";
-      void this.read({});
-    });
-    this.crsMessage = el("span", { class: "map-region-warning hidden" });
-    this.crsPanel = el("div", { class: "map-region-crs-panel hidden" }, [
-      this.crsMessage,
-      el("span", { class: "chart-field-hint map-region-hint" }, ["What the file's numbers are in, if it is wrong or silent:"]),
-      this.crsSelect,
-      this.crsText,
-      el("div", { class: "map-region-buttons" }, [crsApply, crsAuto]),
-    ]);
-    crsToggle.addEventListener("click", () => this.crsPanel.classList.toggle("hidden"));
+    this.crsLine = el("span", {}, [""]);
+    this.globeButton = el("button", { class: "map-globe hidden", type: "button", title: "What this file's coordinates are in, and where they land" }, [svgIcon(GLOBE, "map-globe-icon"), this.crsLine]) as HTMLButtonElement;
+    this.globeButton.addEventListener("click", () => this.openCrs());
 
-    this.labelSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Region name field" }) as HTMLSelectElement;
-    this.labelSelect.addEventListener("change", () => {
-      this.applyLabel();
-      this.options.onChange();
-    });
+    const matchButton = el("button", { class: "ghost small", type: "button" }, ["Match up…"]) as HTMLButtonElement;
+    matchButton.addEventListener("click", () => this.openMatch("match"));
+    this.matchLine = el("span", { class: "map-region-status" });
+    this.matchCounts = el("span", { class: "map-region-status" });
+    this.unmatchedLink = el("button", { class: "link small map-region-link hidden", type: "button" }, ["What did not match"]) as HTMLButtonElement;
+    this.unmatchedLink.addEventListener("click", () => this.openMatch("unmatched"));
 
-    // Match: by what the rows are called, or by where they are.
-    const group = `map-region-mode-${Math.round(Math.random() * 1e9)}`;
-    this.modeName = el("input", { type: "radio", name: group, "aria-label": "Match by name or code" }) as HTMLInputElement;
-    this.modeLocation = el("input", { type: "radio", name: group, "aria-label": "Match by location" }) as HTMLInputElement;
-    for (const [radio, mode] of [[this.modeName, "name"], [this.modeLocation, "location"]] as const) {
-      radio.addEventListener("change", () => {
-        if (!radio.checked) return;
-        this.mode = mode;
-        this.sync();
-        this.refresh();
-      });
-    }
-    this.modeHint = el("span", { class: "chart-field-hint map-region-hint" });
-    this.propertySelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Boundary field" }) as HTMLSelectElement;
-    this.columnSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Table column to match" }) as HTMLSelectElement;
-    for (const select of [this.propertySelect, this.columnSelect]) {
-      select.addEventListener("change", () => {
-        this.property = this.propertySelect.value;
-        this.column = Number(this.columnSelect.value);
-        this.refresh();
-      });
-    }
-    this.nameRows = el("div", { class: "map-region-group" }, [field("Boundary field", this.propertySelect), field("Table column", this.columnSelect)]);
-    this.reportEl = el("div", { class: "map-region-report" });
-
-    // The value.
     this.measureSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Region value" }) as HTMLSelectElement;
     this.measureSelect.addEventListener("change", () => {
       this.measure = Number(this.measureSelect.value);
@@ -208,87 +159,96 @@ export class MapRegions {
       this.recolour();
     });
 
-    // The colours.
-    this.methodSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Classification method" }) as HTMLSelectElement;
-    for (const { id, label } of CLASS_METHODS) this.methodSelect.append(el("option", { value: id }, [label]) as HTMLOptionElement);
-    this.methodSelect.addEventListener("change", () => {
-      this.method = this.methodSelect.value as ClassMethod;
-      this.colours = [];
-      this.recolour();
-    });
-    this.methodHint = el("span", { class: "chart-field-hint map-region-hint" });
-    this.classesInput = el("input", { class: "chart-number", type: "number", min: "2", max: "12", step: "1", "aria-label": "Number of classes" }) as HTMLInputElement;
-    this.classesInput.addEventListener("input", () => {
-      const value = Number(this.classesInput.value);
-      if (!Number.isInteger(value) || value < 2 || value > 12) return;
-      this.classes = value;
-      this.colours = [];
-      this.recolour();
-    });
-    this.classesRow = field("Classes", this.classesInput);
-    this.intervalInput = el("input", { class: "chart-number", type: "number", min: "0", step: "any", placeholder: "auto", "aria-label": "Class interval" }) as HTMLInputElement;
-    this.intervalInput.addEventListener("input", () => {
-      const value = Number(this.intervalInput.value);
-      this.interval = this.intervalInput.value.trim() !== "" && value > 0 ? value : undefined;
-      this.colours = [];
-      this.recolour();
-    });
-    this.intervalRow = field("Interval", this.intervalInput, "The width of each class, such as 500");
-    this.paletteSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Region colours" }) as HTMLSelectElement;
-    for (const kind of ["sequential", "diverging"] as const) {
-      const options = el("optgroup", { label: kind === "sequential" ? "Low to high" : "Either side of a middle" }) as HTMLOptGroupElement;
-      for (const palette of PALETTES) if (palette.kind === kind) options.append(el("option", { value: palette.name }, [palette.name]) as HTMLOptionElement);
-      this.paletteSelect.append(options);
-    }
-    this.paletteSelect.addEventListener("change", () => {
-      this.palette = this.paletteSelect.value;
-      this.colours = [];
-      this.recolour();
-    });
-    this.reverseInput = el("input", { type: "checkbox", "aria-label": "Reverse the colours" }) as HTMLInputElement;
-    this.reverseInput.addEventListener("change", () => {
-      this.reversed = this.reverseInput.checked;
-      this.colours = [];
-      this.recolour();
-    });
-    this.histogramEl = el("div", { class: "map-region-histogram" });
-    this.classTable = el("div", { class: "map-region-classes" });
-    this.fitEl = el("span", { class: "chart-field-hint map-region-hint" });
+    this.colourStrip = el("div", { class: "map-swatches" });
+    this.colourLine = el("span", { class: "map-region-status" });
+    const coloursButton = el("button", { class: "ghost small", type: "button" }, ["Classes and colours…"]) as HTMLButtonElement;
+    coloursButton.addEventListener("click", () => this.openClasses());
 
-    this.body = el("div", { class: "map-region-body hidden" }, [
-      this.layerRow,
-      el("div", { class: "map-region-crs-row" }, [this.crsLine, crsToggle]),
-      this.crsPanel,
-      field("Region names", this.labelSelect),
-      el("span", { class: "chart-animate-title" }, ["Connect to the table"]),
-      el("div", { class: "map-region-modes" }, [
-        el("label", { class: "control check clean-check chart-check" }, [this.modeName, "By name or code"]),
-        el("label", { class: "control check clean-check chart-check" }, [this.modeLocation, "By location"]),
-      ]),
-      this.modeHint,
-      this.nameRows,
-      this.reportEl,
-      el("span", { class: "chart-animate-title" }, ["Value"]),
-      field("Value", this.measureSelect),
-      field("Statistic", this.aggSelect),
-      field("Divide by", this.divideSelect, "Raw totals mostly show which regions are biggest: dividing by area or population shows intensity"),
-      el("span", { class: "chart-animate-title" }, ["Colours"]),
-      field("Method", this.methodSelect),
-      this.methodHint,
-      this.classesRow,
-      this.intervalRow,
-      field("Palette", this.paletteSelect),
-      el("label", { class: "control check clean-check chart-check" }, [this.reverseInput, "Reverse"]),
-      this.histogramEl,
-      this.classTable,
-      this.fitEl,
-    ]);
-    this.root = el("div", { class: "map-regions" }, [
+    const step = (number: number, title: string, children: HTMLElement[]): HTMLElement =>
+      el("div", { class: "map-step" }, [el("div", { class: "map-step-title" }, [el("span", { class: "map-step-number" }, [String(number)]), title]), ...children]);
+    const stepLoad = step(1, "Boundaries", [
       el("div", { class: "map-region-buttons" }, [loadButton, this.clearButton]),
       this.input,
       this.statusEl,
-      this.body,
+      this.layerRow,
+      this.globeButton,
     ]);
+    this.stepMatch = step(2, "Match to your table", [this.matchLine, this.matchCounts, el("div", { class: "map-region-buttons" }, [matchButton, this.unmatchedLink])]);
+    this.stepValue = step(3, "Value", [field("Value", this.measureSelect), field("Statistic", this.aggSelect), field("Divide by", this.divideSelect, "Raw totals mostly show which regions are biggest: dividing by area or population shows intensity")]);
+    this.stepColours = step(4, "Colours", [this.colourStrip, this.colourLine, el("div", { class: "map-region-buttons" }, [coloursButton])]);
+    this.root = el("div", { class: "map-regions" }, [stepLoad, this.stepMatch, this.stepValue, this.stepColours]);
+
+    const browse = el("button", { class: "primary small", type: "button" }, ["Choose a file…"]) as HTMLButtonElement;
+    browse.addEventListener("click", () => this.input.click());
+    this.dropEl = el("div", { class: "map-drop hidden" }, [
+      el("div", { class: "map-drop-box" }, [
+        svgIcon(GLOBE, "map-drop-icon"),
+        el("strong", { class: "map-drop-title" }, ["Drop a boundary file here"]),
+        el("span", {}, ["A GeoJSON file or a zipped Shapefile, from anywhere in the world. The regions it holds are what gets coloured."]),
+        browse,
+      ]),
+    ]);
+    this.layerRow.classList.add("hidden");
+  }
+
+  /** The plot takes a dropped file at any time, in any kind of map. */
+  attachDrop(host: HTMLElement): void {
+    host.append(this.dropEl);
+    let depth = 0;
+    const hasFile = (event: DragEvent): boolean => event.dataTransfer?.types.includes("Files") === true;
+    host.addEventListener("dragenter", (event) => {
+      if (!hasFile(event) || !this.dropActive) return;
+      event.preventDefault();
+      depth++;
+      this.dropEl.classList.remove("hidden");
+      this.dropEl.classList.add("dragging");
+    });
+    host.addEventListener("dragover", (event) => {
+      if (!hasFile(event) || !this.dropActive) return;
+      event.preventDefault();
+      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "copy";
+    });
+    host.addEventListener("dragleave", () => {
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) this.syncDrop();
+    });
+    host.addEventListener("drop", (event) => {
+      if (!this.dropActive) return;
+      event.preventDefault();
+      event.stopPropagation();
+      depth = 0;
+      this.syncDrop();
+      const file = event.dataTransfer?.files[0];
+      if (file !== undefined) this.loadFile(file);
+    });
+  }
+
+  /** Whether this is a map at all, so the plot should take drops. */
+  setDropActive(active: boolean): void {
+    this.dropActive = active;
+    this.syncDrop();
+  }
+
+  private syncDrop(): void {
+    this.dropEl.classList.remove("dragging");
+    this.dropEl.classList.toggle("hidden", !(this.dropActive && this.landing && !this.ready && this.crsWaiting === null));
+  }
+
+  /** Choropleth is showing and has nothing to show yet. */
+  private landing = false;
+
+  setLanding(on: boolean): void {
+    this.landing = on;
+    this.syncDrop();
+  }
+
+  private loadFile(file: File): void {
+    if (!BOUNDARY_FILE.test(file.name)) {
+      this.statusEl.textContent = `${file.name} is not a boundary file. Use a GeoJSON file or a zipped Shapefile.`;
+      return;
+    }
+    this.statusEl.textContent = `Reading ${file.name}…`;
+    void file.arrayBuffer().then((buffer) => this.read({ buffer, fileName: file.name }));
   }
 
   get ready(): boolean {
@@ -304,39 +264,38 @@ export class MapRegions {
     return this.loaded?.bounds ?? null;
   }
 
-  /** Reads, or re-reads with another coordinate system or layer: the worker keeps the file. */
-  private async read(input: { buffer?: ArrayBuffer; fileName?: string; crs?: string; layer?: string }): Promise<void> {
+  /** Reads, or re-reads with another coordinate system or layer: the file's own thread keeps the file. */
+  private async read(input: { buffer?: ArrayBuffer; fileName?: string; crs?: string; layer?: string }): Promise<boolean> {
     try {
       const message = await this.options.load(input);
       if (message.crsNeeded !== undefined) {
-        this.crsMessage.textContent = message.crsNeeded;
-        this.crsMessage.classList.remove("hidden");
-        this.crsPanel.classList.remove("hidden");
-        this.body.classList.remove("hidden");
+        const first = input.crs === undefined;
+        this.crsWaiting = message;
         this.statusEl.textContent = `${message.fileName}: needs a coordinate system`;
         this.clearButton.classList.remove("hidden");
-        for (const child of this.body.children) {
-          if (child !== this.crsPanel) child.classList.add("map-region-waiting");
-        }
-        return;
+        this.syncDrop();
+        if (first) this.openCrs();
+        return false;
       }
-      for (const child of this.body.children) child.classList.remove("map-region-waiting");
-      this.crsMessage.classList.add("hidden");
-      this.crsPanel.classList.add("hidden");
+      this.crsWaiting = null;
       this.loaded = message;
       this.values = null;
       this.shown = new Float64Array(0);
       this.breaks = [];
       this.statusEl.textContent = `${message.fileName} · ${message.shapes.length.toLocaleString()} regions`;
       this.clearButton.classList.remove("hidden");
-      this.body.classList.remove("hidden");
       this.fillFromFile(message);
-      await this.suggest();
+      const confident = await this.suggest();
       this.options.onLoaded(message.bounds);
+      this.syncDrop();
       this.sync();
       this.refresh();
+      // A clear match needs no asking. Otherwise this is the moment to look.
+      if (!confident && input.buffer !== undefined) this.openMatch("match");
+      return true;
     } catch (error) {
       this.statusEl.textContent = error instanceof Error ? error.message : "Could not read that file.";
+      return false;
     }
   }
 
@@ -344,15 +303,9 @@ export class MapRegions {
     this.layerSelect.replaceChildren(...message.layers.map((layer) => el("option", { value: layer.name }, [`${layer.name} (${layer.features.toLocaleString()})`]) as HTMLOptionElement));
     this.layerSelect.value = message.layer;
     this.layerRow.classList.toggle("hidden", message.layers.length < 2);
-    const how = message.crs.source === "file" ? "as the file states" : message.crs.source === "user" ? "as you chose" : "";
-    this.crsLine.textContent = `${message.crs.label}${how === "" ? "" : `, ${how}`}${message.crs.converted ? ", converted to latitude and longitude" : ""}`;
-    const keys = new Set<string>();
-    for (const shape of message.shapes.slice(0, 50)) for (const key of Object.keys(shape.properties)) keys.add(key);
-    const properties = [...keys];
-    const options = (): HTMLOptionElement[] => properties.map((key) => el("option", { value: key }, [`${key}${this.sampleOf(key)}`]) as HTMLOptionElement);
-    this.labelSelect.replaceChildren(...options());
-    if (message.labelProperty !== null) this.labelSelect.value = message.labelProperty;
-    this.propertySelect.replaceChildren(el("option", { value: "" }, ["Choose…"]) as HTMLOptionElement, ...options());
+    this.crsLine.textContent = message.crs.label;
+    this.globeButton.classList.remove("hidden");
+    const properties = this.propertyNames();
     const numeric = properties.filter((key) => message.shapes.filter((shape) => typeof shape.properties[key] === "number").length > message.shapes.length * 0.8 && !/(^|_)(id|code|objectid|fid)/i.test(key));
     this.divideSelect.replaceChildren(
       el("option", { value: "" }, ["Nothing"]) as HTMLOptionElement,
@@ -360,49 +313,51 @@ export class MapRegions {
       ...numeric.map((key) => el("option", { value: key }, [key]) as HTMLOptionElement),
     );
     this.divide = "";
+    this.labelProperty = message.labelProperty ?? "";
     this.applyLabel();
     this.syncColumns();
   }
 
-  private sampleOf(key: string): string {
-    const value = this.loaded?.shapes.find((shape) => shape.properties[key] !== null && shape.properties[key] !== "")?.properties[key];
-    return value === undefined ? "" : ` (${String(value).slice(0, 18)})`;
+  private propertyNames(): string[] {
+    const keys = new Set<string>();
+    for (const shape of this.loaded?.shapes.slice(0, 50) ?? []) for (const key of Object.keys(shape.properties)) keys.add(key);
+    return [...keys];
   }
 
   private applyLabel(): void {
-    const key = this.labelSelect.value;
     for (const shape of this.loaded?.shapes ?? []) {
-      const value = shape.properties[key];
+      const value = shape.properties[this.labelProperty];
       if (value !== undefined && value !== null && String(value) !== "") shape.label = String(value);
     }
   }
 
-  /** The best pairing of boundary field and table column, then location when no name matches. */
-  private async suggest(): Promise<void> {
+  /** The best pairing of boundary field and table column, then location when no name matches. True when it is a clear one. */
+  private async suggest(): Promise<boolean> {
     const reply = await this.options.suggest();
+    this.matchConfirmed = false;
     const best = reply.suggestions[0];
     const located = this.options.coordinates() !== null;
+    this.suggested = best === undefined ? null : { property: best.property, column: best.column };
     // Where a table has coordinates, they beat a weak match, or one only of numbers.
     if (best !== undefined && !(located && (best.numeric || best.matched / best.regions < 0.2))) {
       this.mode = "name";
       this.property = best.property;
       this.column = best.column;
-      this.propertySelect.value = best.property;
-      this.columnSelect.value = String(best.column);
-    } else if (located) {
-      this.mode = "location";
+      return best.matched / best.regions >= 0.5 && !best.numeric;
     }
+    this.property = "";
+    this.column = -1;
+    if (located) {
+      this.mode = "location";
+      return true;
+    }
+    return false;
   }
 
   /** The table changed its columns. */
   syncColumns(): void {
     const columns = this.options.columns();
-    const previous = this.column;
-    this.columnSelect.replaceChildren(el("option", { value: "-1" }, ["Choose…"]) as HTMLOptionElement);
-    columns.forEach((meta, index) => {
-      if (isGroupable(meta) || meta.type === "string" || isNumericType(meta.type)) this.columnSelect.append(el("option", { value: String(index) }, [meta.name]) as HTMLOptionElement);
-    });
-    this.columnSelect.value = String(previous >= 0 && previous < columns.length ? previous : -1);
+    if (this.column >= columns.length) this.column = -1;
     const measure = this.measure;
     this.measureSelect.replaceChildren(el("option", { value: "-1" }, ["Rows (a count)"]) as HTMLOptionElement);
     columns.forEach((meta, index) => {
@@ -413,29 +368,33 @@ export class MapRegions {
   }
 
   private sync(): void {
+    const columns = this.options.columns();
     const coordinates = this.options.coordinates();
     if (this.mode === "location" && coordinates === null) this.mode = "name";
-    this.modeName.checked = this.mode === "name";
-    this.modeLocation.checked = this.mode === "location";
-    this.modeLocation.disabled = coordinates === null;
-    this.modeLocation.parentElement!.title = coordinates === null ? "The table has no latitude and longitude columns" : "Puts each row in the region its coordinates fall inside";
-    const columns = this.options.columns();
-    this.modeHint.textContent = this.mode === "location" && coordinates !== null
-      ? `Each row goes in the region its ${columns[coordinates.y]?.name ?? "latitude"} and ${columns[coordinates.x]?.name ?? "longitude"} fall inside.`
-      : coordinates === null
-        ? "Rows are matched on a value the table and the file share. Location needs latitude and longitude columns."
-        : "Rows are matched on a value the table and the file share.";
-    this.nameRows.classList.toggle("hidden", this.mode !== "name");
+    const ready = this.loaded !== null;
+    for (const step of [this.stepMatch, this.stepValue, this.stepColours]) step.classList.toggle("waiting", !ready);
+    this.matchLine.textContent = !ready
+      ? "Load boundaries first."
+      : this.mode === "location" && coordinates !== null
+        ? `By location: ${columns[coordinates.y]?.name ?? "latitude"} and ${columns[coordinates.x]?.name ?? "longitude"}`
+        : this.property !== "" && this.column >= 0
+          ? `${this.property} = ${columns[this.column]?.name ?? ""}`
+          : "Not matched yet.";
     this.aggSelect.parentElement!.classList.toggle("hidden", this.measure < 0);
     this.aggSelect.value = this.agg;
-    this.methodSelect.value = this.method;
-    this.methodHint.textContent = CLASS_METHODS.find((item) => item.id === this.method)?.hint ?? "";
-    this.classesInput.value = String(this.classes);
-    this.classesRow.classList.toggle("hidden", this.method === "continuous" || this.method === "fixed" || this.method === "manual" || this.method === "stddev");
-    this.intervalRow.classList.toggle("hidden", this.method !== "fixed");
-    this.paletteSelect.value = this.palette;
-    this.reverseInput.checked = this.reversed;
     this.divideSelect.value = this.divide;
+    this.syncColourStep();
+  }
+
+  private syncColourStep(): void {
+    const colours = this.classColours();
+    this.colourStrip.replaceChildren(...colours.map((colour) => {
+      const swatch = el("span");
+      swatch.style.background = colour;
+      return swatch;
+    }));
+    const method = CLASS_METHODS.find((item) => item.id === this.method)?.label ?? "";
+    this.colourLine.textContent = this.loaded === null ? "" : this.method === "continuous" ? method : `${method}, ${Math.max(0, this.breaks.length - 1)} classes`;
   }
 
   private clear(): void {
@@ -444,10 +403,17 @@ export class MapRegions {
     this.values = null;
     this.shown = new Float64Array(0);
     this.breaks = [];
-    this.statusEl.textContent = "";
+    this.crsWaiting = null;
+    this.statusEl.textContent = "or drop a file on the map";
     this.clearButton.classList.add("hidden");
-    this.body.classList.add("hidden");
-    this.reportEl.replaceChildren();
+    this.globeButton.classList.add("hidden");
+    this.layerRow.classList.add("hidden");
+    this.unmatchedLink.classList.add("hidden");
+    this.matchCounts.textContent = "";
+    this.classesPop?.remove();
+    this.classesPop = null;
+    this.sync();
+    this.syncDrop();
     this.options.clear();
     this.options.onCleared();
   }
@@ -492,7 +458,7 @@ export class MapRegions {
       })
       .catch((error: unknown) => {
         if (generation !== this.generation) return;
-        this.reportEl.textContent = error instanceof Error ? error.message : "Could not match the rows.";
+        this.matchCounts.textContent = error instanceof Error ? error.message : "Could not match the rows.";
       });
   }
 
@@ -526,7 +492,7 @@ export class MapRegions {
     this.shown = shown;
     this.breaks = classBreaks(shown, this.method, { classes: this.classes, interval: this.interval, manual: this.manual });
     this.sync();
-    this.renderClasses();
+    if (this.classesPop !== null) this.renderClassesPop();
     this.options.onChange();
   }
 
@@ -554,38 +520,21 @@ export class MapRegions {
     const message = this.values;
     const shapes = this.loaded?.shapes ?? [];
     if (message === null) {
-      this.reportEl.replaceChildren();
+      this.matchCounts.textContent = "";
+      this.unmatchedLink.classList.add("hidden");
       return;
     }
-    const missing = shapes.length - message.regionsMatched;
-    const summary = `${message.regionsMatched.toLocaleString()} of ${shapes.length.toLocaleString()} regions have rows · ${message.rowsMatched.toLocaleString()} rows matched${message.rowsUnmatched > 0 ? ` · ${message.rowsUnmatched.toLocaleString()} did not` : ""}`;
-    const lines: HTMLElement[] = [el("div", { class: message.regionsMatched === 0 ? "map-region-warning" : "" }, [summary])];
-    if (message.regionsMatched === 0 && this.mode === "name") lines.push(el("div", { class: "map-region-warning" }, ["Nothing matched: check the two fields hold the same kind of value."]));
-    const empty: string[] = [];
-    if (missing > 0 && this.frames === 1) {
-      shapes.forEach((shape, index) => {
-        if (message.rows[index] === 0 && empty.length < 25) empty.push(shape.label);
-      });
-    }
-    if (empty.length > 0 || message.unmatchedValues.length > 0) {
-      lines.push(
-        el("details", { class: "map-region-details" }, [
-          el("summary", {}, ["What did not match"]),
-          ...(message.unmatchedValues.length === 0 ? [] : [el("p", {}, [`In the table, with no region: ${message.unmatchedValues.map((item) => `${item.value} (${item.rows.toLocaleString()})`).join(", ")}`])]),
-          ...(empty.length === 0 ? [] : [el("p", {}, [`Regions with no rows: ${empty.join(", ")}${missing > empty.length ? ` and ${(missing - empty.length).toLocaleString()} more` : ""}`])]),
-        ]),
-      );
-    }
-    this.reportEl.replaceChildren(...lines);
+    this.matchCounts.textContent = `${message.regionsMatched.toLocaleString()} of ${shapes.length.toLocaleString()} regions have rows · ${message.rowsMatched.toLocaleString()} rows matched${message.rowsUnmatched > 0 ? `, ${message.rowsUnmatched.toLocaleString()} did not` : ""}`;
+    this.unmatchedLink.classList.toggle("hidden", message.regionsMatched === shapes.length && message.rowsUnmatched === 0);
   }
 
-  private editBreak(index: number, text: string): void {
+  private editBreak(index: number, text: string, note: HTMLElement): void {
     const value = Number(text);
     if (text.trim() === "" || !Number.isFinite(value)) return;
     const next = [...this.breaks];
     next[index] = value;
     if (next.some((item, at) => at > 0 && item < next[at - 1]!)) {
-      this.fitEl.textContent = "A class cannot end below where it starts: that edit was not used.";
+      note.textContent = "A class cannot end below where it starts: that edit was not used.";
       return;
     }
     this.manual = next;
@@ -593,43 +542,122 @@ export class MapRegions {
     this.recolour();
   }
 
-  private renderClasses(): void {
-    const k = this.breaks.length - 1;
-    this.classTable.replaceChildren();
-    this.histogramEl.replaceChildren();
-    this.fitEl.textContent = "";
-    if (k < 1) return;
-    this.renderHistogram();
-    if (this.method === "continuous") return;
-    const { counts, outside, missing } = classCounts(this.shown, this.breaks);
-    const colours = this.classColours();
-    const rows: HTMLElement[] = [
-      el("div", { class: "map-region-class head" }, [el("span", {}, [""]), el("span", {}, ["From"]), el("span", {}, ["To"]), el("span", { class: "num" }, ["Count"])]),
-    ];
-    for (let i = 0; i < k; i++) {
-      const swatch = el("input", { type: "color", class: "map-region-swatch", value: colours[i] ?? "#888888", "aria-label": `Colour of class ${i + 1}` }) as HTMLInputElement;
-      swatch.addEventListener("input", () => {
-        this.colours[i] = swatch.value;
-        this.options.onChange();
-      });
-      const edge = (at: number, label: string): HTMLInputElement => {
-        const input = el("input", { class: "map-region-break", type: "text", value: tidy(this.breaks[at]!), "aria-label": `${label} of class ${i + 1}` }) as HTMLInputElement;
-        input.addEventListener("change", () => this.editBreak(at, input.value));
-        return input;
-      };
-      rows.push(el("div", { class: "map-region-class" }, [swatch, edge(i, "Start"), edge(i + 1, "End"), el("span", { class: "num" }, [counts[i]!.toLocaleString()])]));
+  /** Beside the map rather than over it, so what a change does stays in view. */
+  private openClasses(): void {
+    if (this.classesPop !== null) {
+      this.classesPop.remove();
+      this.classesPop = null;
+      return;
     }
-    this.classTable.replaceChildren(...rows);
-    const fit = varianceFit(this.shown, this.breaks);
-    const notes: string[] = [];
-    if (Number.isFinite(fit)) notes.push(`These classes explain ${Math.round(fit * 100)}% of the variation between regions.`);
-    if (outside > 0) notes.push(`${outside.toLocaleString()} values fall outside your breaks.`);
-    if (missing > 0 && this.frames === 1) notes.push(`${missing.toLocaleString()} regions have no value.`);
-    this.fitEl.textContent = notes.join(" ");
+    this.classesPop = el("div", { class: "map-classes-pop", role: "dialog", "aria-label": "Classes and colours" });
+    this.classesPop.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      this.classesPop?.remove();
+      this.classesPop = null;
+    });
+    document.body.append(this.classesPop);
+    this.renderClassesPop();
+  }
+
+  private renderClassesPop(): void {
+    const pop = this.classesPop;
+    if (pop === null) return;
+    const close = el("button", { class: "icon-btn", type: "button", title: "Close", "aria-label": "Close" }, ["×"]) as HTMLButtonElement;
+    close.addEventListener("click", () => {
+      pop.remove();
+      this.classesPop = null;
+    });
+    const method = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Classification method" }) as HTMLSelectElement;
+    for (const { id, label } of CLASS_METHODS) method.append(el("option", { value: id }, [label]) as HTMLOptionElement);
+    method.value = this.method;
+    method.addEventListener("change", () => {
+      this.method = method.value as ClassMethod;
+      this.colours = [];
+      this.recolour();
+    });
+    const hint = el("span", { class: "chart-field-hint map-region-hint" }, [CLASS_METHODS.find((item) => item.id === this.method)?.hint ?? ""]);
+    const rows: HTMLElement[] = [field("Method", method), hint];
+    if (this.method !== "continuous" && this.method !== "fixed" && this.method !== "manual" && this.method !== "stddev") {
+      const classes = el("input", { class: "chart-number", type: "number", min: "2", max: "12", step: "1", value: String(this.classes), "aria-label": "Number of classes" }) as HTMLInputElement;
+      classes.addEventListener("change", () => {
+        const value = Number(classes.value);
+        if (!Number.isInteger(value) || value < 2 || value > 12) return;
+        this.classes = value;
+        this.colours = [];
+        this.recolour();
+      });
+      rows.push(field("Classes", classes));
+    }
+    if (this.method === "fixed") {
+      const interval = el("input", { class: "chart-number", type: "number", min: "0", step: "any", placeholder: "auto", value: this.interval === undefined ? "" : String(this.interval), "aria-label": "Class interval" }) as HTMLInputElement;
+      interval.addEventListener("change", () => {
+        const value = Number(interval.value);
+        this.interval = interval.value.trim() !== "" && value > 0 ? value : undefined;
+        this.colours = [];
+        this.recolour();
+      });
+      rows.push(field("Interval", interval, "The width of each class, such as 500"));
+    }
+    const palette = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Region colours" }) as HTMLSelectElement;
+    for (const kind of ["sequential", "diverging"] as const) {
+      const options = el("optgroup", { label: kind === "sequential" ? "Low to high" : "Either side of a middle" }) as HTMLOptGroupElement;
+      for (const item of PALETTES) if (item.kind === kind) options.append(el("option", { value: item.name }, [item.name]) as HTMLOptionElement);
+      palette.append(options);
+    }
+    palette.value = this.palette;
+    palette.addEventListener("change", () => {
+      this.palette = palette.value;
+      this.colours = [];
+      this.recolour();
+    });
+    const reverse = el("input", { type: "checkbox", "aria-label": "Reverse the colours" }) as HTMLInputElement;
+    reverse.checked = this.reversed;
+    reverse.addEventListener("change", () => {
+      this.reversed = reverse.checked;
+      this.colours = [];
+      this.recolour();
+    });
+    rows.push(field("Palette", palette), el("label", { class: "control check clean-check chart-check" }, [reverse, "Reverse"]));
+    const histogram = el("div", { class: "map-region-histogram" });
+    const table = el("div", { class: "map-region-classes" });
+    const note = el("span", { class: "chart-field-hint map-region-hint" });
+    this.renderHistogram(histogram);
+    const k = this.breaks.length - 1;
+    if (k >= 1 && this.method !== "continuous") {
+      const { counts, outside, missing } = classCounts(this.shown, this.breaks);
+      const colours = this.classColours();
+      const lines: HTMLElement[] = [el("div", { class: "map-region-class head" }, [el("span", {}, [""]), el("span", {}, ["From"]), el("span", {}, ["To"]), el("span", { class: "num" }, ["Regions"])])];
+      for (let i = 0; i < k; i++) {
+        const swatch = el("input", { type: "color", class: "map-region-swatch", value: colours[i] ?? "#888888", "aria-label": `Colour of class ${i + 1}` }) as HTMLInputElement;
+        swatch.addEventListener("input", () => {
+          this.colours[i] = swatch.value;
+          this.syncColourStep();
+          this.options.onChange();
+        });
+        const edge = (at: number, label: string): HTMLInputElement => {
+          const input = el("input", { class: "map-region-break", type: "text", value: tidy(this.breaks[at]!), "aria-label": `${label} of class ${i + 1}` }) as HTMLInputElement;
+          input.addEventListener("change", () => this.editBreak(at, input.value, note));
+          return input;
+        };
+        lines.push(el("div", { class: "map-region-class" }, [swatch, edge(i, "Start"), edge(i + 1, "End"), el("span", { class: "num" }, [counts[i]!.toLocaleString()])]));
+      }
+      table.replaceChildren(...lines);
+      const fit = varianceFit(this.shown, this.breaks);
+      const notes: string[] = [];
+      if (Number.isFinite(fit)) notes.push(`These classes explain ${Math.round(fit * 100)}% of the variation between regions.`);
+      if (outside > 0) notes.push(`${outside.toLocaleString()} values fall outside your breaks.`);
+      if (missing > 0 && this.frames === 1) notes.push(`${missing.toLocaleString()} regions have no value.`);
+      note.textContent = notes.join(" ");
+    }
+    pop.replaceChildren(
+      el("div", { class: "map-classes-head" }, [el("span", {}, ["Classes and colours"]), close]),
+      el("div", { class: "map-classes-body" }, [...rows, histogram, table, note]),
+    );
   }
 
   /** The values' spread with the breaks on it, to see what a method is doing. */
-  private renderHistogram(): void {
+  private renderHistogram(host: HTMLElement): void {
+    if (this.breaks.length < 2) return;
     const low = this.breaks[0]!;
     const high = this.breaks[this.breaks.length - 1]!;
     if (!(high > low)) return;
@@ -647,7 +675,350 @@ export class MapRegions {
     const svg = svgIcon(`${bars}${lines}`, "map-region-histogram-svg");
     svg.setAttribute("viewBox", "0 0 200 40");
     svg.setAttribute("preserveAspectRatio", "none");
-    this.histogramEl.replaceChildren(svg);
+    host.replaceChildren(svg);
+  }
+
+  /** A window over the page, closed by its ×, Esc or a click outside. */
+  private popOut(title: string, modalClass: string): { body: HTMLElement; footer: HTMLElement; close: () => void } {
+    const overlay = el("div", { class: "modal-overlay" });
+    const modal = el("div", { class: `modal ${modalClass}` });
+    const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close (Esc)" }, ["×"]);
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") close();
+    };
+    const close = (): void => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKey);
+    };
+    closeButton.addEventListener("click", close);
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close();
+    });
+    document.addEventListener("keydown", onKey);
+    const body = el("div", { class: "map-pop-body" });
+    const footer = el("div", { class: "clean-footer" });
+    modal.append(el("div", { class: "modal-head" }, [el("h2", {}, [title]), closeButton]), body, footer);
+    overlay.append(modal);
+    document.body.append(overlay);
+    setupDialog(overlay, title);
+    return { body, footer, close };
+  }
+
+  /** A table to look through, where clicking anywhere in a column chooses it. */
+  private peekTable(input: { headers: readonly string[]; rows: readonly (readonly string[])[]; suggested: number; chosen: number; onChoose(column: number): void; label: string }): HTMLElement {
+    const table = el("table", { class: "map-peek", "aria-label": input.label });
+    const paint = (chosen: number): void => {
+      for (const cell of table.querySelectorAll<HTMLElement>("[data-col]")) cell.classList.toggle("chosen", Number(cell.dataset.col) === chosen);
+      for (const badge of table.querySelectorAll<HTMLElement>(".map-peek-badge")) {
+        const column = Number(badge.dataset.for);
+        badge.textContent = column === chosen ? "✓ Selected" : column === input.suggested ? (chosen < 0 ? "★ Suggested: click to confirm" : "★ Suggested") : "";
+      }
+    };
+    const pick = (column: number): void => {
+      paint(column);
+      input.onChoose(column);
+    };
+    const head = el("tr");
+    input.headers.forEach((name, column) => {
+      const th = el("th", { "data-col": String(column), class: column === input.suggested ? "suggested" : "", title: `Use ${name}` }, [name, el("span", { class: "map-peek-badge", "data-for": String(column) })]);
+      th.addEventListener("click", () => pick(column));
+      head.append(th);
+    });
+    table.append(el("thead", {}, [head]));
+    const body = el("tbody");
+    for (const row of input.rows) {
+      const tr = el("tr");
+      row.forEach((cell, column) => {
+        const td = el("td", { "data-col": String(column), class: column === input.suggested ? "suggested" : "", title: cell }, [cell]);
+        td.addEventListener("click", () => pick(column));
+        tr.append(td);
+      });
+      body.append(tr);
+    }
+    table.append(body);
+    paint(input.chosen);
+    return el("div", { class: "map-peek-scroll" }, [table]);
+  }
+
+  /** Step 2 in full: look through both tables, choose the column in each, see what that gives and what is left over. */
+  private openMatch(tab: "match" | "unmatched"): void {
+    const loaded = this.loaded;
+    if (loaded === null) return;
+    const columns = this.options.columns();
+    const coordinates = this.options.coordinates();
+    const { body, footer, close } = this.popOut("Match the boundaries to your table", "map-pop-modal");
+    let mode = this.mode;
+    let property = this.property || this.suggested?.property || "";
+    let column = this.column >= 0 ? this.column : (this.suggested?.column ?? -1);
+    let label = this.labelProperty;
+    let trial = 0;
+    let current: RegionValuesMessage | null = this.values;
+
+    const properties = this.propertyNames();
+    const result = el("div", { class: "map-pop-result" });
+    const unmatchedTab = el("div", { class: "map-unmatched" });
+    const matchPane = el("div", { class: "map-pop-body" });
+    const useButton = el("button", { class: "primary", type: "button" }, ["Use this match"]) as HTMLButtonElement;
+
+    const tabMatch = el("button", { type: "button" }, ["Match up"]) as HTMLButtonElement;
+    const tabLeft = el("button", { type: "button" }, ["What did not match"]) as HTMLButtonElement;
+    const showTab = (which: "match" | "unmatched"): void => {
+      tabMatch.classList.toggle("active", which === "match");
+      tabLeft.classList.toggle("active", which === "unmatched");
+      matchPane.classList.toggle("hidden", which !== "match");
+      unmatchedTab.classList.toggle("hidden", which !== "unmatched");
+    };
+    tabMatch.addEventListener("click", () => showTab("match"));
+    tabLeft.addEventListener("click", () => showTab("unmatched"));
+
+    const renderResult = (): void => {
+      const message = current;
+      const ready = mode === "location" ? coordinates !== null : property !== "" && column >= 0;
+      useButton.disabled = !ready;
+      if (!ready) {
+        result.textContent = "Choose a column in each table.";
+        result.classList.remove("bad");
+      } else if (message === null) {
+        result.textContent = "Checking…";
+      } else {
+        const none = message.regionsMatched === 0;
+        result.classList.toggle("bad", none);
+        result.textContent = none
+          ? "Nothing matches: these two columns do not hold the same kind of value. Try another pairing."
+          : `${message.regionsMatched.toLocaleString()} of ${loaded.shapes.length.toLocaleString()} regions have rows · ${message.rowsMatched.toLocaleString()} rows matched${message.rowsUnmatched > 0 ? ` · ${message.rowsUnmatched.toLocaleString()} rows did not` : ""}`;
+      }
+      const left = message?.unmatchedValues ?? [];
+      const empty: string[] = [];
+      if (message !== null) {
+        loaded.shapes.forEach((shape, index) => {
+          let rows = 0;
+          for (let frame = 0; frame < (message.frames === null ? 1 : Math.max(1, message.frames.labels.length)); frame++) rows += message.rows[frame * loaded.shapes.length + index] ?? 0;
+          if (rows === 0) empty.push(shape.label);
+        });
+      }
+      const count = (n: number, one: string): string => `${n.toLocaleString()} ${one}${n === 1 ? "" : "s"}`;
+      tabLeft.textContent = `What did not match (${count(empty.length, "region")}, ${count(message?.rowsUnmatched ?? 0, "row")})`;
+      unmatchedTab.replaceChildren(
+        el("div", {}, [
+          el("p", { class: "map-peek-title" }, [`Regions with no rows (${empty.length.toLocaleString()})`]),
+          el("ul", {}, empty.length === 0 ? [el("li", {}, ["None: every region has rows."])] : empty.map((name) => el("li", {}, [name]))),
+        ]),
+        el("div", {}, [
+          el("p", { class: "map-peek-title" }, [`In your table, with no region (${(message?.rowsUnmatched ?? 0).toLocaleString()} rows)`]),
+          el("ul", {}, left.length === 0
+            ? [el("li", {}, [(message?.rowsUnmatched ?? 0) > 0 ? "These rows have coordinates outside every region, or none." : "None: every row found a region."])]
+            : left.map((item) => el("li", {}, [`${item.value} (${item.rows.toLocaleString()} ${item.rows === 1 ? "row" : "rows"})`]))),
+        ]),
+      );
+    };
+
+    /** How this pairing would do, before anything is committed. */
+    const check = (): void => {
+      const run = ++trial;
+      current = null;
+      renderResult();
+      if (mode === "name" && (property === "" || column < 0)) return;
+      if (mode === "location" && coordinates === null) return;
+      void this.options
+        .values({ mode, property, column, xColumn: coordinates?.x ?? -1, yColumn: coordinates?.y ?? -1, measure: -1, agg: "count", ...this.options.scope() })
+        .then((message) => {
+          if (run !== trial) return;
+          current = message;
+          renderResult();
+        });
+    };
+
+    // By name or by location
+    const group = `map-match-${Math.round(Math.random() * 1e9)}`;
+    const byName = el("input", { type: "radio", name: group, "aria-label": "Match by name or code" }) as HTMLInputElement;
+    const byPlace = el("input", { type: "radio", name: group, "aria-label": "Match by location" }) as HTMLInputElement;
+    byName.checked = mode === "name";
+    byPlace.checked = mode === "location";
+    byPlace.disabled = coordinates === null;
+    const locationNote = el("p", { class: "map-pop-lead" });
+    const namePane = el("div", { class: "map-pop-body" });
+    const syncMode = (): void => {
+      namePane.classList.toggle("hidden", mode !== "name");
+      locationNote.classList.toggle("hidden", mode !== "location");
+    };
+    for (const [radio, value] of [[byName, "name"], [byPlace, "location"]] as const) {
+      radio.addEventListener("change", () => {
+        if (!radio.checked) return;
+        mode = value;
+        syncMode();
+        check();
+      });
+    }
+    locationNote.textContent = coordinates === null
+      ? ""
+      : `Each row goes in the region that ${columns[coordinates.y]?.name ?? "latitude"} and ${columns[coordinates.x]?.name ?? "longitude"} fall inside. No shared column is needed.`;
+
+    // The boundary file, as a table
+    const fileRows = loaded.shapes.slice(0, 500).map((shape) => properties.map((key) => {
+      const value = shape.properties[key];
+      return value === null || value === undefined ? "" : String(value);
+    }));
+    const fileSuggested = this.suggested === null ? -1 : properties.indexOf(this.suggested.property);
+    namePane.append(
+      el("div", {}, [
+        el("p", { class: "map-peek-title" }, [`${loaded.fileName}: click the column that identifies each region`]),
+        this.peekTable({
+          headers: properties,
+          rows: fileRows,
+          suggested: fileSuggested,
+          chosen: this.matchConfirmed ? properties.indexOf(property) : -1,
+          label: "Boundary file",
+          onChoose: (at) => {
+            property = properties[at] ?? "";
+            check();
+          },
+        }),
+      ]),
+    );
+    // The table, once its rows arrive
+    const tableHost = el("div", {}, [el("p", { class: "map-peek-title" }, ["Your table: click the column holding the same thing"])]);
+    namePane.append(tableHost);
+    void this.options.preview().then((reply) => {
+      tableHost.append(
+        this.peekTable({
+          headers: columns.map((meta) => meta.name),
+          rows: reply.rows,
+          suggested: this.suggested?.column ?? -1,
+          chosen: this.matchConfirmed ? column : -1,
+          label: "Your table",
+          onChoose: (at) => {
+            column = at;
+            check();
+          },
+        }),
+      );
+    });
+
+    const names = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Region name field" }) as HTMLSelectElement;
+    for (const key of properties) names.append(el("option", { value: key }, [key]) as HTMLOptionElement);
+    names.value = label;
+    names.addEventListener("change", () => {
+      label = names.value;
+    });
+
+    matchPane.append(
+      el("div", { class: "map-region-modes" }, [
+        el("label", { class: "control check clean-check chart-check" }, [byName, "By name or code"]),
+        el("label", { class: "control check clean-check chart-check", title: coordinates === null ? "The table has no latitude and longitude columns" : "" }, [byPlace, "By location"]),
+      ]),
+      locationNote,
+      namePane,
+      field("Regions are called", names, "The name shown when you hover a region"),
+    );
+    body.append(el("div", { class: "map-tabs" }, [tabMatch, tabLeft]), matchPane, unmatchedTab, result);
+
+    const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
+    cancel.addEventListener("click", close);
+    useButton.addEventListener("click", () => {
+      this.mode = mode;
+      this.property = property;
+      this.column = column;
+      this.matchConfirmed = true;
+      this.labelProperty = label;
+      this.applyLabel();
+      this.sync();
+      this.refresh();
+      this.options.onChange();
+      close();
+    });
+    footer.append(cancel, el("span", { class: "grow" }), useButton);
+    syncMode();
+    showTab(tab);
+    check();
+  }
+
+  /** The globe: what the file is in, where it lands, and how to say otherwise. */
+  private openCrs(): void {
+    const { body, footer, close } = this.popOut("Coordinate system", "map-pop-modal");
+    const waiting = this.crsWaiting;
+    const loaded = this.loaded;
+    const message = el("div", { class: "map-region-warning hidden" });
+    if (waiting !== null && waiting.crsNeeded !== undefined) {
+      body.append(el("p", { class: "map-pop-result bad" }, [waiting.crsNeeded]));
+      if (waiting.crsStated) body.append(el("p", { class: "map-pop-lead" }, [`The file says: ${waiting.crsStated.slice(0, 160)}`]));
+    } else if (loaded !== null) {
+      const where = loaded.bounds;
+      const round = (value: number): string => value.toFixed(2);
+      const source = loaded.crs.source === "file" ? "This is what the file itself states." : loaded.crs.source === "user" ? "You chose this." : "The file does not say, and its numbers look like degrees.";
+      body.append(
+        el("div", { class: "map-pop-result" }, [
+          el("strong", {}, [loaded.crs.label]),
+          el("div", {}, [`${source}${loaded.crs.converted ? " Its numbers were converted to latitude and longitude." : ""}`]),
+          el("div", {}, [`It lands at longitude ${round(where.lonMin)} to ${round(where.lonMax)}, latitude ${round(where.latMin)} to ${round(where.latMax)}.`]),
+        ]),
+        el("p", { class: "map-pop-lead" }, ["If the shapes are in the right place, this is right and there is nothing to do. It only needs changing if they land in the wrong part of the world."]),
+      );
+    }
+    const choose = (text: string): void => {
+      message.classList.add("hidden");
+      void this.read({ crs: text }).then((ok) => {
+        if (ok) {
+          close();
+        } else if (this.crsWaiting?.crsNeeded !== undefined) {
+          message.textContent = this.crsWaiting.crsNeeded;
+          message.classList.remove("hidden");
+        } else {
+          message.textContent = this.statusEl.textContent ?? "";
+          message.classList.remove("hidden");
+        }
+      });
+    };
+    const choiceList = (choices: readonly CrsChoice[]): HTMLElement[] =>
+      choices.map((choice) => {
+        const button = el("button", { type: "button" }, [el("span", {}, [choice.name]), el("code", {}, [`EPSG:${choice.code}`])]) as HTMLButtonElement;
+        button.addEventListener("click", () => choose(`EPSG:${choice.code}`));
+        return button;
+      });
+    const guesses = waiting?.crsGuesses ?? [];
+    if (guesses.length > 0) {
+      body.append(el("div", {}, [el("p", { class: "map-peek-title" }, ["Good guesses for this file"]), el("div", { class: "map-crs-list" }, choiceList(guesses))]));
+    }
+    const search = el("input", { class: "chart-hex map-region-crs-text", type: "search", placeholder: "Search by place, name or code: ireland, utm 55, 7844", "aria-label": "Search coordinate systems" }) as HTMLInputElement;
+    const list = el("div", { class: "map-crs-list" });
+    const fill = (): void => {
+      const found = searchCrs(search.value);
+      const code = /(\d{4,6})/.exec(search.value)?.[1];
+      list.replaceChildren(...choiceList(found.slice(0, 100)));
+      if (found.length === 0) {
+        const use = el("button", { type: "button" }, [`Try ${code === undefined ? "this" : `EPSG:${code}`}`]) as HTMLButtonElement;
+        use.addEventListener("click", () => choose(code === undefined ? search.value : `EPSG:${code}`));
+        list.append(el("div", { class: "map-pop-lead", style: "padding:8px 10px" }, ["Nothing by that name in the offline list."]), use);
+      }
+    };
+    search.addEventListener("input", fill);
+    fill();
+    const paste = el("textarea", { class: "map-region-crs-text", rows: "3", spellcheck: "false", "aria-label": "Coordinate system definition", placeholder: "+proj=tmerc +lat_0=… or PROJCS[…" }) as HTMLTextAreaElement;
+    const usePaste = el("button", { class: "ghost small", type: "button" }, ["Use this definition"]) as HTMLButtonElement;
+    usePaste.addEventListener("click", () => {
+      if (paste.value.trim() !== "") choose(paste.value.trim());
+    });
+    body.append(
+      el("div", {}, [el("p", { class: "map-peek-title" }, ["All the systems this app knows offline"]), search]),
+      list,
+      message,
+      el("details", {}, [
+        el("summary", {}, ["Advanced: a system not on the list"]),
+        el("p", { class: "map-pop-lead" }, ["Find it on epsg.io, copy its PROJ.4 line, and paste it here. It must be a map system: ones for height or depth cannot place shapes."]),
+        paste,
+        usePaste,
+      ]),
+    );
+    const done = el("button", { class: "ghost", type: "button" }, ["Close"]);
+    done.addEventListener("click", close);
+    if (loaded !== null && loaded.crs.source === "user") {
+      const asFile = el("button", { class: "ghost", type: "button" }, ["Back to what the file says"]) as HTMLButtonElement;
+      asFile.addEventListener("click", () => {
+        void this.read({}).then(() => close());
+      });
+      footer.append(asFile);
+    }
+    footer.append(el("span", { class: "grow" }), done);
+    search.focus();
   }
 
   /** The regions over the map. Outlines only when something else is being shown on top of them. */
@@ -807,6 +1178,63 @@ export class MapRegions {
     const label = this.values.frames?.labels[frame];
     const method = CLASS_METHODS.find((item) => item.id === this.method)?.label ?? "";
     return `${label === undefined ? "" : `${label} · `}${this.valueName()} · ${method}${this.method === "continuous" ? "" : `, ${this.breaks.length - 1} classes`} · ${this.values.regionsMatched.toLocaleString()} of ${this.loaded.shapes.length.toLocaleString()} regions have rows${this.values.rowsUnmatched > 0 ? ` · ${this.values.rowsUnmatched.toLocaleString()} rows matched no region` : ""}`;
+  }
+
+  /** For the interactive page: the shapes at a size a file can carry, each period's colours, and the hover text. */
+  exportData(): { regions: NonNullable<MapHtmlPayload["regions"]>; frames: string[]; legend: MapHtmlLegend } | null {
+    const loaded = this.loaded;
+    if (loaded === null) return null;
+    // The finest level that keeps the file a sensible size.
+    let level = 0;
+    for (let i = 0; i < loaded.tolerances.length; i++) {
+      let points = 0;
+      for (const shape of loaded.shapes) for (const ring of shape.levels[Math.min(i, shape.levels.length - 1)]!) points += ring.length / 2;
+      if (points <= 300_000) level = i;
+    }
+    const digits = Math.max(3, Math.min(6, Math.ceil(-Math.log10(Math.max(1e-6, loaded.tolerances[level]! || 1e-6))) + 1));
+    const shapes = loaded.shapes.map((shape) => shape.levels[Math.min(level, shape.levels.length - 1)]!.map((ring) => roundRing(ring, digits)));
+    const count = loaded.shapes.length;
+    const frames = this.values?.frames?.labels ?? [""];
+    const classColours = this.classColours();
+    const stops = this.reversed ? [...paletteStops(this.palette)].reverse() : paletteStops(this.palette);
+    const colours: string[] = [];
+    const indexOf = new Map<string, number>();
+    const fill: number[][] = [];
+    const tips: string[][][] = [];
+    let missing = false;
+    frames.forEach((_, frame) => {
+      const row: number[] = [];
+      const lines: string[][] = [];
+      loaded.shapes.forEach((shape, index) => {
+        const cell = frame * count + index;
+        const value = this.shown[cell] ?? Number.NaN;
+        const colour = this.colourOf(value, classColours, stops);
+        if (colour === null) missing = true;
+        let at = -1;
+        if (colour !== null) {
+          at = indexOf.get(colour) ?? colours.length;
+          if (at === colours.length) {
+            colours.push(colour);
+            indexOf.set(colour, at);
+          }
+        }
+        row.push(at);
+        const text = [shape.label, Number.isFinite(value) ? `${this.valueName()}: ${formatTip(value)}` : "No value"];
+        const rows = this.values?.rows[cell];
+        if (rows !== undefined && rows > 0 && (this.measure >= 0 || this.divide !== "")) text.push(`Rows: ${rows.toLocaleString()}`);
+        lines.push(text);
+      });
+      fill.push(row);
+      tips.push(lines);
+    });
+    const continuous = this.method === "continuous";
+    const legend: MapHtmlLegend = {
+      title: this.valueName(),
+      ...(continuous
+        ? { ramp: { stops, low: formatCompact(this.breaks[0] ?? 0), high: formatCompact(this.breaks[this.breaks.length - 1] ?? 0) } }
+        : { classes: classColours.map((colour, index) => ({ colour, label: `${formatCompact(this.breaks[index]!)}${SEP}${formatCompact(this.breaks[index + 1]!)}` })) }),
+    };
+    return { regions: { shapes, fill, colours, tips, missing }, frames, legend };
   }
 
   /** The numbers for Extract stats. */

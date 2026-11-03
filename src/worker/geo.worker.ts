@@ -3,6 +3,7 @@
  * weight on anyone who never does. Keeps the file, so another coordinate system or layer needs no new upload.
  */
 import { GeoCrsNeededError, parseGeoFile, type GeoDataset } from "../data/geo-file.js";
+import type { CrsChoice } from "../data/geo-crs.js";
 import { buildShapes, chooseLabelProperty, type RegionShape } from "../data/regions.js";
 
 export interface GeoWorkerRequest {
@@ -15,7 +16,7 @@ export interface GeoWorkerRequest {
 
 export type GeoWorkerReply =
   | { id: number; ok: true; fileName: string; geo: GeoDataset; shapes: RegionShape[]; tolerances: number[]; labelProperty: string | null; points: number; ms: number }
-  | { id: number; ok: false; fileName: string; crsNeeded: string }
+  | { id: number; ok: false; fileName: string; crsNeeded: string; guesses: CrsChoice[]; range: GeoCrsNeededError["range"]; stated: string | null }
   | { id: number; ok: false; fileName: string; error: string };
 
 const scope = self as unknown as {
@@ -50,7 +51,7 @@ scope.onmessage = (event) => {
       const { shapes, tolerances, points } = buildShapes(geo);
       scope.postMessage({ id: message.id, ok: true, fileName: file.fileName, geo, shapes, tolerances, labelProperty, points, ms: performance.now() - started });
     } catch (error) {
-      if (error instanceof GeoCrsNeededError) scope.postMessage({ id: message.id, ok: false, fileName: file.fileName, crsNeeded: error.message });
+      if (error instanceof GeoCrsNeededError) scope.postMessage({ id: message.id, ok: false, fileName: file.fileName, crsNeeded: error.message, guesses: error.guesses, range: error.range, stated: error.stated });
       else scope.postMessage({ id: message.id, ok: false, fileName: file.fileName, error: error instanceof Error ? error.message : "Could not read that file." });
     }
   })();

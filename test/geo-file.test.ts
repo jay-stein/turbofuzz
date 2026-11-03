@@ -102,7 +102,7 @@ test("the person can override: by code, by proj4 string, and over what the file 
   assert.ok(Math.abs(string.bounds.lonMin - 147) < 1e-6);
   const over = await parseGeoFile(bufferOf(collection(square(0, 0, 111319.49), "EPSG:7844")), "g.geojson", { crs: "EPSG:3857" });
   assert.equal(over.crs.source, "user");
-  await assert.rejects(parseGeoFile(bufferOf(collection(square(0, 0, 1))), "h.geojson", { crs: "EPSG:99999" }), /not a coordinate system/);
+  await assert.rejects(parseGeoFile(bufferOf(collection(square(0, 0, 1))), "h.geojson", { crs: "EPSG:99999" }), /not in this offline list. Search by place or name/);
 });
 
 test("a statement that lands outside the Earth asks rather than draws", async () => {
@@ -252,5 +252,30 @@ test("a shapefile in a projected system is worked out from its .prj; with none, 
 test("a GeoPackage says what to do instead", async () => {
   await assert.rejects(parseGeoFile(new ArrayBuffer(8), "x.gpkg"), /GeoPackage/);
   await assert.rejects(parseGeoFile(zipOf({ "x.gpkg": text("x") }), "x.zip"), /GeoPackage/);
+});
+
+test("a height or depth system says it cannot place a map, however it is given", async () => {
+  const depth = 'VERT_CS["CD UK & Ireland VORF08 depth",VERT_DATUM["Chart Datum UK & Ireland VORF08",2005,AUTHORITY["EPSG","1331"]],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Depth",DOWN],AUTHORITY["EPSG","10151"]]';
+  await assert.rejects(parseGeoFile(bufferOf(collection(square(-8, 52, 1))), "h.geojson", { crs: depth }), /height or depth, not a position on the map/);
+  await assert.rejects(parseGeoFile(bufferOf(collection(square(-8, 52, 1))), "h.geojson", { crs: "EPSG:10151" }), /height or depth system/);
+});
+
+test("the list of systems can be searched by place, name or code, and guesses fit the file", async () => {
+  const { guessCrs, resolveCrs, searchCrs, toLonLat } = await import("../src/data/geo-crs.js");
+  assert.deepEqual(searchCrs("ireland").map((choice) => choice.code).sort((a, b) => a - b), [2157, 29902]);
+  assert.ok(searchCrs("utm 55").some((choice) => choice.code === 32755));
+  assert.equal(searchCrs("7844")[0]!.code, 7844);
+  assert.ok(searchCrs("").length > 20);
+  // Metres on the Irish Transverse Mercator grid, around Dublin: E 715000, N 734000.
+  const guesses = guessCrs({ xMin: 700000, xMax: 730000, yMin: 720000, yMax: 750000 }).map((choice) => choice.code);
+  assert.ok(guesses.includes(2157), String(guesses));
+  // Every system on the list, zones included, is something proj4 can read and run.
+  for (const { code } of searchCrs("utm").concat(searchCrs(""))) {
+    const crs = resolveCrs(`EPSG:${code}`);
+    assert.ok(crs !== null, String(code));
+    const point = Float64Array.of(500000, 500000);
+    if (!crs.geographic) toLonLat(crs)(point);
+    assert.ok(Number.isFinite(point[0]!) && Number.isFinite(point[1]!), String(code));
+  }
 });
 

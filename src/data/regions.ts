@@ -5,6 +5,26 @@
 import { timeBucket, timeLabel, type TimeGrain } from "./aggregate.js";
 import type { GeoDataset, GeoFeature } from "./geo-file.js";
 
+// ------------------------------------------------------------------ The map's shape
+
+/**
+ * A view of the world with the shape of the plot it fills, so places keep their proportions. A degree of longitude is
+ * shorter than a degree of latitude away from the equator, by the cosine of the latitude: at Ireland's 53 degrees, about
+ * 0.6. Grows whichever side is too short, around the same middle, so nothing asked for is lost.
+ */
+export function fitViewToPlot<T extends { lonMin: number; lonMax: number; latMin: number; latMax: number }>(view: T, plotW: number, plotH: number): { lonMin: number; lonMax: number; latMin: number; latMax: number } {
+  let lonSpan = view.lonMax - view.lonMin;
+  let latSpan = view.latMax - view.latMin;
+  if (!(plotW > 0 && plotH > 0 && lonSpan > 0 && latSpan > 0)) return view;
+  const middleLat = (view.latMin + view.latMax) / 2;
+  const middleLon = (view.lonMin + view.lonMax) / 2;
+  const squeeze = Math.max(0.05, Math.cos((Math.max(-85, Math.min(85, middleLat)) * Math.PI) / 180));
+  const wanted = plotW / plotH;
+  if ((lonSpan * squeeze) / latSpan < wanted) lonSpan = (wanted * latSpan) / squeeze;
+  else latSpan = (lonSpan * squeeze) / wanted;
+  return { lonMin: middleLon - lonSpan / 2, lonMax: middleLon + lonSpan / 2, latMin: middleLat - latSpan / 2, latMax: middleLat + latSpan / 2 };
+}
+
 // ------------------------------------------------------------------ Simplifying
 
 /** Douglas-Peucker, without recursion: the points of a ring that matter at this tolerance, in degrees. */
@@ -417,6 +437,6 @@ export function aggregateRegions(input: {
     }
   }
   for (let region = 0; region < regions; region++) regionsMatched += touched[region]!;
-  const unmatchedValues = [...unmatched].sort((a, b) => b[1] - a[1]).slice(0, 25).map(([value, count]) => ({ value, rows: count }));
+  const unmatchedValues = [...unmatched].sort((a, b) => b[1] - a[1]).slice(0, 500).map(([value, count]) => ({ value, rows: count }));
   return { values, rows, frames, rowsMatched, rowsUnmatched, regionsMatched, unmatchedValues };
 }

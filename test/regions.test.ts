@@ -5,6 +5,7 @@ import {
   aggregateRegions,
   buildShapes,
   chooseLabelProperty,
+  fitViewToPlot,
   featureAreaKm2,
   joinKey,
   levelFor,
@@ -152,3 +153,16 @@ test("by period, each region has a value per frame", () => {
   assert.equal(out.frames!.labels.length, 2);
   assert.deepEqual([...out.values], [1, 2, 3, Number.NaN]);
 });
+
+test("a view takes the plot's shape, so places keep their proportions", () => {
+  // Ireland: about 4.7 degrees wide and 4 tall at 53.4 degrees north, in a plot wider than tall.
+  const view = fitViewToPlot({ lonMin: -10.7, lonMax: -6, latMin: 51.4, latMax: 55.45 }, 900, 500);
+  const degreeLat = 500 / (view.latMax - view.latMin);
+  const degreeLon = 900 / (view.lonMax - view.lonMin);
+  assert.ok(Math.abs(degreeLon / degreeLat - Math.cos((53.425 * Math.PI) / 180)) < 1e-6, "a degree of longitude is drawn shorter, as it is");
+  assert.ok(view.latMin <= 51.4 && view.latMax >= 55.45 && view.lonMin <= -10.7 && view.lonMax >= -6, "nothing asked for is lost");
+  // Fitting a fitted view changes nothing, or panning and zooming would drift.
+  const again = fitViewToPlot(view, 900, 500);
+  assert.ok(Math.abs(again.lonMin - view.lonMin) < 1e-9 && Math.abs(again.latMax - view.latMax) < 1e-9);
+});
+

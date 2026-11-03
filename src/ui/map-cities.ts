@@ -19,11 +19,11 @@ export interface ReservedMarker {
   size?: number;
 }
 
-export function cityOverlay(cities: Cities, markers: () => readonly ReservedMarker[] = () => []): MapOverlay {
+export function cityOverlay(cities: Cities, markers: () => readonly ReservedMarker[] = () => [], labelSize: () => number = () => 10.5): MapOverlay {
   return (ctx, view, plot) => {
     const { x: x0, y: y0, w, h, ui } = plot;
     const sx = w / (view.lonMax - view.lonMin), sy = h / (view.latMax - view.latMin);
-    const size = 10.5 * ui, pad = 2 * ui, dot = 2.2 * ui;
+    const size = labelSize() * ui, pad = 2 * ui, dot = 2.2 * ui;
     ctx.font = `${size}px system-ui, sans-serif`;
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
@@ -31,7 +31,8 @@ export function cityOverlay(cities: Cities, markers: () => readonly ReservedMark
     const style = getComputedStyle(document.documentElement);
     const ink = style.getPropertyValue("--text").trim() || "#1c2430";
     const halo = style.getPropertyValue("--panel").trim() || "#ffffff";
-    const budget = Math.max(12, Math.round((w * h) / AREA_PER_LABEL));
+    // Bigger names need more room, so fewer of them fit.
+    const budget = Math.max(12, Math.round((w * h) / (AREA_PER_LABEL * (size / (10.5 * ui)) ** 2)));
     const placed: [number, number, number, number][] = [];
     const overlaps = (a: number, b: number, c: number, d: number): boolean => {
       for (const [p, q, r, s] of placed) if (a < r && c > p && b < s && d > q) return true;

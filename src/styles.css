@@ -3667,23 +3667,363 @@ mark {
   color: var(--accent);
 }
 
+.map-page .chart-card-layout.docked {
+  grid-template-columns: minmax(0, 1fr) 296px;
+}
+
+.map-hide-for-regions {
+  display: none !important;
+}
+
+.map-dock-off {
+  opacity: 0.45;
+}
+
 .map-regions {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   flex: 1 1 100%;
   min-width: 0;
 }
 
-.map-region-body {
+/* The four steps down the settings: a line or two each, the real work in the pop-outs. */
+.map-step {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.map-step.waiting {
+  opacity: 0.5;
+}
+
+.map-step-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.map-step-number {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  font-size: 11px;
+}
+
+.map-step.done .map-step-number {
+  background: #2e8b57;
+}
+
+.map-globe {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  text-align: left;
+  font: inherit;
+  font-size: var(--fs-xs);
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.map-globe:hover {
+  border-color: var(--accent);
+}
+
+.map-globe svg {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+}
+
+.map-swatches {
+  display: flex;
+  height: 12px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.map-swatches span {
+  flex: 1 1 0;
+}
+
+/* Over the plot: where a boundary file goes, and where it can be dropped at any time. */
+.map-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  pointer-events: none;
+  color: var(--text);
+}
+
+.map-drop-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 460px;
+  padding: 26px 34px;
+  background: var(--panel);
+  border: 2px dashed var(--accent);
+  border-radius: 12px;
+  pointer-events: auto;
+}
+
+.map-drop-box svg {
+  width: 40px;
+  height: 40px;
+  color: var(--accent);
+}
+
+.map-drop-box strong {
+  font-size: 16px;
+}
+
+.map-drop-box span {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+.map-drop.dragging .map-drop-box {
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  border-style: solid;
+}
+
+/* The pop-outs */
+.map-pop-modal {
+  width: min(1100px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+}
+
+.map-pop-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.map-pop-lead {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.map-peek-title {
+  margin: 0 0 4px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.map-peek-scroll {
+  max-height: 230px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.map-peek {
+  border-collapse: collapse;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.map-peek th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 4px 10px;
+  text-align: left;
+  white-space: nowrap;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.map-peek td {
+  padding: 2px 10px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-subtle, var(--border));
+  cursor: pointer;
+}
+
+.map-peek th:hover,
+.map-peek td.hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+}
+
+.map-peek .suggested {
+  font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 9%, var(--panel));
+}
+
+.map-peek-badge {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.map-peek th.chosen,
+.map-peek td.chosen {
+  background: #c9efcf;
+  color: #123a1c;
+}
+
+.map-peek th.chosen .map-peek-badge {
+  color: #1c6b34;
+}
+
+.map-pop-result {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: var(--fs-sm);
+}
+
+.map-pop-result.bad {
+  color: var(--danger, #b42318);
+}
+
+.map-unmatched {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.map-unmatched ul {
+  margin: 0;
+  padding: 6px 10px;
+  max-height: 260px;
+  overflow: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: var(--fs-xs);
+}
+
+.map-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.map-tabs button {
+  padding: 6px 12px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.map-tabs button.active {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+.map-pop-body input[type="search"] {
+  display: block;
+  width: 100%;
+  max-width: none;
+}
+
+.map-crs-list {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.map-crs-list button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle, var(--border));
+  cursor: pointer;
+}
+
+.map-crs-list button:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+}
+
+.map-crs-list code {
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+
+/* Classes float beside the map, so the effect of a change is in view. */
+.map-classes-pop {
+  position: fixed;
+  z-index: 60;
+  top: 96px;
+  right: 16px;
+  width: 340px;
+  max-height: calc(100vh - 116px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.25);
+}
+
+.map-classes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.map-classes-body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 0;
-}
-
-.map-region-waiting {
-  display: none !important;
+  padding: 10px 12px;
+  overflow-y: auto;
 }
 
 .map-region-field {
@@ -3751,7 +4091,7 @@ mark {
   white-space: normal;
 }
 
-.map-regions .map-region-hint {
+.chart-field-hint.map-region-hint {
   white-space: normal;
   line-height: 1.35;
   font-family: inherit;
