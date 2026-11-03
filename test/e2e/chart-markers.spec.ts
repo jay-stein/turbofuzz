@@ -55,6 +55,18 @@ test("a scatter has shape, size and opacity settings, a dashed best-fit line wit
   await second.getByRole("button", { name: "Remove this line" }).click();
   await expect(page.locator(".chart-ref-row")).toHaveCount(1);
 
+  // Style (heat and contour lines) belongs to the heat-map render: greyed out for plain points, live once it is chosen.
+  await expect(page.getByLabel("Density style")).toBeDisabled();
+  await page.getByLabel("Render mode").selectOption("density");
+  await expect(page.getByLabel("Density style")).toBeEnabled();
+  await page.getByLabel("Render mode").selectOption("points");
+  await expect(page.getByLabel("Density style")).toBeDisabled();
+
+  // The reference-line controls stay inside the settings panel.
+  const panel = await page.locator(".chart-sidebar").boundingBox();
+  const select = await page.locator(".chart-ref-row").first().getByLabel("Where the line sits").boundingBox();
+  expect(select!.x + select!.width).toBeLessThanOrEqual(panel!.x + panel!.width);
+
   // The palette file loader is gone.
   await expect(page.getByRole("button", { name: /Load JSON/ })).toHaveCount(0);
 });

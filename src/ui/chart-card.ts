@@ -266,6 +266,10 @@ export type MapOverlay = (
   plot: { x: number; y: number; w: number; h: number; ui: number },
 ) => void;
 
+/** A dot's border is a darker shade of its fill and nearly opaque, so each dot reads even where the fill is see-through. */
+const BORDER_DARKER = 0.5;
+const BORDER_ALPHA = 0.95;
+
 /** The shape of a dot on a scatter or a map. Circles are the default. */
 export type MarkerShape = "circle" | "square" | "diamond" | "triangle";
 
@@ -1920,6 +1924,7 @@ export class ChartCard {
     this.modeSelect.addEventListener("change", () => {
       this.config.mode = this.modeSelect.value as SeriesMode;
       this.generation++;
+      this.renderControls();
       this.refreshSeries();
       this.render();
     });
@@ -5612,6 +5617,11 @@ export class ChartCard {
     this.chartFilterRow.classList.toggle("hidden", !chartFilterable);
     this.modeWrap.classList.toggle("hidden", kind !== "scatter");
     this.densityStyleWrap.classList.toggle("hidden", !seriesKind);
+    // Heat and contour lines belong to the density (heat map) render: with plain points they do nothing, so the control says so.
+    const heatRender = kind === "density" || (kind === "scatter" && this.config.mode === "density");
+    this.densityStyleSelect.disabled = !heatRender;
+    this.densityStyleWrap.classList.toggle("disabled", !heatRender);
+    this.densityStyleWrap.title = heatRender ? "" : "Only used when Render is set to Density (heat map)";
     this.colorGroup.classList.toggle("hidden", kind === "correlation");
     this.paletteGroup.classList.toggle("hidden", kind === "correlation");
     this.histogramSettings.classList.toggle("hidden", kind !== "histogram");
@@ -10902,7 +10912,7 @@ export class ChartCard {
         addMarkerPath(ctx, markerShape, px(lon), py(lat), Math.max(0.5, r));
         ctx.globalAlpha = dotAlpha;
         ctx.fill();
-        ctx.globalAlpha = Math.min(1, dotAlpha + 0.3);
+        ctx.globalAlpha = BORDER_ALPHA;
         ctx.stroke();
       } else {
         addMarkerPath(ctx, markerShape, px(lon), py(lat), Math.max(0.5, r));
@@ -10912,21 +10922,29 @@ export class ChartCard {
     ctx.lineWidth = Math.max(0.75, 0.8 * ui);
     if (buckets === null) {
       ctx.fillStyle = this.primaryColor();
-      ctx.strokeStyle = darkerColor(this.primaryColor());
+      ctx.strokeStyle = darkerColor(this.primaryColor(), BORDER_DARKER);
       ctx.globalAlpha = dotAlpha;
       if (batched) ctx.beginPath();
       for (let i = 0; i < result.shown; i++) drawAt(i);
-      if (batched) ctx.fill();
+      if (batched) {
+        ctx.fill();
+        ctx.globalAlpha = BORDER_ALPHA;
+        ctx.stroke();
+      }
     } else {
       for (let bucket = 0; bucket < buckets.colors.length; bucket++) {
         ctx.fillStyle = buckets.colors[bucket] ?? this.primaryColor();
-        ctx.strokeStyle = darkerColor(buckets.colors[bucket] ?? this.primaryColor());
+        ctx.strokeStyle = darkerColor(buckets.colors[bucket] ?? this.primaryColor(), BORDER_DARKER);
         ctx.globalAlpha = dotAlpha;
         if (batched) ctx.beginPath();
         for (let i = 0; i < result.shown; i++) {
           if (buckets.buckets[i] === bucket) drawAt(i);
         }
-        if (batched) ctx.fill();
+        if (batched) {
+          ctx.fill();
+          ctx.globalAlpha = BORDER_ALPHA;
+          ctx.stroke();
+        }
       }
     }
     ctx.globalAlpha = 1;
@@ -13566,7 +13584,7 @@ export class ChartCard {
     const shape = this.config.markerShape ?? "circle";
     // Up to 5,000 points each gets an outline; past that they are filled in one batch per colour, still the chosen shape.
     const detailed = result.shown <= 5000;
-    ctx.lineWidth = Math.max(0.75, 0.8 * frame.ui);
+    ctx.lineWidth = Math.max(0.9, 1 * frame.ui);
 
     const drawAt = (index: number): void => {
       const r = Math.max(0.5, sizes === null ? radius : sizes[index]);
@@ -13577,7 +13595,7 @@ export class ChartCard {
         addMarkerPath(ctx, shape, x, y, r);
         ctx.globalAlpha = alpha;
         ctx.fill();
-        ctx.globalAlpha = Math.min(1, alpha + 0.35);
+        ctx.globalAlpha = BORDER_ALPHA;
         ctx.stroke();
       } else {
         addMarkerPath(ctx, shape, x, y, r);
@@ -13592,17 +13610,19 @@ export class ChartCard {
     ctx.globalAlpha = alpha;
     if (buckets === null) {
       ctx.fillStyle = this.primaryColor();
-      ctx.strokeStyle = darkerColor(this.primaryColor());
+      ctx.strokeStyle = darkerColor(this.primaryColor(), BORDER_DARKER);
       if (!detailed) ctx.beginPath();
       for (let i = 0; i < result.shown; i++) drawAt(i);
       if (!detailed) {
         ctx.globalAlpha = alpha;
         ctx.fill();
+        ctx.globalAlpha = BORDER_ALPHA;
+        ctx.stroke();
       }
     } else {
       for (let bucket = 0; bucket < buckets.colors.length; bucket++) {
         ctx.fillStyle = buckets.colors[bucket];
-        ctx.strokeStyle = darkerColor(buckets.colors[bucket]!);
+        ctx.strokeStyle = darkerColor(buckets.colors[bucket]!, BORDER_DARKER);
         if (!detailed) ctx.beginPath();
         for (let i = 0; i < result.shown; i++) {
           if (buckets.buckets[i] === bucket) drawAt(i);
@@ -13610,6 +13630,8 @@ export class ChartCard {
         if (!detailed) {
           ctx.globalAlpha = alpha;
           ctx.fill();
+          ctx.globalAlpha = BORDER_ALPHA;
+          ctx.stroke();
         }
       }
     }
@@ -13970,6 +13992,10 @@ export class ChartCard {
       ctx.beginPath();
       for (const value of group.outliers) addMarkerPath(ctx, "circle", cx, yOf(value), r);
       ctx.fill();
+      ctx.strokeStyle = darkerColor(this.primaryColor(), BORDER_DARKER);
+      ctx.globalAlpha = BORDER_ALPHA;
+      ctx.lineWidth = Math.max(0.9, ui);
+      ctx.stroke();
       ctx.globalAlpha = 1;
 
       ctx.textAlign = "center";

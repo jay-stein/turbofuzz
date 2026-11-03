@@ -14087,8 +14087,14 @@ button.qp-tile:hover {
 
 /* Reference lines and the scatter's line of best fit */
 .chart-ref-rows { display: flex; flex-direction: column; gap: 6px; }
-.chart-ref-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.chart-ref-value { width: 110px; }
+/* One line per row, each control the full width of the sidebar: nothing is scrolled out of reach. */
+.chart-ref-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center; padding-bottom: 6px; border-bottom: 1px solid var(--border-subtle); }
+.chart-ref-settings, .chart-ref-rows, .chart-ref-row { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.chart-ref-row select, .chart-ref-row .chart-ref-value { width: 100%; min-width: 0; max-width: none; box-sizing: border-box; }
+.chart-ref-row select:nth-child(2), .chart-ref-row .chart-ref-value { grid-column: 1 / -1; }
+.chart-ref-row .icon-btn { grid-column: 2; grid-row: 1; }
+.chart-tag.disabled { opacity: 0.45; }
+.chart-tag.disabled select { cursor: not-allowed; }
 .chart-ref-hint { display: block; margin-top: 4px; }
 .chart-fit { display: flex; flex-direction: column; gap: 4px; }
 .chart-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); cursor: pointer; }

@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-03-19 — Darker dot borders, reference-line rows that fit, Style greyed for plain points
+
+- **Status:** Verified (e2e, browser)
+- **Related issue / decision:** owner: dots should have a border darker than the fill; the reference-line controls ran off the settings panel ("At a value" needed a scroll); the density Style (heat, contours, heat + lines) offered itself on a plain scatter.
+- **What changed:** every dot on a scatter, a map and the box plot's outliers has a darker, nearly opaque border (also past 5,000 points, where the border is stroked in one batch per colour). Each reference line is a block inside the panel: direction and remove, then where it sits, then the value. Style is greyed out with a reason unless Render is Density (heat map), and comes live as soon as it is chosen.
+- **Files / components changed:** src/ui/chart-card.ts, styles.css; test/e2e/chart-markers.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
 ### CHG-2026-11-03-18 — Dot shape, size and opacity; best-fit line and R²; reference lines
 
 - **Status:** Verified (unit, e2e, browser)
