@@ -1,5 +1,5 @@
 import { clearReviewed, getReviewed, setReviewed } from "./reviewed-issues.js";
-import { getOptionalMarks, setOptionalMark } from "./optional-marks.js";
+import { clearOptionalMark, getOptionalMarks, setOptionalMark } from "./optional-marks.js";
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
 import {
   listArchiveEntries,
@@ -4763,6 +4763,7 @@ export class App {
       onRestoreReviewed: (id) => {
         clearReviewed(this.datasetName, id);
         this.refreshScore();
+        this.updateStepsButton();
         this.setAction("Put back: it counts in the score again.");
       },
       buildRulesPanel: () => this.rulesPanel(),
@@ -4778,6 +4779,7 @@ export class App {
       onOptionalChange: (name, optional) => {
         setOptionalMark(name, optional);
         this.refreshScore();
+        this.updateStepsButton();
       },
       onOpenColumn: (column, anchor) => this.openColumnInspector(column, anchor),
       onShowAffectedRows: () => this.showAffectedRows(),
@@ -4915,6 +4917,7 @@ export class App {
     setReviewed(this.datasetName, issue.check.id, { rows: issue.check.fail, title: issue.title });
     this.refreshScore();
     this.setAction(`Set aside: ${issue.title}. It stays out of the score unless more rows are affected.`);
+    this.updateStepsButton();
   }
 
   /** The table drill-down behind an issue: its check's rows, or its finding's action. */
@@ -7286,6 +7289,19 @@ export class App {
     const picked: StepsPanelEntry[] = [];
     for (const key of action) {
       for (let index = entries.length - 1; index >= 0; index--) {
+  /** Puts a Data Quality decision back: the issue counts in the score again, the column is judged as before. */
+  private undoReview(ref: string): void {
+    if (ref.startsWith("reviewed:")) {
+      clearReviewed(this.datasetName, ref.slice("reviewed:".length));
+    } else if (ref.startsWith("optional:")) {
+      clearOptionalMark(ref.slice("optional:".length));
+    } else {
+      return;
+    }
+    this.updateStepsButton();
+    this.refreshScore();
+  }
+
         if (!taken.has(index) && this.stepKey(entries[index]) === key) {
           taken.add(index);
           picked.push(entries[index]);
@@ -7319,6 +7335,7 @@ export class App {
     this.trackSteps(this.stepEntries());
     const groups = groupSteps(this.stepEntries());
     const count = groups.length;
+    for (const entry of picked.filter((candidate) => candidate.kind === "review")) this.undoReview(entry.ref ?? "");
     this.stepsButton.textContent = count === 0 ? "Recipe" : `Recipe (${count})`;
     this.stepsButton.disabled = count === 0;
     this.stepsButton.title =
@@ -7363,6 +7380,33 @@ export class App {
         column: edit.column,
         opIndex: index,
         groupSize: this.typeEdits.length,
+    // Data Quality decisions: they change no data, but they change the score, so they belong in the record.
+    const reviewed = Object.entries(getReviewed(this.datasetName));
+    const optional = Object.entries(getOptionalMarks());
+    const reviewCount = reviewed.length + optional.length;
+    let reviewIndex = 0;
+    for (const [id, mark] of reviewed) {
+      entries.push({
+        kind: "review",
+        label: `Data quality: “${mark.title}” marked as not a problem`,
+        detail: `review → ${mark.rows.toLocaleString()} row${mark.rows === 1 ? "" : "s"} set aside; the data is unchanged`,
+        column: -1,
+        opIndex: reviewIndex++,
+        groupSize: reviewCount,
+        ref: `reviewed:${id}`,
+      });
+    }
+    for (const [name, isOptional] of optional) {
+      entries.push({
+        kind: "review",
+        label: `Data quality: “${name}” marked ${isOptional ? "optional" : "required"}`,
+        detail: `review → empty cells in this column ${isOptional ? "no longer count against the score" : "count against the score"}; the data is unchanged`,
+        column: -1,
+        opIndex: reviewIndex++,
+        groupSize: reviewCount,
+        ref: `optional:${name}`,
+      });
+    }
       });
     }
     const schema =
@@ -7460,6 +7504,7 @@ export class App {
           );
         }
         for (let i = this.nullEdits.length - 1; i >= 0; i--) {
+      onUndoReview: (ref) => this.undoReview(ref),
           const edit = this.nullEdits[i];
           if (edit.all === true) this.applyNullPolicyAll([], [], { record: false });
           else this.applyNullPolicy(edit.column, edit.previousExtra, edit.previousKeep, { record: false });

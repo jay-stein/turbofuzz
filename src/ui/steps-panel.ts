@@ -3,7 +3,8 @@ import { el, svgIcon } from "./dom.js";
 import type { RecipeTarget } from "../data/recipe-support.js";
 
 export interface StepsPanelEntry {
-  kind: "clean" | "transform" | "rows" | "nulls" | "type";
+  /** `review` is a Data Quality decision (set aside, optional column): it changes no data and is not exported as code. */
+  kind: "clean" | "transform" | "rows" | "nulls" | "type" | "review";
   label: string;
   /** Technical signature shown under the label (Power BI-style detail). */
   detail?: string;
@@ -12,6 +13,8 @@ export interface StepsPanelEntry {
   opIndex: number;
   /** Number of ops in the same group (used to enable reorder buttons). */
   groupSize: number;
+  /** What a review decision refers to, so it can be put back. */
+  ref?: string;
   /** Optional batch membership; consecutive entries with the same id collapse. */
   group?: { id: string; label: string; detail?: string };
 }
@@ -30,6 +33,8 @@ export interface StepsPanelCallbacks {
   onRestoreRows: () => void;
   onUndoPolicy: (column: number, opIndex: number) => void;
   onUndoType: (column: number, opIndex: number) => void;
+  /** Puts back a Data Quality decision (an issue set aside, a column marked optional). */
+  onUndoReview?: (ref: string) => void;
   /** Reverses every sub-step of a condensed batch in one action. */
   onUndoBatch: (entries: readonly StepsPanelEntry[]) => void;
   onClearAll: () => void;
@@ -244,6 +249,8 @@ export function openStepsPanel(
       row.append(
         undo("Undo this type change", () => callbacks.onUndoType(entry.column, entry.opIndex)),
       );
+    } else if (entry.kind === "review") {
+      row.append(undo("Put this decision back", () => callbacks.onUndoReview?.(entry.ref ?? "")));
     } else {
       const index = indexOf.get(entry) ?? -1;
       info.title =

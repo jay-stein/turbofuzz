@@ -30,6 +30,16 @@ export function getOptionalMarks(): Record<string, boolean> {
   return { ...read() };
 }
 
+/** Forgets the choice, so detection decides again. */
+export function clearOptionalMark(name: string): void {
+  delete read()[name];
+  try {
+    sessionStorage.setItem(KEY, JSON.stringify(memory));
+  } catch {
+    // Session-only memory still holds the choice for this run.
+  }
+}
+
 /** Records the choice; marking a name the way detection would anyway is still stored. */
 export function setOptionalMark(name: string, optional: boolean): void {
   read()[name] = optional;
