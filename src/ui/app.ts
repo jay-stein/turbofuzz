@@ -603,6 +603,9 @@ export class App {
   private exportButton!: HTMLButtonElement;
   private newButton!: HTMLButtonElement;
   private stepsButton!: HTMLButtonElement;
+  private undoButton!: HTMLButtonElement;
+  /** Recipe steps in the order they were made, one list per action, so Undo can reverse the latest. */
+  private stepActions: string[][] = [];
   private exportNullAsBlank = true;
   private exportEscapeFormulas = true;
   private exportLimit: number | null = null;
@@ -1055,6 +1058,13 @@ export class App {
       ["Recipe"],
     ) as HTMLButtonElement;
     this.stepsButton.addEventListener("click", () => this.openSteps());
+    this.undoButton = el(
+      "button",
+      { class: "ghost small nav-action", type: "button", title: "Nothing to undo yet" },
+      ["Undo"],
+    ) as HTMLButtonElement;
+    this.undoButton.disabled = true;
+    this.undoButton.addEventListener("click", () => this.undoLastStep());
 
     this.exportButton = el(
       "button",
@@ -1109,6 +1119,12 @@ export class App {
           action: () => this.headerRowButton.click(),
         },
         {
+          label: "Undo",
+          title: this.undoButton.title,
+          disabled: this.undoButton.disabled,
+          action: () => this.undoButton.click(),
+        },
+        {
           label: this.stepsButton.textContent ?? "Recipe",
           title: this.stepsButton.title,
           disabled: this.stepsButton.disabled,
@@ -1124,6 +1140,7 @@ export class App {
       el("div", { class: "nav-actions" }, [
         this.convertTypesButton,
         this.headerRowButton,
+        this.undoButton,
         this.stepsButton,
         this.exportButton,
         actionsMenu,
@@ -1392,6 +1409,15 @@ export class App {
           else this.table?.scrollToBottom();
           return;
         }
+      }
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "z") {
+        const target = event.target as HTMLElement | null;
+        const typing = target !== null && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable);
+        if (!typing && !this.workspace.classList.contains("hidden") && document.querySelector(".modal-overlay") === null && this.stepActions.length > 0) {
+          event.preventDefault();
+          this.undoLastStep();
+        }
+        return;
       }
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (this.workspace.classList.contains("hidden")) return;
@@ -7211,7 +7237,86 @@ export class App {
     this.transformCommitSizes = kept;
   }
 
+  /** The identity of a Recipe step for the undo log: what it is, not where it sits. */
+  private stepKey(entry: StepsPanelEntry): string {
+    return `${entry.kind}|${entry.column}|${entry.label}|${entry.detail ?? ""}`;
+  }
+
+  /** Keeps the undo log in step with the Recipe: steps that vanished leave it, steps that appeared together become one action. */
+  private trackSteps(entries: readonly StepsPanelEntry[]): void {
+    const current = entries.map((entry) => this.stepKey(entry));
+    const present = new Map<string, number>();
+    for (const key of current) present.set(key, (present.get(key) ?? 0) + 1);
+    const used = new Map<string, number>();
+    const kept: string[][] = [];
+    for (const action of this.stepActions) {
+      const still = action.filter((key) => {
+        const have = used.get(key) ?? 0;
+        if (have < (present.get(key) ?? 0)) {
+          used.set(key, have + 1);
+          return true;
+        }
+        return false;
+      });
+      if (still.length > 0) kept.push(still);
+    }
+    const seen = new Map<string, number>();
+    const fresh: string[] = [];
+    for (const key of current) {
+      const count = (seen.get(key) ?? 0) + 1;
+      seen.set(key, count);
+      if (count > (used.get(key) ?? 0)) fresh.push(key);
+    }
+    if (fresh.length > 0) kept.push(fresh);
+    this.stepActions = kept;
+    const last = kept[kept.length - 1];
+    this.undoButton.disabled = last === undefined;
+    this.undoButton.title =
+      last === undefined
+        ? "Nothing to undo yet"
+        : `Undo the last change (Ctrl+Z): ${last.length === 1 ? last[0].split("|")[2] : `${last.length} steps`}`;
+  }
+
+  /** Reverses the most recent action in the Recipe: every step it added, in one go. */
+  private undoLastStep(): void {
+    const action = this.stepActions[this.stepActions.length - 1];
+    if (action === undefined) return;
+    const entries = this.stepEntries();
+    const taken = new Set<number>();
+    const picked: StepsPanelEntry[] = [];
+    for (const key of action) {
+      for (let index = entries.length - 1; index >= 0; index--) {
+        if (!taken.has(index) && this.stepKey(entries[index]) === key) {
+          taken.add(index);
+          picked.push(entries[index]);
+          break;
+        }
+      }
+    }
+    if (picked.length === 0) return;
+    const label = picked.length === 1 ? picked[0].label : `${picked.length} steps`;
+    this.undoBatch(picked.filter((entry) => entry.kind === "clean"));
+    this.undoBatch(picked.filter((entry) => entry.kind === "transform"));
+    for (const entry of picked.filter((candidate) => candidate.kind === "nulls").sort((a, b) => b.opIndex - a.opIndex)) {
+      const edit = this.nullEdits[entry.opIndex];
+      if (edit === undefined) continue;
+      this.nullEdits.splice(entry.opIndex, 1);
+      if (edit.all === true) this.applyNullPolicyAll([], [], { record: false });
+      else this.applyNullPolicy(edit.column, edit.previousExtra, edit.previousKeep, { record: false });
+    }
+    for (const entry of picked.filter((candidate) => candidate.kind === "type").sort((a, b) => b.opIndex - a.opIndex)) {
+      const edit = this.typeEdits[entry.opIndex];
+      if (edit === undefined) continue;
+      this.typeEdits.splice(entry.opIndex, 1);
+      this.changeType(entry.column, edit.previous, false);
+    }
+    if (picked.some((entry) => entry.kind === "rows")) void this.restoreExcludedRows();
+    this.updateStepsButton();
+    this.showToast(`Undid: ${label}`);
+  }
+
   private updateStepsButton(): void {
+    this.trackSteps(this.stepEntries());
     const groups = groupSteps(this.stepEntries());
     const count = groups.length;
     this.stepsButton.textContent = count === 0 ? "Recipe" : `Recipe (${count})`;
