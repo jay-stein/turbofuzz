@@ -59,7 +59,7 @@ test("the Dots row resizes the data dots: radius, scale and opacity redraw the m
   await page.locator("select[aria-label='Map display mode']").selectOption("points");
   // One dot per row with no Size column: one radius for all, no range to span.
   await expect(dots.getByLabel("Largest dot radius (pixels)")).toBeHidden();
-  await page.locator("select[aria-label='Map display mode']").selectOption("heat");
+  await page.getByRole("radio", { name: "Heat grid" }).click();
   await expect(dots).toBeHidden();
 });
 
@@ -118,7 +118,7 @@ test("one dot per place can be coloured by the average of a number, blue to red,
   await expect(notes).toContainText("colour = average tripduration");
 
   // Another way of showing the data has no frames to step through.
-  await card.getByRole("combobox", { name: "Map display mode" }).selectOption("heat");
+  await page.getByRole("radio", { name: "Heat grid" }).click();
   const grey = card.locator(".chart-animate-btn");
   await expect(grey).toBeVisible();
   await expect(grey).toHaveAttribute("aria-disabled", "true");

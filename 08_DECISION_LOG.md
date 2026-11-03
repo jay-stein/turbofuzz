@@ -23,6 +23,15 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-03-04 — Boundary files say what they are; the person can always overrule; nothing lands off the Earth
+
+- **Status:** Accepted (owner, 2026-11-03)
+- **Context:** Files can come from anywhere, in any coordinate system.
+- **Decision:** Order of trust: the person, the file (.prj or crs member), then the numbers (in the range of degrees means degrees). A result outside the Earth, or a file with no statement and numbers that are not degrees, asks rather than draws. Geographic systems are used as they stand, since their datum differences are a few metres at most for region maps; projected ones go to WGS 84 by proj4. Common EPSG codes are in a table, since the app is offline; any other can be pasted as proj4 or WKT.
+- **Also:** Natural breaks is the default classification; words beat numbers when suggesting a join, since a row number and a region id both run 1, 2, 3; where a table has coordinates, a weak name match gives way to location.
+- **Trade-offs:** A wrong statement in a file that still lands on Earth cannot be detected: the map looks wrong and Change… is there for it.
+- **Date / owner:** 2026-11-03 / owner
+
 ### DEC-2026-11-03-03 — A map is a Research page, not a chart type
 
 - **Status:** Accepted (owner, 2026-11-03)

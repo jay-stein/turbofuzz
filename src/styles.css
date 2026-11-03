@@ -3621,6 +3621,211 @@ mark {
   flex: 0 0 auto;
 }
 
+.map-types {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.map-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.map-type:hover {
+  color: var(--text);
+  background: var(--bg);
+}
+
+.map-type.active {
+  color: var(--text);
+  font-weight: 600;
+  border-color: var(--accent);
+  background: var(--bg);
+}
+
+.map-type-icon {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  stroke: none;
+}
+
+.map-type.active .map-type-icon {
+  color: var(--accent);
+}
+
+.map-regions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.map-region-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.map-region-waiting {
+  display: none !important;
+}
+
+.map-region-field {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.map-region-field select,
+.map-region-field input {
+  width: 100%;
+  min-width: 0;
+}
+
+.map-region-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.map-region-status,
+.map-region-crs,
+.map-region-report {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.map-region-crs-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+
+.map-region-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.map-region-crs-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.map-region-crs-panel select,
+.map-region-crs-text {
+  width: 100%;
+  min-width: 0;
+}
+
+.map-region-warning {
+  color: var(--danger, #b42318);
+  font-size: var(--fs-xs);
+  white-space: normal;
+}
+
+.map-regions .map-region-hint {
+  white-space: normal;
+  line-height: 1.35;
+  font-family: inherit;
+}
+
+.map-region-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+}
+
+.map-region-details summary {
+  cursor: pointer;
+}
+
+.map-region-details p {
+  margin: 4px 0 0;
+}
+
+.map-region-histogram {
+  color: var(--text-dim);
+}
+
+.map-region-histogram-svg {
+  display: block;
+  width: 100%;
+  height: 44px;
+}
+
+.map-region-classes {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.map-region-class {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-xs);
+}
+
+.map-region-class.head {
+  color: var(--text-dim);
+}
+
+.map-region-class .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.map-region-swatch {
+  width: 24px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+}
+
+.map-region-break {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 4px;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
 .chart-add-map-hint {
   display: flex;
   flex-wrap: wrap;

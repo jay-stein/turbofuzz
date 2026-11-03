@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-03-09 — Choropleth maps from any boundary file
+
+- **Status:** Verified (unit, e2e, browser on real ABS, Ireland, Singapore and New York files)
+- **Related issue / decision:** owner request; DEC-2026-11-03-04.
+- **What changed:** Markers, Heat grid and Choropleth are pictures at the top of the Map page. Boundary files load on their own thread (src/worker/geo.worker.ts): GeoJSON or zipped Shapefile, several layers in a zip, the coordinate system read from the file, assumed from the numbers when silent and in degrees, asked for otherwise, and always overridable. Rows connect by name or code, with the pairing suggested and a report of what did not match, or by location. Regions can be divided by area or a numeric field. Classes follow QGIS's graduated methods, with editable breaks and colours, a histogram and a variance fit. Shapes keep several levels of detail for drawing. Regions animate through a date column, hover names them, and Extract stats carries every region, class and the method.
+- **Fixed:** a zip holding several shapefiles failed to load; GeoJSON in anything but WGS 84 was refused.
+- **Not included:** reading GeoPackage (it says so); dividing by a table column; undo for region settings; saving them with a chart spec; regions in a boundary file are not saved between sessions.
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
 ### CHG-2026-11-03-08 — Maps move to Research, and the Map page gets the best of it
 
 - **Status:** Verified (unit, e2e, browser on Citi Bike trip data)

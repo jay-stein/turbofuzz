@@ -2609,6 +2609,12 @@ export class App {
         this.client.getGridCounts(xColumn, yColumn, bins, measure, groupColumn, scope),
       requestAnimation: (input) => this.client.getAnimation(input),
       requestErrorBars: (input, onProgress) => this.client.getErrorBars(input, onProgress),
+      requestRegions: {
+        load: (input) => this.client.loadRegions(input),
+        suggest: () => this.client.suggestRegionJoin(),
+        values: (input) => this.client.getRegionValues(input),
+        clear: () => this.client.clearRegions(),
+      },
       tableSourceLabel: () =>
         this.filters.size === 0 &&
         this.specials.size === 0 &&

@@ -5,6 +5,8 @@ import { sliceBreakdown } from "../data/slice-breakdown.js";
 import { computeAggregate, type ViewDef } from "../data/aggregate.js";
 import type { GroupRows } from "../data/aggregate.js";
 import { errorBarKey } from "../data/error-bar-key.js";
+import type { GeoDataset, GeoFeature } from "../data/geo-file.js";
+import { aggregateRegions, joinKey, RegionIndex, suggestJoins } from "../data/regions.js";
 import { computePivot } from "../data/pivot.js";
 import { coMissingness } from "../data/comissingness.js";
 import { computeDependencies } from "../data/dependencies.js";
@@ -132,6 +134,8 @@ import type {
   GetGridCountsRequest,
   GetAnimationRequest,
   GetErrorBarsRequest,
+  GetRegionValuesRequest,
+  SuggestRegionJoinRequest,
   LoadRequest,
   PreviewCleanRequest,
   PreviewTransformRequest,
@@ -539,6 +543,15 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getErrorBars":
       await handleGetErrorBars(message);
+      break;
+    case "setRegions":
+      regionFile = message.features === null ? null : { features: message.features, bounds: message.bounds, index: null };
+      break;
+    case "suggestRegionJoin":
+      handleSuggestRegionJoin(message);
+      break;
+    case "getRegionValues":
+      handleGetRegionValues(message);
       break;
     case "renameHeaders":
       handleRenameHeaders(message);
@@ -2542,6 +2555,96 @@ async function handleGetErrorBars(message: GetErrorBarsRequest): Promise<void> {
     seed: BOOTSTRAP_SEED,
     ms: performance.now() - started,
   });
+}
+
+/** The boundaries in use, read elsewhere (geo.worker.ts). Not part of the table: they stay when the data changes. */
+let regionFile: { features: GeoFeature[]; bounds: GeoDataset["bounds"]; index: RegionIndex | null } | null = null;
+
+function handleSuggestRegionJoin(message: SuggestRegionJoinRequest): void {
+  const { dataset } = state();
+  const features = regionFile?.features ?? [];
+  // Up to this many rows is plenty to see which values a column holds.
+  const rows = Math.min(dataset.rowCount, 200_000);
+  const columns: { index: number; values: Set<string> }[] = [];
+  dataset.columns.forEach((column, index) => {
+    if (column.role === "provenance" || column.stats.distinct > 50_000) return;
+    const values = new Set<string>();
+    for (let row = 0; row < rows; row++) {
+      if (column.nullMask.get(row)) continue;
+      const key = joinKey(column.raw[row]);
+      if (key !== "") values.add(key);
+    }
+    columns.push({ index, values });
+  });
+  post({ type: "regionJoinSuggestions", requestId: message.requestId, suggestions: suggestJoins(features, columns).slice(0, 20) });
+}
+
+function handleGetRegionValues(message: GetRegionValuesRequest): void {
+  const { dataset } = state();
+  const started = performance.now();
+  const geo = regionFile;
+  if (geo === null) throw new Error("Load a boundary file first.");
+  const ids = chartScopedIds(message.respectFilters, message.chartFilter, message.chartExclude);
+  const none: readonly number[] = [];
+  let regionsOf: (row: number) => readonly number[];
+  let unmatchedName: ((row: number) => string | null) | undefined;
+  if (message.mode === "location") {
+    geo.index ??= new RegionIndex(geo.features, geo.bounds);
+    const index = geo.index;
+    const xs = dataset.columns[message.xColumn]?.numbers();
+    const ys = dataset.columns[message.yColumn]?.numbers();
+    if (xs === undefined || ys === undefined) throw new Error("Unknown coordinate column");
+    // Many rows share a spot (trips from a station): each spot is only looked up once.
+    const known = new Map<number, readonly number[]>();
+    regionsOf = (row) => {
+      const x = xs[row]!;
+      const y = ys[row]!;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return none;
+      const key = (Math.round(x * 1e5) + 2e7) * 4e7 + (Math.round(y * 1e5) + 1e7);
+      let found = known.get(key);
+      if (found === undefined) {
+        const region = index.locate(x, y);
+        found = region < 0 ? none : [region];
+        known.set(key, found);
+      }
+      return found;
+    };
+  } else {
+    const column = dataset.columns[message.column];
+    if (column === undefined) throw new Error("Unknown column");
+    const byKey = new Map<string, number[]>();
+    geo.features.forEach((feature, region) => {
+      const key = joinKey(feature.properties[message.property]);
+      if (key === "") return;
+      const list = byKey.get(key);
+      if (list === undefined) byKey.set(key, [region]);
+      else list.push(region);
+    });
+    const known = new Map<string, readonly number[]>();
+    regionsOf = (row) => {
+      if (column.nullMask.get(row)) return none;
+      const raw = column.raw[row] ?? "";
+      let found = known.get(raw);
+      if (found === undefined) {
+        found = byKey.get(joinKey(raw)) ?? none;
+        known.set(raw, found);
+      }
+      return found;
+    };
+    unmatchedName = (row) => (column.nullMask.get(row) ? null : (column.raw[row] ?? null));
+  }
+  const measure = message.measure < 0 ? null : (dataset.columns[message.measure]?.numbers() ?? null);
+  const times = message.timeColumn === undefined ? undefined : dataset.columns[message.timeColumn]?.numbers();
+  const result = aggregateRegions({
+    regions: geo.features.length,
+    ids,
+    regionsOf,
+    ...(unmatchedName === undefined ? {} : { unmatchedName }),
+    measure,
+    agg: message.agg,
+    ...(times === undefined || message.grain === undefined ? {} : { times, grain: message.grain }),
+  });
+  post({ type: "regionValues", requestId: message.requestId, ...result, ms: performance.now() - started }, [result.values.buffer, result.rows.buffer]);
 }
 
 /** What the label column says at each of these rows. */

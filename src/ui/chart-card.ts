@@ -136,7 +136,7 @@ import {
   projectLat,
   projectLon,
 } from "../data/topo.js";
-import { parseGeoFile, type GeoDataset } from "../data/geo-file.js";
+import { MapRegions, type MapRegionsOptions } from "./map-regions.js";
 
 /** Rectangle brush result: lon/lat bounds for the two coordinate columns. */
 export interface MapViewport {
@@ -419,6 +419,7 @@ export interface ChartCardOptions {
     },
   ): Promise<GridCountsMessage>;
   /** Per-time-bucket frames for animated bar, bubble, histogram and treemap charts. */
+  requestRegions?: RegionRequests;
   requestErrorBars?(
     input: { view: ViewDef; kind: IntervalKind },
     onProgress: (message: ErrorBarsProgressMessage) => void,
@@ -602,7 +603,7 @@ export interface ChartCardConfig {
   /** How bubble radius maps from the measure value. */
   bubbleScale?: "area" | "radius" | "log";
   /** Map display: one dot per place (default), one dot per row, or an aggregated heat grid. */
-  mapMode?: "points" | "heat" | "places";
+  mapMode?: "points" | "heat" | "places" | "regions";
   /**
    * Map dots. Radius in pixels of the smallest and largest dot (one size for all when nothing
    * sizes them), the value range those radii span (unset: the data's own), how value becomes
@@ -687,11 +688,16 @@ export type HitAction =
   | { kind: "range"; column: number; min: number | null; max: number | null }
   | { kind: "text"; column: number; query: string };
 
+/** What the Map page's regions ask of the worker. */
+export type RegionRequests = Pick<MapRegionsOptions, "load" | "suggest" | "values" | "clear">;
+
 export interface HitRegion {
   x: number;
   y: number;
   w: number;
   h: number;
+  /** For a shape that does not fill its box: whether the point is really on it. */
+  contains?: (x: number, y: number) => boolean;
   /** Tooltip lines, drawn in order. */
   lines: string[];
   /** Empty when the region is hover-only. */
@@ -785,7 +791,8 @@ export function hitTest(
       x >= region.x &&
       x <= region.x + region.w &&
       y >= region.y &&
-      y <= region.y + region.h
+      y <= region.y + region.h &&
+      (region.contains === undefined || region.contains(x, y))
     ) {
       return region;
     }
@@ -1247,19 +1254,7 @@ export class ChartCard {
   private mapPicker: ((lon: number, lat: number) => void) | null = null;
   private mapOverlay: MapOverlay | null = null;
   /** Optional user-supplied regions (GeoJSON / zipped Shapefile). */
-  private geoDataset: GeoDataset | null = null;
-  private readonly mapLayerRow: HTMLElement;
-  private readonly mapLayerInput: HTMLInputElement;
-  private readonly mapLayerStatus: HTMLElement;
-  private readonly geoFeatureSelect: HTMLSelectElement;
-  private readonly geoMatchSelect: HTMLSelectElement;
-  private readonly geoMeasureSelect: HTMLSelectElement;
-  private readonly geoAggSelect: HTMLSelectElement;
-  private readonly geoJoinRow: HTMLElement;
-  private geoJoinValues = new Map<string, number>();
-  private geoJoinMin = Number.NaN;
-  private geoJoinMax = Number.NaN;
-  private geoJoinRequest = 0;
+  private readonly regions: MapRegions | null;
   private mapDrag: { x: number; y: number } | null = null;
   /** True once a drag moved: the release click must not also fire a filter. */
   private dragMoved = false;
@@ -1704,7 +1699,7 @@ export class ChartCard {
       this.syncScope();
       this.refreshValue();
       this.refreshTreemap();
-      this.refreshGeoJoin();
+      this.regions?.refresh();
       this.refreshSeries();
       this.refreshCrosstab();
       this.refreshCorrelation();
@@ -1716,7 +1711,7 @@ export class ChartCard {
       this.syncScope();
       this.refreshValue();
       this.refreshTreemap();
-      this.refreshGeoJoin();
+      this.regions?.refresh();
       this.refreshSeries();
       this.refreshCrosstab();
       this.refreshCorrelation();
@@ -1733,7 +1728,7 @@ export class ChartCard {
       this.syncScope();
       this.refreshValue();
       this.refreshTreemap();
-      this.refreshGeoJoin();
+      this.regions?.refresh();
       this.refreshSeries();
       this.refreshCrosstab();
       this.refreshCorrelation();
@@ -2249,141 +2244,18 @@ export class ChartCard {
     for (const [value, label] of [
       ["places", "One dot per place"],
       ["points", "One dot per row"],
-      ["heat", "Heat grid"],
     ] as const) {
       this.mapModeSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
     }
-    this.mapModeSelect.value = this.config.mapMode ?? DEFAULT_MAP_MODE;
-    this.mapModeSelect.addEventListener("change", () => {
-      this.config.mapMode = this.mapModeSelect.value as "points" | "heat" | "places";
-      this.gridField.classList.toggle("hidden", this.config.mapMode !== "heat");
-      // A place holds many rows: a number can be averaged across them, a category cannot.
-      const colorMeta = this.meta(this.config.colorColumn);
-      if (this.config.mapMode === "places" && colorMeta !== undefined && !isNumericType(colorMeta.type)) this.config.colorColumn = -1;
-      this.generation++;
-      this.refreshSeries();
-      this.refreshMapGrid();
-      this.refreshAnimation();
-      this.syncSourceControls();
-      this.renderControls();
-      this.render();
-    });
+    if (this.config.mapMode !== "heat" && this.config.mapMode !== "regions") this.mapModeSelect.value = this.config.mapMode ?? DEFAULT_MAP_MODE;
+    this.mapModeSelect.addEventListener("change", () => this.setMapMode(this.mapModeSelect.value as "points" | "places"));
     this.mapModeWrap = this.tagged("Show", this.mapModeSelect).wrap;
-    this.mapLayerInput = el("input", {
-      type: "file",
-      accept: ".geojson,.json,.zip",
-      class: "hidden",
-    }) as HTMLInputElement;
-    const loadMapLayer = el(
-      "button",
-      {
-        class: "ghost small",
-        type: "button",
-        title: "Load custom regions from GeoJSON or a zipped Shapefile",
-      },
-      ["Load extra map data"],
-    ) as HTMLButtonElement;
-    loadMapLayer.addEventListener("click", () => this.mapLayerInput.click());
-    this.mapLayerInput.addEventListener("change", () => {
-      const file = this.mapLayerInput.files?.[0];
-      if (file === undefined) return;
-      this.mapLayerStatus.textContent = "Loading regions...";
-      void file
-        .arrayBuffer()
-        .then((buffer) => parseGeoFile(buffer, file.name))
-        .then((dataset) => {
-          this.geoDataset = dataset;
-          this.mapView = { ...dataset.bounds };
-          this.mapLayerStatus.textContent = `${dataset.features.length.toLocaleString()} regions`;
-          this.syncGeoJoinControls();
-          this.refreshGeoJoin();
-          this.render();
-        })
-        .catch((error: unknown) => {
-          this.mapLayerStatus.textContent =
-            error instanceof Error ? error.message : "Could not load regions.";
-        });
-      this.mapLayerInput.value = "";
-    });
-    const clearMapLayer = el(
-      "button",
-      { class: "ghost small", type: "button", title: "Return to the world basemap" },
-      ["Clear extra map data"],
-    ) as HTMLButtonElement;
-    clearMapLayer.addEventListener("click", () => {
-      this.geoDataset = null;
-      this.mapView = null;
-      this.geoJoinValues.clear();
-      this.geoJoinMin = Number.NaN;
-      this.geoJoinMax = Number.NaN;
-      this.geoJoinRequest++;
-      this.mapLayerStatus.textContent = "";
-      this.syncGeoJoinControls();
-      this.render();
-    });
-    this.mapLayerStatus = el("span", { class: "chart-palette-status" });
-    this.mapLayerRow = el("div", { class: "chart-settings hidden" }, [
-      el("span", { class: "chart-field-label" }, ["Regions"]),
-      loadMapLayer,
-      clearMapLayer,
-      this.mapLayerInput,
-      this.mapLayerStatus,
-    ]);
-    this.geoFeatureSelect = this.buildSelect(
-      "chart-picker chart-picker-small",
-      "Region feature property",
-    );
-    this.geoMatchSelect = this.buildSelect(
-      "chart-picker chart-picker-small",
-      "Region dataset column",
-    );
-    this.geoMeasureSelect = this.buildSelect(
-      "chart-picker chart-picker-small",
-      "Region measure",
-    );
-    this.geoAggSelect = this.buildSelect(
-      "chart-picker chart-picker-small",
-      "Region aggregation",
-    );
-    for (const [value, label] of [
-      ["count", "Count"],
-      ["sum", "Sum"],
-      ["mean", "Mean"],
-      ["median", "Median"],
-      ["min", "Min"],
-      ["max", "Max"],
-    ] as const) {
-      this.geoAggSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-    }
-    const geoField = (label: string, select: HTMLSelectElement): HTMLElement =>
-      el("label", { class: "chart-tag" }, [
-        el("span", { class: "chart-tag-label" }, [label]),
-        select,
-      ]);
-    this.geoJoinRow = el("div", { class: "chart-settings hidden" }, [
-      el("span", { class: "chart-field-label" }, ["Colour regions"]),
-      geoField("Feature", this.geoFeatureSelect),
-      geoField("Matches", this.geoMatchSelect),
-      geoField("Measure", this.geoMeasureSelect),
-      geoField("Aggregate", this.geoAggSelect),
-    ]);
-    for (const select of [
-      this.geoFeatureSelect,
-      this.geoMatchSelect,
-      this.geoMeasureSelect,
-      this.geoAggSelect,
-    ]) {
-      select.addEventListener("change", () => {
-        this.refreshGeoJoin();
-        this.render();
-      });
-    }
+    this.regions = this.options.requestRegions === undefined ? null : new MapRegions(this.regionOptions(this.options.requestRegions));
     this.bubbleScaleField = bubbleScaleField;
     this.bubbleSettings = el("div", { class: "chart-bubble-settings hidden" }, [
       this.bubbleTitle,
-      this.mapLayerRow,
-      this.geoJoinRow,
       this.mapModeWrap,
+      ...(this.regions === null ? [] : [this.regions.root]),
       bubbleField,
       bubbleAggField,
       bubbleScaleField,
@@ -3466,8 +3338,8 @@ export class ChartCard {
     this.syncOptions();
     this.syncPlaceholder();
     this.syncSourceControls();
-    this.syncGeoJoinControls();
-    this.refreshGeoJoin();
+    this.regions?.syncColumns();
+    this.regions?.refresh();
     this.renderControls();
     this.refreshBins();
     this.refreshSeries();
@@ -3956,7 +3828,7 @@ export class ChartCard {
     this.refreshAnimation();
     this.refreshCorrelation();
     this.refreshGroupedBins();
-    this.refreshGeoJoin();
+    this.regions?.refresh();
     this.render();
   }
 
@@ -4461,6 +4333,10 @@ export class ChartCard {
     }
     if (kind === "histogram" && this.groupResult === null) {
       this.histogramExtract(facts, table);
+      return done();
+    }
+    if (this.regionsOn()) {
+      this.regions?.extract(facts, table);
       return done();
     }
     if (kind === "map" && this.config.mapMode !== "heat") {
@@ -5451,7 +5327,7 @@ export class ChartCard {
     const aggregateBacked =
       this.usesValueAggregate() ||
       this.config.kind === "treemap" ||
-      (this.config.kind === "map" && this.geoDataset !== null);
+      this.regionsOn();
     this.chartFilterRow.classList.toggle("hidden", !aggregateBacked);
   }
 
@@ -5597,13 +5473,10 @@ export class ChartCard {
     this.yWrap.classList.toggle("hidden", !pair);
     const seriesKind = kind === "scatter" || kind === "density";
     const mapKind = kind === "map";
-    this.mapModeWrap.classList.toggle("hidden", !mapKind);
-    this.mapLayerRow.classList.toggle("hidden", !mapKind);
-    this.geoJoinRow.classList.toggle(
-      "hidden",
-      !mapKind || this.geoDataset === null,
-    );
-    this.colorWrap.classList.toggle("hidden", !seriesKind && !mapKind);
+    this.mapModeWrap.classList.toggle("hidden", !mapKind || this.config.mapMode === "heat" || this.config.mapMode === "regions");
+    this.regions?.root.classList.toggle("hidden", !this.regionsOn());
+    this.syncRegionAxes();
+    this.colorWrap.classList.toggle("hidden", (!seriesKind && !mapKind) || this.regionsOn());
     this.sizeTagLabel.textContent =
       mapKind && this.config.mapMode === "heat" ? "Measure" : "Size";
     this.sizeWrap.classList.toggle(
@@ -5662,7 +5535,7 @@ export class ChartCard {
     this.bubbleSettings.classList.toggle("hidden", !bubbleOnly && !mapKind);
     this.bubbleTitle.textContent = mapKind ? "Map" : "Bubbles";
     this.bubbleScaleField.classList.toggle("hidden", mapKind);
-    this.mapModeSelect.value = this.config.mapMode ?? DEFAULT_MAP_MODE;
+    if (this.config.mapMode !== "heat" && this.config.mapMode !== "regions") this.mapModeSelect.value = this.config.mapMode ?? DEFAULT_MAP_MODE;
     this.syncDotControls(mapKind);
     this.syncKindButton();
     // On a map the grid only matters for the heat view: the plain dots need no cells.
@@ -5778,140 +5651,85 @@ export class ChartCard {
     return colors[index % colors.length] ?? this.primaryColor();
   }
 
-  private joinKey(value: string): string {
-    return value.trim().toLowerCase().replace(/\s+/g, " ");
-  }
-
-  private syncGeoJoinControls(): void {
-    const geo = this.geoDataset;
-    const previousFeature = this.geoFeatureSelect.value;
-    this.geoFeatureSelect.replaceChildren();
-    this.geoFeatureSelect.append(
-      el("option", { value: "" }, ["Feature property"]) as HTMLOptionElement,
-    );
-    if (geo !== null) {
-      const keys = new Set<string>();
-      for (const feature of geo.features) {
-        for (const key of Object.keys(feature.properties)) keys.add(key);
-      }
-      for (const key of [...keys].sort((a, b) => a.localeCompare(b))) {
-        this.geoFeatureSelect.append(el("option", { value: key }, [key]) as HTMLOptionElement);
-      }
-    }
-    if (previousFeature !== "" && [...this.geoFeatureSelect.options].some((o) => o.value === previousFeature)) {
-      this.geoFeatureSelect.value = previousFeature;
-    } else {
-      this.geoFeatureSelect.value = "";
-    }
-
-    const previousMatch = this.geoMatchSelect.value;
-    this.geoMatchSelect.replaceChildren(
-      el("option", { value: "-1" }, ["Choose column"]) as HTMLOptionElement,
-    );
-    this.columns.forEach((meta, index) => {
-      if (!isGroupable(meta) && meta.type !== "string") return;
-      this.geoMatchSelect.append(
-        el("option", { value: String(index) }, [meta.name]) as HTMLOptionElement,
-      );
-    });
-    if ([...this.geoMatchSelect.options].some((o) => o.value === previousMatch)) {
-      this.geoMatchSelect.value = previousMatch;
-    }
-
-    const previousMeasure = this.geoMeasureSelect.value;
-    this.geoMeasureSelect.replaceChildren(
-      el("option", { value: "-1" }, ["Rows"]) as HTMLOptionElement,
-    );
-    this.columns.forEach((meta, index) => {
-      if (!isNumericType(meta.type) && meta.type !== "duration") return;
-      this.geoMeasureSelect.append(
-        el("option", { value: String(index) }, [meta.name]) as HTMLOptionElement,
-      );
-    });
-    if ([...this.geoMeasureSelect.options].some((o) => o.value === previousMeasure)) {
-      this.geoMeasureSelect.value = previousMeasure;
-    }
-
-    // Pick a sensible first match: same-named feature property and column.
-    if (this.geoFeatureSelect.value === "" && this.geoMatchSelect.value === "-1") {
-      const feature = [...this.geoFeatureSelect.options].find((option) => option.value !== "");
-      if (feature !== undefined) {
-        this.geoFeatureSelect.value = feature.value;
-        const match = this.columns.findIndex(
-          (meta) =>
-            (isGroupable(meta) || meta.type === "string") &&
-            this.joinKey(meta.name) === this.joinKey(feature.value),
-        );
-        if (match >= 0) this.geoMatchSelect.value = String(match);
-      }
-    }
-  }
-
-  private refreshGeoJoin(): void {
-    const request = ++this.geoJoinRequest;
-    this.geoJoinValues.clear();
-    this.geoJoinMin = Number.NaN;
-    this.geoJoinMax = Number.NaN;
-    if (this.config.kind !== "map" || this.geoDataset === null) return;
-    const feature = this.geoFeatureSelect.value;
-    const column = Number(this.geoMatchSelect.value);
-    if (feature === "" || !Number.isFinite(column) || column < 0) {
-      this.render();
-      return;
-    }
-    const measure = Number(this.geoMeasureSelect.value);
-    const agg = this.geoAggSelect.value as "count" | "sum" | "mean" | "median" | "min" | "max";
-    const def: ViewDef = {
-      id: `geo-join-${column}`,
-      name: "Map regions",
-      dimensions: [{ column, by: "value" }],
-      measures: [
-        measure >= 0
-          ? { column: measure, agg }
-          : { column: null, agg: "count" },
-      ],
-      fill: "none",
-      sort: { key: "m0", dir: "desc" },
-      limit: 100_000,
-      respectFilters: this.config.respectFilters !== false,
-      filterColumn: this.config.filterColumn ?? -1,
-      filterCode: this.config.filterCode ?? -1,
-      ...(this.excludes().length > 0 ? { exclude: this.excludes() } : {}),
-    };
-    void this.options
-      .requestAggregate(def)
-      .then((result) => {
-        if (request !== this.geoJoinRequest || this.disposed) return;
-        const labels = result.dimensions[0] ?? [];
-        const values = result.measures[0];
-        let min = Infinity;
-        let max = -Infinity;
-        labels.forEach((label, index) => {
-          const value = values?.[index] ?? Number.NaN;
-          if (!Number.isFinite(value)) return;
-          this.geoJoinValues.set(this.joinKey(label), value);
-          if (value < min) min = value;
-          if (value > max) max = value;
-        });
-        this.geoJoinMin = min === Infinity ? Number.NaN : min;
-        this.geoJoinMax = max === -Infinity ? Number.NaN : max;
-        let matched = 0;
-        for (const item of this.geoDataset?.features ?? []) {
-          const raw = item.properties[feature];
-          if (raw !== undefined && raw !== null && this.geoJoinValues.has(this.joinKey(String(raw)))) {
-            matched++;
-          }
-        }
-        const total = this.geoDataset?.features.length ?? 0;
-        const unmatched = total - matched;
-        this.mapLayerStatus.textContent =
-          `${total.toLocaleString()} regions · ${matched.toLocaleString()} matched` +
-          (unmatched > 0 ? ` · ${unmatched.toLocaleString()} unmatched` : "");
+  /** The Map page's regions, told about the card through these. */
+  private regionOptions(requests: RegionRequests): MapRegionsOptions {
+    return {
+      ...requests,
+      columns: () => this.columns,
+      coordinates: () => {
+        const x = this.meta(this.config.x);
+        const y = this.meta(this.config.y);
+        return x !== undefined && y !== undefined && isNumericType(x.type) && isNumericType(y.type) && this.config.x !== this.config.y ? { x: this.config.x, y: this.config.y } : null;
+      },
+      scope: () => this.chartScope(),
+      onLoaded: () => {
+        this.config.mapMode = "regions";
+        this.onMapModeChange?.("regions");
+        this.mapView = null;
+        this.stopAnimation();
+        this.animationResult = null;
+        this.renderControls();
         this.render();
-      })
-      .catch(() => {
-        // Keep the uncoloured regions as the fallback.
-      });
+      },
+      onCleared: () => {
+        this.mapView = null;
+        this.renderControls();
+        this.refreshSeries();
+        this.render();
+      },
+      onChange: () => {
+        this.syncRegionAxes();
+        this.render();
+      },
+      onFrames: (frames, rows) => {
+        if (!this.regionsOn()) return;
+        this.stopAnimation();
+        this.animationFrame = 0;
+        this.animationResult = frames === null ? null : { frames: frames.labels.map((label, index) => ({ label, time: frames.times[index] ?? 0 })), maxCount: 0, total: rows, missing: 0 };
+        this.syncAnimationBar();
+      },
+    };
+  }
+
+  /** What the map shows: markers (one dot per place or per row), a heat grid, or regions. */
+  setMapMode(mode: "points" | "heat" | "places" | "regions"): void {
+    this.config.mapMode = mode;
+    if (mode === "places" || mode === "points") this.mapModeSelect.value = mode;
+    this.gridField.classList.toggle("hidden", mode !== "heat");
+    // A place holds many rows: a number can be averaged across them, a category cannot.
+    const colorMeta = this.meta(this.config.colorColumn);
+    if (this.config.mapMode === "places" && colorMeta !== undefined && !isNumericType(colorMeta.type)) this.config.colorColumn = -1;
+    this.generation++;
+    this.refreshSeries();
+    this.refreshMapGrid();
+    this.refreshAnimation();
+    this.syncSourceControls();
+    this.renderControls();
+    this.render();
+    if (mode === "regions" || mode === "heat") this.setSettingsOpen(true);
+    this.onMapModeChange?.(mode);
+  }
+
+  /** The current kind of map, and news of it changing, for the Map page's picker. */
+  get mapMode(): "points" | "heat" | "places" | "regions" {
+    return this.config.mapMode ?? DEFAULT_MAP_MODE;
+  }
+
+  onMapModeChange: ((mode: "points" | "heat" | "places" | "regions") => void) | null = null;
+
+  /** Regions matched by name need no coordinates, so their columns would only confuse. */
+  private syncRegionAxes(): void {
+    const hide = this.regionsOn() && this.regions?.usesCoordinates !== true;
+    this.xWrap.classList.toggle("hidden", hide);
+    this.yWrap.classList.toggle("hidden", hide);
+    this.onRegionsChange?.(this.regionsOn() && this.regions?.ready === true);
+  }
+
+  /** News for the Map page, whose "no coordinates" notice does not apply to regions. */
+  onRegionsChange: ((showing: boolean) => void) | null = null;
+
+  private regionsOn(): boolean {
+    return this.config.kind === "map" && this.config.mapMode === "regions";
   }
 
   /** Blue for low and red for high on a map coloured by a number, unless a palette was chosen. */
@@ -7047,6 +6865,13 @@ export class ChartCard {
   private refreshAnimation(): void {
     this.stopAnimation();
     const timeColumn = this.config.animationTimeColumn ?? -1;
+    if (this.regionsOn()) {
+      // The regions work out their own values per period; onFrames brings the periods back.
+      if (timeColumn < 0) this.animationResult = null;
+      this.regions?.setTime(timeColumn < 0 ? null : { column: timeColumn, grain: this.config.animationGrain ?? "day" });
+      return;
+    }
+    this.regions?.setTime(null);
     const kind = this.config.kind;
     const animatable =
       kind === "bar" ||
@@ -7438,7 +7263,8 @@ export class ChartCard {
   /** Why this chart cannot step through time right now; null when it can. */
   private animationBlock(): string | null {
     const kind = this.config.kind;
-    if (kind === "map" && !this.animatesPlaces()) return "To animate a map, set Show to One dot per place";
+    if (this.regionsOn()) return this.regions?.ready === true ? (this.columns.some((meta) => this.isDateLike(meta)) ? null : "Animating needs a date or datetime column. If yours was read as text, use Convert types") : "Load a boundary file first";
+    if (kind === "map" && !this.animatesPlaces()) return "To animate a map, set Show to One dot per place or Regions";
     if (!ANIMATED_KINDS.has(kind)) {
       return `${CHART_KIND_LABELS[kind]} charts can't animate. Bar, Bubble, Histogram, Treemap, Density and Map can`;
     }
@@ -9300,7 +9126,7 @@ export class ChartCard {
 
   /** The view for what is plotted alone (regions, heat grid, or the middle 98% of the points). */
   private dataViewOrNull(): MapViewport | null {
-    if (this.geoDataset !== null) return { ...this.geoDataset.bounds };
+    if (this.regionsOn() && this.regions?.bounds != null) return { ...this.regions.bounds };
     if (this.mapGrid !== null) {
       return {
         lonMin: this.mapGrid.xMin,
@@ -9319,8 +9145,7 @@ export class ChartCard {
     let changed = false;
     let binsChanged = false;
     if (this.config.kind === "map" && this.mapView !== null) {
-      this.mapView =
-        this.geoDataset === null ? null : { ...this.geoDataset.bounds };
+      this.mapView = null;
       changed = true;
     }
     if (
@@ -10589,7 +10414,7 @@ export class ChartCard {
     // until the detail module is decoded, so zooming never blocks the map.
     let map = this.basemap;
     let detailNote = "";
-    if (this.geoDataset === null && lonSpan <= DETAIL_LON_SPAN) {
+    if (lonSpan <= DETAIL_LON_SPAN) {
       if (this.detailBasemap !== null) {
         map = this.detailBasemap;
         detailNote = "50m detail";
@@ -10653,84 +10478,7 @@ export class ChartCard {
     ctx.stroke();
     ctx.globalAlpha = 1;
 
-    const custom = this.geoDataset;
-    if (custom !== null) {
-      const rampName = this.config.palette ?? DEFAULT_PALETTE;
-      const ramp = isRampPalette(rampName) ? this.rampStopsFor(rampName) : null;
-      const domain = resolveColorDomain({
-        autoMin: Number.isFinite(this.geoJoinMin) ? this.geoJoinMin : 0,
-        autoMax: Number.isFinite(this.geoJoinMax) ? this.geoJoinMax : 1,
-        min: this.config.colorMin,
-        max: this.config.colorMax,
-        center: this.config.colorCenter,
-      });
-      const property = this.geoFeatureSelect.value;
-      const matchColumn = Number(this.geoMatchSelect.value);
-      for (const feature of custom.features) {
-        let bx0 = Infinity;
-        let by0 = Infinity;
-        let bx1 = -Infinity;
-        let by1 = -Infinity;
-        ctx.beginPath();
-        for (const ring of feature.rings) {
-          for (let i = 0; i < ring.length; i += 2) {
-            const x = px(ring[i] ?? 0);
-            const y = py(ring[i + 1] ?? 0);
-            if (x < bx0) bx0 = x;
-            if (x > bx1) bx1 = x;
-            if (y < by0) by0 = y;
-            if (y > by1) by1 = y;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-          }
-          ctx.closePath();
-        }
-        const raw = property === "" ? undefined : feature.properties[property];
-        const value =
-          raw === undefined || raw === null
-            ? Number.NaN
-            : this.geoJoinValues.get(this.joinKey(String(raw))) ?? Number.NaN;
-        ctx.fillStyle =
-          ramp !== null && Number.isFinite(value)
-            ? colorForFraction(colorFraction(value, domain), ramp, rampColor)
-            : this.primaryColor();
-        ctx.globalAlpha = Number.isFinite(value) ? 0.72 : 0.18;
-        ctx.fill("evenodd");
-        ctx.globalAlpha = 0.8;
-        ctx.strokeStyle = Number.isFinite(value) ? frame.dim : this.primaryColor();
-        ctx.lineWidth = 0.7;
-        ctx.stroke();
-
-        if (bx1 > bx0 && by1 > by0) {
-          const lines = [feature.label];
-          if (property !== "" && raw !== undefined && raw !== null) {
-            lines.push(`${property}: ${String(raw)}`);
-          }
-          if (Number.isFinite(value)) lines.push(formatChartNumber(value));
-          else if (property !== "") lines.push("No matching rows");
-          const actions: HitAction[] = [];
-          const matchMeta = this.meta(matchColumn);
-          if (matchColumn >= 0 && matchMeta !== undefined && raw !== undefined && raw !== null) {
-            const text = String(raw);
-            if (isGroupable(matchMeta)) {
-              const code = matchMeta.categories?.labels.indexOf(text) ?? -1;
-              if (code >= 0) actions.push({ kind: "values", column: matchColumn, code });
-            } else if (matchMeta.type === "string") {
-              actions.push({ kind: "text", column: matchColumn, query: text });
-            }
-          }
-          this.hitRegions.push({
-            x: bx0,
-            y: by0,
-            w: bx1 - bx0,
-            h: by1 - by0,
-            lines,
-            actions,
-          });
-        }
-      }
-      ctx.globalAlpha = 1;
-    } else {
+    {
       // Land polygons: one fill path, then one stroke path for the coast.
       ctx.beginPath();
       for (const ring of map.land) {
@@ -10772,6 +10520,30 @@ export class ChartCard {
     }
 
     const ui = frame.ui;
+    const regions = this.regions;
+    if (regions !== null && regions.ready) {
+      const period = this.regionsOn() && this.animationResult !== null ? Math.min(this.animationFrame, this.animationResult.frames.length - 1) : 0;
+      const hits = regions.draw(ctx, frame, view, { outline: !this.regionsOn(), frame: period });
+      if (this.regionsOn()) this.hitRegions.push(...hits);
+    }
+    if (this.regionsOn()) {
+      ctx.restore();
+      const label = this.animationResult?.frames[Math.min(this.animationFrame, this.animationResult.frames.length - 1)]?.label;
+      if (label !== undefined) {
+        this.font(ctx, ui, 13, "600");
+        const width = ctx.measureText(label).width;
+        ctx.fillStyle = this.plateColor();
+        ctx.globalAlpha = 0.9;
+        ctx.fillRect(frame.left + 8 * ui, frame.top + 8 * ui, width + 12 * ui, 22 * ui);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = frame.text;
+        ctx.fillText(label, frame.left + 14 * ui, frame.top + 24 * ui);
+      }
+      if (regions?.ready === true) regions.drawLegend(ctx, frame, this.plateColor(), (size, weight) => this.font(ctx, ui, size, weight));
+      else this.drawPlotMessage(ctx, frame, "Load a boundary file in the settings: a GeoJSON or a zipped Shapefile");
+      this.noteEl.textContent = `${regions?.note(this.animationResult === null ? 0 : this.animationFrame) ?? "Regions need a boundary file."}${detailNote === "" ? "" : ` · ${detailNote}`} · scroll to zoom · drag to pan · double-click resets`;
+      return;
+    }
     if (this.config.mapMode === "heat") {
       const grid = this.mapGrid;
       if (grid === null) {
@@ -12513,7 +12285,7 @@ export class ChartCard {
   }
 
   private syncDotControls(mapKind: boolean): void {
-    const heat = this.config.mapMode === "heat";
+    const heat = this.config.mapMode === "heat" || this.config.mapMode === "regions";
     this.dotSettings.classList.toggle("hidden", !mapKind || heat);
     if (!mapKind || heat) return;
     const sized = this.dotsAreSized();

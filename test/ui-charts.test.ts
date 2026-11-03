@@ -2753,7 +2753,7 @@ test("a map heat grid aggregates a measure per cell", async () => {
 
   const mode = host.querySelector('select[aria-label="Map display mode"]') as HTMLSelectElement;
   assert.ok(mode !== null, "the display mode control exists");
-  assert.equal(mode.value, "heat");
+  assert.equal(card.mapMode, "heat");
   card.dispose();
 });
 
@@ -3015,8 +3015,6 @@ test("map cards expose visible zoom/fit controls and clearer layer labels", asyn
   );
   assert.deepEqual(labels, ["Zoom the map in", "Zoom the map out", "Fit the map to what is plotted and your markers"]);
   const settings = host.querySelector(".chart-bubble-settings")?.textContent ?? "";
-  assert.match(settings, /Load extra map data/);
-  assert.match(settings, /Clear extra map data/);
   card.dispose();
 });
 
@@ -3085,7 +3083,7 @@ test("a map shows one dot per place unless told otherwise, and says so first in 
   assert.equal(card.getConfig().mapMode ?? "places", "places");
   const mode = host.querySelector('select[aria-label="Map display mode"]') as HTMLSelectElement;
   assert.equal(mode.value, "places");
-  assert.deepEqual([...mode.options].map((o) => o.textContent), ["One dot per place", "One dot per row", "Heat grid"]);
+  assert.deepEqual([...mode.options].map((o) => o.textContent), ["One dot per place", "One dot per row"]);
   assert.ok(requests.some((r) => r.places !== undefined), "the worker is asked for places");
   card.dispose();
 });

@@ -17,6 +17,8 @@ import type { DistributionChange } from "../data/distribution.js";
 import type { SimilarClusterEntry } from "../data/similar-clusters.js";
 import type { AnimationResult } from "../data/chart-frames.js";
 import type { BootstrapProgress, IntervalKind } from "../data/error-bars.js";
+import type { GeoDataset, GeoFeature } from "../data/geo-file.js";
+import type { JoinSuggestion, RegionAgg, RegionShape, RegionValues } from "../data/regions.js";
 import type { GridCountsResult } from "../data/chart-stats.js";
 import type { TimeGrain } from "../data/aggregate.js";
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
@@ -989,6 +991,62 @@ export interface GridCountsMessage {
   ms: number;
 }
 
+/** The boundaries to match rows against, or none. */
+export type SetRegionsRequest = {
+  type: "setRegions";
+  requestId: number;
+  features: GeoFeature[] | null;
+  bounds: GeoDataset["bounds"];
+};
+
+/** A boundary file, as the page needs it. */
+export interface RegionsLoadedMessage {
+  fileName: string;
+  shapes: RegionShape[];
+  tolerances: number[];
+  bounds: GeoDataset["bounds"];
+  crs: GeoDataset["crs"];
+  layers: GeoDataset["layers"];
+  layer: string;
+  labelProperty: string | null;
+  points: number;
+  ms: number;
+  /** Set when the file could not be placed on the Earth without being told what its numbers are. */
+  crsNeeded?: string;
+}
+
+export type SuggestRegionJoinRequest = { type: "suggestRegionJoin"; requestId: number };
+
+export interface JoinSuggestionsMessage {
+  type: "regionJoinSuggestions";
+  requestId: number;
+  suggestions: JoinSuggestion[];
+}
+
+export interface RegionValuesRequestInput {
+  mode: "name" | "location";
+  property: string;
+  column: number;
+  xColumn: number;
+  yColumn: number;
+  /** -1 counts rows. */
+  measure: number;
+  agg: RegionAgg;
+  timeColumn?: number;
+  grain?: TimeGrain;
+  chartFilter?: { column: number; code: number };
+  chartExclude?: ChartExclusion[];
+  respectFilters?: boolean;
+}
+
+export type GetRegionValuesRequest = RegionValuesRequestInput & { type: "getRegionValues"; requestId: number };
+
+export interface RegionValuesMessage extends RegionValues {
+  type: "regionValues";
+  requestId: number;
+  ms: number;
+}
+
 /** Error bars for the first measure of a chart's aggregate; progress streams back while resampling. */
 export type GetErrorBarsRequest = {
   type: "getErrorBars";
@@ -1226,7 +1284,10 @@ export type WorkerRequest =
   | CountPairRequest
   | GetGridCountsRequest
   | GetAnimationRequest
-  | GetErrorBarsRequest;
+  | GetErrorBarsRequest
+  | SetRegionsRequest
+  | SuggestRegionJoinRequest
+  | GetRegionValuesRequest;
 
 export interface FileImportMeta {
   name: string;
@@ -1491,6 +1552,8 @@ export type WorkerResponse =
   | AnimationMessage
   | ErrorBarsProgressMessage
   | ErrorBarsMessage
+  | JoinSuggestionsMessage
+  | RegionValuesMessage
   | ExportStartedMessage
   | ChartGroupsMessage
   | CsvChunkMessage

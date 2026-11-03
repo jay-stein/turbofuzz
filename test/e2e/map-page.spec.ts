@@ -151,7 +151,7 @@ test("the heat grid setting only shows for the heat view, and says how big each 
   await openMap(page);
   const grid = page.locator(".map-page .chart-field", { hasText: "Heat cells" });
   await expect(grid).toBeHidden();
-  await page.locator(".map-page select:visible").filter({ has: page.locator('option[value="heat"]') }).first().selectOption("heat");
+  await page.getByRole("radio", { name: "Heat grid" }).click();
   await expect(grid).toBeVisible();
   await expect(grid).toContainText(/each cell ≈ [\d.]+° × [\d.]+°/);
 });

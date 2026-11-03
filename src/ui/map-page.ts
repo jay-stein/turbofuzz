@@ -8,7 +8,7 @@
 import { detectGeoPair } from "../data/geo.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import type { ChartCard, ChartCardConfig } from "./chart-card.js";
-import { el } from "./dom.js";
+import { el, svgIcon } from "./dom.js";
 import { loadCities } from "../data/cities.js";
 import { cityOverlay } from "./map-cities.js";
 import { createMarkersPanel, type MarkersState } from "./map-markers-panel.js";
@@ -34,8 +34,34 @@ export interface MapPageHandle {
 export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPageHandle {
   host.classList.add("map-page");
   const sub = el("span", { class: "map-sub" });
+  // What kind of map: pictures, as the Chart page has for its chart types.
+  type MapType = "markers" | "heat" | "regions";
+  const typeButtons = new Map<MapType, HTMLButtonElement>();
+  const typeOf = (mode: string | undefined): MapType => (mode === "heat" ? "heat" : mode === "regions" ? "regions" : "markers");
+  const syncType = (mode: string | undefined): void => {
+    for (const [type, button] of typeButtons) {
+      const on = type === typeOf(mode);
+      button.classList.toggle("active", on);
+      button.setAttribute("aria-checked", String(on));
+    }
+  };
+  const typePicker = el("div", { class: "map-types", role: "radiogroup", "aria-label": "Kind of map" });
+  for (const [type, label, title, picture] of [
+    ["markers", "Markers", "A dot for each place or row, sized and coloured by your data", '<circle cx="8" cy="15" r="3.2"/><circle cx="15" cy="8" r="4.6"/><circle cx="18" cy="17" r="2.2"/><circle cx="6.5" cy="7" r="1.8"/>'],
+    ["heat", "Heat grid", "A grid over the map, each cell coloured by the rows in it", '<rect x="3" y="3" width="5.5" height="5.5" opacity=".3"/><rect x="9.25" y="3" width="5.5" height="5.5" opacity=".6"/><rect x="15.5" y="3" width="5.5" height="5.5" opacity=".3"/><rect x="3" y="9.25" width="5.5" height="5.5" opacity=".6"/><rect x="9.25" y="9.25" width="5.5" height="5.5"/><rect x="15.5" y="9.25" width="5.5" height="5.5" opacity=".6"/><rect x="3" y="15.5" width="5.5" height="5.5" opacity=".15"/><rect x="9.25" y="15.5" width="5.5" height="5.5" opacity=".6"/><rect x="15.5" y="15.5" width="5.5" height="5.5" opacity=".3"/>'],
+    ["regions", "Choropleth", "Regions from a boundary file, each coloured by a value", '<path d="M3 4l7-1 2 6-4 4-5-2z" opacity=".35"/><path d="M12 3l9 2-1 7-7-1-1.5-2z" opacity=".95"/><path d="M3 12.5l5 2 1 6.5-5-1z" opacity=".6"/><path d="M9.5 14.5l3.5-2.3 7 1-1 7-8.5.8z" opacity=".75"/>'],
+  ] as const) {
+    const button = el("button", { class: "map-type", type: "button", role: "radio", title, "aria-checked": "false" }, [
+      svgIcon(picture, "map-type-icon"),
+      el("span", {}, [label]),
+    ]) as HTMLButtonElement;
+    button.addEventListener("click", () => card?.setMapMode(type === "markers" ? "places" : type));
+    typeButtons.set(type, button);
+    typePicker.append(button);
+  }
   const toolbar = el("div", { class: "map-toolbar" }, [
     el("h2", { class: "map-title" }, ["Map"]),
+    typePicker,
     sub,
   ]);
 
@@ -129,6 +155,12 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   let datasetKey = "";
   let pending: Partial<ChartCardConfig> | null = null;
 
+  let noCoordinates = false;
+  let regionsShowing = false;
+  function syncEmpty(): void {
+    empty.classList.toggle("hidden", !noCoordinates || regionsShowing);
+  }
+
   function coordinateNames(config: ChartCardConfig): string {
     const lat = metas[config.y]?.name, lon = metas[config.x]?.name;
     return lat !== undefined && lon !== undefined ? `${lat} / ${lon}` : "";
@@ -152,16 +184,23 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     if (card === null) {
       card = options.createCard(cardHost, { ...(pending !== null && valid(pending) ? pending : auto), kind: "map" });
       card.canvasHost.prepend(dock);
+      card.onMapModeChange = syncType;
+      syncType(card.mapMode);
+      card.onRegionsChange = (showing) => {
+        regionsShowing = showing;
+        syncEmpty();
+      };
       applyMarkers();
       void applyCities();
     }
     pending = null;
     const names = coordinateNames(card.getConfig());
-    empty.classList.toggle("hidden", names !== "");
+    noCoordinates = names === "";
+    syncEmpty();
     if (names === "") {
       empty.replaceChildren(
         el("p", {}, [
-          "No latitude and longitude columns found, so the map shows your markers only. To plot rows, the table needs two number columns in degrees: a latitude (-90 to 90) and a longitude (-180 to 180), found by name (lat, latitude, lon, lng, longitude) or by range.",
+          "No latitude and longitude columns found, so the map shows your markers only. To plot rows, the table needs two number columns in degrees: a latitude (-90 to 90) and a longitude (-180 to 180), found by name (lat, latitude, lon, lng, longitude) or by range. A table of named places can still be mapped: set Show to Regions and load a boundary file.",
         ]),
       );
     }

@@ -1,5 +1,6 @@
+import type { GeoWorkerReply, GeoWorkerRequest } from "../worker/geo.worker.js";
 import type { IntervalKind } from "../data/error-bars.js";
-import type { ErrorBarsMessage, ErrorBarsProgressMessage } from "../worker/protocol.js";
+import type { ErrorBarsMessage, ErrorBarsProgressMessage, JoinSuggestionsMessage, RegionsLoadedMessage, RegionValuesMessage, RegionValuesRequestInput } from "../worker/protocol.js";
 import type { TsConfig, TsMode } from "../data/timeseries/aggregate.js";
 import type { ModelKey } from "../data/timeseries/models.js";
 import type { HeaderLayout } from "../parse/header-detect.js";
@@ -122,6 +123,7 @@ export class SearchWorkerClient {
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;
   private progressHandler: ((message: ProgressMessage) => void) | null = null;
+  private geoWorker: Worker | null = null;
   private crashHandler: (() => void) | null = null;
   /** The load whose progress the UI may show; prevents stale-load flicker. */
   private currentLoadId: number | null = null;
@@ -541,6 +543,51 @@ export class SearchWorkerClient {
     respectFilters?: boolean;
   }): Promise<AnimationMessage> {
     return this.request<AnimationMessage>({ type: "getAnimation", ...input });
+  }
+
+  /**
+   * A boundary file, read on its own thread, started the first time one is loaded. The page keeps the drawing levels; the
+   * search worker gets the full shapes, for finding which region a row is in.
+   */
+  loadRegions(input: { buffer?: ArrayBuffer; fileName?: string; crs?: string; layer?: string }): Promise<RegionsLoadedMessage> {
+    this.geoWorker ??= new Worker(new URL("../worker/geo.worker.ts", import.meta.url), { type: "module" });
+    const geoWorker = this.geoWorker;
+    const id = this.nextId++;
+    return new Promise<RegionsLoadedMessage>((resolve, reject) => {
+      const onMessage = (event: MessageEvent<GeoWorkerReply>): void => {
+        const reply = event.data;
+        if (reply.id !== id) return;
+        geoWorker.removeEventListener("message", onMessage);
+        if (!reply.ok) {
+          if ("crsNeeded" in reply) {
+            resolve({ fileName: reply.fileName, shapes: [], tolerances: [], bounds: { lonMin: 0, lonMax: 0, latMin: 0, latMax: 0 }, crs: { label: "", source: "file", converted: false }, layers: [], layer: "", labelProperty: null, points: 0, ms: 0, crsNeeded: reply.crsNeeded });
+          } else {
+            reject(new Error(reply.error));
+          }
+          return;
+        }
+        const { geo } = reply;
+        this.worker.postMessage(
+          { type: "setRegions", requestId: this.nextId++, features: geo.features, bounds: geo.bounds } as WorkerRequest,
+          geo.features.flatMap((feature) => feature.rings.map((ring) => ring.buffer as ArrayBuffer)),
+        );
+        resolve({ fileName: reply.fileName, shapes: reply.shapes, tolerances: reply.tolerances, bounds: geo.bounds, crs: geo.crs, layers: geo.layers, layer: geo.layer, labelProperty: reply.labelProperty, points: reply.points, ms: reply.ms });
+      };
+      geoWorker.addEventListener("message", onMessage);
+      geoWorker.postMessage({ id, ...input } satisfies GeoWorkerRequest, input.buffer === undefined ? [] : [input.buffer]);
+    });
+  }
+
+  clearRegions(): void {
+    this.worker.postMessage({ type: "setRegions", requestId: this.nextId++, features: null, bounds: { lonMin: 0, lonMax: 0, latMin: 0, latMax: 0 } } as WorkerRequest);
+  }
+
+  suggestRegionJoin(): Promise<JoinSuggestionsMessage> {
+    return this.request<JoinSuggestionsMessage>({ type: "suggestRegionJoin" });
+  }
+
+  getRegionValues(input: RegionValuesRequestInput): Promise<RegionValuesMessage> {
+    return this.request<RegionValuesMessage>({ type: "getRegionValues", ...input });
   }
 
   /** Error bars for a chart's aggregate: the result, progress while resampling, and a way to stop. */
