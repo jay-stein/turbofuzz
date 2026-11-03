@@ -4,6 +4,17 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-03-16 — KNN fill you can choose, test, inspect and undo
+
+- **Status:** Verified (unit, e2e, browser on melb_house_data.csv)
+- **Related issue / decision:** owner: KNN was hard to find; the setup was tickboxes that let the column being filled be its own predictor; no guidance on k; no way to see which cells were filled or whether it did well; undo was only in the Recipe; Data Quality decisions left no trace in the Recipe; KNN was numeric only.
+- **What changed:** Fix: empty cells now offers "Fill from similar rows (KNN)". One dialog: the column to fill; a searchable list of the other columns ranked by how strongly each goes with it (rank correlation, correlation ratio, Cramér's V), Recommended ones ticked, the column itself, ID-like, date and many-valued columns greyed out with the reason; k with a test that hides 20% of the known values (up to 1,500), fills them back for k = 1..50 and charts the error against the median, suggesting the smallest k within 3% of the best; a plain verdict and a preview of what it would write with the rows copied from. After the fill: the cells are highlighted (Show changes), a card lists some with Show in table, and Undo this fill. Text columns can be filled (vote among the nearest rows) and category columns can be predictors; small numeric text columns such as Rooms count as numbers. New Undo button and Ctrl+Z reverse the latest Recipe action. Data Quality decisions (Not a problem, optional or required) are Recipe entries that can be put back.
+- **Not included:** Redo; the pandas/Polars export of KNN is still a manual-step comment; highlight is kept only while the KNN step is the last transform.
+- **Files / components changed:** src/data/knn.ts, transform-ops.ts; src/worker/protocol.ts, search.worker.ts; src/ui/knn-dialog.ts (new), app.ts, steps-panel.ts, optional-marks.ts, worker-client.ts, transform-panel.ts, help-content.ts, styles.css; test/knn.test.ts, test/e2e/knn-fill.spec.ts, undo.spec.ts
+- **Tests run and results:** unit 1360 pass (7 new); e2e knn-fill, undo pass. On 13,580 rows: test 0.2 s, fill 0.9 s; BuildingArea error 32 against 56 for the median.
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
 ### CHG-2026-11-03-15 — Forecast page answers three questions first
 
 - **Status:** Verified (unit, e2e, browser on ice_cream_interest.csv)

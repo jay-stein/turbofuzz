@@ -25,6 +25,7 @@ import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import type { SeriesMode, SeriesResult } from "../data/chart-series.js";
 import type { BoxStatsResult, CorrelationResult, CrossTabResult } from "../data/chart-stats.js";
 import type { CleanOp } from "../data/clean-ops.js";
+import type { KnnEvaluation, KnnPredictorScore } from "../data/knn.js";
 import type { HistogramData, NullTokenCount } from "../data/column.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import type { HeaderLayout } from "../parse/header-detect.js";
@@ -584,6 +585,22 @@ export type TransformRequest = {
   type: "transform";
   requestId: number;
   ops: TransformOp[];
+};
+
+export type KnnPlanRequest = {
+  type: "knnPlan";
+  requestId: number;
+  /** The column whose empty cells would be filled. */
+  target: number;
+};
+
+export type KnnEvaluateRequest = {
+  type: "knnEvaluate";
+  requestId: number;
+  target: number;
+  predictors: number[];
+  /** The k the preview rows are filled with. */
+  previewK: number;
 };
 
 export type PreviewTransformRequest = {
@@ -1261,6 +1278,8 @@ export type WorkerRequest =
   | RenameHeadersRequest
   | CleanColumnsRequest
   | TransformRequest
+  | KnnPlanRequest
+  | KnnEvaluateRequest
   | PreviewTransformRequest
   | PreviewCleanRequest
   | SetNullPolicyRequest
@@ -1339,6 +1358,22 @@ export interface TransformedMessage extends DatasetMessage {
   type: "transformed";
   ops: TransformOp[];
   baseSchema: ColumnSchema[];
+  /** Cells a KNN fill just wrote and the table should highlight (when that was the last step). */
+  changedTotal?: number;
+}
+
+export interface KnnPlanMessage {
+  type: "knnPlan";
+  requestId: number;
+  /** Empty cells in the target column. */
+  missing: number;
+  scores: KnnPredictorScore[];
+}
+
+export interface KnnEvaluationMessage {
+  type: "knnEvaluation";
+  requestId: number;
+  evaluation: KnnEvaluation | null;
 }
 
 export interface ResultsMessage {
@@ -1566,5 +1601,7 @@ export type WorkerResponse =
   | HeadersRenamedMessage
   | CleanedMessage
   | TransformPreviewMessage
+  | KnnPlanMessage
+  | KnnEvaluationMessage
   | CleanPreviewMessage
   | ErrorMessage;

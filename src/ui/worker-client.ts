@@ -81,6 +81,8 @@ import type {
   SensitiveDoneMessage,
   TransformedMessage,
   TransformPreviewMessage,
+  KnnPlanMessage,
+  KnnEvaluationMessage,
   WorkerRequest,
   WorkerResponse,
 } from "../worker/protocol.js";
@@ -634,6 +636,14 @@ export class SearchWorkerClient {
 
   transform(ops: TransformOp[]): Promise<TransformedMessage> {
     return this.request<TransformedMessage>({ type: "transform", ops });
+  }
+
+  knnPlan(target: number): Promise<KnnPlanMessage> {
+    return this.request<KnnPlanMessage>({ type: "knnPlan", target });
+  }
+
+  knnEvaluate(target: number, predictors: number[], previewK: number): Promise<KnnEvaluationMessage> {
+    return this.request<KnnEvaluationMessage>({ type: "knnEvaluate", target, predictors, previewK });
   }
 
   previewTransform(ops: TransformOp[]): Promise<TransformPreviewMessage> {

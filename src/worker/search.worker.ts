@@ -38,7 +38,8 @@ import {
 } from "../data/clean-ops.js";
 import { castColumn } from "../data/cast-ops.js";
 import type { Dataset } from "../data/dataset.js";
-import { applyTransformOps, type TransformOp } from "../data/transform-ops.js";
+import { applyTransformOps, takeKnnFilled, type TransformOp } from "../data/transform-ops.js";
+import { knnEvaluate, knnPredictorScores } from "../data/knn.js";
 import { binValues, groupedBinValues } from "../data/chart-bins.js";
 import { buildTable, type TsInput } from "../data/timeseries/base.js";
 import { defaultConfig, sanitizeTsConfig, TsEngine } from "../data/timeseries/engine.js";
@@ -138,6 +139,8 @@ import type {
   SuggestRegionJoinRequest,
   LoadRequest,
   PreviewCleanRequest,
+  KnnEvaluateRequest,
+  KnnPlanRequest,
   PreviewTransformRequest,
   RenameHeadersRequest,
   ResolveNullsAllRequest,
@@ -570,6 +573,12 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "previewTransform":
       handlePreviewTransform(message);
+      break;
+    case "knnPlan":
+      handleKnnPlan(message);
+      break;
+    case "knnEvaluate":
+      handleKnnEvaluate(message);
       break;
     case "previewClean":
       handlePreviewClean(message);
@@ -3279,6 +3288,7 @@ function handleTransform(message: TransformRequest): void {
       clearExclusions();
     }
     baseColumns = transformSource.columns;
+    takeKnnFilled();
     next = applyTransformOps(transformSource.name, transformSource.columns, message.ops);
     transformOps = message.ops;
   }
@@ -3302,6 +3312,23 @@ function handleTransform(message: TransformRequest): void {
   histogramCache.clear();
   // Transforms change the row set, so previous cell-change positions are void.
   resetChangedCells();
+  // A KNN fill as the last step leaves its cells highlighted: it never changes which rows exist.
+  const knnFilled = takeKnnFilled();
+  if (knnFilled !== null && message.ops[message.ops.length - 1]?.kind === "knn") {
+    for (const [column, flags] of knnFilled) {
+      const mask = new BitSet(flags.length);
+      let count = 0;
+      for (let row = 0; row < flags.length; row++) {
+        if (flags[row] === 1) {
+          mask.set(row);
+          count++;
+        }
+      }
+      if (count === 0) continue;
+      changedMasks.set(column, mask);
+      changedTotalCells += count;
+    }
+  }
 
   const started = performance.now();
   reversedOrder = false;
@@ -3325,6 +3352,39 @@ function handleTransform(message: TransformRequest): void {
     ragged: datasetRagged,
     ops: transformOps,
     baseSchema,
+    changedTotal: changedTotalCells,
+  });
+}
+
+/** What the person is looking at now, with removed rows left out: the data a fill would read. */
+function knnBase(): Dataset {
+  const { dataset: current } = state();
+  return excludedIds.size > 0 ? datasetWithoutExcluded(current) : current;
+}
+
+/** Which other columns can help fill this one, and how strongly each goes with it. */
+function handleKnnPlan(message: KnnPlanRequest): void {
+  const base = knnBase();
+  const target = base.columns[message.target];
+  let missing = 0;
+  if (target !== undefined) {
+    for (let row = 0; row < target.raw.length; row++) if (target.isNull(target.raw[row])) missing++;
+  }
+  post({
+    type: "knnPlan",
+    requestId: message.requestId,
+    missing,
+    scores: knnPredictorScores(base.columns, message.target),
+  });
+}
+
+/** Tests a fill on known values, and previews what it would write. */
+function handleKnnEvaluate(message: KnnEvaluateRequest): void {
+  const base = knnBase();
+  post({
+    type: "knnEvaluation",
+    requestId: message.requestId,
+    evaluation: knnEvaluate(base.columns, message.target, message.predictors, { previewK: message.previewK }),
   });
 }
 

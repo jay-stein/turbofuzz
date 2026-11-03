@@ -36,7 +36,6 @@ const TRANSFORM_TYPES: readonly { value: string; label: string }[] = [
   { value: "round", label: "Round a column" },
   { value: "groupBy", label: "Group by & aggregate" },
   { value: "impute", label: "Fill missing values" },
-  { value: "knn", label: "KNN impute (numeric)" },
   { value: "melt", label: "Melt (wide → long)" },
   { value: "combineDate", label: "Combine date/time columns" },
   { value: "splitColumn", label: "Split a column into new columns" },

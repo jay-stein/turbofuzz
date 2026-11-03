@@ -14,6 +14,7 @@ import { detectTable, type HeaderLayout } from "../parse/header-detect.js";
 import { openHeaderRowDialog } from "./header-row-dialog.js";
 import { openProtectDialog, type ProtectMode } from "./protect-dialog.js";
 import { openFixPreview } from "./fix-preview-dialog.js";
+import { openKnnDialog, openKnnResult } from "./knn-dialog.js";
 import { buildColumnHealth, buildIssues, type FixStep, type PageIssue } from "../data/dq-issues.js";
 import { columnsIgnoring, idLikeColumns, nearDuplicateFinding } from "../data/near-duplicates.js";
 import { maskValue } from "../data/mask-value.js";
@@ -4762,8 +4763,8 @@ export class App {
       reviewedList: () => Object.entries(getReviewed(this.datasetName)).map(([id, mark]) => ({ id, title: mark.title, rows: mark.rows })),
       onRestoreReviewed: (id) => {
         clearReviewed(this.datasetName, id);
-        this.refreshScore();
         this.updateStepsButton();
+        this.refreshScore();
         this.setAction("Put back: it counts in the score again.");
       },
       buildRulesPanel: () => this.rulesPanel(),
@@ -4778,8 +4779,8 @@ export class App {
       maskedColumns: () => this.maskedColumns(),
       onOptionalChange: (name, optional) => {
         setOptionalMark(name, optional);
-        this.refreshScore();
         this.updateStepsButton();
+        this.refreshScore();
       },
       onOpenColumn: (column, anchor) => this.openColumnInspector(column, anchor),
       onShowAffectedRows: () => this.showAffectedRows(),
@@ -4916,8 +4917,8 @@ export class App {
     if (issue.check === undefined) return;
     setReviewed(this.datasetName, issue.check.id, { rows: issue.check.fail, title: issue.title });
     this.refreshScore();
-    this.setAction(`Set aside: ${issue.title}. It stays out of the score unless more rows are affected.`);
     this.updateStepsButton();
+    this.setAction(`Set aside: ${issue.title}. It stays out of the score unless more rows are affected.`);
   }
 
   /** The table drill-down behind an issue: its check's rows, or its finding's action. */
@@ -6535,6 +6536,14 @@ export class App {
       });
     }
     const first = ranked[0];
+    const knnTarget = ranked.find((entry) => entry.meta.type !== "identifier" && entry.meta.type !== "date" && entry.meta.type !== "datetime");
+    if (knnTarget !== undefined) {
+      items.push({
+        label: `Fill from similar rows (KNN)${ranked.length > 1 ? "…" : ` — “${knnTarget.meta.name}”…`}`,
+        title: "Fill empty cells from the most similar rows, on columns you choose, with a test of how well it does",
+        action: () => void this.openKnnFill(knnTarget.index),
+      });
+    }
     items.push({
       label: "More fill methods…",
       title: "Most common value, previous/next, a constant, KNN, or fill by group",
@@ -7280,15 +7289,6 @@ export class App {
         : `Undo the last change (Ctrl+Z): ${last.length === 1 ? last[0].split("|")[2] : `${last.length} steps`}`;
   }
 
-  /** Reverses the most recent action in the Recipe: every step it added, in one go. */
-  private undoLastStep(): void {
-    const action = this.stepActions[this.stepActions.length - 1];
-    if (action === undefined) return;
-    const entries = this.stepEntries();
-    const taken = new Set<number>();
-    const picked: StepsPanelEntry[] = [];
-    for (const key of action) {
-      for (let index = entries.length - 1; index >= 0; index--) {
   /** Puts a Data Quality decision back: the issue counts in the score again, the column is judged as before. */
   private undoReview(ref: string): void {
     if (ref.startsWith("reviewed:")) {
@@ -7302,6 +7302,15 @@ export class App {
     this.refreshScore();
   }
 
+  /** Reverses the most recent action in the Recipe: every step it added, in one go. */
+  private undoLastStep(): void {
+    const action = this.stepActions[this.stepActions.length - 1];
+    if (action === undefined) return;
+    const entries = this.stepEntries();
+    const taken = new Set<number>();
+    const picked: StepsPanelEntry[] = [];
+    for (const key of action) {
+      for (let index = entries.length - 1; index >= 0; index--) {
         if (!taken.has(index) && this.stepKey(entries[index]) === key) {
           taken.add(index);
           picked.push(entries[index]);
@@ -7326,6 +7335,7 @@ export class App {
       this.typeEdits.splice(entry.opIndex, 1);
       this.changeType(entry.column, edit.previous, false);
     }
+    for (const entry of picked.filter((candidate) => candidate.kind === "review")) this.undoReview(entry.ref ?? "");
     if (picked.some((entry) => entry.kind === "rows")) void this.restoreExcludedRows();
     this.updateStepsButton();
     this.showToast(`Undid: ${label}`);
@@ -7335,7 +7345,6 @@ export class App {
     this.trackSteps(this.stepEntries());
     const groups = groupSteps(this.stepEntries());
     const count = groups.length;
-    for (const entry of picked.filter((candidate) => candidate.kind === "review")) this.undoReview(entry.ref ?? "");
     this.stepsButton.textContent = count === 0 ? "Recipe" : `Recipe (${count})`;
     this.stepsButton.disabled = count === 0;
     this.stepsButton.title =
@@ -7371,15 +7380,6 @@ export class App {
         groupSize: this.nullEdits.length,
       });
     }
-    for (let index = 0; index < this.typeEdits.length; index++) {
-      const edit = this.typeEdits[index];
-      entries.push({
-        kind: "type",
-        label: edit.label,
-        detail: edit.detail,
-        column: edit.column,
-        opIndex: index,
-        groupSize: this.typeEdits.length,
     // Data Quality decisions: they change no data, but they change the score, so they belong in the record.
     const reviewed = Object.entries(getReviewed(this.datasetName));
     const optional = Object.entries(getOptionalMarks());
@@ -7407,6 +7407,15 @@ export class App {
         ref: `optional:${name}`,
       });
     }
+    for (let index = 0; index < this.typeEdits.length; index++) {
+      const edit = this.typeEdits[index];
+      entries.push({
+        kind: "type",
+        label: edit.label,
+        detail: edit.detail,
+        column: edit.column,
+        opIndex: index,
+        groupSize: this.typeEdits.length,
       });
     }
     const schema =
@@ -7495,6 +7504,7 @@ export class App {
         this.changeType(column, edit.previous, false);
         this.updateStepsButton();
       },
+      onUndoReview: (ref) => this.undoReview(ref),
       onUndoBatch: (batch) => this.undoBatch(batch),
       onClearAll: () => {
         if (this.transformOps.length > 0) this.applyTransform([]);
@@ -7504,7 +7514,6 @@ export class App {
           );
         }
         for (let i = this.nullEdits.length - 1; i >= 0; i--) {
-      onUndoReview: (ref) => this.undoReview(ref),
           const edit = this.nullEdits[i];
           if (edit.all === true) this.applyNullPolicyAll([], [], { record: false });
           else this.applyNullPolicy(edit.column, edit.previousExtra, edit.previousKeep, { record: false });
@@ -7998,6 +8007,10 @@ export class App {
 
   private openTransform(preset?: { type: string; column?: number }): void {
     if (this.datasetName === "" || this.loading) return;
+    if (preset?.type === "knn") {
+      void this.openKnnFill(preset.column);
+      return;
+    }
     const baseSchema =
       this.transformBaseSchema.length > 0
         ? this.transformBaseSchema
@@ -8017,13 +8030,19 @@ export class App {
     );
   }
 
-  private applyTransform(ops: TransformOp[], action?: string): void {
+  private applyTransform(
+    ops: TransformOp[],
+    action?: string,
+    after?: (message: TransformedMessage) => void,
+  ): void {
     const before = this.rowCount;
     this.queueSend(() =>
       this.client
         .transform(ops)
         .then((message) => {
           this.openWorkspace(message);
+          // A KNN fill as the last step leaves its cells highlighted.
+          this.noteChangedCells(message.changedTotal ?? 0);
           // A column just added: bring it into view.
           if (this.pendingFlashName !== null) {
             const added = this.metas.findIndex((meta) => meta.name === this.pendingFlashName);
@@ -8040,9 +8059,64 @@ export class App {
               (ops.length === 0 ? "Transforms reset" : `Applied ${ops.length} transform step${plural}`)) +
               rowsText,
           );
+          after?.(message);
         })
         .catch((error: unknown) => this.showError(error)),
     );
+  }
+
+  /** Fill empty cells from the most similar rows: choose, test, preview, then fill and inspect. */
+  private async openKnnFill(column?: number): Promise<void> {
+    const supported = (type: string): boolean =>
+      type === "integer" || type === "number" || type === "string" || type === "category" || type === "boolean";
+    const targets = this.metas
+      .map((meta, index) => ({ index, name: meta.name, missing: meta.stats.nulls, type: meta.type }))
+      .filter((entry) => entry.missing > 0 && supported(entry.type))
+      .sort((a, b) => b.missing - a.missing)
+      .map(({ index, name, missing }) => ({ index, name, missing }));
+    if (targets.length === 0) {
+      this.showToast("No column with empty cells to fill from similar rows.");
+      return;
+    }
+    const initial = column !== undefined && targets.some((target) => target.index === column) ? column : targets[0].index;
+    const choice = await openKnnDialog({
+      targets,
+      initial,
+      total: this.rowCount,
+      plan: (target) => this.client.knnPlan(target),
+      evaluate: (target, predictors, k) => this.client.knnEvaluate(target, predictors, k).then((message) => message.evaluation),
+    });
+    if (choice === null) return;
+    const label = `KNN-filled “${choice.fillName}” from ${choice.predictorNames.length} column${choice.predictorNames.length === 1 ? "" : "s"} (k=${choice.k})`;
+    this.applyTransform(
+      [...this.transformOps, { kind: "knn", fill: [choice.fill], predictors: choice.predictors, k: choice.k }],
+      label,
+      (message) => {
+        this.setView("table");
+        openKnnResult({
+          fillName: choice.fillName,
+          filled: message.changedTotal ?? choice.evaluation?.missing ?? 0,
+          k: choice.k,
+          predictorNames: choice.predictorNames,
+          evaluation: choice.evaluation,
+          onShow: (row) => void this.showFilledCell(row, choice.fill),
+          onUndo: () => this.undoLastStep(),
+        });
+      },
+    );
+  }
+
+  /** Brings a filled cell into view (or says a filter is hiding it). */
+  private async showFilledCell(row: number, column: number): Promise<void> {
+    this.setView("table");
+    const found = await this.client.findRow(row).catch(() => null);
+    if (found === null || !found.exists) return;
+    if (found.position < 0) {
+      this.showWarning(`Row ${(row + 1).toLocaleString()} is hidden by the current filters.`);
+      return;
+    }
+    this.table?.scrollToRow(found.position);
+    this.table?.flashColumn(column);
   }
 
   /** Quick action from the Duplicates QA control: drop duplicate rows. */

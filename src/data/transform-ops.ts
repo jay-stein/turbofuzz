@@ -11,7 +11,17 @@ import {
 import { applyCombineDate, type CombineDateOp } from "./date-combine.js";
 import { computeAnomalies } from "./anomalies.js";
 import { formatNumber } from "./format.js";
-import { knnImpute } from "./knn.js";
+import { knnImputeDetailed } from "./knn.js";
+
+/** Cells the last KNN step wrote, by column, so the worker can highlight them. */
+let lastKnnFilled: Map<number, Uint8Array> | null = null;
+
+/** Hands over (and forgets) the cells the most recent KNN step filled. */
+export function takeKnnFilled(): Map<number, Uint8Array> | null {
+  const filled = lastKnnFilled;
+  lastKnnFilled = null;
+  return filled;
+}
 import { applySplitColumn, type SplitColumnOp } from "./split-column.js";
 import { hashRows, rowsEqual } from "./stats.js";
 import { parseNumber } from "../parse/numbers.js";
@@ -150,9 +160,12 @@ export function applyTransformOps(
       case "impute":
         current = imputeColumns(current, op);
         break;
-      case "knn":
-        current = knnImpute(current, op.fill, op.predictors, op.k);
+      case "knn": {
+        const result = knnImputeDetailed(current, op.fill, op.predictors, op.k);
+        current = result.columns;
+        lastKnnFilled = result.filled;
         break;
+      }
       case "melt":
         current = meltColumns(current, op);
         break;
