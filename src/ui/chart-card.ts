@@ -266,6 +266,76 @@ export type MapOverlay = (
   plot: { x: number; y: number; w: number; h: number; ui: number },
 ) => void;
 
+/** The shape of a dot on a scatter or a map. Circles are the default. */
+export type MarkerShape = "circle" | "square" | "diamond" | "triangle";
+
+export const MARKER_SHAPES: readonly { id: MarkerShape; label: string }[] = [
+  { id: "circle", label: "Circle" },
+  { id: "square", label: "Square" },
+  { id: "diamond", label: "Diamond" },
+  { id: "triangle", label: "Triangle" },
+];
+
+/** Adds one marker to the current path, centred on (x, y) and about as big as a circle of radius r. */
+export function addMarkerPath(ctx: CanvasRenderingContext2D, shape: MarkerShape, x: number, y: number, r: number): void {
+  switch (shape) {
+    case "square":
+      ctx.rect(x - r, y - r, r * 2, r * 2);
+      break;
+    case "diamond":
+      ctx.moveTo(x, y - r * 1.3);
+      ctx.lineTo(x + r * 1.3, y);
+      ctx.lineTo(x, y + r * 1.3);
+      ctx.lineTo(x - r * 1.3, y);
+      ctx.closePath();
+      break;
+    case "triangle":
+      ctx.moveTo(x, y - r * 1.3);
+      ctx.lineTo(x + r * 1.2, y + r * 0.9);
+      ctx.lineTo(x - r * 1.2, y + r * 0.9);
+      ctx.closePath();
+      break;
+    default:
+      ctx.moveTo(x + r, y);
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+  }
+}
+
+/** Ordinary least squares through the first `n` points; null when x does not vary. */
+export function leastSquares(x: ArrayLike<number>, y: ArrayLike<number>, n: number): { slope: number; intercept: number; r2: number } | null {
+  let count = 0;
+  let sx = 0;
+  let sy = 0;
+  let sxx = 0;
+  let syy = 0;
+  let sxy = 0;
+  for (let i = 0; i < n; i++) {
+    const a = x[i];
+    const b = y[i];
+    if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+    count++;
+    sx += a;
+    sy += b;
+    sxx += a * a;
+    syy += b * b;
+    sxy += a * b;
+  }
+  if (count < 3) return null;
+  const vx = sxx - (sx * sx) / count;
+  const vy = syy - (sy * sy) / count;
+  const cov = sxy - (sx * sy) / count;
+  if (!(vx > 0)) return null;
+  const slope = cov / vx;
+  return { slope, intercept: (sy - slope * sx) / count, r2: vy > 0 ? (cov * cov) / (vx * vy) : 0 };
+}
+
+/** One reference line: across (a y value) or up (an x value), at a typed value or the mean of the plotted column. */
+export interface RefLine {
+  axis: "x" | "y";
+  source: "value" | "mean";
+  value?: number;
+}
+
 /** A marker the person placed on the Map page; draw paints its symbol centred on (x, y). */
 export interface MapMarkerDraw {
   lon: number;
@@ -628,6 +698,13 @@ export interface ChartCardConfig {
   /** The column that names a place when hovering; undefined finds one, -1 is none. */
   mapLabelColumn?: number;
   dotOpacity?: number;
+  /** Straight lines across the plot at one value each, on any chart with a numeric axis. */
+  refLines?: RefLine[];
+  /** The shape of the dots on a scatter or map (circle unless chosen). */
+  markerShape?: MarkerShape;
+  /** A scatter's dashed line of best fit, and the R² beside it (both on unless switched off). */
+  fitLine?: boolean;
+  fitR2?: boolean;
   /** Card width in the grid: normal cell or the whole row. */
   span?: "auto" | "full";
   /** Time column for frame animation (-1 = off). */
@@ -1248,6 +1325,14 @@ export class ChartCard {
   private placeLabels: string[] | null = null;
   private framePlaces: number[] | null = null;
   private readonly dotOpacityInput: HTMLInputElement;
+  private readonly dotShapeSelect: HTMLSelectElement;
+  private readonly refSection: HTMLElement;
+  private readonly refRows: HTMLElement;
+  private refKey = "";
+  private readonly dotShapeWrap: HTMLElement;
+  private readonly fitWrap: HTMLElement;
+  private readonly fitLineInput: HTMLInputElement;
+  private readonly fitR2Input: HTMLInputElement;
   private readonly dotOpacityOut: HTMLElement;
   private readonly resetViewButton: HTMLButtonElement;
   /** Map heat grid (count or measure per cell), computed by the worker. */
@@ -2340,8 +2425,31 @@ export class ChartCard {
       this.render();
     });
     this.mapLabelWrap = dotField("Label", [this.mapLabelSelect], "The column that names a place when you hover its dot");
+    this.dotShapeSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Dot shape", title: "The shape of each dot" }) as HTMLSelectElement;
+    for (const shape of MARKER_SHAPES) this.dotShapeSelect.append(el("option", { value: shape.id }, [shape.label]) as HTMLOptionElement);
+    this.dotShapeWrap = dotField("Shape", [this.dotShapeSelect], "The shape of each dot");
+    this.fitLineInput = el("input", { type: "checkbox", "aria-label": "Line of best fit" }) as HTMLInputElement;
+    this.fitR2Input = el("input", { type: "checkbox", "aria-label": "Show R squared" }) as HTMLInputElement;
+    this.fitWrap = el("div", { class: "chart-field chart-fit" }, [
+      el("label", { class: "chart-check", title: "A dashed least-squares line through the points" }, [this.fitLineInput, " Line of best fit"]),
+      el("label", { class: "chart-check", title: "How much of the spread in Y the line accounts for (0 to 1). Shown only with the line." }, [this.fitR2Input, " R²"]),
+    ]);
+    this.dotShapeSelect.addEventListener("change", () => {
+      this.config.markerShape = this.dotShapeSelect.value as MarkerShape;
+      this.render();
+    });
+    this.fitLineInput.addEventListener("change", () => {
+      this.config.fitLine = this.fitLineInput.checked;
+      this.fitR2Input.disabled = !this.fitLineInput.checked;
+      this.render();
+    });
+    this.fitR2Input.addEventListener("change", () => {
+      this.config.fitR2 = this.fitR2Input.checked;
+      this.render();
+    });
     this.dotSettings = el("div", { class: "chart-bubble-settings chart-dot-settings hidden" }, [
       el("span", { class: "chart-animate-title" }, ["Dots"]),
+      this.dotShapeWrap,
       dotRadiusField,
       this.dotValuesWrap,
       this.dotScaleWrap,
@@ -2349,6 +2457,22 @@ export class ChartCard {
       this.mapColorScaleWrap,
       this.mapLabelWrap,
       dotField("Opacity", [this.dotOpacityInput, this.dotOpacityOut], "How see-through the dots are"),
+      this.fitWrap,
+    ]);
+    this.refRows = el("div", { class: "chart-ref-rows" });
+    const addRef = el("button", { class: "ghost small", type: "button", title: "Add a line across the chart at one value" }, ["+ Add a line"]);
+    addRef.addEventListener("click", () => {
+      const axis = this.refAxisColumn("y") >= 0 || this.hasValueAxis() ? "y" : "x";
+      this.config.refLines = [...(this.config.refLines ?? []), { axis, source: "value" }];
+      this.refKey = "";
+      this.syncRefLines();
+      this.render();
+    });
+    this.refSection = el("div", { class: "chart-bubble-settings chart-ref-settings" }, [
+      el("span", { class: "chart-animate-title" }, ["Reference lines"]),
+      this.refRows,
+      el("div", { class: "chart-field" }, [addRef]),
+      el("span", { class: "chart-field-hint chart-ref-hint" }, ["Drawn on charts with a numeric axis. A line is one value: type it, or use the mean of the plotted column (all rows)."]),
     ]);
     const dotNumberValue = (input: HTMLInputElement): number | null => {
       const text = input.value.trim();
@@ -2560,32 +2684,6 @@ export class ChartCard {
         this.colorCenterInput,
       ]),
     ]);
-    const paletteFile = el("input", {
-      type: "file",
-      accept: ".json,application/json",
-      class: "hidden",
-    }) as HTMLInputElement;
-    const loadPalette = el(
-      "button",
-      {
-        class: "ghost small",
-        type: "button",
-        title: "Load a palette from a JSON file (an array of hex colours, or {colors: [...]})",
-      },
-      ["Load JSON…"],
-    ) as HTMLButtonElement;
-    loadPalette.addEventListener("click", () => paletteFile.click());
-    paletteFile.addEventListener("change", () => {
-      const file = paletteFile.files?.[0];
-      if (file === undefined) return;
-      void file
-        .text()
-        .then((text) => this.importPaletteJson(text))
-        .catch(() => {
-          this.paletteStatus.textContent = "Could not read that file";
-        });
-      paletteFile.value = "";
-    });
     this.paletteStatus = el("span", { class: "chart-palette-status" });
     this.paletteGroup = el(
       "div",
@@ -2595,8 +2693,6 @@ export class ChartCard {
         this.palettePreview,
         reverseLabel,
         this.colorDomainRow,
-        loadPalette,
-        paletteFile,
         this.paletteStatus,
       ],
     );
@@ -2973,6 +3069,7 @@ export class ChartCard {
     if (valueSection !== null) valueSection.after(el("div", { class: "chart-side-section" }, [quickRow]));
     const colours = this.sidebar.querySelector(".chart-side-settings");
     this.sidebar.insertBefore(el("div", { class: "chart-side-section chart-side-map" }, [this.bubbleSettings, this.dotSettings]), colours);
+    this.sidebar.insertBefore(el("div", { class: "chart-side-section chart-side-ref" }, [this.refSection]), colours);
 
     this.selectionBar = el("div", { class: "chart-selection hidden", role: "group", "aria-label": "Selected in the chart" });
     canvasWrap.append(this.selectionBar);
@@ -5543,7 +5640,8 @@ export class ChartCard {
     this.bubbleTitle.textContent = mapKind ? "Map" : "Bubbles";
     this.bubbleScaleField.classList.toggle("hidden", mapKind);
     if (this.config.mapMode !== "heat" && this.config.mapMode !== "regions") this.mapModeSelect.value = this.config.mapMode ?? DEFAULT_MAP_MODE;
-    this.syncDotControls(mapKind);
+    this.syncDotControls(mapKind, kind === "scatter");
+    this.syncRefLines();
     this.syncKindButton();
     // On a map the grid only matters for the heat view: the plain dots need no cells.
     this.gridField.classList.toggle("hidden", mapKind && this.config.mapMode !== "heat");
@@ -5798,23 +5896,6 @@ export class ChartCard {
   }
 
   /** Loads a palette from JSON text: array of hex colours or {colors: [...]}. */
-  private importPaletteJson(text: string): void {
-    const colors = parsePaletteJson(text);
-    if (colors === null) {
-      this.paletteStatus.textContent =
-        "JSON needs an array of 2+ hex colours (or {colors: [...]})";
-      return;
-    }
-    this.config.palette = CUSTOM_PALETTE;
-    this.config.paletteCustom = colors.join(", ");
-    this.paletteSelect.value = CUSTOM_PALETTE;
-    this.paletteStatus.textContent = `Loaded ${colors.length} colours`;
-    this.hexInput.value = this.primaryColor();
-    this.syncSwatches();
-    this.syncPalette();
-    this.render();
-  }
-
   /** Picking Custom… asks for hex stops; invalid input keeps the old palette. */
   private async applyPalette(value: string): Promise<void> {
     if (value === CUSTOM_PALETTE) {
@@ -7872,6 +7953,7 @@ export class ChartCard {
     this.brushSpace = null;
     this.valueScale = null;
     this.drawChart(ctx, cssWidth, cssHeight);
+    this.drawReferenceLines(ctx);
     this.drawBrushOverlay(ctx);
     this.drawSelection(ctx);
     // Drawing can add a legend above the plot; then the height above was worked out too low.
@@ -8488,19 +8570,15 @@ export class ChartCard {
     ctx.clip();
     ctx.fillStyle = accent;
     ctx.globalAlpha = 0.9;
+    ctx.beginPath();
     for (let i = 0; i < points.shown; i++) {
       const x = space.left + (points.x[i]! - space.xMin) * xScale;
       const y = space.top + space.plotH - (points.y[i]! - yMin) * yScale;
       if (x < space.left || x > space.left + space.plotW || y < space.top || y > space.top + space.plotH) continue;
-      if (points.shown <= 5000) {
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-      }
+      addMarkerPath(ctx, this.config.markerShape ?? "circle", x, y, radius);
       drawn++;
     }
+    ctx.fill();
     ctx.restore();
     if (drawn > 0 && this.linkedLabel !== "") {
       ctx.save();
@@ -10802,6 +10880,7 @@ export class ChartCard {
     const buckets = this.colorBuckets(result);
     const baseRadius = (this.config.dotMinRadius ?? 2.2) * ui;
     const dotAlpha = this.config.dotOpacity ?? 0.6;
+    const markerShape = this.config.markerShape ?? "circle";
     const drawAt = (index: number): void => {
       const lon = result.x[index] ?? Number.NaN;
       const lat = result.y[index] ?? Number.NaN;
@@ -10820,29 +10899,34 @@ export class ChartCard {
         const reach = Math.max(r, 5 * ui);
         this.hitRegions.push({ x: px(lon) - reach, y: py(lat) - reach, w: reach * 2, h: reach * 2, lines: this.mapDotLines(result, index, lon, lat), actions: [] });
         ctx.beginPath();
-        ctx.arc(px(lon), py(lat), Math.max(0.5, r), 0, Math.PI * 2);
+        addMarkerPath(ctx, markerShape, px(lon), py(lat), Math.max(0.5, r));
         ctx.globalAlpha = dotAlpha;
         ctx.fill();
         ctx.globalAlpha = Math.min(1, dotAlpha + 0.3);
         ctx.stroke();
       } else {
-        ctx.fillRect(px(lon) - r, py(lat) - r, r * 2, r * 2);
+        addMarkerPath(ctx, markerShape, px(lon), py(lat), Math.max(0.5, r));
       }
     };
+    const batched = result.shown > 5000;
     ctx.lineWidth = Math.max(0.75, 0.8 * ui);
     if (buckets === null) {
       ctx.fillStyle = this.primaryColor();
       ctx.strokeStyle = darkerColor(this.primaryColor());
       ctx.globalAlpha = dotAlpha;
+      if (batched) ctx.beginPath();
       for (let i = 0; i < result.shown; i++) drawAt(i);
+      if (batched) ctx.fill();
     } else {
       for (let bucket = 0; bucket < buckets.colors.length; bucket++) {
         ctx.fillStyle = buckets.colors[bucket] ?? this.primaryColor();
         ctx.strokeStyle = darkerColor(buckets.colors[bucket] ?? this.primaryColor());
         ctx.globalAlpha = dotAlpha;
+        if (batched) ctx.beginPath();
         for (let i = 0; i < result.shown; i++) {
           if (buckets.buckets[i] === bucket) drawAt(i);
         }
+        if (batched) ctx.fill();
       }
     }
     ctx.globalAlpha = 1;
@@ -12451,9 +12535,204 @@ export class ChartCard {
     return (this.config.mapMode ?? DEFAULT_MAP_MODE) === "places" ? { min: 3, max: 14 } : { min: 2, max: 9 };
   }
 
-  private syncDotControls(mapKind: boolean): void {
+  /** Whether this chart has a numeric value axis a horizontal line can sit on. */
+  private hasValueAxis(): boolean {
+    const kind = this.config.kind;
+    return kind === "line" || kind === "bar" || kind === "barplot" || kind === "histogram" || kind === "scatter" || kind === "density" || kind === "bubble";
+  }
+
+  /** The column whose values an axis shows, when it is a plain numeric (or date) column; -1 when the axis is counts or categories. */
+  private refAxisColumn(axis: "x" | "y"): number {
+    const c = this.config;
+    let column = -1;
+    switch (c.kind) {
+      case "scatter":
+      case "density":
+      case "bubble":
+        column = axis === "x" ? c.x : c.y;
+        break;
+      case "histogram":
+        column = axis === "x" ? c.column : -1;
+        break;
+      case "line":
+      case "bar":
+      case "barplot":
+        column = axis === "y" ? (c.valueColumn ?? -1) : -1;
+        break;
+      default:
+        column = -1;
+    }
+    const meta = this.meta(column);
+    return meta !== undefined && (isNumericType(meta.type) || meta.type === "date" || meta.type === "datetime") ? column : -1;
+  }
+
+  /** The value of a reference line: typed, or the mean of its axis column. */
+  private refValue(line: RefLine): number | null {
+    if (line.source === "value") return line.value !== undefined && Number.isFinite(line.value) ? line.value : null;
+    const meta = this.meta(this.refAxisColumn(line.axis));
+    const value = meta?.stats.mean;
+    return value === null || value === undefined || !Number.isFinite(value) ? null : value;
+  }
+
+  /** The reference lines' rows in the sidebar, rebuilt only when the chart's columns or the lines themselves change. */
+  private syncRefLines(): void {
+    const lines = this.config.refLines ?? [];
+    const key = JSON.stringify([this.config.kind, this.config.x, this.config.y, this.config.column, this.config.valueColumn, lines.map((line) => [line.axis, line.source])]);
+    const supported = this.config.kind !== "map" && (this.hasValueAxis() || this.config.kind === "histogram");
+    this.refSection.parentElement?.classList.toggle("hidden", !supported);
+    if (!supported || key === this.refKey) return;
+    this.refKey = key;
+    this.refRows.replaceChildren();
+    lines.forEach((line, index) => {
+      const axisSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Line direction" }) as HTMLSelectElement;
+      const options: [string, string][] = [];
+      if (this.hasValueAxis()) options.push(["y", "Horizontal"]);
+      if (this.config.kind !== "bar" && this.config.kind !== "barplot") options.push(["x", "Vertical"]);
+      for (const [value, label] of options) axisSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
+      axisSelect.value = line.axis;
+      const sourceSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Where the line sits" }) as HTMLSelectElement;
+      const column = this.refAxisColumn(line.axis);
+      const name = this.meta(column)?.name ?? "";
+      sourceSelect.append(el("option", { value: "value" }, ["At a value"]) as HTMLOptionElement);
+      if (column >= 0) {
+        sourceSelect.append(el("option", { value: "mean" }, [`Mean of ${name}`]) as HTMLOptionElement);
+      }
+      sourceSelect.value = column >= 0 || line.source === "value" ? line.source : "value";
+      const isDate = this.meta(column)?.type === "date" || this.meta(column)?.type === "datetime";
+      const input = el("input", {
+        class: "chart-number chart-ref-value",
+        type: "text",
+        inputmode: "decimal",
+        placeholder: isDate ? "e.g. 2021-03-01" : "e.g. 10.8",
+        "aria-label": "Value of the line",
+        spellcheck: "false",
+      }) as HTMLInputElement;
+      if (line.value !== undefined) input.value = isDate ? new Date(line.value).toISOString().slice(0, 10) : String(line.value);
+      input.classList.toggle("hidden", line.source !== "value");
+      const remove = el("button", { class: "icon-btn", type: "button", title: "Remove this line", "aria-label": "Remove this line" }, ["×"]) as HTMLButtonElement;
+      const update = (patch: Partial<RefLine>): void => {
+        const next = [...(this.config.refLines ?? [])];
+        next[index] = { ...next[index]!, ...patch };
+        this.config.refLines = next;
+      };
+      axisSelect.addEventListener("change", () => {
+        update({ axis: axisSelect.value as "x" | "y", source: "value" });
+        this.refKey = "";
+        this.syncRefLines();
+        this.render();
+      });
+      sourceSelect.addEventListener("change", () => {
+        update({ source: sourceSelect.value as RefLine["source"] });
+        this.refKey = "";
+        this.syncRefLines();
+        this.render();
+      });
+      input.addEventListener("input", () => {
+        const text = input.value.trim().replace(/,/g, "");
+        const value = isDate ? Date.parse(text.length === 10 ? `${text}T00:00:00Z` : text) : text === "" ? Number.NaN : Number(text);
+        const next = [...(this.config.refLines ?? [])];
+        next[index] = { ...next[index]!, value: Number.isFinite(value) ? value : undefined };
+        this.config.refLines = next;
+        this.render();
+      });
+      remove.addEventListener("click", () => {
+        this.config.refLines = (this.config.refLines ?? []).filter((_, i) => i !== index);
+        this.refKey = "";
+        this.syncRefLines();
+        this.render();
+      });
+      this.refRows.append(el("div", { class: "chart-ref-row" }, [axisSelect, sourceSelect, input, remove]));
+    });
+  }
+
+  /** Draws the reference lines over the plot, on whichever numeric axes this chart recorded. */
+  private drawReferenceLines(ctx: CanvasRenderingContext2D): void {
+    const lines = this.config.refLines ?? [];
+    if (lines.length === 0) return;
+    const space = this.brushSpace;
+    const scale = this.valueScale;
+    const isDateAxis = (axis: "x" | "y"): boolean => {
+      const type = this.meta(this.refAxisColumn(axis))?.type;
+      return type === "date" || type === "datetime";
+    };
+    const ink = getComputedStyle(this.canvas).color || "#444";
+    ctx.save();
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = ink;
+    ctx.fillStyle = ink;
+    ctx.font = "600 11px system-ui, sans-serif";
+    for (const line of lines) {
+      const value = this.refValue(line);
+      if (value === null) continue;
+      const label = `${line.source === "value" ? "" : `${line.source} `}${isDateAxis(line.axis) ? new Date(value).toISOString().slice(0, 10) : formatChartNumber(value)}`;
+      if (line.axis === "y") {
+        let y: number | null = null;
+        let left = 0;
+        let width = 0;
+        if (space !== null && space.yMin !== undefined && space.yMax !== undefined && space.yMax > space.yMin) {
+          y = space.top + space.plotH - ((value - space.yMin) / (space.yMax - space.yMin)) * space.plotH;
+          ({ left, plotW: width } = space);
+          if (value < space.yMin || value > space.yMax) y = null;
+        } else if (scale !== null && scale.yMax > 0 && space !== null) {
+          y = scale.top + scale.plotH - (value / scale.yMax) * scale.plotH;
+          ({ left, plotW: width } = space);
+          if (value < 0 || value > scale.yMax) y = null;
+        } else if (scale !== null && scale.yMax > 0 && this.hitRegions.length > 0) {
+          const first = this.hitRegions[0]!;
+          const last = this.hitRegions[this.hitRegions.length - 1]!;
+          y = scale.top + scale.plotH - (value / scale.yMax) * scale.plotH;
+          left = Math.min(first.x, last.x) - 4;
+          width = Math.max(first.x + first.w, last.x + last.w) - left + 4;
+          if (value < 0 || value > scale.yMax) y = null;
+        }
+        if (y === null) continue;
+        ctx.beginPath();
+        ctx.moveTo(left, y);
+        ctx.lineTo(left + width, y);
+        ctx.stroke();
+        ctx.textAlign = "right";
+        ctx.fillText(label, left + width - 4, y - 4);
+      } else if (space !== null && space.xMax > space.xMin && value >= space.xMin && value <= space.xMax) {
+        const x = space.left + ((value - space.xMin) / (space.xMax - space.xMin)) * space.plotW * space.xFraction;
+        ctx.beginPath();
+        ctx.moveTo(x, space.top);
+        ctx.lineTo(x, space.top + space.plotH);
+        ctx.stroke();
+        ctx.textAlign = x > space.left + space.plotW * 0.8 ? "right" : "left";
+        ctx.fillText(label, x + (ctx.textAlign === "right" ? -4 : 4), space.top + 12);
+      }
+    }
+    ctx.restore();
+  }
+
+  private syncDotControls(mapKind: boolean, scatterKind = false): void {
     const heat = this.config.mapMode === "heat" || this.config.mapMode === "regions";
-    this.dotSettings.classList.toggle("hidden", !mapKind || heat);
+    this.dotSettings.classList.toggle("hidden", (!mapKind && !scatterKind) || (mapKind && heat));
+    this.fitWrap.classList.toggle("hidden", !scatterKind);
+    this.dotShapeSelect.value = this.config.markerShape ?? "circle";
+    if (scatterKind) {
+      // A scatter: one shape, size and opacity for every dot. The size is only the person's to set when no column sizes the dots.
+      const sized = this.config.sizeColumn >= 0;
+      this.dotMaxWrap.classList.add("hidden");
+      this.dotValuesWrap.classList.add("hidden");
+      this.dotScaleWrap.classList.add("hidden");
+      this.mapColorAggWrap.classList.add("hidden");
+      this.mapColorScaleWrap.classList.add("hidden");
+      this.mapLabelWrap.classList.add("hidden");
+      this.dotMinLabel.textContent = "Dot radius";
+      this.dotMinInput.disabled = sized;
+      this.dotMinInput.title = sized ? "The dots are sized by the Size column" : "Radius in pixels of every dot";
+      if (document.activeElement !== this.dotMinInput) this.dotMinInput.value = String(this.config.dotMinRadius ?? 2.2);
+      const opacity = Math.round((this.config.dotOpacity ?? 0.55) * 100);
+      this.dotOpacityInput.value = String(opacity);
+      this.dotOpacityOut.textContent = `${opacity}%`;
+      this.fitLineInput.checked = this.config.fitLine ?? true;
+      this.fitR2Input.checked = this.config.fitR2 ?? true;
+      this.fitR2Input.disabled = !this.fitLineInput.checked;
+      return;
+    }
+    this.dotMinInput.disabled = false;
     if (!mapKind || heat) return;
     const sized = this.dotsAreSized();
     const defaults = this.dotDefaults();
@@ -13282,23 +13561,26 @@ export class ChartCard {
     const yScale = frame.plotH / (result.yMax - result.yMin);
     const sizes = this.pointSizes(result, frame.ui);
     const buckets = this.colorBuckets(result);
-    const radius = 2.2 * frame.ui;
-    const circular = result.shown <= 5000;
+    const radius = (this.config.dotMinRadius ?? 2.2) * frame.ui;
+    const alpha = this.config.dotOpacity ?? 0.55;
+    const shape = this.config.markerShape ?? "circle";
+    // Up to 5,000 points each gets an outline; past that they are filled in one batch per colour, still the chosen shape.
+    const detailed = result.shown <= 5000;
     ctx.lineWidth = Math.max(0.75, 0.8 * frame.ui);
 
     const drawAt = (index: number): void => {
-      const r = sizes === null ? radius : sizes[index];
+      const r = Math.max(0.5, sizes === null ? radius : sizes[index]);
       const x = frame.left + (result.x[index] - result.xMin) * xScale;
       const y = frame.top + frame.plotH - (result.y[index] - result.yMin) * yScale;
-      if (circular) {
+      if (detailed) {
         ctx.beginPath();
-        ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
-        ctx.globalAlpha = 0.55;
+        addMarkerPath(ctx, shape, x, y, r);
+        ctx.globalAlpha = alpha;
         ctx.fill();
-        ctx.globalAlpha = 0.9;
+        ctx.globalAlpha = Math.min(1, alpha + 0.35);
         ctx.stroke();
       } else {
-        ctx.fillRect(x - r, y - r, r * 2, r * 2);
+        addMarkerPath(ctx, shape, x, y, r);
       }
     };
 
@@ -13307,24 +13589,50 @@ export class ChartCard {
     ctx.beginPath();
     ctx.rect(frame.left, frame.top, frame.plotW, frame.plotH);
     ctx.clip();
-    ctx.globalAlpha = 0.55;
+    ctx.globalAlpha = alpha;
     if (buckets === null) {
       ctx.fillStyle = this.primaryColor();
       ctx.strokeStyle = darkerColor(this.primaryColor());
+      if (!detailed) ctx.beginPath();
       for (let i = 0; i < result.shown; i++) drawAt(i);
+      if (!detailed) {
+        ctx.globalAlpha = alpha;
+        ctx.fill();
+      }
     } else {
       for (let bucket = 0; bucket < buckets.colors.length; bucket++) {
         ctx.fillStyle = buckets.colors[bucket];
         ctx.strokeStyle = darkerColor(buckets.colors[bucket]!);
+        if (!detailed) ctx.beginPath();
         for (let i = 0; i < result.shown; i++) {
           if (buckets.buckets[i] === bucket) drawAt(i);
+        }
+        if (!detailed) {
+          ctx.globalAlpha = alpha;
+          ctx.fill();
         }
       }
     }
     ctx.globalAlpha = 1;
+    const fit = this.config.fitLine ?? true ? leastSquares(result.x, result.y, result.shown) : null;
+    if (fit !== null) {
+      // The dashed line of best fit, across the whole plot.
+      const y0 = frame.top + frame.plotH - (fit.intercept + fit.slope * result.xMin - result.yMin) * yScale;
+      const y1 = frame.top + frame.plotH - (fit.intercept + fit.slope * result.xMax - result.yMin) * yScale;
+      ctx.save();
+      ctx.setLineDash([7 * frame.ui, 5 * frame.ui]);
+      ctx.lineWidth = Math.max(1.5, 1.8 * frame.ui);
+      ctx.strokeStyle = frame.text;
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.moveTo(frame.left, y0);
+      ctx.lineTo(frame.left + frame.plotW, y1);
+      ctx.stroke();
+      ctx.restore();
+    }
     ctx.restore();
 
-    this.drawCorrelationNote(ctx, frame);
+    this.drawCorrelationNote(ctx, frame, fit);
     if (buckets?.domain !== undefined) {
       this.drawColorBar(ctx, frame, buckets.colors, buckets.domain);
     }
@@ -13513,13 +13821,15 @@ export class ChartCard {
     ctx.globalAlpha = 1;
   }
 
-  private drawCorrelationNote(ctx: CanvasRenderingContext2D, frame: Frame): void {
+  private drawCorrelationNote(ctx: CanvasRenderingContext2D, frame: Frame, fit: { slope: number; intercept: number; r2: number } | null = null): void {
     if (!Number.isFinite(this.seriesCorrelation)) return;
     this.font(ctx, frame.ui, 11, "600");
     ctx.fillStyle = frame.dim;
     ctx.textAlign = "right";
+    // R² is the line's: it appears only with the line, and can be switched off on its own. Every row, like r.
+    const r2 = fit !== null && (this.config.fitR2 ?? true) ? `  ·  R² = ${(this.seriesCorrelation ** 2).toFixed(2)}` : "";
     ctx.fillText(
-      `r = ${this.seriesCorrelation.toFixed(2)}`,
+      `r = ${this.seriesCorrelation.toFixed(2)}${r2}`,
       frame.left + frame.plotW - 6 * frame.ui,
       frame.top - 8 * frame.ui,
     );
@@ -13657,10 +13967,9 @@ export class ChartCard {
       ctx.globalAlpha = 0.65;
       ctx.fillStyle = this.primaryColor();
       const r = 1.6 * ui;
-      for (const value of group.outliers) {
-        const y = yOf(value);
-        ctx.fillRect(cx - r, y - r, r * 2, r * 2);
-      }
+      ctx.beginPath();
+      for (const value of group.outliers) addMarkerPath(ctx, "circle", cx, yOf(value), r);
+      ctx.fill();
       ctx.globalAlpha = 1;
 
       ctx.textAlign = "center";

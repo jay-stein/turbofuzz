@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-03-18 — Dot shape, size and opacity; best-fit line and R²; reference lines
+
+- **Status:** Verified (unit, e2e, browser)
+- **Related issue / decision:** owner: scatter dots turned square on larger data and they prefer circles; wanted shape, size and opacity settings on the scatter and the map; a dashed line of best fit with R²; horizontal or vertical lines on charts; "Load JSON…" for colour maps is not useful.
+- **What changed:** dots are circles at every size (past 5,000 points they were filled squares for speed; now one batched circle path per colour). A Dots section on the scatter, and on the map, has Shape (circle, square, diamond, triangle), radius (greyed when a Size column sets it) and opacity. A scatter draws a dashed least-squares line with R² (every row, like r), both on by default; R² can be switched off on its own and is disabled with the line. Reference lines: add a horizontal or vertical line at a typed value (dates accept 2021-03-01) or at the mean of the plotted column, on scatter, density, bubble, histogram, line and bar charts; a label names the value. Box-plot outliers and highlighted slice points are circles too. The Load JSON button is gone.
+- **Not included:** reference lines on box, dot plot, stacked, small multiples, slopegraph, waterfall, heatmap, treemap, terms and correlation charts (they record no numeric axis yet); a median line (the page has no per-column median to draw from); shapes in the exported map web page.
+- **Files / components changed:** src/ui/chart-card.ts, chart-spec.ts, help-content.ts, styles.css; test/e2e/chart-markers.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
 ### CHG-2026-11-03-17 — Earlier steps are kept when a transform is applied
 
 - **Status:** Verified (unit, e2e)

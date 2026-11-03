@@ -81,6 +81,10 @@ export interface ChartSpec {
     dotValueMax?: number | null;
     dotScale?: ChartCardConfig["dotScale"];
     dotOpacity?: number;
+    markerShape?: ChartCardConfig["markerShape"];
+    refLines?: ChartCardConfig["refLines"];
+    fitLine?: boolean;
+    fitR2?: boolean;
     span: "auto" | "full";
     animationGrain: TimeGrain;
     animationSpeed: number;
@@ -208,6 +212,10 @@ export function chartSpecFromConfig(
       ...(config.dotValueMax == null ? {} : { dotValueMax: config.dotValueMax }),
       ...(config.dotScale === undefined ? {} : { dotScale: config.dotScale }),
       ...(config.dotOpacity === undefined ? {} : { dotOpacity: config.dotOpacity }),
+      ...(config.markerShape === undefined ? {} : { markerShape: config.markerShape }),
+      ...(config.refLines === undefined || config.refLines.length === 0 ? {} : { refLines: config.refLines }),
+      ...(config.fitLine === undefined ? {} : { fitLine: config.fitLine }),
+      ...(config.fitR2 === undefined ? {} : { fitR2: config.fitR2 }),
       span: config.span ?? "auto",
       animationGrain: config.animationGrain ?? "day",
       animationSpeed: config.animationSpeed ?? 1,
@@ -297,6 +305,10 @@ export function chartSpecToConfig(
   if (spec.presentation.dotValueMax !== undefined) config.dotValueMax = spec.presentation.dotValueMax;
   if (spec.presentation.dotScale !== undefined) config.dotScale = spec.presentation.dotScale;
   if (spec.presentation.dotOpacity !== undefined) config.dotOpacity = spec.presentation.dotOpacity;
+  if (spec.presentation.markerShape !== undefined) config.markerShape = spec.presentation.markerShape;
+  if (spec.presentation.refLines !== undefined) config.refLines = spec.presentation.refLines;
+  if (spec.presentation.fitLine !== undefined) config.fitLine = spec.presentation.fitLine;
+  if (spec.presentation.fitR2 !== undefined) config.fitR2 = spec.presentation.fitR2;
   config.span = spec.presentation.span;
   config.animationGrain = spec.presentation.animationGrain;
   config.animationSpeed = spec.presentation.animationSpeed;

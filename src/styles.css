@@ -14084,3 +14084,11 @@ button.qp-tile:hover {
 .knn-sample th, .knn-sample td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border-subtle); }
 .knn-sample th { color: var(--text-dim); font-weight: 600; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.05em; }
 .knn-from { color: var(--text-dim); font-family: var(--mono); }
+
+/* Reference lines and the scatter's line of best fit */
+.chart-ref-rows { display: flex; flex-direction: column; gap: 6px; }
+.chart-ref-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.chart-ref-value { width: 110px; }
+.chart-ref-hint { display: block; margin-top: 4px; }
+.chart-fit { display: flex; flex-direction: column; gap: 4px; }
+.chart-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); cursor: pointer; }
