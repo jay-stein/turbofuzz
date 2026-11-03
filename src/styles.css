@@ -14018,3 +14018,26 @@ button.qp-tile:hover {
 /* top: -12px cancels the scroll area's own 12px of padding, so the bar sits flush with the top and nothing shows above it. */
 .ts-modebar { flex: 0 0 auto; overflow: visible; position: sticky; top: -12px; z-index: 15; display: flex; align-items: center; margin: 0 -14px 8px; padding: 8px 14px; background: var(--bg); border-bottom: 1px solid var(--border-subtle); }
 .ts-modebar .ts-top-actions { margin-left: 0; width: 100%; justify-content: space-between; }
+
+/* Forecast tab: the three answers above the ranked list */
+.ts-answer { margin: 0 0 14px; }
+.ts-answer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.ts-ans { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-2); min-width: 0; }
+.ts-ans p { margin: 0; font-size: var(--fs-sm); color: var(--text-dim); line-height: 1.45; }
+.ts-ans .ts-ans-sub { color: var(--text); }
+.ts-ans-kick { font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
+.ts-ans-name { font-size: 18px; font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; }
+.ts-ans-num { font-family: var(--mono); font-weight: 700; }
+.ts-ans .ts-ghost { align-self: flex-start; margin-top: auto; }
+.ts-ans.best { border-color: var(--ts-forecast); }
+.ts-ans.gain.good { border-color: var(--ok); }
+.ts-ans.gain.good .ts-ans-name { color: var(--ok); }
+.ts-answer-note { margin: 8px 0 0; }
+.ts-rank { width: 28px; color: var(--text-dim); font-family: var(--mono); }
+.ts-simpletag, .ts-besttag { margin-left: 8px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+.ts-simpletag { background: var(--panel-2); color: var(--text-dim); border: 1px solid var(--border); }
+.ts-besttag { background: var(--ok-soft); color: var(--ok); }
+.ts-board-compact th:nth-child(1) { width: 36px; }
+.ts-board-compact th:nth-child(2) { width: 44%; }
+.ts-board-compact th:nth-child(3) { width: 26%; }
+.ts-board-compact tr[data-arima], .ts-board-compact tr[data-model] { cursor: pointer; }

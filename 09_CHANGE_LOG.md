@@ -4,6 +4,26 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-03-15 — Forecast page answers three questions first
+
+- **Status:** Verified (unit, e2e, browser on ice_cream_interest.csv)
+- **Related issue / decision:** owner: "what am I looking at here?" The recommended model sat 5th of 8; an ARIMA row opened a parameter page, not a forecast; "Try every order" was unexplained. DEC-2026-11-03-05.
+- **What changed:** three cards at the top (A simple model you can use, The best-performing model, How much better), then one list of every model, lowest error first, ARIMA runs mixed in. The list is open by default. Columns: rank, model, error against repeating the last cycle, and the same on the held-back data. Clicking a model row, an ARIMA row or a card's Show on the chart puts that forecast on the chart (ARIMA drawn in the forecast colour with its own ranges, with a badge, and Parameters one click away). "Try every order" is now "Search every order (slower, rarely changes the answer)", with the plain reason.
+- **Not included:** changing Auto's choice of the default chart forecast.
+- **Files / components changed:** src/ui/timeseries-page.ts, timeseries-model-docs.ts, styles.css; test/e2e/time-series-page.spec.ts, arima.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
+### CHG-2026-11-03-14 — Time Series legend names the rolling window; raw rows as markers
+
+- **Status:** Verified (unit, e2e, browser)
+- **Related issue / decision:** owner: the legend did not match the chart; wanted the raw rows; wanted "Rolling mean - 3 months".
+- **What changed:** the series swatch fades like the line; the rolling line reads "Rolling mean - 3 months" (", centred" when set). Where periods add several rows together (not a sum or a count, whose rows sit on another scale) each row is a small round marker with a lighter fill; past 500 in view a note says to zoom in.
+- **Not included:** raw markers for sums and counts.
+- **Files / components changed:** src/data/timeseries/aggregate.ts (raw), src/ui/timeseries-page.ts; test/timeseries.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
 ### CHG-2026-11-03-13 — Labels on choropleth regions
 
 - **Status:** Verified (unit, e2e, browser on the Ireland files)

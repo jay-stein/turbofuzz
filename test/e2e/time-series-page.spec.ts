@@ -263,9 +263,7 @@ test("the simple method a forecast is judged against is named in the badge, tagg
   const name = ((await yard.locator("b").textContent()) ?? "").trim();
   expect(name.length).toBeGreaterThan(2);
   // The board marks the same method, so the analyst can see where it ranks.
-  await page.locator(".ts-fold[data-fold=compare]").click();
-  await expect(page.locator("[data-ref=boardCompact] tr", { hasText: name }).first().locator(".ts-yardtag")).toHaveText("Yardstick");
-  await expect(page.locator("[data-ref=boardCompact] .ts-yardtag")).toHaveCount(1);
+  await expect(page.locator("[data-ref=boardCompact] tr", { hasText: name }).first().locator(".ts-yardtag, .ts-simpletag")).toHaveCount(1);
   // One click makes it the forecast.
   await yard.getByRole("button", { name: "Use it instead" }).click();
   await expect(badge).toContainText("picked by you");
@@ -292,17 +290,22 @@ test("the chart names the forecast model and how it did; Trend flexibility expla
   await badge.getByRole("button", { name: "Details" }).click();
   await expect(page.locator(".ts-fold[data-fold=hood]")).toHaveAttribute("aria-expanded", "true");
   await page.locator(".ts-fold[data-fold=hood]").click();
-  await expect(page.locator(".ts-fold[data-fold=compare]")).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(".ts-fold[data-fold=compare]")).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator(".ts-page [data-ref=foldHood]")).toBeHidden();
   // The numbers behind the verdict are under the hood.
   const detail = page.locator(".ts-page [data-ref=heroDetail]");
   await expect(detail).toContainText(/repeating the last cycle at the same horizons, over \d+ backtest folds · MASE \d\.\d\d/);
   await expect(detail).toContainText(/Lockbox check: picked on folds 1–\d+; on fold \d+, which the choice never saw, it ranked #\d of 8/);
-  // Compare models: three columns, grouped, the pick marked Auto.
+  // The three answers on top, then every model in one list, lowest error first, the pick marked Auto.
+  await expect(page.locator("[data-ref=answer] .ts-ans")).toHaveCount(3);
+  await expect(page.locator("[data-ref=answer]")).toContainText(/A simple model you can use/);
+  await expect(page.locator("[data-ref=answer]")).toContainText(/How much better\?/);
   const compact = page.locator("[data-ref=boardCompact]");
-  await expect(compact.locator("thead th")).toHaveCount(3);
+  await expect(compact.locator("thead th")).toHaveCount(4);
   await expect(compact.locator("tr[data-model]")).toHaveCount(12);
-  await expect(compact.locator(".ts-group th")).toHaveText(["Recommended", "Alternatives", "Benchmarks: what to beat"]);
+  await expect(compact.locator(".ts-group")).toHaveCount(0);
+  const ratios = (await compact.locator("tr[data-model] .ts-ratio").allTextContents()).map((t) => parseFloat(t));
+  expect(ratios).toEqual([...ratios].sort((p, q) => p - q));
   await expect(compact.locator(".ts-autotag")).toHaveCount(1);
   await expect(page.locator("[data-ref=board] thead")).toContainText("Unseen fold");
   await expect(page.locator(".ts-page [data-ref=flexNote]")).toContainText(/ridge \(L2\) penalty of λ = /);
@@ -352,7 +355,6 @@ test("each model has a technical page with its equations, this series' fit and i
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();
   await expect(page.locator("[data-ref=board] tbody tr")).toHaveCount(12);
-  await page.locator(".ts-fold[data-fold=compare]").click();
   await page.getByRole("button", { name: "How Best smoothing works" }).click();
   const win = page.getByRole("dialog", { name: "How the forecasts work" });
   await expect(win.locator("h2").nth(1)).toContainText("Best smoothing");

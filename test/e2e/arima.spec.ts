@@ -33,7 +33,7 @@ test("AutoARIMA runs on request and returns the parameters, fit, residual check,
   const out = page.locator(".ts-page [data-ref=arimaOut]");
   await expect(out).toBeHidden();
   // The deep runs have a section of their own, between Compare models and Under the hood.
-  await expect(page.locator(".ts-page .ts-fold b")).toHaveText(["Compare models", "Compute-intense models", "Under the hood"]);
+  await expect(page.locator(".ts-page .ts-fold b")).toHaveText(["All models, ranked", "Compute-intense models", "Under the hood"]);
   await expect(page.locator(".ts-page .ts-fold[data-fold=compute]")).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator(".ts-page [data-ref=arimaVoteBtn]")).toHaveText("DV-ARIMA…");
   // Plain auto.arima, to compare with R: the differencing vote is its own button, with its own test below.
@@ -61,13 +61,17 @@ test("AutoARIMA runs on request and returns the parameters, fit, residual check,
   await expect(out.locator(".ts-arima-help")).toContainText("Std. error and z");
   await expect(out.locator(".ts-arima-help")).toContainText("Ljung–Box");
   // It joins the leaderboards as a row of its own, scored on the board's folds.
-  await page.locator(".ts-fold[data-fold=compare]").click();
   const lb = page.locator("[data-ref=boardCompact] tr[data-arima]");
   await expect(lb).toHaveCount(1);
   await expect(lb).toContainText("ARIMA(2,1,1)(0,1,0)[12]");
   await expect(lb).toContainText(/\d\.\d\d×/);
-  await expect(lb).toContainText(/Reliable|Use with care/);
-  await expect(page.locator("[data-ref=boardCompact] .ts-group th", { hasText: "Run by you" })).toBeVisible();
+  await expect(lb).toContainText(/beat|behind|Not tested/);
+  await expect(lb.locator(".ts-autotag")).toHaveText(/AutoARIMA|DV-ARIMA/);
+  // Clicking its row puts its forecast on the chart; the parameters stay one click away.
+  await lb.locator(".ts-mname").click();
+  await expect(page.locator(".ts-page [data-ref=heroBadge]")).toContainText("ARIMA(2,1,1)(0,1,0)[12]");
+  await expect(page.locator(".ts-page [data-ref=legend]")).toContainText("run by you");
+  await expect(page.locator(".ts-page [data-ref=heroBadge]").getByRole("button", { name: /Show .* instead/ })).toBeVisible();
   const full = page.locator("[data-ref=board] tr[data-arima]");
   await expect(full).toHaveCount(1);
   await expect(full).toContainText(/Run by you/);

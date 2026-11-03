@@ -167,18 +167,19 @@ const TEMPLATE = `
       </section>
       <section class="ts-card ts-panel" data-panel="forecast" hidden>
         <div class="ts-panel-head"><h3>Models</h3><p>Drag the split line on the chart to backtest from any date, or the handle at the end of the band to change how far ahead it forecasts. Hover a model to compare it.</p></div>
-        <button class="ts-fold" type="button" data-fold="compare" aria-expanded="false"><span class="ts-fold-chev" aria-hidden="true"></span><b>Compare models</b><span class="ts-note">See how the forecast stacks up against the other models</span></button>
+        <div class="ts-answer" data-ref="answer" aria-live="polite"></div>
+        <button class="ts-fold" type="button" data-fold="compare" aria-expanded="false"><span class="ts-fold-chev" aria-hidden="true"></span><b>All models, ranked</b><span class="ts-note">Lowest error first: click a row to see its forecast</span></button>
         <div class="ts-fold-body" data-ref="foldCompare" hidden>
         <div class="ts-boardwrap"><table class="ts-board ts-board-compact" data-ref="boardCompact" aria-label="Models, compared"></table></div>
         </div>
-        <button class="ts-fold" type="button" data-fold="compute" aria-expanded="false"><span class="ts-fold-chev" aria-hidden="true"></span><svg class="ts-fold-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5.5A3 3 0 0 0 6.3 4.3 3.5 3.5 0 0 0 4 8a3.5 3.5 0 0 0 .8 2.3A3.6 3.6 0 0 0 4 12.5a3.5 3.5 0 0 0 2 3.2A3.2 3.2 0 0 0 9 19.5a3 3 0 0 0 3-2.2V5.5Z"/><path d="M12 5.5a3 3 0 0 1 5.7-1.2A3.5 3.5 0 0 1 20 8a3.5 3.5 0 0 1-.8 2.3 3.6 3.6 0 0 1 .8 2.2 3.5 3.5 0 0 1-2 3.2 3.2 3.2 0 0 1-3 3.8 3 3 0 0 1-3-2.2V5.5Z"/><path d="M8 9.5a2 2 0 0 1 2-1M16 9.5a2 2 0 0 0-2-1M8 14a2.2 2.2 0 0 0 2.2 1.2M16 14a2.2 2.2 0 0 1-2.2 1.2"/></svg><b>Compute-intense models</b><span class="ts-note">Deep runs you start yourself: AutoARIMA, and a variant that votes on the differencing</span></button>
+        <button class="ts-fold" type="button" data-fold="compute" aria-expanded="false"><span class="ts-fold-chev" aria-hidden="true"></span><svg class="ts-fold-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5.5A3 3 0 0 0 6.3 4.3 3.5 3.5 0 0 0 4 8a3.5 3.5 0 0 0 .8 2.3A3.6 3.6 0 0 0 4 12.5a3.5 3.5 0 0 0 2 3.2A3.2 3.2 0 0 0 9 19.5a3 3 0 0 0 3-2.2V5.5Z"/><path d="M12 5.5a3 3 0 0 1 5.7-1.2A3.5 3.5 0 0 1 20 8a3.5 3.5 0 0 1-.8 2.3 3.6 3.6 0 0 1 .8 2.2 3.5 3.5 0 0 1-2 3.2 3.2 3.2 0 0 1-3 3.8 3 3 0 0 1-3-2.2V5.5Z"/><path d="M8 9.5a2 2 0 0 1 2-1M16 9.5a2 2 0 0 0-2-1M8 14a2.2 2.2 0 0 0 2.2 1.2M16 14a2.2 2.2 0 0 1-2.2 1.2"/></svg><b>Compute-intense models</b><span class="ts-note">ARIMA runs you start yourself; each joins the ranked list when it finishes</span></button>
         <div class="ts-fold-body" data-ref="foldCompute" hidden>
         <div class="ts-arima">
           <div class="ts-arima-bar">
             <button class="ts-ghost ts-deep-btn" type="button" data-ref="arimaBtn" title="Searches seasonal ARIMA models for this series by the textbook's method (R's auto.arima) and reports the one it settles on, with its parameters. A deep run you start yourself: no time limit.">AutoARIMA…</button>
-            <button class="ts-ghost ts-deep-btn" type="button" data-ref="arimaVoteBtn" title="DV-ARIMA: the same search, but the differencing is chosen by a vote on forecasts of your own history, not only by the unit-root test, and the forecast averages the choices. An alternative that may help a little: about 2 to 3% better on archive series, not on every series, and 3 to 5 times slower. Not used with Try every order.">DV-ARIMA…</button>
-            <label class="ts-check" title="Tries every order up to ARIMA(5,d,5)(2,D,2) within five terms, not just the neighbours of the best so far. Much slower."><input type="checkbox" data-ref="arimaAll"> Try every order (much slower)</label>
-            <span class="ts-note">Deep runs in the background with no time limit: they search ARIMA models and show the parameters they settle on. DV-ARIMA is an alternative that chooses the differencing by forecast vote.</span>
+            <button class="ts-ghost ts-deep-btn" type="button" data-ref="arimaVoteBtn" title="DV-ARIMA: the same search, but the differencing is chosen by a vote on forecasts of your own history, not only by the unit-root test, and the forecast averages the choices. An alternative that may help a little: about 2 to 3% better on archive series, not on every series, and 3 to 5 times slower. Not used with Search every order.">DV-ARIMA…</button>
+            <label class="ts-check" title="AutoARIMA normally searches step by step: it starts from a few standard models and only tries the neighbours of the best one so far. This tests every combination instead (up to ARIMA(5,d,5)(2,D,2)). It is much slower and usually lands on the same model, so tick it only if the quick result looks wrong."><input type="checkbox" data-ref="arimaAll"> Search every order (slower, rarely changes the answer)</label>
+            <span class="ts-note">AutoARIMA searches for the best-fitting ARIMA model; DV-ARIMA chooses the differencing by a forecast vote instead. They run in the background with no time limit, and the result is ranked with the other models. "Search every order" checks all combinations instead of stepping outward from the best: slower, and it usually finds the same model.</span>
           </div>
           <div class="ts-arima-run" data-ref="arimaRun" hidden role="status" aria-live="polite"><span class="ts-donut" aria-hidden="true"></span><div class="ts-arima-prog" data-ref="arimaProg"></div><button class="ts-ghost" type="button" data-ref="arimaCancel">Stop</button></div>
           <div class="ts-arima-out" data-ref="arimaOut" hidden></div>
@@ -251,6 +252,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   let INS: TsFinding[] = [];
   let view: [number, number] | null = null;
   let hoverIdx = -1, ghostModel: ModelKey | null = null, ghostArima = false;
+  /** The run-by-you ARIMA forecast is the one on the chart (set by clicking its row or card). */
+  let arimaShown = false;
   let pulse: { indices: number[]; rule: number | null; start: number } | null = null;
   let reveal = 1, revealStart = 0;
   let fade: { canvas: HTMLCanvasElement; start: number } | null = null;
@@ -681,7 +684,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       const clipX = xs0 + (xEnd - xs0) * reveal;
       ctx.save();
       ctx.beginPath(); ctx.rect(geo.L, geo.T - 6, clipX - geo.L, geo.ph + 6); ctx.clip();
-      const band = (blo: Float64Array, bhi: Float64Array, alpha: number): void => {
+      const FC = shownForecast(P).f;
+      const band = (blo: ArrayLike<number>, bhi: ArrayLike<number>, alpha: number): void => {
         const grad = ctx.createLinearGradient(xs0, 0, xEnd, 0);
         grad.addColorStop(0, rgba(C.forecast, alpha));
         grad.addColorStop(1, rgba(C.forecast, alpha * 0.45));
@@ -693,8 +697,13 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         ctx.strokeStyle = rgba(C.forecast, 0.45); ctx.lineWidth = 0.75;
         for (const arr of [bhi, blo]) { ctx.beginPath(); ctx.moveTo(xs0, Y(y0)); for (let h = 0; h < P.H; h++) ctx.lineTo(X(T[split + h]), Y(arr[h])); ctx.stroke(); }
       };
-      if (ui.level === "fan") band(P.f.lo95, P.f.hi95, 0.13);
-      band(P.f.lo80, P.f.hi80, 0.26);
+      if (ui.level === "fan") band(FC.lo95, FC.hi95, 0.13);
+      band(FC.lo80, FC.hi80, 0.26);
+      if (FC !== P.f) {
+        // The model Auto would show, kept faint behind the ARIMA run on screen.
+        ctx.strokeStyle = C.dim; ctx.setLineDash([2, 3]); ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(xs0, Y(y0)); for (let h = 0; h < P.H; h++) ctx.lineTo(X(T[split + h]), Y(P.f.F[h])); ctx.stroke(); ctx.setLineDash([]);
+      }
       if (ghostModel && ghostModel !== P.key) {
         const gf = s.futures[ghostModel];
         ctx.strokeStyle = C.dim; ctx.setLineDash([2, 3]); ctx.lineWidth = 1.5;
@@ -708,13 +717,13 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         }
       }
       ctx.strokeStyle = C.forecast; ctx.lineWidth = 2.25; ctx.setLineDash([7, 4]);
-      ctx.beginPath(); ctx.moveTo(xs0, Y(y0)); for (let h = 0; h < P.H; h++) ctx.lineTo(X(T[split + h]), Y(P.f.F[h])); ctx.stroke(); ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(xs0, Y(y0)); for (let h = 0; h < P.H; h++) ctx.lineTo(X(T[split + h]), Y(FC.F[h])); ctx.stroke(); ctx.setLineDash([]);
       ctx.restore();
       if (split < N) {
         for (let h = 0; h < P.H && split + h < N; h++) {
           const v = a.y[split + h];
           if (!(v === v)) continue;
-          const out = v < P.f.lo80[h] || v > P.f.hi80[h];
+          const out = v < FC.lo80[h] || v > FC.hi80[h];
           ctx.beginPath(); ctx.arc(X(T[split + h]), Y(v), out ? 3.6 : 2.4, 0, Math.PI * 2);
           if (out) { ctx.strokeStyle = C.danger; ctx.lineWidth = 1.5; ctx.stroke(); }
           else { ctx.fillStyle = rgba(C.text, 0.6); ctx.fill(); }
@@ -765,7 +774,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       if (mode === "decompose" && dec) { const tr = lastIn((i) => dec.trend[i], N - 1); if (tr) labels.push({ y: Y(tr.v), color: C.accent, text: "Trend", val: compact(tr.v) }); }
       if (P) {
         const h = Math.min(P.H - 1, Math.max(0, i1 - split));
-        if (split + h >= i0) labels.push({ y: Y(P.f.F[h]), color: C.forecast, text: "Forecast " + shortPeriod(a.g, T[split + h]), val: compact(P.f.F[h]) });
+        if (split + h >= i0) { const fv = shownForecast(P).f.F[h]; labels.push({ y: Y(fv), color: C.forecast, text: "Forecast " + shortPeriod(a.g, T[split + h]), val: compact(fv) }); }
       }
       labels.sort((p, q) => p.y - q.y);
       for (let k = 1; k < labels.length; k++) if (labels[k].y - labels[k - 1].y < 30) labels[k].y = labels[k - 1].y + 30;
@@ -1107,7 +1116,10 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if ((ui.mode === "explore" || ui.mode === "decompose") && trendShift(s, ui)) lg.push(`<span style="color:${C.warn}"><i class="dash"></i>Trend shift (estimated)</span>`);
     if ((ui.mode === "explore" || ui.mode === "decompose") && s.dec.anomalies.length) lg.push(`<span style="color:${C.danger}">◯ Unusual</span>`);
     const fk = selectedModel(s, ui);
-    if (ui.mode === "forecast" && s.futures) lg.push(`<span style="color:${C.forecast}"><i class="dash"></i>Forecast: <b>${fk ? MODEL_INFO[fk].name : ""}</b> <small>${ui.model === "auto" ? autoLabel() : "picked"}</small></span>`)
+    const arShown = ui.mode === "forecast" && arimaShown ? arimaLive() : null;
+    if (ui.mode === "forecast" && s.futures) lg.push(arShown
+      ? `<span style="color:${C.forecast}"><i class="dash"></i>Forecast: <b class="ts-mono">${escapeHtml(arShown.label)}</b> <small>run by you</small></span>`
+      : `<span style="color:${C.forecast}"><i class="dash"></i>Forecast: <b>${fk ? MODEL_INFO[fk].name : ""}</b> <small>${ui.model === "auto" ? autoLabel() : "picked"}</small></span>`);
     renderHeroBadge(s, fk);
     if (ui.mode === "forecast" && s.futures) lg.push(`<span style="color:${C.forecast}"><span style="color:${C.forecast}"><i class="band"></i>${ui.level === "fan" ? "80% and 95%" : "80%"} range</span>`);
     if (a.filled.some((x) => x)) lg.push(`<span style="color:${C.dim}">○ Filled</span>`);
@@ -1416,6 +1428,14 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   function renderHeroBadge(s: TsSnapshot, key: ModelKey | null): void {
     const badge = ref("heroBadge"), M = models();
     if (ui.mode !== "forecast" || !M || !s.futures || !key) { badge.hidden = true; return; }
+    const arRow = arimaShown ? arimaRow(s, M) : null;
+    if (arRow) {
+      badge.dataset.level = arRow.verdict.level;
+      badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b class="ts-mono">${escapeHtml(arRow.label)}</b><span class="ts-autotag">${arRow.dv ? "DV-ARIMA" : "AutoARIMA"}</span><span class="ts-pill ts-verdict ${arRow.verdict.cls}">${arRow.verdict.label}</span><small>run by you · error ${arRow.ratio.toFixed(2)}× repeating the last ${cycleWord(s)}</small><button type="button" class="ts-link" data-arima-params="1" data-arima-open="1" title="The fitted terms, their meaning and the models tried">Parameters</button><button type="button" class="ts-link" data-ans-show="${key}" title="Back to ${escapeHtml(MODEL_INFO[key].name)}">Show ${escapeHtml(MODEL_INFO[key].name)} instead</button></div>
+        <div class="ts-qa"><div class="ts-qa-row"><span class="ts-qa-q">Is it better than the simple method?</span><span class="ts-qa-a"><span class="ts-pill ${arRow.ratio < 1 ? "good" : "poor"}">${arRow.ratio < 1 ? "Yes" : "No"}</span></span><span class="ts-qa-t">${arRow.ratio < 1 ? `${Math.round((1 - arRow.ratio) * 100)}% less error` : `${Math.round((arRow.ratio - 1) * 100)}% more error`} than repeating the last ${cycleWord(s)} in the backtests. ${escapeHtml(arRow.verdict.sentence)}</span></div></div>`;
+      badge.hidden = false;
+      return;
+    }
     const v = verdictFor(s, M, key);
     badge.dataset.level = v.level;
     badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ts-verdict ${v.cls}">${v.label}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small><button type="button" class="ts-link" data-hood="1" title="The numbers behind this verdict, and how each model did">Details</button><button type="button" class="ts-link" data-info="verdict" title="What Reliable and Use with care mean, and how they were checked">How this is decided</button></div>
@@ -1527,6 +1547,12 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (!s || !arima || arima.running || !arima.result || !arima.result.ok || arima.key !== arimaKey(s)) return null;
     return arima.result;
   }
+  type Fc = { F: ArrayLike<number>; lo80: ArrayLike<number>; hi80: ArrayLike<number>; lo95: ArrayLike<number>; hi95: ArrayLike<number> };
+  /** The forecast the chart shows: the ARIMA run when it was picked, else the selected model's. */
+  function shownForecast(P: Proj): { f: Fc; arima: boolean } {
+    const ar = arimaShown ? arimaLive() : null;
+    return ar && ar.forecast.F.length >= P.H ? { f: ar.forecast, arima: true } : { f: P.f, arima: false };
+  }
   type ArimaRow = { dv: boolean; label: string; ratio: number; mase: number; lockMase: number | null; rank: number | null; verdict: Verdict; won: number; of: number };
   /** What the leaderboards show for the AutoARIMA run: the same numbers as any other model, from its own backtest on the same folds. */
   function arimaRow(s: TsSnapshot, M: ModelRun): ArimaRow | null {
@@ -1537,6 +1563,14 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const rank = M.lockbox && lock !== null ? 1 + CORE_KEYS.filter((k) => (M.models[k].lock?.mase ?? Infinity) < lock).length : null;
     const verdict = trustVerdict({ baseline: false, ratio: bt.ratio, lockRank: rank, models: CORE_KEYS.length, foldsWon: bt.foldsWon, foldsOf: bt.foldsOf, band: null, rough: M.rough, periods: s.A.modelN, cycle: cycleWord(s) });
     return { dv: r.vote !== null, label: r.label, ratio: bt.ratio, mase: bt.mase, lockMase: lock, rank, verdict, won: bt.foldsWon, of: bt.foldsOf };
+  }
+  /** Puts the ARIMA run's forecast on the chart, like picking any other model. */
+  function showArima(): void {
+    if (!arimaLive()) return;
+    arimaShown = true;
+    if (snap) INS = makeInsights();
+    invalidate("ui", "stat", "nav", "ov", "panel");
+    ref("hero").scrollIntoView({ block: "center", behavior: "smooth" });
   }
   function arimaProgressText(): string {
     if (!arima) return "";
@@ -1778,45 +1812,82 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     return GAP_OPTS.map(([k, label]) => [k, label, notes[k]]);
   }
 
-  /** Compare models: three columns (model, error against repeating the last cycle, how it did on unseen data), grouped. */
+  /**
+   * The answer to what a forecaster asks: what simple model can I use, what high-performing model can I use, and how much better is it.
+   * One ranked list below it, lowest error first, with every ARIMA run you started mixed in.
+   */
+  type Cand = { id: string; key: ModelKey | null; name: string; plain: string; ratio: number; held: number | null; simple: boolean; arima: boolean; tag: string; verdict: Verdict | null };
+  function candidates(s: TsSnapshot, M: ModelRun): Cand[] {
+    const mk = ui.metric, snLock = lockValue(M, "sn", mk), pick = M.auto[mk].pick;
+    const heldOf = (k: ModelKey): number | null => {
+      const v = lockValue(M, k, mk);
+      return M.lockbox && M.models[k].lock && Number.isFinite(v) && Number.isFinite(snLock) && snLock > 0 ? v / snLock : null;
+    };
+    const list: Cand[] = M.shown.filter((k) => Number.isFinite(ratioOf(s, k))).map((k) => ({
+      id: k, key: k, name: MODEL_INFO[k].name, plain: PLAIN[k] ?? "", ratio: ratioOf(s, k), held: heldOf(k), simple: BENCHMARKS.includes(k), arima: false,
+      tag: k === pick ? "Auto" : "", verdict: CORE_KEYS.includes(k) ? verdictFor(s, M, k) : null,
+    }));
+    const ar = arimaRow(s, M);
+    if (ar) {
+      const lock = arimaLive()?.backtest?.lockMase ?? null, sn = M.models.sn.lock?.mase ?? NaN;
+      list.push({ id: "arima", key: null, name: ar.label, plain: ar.dv ? "AutoARIMA with the differencing chosen by a forecast vote, run by you" : "The textbook's automatic ARIMA search, run by you", ratio: ar.ratio, held: lock !== null && sn > 0 ? lock / sn : null, simple: false, arima: true, tag: ar.dv ? "DV-ARIMA" : "AutoARIMA", verdict: ar.verdict });
+    }
+    // Lowest error first; on a tie the simpler method leads.
+    return list.sort((p, q) => p.ratio - q.ratio || Number(q.simple) - Number(p.simple));
+  }
+  function renderAnswer(s: TsSnapshot, M: ModelRun, list: Cand[]): void {
+    const box = ref("answer");
+    if (list.length === 0) { box.innerHTML = ""; return; }
+    const simple = list.find((c) => c.simple) ?? list[0]!, best = list[0]!;
+    const same = best.id === simple.id;
+    const cycle = cycleWord(s);
+    const times = (x: number): string => `${x.toFixed(2)}×`;
+    const gain = same ? 0 : 1 - best.ratio / simple.ratio;
+    const heldGain = !same && best.held !== null && simple.held !== null && simple.held > 0 ? 1 - best.held / simple.held : null;
+    const show = (c: Cand): string => `<button type="button" class="ts-ghost" data-ans-show="${c.arima ? "arima" : c.key}">Show on the chart</button>`;
+    const card = (cls: string, kick: string, name: string, line: string, extra: string, c: Cand | null): string => `<article class="ts-ans ${cls}"><div class="ts-ans-kick">${kick}</div><div class="ts-ans-name${c?.arima ? " ts-mono" : ""}">${escapeHtml(name)}</div><p>${line}</p>${extra}${c ? show(c) : ""}</article>`;
+    const errLine = (c: Cand): string => `<span class="ts-ans-num">${times(c.ratio)}</span> the error of repeating the last ${cycle}${c.held !== null && c.id !== "sn" ? `; <span class="ts-ans-num">${times(c.held)}</span> on the held-back data` : ""}`;
+    const gainCard = same
+      ? `<article class="ts-ans gain none"><div class="ts-ans-kick">How much better?</div><div class="ts-ans-name">No gain</div><p>A more complex model is not worth using for this series: none of them forecast it better than <b>${escapeHtml(simple.name)}</b>.</p></article>`
+      : `<article class="ts-ans gain ${gain >= 0.1 ? "good" : "small"}"><div class="ts-ans-kick">How much better?</div><div class="ts-ans-name">${Math.round(gain * 100)}% less error</div>
+          <p><b>${escapeHtml(best.name)}</b> against <b>${escapeHtml(simple.name)}</b>, in the backtests (${M.origins.length} folds).${heldGain === null ? "" : heldGain > 0 ? ` On the held-back data it also wins, by ${Math.round(heldGain * 100)}%.` : ` <span class="ts-warn">On the held-back data it does not win: treat the gain with care.</span>`}${gain < 0.05 ? " A small gain: the simple model is nearly as good." : ""}</p></article>`;
+    box.innerHTML = `<div class="ts-answer-grid">
+      ${card("simple", "A simple model you can use", simple.name, simple.plain ? escapeHtml(simple.plain) + "." : "", `<p class="ts-ans-sub">${errLine(simple)}</p>`, simple)}
+      ${same
+        ? `<article class="ts-ans best"><div class="ts-ans-kick">The best-performing model</div><div class="ts-ans-name">The simple one</div><p>Every other model${list.some((c) => c.arima) ? ", your ARIMA run included," : ""} had more error than <b>${escapeHtml(simple.name)}</b> in the backtests.${list.some((c) => c.arima) ? "" : " Run AutoARIMA or DV-ARIMA under Compute-intense models to give it a harder opponent."}</p></article>`
+        : card("best", "The best-performing model", best.name, best.plain ? escapeHtml(best.plain) + "." : "", `<p class="ts-ans-sub">${errLine(best)}</p>`, best)}
+      ${gainCard}
+    </div><p class="ts-note ts-answer-note">Errors are compared with repeating the last ${cycle}, which is 1.00×; lower is better. They come from forecasting ${M.origins.length} earlier stretches of your own history the model had not seen.${M.lockbox ? " The held-back data is one more stretch kept aside, never used to rank or pick." : ""}</p>`;
+  }
+  /** Compare models: every model in one list, lowest error first. */
   function renderCompact(): void {
     const s = snap as TsSnapshot, table = ref("boardCompact"), M = models();
-    if (!M || !s.futures) { table.innerHTML = ""; return; }
-    const sel = selectedModel(s, ui) as ModelKey, mk = ui.metric, pick = M.auto[mk].pick;
+    if (!M || !s.futures) { table.innerHTML = ""; ref("answer").innerHTML = ""; return; }
+    const sel = selectedModel(s, ui) as ModelKey;
     const yardKey = sel === "sn" ? null : yardstickOf(s, M, sel).key;
-    const size = (k: ModelKey): number => { const v = M.models[k].metrics[mk]; return v === v ? (mk === "bias" ? Math.abs(v) : v) : Infinity; };
-    const byError = [...M.shown].sort((p, q) => size(p) - size(q));
-    const groups: [string, ModelKey[]][] = [
-      ["Recommended", [pick]],
-      ["Alternatives", byError.filter((k) => k !== pick && !BENCHMARKS.includes(k))],
-      ["Benchmarks: what to beat", BENCHMARKS.filter((k) => k !== pick)],
-    ];
+    const list = candidates(s, M);
+    renderAnswer(s, M, list);
+    const simple = list.find((c) => c.simple) ?? list[0], best = list[0];
     // A full bar is 1.5x the error of repeating the last cycle: one wild model must not squash the rest into dots.
     const top = 1.5;
     const dot = { good: "var(--ok)", okay: "var(--qa-warn)", poor: "var(--danger)", base: "var(--text-dim)" } as const;
-    const bodies = groups.filter(([, ks]) => ks.length > 0).map(([label, ks]) =>
-      `<tbody><tr class="ts-group"><th colspan="3" scope="colgroup">${label}</th></tr>${ks.map((k) => {
-        const r = ratioOf(s, k), v = verdictFor(s, M, k), m = M.models[k];
-        const core = CORE_KEYS.includes(k);
-        const place = core && M.lockbox && m.lock && k !== "sn" ? ` (${ordinal(lockRank(M, k, mk))} of ${CORE_KEYS.length})` : "";
-        const beat = !core && M.lockbox && m.lock && lockValue(M, k, mk) < lockValue(M, pick, mk);
-        return `<tr data-model="${k}" aria-selected="${k === sel}">
-          <td><span class="ts-mname">${MODEL_INFO[k].name}</span>${k === pick ? '<span class="ts-autotag">Auto</span>' : ""}${k === yardKey ? '<span class="ts-yardtag" title="The simple method the verdict compares the forecast with">Yardstick</span>' : ""}<button type="button" class="ts-info" data-info="${k}" aria-label="How ${MODEL_INFO[k].name} works" title="How ${MODEL_INFO[k].name} works: equations, fitting, sources">ⓘ</button><div class="ts-plain">${PLAIN[k] ?? ""}</div></td>
-          <td><span class="ts-errtrack"><span class="ts-errbar" style="width:${Number.isFinite(r) ? Math.min(100, Math.max(3, (r / top) * 100)).toFixed(0) : 0}%;opacity:${k === "sn" || k === "clim" ? 0.4 : 0.85}"></span></span><span class="ts-ratio">${Number.isFinite(r) ? r.toFixed(2) : "–"}×</span></td>
-          <td>${core ? `<span class="ts-dot" style="background:${dot[v.cls]}"></span>${v.level === "baseline" ? "Baseline" : escapeHtml(v.label) + place}` : `<span class="ts-dot" style="background:${beat ? dot.poor : dot.base}"></span>${beat ? "Beat the pick on unseen data" : "Benchmark"}`}</td></tr>`;
-      }).join("")}</tbody>`);
-    const ar = arimaRow(s, M);
-    if (ar) {
-      const at = bodies.findIndex((b) => b.includes("Benchmarks: what to beat"));
-      const place = ar.rank !== null ? ` (${ordinal(ar.rank)} of ${CORE_KEYS.length})` : "";
-      const body = `<tbody><tr class="ts-group"><th colspan="3" scope="colgroup">Run by you</th></tr><tr data-arima="1" title="Click for the parameters">
-          <td><span class="ts-mname ts-mono">${escapeHtml(ar.label)}</span><span class="ts-autotag">${ar.dv ? "DV-ARIMA" : "AutoARIMA"}</span><button type="button" class="ts-info" data-info="autoarima" aria-label="How AutoARIMA works" title="How AutoARIMA works: the method, how it was checked, sources">ⓘ</button><div class="ts-plain">${ar.dv ? "AutoARIMA with the differencing chosen by a forecast vote, run by you" : "The textbook's automatic ARIMA search, run by you"}: click for its parameters</div></td>
-          <td><span class="ts-errtrack"><span class="ts-errbar" style="width:${Math.min(100, Math.max(3, (ar.ratio / top) * 100)).toFixed(0)}%;opacity:0.85"></span></span><span class="ts-ratio">${ar.ratio.toFixed(2)}×</span></td>
-          <td><span class="ts-dot" style="background:${dot[ar.verdict.cls]}"></span>${escapeHtml(ar.verdict.label)}${place}</td></tr></tbody>`;
-      if (at >= 0) bodies.splice(at, 0, body); else bodies.push(body);
-    }
-    const rows = bodies.join("");
-    table.innerHTML = `<thead><tr><th>Model</th><th title="Error divided by the error of repeating the last cycle: below 1× is better">Error against repeating the last ${cycleWord(s)}</th><th>On data it never saw</th></tr></thead>${rows}`;
+    const heldCell = (c: Cand): string => {
+      if (c.id === "sn") return `<span class="ts-dot" style="background:${dot.base}"></span>Baseline`;
+      if (c.held === null) return `<span class="ts-dot" style="background:${dot.base}"></span>Not tested`;
+      const better = c.held < 1;
+      return `<span class="ts-dot" style="background:${better ? dot.good : dot.poor}"></span>${c.held.toFixed(2)}× <small>${better ? "beat" : "behind"} repeating the last ${cycleWord(s)}</small>`;
+    };
+    const rows = list.map((c, i) => {
+      const tags = [c === best && c !== simple ? '<span class="ts-besttag">Best</span>' : "", c === simple ? '<span class="ts-simpletag" title="The simple method with the least error here">Simple</span>' : c.key === yardKey ? '<span class="ts-yardtag" title="The simple method the verdict compares the forecast with">Yardstick</span>' : "", c.tag ? `<span class="ts-autotag" title="${c.arima ? "Run by you" : "What the chart shows by default: a steady all-rounder unless another model clearly wins"}">${c.tag}</span>` : "", c.arima ? '<button type="button" class="ts-link" data-arima-params="1" title="The fitted terms, their meaning and the models tried">Parameters</button>' : ""].join("");
+      const info = c.arima ? "autoarima" : c.key;
+      const selected = c.arima ? arimaShown : !arimaShown && c.key === sel;
+      return `<tr ${c.arima ? 'data-arima="1"' : `data-model="${c.key}"`} aria-selected="${selected}">
+        <td class="ts-rank">${i + 1}</td>
+        <td><span class="ts-mname${c.arima ? " ts-mono" : ""}">${escapeHtml(c.name)}</span>${tags}<button type="button" class="ts-info" data-info="${info}" aria-label="How ${escapeHtml(c.name)} works" title="How it works: equations, fitting, sources">ⓘ</button><div class="ts-plain">${escapeHtml(c.plain)}</div></td>
+        <td><span class="ts-errtrack"><span class="ts-errbar" style="width:${Math.min(100, Math.max(3, (c.ratio / top) * 100)).toFixed(0)}%;opacity:${c.simple ? 0.45 : 0.85}"></span></span><span class="ts-ratio">${c.ratio.toFixed(2)}×</span></td>
+        <td>${heldCell(c)}</td></tr>`;
+    }).join("");
+    table.innerHTML = `<thead><tr><th>#</th><th>Model <small>click a row to see its forecast</small></th><th title="Error divided by the error of repeating the last ${cycleWord(s)}: below 1× is better">Error vs repeating the last ${cycleWord(s)}</th><th title="One more stretch of history, kept aside and never used to rank or pick">On held-back data</th></tr></thead><tbody>${rows}</tbody>`;
   }
   function renderBoard(): void {
     const s = snap as TsSnapshot, board = ref("board"), card = ref("modelCard");
@@ -1932,6 +2003,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     fetchSeries();
   }
   function uiChange(patch: Partial<UiState>): void {
+    if ("model" in patch) arimaShown = false;
     Object.assign(ui, patch);
     if (snap) INS = makeInsights();
     invalidate("ui", "stat", "nav", "ov");
@@ -2230,9 +2302,16 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (info) { openDocs(info.dataset.info!); return; }
     const yardUse = target.closest<HTMLElement>("[data-yard-use]");
     if (yardUse) { uiChange({ model: yardUse.dataset.yardUse as ModelKey }); return; }
-    if (target.closest("[data-hood]")) { folds.hood = true; applyFolds(); try { localStorage.setItem("ts.forecast.folds", JSON.stringify(folds)); } catch { /* ignore */ } ref("heroDetail").scrollIntoView({ block: "start", behavior: "smooth" }); return; }
+    if (target.closest("[data-hood]")) { folds.hood = true; applyFolds(); try { localStorage.setItem("ts.forecast.folds.v2", JSON.stringify(folds)); } catch { /* ignore */ } ref("heroDetail").scrollIntoView({ block: "start", behavior: "smooth" }); return; }
+    if (target.closest("[data-arima-open]")) { folds.compute = true; applyFolds(); ref("arimaOut").scrollIntoView({ block: "start", behavior: "smooth" }); return; }
     const arimaRowEl = target.closest<HTMLElement>("tr[data-arima]");
-    if (arimaRowEl && !info) { folds.compute = true; applyFolds(); ref("arimaOut").scrollIntoView({ block: "start", behavior: "smooth" }); return; }
+    if (arimaRowEl && !info) {
+      if (target.closest("[data-arima-params]")) { folds.compute = true; applyFolds(); ref("arimaOut").scrollIntoView({ block: "start", behavior: "smooth" }); return; }
+      showArima();
+      return;
+    }
+    const ansShow = target.closest<HTMLElement>("[data-ans-show]");
+    if (ansShow) { const k = ansShow.dataset.ansShow!; if (k === "arima") showArima(); else uiChange({ model: k as ModelKey }); ref("hero").scrollIntoView({ block: "center", behavior: "smooth" }); return; }
     const row = target.closest<HTMLElement>("tr[data-model]");
     if (row && snap) { const M = models(), k = row.dataset.model as ModelKey; uiChange({ model: M && k === M.auto[ui.metric].pick && ui.model !== "auto" ? "auto" : k }); }
     const tab = target.closest<HTMLElement>(".ts-modes [data-mode]");
@@ -2280,9 +2359,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   on("sens", "input", (e) => change({ sens: Number((e.target as HTMLInputElement).value) }, { fade: false }));
   on("flex", "input", (e) => change({ flex: Number((e.target as HTMLInputElement).value) }, { fade: false }));
   on("flexCheck", "click", () => checkFlex());
-  /** Compare models, Compute-intense models and Under the hood start closed; a person's choice is remembered in this browser. */
-  const folds: Record<string, boolean> = { compare: false, compute: false, hood: false };
-  try { Object.assign(folds, JSON.parse(localStorage.getItem("ts.forecast.folds") || "{}")); } catch { /* storage unavailable */ }
+  /** Compute-intense models and Under the hood start closed (Compare models starts open); a person's choice is remembered in this browser. */
+  const folds: Record<string, boolean> = { compare: true, compute: false, hood: false };
+  try { Object.assign(folds, JSON.parse(localStorage.getItem("ts.forecast.folds.v2") || "{}")); } catch { /* storage unavailable */ }
   function applyFolds(): void {
     for (const b of host.querySelectorAll<HTMLButtonElement>(".ts-fold")) {
       const k = b.dataset.fold ?? "", open = !!folds[k];
@@ -2293,7 +2372,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   for (const b of host.querySelectorAll<HTMLButtonElement>(".ts-fold")) b.addEventListener("click", () => {
     const k = b.dataset.fold ?? "";
     folds[k] = !folds[k];
-    try { localStorage.setItem("ts.forecast.folds", JSON.stringify(folds)); } catch { /* ignore */ }
+    try { localStorage.setItem("ts.forecast.folds.v2", JSON.stringify(folds)); } catch { /* ignore */ }
     applyFolds();
   });
   applyFolds();

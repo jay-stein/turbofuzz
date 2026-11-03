@@ -23,6 +23,14 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-03-05 — Forecast page: simple, best, and how much better come first
+
+- **Status:** Accepted (owner, 2026-11-03)
+- **Context:** The page ranked by a policy (the Auto pick first) and showed two measures that disagreed, so the "recommended" model could sit 5th of 8.
+- **Decision:** Lead with the simple model (lowest backtest error of the simple methods), the best model (lowest backtest error of all, ARIMA runs included) and the gain between them. One list, lowest error first. The held-back check is shown beside it and a gain that does not hold there is flagged. Auto's default chart pick is unchanged.
+- **Trade-offs:** The best by backtest error is chosen among many, so it is optimistic; the held-back column and the warning are the guard.
+- **Date / owner:** 2026-11-03 / owner
+
 ### DEC-2026-11-03-04 — Boundary files say what they are; the person can always overrule; nothing lands off the Earth
 
 - **Status:** Accepted (owner, 2026-11-03)
