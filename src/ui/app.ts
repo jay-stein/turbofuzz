@@ -2988,6 +2988,17 @@ export class App {
     );
   }
 
+  /**
+   * The worker switches these two on itself (checkKeyDuplicates, checkPair);
+   * record them here too, or Clear all sees no filter and does nothing.
+   */
+  private markWorkerSpecial(kind: "keyDuplicates" | "pairCheck"): void {
+    this.shuffleActive = false;
+    this.specials.add(kind);
+    this.syncHealthChips();
+    this.renderFilterChips();
+  }
+
   private shuffleRows(): void {
     if (this.datasetName === "" || this.loading) return;
     this.queueSend(() =>
@@ -4045,6 +4056,7 @@ export class App {
           this.client
             .checkKeyDuplicates(command.columns)
             .then((message) => {
+              this.markWorkerSpecial("keyDuplicates");
               const tail =
                 message.duplicateRows === 0
                   ? `no duplicate rows (${message.counted.toLocaleString()} rows with a complete key)`
@@ -6841,6 +6853,7 @@ export class App {
       this.client
         .checkPair({ columnA, columnB, operator, tolerance })
         .then((message) => {
+          this.markWorkerSpecial("pairCheck");
           const tail =
             message.violations === 0
               ? `no failures (${message.compared.toLocaleString()} rows compared)`
