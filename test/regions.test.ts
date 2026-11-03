@@ -8,6 +8,7 @@ import {
   fitViewToPlot,
   featureAreaKm2,
   joinKey,
+  labelPoint,
   levelFor,
   pointInFeature,
   RegionIndex,
@@ -164,5 +165,36 @@ test("a view takes the plot's shape, so places keep their proportions", () => {
   // Fitting a fitted view changes nothing, or panning and zooming would drift.
   const again = fitViewToPlot(view, 900, 500);
   assert.ok(Math.abs(again.lonMin - view.lonMin) < 1e-9 && Math.abs(again.latMax - view.latMax) < 1e-9);
+});
+
+test("a label goes in the roomiest part of a region, inside it, even where the middle is outside", () => {
+  // A U: the middle of its box is in the notch.
+  const u = Float64Array.of(0, 0, 10, 0, 10, 10, 8, 10, 8, 2, 2, 2, 2, 10, 0, 10, 0, 0);
+  const [lon, lat] = labelPoint([u]);
+  assert.ok(pointInFeature({ rings: [u] }, lon, lat), `${lon}, ${lat}`);
+  assert.ok(!(lon > 2 && lon < 8 && lat > 2), "not in the notch");
+  // Of two parts, the larger gets it.
+  const [big] = labelPoint([square(0, 0, 1), square(20, 0, 5)]);
+  assert.ok(big > 20 && big < 25);
+  // A square: the middle, near enough.
+  const [cx, cy] = labelPoint([square(0, 0, 10)]);
+  assert.ok(Math.abs(cx - 5) < 0.5 && Math.abs(cy - 5) < 0.5, `${cx}, ${cy}`);
+  // Not in a hole.
+  const holed = [square(0, 0, 10), square(3, 3, 4)];
+  const [hx, hy] = labelPoint(holed);
+  assert.ok(pointInFeature({ rings: holed }, hx, hy));
+});
+
+test("a label from the table is the commonest value among a region's rows", () => {
+  const out = aggregateRegions({
+    regions: 2,
+    ids: Uint32Array.of(0, 1, 2, 3),
+    regionsOf: (row) => [row < 3 ? 0 : 1],
+    labelOf: (row) => ["Kerry", "Co. Kerry", "Kerry", ""][row]!,
+    measure: null,
+    agg: "count",
+  });
+  assert.deepEqual(out.labels, ["Kerry", ""]);
+  assert.equal(aggregateRegions({ regions: 1, ids: new Uint32Array(0), regionsOf: () => [0], measure: null, agg: "count" }).labels, undefined);
 });
 

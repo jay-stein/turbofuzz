@@ -1038,6 +1038,8 @@ export interface RegionValuesRequestInput {
   agg: RegionAgg;
   timeColumn?: number;
   grain?: TimeGrain;
+  /** A table column to label regions from. */
+  labelColumn?: number;
   chartFilter?: { column: number; code: number };
   chartExclude?: ChartExclusion[];
   respectFilters?: boolean;

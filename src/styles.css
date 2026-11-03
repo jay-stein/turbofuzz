@@ -3661,6 +3661,28 @@ mark {
   border-color: var(--accent);
 }
 
+.map-label-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.map-label-caption {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+.map-label-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.map-label-slider {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .map-types {
   display: inline-flex;
   gap: 4px;

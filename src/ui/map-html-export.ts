@@ -30,6 +30,8 @@ export interface MapHtmlPayload {
     /** Per frame, per region: the hover text. One frame's worth when the text does not change. */
     tips: string[][][];
     missing: boolean;
+    /** Names on the map: where each goes, largest region first, and how it looks. One set of texts unless they change by period. */
+    labels?: { spots: number[][]; order: number[]; texts: string[][]; size: number; colour: string; buffer: number; bufferColour: string };
   };
   dots?: {
     /** Per frame: x, y, radius in pixels, colour index, and the hover text. */
@@ -155,6 +157,33 @@ const SCRIPT = `
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
+      if (r.labels) {
+        var l = r.labels, texts = l.texts[l.texts.length > 1 ? frame : 0], placed = [];
+        ctx.font = "600 " + l.size + "px Inter, system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.lineJoin = "round";
+        ctx.lineWidth = l.buffer * 2;
+        ctx.strokeStyle = l.bufferColour;
+        ctx.fillStyle = l.colour;
+        for (i = 0; i < l.order.length; i++) {
+          var at = l.order[i], text = texts[at], spot = l.spots[at];
+          if (!text) continue;
+          var lx = px(spot[0]), ly = py(spot[1]);
+          if (lx < 0 || lx > w || ly < 0 || ly > h) continue;
+          var half = ctx.measureText(text).width / 2 + l.buffer, tall = l.size / 2 + l.buffer, clash = false;
+          for (j = 0; j < placed.length && !clash; j++) {
+            var p = placed[j];
+            clash = lx - half < p[2] && lx + half > p[0] && ly - tall < p[3] && ly + tall > p[1];
+          }
+          if (clash) continue;
+          placed.push([lx - half, ly - tall, lx + half, ly + tall]);
+          if (l.buffer > 0) ctx.strokeText(text, lx, ly);
+          ctx.fillText(text, lx, ly);
+        }
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+      }
     }
     var d = data.dots && data.dots.frames[frame];
     if (d) {

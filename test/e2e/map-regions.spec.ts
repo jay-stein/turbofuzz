@@ -329,3 +329,61 @@ test("the only-inside-boundaries box appears once there are both cities and boun
   await expect(inside).toBeChecked();
 });
 
+test("regions can be labelled from the file, the table or the value, with a size and a buffer, on the map and in the export", async ({ page, context }) => {
+  const rows = ["County,Code,MW", "Carlow,CW,300", "Cavan,CN,600", "Clare,CE,900"];
+  const card = await openMap(page, rows.join("\n"));
+  await page.getByRole("radio", { name: "Choropleth" }).click();
+  await load(card, counties());
+  await expect(card.locator(".map-step").nth(1)).toContainText("NAME_1 = County");
+  const picture = (): Promise<string> => card.locator("canvas.chart-canvas").evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL());
+  const settled = async (): Promise<string> => {
+    await page.waitForTimeout(150);
+    return picture();
+  };
+  const without = await settled();
+  const labelWith = card.getByRole("combobox", { name: "Label regions with" });
+  await expect(labelWith).toHaveValue("");
+  await expect(card.getByRole("slider", { name: "Label size" })).toBeHidden();
+  await expect(labelWith.locator("optgroup[label='From the boundary file'] option", { hasText: "NAME_1" })).toHaveCount(1);
+  await expect(labelWith.locator("optgroup[label='From your table'] option", { hasText: "Code" })).toHaveCount(1);
+
+  await labelWith.selectOption("file:NAME_1");
+  const fromFile = await settled();
+  expect(fromFile).not.toBe(without);
+  await card.getByRole("slider", { name: "Label size" }).fill("20");
+  const bigger = await settled();
+  expect(bigger).not.toBe(fromFile);
+  await card.getByRole("checkbox", { name: "Buffer around labels" }).uncheck();
+  await expect(card.getByRole("slider", { name: "Buffer size" })).toBeHidden();
+  const plain = await settled();
+  expect(plain).not.toBe(bigger);
+  await card.getByRole("checkbox", { name: "Buffer around labels" }).check();
+  await card.getByRole("slider", { name: "Buffer size" }).fill("6");
+  expect(await settled()).not.toBe(bigger);
+
+  // From the table: each county's code, which only the table knows.
+  await labelWith.selectOption({ label: "Code" });
+  const fromTable = await settled();
+  expect(fromTable).not.toBe(bigger);
+  await page.getByRole("button", { name: "Export map" }).click();
+  const [download] = await Promise.all([page.waitForEvent("download"), page.locator(".context-menu .context-item", { hasText: "Interactive web page" }).click()]);
+  const html = readFileSync((await download.path())!, "utf8");
+  const data = JSON.parse(/<script type="application\/json" id="map-data">(.*?)<\/script>/s.exec(html)![1]!) as { regions: { labels: { texts: string[][]; size: number; buffer: number } } };
+  expect(data.regions.labels.texts[0]).toEqual(["CW", "CN", "CE"]);
+  expect(data.regions.labels.size).toBe(20);
+  expect(data.regions.labels.buffer).toBe(6);
+  const viewer = await context.newPage();
+  const errors: string[] = [];
+  viewer.on("pageerror", (error) => errors.push(error.message));
+  await viewer.setContent(html);
+  await viewer.waitForTimeout(150);
+  expect(errors).toEqual([]);
+  await viewer.close();
+
+  // And the value itself.
+  const value = card.getByRole("combobox", { name: "Region value" });
+  await value.selectOption((await value.locator("option", { hasText: "MW" }).getAttribute("value"))!);
+  await labelWith.selectOption("value");
+  expect(await settled()).not.toBe(fromTable);
+});
+

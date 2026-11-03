@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-03-13 — Labels on choropleth regions
+
+- **Status:** Verified (unit, e2e, browser on the Ireland files)
+- **Related issue / decision:** owner request.
+- **What changed:** a Labels step: from a field in the boundary file, a column in the table (the commonest value among the region's rows) or the value on the map. Size, colour, and a QGIS-style buffer with its own width and colour. Each label sits at the roomiest point inside its region's largest part. Largest regions are placed first; those with no room are left out, and the note counts them. PNG and the interactive page carry them.
+- **Not included:** labels on marker dots; labels following a line or moved by hand.
+- **Decision:** Ship
+- **Date:** 2026-11-03
+
 ### CHG-2026-11-03-12 — Map title, Export map, and city names inside the boundaries
 
 - **Status:** Verified (unit, e2e, browser on the Ireland files)

@@ -2635,11 +2635,13 @@ function handleGetRegionValues(message: GetRegionValuesRequest): void {
   }
   const measure = message.measure < 0 ? null : (dataset.columns[message.measure]?.numbers() ?? null);
   const times = message.timeColumn === undefined ? undefined : dataset.columns[message.timeColumn]?.numbers();
+  const labelColumn = message.labelColumn === undefined ? undefined : dataset.columns[message.labelColumn];
   const result = aggregateRegions({
     regions: geo.features.length,
     ids,
     regionsOf,
     ...(unmatchedName === undefined ? {} : { unmatchedName }),
+    ...(labelColumn === undefined ? {} : { labelOf: (row: number) => (labelColumn.nullMask.get(row) ? "" : (labelColumn.raw[row] ?? "").trim()) }),
     measure,
     agg: message.agg,
     ...(times === undefined || message.grain === undefined ? {} : { times, grain: message.grain }),

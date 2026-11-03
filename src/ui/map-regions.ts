@@ -5,7 +5,7 @@
 import { CLASS_METHODS, classBreaks, classCounts, classOf, varianceFit, type ClassMethod } from "../data/classify.js";
 import { searchCrs, type CrsChoice } from "../data/geo-crs.js";
 import { PALETTES, paletteStops, samplePalette } from "../data/palettes.js";
-import { levelFor, pointInFeature, type RegionAgg, type RegionShape } from "../data/regions.js";
+import { labelPoint, levelFor, pointInFeature, type RegionAgg, type RegionShape } from "../data/regions.js";
 import type { ColumnMeta, JoinSuggestionsMessage, RegionsLoadedMessage, RegionValuesMessage, RegionValuesRequestInput } from "../worker/protocol.js";
 import { num } from "../data/chart-extract.js";
 import { colorForFraction } from "./color-scale.js";
@@ -81,6 +81,16 @@ export class MapRegions {
   private palette = "YlOrRd";
   private reversed = false;
   private colours: (string | undefined)[] = [];
+  /** What the labels on the map say: "" for none, "value", "file:<field>" or "table:<column>". */
+  private labelSource = "";
+  private labelSize = 11;
+  private labelColour = "#1c2430";
+  private bufferOn = true;
+  private bufferWidth = 2.5;
+  private bufferColour = "#ffffff";
+  /** Worked out when labels are first asked for: the roomiest spot in each region. */
+  private labelSpots: [number, number][] | null = null;
+  private labelsHidden = 0;
   /** A file waiting to be told what its numbers are. */
   private crsWaiting: Pick<RegionsLoadedMessage, "crsNeeded" | "crsGuesses" | "crsStated" | "rawRange" | "fileName"> | null = null;
 
@@ -104,8 +114,15 @@ export class MapRegions {
   private readonly aggSelect: HTMLSelectElement;
   private readonly divideSelect: HTMLSelectElement;
   private readonly stepColours: HTMLElement;
+  private readonly stepLabels: HTMLElement;
   private readonly colourStrip: HTMLElement;
   private readonly colourLine: HTMLElement;
+  private readonly labelSelect: HTMLSelectElement;
+  private readonly labelControls: HTMLElement;
+  private readonly bufferControls: HTMLElement;
+  private readonly labelSizeOut: HTMLElement;
+  private readonly bufferOut: HTMLElement;
+  private readonly bufferInput: HTMLInputElement;
   private readonly dropEl: HTMLElement;
   private dropActive = false;
 
@@ -165,6 +182,58 @@ export class MapRegions {
     const coloursButton = el("button", { class: "ghost small", type: "button" }, ["Classes and colours…"]) as HTMLButtonElement;
     coloursButton.addEventListener("click", () => this.openClasses());
 
+    this.labelSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Label regions with" }) as HTMLSelectElement;
+    this.labelSelect.addEventListener("change", () => {
+      this.labelSource = this.labelSelect.value;
+      this.syncLabels();
+      // Only a table column needs anything from the worker.
+      if (this.labelSource.startsWith("table:")) this.refresh();
+      else this.options.onChange();
+    });
+    const slider = (label: string, min: string, max: string, step: string, value: string, onInput: (value: number) => void): { input: HTMLInputElement; out: HTMLElement } => {
+      const input = el("input", { type: "range", min, max, step, value, "aria-label": label, class: "map-label-slider" }) as HTMLInputElement;
+      const out = el("output", { class: "map-size-out" }, [`${value}px`]);
+      input.addEventListener("input", () => {
+        out.textContent = `${input.value}px`;
+        onInput(Number(input.value));
+        this.options.onChange();
+      });
+      return { input, out };
+    };
+    const colourInput = (label: string, value: string, onInput: (value: string) => void): HTMLInputElement => {
+      const input = el("input", { type: "color", class: "map-region-swatch", value, "aria-label": label, title: label }) as HTMLInputElement;
+      input.addEventListener("input", () => {
+        onInput(input.value);
+        this.options.onChange();
+      });
+      return input;
+    };
+    const size = slider("Label size", "7", "28", "1", String(this.labelSize), (value) => {
+      this.labelSize = value;
+    });
+    this.labelSizeOut = size.out;
+    const buffer = slider("Buffer size", "0.5", "8", "0.5", String(this.bufferWidth), (value) => {
+      this.bufferWidth = value;
+    });
+    this.bufferOut = buffer.out;
+    this.bufferInput = el("input", { type: "checkbox", "aria-label": "Buffer around labels", checked: "checked" }) as HTMLInputElement;
+    this.bufferInput.addEventListener("change", () => {
+      this.bufferOn = this.bufferInput.checked;
+      this.syncLabels();
+      this.options.onChange();
+    });
+    this.bufferControls = el("div", { class: "map-label-row" }, [buffer.input, buffer.out, colourInput("Buffer colour", this.bufferColour, (value) => {
+      this.bufferColour = value;
+    })]);
+    this.labelControls = el("div", { class: "map-label-controls" }, [
+      el("span", { class: "map-label-caption" }, ["Size"]),
+      el("div", { class: "map-label-row" }, [size.input, size.out, colourInput("Label colour", this.labelColour, (value) => {
+        this.labelColour = value;
+      })]),
+      el("label", { class: "control check clean-check chart-check", title: "A halo around the text, so it stays readable over any colour" }, [this.bufferInput, "Buffer"]),
+      this.bufferControls,
+    ]);
+
     const step = (number: number, title: string, children: HTMLElement[]): HTMLElement =>
       el("div", { class: "map-step" }, [el("div", { class: "map-step-title" }, [el("span", { class: "map-step-number" }, [String(number)]), title]), ...children]);
     const stepLoad = step(1, "Boundaries", [
@@ -177,7 +246,9 @@ export class MapRegions {
     this.stepMatch = step(2, "Match to your table", [this.matchLine, this.matchCounts, el("div", { class: "map-region-buttons" }, [matchButton, this.unmatchedLink])]);
     this.stepValue = step(3, "Value", [field("Value", this.measureSelect), field("Statistic", this.aggSelect), field("Divide by", this.divideSelect, "Raw totals mostly show which regions are biggest: dividing by area or population shows intensity")]);
     this.stepColours = step(4, "Colours", [this.colourStrip, this.colourLine, el("div", { class: "map-region-buttons" }, [coloursButton])]);
-    this.root = el("div", { class: "map-regions" }, [stepLoad, this.stepMatch, this.stepValue, this.stepColours]);
+    this.stepLabels = step(5, "Labels", [field("Label with", this.labelSelect), this.labelControls]);
+    this.root = el("div", { class: "map-regions" }, [stepLoad, this.stepMatch, this.stepValue, this.stepColours, this.stepLabels]);
+    this.syncLabels();
 
     const browse = el("button", { class: "primary small", type: "button" }, ["Choose a file…"]) as HTMLButtonElement;
     browse.addEventListener("click", () => this.input.click());
@@ -332,6 +403,7 @@ export class MapRegions {
       ...numeric.map((key) => el("option", { value: key }, [key]) as HTMLOptionElement),
     );
     this.divide = "";
+    this.labelSpots = null;
     this.labelProperty = message.labelProperty ?? "";
     this.applyLabel();
     this.syncColumns();
@@ -391,7 +463,8 @@ export class MapRegions {
     const coordinates = this.options.coordinates();
     if (this.mode === "location" && coordinates === null) this.mode = "name";
     const ready = this.loaded !== null;
-    for (const step of [this.stepMatch, this.stepValue, this.stepColours]) step.classList.toggle("waiting", !ready);
+    for (const step of [this.stepMatch, this.stepValue, this.stepColours, this.stepLabels]) step.classList.toggle("waiting", !ready);
+    this.fillLabelChoices();
     this.matchLine.textContent = !ready
       ? "Load boundaries first."
       : this.mode === "location" && coordinates !== null
@@ -403,6 +476,66 @@ export class MapRegions {
     this.aggSelect.value = this.agg;
     this.divideSelect.value = this.divide;
     this.syncColourStep();
+  }
+
+  /** The choices: nothing, the value, then the file's fields and the table's columns, each under its own heading. */
+  private fillLabelChoices(): void {
+    const properties = this.propertyNames();
+    const columns = this.options.columns();
+    const signature = `${properties.join("\u0000")}\u0001${columns.map((meta) => meta.name).join("\u0000")}`;
+    if (signature !== this.labelSelect.dataset.signature) {
+      this.labelSelect.dataset.signature = signature;
+      const sample = (key: string): string => {
+        const value = this.loaded?.shapes.find((shape) => shape.properties[key] !== null && shape.properties[key] !== "")?.properties[key];
+        return value === undefined ? key : `${key} (${String(value).slice(0, 16)})`;
+      };
+      const fromFile = el("optgroup", { label: "From the boundary file" }) as HTMLOptGroupElement;
+      for (const key of properties) fromFile.append(el("option", { value: `file:${key}` }, [sample(key)]) as HTMLOptionElement);
+      const fromTable = el("optgroup", { label: "From your table" }) as HTMLOptGroupElement;
+      columns.forEach((meta, index) => fromTable.append(el("option", { value: `table:${index}` }, [meta.name]) as HTMLOptionElement));
+      this.labelSelect.replaceChildren(
+        el("option", { value: "" }, ["No labels"]) as HTMLOptionElement,
+        el("option", { value: "value" }, ["The value on the map"]) as HTMLOptionElement,
+        fromFile,
+        fromTable,
+      );
+    }
+    this.labelSelect.value = this.labelSource;
+  }
+
+  private syncLabels(): void {
+    this.labelControls.classList.toggle("hidden", this.labelSource === "");
+    this.bufferControls.classList.toggle("hidden", !this.bufferOn);
+  }
+
+  /** The label's column in the table, when that is where labels come from. */
+  private labelColumn(): number | null {
+    if (!this.labelSource.startsWith("table:")) return null;
+    const column = Number(this.labelSource.slice(6));
+    return column >= 0 && column < this.options.columns().length ? column : null;
+  }
+
+  /** What one region's label says in this period; "" for nothing. */
+  private labelText(index: number, frame: number): string {
+    const shape = this.loaded?.shapes[index];
+    if (shape === undefined || this.labelSource === "") return "";
+    if (this.labelSource === "value") {
+      const value = this.shown[frame * (this.loaded?.shapes.length ?? 0) + index] ?? Number.NaN;
+      return Number.isFinite(value) ? formatCompact(value) : "";
+    }
+    if (this.labelSource.startsWith("file:")) {
+      const value = shape.properties[this.labelSource.slice(5)];
+      return value === undefined || value === null ? "" : String(value);
+    }
+    return this.values?.labels?.[index] ?? "";
+  }
+
+  /** Largest regions first, so where there is not room for everything it is the small ones that give way. */
+  private labelOrder(): { spots: [number, number][]; order: number[] } {
+    const shapes = this.loaded?.shapes ?? [];
+    this.labelSpots ??= shapes.map((shape) => labelPoint(shape.levels[Math.min(1, shape.levels.length - 1)]!));
+    const order = shapes.map((_, index) => index).sort((a, b) => shapes[b]!.areaKm2 - shapes[a]!.areaKm2);
+    return { spots: this.labelSpots, order };
   }
 
   private syncColourStep(): void {
@@ -466,6 +599,7 @@ export class MapRegions {
         measure: this.measure,
         agg: this.measure < 0 ? "count" : this.agg,
         ...(this.time === null ? {} : { timeColumn: this.time.column, grain: this.time.grain }),
+        ...(this.labelColumn() === null ? {} : { labelColumn: this.labelColumn()! }),
         ...this.options.scope(),
       })
       .then((message) => {
@@ -1116,6 +1250,39 @@ export class MapRegions {
     ctx.lineWidth = lineWidth * frame.ui;
     ctx.stroke();
     ctx.globalAlpha = 1;
+    this.labelsHidden = 0;
+    if (!options.outline && this.labelSource !== "") {
+      const { spots, order } = this.labelOrder();
+      const size = this.labelSize * frame.ui;
+      const halo = this.bufferOn ? this.bufferWidth * frame.ui : 0;
+      ctx.font = `600 ${size}px Inter, system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = halo * 2;
+      ctx.strokeStyle = this.bufferColour;
+      ctx.fillStyle = this.labelColour;
+      const placed: [number, number, number, number][] = [];
+      for (const index of order) {
+        const text = this.labelText(index, options.frame);
+        const spot = spots[index];
+        if (text === "" || spot === undefined || !Number.isFinite(spot[0])) continue;
+        const x = px(spot[0]);
+        const y = py(spot[1]);
+        if (x < frame.left || x > frame.left + frame.plotW || y < frame.top || y > frame.top + frame.plotH) continue;
+        const half = ctx.measureText(text).width / 2 + halo;
+        const box: [number, number, number, number] = [x - half, y - size / 2 - halo, x + half, y + size / 2 + halo];
+        if (placed.some((other) => box[0] < other[2] && box[2] > other[0] && box[1] < other[3] && box[3] > other[1])) {
+          this.labelsHidden++;
+          continue;
+        }
+        placed.push(box);
+        if (halo > 0) ctx.strokeText(text, x, y);
+        ctx.fillText(text, x, y);
+      }
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
+    }
     return hits;
   }
 
@@ -1197,7 +1364,7 @@ export class MapRegions {
     if (this.values === null) return `${this.loaded.shapes.length.toLocaleString()} regions: choose how they connect to the table.`;
     const label = this.values.frames?.labels[frame];
     const method = CLASS_METHODS.find((item) => item.id === this.method)?.label ?? "";
-    return `${label === undefined ? "" : `${label} · `}${this.valueName()} · ${method}${this.method === "continuous" ? "" : `, ${this.breaks.length - 1} classes`} · ${this.values.regionsMatched.toLocaleString()} of ${this.loaded.shapes.length.toLocaleString()} regions have rows${this.values.rowsUnmatched > 0 ? ` · ${this.values.rowsUnmatched.toLocaleString()} rows matched no region` : ""}`;
+    return `${label === undefined ? "" : `${label} · `}${this.valueName()} · ${method}${this.method === "continuous" ? "" : `, ${this.breaks.length - 1} classes`} · ${this.values.regionsMatched.toLocaleString()} of ${this.loaded.shapes.length.toLocaleString()} regions have rows${this.values.rowsUnmatched > 0 ? ` · ${this.values.rowsUnmatched.toLocaleString()} rows matched no region` : ""}${this.labelsHidden > 0 ? ` · ${this.labelsHidden.toLocaleString()} labels left out for room: zoom in or make them smaller` : ""}`;
   }
 
   /** For the interactive page: the shapes at a size a file can carry, each period's colours, and the hover text. */
@@ -1254,7 +1421,21 @@ export class MapRegions {
         ? { ramp: { stops, low: formatCompact(this.breaks[0] ?? 0), high: formatCompact(this.breaks[this.breaks.length - 1] ?? 0) } }
         : { classes: classColours.map((colour, index) => ({ colour, label: `${formatCompact(this.breaks[index]!)}${SEP}${formatCompact(this.breaks[index + 1]!)}` })) }),
     };
-    return { regions: { shapes, fill, colours, tips, missing }, frames, legend };
+    let labels: NonNullable<MapHtmlPayload["regions"]>["labels"];
+    if (this.labelSource !== "") {
+      const { spots, order } = this.labelOrder();
+      labels = {
+        spots: spots.map(([lon, lat]) => [Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5]),
+        order,
+        // The text only changes through time when it is the value.
+        texts: (this.labelSource === "value" ? frames : [""]).map((_, frame) => loaded.shapes.map((__, index) => this.labelText(index, frame))),
+        size: this.labelSize,
+        colour: this.labelColour,
+        buffer: this.bufferOn ? this.bufferWidth : 0,
+        bufferColour: this.bufferColour,
+      };
+    }
+    return { regions: { shapes, fill, colours, tips, missing, ...(labels === undefined ? {} : { labels }) }, frames, legend };
   }
 
   /** The numbers for Extract stats. */

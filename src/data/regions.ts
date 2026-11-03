@@ -178,6 +178,77 @@ export function levelFor(tolerances: readonly number[], degreesPerPixel: number)
   return tolerances.length - 1;
 }
 
+// ------------------------------------------------------------------ Where a label goes
+
+/** Distance from a point to the nearest edge of a ring, in degrees, squared. */
+function edgeDistance(ring: Float64Array, lon: number, lat: number, xScale: number): number {
+  let best = Number.POSITIVE_INFINITY;
+  const n = ring.length / 2;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const ax = (ring[j * 2]! - lon) * xScale;
+    const ay = ring[j * 2 + 1]! - lat;
+    const dx = (ring[i * 2]! - ring[j * 2]!) * xScale;
+    const dy = ring[i * 2 + 1]! - ring[j * 2 + 1]!;
+    const length = dx * dx + dy * dy;
+    const t = length === 0 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / length));
+    const ox = ax + t * dx;
+    const oy = ay + t * dy;
+    const distance = ox * ox + oy * oy;
+    if (distance < best) best = distance;
+  }
+  return best;
+}
+
+/**
+ * The roomiest spot in a region's largest part: the point inside it farthest from any edge. A centre would do for a square,
+ * but the centre of a crescent or an L is outside the shape altogether.
+ */
+export function labelPoint(rings: readonly Float64Array[]): [number, number] {
+  let largest: Float64Array | null = null;
+  let largestArea = -1;
+  for (const ring of rings) {
+    const area = ringAreaKm2(ring);
+    if (area > largestArea) {
+      largestArea = area;
+      largest = ring;
+    }
+  }
+  if (largest === null) return [Number.NaN, Number.NaN];
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let i = 0; i < largest.length; i += 2) {
+    if (largest[i]! < x0) x0 = largest[i]!;
+    if (largest[i]! > x1) x1 = largest[i]!;
+    if (largest[i + 1]! < y0) y0 = largest[i + 1]!;
+    if (largest[i + 1]! > y1) y1 = largest[i + 1]!;
+  }
+  const xScale = Math.cos((((y0 + y1) / 2) * Math.PI) / 180);
+  const inside = { rings: rings as Float64Array[] };
+  let bestPoint: [number, number] = [(x0 + x1) / 2, (y0 + y1) / 2];
+  let bestDistance = -1;
+  const grid = 12;
+  // A coarse look, then a closer look around the best of it.
+  const search = (left: number, bottom: number, width: number, height: number): void => {
+    for (let gx = 0; gx <= grid; gx++) {
+      for (let gy = 0; gy <= grid; gy++) {
+        const lon = left + (gx / grid) * width;
+        const lat = bottom + (gy / grid) * height;
+        if (!pointInFeature(inside, lon, lat)) continue;
+        let distance = Number.POSITIVE_INFINITY;
+        for (const ring of rings) distance = Math.min(distance, edgeDistance(ring, lon, lat, xScale));
+        if (distance > bestDistance) {
+          bestDistance = distance;
+          bestPoint = [lon, lat];
+        }
+      }
+    }
+  };
+  search(x0, y0, x1 - x0, y1 - y0);
+  const stepX = (x1 - x0) / grid;
+  const stepY = (y1 - y0) / grid;
+  search(bestPoint[0] - stepX, bestPoint[1] - stepY, stepX * 2, stepY * 2);
+  return bestPoint;
+}
+
 // ------------------------------------------------------------------ Which region is a point in?
 
 /** Even-odd across every ring, so holes and separate parts both come out right. */
@@ -344,6 +415,8 @@ export interface RegionValues {
   regionsMatched: number;
   /** By-name matches only: the commonest table values with no region, for the report. */
   unmatchedValues: { value: string; rows: number }[];
+  /** Per region, the commonest value of the label column among its rows; "" with none. Absent unless asked for. */
+  labels?: string[];
 }
 
 /** Everything but where a row belongs is the same for both ways of matching. */
@@ -354,6 +427,8 @@ export function aggregateRegions(input: {
   regionsOf: (row: number) => readonly number[];
   /** What a row with no region is called, for the report; null when it has no name to report. */
   unmatchedName?: (row: number) => string | null;
+  /** What a row says for a region's label, when the label comes from the table. */
+  labelOf?: (row: number) => string;
   measure: Float64Array | null;
   agg: RegionAgg;
   times?: Float64Array;
@@ -383,6 +458,7 @@ export function aggregateRegions(input: {
   let rowsMatched = 0;
   let rowsUnmatched = 0;
   const unmatched = new Map<string, number>();
+  const labelCounts: Map<string, number>[] | null = input.labelOf === undefined ? null : Array.from({ length: regions }, () => new Map());
   for (let position = 0; position < ids.length; position++) {
     const row = ids[position]!;
     let frame = 0;
@@ -400,7 +476,9 @@ export function aggregateRegions(input: {
     }
     rowsMatched++;
     const value = measure === null ? Number.NaN : measure[row]!;
+    const label = input.labelOf?.(row) ?? "";
     for (const region of targets) {
+      if (labelCounts !== null && label !== "") labelCounts[region]!.set(label, (labelCounts[region]!.get(label) ?? 0) + 1);
       const cell = frame * regions + region;
       rows[cell]!++;
       if (!Number.isFinite(value)) continue;
@@ -438,5 +516,16 @@ export function aggregateRegions(input: {
   }
   for (let region = 0; region < regions; region++) regionsMatched += touched[region]!;
   const unmatchedValues = [...unmatched].sort((a, b) => b[1] - a[1]).slice(0, 500).map(([value, count]) => ({ value, rows: count }));
-  return { values, rows, frames, rowsMatched, rowsUnmatched, regionsMatched, unmatchedValues };
+  const labels = labelCounts?.map((counts) => {
+    let best = "";
+    let most = 0;
+    for (const [label, count] of counts) {
+      if (count > most) {
+        best = label;
+        most = count;
+      }
+    }
+    return best;
+  });
+  return { values, rows, frames, rowsMatched, rowsUnmatched, regionsMatched, unmatchedValues, ...(labels === undefined ? {} : { labels }) };
 }
