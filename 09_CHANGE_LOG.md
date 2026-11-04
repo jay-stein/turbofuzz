@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-04-01 — Chart types are pictures again on the Add a chart panel
+
+- **Status:** Verified (e2e, browser)
+- **Related issue / decision:** owner: the nice chart-type icons were gone; hover should name them because some are hard to tell.
+- **What changed:** the Add a chart panel's "Or choose a chart type" is the picture tiles again (the same drawings as the in-chart type picker), grouped by the question each answers, with the name under each. Hovering says the name and the question ("Scatter: how are two things related"), or why a type is greyed out. The in-chart picker has the same hover text.
+- **Files / components changed:** src/ui/chart-add-panel.ts, chart-card.ts, styles.css
+- **Decision:** Ship
+- **Date:** 2026-11-04
+
 ### CHG-2026-11-03-19 — Darker dot borders, reference-line rows that fit, Style greyed for plain points
 
 - **Status:** Verified (e2e, browser)

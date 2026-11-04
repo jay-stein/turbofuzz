@@ -3158,7 +3158,7 @@ export class ChartCard {
             {
               class: `chart-kind-option${kind === this.config.kind ? " active" : ""}`,
               type: "button",
-              title: fit.ok ? CHART_KIND_LABELS[kind] : fit.reason,
+              title: fit.ok ? `${CHART_KIND_LABELS[kind]}: ${group.question.replace(/\?$/, "").toLowerCase()}` : `${CHART_KIND_LABELS[kind]}: ${fit.reason}`,
               ...(fit.ok || kind === this.config.kind ? {} : { disabled: "disabled" }),
             },
             [kindIcon(kind), el("span", {}, [CHART_KIND_LABELS[kind]])],

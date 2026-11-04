@@ -8,7 +8,7 @@ import {
   type ValueAgg,
 } from "./chart-builder.js";
 import type { ChartCardConfig } from "./chart-card.js";
-import { GALLERY_KINDS, fitChartKind, previewFor } from "./chart-gallery.js";
+import { fitChartKind, kindIcon, previewFor, QUESTION_GROUPS } from "./chart-gallery.js";
 import { profile, recommend, type RecRole } from "./chart-recommender.js";
 import { CHART_KIND_LABELS, sourceOption, suggestCharts, toRecColumn, type ChartCardKind } from "./chart-utils.js";
 import { el } from "./dom.js";
@@ -306,33 +306,40 @@ export class ChartAddPanel {
     out.push(el("div", { class: "chart-add-block" }, [el("h4", {}, ["Recommended"]), this.recommended(rec.length)]));
 
     // 4. A chart type is a shortcut that fills the same slots.
+    // Each type is its small picture and its name, grouped by the question it answers; hovering says what it is and why one is greyed out.
     const types = el("div", { class: "chart-add-types", role: "group", "aria-label": "Or choose a chart type" });
-    for (const kind of GALLERY_KINDS) {
-      const fit = fitChartKind(kind, cols, this.rowCount);
-      const chip = el(
-        "button",
-        {
-          class: "chart-add-type",
-          type: "button",
-          "aria-disabled": fit.ok ? "false" : "true",
-          title: fit.ok ? `Add a ${CHART_KIND_LABELS[kind].toLowerCase()} chart` : `${CHART_KIND_LABELS[kind]}: ${fit.reason}`,
-        },
-        [CHART_KIND_LABELS[kind]],
-      );
-      if (!fit.ok) {
-        const reason = el("span", { class: "sr-only", id: `chart-add-reason-${kind}` }, [fit.reason]);
-        chip.append(reason);
-        chip.setAttribute("aria-describedby", reason.id);
-      }
-      chip.addEventListener("click", () => {
-        if (!fit.ok) return;
-        this.create(
-          configForChart(kind, this.shelf(), cols, this.rowCount),
-          CHART_KIND_LABELS[kind],
-          `The selected fields do not fit a ${CHART_KIND_LABELS[kind].toLowerCase()} chart. Clear them to use the default columns.`,
+    for (const group of QUESTION_GROUPS) {
+      const row = el("div", { class: "chart-add-type-group" }, [el("div", { class: "chart-add-type-question" }, [group.question])]);
+      const tiles = el("div", { class: "chart-add-type-tiles" });
+      for (const kind of group.kinds) {
+        const fit = fitChartKind(kind, cols, this.rowCount);
+        const chip = el(
+          "button",
+          {
+            class: "chart-add-type",
+            type: "button",
+            "aria-disabled": fit.ok ? "false" : "true",
+            title: fit.ok ? `${CHART_KIND_LABELS[kind]}: ${group.question.replace(/\?$/, "").toLowerCase()}. Click to add one.` : `${CHART_KIND_LABELS[kind]}: ${fit.reason}`,
+          },
+          [kindIcon(kind), el("span", { class: "chart-add-type-name" }, [CHART_KIND_LABELS[kind]])],
         );
-      });
-      types.append(chip);
+        if (!fit.ok) {
+          const reason = el("span", { class: "sr-only", id: `chart-add-reason-${kind}` }, [fit.reason]);
+          chip.append(reason);
+          chip.setAttribute("aria-describedby", reason.id);
+        }
+        chip.addEventListener("click", () => {
+          if (!fit.ok) return;
+          this.create(
+            configForChart(kind, this.shelf(), cols, this.rowCount),
+            CHART_KIND_LABELS[kind],
+            `The selected fields do not fit a ${CHART_KIND_LABELS[kind].toLowerCase()} chart. Clear them to use the default columns.`,
+          );
+        });
+        tiles.append(chip);
+      }
+      row.append(tiles);
+      types.append(row);
     }
     out.push(el("div", { class: "chart-add-block" }, [el("h4", {}, ["Or choose a chart type"]), types]));
     return out;

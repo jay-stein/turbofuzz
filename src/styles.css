@@ -11615,6 +11615,23 @@ body:has(.modal-overlay) .hint-callout {
   cursor: default;
 }
 
+/* Chart types as pictures, grouped by the question each answers. */
+.chart-add-types { flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: var(--sp-3) var(--sp-4); }
+.chart-add-type-group { display: flex; flex-direction: column; gap: 6px; }
+.chart-add-type-question { font-size: var(--fs-xs); font-weight: 600; color: var(--text-dim); }
+.chart-add-type-tiles { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.chart-add-type-tiles .chart-add-type {
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 104px;
+  min-height: 0;
+  padding: 8px 6px;
+}
+.chart-add-type .chart-tile-preview { flex: none; width: 56px; height: 37px; color: var(--accent); }
+.chart-add-type .chart-tile-preview svg { display: block; width: 100%; height: 100%; }
+.chart-add-type-name { font-size: var(--fs-sm); text-align: center; }
+
 .chart-add-message {
   margin: 0;
   padding: var(--sp-2);
