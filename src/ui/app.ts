@@ -25,6 +25,7 @@ import {
   type WorkspaceFile,
 } from "../data/workspace-file.js";
 import { openKnnDialog, openKnnResult } from "./knn-dialog.js";
+import { openWorkspaceProgress } from "./workspace-progress.js";
 import { buildColumnHealth, buildIssues, type FixStep, type PageIssue } from "../data/dq-issues.js";
 import { columnsIgnoring, idLikeColumns, nearDuplicateFinding } from "../data/near-duplicates.js";
 import { maskValue } from "../data/mask-value.js";
@@ -7680,10 +7681,11 @@ export class App {
   }
 
   /** The cleans, missing-value changes and type changes of one batch, applied to the table in hand and logged in the Recipe as they were. */
-  private async applyBatch(batch: PipelineBatch): Promise<void> {
+  private async applyBatch(batch: PipelineBatch, step: (label: string) => void = () => undefined): Promise<void> {
     const index = (name: string): number => this.metas.findIndex((meta) => meta.name === name);
     for (const change of batch.types) {
       const column = index(change.name);
+      step(`Reading “${change.name}” as ${TYPE_LABELS[change.type].toLowerCase()}`);
       if (column < 0) continue;
       const previous = this.metas[column].type;
       const message = await this.client.setType(column, change.type);
@@ -7694,6 +7696,7 @@ export class App {
     }
     for (const entry of batch.nulls) {
       const column = index(entry.name);
+      step(`Missing-value rules for “${entry.name}”`);
       if (column < 0) continue;
       const before = this.metas[column].nullPolicy;
       const previousExtra = [...before.extra];
@@ -7708,6 +7711,7 @@ export class App {
       this.nullEdits.push({ column, label: `${entry.name}: missing-value policy updated`, detail: "nulls → exact-match missing tokens", previousExtra, previousKeep });
     }
     const updates = batch.cleans.flatMap((entry) => (index(entry.name) < 0 ? [] : [{ column: index(entry.name), ops: entry.ops }]));
+    if (batch.cleans.length > 0) step(`Cleaning ${batch.cleans.map((entry) => `“${entry.name}”`).slice(0, 3).join(", ")}${batch.cleans.length > 3 ? ` and ${batch.cleans.length - 3} more` : ""}`);
     if (updates.length > 0) {
       this.bakeTransformsAfterClean();
       const message = await this.client.cleanColumns(updates);
@@ -7737,17 +7741,38 @@ export class App {
    */
   private async applyWorkspace(ws: WorkspaceFile): Promise<void> {
     const warnings = dataWarnings(ws, this.metas.map((meta) => meta.name), this.rowCount);
+    // A panel over the page for the whole replay: the pages behind it change as steps run, and none of that is shown.
+    const units = (batch: PipelineBatch): number => batch.types.length + batch.nulls.length + (batch.cleans.length > 0 ? 1 : 0);
+    const total =
+      ws.pipeline.phases.reduce((sum, phase) => sum + units(phase) + (phase.transforms.length > 0 ? 1 : 0), units(ws.pipeline.after)) +
+      (ws.removedRows.length > 0 ? 1 : 0) + (ws.views !== null ? 1 : 0) + (ws.charts !== null ? 1 : 0) + 2;
+    const progress = openWorkspaceProgress(ws.data.name, total);
+    let done = 0;
+    const step = (label: string): void => {
+      done++;
+      progress.update(done, label);
+    };
     try {
       if (ws.pipeline.archetype !== undefined) {
         this.archetypeOverride = ws.pipeline.archetype as ArchetypeId;
         this.rerenderOverview();
       }
       for (const phase of ws.pipeline.phases) {
-        await this.applyBatch(phase);
-        if (phase.transforms.length > 0) this.openWorkspace(await this.client.transform(phase.transforms));
+        await this.applyBatch(phase, step);
+        if (phase.transforms.length > 0) {
+          let what = `${phase.transforms.length} transform step${phase.transforms.length === 1 ? "" : "s"}`;
+          try {
+            what = describeTransformOp(phase.transforms[phase.transforms.length - 1], this.metas.map((meta) => meta.name));
+          } catch {
+            // The plain count says enough.
+          }
+          step(phase.transforms.length === 1 ? what : `${phase.transforms.length} transform steps, the last: ${what}`);
+          this.openWorkspace(await this.client.transform(phase.transforms));
+        }
       }
-      await this.applyBatch(ws.pipeline.after);
+      await this.applyBatch(ws.pipeline.after, step);
       if (ws.removedRows.length > 0) {
+        step(`Removing ${ws.removedRows.length.toLocaleString()} row${ws.removedRows.length === 1 ? "" : "s"}`);
         const message = await this.client.dropRowsById(ws.removedRows);
         this.excludedRowCount += ws.removedRows.length;
         this.updateCount(message.count, message.queryMs);
@@ -7760,6 +7785,7 @@ export class App {
       // What was built on the table.
       const names = this.metas.map((meta) => meta.name);
       if (ws.views !== null) {
+        step(`Pivot views (${ws.views.defs.length})`);
         this.ensureViews();
         const defs = ws.views.defs.map((def) => {
           const remapped = remapViewDef(def, ws.views?.columns ?? names, names);
@@ -7768,12 +7794,14 @@ export class App {
         this.viewsPanel?.restoreState(defs, ws.views.active);
       }
       if (ws.charts !== null) {
+        step(`Charts (${ws.charts.length})`);
         this.chartsPanel = null;
         clear(this.chartHost);
         this.chartRestore = ws.charts as NamedChartCardConfig[];
         this.chartRemoved = 0;
         if (this.view === "chart") this.ensureCharts();
       }
+      step("Filters, sort and columns");
       const index = (name: string): number => names.indexOf(name);
       for (const entry of ws.table.filters) {
         const column = index(entry.column);
@@ -7792,18 +7820,22 @@ export class App {
         this.frozenThrough = index(ws.table.frozenThrough);
         this.table?.setFrozen(this.frozenThrough);
       }
+      step("Quality rules and decisions");
       for (const [name, optional] of Object.entries(ws.quality.optional)) setOptionalMark(name, optional);
       for (const [id, mark] of Object.entries(ws.quality.reviewed)) setReviewed(this.datasetName, id, mark);
       if (ws.quality.rules.length > 0) this.setRules(ws.quality.rules);
       this.updateStepsButton();
       this.refreshScore();
       if (ws.mode !== this.mode) this.setMode(ws.mode);
-      this.setView(ws.view as ViewId);
+      // However it was saved, it opens on the Table.
+      this.setView("table");
       const steps = this.workspaceStepCount(ws);
       this.setAction(`Opened the workspace: ${steps} step${steps === 1 ? "" : "s"} replayed, ${ws.views?.defs.length ?? 0} view${ws.views?.defs.length === 1 ? "" : "s"}, ${ws.charts?.length ?? 0} chart${ws.charts?.length === 1 ? "" : "s"}`);
       if (warnings.length > 0) this.showWarning(warnings.join(" "));
     } catch (error) {
       this.showError(error);
+    } finally {
+      progress.close();
     }
   }
 
@@ -7864,6 +7896,8 @@ export class App {
       recipeSupport: (target) => supportHint(target, this.recipeScript(target).entries),
       onSaveRecipe: () => this.saveRecipe(),
       onReplayRecipe: () => this.pickRecipeFile(),
+      onSaveWorkspace: () => void this.saveWorkspace(),
+      onOpenWorkspace: () => this.pickWorkspaceFile(),
       onClose: () => undefined,
     });
   }

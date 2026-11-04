@@ -47,6 +47,9 @@ export interface StepsPanelCallbacks {
   onSaveRecipe: () => void;
   /** Pick a saved recipe file and replay it against the current data. */
   onReplayRecipe: () => void;
+  /** The whole page (steps, views, charts, filters) in one file. */
+  onSaveWorkspace?: () => void;
+  onOpenWorkspace?: () => void;
   onClose: () => void;
 }
 
@@ -347,6 +350,24 @@ export function openStepsPanel(
   replay.title = "Load a saved recipe file and re-apply its steps by column name";
   replay.addEventListener("click", () => callbacks.onReplayRecipe());
   footer.append(undoAll, replay, save, targetSelect, copy, el("span", { class: "grow" }));
+  if (callbacks.onSaveWorkspace !== undefined) {
+    const workspaceSave = el("button", { class: "ghost", type: "button" }, ["Save workspace…"]);
+    workspaceSave.title = "Everything on this page in one file: these steps in order, the pivot views, charts and filters. Open it beside the same data to come back here.";
+    workspaceSave.addEventListener("click", () => {
+      callbacks.onSaveWorkspace?.();
+      close();
+    });
+    footer.append(workspaceSave);
+  }
+  if (callbacks.onOpenWorkspace !== undefined) {
+    const workspaceOpen = el("button", { class: "ghost", type: "button" }, ["Open workspace…"]);
+    workspaceOpen.title = "Replay a saved workspace file on this data";
+    workspaceOpen.addEventListener("click", () => {
+      callbacks.onOpenWorkspace?.();
+      close();
+    });
+    footer.append(workspaceOpen);
+  }
   modal.append(footer);
 
   function close(): void {

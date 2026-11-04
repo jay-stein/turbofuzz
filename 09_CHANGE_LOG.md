@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-04-03 — Opening a workspace shows progress and lands on the Table; Save workspace is in the Recipe tab
+
+- **Status:** Verified (e2e)
+- **Related issue / decision:** owner: no flashing pages while a workspace loads, just a progress strip and then the table; the workspace file should be saveable from the Recipe tab.
+- **What changed:** a panel covers the page for the whole replay ("Opening “titanic.csv”", Step 3 of 9, and what is running: reading Age as a number, cleaning Sex, the transform, pivot views, charts, filters, quality rules), then it closes on the Table whatever page it was saved on. The Recipe tab has Save workspace… and Open workspace… beside Save recipe and Replay recipe.
+- **Files / components changed:** src/ui/workspace-progress.ts (new), app.ts, steps-panel.ts, styles.css; test/e2e/workspace.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-04
+
 ### CHG-2026-11-04-02 — Workspace file: save everything, open it beside the same data
 
 - **Status:** Verified (unit, e2e round trip on a Titanic-style file)

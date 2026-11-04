@@ -14111,6 +14111,15 @@ button.qp-tile:hover {
 .chart-ref-row select:nth-child(2), .chart-ref-row .chart-ref-value { grid-column: 1 / -1; }
 .chart-ref-row .icon-btn { grid-column: 2; grid-row: 1; }
 .chart-tag.disabled { opacity: 0.45; }
+
+/* Opening a workspace: one panel over the page for the whole replay. */
+.workspace-progress-overlay { z-index: 200; }
+.workspace-progress { width: min(460px, 92vw); display: flex; flex-direction: column; gap: 10px; padding: 20px 22px; }
+.workspace-progress h2 { margin: 0; font-size: var(--fs-lg, 18px); }
+.workspace-progress-count { font-family: var(--mono); font-size: var(--fs-sm); color: var(--text-dim); }
+.workspace-progress-track { height: 8px; border-radius: 4px; background: var(--panel-2); overflow: hidden; }
+.workspace-progress-bar { height: 100%; width: 0; background: var(--accent); transition: width 120ms ease-out; }
+.workspace-progress-label { min-height: 1.4em; font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .chart-tag.disabled select { cursor: not-allowed; }
 .chart-ref-hint { display: block; margin-top: 4px; }
 .chart-fit { display: flex; flex-direction: column; gap: 4px; }

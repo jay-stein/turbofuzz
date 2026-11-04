@@ -68,9 +68,10 @@ test("a workspace file brings a cleaned, transformed, pivoted and charted table 
   const viewsBefore = await page.locator(".views-dock button").count();
 
   // Save the workspace.
-  await page.getByRole("button", { name: "Workspace ▾" }).click();
+  // Saved from the Recipe tab.
+  await page.locator(".nav-actions button", { hasText: /^Recipe/ }).click();
   const download = page.waitForEvent("download");
-  await page.getByText("Save workspace…").first().click();
+  await page.locator(".drawer").getByRole("button", { name: "Save workspace…" }).click();
   const path = await (await download).path();
   const saved = JSON.parse(fs.readFileSync(path!, "utf8"));
   expect(saved.kind).toBe("turbofuzz-workspace");
@@ -89,6 +90,9 @@ test("a workspace file brings a cleaned, transformed, pivoted and charted table 
   const chooser = fresh.waitForEvent("filechooser");
   await fresh.getByText("Open workspace…").first().click();
   await (await chooser).setFiles(path!);
+  // However long the replay, nothing flashes by: a progress panel covers the page, then it lands on the Table.
+  await expect(fresh.locator(".workspace-progress")).toHaveCount(0, { timeout: 30_000 });
+  await expect(fresh.getByRole("tab", { name: "Table" })).toHaveAttribute("aria-selected", "true");
   await expect(fresh.locator(".nav-actions button", { hasText: /^Recipe/ })).toHaveText(before.recipe, { timeout: 30_000 });
   await expect(fresh.locator(".action-status")).toContainText(/Opened the workspace/, { timeout: 30_000 });
   // The same steps in the Recipe, the same pivot views, the same chart.
