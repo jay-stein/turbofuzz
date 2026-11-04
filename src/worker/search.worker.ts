@@ -577,6 +577,9 @@ async function handle(message: WorkerRequest): Promise<void> {
     case "knnPlan":
       handleKnnPlan(message);
       break;
+    case "getExcludedRows":
+      post({ type: "excludedRows", requestId: message.requestId, ids: [...excludedIds] });
+      break;
     case "knnEvaluate":
       handleKnnEvaluate(message);
       break;

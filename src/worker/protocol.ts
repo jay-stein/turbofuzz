@@ -587,6 +587,15 @@ export type TransformRequest = {
   ops: TransformOp[];
 };
 
+export type GetExcludedRowsRequest = { type: "getExcludedRows"; requestId: number };
+
+export interface ExcludedRowsMessage {
+  type: "excludedRows";
+  requestId: number;
+  /** Dataset row ids removed from the working set. */
+  ids: number[];
+}
+
 export type KnnPlanRequest = {
   type: "knnPlan";
   requestId: number;
@@ -1278,6 +1287,7 @@ export type WorkerRequest =
   | RenameHeadersRequest
   | CleanColumnsRequest
   | TransformRequest
+  | GetExcludedRowsRequest
   | KnnPlanRequest
   | KnnEvaluateRequest
   | PreviewTransformRequest
@@ -1603,5 +1613,6 @@ export type WorkerResponse =
   | TransformPreviewMessage
   | KnnPlanMessage
   | KnnEvaluationMessage
+  | ExcludedRowsMessage
   | CleanPreviewMessage
   | ErrorMessage;

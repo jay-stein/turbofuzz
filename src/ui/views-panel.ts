@@ -838,6 +838,32 @@ export class ViewsPanel {
       }));
   }
 
+  /** The views as a workspace file keeps them. */
+  state(): { defs: ViewDef[]; active: number } {
+    return { defs: this.views.map((entry) => JSON.parse(JSON.stringify(entry.def)) as ViewDef), active: this.active };
+  }
+
+  /** Puts saved views back, in order, and recomputes the open one. */
+  restoreState(defs: readonly ViewDef[], active: number): void {
+    this.started = true;
+    this.views = defs.map((def) => ({
+      def,
+      result: null,
+      pivotResult: null,
+      margins: null,
+      loading: false,
+      stale: true,
+      error: null,
+      missing: [],
+      expanded: false,
+    }));
+    if (this.views.length === 0) this.views = [this.blankView()];
+    this.active = Math.max(0, Math.min(this.views.length - 1, active));
+    this.options.onViewsChanged?.();
+    this.refresh();
+    this.render();
+  }
+
   viewDef(id: string): ViewDef | undefined {
     return this.views.find((entry) => entry.def.id === id)?.def;
   }

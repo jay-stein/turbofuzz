@@ -23,6 +23,14 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-04-01 — One JSON workspace file recreates a session; the data stays outside
+
+- **Status:** Accepted (owner, 2026-11-04)
+- **Context:** The recipe file covers cleans and transforms only; views, charts and filters were lost on reload, and a clean after a transform dropped the transform steps.
+- **Decision:** A single JSON workspace file (no generated script) holds the ordered steps, views, charts, table state and quality decisions by column name. The data is not embedded: the file is opened beside the same data, which it checks (columns, row count) and warns about. Pandas, Polars and chart-code exports stay separate and are not the replay format.
+- **Trade-offs:** Small, diff-able and offline, but not self-contained. Replay depends on the data matching by column name.
+- **Date / owner:** 2026-11-04 / owner
+
 ### DEC-2026-11-03-05 — Forecast page: simple, best, and how much better come first
 
 - **Status:** Accepted (owner, 2026-11-03)

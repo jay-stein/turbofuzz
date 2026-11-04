@@ -4,6 +4,17 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-04-02 — Workspace file: save everything, open it beside the same data
+
+- **Status:** Verified (unit, e2e round trip on a Titanic-style file)
+- **Related issue / decision:** owner: a pure recipe, in any format, that recreates a whole workflow step for step: clean some columns, make pivot views, chart them; load it and be exactly where they were. DEC-2026-11-04-01.
+- **What changed:** Workspace ▾ in the top bar (Save workspace…, Open workspace…, also on the start screen and in Actions). The file is JSON: the steps in the order they happened (cleans, missing-value and type changes, then the transforms on top of them, then the next batch after a clean), pivot views, chart cards, table filters, sort, hidden and frozen columns, quality rules and decisions, the mode and the page you were on. Columns go by name; the data itself is not inside. Open it with the same data loaded, or open it first and it waits for the data. Steps are replayed through the same paths as by hand, so the Recipe reads the same afterwards. Differences in the data (missing columns, a different row count) are said.
+- **Also fixed:** applying a clean after a transform folds the transforms into the data (as the worker always did) and the Recipe forgot the transform steps. They are kept now, as earlier steps, and in Copy recipe.
+- **Not included:** rows removed by hand before a transform (counted and warned, the ids are not recoverable); Time Series, Map, Outliers and Relationships page settings; chart zoom, brush and selection; the pandas export still lists cleans before transforms.
+- **Files / components changed:** src/data/workspace-file.ts (new), src/ui/app.ts, views-panel.ts, worker-client.ts; src/worker/protocol.ts, search.worker.ts; test/workspace-file.test.ts, test/e2e/workspace.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-04
+
 ### CHG-2026-11-04-01 — Chart types are pictures again on the Add a chart panel
 
 - **Status:** Verified (e2e, browser)

@@ -82,6 +82,7 @@ import type {
   TransformedMessage,
   TransformPreviewMessage,
   KnnPlanMessage,
+  ExcludedRowsMessage,
   KnnEvaluationMessage,
   WorkerRequest,
   WorkerResponse,
@@ -209,6 +210,10 @@ export class SearchWorkerClient {
 
   setSpecial(kind: SpecialKind, active: boolean, column?: number): Promise<ResultsMessage> {
     return this.request<ResultsMessage>({ type: "setSpecial", kind, active, column });
+  }
+
+  getExcludedRows(): Promise<ExcludedRowsMessage> {
+    return this.request<ExcludedRowsMessage>({ type: "getExcludedRows" });
   }
 
   dropRows(positions: number[]): Promise<ResultsMessage> {

@@ -14,6 +14,16 @@ import { detectTable, type HeaderLayout } from "../parse/header-detect.js";
 import { openHeaderRowDialog } from "./header-row-dialog.js";
 import { openProtectDialog, type ProtectMode } from "./protect-dialog.js";
 import { openFixPreview } from "./fix-preview-dialog.js";
+import {
+  batchIsEmpty,
+  dataWarnings,
+  parseWorkspaceFile,
+  WORKSPACE_KIND,
+  WORKSPACE_VERSION,
+  type PipelineBatch,
+  type PipelinePhase,
+  type WorkspaceFile,
+} from "../data/workspace-file.js";
 import { openKnnDialog, openKnnResult } from "./knn-dialog.js";
 import { buildColumnHealth, buildIssues, type FixStep, type PageIssue } from "../data/dq-issues.js";
 import { columnsIgnoring, idLikeColumns, nearDuplicateFinding } from "../data/near-duplicates.js";
@@ -185,7 +195,7 @@ import { TableNav } from "./table-nav.js";
 import { openNewColumn } from "./new-column-dialog.js";
 import { confirmCellEdit } from "./cell-edit-confirm.js";
 import { parseGoTo, type GoTo } from "./table-goto.js";
-import { ViewsPanel, type ViewSource } from "./views-panel.js";
+import { remapViewDef, ViewsPanel, type ViewSource } from "./views-panel.js";
 import { openCommandBar, type ParsedCommand } from "./command-bar.js";
 import { openTriagePanel, type TriagePanelHandle } from "./triage-panel.js";
 import { openColumnInspector } from "./column-inspector.js";
@@ -613,6 +623,15 @@ export class App {
   private bakedCleans: { name: string; ops: CleanOp[] }[] = [];
   private bakedTypes: { name: string; type: ColumnType }[] = [];
   private bakedRows = 0;
+  /** Transforms a later clean folded into the data: kept for the Recipe export. */
+  private bakedTransforms: TransformOp[] = [];
+  private bakedBaseSchema: ColumnSchema[] = [];
+  /** The columns of the data file as loaded, for a workspace file to check against. */
+  private sourceColumns: string[] = [];
+  /** The steps made before each transform, in order, so a workspace file replays them as they happened. */
+  private pipelinePhases: PipelinePhase[] = [];
+  /** A workspace opened before its data: applied as soon as the data loads. */
+  private pendingWorkspace: WorkspaceFile | null = null;
   /** Recipe steps in the order they were made, one list per action, so Undo can reverse the latest. */
   private stepActions: string[][] = [];
   private exportNullAsBlank = true;
@@ -1024,6 +1043,13 @@ export class App {
     controls.append(delimiterLabel, headerLabel, el("span", { class: "grow" }), loadButton);
     pasteDetails.append(controls);
     card.append(pasteDetails);
+    const openWorkspaceButton = el(
+      "button",
+      { class: "ghost small", type: "button", title: "Open a saved workspace file: it replays its steps, views and charts as soon as you load the same data" },
+      ["Open a saved workspace…"],
+    ) as HTMLButtonElement;
+    openWorkspaceButton.addEventListener("click", () => this.pickWorkspaceFile());
+    card.append(openWorkspaceButton);
 
     const pickerHead = el("div", { class: "table-picker-head" });
     this.tablePickerTitle = el("span", { class: "table-picker-title" });
@@ -1113,6 +1139,17 @@ export class App {
     this.headerRowButton.disabled = true;
     this.headerRowButton.addEventListener("click", () => void this.openHeaderRowOverride());
 
+    const workspaceButton = el(
+      "button",
+      { class: "ghost small nav-action", type: "button", title: "Save everything on this page in one file, or open one you saved" },
+      ["Workspace ▾"],
+    ) as HTMLButtonElement;
+    workspaceButton.addEventListener("click", () =>
+      openMenu(workspaceButton, [
+        { label: "Save workspace…", title: "Every step, view, chart and filter in one file that rebuilds this page beside the same data", action: () => void this.saveWorkspace() },
+        { label: "Open workspace…", title: "Replay a saved workspace file on this data", action: () => this.pickWorkspaceFile() },
+      ]),
+    );
     const actionsMenu = el(
       "button",
       { class: "ghost small nav-actions-menu", type: "button", title: "Convert types, recipe and export" },
@@ -1140,6 +1177,8 @@ export class App {
           action: () => this.stepsButton.click(),
         },
         { label: "Export…", title: this.exportButton.title, disabled: this.exportButton.disabled, action: () => this.exportButton.click() },
+        { label: "Save workspace…", title: "Save every step, view, chart and filter in one file that rebuilds this page beside the same data", action: () => void this.saveWorkspace() },
+        { label: "Open workspace…", title: "Open a saved workspace file: its steps, views and charts are replayed on this data", action: () => this.pickWorkspaceFile() },
       ]),
     );
     const navRow = el("div", { class: "nav-row" }, [
@@ -1151,6 +1190,7 @@ export class App {
         this.headerRowButton,
         this.undoButton,
         this.stepsButton,
+        workspaceButton,
         this.exportButton,
         actionsMenu,
       ]),
@@ -2336,7 +2376,47 @@ export class App {
   }
 
   /** Moves the clean, missing-value, type and row steps into the kept record, before a transform's data replaces the table. */
-  private bakeSteps(): void {
+  /** The cleans, missing-value changes and type changes made since the last transform, with columns by name. */
+  private currentBatch(): PipelineBatch {
+    const name = (column: number): string => this.metas[column]?.name ?? `Column ${column + 1}`;
+    const nullColumns = new Set<number>();
+    for (const edit of this.nullEdits) {
+      if (edit.all === true) this.metas.forEach((meta, index) => meta.nullPolicy.extra.length + meta.nullPolicy.keep.length > 0 && nullColumns.add(index));
+      else nullColumns.add(edit.column);
+    }
+    return {
+      cleans: [...this.cleanedColumns.entries()]
+        .filter(([, ops]) => ops.length > 0)
+        .map(([column, ops]) => ({ name: name(column), ops: JSON.parse(JSON.stringify(ops)) as CleanOp[] })),
+      nulls: [...nullColumns]
+        .filter((column) => this.metas[column] !== undefined)
+        .map((column) => ({ name: name(column), extra: [...this.metas[column].nullPolicy.extra], keep: [...this.metas[column].nullPolicy.keep] })),
+      types: this.typeEdits.filter((edit) => this.metas[edit.column] !== undefined).map((edit) => ({ name: name(edit.column), type: this.metas[edit.column].type })),
+    };
+  }
+
+  /** A clean after a transform folds the transforms into the data (the worker does the same): their record moves to the earlier steps. */
+  private bakeTransformsAfterClean(): void {
+    if (this.transformOps.length === 0) return;
+    const entries = this.stepEntries().filter((entry) => entry.kind === "transform" && entry.baked !== true);
+    this.bakedEntries.push(...entries.map((entry) => ({ ...entry, baked: true })));
+    if (this.bakedBaseSchema.length === 0) this.bakedBaseSchema = [...this.transformBaseSchema];
+    this.bakedTransforms.push(...this.transformOps);
+    this.transformOps = [];
+    this.transformBaseSchema = [];
+    this.transformCommitSizes = [];
+  }
+
+  private bakeSteps(ops: readonly TransformOp[]): void {
+    // For a workspace file: the steps before a transform and the transforms on top of them are one phase. A transform added on
+    // top of earlier ones (no clean between) extends the same phase.
+    const open = this.transformOps.length > 0 ? this.pipelinePhases[this.pipelinePhases.length - 1] : undefined;
+    const batch = this.currentBatch();
+    if (open !== undefined && batchIsEmpty(batch)) {
+      open.transforms = JSON.parse(JSON.stringify(ops)) as TransformOp[];
+    } else {
+      this.pipelinePhases.push({ ...batch, transforms: JSON.parse(JSON.stringify(ops)) as TransformOp[] });
+    }
     const entries = this.stepEntries().filter((entry) => entry.baked !== true && entry.kind !== "transform" && entry.kind !== "review");
     for (const [column, ops] of this.cleanedColumns) {
       if (ops.length > 0) this.bakedCleans.push({ name: this.metas[column]?.name ?? `Column ${column + 1}`, ops: [...ops] });
@@ -2351,8 +2431,12 @@ export class App {
 
   private openWorkspace(loaded: LoadedMessage | TransformedMessage): void {
     if (loaded.type === "transformed") {
-      this.bakeSteps();
+      this.bakeSteps(loaded.ops);
     } else {
+      this.sourceColumns = loaded.type === "loaded" ? loaded.columns.map((meta) => meta.name) : this.sourceColumns;
+      this.bakedTransforms = [];
+      this.bakedBaseSchema = [];
+      this.pipelinePhases = [];
       this.bakedEntries = [];
       this.bakedCleans = [];
       this.bakedTypes = [];
@@ -2444,6 +2528,11 @@ export class App {
 
     this.pasteView.classList.add("hidden");
     this.workspace.classList.remove("hidden");
+    if (loaded.type === "loaded" && this.pendingWorkspace !== null) {
+      const pending = this.pendingWorkspace;
+      this.pendingWorkspace = null;
+      window.setTimeout(() => void this.applyWorkspace(pending), 60);
+    }
     this.updateNewButton();
 
     const columnsWithNulls = loaded.columns.filter((column) => column.stats.nulls > 0).length;
@@ -7505,6 +7594,219 @@ export class App {
     return entries;
   }
 
+  /** Everything on the page that a workspace file keeps, as JSON. */
+  private async buildWorkspaceFile(): Promise<WorkspaceFile> {
+    const names = this.metas.map((meta) => meta.name);
+    const nameOf = (column: number): string | null => this.metas[column]?.name ?? null;
+    const removed = this.excludedRowCount > 0 ? (await this.client.getExcludedRows().catch(() => null))?.ids ?? [] : [];
+    const view = this.viewsPanel?.state() ?? null;
+    return {
+      kind: WORKSPACE_KIND,
+      version: WORKSPACE_VERSION,
+      savedAt: new Date().toISOString(),
+      data: {
+        name: this.datasetName,
+        columns: this.sourceColumns,
+        rows: this.pipelinePhases.every((phase) => phase.transforms.length === 0) ? this.rowCount + this.excludedRowCount : null,
+      },
+      pipeline: {
+        phases: JSON.parse(JSON.stringify(this.pipelinePhases)) as PipelinePhase[],
+        after: this.currentBatch(),
+        archetype: this.archetypeOverride ?? undefined,
+      },
+      removedRows: removed,
+      removedRowsLost: this.bakedRows,
+      mode: this.mode,
+      view: this.view,
+      table: {
+        filters: [...this.filters.entries()].flatMap(([column, filter]) => (nameOf(column) === null ? [] : [{ column: nameOf(column) as string, filter: JSON.parse(JSON.stringify(filter)) as ColumnFilter }])),
+        sort: this.tableOrder.column >= 0 && nameOf(this.tableOrder.column) !== null ? { column: nameOf(this.tableOrder.column) as string, dir: this.tableOrder.dir, reversed: this.tableOrder.reversed } : null,
+        hidden: [...this.hiddenColumns].map((column) => nameOf(column)).filter((name): name is string => name !== null),
+        frozenThrough: this.frozenThrough >= 0 ? nameOf(this.frozenThrough) : null,
+      },
+      views: view === null ? null : { columns: names, defs: view.defs, active: view.active },
+      charts: this.chartsPanel !== null ? (JSON.parse(JSON.stringify(this.chartsPanel.captureConfigs())) as unknown[]) : this.chartRestore !== null ? (JSON.parse(JSON.stringify(this.chartRestore)) as unknown[]) : null,
+      quality: {
+        rules: JSON.parse(JSON.stringify(this.rules)) as Rule[],
+        reviewed: getReviewed(this.datasetName),
+        optional: getOptionalMarks(),
+      },
+    };
+  }
+
+  private async saveWorkspace(): Promise<void> {
+    if (this.datasetName === "" || this.loading) return;
+    const file = await this.buildWorkspaceFile();
+    const blob = new Blob([JSON.stringify(file, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const base = this.datasetName.replace(/\.[^.]+$/, "") || "turbofuzz";
+    anchor.href = url;
+    anchor.download = `${base}.workspace.json`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    const steps = this.workspaceStepCount(file);
+    this.showToast(`Saved the workspace: ${steps} step${steps === 1 ? "" : "s"}, ${file.views?.defs.length ?? 0} view${file.views?.defs.length === 1 ? "" : "s"}, ${file.charts?.length ?? 0} chart${file.charts?.length === 1 ? "" : "s"}. Open it beside the same data file to come back to this.`);
+  }
+
+  private workspaceStepCount(file: WorkspaceFile): number {
+    const count = (batch: PipelineBatch): number => batch.cleans.reduce((sum, entry) => sum + entry.ops.length, 0) + batch.nulls.length + batch.types.length;
+    return file.pipeline.phases.reduce((sum, phase) => sum + count(phase) + phase.transforms.length, count(file.pipeline.after));
+  }
+
+  private pickWorkspaceFile(): void {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (file === undefined) return;
+      void file
+        .text()
+        .then((text) => {
+          const parsed = parseWorkspaceFile(text);
+          if (this.datasetName === "" || this.loading) {
+            this.pendingWorkspace = parsed;
+            this.showToast(`Workspace ready. Now load ${parsed.data.name === "" ? "its data file" : `“${parsed.data.name}”`}: it opens as soon as the data is in.`);
+            return;
+          }
+          return this.applyWorkspace(parsed);
+        })
+        .catch((error: unknown) => this.showWarning(error instanceof Error ? error.message : "Could not read that workspace."));
+    });
+    input.click();
+  }
+
+  /** The cleans, missing-value changes and type changes of one batch, applied to the table in hand and logged in the Recipe as they were. */
+  private async applyBatch(batch: PipelineBatch): Promise<void> {
+    const index = (name: string): number => this.metas.findIndex((meta) => meta.name === name);
+    for (const change of batch.types) {
+      const column = index(change.name);
+      if (column < 0) continue;
+      const previous = this.metas[column].type;
+      const message = await this.client.setType(column, change.type);
+      this.metas[column] = message.meta;
+      this.table?.updateColumn(column, message.meta);
+      this.overview?.updateColumn(column, message.meta);
+      this.typeEdits.push({ column, label: `${message.meta.name}: type → ${TYPE_LABELS[change.type]}`, detail: `type → ${TYPE_LABELS[previous]} → ${TYPE_LABELS[change.type]}`, previous });
+    }
+    for (const entry of batch.nulls) {
+      const column = index(entry.name);
+      if (column < 0) continue;
+      const before = this.metas[column].nullPolicy;
+      const previousExtra = [...before.extra];
+      const previousKeep = [...before.keep];
+      const message = await this.client.setNullPolicy(column, entry.extra, entry.keep);
+      for (const { column: changed, meta } of message.columns) {
+        this.metas[changed] = meta;
+        this.table?.updateColumn(changed, meta);
+        this.overview?.updateColumn(changed, meta);
+      }
+      this.filterPanel?.updateMeta(column, this.metas[column]);
+      this.nullEdits.push({ column, label: `${entry.name}: missing-value policy updated`, detail: "nulls → exact-match missing tokens", previousExtra, previousKeep });
+    }
+    const updates = batch.cleans.flatMap((entry) => (index(entry.name) < 0 ? [] : [{ column: index(entry.name), ops: entry.ops }]));
+    if (updates.length > 0) {
+      this.bakeTransformsAfterClean();
+      const message = await this.client.cleanColumns(updates);
+      for (const update of updates) {
+        this.filters.delete(update.column);
+        this.cleanedColumns.set(update.column, update.ops);
+      }
+      for (const { column, meta } of message.columns) {
+        this.metas[column] = meta;
+        this.table?.updateColumn(column, meta);
+        this.overview?.updateColumn(column, meta);
+      }
+      this.latestFacets = message.facets;
+      this.latestHistograms = message.histograms;
+      this.applyDatasetStats(message.stats);
+      this.updateCount(message.count, message.queryMs);
+      this.table?.setCount(message.count);
+      this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags, message.firstChanged);
+      this.noteChangedCells(message.changedTotal);
+    }
+    this.updateStepsButton();
+  }
+
+  /**
+   * Brings the page to the state a workspace file was saved in: the steps in their order, then the views, charts, filters, sort,
+   * columns and checks built on them. Columns are matched by name; what cannot be matched is skipped and said.
+   */
+  private async applyWorkspace(ws: WorkspaceFile): Promise<void> {
+    const warnings = dataWarnings(ws, this.metas.map((meta) => meta.name), this.rowCount);
+    try {
+      if (ws.pipeline.archetype !== undefined) {
+        this.archetypeOverride = ws.pipeline.archetype as ArchetypeId;
+        this.rerenderOverview();
+      }
+      for (const phase of ws.pipeline.phases) {
+        await this.applyBatch(phase);
+        if (phase.transforms.length > 0) this.openWorkspace(await this.client.transform(phase.transforms));
+      }
+      await this.applyBatch(ws.pipeline.after);
+      if (ws.removedRows.length > 0) {
+        const message = await this.client.dropRowsById(ws.removedRows);
+        this.excludedRowCount += ws.removedRows.length;
+        this.updateCount(message.count, message.queryMs);
+        this.applyFacets(message.facets, message.histograms);
+        this.table?.setCount(message.count);
+        this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags, message.firstChanged);
+        this.updateStepsButton();
+      }
+
+      // What was built on the table.
+      const names = this.metas.map((meta) => meta.name);
+      if (ws.views !== null) {
+        this.ensureViews();
+        const defs = ws.views.defs.map((def) => {
+          const remapped = remapViewDef(def, ws.views?.columns ?? names, names);
+          return remapped.def;
+        });
+        this.viewsPanel?.restoreState(defs, ws.views.active);
+      }
+      if (ws.charts !== null) {
+        this.chartsPanel = null;
+        clear(this.chartHost);
+        this.chartRestore = ws.charts as NamedChartCardConfig[];
+        this.chartRemoved = 0;
+        if (this.view === "chart") this.ensureCharts();
+      }
+      const index = (name: string): number => names.indexOf(name);
+      for (const entry of ws.table.filters) {
+        const column = index(entry.column);
+        if (column >= 0) this.changeFilter(column, entry.filter);
+      }
+      if (ws.table.sort !== null && index(ws.table.sort.column) >= 0) {
+        const sort = ws.table.sort;
+        const message = await this.client.sort(index(sort.column), sort.dir, sort.reversed);
+        this.table?.setSort(message.column, message.dir);
+        this.tableOrder = { column: message.column, dir: message.dir, reversed: sort.reversed };
+        this.table?.setCount(message.count);
+        this.table?.setFirstRows(message.firstRows, message.firstGroups, message.firstFlags, message.firstChanged);
+      }
+      if (ws.table.hidden.length > 0) this.setHiddenColumns(new Set(ws.table.hidden.map(index).filter((column) => column >= 0)));
+      if (ws.table.frozenThrough !== null && index(ws.table.frozenThrough) >= 0) {
+        this.frozenThrough = index(ws.table.frozenThrough);
+        this.table?.setFrozen(this.frozenThrough);
+      }
+      for (const [name, optional] of Object.entries(ws.quality.optional)) setOptionalMark(name, optional);
+      for (const [id, mark] of Object.entries(ws.quality.reviewed)) setReviewed(this.datasetName, id, mark);
+      if (ws.quality.rules.length > 0) this.setRules(ws.quality.rules);
+      this.updateStepsButton();
+      this.refreshScore();
+      if (ws.mode !== this.mode) this.setMode(ws.mode);
+      this.setView(ws.view as ViewId);
+      const steps = this.workspaceStepCount(ws);
+      this.setAction(`Opened the workspace: ${steps} step${steps === 1 ? "" : "s"} replayed, ${ws.views?.defs.length ?? 0} view${ws.views?.defs.length === 1 ? "" : "s"}, ${ws.charts?.length ?? 0} chart${ws.charts?.length === 1 ? "" : "s"}`);
+      if (warnings.length > 0) this.showWarning(warnings.join(" "));
+    } catch (error) {
+      this.showError(error);
+    }
+  }
+
   private openSteps(): void {
     openStepsPanel(this.stepEntries(), {
       onRemoveClean: (column, opIndex) => {
@@ -7595,13 +7897,15 @@ export class App {
   /** The canonical recipe contract: applied cleans, null/type edits, transforms. */
   private recipeInput(): RecipeInput {
     const schema =
-      this.transformBaseSchema.length > 0
-        ? this.transformBaseSchema
-        : this.metas.map((meta) => ({
-            name: meta.name,
-            numeric: meta.type === "integer" || meta.type === "number",
-            type: meta.type,
-          }));
+      this.bakedBaseSchema.length > 0
+        ? this.bakedBaseSchema
+        : this.transformBaseSchema.length > 0
+          ? this.transformBaseSchema
+          : this.metas.map((meta) => ({
+              name: meta.name,
+              numeric: meta.type === "integer" || meta.type === "number",
+              type: meta.type,
+            }));
     return {
       cleans: [
         ...this.bakedCleans,
@@ -7610,7 +7914,7 @@ export class App {
           ops,
         })),
       ],
-      transforms: this.transformOps,
+      transforms: [...this.bakedTransforms, ...this.transformOps],
       schema,
       types: [
         ...this.bakedTypes,
@@ -7857,9 +8161,7 @@ export class App {
             this.setAction("Nothing changed");
             return;
           }
-          this.transformOps = [];
-          this.transformBaseSchema = [];
-          this.transformCommitSizes = [];
+          this.bakeTransformsAfterClean();
           for (const update of updates) {
             this.filters.delete(update.column);
             if (update.ops.length === 0) this.cleanedColumns.delete(update.column);
