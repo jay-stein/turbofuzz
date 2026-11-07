@@ -181,6 +181,8 @@ export interface TsTable extends TsInput {
   /** Slots with at least one row. */
   observed: number[];
   defMeasure: string | null;
+  /** How the default measure is added up: a level (a temperature, a price, a power reading) is averaged; an amount is summed. */
+  defAgg: "sum" | "mean";
   bucketCache: Map<GrainId, Int32Array>;
 }
 
@@ -283,7 +285,7 @@ export function buildTable(input: TsInput): TsTable | null {
     for (let k = 0; k < keep; k++) { const v = arr[order[k]]; if (v === v) { distinct.add(v); if (v !== Math.round(v)) ints = false; } }
     for (let k = 1; k < keep; k++) { const a = arr[order[k - 1]], b = arr[order[k]]; if (a === a && b === b) { steps++; if (b >= a) up++; } }
     if (distinct.size > 10 && steps && up / steps >= 0.99) timeLike[c] = "time";
-    else if (ints && distinct.size <= 31 && distinct.size < keep / 4 && !input.flags[c]) timeLike[c] = "part";
+    else if (ints && distinct.size <= 31 && distinct.size < keep / 4 && !input.flags[c] && countsDatePart(c, arr, order, keep, Math.min(...distinct))) timeLike[c] = "part";
   }
   // Columns that are the same on every group's row at a moment, checked over the
   // moments that have rows from two or more groups.
@@ -317,6 +319,7 @@ export function buildTable(input: TsInput): TsTable | null {
   const measures = Object.keys(input.cols);
   const plain = (c: string): boolean => !timeLike[c] && !input.flags[c];
   const defMeasure = measures.find((c) => plain(c) && !repeated[c]) ?? measures.find(plain) ?? null;
+  const defAgg = defMeasure !== null && isLevel(defMeasure, input.cols[defMeasure]!, order, keep) ? "mean" : "sum";
   // The last reading covers one typical gap after it, except that monthly, quarterly and
   // yearly readings stand for their calendar period and end with it: a median gap of 31
   // days from 1 November reaches 2 December and made an empty December.
@@ -333,7 +336,7 @@ export function buildTable(input: TsInput): TsTable | null {
   return {
     ...input, start, slot, spd, nslots, end: start + (nslots - 1) * slot, m0: s.getUTCFullYear() * 12 + s.getUTCMonth(), woff, wbase, wstart, swd,
     rowSlot, cadence, cadSlots, subDay: slot < DAY, structural, closedHours, eventLike: eventLike || defMeasure === null, timeLike, repeated,
-    observed: obs, defMeasure: defMeasure ?? measures[0] ?? null, bucketCache: new Map(),
+    observed: obs, defMeasure: defMeasure ?? measures[0] ?? null, defAgg, bucketCache: new Map(),
   };
 }
 
@@ -404,6 +407,43 @@ export function cadenceText(c: number): string {
   if (c < 330) return `${Math.round(c / 30.44)} months`;
   if (c <= 400) return "year";
   return `${Math.round(c / 365.25)} years`;
+}
+
+const LEVEL_NAME = /temp|price|pressure|humid|\bpm ?\d|co2|no2|ozone|aqi|speed|voltage|balance|yield|percent|pct|\bshare\b|ratio|\brate\b|\blevel\b|(^|[_ ])(m|k|g)w$/i;
+
+/**
+ * A measure that is a level, not an amount: adding its readings up (a "daily sum of temperature", of megawatts, of a price) gives a
+ * number that is neither the quantity nor a total of anything. Its name says so, or in time order each
+ * reading is nearly the one before (a continuous reading, where an order's value is not).
+ */
+function isLevel(name: string, arr: ArrayLike<number>, order: ArrayLike<number>, keep: number): boolean {
+  if (LEVEL_NAME.test(name)) return true;
+  let sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0, c = 0;
+  for (let k = 1; k < keep; k++) {
+    const a = arr[order[k - 1]!]!, b = arr[order[k]!]!;
+    if (!(a === a && b === b)) continue;
+    sa += a; sb += b; saa += a * a; sbb += b * b; sab += a * b; c++;
+  }
+  const va = saa - (sa * sa) / c, vb = sbb - (sb * sb) / c;
+  return c > 100 && va > 0 && vb > 0 && (sab - (sa * sb) / c) / Math.sqrt(va * vb) >= 0.9;
+}
+
+const DATE_PART_NAME = /^(year|yr|month|mon|mnth|day|dom|dow|weekday|wday|week|wk|hour|hr|minute|min|quarter|qtr|doy|dayofyear)s?(_?(of|num|number|no|nr|idx|index).*)?$/i;
+
+/**
+ * A small-integer column that is really a date part (month, hour, day of week) rather than a reading such as a rating or a count:
+ * its name says so, or in time order it steps up by one and wraps round again.
+ */
+function countsDatePart(name: string, arr: ArrayLike<number>, order: ArrayLike<number>, keep: number, min: number): boolean {
+  if (DATE_PART_NAME.test(name.trim())) return true;
+  let changes = 0, stepsUp = 0;
+  for (let k = 1; k < keep; k++) {
+    const a = arr[order[k - 1]!]!, b = arr[order[k]!]!;
+    if (!(a === a && b === b) || a === b) continue;
+    changes++;
+    if (b - a === 1 || (b < a && b === min)) stepsUp++;
+  }
+  return changes >= 5 && stepsUp / changes >= 0.8;
 }
 
 /** The finest grain that keeps the default view quick: about 4,000 periods at most. */

@@ -43,6 +43,7 @@ export interface TsTableInfo {
   /** Numeric columns, with how each reads. */
   columns: { name: string; flag: boolean; timeLike: "time" | "part" | null; repeated: boolean }[];
   defMeasure: string | null;
+  defAgg: "sum" | "mean";
   defGrain: GrainId;
   tooFine: Record<GrainId, boolean>;
 }
@@ -97,7 +98,7 @@ export class TsEngine {
       cadence: t.cadence, cadSlots: t.cadSlots, subDay: t.subDay, eventLike: t.eventLike, structural: Array.from(t.structural), closedHours: Array.from(t.closedHours),
       rows: t.times.length, dropped: t.dropped, firstMs, lastMs,
       columns: Object.keys(t.cols).map((name) => ({ name, flag: !!t.flags[name], timeLike: t.timeLike[name] ?? null, repeated: !!t.repeated[name] })),
-      defMeasure: t.defMeasure, defGrain: defaultGrain(t),
+      defMeasure: t.defMeasure, defAgg: t.defAgg, defGrain: defaultGrain(t),
       tooFine: Object.fromEntries(GRAIN_ORDER.map((id) => [id, tooFine(t, id)])) as Record<GrainId, boolean>,
     };
   }
@@ -186,7 +187,7 @@ export function sanitizeTsConfig(cfg: TsConfig, info: TsTableInfo): TsConfig {
 export function defaultConfig(info: TsTableInfo): TsConfig {
   const grain = info.defGrain;
   return {
-    grain, agg: info.eventLike ? "count" : "sum", measure: info.defMeasure, group: -1, gaps: "leave", partial: "exclude",
+    grain, agg: info.eventLike ? "count" : info.defAgg, measure: info.defMeasure, group: -1, gaps: "leave", partial: "exclude",
     smoothW: GRAINS[grain].smooth, smoothStat: "mean", smoothCentred: false, period: null, sens: 4.5, transform: "none",
     split: null, horizon: null, flex: 5, drivers: [], cv: "expanding",
   };
