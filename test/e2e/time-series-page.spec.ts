@@ -469,3 +469,29 @@ test("an error code in the measure is called out, and one click treats it as mis
   await banner.locator("button[data-sentinel]").click();
   await expect(banner).toBeHidden({ timeout: 20_000 });
 });
+
+test("a column that moves the series is offered as a driver with the error it cuts, and one click adds it", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  let seed = 9;
+  const rnd = (): number => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) - 0.5;
+  const rows = ["date,demand,temp_c,pressure"];
+  for (let i = 0; i < 400; i++) {
+    const temp = 20 + 6 * Math.sin((2 * Math.PI * i) / 365) + 9 * rnd();
+    const demand = 500 + 40 * Math.sin((2 * Math.PI * i) / 7) + 12 * (temp - 20) + 40 * rnd();
+    rows.push(`${new Date(Date.UTC(2024, 0, 1 + i)).toISOString().slice(0, 10)},${demand.toFixed(1)},${temp.toFixed(1)},${(1000 + 30 * rnd()).toFixed(1)}`);
+  }
+  await page.locator('input[type="file"]').setInputFiles({ name: "demand.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator('.mode-switch-option[data-mode="research"]').click();
+  await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
+  await page.locator(".ts-tok[data-tok=agg]").click();
+  await page.locator(".ts-popover button", { hasText: "mean" }).first().click();
+  await page.locator(".ts-page button", { hasText: "Show all" }).first().click();
+  const finding = page.locator(".ts-page").getByText("cuts the error by").first();
+  await expect(finding).toBeVisible({ timeout: 30_000 });
+  await expect(finding).toContainText("temp_c");
+  await page.locator(".ts-page button", { hasText: "Add temp_c" }).first().click();
+  await expect(page.locator(".ts-page .ts-drv:not(.add)").first()).toContainText("temp_c", { timeout: 20_000 });
+});

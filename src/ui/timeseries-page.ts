@@ -2190,6 +2190,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       case "forecastView": setMode("forecast"); flyTo(forecastView()); break;
       case "grain": choose("grain", act.grain); break;
       case "agg": choose("agg", act.agg); break;
+      case "addDriver": driverAction(`add:${act.col}`); setMode("forecast"); break;
     }
   }
   /** Split by this column and show the one value: the rows of a single station, store or sensor. */

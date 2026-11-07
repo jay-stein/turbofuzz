@@ -22,7 +22,8 @@ export type TsAction =
   | { kind: "mode"; mode: TsMode }
   | { kind: "forecastView" }
   | { kind: "grain"; grain: GrainId }
-  | { kind: "agg"; agg: TsAgg };
+  | { kind: "agg"; agg: TsAgg }
+  | { kind: "addDriver"; col: string };
 
 export type TsTone = "accent" | "forecast" | "danger" | "warn" | "dim";
 export interface TsFinding {
@@ -166,6 +167,27 @@ function seasonPartsFinding(s: TsSnapshot, d: Decomposition): TsFinding {
     kind: "Season · daily + weekly", tone: "forecast", meter: d.fs, meterLabel: "seasonal strength",
     html: `Within a day, <b>${at(hi)}</b> runs <b>${amt(daily[hi])}</b> above the average ${g.noun}; <b>${at(lo)}</b> <b>${amt(daily[lo])}</b> below. Across the week, ${WEEKDAYS[dh]} add <b>${amt(add[dh])}</b> on top of that and ${WEEKDAYS[dl]} take off <b>${amt(add[dl])}</b>.`,
     acts: [{ label: "Decompose", act: { kind: "mode", mode: "decompose" } }],
+  };
+}
+
+/**
+ * Other columns that would help the forecast, from the walk-forward scan: each is offered with the error it cuts, and the page says
+ * so plainly when nothing helps or a column was left out for being the series under another name.
+ */
+function driverFinding(s: TsSnapshot): TsFinding | null {
+  const scan = s.driverScan;
+  if (!scan || (scan.tested === 0 && scan.leaked.length === 0)) return null;
+  const top = scan.hints.slice(0, 2);
+  const lead = (h: (typeof top)[number]): string => `<b>${escapeHtml(h.col)}</b> cuts the error by <b>${Math.round(h.cut * 100)}%</b> on data held back (${h.sign > 0 ? "they rise and fall together" : "it moves the other way"}${h.lag ? `, ${h.lag} ${h.lag === 1 ? "period" : "periods"} ahead` : ""})`;
+  const left = scan.leaked.length ? ` ${scan.leaked.map((c) => `<b>${escapeHtml(c)}</b>`).join(", ")} was left out: it follows ${measureWord(s)} so closely that it looks built from it, which would only hand the forecast the answer.` : "";
+  if (!top.length) {
+    if (s.cfg.drivers.length || scan.tested === 0) return left ? { kind: "Drivers", tone: "dim", html: left.trim(), acts: [] } : null;
+    return { kind: "Drivers", tone: "dim", html: `Tried ${scan.tested} other ${scan.tested === 1 ? "column" : "columns"} as drivers; none cut the error by 8% or more on held-back data, so the forecast uses the series alone.${left}`, acts: [] };
+  }
+  return {
+    kind: "Drivers", tone: "accent",
+    html: `${top.map(lead).join("; ")}. Adding ${top.length > 1 ? "one" : "it"} as a driver lets the trend, seasons and drivers model use it; the future value is then assumed, so check that rule.${left}`,
+    acts: top.map((h) => ({ label: `Add ${h.col}`, act: { kind: "addDriver" as const, col: h.col } })),
   };
 }
 
@@ -334,6 +356,8 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
     acts.unshift({ label: "Time-weighted mean", act: { kind: "agg", agg: "twmean" } });
   }
   if (bits.length) out.push({ kind: "Data", tone: "warn", html: bits.join(" "), acts });
+  const drv = driverFinding(s);
+  if (drv) out.push(drv);
   return out;
 }
 
