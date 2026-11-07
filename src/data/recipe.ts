@@ -729,6 +729,7 @@ function transformLines(
         lines.push(
           `df = df.melt(id_vars=[${ids}], value_vars=[${values}], var_name=${varName}, value_name=${valueName})`,
         );
+        if (op.dropEmpty === true) lines.push(`df = df.dropna(subset=[${valueName}])`);
         break;
       }
       case "aggregate": {

@@ -52,6 +52,8 @@ export type TransformOp =
       valueVars: number[];
       varName: string;
       valueName: string;
+      /** Make no row for an empty cell. */
+      dropEmpty?: boolean;
     }
   | {
       /** Multi-dimension, multi-measure group-by transform. */
@@ -662,6 +664,7 @@ function meltColumns(
     const valueColumn = columns[valueIndex];
     const label = valueColumn.name;
     for (let row = 0; row < rowCount; row++) {
+      if (op.dropEmpty === true && valueColumn.isNull(valueColumn.raw[row])) continue;
       for (let i = 0; i < idVars.length; i++) {
         idRaw[i][cursor] = columns[idVars[i]].raw[row];
       }
@@ -671,6 +674,11 @@ function meltColumns(
     }
   }
 
+  if (cursor < outRows) {
+    for (const part of idRaw) part.length = cursor;
+    varRaw.length = cursor;
+    valueRaw.length = cursor;
+  }
   const out: ColumnData[] = idVars.map((index, i) => {
     const rebuilt = ColumnData.create(columns[index].name, idRaw[i]);
     rebuilt.setType(columns[index].type);
@@ -791,7 +799,7 @@ export function describeTransformOp(op: TransformOp, headers: readonly string[])
       const idNames = op.idVars.map((index) => quoted(nameAt(index)));
       const valueCount =
         op.valueVars.length > 0 ? op.valueVars.length : Math.max(0, headers.length - op.idVars.length);
-      return `Melt to long: ${valueCount} value column${valueCount === 1 ? "" : "s"} (id: ${idNames.join(", ") || "none"})`;
+      return `Melt to long: ${valueCount} value column${valueCount === 1 ? "" : "s"} (id: ${idNames.join(", ") || "none"})${op.dropEmpty === true ? ", empty cells skipped" : ""}`;
     }
     case "combineDate": {
       const count = op.parts.length;
@@ -877,7 +885,7 @@ export function describeTransformOpDetail(op: TransformOp, headers: readonly str
     case "melt":
       return `melt(idVars=[${op.idVars.map(nameAt).join(", ")}], valueVars=[${op.valueVars
         .map(nameAt)
-        .join(", ")}], varName=${JSON.stringify(op.varName)}, valueName=${JSON.stringify(op.valueName)})`;
+        .join(", ")}], varName=${JSON.stringify(op.varName)}, valueName=${JSON.stringify(op.valueName)}${op.dropEmpty === true ? ", dropEmpty=true" : ""})`;
     case "combineDate":
       return `combineDate(parts=[${op.parts
         .map((part) => `${nameAt(part.column)}=${part.role}`)

@@ -67,8 +67,14 @@ function remapTransform(
   const map = (column: number): number | null => indexOf(column);
   switch (op.kind) {
     case "dedupe":
-    case "melt":
       return null;
+    // A melt names its columns, so it replays on another file that has them.
+    case "melt": {
+      const idVars = op.idVars.map(map);
+      const valueVars = op.valueVars.map(map);
+      if (idVars.includes(null) || valueVars.includes(null)) return null;
+      return { ...op, idVars: idVars as number[], valueVars: valueVars as number[] };
+    }
     // A formula names its columns, so it carries over as written.
     case "derive":
       return { ...op };

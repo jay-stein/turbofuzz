@@ -796,6 +796,7 @@ function polarsTransformLines(
         lines.push(
           `df = df.unpivot(index=[${ids}], on=[${values}], variable_name=${py(op.varName.trim() || "variable")}, value_name=${py(op.valueName.trim() || "value")})`,
         );
+        if (op.dropEmpty === true) lines.push(`df = df.drop_nulls(${py(op.valueName.trim() || "value")})`);
         break;
       }
       case "aggregate": {

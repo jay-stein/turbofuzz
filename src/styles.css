@@ -14289,3 +14289,29 @@ button.qp-tile:hover {
 .xbtn[data-count]:hover::after, .xbtn[data-count]:focus-visible::after { display: none; }
 /* Settings and Help ahead of any data live in the top bar; once a table is open they are in the toolbar row. */
 #app:has(.workspace:not(.hidden)) .topbar .topbar-pre { display: none; }
+
+/* Melt dialog. */
+.melt-modal { width: min(720px, 94vw); max-height: 90vh; display: flex; flex-direction: column; }
+.melt-body { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; }
+.melt-listhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.melt-quick { display: flex; gap: 6px; flex-wrap: wrap; }
+.melt-list { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.melt-row { display: grid; grid-template-columns: minmax(0, 1fr) 64px 110px 80px; align-items: center; gap: 4px; padding: 3px 10px; border-bottom: 1px solid var(--border); font-size: var(--fs-md); }
+.melt-row:last-child { border-bottom: 0; }
+.melt-colhead { font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); border: 0; padding-bottom: 0; }
+.melt-colhead span:not(:first-child), .melt-cell { text-align: center; }
+.melt-cell { display: flex; justify-content: center; cursor: pointer; padding: 4px 0; }
+.melt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.melt-row.role-keep { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.melt-row.role-unpivot { background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.melt-row.role-out .melt-name { color: var(--text-dim); text-decoration: line-through; }
+.melt-names { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.melt-check { display: flex; align-items: center; gap: 8px; font-size: var(--fs-md); }
+.melt-step { margin-top: 4px; }
+.melt-shape { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: var(--mono); font-size: var(--fs-sm); overflow-x: auto; white-space: pre; }
+.melt-shape b { display: inline-block; width: 44px; color: var(--text-dim); font-family: inherit; }
+.melt-notes p { margin: 2px 0; font-size: var(--fs-md); }
+.melt-notes p:empty { display: none; }
+.melt-problem { color: var(--danger, #d92d20); }
+.melt-warn { color: var(--warn, #b54708); }
+.melt-count { color: var(--text-dim); }

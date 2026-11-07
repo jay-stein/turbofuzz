@@ -28,6 +28,7 @@ import {
   type WorkspaceFile,
 } from "../data/workspace-file.js";
 import { openKnnDialog, openKnnResult } from "./knn-dialog.js";
+import { openMeltDialog } from "./melt-dialog.js";
 import { openWorkspaceProgress } from "./workspace-progress.js";
 import { buildColumnHealth, buildIssues, type FixStep, type PageIssue } from "../data/dq-issues.js";
 import { columnsIgnoring, idLikeColumns, nearDuplicateFinding } from "../data/near-duplicates.js";
@@ -336,6 +337,7 @@ function extensionOf(name: string): string {
 
 /** Icons for the toolbar buttons that show only the icon until the pointer or the keyboard reaches them, then spell out their name. */
 const BUTTON_ICONS = {
+  melt: '<path d="M5 4v6M10 4v6M15 4v6M20 4v6"/><path d="M12 20V14M12 14l-3 3M12 14l3 3"/>',
   convert: '<path d="M7 7h11l-3-3"/><path d="M17 17H6l3 3"/>',
   importSettings: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
@@ -702,6 +704,7 @@ export class App {
   private moreButton!: HTMLButtonElement;
   private statsButton!: HTMLButtonElement;
   private convertTypesButton!: HTMLButtonElement;
+  private meltButton!: HTMLButtonElement;
   private headerRowButton!: HTMLButtonElement;
   /** How the current table was read, so the header row can be re-chosen and reloaded. */
   private importSource: ImportSource | null = null;
@@ -1211,6 +1214,18 @@ export class App {
     expandButton(this.convertTypesButton, "convert", "Convert types");
     this.convertTypesButton.addEventListener("click", () => this.openBatchTypes());
 
+    this.meltButton = el(
+      "button",
+      {
+        class: "ghost small nav-action melt-button",
+        type: "button",
+        title: "Melt: turn columns (one per year, month or measure) into rows",
+      },
+      [],
+    ) as HTMLButtonElement;
+    expandButton(this.meltButton, "melt", "Melt…");
+    this.meltButton.addEventListener("click", () => void this.openMelt());
+
     this.headerRowButton = el(
       "button",
       {
@@ -1245,6 +1260,7 @@ export class App {
     actionsMenu.addEventListener("click", () =>
       openMenu(actionsMenu, [
         { label: "Convert types", action: () => this.convertTypesButton.click() },
+        { label: "Melt (wide to long)…", action: () => this.meltButton.click() },
         {
           label: "Import settings…",
           title: this.headerRowButton.title,
@@ -1279,6 +1295,7 @@ export class App {
       el("span", { class: "grow" }),
       el("div", { class: "nav-actions" }, [
         this.convertTypesButton,
+        this.meltButton,
         this.headerRowButton,
         this.undoButton,
         this.stepsButton,
@@ -7397,7 +7414,7 @@ export class App {
     addItem("Group by & aggregate…", () => this.openTransform({ type: "groupBy", column }));
     addItem("Fill missing values…", () => this.openTransform({ type: "impute", column }));
     addItem("Fill from similar rows (k nearest neighbours)…", () => this.openTransform({ type: "knn", column }));
-    addItem("Melt (wide → long)…", () => this.openTransform({ type: "melt", column }));
+    addItem("Melt (wide → long)…", () => void this.openMelt());
     addItem("Combine date/time columns…", () =>
       this.openTransform({ type: "combineDate", column }),
     );
@@ -8638,6 +8655,28 @@ export class App {
           after?.(message);
         })
         .catch((error: unknown) => this.showError(error)),
+    );
+  }
+
+  /** Melt (wide to long): choose what to keep and what to stack, see what it makes, apply. */
+  private async openMelt(): Promise<void> {
+    if (this.datasetName === "" || this.loading || this.metas.length === 0) return;
+    let schema: ColumnSchema[] =
+      this.transformBaseSchema.length > 0
+        ? [...this.transformBaseSchema]
+        : this.metas.map((meta) => ({ name: meta.name, numeric: meta.type === "integer" || meta.type === "number" }));
+    for (const op of this.transformOps) schema = schemaAfter(schema, op);
+    const op = await openMeltDialog({
+      schema,
+      rowCount: this.rowCount,
+      preview: (staged) => this.client.previewTransform([...this.transformOps, staged]),
+    });
+    if (op === null) return;
+    const stacked = op.valueVars.length;
+    this.applyTransform(
+      [...this.transformOps, op],
+      `Melted ${stacked} column${stacked === 1 ? "" : "s"} into rows`,
+      () => this.setView("table"),
     );
   }
 

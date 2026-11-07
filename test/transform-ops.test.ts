@@ -532,3 +532,13 @@ test("clip is described in plain words and exported to pandas and Polars", async
   assert.match(polars, /\.clip\(0, 100\)/);
   assert.match(polars, /pl\.when\(.*> 100.*\)\.then\(None\)/);
 });
+
+test("melt can skip empty cells, and says so in the step and the pandas recipe", () => {
+  const ds = buildDataset("t", ["id", "2019", "2020"], [["a", "1", ""], ["b", "", "4"], ["c", "5", "6"]]);
+  const op = { kind: "melt" as const, idVars: [0], valueVars: [1, 2], varName: "year", valueName: "sales", dropEmpty: true };
+  const out = applyTransformOps("t", ds.columns, [op]);
+  assert.equal(out.rowCount, 4);
+  assert.deepEqual(out.columns[0].raw, ["a", "c", "b", "c"]);
+  assert.deepEqual(out.columns[2].raw, ["1", "5", "4", "6"]);
+  assert.match(describeTransformOp(op, ["id", "2019", "2020"]), /empty cells skipped/);
+});
