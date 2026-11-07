@@ -1,0 +1,4 @@
+{"type":"FeatureCollection","features":[
+{"type":"Feature","properties":{"name":"Alpha"},"geometry":{"type":"Polygon","coordinates":[[[140,-30],[145,-30],[145,-35],[140,-35],[140,-30]]]}},
+{"type":"Feature","properties":{"name":"Beta"},"geometry":{"type":"Polygon","coordinates":[[[145,-30],[150,-30],[150,-35],[145,-35],[145,-30]]]}},
+{"type":"Feature","properties":{"name":"Gamma"},"geometry":{"type":"Polygon","coordinates":[[[140,-35],[150,-35],[150,-40],[140,-40],[140,-35]]]}}]}

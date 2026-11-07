@@ -120,6 +120,9 @@ export class MapRegions {
   private readonly colourStrip: HTMLElement;
   private readonly colourLine: HTMLElement;
   private readonly labelSelect: HTMLSelectElement;
+  private readonly labelSwitch: HTMLInputElement;
+  /** What labels said before they were switched off, so switching them on again restores it. */
+  private labelBeforeOff = "";
   private readonly labelControls: HTMLElement;
   private readonly bufferControls: HTMLElement;
   private readonly labelSizeOut: HTMLElement;
@@ -193,6 +196,19 @@ export class MapRegions {
       if (this.labelSource.startsWith("table:")) this.refresh();
       else this.options.onChange();
     });
+    this.labelSwitch = el("input", { type: "checkbox", role: "switch", "aria-label": "Show labels on the regions", class: "map-switch-input" }) as HTMLInputElement;
+    this.labelSwitch.addEventListener("change", () => {
+      this.labelChosen = true;
+      if (this.labelSwitch.checked) this.labelSource = this.labelBeforeOff !== "" ? this.labelBeforeOff : this.labelProperty === "" ? "value" : `file:${this.labelProperty}`;
+      else {
+        this.labelBeforeOff = this.labelSource;
+        this.labelSource = "";
+      }
+      this.labelSelect.value = this.labelSource;
+      this.syncLabels();
+      if (this.labelSource.startsWith("table:")) this.refresh();
+      else this.options.onChange();
+    });
     const slider = (label: string, min: string, max: string, step: string, value: string, onInput: (value: number) => void): { input: HTMLInputElement; out: HTMLElement } => {
       const input = el("input", { type: "range", min, max, step, value, "aria-label": label, class: "map-label-slider" }) as HTMLInputElement;
       const out = el("output", { class: "map-size-out" }, [`${value}px`]);
@@ -249,7 +265,15 @@ export class MapRegions {
     this.stepMatch = step(2, "Match to your table", [this.matchLine, this.matchCounts, el("div", { class: "map-region-buttons" }, [matchButton, this.unmatchedLink])]);
     this.stepValue = step(3, "Value", [field("Value", this.measureSelect), field("Statistic", this.aggSelect), field("Divide by", this.divideSelect, "Raw totals mostly show which regions are biggest: dividing by area or population shows intensity")]);
     this.stepColours = step(4, "Colours", [this.colourStrip, this.colourLine, el("div", { class: "map-region-buttons" }, [coloursButton])]);
-    this.stepLabels = step(5, "Labels", [field("Label with", this.labelSelect), this.labelControls]);
+    this.stepLabels = step(5, "Labels", [
+      el("label", { class: "map-dock-item map-switch map-label-switch", title: "Names or values written on the regions; off leaves the colours alone" }, [
+        this.labelSwitch,
+        el("span", { class: "map-switch-track", "aria-hidden": "true" }),
+        el("span", {}, ["Show labels"]),
+      ]),
+      field("Label with", this.labelSelect),
+      this.labelControls,
+    ]);
     this.root = el("div", { class: "map-regions" }, [stepLoad, this.stepMatch, this.stepValue, this.stepColours, this.stepLabels]);
     this.syncLabels();
 
@@ -326,6 +350,16 @@ export class MapRegions {
     void file.arrayBuffer().then((buffer) => this.read({ buffer, fileName: file.name }));
   }
 
+  /** Opens the file chooser for a boundary file (the map page's Boundaries button uses it). */
+  chooseFile(): void {
+    this.input.click();
+  }
+
+  /** Removes the loaded boundaries and goes back to the plain map. */
+  clearBoundaries(): void {
+    this.clear();
+  }
+
   get ready(): boolean {
     return this.loaded !== null;
   }
@@ -380,6 +414,7 @@ export class MapRegions {
       this.fillFromFile(message);
       const confident = await this.suggest();
       this.options.onLoaded(message.bounds);
+      this.root.dispatchEvent(new CustomEvent("regionschange"));
       this.syncDrop();
       this.sync();
       this.refresh();
@@ -511,6 +546,7 @@ export class MapRegions {
   }
 
   private syncLabels(): void {
+    this.labelSwitch.checked = this.labelSource !== "";
     this.labelControls.classList.toggle("hidden", this.labelSource === "");
     this.bufferControls.classList.toggle("hidden", !this.bufferOn);
   }
@@ -576,6 +612,7 @@ export class MapRegions {
     this.syncDrop();
     this.options.clear();
     this.options.onCleared();
+    this.root.dispatchEvent(new CustomEvent("regionschange"));
   }
 
   setTime(time: { column: number; grain: RegionValuesRequestInput["grain"] } | null): void {

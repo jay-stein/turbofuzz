@@ -99,6 +99,8 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     ["Click map to add"],
   ) as HTMLButtonElement;
   const addMarkers = el("button", { type: "button", class: "map-dock-btn primary", title: "Paste rows, load a CSV or find a city" }, ["+ Add markers…"]);
+  const boundaries = el("button", { type: "button", class: "map-dock-btn", title: "Colour regions from a boundary file: a GeoJSON file or a zipped Shapefile (you can also drop one on the map)" }, ["Boundaries…"]) as HTMLButtonElement;
+  const clearBoundaries = el("button", { type: "button", class: "map-dock-btn hidden", title: "Remove the loaded boundaries and go back to the plain map" }, ["Clear boundaries"]) as HTMLButtonElement;
   const fitMarkers = el("button", { type: "button", class: "map-dock-btn", title: "Zoom to show everything plotted and all your markers (the Cities layer is ignored)" }, ["Fit all"]) as HTMLButtonElement;
   const dock = el("div", { class: "map-dock", role: "toolbar", "aria-label": "Map layers and markers" }, [
     el("label", { class: "map-dock-item map-switch", title: "The largest cities in view, with names (bundled, offline)" }, [
@@ -108,6 +110,9 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     ]),
     citySizeLabel,
     cityInsideLabel,
+    el("span", { class: "map-dock-sep", "aria-hidden": "true" }),
+    boundaries,
+    clearBoundaries,
     el("span", { class: "map-dock-sep", "aria-hidden": "true" }),
     // Everything about markers you place yourself sits together; the dots from your data are
     // sized in the Dots row under the map's settings, and this slider does not touch them.
@@ -158,6 +163,8 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   pickToggle.addEventListener("click", () => markersPanel.setPicking(pickToggle.getAttribute("aria-pressed") !== "true"));
   addMarkers.addEventListener("click", () => markersPanel.openAdd());
   fitMarkers.addEventListener("click", () => card?.fitMapAll());
+  boundaries.addEventListener("click", () => card?.mapRegions?.chooseFile());
+  clearBoundaries.addEventListener("click", () => card?.mapRegions?.clearBoundaries());
   // Rows pasted anywhere on the page (not into a field) open Add markers with them.
   document.addEventListener("paste", (event) => {
     if (!visible || document.querySelector(".modal-overlay") !== null) return;
@@ -175,6 +182,12 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   let visible = false;
   let datasetKey = "";
   let pending: Partial<ChartCardConfig> | null = null;
+
+  /** Clearing is offered while boundaries are loaded, wherever the map is on screen. */
+  function syncBoundaryButtons(): void {
+    clearBoundaries.classList.toggle("hidden", card?.mapRegions?.ready !== true);
+    syncCityInside();
+  }
 
   function syncCityInside(): void {
     cityInsideLabel.classList.toggle("hidden", !citiesToggle.checked || card?.mapRegions?.ready !== true);
@@ -211,8 +224,10 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
       card.canvasHost.prepend(dock);
       card.onMapModeChange = syncType;
       syncType(card.mapMode);
+      card.mapRegions?.root.addEventListener("regionschange", syncBoundaryButtons);
       card.onRegionsChange = (showing) => {
         regionsShowing = showing;
+        syncBoundaryButtons();
         syncEmpty();
         syncCityInside();
       };
