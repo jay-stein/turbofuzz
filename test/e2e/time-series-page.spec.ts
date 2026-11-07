@@ -312,7 +312,7 @@ test("the chart names the forecast model and how it did; Trend flexibility expla
   await expect(compact.locator(".ts-group")).toHaveCount(0);
   const ratios = (await compact.locator("tr[data-model] .ts-ratio").allTextContents()).map((t) => parseFloat(t));
   expect(ratios).toEqual([...ratios].sort((p, q) => p - q));
-  await expect(compact.locator(".ts-autotag")).toHaveCount(1);
+  await expect(compact.locator("tr[data-model] .ts-autotag")).toHaveCount(1);
   await expect(page.locator("[data-ref=board] thead")).toContainText("Unseen fold");
   await expect(page.locator(".ts-page [data-ref=flexNote]")).toContainText(/ridge \(L2\) penalty of λ = /);
   await page.locator(".ts-fold[data-fold=hood]").click();
