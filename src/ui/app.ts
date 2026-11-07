@@ -4483,6 +4483,7 @@ export class App {
         },
         viewSources: () => this.timeSeriesViewSources(),
         sampleValues: async (column) => (await this.client.getColumnSample(column)).values,
+        onApplySuggestion: (column, suggestion) => this.applySuggestionNow(column, suggestion),
         onUseAsDate: (column, order) => this.applyQuickClean(column, { kind: "toDate", order: order as DateOrder }),
         onShowRows: (column, min, max) => {
           this.changeFilter(column, { kind: "range", min, max });

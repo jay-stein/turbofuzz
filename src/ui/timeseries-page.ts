@@ -23,6 +23,7 @@ import type { ArimaJob, ArimaProgress, ArimaResult } from "../data/timeseries/ar
 import type { ArimaCoef } from "../data/timeseries/arima.js";
 import { startArima, type ArimaRun } from "./timeseries-arima.js";
 import { openMenu } from "./menu.js";
+import type { ColumnSuggestion } from "../data/suggestions.js";
 import type { ColumnMeta, TimeSeriesMessage } from "../worker/protocol.js";
 import { downloadCsv } from "./chart-export.js";
 import {
@@ -42,6 +43,8 @@ export interface TimeSeriesPageOptions {
   onAction: (message: string) => void;
   /** Read a text column of periods ("2024-03", "Mar-24", "2024 Q1") as dates, with the given `fmt:` order. */
   onUseAsDate: (column: number, order: string) => void;
+  /** Apply one of a column's cleaning suggestions (treat a code as missing). */
+  onApplySuggestion: (column: number, suggestion: ColumnSuggestion) => void;
   /** A sample of one column's values, for spotting a text column of periods. */
   sampleValues: (column: number) => Promise<string[]>;
   datasetName: () => string;
@@ -110,6 +113,7 @@ const TEMPLATE = `
     </section>
   </header>
   <div class="ts-mixed" data-ref="mixed" role="status" hidden></div>
+  <div class="ts-sentinel" data-ref="sentinel" role="status" hidden></div>
   <dl class="ts-strip" data-ref="strip"></dl>
   <div class="ts-work">
     <div class="ts-stage">
@@ -1085,6 +1089,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const showSource = vs !== undefined || options.viewSources().length > 0;
     ref("subline").innerHTML = `${showSource ? `Source ${tok("source")} · ` : ""}${vs ? `Periods of <b>${escapeHtml(vs.timeName)}</b>` : `Dates from ${tok("date")}`} · split by ${tok("groupBy")} · ${nf.format(info.rows)} rows · ${dfDate.format(new Date(info.firstMs))} to ${dfDate.format(new Date(info.lastMs))} · gaps ${tok("gaps")} · partial last ${gr.noun} ${tok("partial")}`;
     const mixed = renderMixed();
+    renderSentinel();
     const across = !mixed && c.group < 0 && info.groups.length > 1 && !count && c.agg === "sum" ? ` That adds all ${info.groups.length} ${escapeHtml(info.groupCol ?? "")} values together; pick one if they measure the same thing.` : "";
     ref("why").innerHTML = vs
       ? `Each ${gr.noun} is ${escapeHtml(c.measure ?? "the value")} as the Pivot View <b>${escapeHtml(vs.name)}</b> worked it out; its periods are read as they are, not aggregated again. Edit the view and this series follows.${across}`
@@ -1094,7 +1099,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const N = a.modelN, d = s.dec.dec;
     let li = N - 1;
     while (li > 0 && !(a.y[li] === a.y[li])) li--;
-    const v = a.y[li], prev = a.y[li - 1], ly = li - gr.ly >= 0 ? a.y[li - gr.ly] : NaN;
+    // Only with more than a year behind it: exactly one year back is the first period, often a holiday or a part-recorded one.
+    const v = a.y[li], prev = a.y[li - 1], ly = li - gr.ly >= 1 ? a.y[li - gr.ly] : NaN;
     const chip = (x: { v: number; text: string } | null): string => (x ? `<span class="ts-pill ${x.v > 0 ? "up" : x.v < 0 ? "down" : "flat"}">${x.text}</span>` : "");
     const cells: [string, string][] = [
       ...frequencyCell(),
@@ -1156,6 +1162,21 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
    * store, car park or sensor, and the page would otherwise add or average them silently.
    * Returns whether it is showing.
    */
+  /**
+   * An error code in the measure (-999, 9999) is not a reading: left in, it drags the line, the trend and the forecast range to
+   * values the quantity could never take. The column's own cleaning suggestion is offered here, where the damage shows.
+   */
+  function renderSentinel(): void {
+    const box = ref("sentinel");
+    const name = cfg?.measure ?? null;
+    const col = name === null ? -1 : metas.findIndex((m) => m.name === name);
+    const hit = col < 0 || cfg?.agg === "count" ? undefined : metas[col]!.suggestions.find((x): x is Extract<ColumnSuggestion, { kind: "sentinel" }> => x.kind === "sentinel" && Number.isFinite(Number(x.value)));
+    if (!hit) { box.hidden = true; return; }
+    box.hidden = false;
+    box.innerHTML = `<div class="ts-mixed-icon" aria-hidden="true">!</div><div class="ts-mixed-body"><b class="ts-mixed-title">An error code in ${escapeHtml(name ?? "the measure")}</b><p><b>${escapeHtml(hit.value)}</b> appears ${nf.format(hit.count)} times. It looks like an error code, not a reading, and it pulls the line, the trend and the forecast range toward values the measure cannot take.${hit.hint ? " " + escapeHtml(hit.hint) : ""}</p><div class="ts-mixed-acts"><button type="button" class="primary" data-sentinel="${col}">Treat ${escapeHtml(hit.value)} as missing</button></div></div>`;
+    box.dataset.value = hit.value;
+    box.dataset.sentinelCol = String(col);
+  }
   function renderMixed(): boolean {
     const box = ref("mixed");
     const s = snap, c = cfg;
@@ -1398,7 +1419,15 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
 
   // ---------------------------------------------------------------- forecast badge and trend flexibility
   /** The cycle the seasonal naive repeats, in a word ("year", "week"). */
-  const cycleWord = (s: TsSnapshot): string => s.A.g.lyShort.replace(/^last /i, "").toLowerCase() || "cycle";
+  /** The cycle "repeat the last cycle" really copies: the season the models used at this grain, not always a year. */
+  const cycleWord = (s: TsSnapshot): string => {
+    const m = "error" in s.models ? 0 : s.models.m;
+    const name = m > 0 ? s.A.g.seasons[m] : undefined;
+    const word = name === "weekly" ? "week" : name === "daily" ? "day" : name === "yearly" ? "year" : name === "monthly" ? "month" : name === "quarterly" ? "quarter" : "";
+    if (word) return word;
+    if (m > 0) return `${m} ${m === 1 ? s.A.g.noun : s.A.g.nouns}`;
+    return s.A.g.lyShort.replace(/^last /i, "").toLowerCase() || "cycle";
+  };
   /**
    * The simple method a model is judged against: the best of the simple methods in the backtests, or repeating the last cycle when
    * none of them beat that. An analyst may well choose it, so the page names it, tags it on the board and offers it.
@@ -2363,6 +2392,13 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   // ---------------------------------------------------------------- events
   host.addEventListener("click", (e) => {
     const target = e.target as Element;
+    const sb = target.closest<HTMLElement>("[data-sentinel]");
+    if (sb) {
+      const col = Number(sb.dataset.sentinel);
+      const hit = metas[col]?.suggestions.find((x) => x.kind === "sentinel" && x.value === ref("sentinel").dataset.value);
+      if (hit) options.onApplySuggestion(col, hit);
+      return;
+    }
     const ud = target.closest<HTMLElement>("[data-use-date]");
     if (ud) { options.onUseAsDate(Number(ud.dataset.useDate), ud.dataset.useOrder ?? ""); return; }
     const t = target.closest<HTMLButtonElement>(".ts-tok");

@@ -12865,8 +12865,8 @@ button.qp-tile:hover {
 .ts-strip dd { margin: 2px 0 0; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
 .ts-strip dd small { font-size: var(--fs-sm); font-weight: 500; color: var(--ts-dim); }
 /* Several series in one line: an amber banner above the strip, with the fixes as buttons. */
-.ts-mixed { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--qa-warn-border); border-left-width: 4px; border-radius: var(--radius); background: var(--qa-warn-soft); color: var(--text); }
-.ts-mixed[hidden] { display: none; }
+.ts-mixed, .ts-sentinel { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--qa-warn-border); border-left-width: 4px; border-radius: var(--radius); background: var(--qa-warn-soft); color: var(--text); }
+.ts-mixed[hidden], .ts-sentinel[hidden] { display: none; }
 .ts-mixed-icon { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--qa-warn); color: var(--panel); font-weight: 800; font-size: var(--fs-md); }
 .ts-mixed-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .ts-mixed-title { color: var(--qa-warn-text); font-size: var(--fs-lg); }

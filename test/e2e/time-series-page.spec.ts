@@ -450,3 +450,22 @@ test("a text column of months is offered as the date, and one click makes the pa
   await offer.click();
   await expect(page.locator(".ts-page [data-ref=empty]")).toBeHidden({ timeout: 20_000 });
 });
+
+test("an error code in the measure is called out, and one click treats it as missing", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  const rows = ["date,pm25"];
+  for (let i = 0; i < 120; i++) rows.push(`${new Date(Date.UTC(2025, 0, 1 + i)).toISOString().slice(0, 10)},${i % 9 === 4 ? -999 : 12 + (i % 7) * 2}`);
+  await page.locator('input[type="file"]').setInputFiles({ name: "sensor.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator('.mode-switch-option[data-mode="research"]').click();
+  await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
+  const banner = page.locator(".ts-page [data-ref=sentinel]");
+  await page.locator(".ts-tok[data-tok=agg]").click();
+  await page.locator(".ts-popover button[data-val=mean]").click();
+  await expect(banner).toBeVisible({ timeout: 20_000 });
+  await expect(banner).toContainText("-999");
+  await banner.locator("button[data-sentinel]").click();
+  await expect(banner).toBeHidden({ timeout: 20_000 });
+});
