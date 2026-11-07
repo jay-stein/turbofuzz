@@ -174,15 +174,18 @@ export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): 
   const cad = T.cadSlots, obsSlots = new Float64Array(n), allowed = new Float64Array(n);
   // Events arrive when they happen, so the last day counts as recorded to its end however early the last event was; a last
   // period is partial only when the data stops before its last day.
+  // Only for rows finer than a day: a daily, monthly or yearly series stamps each reading once, so its last period is as complete as
+  // its last row says (a series that merely has no plain measure is not event data).
+  const eventDays = T.eventLike && T.subDay;
   const lastObs = T.observed[T.observed.length - 1];
-  const spanEnd = T.eventLike ? (Math.floor(lastObs / T.spd) + 1) * T.spd - 1 : lastObs + Math.max(1, Math.round(cad)) - 1;
+  const spanEnd = eventDays ? (Math.floor(lastObs / T.spd) + 1) * T.spd - 1 : lastObs + Math.max(1, Math.round(cad)) - 1;
   for (let d = 0; d < T.nslots; d++) {
     const b = bod[d];
     if (seen[d]) obsSlots[b]++;
     if (d <= spanEnd && slotOpen(T, d)) allowed[b]++;
   }
   // The table's slots stop at the last row; the rest of that same day still counts for events.
-  if (T.eventLike && !T.structural[T.swd[T.nslots - 1]]) {
+  if (eventDays && !T.structural[T.swd[T.nslots - 1]]) {
     for (let d = T.nslots; d <= spanEnd; d++) if (!T.closedHours[Math.floor(((d % T.spd) * T.slot) / HOUR)]) allowed[n - 1]++;
   }
   const t = new Float64Array(n), y = new Float64Array(n), filled = new Uint8Array(n), partial = new Uint8Array(n);
