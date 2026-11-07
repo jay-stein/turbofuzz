@@ -1182,8 +1182,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const s = snap, c = cfg;
     const keepKey = `${dateColumn}|${groupColumn}|${c?.group ?? -1}`;
     const repeats = !!shape && (shape.typical >= 2 || shape.repeatShare >= 0.5);
-    // Event rows (trips, orders) rarely share a timestamp, but a period can still add up hundreds of them from many places.
-    const crowded = !!shape && s !== null && c !== null && c.group < 0 && shape.suggest.length > 0 && s.A.n > 0 && shape.rows / s.A.n >= 3;
+    // Event rows (trips, orders) rarely share a timestamp, but a period can still add up hundreds of them from many places. Rows on a
+    // regular cadence (one a day, shown by the week) are one series viewed coarsely, not several in one line.
+    const crowded = !!shape && s !== null && c !== null && s.table.eventLike && c.group < 0 && shape.suggest.length > 0 && s.A.n > 0 && shape.rows / s.A.n >= 3;
     if (!s || !c || !shape || !(repeats || crowded) || c.agg === "count" || keptMixed.has(keepKey)) {
       box.hidden = true;
       return false;
