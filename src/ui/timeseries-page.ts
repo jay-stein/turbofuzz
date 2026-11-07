@@ -1119,7 +1119,12 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const cells: [string, string][] = [
       ...frequencyCell(),
       ["Periods", `${nf.format(a.n)} <small>${gr.nouns}${a.partial[a.n - 1] ? ", last partial" : ""}</small>`],
-      [`Latest full ${gr.noun}`, `${compact(v)} ${chip(chg(s, v, prev))}`],
+      // On a seasonal series the change on the period before is mostly the season, so it is shown with the season taken out.
+      (() => {
+        const seasonal = d && d.m > 1 && li >= 1 && prev === prev && li < N;
+        const adj = seasonal ? chg(s, v - d.seasonal[li]!, prev - d.seasonal[li - 1]!) : null;
+        return [`Latest full ${gr.noun}`, seasonal && adj ? `${compact(v)} ${chip(adj)} <small title="Change on the ${gr.noun} before is ${chg(s, v, prev)?.text ?? "–"} as it stands; the chip has the season taken out">seasonally adjusted</small>` : `${compact(v)} ${chip(chg(s, v, prev))}`] as [string, string];
+      })(),
       [`vs ${gr.lyAgo}`, Number.isFinite(ly) ? `${chip(chg(s, v, ly))} <small>${compact(ly)}</small>` : "<small>not enough history</small>"],
     ];
     // One trend rate, with its window named; the same number the Trend finding quotes.
@@ -2041,7 +2046,11 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       if (c.id === "sn") return `<span class="ts-dot" style="background:${dot.base}"></span>Baseline`;
       if (c.held === null) return `<span class="ts-dot" style="background:${dot.base}"></span>Not tested`;
       const better = c.held < 1;
-      return `<span class="ts-dot" style="background:${better ? dot.good : dot.poor}"></span>${c.held.toFixed(2)}× <small>${better ? "beat" : "behind"} repeating the last ${cycleWord(s)}</small>`;
+      // One held-back stretch is noisy. A green dot needs the backtests to agree; when they say it is behind, the result is grey.
+      const disagrees = better && Number.isFinite(c.ratio) && c.ratio >= 1;
+      const colour = disagrees ? dot.base : better ? dot.good : dot.poor;
+      const note = disagrees ? `beat it on this one stretch, but the backtests put it ${c.ratio.toFixed(2)}×: not trusted` : `${better ? "beat" : "behind"} repeating the last ${cycleWord(s)}`;
+      return `<span class="ts-dot" style="background:${colour}"></span>${c.held.toFixed(2)}× <small>${note}</small>`;
     };
     const rows = list.map((c, i) => {
       const tags = [c === best && c !== simple ? '<span class="ts-besttag" title="The model with the least backtest error of all, AutoARIMA included">Lowest error</span>' : "", c === simple ? '<span class="ts-simpletag" title="The simple method with the least backtest error here">Best simple</span>' : c.key === yardKey ? '<span class="ts-yardtag" title="The simple method the verdict compares the forecast with">Yardstick</span>' : "", c.tag ? `<span class="ts-autotag" title="${c.arima ? (arimaWho() === "run by you" ? "Run by you" : "Runs automatically") : "What the chart shows by default: a steady all-rounder unless another model clearly wins"}">${c.tag}</span>` : "", c.arima ? '<button type="button" class="ts-link" data-arima-params="1" title="The fitted terms, their meaning and the models tried">Parameters</button>' : ""].join("");

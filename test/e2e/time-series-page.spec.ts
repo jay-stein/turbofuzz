@@ -534,3 +534,18 @@ test("the forecast verdict says the typical miss in the series' own units and as
   await expect(miss).toContainText("(WAPE)");
   await expect(miss).toContainText("per day");
 });
+
+test("on a seasonal series the latest change is shown with the season taken out, and says so", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  const rows = ["date,units"];
+  for (let i = 0; i < 400; i++) rows.push(`${new Date(Date.UTC(2024, 0, 1 + i)).toISOString().slice(0, 10)},${(100 + 40 * Math.sin((2 * Math.PI * i) / 7) + (i % 5) * 0.2).toFixed(1)}`);
+  await page.locator('input[type="file"]').setInputFiles({ name: "weekly.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator('.mode-switch-option[data-mode="research"]').click();
+  await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
+  await page.locator(".ts-tok[data-tok=agg]").click();
+  await page.locator(".ts-popover button", { hasText: "mean" }).first().click();
+  await expect(page.locator(".ts-strip")).toContainText("seasonally adjusted", { timeout: 20_000 });
+});
