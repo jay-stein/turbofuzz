@@ -5,7 +5,7 @@
  */
 
 import { eventWindowLen, type Grain, type TsTable } from "./base.js";
-import { HOLIDAY_COL, holidayShare, regular, type Aggregated, type TsConfig, type TsDriver } from "./aggregate.js";
+import { HOLIDAY_COL, WORKDAY_COL, holidayShare, monthPeriodStart, workingDays, regular, type Aggregated, type TsConfig, type TsDriver } from "./aggregate.js";
 import { cap, nounFor } from "./format.js";
 import { chiSquareSf, tTwoSided } from "./stats.js";
 import { seasonalityTest, type SeasonalityTest } from "./seasonality.js";
@@ -237,6 +237,7 @@ function driverAt(A: Aggregated, d: TsDriver, i: number): number {
   if (i < A.n) return s[i];
   // The calendar knows its future: a holiday coming is not a guess.
   if (d.col === HOLIDAY_COL) { const t0 = A.t[A.n - 1]! + (i - (A.n - 1)) * A.g.days * 86_400_000; return holidayShare(A.holidays, t0, t0 + A.g.days * 86_400_000); }
+  if (d.col === WORKDAY_COL) { const t0 = monthPeriodStart(A.t[A.n - 1]!, A.g.n, i - (A.n - 1)); return workingDays(A.holidays, t0, monthPeriodStart(t0, A.g.n, 1)); }
   if (d.rule === "lastyear") { let j = i - A.g.ly; while (j >= A.n) j -= A.g.ly; return j >= 0 ? s[j] : s[A.n - 1]; }
   const base = driverRecent(A, d.col);
   return d.rule === "pct" ? base * (1 + d.pct / 100) : base;

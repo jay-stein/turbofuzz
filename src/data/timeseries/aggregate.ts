@@ -68,6 +68,29 @@ export function holidayShare(region: string, from: number, to: number): number {
   return Math.min(1, holidaysBetween(region, from, to).length / ((to - from) / DAY_MS));
 }
 
+/** The synthetic column of weekdays in a month or quarter that are not public holidays: more working days, more activity. */
+export const WORKDAY_COL = "Working days";
+
+/** Start of the month-based period `k` periods after the one starting at `from` (UTC ms, a month start). */
+export function monthPeriodStart(from: number, n: number, k: number): number {
+  const d = new Date(from);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + n * k, 1);
+}
+
+/** Monday to Friday days in [from, to) that are not public holidays in the region. */
+export function workingDays(region: string, from: number, to: number): number {
+  let count = 0;
+  for (let day = Math.floor(from / DAY_MS) * DAY_MS; day < to; day += DAY_MS) {
+    const dow = new Date(day).getUTCDay();
+    if (dow !== 0 && dow !== 6) count++;
+  }
+  for (const h of holidaysBetween(region, from, to)) {
+    const dow = new Date(h.ms).getUTCDay();
+    if (dow !== 0 && dow !== 6) count--;
+  }
+  return count;
+}
+
 export interface Aggregated {
   g: Grain;
   /** The holiday region the series was built with ("" for none). */
@@ -247,6 +270,13 @@ export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): 
     const share = new Float64Array(n);
     for (let b = 0; b < n; b++) share[b] = holidayShare(cfg.holidays, t[b]!, t[b]! + g.days * DAY_MS);
     colMean[HOLIDAY_COL] = share;
+  }
+  // Working days for months and quarters, where a holiday is too small a share of the period to show in the holiday column but the
+  // number of working days still moves the total. Needs the region, which says which days are holidays.
+  if (cfg.holidays && g.unit === "month" && g.n <= 3) {
+    const wd = new Float64Array(n);
+    for (let b = 0; b < n; b++) wd[b] = workingDays(cfg.holidays, t[b]!, monthPeriodStart(t[b]!, g.n, 1));
+    colMean[WORKDAY_COL] = wd;
   }
   // Runs without rows (weekdays and hours that never have rows excluded), as slot ranges for the findings.
   const gapRanges: [number, number][] = [];

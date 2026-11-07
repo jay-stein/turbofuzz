@@ -6,7 +6,7 @@
  */
 
 import { defaultGrain, GRAIN_ORDER, GRAINS, tooFine, type GrainId, type TsTable } from "./base.js";
-import { aggregate, HOLIDAY_COL, rolling, type Aggregated, type TsConfig, type TsMode } from "./aggregate.js";
+import { aggregate, HOLIDAY_COL, WORKDAY_COL, rolling, type Aggregated, type TsConfig, type TsMode } from "./aggregate.js";
 import { computeDecomposition, type DecompResult } from "./decompose.js";
 import { computeFutures, deepCheck, driverRecent, flexCurve, type DeepCheck, horizonOf, maxHorizon, runModels, type Futures, type HwWarm, type ModelKey, type ModelRun } from "./models.js";
 import { computePatterns, type Patterns } from "./patterns.js";
@@ -213,7 +213,7 @@ export function sanitizeTsConfig(cfg: TsConfig, info: TsTableInfo): TsConfig {
     flex: Math.min(10, Math.max(1, cfg.flex)),
     cv: cfg.cv === "rolling" ? "rolling" : "expanding",
     holidays: typeof cfg.holidays === "string" ? cfg.holidays : "",
-    drivers: cfg.drivers.filter((d) => (names.has(d.col) || (d.col === HOLIDAY_COL && !!cfg.holidays)) && d.col !== measure),
+    drivers: cfg.drivers.filter((d) => (names.has(d.col) || ((d.col === HOLIDAY_COL || d.col === WORKDAY_COL) && !!cfg.holidays)) && d.col !== measure),
   };
 }
 

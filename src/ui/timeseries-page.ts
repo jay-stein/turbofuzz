@@ -33,7 +33,7 @@ import {
 import { rankFormats } from "../parse/date-format.js";
 import { onSettingsChange, readSettings, updateSettings } from "./settings.js";
 import { HOLIDAY_REGIONS, suggestRegion } from "../data/timeseries/holidays.js";
-import { HOLIDAY_COL } from "../data/timeseries/aggregate.js";
+import { HOLIDAY_COL, WORKDAY_COL } from "../data/timeseries/aggregate.js";
 import { niceTicks, patternsHtml } from "./timeseries-patterns.js";
 import { seasonFigures } from "./timeseries-season.js";
 
@@ -1591,7 +1591,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const better = key === "sn" ? "the baseline every other model is measured against" : !Number.isFinite(r) ? "no backtest was possible with this little history, so there is nothing to compare it with" : r < 1 ? `${Math.round((1 - r) * 100)}% less error than repeating the last cycle` : `${Math.round((r - 1) * 100)}% <b>more</b> error than repeating the last cycle`;
     const lucky = key !== "sn" && m.folds.of > 0 && m.folds.won * 2 < m.folds.of;
     const band = f.held ? `${f.held.hit} of ${f.held.tot} held-out actuals inside the 80% band` : m.check ? `${m.check.hit} of ${m.check.tot} inside the 80% band on the latest fold` : "";
-    ref("heroDetail").innerHTML = `<div class="ts-badge-body"><b>${MODEL_INFO[key].name}</b>: ${better} at the same horizons, ${heldMode ? "on the held-out actuals" : `over ${M.origins.length} backtest folds`} · ${METRIC_INFO[ui.metric].label} ${metricText(ui.metric, m.metrics[ui.metric])}${ui.metric === "mase" ? " (scaled by the in-sample one-cycle naive error, so multi-step forecasts often sit above 1)" : ""}${key !== "sn" ? ` · beat it in ${m.folds.won} of ${m.folds.of} folds` : ""}${band ? ` · ${band}` : ""}${lucky ? ` · <span class="ts-warn">wins under half its folds: may be luck</span>` : ""}${M.rough ? ` · <span class="ts-warn">under 3 folds: rough</span>` : ""}</div>${lockLine(M, key)}`;
+    const nearZero = percentErrorCaution(ui.metric, s.A.yModel.slice(0, s.A.modelN));
+    ref("heroDetail").innerHTML = `<div class="ts-badge-body"><b>${MODEL_INFO[key].name}</b>: ${better} at the same horizons, ${heldMode ? "on the held-out actuals" : `over ${M.origins.length} backtest folds`} · ${METRIC_INFO[ui.metric].label} ${metricText(ui.metric, m.metrics[ui.metric])}${ui.metric === "mase" ? " (scaled by the in-sample one-cycle naive error, so multi-step forecasts often sit above 1)" : ""}${key !== "sn" ? ` · beat it in ${m.folds.won} of ${m.folds.of} folds` : ""}${band ? ` · ${band}` : ""}${lucky ? ` · <span class="ts-warn">wins under half its folds: may be luck</span>` : ""}${M.rough ? ` · <span class="ts-warn">under 3 folds: rough</span>` : ""}${nearZero ? ` · <span class="ts-warn">${nearZero}</span>` : ""}</div>${lockLine(M, key)}`;
   }
   function openDocs(open: string): void { openModelDetails({ snap, open, metric: ui.metric }); }
   /** What Auto did, in a few words for the legend and the strip. */
@@ -1724,6 +1725,23 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const p = arima.progress, secs = Math.round((performance.now() - arima.started) / 1000);
     if (!p) return `Starting… ${secs} s`;
     return `<b>${escapeHtml(p.stage)}</b>${p.tried ? ` · ${p.tried} model${p.tried === 1 ? "" : "s"} tried` : ""}${p.best ? ` · best so far <span class="ts-mono">${escapeHtml(p.best)}</span> (AICc ${Number.isFinite(p.bestAicc) ? p.bestAicc.toFixed(1) : "–"})` : ""}${p.current ? `<br><small>trying <span class="ts-mono">${escapeHtml(p.current)}</span></small>` : ""} · ${secs} s`;
+  }
+  /** MAPE and sMAPE divide by the actual value: say so when this series has zeros or values close to zero, where they mislead. */
+  function percentErrorCaution(metric: MetricKey, y: ArrayLike<number>): string {
+    if (metric !== "mape" && metric !== "smape") return "";
+    let sum = 0, n = 0, zeros = 0, tiny = 0;
+    for (let t = 0; t < y.length; t++) if (Number.isFinite(y[t])) { sum += Math.abs(y[t]); n++; }
+    if (n === 0) return "";
+    const mean = sum / n;
+    for (let t = 0; t < y.length; t++) {
+      if (!Number.isFinite(y[t])) continue;
+      if (y[t] === 0) zeros++; else if (Math.abs(y[t]) < 0.05 * mean) tiny++;
+    }
+    if (zeros === 0 && tiny === 0) return "";
+    const label = METRIC_INFO[metric].label;
+    return zeros > 0
+      ? `${zeros.toLocaleString()} period${zeros === 1 ? " is" : "s are"} zero, so ${label} skips or inflates ${zeros === 1 ? "it" : "them"}; trust WAPE or MASE instead`
+      : `${tiny.toLocaleString()} value${tiny === 1 ? " is" : "s are"} near zero, where ${label} explodes; trust WAPE or MASE instead`;
   }
   function runArima(vote: boolean, auto = false): void {
     const s = snap;
@@ -2445,7 +2463,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const spare = snap.table.columns.filter((col) => !c.drivers.some((d) => d.col === col.name) && (col.name !== c.measure || c.agg === "count"));
     // The holiday calendar, when a region is chosen, is a column that can be a driver, and its future is known.
     if (c.holidays && !c.drivers.some((d) => d.col === HOLIDAY_COL)) spare.push({ name: HOLIDAY_COL, flag: true, timeLike: null, repeated: false });
-    const about = (col: (typeof spare)[number]): string => (col.flag ? "0/1, share of rows per period" : col.timeLike ? "counts time or names a date part" : "numeric, mean per period");
+    // Months and quarters: the count of working days, from the same calendar.
+    if (c.holidays && snap.A.g.unit === "month" && snap.A.g.n <= 3 && !c.drivers.some((d) => d.col === WORKDAY_COL)) spare.push({ name: WORKDAY_COL, flag: false, timeLike: null, repeated: false });
+    const about = (col: (typeof spare)[number]): string => col.name === WORKDAY_COL ? "weekdays that are not holidays, per period; known ahead" : col.name === HOLIDAY_COL ? "0/1, share of the period that is a holiday; known ahead" : (col.flag ? "0/1, share of rows per period" : col.timeLike ? "counts time or names a date part" : "numeric, mean per period");
     POP.innerHTML = `<div class="ts-pop-title">Columns that move the series. Trend and seasons are built in.</div>` +
       (spare.length ? spare.map((col) => `<button type="button" data-drv-act="add:${escapeHtml(col.name)}"><b class="ts-mono">${escapeHtml(col.name)}</b> <small>${about(col)}</small></button>`).join("")
         : `<div class="ts-pop-title">Every numeric column in this table is already a driver.</div>`);

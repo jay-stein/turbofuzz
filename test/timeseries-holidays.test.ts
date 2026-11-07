@@ -72,3 +72,14 @@ test("with the holiday driver on, the forecast knows the holidays to come", () =
   const ratio = (s: typeof plain): number => ("error" in s.models ? NaN : s.models.models.reg.ratio ?? NaN);
   assert.ok(ratio(withHol) < ratio(plain), `reg error ${ratio(withHol)} < ${ratio(plain)}`);
 });
+
+import { workingDays, monthPeriodStart } from "../src/data/timeseries/aggregate.js";
+
+test("working days: weekdays in the period that are not public holidays", () => {
+  // December 2025: 23 weekdays, less Christmas Day (Thu) and Boxing Day (Fri).
+  const dec = Date.UTC(2025, 11, 1);
+  assert.equal(workingDays("", dec, monthPeriodStart(dec, 1, 1)), 23);
+  assert.equal(workingDays("AU-WA", dec, monthPeriodStart(dec, 1, 1)), 21);
+  const q = Date.UTC(2025, 0, 1);
+  assert.equal(monthPeriodStart(q, 3, 1), Date.UTC(2025, 3, 1));
+});
