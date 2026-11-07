@@ -14241,3 +14241,7 @@ button.qp-tile:hover {
 .ts-herofold { align-self: flex-start; margin: 2px 0 0; }
 .ts-page[data-mode="patterns"]:not(.ts-chart-open) .ts-hero { height: 56px; }
 .ts-page[data-mode="patterns"]:not(.ts-chart-open) .ts-navrow { display: none; }
+
+/* Findings: two lines each, the rest behind "More". */
+.ts-insight p.ts-clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.ts-more { align-self: flex-start; font-size: var(--fs-sm); }

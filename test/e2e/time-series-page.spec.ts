@@ -580,3 +580,14 @@ test("Patterns opens with the series chart folded to a strip, heatmap first, and
   await expect(fold).toContainText("Fold the series chart");
   await expect.poll(async () => (await hero.boundingBox())!.height).toBeGreaterThan(200);
 });
+
+test("each finding shows two lines, and More opens the rest", async ({ page }) => {
+  await openPage(page);
+  const more = page.locator(".ts-insights .ts-more").first();
+  await expect(more).toBeVisible({ timeout: 20_000 });
+  const p = more.locator("xpath=preceding-sibling::p[1]");
+  const closed = (await p.boundingBox())!.height;
+  await more.click();
+  await expect(more).toContainText("Less");
+  expect((await p.boundingBox())!.height).toBeGreaterThan(closed);
+});

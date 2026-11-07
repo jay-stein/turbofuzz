@@ -1177,9 +1177,24 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         ${it.meter != null ? `<div class="ts-mini" title="${it.meterLabel ?? ""} ${it.meter.toFixed(2)}"><i style="width:${(it.meter * 100).toFixed(0)}%;background:${toneColor(it.tone)}"></i></div>` : ""}
         ${it.acts.length ? `<div class="ts-acts">${it.acts.map((x, j) => `<button type="button" data-ins="${k}:${j}">${escapeHtml(x.label)}</button>`).join("")}</div>` : ""}
       </article>`).join("");
+    // Each finding shows two lines; the rest opens with "More", so the rail is a list you can read in one look.
+    ref("insights").querySelectorAll<HTMLElement>(".ts-insight").forEach((art, k) => {
+      const p = art.querySelector<HTMLElement>("p"), kind = INS[k]?.kind;
+      if (!p || !kind) return;
+      const open = insOpen.has(kind);
+      p.classList.toggle("ts-clamp", !open);
+      if (open || p.scrollHeight > p.clientHeight + 1) {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "ts-link ts-more"; b.dataset.more = kind; b.setAttribute("aria-expanded", String(open));
+        b.textContent = open ? "Less ▴" : "More ▾";
+        p.after(b);
+      }
+    });
     renderModePanel();
     if (tableOpen) renderTable();
   }
+  /** Findings opened to their full text (by kind), kept while the page is open. */
+  const insOpen = new Set<string>();
   /**
    * The banner for a line made of several series: the rows at one moment are one per
    * store, car park or sensor, and the page would otherwise add or average them silently.
@@ -2468,6 +2483,16 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const opt = target.closest<HTMLButtonElement>(".ts-popover button[data-val]");
     if (opt && popKey && popKey !== "driver") { const key = popKey; closePop(); choose(key, opt.dataset.val ?? ""); return; }
     if (!target.closest(".ts-popover")) closePop();
+    const more = target.closest<HTMLElement>("[data-more]");
+    if (more) {
+      const kind = more.dataset.more ?? "";
+      if (insOpen.has(kind)) insOpen.delete(kind); else insOpen.add(kind);
+      const open = insOpen.has(kind), p = more.parentElement?.querySelector<HTMLElement>("p");
+      p?.classList.toggle("ts-clamp", !open);
+      more.textContent = open ? "Less ▴" : "More ▾";
+      more.setAttribute("aria-expanded", String(open));
+      return;
+    }
     if (target.closest("[data-ref=heroFold]")) { host.classList.toggle("ts-chart-open"); renderModePanel(); layout(); invalidate("ui", "stat", "nav"); return; }
     const mixedAct = target.closest<HTMLElement>("[data-mixed]");
     if (mixedAct && cfg) {
