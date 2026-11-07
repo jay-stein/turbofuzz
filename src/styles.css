@@ -13623,10 +13623,17 @@ button.qp-tile:hover {
   vertical-align: -2px;
 }
 
-.topbar .danger-ghost:hover {
-  color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
+/* Clear data is the one irreversible button on the bar, so it is red all the time, not only on hover. */
+.topbar .danger-ghost {
+  color: #fff;
+  border-color: #d92d20;
+  background: #d92d20;
+  font-weight: 600;
+}
+.topbar .danger-ghost:hover:not(:disabled) {
+  color: #fff;
+  border-color: #f04438;
+  background: #f04438;
 }
 
 /* Date format picker: the suggestion first, your own format always there, strftime codes. */
