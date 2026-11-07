@@ -49,6 +49,8 @@ export interface ArimaBacktest {
   folds: number;
   /** Mean absolute error on the selection folds, and the same for repeating the last cycle: the ratio is the board's "error against". */
   mae: number; maeSeasonalNaive: number; ratio: number;
+  /** Weighted absolute percentage error: the total absolute error over the total of the actuals, on the selection folds. */
+  wape: number;
   /** MASE, as the board's default measure: the error over the in-sample error of repeating the last cycle before the first fold. */
   mase: number;
   /** The same on the lockbox fold, or null. */
@@ -130,6 +132,8 @@ export interface FoldOut {
   k: number; lock: boolean;
   /** Selection folds: absolute error of the forecast, of repeating the last cycle, and of the best model alone, over `an` points. */
   ae: number; se: number; an: number; bestAe: number;
+  /** Sum of the absolute actuals behind `ae`, for WAPE. */
+  aa: number;
   /** The same on the lockbox fold. */
   lockAe: number; lockSe: number; lockN: number;
   /** This fold alone, for "folds won". */
@@ -168,7 +172,7 @@ export function foldScore(ctx: FoldContext, k: number): FoldOut | null {
   for (const mm of memberFc) for (let h = 0; h < job.H; h++) pred[h] = pred[h]! + (mm.w / wsum) * mm.F[h]!;
   for (let h = 0; h < job.H; h++) pred[h] = pred[h]! + seas[h]!;
   const bestPred = Float64Array.from(forecastArima(seg, f, job.H).F, (v, h) => v + seas[h]!);
-  const out: FoldOut = { k, lock: job.lockbox && k === R - 1, ae: 0, se: 0, an: 0, bestAe: 0, lockAe: 0, lockSe: 0, lockN: 0, foldAe: 0, foldSe: 0, foldN: 0 };
+  const out: FoldOut = { k, lock: job.lockbox && k === R - 1, ae: 0, se: 0, an: 0, bestAe: 0, aa: 0, lockAe: 0, lockSe: 0, lockN: 0, foldAe: 0, foldSe: 0, foldN: 0 };
   for (let h = 0; h < job.H; h++) {
     const actual = job.y[o + h]!;
     if (!(actual === actual)) continue;
@@ -178,7 +182,7 @@ export function foldScore(ctx: FoldContext, k: number): FoldOut | null {
     const s = ref === ref ? Math.abs(actual - ref!) : NaN;
     if (!(e === e) || !(s === s) || !(eBest === eBest)) continue;
     if (out.lock) { out.lockAe += e; out.lockSe += s; out.lockN++; }
-    else { out.ae += e; out.se += s; out.an++; out.foldAe += e; out.foldSe += s; out.foldN++; out.bestAe += eBest; }
+    else { out.ae += e; out.se += s; out.aa += Math.abs(actual); out.an++; out.foldAe += e; out.foldSe += s; out.foldN++; out.bestAe += eBest; }
   }
   return out;
 }
@@ -188,19 +192,19 @@ export function combineFolds(job: ArimaJob, outs: FoldOut[]): ArimaBacktest | nu
   const R = job.origins.length;
   if (R === 0) return null;
   const sel = job.lockbox ? R - 1 : R;
-  let ae = 0, an = 0, se = 0, lockAe = 0, lockSe = 0, lockN = 0, won = 0, of = 0, bestAe = 0;
+  let ae = 0, aa = 0, an = 0, se = 0, lockAe = 0, lockSe = 0, lockN = 0, won = 0, of = 0, bestAe = 0;
   // The MASE scale: the in-sample error of repeating the last cycle on the history before the first fold.
   let scale = 0, sc = 0;
   const lag = Math.max(1, job.m);
   for (let t = lag; t < job.origins[0]!; t++) { const dv = Math.abs(job.y[t]! - job.y[t - lag]!); if (dv === dv) { scale += dv; sc++; } }
   scale = scale / (sc || 1) || 1;
   for (const o of [...outs].sort((a, b) => a.k - b.k)) {
-    ae += o.ae; se += o.se; an += o.an; bestAe += o.bestAe; lockAe += o.lockAe; lockSe += o.lockSe; lockN += o.lockN;
+    ae += o.ae; aa += o.aa; se += o.se; an += o.an; bestAe += o.bestAe; lockAe += o.lockAe; lockSe += o.lockSe; lockN += o.lockN;
     if (!o.lock && o.foldN > 0) { of++; if (o.foldAe < o.foldSe) won++; }
   }
   if (an === 0) return null;
   return {
-    folds: sel, mae: ae / an, maeSeasonalNaive: se / an, ratio: se > 0 ? ae / se : NaN, mase: ae / an / scale,
+    folds: sel, mae: ae / an, maeSeasonalNaive: se / an, wape: aa > 0 ? ae / aa : NaN, ratio: se > 0 ? ae / se : NaN, mase: ae / an / scale,
     lockMae: lockN > 0 ? lockAe / lockN : null, lockRatio: lockN > 0 && lockSe > 0 ? lockAe / lockSe : null, lockMase: lockN > 0 ? lockAe / lockN / scale : null,
     foldsWon: won, foldsOf: of, ratioBestOnly: se > 0 ? bestAe / se : NaN,
   };

@@ -524,3 +524,13 @@ test("a holiday region can be chosen on the page, and the calendar is then offer
   await page.locator(".ts-page button", { hasText: "Show all" }).first().click();
   await expect(page.locator(".ts-page").getByText("Public holiday cuts the error by").first()).toBeVisible({ timeout: 30_000 });
 });
+
+test("the forecast verdict says the typical miss in the series' own units and as a share of the total, by name", async ({ page }) => {
+  await openPage(page);
+  await page.locator(".ts-modes [data-mode=forecast]").click();
+  const miss = page.locator(".ts-page .ts-miss").first();
+  await expect(miss).toBeVisible({ timeout: 30_000 });
+  await expect(miss).toContainText("(MAE)");
+  await expect(miss).toContainText("(WAPE)");
+  await expect(miss).toContainText("per day");
+});

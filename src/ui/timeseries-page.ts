@@ -1496,6 +1496,16 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     };
     return list;
   }
+  /**
+   * The typical miss in the series' own terms, beside the ratio: MAE in units and WAPE as a share of the total, named. Finance signs
+   * off in dollars, not in a multiple of a yardstick.
+   */
+  function missLine(mae: number, wape: number, s: TsSnapshot): string {
+    if (!Number.isFinite(mae)) return "";
+    const unit = s.cfg.agg === "count" ? "rows" : escapeHtml(measureWord(s));
+    const share = Number.isFinite(wape) ? `, <b>${(wape * 100).toFixed(wape < 0.1 ? 1 : 0)}%</b> of the total <abbr title="Weighted absolute percentage error: total absolute error over total actuals">(WAPE)</abbr>` : "";
+    return `<div class="ts-miss">On earlier stretches of this series it missed by <b>${metricText("mae", mae)}</b> ${unit} per ${s.A.g.noun} on average <abbr title="Mean absolute error, in the series' own units">(MAE)</abbr>${share}. <button type="button" class="ts-link" data-miss-metric="1" title="Change which measure ranks the models">Rank by another measure</button></div>`;
+  }
   function renderHeroBadge(s: TsSnapshot, key: ModelKey | null): void {
     const badge = ref("heroBadge"), M = models();
     if (ui.mode !== "forecast" || !M || !s.futures || !key) { badge.hidden = true; return; }
@@ -1503,7 +1513,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (arRow) {
       badge.dataset.level = arRow.verdict.level;
       badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b class="ts-mono">${escapeHtml(arRow.label)}</b><span class="ts-autotag">${arRow.dv ? "DV-ARIMA" : "AutoARIMA"}</span>${arimaChip()}<span class="ts-pill ts-verdict ${arRow.verdict.cls}">${arRow.verdict.label}</span><small>${arimaWho()} · error ${arRow.ratio.toFixed(2)}× repeating the last ${cycleWord(s)}</small><button type="button" class="ts-link" data-arima-params="1" data-arima-open="1" title="The fitted terms, their meaning and the models tried">Parameters</button><button type="button" class="ts-link" data-ans-show="${key}" title="Back to ${escapeHtml(MODEL_INFO[key].name)}">Show ${escapeHtml(MODEL_INFO[key].name)} instead</button></div>
-        <div class="ts-qa"><div class="ts-qa-row"><span class="ts-qa-q">Is it better than the simple method?</span><span class="ts-qa-a"><span class="ts-pill ${arRow.ratio < 1 ? "good" : "poor"}">${arRow.ratio < 1 ? "Yes" : "No"}</span></span><span class="ts-qa-t">${arRow.ratio < 1 ? `${Math.round((1 - arRow.ratio) * 100)}% less error` : `${Math.round((arRow.ratio - 1) * 100)}% more error`} than repeating the last ${cycleWord(s)} in the backtests. ${escapeHtml(arRow.verdict.sentence)}</span></div></div>`;
+        <div class="ts-qa"><div class="ts-qa-row"><span class="ts-qa-q">Is it better than the simple method?</span><span class="ts-qa-a"><span class="ts-pill ${arRow.ratio < 1 ? "good" : "poor"}">${arRow.ratio < 1 ? "Yes" : "No"}</span></span><span class="ts-qa-t">${arRow.ratio < 1 ? `${Math.round((1 - arRow.ratio) * 100)}% less error` : `${Math.round((arRow.ratio - 1) * 100)}% more error`} than repeating the last ${cycleWord(s)} in the backtests. ${escapeHtml(arRow.verdict.sentence)}</span></div></div>${missLine(arRow.mae, arRow.wape, s)}`;
       badge.hidden = false;
       return;
     }
@@ -1516,6 +1526,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         const y = yardstickOf(s, M, key);
         return `<div class="ts-yard" data-yard="${y.key}">Compared with <b>${escapeHtml(y.name)}</b>, ${y.key === "sn" ? "the simplest yardstick" : "the best simple method in the backtests"}. <button type="button" class="ts-link" data-yard-use="${y.key}" title="Show ${escapeHtml(y.name)} as the forecast. Hover to see it on the chart.">Use it instead</button></div>`;
       })()}
+      ${missLine(M.models[key].metrics.mae, M.models[key].metrics.wape, s)}
       ${v.headsUp.map((h) => `<div class="ts-headsup"><b>Also:</b> ${escapeHtml(h)}</div>`).join("")}`;
     badge.hidden = false;
     // The numbers behind the verdict, for analysts, at the top of Under the hood.
@@ -1633,7 +1644,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const ar = arimaShown ? arimaLive() : null;
     return ar && ar.forecast.F.length >= P.H ? { f: ar.forecast, arima: true } : { f: P.f, arima: false };
   }
-  type ArimaRow = { dv: boolean; label: string; ratio: number; mase: number; lockMase: number | null; rank: number | null; verdict: Verdict; won: number; of: number };
+  type ArimaRow = { dv: boolean; label: string; ratio: number; mae: number; wape: number; mase: number; lockMase: number | null; rank: number | null; verdict: Verdict; won: number; of: number };
   /** What the leaderboards show for the AutoARIMA run: the same numbers as any other model, from its own backtest on the same folds. */
   function arimaRow(s: TsSnapshot, M: ModelRun): ArimaRow | null {
     const r = arimaLive();
@@ -1642,7 +1653,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const lock = bt.lockMase;
     const rank = M.lockbox && lock !== null ? 1 + CORE_KEYS.filter((k) => (M.models[k].lock?.mase ?? Infinity) < lock).length : null;
     const verdict = trustVerdict({ baseline: false, ratio: bt.ratio, lockRank: rank, models: CORE_KEYS.length, foldsWon: bt.foldsWon, foldsOf: bt.foldsOf, band: null, rough: M.rough, periods: s.A.modelN, cycle: cycleWord(s) });
-    return { dv: r.vote !== null, label: r.label, ratio: bt.ratio, mase: bt.mase, lockMase: lock, rank, verdict, won: bt.foldsWon, of: bt.foldsOf };
+    return { dv: r.vote !== null, label: r.label, ratio: bt.ratio, mae: bt.mae, wape: bt.wape, mase: bt.mase, lockMase: lock, rank, verdict, won: bt.foldsWon, of: bt.foldsOf };
   }
   /** Puts the ARIMA run's forecast on the chart, like picking any other model. */
   function showArima(): void {
@@ -2412,6 +2423,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   // ---------------------------------------------------------------- events
   host.addEventListener("click", (e) => {
     const target = e.target as Element;
+    if (target.closest("[data-miss-metric]")) { const sel = ref("metricSel") as HTMLSelectElement; sel.scrollIntoView({ block: "center", behavior: "smooth" }); sel.focus(); return; }
     const sb = target.closest<HTMLElement>("[data-sentinel]");
     if (sb) {
       const col = Number(sb.dataset.sentinel);
