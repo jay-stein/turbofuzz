@@ -95,8 +95,10 @@ export function periodName(g: Grain, m: number): string {
   return g.seasons[m] ?? `${m}-${g.noun.split(" ").pop()} cycle`;
 }
 /** "daily + weekly" for the two-season split, else the period's own name. */
-export function seasonName(g: Grain, d: Pick<Decomposition, "m"> & { parts?: unknown } | SeasonOption): string {
-  return ("multi" in d ? d.multi : !!d.parts) ? "daily + weekly" : periodName(g, d.m);
+export function seasonName(g: Grain, d: Pick<Decomposition, "m"> & { parts?: unknown; also?: number | { m: number } } | SeasonOption): string {
+  if (("multi" in d ? d.multi : !!d.parts)) return "daily + weekly";
+  const also = typeof d.also === "number" ? d.also : d.also?.m;
+  return also ? `${periodName(g, d.m)} + ${periodName(g, also)}` : periodName(g, d.m);
 }
 
 export function selectedModel(s: TsSnapshot, view: TsView): ModelKey | null {
@@ -378,13 +380,36 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
     // The season grows with the level: say so on the season finding just added.
     const last = out[out.length - 1];
     if (d.scaled && d.m && last.kind.startsWith("Season")) last.html += " The swing grows and shrinks with the level, so it is fitted as a share of the trend; sizes are at the average level.";
-    if (s.dec.anomalies.length) {
-      const i = s.dec.anomalies[0];
-      const exp = d.trend[i] + d.seasonal[i];
+    if (d.also && last.kind.startsWith("Season")) {
+      let lo = Infinity, hi = -Infinity;
+      for (const v of d.also.prof) { if (v < lo) lo = v; if (v > hi) hi = v; }
+      last.kind = `Season · ${seasonName(g, d)}`;
+      last.html += ` A ${periodName(g, d.also.m)} season of its own swings by about <b>${compact(hi - lo)}</b> from low to high; it is taken out of the trend too, so the trend is not carrying that wave.`;
+    }
+    const events = s.dec.events;
+    if (events.length) {
+      // Unusual periods that run together are one event: the dip is "Mar–Jul 2020, −40% to −46%", not four points.
+      const label = (e: (typeof events)[number]): string => (e.a === e.b ? periodLabel(g, A.t[e.a]) : `${shortPeriod(g, A.t[e.a])} – ${shortPeriod(g, A.t[e.b])}`);
+      const spread = (e: (typeof events)[number]): string => {
+        const parts: number[] = [];
+        for (let i = e.a; i <= e.b; i++) {
+          if (!(A.y[i] === A.y[i])) continue;
+          const exp = d.trend[i] + d.seasonal[i];
+          if (exp !== 0) parts.push((A.y[i] - exp) / Math.abs(exp));
+        }
+        if (!parts.length) return "–";
+        const pc = (x: number): string => `${x < 0 ? "−" : "+"}${Math.abs(x * 100).toFixed(0)}%`;
+        const a = parts.reduce((m, x) => (Math.abs(x) < Math.abs(m) ? x : m)), b = parts.reduce((m, x) => (Math.abs(x) > Math.abs(m) ? x : m));
+        return parts.length === 1 || pc(a) === pc(b) ? pc(b) : `${pc(a)} to ${pc(b)}`;
+      };
+      const top = events[0]!;
+      let peak = top.a;
+      for (let i = top.a; i <= top.b; i++) if (Math.abs(s.dec.z?.[i] ?? 0) > Math.abs(s.dec.z?.[peak] ?? 0)) peak = i;
+      const lasts = top.b - top.a + 1;
       out.push({
-        kind: `Unusual · ${s.dec.anomalyCount} ${nounFor(g, s.dec.anomalyCount)}`, tone: "danger",
-        html: `Largest: <b>${periodLabel(g, A.t[i])}</b>, <b>${chg(s, A.y[i], exp)?.text ?? "–"}</b> against expected. ${explain(s, i, exp)}`,
-        acts: s.dec.anomalies.slice(0, 4).map((j) => ({ label: shortPeriod(g, A.t[j]), act: { kind: "focus", i: j } as TsAction })),
+        kind: `Unusual · ${events.length} ${events.length === 1 ? "event" : "events"}`, tone: "danger",
+        html: `Largest: <b>${label(top)}</b>${lasts > 1 ? ` (${lasts} ${nounFor(g, lasts)})` : ""}, <b>${spread(top)}</b> against expected. ${explain(s, peak, d.trend[peak] + d.seasonal[peak])}`,
+        acts: events.slice(0, 4).map((e) => ({ label: label(e), act: { kind: "focus", i: e.a } as TsAction })),
       });
     }
   }

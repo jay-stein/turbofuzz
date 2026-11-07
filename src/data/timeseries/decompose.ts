@@ -20,10 +20,17 @@ export interface Decomposition {
   parts?: { daily: Float64Array; weekly: Float64Array; pd: number };
   /** The season is a share of the trend (it swings more when the level is higher). */
   scaled?: boolean;
+  /**
+   * A second, longer season taken out as well (a yearly wave under a weekly one): its length and profile. `seasonal` then holds
+   * both seasons added together, `prof` the first season's own profile, and the trend is what is left under both.
+   */
+  also?: { m: number; prof: Float64Array; fs: number };
 }
 export interface Segment { sse: number; slope: number; mean: number }
 export interface Changepoint { k: number; gain: number; before: Segment; after: Segment }
-export interface SeasonOption { m: number; fs: number; multi: boolean }
+export interface SeasonOption { m: number; fs: number; multi: boolean; also?: number }
+/** One run of unusual periods read as a single event: first and last period, the peak robust z, and the largest relative departure. */
+export interface TsEvent { a: number; b: number; z: number; dev: number }
 export interface DecompResult {
   options: SeasonOption[];
   /**
@@ -40,6 +47,8 @@ export interface DecompResult {
   /** The largest few unusual periods, worst first. */
   anomalies: number[];
   anomalyCount: number;
+  /** The unusual periods grouped into events, the biggest first: a dip that lasts months is one event, not four points. */
+  events: TsEvent[];
   cp: Changepoint | null;
 }
 
@@ -104,6 +113,52 @@ export function decompose(y: Float64Array, n: number, m: number): Decomposition 
   let level = 0;
   for (let i = 0; i < n; i++) level += trend[i];
   return { m, trend, seasonal, rem, prof, ft, fs, level: level / n };
+}
+
+/**
+ * Two seasons at once (weekly under yearly, daily data): each is estimated on the series with the other taken out, twice round,
+ * so the long wave leaves the trend instead of sitting in it. The long profile has few observations per phase, so it is smoothed
+ * across neighbouring phases. The shorter season is the first season of the result.
+ */
+export function decomposeBoth(y: Float64Array, n: number, mShort: number, mLong: number): Decomposition | null {
+  if (n < 3 * mLong || n < 2 * mShort + 2) return null;
+  const M = phaseCount(mLong);
+  const half = Math.max(1, Math.round(M / 52));
+  const longPart = new Float64Array(n);
+  let shortPart: Float64Array = new Float64Array(n);
+  let longProf: Float64Array = new Float64Array(M);
+  for (let pass = 0; pass < 2; pass++) {
+    // The long season from the series less the short one, by its own wide trend.
+    const adj = new Float64Array(n);
+    for (let i = 0; i < n; i++) adj[i] = y[i] - shortPart[i];
+    const dl = decompose(adj, n, mLong);
+    if (!dl) return null;
+    longProf = circularSmooth(dl.prof, half);
+    // Centre the smoothed profile again (smoothing keeps its mean, but be exact).
+    let mean = 0;
+    for (let k = 0; k < M; k++) mean += longProf[k];
+    mean /= M;
+    for (let k = 0; k < M; k++) longProf[k] -= mean;
+    for (let i = 0; i < n; i++) longPart[i] = longProf[phaseIndex(i, mLong)];
+    // The short season, and the trend under both, from the series less the long one.
+    for (let i = 0; i < n; i++) adj[i] = y[i] - longPart[i];
+    const ds = decompose(adj, n, mShort);
+    if (!ds) return null;
+    shortPart = ds.seasonal;
+    if (pass === 1) {
+      const seasonal = new Float64Array(n), rem = new Float64Array(n);
+      for (let i = 0; i < n; i++) { seasonal[i] = ds.seasonal[i] + longPart[i]; rem[i] = y[i] - ds.trend[i] - seasonal[i]; }
+      const vr = variance(n, (i) => rem[i]);
+      const longFs = Math.max(0, 1 - vr / (variance(n, (i) => longPart[i] + rem[i]) || 1));
+      return {
+        ...ds, seasonal, rem,
+        ft: Math.max(0, 1 - vr / (variance(n, (i) => ds.trend[i] + rem[i]) || 1)),
+        fs: Math.max(0, 1 - vr / (variance(n, (i) => seasonal[i] + rem[i]) || 1)),
+        also: { m: mLong, prof: Float64Array.from(longProf), fs: longFs },
+      };
+    }
+  }
+  return null;
 }
 
 /** Median of v over each phase (see phaseIndex) for i in [a, z], centred on zero. */
@@ -302,13 +357,6 @@ export function preferScaled(y: Float64Array, n: number, d: Decomposition): Deco
   return s && remSS(s, n) < 0.85 * remSS(d, n) ? s : d;
 }
 
-/** How many periods stand out by the robust z-score (the same rule as the anomaly list, before it is cut to the top few). */
-function anomalyCount(z: Float64Array, n: number, sens: number, A: Aggregated): number {
-  let c = 0;
-  for (let i = 0; i < n; i++) if (Math.abs(z[i]) >= sens && !A.made[i] && A.y[i] === A.y[i]) c++;
-  return c;
-}
-
 export function computeDecomposition(A: Aggregated, cfg: TsConfig): DecompResult {
   const g = A.g, N = A.modelN;
   // Only seasons with two full cycles plus two periods of history (see DecompResult.tooShort).
@@ -324,29 +372,82 @@ export function computeDecomposition(A: Aggregated, cfg: TsConfig): DecompResult
     const d = g.unit === "min" && g.perDay && p === 7 * g.perDay ? decomposeMulti(A.yModel, N, g.perDay) : decompose(A.yModel, N, p);
     if (d) options.push(A.allPositive ? preferScaled(A.yModel, N, d) : d);
   }
+  // Daily data with both a weekly and a yearly season: taking them out together keeps the yearly wave out of the trend (taking
+  // only the weekly one leaves it there and inflates the trend's strength). Needs three full cycles of the long one.
+  const strong = options.filter((d) => d.fs >= 0.15 && !d.parts && !d.also);
+  if (strong.length >= 2) {
+    const short = strong.reduce((a, b) => (b.m < a.m ? b : a)), long = strong.reduce((a, b) => (b.m > a.m ? b : a));
+    if (long.m >= 2 * short.m) {
+      const both = decomposeBoth(A.yModel, N, short.m, long.m);
+      if (both && both.fs > short.fs) options[options.indexOf(short)] = both;
+    }
+  }
   // A weak best season is noise (births, share prices): trend only, unless the person picked one.
   const best = options.length ? options.reduce((a, b) => (b.fs > a.fs ? b : a)) : null;
-  const dec = options.find((d) => d.m === cfg.period) ?? (best && best.fs >= 0.15 ? best : null) ?? trendOnly(A.yModel, N);
-  const summary = options.map((o) => ({ m: o.m, fs: o.fs, multi: !!o.parts }));
-  if (!dec) return { options: summary, tooShort, dec: null, cycle: cyc, anomalies: [], anomalyCount: 0, cp: null, z: null, mad: 0 };
-  const rz = robustZ(dec.rem, N);
-  const anomalies: number[] = [];
-  // A period with no value was filled in for the models; it is a gap, not an anomaly.
-  for (let i = 0; i < N; i++) if (Math.abs(rz.z[i]) >= cfg.sens && !A.made[i] && A.y[i] === A.y[i]) anomalies.push(i);
-  anomalies.sort((a, b) => Math.abs(rz.z[b]) - Math.abs(rz.z[a]));
-  // A short burst (a two-day smoke event, one bad week) leaves a bump in the trend, and a bump is not a change of direction.
-  // The change is looked for on a trend refitted with each unusual period replaced by the median of its neighbours, so only a
-  // stretch longer than the window can move it.
-  let shape = dec.trend;
-  if (anomalyCount(rz.z, N, cfg.sens, A) > 0) {
-    const k = Math.max(3, Math.min(10, Math.ceil(dec.m / 2))), yw = Float64Array.from(A.yModel.subarray(0, N));
-    for (let i = 0; i < N; i++) {
-      if (!(Math.abs(rz.z[i]) >= cfg.sens)) continue;
+  const first = options.find((d) => d.m === cfg.period) ?? (best && best.fs >= 0.15 ? best : null) ?? trendOnly(A.yModel, N);
+  const summary = options.map((o) => ({ m: o.m, fs: o.fs, multi: !!o.parts, ...(o.also ? { also: o.also.m } : {}) }));
+  if (!first) return { options: summary, tooShort, dec: null, cycle: cyc, anomalies: [], anomalyCount: 0, events: [], cp: null, z: null, mad: 0 };
+
+  const flaggedOf = (z: Float64Array): number[] => {
+    const out: number[] = [];
+    // A period with no value was filled in for the models; it is a gap, not an anomaly.
+    for (let i = 0; i < N; i++) if (Math.abs(z[i]) >= cfg.sens && !A.made[i] && A.y[i] === A.y[i]) out.push(i);
+    return out;
+  };
+  // A spike leaves a bump in a trend fitted to it. The unusual periods are found first, replaced by the median of their
+  // neighbours, and the trend and seasons fitted again on that; what is left over is measured against the real values, so the
+  // spike still shows as unusual but no longer drags the trend with it.
+  let dec = first;
+  const rz0 = robustZ(first.rem, N);
+  const flagged0 = flaggedOf(rz0.z);
+  if (flagged0.length > 0) {
+    const k = Math.max(3, Math.min(10, Math.ceil(first.m / 2))), yw = Float64Array.from(A.yModel.subarray(0, N));
+    for (const i of flagged0) {
       const win = Array.from(A.yModel.subarray(Math.max(0, i - k), Math.min(N, i + k + 1))).sort((a, b) => a - b);
-      yw[i] = win[win.length >> 1];
+      yw[i] = win[win.length >> 1]!;
     }
-    const again = dec.m > 1 && !dec.parts ? decompose(yw, N, dec.m) : trendOnly(yw, N);
-    if (again) shape = again.trend;
+    let again: Decomposition | null = null;
+    if (first.parts) again = null;
+    else if (first.also) again = decomposeBoth(yw, N, first.m, first.also.m);
+    else if (first.m > 1) { const d = decompose(yw, N, first.m); again = d && first.scaled ? preferScaled(yw, N, d) : d; }
+    else again = trendOnly(yw, N);
+    if (again) {
+      const rem = new Float64Array(N);
+      for (let i = 0; i < N; i++) rem[i] = A.yModel[i]! - again.trend[i]! - again.seasonal[i]!;
+      dec = { ...again, rem };
+    }
   }
-  return { options: summary, tooShort, dec, cycle: cyc, z: rz.z, mad: rz.mad, anomalies: anomalies.slice(0, 8), anomalyCount: anomalies.length, cp: changepoint(shape, N) };
+  const rz = robustZ(dec.rem, N);
+  const flagged = flaggedOf(rz.z);
+  const anomalies = [...flagged].sort((a, b) => Math.abs(rz.z[b]!) - Math.abs(rz.z[a]!));
+  return { options: summary, tooShort, dec, cycle: cyc, z: rz.z, mad: rz.mad, anomalies: anomalies.slice(0, 8), anomalyCount: anomalies.length, events: groupEvents(flagged, rz.z, A.yModel, dec, N), cp: changepoint(dec.trend, N) };
+}
+
+/**
+ * Unusual periods that run together (or are split by a single period that is only a little less unusual) are one event: the
+ * COVID dip is one stretch of months, not four separate points. Biggest first.
+ */
+export function groupEvents(flagged: readonly number[], z: Float64Array, y: ArrayLike<number>, dec: Decomposition, n: number): TsEvent[] {
+  const sorted = [...flagged].sort((a, b) => a - b);
+  const events: TsEvent[] = [];
+  let cur: { a: number; b: number } | null = null;
+  const close = (): void => {
+    if (!cur) return;
+    let peak = cur.a, dev = 0;
+    for (let i = cur.a; i <= cur.b; i++) {
+      if (Math.abs(z[i]!) > Math.abs(z[peak]!)) peak = i;
+      const exp = dec.trend[i]! + dec.seasonal[i]!;
+      const d = exp !== 0 ? (y[i]! - exp) / Math.abs(exp) : 0;
+      if (Math.abs(d) > Math.abs(dev)) dev = d;
+    }
+    events.push({ a: cur.a, b: cur.b, z: z[peak]!, dev });
+    cur = null;
+  };
+  for (const i of sorted) {
+    if (cur && i - cur.b <= 2 && (i - cur.b === 1 || Math.abs(z[cur.b + 1]!) >= 0.4 * Math.abs(z[i]!) || Math.abs(z[cur.b + 1]!) >= 0.4 * Math.abs(z[cur.b]!))) cur.b = i;
+    else { close(); cur = { a: i, b: i }; }
+  }
+  close();
+  void n;
+  return events.sort((x, y2) => Math.abs(y2.z) - Math.abs(x.z));
 }

@@ -197,6 +197,18 @@ export function changesSlowly(codes: ArrayLike<number>, idx: readonly number[], 
  * with fewer values first among those; a few at most, each with its largest values. A column that changes slowly along time
  * (the weekday, the month, an hour, a holiday flag) describes the moment, not a series, and is left out.
  */
+const DATE_PART_LABELS = new Set([
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "mon", "tue", "tues", "wed", "thu", "thur", "thurs", "fri", "sat", "sun",
+  "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december",
+  "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec",
+]);
+
+/** A column whose values are all weekday or month names describes the moment, not a series, wherever it sits. */
+function namesADatePart(labels: readonly string[]): boolean {
+  const named = labels.map((l) => l.trim().toLowerCase()).filter((l) => l !== "");
+  return named.length > 0 && named.every((l) => DATE_PART_LABELS.has(l));
+}
+
 export function suggestSeries(times: Float64Array, idx: readonly number[], entities: readonly EntityCandidate[]): SeriesSuggestion[] {
   if (entities.length === 0 || idx.length === 0) return [];
   const momentOf = new Int32Array(idx.length);
@@ -208,6 +220,7 @@ export function suggestSeries(times: Float64Array, idx: readonly number[], entit
   }
   const out: SeriesSuggestion[] = [];
   for (const cand of entities) {
+    if (namesADatePart(cand.labels)) continue;
     const n = cand.labels.length;
     const rows = new Uint32Array(n), moments = new Uint32Array(n), last = new Int32Array(n).fill(-1), first = new Int32Array(n).fill(-1);
     for (let k = 0; k < idx.length; k++) {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { seriesShape, spacingOf, type ShapeCandidate } from "../src/data/timeseries/shape.js";
+import { seriesShape, spacingOf, suggestSeries, type ShapeCandidate } from "../src/data/timeseries/shape.js";
 
 const MIN = 60_000, DAY = 86_400_000;
 
@@ -160,4 +160,11 @@ test("a value that exists for only a short stretch does not read as a parallel s
   for (let d = 0; d < 200; d++) { times.push(Date.UTC(2025, 0, 1) + d * DAY); era.push(d < 100 ? 0 : 1); }
   const out = suggestSeries(Float64Array.from(times), times.map((_, i) => i), [{ column: 1, name: "era", codes: Int32Array.from(era), labels: ["old", "new"] }]);
   assert.equal(out.length === 0 || out[0]!.sound === false, true);
+});
+
+test("a column of weekday or month names is the moment, not a series to pick", () => {
+  const n = 60, times = Float64Array.from({ length: n }, (_, i) => i * 86_400_000), idx = Array.from({ length: n }, (_, i) => i);
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const weekday = { column: 1, name: "Day of Week", codes: Int32Array.from({ length: n }, (_, i) => i % 7), labels: days };
+  assert.deepEqual(suggestSeries(times, idx, [weekday]), []);
 });
