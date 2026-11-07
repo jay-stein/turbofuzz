@@ -6,7 +6,7 @@
  */
 
 import { defaultGrain, GRAIN_ORDER, GRAINS, tooFine, type GrainId, type TsTable } from "./base.js";
-import { aggregate, rolling, type Aggregated, type TsConfig, type TsMode } from "./aggregate.js";
+import { aggregate, HOLIDAY_COL, rolling, type Aggregated, type TsConfig, type TsMode } from "./aggregate.js";
 import { computeDecomposition, type DecompResult } from "./decompose.js";
 import { computeFutures, deepCheck, driverRecent, flexCurve, type DeepCheck, horizonOf, maxHorizon, runModels, type Futures, type HwWarm, type ModelKey, type ModelRun } from "./models.js";
 import { computePatterns, type Patterns } from "./patterns.js";
@@ -126,7 +126,7 @@ export class TsEngine {
 
   compute(cfg: TsConfig, mode: TsMode, opts: { backtest?: boolean; flexCurve?: boolean; deep?: ModelKey } = {}): TsSnapshot {
     const t0 = performance.now();
-    const aggKey = [cfg.grain, cfg.agg, cfg.measure, cfg.group, cfg.gaps, cfg.partial].join("|");
+    const aggKey = [cfg.grain, cfg.agg, cfg.measure, cfg.group, cfg.gaps, cfg.partial, cfg.holidays].join("|");
     if (aggKey !== this.keys.agg || !this.A) {
       this.A = aggregate(this.table, cfg);
       this.keys.agg = aggKey;
@@ -212,7 +212,8 @@ export function sanitizeTsConfig(cfg: TsConfig, info: TsTableInfo): TsConfig {
     smoothW: Math.max(2, Math.round(cfg.smoothW)),
     flex: Math.min(10, Math.max(1, cfg.flex)),
     cv: cfg.cv === "rolling" ? "rolling" : "expanding",
-    drivers: cfg.drivers.filter((d) => names.has(d.col) && d.col !== measure),
+    holidays: typeof cfg.holidays === "string" ? cfg.holidays : "",
+    drivers: cfg.drivers.filter((d) => (names.has(d.col) || (d.col === HOLIDAY_COL && !!cfg.holidays)) && d.col !== measure),
   };
 }
 
@@ -222,6 +223,6 @@ export function defaultConfig(info: TsTableInfo): TsConfig {
   return {
     grain, agg: info.eventLike ? "count" : info.defAgg, measure: info.defMeasure, group: -1, gaps: "leave", partial: "exclude",
     smoothW: GRAINS[grain].smooth, smoothStat: "mean", smoothCentred: false, period: null, sens: 4.5, transform: "none",
-    split: null, horizon: null, flex: 5, drivers: [], cv: "expanding",
+    split: null, horizon: null, flex: 5, drivers: [], holidays: "", cv: "expanding",
   };
 }

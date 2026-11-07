@@ -5,7 +5,7 @@
  */
 
 import { eventWindowLen, type Grain, type TsTable } from "./base.js";
-import { regular, type Aggregated, type TsConfig, type TsDriver } from "./aggregate.js";
+import { HOLIDAY_COL, holidayShare, regular, type Aggregated, type TsConfig, type TsDriver } from "./aggregate.js";
 import { cap, nounFor } from "./format.js";
 import { chiSquareSf, tTwoSided } from "./stats.js";
 import { seasonalityTest, type SeasonalityTest } from "./seasonality.js";
@@ -235,6 +235,8 @@ export function driverRecent(A: Aggregated, col: string): number {
 function driverAt(A: Aggregated, d: TsDriver, i: number): number {
   const s = A.colMean[d.col];
   if (i < A.n) return s[i];
+  // The calendar knows its future: a holiday coming is not a guess.
+  if (d.col === HOLIDAY_COL) { const t0 = A.t[A.n - 1]! + (i - (A.n - 1)) * A.g.days * 86_400_000; return holidayShare(A.holidays, t0, t0 + A.g.days * 86_400_000); }
   if (d.rule === "lastyear") { let j = i - A.g.ly; while (j >= A.n) j -= A.g.ly; return j >= 0 ? s[j] : s[A.n - 1]; }
   const base = driverRecent(A, d.col);
   return d.rule === "pct" ? base * (1 + d.pct / 100) : base;

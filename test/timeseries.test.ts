@@ -18,7 +18,7 @@ function input(times: number[], values: number[], extra: Partial<TsInput> = {}):
 function cfg(over: Partial<TsConfig> = {}): TsConfig {
   return {
     grain: "day", agg: "sum", measure: "value", group: -1, gaps: "leave", partial: "exclude", smoothW: 7, smoothStat: "mean",
-    smoothCentred: false, period: null, sens: 4.5, transform: "none", split: null, horizon: null, flex: 5, drivers: [], ...over,
+    smoothCentred: false, period: null, sens: 4.5, transform: "none", split: null, horizon: null, flex: 5, drivers: [], holidays: "", ...over,
   };
 }
 /** Hourly rows with a daily peak at 13:00 and busier Saturdays. */

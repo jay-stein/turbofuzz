@@ -3,6 +3,7 @@
  * the rolling smooth.
  */
 
+import { holidaysBetween } from "./holidays.js";
 import { bucketStart, GRAINS, HOUR, openAt, slotBuckets, slotOpen, type Grain, type GrainId, type TsTable } from "./base.js";
 
 /** twmean: each reading counts for as long as it held (until the next one). */
@@ -44,6 +45,8 @@ export interface TsConfig {
   /** Trend flexibility for the regression, 1 to 10. */
   flex: number;
   drivers: TsDriver[];
+  /** Public-holiday region ("AU-WA", "US"...) or "" for none: it adds a "Public holiday" column that can be a driver. */
+  holidays: string;
   /**
    * How the backtest trains: "expanding" on everything before each origin, "rolling" on
    * a fixed-length window ending at it (as long as the first fold's history).
@@ -51,8 +54,24 @@ export interface TsConfig {
   cv?: "expanding" | "rolling";
 }
 
+/** The synthetic column the holiday calendar adds. */
+export const HOLIDAY_COL = "Public holiday";
+const DAY_MS = 86_400_000;
+
+/** The share of [from, to) that is a public holiday: 0 or 1 for a day or less, a count over days for longer. */
+export function holidayShare(region: string, from: number, to: number): number {
+  if (!region) return 0;
+  if (to - from <= DAY_MS) {
+    const day = Math.floor(from / DAY_MS) * DAY_MS;
+    return holidaysBetween(region, day, day + DAY_MS).length > 0 ? 1 : 0;
+  }
+  return Math.min(1, holidaysBetween(region, from, to).length / ((to - from) / DAY_MS));
+}
+
 export interface Aggregated {
   g: Grain;
+  /** The holiday region the series was built with ("" for none). */
+  holidays: string;
   n: number;
   /** Period start, UTC ms. */
   t: Float64Array;
@@ -222,6 +241,13 @@ export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): 
     for (let b = 0; b < n && !(out[b] === out[b]) && j0 >= 0; b++) out[b] = s[j0] / k[j0];
     colMean[c] = out;
   }
+  // Public holidays as a column of the table, from the calendar: the share of each period that is a holiday. Only at a week or
+  // finer, where a holiday is a visible part of the period.
+  if (cfg.holidays && (g.unit === "min" || g.unit === "day" || g.unit === "week")) {
+    const share = new Float64Array(n);
+    for (let b = 0; b < n; b++) share[b] = holidayShare(cfg.holidays, t[b]!, t[b]! + g.days * DAY_MS);
+    colMean[HOLIDAY_COL] = share;
+  }
   // Runs without rows (weekdays and hours that never have rows excluded), as slot ranges for the findings.
   const gapRanges: [number, number][] = [];
   // Only a stretch that leaves a whole period of the shown grain without rows is a gap here; a missing 2-hour slot inside a
@@ -259,7 +285,7 @@ export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): 
     raw = { t: Float64Array.from(order, (k) => rt[k]), v: Float64Array.from(order, (k) => rv[k]) };
   }
   return {
-    g, n, t, y, filled, made, partial, partShare, spread, coverage, expected, missing, rows: rowsIn, groupVal, colMean,
+    g, holidays: cfg.holidays, n, t, y, filled, made, partial, partShare, spread, coverage, expected, missing, rows: rowsIn, groupVal, colMean,
     modelN, yModel, modelM, gapRanges, allPositive, nonNeg, naRows, raw,
   };
 }

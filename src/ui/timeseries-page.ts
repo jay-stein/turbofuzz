@@ -31,6 +31,8 @@ import {
   type TsAction, type TsFinding, type TsTone, type TsView,
 } from "./timeseries-findings.js";
 import { rankFormats } from "../parse/date-format.js";
+import { HOLIDAY_REGIONS, suggestRegion } from "../data/timeseries/holidays.js";
+import { HOLIDAY_COL } from "../data/timeseries/aggregate.js";
 import { niceTicks, patternsHtml } from "./timeseries-patterns.js";
 
 export interface TimeSeriesPageOptions {
@@ -75,7 +77,7 @@ type Level = "80" | "fan";
 /** The models that are yardsticks, not recommendations. */
 const BENCHMARKS: readonly ModelKey[] = BENCHMARK_KEYS;
 interface UiState { mode: TsMode; showSmooth: boolean; lastYear: boolean; showShift: boolean; level: Level; model: ModelKey | "auto"; metric: MetricKey; diff: boolean; diffLag: number }
-type TokenKey = "grain" | "agg" | "measure" | "group" | "gaps" | "partial" | "date" | "groupBy" | "source";
+type TokenKey = "grain" | "agg" | "measure" | "group" | "gaps" | "partial" | "date" | "groupBy" | "source" | "holidays";
 interface Colors { bg: string; panel: string; panel2: string; border: string; text: string; dim: string; accent: string; forecast: string; season2: string; raw: string; danger: string; warn: string; grid: string }
 interface Proj { T: number; H: number; f: Future; key: ModelKey }
 interface DecRow { name: string; get: (i: number) => number; color: string; kind: "line" | "bars"; zero?: boolean; yy?: (v: number) => number }
@@ -308,6 +310,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         snap = msg.snapshot;
         shape = msg.shape ?? null;
         cfg = msg.snapshot.cfg;
+        // The holiday region chosen before comes back with each new series, once it can be applied.
+        const wanted = storedHolidays();
+        if (source === "" && wanted !== (cfg.holidays ?? "")) { cfg = { ...cfg, holidays: wanted }; again = true; }
         allT = null;
         INS = makeInsights();
         ensureArima();
@@ -1060,8 +1065,16 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         return [["-1", "nothing"], ...groupColumns().map((i): [string, string, string] => [String(i), metas[i].name, `${metas[i].stats.distinct} values`])];
       }
       case "source": return [["", "Table", "the rows the Table's filters leave"], ...options.viewSources().map((v): [string, string, string] => [v.id, `Pivot View: ${v.name}`, `by ${v.timeName}`])];
+      case "holidays": {
+        // Nothing is chosen for the person; the browser's locale only marks the likeliest region.
+        const guess = suggestRegion(navigator.language ?? "", Intl.DateTimeFormat().resolvedOptions().timeZone ?? "");
+        return [["", "not set", "no holiday calendar"], ...HOLIDAY_REGIONS.map((r): [string, string, string] => [r.code, r.label, r.code === guess ? "your browser suggests this" : ""])];
+      }
     }
   }
+  const HOLIDAY_KEY = "turbofuzz.timeseries.holidays";
+  function storedHolidays(): string { try { return localStorage.getItem(HOLIDAY_KEY) ?? ""; } catch { return ""; } }
+  function saveHolidays(code: string): void { try { if (code) localStorage.setItem(HOLIDAY_KEY, code); else localStorage.removeItem(HOLIDAY_KEY); } catch { /* not remembered; the choice still applies */ } }
   function tokValue(key: TokenKey): string {
     const c = cfg as TsConfig;
     switch (key) {
@@ -1074,6 +1087,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       case "date": return String(dateColumn);
       case "groupBy": return String(groupColumn);
       case "source": return source;
+      case "holidays": return c.holidays ?? "";
     }
   }
   function tokText(key: TokenKey): string { const o = tokenOpts(key).find((x) => x[0] === tokValue(key)); return escapeHtml(o ? o[1] : ""); }
@@ -1087,7 +1101,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     ref("sentence").innerHTML = `${tok("grain")} ${tok("agg")}${count ? "" : ` of ${tok("measure")}`}${info.groups.length > 1 ? ` for ${escapeHtml(info.groupCol ?? "")} ${tok("group")}` : ""}`;
     const vs = viewSource();
     const showSource = vs !== undefined || options.viewSources().length > 0;
-    ref("subline").innerHTML = `${showSource ? `Source ${tok("source")} · ` : ""}${vs ? `Periods of <b>${escapeHtml(vs.timeName)}</b>` : `Dates from ${tok("date")}`} · split by ${tok("groupBy")} · ${nf.format(info.rows)} rows · ${dfDate.format(new Date(info.firstMs))} to ${dfDate.format(new Date(info.lastMs))} · gaps ${tok("gaps")} · partial last ${gr.noun} ${tok("partial")}`;
+    ref("subline").innerHTML = `${showSource ? `Source ${tok("source")} · ` : ""}${vs ? `Periods of <b>${escapeHtml(vs.timeName)}</b>` : `Dates from ${tok("date")}`} · split by ${tok("groupBy")} · ${nf.format(info.rows)} rows · ${dfDate.format(new Date(info.firstMs))} to ${dfDate.format(new Date(info.lastMs))} · gaps ${tok("gaps")} · partial last ${gr.noun} ${tok("partial")}${gr.unit === "min" || gr.unit === "day" || gr.unit === "week" ? ` · holidays ${tok("holidays")}` : ""}`;
     const mixed = renderMixed();
     renderSentinel();
     const across = !mixed && c.group < 0 && info.groups.length > 1 && !count && c.agg === "sum" ? ` That adds all ${info.groups.length} ${escapeHtml(info.groupCol ?? "")} values together; pick one if they measure the same thing.` : "";
@@ -2232,6 +2246,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     } else if (key === "agg") patch.agg = val as TsAgg;
     else if (key === "measure") { patch.measure = val; patch.drivers = cfg.drivers.filter((d) => d.col !== val); }
     else if (key === "group") patch.group = Number(val);
+    else if (key === "holidays") { patch.holidays = val; saveHolidays(val); }
     else if (key === "gaps") patch.gaps = val as TsGaps;
     else if (key === "partial") patch.partial = val as TsConfig["partial"];
     change(patch);
@@ -2360,6 +2375,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     popKey = "driver";
     const c = cfg;
     const spare = snap.table.columns.filter((col) => !c.drivers.some((d) => d.col === col.name) && (col.name !== c.measure || c.agg === "count"));
+    // The holiday calendar, when a region is chosen, is a column that can be a driver, and its future is known.
+    if (c.holidays && !c.drivers.some((d) => d.col === HOLIDAY_COL)) spare.push({ name: HOLIDAY_COL, flag: true, timeLike: null, repeated: false });
     const about = (col: (typeof spare)[number]): string => (col.flag ? "0/1, share of rows per period" : col.timeLike ? "counts time or names a date part" : "numeric, mean per period");
     POP.innerHTML = `<div class="ts-pop-title">Columns that move the series. Trend and seasons are built in.</div>` +
       (spare.length ? spare.map((col) => `<button type="button" data-drv-act="add:${escapeHtml(col.name)}"><b class="ts-mono">${escapeHtml(col.name)}</b> <small>${about(col)}</small></button>`).join("")

@@ -495,3 +495,32 @@ test("a column that moves the series is offered as a driver with the error it cu
   await page.locator(".ts-page button", { hasText: "Add temp_c" }).first().click();
   await expect(page.locator(".ts-page .ts-drv:not(.add)").first()).toContainText("temp_c", { timeout: 20_000 });
 });
+
+test("a holiday region can be chosen on the page, and the calendar is then offered as a driver", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  const { holidaysBetween } = await import("../../src/data/timeseries/holidays");
+  const start = Date.UTC(2023, 0, 1), n = 365 * 3;
+  const hol = new Set(holidaysBetween("AU-WA", start, start + n * 86_400_000).map((h) => h.ms));
+  let seed = 4;
+  const rnd = (): number => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) - 0.5;
+  const rows = ["date,sales"];
+  for (let i = 0; i < n; i++) {
+    const t = start + i * 86_400_000;
+    rows.push(`${new Date(t).toISOString().slice(0, 10)},${(hol.has(t) ? 40 : 100 + 20 * Math.sin((2 * Math.PI * i) / 7) + 3 * rnd()).toFixed(1)}`);
+  }
+  await page.locator('input[type="file"]').setInputFiles({ name: "shop.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator('.mode-switch-option[data-mode="research"]').click();
+  await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
+  await page.locator(".ts-tok[data-tok=agg]").click();
+  await page.locator(".ts-popover button", { hasText: "mean" }).first().click();
+  const chip = page.locator(".ts-tok[data-tok=holidays]");
+  await expect(chip).toHaveText("not set", { timeout: 20_000 });
+  await chip.click();
+  await page.locator(".ts-popover button", { hasText: "Western Australia" }).first().click();
+  await expect(chip).toContainText("Western Australia");
+  await page.locator(".ts-page button", { hasText: "Show all" }).first().click();
+  await expect(page.locator(".ts-page").getByText("Public holiday cuts the error by").first()).toBeVisible({ timeout: 30_000 });
+});

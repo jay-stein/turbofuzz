@@ -5,6 +5,7 @@
 
 import { cadenceNoun, cadenceText, DAY, GRAIN_ORDER, GRAINS, openAt, weekdayAt, type Grain, type GrainId } from "../data/timeseries/base.js";
 import type { TsAgg, TsMode } from "../data/timeseries/aggregate.js";
+import { holidaysBetween } from "../data/timeseries/holidays.js";
 import { circularSmooth, phaseIndex, type Decomposition, type SeasonOption } from "../data/timeseries/decompose.js";
 import type { TsSnapshot } from "../data/timeseries/engine.js";
 import {
@@ -344,6 +345,11 @@ function explain(s: TsSnapshot, i: number, expected: number): string {
   // Missing rows can only explain a drop in a total; a rise with fewer rows is not a gap, so it falls through to the other causes.
   const low = A.y[i] < expected;
   if (A.filled[i] || (A.coverage[i] < 0.9 && (low || s.cfg.agg !== "sum"))) return `Only about ${Math.round(A.coverage[i] * 100)}% of the usual rows are there, so this is ${low ? "more likely a data gap than a real drop" : "a thin period, not a reliable rise"}.`;
+  // A public holiday in the period explains a high or low reading the series' own pattern cannot.
+  if (A.holidays && (A.g.unit === "min" || A.g.unit === "day" || A.g.unit === "week")) {
+    const t0 = A.t[i]!, hs = holidaysBetween(A.holidays, t0, t0 + A.g.days * DAY);
+    if (hs.length) return `<b>${hs.map((h) => escapeHtml(h.name)).join(" and ")}</b> falls ${A.g.days <= 1 ? "on this day" : `in this ${A.g.noun}`}, which usually explains it.`;
+  }
   const w = A.g.evWin || Math.max(3, Math.round(A.g.perYear / 6.5));
   for (const d of s.cfg.drivers) {
     const ser = s.driverSeries[d.col];
