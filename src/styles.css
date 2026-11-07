@@ -8445,17 +8445,23 @@ select.chart-number {
   flex-direction: column;
 }
 
+/* Section headings are bigger and bolder than the actions under them, on a tinted band with an accent edge, so they read as headings. */
 .context-header {
-  padding: 8px 10px 3px;
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  margin: 8px 0 3px;
+  padding: 6px 10px;
+  font-size: calc(var(--fs-md) + 1px);
+  font-weight: 800;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--text);
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
 }
 
-.context-header:first-child {
-  padding-top: 4px;
+.context-header:first-child,
+.context-search + .context-header {
+  margin-top: 2px;
 }
 
 .context-item {
