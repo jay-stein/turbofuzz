@@ -706,6 +706,8 @@ export interface ChartCardConfig {
   refLines?: RefLine[];
   /** The shape of the dots on a scatter or map (circle unless chosen). */
   markerShape?: MarkerShape;
+  /** Map markers: nearby ones are drawn as one numbered circle, and a click on it zooms in. */
+  mapCluster?: boolean;
   /** A scatter's dashed line of best fit, and the R² beside it (both on unless switched off). */
   fitLine?: boolean;
   fitR2?: boolean;
@@ -1334,6 +1336,8 @@ export class ChartCard {
   private readonly refRows: HTMLElement;
   private refKey = "";
   private readonly dotShapeWrap: HTMLElement;
+  /** The clusters drawn last, with the box of the markers each holds, so a click can zoom to it. */
+  private mapClusters: { x: number; y: number; r: number; lonMin: number; lonMax: number; latMin: number; latMax: number }[] = [];
   private readonly fitWrap: HTMLElement;
   private readonly fitLineInput: HTMLInputElement;
   private readonly fitR2Input: HTMLInputElement;
@@ -2338,11 +2342,17 @@ export class ChartCard {
     for (const [value, label] of [
       ["places", "One dot per place"],
       ["points", "One dot per row"],
+      ["cluster", "One dot per row, clustered"],
     ] as const) {
       this.mapModeSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
     }
-    if (this.config.mapMode !== "heat" && this.config.mapMode !== "regions") this.mapModeSelect.value = this.config.mapMode ?? DEFAULT_MAP_MODE;
-    this.mapModeSelect.addEventListener("change", () => this.setMapMode(this.mapModeSelect.value as "points" | "places"));
+    if (this.config.mapMode !== "heat" && this.config.mapMode !== "regions") this.mapModeSelect.value = this.mapModeChoice();
+    this.mapModeSelect.addEventListener("change", () => {
+      const value = this.mapModeSelect.value;
+      // Clustering is a way of drawing one dot per row: it is the points mode with the groups switched on.
+      this.config.mapCluster = value === "cluster";
+      this.setMapMode(value === "places" ? "places" : "points");
+    });
     this.mapModeWrap = this.tagged("Show", this.mapModeSelect).wrap;
     this.regions = this.options.requestRegions === undefined ? null : new MapRegions(this.regionOptions(this.options.requestRegions));
     this.bubbleScaleField = bubbleScaleField;
@@ -5649,7 +5659,7 @@ export class ChartCard {
     this.bubbleSettings.classList.toggle("hidden", !bubbleOnly && !mapKind);
     this.bubbleTitle.textContent = mapKind ? "Map" : "Bubbles";
     this.bubbleScaleField.classList.toggle("hidden", mapKind);
-    if (this.config.mapMode !== "heat" && this.config.mapMode !== "regions") this.mapModeSelect.value = this.config.mapMode ?? DEFAULT_MAP_MODE;
+    if (this.config.mapMode !== "heat" && this.config.mapMode !== "regions") this.mapModeSelect.value = this.mapModeChoice();
     this.syncDotControls(mapKind, kind === "scatter");
     this.syncRefLines();
     this.syncKindButton();
@@ -5809,7 +5819,7 @@ export class ChartCard {
   /** What the map shows: markers (one dot per place or per row), a heat grid, or regions. */
   setMapMode(mode: "points" | "heat" | "places" | "regions"): void {
     this.config.mapMode = mode;
-    if (mode === "places" || mode === "points") this.mapModeSelect.value = mode;
+    if (mode === "places" || mode === "points") this.mapModeSelect.value = this.mapModeChoice();
     this.gridField.classList.toggle("hidden", mode !== "heat");
     // A place holds many rows: a number can be averaged across them, a category cannot.
     const colorMeta = this.meta(this.config.colorColumn);
@@ -8711,6 +8721,21 @@ export class ChartCard {
       return;
     }
     const rect = this.canvas.getBoundingClientRect();
+    if (this.config.kind === "map" && this.mapClusters.length > 0 && this.mapPicker === null) {
+      const cx = event.clientX - rect.left, cy = event.clientY - rect.top;
+      const hit = this.mapClusters.find((c) => (cx - c.x) ** 2 + (cy - c.y) ** 2 <= c.r * c.r);
+      if (hit !== undefined) {
+        // Zoom to the box of the markers it holds, with some air round it; markers at one spot zoom in a fixed step.
+        const lonSpan = Math.max(hit.lonMax - hit.lonMin, 0.02), latSpan = Math.max(hit.latMax - hit.latMin, 0.02);
+        const lonMid = (hit.lonMin + hit.lonMax) / 2, latMid = (hit.latMin + hit.latMax) / 2;
+        const view = this.mapViewShown(), aspect = (view.lonMax - view.lonMin) / (view.latMax - view.latMin);
+        let w = lonSpan * 1.6, h = latSpan * 1.6;
+        if (w / h < aspect) w = h * aspect; else h = w / aspect;
+        this.mapView = { lonMin: lonMid - w / 2, lonMax: lonMid + w / 2, latMin: latMid - h / 2, latMax: latMid + h / 2 };
+        this.render();
+        return;
+      }
+    }
     if (this.config.kind === "map" && this.mapPicker !== null && this.lastFrame !== null) {
       const frame = this.lastFrame;
       const view = this.mapViewShown();
@@ -10643,6 +10668,84 @@ export class ChartCard {
     ctx.restore();
   }
 
+  /**
+   * Many markers, few pixels: the markers that fall in the same patch of screen become one numbered circle, sized by how many it
+   * holds, and a lone marker stays a marker. Zooming in, or clicking a circle, splits them. Done in screen space, so it follows the
+   * zoom with no setting to tune.
+   */
+  private drawMapClusters(
+    ctx: CanvasRenderingContext2D,
+    result: SeriesPoints,
+    view: MapViewport,
+    px: (lon: number) => number,
+    py: (lat: number) => number,
+    ui: number,
+    drawAt: (index: number) => void,
+    dotAlpha: number,
+  ): void {
+    const cell = 46 * ui;
+    const cells = new Map<number, { n: number; sx: number; sy: number; first: number; lonMin: number; lonMax: number; latMin: number; latMax: number }>();
+    for (let i = 0; i < result.shown; i++) {
+      const lon = result.x[i] ?? Number.NaN, lat = result.y[i] ?? Number.NaN;
+      if (!Number.isFinite(lon) || !Number.isFinite(lat) || lon < view.lonMin || lon > view.lonMax || lat < view.latMin || lat > view.latMax) continue;
+      const x = px(lon), y = py(lat), key = Math.floor(y / cell) * 100_000 + Math.floor(x / cell);
+      const c = cells.get(key);
+      if (c === undefined) cells.set(key, { n: 1, sx: x, sy: y, first: i, lonMin: lon, lonMax: lon, latMin: lat, latMax: lat });
+      else {
+        c.n++; c.sx += x; c.sy += y;
+        if (lon < c.lonMin) c.lonMin = lon; if (lon > c.lonMax) c.lonMax = lon;
+        if (lat < c.latMin) c.latMin = lat; if (lat > c.latMax) c.latMax = lat;
+      }
+    }
+    const colour = this.primaryColor();
+    ctx.lineWidth = Math.max(0.75, 0.8 * ui);
+    let clusters = 0, loose = 0;
+    for (const c of cells.values()) {
+      if (c.n === 1) {
+        // A marker on its own is drawn as it always is.
+        ctx.fillStyle = colour;
+        ctx.strokeStyle = darkerColor(colour, BORDER_DARKER);
+        drawAt(c.first);
+        loose++;
+        continue;
+      }
+      const x = c.sx / c.n, y = c.sy / c.n;
+      const r = Math.min(30 * ui, (10 + 4.2 * Math.log2(c.n)) * ui);
+      ctx.beginPath();
+      ctx.arc(x, y, r + 3 * ui, 0, Math.PI * 2);
+      ctx.fillStyle = colour;
+      ctx.globalAlpha = 0.28;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.globalAlpha = Math.max(0.8, dotAlpha);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 1.5 * ui;
+      ctx.strokeStyle = "#ffffff";
+      ctx.stroke();
+      ctx.fillStyle = "#ffffff";
+      ctx.font = `600 ${Math.max(10, Math.min(15, r * 0.8)) * ui}px ${getComputedStyle(this.canvas).fontFamily || "sans-serif"}`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(c.n >= 10_000 ? `${Math.round(c.n / 1000)}k` : c.n >= 1000 ? `${(c.n / 1000).toFixed(1)}k` : String(c.n), x, y + 0.5);
+      ctx.textAlign = "start";
+      ctx.textBaseline = "alphabetic";
+      ctx.lineWidth = Math.max(0.75, 0.8 * ui);
+      this.mapClusters.push({ x, y, r: r + 3 * ui, lonMin: c.lonMin, lonMax: c.lonMax, latMin: c.latMin, latMax: c.latMax });
+      this.hitRegions.push({ x: x - r, y: y - r, w: r * 2, h: r * 2, contains: (hx, hy) => (hx - x) ** 2 + (hy - y) ** 2 <= r * r, lines: [`${c.n.toLocaleString()} markers here`, "Click to zoom in"], actions: [] });
+      clusters++;
+    }
+    ctx.globalAlpha = 1;
+    this.clusterNote = `${clusters.toLocaleString()} cluster${clusters === 1 ? "" : "s"} and ${loose.toLocaleString()} single marker${loose === 1 ? "" : "s"} in view · click a cluster to zoom in`;
+  }
+  private clusterNote = "";
+  /** The "Show" choice that matches the config: places, rows, or rows clustered. */
+  private mapModeChoice(): "places" | "points" | "cluster" {
+    const mode = this.config.mapMode ?? DEFAULT_MAP_MODE;
+    return mode === "places" ? "places" : this.config.mapCluster === true ? "cluster" : "points";
+  }
+
   private drawMapBody(ctx: CanvasRenderingContext2D, frame: Frame): void {
     if (this.basemap === null) {
       const cached = basemapCaches.get("110m");
@@ -10918,6 +11021,11 @@ export class ChartCard {
         addMarkerPath(ctx, markerShape, px(lon), py(lat), Math.max(0.5, r));
       }
     };
+    this.mapClusters = [];
+    const clustered = this.config.mapCluster === true && result.places !== true && result.shown >= 30;
+    if (clustered) {
+      this.drawMapClusters(ctx, result, view, px, py, ui, drawAt, dotAlpha);
+    } else {
     const batched = result.shown > 5000;
     ctx.lineWidth = Math.max(0.75, 0.8 * ui);
     if (buckets === null) {
@@ -10946,6 +11054,7 @@ export class ChartCard {
           ctx.stroke();
         }
       }
+    }
     }
     ctx.globalAlpha = 1;
 
@@ -10982,6 +11091,7 @@ export class ChartCard {
     this.noteEl.textContent = `${result.shown.toLocaleString()} of ${result.total.toLocaleString()} points${sampled}${
       extras === "" ? "" : ` · ${extras}`
     }${detailNote === "" ? "" : ` · ${detailNote}`} — scroll to zoom · drag to pan · shift-drag to filter · double-click resets`;
+    if (clustered) this.noteEl.textContent += ` · ${this.clusterNote}`;
     // Many rows on few spots (trips between stations): one dot per place says more than a stack of dots.
     if (result.places !== true && result.shown >= 50) {
       const spots = new Set<string>();

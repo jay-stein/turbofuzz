@@ -155,3 +155,23 @@ test("the heat grid setting only shows for the heat view, and says how big each 
   await expect(grid).toBeVisible();
   await expect(grid).toContainText(/each cell ≈ [\d.]+° × [\d.]+°/);
 });
+
+test("many markers can be clustered into numbered circles, which split when the cluster is clicked", async ({ page }) => {
+  const lines = ["site,lat,lon"];
+  let seed = 5;
+  const rnd = (): number => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) - 0.5;
+  for (let i = 0; i < 400; i++) {
+    const city = i % 3 === 0 ? [-33.87, 151.2] : i % 3 === 1 ? [-37.81, 144.96] : [-31.95, 115.86];
+    lines.push(`s${i},${(city[0]! + rnd() * 0.3).toFixed(4)},${(city[1]! + rnd() * 0.3).toFixed(4)}`);
+  }
+  lines.push("lone,-12.46,130.84");
+  await openMap(page, lines.join("\n"), "many.csv");
+  const show = page.getByLabel("Map display mode");
+  await expect(show).toBeVisible();
+  await show.selectOption("cluster");
+  const card = page.locator(".map-card");
+  await expect(card).toContainText(/\d+ clusters? and \d+ single markers? in view/, { timeout: 15_000 });
+  await expect(card).toContainText("click a cluster to zoom in");
+  await show.selectOption("points");
+  await expect(card).not.toContainText("click a cluster to zoom in");
+});
