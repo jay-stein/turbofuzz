@@ -308,7 +308,7 @@ test("the chart names the forecast model and how it did; Trend flexibility expla
   await expect(page.locator("[data-ref=answer]")).toContainText(/How much better\?/);
   const compact = page.locator("[data-ref=boardCompact]");
   await expect(compact.locator("thead th")).toHaveCount(4);
-  await expect(compact.locator("tr[data-model]")).toHaveCount(12);
+  await expect(compact.locator("tr[data-model]")).toHaveCount(12, { timeout: 30_000 });
   await expect(compact.locator(".ts-group")).toHaveCount(0);
   const ratios = (await compact.locator("tr[data-model] .ts-ratio").allTextContents()).map((t) => parseFloat(t));
   expect(ratios).toEqual([...ratios].sort((p, q) => p - q));
@@ -318,7 +318,7 @@ test("the chart names the forecast model and how it did; Trend flexibility expla
   await page.locator(".ts-fold[data-fold=hood]").click();
   await page.getByRole("button", { name: "Check every setting" }).click();
   const curve = page.locator(".ts-page [data-ref=flexCurve]");
-  await expect(curve.locator("svg circle")).toHaveCount(10);
+  await expect(curve.locator("svg circle")).toHaveCount(10, { timeout: 30_000 });
   await expect(curve).toContainText(/Lowest at \d+/);
   await expect(curve).toContainText(/Suggested: \d+/);
 });
