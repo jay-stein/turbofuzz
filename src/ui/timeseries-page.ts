@@ -156,6 +156,7 @@ const TEMPLATE = `
           </div>
         </div>
         <div class="ts-hero-badge" data-ref="heroBadge" hidden></div>
+        <button type="button" class="ts-link ts-herofold" data-ref="heroFold" hidden aria-expanded="false"></button>
         <div class="ts-hero" data-ref="hero">
           <canvas data-ref="heroCanvas" aria-hidden="true"></canvas>
           <canvas data-ref="heroOverlay" tabindex="0" role="img" aria-label="Series chart"></canvas>
@@ -1276,6 +1277,11 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   function renderModePanel(): void {
     const s = snap as TsSnapshot, a = s.A, gr = a.g, c = s.cfg, info = s.table;
     for (const p of host.querySelectorAll<HTMLElement>("[data-panel]")) p.hidden = p.dataset.panel !== ui.mode;
+    // On Patterns the series chart folds to a strip so the patterns start under the tab bar; one click opens it.
+    const fold = ref("heroFold"), open = host.classList.contains("ts-chart-open");
+    fold.hidden = ui.mode !== "patterns";
+    fold.textContent = open ? "Fold the series chart ▴" : "Show the full series chart ▾";
+    fold.setAttribute("aria-expanded", String(open));
     for (const b of host.querySelectorAll<HTMLButtonElement>(".ts-modes [data-mode]")) { const on = b.dataset.mode === ui.mode; b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1; }
     for (const tb of host.querySelectorAll<HTMLElement>(".ts-tb")) tb.hidden = tb.dataset.for !== ui.mode;
     // Range presets follow the grain: days to months below a day, months to years above.
@@ -2462,6 +2468,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const opt = target.closest<HTMLButtonElement>(".ts-popover button[data-val]");
     if (opt && popKey && popKey !== "driver") { const key = popKey; closePop(); choose(key, opt.dataset.val ?? ""); return; }
     if (!target.closest(".ts-popover")) closePop();
+    if (target.closest("[data-ref=heroFold]")) { host.classList.toggle("ts-chart-open"); renderModePanel(); layout(); invalidate("ui", "stat", "nav"); return; }
     const mixedAct = target.closest<HTMLElement>("[data-mixed]");
     if (mixedAct && cfg) {
       const what = mixedAct.dataset.mixed;

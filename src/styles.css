@@ -14227,3 +14227,8 @@ button.qp-tile:hover {
 /* The mixed-series notice on the tabs after Explore: one slim line that opens the full notice. */
 .ts-mixed.ts-mixed-slim { padding: 6px 12px; align-items: center; gap: 8px; }
 .ts-mixed.ts-mixed-slim .ts-mixed-icon { width: 18px; height: 18px; font-size: var(--fs-sm); }
+
+/* Patterns: the series chart folds to a strip so the figures are what opens the tab. */
+.ts-herofold { align-self: flex-start; margin: 2px 0 0; }
+.ts-page[data-mode="patterns"]:not(.ts-chart-open) .ts-hero { height: 56px; }
+.ts-page[data-mode="patterns"]:not(.ts-chart-open) .ts-navrow { display: none; }

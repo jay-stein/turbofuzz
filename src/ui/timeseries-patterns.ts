@@ -129,7 +129,7 @@ export function patternsHtml(P: Patterns, what: string, gridWidth: number, caden
       figs.push(`<figure><figcaption>Month of year, seasonal index <small>· each month against the trend; 100 is a typical month, so growth does not make later months look strong</small></figcaption>${barsSvg(Yr.index, MONTHS.map((m) => m[0]), titles, half, 100)}</figure>`);
     } else figs.push(`<figure><figcaption>Month of year <small>· average ${what} per ${per} in each month (not adjusted for any trend)</small></figcaption>${barsSvg(Yr.mean, MONTHS.map((m) => m[0]), titles, half)}</figure>`);
   } else if (Wk) figs.push(`<figure><figcaption>Month of year</figcaption><p class="ts-patempty">Needs about a year of data to show; this table covers ${nf.format(Math.round(spanMs / DAY))} days.</p></figure>`);
-  if (D) figs.push(`<figure class="wide"><figcaption>Day of week by time of day <small>· average ${what} per ${D.noun}; darker is higher</small></figcaption>${heatSvg(D, wide)}</figure>`);
+  if (D) figs.unshift(`<figure class="wide"><figcaption>Day of week by time of day <small>· average ${what} per ${D.noun}; darker is higher</small></figcaption>${heatSvg(D, wide)}</figure>`);
   if (!D && !Wk && !Yr) figs.push(`<p class="ts-patempty">Rows come about every ${cadenceText(cadence)}, so there is no day or week to profile. Patterns need daily or finer data.</p>`);
   else if (!D) figs.unshift(`<p class="ts-patempty wide">Rows come about every ${cadenceText(cadence)}, so there is no time of day to profile.</p>`);
   return { facts: facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join(""), figures: figs.join("") };

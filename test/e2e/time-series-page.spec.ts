@@ -568,3 +568,15 @@ test("Decompose shows a typical week and a typical year, not just the wave laid 
   await expect(figs).toContainText("A typical year");
   await expect(figs.locator("figure").first().locator("text", { hasText: "Mon" })).toBeVisible();
 });
+
+test("Patterns opens with the series chart folded to a strip, heatmap first, and one click opens the chart", async ({ page }) => {
+  await openPage(page);
+  await page.locator(".ts-modes [data-mode=patterns]").click();
+  const fold = page.locator(".ts-page [data-ref=heroFold]");
+  await expect(fold).toContainText("Show the full series chart");
+  const hero = page.locator(".ts-page [data-ref=hero]");
+  expect((await hero.boundingBox())!.height).toBeLessThan(90);
+  await fold.click();
+  await expect(fold).toContainText("Fold the series chart");
+  await expect.poll(async () => (await hero.boundingBox())!.height).toBeGreaterThan(200);
+});
