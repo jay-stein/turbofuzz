@@ -121,6 +121,18 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
     controls.append(skipControl.field, levelField, afterControl.field, endField, endRowControl.field);
     body.append(controls);
 
+    // Which columns to read: every column the layout finds is ticked, and an unticked one is left out of the table.
+    const columnsBox = el("div", { class: "header-row-columns" });
+    const columnsHead = el("div", { class: "header-row-columns-head" });
+    const columnsTitle = el("span", { class: "chart-field-label" }, ["Columns to read"]);
+    const allCols = el("button", { class: "ghost small", type: "button" }, ["All"]);
+    const noCols = el("button", { class: "ghost small", type: "button" }, ["None"]);
+    const colFilter = el("input", { class: "text-input", type: "search", placeholder: "Find a column", "aria-label": "Find a column", spellcheck: "false" }) as HTMLInputElement;
+    columnsHead.append(columnsTitle, allCols, noCols, colFilter);
+    const columnList = el("div", { class: "header-row-column-list", role: "group", "aria-label": "Columns to read" });
+    columnsBox.append(columnsHead, columnList);
+    body.append(columnsBox);
+
     const grid = el("div", { class: "header-row-grid", role: "grid", "aria-label": "File preview" });
     const jump = el("div", { class: "header-row-jump" }, [el("span", { class: "chart-field-label" }, ["Look at"])]);
     const toTop = el("button", { class: "ghost small", type: "button" }, ["Top of the file"]);
@@ -147,6 +159,9 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
     const startEnd = input.current.dataEnd ?? "auto";
     let endMode: EndMode = typeof startEnd === "number" ? "row" : startEnd;
     let endRow = typeof startEnd === "number" ? startEnd : input.preview.length;
+    const skippedCols = new Set<number>(input.current.skipColumns ?? []);
+    let columnKey = "";
+    let allHeaders: string[] = [];
     let settled = false;
 
     const dataEnd = (): DataEnd => (endMode === "row" ? endRow : endMode);
@@ -155,6 +170,7 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
       headerRows: levels,
       ...(after > 0 ? { skipAfter: after } : {}),
       ...(endMode === "auto" ? {} : { dataEnd: dataEnd() }),
+      ...(skippedCols.size > 0 ? { skipColumns: [...skippedCols].sort((a, b) => a - b) } : {}),
     });
 
     const finish = (value: HeaderRowResult): void => {
@@ -176,6 +192,35 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
       endRowInput.value = String(endRow);
       endRowControl.field.classList.toggle("hidden", endMode !== "row");
       const detected = detectTable(input.preview, layout());
+      // The columns offered are the ones this layout finds before any are left out.
+      const found = detectTable(input.preview, { ...layout(), skipColumns: [] }).headers;
+      const key = found.join("\u0001");
+      if (key !== columnKey) {
+        columnKey = key;
+        allHeaders = found;
+        for (const index of [...skippedCols]) if (index >= found.length) skippedCols.delete(index);
+        columnList.replaceChildren();
+        found.forEach((name, index) => {
+          const box = el("input", { type: "checkbox", "data-column": String(index), "aria-label": name === "" ? `Column ${index + 1}` : name }) as HTMLInputElement;
+          box.addEventListener("change", () => {
+            if (box.checked) skippedCols.delete(index);
+            else skippedCols.add(index);
+            render();
+          });
+          const sample = input.preview.slice(skip + levels + after).map((row) => (row[index] ?? "").trim()).find((cell) => cell !== "");
+          columnList.append(
+            el("label", { class: "header-row-column", "data-name": (name || `Column ${index + 1}`).toLowerCase() }, [
+              box,
+              el("span", { class: "header-row-column-name" }, [name === "" ? `(blank ${index + 1})` : name]),
+              el("span", { class: "header-row-column-sample" }, [sample === undefined ? "" : clip(sample)]),
+            ]),
+          );
+        });
+        columnsBox.classList.toggle("hidden", found.length < 2);
+        colFilter.classList.toggle("hidden", found.length <= 12);
+      }
+      for (const box of columnList.querySelectorAll<HTMLInputElement>("input[type=checkbox]")) box.checked = !skippedCols.has(Number(box.dataset.column));
+      columnsTitle.textContent = `Columns to read (${(allHeaders.length - skippedCols.size).toLocaleString()} of ${allHeaders.length.toLocaleString()})`;
       const dataStart = skip + levels + after;
       const dataStop = dataStart + detected.rows.length;
       grid.replaceChildren();
@@ -301,6 +346,18 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
       endRow = Number.isFinite(value) ? Math.max(1, value) : 1;
       render();
       endRowInput.focus();
+    });
+    allCols.addEventListener("click", () => {
+      skippedCols.clear();
+      render();
+    });
+    noCols.addEventListener("click", () => {
+      allHeaders.forEach((_, index) => skippedCols.add(index));
+      render();
+    });
+    colFilter.addEventListener("input", () => {
+      const q = colFilter.value.trim().toLowerCase();
+      for (const row of columnList.querySelectorAll<HTMLElement>(".header-row-column")) row.classList.toggle("hidden", q !== "" && !(row.dataset.name ?? "").includes(q));
     });
     closeButton.addEventListener("click", () => finish(null));
     cancel.addEventListener("click", () => finish(null));

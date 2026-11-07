@@ -34,6 +34,8 @@ export interface HeaderLayout {
   skipAfter?: number;
   /** Where the data stops. Default "auto". */
   dataEnd?: DataEnd;
+  /** Columns of the table (0-based, after the header is read) to leave out. Default none. */
+  skipColumns?: number[];
 }
 
 const MAX_SCAN_ROWS = 25;
@@ -259,8 +261,21 @@ function applyLayout(grid: readonly string[][], layout: HeaderLayout): DetectedT
  * Falls back to the first non-empty row as a single header when there is no
  * usable signal, matching the previous "first row is header" behaviour.
  */
+/** The same table without the columns the layout leaves out. */
+function withoutColumns(table: DetectedTable, skip: readonly number[] | undefined): DetectedTable {
+  if (skip === undefined || skip.length === 0) return table;
+  const drop = new Set(skip);
+  const keep: number[] = [];
+  for (let i = 0; i < table.headers.length; i++) if (!drop.has(i)) keep.push(i);
+  return {
+    ...table,
+    headers: keep.map((i) => table.headers[i]!),
+    rows: table.rows.map((row) => keep.map((i) => row[i] ?? "")),
+  };
+}
+
 export function detectTable(grid: readonly string[][], layout?: HeaderLayout): DetectedTable {
-  if (layout !== undefined) return applyLayout(grid, layout);
+  if (layout !== undefined) return withoutColumns(applyLayout(grid, layout), layout.skipColumns);
   const empty: DetectedTable = {
     skipRows: 0,
     headerRows: 0,

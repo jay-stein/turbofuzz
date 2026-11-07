@@ -14192,3 +14192,32 @@ button.qp-tile:hover {
 .chart-ref-hint { display: block; margin-top: 4px; }
 .chart-fit { display: flex; flex-direction: column; gap: 4px; }
 .chart-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); cursor: pointer; }
+
+/* Import settings: which columns to read. */
+.header-row-columns { margin: 10px 0; }
+.header-row-columns.hidden { display: none; }
+.header-row-columns-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.header-row-columns-head .text-input { margin-left: auto; max-width: 180px; }
+.header-row-column-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 2px 12px;
+  max-height: 150px;
+  overflow: auto;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.header-row-column { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: var(--fs-sm); cursor: pointer; }
+.header-row-column.hidden { display: none; }
+.header-row-column-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header-row-column-sample { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+
+/* The header note on the Overview asks to be looked at: a wrong guess here spoils everything after it. */
+.overview-header-note .ghost {
+  background: var(--qa-warn-soft);
+  border-color: var(--qa-warn-border);
+  color: var(--text);
+  font-weight: 600;
+}
+.overview-header-note .ghost:hover { border-color: var(--qa-warn); }

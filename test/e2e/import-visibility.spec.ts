@@ -57,3 +57,17 @@ test("a few -9 cells in several columns are named as a missing-value code, with 
   await expect(page.locator(".next-step-card", { hasText: "-9 looks like a missing-value code" })).toHaveCount(0, { timeout: 15_000 });
   await expect(page.locator('.health-tile[data-kind="empties"]')).toContainText("2 of 4", { timeout: 15_000 });
 });
+
+test("Import settings can leave columns out, and the Overview note says so", async ({ page }) => {
+  const rows = ["id,name,notes,score"];
+  for (let i = 1; i <= 30; i++) rows.push(`${i},n${i},remark ${i},${i * 3}`);
+  await load(page, "wide.csv", rows.join("\n"));
+  await page.getByRole("button", { name: /Change how it was read/ }).click();
+  const dialog = page.locator(".header-row-modal");
+  await expect(dialog.locator(".header-row-columns")).toContainText("4 of 4");
+  await dialog.getByRole("checkbox", { name: "notes" }).uncheck();
+  await expect(dialog.locator(".header-row-columns")).toContainText("3 of 4");
+  await dialog.getByRole("button", { name: "Apply and reload" }).click();
+  await expect(page.locator(".overview-facts")).toContainText("30 rows × 3 columns", { timeout: 15_000 });
+  await expect(page.locator(".overview-header-note")).toContainText("1 column left out");
+});

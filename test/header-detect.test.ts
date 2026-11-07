@@ -231,3 +231,11 @@ test("the end of the data can be set by hand", () => {
   assert.equal(detectTable(grid, { ...base, dataEnd: 2 }).rows.length, 0);
   assert.equal(detectTable(grid, base).rows.length, 3);
 });
+
+test("columns can be left out of the table by position, after the header is read", () => {
+  const grid = [["Title"], ["id", "name", "notes", "score"], ["1", "a", "x", "10"], ["2", "b", "y", "20"]];
+  const t = detectTable(grid, { skipRows: 1, headerRows: 1, skipColumns: [2] });
+  assert.deepEqual(t.headers, ["id", "name", "score"]);
+  assert.deepEqual(t.rows, [["1", "a", "10"], ["2", "b", "20"]]);
+  assert.deepEqual(detectTable(grid, { skipRows: 1, headerRows: 1 }).headers, ["id", "name", "notes", "score"]);
+});

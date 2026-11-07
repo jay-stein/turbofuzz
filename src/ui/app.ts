@@ -528,6 +528,8 @@ function describeHeader(preview: string[][], layout: HeaderLayout | null, whole:
   if (t.skipRows > 0) left.push(`${rows(t.skipRows)} above it skipped`);
   if (t.skipAfter > 0) left.push(`${rows(t.skipAfter)} under it skipped`);
   if (whole && t.footerRows > 0) left.push(`${rows(t.footerRows)} of notes after the data left out`);
+  const dropped = layout?.skipColumns?.length ?? 0;
+  if (dropped > 0) left.push(`${dropped} column${dropped === 1 ? "" : "s"} left out`);
   return `${head}${left.length > 0 ? ` ${left.join("; ")}.` : t.headerRows > 0 && t.skipRows === 0 ? " Nothing skipped." : ""}`;
 }
 
@@ -5745,9 +5747,10 @@ export class App {
           : end === "blank"
             ? ", data ends at the first blank row"
             : `, data ends at row ${end}`;
+    const cols = (layout.skipColumns?.length ?? 0) > 0 ? `, ${layout.skipColumns!.length} column${layout.skipColumns!.length === 1 ? "" : "s"} left out` : "";
     return layout.headerRows === 0
-      ? `none, as chosen: ${rows(layout.skipRows)} skipped, columns named automatically${ending}`
-      : `chosen by hand: ${rows(layout.skipRows)} skipped, ${rows(layout.headerRows)} of header${under}${ending}`;
+      ? `none, as chosen: ${rows(layout.skipRows)} skipped, columns named automatically${ending}${cols}`
+      : `chosen by hand: ${rows(layout.skipRows)} skipped, ${rows(layout.headerRows)} of header${under}${ending}${cols}`;
   }
 
   /** Remembers where the table that just loaded came from; a re-read of the same source keeps its files. */
