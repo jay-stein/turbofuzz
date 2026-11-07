@@ -19,7 +19,7 @@ import {
 import { isNullWithPolicy, EMPTY_NULL_POLICY, type NullPolicy } from "../parse/null-tokens.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { detectSuggestions, type ColumnSuggestion } from "./suggestions.js";
-import { detectHiddenZeros } from "./hidden-missing.js";
+import { detectHiddenZeros, detectNegativeCodes } from "./hidden-missing.js";
 import { spellingVariantsFromRaw, type VariantSummary } from "./variants.js";
 import { measureConformance, type Conformance } from "./conformance.js";
 import { summariseDateFormats, type DateFormatSummary } from "./date-formats.js";
@@ -336,6 +336,16 @@ export class ColumnData {
       );
       if (zeros !== null && !column.suggestions.some((s) => s.kind === "sentinel" && s.value === zeros.value)) {
         column.suggestions.push(zeros);
+      }
+      // A rare negative code (-9 in 118 of 59,000 rows) can fall outside the sample the suggestions are drawn from.
+      const codes = detectNegativeCodes(
+        inferred.type,
+        raw,
+        (value) => isNullWithPolicy(value, nullPolicy),
+        column.numberLocale,
+      );
+      if (codes !== null && !column.suggestions.some((s) => s.kind === "sentinel" && s.value === codes.value)) {
+        column.suggestions.push(codes);
       }
     }
     // Suggestion counts come from a sample; make the type-conflict count exact.

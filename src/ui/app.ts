@@ -11,7 +11,7 @@ import {
 import { decompressBzip2 } from "../parse/bz2.js";
 import { decodeText } from "../parse/encoding.js";
 import { parseDelimited } from "../parse/parse.js";
-import { detectTable, type HeaderLayout } from "../parse/header-detect.js";
+import { detectTable, statedMissingCodes, type HeaderLayout } from "../parse/header-detect.js";
 import { openHeaderRowDialog } from "./header-row-dialog.js";
 import { openProtectDialog, type ProtectMode } from "./protect-dialog.js";
 import { openFixPreview } from "./fix-preview-dialog.js";
@@ -6567,7 +6567,11 @@ export class App {
     if (source !== null) {
       try {
         const preview = await source.readPreview();
-        if (this.importSource === source) note = describeHeader(preview, source.layout, source.complete === true || preview.length < HEADER_PREVIEW_ROWS);
+        if (this.importSource === source) {
+          note = describeHeader(preview, source.layout, source.complete === true || preview.length < HEADER_PREVIEW_ROWS);
+          // The notes above the table sometimes say what a code means ("A value of '-9' is used for a missing value").
+          this.overview?.setStatedCodes(statedMissingCodes(preview.slice(0, detectTable(preview, source.layout ?? undefined).skipRows)));
+        }
       } catch {
         note = null;
       }

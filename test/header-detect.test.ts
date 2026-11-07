@@ -239,3 +239,11 @@ test("columns can be left out of the table by position, after the header is read
   assert.deepEqual(t.rows, [["1", "a", "10"], ["2", "b", "20"]]);
   assert.deepEqual(detectTable(grid, { skipRows: 1, headerRows: 1 }).headers, ["id", "name", "notes", "score"]);
 });
+
+import { statedMissingCodes } from "../src/parse/header-detect.js";
+
+test("a code the file's own notes say means missing is read from the rows above the table", () => {
+  assert.deepEqual(statedMissingCodes([["Note: A value of '-9' is used for a missing/unknown value."]]), ["-9"]);
+  assert.deepEqual(statedMissingCodes([["999 = unknown"], ["Missing values are coded as -99"]]).sort(), ["-99", "999"]);
+  assert.deepEqual(statedMissingCodes([["Australian Road Deaths Database"], ["(Data current to September 2026)"]]), []);
+});

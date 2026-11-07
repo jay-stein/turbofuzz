@@ -240,6 +240,8 @@ export function pickNextSteps(
   stats: DatasetStats,
   rowCount: number,
   archetype: ArchetypeId = "general",
+  /** Codes the file's own notes say mean "missing". */
+  statedCodes: readonly string[] = [],
 ): NextStep[] {
   const rules: NextStep[] = [];
 
@@ -255,13 +257,15 @@ export function pickNextSteps(
       codes.set(suggestion.value, entry);
     }
   }
-  const topCode = [...codes.entries()].sort((a, b) => b[1].cells - a[1].cells)[0];
+  const topCode = [...codes.entries()].sort((a, b) => Number(statedCodes.includes(b[0])) - Number(statedCodes.includes(a[0])) || b[1].cells - a[1].cells)[0];
   if (topCode !== undefined) {
     const [value, { names, cells }] = topCode;
     const where = names.length <= 3 ? names.join(", ") : `${names.slice(0, 3).join(", ")} and ${names.length - 3} more`;
     rules.push({
       id: "sentinels",
-      text: `${value} looks like a missing-value code, not a measurement: ${cells.toLocaleString()} ${plural(cells, "cell")} in ${where}`,
+      text: statedCodes.includes(value)
+        ? `The file's own notes say ${value} means missing: ${cells.toLocaleString()} ${plural(cells, "cell")} in ${where}`
+        : `${value} looks like a missing-value code, not a measurement: ${cells.toLocaleString()} ${plural(cells, "cell")} in ${where}`,
       button: `Blank ${value}`,
       score: Number.MAX_SAFE_INTEGER,
       action: { kind: "blankTokens", tokens: [value] },
@@ -494,6 +498,7 @@ export class Overview {
   ): void {
     this.columns = loaded.columns;
     this.rowCount = loaded.rowCount;
+    this.lastStats = loaded.stats;
     this.missingnessChart?.dispose();
     this.missingnessChart = null;
     clear(this.root);
@@ -590,6 +595,16 @@ export class Overview {
   }
 
   private headerNote: string | null = null;
+  private statedCodes: string[] = [];
+  private lastStats: DatasetStats | null = null;
+
+  /** Codes the file's own notes say mean missing; the next steps name them as such. */
+  setStatedCodes(codes: string[]): void {
+    if (codes.join("|") === this.statedCodes.join("|")) return;
+    this.statedCodes = codes;
+    const steps = this.root.querySelector<HTMLElement>(".overview-next-steps");
+    if (steps !== null && this.lastStats !== null) steps.replaceWith(this.buildNextStepsFor(this.columns, this.lastStats, this.rowCount));
+  }
 
   /** How the header row and the table's edges were found, in a line under the title (null hides it). */
   setHeaderNote(text: string | null): void {
@@ -607,6 +622,7 @@ export class Overview {
     const tiles = this.root.querySelector<HTMLElement>(".health-tiles, .overview-clear");
     if (tiles === null) return;
     this.columns = columns;
+    this.lastStats = stats;
     tiles.replaceWith(this.buildHealthTiles(columns, stats));
     // What the next steps offer follows what was just fixed (a code blanked, duplicates dropped).
     const steps = this.root.querySelector<HTMLElement>(".overview-next-steps");
@@ -751,7 +767,7 @@ export class Overview {
     const section = el("section", { class: "overview-section overview-next-steps" });
     section.append(el("h2", { class: "overview-heading" }, ["Next steps"]));
     const list = el("div", { class: "next-step-list" });
-    for (const step of pickNextSteps(columns, stats, rowCount, this.archetype)) {
+    for (const step of pickNextSteps(columns, stats, rowCount, this.archetype, this.statedCodes)) {
       const card = el("div", { class: "next-step-card" });
       card.append(el("span", { class: "next-step-text" }, [step.text]));
       const button = el(

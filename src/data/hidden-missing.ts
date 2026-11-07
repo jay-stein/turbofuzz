@@ -61,6 +61,38 @@ export function detectHiddenZeros(
   };
 }
 
+/**
+ * A negative code such as -9 in a numeric column, counted over every row (a sample misses a code that is a fraction of a percent
+ * of a big table). It counts as a code only when no other value in the column is negative, so a column that really goes below
+ * zero (a temperature, a balance) is left alone.
+ */
+export function detectNegativeCodes(
+  type: ColumnType,
+  raw: readonly string[],
+  isNull: (value: string) => boolean,
+  locale: NumberLocale,
+): Sentinel | null {
+  if (type !== "integer" && type !== "number") return null;
+  const codes = [...NUMERIC_SENTINEL_VALUES].filter((code) => Number(code) < 0);
+  const counts = new Map<string, number>(codes.map((code) => [code, 0]));
+  let otherNegative = false, present = 0;
+  for (let i = 0; i < raw.length && !otherNegative; i++) {
+    const value = raw[i]!;
+    if (isNull(value)) continue;
+    present++;
+    const trimmed = value.trim();
+    if (counts.has(trimmed)) { counts.set(trimmed, counts.get(trimmed)! + 1); continue; }
+    if (trimmed.charCodeAt(0) === 45 || trimmed.charCodeAt(0) === 8722) {
+      const n = parseNumber(trimmed, locale);
+      if (Number.isFinite(n) && n < 0) otherNegative = true;
+    }
+  }
+  if (otherNegative) return null;
+  const best = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  if (best === undefined || best[1] < 3 || present === 0) return null;
+  return { kind: "sentinel", value: best[0], count: best[1], ratio: best[1] / present, sampled: present, hint: "a code set apart from the real values" };
+}
+
 /** Maps a cell to a placeholder date label, or null when it is an ordinary value. */
 export function placeholderDateLabel(value: string): string | null {
   const parsed = classifyDateValue(value.trim());

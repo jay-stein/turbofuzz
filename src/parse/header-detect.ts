@@ -261,6 +261,36 @@ function applyLayout(grid: readonly string[][], layout: HeaderLayout): DetectedT
  * Falls back to the first non-empty row as a single header when there is no
  * usable signal, matching the previous "first row is header" behaviour.
  */
+const NUM = String.raw`['"“‘]?(-?\d+(?:\.\d+)?)['"”’]?`;
+const MISSING_WORDS = String.raw`(?:missing|unknown|not (?:stated|known|available|recorded|applicable)|no data|n/?a)`;
+const STATED_CODE_PATTERNS: readonly RegExp[] = [
+  // "A value of '-9' is used for a missing/unknown value."
+  new RegExp(String.raw`(?:values?|codes?)\s+(?:of\s+)?${NUM}\s+(?:is|are)\s+used\s+(?:for|to\s+\w+)\s+(?:a\s+)?${MISSING_WORDS}`, "i"),
+  // "-9 = unknown", "999 means missing"
+  new RegExp(String.raw`${NUM}\s*(?:=|means|:|-|–)\s*${MISSING_WORDS}\b`, "i"),
+  // "Missing values are coded as -9"
+  new RegExp(String.raw`${MISSING_WORDS}[^.]{0,40}?(?:coded|recorded|represented|shown|entered)\s+as\s+${NUM}`, "i"),
+];
+
+/**
+ * A number the file's own notes (the rows above the table) say stands for "missing": "A value of '-9' is used for a missing
+ * value." Read from the skipped rows only, so a data cell is never mistaken for a note.
+ */
+export function statedMissingCodes(skipped: readonly (readonly string[])[]): string[] {
+  const found = new Set<string>();
+  for (const row of skipped) {
+    for (const cell of row) {
+      const text = cell.trim();
+      if (text.length < 8 || text.length > 300) continue;
+      for (const pattern of STATED_CODE_PATTERNS) {
+        const m = pattern.exec(text);
+        if (m !== null && m[1] !== undefined) found.add(m[1]);
+      }
+    }
+  }
+  return [...found];
+}
+
 /** The same table without the columns the layout leaves out. */
 function withoutColumns(table: DetectedTable, skip: readonly number[] | undefined): DetectedTable {
   if (skip === undefined || skip.length === 0) return table;

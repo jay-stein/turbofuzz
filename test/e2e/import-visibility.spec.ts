@@ -71,3 +71,12 @@ test("Import settings can leave columns out, and the Overview note says so", asy
   await expect(page.locator(".overview-facts")).toContainText("30 rows × 3 columns", { timeout: 15_000 });
   await expect(page.locator(".overview-header-note")).toContainText("1 column left out");
 });
+
+test("a missing-value code stated in the file's own notes is named as such, even when it is rare in a big column", async ({ page }) => {
+  const rows = ["Road deaths", "Note: A value of '-9' is used for a missing/unknown value.", "id,age,speed"];
+  for (let i = 1; i <= 3000; i++) rows.push(`${i},${i % 1000 === 0 ? -9 : 18 + (i % 70)},${40 + (i % 8) * 10}`);
+  await load(page, "stated.csv", rows.join("\n"));
+  const step = page.locator(".next-step-card", { hasText: "The file's own notes say -9 means missing" });
+  await expect(step).toBeVisible({ timeout: 10_000 });
+  await expect(step).toContainText("3 cells in age");
+});
