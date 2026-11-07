@@ -518,7 +518,7 @@ interface SourceFacts {
   sampled: string | null;
 }
 
-const HEADER_PREVIEW_ROWS = 60;
+const HEADER_PREVIEW_ROWS = 200;
 
 /** Copies bytes into a standalone ArrayBuffer that can be transferred to the worker. */
 function bytesToBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -548,7 +548,7 @@ function textHandle(text: string, name: string): SourceHandle {
 }
 
 const MULTI_FILE_HEADER_NOTE =
-  "Shown for the first file. The same rows to skip and header rows apply to every file, so they need a consistent layout.";
+  "Shown for the first file. The same rows to skip, header rows and end of data apply to every file, so they need a consistent layout.";
 const HEADER_PREVIEW_BYTES = 1_000_000;
 
 export class App {
@@ -1132,10 +1132,10 @@ export class App {
       {
         class: "ghost small nav-action header-row-button",
         type: "button",
-        title: "Choose which row holds the column names, or how many rows to skip",
-        "aria-label": "Set header row",
+        title: "Override where the table starts and ends: header row, rows to skip, footnotes to leave out",
+        "aria-label": "Fine-tune import",
       },
-      ["Header row…"],
+      ["Fine-tune import…"],
     ) as HTMLButtonElement;
     this.headerRowButton.disabled = true;
     this.headerRowButton.addEventListener("click", () => void this.openHeaderRowOverride());
@@ -1160,7 +1160,7 @@ export class App {
       openMenu(actionsMenu, [
         { label: "Convert types", action: () => this.convertTypesButton.click() },
         {
-          label: "Header row…",
+          label: "Fine-tune import…",
           title: this.headerRowButton.title,
           disabled: this.headerRowButton.disabled,
           action: () => this.headerRowButton.click(),
@@ -1837,7 +1837,7 @@ export class App {
     const result = await openHeaderRowDialog({
       name: files[0].name,
       preview,
-      current: current ?? { skipRows: auto.skipRows, headerRows: auto.headerRows },
+      current: current ?? { skipRows: auto.skipRows, headerRows: auto.headerRows, skipAfter: auto.skipAfter },
       overridden: current !== null,
       note: MULTI_FILE_HEADER_NOTE,
     });
@@ -5695,9 +5695,19 @@ export class App {
   private headerText(layout: HeaderLayout | undefined): string {
     if (layout === undefined) return this.headersCheckbox.checked ? "found automatically" : "none: columns named automatically";
     const rows = (n: number): string => `${n} row${n === 1 ? "" : "s"}`;
+    const under = (layout.skipAfter ?? 0) > 0 ? `, ${rows(layout.skipAfter ?? 0)} skipped under it` : "";
+    const end = layout.dataEnd ?? "auto";
+    const ending =
+      end === "auto"
+        ? ""
+        : end === "file"
+          ? ", data to the last row"
+          : end === "blank"
+            ? ", data ends at the first blank row"
+            : `, data ends at row ${end}`;
     return layout.headerRows === 0
-      ? `none, as chosen: ${rows(layout.skipRows)} skipped, columns named automatically`
-      : `chosen by hand: ${rows(layout.skipRows)} skipped, ${rows(layout.headerRows)} of header`;
+      ? `none, as chosen: ${rows(layout.skipRows)} skipped, columns named automatically${ending}`
+      : `chosen by hand: ${rows(layout.skipRows)} skipped, ${rows(layout.headerRows)} of header${under}${ending}`;
   }
 
   /** Remembers where the table that just loaded came from; a re-read of the same source keeps its files. */
@@ -6522,7 +6532,7 @@ export class App {
     const result = await openHeaderRowDialog({
       name: source.name,
       preview,
-      current: source.layout ?? { skipRows: auto.skipRows, headerRows: auto.headerRows },
+      current: source.layout ?? { skipRows: auto.skipRows, headerRows: auto.headerRows, skipAfter: auto.skipAfter },
       overridden: source.layout !== null,
       ...(source.note === undefined ? {} : { note: source.note }),
     });

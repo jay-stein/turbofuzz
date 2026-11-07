@@ -11950,6 +11950,22 @@ body:has(.modal-overlay) .hint-callout {
   opacity: 0.5;
 }
 
+.header-row-ignored {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
+.header-row-end {
+  flex: none;
+  visibility: hidden;
+  padding: 0 6px;
+}
+
+.header-row-line:hover .header-row-end,
+.header-row-line:focus-within .header-row-end {
+  visibility: visible;
+}
+
 .header-row-header {
   background: var(--accent-soft);
   font-weight: 700;

@@ -221,8 +221,8 @@ export function openMultiFilePreflight(
     const footer = el("div", { class: "clean-footer" });
     const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
     const confirm = el("button", { class: "primary", type: "button" }, ["Append rows"]);
-    const headerRow = el("button", { class: "ghost", type: "button" }, ["Header row…"]);
-    headerRow.title = "Choose where the header is. One setting applies to every file.";
+    const headerRow = el("button", { class: "ghost", type: "button" }, ["Fine-tune import…"]);
+    headerRow.title = "Choose where the table starts and ends. One setting applies to every file.";
     footer.append(cancel, headerRow, el("span", { class: "grow" }), confirm);
     modal.append(body, footer);
 

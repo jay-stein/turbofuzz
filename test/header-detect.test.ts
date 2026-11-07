@@ -146,3 +146,88 @@ test("a user layout overrides the automatic guess", () => {
   const clamped = detectTable(grid, { skipRows: 99, headerRows: 1 });
   assert.equal(clamped.rows.length, 0);
 });
+
+const statcan = (): string[][] => [
+  ["Usual hours worked by industry, monthly 1 2"],
+  ["Frequency: Monthly"],
+  [""],
+  ["Geography 3", "Canada", "", "", "", ""],
+  ["Gender 5 6", "Total - Gender", "", "", "", ""],
+  ["Industry 8", "June 2026", "July 2026", "August 2026", "September 2026", "October 2026"],
+  ["", "Hours", "", "", "", ""],
+  ["Total employed, all industries 9", "35.8", "36.0", "36.0", "35.6", "35.4"],
+  ["Agriculture 11", "42.7", "42.3", "41.9", "42.4", "42.6"],
+  ["Public administration", "37.1", "37.1", "37.3", "36.7", "36.6"],
+  [""],
+  [""],
+  ["Footnotes:"],
+  ["1", "Estimates below a threshold are suppressed."],
+  ["2", 'Caution when "comparing", over time', "1,500", "x"],
+  [""],
+  ["How to cite: Statistics Canada. Table 14-10-0034-01"],
+  ["https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1410003401"],
+];
+
+test("metadata lines are not header levels, a units line is skipped, the footnotes are cut", () => {
+  const detected = detectTable(statcan());
+  assert.equal(detected.skipRows, 5);
+  assert.equal(detected.headerRows, 1);
+  assert.equal(detected.skipAfter, 1);
+  assert.deepEqual(detected.headers, [
+    "Industry 8",
+    "June 2026",
+    "July 2026",
+    "August 2026",
+    "September 2026",
+    "October 2026",
+  ]);
+  assert.equal(detected.rows.length, 3);
+  assert.equal(detected.rows[2][0], "Public administration");
+  assert.ok(detected.footerRows >= 4);
+});
+
+test("a block after a blank row with the table's columns still filled is kept", () => {
+  const grid = [
+    ["Region", "Sales", "Units"],
+    ["North", "10", "2"],
+    ["", "", ""],
+    ["South", "20", "3"],
+    ["East", "30", "4"],
+  ];
+  assert.equal(detectTable(grid).rows.length, 4);
+});
+
+test("a lone sparse last record is kept when nothing marks it as a footer", () => {
+  const grid = [
+    ["Region", "Sales", "Units", "Share"],
+    ["North", "10", "2", "5"],
+    ["South", "20", "3", "6"],
+    ["Other", "", "", ""],
+  ];
+  const detected = detectTable(grid);
+  assert.equal(detected.rows.length, 3);
+  assert.equal(detected.footerRows, 0);
+});
+
+test("a Source line after the data ends the table without a blank row", () => {
+  const grid = [
+    ["Region", "Sales", "Units", "Share"],
+    ["North", "10", "2", "5"],
+    ["South", "20", "3", "6"],
+    ["Source: the survey"],
+  ];
+  const detected = detectTable(grid);
+  assert.equal(detected.rows.length, 2);
+  assert.equal(detected.footerRows, 1);
+});
+
+test("the end of the data can be set by hand", () => {
+  const grid = statcan();
+  const base = { skipRows: 5, headerRows: 1, skipAfter: 1 };
+  assert.equal(detectTable(grid, { ...base, dataEnd: "file" }).rows.length, 11);
+  assert.equal(detectTable(grid, { ...base, dataEnd: "blank" }).rows.length, 3);
+  // Record numbers count from the top of the file: rows 1-9 leave two data rows.
+  assert.equal(detectTable(grid, { ...base, dataEnd: 9 }).rows.length, 2);
+  assert.equal(detectTable(grid, { ...base, dataEnd: 2 }).rows.length, 0);
+  assert.equal(detectTable(grid, base).rows.length, 3);
+});

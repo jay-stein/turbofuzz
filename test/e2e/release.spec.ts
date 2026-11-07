@@ -247,7 +247,7 @@ test("the header row can be chosen by hand and reloads the table", async ({ page
   await page.getByRole("tab", { name: "Table" }).click();
   await expect(page.locator(".th-label")).toHaveText(["Region", "Sales"]);
 
-  await page.getByRole("button", { name: "Set header row" }).click();
+  await page.getByRole("button", { name: "Fine-tune import" }).click();
   await expect(page.locator(".header-row-modal")).toBeVisible();
   // Treat row 3 (North, 10) as the header instead of the guess.
   await page.locator(".header-row-line").nth(2).click();
@@ -258,6 +258,59 @@ test("the header row can be chosen by hand and reloads the table", async ({ page
   await page.getByRole("tab", { name: "Table" }).click();
   await expect(page.locator(".th-label")).toHaveText(["North", "10"]);
   await expect(page.locator(".table-rows .tr")).toHaveCount(2);
+
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test("a statistics-agency file loads without its notes and the end can be fine-tuned", async ({ page }) => {
+  const { consoleErrors, pageErrors } = collectErrors(page);
+  await page.goto("/");
+  const csv = [
+    '"Usual hours worked by industry 1"',
+    '"Frequency: Monthly"',
+    "",
+    '"Geography 3","Canada",,,',
+    '"Gender 5 6","Total - Gender",,,',
+    '"Industry 8","June 2026","July 2026","August 2026","September 2026"',
+    ',"Hours",,,',
+    '"Total employed","35.8","36.0","36.0","35.6"',
+    '"Agriculture 11","42.7","42.3","41.9","42.4"',
+    '"Utilities","38.2","38.2","38.3","38.5"',
+    '"Public administration","37.1","37.1","37.3","36.7"',
+    "",
+    "",
+    '"Footnotes:"',
+    '1,"Estimates below a threshold are suppressed."',
+    '2,"Caution when comparing over time."',
+    "",
+  ].join("\n");
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "statcan.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(csv),
+  });
+  await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("tab", { name: "Table" }).click();
+  await expect(page.locator(".th-label")).toHaveText([
+    "Industry 8",
+    "June 2026",
+    "July 2026",
+    "August 2026",
+    "September 2026",
+  ]);
+  await expect(page.locator(".table-rows .tr")).toHaveCount(4);
+
+  await page.getByRole("button", { name: "Fine-tune import" }).click();
+  await expect(page.locator(".header-row-modal")).toBeVisible();
+  await expect(page.locator(".header-row-ignored").first()).toBeVisible();
+  // Keep data only up to the Utilities row (row 9 of the parsed rows) with the per-row button.
+  await page.locator(".header-row-line").nth(8).hover();
+  await page.locator(".header-row-line").nth(8).getByRole("button", { name: "End here" }).click();
+  await page.getByRole("button", { name: "Apply and reload" }).click();
+  await expect(page.locator(".header-row-modal")).toHaveCount(0);
+  await page.getByRole("tab", { name: "Table" }).click();
+  await expect(page.locator(".table-rows .tr")).toHaveCount(3);
 
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
@@ -276,7 +329,7 @@ test("appended files share one header-row choice", async ({ page }) => {
     file("feb.csv", ["Monthly export,", "id,value", "3,30", ""]),
   ]);
   await expect(page.locator(".multi-file-modal")).toBeVisible();
-  await page.locator(".multi-file-modal").getByRole("button", { name: "Header row…" }).click();
+  await page.locator(".multi-file-modal").getByRole("button", { name: "Fine-tune import…" }).click();
   await expect(page.locator(".header-row-modal")).toContainText("every file");
   await page.locator(".header-row-line").nth(1).click();
   await page.getByRole("button", { name: "Apply and reload" }).click();
@@ -305,7 +358,7 @@ test("the header row can be chosen for a compressed file", async ({ page }) => {
   await page.getByRole("tab", { name: "Table" }).click();
   await expect(page.locator(".th-label")).toHaveText(["Region", "Sales"]);
 
-  await page.getByRole("button", { name: "Set header row" }).click();
+  await page.getByRole("button", { name: "Fine-tune import" }).click();
   await page.locator(".header-row-line").nth(2).click();
   await page.getByRole("button", { name: "Apply and reload" }).click();
   await expect(page.locator(".header-row-modal")).toHaveCount(0);
@@ -331,7 +384,7 @@ test("a zip of files can be appended with one shared header-row choice", async (
   });
   await page.getByRole("button", { name: /Import all 2 files/ }).click();
   await expect(page.locator(".multi-file-modal")).toBeVisible();
-  await page.locator(".multi-file-modal").getByRole("button", { name: "Header row…" }).click();
+  await page.locator(".multi-file-modal").getByRole("button", { name: "Fine-tune import…" }).click();
   await page.locator(".header-row-line").nth(1).click();
   await page.getByRole("button", { name: "Apply and reload" }).click();
   await page.locator(".multi-file-modal .primary").click();
