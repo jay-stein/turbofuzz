@@ -730,6 +730,17 @@ function transformLines(
           `df = df.melt(id_vars=[${ids}], value_vars=[${values}], var_name=${varName}, value_name=${valueName})`,
         );
         if (op.dropEmpty === true) lines.push(`df = df.dropna(subset=[${valueName}])`);
+        if (op.strip !== undefined && op.strip.text !== "") {
+          lines.push(`df[${varName}] = df[${varName}].str.replace(${py(op.strip.text)}, "", regex=${op.strip.regex ? "True" : "False"}).str.strip()`);
+        }
+        break;
+      }
+      case "spread": {
+        const ids = op.index.filter((index) => index !== op.key && index !== op.value && names[index] !== undefined).map((index) => py(names[index])).join(", ");
+        lines.push(
+          `df = df.pivot_table(index=[${ids}], columns=${py(names[op.key] ?? "")}, values=${py(names[op.value] ?? "")}, aggfunc=${py(op.aggregate)}).reset_index()`,
+        );
+        lines.push("df.columns.name = None");
         break;
       }
       case "aggregate": {

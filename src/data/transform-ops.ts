@@ -39,6 +39,10 @@ export type ImputeStrategy =
   | { kind: "forward" }
   | { kind: "backward" };
 
+export type SpreadAggregate = "first" | "sum" | "mean" | "min" | "max" | "count";
+export const SPREAD_AGGREGATES: readonly SpreadAggregate[] = ["first", "sum", "mean", "min", "max", "count"];
+export const MAX_SPREAD_COLUMNS = 500;
+
 export type TransformOp =
   | { kind: "dedupe"; keep: DedupeKeep }
   | { kind: "drop"; column: number }
@@ -54,6 +58,20 @@ export type TransformOp =
       valueName: string;
       /** Make no row for an empty cell. */
       dropEmpty?: boolean;
+      /** Text (or a pattern) removed from each old header, so "kwh_2019" becomes "2019". */
+      strip?: { text: string; regex: boolean };
+    }
+  | {
+      /** Long to wide: the values of one column become the headers of new columns, filled from another column. */
+      kind: "spread";
+      /** Columns that say which row a value belongs to. */
+      index: number[];
+      key: number;
+      value: number;
+      /** How rows that share an id and a header are combined. */
+      aggregate: SpreadAggregate;
+      /** The new headers, in order. Left out, they are read from the data in order of first appearance. */
+      keys?: string[];
     }
   | {
       /** Multi-dimension, multi-measure group-by transform. */
@@ -170,6 +188,9 @@ export function applyTransformOps(
       }
       case "melt":
         current = meltColumns(current, op);
+        break;
+      case "spread":
+        current = spreadColumns(current, op);
         break;
       case "aggregate":
         current = aggregateColumns(current, op);
@@ -625,6 +646,145 @@ function imputeColumns(
   return replaceColumn(columns, op.column, column, raw);
 }
 
+/** Removes the strip text (or pattern) from a header; a header that would be left empty is kept as it was. */
+export function headerTidier(strip: { text: string; regex: boolean } | undefined): (name: string) => string {
+  if (strip === undefined || strip.text === "") return (name) => name;
+  let matcher: RegExp | null = null;
+  if (strip.regex) {
+    try {
+      matcher = new RegExp(strip.text, "gi");
+    } catch {
+      return (name) => name;
+    }
+  }
+  return (name) => {
+    const out = (matcher !== null ? name.replace(matcher, "") : name.split(strip.text).join("")).trim();
+    return out === "" ? name : out;
+  };
+}
+
+/** The headers a spread makes: the key values, with a clash against an id column or an earlier header made distinct. */
+export function spreadHeaders(keys: readonly string[], taken: readonly string[]): string[] {
+  const used = new Set(taken);
+  return keys.map((key) => {
+    let name = key === "" ? "(empty)" : key;
+    let n = 2;
+    while (used.has(name)) name = `${key === "" ? "(empty)" : key} (${n++})`;
+    used.add(name);
+    return name;
+  });
+}
+
+/**
+ * Long to wide (pandas pivot_table): the values of the key column become new columns, one row per distinct combination of the id
+ * columns, each cell filled from the value column. Rows that share an id and a header are combined with the chosen aggregate.
+ */
+function spreadColumns(columns: readonly ColumnData[], op: TransformOp & { kind: "spread" }): ColumnData[] {
+  const count = columns.length;
+  const valid = (i: number): boolean => i >= 0 && i < count;
+  if (!valid(op.key) || !valid(op.value)) return columns.slice();
+  const index = op.index.filter((i) => valid(i) && i !== op.key && i !== op.value);
+  const keyColumn = columns[op.key];
+  const valueColumn = columns[op.value];
+  const rowCount = keyColumn.raw.length;
+  const labelOf = (row: number): string => (keyColumn.isNull(keyColumn.raw[row]) ? "" : keyColumn.raw[row]);
+
+  let keys = op.keys !== undefined && op.keys.length > 0 ? [...op.keys] : [];
+  if (keys.length === 0) {
+    const seen = new Set<string>();
+    for (let row = 0; row < rowCount; row++) {
+      const label = labelOf(row);
+      if (!seen.has(label)) {
+        seen.add(label);
+        keys.push(label);
+        if (keys.length > MAX_SPREAD_COLUMNS) break;
+      }
+    }
+  }
+  if (keys.length > MAX_SPREAD_COLUMNS) {
+    throw new Error(`Spread would create more than ${MAX_SPREAD_COLUMNS} columns: “${keyColumn.name}” has too many different values`);
+  }
+  const position = new Map<string, number>();
+  keys.forEach((key, j) => position.set(key, j));
+
+  const groupOf = new Map<string, number>();
+  const firstRow: number[] = [];
+  const rowGroup = new Int32Array(rowCount);
+  for (let row = 0; row < rowCount; row++) {
+    let id = "";
+    for (const i of index) id += `${columns[i].raw[row]}\u0001`;
+    let g = groupOf.get(id);
+    if (g === undefined) {
+      g = firstRow.length;
+      groupOf.set(id, g);
+      firstRow.push(row);
+    }
+    rowGroup[row] = g;
+  }
+  const groups = firstRow.length;
+  if (groups * keys.length > 5_000_000) {
+    throw new Error(`Spread would create ${(groups * keys.length).toLocaleString()} cells (limit 5,000,000)`);
+  }
+
+  const numbers = op.aggregate === "first" || op.aggregate === "count" ? null : valueColumn.numbers();
+  const total = groups * keys.length;
+  const cellCount = new Int32Array(total);
+  const cellFirst: (string | undefined)[] | null = op.aggregate === "first" ? new Array<string | undefined>(total) : null;
+  const cellSum = numbers !== null ? new Float64Array(total) : null;
+  const cellMin = op.aggregate === "min" ? new Float64Array(total).fill(Infinity) : null;
+  const cellMax = op.aggregate === "max" ? new Float64Array(total).fill(-Infinity) : null;
+  for (let row = 0; row < rowCount; row++) {
+    const j = position.get(labelOf(row));
+    if (j === undefined) continue;
+    const cell = rowGroup[row] * keys.length + j;
+    const raw = valueColumn.raw[row];
+    if (valueColumn.isNull(raw)) continue;
+    if (cellFirst !== null) {
+      if (cellFirst[cell] === undefined) cellFirst[cell] = raw;
+      cellCount[cell]++;
+      continue;
+    }
+    if (numbers === null) {
+      cellCount[cell]++;
+      continue;
+    }
+    const v = numbers[row];
+    if (!Number.isFinite(v)) continue;
+    cellCount[cell]++;
+    cellSum![cell] += v;
+    if (cellMin !== null && v < cellMin[cell]) cellMin[cell] = v;
+    if (cellMax !== null && v > cellMax[cell]) cellMax[cell] = v;
+  }
+
+  const out: ColumnData[] = index.map((i) => {
+    const raw = firstRow.map((row) => columns[i].raw[row]);
+    const rebuilt = ColumnData.create(columns[i].name, raw);
+    rebuilt.setType(columns[i].type);
+    return rebuilt;
+  });
+  const headers = spreadHeaders(keys, out.map((column) => column.name));
+  keys.forEach((_, j) => {
+    const raw = new Array<string>(groups);
+    for (let g = 0; g < groups; g++) {
+      const cell = g * keys.length + j;
+      let text = "";
+      if (cellCount[cell] > 0) {
+        switch (op.aggregate) {
+          case "first": text = cellFirst![cell] ?? ""; break;
+          case "count": text = String(cellCount[cell]); break;
+          case "sum": text = formatNumber(cellSum![cell]); break;
+          case "mean": text = formatNumber(cellSum![cell] / cellCount[cell]); break;
+          case "min": text = formatNumber(cellMin![cell]); break;
+          case "max": text = formatNumber(cellMax![cell]); break;
+        }
+      }
+      raw[g] = text;
+    }
+    out.push(ColumnData.create(headers[j], raw));
+  });
+  return out;
+}
+
 /**
  * pandas-style melt: unpivots value columns into (variable, value) pairs while
  * keeping id columns. Value columns default to every non-id column. Row order
@@ -659,10 +819,11 @@ function meltColumns(
   const varRaw = new Array<string>(outRows);
   const valueRaw = new Array<string>(outRows);
 
+  const tidy = headerTidier(op.strip);
   let cursor = 0;
   for (const valueIndex of valueVars) {
     const valueColumn = columns[valueIndex];
-    const label = valueColumn.name;
+    const label = tidy(valueColumn.name);
     for (let row = 0; row < rowCount; row++) {
       if (op.dropEmpty === true && valueColumn.isNull(valueColumn.raw[row])) continue;
       for (let i = 0; i < idVars.length; i++) {
@@ -799,7 +960,12 @@ export function describeTransformOp(op: TransformOp, headers: readonly string[])
       const idNames = op.idVars.map((index) => quoted(nameAt(index)));
       const valueCount =
         op.valueVars.length > 0 ? op.valueVars.length : Math.max(0, headers.length - op.idVars.length);
-      return `Melt to long: ${valueCount} value column${valueCount === 1 ? "" : "s"} (id: ${idNames.join(", ") || "none"})${op.dropEmpty === true ? ", empty cells skipped" : ""}`;
+      return `Melt to long: ${valueCount} value column${valueCount === 1 ? "" : "s"} (id: ${idNames.join(", ") || "none"})${op.dropEmpty === true ? ", empty cells skipped" : ""}${op.strip !== undefined && op.strip.text !== "" ? `, “${op.strip.text}” removed from the headers` : ""}`;
+    }
+    case "spread": {
+      const idNames = op.index.map((index) => quoted(nameAt(index)));
+      const across = op.keys !== undefined && op.keys.length > 0 ? ` (${op.keys.length})` : "";
+      return `Spread to wide: ${quoted(nameAt(op.key))} values${across} become columns, ${quoted(nameAt(op.value))} fills them${op.aggregate === "first" ? "" : ` (${op.aggregate})`} (id: ${idNames.join(", ") || "none"})`;
     }
     case "combineDate": {
       const count = op.parts.length;
@@ -885,7 +1051,9 @@ export function describeTransformOpDetail(op: TransformOp, headers: readonly str
     case "melt":
       return `melt(idVars=[${op.idVars.map(nameAt).join(", ")}], valueVars=[${op.valueVars
         .map(nameAt)
-        .join(", ")}], varName=${JSON.stringify(op.varName)}, valueName=${JSON.stringify(op.valueName)}${op.dropEmpty === true ? ", dropEmpty=true" : ""})`;
+        .join(", ")}], varName=${JSON.stringify(op.varName)}, valueName=${JSON.stringify(op.valueName)}${op.dropEmpty === true ? ", dropEmpty=true" : ""}${op.strip !== undefined ? `, strip=${JSON.stringify(op.strip)}` : ""})`;
+    case "spread":
+      return `spread(index=[${op.index.map(nameAt).join(", ")}], key=${nameAt(op.key)}, value=${nameAt(op.value)}, aggregate=${op.aggregate}, keys=${JSON.stringify(op.keys ?? null)})`;
     case "combineDate":
       return `combineDate(parts=[${op.parts
         .map((part) => `${nameAt(part.column)}=${part.role}`)
@@ -954,6 +1122,14 @@ export function schemaAfter(schema: readonly ColumnSchema[], op: TransformOp): C
         { name: op.varName.trim() || "variable", numeric: false },
         { name: op.valueName.trim() || "value", numeric },
       ];
+    }
+    case "spread": {
+      const idSchema = op.index
+        .filter((index) => index >= 0 && index < schema.length && index !== op.key && index !== op.value)
+        .map((index) => ({ name: schema[index].name, numeric: schema[index].numeric }));
+      const numeric = op.aggregate === "count" || op.aggregate === "sum" || op.aggregate === "mean" || op.aggregate === "min" || op.aggregate === "max" || schema[op.value]?.numeric === true;
+      const keys = op.keys !== undefined ? spreadHeaders(op.keys, idSchema.map((c) => c.name)) : [];
+      return [...idSchema, ...keys.map((name) => ({ name, numeric }))];
     }
     case "combineDate": {
       const dropped = new Set(op.dropParts ? op.parts.map((part) => part.column) : []);

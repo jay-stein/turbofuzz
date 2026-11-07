@@ -542,3 +542,43 @@ test("melt can skip empty cells, and says so in the step and the pandas recipe",
   assert.deepEqual(out.columns[2].raw, ["1", "5", "4", "6"]);
   assert.match(describeTransformOp(op, ["id", "2019", "2020"]), /empty cells skipped/);
 });
+
+test("melt can remove text from the old headers", () => {
+  const ds = buildDataset("t", ["id", "kwh_2019", "kwh_2020"], [["a", "1", "2"]]);
+  const out = applyTransformOps("t", ds.columns, [
+    { kind: "melt", idVars: [0], valueVars: [1, 2], varName: "year", valueName: "kwh", strip: { text: "kwh_", regex: false } },
+  ]);
+  assert.deepEqual(out.columns[1].raw, ["2019", "2020"]);
+  const regex = applyTransformOps("t", ds.columns, [
+    { kind: "melt", idVars: [0], valueVars: [1, 2], varName: "year", valueName: "kwh", strip: { text: "^[a-z]+_", regex: true } },
+  ]);
+  assert.deepEqual(regex.columns[1].raw, ["2019", "2020"]);
+});
+
+test("spread turns the values of one column into columns, combining rows that share an id and a header", () => {
+  const ds = buildDataset("t", ["id", "metric", "n"], [
+    ["a", "height", "10"], ["a", "weight", "20"], ["b", "height", "30"], ["a", "height", "5"],
+  ]);
+  const first = applyTransformOps("t", ds.columns, [{ kind: "spread", index: [0], key: 1, value: 2, aggregate: "first" }]);
+  assert.deepEqual(first.columns.map((c) => c.name), ["id", "height", "weight"]);
+  assert.deepEqual(first.columns[0].raw, ["a", "b"]);
+  assert.deepEqual(first.columns[1].raw, ["10", "30"]);
+  assert.deepEqual(first.columns[2].raw, ["20", ""]);
+  const sum = applyTransformOps("t", ds.columns, [{ kind: "spread", index: [0], key: 1, value: 2, aggregate: "sum" }]);
+  assert.deepEqual(sum.columns[1].raw, ["15", "30"]);
+  const count = applyTransformOps("t", ds.columns, [{ kind: "spread", index: [0], key: 1, value: 2, aggregate: "count" }]);
+  assert.deepEqual(count.columns[1].raw, ["2", "1"]);
+});
+
+test("melt then spread brings the table back, and the schema of a spread with fixed headers is known", () => {
+  const ds = buildDataset("t", ["id", "jan", "feb"], [["a", "1", "2"], ["b", "3", "4"]]);
+  const melt = { kind: "melt" as const, idVars: [0], valueVars: [1, 2], varName: "month", valueName: "v" };
+  const spread = { kind: "spread" as const, index: [0], key: 1, value: 2, aggregate: "first" as const, keys: ["jan", "feb"] };
+  const out = applyTransformOps("t", ds.columns, [melt, spread]);
+  assert.deepEqual(out.columns.map((c) => c.name), ["id", "jan", "feb"]);
+  assert.deepEqual(out.columns[1].raw, ["1", "3"]);
+  assert.deepEqual(out.columns[2].raw, ["2", "4"]);
+  const schema = schemaAfter(schemaAfter([{ name: "id", numeric: false }, { name: "jan", numeric: true }, { name: "feb", numeric: true }], melt), spread);
+  assert.deepEqual(schema.map((c) => c.name), ["id", "jan", "feb"]);
+  assert.match(describeTransformOp(spread, ["id", "month", "v"]), /Spread to wide/);
+});

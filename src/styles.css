@@ -14315,3 +14315,10 @@ button.qp-tile:hover {
 .melt-problem { color: var(--danger, #d92d20); }
 .melt-warn { color: var(--warn, #b54708); }
 .melt-count { color: var(--text-dim); }
+
+/* Melt and Spread: pick by name, tidy headers. */
+.melt-matchrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.melt-matchrow .text-input { flex: 1 1 200px; min-width: 0; }
+.melt-matchnote { font-size: var(--fs-sm); color: var(--text-dim); }
+.melt-row.melt-hit { outline: 2px solid var(--accent); outline-offset: -2px; }
+.spread-row { grid-template-columns: 22px minmax(0, 1fr) auto; cursor: pointer; }

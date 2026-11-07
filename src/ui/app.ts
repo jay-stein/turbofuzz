@@ -29,6 +29,7 @@ import {
 } from "../data/workspace-file.js";
 import { openKnnDialog, openKnnResult } from "./knn-dialog.js";
 import { openMeltDialog } from "./melt-dialog.js";
+import { openSpreadDialog } from "./spread-dialog.js";
 import { openWorkspaceProgress } from "./workspace-progress.js";
 import { buildColumnHealth, buildIssues, type FixStep, type PageIssue } from "../data/dq-issues.js";
 import { columnsIgnoring, idLikeColumns, nearDuplicateFinding } from "../data/near-duplicates.js";
@@ -338,6 +339,7 @@ function extensionOf(name: string): string {
 /** Icons for the toolbar buttons that show only the icon until the pointer or the keyboard reaches them, then spell out their name. */
 const BUTTON_ICONS = {
   melt: '<path d="M5 4v6M10 4v6M15 4v6M20 4v6"/><path d="M12 20V14M12 14l-3 3M12 14l3 3"/>',
+  spread: '<path d="M12 3v8"/><path d="M12 11 6 17M12 11l6 6"/><path d="M5 21v-3M12 21v-6M19 21v-3"/>',
   convert: '<path d="M7 7h11l-3-3"/><path d="M17 17H6l3 3"/>',
   importSettings: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
@@ -705,6 +707,7 @@ export class App {
   private statsButton!: HTMLButtonElement;
   private convertTypesButton!: HTMLButtonElement;
   private meltButton!: HTMLButtonElement;
+  private spreadButton!: HTMLButtonElement;
   private headerRowButton!: HTMLButtonElement;
   /** How the current table was read, so the header row can be re-chosen and reloaded. */
   private importSource: ImportSource | null = null;
@@ -1226,6 +1229,18 @@ export class App {
     expandButton(this.meltButton, "melt", "Melt…");
     this.meltButton.addEventListener("click", () => void this.openMelt());
 
+    this.spreadButton = el(
+      "button",
+      {
+        class: "ghost small nav-action spread-button",
+        type: "button",
+        title: "Spread: turn the values of one column into new columns (the opposite of Melt)",
+      },
+      [],
+    ) as HTMLButtonElement;
+    expandButton(this.spreadButton, "spread", "Spread…");
+    this.spreadButton.addEventListener("click", () => void this.openSpread());
+
     this.headerRowButton = el(
       "button",
       {
@@ -1261,6 +1276,7 @@ export class App {
       openMenu(actionsMenu, [
         { label: "Convert types", action: () => this.convertTypesButton.click() },
         { label: "Melt (wide to long)…", action: () => this.meltButton.click() },
+        { label: "Spread (long to wide)…", action: () => this.spreadButton.click() },
         {
           label: "Import settings…",
           title: this.headerRowButton.title,
@@ -1296,6 +1312,7 @@ export class App {
       el("div", { class: "nav-actions" }, [
         this.convertTypesButton,
         this.meltButton,
+        this.spreadButton,
         this.headerRowButton,
         this.undoButton,
         this.stepsButton,
@@ -8676,6 +8693,29 @@ export class App {
     this.applyTransform(
       [...this.transformOps, op],
       `Melted ${stacked} column${stacked === 1 ? "" : "s"} into rows`,
+      () => this.setView("table"),
+    );
+  }
+
+  /** Spread (long to wide): choose the header column, the value column and the row id, see what it makes, apply. */
+  private async openSpread(): Promise<void> {
+    if (this.datasetName === "" || this.loading || this.metas.length === 0) return;
+    let schema: ColumnSchema[] =
+      this.transformBaseSchema.length > 0
+        ? [...this.transformBaseSchema]
+        : this.metas.map((meta) => ({ name: meta.name, numeric: meta.type === "integer" || meta.type === "number" }));
+    for (const op of this.transformOps) schema = schemaAfter(schema, op);
+    const op = await openSpreadDialog({
+      schema,
+      distinct: schema.length === this.metas.length ? this.metas.map((meta) => meta.stats.distinct) : undefined,
+      rowCount: this.rowCount,
+      preview: (staged) => this.client.previewTransform([...this.transformOps, staged]),
+    });
+    if (op === null) return;
+    const wide = op.keys?.length ?? 0;
+    this.applyTransform(
+      [...this.transformOps, op],
+      wide > 0 ? `Spread into ${wide} column${wide === 1 ? "" : "s"}` : "Spread into columns",
       () => this.setView("table"),
     );
   }

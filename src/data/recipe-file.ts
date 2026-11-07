@@ -75,6 +75,13 @@ function remapTransform(
       if (idVars.includes(null) || valueVars.includes(null)) return null;
       return { ...op, idVars: idVars as number[], valueVars: valueVars as number[] };
     }
+    case "spread": {
+      const index = op.index.map(map);
+      const key = map(op.key);
+      const value = map(op.value);
+      if (index.includes(null) || key === null || value === null) return null;
+      return { ...op, index: index as number[], key, value };
+    }
     // A formula names its columns, so it carries over as written.
     case "derive":
       return { ...op };

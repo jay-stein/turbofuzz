@@ -797,6 +797,18 @@ function polarsTransformLines(
           `df = df.unpivot(index=[${ids}], on=[${values}], variable_name=${py(op.varName.trim() || "variable")}, value_name=${py(op.valueName.trim() || "value")})`,
         );
         if (op.dropEmpty === true) lines.push(`df = df.drop_nulls(${py(op.valueName.trim() || "value")})`);
+        if (op.strip !== undefined && op.strip.text !== "") {
+          const variable = py(op.varName.trim() || "variable");
+          lines.push(`df = df.with_columns(pl.col(${variable}).str.replace_all(${py(op.strip.text)}, "", literal=${op.strip.regex ? "False" : "True"}).str.strip_chars())`);
+        }
+        break;
+      }
+      case "spread": {
+        const ids = op.index.filter((index) => index !== op.key && index !== op.value && names[index] !== undefined).map((index) => py(names[index])).join(", ");
+        const aggregate = op.aggregate === "count" ? "len" : op.aggregate;
+        lines.push(
+          `df = df.pivot(on=${py(names[op.key] ?? "")}, index=[${ids}], values=${py(names[op.value] ?? "")}, aggregate_function=${py(aggregate)})`,
+        );
         break;
       }
       case "aggregate": {

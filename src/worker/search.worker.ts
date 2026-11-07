@@ -3541,6 +3541,13 @@ function transformPreviewNotes(
         });
         break;
       }
+      case "spread": {
+        notes.push({
+          op: index,
+          text: `Spreads to ${after.rowCount.toLocaleString()} rows × ${after.columnCount.toLocaleString()} columns`,
+        });
+        break;
+      }
       case "aggregate": {
         notes.push({
           op: index,
