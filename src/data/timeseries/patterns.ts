@@ -22,7 +22,11 @@ export interface DayPattern {
   /** True when the profile never goes below zero (changes then read as percentages). */
   pos: boolean;
 }
-export interface WeekPattern { mean: number[]; n: number[]; pos: boolean }
+export interface WeekPattern {
+  mean: number[]; n: number[]; pos: boolean;
+  /** Half the width of the 95% range of each weekday's average, so two bars that overlap read as a tie. */
+  half: number[];
+}
 export interface YearPattern {
   mean: number[]; years: number[]; perDay: boolean; pos: boolean;
   /**
@@ -38,6 +42,13 @@ export interface Patterns { day?: DayPattern; week?: WeekPattern; year?: YearPat
  * whatever grain is shown. Only complete periods with their usual rows count, so a
  * half-recorded hour or a data gap cannot fake a quiet spell.
  */
+/** Half the width of the 95% range of an average of n days: 1.96 standard errors; NaN with fewer than five days to judge by. */
+function halfWidth(sum: number, sumSq: number, n: number): number {
+  if (n < 5) return NaN;
+  const mean = sum / n, variance = Math.max(0, (sumSq - n * mean * mean) / (n - 1));
+  return 1.96 * Math.sqrt(variance / n);
+}
+
 /** Ratio to a centred 12-month average, per calendar month, over the months that have a full year around them. */
 function seasonalIndex(S: Aggregated, ok: (S: Aggregated, i: number) => boolean): number[] | null {
   const byMonth = new Map<number, { s: number; n: number }>();
@@ -94,9 +105,9 @@ export function computePatterns(T: TsTable, cfg: TsConfig): Patterns {
   }
   const daily = tooFine(T, "day") ? null : aggregate(T, cfg, "day");
   if (daily) {
-    const S = daily, sum = new Float64Array(7), n = new Float64Array(7);
-    for (let i = 0; i < S.n; i++) if (ok(S, i)) { const wd = weekdayAt(T, S.t[i]); sum[wd] += S.y[i]; n[wd]++; }
-    out.week = { mean: Array.from(sum, (s, k) => (n[k] ? s / n[k] : NaN)), n: Array.from(n), pos: S.nonNeg };
+    const S = daily, sum = new Float64Array(7), sq = new Float64Array(7), n = new Float64Array(7);
+    for (let i = 0; i < S.n; i++) if (ok(S, i)) { const wd = weekdayAt(T, S.t[i]); sum[wd] += S.y[i]; sq[wd] += S.y[i] * S.y[i]; n[wd]++; }
+    out.week = { mean: Array.from(sum, (s, k) => (n[k] ? s / n[k] : NaN)), n: Array.from(n), pos: S.nonNeg, half: Array.from(sum, (s, k) => halfWidth(s, sq[k]!, n[k]!)) };
   }
   // By month: the average day in each month when there are days (a 31-day month must
   // not beat February just by being longer), else the monthly values themselves.

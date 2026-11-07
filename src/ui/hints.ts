@@ -89,11 +89,11 @@ export class Hints {
     document.body.append(callout);
     this.current = callout;
     this.currentId = spec.id;
-    // Auto-dismiss after 6s so a hint never lingers over the data.
+    // Fades out and goes after 8s, bottom right and away from the chart's axis, so a hint never lingers over the data.
     const id = spec.id;
     this.timer = window.setTimeout(() => {
       if (this.currentId === id) this.dismiss();
-    }, 6000);
+    }, 8000);
   }
 
   private dismiss(): void {

@@ -89,3 +89,18 @@ test("the month-of-year seasonal index is not tilted by growth: 100 is a typical
   assert.ok(Math.abs(mean - 100) < 3, `centred on 100 (${mean.toFixed(1)})`);
   for (let m = 0; m < 12; m++) assert.ok(Math.abs(idx[m]! - 100 * season(m)) < 4, `month ${m}: ${idx[m]!.toFixed(1)} vs ${(100 * season(m)).toFixed(1)}`);
 });
+
+test("weekday averages come with the range they could sit in, so ties read as ties", () => {
+  const n = 365 * 2, wd = (i: number): number => i % 7;
+  const v = Float64Array.from({ length: n }, (_, i) => (wd(i) === 3 ? 80 : 100) + 6 * rnd());
+  const e = engine(v);
+  const s = e.compute({ ...defaultConfig(e.info()), agg: "mean", measure: "v", grain: "day" }, "patterns");
+  const w = s.patterns!.week!;
+  assert.equal(w.half.length, 7);
+  assert.ok(w.half.every((h) => h > 0 && h < 3), `each range is a couple of units wide (${w.half.map((h) => h.toFixed(1)).join(", ")})`);
+  // Six weekdays share a level, one sits 20 lower: the lower one's range does not overlap the others'.
+  const low = w.mean.indexOf(Math.min(...w.mean));
+  const others = w.mean.filter((_, k) => k !== low);
+  assert.ok(Math.max(...others) - Math.min(...others) < 2 * Math.max(...w.half), "the level days overlap each other");
+  assert.ok(Math.min(...others) - w.mean[low]! > w.half[low]! + Math.max(...w.half), "the low day stands clear");
+});

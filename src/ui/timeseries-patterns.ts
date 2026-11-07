@@ -55,12 +55,14 @@ function daySvg(D: DayPattern, W: number): string {
   return svg + "</svg>";
 }
 /** Bars with the highest in full colour and the rest muted; a dashed line at the average. */
-function barsSvg(vals: readonly number[], labels: readonly string[], titles: readonly string[], W: number, around?: number): string {
+function barsSvg(vals: readonly number[], labels: readonly string[], titles: readonly string[], W: number, around?: number, half?: readonly number[]): string {
   const H = 190, L = 40, R = 6, T = 18, B = 22, pw = W - L - R, ph = H - T - B, n = vals.length;
   const fin = finite(vals), avg = around ?? mean(fin);
+  // Whiskers reach above the bars, so the axis has to as well.
+  const tops = finite(vals.map((v, k) => v + (half?.[k] ?? 0)));
   // A seasonal index swings a few percent either side of 100: its bars grow from 100, on an axis that fits them, not from zero.
-  const tk = around === undefined ? niceTicks(Math.min(0, ...fin), Math.max(...fin), 4) : niceTicks(Math.min(around, ...fin) - 2, Math.max(around, ...fin) + 2, 4);
-  const lo = around === undefined ? Math.min(0, tk[0]) : tk[0], hi = Math.max(...fin, tk[tk.length - 1]);
+  const tk = around === undefined ? niceTicks(Math.min(0, ...fin), Math.max(...tops), 4) : niceTicks(Math.min(around, ...fin) - 2, Math.max(around, ...fin) + 2, 4);
+  const lo = around === undefined ? Math.min(0, tk[0]) : tk[0], hi = Math.max(...tops, tk[tk.length - 1]);
   const base = around ?? 0;
   const y = (v: number): number => T + ph - ((v - lo) / (hi - lo || 1)) * ph, bw = (pw / n) * 0.7, top = argExt(vals, 1);
   let svg = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
@@ -68,7 +70,10 @@ function barsSvg(vals: readonly number[], labels: readonly string[], titles: rea
   vals.forEach((v, k) => {
     const cx = L + (k + 0.5) * (pw / n);
     if (v === v) svg += `<rect x="${cx - bw / 2}" y="${Math.min(y(v), y(base))}" width="${bw}" height="${Math.max(1, Math.abs(y(base) - y(v)))}" rx="2" class="${k === top ? "bar top" : "bar"}"><title>${escapeHtml(titles[k])}</title></rect>`;
-    if (k === top) svg += `<text x="${cx}" y="${y(v) - 5}" text-anchor="middle" class="peak">${compact(v)}</text>`;
+    // The range the average could plausibly sit in: bars whose whiskers overlap are a tie, not a ranking.
+    const h = half?.[k];
+    if (v === v && h !== undefined && h === h) svg += `<line x1="${cx}" x2="${cx}" y1="${y(v - h)}" y2="${y(v + h)}" class="whisker"/><line x1="${cx - 4}" x2="${cx + 4}" y1="${y(v + h)}" y2="${y(v + h)}" class="whisker"/><line x1="${cx - 4}" x2="${cx + 4}" y1="${y(v - h)}" y2="${y(v - h)}" class="whisker"/>`;
+    if (k === top) svg += `<text x="${cx}" y="${y(h !== undefined && h === h ? v + h : v) - 5}" text-anchor="middle" class="peak">${compact(v)}</text>`;
     svg += `<text x="${cx}" y="${H - 6}" text-anchor="middle">${labels[k]}</text>`;
   });
   svg += `<line x1="${L}" x2="${W - R}" y1="${y(avg)}" y2="${y(avg)}" class="avg"/>`;
@@ -118,7 +123,7 @@ export function patternsHtml(P: Patterns, what: string, gridWidth: number, caden
     const wd = finite(Wk.mean.slice(0, 5)), we = finite(Wk.mean.slice(5));
     if (wd.length && we.length) facts.push(["Weekends vs weekdays", vsAvg(mean(we), mean(wd), Wk.pos)]);
     const titles = Wk.mean.map((v, k) => `${WEEKDAYS[k]}: ${v === v ? `${full(v)} on average (${vsAvg(v, avg, Wk.pos)} vs the average day), over ${Wk.n[k]} days` : "no complete days"}`);
-    figs.push(`<figure><figcaption>Day of week <small>· average ${what} per day; dashed line is the average day</small></figcaption>${barsSvg(Wk.mean, WD_SHORT, titles, half)}</figure>`);
+    figs.push(`<figure><figcaption>Day of week <small>· average ${what} per day; dashed line is the average day; whiskers show the range the average could sit in, so overlapping bars are a tie</small></figcaption>${barsSvg(Wk.mean, WD_SHORT, titles, half, undefined, Wk.half)}</figure>`);
   }
   if (Yr) {
     const avg = mean(finite(Yr.mean)), hi = Yr.index ? argExt(Yr.index, 1) : argExt(Yr.mean, 1), per = Yr.perDay ? "day" : "month";
