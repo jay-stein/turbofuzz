@@ -45,3 +45,52 @@ test("the snapshot says whether the series holds a steady level, and what differ
   assert.equal(b.stationary, false);
   assert.ok(b.d >= 1 && b.kpss > b.critical);
 });
+
+test("a short burst is an event, not a change of trend, while a lasting step is still found", () => {
+  const n = 240;
+  const base = (t: number): number => 100 + 10 * Math.sin((2 * Math.PI * t) / 7) + 2 * rnd();
+  const spike = new TsEngine(table(n, { v: Float64Array.from({ length: n }, (_, t) => base(t) + (t >= 150 && t < 153 ? 400 : 0)) }));
+  const a = spike.compute({ ...defaultConfig(spike.info()), agg: "mean", measure: "v" }, "explore");
+  assert.ok(!a.dec.cp || a.dec.cp.gain < 0.5, `a three-day burst read as a trend change (gain ${a.dec.cp?.gain})`);
+  const step = new TsEngine(table(n, { v: Float64Array.from({ length: n }, (_, t) => base(t) + (t >= 120 ? 60 : 0)) }));
+  const b = step.compute({ ...defaultConfig(step.info()), agg: "mean", measure: "v" }, "explore");
+  assert.ok(b.dec.cp && b.dec.cp.gain > 0.5, "a lasting step is still a change");
+});
+
+import { buildInsights } from "../src/ui/timeseries-findings.js";
+
+function insights(values: Float64Array) {
+  const e = new TsEngine(table(values.length, { v: values }));
+  const s = e.compute({ ...defaultConfig(e.info()), agg: "mean", measure: "v" }, "explore");
+  return buildInsights(s, { mode: "explore", model: "auto", showShift: true });
+}
+
+test("a week-long run of one exact reading is reported as a stuck sensor", () => {
+  const n = 200;
+  const v = Float64Array.from({ length: n }, (_, t) => 20 + 5 * Math.sin(t / 5) + rnd());
+  for (let t = 90; t < 110; t++) v[t] = 12;
+  const f = insights(v).find((x) => x.kind === "Stuck readings");
+  assert.ok(f, "stuck run found");
+  assert.match(f!.html, /20 days in a row/);
+  assert.equal(insights(Float64Array.from({ length: n }, (_, t) => 20 + 5 * Math.sin(t / 5) + rnd())).some((x) => x.kind === "Stuck readings"), false);
+});
+
+test("a lasting jump by a factor of 1,000 is called a possible unit change", () => {
+  const n = 200;
+  const v = Float64Array.from({ length: n }, (_, t) => (t < 100 ? 24 : 0.024) * (1 + 0.1 * rnd()));
+  const f = insights(v).find((x) => x.kind === "Possible unit change");
+  assert.ok(f, "unit change found");
+  assert.match(f!.html, /1,000× lower/);
+});
+
+test("a strong cycle is found once error codes are treated as missing", () => {
+  const n = 300;
+  const clean = Float64Array.from({ length: n }, (_, t) => 50 + 15 * Math.sin((2 * Math.PI * t) / 7) + 2 * rnd());
+  const withCodes = Float64Array.from(clean, (v, t) => (t % 17 === 3 ? -999 : v));
+  const missing = Float64Array.from(withCodes, (v) => (v === -999 ? NaN : v));
+  const season = (v: Float64Array): number => {
+    const e = new TsEngine(table(n, { v }));
+    return e.compute({ ...defaultConfig(e.info()), agg: "mean", measure: "v" }, "explore").dec.dec?.m ?? 0;
+  };
+  assert.equal(season(missing), 7, "the weekly cycle shows once the codes are missing");
+});

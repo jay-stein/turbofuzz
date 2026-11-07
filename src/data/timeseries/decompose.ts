@@ -302,6 +302,13 @@ export function preferScaled(y: Float64Array, n: number, d: Decomposition): Deco
   return s && remSS(s, n) < 0.85 * remSS(d, n) ? s : d;
 }
 
+/** How many periods stand out by the robust z-score (the same rule as the anomaly list, before it is cut to the top few). */
+function anomalyCount(z: Float64Array, n: number, sens: number, A: Aggregated): number {
+  let c = 0;
+  for (let i = 0; i < n; i++) if (Math.abs(z[i]) >= sens && !A.made[i] && A.y[i] === A.y[i]) c++;
+  return c;
+}
+
 export function computeDecomposition(A: Aggregated, cfg: TsConfig): DecompResult {
   const g = A.g, N = A.modelN;
   // Only seasons with two full cycles plus two periods of history (see DecompResult.tooShort).
@@ -327,5 +334,19 @@ export function computeDecomposition(A: Aggregated, cfg: TsConfig): DecompResult
   // A period with no value was filled in for the models; it is a gap, not an anomaly.
   for (let i = 0; i < N; i++) if (Math.abs(rz.z[i]) >= cfg.sens && !A.made[i] && A.y[i] === A.y[i]) anomalies.push(i);
   anomalies.sort((a, b) => Math.abs(rz.z[b]) - Math.abs(rz.z[a]));
-  return { options: summary, tooShort, dec, cycle: cyc, z: rz.z, mad: rz.mad, anomalies: anomalies.slice(0, 8), anomalyCount: anomalies.length, cp: changepoint(dec.trend, N) };
+  // A short burst (a two-day smoke event, one bad week) leaves a bump in the trend, and a bump is not a change of direction.
+  // The change is looked for on a trend refitted with each unusual period replaced by the median of its neighbours, so only a
+  // stretch longer than the window can move it.
+  let shape = dec.trend;
+  if (anomalyCount(rz.z, N, cfg.sens, A) > 0) {
+    const k = Math.max(3, Math.min(10, Math.ceil(dec.m / 2))), yw = Float64Array.from(A.yModel.subarray(0, N));
+    for (let i = 0; i < N; i++) {
+      if (!(Math.abs(rz.z[i]) >= cfg.sens)) continue;
+      const win = Array.from(A.yModel.subarray(Math.max(0, i - k), Math.min(N, i + k + 1))).sort((a, b) => a - b);
+      yw[i] = win[win.length >> 1];
+    }
+    const again = dec.m > 1 && !dec.parts ? decompose(yw, N, dec.m) : trendOnly(yw, N);
+    if (again) shape = again.trend;
+  }
+  return { options: summary, tooShort, dec, cycle: cyc, z: rz.z, mad: rz.mad, anomalies: anomalies.slice(0, 8), anomalyCount: anomalies.length, cp: changepoint(shape, N) };
 }

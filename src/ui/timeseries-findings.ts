@@ -171,6 +171,63 @@ function seasonPartsFinding(s: TsSnapshot, d: Decomposition): TsFinding {
 }
 
 /**
+ * A continuous reading that sits on one exact value for a long stretch is a stuck sensor, not a quiet period: real readings of a
+ * continuous quantity do not repeat to the last digit for days. Counts and small whole numbers repeat legitimately, so they are
+ * not tested.
+ */
+function stuckFinding(s: TsSnapshot): TsFinding | null {
+  const A = s.A, n = A.modelN;
+  if (n < 24 || s.cfg.agg === "count") return null;
+  const distinct = new Set<number>();
+  for (let i = 0; i < n; i++) if (A.y[i] === A.y[i]) distinct.add(A.y[i]!);
+  if (distinct.size < Math.max(20, n / 20)) return null;
+  const need = Math.max(6, Math.ceil(n * 0.02));
+  let bestStart = -1, bestLen = 0, runStart = 0, runLen = 0;
+  for (let i = 0; i <= n; i++) {
+    const same = i < n && i > 0 && A.y[i] === A.y[i - 1] && A.y[i] === A.y[i] && !A.made[i] && !A.filled[i];
+    if (same) { runLen++; continue; }
+    if (runLen + 1 > bestLen && runLen + 1 >= need) { bestLen = runLen + 1; bestStart = runStart; }
+    runStart = i; runLen = 0;
+  }
+  if (bestStart < 0) return null;
+  const v = A.y[bestStart]!;
+  return {
+    kind: "Stuck readings", tone: "warn",
+    html: `<b>${nf.format(bestLen)} ${A.g.nouns} in a row</b> read exactly <b>${compact(v)}</b>, from ${shortPeriod(A.g, A.t[bestStart]!)}. A continuous reading does not repeat to the last digit for that long: this looks like a stuck sensor or a value carried forward, and it flattens the trend and season through that stretch.`,
+    acts: [{ label: "Show it", act: { kind: "focus", i: bestStart } }],
+  };
+}
+
+/**
+ * A lasting change of level by a factor that is a power of ten (or 60) looks like a change of unit, not of the thing measured:
+ * µg/m³ to mg/m³ is 1,000×, minutes to hours 60×. The finding says so and where to look; the fix is to convert one side.
+ */
+function unitFinding(s: TsSnapshot): TsFinding | null {
+  const cp = s.dec.cp, A = s.A;
+  if (!cp || cp.gain < 0.5 || !A.allPositive) return null;
+  // The trend is smoothed across the step, so the two levels are read from the readings themselves (medians, a few periods back
+  // from the break so the ramp does not count).
+  const med = (a: number, b: number): number => {
+    const v: number[] = [];
+    for (let i = a; i < b; i++) if (A.y[i] === A.y[i] && !A.made[i]) v.push(A.y[i]!);
+    v.sort((x, y) => x - y);
+    return v.length ? v[v.length >> 1]! : NaN;
+  };
+  const gap = Math.max(2, Math.round(A.modelN * 0.03));
+  const before = med(Math.max(0, cp.k - Math.round(A.modelN * 0.2)), cp.k - gap), after = med(cp.k + gap, Math.min(A.modelN, cp.k + Math.round(A.modelN * 0.2)));
+  if (!(before > 0) || !(after > 0)) return null;
+  const ratio = after / before, big = ratio > 1 ? ratio : 1 / ratio;
+  if (big < 8) return null;
+  const near = [10, 100, 1000, 10000, 60, 3600, 1e6].find((f) => Math.abs(Math.log(big / f)) < 0.2);
+  if (near === undefined) return null;
+  return {
+    kind: "Possible unit change", tone: "warn",
+    html: `From <b>${shortPeriod(A.g, A.t[cp.k]!)}</b> the typical value is about <b>${nf.format(near)}× ${ratio > 1 ? "higher" : "lower"}</b>. A jump by exactly that factor usually means the unit changed (µg/m³ to mg/m³, minutes to hours), not the thing measured. Check any unit column, convert one side, and the forecast stops chasing a step that is not real.`,
+    acts: [{ label: "Show the change", act: { kind: "showChange", k: cp.k } }],
+  };
+}
+
+/**
  * Whether the series holds a steady level, in plain words: the test, what it found, and what that means for the models. A steady
  * trend alone also fails the test (the level moves), so the sentence says the failure is drift, not necessarily randomness.
  */
@@ -375,6 +432,7 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
     acts.unshift({ label: "Time-weighted mean", act: { kind: "agg", agg: "twmean" } });
   }
   if (bits.length) out.push({ kind: "Data", tone: "warn", html: bits.join(" "), acts });
+  for (const f of [stuckFinding(s), unitFinding(s)]) if (f) out.push(f);
   const stat = stationarityFinding(s);
   if (stat) out.push(stat);
   const drv = driverFinding(s);
