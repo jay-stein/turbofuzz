@@ -85,19 +85,15 @@ export type ArimaResult =
     lambda: number | null;
     searched: "stepwise" | "every order";
     seconds: number;
+    /** Set only when the folds were left to the caller (deferFolds): what they need. */
+    pending?: FoldContext;
   };
 
-export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => void = () => {}, cancelled: () => boolean = () => false): ArimaResult {
-  const t0 = Date.now();
-  const m = job.seasonMode === "native" ? job.m : 1;
-  const bc = job.lambda;
-  const yFull = bc === null ? job.y : boxCox(job.y, bc);
-  // A season too long for ARIMA (a week of half-hours, a day of minutes) is removed with STL first and ARIMA is fitted to what is
-  // left, the seasonal part added back to the forecast: the textbook's way (fpp3 12.1, R's stlf), and what the board's models do.
-  const long = job.seasonMode === "mstl";
+/** Takes the seasons out of yFull[s0, e) with STL (a season too long for ARIMA), keeping their continuation over the horizon. */
+function stripper(job: ArimaJob, yFull: Float64Array): (s0: number, e: number) => { s: number; adj: Float64Array; sf: Float64Array; ps: number[] } | null {
   const periodsAll = job.periods && job.periods.length ? job.periods : [job.m];
   const win = Math.max(1000, 6 * job.m);
-  const strip = (s0: number, e: number): { s: number; adj: Float64Array; sf: Float64Array; ps: number[] } | null => {
+  return (s0: number, e: number): { s: number; adj: Float64Array; sf: Float64Array; ps: number[] } | null => {
     const s = Math.max(s0, e - win, 0), n = e - s;
     const ps = periodsAll.filter((p) => n >= 2 * p + 2);
     if (ps.length === 0) return null;
@@ -124,6 +120,108 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
     for (let t = 0; t < n; t++) adj[t] = raw[t]! === raw[t]! ? raw[t]! - part[t]! : Number.NaN;
     return { s, adj, sf, ps };
   };
+}
+
+/** What a fold needs besides the job: the chosen model and the team averaged into the forecast, fitted on the full history. */
+export interface FoldContext { job: ArimaJob; best: ArimaFit; team: { fit: ArimaFit; weight: number }[] }
+
+/** One fold's error sums. Folds are independent of each other, so they can be scored on separate threads and added up after. */
+export interface FoldOut {
+  k: number; lock: boolean;
+  /** Selection folds: absolute error of the forecast, of repeating the last cycle, and of the best model alone, over `an` points. */
+  ae: number; se: number; an: number; bestAe: number;
+  /** The same on the lockbox fold. */
+  lockAe: number; lockSe: number; lockN: number;
+  /** This fold alone, for "folds won". */
+  foldAe: number; foldSe: number; foldN: number;
+}
+
+/** Refits the held orders on fold k's history and scores their forecast of the next H periods; null when the fold cannot be scored. */
+export function foldScore(ctx: FoldContext, k: number): FoldOut | null {
+  const { job, best, team } = ctx;
+  const bc = job.lambda;
+  const m = job.seasonMode === "native" ? job.m : 1;
+  const long = job.seasonMode === "mstl";
+  const yFull = bc === null ? job.y : boxCox(job.y, bc);
+  const inv = (v: number): number => (bc === null ? v : invBoxCox(v, bc));
+  const floor = (v: number): number => (job.nonNeg ? Math.max(0, v) : v);
+  const strip = stripper(job, yFull);
+  const R = job.origins.length;
+  const o = job.origins[k]!;
+  const start = job.rolling && job.trainLen !== null ? Math.max(0, Math.floor((o - job.trainLen) / Math.max(1, m)) * Math.max(1, m)) : 0;
+  const cut = long ? strip(start, o) : null;
+  if (long && cut === null) return null;
+  const seg = cut ? cut.adj : yFull.slice(start, o);
+  // The seasonal part added back: this fold's own, or the full history's when the season was not removed per fold.
+  const seas = cut ? cut.sf : (long ? strip(0, job.T)?.sf : null) ?? new Float64Array(job.H);
+  // Each fold's history is the full history cut short, so the full fit's coefficients are a start close to the answer.
+  const f = fitArima(seg, best.spec, { from: best });
+  if (!f) return null;
+  // The averaged forecast: each member's order refitted on this fold, with the weights from the full history.
+  const memberFc: { F: Float64Array; w: number }[] = [];
+  for (const t of team) {
+    const mf = t.fit.spec === best.spec ? f : fitArima(seg, t.fit.spec, { from: t.fit });
+    if (mf) memberFc.push({ F: forecastArima(seg, mf, job.H).F, w: t.weight });
+  }
+  const wsum = memberFc.reduce((a, b) => a + b.w, 0) || 1;
+  const pred = new Float64Array(job.H);
+  for (const mm of memberFc) for (let h = 0; h < job.H; h++) pred[h] = pred[h]! + (mm.w / wsum) * mm.F[h]!;
+  for (let h = 0; h < job.H; h++) pred[h] = pred[h]! + seas[h]!;
+  const bestPred = Float64Array.from(forecastArima(seg, f, job.H).F, (v, h) => v + seas[h]!);
+  const out: FoldOut = { k, lock: job.lockbox && k === R - 1, ae: 0, se: 0, an: 0, bestAe: 0, lockAe: 0, lockSe: 0, lockN: 0, foldAe: 0, foldSe: 0, foldN: 0 };
+  for (let h = 0; h < job.H; h++) {
+    const actual = job.y[o + h]!;
+    if (!(actual === actual)) continue;
+    const e = Math.abs(actual - floor(inv(pred[h]!)));
+    const eBest = Math.abs(actual - floor(inv(bestPred[h]!)));
+    const ref = job.y[o - Math.max(1, job.m) + (h % Math.max(1, job.m))];
+    const s = ref === ref ? Math.abs(actual - ref!) : NaN;
+    if (!(e === e) || !(s === s) || !(eBest === eBest)) continue;
+    if (out.lock) { out.lockAe += e; out.lockSe += s; out.lockN++; }
+    else { out.ae += e; out.se += s; out.an++; out.foldAe += e; out.foldSe += s; out.foldN++; out.bestAe += eBest; }
+  }
+  return out;
+}
+
+/** The backtest figures from the folds' sums, added in fold order so the totals do not depend on which thread scored which. */
+export function combineFolds(job: ArimaJob, outs: FoldOut[]): ArimaBacktest | null {
+  const R = job.origins.length;
+  if (R === 0) return null;
+  const sel = job.lockbox ? R - 1 : R;
+  let ae = 0, an = 0, se = 0, lockAe = 0, lockSe = 0, lockN = 0, won = 0, of = 0, bestAe = 0;
+  // The MASE scale: the in-sample error of repeating the last cycle on the history before the first fold.
+  let scale = 0, sc = 0;
+  const lag = Math.max(1, job.m);
+  for (let t = lag; t < job.origins[0]!; t++) { const dv = Math.abs(job.y[t]! - job.y[t - lag]!); if (dv === dv) { scale += dv; sc++; } }
+  scale = scale / (sc || 1) || 1;
+  for (const o of [...outs].sort((a, b) => a.k - b.k)) {
+    ae += o.ae; se += o.se; an += o.an; bestAe += o.bestAe; lockAe += o.lockAe; lockSe += o.lockSe; lockN += o.lockN;
+    if (!o.lock && o.foldN > 0) { of++; if (o.foldAe < o.foldSe) won++; }
+  }
+  if (an === 0) return null;
+  return {
+    folds: sel, mae: ae / an, maeSeasonalNaive: se / an, ratio: se > 0 ? ae / se : NaN, mase: ae / an / scale,
+    lockMae: lockN > 0 ? lockAe / lockN : null, lockRatio: lockN > 0 && lockSe > 0 ? lockAe / lockSe : null, lockMase: lockN > 0 ? lockAe / lockN / scale : null,
+    foldsWon: won, foldsOf: of, ratioBestOnly: se > 0 ? bestAe / se : NaN,
+  };
+}
+
+/** Fills in the backtest of a result that was returned with its folds pending. */
+export function withBacktest(result: Extract<ArimaResult, { ok: true }>, outs: FoldOut[]): ArimaResult {
+  const { pending, ...rest } = result;
+  return pending ? { ...rest, backtest: combineFolds(pending.job, outs) } : result;
+}
+
+export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => void = () => {}, cancelled: () => boolean = () => false, opts: { deferFolds?: boolean } = {}): ArimaResult {
+  const t0 = Date.now();
+  const m = job.seasonMode === "native" ? job.m : 1;
+  const bc = job.lambda;
+  const yFull = bc === null ? job.y : boxCox(job.y, bc);
+  // A season too long for ARIMA (a week of half-hours, a day of minutes) is removed with STL first and ARIMA is fitted to what is
+  // left, the seasonal part added back to the forecast: the textbook's way (fpp3 12.1, R's stlf), and what the board's models do.
+  const long = job.seasonMode === "mstl";
+  const periodsAll = job.periods && job.periods.length ? job.periods : [job.m];
+  const strip = stripper(job, yFull);
   const strip0 = long ? strip(0, job.T) : null;
   if (long && strip0 === null) {
     const need = 2 * Math.min(...periodsAll) + 2;
@@ -164,7 +262,7 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
   // The leading model again, with standard errors from the numerical Hessian.
   const lead = voteRows ? team[0]!.fit : found.best;
   onProgress({ stage: "Standard errors", tried: found.tried.length, best: specLabel(lead.spec), bestAicc: lead.aicc, current: "", detail: "" });
-  const best = fitArima(y, lead.spec, { se: true }) ?? lead;
+  const best = fitArima(y, lead.spec, { se: true, from: lead }) ?? lead;
   const inv = (v: number): number => (bc === null ? v : invBoxCox(v, bc));
   const floor = (v: number): number => (job.nonNeg ? Math.max(0, v) : v);
   const fc = forecastArima(y, best, job.H);
@@ -179,57 +277,19 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
   const resid = residualCheck(best);
 
   // Backtest: the order is held, the coefficients refitted on each fold's history, scored on the original scale.
-  let backtest: ArimaBacktest | null = null;
   const R = job.origins.length;
-  const teamSpecs = team.map((t) => t.fit.spec), teamW = team.map((t) => t.weight);
-  if (R > 0) {
-    const sel = job.lockbox ? R - 1 : R;
-    let ae = 0, an = 0, se = 0, lockAe = 0, lockSe = 0, lockN = 0, won = 0, of = 0, bestAe = 0;
-    // The MASE scale: the in-sample error of repeating the last cycle on the history before the first fold.
-    let scale = 0, sc = 0;
-    const lag = Math.max(1, job.m);
-    for (let t = lag; t < job.origins[0]!; t++) { const dv = Math.abs(job.y[t]! - job.y[t - lag]!); if (dv === dv) { scale += dv; sc++; } }
-    scale = scale / (sc || 1) || 1;
+  const ctx: FoldContext = { job, best, team };
+  let backtest: ArimaBacktest | null = null;
+  const pending = R > 0 && opts.deferFolds === true;
+  if (R > 0 && !pending) {
+    const outs: FoldOut[] = [];
     for (let k = 0; k < R; k++) {
       if (cancelled()) break;
-      const o = job.origins[k]!;
       onProgress({ stage: `Backtest, fold ${k + 1} of ${R}`, tried: found.tried.length, best: specLabel(best.spec), bestAicc: best.aicc, current: "", detail: "" });
-      const start = job.rolling && job.trainLen !== null ? Math.max(0, Math.floor((o - job.trainLen) / Math.max(1, m)) * Math.max(1, m)) : 0;
-      const cut = long ? strip(start, o) : null;
-      if (long && cut === null) continue;
-      const seg = cut ? cut.adj : yFull.slice(start, o);
-      const seas = cut ? cut.sf : sf0;
-      const f = fitArima(seg, best.spec);
-      if (!f) continue;
-      // The averaged forecast: each member's order refitted on this fold, with the weights from the full history.
-      const memberFc: { F: Float64Array; w: number }[] = [];
-      teamSpecs.forEach((sp, i) => { const mf = sp === best.spec ? f : fitArima(seg, sp); if (mf) memberFc.push({ F: forecastArima(seg, mf, job.H).F, w: teamW[i]! }); });
-      const wsum = memberFc.reduce((a, b) => a + b.w, 0) || 1;
-      const pred = new Float64Array(job.H);
-      memberFc.forEach((mm) => { for (let h = 0; h < job.H; h++) pred[h] = pred[h]! + (mm.w / wsum) * mm.F[h]!; });
-      for (let h = 0; h < job.H; h++) pred[h] = pred[h]! + seas[h]!;
-      const bestPred = Float64Array.from(forecastArima(seg, f, job.H).F, (v, h) => v + seas[h]!);
-      let foldAe = 0, foldSe = 0, foldN = 0;
-      for (let h = 0; h < job.H; h++) {
-        const actual = job.y[o + h]!;
-        if (!(actual === actual)) continue;
-        const e = Math.abs(actual - floor(inv(pred[h]!)));
-        const eBest = Math.abs(actual - floor(inv(bestPred[h]!)));
-        const ref = job.y[o - Math.max(1, job.m) + (h % Math.max(1, job.m))];
-        const s = ref === ref ? Math.abs(actual - ref!) : NaN;
-        if (!(e === e) || !(s === s) || !(eBest === eBest)) continue;
-        if (job.lockbox && k === R - 1) { lockAe += e; lockSe += s; lockN++; }
-        else { ae += e; se += s; an++; foldAe += e; foldSe += s; foldN++; bestAe += eBest; }
-      }
-      if (!(job.lockbox && k === R - 1) && foldN > 0) { of++; if (foldAe < foldSe) won++; }
+      const out = foldScore(ctx, k);
+      if (out) outs.push(out);
     }
-    if (an > 0) {
-      backtest = {
-        folds: sel, mae: ae / an, maeSeasonalNaive: se / an, ratio: se > 0 ? ae / se : NaN, mase: ae / an / scale,
-        lockMae: lockN > 0 ? lockAe / lockN : null, lockRatio: lockN > 0 && lockSe > 0 ? lockAe / lockSe : null, lockMase: lockN > 0 ? lockAe / lockN / scale : null,
-        foldsWon: won, foldsOf: of, ratioBestOnly: se > 0 ? bestAe / se : NaN,
-      };
-    }
+    backtest = combineFolds(job, outs);
   }
   return {
     ok: true,
@@ -250,5 +310,6 @@ export function runAutoArima(job: ArimaJob, onProgress: (p: ArimaProgress) => vo
     lambda: bc,
     searched: job.exhaustive ? "every order" : "stepwise",
     seconds: (Date.now() - t0) / 1000,
+    ...(pending ? { pending: ctx } : {}),
   };
 }

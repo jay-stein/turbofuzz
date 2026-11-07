@@ -5,7 +5,7 @@ import {
   akaikeWeights, armaLik, averageForecasts, differencingVote, autoArimaSearch, chooseDifferences, difference, diffPoly, expandAr, expandMa, fitArima, forecastArima, invPartrans,
   isStationary, kpssLevel, maInvert, partrans, polyRoots, residualCheck, seasonalStrength, specLabel, type ArimaSpec,
 } from "../src/data/timeseries/arima.js";
-import { runAutoArima } from "../src/data/timeseries/arima-run.js";
+import { foldScore, runAutoArima, withBacktest } from "../src/data/timeseries/arima-run.js";
 
 const ref = JSON.parse(readFileSync("test/fixtures/arima-reference.json", "utf8")) as {
   series: Record<string, number[]>;
@@ -253,4 +253,19 @@ test("a season too long for ARIMA is removed with STL first, ARIMA is fitted to 
   const short = runAutoArima({ ...job, y: y.slice(0, 80), T: 80, origins: [] });
   assert.equal(short.ok, false);
   if (!short.ok) assert.match(short.reason, /two full cycles/);
+});
+
+test("runAutoArima: folds scored one by one elsewhere and added up give the same backtest as running them in place", () => {
+  const y = Float64Array.from(ref.series.air!);
+  const T = y.length - 36, H = 12;
+  const job = { y, T, H, m: 12, seasonMode: "native" as const, origins: [T - 36, T - 24, T - 12], rolling: false, trainLen: null, lockbox: true, lambda: null, nonNeg: false, exhaustive: false };
+  const whole = runAutoArima(job);
+  const part = runAutoArima(job, () => {}, () => false, { deferFolds: true });
+  assert.ok(whole.ok && part.ok && part.pending && part.backtest === null);
+  const outs = [2, 0, 1].map((k) => foldScore(part.pending!, k)!);
+  const joined = withBacktest(part, outs);
+  assert.ok(joined.ok);
+  assert.equal(joined.backtest?.ratio, whole.backtest?.ratio);
+  assert.equal(joined.backtest?.lockRatio, whole.backtest?.lockRatio);
+  assert.equal(joined.pending, undefined);
 });

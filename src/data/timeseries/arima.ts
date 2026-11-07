@@ -179,7 +179,7 @@ interface Lik { ssq: number; sumLogF: number; n: number }
 export function armaLik(z: Float64Array, ar: number[], ma: number[]): Lik | null {
   const pe = ar.length, qe = ma.length;
   const r = Math.max(pe, qe + 1);
-  const a = new Float64Array(r), P = new Float64Array(r * r), M = new Float64Array(r * r), Pp = new Float64Array(r * r);
+  const a = new Float64Array(r), P = new Float64Array(r * r), M = new Float64Array(r * r), Pp = new Float64Array(r * r), Pprev = new Float64Array(r * r);
   const Rv = new Float64Array(r);
   Rv[0] = 1;
   for (let i = 1; i < r; i++) Rv[i] = i - 1 < qe ? ma[i - 1]! : 0;
@@ -190,8 +190,11 @@ export function armaLik(z: Float64Array, ar: number[], ma: number[]): Lik | null
     for (let i = 0; i < r; i++) for (let j = 0; j < r; j++) X[i * r + j] = Rv[i]! * Rv[j]!;
     let A: Float64Array = new Float64Array(r * r);
     for (let i = 0; i < r; i++) { A[i * r] = arAt(i); if (i < r - 1) A[i * r + i + 1] = 1; }
-    const mulAB = (U: Float64Array, V: Float64Array, tr: boolean): Float64Array => {
-      const out = new Float64Array(r * r);
+    // Three work matrices are reused across the doubling steps: this runs once per likelihood evaluation, hundreds of times a fit.
+    const AX = new Float64Array(r * r), AXA = new Float64Array(r * r);
+    let spare: Float64Array = new Float64Array(r * r);
+    const mulAB = (U: Float64Array, V: Float64Array, tr: boolean, out: Float64Array): Float64Array => {
+      out.fill(0);
       for (let i = 0; i < r; i++) for (let k = 0; k < r; k++) {
         const u = U[i * r + k]!;
         if (u === 0) continue;
@@ -201,10 +204,13 @@ export function armaLik(z: Float64Array, ar: number[], ma: number[]): Lik | null
       return out;
     };
     for (let it = 0; it < 80; it++) {
-      const AX = mulAB(A, X, false), AXA = mulAB(AX, A, true);
+      mulAB(A, X, false, AX);
+      mulAB(AX, A, true, AXA);
       let delta = 0;
       for (let i = 0; i < r * r; i++) { delta = Math.max(delta, Math.abs(AXA[i]!)); X[i] = X[i]! + AXA[i]!; }
-      A = mulAB(A, A, false);
+      const A2 = mulAB(A, A, false, spare);
+      spare = A;
+      A = A2;
       if (delta < 1e-13 * (1 + Math.abs(X[0]!))) break;
       if (!Number.isFinite(X[0]!)) return null;
     }
@@ -215,6 +221,7 @@ export function armaLik(z: Float64Array, ar: number[], ma: number[]): Lik | null
   const N = z.length;
   for (let t = 0; t < N; t++) {
     // a is a_{t|t-1}, P is P_{t|t-1}
+    if (!steady) Pprev.set(P);
     const v = z[t]!;
     if (v === v) {
       const F = P[0]!;
@@ -238,7 +245,7 @@ export function armaLik(z: Float64Array, ar: number[], ma: number[]): Lik | null
     let change = 0;
     for (let i = 0; i < r; i++) for (let j = 0; j < r; j++) {
       const val = M[i * r]! * arAt(j) + (j < r - 1 ? M[i * r + j + 1]! : 0) + Rv[i]! * Rv[j]!;
-      change = Math.max(change, Math.abs(val - P[i * r + j]!));
+      change = Math.max(change, Math.abs(val - Pprev[i * r + j]!));
       Pp[i * r + j] = val;
     }
     P.set(Pp);
@@ -353,6 +360,22 @@ function unpack(x: number[], spec: ArimaSpec, mu0 = 0, muScale = 1, freeMa = fal
   return { phi, theta, Phi, Theta, mu };
 }
 
+/** The optimiser's coordinates for `spec` taken from another fit with the same differencing; null when they cannot be mapped. */
+function warmStart(from: ArimaFit, spec: ArimaSpec, mu0: number, muScale: number): number[] | null {
+  if (from.spec.d !== spec.d || from.spec.D !== spec.D || from.spec.m !== spec.m) return null;
+  const raw = (c: ArrayLike<number>, n: number, sign: 1 | -1): number[] | null => {
+    const r = invPartrans(Array.from(c, (v) => sign * v));
+    if (r === null) return null;
+    while (r.length < n) r.push(0);
+    return r.slice(0, n);
+  };
+  const a = raw(from.phi, spec.p, 1), b = raw(from.theta, spec.q, -1), c = raw(from.Phi, spec.P, 1), d = raw(from.Theta, spec.Q, -1);
+  if (!a || !b || !c || !d) return null;
+  const x = [...a, ...b, ...c, ...d];
+  if (spec.constant) x.push(from.spec.constant ? (from.mu - mu0) / muScale : 0);
+  return x.every(Number.isFinite) ? x : null;
+}
+
 function centred(w: Float64Array, mu: number): Float64Array {
   if (mu === 0) return w;
   const z = new Float64Array(w.length);
@@ -364,7 +387,7 @@ function centred(w: Float64Array, mu: number): Float64Array {
  * Fits one ARIMA specification to y (NaN = missing) by CSS then exact ML. Null when the model cannot be fitted
  * (too little data, a singular likelihood).
  */
-export function fitArima(y: ArrayLike<number>, spec: ArimaSpec, opts: { se?: boolean; css?: boolean } = {}): ArimaFit | null {
+export function fitArima(y: ArrayLike<number>, spec: ArimaSpec, opts: { se?: boolean; css?: boolean; from?: ArimaFit } = {}): ArimaFit | null {
   const m = spec.m;
   const w = difference(y, spec.d, spec.D, m);
   let nUsed = 0, sum = 0;
@@ -389,9 +412,14 @@ export function fitArima(y: ArrayLike<number>, spec: ArimaSpec, opts: { se?: boo
     const l = armaLik(centred(w, c.mu), c.ar, c.ma);
     return l ? mlValue(l) : 1e30;
   };
+  // A warm start: the coefficients of a neighbouring or earlier fit of (nearly) the same model, in this model's layout, with any
+  // new coefficient at zero. The likelihood is smooth and close to its optimum there, so the optimiser needs a few steps, not
+  // the whole climb from zero.
+  const warm = opts.from ? warmStart(opts.from, spec, meanW, muScale) : null;
   let start = x0;
-  if (npar > 0 && npar > (spec.constant ? 1 : 0)) {
-    const css = bfgs(cssObj, x0, { maxIter: 60 });
+  if (warm && !opts.css) start = warm;
+  else if (npar > 0 && npar > (spec.constant ? 1 : 0)) {
+    const css = bfgs(cssObj, warm ?? x0, { maxIter: 60 });
     if (Number.isFinite(css.value) && css.value < 1e29) start = css.x;
   }
   // The CSS answer, with the MA coefficients as plain values for the likelihood stage.
