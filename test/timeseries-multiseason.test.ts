@@ -43,3 +43,33 @@ test("a dip lasting months is one event, not a handful of points", () => {
   // The trend stays on its line through the dip instead of sagging with it.
   assert.ok(Math.abs(d.trend[82]! - (200 + 0.5 * 82)) < 15, `trend at the dip ${d.trend[82]!.toFixed(1)}`);
 });
+
+import { buildInsights } from "../src/ui/timeseries-findings.js";
+
+test("a group that falls while the others rise, and a gap in one group, are found although the total hides both", () => {
+  const days = 730, names = ["Perth", "Midland", "Fremantle"];
+  const times: number[] = [], vals: number[] = [], group: number[] = [];
+  for (let d = 0; d < days; d++) {
+    for (let g = 0; g < 3; g++) {
+      if (g === 2 && d >= 300 && d < 320) continue; // Fremantle is missing three weeks
+      const year2 = d >= 365;
+      const base = [100, 80, 60][g]!;
+      const level = g === 1 ? (year2 ? 0.8 : 1) : year2 ? 1.15 : 1;
+      times.push(Date.UTC(2023, 0, 1) + d * day);
+      vals.push(base * level + 3 * rnd());
+      group.push(g);
+    }
+  }
+  const t = buildTable({ times: Float64Array.from(times), cols: { sales: Float64Array.from(vals) }, flags: {}, groups: names, rowGroup: Uint16Array.from(group), groupCol: "store", dateCol: "d", dropped: 0 })!;
+  const e = new TsEngine(t);
+  const s = e.compute({ ...defaultConfig(e.info()), agg: "sum", measure: "sales", grain: "day", gaps: "leave" }, "explore");
+  const found = buildInsights(s, { mode: "explore", model: "auto", showShift: true });
+  const against = found.find((f) => f.kind === "A group moves against the rest");
+  assert.ok(against, "divergence found");
+  assert.match(against!.html, /Midland/);
+  assert.match(against!.html, /−20%/);
+  const gap = found.find((f) => f.kind === "A group has a gap");
+  assert.ok(gap, "gap found");
+  assert.match(gap!.html, /Fremantle/);
+  assert.match(gap!.html, /20 days/);
+});

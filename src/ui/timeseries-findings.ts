@@ -23,7 +23,8 @@ export type TsAction =
   | { kind: "forecastView" }
   | { kind: "grain"; grain: GrainId }
   | { kind: "agg"; agg: TsAgg }
-  | { kind: "addDriver"; col: string };
+  | { kind: "addDriver"; col: string }
+  | { kind: "pickGroup"; index: number };
 
 export type TsTone = "accent" | "forecast" | "danger" | "warn" | "dim";
 export interface TsFinding {
@@ -170,6 +171,66 @@ function seasonPartsFinding(s: TsSnapshot, d: Decomposition): TsFinding {
     html: `Within a day, <b>${at(hi)}</b> runs <b>${amt(daily[hi])}</b> above the average ${g.noun}; <b>${at(lo)}</b> <b>${amt(daily[lo])}</b> below. Across the week, ${WEEKDAYS[dh]} add <b>${amt(add[dh])}</b> on top of that and ${WEEKDAYS[dl]} take off <b>${amt(add[dl])}</b>.`,
     acts: [{ label: "Decompose", act: { kind: "mode", mode: "decompose" } }],
   };
+}
+
+/**
+ * Problems the total hides, found by looking at each group of a split column on its own: one store falling while the others
+ * rise, one stretch where a group has nothing at all. Both vanish in the summed line. Runs only on the combined series, for sums
+ * and counts (where the groups add up to the line shown).
+ */
+function groupFindings(s: TsSnapshot): TsFinding[] {
+  const A = s.A, N = A.modelN, groups = s.table.groups;
+  if (s.cfg.group >= 0 || groups.length < 2 || groups.length > 60 || (s.cfg.agg !== "sum" && s.cfg.agg !== "count")) return [];
+  if (N < 24 || (A.groupVal[0]?.length ?? 0) < N) return [];
+  const out: TsFinding[] = [];
+  const ly = Math.round(A.g.ly || 0);
+  // Compare the latest stretch with the one before it: a year when there is one, else a third of the history.
+  const w = ly >= 2 && N >= 2 * ly ? ly : Math.floor(N / 3);
+  if (w >= 4) {
+    const sum = (r: number, a: number, b: number): number => { let t = 0; for (let k = a; k < b; k++) t += A.groupVal[r]![k]!; return t; };
+    const grand = (a: number, b: number): number => { let t = 0; for (let r = 0; r < groups.length; r++) t += sum(r, a, b); return t; };
+    const found: { r: number; own: number; rest: number }[] = [];
+    for (let r = 0; r < groups.length; r++) {
+      const before = sum(r, N - 2 * w, N - w), now = sum(r, N - w, N);
+      const restBefore = grand(N - 2 * w, N - w) - before, restNow = grand(N - w, N) - now;
+      if (!(before > 0) || !(restBefore > 0) || before < 0.02 * grand(N - 2 * w, N - w)) continue;
+      const own = now / before - 1, rest = restNow / restBefore - 1;
+      if ((own <= -0.1 && rest >= 0.03) || (own >= 0.1 && rest <= -0.03) || Math.abs(own - rest) >= 0.3) found.push({ r, own, rest });
+    }
+    found.sort((a, b) => Math.abs(b.own - b.rest) - Math.abs(a.own - a.rest));
+    if (found.length) {
+      const f = found[0]!, pc = (x: number): string => `${x < 0 ? "−" : "+"}${Math.abs(x * 100).toFixed(0)}%`;
+      const span = ly >= 2 && N >= 2 * ly ? "the last year against the year before" : `the latest ${w} ${A.g.nouns} against the ${w} before`;
+      out.push({
+        kind: "A group moves against the rest", tone: "warn",
+        html: `<b>${escapeHtml(groups[f.r]!)}</b> is <b>${pc(f.own)}</b> over ${span}, while all the others together are <b>${pc(f.rest)}</b>. The summed line hides it.${found.length > 1 ? ` ${found.length - 1} more ${found.length === 2 ? "group does" : "groups do"} the same.` : ""}`,
+        acts: [{ label: `Look at ${groups[f.r]!}`, act: { kind: "pickGroup", index: f.r } }],
+      });
+    }
+  }
+  // A stretch where one group has nothing while the rest carry on: a missing feed, not a quiet spell.
+  let worst: { r: number; start: number; len: number } | null = null;
+  const need = Math.max(3, Math.ceil(N * 0.01));
+  for (let r = 0; r < groups.length; r++) {
+    let first = -1, last = -1, total = 0;
+    for (let k = 0; k < N; k++) if (A.groupVal[r]![k]! !== 0) { if (first < 0) first = k; last = k; total++; }
+    if (total < 0.5 * N * 0.3) continue;
+    let run = 0, start = 0;
+    for (let k = first; k <= last + 1; k++) {
+      if (k <= last && A.groupVal[r]![k] === 0) { if (run === 0) start = k; run++; continue; }
+      if (run >= need && (!worst || run > worst.len)) worst = { r, start, len: run };
+      run = 0;
+    }
+  }
+  if (worst) {
+    const w2 = worst;
+    out.push({
+      kind: "A group has a gap", tone: "warn",
+      html: `<b>${escapeHtml(groups[w2.r]!)}</b> has nothing for <b>${w2.len} ${nounFor(A.g, w2.len)}</b> from ${shortPeriod(A.g, A.t[w2.start]!)}, while the other groups carry on. That looks like missing data, and it pulls the total down there.`,
+      acts: [{ label: "Show it", act: { kind: "focus", i: w2.start } }, { label: `Look at ${groups[w2.r]!}`, act: { kind: "pickGroup", index: w2.r } }],
+    });
+  }
+  return out;
 }
 
 /**
@@ -465,7 +526,7 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
     acts.unshift({ label: "Time-weighted mean", act: { kind: "agg", agg: "twmean" } });
   }
   if (bits.length) out.push({ kind: "Data", tone: "warn", html: bits.join(" "), acts });
-  for (const f of [stuckFinding(s), unitFinding(s)]) if (f) out.push(f);
+  for (const f of [...groupFindings(s), stuckFinding(s), unitFinding(s)]) if (f) out.push(f);
   // Stationarity reads best beside the season it qualifies, not at the foot of the list.
   const stat = stationarityFinding(s);
   if (stat) {
