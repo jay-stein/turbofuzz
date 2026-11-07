@@ -29,6 +29,7 @@ import {
   buildInsights, chg, escapeHtml, trendRate, measureWord, modelRows, periodName, ratioOf, seasonName, selectedModel, trendShift,
   type TsAction, type TsFinding, type TsTone, type TsView,
 } from "./timeseries-findings.js";
+import { rankFormats } from "../parse/date-format.js";
 import { niceTicks, patternsHtml } from "./timeseries-patterns.js";
 
 export interface TimeSeriesPageOptions {
@@ -39,6 +40,10 @@ export interface TimeSeriesPageOptions {
   /** Filter the table to one period of the date column (UTC ms, inclusive) and show it. */
   onShowRows: (dateColumn: number, min: number, max: number) => void;
   onAction: (message: string) => void;
+  /** Read a text column of periods ("2024-03", "Mar-24", "2024 Q1") as dates, with the given `fmt:` order. */
+  onUseAsDate: (column: number, order: string) => void;
+  /** A sample of one column's values, for spotting a text column of periods. */
+  sampleValues: (column: number) => Promise<string[]>;
   datasetName: () => string;
 }
 export interface TimeSeriesPageHandle {
@@ -321,6 +326,19 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     empty.hidden = false;
     empty.innerHTML = html;
   }
+  /** A text column whose values are almost all months, quarters or years in one explicit format (the first such column). */
+  async function periodColumn(): Promise<{ column: number; order: string; format: string; example: string } | null> {
+    for (let i = 0; i < metas.length; i++) {
+      const m = metas[i]!;
+      if (m.type !== "string" && m.type !== "category") continue;
+      const values = (await options.sampleValues(i).catch(() => [])).filter((v) => v.trim() !== "");
+      if (values.length < 6) continue;
+      const best = rankFormats(values)[0];
+      if (!best || best.preset.time || best.hits < Math.min(200, values.length) * 0.9 || !/[MQ]/.test(best.preset.format)) continue;
+      return { column: i, order: `fmt:${best.preset.format}`, format: best.preset.format, example: best.preset.example };
+    }
+    return null;
+  }
   function setData(next: readonly ColumnMeta[], _resultCount: number): void {
     const prevName = dateColumn >= 0 ? metas[dateColumn]?.name : null;
     metas = next;
@@ -334,7 +352,13 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (!dates.length) {
       dateColumn = -1;
       snap = null;
-      showEmpty(`<h3>No date column</h3><p>The Time Series page needs a column of dates or date-times. If the dates are split over Year, Month and Day columns, type <b>combine</b> in the command bar to build one; if a date column reads as text, change its type to Date. Then come back here.</p>`);
+      const base = `<h3>No date column</h3><p>The Time Series page needs a column of dates or date-times. If the dates are split over Year, Month and Day columns, type <b>combine</b> in the command bar to build one; if a date column reads as text, change its type to Date. Then come back here.</p>`;
+      showEmpty(base);
+      const asked = metas;
+      void periodColumn().then((period) => {
+        if (!period || metas !== asked || dateColumn >= 0) return;
+        showEmpty(`${base}<p><button type="button" class="btn-primary" data-use-date="${period.column}" data-use-order="${escapeHtml(period.order)}">Use ${escapeHtml(metas[period.column]!.name)} as date</button> <span class="muted">reads values like ${escapeHtml(period.example)} as the first day of each period (${escapeHtml(period.format)}).</span></p>`);
+      });
       return;
     }
     const sameName = prevName === null ? -1 : dates.find((i) => metas[i].name === prevName) ?? -1;
@@ -2339,6 +2363,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   // ---------------------------------------------------------------- events
   host.addEventListener("click", (e) => {
     const target = e.target as Element;
+    const ud = target.closest<HTMLElement>("[data-use-date]");
+    if (ud) { options.onUseAsDate(Number(ud.dataset.useDate), ud.dataset.useOrder ?? ""); return; }
     const t = target.closest<HTMLButtonElement>(".ts-tok");
     if (t && !t.disabled) { openPop(t, t.dataset.tok as TokenKey); e.stopPropagation(); return; }
     const da = target.closest<HTMLElement>("[data-drv-act]");

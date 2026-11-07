@@ -423,3 +423,20 @@ test("Transform under the hood asks for a power transformation and the model car
   await seg.locator("button[data-tr=none]").click();
   await expect(page.locator("[data-ref=modelCard]")).not.toContainText("Transform");
 });
+
+test("a text column of months is offered as the date, and one click makes the page usable", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  const rows = ["month,sales"];
+  for (let i = 0; i < 36; i++) rows.push(`${2022 + Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, "0")},${100 + i * 3 + (i % 12)}`);
+  await page.locator('input[type="file"]').setInputFiles({ name: "monthly.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator('.mode-switch-option[data-mode="research"]').click();
+  await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
+  const offer = page.locator(".ts-page [data-use-date]");
+  await expect(offer).toBeVisible({ timeout: 20_000 });
+  await expect(offer).toContainText("Use month as date");
+  await offer.click();
+  await expect(page.locator(".ts-page [data-ref=empty]")).toBeHidden({ timeout: 20_000 });
+});

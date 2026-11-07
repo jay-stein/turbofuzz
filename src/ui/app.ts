@@ -1,3 +1,4 @@
+import type { DateOrder } from "../parse/dates.js";
 import { clearReviewed, getReviewed, setReviewed } from "./reviewed-issues.js";
 import { clearOptionalMark, getOptionalMarks, setOptionalMark } from "./optional-marks.js";
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
@@ -4481,6 +4482,8 @@ export class App {
           return view === undefined ? Promise.resolve(null) : this.client.getTimeSeries({ ...input, view }).catch(() => null);
         },
         viewSources: () => this.timeSeriesViewSources(),
+        sampleValues: async (column) => (await this.client.getColumnSample(column)).values,
+        onUseAsDate: (column, order) => this.applyQuickClean(column, { kind: "toDate", order: order as DateOrder }),
         onShowRows: (column, min, max) => {
           this.changeFilter(column, { kind: "range", min, max });
           this.setView("table");
