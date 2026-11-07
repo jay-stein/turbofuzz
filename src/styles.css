@@ -10849,14 +10849,18 @@ label.null-row {
   display: none;
 }
 
-/* Hovering or focusing the strip reveals every chip over the cell below. */
-.th:hover .th-qa:not(:empty),
-.th:focus-within .th-qa:not(:empty) {
+/* Hovering the strip itself (or tabbing into it) reveals every chip. The strip opens sideways, over the neighbouring strips, rather
+   than down over the label and the type, facts and filter controls, which stay clickable. A mouse click on a chip does not keep it
+   open: only keyboard focus does. */
+.th-qa:not(:empty):hover,
+.th-qa:not(:empty):has(:focus-visible) {
   position: absolute;
   top: 0;
   left: 0;
-  right: 0;
+  right: auto;
   z-index: 5;
+  width: max-content;
+  max-width: min(460px, 80vw);
   height: auto;
   min-height: 28px;
   flex-wrap: wrap;
@@ -10864,6 +10868,12 @@ label.null-row {
   overflow: visible;
   background: var(--panel-2);
   box-shadow: var(--shadow-pop);
+}
+
+.th-qa:hover > .th-qa-chip,
+.th-qa:has(:focus-visible) > .th-qa-chip {
+  flex: none;
+  max-width: none;
 }
 
 .th-top {
@@ -10929,8 +10939,8 @@ label.null-row {
   display: none;
 }
 
-.th:hover .th-qa > .th-qa-chip.fix,
-.th:focus-within .th-qa > .th-qa-chip.fix {
+.th-qa:hover > .th-qa-chip.fix,
+.th-qa:has(:focus-visible) > .th-qa-chip.fix {
   display: inline-block;
 }
 
