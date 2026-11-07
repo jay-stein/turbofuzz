@@ -165,7 +165,7 @@ export type LoadRequest = {
   /** User-chosen header layout replacing automatic detection. */
   headerLayout?: HeaderLayout;
   /** Conventions from Settings the parsers need; null for "not set". */
-  conventions?: { dateOrder: "dmy" | "mdy" | null };
+  conventions?: { dateOrder: "dmy" | "mdy" | null; numberFormat?: string };
 };
 
 /** Stops the in-flight load at its next cancellation checkpoint. */

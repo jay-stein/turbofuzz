@@ -4,6 +4,8 @@
  * setting, and says so when it had to guess because there was none. Kept in the browser, one JSON value.
  */
 
+import { NUMBER_FORMATS, setNumberLocale } from "../data/display-locale.js";
+
 export type DateOrderSetting = "" | "dmy" | "mdy";
 export type WeekStartSetting = "" | "mon" | "sun" | "sat";
 
@@ -14,9 +16,11 @@ export interface AppSettings {
   weekStart: WeekStartSetting;
   /** Public-holiday region ("AU-WA", "US"...) or "" for none. */
   holidays: string;
+  /** The locale numbers are written in ("en-US", "de-DE"...), or "" for the browser's own. */
+  numberFormat: string;
 }
 
-export const DEFAULT_SETTINGS: Readonly<AppSettings> = { dateOrder: "", weekStart: "", holidays: "" };
+export const DEFAULT_SETTINGS: Readonly<AppSettings> = { dateOrder: "", weekStart: "", holidays: "", numberFormat: "" };
 
 const KEY = "turbofuzz.settings";
 /** Where the holiday region was kept before there was a settings panel. */
@@ -31,6 +35,7 @@ function clean(raw: unknown): AppSettings {
     dateOrder: pick(o.dateOrder, ["", "dmy", "mdy"] as const, ""),
     weekStart: pick(o.weekStart, ["", "mon", "sun", "sat"] as const, ""),
     holidays: typeof o.holidays === "string" ? o.holidays : "",
+    numberFormat: pick(o.numberFormat, ["", ...NUMBER_FORMATS.map(([l]) => l)], ""),
   };
 }
 
@@ -52,6 +57,7 @@ export function readSettings(): AppSettings {
 export function updateSettings(patch: Partial<AppSettings>): AppSettings {
   const next = clean({ ...readSettings(), ...patch });
   memory = next;
+  setNumberLocale(next.numberFormat);
   try {
     localStorage.setItem(KEY, JSON.stringify(next));
   } catch {
@@ -64,6 +70,9 @@ export function onSettingsChange(listener: (settings: AppSettings) => void): () 
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
+
+// Numbers follow the saved choice from the first draw.
+setNumberLocale(readSettings().numberFormat);
 
 /** Region and date order the browser's own locale points to, offered as a suggestion and never applied without a click. */
 export function browserSuggestions(language: string, timeZone: string): { dateOrder: DateOrderSetting; weekStart: WeekStartSetting } {

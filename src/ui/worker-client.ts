@@ -113,7 +113,7 @@ export interface LoadOptions {
   /** User-chosen header layout replacing automatic detection. */
   headerLayout?: HeaderLayout;
   /** Conventions from Settings the parsers need; filled in from the saved settings when left out. */
-  conventions?: { dateOrder: "dmy" | "mdy" | null };
+  conventions?: { dateOrder: "dmy" | "mdy" | null; numberFormat?: string };
 }
 
 /** The user cancelled an in-flight load; the dataset is unchanged. */
@@ -181,7 +181,7 @@ export class SearchWorkerClient {
       });
       this.currentLoadId = requestId;
       const settings = readSettings();
-      this.worker.postMessage({ type: "load", conventions: { dateOrder: settings.dateOrder === "" ? null : settings.dateOrder }, ...options, requestId } as WorkerRequest, transfer);
+      this.worker.postMessage({ type: "load", conventions: { dateOrder: settings.dateOrder === "" ? null : settings.dateOrder, numberFormat: settings.numberFormat }, ...options, requestId } as WorkerRequest, transfer);
     });
   }
 

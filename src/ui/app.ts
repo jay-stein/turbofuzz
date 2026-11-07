@@ -6580,8 +6580,12 @@ export class App {
   }
 
   /** A setting changed in the panel: what already loaded says what it will take to apply it. */
-  private onSettingChanged(key: "dateOrder" | "weekStart" | "holidays"): void {
+  private onSettingChanged(key: "dateOrder" | "weekStart" | "holidays" | "numberFormat"): void {
     this.overview?.refreshNextSteps();
+    if (key === "numberFormat") {
+      this.setAction("Number format saved. Numbers on screen are redrawn as they change; open a panel again to see it there.");
+      window.dispatchEvent(new Event("resize"));
+    }
     if (key === "dateOrder" && this.metas.some((meta) => meta.dateAmbiguous === true)) {
       this.setAction("Date order saved. The dates already loaded were read before it: use Import settings, then Apply and reload, to read this file with it.");
     }

@@ -1,3 +1,4 @@
+import { NUMBER_FORMATS, suggestNumberFormat } from "../data/display-locale.js";
 import { HOLIDAY_REGIONS, suggestRegion } from "../data/timeseries/holidays.js";
 import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
@@ -10,7 +11,7 @@ interface Field {
   unsetNote: string;
   options: readonly (readonly [string, string])[];
   /** What the browser's locale points to, for a suggestion (never applied without a click). */
-  suggest: (s: { dateOrder: string; weekStart: string; region: string }) => string;
+  suggest: (s: { dateOrder: string; weekStart: string; region: string; numberFormat: string }) => string;
 }
 
 const FIELDS: readonly Field[] = [
@@ -38,6 +39,14 @@ const FIELDS: readonly Field[] = [
     options: HOLIDAY_REGIONS.map((r) => [r.code, r.label] as const),
     suggest: (s) => s.region,
   },
+  {
+    key: "numberFormat",
+    title: "Number format",
+    usedBy: "Every number on screen: the table, charts, statistics and findings. It changes how numbers are written, not the data or what a file is read as.",
+    unsetNote: "Not set: numbers follow your browser's language, the same way everywhere.",
+    options: NUMBER_FORMATS,
+    suggest: (s) => s.numberFormat,
+  },
 ];
 
 export interface SettingsPanelOptions {
@@ -62,7 +71,7 @@ export function openSettingsPanel(options: SettingsPanelOptions = {}): void {
   const language = typeof navigator === "undefined" ? "" : navigator.language ?? "";
   const zone = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone ?? ""; } catch { return ""; } })();
   const hint = browserSuggestions(language, zone);
-  const suggestions = { dateOrder: hint.dateOrder, weekStart: hint.weekStart, region: suggestRegion(language, zone) };
+  const suggestions = { dateOrder: hint.dateOrder, weekStart: hint.weekStart, region: suggestRegion(language, zone), numberFormat: suggestNumberFormat(language) };
 
   const rows: { sync(): void }[] = [];
   for (const field of FIELDS) {

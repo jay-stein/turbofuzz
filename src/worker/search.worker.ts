@@ -1,3 +1,5 @@
+import "../data/display-locale.js";
+import { setNumberLocale } from "../data/display-locale.js";
 import { setDateTieBreak } from "../parse/conventions.js";
 import { ColumnData } from "../data/column.js";
 import { isGroupableColumn } from "../data/groupable.js";
@@ -761,6 +763,7 @@ function handleCancelLoad(): void {
 
 async function handleLoad(message: LoadRequest): Promise<void> {
   setDateTieBreak(message.conventions?.dateOrder ?? null);
+  setNumberLocale(message.conventions?.numberFormat ?? "");
   const started = performance.now();
   const active = { requestId: message.requestId, cancelled: false };
   activeLoad = active;

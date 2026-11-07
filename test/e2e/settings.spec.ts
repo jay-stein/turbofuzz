@@ -38,3 +38,21 @@ test("dates that fit both orders are read day-first with a question on the Overv
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("turbofuzz.settings") ?? "{}"));
   expect(stored.dateOrder).toBe("mdy");
 });
+
+test("the number format setting changes the thousands and decimal marks everywhere", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await expect(dialog.locator("#setting-numberFormat")).toHaveValue("");
+  await dialog.locator("#setting-numberFormat").selectOption("de-DE");
+  await dialog.getByRole("button", { name: "Done" }).click();
+  const rows = ["item,amount"];
+  for (let i = 0; i < 40; i++) rows.push(`a${i},${1234567 + i}`);
+  await page.locator('input[type="file"]').setInputFiles({ name: "big.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await expect(page.locator(".workspace")).toContainText("40 rows");
+  expect(await page.evaluate(() => (1234567.5).toLocaleString("en", { maximumFractionDigits: 1 }))).toBe("1.234.567,5");
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("turbofuzz.settings") ?? "{}"));
+  expect(stored.numberFormat).toBe("de-DE");
+});

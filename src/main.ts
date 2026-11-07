@@ -1,3 +1,4 @@
+import "./data/display-locale.js";
 import "./styles.css";
 import { App } from "./ui/app.js";
 import { applyThemePreference, readThemePreference } from "./ui/theme.js";
