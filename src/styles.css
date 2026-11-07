@@ -12904,8 +12904,10 @@ button.qp-tile:hover {
 .ts-sub .ts-tok { font-size: 13px; padding: 0 6px; }
 .ts-why { margin: 0; color: var(--ts-dim); font-size: 12.5px; }
 
-.ts-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; margin: 0; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.ts-strip > div { background: var(--panel); padding: 9px 12px; min-width: 0; }
+/* Cells take the room their content needs; the last one (the forecast and its verdict) is twice as wide and wraps less. */
+.ts-strip { display: flex; flex-wrap: wrap; gap: 1px; margin: 0; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.ts-strip > div { background: var(--panel); padding: 9px 12px; min-width: 0; flex: 1 1 120px; }
+.ts-strip > div:last-child { flex: 2 1 250px; }
 .ts-strip dt { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--ts-dim); font-weight: 600; }
 .ts-strip dd { margin: 2px 0 0; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
 .ts-strip dd small { font-size: var(--fs-sm); font-weight: 500; color: var(--ts-dim); }

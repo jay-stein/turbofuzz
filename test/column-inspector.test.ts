@@ -273,7 +273,7 @@ test("the Fill missing menu offers KNN next to the simple strategies", () => {
   clickAction("Fill missing ▾");
   const document = (globalThis as Record<string, unknown>).document as Window["document"];
   const knn = [...document.querySelectorAll(".context-menu .context-item")].find(
-    (item) => item.textContent === "KNN (nearest neighbours)…",
+    (item) => item.textContent === "Fill from similar rows (k nearest neighbours)…",
   );
   assert.ok(knn !== undefined, "the KNN entry is present");
   (knn as unknown as { click(): void }).click();
