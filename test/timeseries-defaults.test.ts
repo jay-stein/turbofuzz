@@ -32,3 +32,16 @@ test("a small-integer reading is a measure, a month or hour column is still a da
   const cycling = Float64Array.from({ length: n }, (_, i) => (i % 12) + 1);
   assert.equal(measure(table(n, { slot: cycling, sales: Float64Array.from({ length: n }, () => 100 + 50 * rnd()) })), "sales", "steps up by one and wraps");
 });
+
+test("the snapshot says whether the series holds a steady level, and what differencing would make it so", () => {
+  const n = 300;
+  const steady = new TsEngine(table(n, { v: Float64Array.from({ length: n }, () => 50 + 5 * rnd()) }));
+  const a = steady.compute({ ...defaultConfig(steady.info()), agg: "mean", measure: "v" }, "explore").stationarity!;
+  assert.equal(a.stationary, true);
+  assert.equal(a.d, 0);
+  let level = 0;
+  const walk = new TsEngine(table(n, { v: Float64Array.from({ length: n }, () => (level += rnd() + 0.3)) }));
+  const b = walk.compute({ ...defaultConfig(walk.info()), agg: "mean", measure: "v" }, "explore").stationarity!;
+  assert.equal(b.stationary, false);
+  assert.ok(b.d >= 1 && b.kpss > b.critical);
+});

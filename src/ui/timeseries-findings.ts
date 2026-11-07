@@ -171,6 +171,25 @@ function seasonPartsFinding(s: TsSnapshot, d: Decomposition): TsFinding {
 }
 
 /**
+ * Whether the series holds a steady level, in plain words: the test, what it found, and what that means for the models. A steady
+ * trend alone also fails the test (the level moves), so the sentence says the failure is drift, not necessarily randomness.
+ */
+function stationarityFinding(s: TsSnapshot): TsFinding | null {
+  const st = s.stationarity;
+  if (!st) return null;
+  const k = st.kpss.toFixed(2), c = st.critical.toFixed(2);
+  const season = st.D > 0 ? ` A seasonal difference (${st.m} ${st.m === 1 ? "period" : "periods"}) is also taken, as the season is strong (${st.strength.toFixed(2)}).` : "";
+  if (st.stationary && st.D === 0) return { kind: "Stationarity", tone: "dim", html: `<b>Steady level.</b> The series does not drift: the KPSS statistic is ${k}, under the 5% limit of ${c}. Models that need a steady mean can use it as it is.`, acts: [] };
+  const how = st.d === 0 ? "no plain difference is needed" : st.d === 1 ? "one difference (each period minus the one before) makes it steady" : `${st.d} differences are needed to make it steady`;
+  const lead = st.stationary ? "<b>Steady once the season is removed.</b>" : "<b>Not steady.</b> The level drifts over time";
+  return {
+    kind: "Stationarity", tone: "dim",
+    html: `${lead} (KPSS ${k}${st.stationary ? "" : `, over the 5% limit of ${c}`}); ${how}.${season} AutoARIMA does this itself; the smoothing and regression models carry the drift as a trend instead. A steady climb alone fails this test, so it means the level moves, not that the series is noise.`,
+    acts: [],
+  };
+}
+
+/**
  * Other columns that would help the forecast, from the walk-forward scan: each is offered with the error it cuts, and the page says
  * so plainly when nothing helps or a column was left out for being the series under another name.
  */
@@ -356,6 +375,8 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
     acts.unshift({ label: "Time-weighted mean", act: { kind: "agg", agg: "twmean" } });
   }
   if (bits.length) out.push({ kind: "Data", tone: "warn", html: bits.join(" "), acts });
+  const stat = stationarityFinding(s);
+  if (stat) out.push(stat);
   const drv = driverFinding(s);
   if (drv) out.push(drv);
   return out;

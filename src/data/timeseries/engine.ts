@@ -11,6 +11,21 @@ import { computeDecomposition, type DecompResult } from "./decompose.js";
 import { computeFutures, deepCheck, driverRecent, flexCurve, type DeepCheck, horizonOf, maxHorizon, runModels, type Futures, type HwWarm, type ModelKey, type ModelRun } from "./models.js";
 import { computePatterns, type Patterns } from "./patterns.js";
 import { scanDrivers, type DriverScan } from "./drivers.js";
+import { chooseDifferences, kpssLevel, KPSS_CRITICAL_5 } from "./arima.js";
+
+/** Whether the series holds a steady level, by the KPSS test, and the differencing that would make it so. */
+export interface Stationarity {
+  /** KPSS statistic of the series as it is (null hypothesis: a steady level), and the 5% critical value. */
+  kpss: number;
+  critical: number;
+  stationary: boolean;
+  /** Plain differences and seasonal differences the unit-root rules would take (what AutoARIMA does). */
+  d: number;
+  D: number;
+  /** Season length tried, in periods (1 = none), and its strength. */
+  m: number;
+  strength: number;
+}
 
 /** The series as the page draws it: Aggregated without the per-column means. */
 export type TsSeries = Omit<Aggregated, "colMean">;
@@ -68,6 +83,7 @@ export interface TsSnapshot {
   patterns: Patterns | null;
   /** Other columns tested as drivers: which would cut the forecast error, and how many were tried. */
   driverScan: DriverScan | null;
+  stationarity: Stationarity | null;
   backtest?: TsBacktest;
   /** Backtest MASE of the trend, seasons and drivers model at flexibility 1 to 10 (only when asked). */
   flexCurve?: { flex: number; mase: number }[];
@@ -84,7 +100,8 @@ export class TsEngine {
   private FUT: Futures | null = null;
   private PAT: Patterns | null = null;
   private SCAN: DriverScan | null = null;
-  private readonly keys = { agg: "", sm: "", dec: "", mod: "", pat: "", scan: "" };
+  private STAT: Stationarity | null = null;
+  private readonly keys = { agg: "", sm: "", dec: "", mod: "", pat: "", scan: "", stat: "" };
   private readonly warm: HwWarm = new Map();
 
   constructor(readonly table: TsTable) {}
@@ -141,6 +158,17 @@ export class TsEngine {
       this.SCAN = cfg.agg === "count" && cfg.measure === null && Object.keys(A.colMean).length === 0 ? null : scanDrivers(A.yModel, A.modelN, m, A.colMean, skip);
       this.keys.scan = scanKey;
     }
+    if (decKey !== this.keys.stat) {
+      const m = this.DEC.dec?.m && this.DEC.dec.m > 1 ? this.DEC.dec.m : 1;
+      const y = A.yModel.subarray(0, A.modelN);
+      if (A.modelN < 12) this.STAT = null;
+      else {
+        const dd = chooseDifferences(y, m);
+        const kpss = kpssLevel(y);
+        this.STAT = { kpss, critical: KPSS_CRITICAL_5, stationary: !(kpss > KPSS_CRITICAL_5), d: dd.d, D: dd.D, m, strength: dd.strength };
+      }
+      this.keys.stat = decKey;
+    }
     const { colMean, ...series } = A;
     const recent: Record<string, number> = {};
     for (const c of Object.keys(colMean)) recent[c] = driverRecent(A, c);
@@ -148,7 +176,7 @@ export class TsEngine {
     const models: TsSnapshot["models"] = "error" in mod ? { error: mod.error } : stripInternal(mod);
     return {
       table: this.info(), cfg, A: series, smooth: this.SM, dec: this.DEC, models, futures: this.FUT, maxH: maxHorizon(A), H,
-      driverRecent: recent, driverSeries: Object.fromEntries(cfg.drivers.filter((d) => colMean[d.col]).map((d) => [d.col, colMean[d.col]])), patterns: mode === "patterns" ? this.PAT : null, driverScan: this.SCAN,
+      driverRecent: recent, driverSeries: Object.fromEntries(cfg.drivers.filter((d) => colMean[d.col]).map((d) => [d.col, colMean[d.col]])), patterns: mode === "patterns" ? this.PAT : null, driverScan: this.SCAN, stationarity: this.STAT,
       ms: { agg: t1 - t0, dec: t2 - t1, mod: t3 - t2, pat: t4 - t3 },
       ...(opts.deep && !("error" in mod) ? { deep: deepCheck(A, mod.internal, opts.deep) } : {}),
       ...(opts.flexCurve ? { flexCurve: flexCurve(A, this.table, cfg, H) } : {}),
