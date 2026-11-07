@@ -94,7 +94,7 @@ test("choosing the header row by hand re-reads the same file: the record keeps t
   await page.locator('input[type="file"]').first().setInputFiles({ name: "titled.csv", mimeType: "text/csv", buffer: titled });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Fine-tune import" }).click();
+  await page.getByRole("button", { name: "Import settings" }).click();
   // Row 2 (id, name, amount) is the header, chosen by hand rather than guessed.
   await page.locator(".header-row-line").nth(1).click();
   await page.getByRole("button", { name: "Apply and reload" }).click();

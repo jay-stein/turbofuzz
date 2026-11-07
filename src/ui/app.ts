@@ -1160,9 +1160,9 @@ export class App {
         class: "ghost small nav-action header-row-button",
         type: "button",
         title: "Override where the table starts and ends: header row, rows to skip, footnotes to leave out",
-        "aria-label": "Fine-tune import",
+        "aria-label": "Import settings",
       },
-      ["Fine-tune import…"],
+      ["Import settings…"],
     ) as HTMLButtonElement;
     this.headerRowButton.disabled = true;
     this.headerRowButton.addEventListener("click", () => void this.openHeaderRowOverride());
@@ -1187,7 +1187,7 @@ export class App {
       openMenu(actionsMenu, [
         { label: "Convert types", action: () => this.convertTypesButton.click() },
         {
-          label: "Fine-tune import…",
+          label: "Import settings…",
           title: this.headerRowButton.title,
           disabled: this.headerRowButton.disabled,
           action: () => this.headerRowButton.click(),

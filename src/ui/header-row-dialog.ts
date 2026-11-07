@@ -49,7 +49,7 @@ function numberField(label: string, min: string): { field: HTMLElement; input: H
 }
 
 /**
- * Fine-tune import: lets the user say where the table sits in the file. Click a
+ * Import settings: lets the user say where the table sits in the file. Click a
  * row to make it the header, or type how many rows to skip above the header and
  * under it, and where the data ends (the footnotes after it are left out). The
  * preview updates live: skipped and ignored rows dimmed, header rows
@@ -61,7 +61,7 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
     const modal = el("div", { class: "modal header-row-modal" });
 
     const head = el("div", { class: "modal-head" });
-    head.append(el("h2", {}, [`Fine-tune import for ${input.name}`]));
+    head.append(el("h2", {}, [`Import settings for ${input.name}`]));
     const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close" }, ["×"]);
     head.append(closeButton);
     modal.append(head);
@@ -316,7 +316,7 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
 
     overlay.append(modal);
     document.body.append(overlay);
-    setupDialog(overlay, "Fine-tune import");
+    setupDialog(overlay, "Import settings");
     render();
   });
 }
