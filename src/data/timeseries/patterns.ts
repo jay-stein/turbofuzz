@@ -34,7 +34,10 @@ export interface Patterns { day?: DayPattern; week?: WeekPattern; year?: YearPat
 export function computePatterns(T: TsTable, cfg: TsConfig): Patterns {
   const ok = (S: Aggregated, i: number): boolean => S.y[i] === S.y[i] && !S.partial[i] && !S.made[i] && S.coverage[i] >= 0.5;
   const out: Patterns = {};
-  const fine = T.subDay ? (["hour", "min30", "min15", "min5"] as GrainId[]).find((id) => !tooFine(T, id)) : undefined;
+  // Rows that are events (orders, trips) arrive when they arrive, so their typical gap says nothing about which hours can be
+  // profiled: only a slot the timestamps cannot be drawn at rules a grain out. Regularly sampled readings keep the cadence rule.
+  const fineOk = (id: GrainId): boolean => (T.eventLike ? !(GRAINS[id].unit === "min" && (GRAINS[id].n * MINUTE) % T.slot !== 0) : !tooFine(T, id));
+  const fine = T.subDay ? (["hour", "min30", "min15", "min5"] as GrainId[]).find(fineOk) : undefined;
   if (fine) {
     const S = aggregate(T, cfg, fine), gm = GRAINS[fine], pd = gm.perDay ?? 24;
     const vals: number[][] = Array.from({ length: pd }, () => []);

@@ -172,7 +172,9 @@ function seasonPartsFinding(s: TsSnapshot, d: Decomposition): TsFinding {
 /** Why a period stands out: a data gap, a driver off its usual level, or one group. */
 function explain(s: TsSnapshot, i: number, expected: number): string {
   const A = s.A;
-  if (A.coverage[i] < 0.9 || A.filled[i]) return `Only about ${Math.round(A.coverage[i] * 100)}% of the usual rows are there, so this is a data gap, not a real ${A.y[i] < expected ? "drop" : "rise"}.`;
+  // Missing rows can only explain a drop in a total; a rise with fewer rows is not a gap, so it falls through to the other causes.
+  const low = A.y[i] < expected;
+  if (A.filled[i] || (A.coverage[i] < 0.9 && (low || s.cfg.agg !== "sum"))) return `Only about ${Math.round(A.coverage[i] * 100)}% of the usual rows are there, so this is ${low ? "more likely a data gap than a real drop" : "a thin period, not a reliable rise"}.`;
   const w = A.g.evWin || Math.max(3, Math.round(A.g.perYear / 6.5));
   for (const d of s.cfg.drivers) {
     const ser = s.driverSeries[d.col];

@@ -3,7 +3,7 @@
  * the rolling smooth.
  */
 
-import { bucketStart, GRAINS, openAt, slotBuckets, slotOpen, type Grain, type GrainId, type TsTable } from "./base.js";
+import { bucketStart, GRAINS, HOUR, openAt, slotBuckets, slotOpen, type Grain, type GrainId, type TsTable } from "./base.js";
 
 /** twmean: each reading counts for as long as it held (until the next one). */
 export type TsAgg = "sum" | "mean" | "twmean" | "median" | "min" | "max" | "first" | "last" | "count";
@@ -130,11 +130,18 @@ export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): 
   // Coverage from the data's own spacing: a monthly table has one row per month and is
   // complete; a daily table missing four days in a week is not.
   const cad = T.cadSlots, obsSlots = new Float64Array(n), allowed = new Float64Array(n);
-  const lastObs = T.observed[T.observed.length - 1], spanEnd = lastObs + Math.max(1, Math.round(cad)) - 1;
+  // Events arrive when they happen, so the last day counts as recorded to its end however early the last event was; a last
+  // period is partial only when the data stops before its last day.
+  const lastObs = T.observed[T.observed.length - 1];
+  const spanEnd = T.eventLike ? (Math.floor(lastObs / T.spd) + 1) * T.spd - 1 : lastObs + Math.max(1, Math.round(cad)) - 1;
   for (let d = 0; d < T.nslots; d++) {
     const b = bod[d];
     if (seen[d]) obsSlots[b]++;
     if (d <= spanEnd && slotOpen(T, d)) allowed[b]++;
+  }
+  // The table's slots stop at the last row; the rest of that same day still counts for events.
+  if (T.eventLike && !T.structural[T.swd[T.nslots - 1]]) {
+    for (let d = T.nslots; d <= spanEnd; d++) if (!T.closedHours[Math.floor(((d % T.spd) * T.slot) / HOUR)]) allowed[n - 1]++;
   }
   const t = new Float64Array(n), y = new Float64Array(n), filled = new Uint8Array(n), partial = new Uint8Array(n);
   const expected = new Float64Array(n), coverage = new Float64Array(n), missing = new Uint16Array(n);
@@ -217,12 +224,19 @@ export function aggregate(T: TsTable, cfg: TsConfig, gid: GrainId = cfg.grain): 
   }
   // Runs without rows (weekdays and hours that never have rows excluded), as slot ranges for the findings.
   const gapRanges: [number, number][] = [];
+  // Only a stretch that leaves a whole period of the shown grain without rows is a gap here; a missing 2-hour slot inside a
+  // day that has rows is not one on a daily view.
+  const emptyPeriodWithin = (a: number, z: number): boolean => {
+    const from = T.start + a * T.slot, to = T.start + z * T.slot;
+    for (let b = 0; b < n; b++) if (!cnt[b] && t[b] >= from - 1 && bucketStart(T, g, b + 1) - 1 <= to + T.slot) return true;
+    return false;
+  };
   const ob = T.eventLike ? [] : T.observed;
   for (let k = 1; k < ob.length; k++) {
     if (ob[k] - ob[k - 1] <= 1.5 * cad) continue;
     let real = false;
     for (let d = ob[k - 1] + 1; d < ob[k]; d++) if (slotOpen(T, d)) { real = true; break; }
-    if (real) gapRanges.push([ob[k - 1] + 1, ob[k] - 1]);
+    if (real && emptyPeriodWithin(ob[k - 1] + 1, ob[k] - 1)) gapRanges.push([ob[k - 1] + 1, ob[k] - 1]);
   }
   // How many values each period holds. When that swings, a sum swings with it.
   let spread: [number, number] | null = null;

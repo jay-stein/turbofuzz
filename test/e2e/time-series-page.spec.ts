@@ -57,7 +57,9 @@ test("the Time Series tab reads the loaded table and says what it plots", async 
 test("forecast, decompose and patterns each draw from the worker", async ({ page }) => {
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();
-  await expect(page.locator("[data-ref=board] tbody tr")).toHaveCount(12);
+  // AutoARIMA starts by itself and adds a row of its own, searching or finished.
+  await expect.poll(async () => page.locator("[data-ref=board] tbody tr").count()).toBeGreaterThanOrEqual(12);
+  await expect.poll(async () => page.locator("[data-ref=board] tbody tr").count()).toBeLessThanOrEqual(13);
   await page.locator(".ts-page [data-ref=hNum]").fill("30");
   await page.locator(".ts-page [data-ref=hNum]").press("Enter");
   await expect(page.locator(".ts-page [data-ref=hUnit]")).toHaveText("days");
@@ -197,7 +199,9 @@ test("the board validates on an expanding or rolling window, ranks by any measur
 test("Export offers the forecast, the series, the model scorecard and the backtest", async ({ page }) => {
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();
-  await expect(page.locator("[data-ref=board] tbody tr")).toHaveCount(12);
+  // AutoARIMA starts by itself and adds a row of its own, searching or finished.
+  await expect.poll(async () => page.locator("[data-ref=board] tbody tr").count()).toBeGreaterThanOrEqual(12);
+  await expect.poll(async () => page.locator("[data-ref=board] tbody tr").count()).toBeLessThanOrEqual(13);
   const grab = async (item: string): Promise<string> => {
     await page.getByRole("button", { name: "Export ▾" }).click();
     const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("menuitem", { name: item }).click()]);
@@ -222,7 +226,9 @@ test("Export offers the forecast, the series, the model scorecard and the backte
 test("the data table says which rows are actual, filled or forecast", async ({ page }) => {
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();
-  await expect(page.locator("[data-ref=board] tbody tr")).toHaveCount(12);
+  // AutoARIMA starts by itself and adds a row of its own, searching or finished.
+  await expect.poll(async () => page.locator("[data-ref=board] tbody tr").count()).toBeGreaterThanOrEqual(12);
+  await expect.poll(async () => page.locator("[data-ref=board] tbody tr").count()).toBeLessThanOrEqual(13);
   await page.getByRole("button", { name: "Show data table" }).click();
   await expect(page.getByRole("button", { name: "Hide data table" })).toHaveAttribute("aria-expanded", "true");
   const table = page.locator(".ts-page [data-ref=tableWrap]");
@@ -338,7 +344,9 @@ test("Explore can plot the difference from n periods earlier, and gap choices st
 test("Deep check tests the pick against every rival, by horizon, for calibration and in its residuals", async ({ page }) => {
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();
-  await expect(page.locator("[data-ref=board] tbody tr")).toHaveCount(12);
+  // AutoARIMA starts by itself and adds a row of its own, searching or finished.
+  await expect.poll(async () => page.locator("[data-ref=board] tbody tr").count()).toBeGreaterThanOrEqual(12);
+  await expect.poll(async () => page.locator("[data-ref=board] tbody tr").count()).toBeLessThanOrEqual(13);
   await page.locator(".ts-fold[data-fold=hood]").click();
   await page.getByRole("button", { name: "Deep check" }).click();
   const box = page.locator(".ts-page [data-ref=deepBox]");
@@ -354,7 +362,9 @@ test("Deep check tests the pick against every rival, by horizon, for calibration
 test("each model has a technical page with its equations, this series' fit and its sources", async ({ page }) => {
   await openPage(page);
   await page.locator(".ts-modes [data-mode=forecast]").click();
-  await expect(page.locator("[data-ref=board] tbody tr")).toHaveCount(12);
+  // AutoARIMA starts by itself and adds a row of its own, searching or finished.
+  await expect.poll(async () => page.locator("[data-ref=board] tbody tr").count()).toBeGreaterThanOrEqual(12);
+  await expect.poll(async () => page.locator("[data-ref=board] tbody tr").count()).toBeLessThanOrEqual(13);
   await page.getByRole("button", { name: "How Best smoothing works" }).click();
   const win = page.getByRole("dialog", { name: "How the forecasts work" });
   await expect(win.locator("h2").nth(1)).toContainText("Best smoothing");

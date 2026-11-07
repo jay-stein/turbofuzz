@@ -105,8 +105,14 @@ export function patternsHtml(P: Patterns, what: string, gridWidth: number, caden
   }
   if (Wk) {
     const avg = mean(finite(Wk.mean)), hi = argExt(Wk.mean, 1), lo = argExt(Wk.mean, -1);
-    facts.push(["Peak day", `${WEEKDAYS[hi].slice(0, -1)} <small>${vsAvg(Wk.mean[hi], avg, Wk.pos)} vs average day</small>`]);
-    facts.push(["Low day", `${WEEKDAYS[lo].slice(0, -1)} <small>${vsAvg(Wk.mean[lo], avg, Wk.pos)}</small>`]);
+    // Days within 3% of the average of each other are a tie, not a ranking. These are raw averages; the Season finding
+    // removes trend and the yearly season first, so its high and low days can differ.
+    const dayName = (k: number, dir: 1 | -1): string => {
+      const ties = Wk.mean.map((v, j) => j).filter((j) => Wk.mean[j] === Wk.mean[j] && Math.abs(Wk.mean[j] - Wk.mean[k]) <= 0.03 * Math.abs(avg) && (dir > 0 ? Wk.mean[j] >= avg : Wk.mean[j] <= avg));
+      return ties.length > 1 && ties.length < 7 ? ties.map((j) => WD_SHORT[j]).join(" ≈ ") : WEEKDAYS[k].slice(0, -1);
+    };
+    facts.push(["Peak day", `${dayName(hi, 1)} <small>${vsAvg(Wk.mean[hi], avg, Wk.pos)} vs average day, raw average</small>`]);
+    facts.push(["Low day", `${dayName(lo, -1)} <small>${vsAvg(Wk.mean[lo], avg, Wk.pos)}, raw average</small>`]);
     const wd = finite(Wk.mean.slice(0, 5)), we = finite(Wk.mean.slice(5));
     if (wd.length && we.length) facts.push(["Weekends vs weekdays", vsAvg(mean(we), mean(wd), Wk.pos)]);
     const titles = Wk.mean.map((v, k) => `${WEEKDAYS[k]}: ${v === v ? `${full(v)} on average (${vsAvg(v, avg, Wk.pos)} vs the average day), over ${Wk.n[k]} days` : "no complete days"}`);
