@@ -23,6 +23,7 @@ export type IssueKind =
   | "numberSymbols"
   | "outOfRange"
   | "empty"
+  | "emptyColumn"
   | "duplicates"
   | "review"
   | "other";
@@ -45,6 +46,7 @@ export type FixStep =
     }
   | { kind: "placeholders"; column: number; tokens: string[]; preview: FixPreviewLine[] }
   | { kind: "convert"; column: number; to: ColumnType }
+  | { kind: "dropColumn"; column: number; preview: FixPreviewLine[] }
   | { kind: "dateFormat"; column: number; order: DateOrder; preview: FixPreviewLine[] }
   | { kind: "numberSymbols"; column: number; locale: "dot" | "comma"; preview: FixPreviewLine[] };
 
@@ -134,6 +136,13 @@ function gain(score: DQScore, check: ScoreCheck, weight: number, total: number):
   return (check.fail / applicable) * (weight / total) * 100;
 }
 
+/** Points gained by dropping one empty column: its share of the cells its dimension scores, times the dimension's share of the score. */
+function emptyColumnPoints(checks: readonly ScoreCheck[], check: ScoreCheck, weight: number, total: number): number {
+  const cells = checks.reduce((sum, c) => sum + c.pass + c.fail, 0);
+  if (cells <= 0 || total <= 0) return 0;
+  return (check.fail / cells) * (weight / total) * 100;
+}
+
 function placeholderTokens(meta: ColumnMeta): { label: string; count: number }[] {
   return meta.nullTokens.filter((token) => token.label.trim() !== "" && token.count > 0);
 }
@@ -186,6 +195,30 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
       const column = check.column;
       const sensitive = sensitiveColumns.has(column);
       const points = gain(score, check, weights.get(dimension.dimension) ?? 0, total);
+
+      if (check.emptyColumn === true) {
+        issues.push({
+          id: `emptyColumn.${column}`,
+          severity: "fix",
+          kind: "emptyColumn",
+          column,
+          columnName: meta.name,
+          title: `“${meta.name}” is empty in every row`,
+          evidence: `No value in any of ${n(rowCount)} ${plural(rowCount, "row", "rows")}`,
+          impact: "It tells you nothing, clutters charts and exports, and counts against completeness. Dropping it can be undone",
+          // Its share of the dimension: one column of many, not the whole of completeness.
+          points: emptyColumnPoints(dimension.checks, check, weights.get(dimension.dimension) ?? 0, total),
+          examples: [],
+          dist: null,
+          fixes: [{ kind: "dropColumn", column, preview: [{ from: meta.name, to: "(column removed)", count: rowCount }] }],
+          fixLabel: "Drop column",
+          // Nothing is lost (the column holds no value) and it can be undone, so it is safe to fix in a batch.
+          batchSafe: true,
+          check,
+          rows: rowCount,
+        });
+        continue;
+      }
 
       if (check.id.startsWith("consistency.variants.")) {
         const variants = meta.variants;
@@ -513,7 +546,7 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
     const emptyCheck = score.dimensions
       .find((d) => d.dimension === "completeness")
       ?.checks.find((c) => c.id === `completeness.${column}`);
-    if (emptyCheck === undefined) return;
+    if (emptyCheck === undefined || emptyCheck.emptyColumn === true) return;
     const placeholders = placeholderTokens(meta).reduce((sum, token) => sum + token.count, 0);
     const empty = Math.max(0, meta.stats.nulls - placeholders);
     if (empty === 0) return;

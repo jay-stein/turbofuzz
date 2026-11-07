@@ -1530,6 +1530,7 @@ export class App {
       onOpenMerge: (column) => this.openMerge(column),
       onReviewColumn: (column) => this.focusFilterColumn(column),
       onDropColumn: (column) => this.dropEmptyColumns([column]),
+      onDropColumns: (columns) => this.dropEmptyColumns(columns),
       onOpenStats: () => this.openStats(),
       onCombineDate: (op) =>
         this.applyTransform([...this.transformOps, op], "Combined the date columns"),
@@ -5248,9 +5249,22 @@ export class App {
     const chosen = await openFixPreview(issues);
     if (chosen === null || chosen.length === 0) return null;
     const items: FixOutcome["items"] = [];
+    // Dropped columns go together as one step, after the other fixes: dropping one at a time would shift the positions of the rest.
+    const dropped: number[] = [];
+    let droppedUndone = false;
+    const undoDrop = (): void => {
+      if (droppedUndone) return;
+      droppedUndone = true;
+      this.undoLastStep();
+    };
     for (const issue of issues.filter((candidate) => chosen.includes(candidate.id))) {
       const undos: (() => void)[] = [];
       for (const step of issue.fixes) {
+        if (step.kind === "dropColumn") {
+          dropped.push(step.column);
+          undos.push(undoDrop);
+          continue;
+        }
         const undo = this.applyFixStep(step);
         if (undo !== null) undos.push(undo);
       }
@@ -5260,6 +5274,7 @@ export class App {
         undo: () => [...undos].reverse().forEach((undo) => undo()),
       });
     }
+    if (dropped.length > 0) this.dropEmptyColumns(dropped);
     this.showToast(
       items.length === 1 ? "Applied 1 fix" : `Applied ${items.length} fixes`,
       () => items.forEach((item) => item.undo()),
@@ -8798,10 +8813,12 @@ export class App {
   /** Quick action from the QA block: drop columns that are empty in every row. */
   private dropEmptyColumns(columns: number[]): void {
     if (columns.length === 0) return;
+    // Highest position first: each drop moves the columns after it, so the rest would otherwise point at the wrong column.
+    const ordered = [...new Set(columns)].sort((a, b) => b - a);
     this.applyTransform(
       [
         ...this.transformOps,
-        ...columns.map((column) => ({ kind: "drop" as const, column })),
+        ...ordered.map((column) => ({ kind: "drop" as const, column })),
       ],
       `Dropped ${columns.length} empty column${columns.length === 1 ? "" : "s"}`,
     );

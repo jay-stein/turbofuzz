@@ -46,6 +46,8 @@ export interface ScoreCheck {
   optional?: boolean;
   /** Proposed from column names; the user can turn it off. */
   suggested?: boolean;
+  /** The column has no value in any row: the fix is to drop it. */
+  emptyColumn?: boolean;
 }
 
 /** A conversion that would blank more than this share of values is not offered. */
@@ -156,8 +158,8 @@ export function computeDQScore(
   const contentColumns = columns
     .map((meta, column) => ({ meta, column }))
     .filter(({ meta }) => meta.role !== "provenance");
-  // A column with nothing in it (Excel padding, unused fields) says nothing about
-  // data quality; it is reported once instead of failing every check.
+  // A column with nothing in it (Excel padding, unused fields) is one completeness failure with one fix (drop it), and is left out
+  // of every other check, where it would fail them all for the same reason.
   const isEmpty = ({ meta }: { meta: ColumnMeta }): boolean =>
     rowCount > 0 && meta.stats.nulls >= rowCount;
   const emptyColumns = contentColumns
@@ -167,7 +169,24 @@ export function computeDQScore(
   const optionalSet = effectiveOptional(columns, rowCount, config.optional ?? {});
 
   // Completeness: every column's cells must be populated.
-  scoredColumns.forEach(({ meta, column }) => {
+  contentColumns.forEach(({ meta, column }) => {
+    const blank = isEmpty({ meta });
+    if (blank) {
+      checks.push({
+        id: `completeness.${column}`,
+        dimension: "completeness",
+        label: `“${meta.name}” is populated`,
+        detail: `empty in every one of ${formatCount(rowCount)} rows`,
+        pass: 0,
+        fail: rowCount,
+        na: 0,
+        column,
+        filter: null,
+        fixLabel: "Drop column",
+        emptyColumn: true,
+      });
+      return;
+    }
     checks.push({
       id: `completeness.${column}`,
       dimension: "completeness",

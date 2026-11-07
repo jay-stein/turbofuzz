@@ -1061,7 +1061,8 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
       const emptyColumns = columns
         .map((meta, index) => ({ meta, index }))
         .filter((entry) => entry.meta.stats.distinct === 0 && entry.meta.stats.nulls > 0)
-        .map((entry) => entry.index);
+        .map((entry) => entry.index)
+        .sort((a, b) => b - a);
       if (emptyColumns.length === 0) {
         return { kind: "error", message: "No columns are empty in every row." };
       }

@@ -222,14 +222,15 @@ test("band labels in a short category column are not a format failure", () => {
   assert.deepEqual(computePatternProfiles([column], raw.length), []);
 });
 
-test("completely empty columns are reported once and not scored", () => {
+test("completely empty columns fail completeness once, with the fix of dropping them, and fail no other check", () => {
   const filled = ColumnData.create("id", Array.from({ length: 50 }, (_, i) => String(i)));
   const blank = ColumnData.create("padding", Array.from({ length: 50 }, () => ""));
   const score = computeDQScore([metaOf(filled), metaOf(blank)], stats(50), 50);
   assert.deepEqual(score.emptyColumns, [{ column: 1, name: "padding" }]);
   const checks = score.dimensions.flatMap((d) => d.checks);
-  assert.ok(!checks.some((c) => c.column === 1));
-  assert.equal(score.overall, 100);
+  assert.deepEqual(checks.filter((c) => c.column === 1).map((c) => c.id), ["completeness.1"]);
+  assert.equal(checks.find((c) => c.id === "completeness.1")?.emptyColumn, true);
+  assert.ok((score.overall ?? 100) < 100, "an empty column costs points");
 });
 
 test("case variants are found in high-cardinality text columns", () => {

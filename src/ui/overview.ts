@@ -48,6 +48,8 @@ export interface OverviewCallbacks {
   onImportSettings?(): void;
   /** Open the Outliers page. */
   onOpenOutliers?(): void;
+  /** Drop columns that are empty in every row (one undoable step). */
+  onDropColumns?(columns: number[]): void;
 }
 
 export type NextStepAction =
@@ -59,7 +61,8 @@ export type NextStepAction =
   | { kind: "chart"; column: number | null }
   | { kind: "combineDate"; op: CombineDateOp }
   | { kind: "blankTokens"; tokens: string[] }
-  | { kind: "chooseDateOrder" };
+  | { kind: "chooseDateOrder" }
+  | { kind: "dropEmpty"; columns: number[] };
 
 export interface NextStep {
   id:
@@ -67,6 +70,7 @@ export interface NextStep {
     | "nullTokens"
     | "sentinels"
     | "dateOrder"
+    | "emptyColumns"
     | "duplicates"
     | "fixes"
     | "nearDuplicates"
@@ -267,6 +271,21 @@ export function pickNextSteps(
     });
   }
 
+  // A column with no value in any row: nothing to clean, so the offer is to drop it.
+  const blank = columns
+    .map((column, index) => ({ column, index }))
+    .filter(({ column }) => column.role !== "provenance" && rowCount > 0 && column.stats.nulls >= rowCount);
+  if (blank.length > 0) {
+    const names = blank.length <= 2 ? blank.map(({ column }) => `“${column.name}”`).join(" and ") : `${blank.length} columns`;
+    rules.push({
+      id: "emptyColumns",
+      text: `${names} ${blank.length === 1 ? "is" : "are"} empty in every row. ${blank.length === 1 ? "It adds" : "They add"} nothing and ${blank.length === 1 ? "counts" : "count"} against completeness.`,
+      button: blank.length === 1 ? "Drop it" : "Drop them",
+      score: Number.MAX_SAFE_INTEGER - 2,
+      action: { kind: "dropEmpty", columns: blank.map(({ index }) => index) },
+    });
+  }
+
   // A number the data's author used for "missing" (-9, 999): it is a value in every column that has it, so it skews means and
   // ranges everywhere. Offered once for the whole table, by value.
   const codes = new Map<string, { names: string[]; cells: number }>();
@@ -294,7 +313,7 @@ export function pickNextSteps(
     });
   }
 
-  const withNulls = columns.filter((column) => column.stats.nulls > 0);
+  const withNulls = columns.filter((column) => column.stats.nulls > 0 && !(rowCount > 0 && column.stats.nulls >= rowCount));
   if (withNulls.length > 0) {
     // Placeholder tokens ("NA", "TBD") get a one-click convert action; plain
     // empty cells keep the review-first rule.
@@ -873,6 +892,9 @@ export class Overview {
         break;
       case "chooseDateOrder":
         this.callbacks.onChooseDateOrder?.(anchor);
+        break;
+      case "dropEmpty":
+        this.callbacks.onDropColumns?.(step.action.columns);
         break;
     }
   }
