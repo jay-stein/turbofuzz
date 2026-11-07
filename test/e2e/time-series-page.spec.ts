@@ -591,3 +591,12 @@ test("each finding shows two lines, and More opens the rest", async ({ page }) =
   await expect(more).toContainText("Less");
   expect((await p.boundingBox())!.height).toBeGreaterThan(closed);
 });
+
+test("the simplest yardstick is named for the cycle it copies on this series", async ({ page }) => {
+  await openPage(page);
+  await page.locator(".ts-modes [data-mode=forecast]").click();
+  const compact = page.locator("[data-ref=boardCompact]");
+  await page.locator(".ts-fold[data-fold=compare]").click();
+  await expect(compact).toContainText(/Same day last week/, { timeout: 20_000 });
+  await expect(compact).not.toContainText("Repeat last cycle");
+});

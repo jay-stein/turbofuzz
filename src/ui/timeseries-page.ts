@@ -311,6 +311,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       } else {
         const first = snap === null || cfg === null;
         snap = msg.snapshot;
+        nameYardstick(msg.snapshot);
         shape = msg.shape ?? null;
         cfg = msg.snapshot.cfg;
         // The holiday region chosen before comes back with each new series, once it can be applied.
@@ -1474,6 +1475,15 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
 
   // ---------------------------------------------------------------- forecast badge and trend flexibility
   /** The cycle the seasonal naive repeats, in a word ("year", "week"). */
+  /**
+   * The simplest forecast copies the period one cycle back, and the page names which cycle that is on this series, in the words
+   * a person would say it: "Same day last week", "Same month last year". One name everywhere it appears.
+   */
+  function nameYardstick(s: TsSnapshot): void {
+    const m = "error" in s.models ? 0 : s.models.m, noun = s.A.g.noun, cycle = cycleWord(s);
+    const name = m <= 1 ? "Repeat last value" : cycle === "year" ? `Same ${noun} last year` : cycle === "week" ? `Same ${noun} last week` : cycle === "day" ? `Same ${noun} yesterday` : cycle === "month" ? `Same ${noun} last month` : cycle === "quarter" ? `Same ${noun} last quarter` : `Same ${noun} one cycle earlier`;
+    (MODEL_INFO.sn as { name: string }).name = name;
+  }
   /** The cycle "repeat the last cycle" really copies: the season the models used at this grain, not always a year. */
   const cycleWord = (s: TsSnapshot): string => {
     const m = "error" in s.models ? 0 : s.models.m;
