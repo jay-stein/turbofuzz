@@ -44,3 +44,16 @@ test("a warning tile on the Overview opens the tool that fixes it, and a code li
   await page.getByRole("button", { name: "Apply nulls" }).click();
   await expect(page.locator('.health-tile[data-kind="empties"]')).toContainText("2 of 3", { timeout: 15_000 });
 });
+
+test("a few -9 cells in several columns are named as a missing-value code, with one click to blank them everywhere", async ({ page }) => {
+  const rows = ["id,age,speed,state"];
+  for (let i = 1; i <= 900; i++) rows.push(`${i},${i === 10 || i === 400 || i === 800 ? -9 : 18 + (i % 60)},${i === 55 || i === 56 || i === 700 ? -9 : 40 + (i % 8) * 10},${["NSW", "VIC", "QLD"][i % 3]}`);
+  await load(page, "codes-few.csv", rows.join("\n"));
+  const step = page.locator(".next-step-card", { hasText: "-9 looks like a missing-value code" });
+  await expect(step).toBeVisible({ timeout: 10_000 });
+  await expect(step).toContainText("age, speed");
+  await step.getByRole("button", { name: "Blank -9" }).click();
+  await page.getByRole("button", { name: "Blank placeholders" }).click();
+  await expect(page.locator(".next-step-card", { hasText: "-9 looks like a missing-value code" })).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.locator('.health-tile[data-kind="empties"]')).toContainText("2 of 4", { timeout: 15_000 });
+});

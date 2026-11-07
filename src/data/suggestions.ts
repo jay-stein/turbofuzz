@@ -33,6 +33,7 @@ const FALSY = new Set(["n", "no", "f", "false"]);
 const MAX_SAMPLE = 2000;
 const SENTINEL_MIN_RATIO = 0.01;
 const SENTINEL_MIN_COUNT = 5;
+const SENTINEL_CODE_MIN_COUNT = 3;
 const MAX_SENTINELS = 3;
 const NUMBER_MIN_RATIO = 0.8;
 const DATE_MIN_RATIO = 0.8;
@@ -155,7 +156,10 @@ export function detectSuggestions(
   if (type !== "identifier") {
     const candidates: { value: string; count: number; hint?: string }[] = [];
     for (const [value, count] of counts) {
-      if (count < SENTINEL_MIN_COUNT || count / nonNull.length < SENTINEL_MIN_RATIO) {
+      // A negative code such as -9 is set apart from the real values by the test below, so a handful of cells is enough; other
+      // shapes need to be frequent before they are worth a suggestion.
+      const explicit = NUMERIC_SENTINEL_VALUES.has(value) && Number(value) < 0;
+      if (explicit ? count < SENTINEL_CODE_MIN_COUNT : count < SENTINEL_MIN_COUNT || count / nonNull.length < SENTINEL_MIN_RATIO) {
         continue;
       }
       const lower = value.toLowerCase();

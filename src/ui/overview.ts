@@ -61,6 +61,7 @@ export interface NextStep {
   id:
     | "empties"
     | "nullTokens"
+    | "sentinels"
     | "duplicates"
     | "fixes"
     | "nearDuplicates"
@@ -241,6 +242,31 @@ export function pickNextSteps(
   archetype: ArchetypeId = "general",
 ): NextStep[] {
   const rules: NextStep[] = [];
+
+  // A number the data's author used for "missing" (-9, 999): it is a value in every column that has it, so it skews means and
+  // ranges everywhere. Offered once for the whole table, by value.
+  const codes = new Map<string, { names: string[]; cells: number }>();
+  for (const column of columns) {
+    for (const suggestion of column.suggestions) {
+      if (suggestion.kind !== "sentinel" || !Number.isFinite(Number(suggestion.value))) continue;
+      const entry = codes.get(suggestion.value) ?? { names: [], cells: 0 };
+      entry.names.push(column.name);
+      entry.cells += suggestion.count;
+      codes.set(suggestion.value, entry);
+    }
+  }
+  const topCode = [...codes.entries()].sort((a, b) => b[1].cells - a[1].cells)[0];
+  if (topCode !== undefined) {
+    const [value, { names, cells }] = topCode;
+    const where = names.length <= 3 ? names.join(", ") : `${names.slice(0, 3).join(", ")} and ${names.length - 3} more`;
+    rules.push({
+      id: "sentinels",
+      text: `${value} looks like a missing-value code, not a measurement: ${cells.toLocaleString()} ${plural(cells, "cell")} in ${where}`,
+      button: `Blank ${value}`,
+      score: Number.MAX_SAFE_INTEGER,
+      action: { kind: "blankTokens", tokens: [value] },
+    });
+  }
 
   const withNulls = columns.filter((column) => column.stats.nulls > 0);
   if (withNulls.length > 0) {
@@ -577,10 +603,14 @@ export class Overview {
 
   /** Refreshes the health tiles after a worker reported new dataset stats. */
   updateHealth(columns: readonly ColumnMeta[], stats: DatasetStats): void {
-    const tiles = this.root.querySelector<HTMLElement>(".health-tiles");
+    // Either the tiles, or the all-clear line that stands in for them when nothing warned: a fix can end either state.
+    const tiles = this.root.querySelector<HTMLElement>(".health-tiles, .overview-clear");
     if (tiles === null) return;
     this.columns = columns;
     tiles.replaceWith(this.buildHealthTiles(columns, stats));
+    // What the next steps offer follows what was just fixed (a code blanked, duplicates dropped).
+    const steps = this.root.querySelector<HTMLElement>(".overview-next-steps");
+    if (steps !== null) steps.replaceWith(this.buildNextStepsFor(columns, stats, this.rowCount));
   }
 
   private buildDatasetLine(
@@ -714,15 +744,14 @@ export class Overview {
   }
 
   private buildNextSteps(loaded: LoadedMessage | TransformedMessage): HTMLElement {
-    const section = el("section", { class: "overview-section" });
+    return this.buildNextStepsFor(loaded.columns, loaded.stats, loaded.rowCount);
+  }
+
+  private buildNextStepsFor(columns: readonly ColumnMeta[], stats: DatasetStats, rowCount: number): HTMLElement {
+    const section = el("section", { class: "overview-section overview-next-steps" });
     section.append(el("h2", { class: "overview-heading" }, ["Next steps"]));
     const list = el("div", { class: "next-step-list" });
-    for (const step of pickNextSteps(
-      loaded.columns,
-      loaded.stats,
-      loaded.rowCount,
-      this.archetype,
-    )) {
+    for (const step of pickNextSteps(columns, stats, rowCount, this.archetype)) {
       const card = el("div", { class: "next-step-card" });
       card.append(el("span", { class: "next-step-text" }, [step.text]));
       const button = el(
