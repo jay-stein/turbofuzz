@@ -569,16 +569,16 @@ test("Decompose shows a typical week and a typical year, not just the wave laid 
   await expect(figs.locator("figure").first().locator("text", { hasText: "Mon" })).toBeVisible();
 });
 
-test("Patterns opens with the series chart folded to a strip, heatmap first, and one click opens the chart", async ({ page }) => {
+test("Patterns shows the full series chart, and a click folds it to a strip", async ({ page }) => {
   await openPage(page);
   await page.locator(".ts-modes [data-mode=patterns]").click();
   const fold = page.locator(".ts-page [data-ref=heroFold]");
-  await expect(fold).toContainText("Show the full series chart");
   const hero = page.locator(".ts-page [data-ref=hero]");
-  expect((await hero.boundingBox())!.height).toBeLessThan(90);
-  await fold.click();
   await expect(fold).toContainText("Fold the series chart");
   await expect.poll(async () => (await hero.boundingBox())!.height).toBeGreaterThan(200);
+  await fold.click();
+  await expect(fold).toContainText("Show the full series chart");
+  await expect.poll(async () => (await hero.boundingBox())!.height).toBeLessThan(90);
 });
 
 test("each finding shows two lines, and More opens the rest", async ({ page }) => {
@@ -599,4 +599,26 @@ test("the simplest yardstick is named for the cycle it copies on this series", a
   await page.locator(".ts-fold[data-fold=compare]").click();
   await expect(compact).toContainText(/Same day last week/, { timeout: 20_000 });
   await expect(compact).not.toContainText("Repeat last cycle");
+});
+
+test("the band levels can be set, are remembered, and the outer band can be turned off", async ({ page }) => {
+  await openPage(page);
+  await page.locator(".ts-modes [data-mode=forecast]").click();
+  const inner = page.locator(".ts-page [data-ref=bandInner]");
+  const outer = page.locator(".ts-page [data-ref=bandOuter]");
+  await expect(inner).toHaveValue("80");
+  await expect(outer).toHaveValue("95");
+  await expect(page.locator(".ts-page [data-ref=legend]")).toContainText("80% and 95% range");
+  await inner.fill("90");
+  await inner.press("Tab");
+  await outer.fill("99");
+  await outer.press("Tab");
+  await expect(page.locator(".ts-page [data-ref=legend]")).toContainText("90% and 99% range");
+  // An outer band that is not wider than the inner one is the same as none.
+  await outer.fill("85");
+  await outer.press("Tab");
+  await expect(page.locator(".ts-page [data-ref=legend]")).toContainText("90% range");
+  await expect(page.locator(".ts-page [data-ref=legend]")).not.toContainText("% and");
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("turbofuzz.timeseries.bands") ?? "{}"));
+  expect(stored).toEqual({ inner: 90, outer: 0 });
 });

@@ -34,6 +34,7 @@ import { rankFormats } from "../parse/date-format.js";
 import { onSettingsChange, readSettings, updateSettings } from "./settings.js";
 import { HOLIDAY_REGIONS, suggestRegion } from "../data/timeseries/holidays.js";
 import { HOLIDAY_COL, WORKDAY_COL } from "../data/timeseries/aggregate.js";
+import { bandAtLevel, parseLevel } from "../data/timeseries/bands.js";
 import { niceTicks, patternsHtml } from "./timeseries-patterns.js";
 import { seasonFigures } from "./timeseries-season.js";
 
@@ -75,10 +76,32 @@ export interface TsPreset {
   grain?: GrainId;
 }
 
-type Level = "80" | "fan";
 /** The models that are yardsticks, not recommendations. */
 const BENCHMARKS: readonly ModelKey[] = BENCHMARK_KEYS;
-interface UiState { mode: TsMode; showSmooth: boolean; lastYear: boolean; showShift: boolean; level: Level; model: ModelKey | "auto"; metric: MetricKey; diff: boolean; diffLag: number }
+interface UiState { mode: TsMode; showSmooth: boolean; lastYear: boolean; showShift: boolean; inner: number; outer: number; model: ModelKey | "auto"; metric: MetricKey; diff: boolean; diffLag: number }
+
+const BANDS_KEY = "turbofuzz.timeseries.bands";
+/** The band levels the person chose last time, else 80% with 95% beyond it. */
+function storedBands(): { inner: number; outer: number } {
+  try {
+    const raw = JSON.parse(localStorage.getItem(BANDS_KEY) ?? "null") as { inner?: unknown; outer?: unknown } | null;
+    const inner = typeof raw?.inner === "number" ? parseLevel(String(raw.inner)) : null;
+    const outer = typeof raw?.outer === "number" ? parseLevel(String(raw.outer)) : null;
+    if (inner !== null) return { inner, outer: outer !== null && outer > inner ? outer : 0 };
+  } catch {
+    // Nothing stored, or storage blocked: the defaults.
+  }
+  return { inner: 80, outer: 95 };
+}
+function saveBands(inner: number, outer: number): void {
+  try {
+    localStorage.setItem(BANDS_KEY, JSON.stringify({ inner, outer }));
+  } catch {
+    // Kept for this visit only.
+  }
+}
+/** A level as shown: 80, 95, 99.5 (no trailing zero). */
+const levelText = (level: number): string => String(Math.round(level * 10) / 10);
 type TokenKey = "grain" | "agg" | "measure" | "group" | "gaps" | "partial" | "date" | "groupBy" | "source" | "holidays";
 interface Colors { bg: string; panel: string; panel2: string; border: string; text: string; dim: string; accent: string; forecast: string; season2: string; raw: string; danger: string; warn: string; grid: string }
 interface Proj { T: number; H: number; f: Future; key: ModelKey }
@@ -140,7 +163,7 @@ const TEMPLATE = `
           </div>
           <div class="ts-tb" data-for="forecast" hidden>
             <div class="ts-ctl"><span>Forecast ahead</span><div class="ts-stepper"><button type="button" data-ref="hMinus" aria-label="Forecast less far ahead">&minus;</button><span class="ts-stepnum"><input type="number" class="ts-num" data-ref="hNum" min="1" step="1" aria-label="How far ahead to forecast"><span class="ts-numunit" data-ref="hUnit"></span></span><button type="button" data-ref="hPlus" aria-label="Forecast further ahead">+</button></div><div class="ts-seg" data-ref="hPresets" role="group" aria-label="How far ahead"></div><span class="ts-note" data-ref="hMax"></span></div>
-            <div class="ts-ctl"><span>Band</span><div class="ts-seg" data-ref="levelSeg" role="group" aria-label="Interval"><button type="button" data-level="80">80%</button><button type="button" data-level="fan">80% + 95%</button></div></div>
+            <div class="ts-ctl" title="How sure the shaded range is meant to be. The inner band holds the real value that share of the time; the outer band is optional (clear it to hide it). Both come from the spread of this model's own backtest errors."><span>Bands</span><span class="ts-bands"><input type="number" class="ts-num ts-band-in" data-ref="bandInner" min="50" max="99.9" step="1" aria-label="Inner band, percent"><span class="ts-numunit">%</span><span class="ts-band-and">and</span><input type="number" class="ts-num ts-band-in" data-ref="bandOuter" min="50" max="99.9" step="1" placeholder="off" aria-label="Outer band, percent (empty for none)"><span class="ts-numunit">%</span></span></div>
             <div class="ts-ctl"><span>Drivers</span><div class="ts-drivers" data-ref="drivers"></div></div>
             <span class="ts-note" data-ref="trainNote"></span>
             <button class="ts-ghost" type="button" data-ref="splitReset">Forecast from latest</button>
@@ -239,7 +262,8 @@ const TEMPLATE = `
 <div class="ts-popover" data-ref="popover" role="menu" hidden></div>`;
 
 export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageOptions): TimeSeriesPageHandle {
-  host.classList.add("ts-page");
+  // The series chart is shown in full on Patterns too; the fold link on that tab is there for anyone who wants the room back.
+  host.classList.add("ts-page", "ts-chart-open");
   host.innerHTML = TEMPLATE;
   const ref = <T extends HTMLElement = HTMLElement>(name: string): T => {
     const el = host.querySelector<T>(`[data-ref="${name}"]`);
@@ -263,7 +287,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   let shape: SeriesShape | null = null;
   // Mixed-series warnings the person kept as they are (date|split|group), for this session.
   const keptMixed = new Set<string>();
-  const ui: UiState = { mode: "explore", showSmooth: true, lastYear: false, showShift: true, level: "fan", model: "auto", metric: "mase", diff: false, diffLag: 0 };
+  const ui: UiState = { mode: "explore", showSmooth: true, lastYear: false, showShift: true, ...storedBands(), model: "auto", metric: "mase", diff: false, diffLag: 0 };
   let INS: TsFinding[] = [];
   let view: [number, number] | null = null;
   let hoverIdx = -1, ghostModel: ModelKey | null = null, ghostArima = false;
@@ -607,8 +631,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       const i = split + h;
       if (i < i0 || i > i1) continue;
       take(P.f.F[h]);
-      take(ui.level === "fan" ? P.f.hi95[h] : P.f.hi80[h]);
-      take(ui.level === "fan" ? P.f.lo95[h] : P.f.lo80[h]);
+      const widest = bandsOf(P.f, a.nonNeg)[ui.outer > 0 ? "outer" : "inner"];
+      take(widest.hi[h]);
+      take(widest.lo[h]);
     }
     if (lo === Infinity) { lo = 0; hi = 1; }
     if (dl) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
@@ -737,8 +762,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         ctx.strokeStyle = rgba(C.forecast, 0.45); ctx.lineWidth = 0.75;
         for (const arr of [bhi, blo]) { ctx.beginPath(); ctx.moveTo(xs0, Y(y0)); for (let h = 0; h < P.H; h++) ctx.lineTo(X(T[split + h]), Y(arr[h])); ctx.stroke(); }
       };
-      if (ui.level === "fan") band(FC.lo95, FC.hi95, 0.13);
-      band(FC.lo80, FC.hi80, 0.26);
+      const shownBands = bandsOf(FC, a.nonNeg);
+      if (ui.outer > 0) band(shownBands.outer.lo, shownBands.outer.hi, 0.13);
+      band(shownBands.inner.lo, shownBands.inner.hi, 0.26);
       if (FC !== P.f) {
         // The model Auto would show, kept faint behind the ARIMA run on screen.
         ctx.strokeStyle = C.dim; ctx.setLineDash([2, 3]); ctx.lineWidth = 1.5;
@@ -763,7 +789,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         for (let h = 0; h < P.H && split + h < N; h++) {
           const v = a.y[split + h];
           if (!(v === v)) continue;
-          const out = v < FC.lo80[h] || v > FC.hi80[h];
+          const out = v < shownBands.inner.lo[h] || v > shownBands.inner.hi[h];
           ctx.beginPath(); ctx.arc(X(T[split + h]), Y(v), out ? 3.6 : 2.4, 0, Math.PI * 2);
           if (out) { ctx.strokeStyle = C.danger; ctx.lineWidth = 1.5; ctx.stroke(); }
           else { ctx.fillStyle = rgba(C.text, 0.6); ctx.fill(); }
@@ -919,9 +945,10 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     }
     if (inP && P) {
       rows.push([C.forecast, "Forecast", full(P.f.F[h])]);
-      rows.push([null, "80% range", `${compact(P.f.lo80[h])} to ${compact(P.f.hi80[h])}`]);
-      if (ui.level === "fan") rows.push([null, "95% range", `${compact(P.f.lo95[h])} to ${compact(P.f.hi95[h])}`]);
-      if (i < a.modelN && a.y[i] === a.y[i]) note = `Held out: actual ${full(a.y[i])}, ${a.y[i] >= P.f.lo80[h] && a.y[i] <= P.f.hi80[h] ? "inside" : "outside"} the 80% band.`;
+      const tb = bandsOf(P.f, a.nonNeg);
+      rows.push([null, `${levelText(ui.inner)}% range`, `${compact(tb.inner.lo[h])} to ${compact(tb.inner.hi[h])}`]);
+      if (ui.outer > 0) rows.push([null, `${levelText(ui.outer)}% range`, `${compact(tb.outer.lo[h])} to ${compact(tb.outer.hi[h])}`]);
+      if (i < a.modelN && a.y[i] === a.y[i]) note = `Held out: actual ${full(a.y[i])}, ${a.y[i] >= tb.inner.lo[h] && a.y[i] <= tb.inner.hi[h] ? "inside" : "outside"} the ${levelText(ui.inner)}% band.`;
     }
     const rowsHtml = rows.map(([c, k, v]) => `<div class="ts-row"><span>${c ? `<i class="ts-sw" style="background:${c}"></i>` : ""}${k}</span><span>${v}</span></div>`).join("");
     const click = i < a.n ? `<div class="ts-rnote">Click to show these ${nf.format(a.rows[i])} rows in the Table.</div>` : "";
@@ -1174,7 +1201,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       ? `<span style="color:${C.forecast}"><i class="dash"></i>Forecast: <b class="ts-mono">${escapeHtml(arShown.label)}</b> <small>run by you</small></span>`
       : `<span style="color:${C.forecast}"><i class="dash"></i>Forecast: <b>${fk ? MODEL_INFO[fk].name : ""}</b> <small>${ui.model === "auto" ? autoLabel() : "picked"}</small></span>`);
     renderHeroBadge(s, fk);
-    if (ui.mode === "forecast" && s.futures) lg.push(`<span style="color:${C.forecast}"><span style="color:${C.forecast}"><i class="band"></i>${ui.level === "fan" ? "80% and 95%" : "80%"} range</span>`);
+    if (ui.mode === "forecast" && s.futures) lg.push(`<span style="color:${C.forecast}"><span style="color:${C.forecast}"><i class="band"></i>${ui.outer > 0 ? `${levelText(ui.inner)}% and ${levelText(ui.outer)}%` : `${levelText(ui.inner)}%`} range</span>`);
     if (a.filled.some((x) => x)) lg.push(`<span style="color:${C.dim}">○ Filled</span>`);
     ref("legend").innerHTML = lg.join("");
     ref("insights").innerHTML = INS.map((it, k) => `
@@ -1380,7 +1407,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       ref("hMax").title = "The furthest ahead this history can test: each forecast is checked against what happened after earlier dates, which needs more history than the forecast is long.";
       ref("hUnit").textContent = numUnit(H);
       ref("hPresets").innerHTML = [...gr.hPresets.filter(([, n]) => n < hMax), ["Longest", hMax] as const].map(([label, n]) => `<button type="button" data-h="${n}" aria-pressed="${n === H}">${label}</button>`).join("");
-      for (const b of ref("levelSeg").querySelectorAll<HTMLButtonElement>("button")) b.setAttribute("aria-pressed", String(b.dataset.level === ui.level));
+      const bi = ref<HTMLInputElement>("bandInner"), bo = ref<HTMLInputElement>("bandOuter");
+      if (document.activeElement !== bi) bi.value = levelText(ui.inner);
+      if (document.activeElement !== bo) bo.value = ui.outer > 0 ? levelText(ui.outer) : "";
       ref<HTMLInputElement>("flex").value = String(c.flex);
       ref("flexOut").textContent = `${c.flex} · ${c.flex <= 3 ? "Stiff" : c.flex >= 8 ? "Bendy" : "Medium"}`;
       renderFlex();
@@ -2186,7 +2215,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const s = snap as TsSnapshot, a = s.A, wrap = ref("tableWrap");
     const T = times(), [i0, i1] = visibleRange();
     const P = proj();
-    const lbl = P ? [`Forecast <small>${MODEL_INFO[P.key].name}</small>`, "80% low", "80% high"] : [];
+    const lbl = P ? [`Forecast <small>${MODEL_INFO[P.key].name}</small>`, `${levelText(ui.inner)}% low`, `${levelText(ui.inner)}% high`] : [];
+    const tableBand = P ? bandsOf(P.f, s.A.nonNeg).inner : null;
     const dec = s.dec.dec;
     const head = `<tr><th>Period</th><th>Status</th><th>Actual <small>${measureWord(s)}</small></th>${ui.mode === "explore" ? `<th>Rolling ${escapeHtml(s.cfg.smoothStat)}</th>` : ""}${ui.mode === "decompose" ? "<th>Trend</th><th>Seasonal</th><th>Remainder</th>" : ""}${lbl.map((l) => `<th>${l}</th>`).join("")}</tr>`;
     const rows: string[] = [];
@@ -2198,7 +2228,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       const status = i >= a.n ? ["forecast", "Forecast"] : a.filled[i] ? ["filled", `No rows; ${fillWord}`] : !(a.y[i] === a.y[i]) ? ["empty", "No rows"]
         : inP ? ["heldout", "Actual, held out"] : a.partial[i] ? ["partial", "Actual, partial"] : ["actual", "Actual"];
       let tail = "";
-      if (P) tail = inP ? `<td>${full(P.f.F[h])}</td><td>${full(P.f.lo80[h])}</td><td>${full(P.f.hi80[h])}</td>` : "<td></td><td></td><td></td>";
+      if (P && tableBand) tail = inP ? `<td>${full(P.f.F[h])}</td><td>${full(tableBand.lo[h])}</td><td>${full(tableBand.hi[h])}</td>` : "<td></td><td></td><td></td>";
       rows.push(`<tr class="ts-row-${status[0]}"><td>${periodLabel(a.g, T[i])}</td><td class="ts-status">${status[1]}</td><td>${i < a.n ? full(a.y[i]) : ""}</td>` +
         (ui.mode === "explore" ? `<td>${i < a.modelN ? full(s.smooth[i]) : ""}</td>` : "") +
         (ui.mode === "decompose" ? (dec && i < a.modelN ? `<td>${full(dec.trend[i])}</td><td>${full(dec.seasonal[i])}</td><td>${full(dec.rem[i])}</td>` : "<td></td><td></td><td></td>") : "") + tail + "</tr>");
@@ -2242,6 +2272,17 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (opts.fade !== false) startFade();
     cfg = { ...cfg, ...patch };
     fetchSeries();
+  }
+  /** The inner and outer bands at the chosen levels, rescaled from the two the models build (see bands.ts); kept per forecast. */
+  const bandCache = new WeakMap<object, { key: string; value: { inner: { lo: Float64Array; hi: Float64Array }; outer: { lo: Float64Array; hi: Float64Array } } }>();
+  function bandsOf(f: Fc, nonNeg: boolean): { inner: { lo: Float64Array; hi: Float64Array }; outer: { lo: Float64Array; hi: Float64Array } } {
+    const key = `${ui.inner}|${ui.outer}|${nonNeg}`;
+    const hit = bandCache.get(f);
+    if (hit && hit.key === key) return hit.value;
+    const inner = bandAtLevel(f, ui.inner, nonNeg);
+    const value = { inner, outer: ui.outer > 0 ? bandAtLevel(f, ui.outer, nonNeg) : inner };
+    bandCache.set(f, { key, value });
+    return value;
   }
   function uiChange(patch: Partial<UiState>): void {
     if ("model" in patch) { arimaShown = false; arimaNote = ""; }
@@ -2564,8 +2605,6 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (per) change({ period: Number(per.dataset.period) });
     const regrain = target.closest<HTMLElement>("[data-ref=decGrain]");
     if (regrain?.dataset.grain) choose("grain", regrain.dataset.grain);
-    const lvl = target.closest<HTMLElement>("[data-level]");
-    if (lvl) uiChange({ level: lvl.dataset.level as Level });
     const st = target.closest<HTMLElement>("[data-stat]");
     if (st) change({ smoothStat: st.dataset.stat as TsConfig["smoothStat"] }, { fade: false });
     const info = target.closest<HTMLElement>("[data-info]");
@@ -2603,6 +2642,16 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (e.key === "Escape") closePop();
   });
   const on = (name: string, ev: string, fn: (e: Event) => void): void => ref(name).addEventListener(ev, fn);
+  const setBands = (): void => {
+    const inner = parseLevel(ref<HTMLInputElement>("bandInner").value) ?? ui.inner;
+    const typed = parseLevel(ref<HTMLInputElement>("bandOuter").value);
+    // The outer band is wider by definition; one that is not wider than the inner is the same as none.
+    const outer = typed !== null && typed > inner ? typed : 0;
+    uiChange({ inner, outer });
+    saveBands(inner, outer);
+  };
+  on("bandInner", "change", setBands);
+  on("bandOuter", "change", setBands);
   const readNum = (el: HTMLInputElement, lo: number, hi: number): number | null => {
     const v = Math.round(Number(el.value));
     if (el.value.trim() === "" || !Number.isFinite(v)) return null;

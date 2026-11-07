@@ -14354,3 +14354,8 @@ button.qp-tile:hover {
 .melt-body > * { flex: none; }
 .melt-list { min-height: 96px; }
 .pv-box { max-height: 32vh; }
+
+/* Forecast band levels. */
+.ts-bands { display: inline-flex; align-items: center; gap: 4px; }
+.ts-band-in { width: 56px; }
+.ts-band-and { color: var(--text-dim); font-size: var(--fs-sm); margin: 0 2px; }
