@@ -23,7 +23,14 @@ export interface DayPattern {
   pos: boolean;
 }
 export interface WeekPattern { mean: number[]; n: number[]; pos: boolean }
-export interface YearPattern { mean: number[]; years: number[]; perDay: boolean; pos: boolean }
+export interface YearPattern {
+  mean: number[]; years: number[]; perDay: boolean; pos: boolean;
+  /**
+   * The seasonal index: each month's level as a percentage of the trend (a centred 12-month average), averaged over the years, so
+   * 100 is a typical month and a growing series does not make its later months look strong. Null with under two years of months.
+   */
+  index: number[] | null;
+}
 export interface Patterns { day?: DayPattern; week?: WeekPattern; year?: YearPattern }
 
 /**
@@ -31,6 +38,29 @@ export interface Patterns { day?: DayPattern; week?: WeekPattern; year?: YearPat
  * whatever grain is shown. Only complete periods with their usual rows count, so a
  * half-recorded hour or a data gap cannot fake a quiet spell.
  */
+/** Ratio to a centred 12-month average, per calendar month, over the months that have a full year around them. */
+function seasonalIndex(S: Aggregated, ok: (S: Aggregated, i: number) => boolean): number[] | null {
+  const byMonth = new Map<number, { s: number; n: number }>();
+  for (let i = 0; i < S.n; i++) {
+    if (!ok(S, i) || !(S.y[i]! > 0)) continue;
+    const dt = new Date(S.t[i]!), key = dt.getUTCFullYear() * 12 + dt.getUTCMonth(), e = byMonth.get(key) ?? { s: 0, n: 0 };
+    e.s += S.y[i]!; e.n++; byMonth.set(key, e);
+  }
+  const mean = (k: number): number => { const e = byMonth.get(k); return e ? e.s / e.n : NaN; };
+  const sum = new Float64Array(12), cnt = new Float64Array(12);
+  for (const k of byMonth.keys()) {
+    let ma = 0.5 * (mean(k - 6) + mean(k + 6));
+    for (let j = -5; j <= 5; j++) ma += mean(k + j);
+    ma /= 12;
+    const m = mean(k);
+    if (!(ma > 0) || !(m === m)) continue;
+    const mo = ((k % 12) + 12) % 12;
+    sum[mo] += (m / ma) * 100; cnt[mo]++;
+  }
+  if (cnt.filter((c) => c > 0).length < 12) return null;
+  return Array.from(sum, (s, k) => s / cnt[k]!);
+}
+
 export function computePatterns(T: TsTable, cfg: TsConfig): Patterns {
   const ok = (S: Aggregated, i: number): boolean => S.y[i] === S.y[i] && !S.partial[i] && !S.made[i] && S.coverage[i] >= 0.5;
   const out: Patterns = {};
@@ -74,7 +104,7 @@ export function computePatterns(T: TsTable, cfg: TsConfig): Patterns {
     const S = daily ?? aggregate(T, cfg, "month"), sum = new Float64Array(12), n = new Float64Array(12);
     const yrs = Array.from({ length: 12 }, () => new Set<number>());
     for (let i = 0; i < S.n; i++) if (ok(S, i)) { const dt = new Date(S.t[i]), mo = dt.getUTCMonth(); sum[mo] += S.y[i]; n[mo]++; yrs[mo].add(dt.getUTCFullYear()); }
-    if (n.filter((c) => c).length >= 10) out.year = { mean: Array.from(sum, (s, k) => (n[k] ? s / n[k] : NaN)), years: yrs.map((y) => y.size), perDay: daily !== null, pos: S.nonNeg };
+    if (n.filter((c) => c).length >= 10) out.year = { mean: Array.from(sum, (s, k) => (n[k] ? s / n[k] : NaN)), years: yrs.map((y) => y.size), perDay: daily !== null, pos: S.nonNeg, index: seasonalIndex(S, ok) };
   }
   return out;
 }

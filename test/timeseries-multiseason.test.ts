@@ -73,3 +73,19 @@ test("a group that falls while the others rise, and a gap in one group, are foun
   assert.match(gap!.html, /Fremantle/);
   assert.match(gap!.html, /20 days/);
 });
+
+test("the month-of-year seasonal index is not tilted by growth: 100 is a typical month against the trend", () => {
+  const years = 6, n = years * 12;
+  const times = Float64Array.from({ length: n }, (_, i) => Date.UTC(2018, i, 1));
+  const season = (m: number): number => 1 + 0.2 * Math.sin((2 * Math.PI * m) / 12);
+  const v = Float64Array.from({ length: n }, (_, i) => 100 * Math.pow(1.02, i) * season(i % 12));
+  const t = buildTable({ times, cols: { v }, flags: {}, groups: ["all"], rowGroup: new Uint16Array(n), groupCol: null, dateCol: "d", dropped: 0 })!;
+  const e = new TsEngine(t);
+  const s = e.compute({ ...defaultConfig(e.info()), agg: "mean", measure: "v", grain: "month" }, "patterns");
+  const y = s.patterns?.year;
+  assert.ok(y?.index, "an index is produced");
+  const idx = y!.index!;
+  const mean = idx.reduce((a, b) => a + b, 0) / 12;
+  assert.ok(Math.abs(mean - 100) < 3, `centred on 100 (${mean.toFixed(1)})`);
+  for (let m = 0; m < 12; m++) assert.ok(Math.abs(idx[m]! - 100 * season(m)) < 4, `month ${m}: ${idx[m]!.toFixed(1)} vs ${(100 * season(m)).toFixed(1)}`);
+});

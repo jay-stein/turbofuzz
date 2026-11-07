@@ -55,17 +55,19 @@ function daySvg(D: DayPattern, W: number): string {
   return svg + "</svg>";
 }
 /** Bars with the highest in full colour and the rest muted; a dashed line at the average. */
-function barsSvg(vals: readonly number[], labels: readonly string[], titles: readonly string[], W: number): string {
+function barsSvg(vals: readonly number[], labels: readonly string[], titles: readonly string[], W: number, around?: number): string {
   const H = 190, L = 40, R = 6, T = 18, B = 22, pw = W - L - R, ph = H - T - B, n = vals.length;
-  const fin = finite(vals), avg = mean(fin);
-  const tk = niceTicks(Math.min(0, ...fin), Math.max(...fin), 4);
-  const lo = Math.min(0, tk[0]), hi = Math.max(...fin, tk[tk.length - 1]);
+  const fin = finite(vals), avg = around ?? mean(fin);
+  // A seasonal index swings a few percent either side of 100: its bars grow from 100, on an axis that fits them, not from zero.
+  const tk = around === undefined ? niceTicks(Math.min(0, ...fin), Math.max(...fin), 4) : niceTicks(Math.min(around, ...fin) - 2, Math.max(around, ...fin) + 2, 4);
+  const lo = around === undefined ? Math.min(0, tk[0]) : tk[0], hi = Math.max(...fin, tk[tk.length - 1]);
+  const base = around ?? 0;
   const y = (v: number): number => T + ph - ((v - lo) / (hi - lo || 1)) * ph, bw = (pw / n) * 0.7, top = argExt(vals, 1);
   let svg = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
   for (const t of tk) svg += `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" class="grid"/><text x="${L - 5}" y="${y(t) + 4}" text-anchor="end">${compact(t)}</text>`;
   vals.forEach((v, k) => {
     const cx = L + (k + 0.5) * (pw / n);
-    if (v === v) svg += `<rect x="${cx - bw / 2}" y="${Math.min(y(v), y(0))}" width="${bw}" height="${Math.max(1, Math.abs(y(0) - y(v)))}" rx="2" class="${k === top ? "bar top" : "bar"}"><title>${escapeHtml(titles[k])}</title></rect>`;
+    if (v === v) svg += `<rect x="${cx - bw / 2}" y="${Math.min(y(v), y(base))}" width="${bw}" height="${Math.max(1, Math.abs(y(base) - y(v)))}" rx="2" class="${k === top ? "bar top" : "bar"}"><title>${escapeHtml(titles[k])}</title></rect>`;
     if (k === top) svg += `<text x="${cx}" y="${y(v) - 5}" text-anchor="middle" class="peak">${compact(v)}</text>`;
     svg += `<text x="${cx}" y="${H - 6}" text-anchor="middle">${labels[k]}</text>`;
   });
@@ -119,10 +121,13 @@ export function patternsHtml(P: Patterns, what: string, gridWidth: number, caden
     figs.push(`<figure><figcaption>Day of week <small>· average ${what} per day; dashed line is the average day</small></figcaption>${barsSvg(Wk.mean, WD_SHORT, titles, half)}</figure>`);
   }
   if (Yr) {
-    const avg = mean(finite(Yr.mean)), hi = argExt(Yr.mean, 1), per = Yr.perDay ? "day" : "month";
-    facts.push(["Peak month", `${MONTHS[hi]} <small>${vsAvg(Yr.mean[hi], avg, Yr.pos)} vs average month</small>`]);
-    const titles = Yr.mean.map((v, k) => `${MONTHS[k]}: ${v === v ? `${full(v)} per ${per} on average (${vsAvg(v, avg, Yr.pos)} vs the average month), over ${Yr.years[k]} ${Yr.years[k] === 1 ? "year" : "years"}` : "no complete data"}`);
-    figs.push(`<figure><figcaption>Month of year <small>· average ${what} per ${per} in each month</small></figcaption>${barsSvg(Yr.mean, MONTHS.map((m) => m[0]), titles, half)}</figure>`);
+    const avg = mean(finite(Yr.mean)), hi = Yr.index ? argExt(Yr.index, 1) : argExt(Yr.mean, 1), per = Yr.perDay ? "day" : "month";
+    facts.push(["Peak month", Yr.index ? `${MONTHS[hi]} <small>${Yr.index[hi]! >= 100 ? "+" : "−"}${Math.abs(Yr.index[hi]! - 100).toFixed(1)}% against its trend</small>` : `${MONTHS[hi]} <small>${vsAvg(Yr.mean[hi], avg, Yr.pos)} vs average month</small>`]);
+    const titles = Yr.mean.map((v, k) => `${MONTHS[k]}: ${v === v ? `${full(v)} per ${per} on average (${vsAvg(v, avg, Yr.pos)} vs the average month), over ${Yr.years[k]} ${Yr.years[k] === 1 ? "year" : "years"}` : "no complete data"}${Yr.index ? `; seasonal index ${Yr.index[k]!.toFixed(1)}` : ""}`);
+    if (Yr.index) {
+      // Raw averages favour later months when the series grows; the index sets each month against its own trend.
+      figs.push(`<figure><figcaption>Month of year, seasonal index <small>· each month against the trend; 100 is a typical month, so growth does not make later months look strong</small></figcaption>${barsSvg(Yr.index, MONTHS.map((m) => m[0]), titles, half, 100)}</figure>`);
+    } else figs.push(`<figure><figcaption>Month of year <small>· average ${what} per ${per} in each month (not adjusted for any trend)</small></figcaption>${barsSvg(Yr.mean, MONTHS.map((m) => m[0]), titles, half)}</figure>`);
   } else if (Wk) figs.push(`<figure><figcaption>Month of year</figcaption><p class="ts-patempty">Needs about a year of data to show; this table covers ${nf.format(Math.round(spanMs / DAY))} days.</p></figure>`);
   if (D) figs.push(`<figure class="wide"><figcaption>Day of week by time of day <small>· average ${what} per ${D.noun}; darker is higher</small></figcaption>${heatSvg(D, wide)}</figure>`);
   if (!D && !Wk && !Yr) figs.push(`<p class="ts-patempty">Rows come about every ${cadenceText(cadence)}, so there is no day or week to profile. Patterns need daily or finer data.</p>`);

@@ -34,6 +34,7 @@ import { rankFormats } from "../parse/date-format.js";
 import { HOLIDAY_REGIONS, suggestRegion } from "../data/timeseries/holidays.js";
 import { HOLIDAY_COL } from "../data/timeseries/aggregate.js";
 import { niceTicks, patternsHtml } from "./timeseries-patterns.js";
+import { seasonFigures } from "./timeseries-season.js";
 
 export interface TimeSeriesPageOptions {
   /** source "" reads the Table's rows; a Pivot View id reads that view's periods. */
@@ -175,6 +176,7 @@ const TEMPLATE = `
         <div class="ts-panel-head"><h3>Trend, season and the rest</h3><p>Same time axis as the chart above.</p></div>
         <div class="ts-meters" data-ref="meters"></div>
         <div class="ts-decomp" data-ref="decomp"><canvas data-ref="decCanvas" aria-hidden="true"></canvas><canvas data-ref="decOverlay" aria-hidden="true"></canvas></div>
+        <div class="ts-patgrid ts-seasonfigs" data-ref="seasonFigs"></div>
       </section>
       <section class="ts-card ts-panel" data-panel="forecast" hidden>
         <div class="ts-panel-head"><h3>Models</h3><p>Drag the split line on the chart to backtest from any date, or the handle at the end of the band to change how far ahead it forecasts. Hover a model to compare it.</p></div>
@@ -1302,6 +1304,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       });
     }
     if (ui.mode === "decompose") {
+      const sf = ref("seasonFigs");
+      sf.innerHTML = seasonFigures(s, Math.max(260, (sf.clientWidth || 720) / (sf.clientWidth > 760 ? 2 : 1) - 26));
       const d = s.dec.dec;
       const cap1 = (t: string): string => t.replace(/^./, (ch) => ch.toUpperCase());
       // Seasons the series is too short for stay visible, greyed, with what they would need.
