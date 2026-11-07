@@ -185,7 +185,9 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
 
   /** Clearing is offered while boundaries are loaded, wherever the map is on screen. */
   function syncBoundaryButtons(): void {
-    clearBoundaries.classList.toggle("hidden", card?.mapRegions?.ready !== true);
+    const loaded = card?.mapRegions?.ready === true;
+    clearBoundaries.classList.toggle("hidden", !loaded);
+    boundaries.textContent = loaded ? "Replace boundaries…" : "Boundaries…";
     syncCityInside();
   }
 

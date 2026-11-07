@@ -122,15 +122,16 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
     body.append(controls);
 
     // Which columns to read: every column the layout finds is ticked, and an unticked one is left out of the table.
-    const columnsBox = el("div", { class: "header-row-columns" });
-    const columnsHead = el("div", { class: "header-row-columns-head" });
+    const columnsBox = el("details", { class: "header-row-columns" }) as HTMLDetailsElement;
+    const columnsHead = el("summary", { class: "header-row-columns-head" });
     const columnsTitle = el("span", { class: "chart-field-label" }, ["Columns to read"]);
     const allCols = el("button", { class: "ghost small", type: "button" }, ["All"]);
     const noCols = el("button", { class: "ghost small", type: "button" }, ["None"]);
     const colFilter = el("input", { class: "text-input", type: "search", placeholder: "Find a column", "aria-label": "Find a column", spellcheck: "false" }) as HTMLInputElement;
-    columnsHead.append(columnsTitle, allCols, noCols, colFilter);
+    const columnTools = el("span", { class: "header-row-columns-tools" }, [allCols, noCols, colFilter]);
+    columnsHead.append(columnsTitle);
     const columnList = el("div", { class: "header-row-column-list", role: "group", "aria-label": "Columns to read" });
-    columnsBox.append(columnsHead, columnList);
+    columnsBox.append(columnsHead, columnTools, columnList);
     body.append(columnsBox);
 
     const grid = el("div", { class: "header-row-grid", role: "grid", "aria-label": "File preview" });
@@ -246,11 +247,13 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
           ...(index === null ? {} : { tabindex: "0", title: `Use row ${index + 1} as the header` }),
         });
         line.append(el("span", { class: "header-row-num" }, [index === null ? "end" : String(index + 1)]));
-        const cells = row.slice(0, MAX_CELLS).map((cell) => clip(cell.trim()));
+        // Columns left out do not appear, so the preview shows what will be read.
+        const kept = skippedCols.size === 0 ? row : row.filter((_, column) => !skippedCols.has(column));
+        const cells = kept.slice(0, MAX_CELLS).map((cell) => clip(cell.trim()));
         line.append(
           el("span", { class: "header-row-cells" }, [
             cells.map((cell) => (cell === "" ? "·" : cell)).join("  |  ") +
-              (row.length > MAX_CELLS ? `  | +${row.length - MAX_CELLS} more` : ""),
+              (kept.length > MAX_CELLS ? `  | +${kept.length - MAX_CELLS} more` : ""),
           ]),
         );
         const blank = row.every((cell) => cell.trim() === "");

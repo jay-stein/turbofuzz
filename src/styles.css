@@ -14196,8 +14196,10 @@ button.qp-tile:hover {
 /* Import settings: which columns to read. */
 .header-row-columns { margin: 10px 0; }
 .header-row-columns.hidden { display: none; }
-.header-row-columns-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.header-row-columns-head .text-input { margin-left: auto; max-width: 180px; }
+.header-row-columns-head { cursor: pointer; margin-bottom: 6px; }
+.header-row-columns-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.header-row-columns-tools .text-input { margin-left: auto; max-width: 180px; }
+.header-row-columns:not([open]) .header-row-columns-tools { display: none; }
 .header-row-column-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));

@@ -600,6 +600,10 @@ export class MapRegions {
     this.shown = new Float64Array(0);
     this.breaks = [];
     this.crsWaiting = null;
+    // The next file decides what labels say again, as the first one did.
+    this.labelChosen = false;
+    this.labelSource = "";
+    this.labelBeforeOff = "";
     this.statusEl.textContent = "or drop a file on the map";
     this.clearButton.classList.add("hidden");
     this.globeButton.classList.add("hidden");

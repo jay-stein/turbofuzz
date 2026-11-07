@@ -9,7 +9,7 @@ test("boundaries load from a button beside Cities, labels switch off, and the bo
   await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Map" }).first().click();
   await expect(page.getByRole("button", { name: "Clear boundaries" })).toBeHidden();
-  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Boundaries…" }).click()]);
+  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Boundaries…", exact: true }).click()]);
   await chooser.setFiles("test/fixtures/three-regions.geojson");
   await expect(page.getByRole("button", { name: "Clear boundaries" })).toBeVisible({ timeout: 15_000 });
   const labels = page.getByRole("switch", { name: "Show labels on the regions" });
@@ -19,6 +19,8 @@ test("boundaries load from a button beside Cities, labels switch off, and the bo
   await expect(page.getByLabel("Label regions with")).toHaveValue("");
   await labels.evaluate((e: HTMLInputElement) => e.click());
   await expect(labels).toBeChecked();
+  await expect(page.getByRole("button", { name: "Replace boundaries…" })).toBeVisible();
   await page.getByRole("button", { name: "Clear boundaries" }).click();
   await expect(page.getByRole("button", { name: "Clear boundaries" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Boundaries…", exact: true })).toBeVisible();
 });

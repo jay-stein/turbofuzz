@@ -65,7 +65,9 @@ test("Import settings can leave columns out, and the Overview note says so", asy
   await page.getByRole("button", { name: /Change how it was read/ }).click();
   const dialog = page.locator(".header-row-modal");
   await expect(dialog.locator(".header-row-columns")).toContainText("4 of 4");
+  await dialog.locator(".header-row-columns summary").click();
   await dialog.getByRole("checkbox", { name: "notes" }).uncheck();
+  await expect(dialog.locator(".header-row-cells").first()).not.toContainText("notes");
   await expect(dialog.locator(".header-row-columns")).toContainText("3 of 4");
   await dialog.getByRole("button", { name: "Apply and reload" }).click();
   await expect(page.locator(".overview-facts")).toContainText("30 rows × 3 columns", { timeout: 15_000 });
