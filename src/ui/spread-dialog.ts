@@ -1,5 +1,7 @@
 import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
+import { createPreviewBox, type PreviewRole } from "./preview-box.js";
+import type { PreviewSample } from "../worker/protocol.js";
 import { MAX_SPREAD_COLUMNS, SPREAD_AGGREGATES, type ColumnSchema, type SpreadAggregate, type TransformOp } from "../data/transform-ops.js";
 
 export type SpreadOp = Extract<TransformOp, { kind: "spread" }>;
@@ -11,7 +13,7 @@ export interface SpreadDialogOptions {
   distinct?: readonly number[];
   rowCount: number;
   /** Runs the staged spread, for the number of rows and the names of the columns it makes. */
-  preview(op: SpreadOp): Promise<{ rowCount: number; columnNames: string[] } | null>;
+  preview(op: SpreadOp): Promise<{ rowCount: number; columnNames: string[]; before?: PreviewSample; after?: PreviewSample } | null>;
 }
 
 const AGGREGATE_LABELS: Record<SpreadAggregate, string> = {
@@ -69,13 +71,13 @@ export function openSpreadDialog(options: SpreadDialogOptions): Promise<SpreadOp
     const modal = el("div", { class: "modal melt-modal" });
     const head = el("div", { class: "modal-head" });
     const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close" }, ["×"]);
-    head.append(el("h2", {}, ["Spread: long to wide"]), closeButton);
+    head.append(el("h2", {}, ["Spread · Pivot wider (long → wide)"]), closeButton);
     modal.append(head);
 
     const body = el("div", { class: "chart-setup-body melt-body" });
     body.append(
       el("p", { class: "clean-hint" }, [
-        "The opposite of Melt. The values of one column become the headers of new columns, filled from another column, so rows that describe the same thing (one id, several measures) come together on a single row.",
+        "Spread is pivot wider: the table gets wider and shorter. The values of one column become the headers of new columns, filled from another column, so rows that describe the same thing (one id, several measures) come together on a single row. Other tools call this pivot_wider, unstack or pivot table; the opposite is Melt (pivot longer).",
       ]),
     );
 
@@ -115,7 +117,7 @@ export function openSpreadDialog(options: SpreadDialogOptions): Promise<SpreadOp
     ]);
     const aggField = field("If several rows share an id and a header,", aggSelect);
 
-    const diagram = el("div", { class: "melt-diagram", "aria-live": "polite" });
+    const preview = createPreviewBox();
     const notes = el("div", { class: "melt-notes", role: "status", "aria-live": "polite" });
     const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
     const apply = el("button", { class: "primary", type: "button" }, ["Spread"]) as HTMLButtonElement;
@@ -129,11 +131,9 @@ export function openSpreadDialog(options: SpreadDialogOptions): Promise<SpreadOp
       idList,
       el("span", { class: "clean-label melt-step" }, ["3 · If the same id and header turn up more than once"]),
       aggField,
-      el("span", { class: "clean-label melt-step" }, ["4 · What it makes"]),
-      diagram,
       notes,
     );
-    modal.append(body, footer);
+    modal.append(body, preview.element, footer);
 
     const currentOp = (): SpreadOp => ({
       kind: "spread",
@@ -156,17 +156,19 @@ export function openSpreadDialog(options: SpreadDialogOptions): Promise<SpreadOp
       if (!valueNumeric && ["sum", "mean", "min", "max"].includes(aggSelect.value)) {
         problems.push(`“${schema[valueIndex]?.name}” is not numbers, so it cannot be added, averaged or ranked. Keep the first, or count them.`);
       }
-      diagram.replaceChildren(
-        el("div", { class: "melt-shape" }, [
-          el("div", {}, [el("b", {}, ["Now"]), `  ${[...idNames.slice(0, 3), schema[keyIndex]?.name ?? "", schema[valueIndex]?.name ?? ""].join("  |  ")}`]),
-          el("div", {}, [el("b", {}, ["After"]), `  ${[...idNames.slice(0, 3), `one column for each value of ${schema[keyIndex]?.name ?? ""}`].join("  |  ")}`]),
-        ]),
-      );
       const count = el("p", { class: "melt-count" }, [problems.length === 0 ? `Working out the result from ${n(options.rowCount)} rows…` : ""]);
       notes.replaceChildren(...problems.map((p) => el("p", { class: "melt-problem" }, [p])), count);
       apply.disabled = true;
       window.clearTimeout(timer);
-      if (problems.length > 0) return;
+      const beforeRoles = new Map<string, PreviewRole>();
+      for (const name of idNames) beforeRoles.set(name, "keep");
+      if (schema[keyIndex] !== undefined) beforeRoles.set(schema[keyIndex].name, "key");
+      if (schema[valueIndex] !== undefined) beforeRoles.set(schema[valueIndex].name, "value");
+      if (problems.length > 0) {
+        preview.show({ before: null, after: null, beforeRoles, afterRoles: new Map(), summary: "", problem: problems[0] });
+        return;
+      }
+      preview.busy();
       const mine = ++serial;
       timer = window.setTimeout(() => {
         // The preview reads the headers from the data; they are then fixed in the step, so it gives the same result on every replay.
@@ -180,13 +182,23 @@ export function openSpreadDialog(options: SpreadDialogOptions): Promise<SpreadOp
           resolvedKeys = headers.length > 0 ? recoverKeys(headers, idNames) : null;
           apply.disabled = headers.length === 0;
           apply.textContent = `Spread into ${n(headers.length)} column${headers.length === 1 ? "" : "s"}`;
-          const shown = headers.slice(0, 8).join(", ") + (headers.length > 8 ? ", …" : "");
-          count.textContent = `Result: ${n(result.rowCount)} rows × ${n(result.columnNames.length)} columns. New columns: ${shown}.`;
-          if (headers.length === 0) count.textContent = "The column holds no values to use as headers.";
+          count.textContent = headers.length === 0 ? "The column holds no values to use as headers." : "";
+          const afterRoles = new Map<string, PreviewRole>();
+          for (const name of idNames) afterRoles.set(name, "keep");
+          for (const name of headers) afterRoles.set(name, "new");
+          preview.show({
+            before: result.before ?? null,
+            after: headers.length === 0 ? null : (result.after ?? null),
+            beforeRoles,
+            afterRoles,
+            summary: `${n(options.rowCount)} rows → ${n(result.rowCount)} rows × ${n(result.columnNames.length)} columns (${n(headers.length)} new column${headers.length === 1 ? "" : "s"})`,
+            ...(headers.length === 0 ? { problem: "The column holds no values to use as headers." } : {}),
+          });
         }).catch((error: unknown) => {
           if (mine !== serial) return;
           count.className = "melt-problem";
           count.textContent = error instanceof Error ? error.message : String(error);
+          preview.show({ before: null, after: null, beforeRoles, afterRoles: new Map(), summary: "", problem: count.textContent });
         });
       }, 250);
     }
@@ -247,7 +259,7 @@ export function openSpreadDialog(options: SpreadDialogOptions): Promise<SpreadOp
     document.addEventListener("keydown", onKey);
     overlay.append(modal);
     document.body.append(overlay);
-    setupDialog(overlay, "Spread: long to wide");
+    setupDialog(overlay, "Spread: pivot wider");
     renderIds();
     update();
   });

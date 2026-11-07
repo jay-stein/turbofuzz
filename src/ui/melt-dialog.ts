@@ -1,5 +1,7 @@
 import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
+import { createPreviewBox, type PreviewRole } from "./preview-box.js";
+import type { PreviewSample } from "../worker/protocol.js";
 import { headerTidier, type ColumnSchema, type TransformOp } from "../data/transform-ops.js";
 
 export type MeltOp = Extract<TransformOp, { kind: "melt" }>;
@@ -9,7 +11,7 @@ export interface MeltDialogOptions {
   schema: readonly ColumnSchema[];
   rowCount: number;
   /** Counts the result for a staged melt, so the dialog can say how many rows it makes. */
-  preview(op: MeltOp): Promise<{ rowCount: number; columnNames: string[] } | null>;
+  preview(op: MeltOp): Promise<{ rowCount: number; columnNames: string[]; before?: PreviewSample; after?: PreviewSample } | null>;
 }
 
 type Role = "keep" | "unpivot" | "out";
@@ -76,17 +78,17 @@ export function openMeltDialog(options: MeltDialogOptions): Promise<MeltOp | nul
     const modal = el("div", { class: "modal melt-modal" });
     const head = el("div", { class: "modal-head" });
     const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close" }, ["×"]);
-    head.append(el("h2", {}, ["Melt: wide to long"]), closeButton);
+    head.append(el("h2", {}, ["Melt · Pivot longer (wide → long)"]), closeButton);
     modal.append(head);
 
     const body = el("div", { class: "chart-setup-body melt-body" });
     body.append(
       el("p", { class: "clean-hint" }, [
-        "Turns columns into rows. Keep the columns that describe each row (a region, an id) and choose the columns to stack, such as one per year. Each stacked column becomes its own set of rows, with its old header in one new column and its cells in another.",
+        "Melt is pivot longer: the table gets longer and narrower. Keep the columns that describe each row (a region, an id) and choose the columns to stack, such as one per year. Each stacked column becomes its own set of rows, with its old header in one new column and its cells in another. Other tools call this unpivot, gather or stack; the opposite is Spread (pivot wider).",
       ]),
     );
 
-    const diagram = el("div", { class: "melt-diagram", "aria-live": "polite" });
+    const preview = createPreviewBox();
     const quick = el("div", { class: "melt-quick" });
     const mk = (label: string, title: string, run: () => void): HTMLButtonElement => {
       const b = el("button", { class: "ghost small", type: "button", title }, [label]) as HTMLButtonElement;
@@ -236,11 +238,9 @@ export function openMeltDialog(options: MeltDialogOptions): Promise<MeltOp | nul
       stripRow,
       stripNote,
       dropLabel,
-      el("span", { class: "clean-label melt-step" }, ["3 · What it makes"]),
-      diagram,
       notes,
     );
-    modal.append(body, footer);
+    modal.append(body, preview.element, footer);
 
     const pick = (role: Role): number[] => schema.map((_, i) => i).filter((i) => roles[i] === role);
     const currentOp = (): MeltOp => ({
@@ -282,16 +282,6 @@ export function openMeltDialog(options: MeltDialogOptions): Promise<MeltOp | nul
       }
       if (keep.length === 0 && stack.length > 0) warnings.push("No column is kept, so nothing says which row each value came from.");
 
-      // The shape, in the person's own column names.
-      const sample = labels.slice(0, 3);
-      const more = stack.length > 3 ? ` … +${n(stack.length - 3)}` : "";
-      const keepNames = keep.slice(0, 3).map((i) => schema[i].name).join(", ") + (keep.length > 3 ? ", …" : "");
-      diagram.replaceChildren(
-        el("div", { class: "melt-shape" }, [
-          el("div", {}, [el("b", {}, ["Now"]), `  ${[keepNames, sample.join(" | ") + more].filter((s) => s !== "").join("  |  ")}`]),
-          el("div", {}, [el("b", {}, ["After"]), `  ${[keepNames, varName, valueName].filter((s) => s !== "").join("  |  ")}`]),
-        ]),
-      );
       notes.replaceChildren(
         ...problems.map((p) => el("p", { class: "melt-problem" }, [p])),
         ...warnings.map((w) => el("p", { class: "melt-warn" }, [w])),
@@ -300,14 +290,30 @@ export function openMeltDialog(options: MeltDialogOptions): Promise<MeltOp | nul
       apply.disabled = problems.length > 0;
       apply.textContent = stack.length === 0 ? "Melt" : `Melt into ${n(rows)} rows`;
       window.clearTimeout(timer);
-      if (problems.length > 0) return;
+      const beforeRoles = new Map<string, PreviewRole>();
+      for (const i of keep) beforeRoles.set(schema[i].name, "keep");
+      for (const i of stack) beforeRoles.set(schema[i].name, "stack");
+      const afterRoles = new Map<string, PreviewRole>();
+      for (const i of keep) afterRoles.set(schema[i].name, "keep");
+      afterRoles.set(varName, "new");
+      afterRoles.set(valueName, "new");
+      if (problems.length > 0) {
+        preview.show({ before: null, after: null, beforeRoles, afterRoles, summary: "", problem: problems[0] });
+        return;
+      }
+      preview.busy();
       const mine = ++serial;
       timer = window.setTimeout(() => {
         void options.preview(currentOp()).then((result) => {
           if (mine !== serial || result === null) return;
           apply.textContent = `Melt into ${n(result.rowCount)} rows`;
-          const count = notes.querySelector(".melt-count");
-          if (count !== null) count.textContent = `Result: ${n(result.rowCount)} rows × ${n(result.columnNames.length)} columns (${result.columnNames.slice(0, 6).join(", ")}${result.columnNames.length > 6 ? ", …" : ""}).`;
+          preview.show({
+            before: result.before ?? null,
+            after: result.after ?? null,
+            beforeRoles,
+            afterRoles,
+            summary: `${n(options.rowCount)} rows × ${n(stack.length)} stacked column${stack.length === 1 ? "" : "s"} → ${n(result.rowCount)} rows × ${n(result.columnNames.length)} columns`,
+          });
         }).catch(() => undefined);
       }, 200);
     }
@@ -335,7 +341,7 @@ export function openMeltDialog(options: MeltDialogOptions): Promise<MeltOp | nul
     document.addEventListener("keydown", onKey);
     overlay.append(modal);
     document.body.append(overlay);
-    setupDialog(overlay, "Melt: wide to long");
+    setupDialog(overlay, "Melt: pivot longer");
     renderList();
     update();
   });

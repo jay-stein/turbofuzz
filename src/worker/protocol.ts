@@ -620,7 +620,18 @@ export type PreviewTransformRequest = {
   type: "previewTransform";
   requestId: number;
   ops: TransformOp[];
+  /** Also return this many sample rows of the table before the last staged step and after it. */
+  samples?: number;
 };
+
+/** A few rows of a table, for showing what a step does. Rows are spread through the table, first and last included. */
+export interface PreviewSample {
+  columns: string[];
+  rows: string[][];
+  /** The 1-based position of each sampled row in its table. */
+  rowNumbers: number[];
+  totalRows: number;
+}
 
 export type PreviewCleanRequest = {
   type: "previewClean";
@@ -1537,6 +1548,9 @@ export interface TransformPreviewMessage {
   columnNames: string[];
   /** Per-op impact details: replacements, failures, samples. */
   notes: TransformPreviewNote[];
+  /** The table before the last staged step, and after it (only when samples were asked for). */
+  before?: PreviewSample;
+  after?: PreviewSample;
 }
 
 export interface CleanPreviewMessage {

@@ -144,6 +144,7 @@ import type {
   PreviewCleanRequest,
   KnnEvaluateRequest,
   KnnPlanRequest,
+  PreviewSample,
   PreviewTransformRequest,
   RenameHeadersRequest,
   ResolveNullsAllRequest,
@@ -3407,7 +3408,10 @@ function handlePreviewTransform(message: PreviewTransformRequest): void {
   const base =
     transformSource ?? (excludedIds.size > 0 ? datasetWithoutExcluded(current) : current);
   const next = message.ops.length === 0 ? base : applyTransformOps(base.name, base.columns, message.ops);
+  const samples = message.samples ?? 0;
+  const before = samples > 0 ? (message.ops.length > 1 ? applyTransformOps(base.name, base.columns, message.ops.slice(0, -1)) : base) : null;
   post({
+    ...(samples > 0 && before !== null ? { before: sampleRowsOf(before, samples), after: sampleRowsOf(next, samples) } : {}),
     type: "transformPreview",
     requestId: message.requestId,
     baseRowCount: base.rowCount,
@@ -3421,6 +3425,21 @@ function handlePreviewTransform(message: PreviewTransformRequest): void {
 }
 
 const MAX_PREVIEW_SAMPLES = 3;
+
+/** Up to `count` rows spread evenly through the table (first and last included), so a long result shows more than its first rows. */
+function sampleRowsOf(dataset: Dataset, count: number): PreviewSample {
+  const total = dataset.rowCount;
+  const take = Math.min(count, total);
+  const picks: number[] = [];
+  for (let i = 0; i < take; i++) picks.push(take === 1 ? 0 : Math.round((i * (total - 1)) / (take - 1)));
+  const unique = [...new Set(picks)];
+  return {
+    columns: dataset.columns.map((column) => column.name),
+    rows: unique.map((row) => dataset.columns.map((column) => column.raw[row] ?? "")),
+    rowNumbers: unique.map((row) => row + 1),
+    totalRows: total,
+  };
+}
 
 /** Human label for an impute strategy, including its group column. */
 function imputeStrategyLabel(

@@ -656,8 +656,8 @@ export class SearchWorkerClient {
     return this.request<KnnEvaluationMessage>({ type: "knnEvaluate", target, predictors, previewK });
   }
 
-  previewTransform(ops: TransformOp[]): Promise<TransformPreviewMessage> {
-    return this.request<TransformPreviewMessage>({ type: "previewTransform", ops });
+  previewTransform(ops: TransformOp[], samples = 0): Promise<TransformPreviewMessage> {
+    return this.request<TransformPreviewMessage>({ type: "previewTransform", ops, ...(samples > 0 ? { samples } : {}) });
   }
 
   previewClean(updates: CleanUpdate[]): Promise<CleanPreviewMessage> {

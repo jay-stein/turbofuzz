@@ -1222,11 +1222,11 @@ export class App {
       {
         class: "ghost small nav-action melt-button",
         type: "button",
-        title: "Melt: turn columns (one per year, month or measure) into rows",
+        title: "Melt, or pivot longer: turn columns (one per year, month or measure) into rows",
       },
       [],
     ) as HTMLButtonElement;
-    expandButton(this.meltButton, "melt", "Melt…");
+    expandButton(this.meltButton, "melt", "Melt (pivot longer)…");
     this.meltButton.addEventListener("click", () => void this.openMelt());
 
     this.spreadButton = el(
@@ -1234,11 +1234,11 @@ export class App {
       {
         class: "ghost small nav-action spread-button",
         type: "button",
-        title: "Spread: turn the values of one column into new columns (the opposite of Melt)",
+        title: "Spread, or pivot wider: turn the values of one column into new columns (the opposite of Melt)",
       },
       [],
     ) as HTMLButtonElement;
-    expandButton(this.spreadButton, "spread", "Spread…");
+    expandButton(this.spreadButton, "spread", "Spread (pivot wider)…");
     this.spreadButton.addEventListener("click", () => void this.openSpread());
 
     this.headerRowButton = el(
@@ -1275,8 +1275,8 @@ export class App {
     actionsMenu.addEventListener("click", () =>
       openMenu(actionsMenu, [
         { label: "Convert types", action: () => this.convertTypesButton.click() },
-        { label: "Melt (wide to long)…", action: () => this.meltButton.click() },
-        { label: "Spread (long to wide)…", action: () => this.spreadButton.click() },
+        { label: "Melt: pivot longer (wide → long)…", action: () => this.meltButton.click() },
+        { label: "Spread: pivot wider (long → wide)…", action: () => this.spreadButton.click() },
         {
           label: "Import settings…",
           title: this.headerRowButton.title,
@@ -7446,7 +7446,7 @@ export class App {
     addItem("Group by & aggregate…", () => this.openTransform({ type: "groupBy", column }));
     addItem("Fill missing values…", () => this.openTransform({ type: "impute", column }));
     addItem("Fill from similar rows (k nearest neighbours)…", () => this.openTransform({ type: "knn", column }));
-    addItem("Melt (wide → long)…", () => void this.openMelt());
+    addItem("Melt: pivot longer (wide → long)…", () => void this.openMelt());
     addItem("Combine date/time columns…", () =>
       this.openTransform({ type: "combineDate", column }),
     );
@@ -8701,7 +8701,7 @@ export class App {
     const op = await openMeltDialog({
       schema,
       rowCount: this.rowCount,
-      preview: (staged) => this.client.previewTransform([...this.transformOps, staged]),
+      preview: (staged) => this.client.previewTransform([...this.transformOps, staged], 6),
     });
     if (op === null) return;
     const stacked = op.valueVars.length;
@@ -8724,7 +8724,7 @@ export class App {
       schema,
       distinct: schema.length === this.metas.length ? this.metas.map((meta) => meta.stats.distinct) : undefined,
       rowCount: this.rowCount,
-      preview: (staged) => this.client.previewTransform([...this.transformOps, staged]),
+      preview: (staged) => this.client.previewTransform([...this.transformOps, staged], 6),
     });
     if (op === null) return;
     const wide = op.keys?.length ?? 0;
