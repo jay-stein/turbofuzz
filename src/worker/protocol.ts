@@ -68,6 +68,8 @@ export interface ColumnMeta {
   role?: "provenance" | null;
   numberLocale: NumberLocale;
   dateOrder: DateOrder;
+  /** Date column whose day and month could be either way round in every value: the order is a guess from the setting, or day-first. */
+  dateAmbiguous?: boolean;
   /** Datetime column: at least one source value carried a zone offset. */
   timeZoneAware?: boolean;
   stats: ColumnStats;
@@ -162,6 +164,8 @@ export type LoadRequest = {
   deferStats?: boolean;
   /** User-chosen header layout replacing automatic detection. */
   headerLayout?: HeaderLayout;
+  /** Conventions from Settings the parsers need; null for "not set". */
+  conventions?: { dateOrder: "dmy" | "mdy" | null };
 };
 
 /** Stops the in-flight load at its next cancellation checkpoint. */
@@ -830,6 +834,8 @@ export type GetTimeSeriesRequest = {
   respectFilters?: boolean;
   /** null opens the series with the table's own defaults. */
   config: TsConfig | null;
+  /** The day weeks start on (0 Monday, 5 Saturday, 6 Sunday) from Settings; unset leaves it to the data, then Monday. */
+  weekStart?: number;
   mode: TsMode;
   /** Also send every model's backtest forecasts (for the backtest export). */
   backtest?: boolean;

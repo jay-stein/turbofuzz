@@ -1,3 +1,4 @@
+import { setDateTieBreak } from "../parse/conventions.js";
 import { ColumnData } from "../data/column.js";
 import { isGroupableColumn } from "../data/groupable.js";
 import { keepRows, type ChartExclusion } from "../data/chart-exclusions.js";
@@ -759,6 +760,7 @@ function handleCancelLoad(): void {
 }
 
 async function handleLoad(message: LoadRequest): Promise<void> {
+  setDateTieBreak(message.conventions?.dateOrder ?? null);
   const started = performance.now();
   const active = { requestId: message.requestId, cancelled: false };
   activeLoad = active;
@@ -2085,7 +2087,7 @@ function handleGetTimeSeries(message: GetTimeSeriesRequest): void {
   if (view !== undefined) ids = viewRowIds(view);
   const key = view !== undefined
     ? `view|${JSON.stringify(view)}|${message.groupColumn}`
-    : `${message.dateColumn}|${message.groupColumn}|${message.respectFilters !== false}`;
+    : `${message.dateColumn}|${message.groupColumn}|${message.respectFilters !== false}|${message.weekStart ?? ""}`;
   if (timeSeriesCache === null || timeSeriesCache.key !== key || timeSeriesCache.ids !== ids || timeSeriesCache.dataset !== dataset) {
     let built: { input: TsInput; keep: number[]; candidates?: ShapeCandidate[] } | null;
     if (view !== undefined) {
@@ -2098,7 +2100,7 @@ function handleGetTimeSeries(message: GetTimeSeriesRequest): void {
     } else {
       built = timeSeriesInput(dataset, ids, message.dateColumn, message.groupColumn);
     }
-    const table = built === null ? null : buildTable(built.input);
+    const table = built === null ? null : buildTable(message.weekStart === undefined ? built.input : { ...built.input, weekStart: message.weekStart });
     if (built === null || table === null) {
       timeSeriesCache = null;
       const error = view !== undefined
@@ -3652,6 +3654,7 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     ...(role === undefined ? {} : { role }),
     numberLocale: column.numberLocale,
     dateOrder: column.dateOrder,
+    ...(column.dateAmbiguous ? { dateAmbiguous: true } : {}),
     ...(column.type === "datetime" ? { timeZoneAware: column.timeZoneAware } : {}),
     stats: column.stats,
     anomalyCounts: {

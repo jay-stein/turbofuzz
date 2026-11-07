@@ -1,3 +1,5 @@
+import { openSettingsPanel } from "./settings-panel.js";
+import { updateSettings } from "./settings.js";
 import type { DateOrder } from "../parse/dates.js";
 import { clearReviewed, getReviewed, setReviewed } from "./reviewed-issues.js";
 import { clearOptionalMark, getOptionalMarks, setOptionalMark } from "./optional-marks.js";
@@ -855,6 +857,12 @@ export class App {
       ["Help"],
     );
     helpButton.addEventListener("click", () => openHelpDrawer());
+    const settingsButton = el(
+      "button",
+      { class: "ghost small topbar-wide settings-button", type: "button", title: "Date order, first day of the week and public holidays: the conventions the app does not assume" },
+      ["Settings"],
+    );
+    settingsButton.addEventListener("click", () => openSettingsPanel({ onChange: (key) => this.onSettingChanged(key) }));
 
     this.themeButton = el(
       "button",
@@ -900,7 +908,7 @@ export class App {
     paletteButton.addEventListener("click", () => this.openPalette());
     helpButton.classList.add("topbar-wide");
     this.themeButton.classList.add("topbar-wide");
-    topbar.append(paletteButton, el("span", { class: "grow" }), this.scoreTile, this.themeButton, helpButton);
+    topbar.append(paletteButton, el("span", { class: "grow" }), this.scoreTile, this.themeButton, settingsButton, helpButton);
 
     this.newButton = el("button", { class: "ghost small topbar-wide", type: "button" }, ["New data"]);
     this.newButton.title = "Load a CSV, Excel, JSON or Parquet file";
@@ -913,6 +921,7 @@ export class App {
     overflowButton.addEventListener("click", () =>
       openMenu(overflowButton, [
         { label: this.themeButton.textContent ?? "Theme", action: () => this.themeButton.click() },
+        { label: "Settings", action: () => settingsButton.click() },
         { label: "Help", action: () => helpButton.click() },
         { label: this.newButton.textContent ?? "New data", action: () => this.newButton.click() },
       ]),
@@ -1414,6 +1423,11 @@ export class App {
     this.overviewHost = el("div", { class: "overview-host hidden" });
     this.overview = new Overview(this.overviewHost, {
       onImportSettings: () => void this.openHeaderRowOverride(),
+      onChooseDateOrder: (anchor) =>
+        openMenu(anchor, [
+          { label: "Day first (31/12/2025)", title: "Save this in Settings and read the file again with it", action: () => void this.chooseDateOrder("dmy") },
+          { label: "Month first (12/31/2025)", title: "Save this in Settings and read the file again with it", action: () => void this.chooseDateOrder("mdy") },
+        ]),
       onOpenOutliers: () => this.setView("outliers"),
       onOpenTable: () => this.setView("table"),
       onOpenChart: () => this.setView("chart"),
@@ -6540,6 +6554,32 @@ export class App {
     }).then((confirmed) => {
       if (confirmed) this.clearData();
     });
+  }
+
+  /** The answer to "which way round are these dates": kept in Settings for every later file, and this file read again if it changes anything. */
+  private async chooseDateOrder(order: "dmy" | "mdy"): Promise<void> {
+    updateSettings({ dateOrder: order });
+    this.overview?.refreshNextSteps();
+    const reading = this.metas.find((meta) => meta.dateAmbiguous === true)?.dateOrder;
+    const source = this.importSource;
+    if (reading === order || source === null) return;
+    if (this.stepEntries().length > 0) {
+      const confirmed = await openConfirm({
+        title: "Read this file again with that date order?",
+        body: "Reloading re-reads the file, so the steps in the Recipe will be discarded.",
+        confirmLabel: "Reload",
+      });
+      if (!confirmed) return;
+    }
+    await source.reload(source.layout);
+  }
+
+  /** A setting changed in the panel: what already loaded says what it will take to apply it. */
+  private onSettingChanged(key: "dateOrder" | "weekStart" | "holidays"): void {
+    this.overview?.refreshNextSteps();
+    if (key === "dateOrder" && this.metas.some((meta) => meta.dateAmbiguous === true)) {
+      this.setAction("Date order saved. The dates already loaded were read before it: use Import settings, then Apply and reload, to read this file with it.");
+    }
   }
 
   private updateNewButton(): void {

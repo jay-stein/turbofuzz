@@ -1,3 +1,4 @@
+import { readSettings } from "./settings.js";
 import type { GeoWorkerReply, GeoWorkerRequest } from "../worker/geo.worker.js";
 import type { IntervalKind } from "../data/error-bars.js";
 import type { ErrorBarsMessage, ErrorBarsProgressMessage, JoinSuggestionsMessage, RegionsLoadedMessage, RegionValuesMessage, RegionValuesRequestInput } from "../worker/protocol.js";
@@ -111,6 +112,8 @@ export interface LoadOptions {
   deferStats?: boolean;
   /** User-chosen header layout replacing automatic detection. */
   headerLayout?: HeaderLayout;
+  /** Conventions from Settings the parsers need; filled in from the saved settings when left out. */
+  conventions?: { dateOrder: "dmy" | "mdy" | null };
 }
 
 /** The user cancelled an in-flight load; the dataset is unchanged. */
@@ -177,7 +180,8 @@ export class SearchWorkerClient {
         reject,
       });
       this.currentLoadId = requestId;
-      this.worker.postMessage({ type: "load", ...options, requestId } as WorkerRequest, transfer);
+      const settings = readSettings();
+      this.worker.postMessage({ type: "load", conventions: { dateOrder: settings.dateOrder === "" ? null : settings.dateOrder }, ...options, requestId } as WorkerRequest, transfer);
     });
   }
 
@@ -434,7 +438,8 @@ export class SearchWorkerClient {
     flexCurve?: boolean;
     deep?: ModelKey;
   }): Promise<TimeSeriesMessage> {
-    return this.request<TimeSeriesMessage>({ type: "getTimeSeries", ...input });
+    const weekStart = { mon: 0, sat: 5, sun: 6, "": undefined }[readSettings().weekStart];
+    return this.request<TimeSeriesMessage>({ type: "getTimeSeries", ...(weekStart === undefined ? {} : { weekStart }), ...input });
   }
 
   getColumnNetwork(respectFilters = true): Promise<ColumnNetworkMessage> {

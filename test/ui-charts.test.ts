@@ -3083,7 +3083,7 @@ test("a map shows one dot per place unless told otherwise, and says so first in 
   assert.equal(card.getConfig().mapMode ?? "places", "places");
   const mode = host.querySelector('select[aria-label="Map display mode"]') as HTMLSelectElement;
   assert.equal(mode.value, "places");
-  assert.deepEqual([...mode.options].map((o) => o.textContent), ["One dot per place", "One dot per row"]);
+  assert.deepEqual([...mode.options].map((o) => o.textContent), ["One dot per place", "One dot per row", "One dot per row, clustered"]);
   assert.ok(requests.some((r) => r.places !== undefined), "the worker is asked for places");
   card.dispose();
 });

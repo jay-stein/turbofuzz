@@ -43,3 +43,19 @@ test("weekly rows on mixed weekdays are not forced onto one", () => {
   const e = new TsEngine(buildTable({ times, cols: { sales: Float64Array.from({ length: n }, (_, i) => 100 + i) }, flags: {}, groups: ["all"], rowGroup: new Uint16Array(n), groupCol: null, dateCol: "week", dropped: 0 })!);
   assert.equal(e.info().wstart, 0);
 });
+
+test("daily rows start their weeks on the day chosen in Settings, and on Monday when nothing is chosen", () => {
+  const monday = Date.UTC(2024, 0, 1);
+  const n = 84;
+  const times = Float64Array.from({ length: n }, (_, i) => monday + i * DAY);
+  const v = Float64Array.from({ length: n }, (_, i) => 100 + i);
+  const input = { times, cols: { sales: v }, flags: {}, groups: ["all"], rowGroup: new Uint16Array(n), groupCol: null, dateCol: "d", dropped: 0 };
+  const weeks = (weekStart?: number) => {
+    const e = new TsEngine(buildTable({ ...input, ...(weekStart === undefined ? {} : { weekStart }) })!);
+    return e.compute({ ...defaultConfig(e.info()), grain: "week", agg: "sum", measure: "sales", partial: "include" }, "explore");
+  };
+  const dayOf = (ms: number): number => new Date(ms).getUTCDay();
+  assert.equal(dayOf(weeks().A.t[1]!), 1, "Monday when unset");
+  assert.equal(dayOf(weeks(6).A.t[1]!), 0, "Sunday when chosen");
+  assert.equal(dayOf(weeks(5).A.t[1]!), 6, "Saturday when chosen");
+});

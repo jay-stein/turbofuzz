@@ -31,6 +31,7 @@ import {
   type TsAction, type TsFinding, type TsTone, type TsView,
 } from "./timeseries-findings.js";
 import { rankFormats } from "../parse/date-format.js";
+import { onSettingsChange, readSettings, updateSettings } from "./settings.js";
 import { HOLIDAY_REGIONS, suggestRegion } from "../data/timeseries/holidays.js";
 import { HOLIDAY_COL } from "../data/timeseries/aggregate.js";
 import { niceTicks, patternsHtml } from "./timeseries-patterns.js";
@@ -1077,9 +1078,14 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       }
     }
   }
-  const HOLIDAY_KEY = "turbofuzz.timeseries.holidays";
-  function storedHolidays(): string { try { return localStorage.getItem(HOLIDAY_KEY) ?? ""; } catch { return ""; } }
-  function saveHolidays(code: string): void { try { if (code) localStorage.setItem(HOLIDAY_KEY, code); else localStorage.removeItem(HOLIDAY_KEY); } catch { /* not remembered; the choice still applies */ } }
+  // The holiday region and the first day of the week live in Settings, shared with the rest of the app.
+  function storedHolidays(): string { return readSettings().holidays; }
+  function saveHolidays(code: string): void { updateSettings({ holidays: code }); }
+  let lastWeekStart = readSettings().weekStart;
+  onSettingsChange((s) => {
+    if (cfg && (cfg.holidays ?? "") !== s.holidays && source === "") change({ holidays: s.holidays });
+    if (s.weekStart !== lastWeekStart) { lastWeekStart = s.weekStart; if (cfg) fetchSeries(); }
+  });
   function tokValue(key: TokenKey): string {
     const c = cfg as TsConfig;
     switch (key) {

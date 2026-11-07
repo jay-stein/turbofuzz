@@ -1,3 +1,4 @@
+import { dateTieBreak, type DateTieBreak } from "./conventions.js";
 import { parseWithFormat, type DateFormatPrefix } from "./date-format.js";
 
 /**
@@ -210,7 +211,12 @@ export function looksLikeDate(value: string): boolean {
   return ISO.test(s) || YMD.test(s) || DMY_OR_MDY.test(s);
 }
 
-export function detectDateOrder(values: readonly string[]): DateOrder {
+/**
+ * Which way round the day and month are. The data decides when it can: 14/03/2025 can only be day-first. When every value fits
+ * both ways (01/02/2025) the tie goes to the order given, the person's setting, and only when there is none is it day-first,
+ * which `dateOrderIsAmbiguous` lets the page say out loud.
+ */
+export function detectDateOrder(values: readonly string[], tieBreak: DateTieBreak | null = dateTieBreak()): DateOrder {
   let dmy = 0;
   let mdy = 0;
   for (const value of values) {
@@ -221,7 +227,22 @@ export function detectDateOrder(values: readonly string[]): DateOrder {
     if (a > 12 && b <= 12) dmy++;
     else if (b > 12 && a <= 12) mdy++;
   }
+  if (dmy === mdy) return tieBreak ?? "dmy";
   return mdy > dmy ? "mdy" : "dmy";
+}
+
+/** True when the values use the d/m/y shape and none of them settles which is the day: a guess is all that decides the order. */
+export function dateOrderIsAmbiguous(values: readonly string[]): boolean {
+  let fits = 0;
+  for (const value of values) {
+    const m = value.trim().match(DMY_OR_MDY) ?? value.trim().match(DMY_OR_MDY_TIME);
+    if (m === null) continue;
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    if (a > 12 || b > 12) return false;
+    if (a !== b) fits++;
+  }
+  return fits > 0;
 }
 
 /**

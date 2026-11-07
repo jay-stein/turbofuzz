@@ -3,6 +3,7 @@ import { FuzzyIndex } from "../search/fuzzy-index.js";
 import { normalize } from "../search/normalize.js";
 import {
   classifyDateValue,
+  dateOrderIsAmbiguous,
   detectDateOrder,
   parseDate,
   parseDuration,
@@ -115,6 +116,8 @@ export class ColumnData {
   /** Non-data columns such as multi-file provenance are excluded from row stats. */
   role: "provenance" | null = null;
   dateOrder: DateOrder;
+  /** Every date in the column fits day-first and month-first alike, so the order was a tie-break, not read from the data. */
+  dateAmbiguous = false;
   numberLocale: NumberLocale;
   /** A datetime column whose source values carried explicit zone offsets. */
   timeZoneAware = false;
@@ -287,6 +290,7 @@ export class ColumnData {
     column.suggestions = options.skipSuggestions
       ? []
       : detectSuggestions(raw, inferred.type, nullPolicy, column.numberLocale, noConvert);
+    if (inferred.type === "date" || inferred.type === "datetime") column.dateAmbiguous = dateOrderIsAmbiguous(sample);
     column.timeZoneAware =
       inferred.timeZoneAware ??
       (inferred.type === "datetime" &&
@@ -410,6 +414,7 @@ export class ColumnData {
     if (type === "date" || type === "datetime") {
       const sample = stratifiedSample(this.raw, 500);
       this.dateOrder = detectDateOrder(sample);
+      this.dateAmbiguous = dateOrderIsAmbiguous(sample);
       this.timeZoneAware =
         type === "datetime" &&
         sample.some((value) => classifyDateValue(value, this.dateOrder)?.hasOffset === true);

@@ -1,3 +1,4 @@
+import { readSettings } from "./settings.js";
 import type { DatasetStats } from "../data/stats.js";
 import {
   ARCHETYPE_LABELS,
@@ -41,6 +42,8 @@ export interface OverviewCallbacks {
   issueSummary?(): { fix: number; review: number } | null;
   /** Open the Quality page on its Issues tab. */
   onOpenQuality?(): void;
+  /** Ask how to read dates that fit both orders; the answer is saved in Settings and the file is read again with it. */
+  onChooseDateOrder?(anchor: HTMLElement): void;
   /** Open the import settings (header row, rows to skip, where the data ends). */
   onImportSettings?(): void;
   /** Open the Outliers page. */
@@ -55,13 +58,15 @@ export type NextStepAction =
   | { kind: "review"; column: number }
   | { kind: "chart"; column: number | null }
   | { kind: "combineDate"; op: CombineDateOp }
-  | { kind: "blankTokens"; tokens: string[] };
+  | { kind: "blankTokens"; tokens: string[] }
+  | { kind: "chooseDateOrder" };
 
 export interface NextStep {
   id:
     | "empties"
     | "nullTokens"
     | "sentinels"
+    | "dateOrder"
     | "duplicates"
     | "fixes"
     | "nearDuplicates"
@@ -242,8 +247,25 @@ export function pickNextSteps(
   archetype: ArchetypeId = "general",
   /** Codes the file's own notes say mean "missing". */
   statedCodes: readonly string[] = [],
+  /** Whether the person has chosen how to read ambiguous dates in Settings. */
+  dateOrderSet = true,
 ): NextStep[] {
   const rules: NextStep[] = [];
+
+  // Dates that fit day-first and month-first alike: nothing in the data settles it, and nothing in Settings does either, so the
+  // page says it guessed and asks, instead of choosing silently.
+  const ambiguous = columns.filter((column) => column.dateAmbiguous === true);
+  if (ambiguous.length > 0 && !dateOrderSet) {
+    const names = ambiguous.length <= 2 ? ambiguous.map((c) => `“${c.name}”`).join(" and ") : `${ambiguous.length} date columns`;
+    const read = ambiguous[0]!.dateOrder === "mdy" ? "month-first" : "day-first";
+    rules.push({
+      id: "dateOrder",
+      text: `${names} could be day-first or month-first: every value, like 01/02/2025, fits both. It was read ${read}, which nothing in the file confirms.`,
+      button: "Choose how to read them",
+      score: Number.MAX_SAFE_INTEGER - 1,
+      action: { kind: "chooseDateOrder" },
+    });
+  }
 
   // A number the data's author used for "missing" (-9, 999): it is a value in every column that has it, so it skews means and
   // ranges everywhere. Offered once for the whole table, by value.
@@ -598,6 +620,12 @@ export class Overview {
   private statedCodes: string[] = [];
   private lastStats: DatasetStats | null = null;
 
+  /** Builds the next steps again, e.g. after a setting changed. */
+  refreshNextSteps(): void {
+    const steps = this.root.querySelector<HTMLElement>(".overview-next-steps");
+    if (steps !== null && this.lastStats !== null) steps.replaceWith(this.buildNextStepsFor(this.columns, this.lastStats, this.rowCount));
+  }
+
   /** Codes the file's own notes say mean missing; the next steps name them as such. */
   setStatedCodes(codes: string[]): void {
     if (codes.join("|") === this.statedCodes.join("|")) return;
@@ -767,7 +795,7 @@ export class Overview {
     const section = el("section", { class: "overview-section overview-next-steps" });
     section.append(el("h2", { class: "overview-heading" }, ["Next steps"]));
     const list = el("div", { class: "next-step-list" });
-    for (const step of pickNextSteps(columns, stats, rowCount, this.archetype, this.statedCodes)) {
+    for (const step of pickNextSteps(columns, stats, rowCount, this.archetype, this.statedCodes, readSettings().dateOrder !== "")) {
       const card = el("div", { class: "next-step-card" });
       card.append(el("span", { class: "next-step-text" }, [step.text]));
       const button = el(
@@ -842,6 +870,9 @@ export class Overview {
         break;
       case "blankTokens":
         this.callbacks.onBlankTokens?.(step.action.tokens);
+        break;
+      case "chooseDateOrder":
+        this.callbacks.onChooseDateOrder?.(anchor);
         break;
     }
   }

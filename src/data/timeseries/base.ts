@@ -137,6 +137,8 @@ export interface TsInput {
   dateCol: string;
   /** Rows left out because their date did not read. */
   dropped: number;
+  /** The day weeks start on (0 Monday ... 6 Sunday) from Settings, used when the rows do not name one themselves. */
+  weekStart?: number;
   /** Columns are a Pivot View's measures: never read as time counters or date parts. */
   aggregated?: boolean;
   /** The source knows its first or last period is incomplete (a view period cut by the data's edge). */
@@ -241,7 +243,7 @@ export function buildTable(input: TsInput): TsTable | null {
   const spd = Math.round(DAY / slot);
   // Weekly rows stamped on one weekday (Sunday-ending weeks, Friday closes) start their weeks there, not on Monday:
   // a period then runs from stamp to stamp, and the dates shown are the stamps. Anything else starts weeks on Monday.
-  let wstart = 0;
+  let wstart = input.weekStart ?? 0;
   if (cadence >= 6.5 && cadence <= 7.5 && obs.length >= 8) {
     const days = new Array<number>(7).fill(0);
     for (const d of obs) days[(Math.floor(d / spd) + woff) % 7]++;
