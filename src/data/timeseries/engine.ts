@@ -11,7 +11,7 @@ import { computeDecomposition, type DecompResult } from "./decompose.js";
 import { computeFutures, deepCheck, driverRecent, flexCurve, type DeepCheck, horizonOf, maxHorizon, runModels, type Futures, type HwWarm, type ModelKey, type ModelRun } from "./models.js";
 import { computePatterns, type Patterns } from "./patterns.js";
 import { scanDrivers, type DriverScan } from "./drivers.js";
-import { chooseDifferences, kpssLevel, KPSS_CRITICAL_5 } from "./arima.js";
+import { chooseDifferences, kpssLevel, kpssTrend, KPSS_CRITICAL_5, KPSS_TREND_CRITICAL_5 } from "./arima.js";
 
 /** Whether the series holds a steady level, by the KPSS test, and the differencing that would make it so. */
 export interface Stationarity {
@@ -19,6 +19,10 @@ export interface Stationarity {
   kpss: number;
   critical: number;
   stationary: boolean;
+  /** The same test around a straight-line trend: a series that fails the first can still pass this. */
+  trendKpss: number;
+  trendCritical: number;
+  trendStationary: boolean;
   /** Plain differences and seasonal differences the unit-root rules would take (what AutoARIMA does). */
   d: number;
   D: number;
@@ -165,7 +169,8 @@ export class TsEngine {
       else {
         const dd = chooseDifferences(y, m);
         const kpss = kpssLevel(y);
-        this.STAT = { kpss, critical: KPSS_CRITICAL_5, stationary: !(kpss > KPSS_CRITICAL_5), d: dd.d, D: dd.D, m, strength: dd.strength };
+        const tk = kpssTrend(y);
+        this.STAT = { kpss, critical: KPSS_CRITICAL_5, stationary: !(kpss > KPSS_CRITICAL_5), trendKpss: tk, trendCritical: KPSS_TREND_CRITICAL_5, trendStationary: !(tk > KPSS_TREND_CRITICAL_5), d: dd.d, D: dd.D, m, strength: dd.strength };
       }
       this.keys.stat = decKey;
     }

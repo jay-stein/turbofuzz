@@ -631,6 +631,30 @@ export function kpssLevel(x: ArrayLike<number>): number {
 }
 export const KPSS_CRITICAL_5 = 0.463;
 
+/** KPSS with a null of stationarity around a straight-line trend: the residuals of a fit on time (5% critical value 0.146). */
+export function kpssTrend(x: ArrayLike<number>): number {
+  const v: number[] = [];
+  for (let i = 0; i < x.length; i++) if (x[i]! === x[i]!) v.push(x[i]!);
+  const n = v.length;
+  if (n < 6) return 0;
+  const tm = (n - 1) / 2, ym = v.reduce((s, a) => s + a, 0) / n;
+  let sxy = 0, sxx = 0;
+  for (let t = 0; t < n; t++) { sxy += (t - tm) * (v[t]! - ym); sxx += (t - tm) * (t - tm); }
+  const slope = sxx > 0 ? sxy / sxx : 0;
+  const e = v.map((a, t) => a - ym - slope * (t - tm));
+  const l = Math.floor((3 * Math.sqrt(n)) / 13);
+  let s2 = e.reduce((s, a) => s + a * a, 0) / n;
+  for (let s = 1; s <= l; s++) {
+    let g = 0;
+    for (let t = s; t < n; t++) g += e[t]! * e[t - s]!;
+    s2 += (2 / n) * (1 - s / (l + 1)) * g;
+  }
+  let cum = 0, sum = 0;
+  for (let t = 0; t < n; t++) { cum += e[t]!; sum += cum * cum; }
+  return sum / (n * n) / s2;
+}
+export const KPSS_TREND_CRITICAL_5 = 0.146;
+
 /** The seasonal strength of an STL fit with a periodic season (forecast's "seas" heuristic): 1 - Var(R) / Var(S + R). */
 export function seasonalStrength(y: ArrayLike<number>, m: number): number {
   const n = y.length;

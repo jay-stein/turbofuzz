@@ -94,3 +94,15 @@ test("a strong cycle is found once error codes are treated as missing", () => {
   };
   assert.equal(season(missing), 7, "the weekly cycle shows once the codes are missing");
 });
+
+test("a straight-line trend plus noise is steady around the trend, a random walk is not", () => {
+  const n = 300;
+  const trendy = new TsEngine(table(n, { v: Float64Array.from({ length: n }, (_, t) => 10 + 0.5 * t + 3 * rnd()) }));
+  const a = trendy.compute({ ...defaultConfig(trendy.info()), agg: "mean", measure: "v" }, "explore").stationarity!;
+  assert.equal(a.stationary, false);
+  assert.equal(a.trendStationary, true);
+  let level = 0;
+  const walk = new TsEngine(table(n, { v: Float64Array.from({ length: n }, () => (level += 3 * rnd())) }));
+  const b = walk.compute({ ...defaultConfig(walk.info()), agg: "mean", measure: "v" }, "explore").stationarity!;
+  assert.equal(b.trendStationary, false);
+});

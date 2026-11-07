@@ -238,10 +238,18 @@ function stationarityFinding(s: TsSnapshot): TsFinding | null {
   const season = st.D > 0 ? ` A seasonal difference (${st.m} ${st.m === 1 ? "period" : "periods"}) is also taken, as the season is strong (${st.strength.toFixed(2)}).` : "";
   if (st.stationary && st.D === 0) return { kind: "Stationarity", tone: "dim", html: `<b>Steady level.</b> The series does not drift: the KPSS statistic is ${k}, under the 5% limit of ${c}. Models that need a steady mean can use it as it is.`, acts: [] };
   const how = st.d === 0 ? "no plain difference is needed" : st.d === 1 ? "one difference (each period minus the one before) makes it steady" : `${st.d} differences are needed to make it steady`;
-  const lead = st.stationary ? "<b>Steady once the season is removed.</b>" : "<b>Not steady.</b> The level drifts over time";
+  const tk = st.trendKpss.toFixed(2), tc = st.trendCritical.toFixed(2);
+  if (!st.stationary && st.trendStationary) {
+    return {
+      kind: "Stationarity", tone: "dim",
+      html: `<b>Steady around a trend.</b> The level moves over time (KPSS ${k}, over the 5% limit of ${c}), but the series stays close to a straight-line trend (trend KPSS ${tk}, under ${tc}): a trend plus noise, not a random walk. Differencing handles it (AutoARIMA does, and ${how}), and so does a model with a trend term; neither is wrong.${season}`,
+      acts: [],
+    };
+  }
+  const lead = st.stationary ? "<b>Steady once the season is removed.</b>" : "<b>Not steady, even around a trend.</b> The level wanders";
   return {
     kind: "Stationarity", tone: "dim",
-    html: `${lead} (KPSS ${k}${st.stationary ? "" : `, over the 5% limit of ${c}`}); ${how}.${season} AutoARIMA does this itself; the smoothing and regression models carry the drift as a trend instead. A steady climb alone fails this test, so it means the level moves, not that the series is noise.`,
+    html: `${lead} (KPSS ${k}${st.stationary ? "" : `, over ${c}; around a trend ${tk}, over ${tc}`}); ${how}.${season} AutoARIMA does this itself; the smoothing and regression models carry the drift as a trend instead.`,
     acts: [],
   };
 }
@@ -433,8 +441,13 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
   }
   if (bits.length) out.push({ kind: "Data", tone: "warn", html: bits.join(" "), acts });
   for (const f of [stuckFinding(s), unitFinding(s)]) if (f) out.push(f);
+  // Stationarity reads best beside the season it qualifies, not at the foot of the list.
   const stat = stationarityFinding(s);
-  if (stat) out.push(stat);
+  if (stat) {
+    let at = out.length;
+    for (let i = out.length - 1; i >= 0; i--) if (out[i]!.kind.startsWith("Season")) { at = i + 1; break; }
+    out.splice(at, 0, stat);
+  }
   const drv = driverFinding(s);
   if (drv) out.push(drv);
   return out;
