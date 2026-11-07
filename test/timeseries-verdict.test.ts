@@ -81,7 +81,7 @@ test("reliable and the best are separate answers: a reliable model can rank mid-
   assert.equal(v.level, "holds", "it beats the simple method clearly, so it is reliable");
   assert.equal(v.answers[1]!.a, "No");
   assert.equal(v.answers[1]!.cls, "okay", "never red: red is for failing the simple-method test");
-  assert.match(v.answers[1]!.text, /Ranked 5th of 8 models on data it never saw\. Theta had 12% less error/);
+  assert.match(v.answers[1]!.text, /Ranked 5th of 8 models on data it never saw\. Theta, the lowest-error model, had 12% less error in the backtests/);
 });
 
 test("without a test held back it can never be called reliable, and says why", () => {
@@ -95,16 +95,16 @@ test("is it the best available: first place, a close second, a better one worth 
   assert.deepEqual([trustVerdict({ ...base, lockRank: 1 }).answers[1]!.a, trustVerdict({ ...base, lockRank: 1 }).answers[1]!.text], ["Yes", "The best of the 8 models tried, on data it never saw."]);
   const level = trustVerdict({ ...base, lockRank: 2, leader: { name: "Theta", gapPct: 2.4 } }).answers[1]!;
   assert.equal(level.a, "About level");
-  assert.match(level.text, /Ranked 2nd of 8 models on data it never saw\. Theta did about the same \(2% less error\)/);
+  assert.match(level.text, /Ranked 2nd of 8 models on data it never saw\. Theta, the lowest-error model, did about the same \(2% less error in the backtests\)/);
   const close = trustVerdict({ ...base, lockRank: 2, leader: { name: "Theta", gapPct: 14 } }).answers[1]!;
   assert.equal(close.a, "Close");
-  assert.match(close.text, /Theta had 14% less error, so it is worth a look/);
+  assert.match(close.text, /Theta, the lowest-error model, had 14% less error in the backtests, so it is worth a look/);
   const worse = trustVerdict({ ...base, lockRank: 5, leader: { name: "Theta", gapPct: 30 } }).answers[1]!;
   assert.equal(worse.a, "No");
   assert.equal(worse.cls, "okay");
 });
 
-test("the shaded band is judged on its own and never changes the verdict on the forecast", () => {
+test("the shaded band is judged on its own; an untested or short-holding band caps the badge, a wide one does not", () => {
   const ok = trustVerdict({ ...base, band: { hit: 25, tot: 30, aim: 0.8 } }).answers[2]!;
   assert.deepEqual([ok.q, ok.a, ok.cls], [Q3, "Yes", "good"]);
   assert.equal(ok.text, "It should hold the real number about 80% of the time, and in past tests it held 83% of the time.");
@@ -118,8 +118,14 @@ test("the shaded band is judged on its own and never changes the verdict on the 
   const few = trustVerdict({ ...base, band: { hit: 3, tot: 10, aim: 0.8 } }).answers[2]!;
   assert.equal(few.a, "Not yet tested");
   assert.equal(trustVerdict({ ...base, band: null }).answers[2]!.a, "Not yet tested");
-  assert.equal(narrow.level, trustVerdict(base).level);
-  assert.equal(narrow.sentence, trustVerdict(base).sentence);
+  assert.equal(trustVerdict(base).level, "holds");
+  assert.equal(narrow.level, "middling", "a range that held 73% against an aim of 80% is not reliable");
+  assert.match(narrow.why, /shaded range has held less often than it aims to/);
+  assert.equal(narrow.sentence, trustVerdict(base).sentence, "the sentence about the forecast itself is unchanged");
+  assert.equal(trustVerdict({ ...base, band: { hit: 29, tot: 30, aim: 0.8 } }).level, "holds", "a range wider than needed is safe");
+  const untested = trustVerdict({ ...base, band: null });
+  assert.equal(untested.level, "middling");
+  assert.match(untested.why, /shaded range is not yet tested/);
   assert.deepEqual(narrow.headsUp, []);
 });
 

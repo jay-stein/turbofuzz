@@ -26,7 +26,7 @@ import { openMenu } from "./menu.js";
 import type { ColumnMeta, TimeSeriesMessage } from "../worker/protocol.js";
 import { downloadCsv } from "./chart-export.js";
 import {
-  buildInsights, chg, escapeHtml, measureWord, modelRows, periodName, ratioOf, seasonName, selectedModel, trendShift,
+  buildInsights, chg, escapeHtml, trendRate, measureWord, modelRows, periodName, ratioOf, seasonName, selectedModel, trendShift,
   type TsAction, type TsFinding, type TsTone, type TsView,
 } from "./timeseries-findings.js";
 import { niceTicks, patternsHtml } from "./timeseries-patterns.js";
@@ -301,6 +301,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         cfg = msg.snapshot.cfg;
         allT = null;
         INS = makeInsights();
+        ensureArima();
         ref("empty").hidden = true;
         ref("body").hidden = false;
         if (first || !view) { layout(); view = clampView(ui.mode === "forecast" ? forecastView() : fullView()); }
@@ -1077,17 +1078,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       [`Latest full ${gr.noun}`, `${compact(v)} ${chip(chg(s, v, prev))}`],
       [`vs ${gr.lyAgo}`, Number.isFinite(ly) ? `${chip(chg(s, v, ly))} <small>${compact(ly)}</small>` : "<small>not enough history</small>"],
     ];
-    const cp = s.dec.cp;
-    if (cp && cp.gain > 0.5) {
-      const months = (rate: number, mean: number): string => {
-        const perMonth = rate * (gr.perYear / 12);
-        return a.allPositive && mean > 0 ? `${pct(perMonth / mean, 1)} <small>a month</small>` : `${signed(perMonth)} <small>a month</small>`;
-      };
-      cells.push(["Trend now", `${months(cp.after.slope, cp.after.mean)} <small>since ${dfMonShort.format(new Date(a.t[cp.k]))}</small>`]);
-    } else if (d) {
-      const m = Math.max(1, (a.t[N - 1] - a.t[0]) / (30.44 * DAY));
-      cells.push(["Trend", `${a.allPositive && d.trend[0] > 0 ? pct(Math.pow(d.trend[N - 1] / d.trend[0], 1 / m) - 1, 1) : signed((d.trend[N - 1] - d.trend[0]) / m)} <small>a month</small>`]);
-    }
+    // One trend rate, with its window named; the same number the Trend finding quotes.
+    const tr = d ? trendRate(s, d.trend) : null;
+    if (tr) cells.push(["Trend", `${tr.text} <small>over ${tr.window}</small>`]);
     if (d) cells.push(["Season", `${seasonName(gr, d).replace(/^./, (ch) => ch.toUpperCase())} <small>strength ${d.fs.toFixed(2)}</small>`]);
     const key = selectedModel(s, ui);
     if (key) {
@@ -1161,7 +1154,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         ? `Each moment in <b>${date}</b> holds <b>${nf.format(usual)} rows</b>`
         : `<b>${Math.round(shape.repeatShare * 100)}%</b> of moments in <b>${date}</b> hold more than one row (usually ${nf.format(usual)})`;
     const verb = c.agg === "sum" ? "adds" : c.agg === "mean" || c.agg === "twmean" ? "averages" : c.agg === "median" ? "takes the median of" : "combines";
-    const series = key ? `${nf.format(key.distinct)} ${escapeHtml(key.name)} series` : `${nf.format(usual)} different series`;
+    const series = key ? `${nf.format(key.distinct)} ${escapeHtml(key.name)} series` : sug && !repeats ? `${nf.format(sug.distinct)} ${escapeHtml(sug.name)} series` : `${nf.format(usual)} different series`;
     const name = key ? escapeHtml(key.name) : "";
     const lead = `${where}${key ? `, one per <b>${name}</b>` : ""}${shape.most > usual ? ` (up to ${nf.format(shape.most)})` : ""}. This line ${verb} ${series} together, and trend, seasons and forecasts need one series.`;
     const tail = key ? "" : sug ? ` Pick one <b>${escapeHtml(sug.name)}</b> to see a single series:` : " No single column tells these rows apart, so filter the Table to one series first.";
@@ -1390,15 +1383,25 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const simples = BENCHMARK_KEYS.filter((k) => k !== "sn" && k !== key && M.shown.includes(k)).map((k) => ({ key: k, name: MODEL_INFO[k].name, ratio: ratioOf(s, k) })).filter((x) => Number.isFinite(x.ratio) && x.ratio < 1);
     return simples.length ? simples.reduce((p, q) => (q.ratio < p.ratio ? q : p)) : { key: "sn", name: MODEL_INFO.sn.name, ratio: 1 };
   }
+  /** The one definition of "lowest error": the least backtest error against repeating the last cycle, across every model, AutoARIMA included once it has finished. */
+  function lowestError(s: TsSnapshot, M: ModelRun): { key: ModelKey | "arima"; name: string; ratio: number } {
+    let best: { key: ModelKey | "arima"; name: string; ratio: number } = { key: "sn", name: MODEL_INFO.sn.name, ratio: Infinity };
+    for (const k of M.shown) {
+      const r = ratioOf(s, k);
+      if (Number.isFinite(r) && r < best.ratio) best = { key: k, name: MODEL_INFO[k].name, ratio: r };
+    }
+    const ar = arimaRow(s, M);
+    if (ar && ar.ratio < best.ratio) best = { key: "arima", name: ar.label, ratio: ar.ratio };
+    return best;
+  }
   /** Everything the trust verdict needs about one model, from results the page already holds. */
   function verdictFor(s: TsSnapshot, M: ModelRun, key: ModelKey): Verdict {
     const m = M.models[key], f = s.futures![key];
     const band = f.held ? { hit: f.held.hit, tot: f.held.tot, aim: 0.8 } : m.check ? { hit: m.check.hit, tot: m.check.tot, aim: 0.8 } : null;
-    // The model that did best on the held-back test, and how much less error it had than this one.
-    const own = M.lockbox && m.lock ? lockValue(M, key, ui.metric) : Infinity;
-    const top = M.lockbox ? CORE_KEYS.reduce((p, k) => (lockValue(M, k, ui.metric) < lockValue(M, p, ui.metric) ? k : p), CORE_KEYS[0]!) : null;
-    const topV = top ? lockValue(M, top, ui.metric) : Infinity;
-    const leader = top && top !== key && Number.isFinite(own) && own > 0 && Number.isFinite(topV) ? { name: MODEL_INFO[top].name, gapPct: Math.max(0, ((own - topV) / own) * 100) } : null;
+    // The lowest-error model (the same one the answer cards and the ranked list mark), and how much less error it had than this one.
+    const own = ratioOf(s, key);
+    const low = lowestError(s, M);
+    const leader = low.key !== key && Number.isFinite(own) && own > 0 && Number.isFinite(low.ratio) ? { name: low.name, gapPct: Math.max(0, ((own - low.ratio) / own) * 100) } : null;
     // The simple method that did best in the backtests (other than repeating the last cycle): the model has to beat that too.
     const yard = yardstickOf(s, M, key);
     const bestSimple = yard.key === "sn" ? null : { name: yard.name, ratio: yard.ratio };
@@ -1431,14 +1434,14 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const arRow = arimaShown ? arimaRow(s, M) : null;
     if (arRow) {
       badge.dataset.level = arRow.verdict.level;
-      badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b class="ts-mono">${escapeHtml(arRow.label)}</b><span class="ts-autotag">${arRow.dv ? "DV-ARIMA" : "AutoARIMA"}</span><span class="ts-pill ts-verdict ${arRow.verdict.cls}">${arRow.verdict.label}</span><small>run by you · error ${arRow.ratio.toFixed(2)}× repeating the last ${cycleWord(s)}</small><button type="button" class="ts-link" data-arima-params="1" data-arima-open="1" title="The fitted terms, their meaning and the models tried">Parameters</button><button type="button" class="ts-link" data-ans-show="${key}" title="Back to ${escapeHtml(MODEL_INFO[key].name)}">Show ${escapeHtml(MODEL_INFO[key].name)} instead</button></div>
+      badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b class="ts-mono">${escapeHtml(arRow.label)}</b><span class="ts-autotag">${arRow.dv ? "DV-ARIMA" : "AutoARIMA"}</span>${arimaChip()}<span class="ts-pill ts-verdict ${arRow.verdict.cls}">${arRow.verdict.label}</span><small>${arimaWho()} · error ${arRow.ratio.toFixed(2)}× repeating the last ${cycleWord(s)}</small><button type="button" class="ts-link" data-arima-params="1" data-arima-open="1" title="The fitted terms, their meaning and the models tried">Parameters</button><button type="button" class="ts-link" data-ans-show="${key}" title="Back to ${escapeHtml(MODEL_INFO[key].name)}">Show ${escapeHtml(MODEL_INFO[key].name)} instead</button></div>
         <div class="ts-qa"><div class="ts-qa-row"><span class="ts-qa-q">Is it better than the simple method?</span><span class="ts-qa-a"><span class="ts-pill ${arRow.ratio < 1 ? "good" : "poor"}">${arRow.ratio < 1 ? "Yes" : "No"}</span></span><span class="ts-qa-t">${arRow.ratio < 1 ? `${Math.round((1 - arRow.ratio) * 100)}% less error` : `${Math.round((arRow.ratio - 1) * 100)}% more error`} than repeating the last ${cycleWord(s)} in the backtests. ${escapeHtml(arRow.verdict.sentence)}</span></div></div>`;
       badge.hidden = false;
       return;
     }
     const v = verdictFor(s, M, key);
     badge.dataset.level = v.level;
-    badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ts-verdict ${v.cls}">${v.label}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small><button type="button" class="ts-link" data-hood="1" title="The numbers behind this verdict, and how each model did">Details</button><button type="button" class="ts-link" data-info="verdict" title="What Reliable and Use with care mean, and how they were checked">How this is decided</button></div>
+    badge.innerHTML = `<div class="ts-badge-top"><span class="ts-badge-label">Forecast</span><b>${MODEL_INFO[key].name}</b><span class="ts-pill ts-verdict ${v.cls}">${v.label}</span><small>${ui.model === "auto" ? autoLabel() : "picked by you"}</small>${arimaChip()}<button type="button" class="ts-link" data-hood="1" title="The numbers behind this verdict, and how each model did">Details</button><button type="button" class="ts-link" data-info="verdict" title="What Reliable and Use with care mean, and how they were checked">How this is decided</button></div>
       <div class="ts-qa">${v.answers.map((a) => `<div class="ts-qa-row"><span class="ts-qa-q">${escapeHtml(a.q)}</span><span class="ts-qa-a"><span class="ts-pill ${a.cls}">${escapeHtml(a.a)}</span></span><span class="ts-qa-t">${escapeHtml(a.text)}</span></div>`).join("")}</div>
       ${(() => {
         if (key === "sn" || v.level === "baseline" || v.level === "untested") return "";
@@ -1470,8 +1473,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (!M.lockbox || !m.lock) return "";
     const R = M.origins.length, rank = lockRank(M, key, mk), base = M.models.sn.lock?.[mk] ?? NaN, v = m.lock[mk];
     const beats = key === "sn" ? "" : v === v && base === base ? (Math.abs(v) < Math.abs(base) ? " and beat repeating the last cycle" : `, <span class="ts-warn">but did not beat repeating the last cycle (${metricText(mk, base)})</span>`) : "";
-    const level = snap ? verdictFor(snap, M, key).level : "middling";
-    const verdict = level === "holds" ? "Reliable: it beats the simple methods on data it never saw" : level === "middling" ? "Use with care: its edge over the simple methods is not clear" : level === "baseline" ? "The baseline every other model is measured against" : "Can't judge yet: too little history to hold a test back";
+    const vd = snap ? verdictFor(snap, M, key) : null;
+    const level = vd ? vd.level : "middling";
+    const verdict = level === "holds" ? "Reliable: it beats the simple methods on data it never saw and its range held up" : level === "middling" ? `Use with care: ${vd?.why ?? "its edge over the simple methods is not clear"}` : level === "baseline" ? "The baseline every other model is measured against" : "Can't judge yet: too little history to hold a test back";
     return `<div class="ts-badge-lock"><b>Lockbox check</b>: picked on folds 1–${R - 1}; on fold ${R}, which the choice never saw, it ranked <b>#${rank} of ${CORE_KEYS.length}</b> (${METRIC_INFO[mk].label} ${metricText(mk, v)})${beats}. ${verdict}.</div>`;
   }
   let curve: { key: string; points: { flex: number; mase: number }[] } | null = null;
@@ -1538,7 +1542,15 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     });
   }
   // ---------------------------------------------------------------- AutoARIMA (a deep run, started by hand)
-  let arima: { key: string; result: ArimaResult | null; running: ArimaRun | null; progress: ArimaProgress | null; started: number; vote: boolean } | null = null;
+  let arima: { key: string; result: ArimaResult | null; running: ArimaRun | null; progress: ArimaProgress | null; started: number; vote: boolean; auto: boolean } | null = null;
+  /** Finished standard searches by series and settings, so going back to an earlier grain or split does not search again. */
+  const arimaCache = new Map<string, ArimaResult>();
+  const ARIMA_CACHE_LIMIT = 24;
+  /** The series whose search the user stopped, so it is not started again behind their back. */
+  let arimaStopped = "";
+  /** One line saying the forecast changed over because AutoARIMA finished, shown until the next change. */
+  let arimaNote = "";
+  let arimaTimer = 0;
   const arimaKey = (s: TsSnapshot): string => curveKey(s);
   type ArimaOk = Extract<ArimaResult, { ok: true }>;
   /** The finished run, when it still belongs to the series on screen. */
@@ -1578,7 +1590,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (!p) return `Starting… ${secs} s`;
     return `<b>${escapeHtml(p.stage)}</b>${p.tried ? ` · ${p.tried} model${p.tried === 1 ? "" : "s"} tried` : ""}${p.best ? ` · best so far <span class="ts-mono">${escapeHtml(p.best)}</span> (AICc ${Number.isFinite(p.bestAicc) ? p.bestAicc.toFixed(1) : "–"})` : ""}${p.current ? `<br><small>trying <span class="ts-mono">${escapeHtml(p.current)}</span></small>` : ""} · ${secs} s`;
   }
-  function runArima(vote: boolean): void {
+  function runArima(vote: boolean, auto = false): void {
     const s = snap;
     if (!s || "error" in s.models || arima?.running) return;
     const M = s.models as ModelRun, a = s.A;
@@ -1586,18 +1598,83 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     for (let t = 0; t < y.length; t++) if (a.made[t]) y[t] = NaN;
     const job: ArimaJob = {
       y, T: M.T, H: M.H, m: M.m, seasonMode: M.season.mode, periods: M.season.periods, origins: M.origins, rolling: M.cv === "rolling", trainLen: M.trainLen, lockbox: M.lockbox,
-      lambda: M.transform ? M.transform.lambda : null, nonNeg: a.nonNeg, exhaustive: ref<HTMLInputElement>("arimaAll").checked, vote,
+      lambda: M.transform ? M.transform.lambda : null, nonNeg: a.nonNeg, exhaustive: auto ? false : ref<HTMLInputElement>("arimaAll").checked, vote,
     };
     const run = startArima(job, (p) => { if (arima) { arima.progress = p; ref("arimaProg").innerHTML = arimaProgressText(); } });
-    arima = { key: arimaKey(s), result: null, running: run, progress: null, started: performance.now(), vote };
+    arima = { key: arimaKey(s), result: null, running: run, progress: null, started: performance.now(), vote, auto };
     ref("arimaProg").innerHTML = arimaProgressText();
     invalidate("ui", "panel");
     void run.done.then((result) => {
-      if (arima && arima.running === run) { arima.result = result; arima.running = null; invalidate("ui", "panel"); }
+      if (arima && arima.running === run) {
+        arima.result = result;
+        arima.running = null;
+        if (!vote && auto) {
+          arimaCache.set(arima.key, result);
+          if (arimaCache.size > ARIMA_CACHE_LIMIT) arimaCache.delete(arimaCache.keys().next().value as string);
+        }
+        if (auto) switchToArima();
+        invalidate("ui", "stat", "nav", "ov", "panel");
+      }
     });
     // The elapsed seconds keep ticking while the search is quiet.
     const tick = window.setInterval(() => { if (!arima?.running) window.clearInterval(tick); else ref("arimaProg").innerHTML = arimaProgressText(); }, 1000);
   }
+  /**
+   * AutoARIMA is a core method, so it starts by itself whenever the series changes (load, grain, measure, split, gaps, date range):
+   * the fast models show straight away and it joins the ranking when it finishes. A search for a series that is no longer on
+   * screen is stopped, so only the latest series is ever being searched; a finished one is kept per series and settings.
+   */
+  function ensureArima(): void {
+    const s = snap;
+    if (!s || "error" in s.models) return;
+    const key = arimaKey(s);
+    if (arima && arima.key === key) return;
+    window.clearTimeout(arimaTimer);
+    if (arima?.running) { arima.running.cancel(); arima = null; }
+    arimaNote = "";
+    const cached = arimaCache.get(key);
+    if (cached) { arima = { key, result: cached, running: null, progress: null, started: 0, vote: false, auto: true }; return; }
+    if (arimaStopped === key) return;
+    // Dragging a slider changes the series many times a second; wait for it to settle before searching.
+    arimaTimer = window.setTimeout(() => { if (snap && arimaKey(snap) === key && !arima?.running) runArima(false, true); }, 400);
+  }
+  /** The lowest-error core model's ratio against repeating the last cycle, and its name. */
+  function bestCoreRatio(s: TsSnapshot, M: ModelRun): { ratio: number; name: string } {
+    const low = lowestError(s, M);
+    return { ratio: low.ratio, name: low.name };
+  }
+  /** When AutoARIMA finishes with the lowest error, the forecast changes over to it and says so, so the chart never jumps unexplained. */
+  function switchToArima(): void {
+    const s = snap, M = models();
+    if (!s || !M || !s.futures || ui.model !== "auto" || arimaShown) return;
+    const row = arimaRow(s, M);
+    if (!row) return;
+    const best = bestCoreRatio(s, M);
+    if (!(row.ratio < best.ratio)) return;
+    const less = Math.round((1 - row.ratio / best.ratio) * 100);
+    arimaNote = `AutoARIMA finished and now has the lowest error${less >= 1 ? `, ${less}% below ${best.name}` : ""}.`;
+    arimaShown = true;
+    INS = makeInsights();
+  }
+  /** What the page shows while AutoARIMA is searching, or when it could not fit. */
+  function arimaStatus(): { kind: "running" | "failed" | "note"; text: string } | null {
+    const s = snap;
+    if (!s) return null;
+    if (arima && arima.auto && arima.key === arimaKey(s)) {
+      if (arima.running) {
+        const p = arima.progress;
+        return { kind: "running", text: `AutoARIMA: searching models…${p && p.tried ? ` ${p.tried} tried` : ""}` };
+      }
+      if (arima.result && !arima.result.ok) return { kind: "failed", text: `AutoARIMA could not be fitted: ${arima.result.reason}` };
+    }
+    return arimaNote ? { kind: "note", text: arimaNote } : null;
+  }
+  const arimaChip = (): string => {
+    const st = arimaStatus();
+    if (!st) return "";
+    return `<span class="ts-arima-chip ${st.kind}" role="status" title="${escapeHtml(st.text)}">${st.kind === "running" ? '<span class="ts-donut ts-donut-sm" aria-hidden="true"></span>' : ""}${escapeHtml(st.text)}</span>`;
+  };
+  const arimaWho = (): string => (arima?.auto === false ? "run by you" : "runs automatically");
   /** What one coefficient says about this series, in its own numbers. */
   function arimaReading(c: ArimaCoef, r: ArimaOk, s: TsSnapshot): string {
     const sp = r.spec, g = s.A.g, unit = measureWord(s), m = sp.m, v = c.value;
@@ -1695,6 +1772,13 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       <p class="ts-note">Method: Hyndman and Khandakar 2008 [auto.arima]; the likelihood is exact, by Kalman filter; ranges from the model's own formulas. Not part of Auto: it is here to be read and compared, and joins the board once run.</p>
       ${r.averaged.length > 1 ? `<p class="ts-note"><b>The forecast averages ${r.averaged.length} models.</b> The search tried many orders and several were nearly as good as the winner, so the forecast below is their average, weighted by how well each fitted (Akaike weights: ${r.averaged.slice(0, 4).map((a) => `${escapeHtml(a.label)} ${Math.round(a.weight * 100)}%`).join(", ")}${r.averaged.length > 4 ? ", …" : ""}). On 250 series the archive was not tuned on, this beat the single lowest-AICc model by about 2%. The ranges include the models' disagreement. The parameters above are the top model's.</p>` : ""}
       <div class="ts-boardbar"><button type="button" class="ts-ghost" data-ref="arimaCsv">Download parameters and forecast (CSV)</button></div>`;
+  }
+  /** The ranked table's AutoARIMA row while it searches, or why it has no result. */
+  function arimaStatusRow(span: number): string {
+    const st = arimaStatus();
+    if (!st || st.kind === "note") return "";
+    const lead = st.kind === "running" ? '<span class="ts-donut ts-donut-sm" aria-hidden="true"></span> ' : "";
+    return `<tr class="ts-arima-pending" data-arima-status="${st.kind}"><td><span class="ts-mname">AutoARIMA</span><button type="button" class="ts-info" data-info="autoarima" aria-label="How AutoARIMA works" title="How AutoARIMA works">ⓘ</button><span class="ts-auto">Automatic</span></td><td colspan="${span}" role="status">${lead}${escapeHtml(st.text.replace(/^AutoARIMA:? ?/, ""))}</td></tr>`;
   }
   function renderArima(): void {
     const s = snap as TsSnapshot, M = models(), btn = ref("arimaBtn"), vbtn = ref("arimaVoteBtn"), run = ref("arimaRun"), out = ref("arimaOut");
@@ -1830,7 +1914,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const ar = arimaRow(s, M);
     if (ar) {
       const lock = arimaLive()?.backtest?.lockMase ?? null, sn = M.models.sn.lock?.mase ?? NaN;
-      list.push({ id: "arima", key: null, name: ar.label, plain: ar.dv ? "AutoARIMA with the differencing chosen by a forecast vote, run by you" : "The textbook's automatic ARIMA search, run by you", ratio: ar.ratio, held: lock !== null && sn > 0 ? lock / sn : null, simple: false, arima: true, tag: ar.dv ? "DV-ARIMA" : "AutoARIMA", verdict: ar.verdict });
+      list.push({ id: "arima", key: null, name: ar.label, plain: ar.dv ? `AutoARIMA with the differencing chosen by a forecast vote, ${arimaWho()}` : `The textbook's automatic ARIMA search, ${arimaWho()}`, ratio: ar.ratio, held: lock !== null && sn > 0 ? lock / sn : null, simple: false, arima: true, tag: ar.dv ? "DV-ARIMA" : "AutoARIMA", verdict: ar.verdict });
     }
     // Lowest error first; on a tie the simpler method leads.
     return list.sort((p, q) => p.ratio - q.ratio || Number(q.simple) - Number(p.simple));
@@ -1852,12 +1936,15 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       : `<article class="ts-ans gain ${gain >= 0.1 ? "good" : "small"}"><div class="ts-ans-kick">How much better?</div><div class="ts-ans-name">${Math.round(gain * 100)}% less error</div>
           <p><b>${escapeHtml(best.name)}</b> against <b>${escapeHtml(simple.name)}</b>, in the backtests (${M.origins.length} folds).${heldGain === null ? "" : heldGain > 0 ? ` On the held-back data it also wins, by ${Math.round(heldGain * 100)}%.` : ` <span class="ts-warn">On the held-back data it does not win: treat the gain with care.</span>`}${gain < 0.05 ? " A small gain: the simple model is nearly as good." : ""}</p></article>`;
     box.innerHTML = `<div class="ts-answer-grid">
-      ${card("simple", "A simple model you can use", simple.name, simple.plain ? escapeHtml(simple.plain) + "." : "", `<p class="ts-ans-sub">${errLine(simple)}</p>`, simple)}
+      ${card("simple", "Best simple model", simple.name, simple.plain ? escapeHtml(simple.plain) + "." : "", `<p class="ts-ans-sub">${errLine(simple)}</p>`, simple)}
       ${same
-        ? `<article class="ts-ans best"><div class="ts-ans-kick">The best-performing model</div><div class="ts-ans-name">The simple one</div><p>Every other model${list.some((c) => c.arima) ? ", your ARIMA run included," : ""} had more error than <b>${escapeHtml(simple.name)}</b> in the backtests.${list.some((c) => c.arima) ? "" : " Run AutoARIMA or DV-ARIMA under Compute-intense models to give it a harder opponent."}</p></article>`
-        : card("best", "The best-performing model", best.name, best.plain ? escapeHtml(best.plain) + "." : "", `<p class="ts-ans-sub">${errLine(best)}</p>`, best)}
+        ? `<article class="ts-ans best"><div class="ts-ans-kick">Lowest error</div><div class="ts-ans-name">Also the best simple model</div><p>Every other model${list.some((c) => c.arima) ? ", your ARIMA run included," : ""} had more error than <b>${escapeHtml(simple.name)}</b> in the backtests.${list.some((c) => c.arima) ? "" : " Run AutoARIMA or DV-ARIMA under Compute-intense models to give it a harder opponent."}</p></article>`
+        : card("best", "Lowest error", best.name, best.plain ? escapeHtml(best.plain) + "." : "", `<p class="ts-ans-sub">${errLine(best)}</p>`, best)}
       ${gainCard}
     </div><p class="ts-note ts-answer-note">Errors are compared with repeating the last ${cycle}, which is 1.00×; lower is better. They come from forecasting ${M.origins.length} earlier stretches of your own history the model had not seen.${M.lockbox ? " The held-back data is one more stretch kept aside, never used to rank or pick." : ""}</p>`;
+    const st = arimaStatus();
+    if (st?.kind === "running") box.insertAdjacentHTML("beforeend", `<p class="ts-note ts-answer-note ts-provisional" role="status"><span class="ts-donut ts-donut-sm" aria-hidden="true"></span> Provisional: AutoARIMA is still searching. It joins this ranking when it finishes, and if it has the lowest error the forecast changes over to it with a note.</p>`);
+    else if (st?.kind === "note") box.insertAdjacentHTML("beforeend", `<p class="ts-note ts-answer-note" role="status">${escapeHtml(st.text)}</p>`);
   }
   /** Compare models: every model in one list, lowest error first. */
   function renderCompact(): void {
@@ -1878,7 +1965,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
       return `<span class="ts-dot" style="background:${better ? dot.good : dot.poor}"></span>${c.held.toFixed(2)}× <small>${better ? "beat" : "behind"} repeating the last ${cycleWord(s)}</small>`;
     };
     const rows = list.map((c, i) => {
-      const tags = [c === best && c !== simple ? '<span class="ts-besttag">Best</span>' : "", c === simple ? '<span class="ts-simpletag" title="The simple method with the least error here">Simple</span>' : c.key === yardKey ? '<span class="ts-yardtag" title="The simple method the verdict compares the forecast with">Yardstick</span>' : "", c.tag ? `<span class="ts-autotag" title="${c.arima ? "Run by you" : "What the chart shows by default: a steady all-rounder unless another model clearly wins"}">${c.tag}</span>` : "", c.arima ? '<button type="button" class="ts-link" data-arima-params="1" title="The fitted terms, their meaning and the models tried">Parameters</button>' : ""].join("");
+      const tags = [c === best && c !== simple ? '<span class="ts-besttag" title="The model with the least backtest error of all, AutoARIMA included">Lowest error</span>' : "", c === simple ? '<span class="ts-simpletag" title="The simple method with the least backtest error here">Best simple</span>' : c.key === yardKey ? '<span class="ts-yardtag" title="The simple method the verdict compares the forecast with">Yardstick</span>' : "", c.tag ? `<span class="ts-autotag" title="${c.arima ? (arimaWho() === "run by you" ? "Run by you" : "Runs automatically") : "What the chart shows by default: a steady all-rounder unless another model clearly wins"}">${c.tag}</span>` : "", c.arima ? '<button type="button" class="ts-link" data-arima-params="1" title="The fitted terms, their meaning and the models tried">Parameters</button>' : ""].join("");
       const info = c.arima ? "autoarima" : c.key;
       const selected = c.arima ? arimaShown : !arimaShown && c.key === sel;
       return `<tr ${c.arima ? 'data-arima="1"' : `data-model="${c.key}"`} aria-selected="${selected}">
@@ -1918,9 +2005,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
           <td>${chk}</td></tr>`;
       }).join("") + (() => {
         const ar = arimaRow(s, M);
-        if (!ar) return "";
+        if (!ar) return arimaStatusRow(M.lockbox ? 6 : 5);
         const gd = grade(ar.ratio, "ets");
-        return `<tr data-arima="1" title="Click for the parameters"><td><span class="ts-mname ts-mono">${escapeHtml(ar.label)}</span><button type="button" class="ts-info" data-info="autoarima" aria-label="How AutoARIMA works" title="How AutoARIMA works">ⓘ</button><span class="ts-auto">Run by you</span><span class="ts-mmeth">${ar.dv ? "DV-ARIMA, AutoARIMA with the differencing chosen by a forecast vote" : "AutoARIMA, the textbook's automatic search"}; scored on these folds with its order held</span></td>
+        return `<tr data-arima="1" title="Click for the parameters"><td><span class="ts-mname ts-mono">${escapeHtml(ar.label)}</span><button type="button" class="ts-info" data-info="autoarima" aria-label="How AutoARIMA works" title="How AutoARIMA works">ⓘ</button><span class="ts-auto">${arimaWho() === "run by you" ? "Run by you" : "Automatic"}</span><span class="ts-mmeth">${ar.dv ? "DV-ARIMA, AutoARIMA with the differencing chosen by a forecast vote" : "AutoARIMA, the textbook's automatic search"}; scored on these folds with its order held</span></td>
           <td>${mk === "mase" ? ar.mase.toFixed(2) : "<small>MASE only</small>"}</td><td>${ar.ratio.toFixed(2)}×</td><td><span class="ts-pill ${gd.cls}">${gd.text}</span></td><td>${ar.won} of ${ar.of}</td>${M.lockbox ? `<td>${ar.lockMase !== null ? `${ar.lockMase.toFixed(2)}${ar.rank !== null ? ` <small>#${ar.rank}</small>` : ""}` : "–"}</td>` : ""}<td>–</td></tr>`;
       })() + "</tbody>";
     card.innerHTML = modelRows(s, sel, mk).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
@@ -2003,7 +2090,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     fetchSeries();
   }
   function uiChange(patch: Partial<UiState>): void {
-    if ("model" in patch) arimaShown = false;
+    if ("model" in patch) { arimaShown = false; arimaNote = ""; }
     Object.assign(ui, patch);
     if (snap) INS = makeInsights();
     invalidate("ui", "stat", "nav", "ov");
@@ -2377,9 +2464,9 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   });
   applyFolds();
   on("deepBtn", "click", () => runDeep());
-  on("arimaBtn", "click", () => runArima(false));
+  on("arimaBtn", "click", () => { arimaStopped = ""; runArima(false); });
   on("arimaVoteBtn", "click", () => runArima(true));
-  on("arimaCancel", "click", () => { arima?.running?.cancel(); arima = null; invalidate("ui", "panel"); });
+  on("arimaCancel", "click", () => { if (arima) arimaStopped = arima.key; arima?.running?.cancel(); arima = null; invalidate("ui", "panel"); });
   on("arimaAll", "change", () => invalidate("ui", "panel"));
   ref("arimaOut").addEventListener("click", (e) => { if ((e.target as Element).closest("[data-ref=arimaCsv]")) downloadArima(); });
   on("flexCurve", "click", (e) => { const b = (e.target as Element).closest<HTMLElement>("[data-flexpick]"); if (b) change({ flex: Number(b.dataset.flexpick) }, { fade: false }); });

@@ -13982,6 +13982,11 @@ button.qp-tile:hover {
 .ts-arima-run { display: flex; align-items: center; gap: 14px; margin: 10px 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-2); }
 .ts-arima-prog { flex: 1; min-width: 0; font-size: 13px; line-height: 1.5; }
 .ts-donut { flex: none; width: 30px; height: 30px; border-radius: 50%; border: 4px solid color-mix(in srgb, var(--ts-forecast) 22%, transparent); border-top-color: var(--ts-forecast); animation: ts-spin 0.9s linear infinite; }
+.ts-donut-sm { width: 14px; height: 14px; border-width: 2px; display: inline-block; vertical-align: -2px; }
+.ts-arima-chip { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--muted); }
+.ts-arima-chip.failed { color: var(--qa-warn-text); }
+.ts-provisional { display: flex; align-items: center; gap: 8px; }
+.ts-arima-pending td { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .ts-donut { animation: ts-pulse 1.4s ease-in-out infinite; } }
 .ts-arima-out { margin: 10px 0 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
 .ts-arima-out h4 { margin: 0 0 6px; font-family: var(--mono); font-size: 16px; }

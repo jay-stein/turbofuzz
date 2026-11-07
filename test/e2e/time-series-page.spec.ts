@@ -298,7 +298,7 @@ test("the chart names the forecast model and how it did; Trend flexibility expla
   await expect(detail).toContainText(/Lockbox check: picked on folds 1–\d+; on fold \d+, which the choice never saw, it ranked #\d of 8/);
   // The three answers on top, then every model in one list, lowest error first, the pick marked Auto.
   await expect(page.locator("[data-ref=answer] .ts-ans")).toHaveCount(3);
-  await expect(page.locator("[data-ref=answer]")).toContainText(/A simple model you can use/);
+  await expect(page.locator("[data-ref=answer]")).toContainText(/Best simple model/);
   await expect(page.locator("[data-ref=answer]")).toContainText(/How much better\?/);
   const compact = page.locator("[data-ref=boardCompact]");
   await expect(compact.locator("thead th")).toHaveCount(4);

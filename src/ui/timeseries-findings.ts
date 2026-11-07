@@ -62,6 +62,28 @@ function monthlyParts(s: TsSnapshot, slope: number, mean: number): [number, bool
   const perMonth = slope * (s.A.g.perYear / 12);
   return s.A.allPositive && mean > 0 ? [perMonth / mean, true] : [perMonth, false];
 }
+/** Months the one trend rate looks back over, when the series is that long. */
+export const TREND_WINDOW_MONTHS = 12;
+/**
+ * The one trend rate the page states, wherever it states it: how fast the decomposed trend moved over the last year of the
+ * series (or all of it when shorter), as a compound rate when every value is positive and a plain change otherwise. The window
+ * is named beside the number so two places can never quote different formulas.
+ */
+export function trendRate(s: TsSnapshot, trend: ArrayLike<number>): { text: string; window: string; months: number } | null {
+  const A = s.A, N = A.modelN;
+  if (N < 3) return null;
+  const spanMonths = (A.t[N - 1] - A.t[0]) / (30.44 * DAY);
+  const back = Math.min(TREND_WINDOW_MONTHS, spanMonths);
+  let j = N - 1;
+  while (j > 0 && (A.t[N - 1] - A.t[j - 1]) / (30.44 * DAY) <= back + 1e-9) j--;
+  const months = (A.t[N - 1] - A.t[j]) / (30.44 * DAY);
+  if (!(months >= 1) || !Number.isFinite(trend[j]) || !Number.isFinite(trend[N - 1])) return null;
+  const asPct = A.allPositive && trend[j] > 0 && trend[N - 1] > 0;
+  const perMonth = asPct ? Math.pow(trend[N - 1] / trend[j], 1 / months) - 1 : (trend[N - 1] - trend[j]) / months;
+  const whole = Math.abs(months - spanMonths) < 0.5;
+  const window = whole ? "the whole series" : `the last ${Math.round(months)} months`;
+  return { text: rateText(perMonth, asPct), window, months };
+}
 export function monthlyRate(s: TsSnapshot, slope: number, mean: number, k?: number): string {
   const [r, asPct] = monthlyParts(s, slope, mean);
   return rateText(r, asPct, k);
@@ -200,11 +222,11 @@ export function buildInsights(s: TsSnapshot, view: TsView): TsFinding[] {
     let first = 0, lastv = 0;
     for (let i = 0; i < ends; i++) { first += d.trend[i]; lastv += d.trend[N - 1 - i]; }
     first /= ends; lastv /= ends;
-    const mid = (ends - 1) >> 1;
-    const months = (A.t[N - 1 - mid] - A.t[mid]) / (30.44 * DAY);
+    const tr = trendRate(s, d.trend);
+    const rate = tr ? ` The trend is moving <b>${tr.text}</b> over ${tr.window}.` : "";
     const html = A.allPositive && first > 0
-      ? `${measureLead(s)} ${lastv >= first ? "rose" : "fell"} <b>${Math.abs((lastv / first - 1) * 100).toFixed(0)}%</b> over the period, about <b>${rateText(Math.pow(lastv / first, 1 / Math.max(1, months)) - 1, true)}</b>.`
-      : `${measureLead(s)}'s trend went from <b>${compact(first)}</b> to <b>${compact(lastv)}</b> over the period, about <b>${rateText((lastv - first) / Math.max(1, months), false)}</b>.`;
+      ? `${measureLead(s)} ${lastv >= first ? "rose" : "fell"} <b>${Math.abs((lastv / first - 1) * 100).toFixed(0)}%</b> over the period.${rate}`
+      : `${measureLead(s)}'s trend went from <b>${compact(first)}</b> to <b>${compact(lastv)}</b> over the period.${rate}`;
     out.push({ kind: "Trend", tone: "accent", meter: d.ft, meterLabel: "trend strength", html, acts: [{ label: "Show all", act: { kind: "fullView" } }] });
     const cp = s.dec.cp;
     if (cp && cp.gain > 0.5) {

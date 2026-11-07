@@ -128,3 +128,36 @@ test("calendar columns are not offered as the series: weekday, month, hour and f
   // Too few rows to judge: left on offer rather than dropped on a guess.
   assert.equal(changesSlowly(weekday, idx.slice(0, 30), 7), false);
 });
+
+test("a text column that names the series beats a numeric code with more values", async () => {
+  const { suggestSeries, seriesShape: shapeOf } = await import("../src/data/timeseries/shape.js");
+  // 200 days, 4 stores every day; `units` is a 1-5 quantity per row, so it also has values at every moment.
+  const times: number[] = [], store: number[] = [], units: number[] = [];
+  for (let d = 0; d < 200; d++) for (let k = 0; k < 4; k++) { times.push(Date.UTC(2025, 0, 1) + d * DAY); store.push(k); units.push((d * 7 + k * 3) % 5); }
+  const t = Float64Array.from(times);
+  const idx = times.map((_, i) => i);
+  const entities = [
+    { column: 2, name: "units", codes: Int32Array.from(units), labels: ["1", "2", "3", "4", "5"], numeric: true },
+    { column: 1, name: "store", codes: Int32Array.from(store), labels: ["Perth", "Fremantle", "Midland", "Joondalup"], numeric: false },
+  ];
+  const out = suggestSeries(t, idx, entities);
+  assert.equal(out[0]!.name, "store", "text first, even though units has more values");
+  assert.equal(out[0]!.sound, true);
+  assert.equal(out.find((o) => o.name === "units")!.numeric, true);
+
+  // The column that explains the repeats is chosen the same way.
+  const shape = shapeOf(t, null, [
+    { column: 2, name: "units", codes: Int32Array.from(units), numeric: true },
+    { column: 1, name: "store", codes: Int32Array.from(store) },
+  ]);
+  assert.equal(shape.keys[0]?.name, "store");
+});
+
+test("a value that exists for only a short stretch does not read as a parallel series", async () => {
+  const { suggestSeries } = await import("../src/data/timeseries/shape.js");
+  // `era` changes once, halfway: each value is present at 100 moments, but only over half the dates.
+  const times: number[] = [], era: number[] = [];
+  for (let d = 0; d < 200; d++) { times.push(Date.UTC(2025, 0, 1) + d * DAY); era.push(d < 100 ? 0 : 1); }
+  const out = suggestSeries(Float64Array.from(times), times.map((_, i) => i), [{ column: 1, name: "era", codes: Int32Array.from(era), labels: ["old", "new"] }]);
+  assert.equal(out.length === 0 || out[0]!.sound === false, true);
+});

@@ -198,13 +198,19 @@ export function trustVerdict(v: VerdictInput): Verdict {
     best = { q: q2, a: "Yes", cls: "good", text: `The best of the ${v.models} models tried, on data it never saw.` };
   } else if (v.leader) {
     const gap = Math.round(v.leader.gapPct);
-    if (gap < 5) best = { q: q2, a: "About level", cls: "good", text: `Ranked ${place} on data it never saw. ${v.leader.name} did about the same (${gap}% less error), so the choice between them is close.` };
-    else if (v.lockRank * 2 <= v.models) best = { q: q2, a: "Close", cls: "okay", text: `Ranked ${place} on data it never saw. ${v.leader.name} had ${gap}% less error, so it is worth a look.` };
-    else best = { q: q2, a: "No", cls: "okay", text: `Ranked ${place} on data it never saw. ${v.leader.name} had ${gap}% less error.` };
+    if (gap < 5) best = { q: q2, a: "About level", cls: "good", text: `Ranked ${place} on data it never saw. ${v.leader.name}, the lowest-error model, did about the same (${gap}% less error in the backtests), so the choice between them is close.` };
+    else if (v.lockRank * 2 <= v.models) best = { q: q2, a: "Close", cls: "okay", text: `Ranked ${place} on data it never saw. ${v.leader.name}, the lowest-error model, had ${gap}% less error in the backtests, so it is worth a look.` };
+    else best = { q: q2, a: "No", cls: "okay", text: `Ranked ${place} on data it never saw. ${v.leader.name}, the lowest-error model, had ${gap}% less error in the backtests.` };
   } else {
     best = { q: q2, a: v.lockRank * 2 <= v.models ? "Close" : "No", cls: "okay", text: `Ranked ${place} on data it never saw.` };
   }
 
-  const why = edge >= 1 ? `no better than ${simple}` : `${pct}% less error than ${simple}`;
+  // The badge is the weakest of the checks on the forecast and its range: a forecast whose range has not been tested, or has
+  // held less often than it aims to, is not called reliable however well the line itself did.
+  let capped = "";
+  if (level === "holds" && band.a === "Not yet tested") capped = "the shaded range is not yet tested";
+  else if (level === "holds" && band.a === "Treat it as a minimum") capped = "the shaded range has held less often than it aims to";
+  if (capped) level = "middling";
+  const why = (edge >= 1 ? `no better than ${simple}` : `${pct}% less error than ${simple}`) + (capped ? `, but ${capped}` : "");
   return wrap(level, level === "holds" ? "good" : "okay", [beats, best, band], why);
 }

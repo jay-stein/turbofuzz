@@ -27,6 +27,20 @@ async function open(page: Page): Promise<void> {
   await page.locator(".ts-fold[data-fold=compute]").click();
 }
 
+test("AutoARIMA starts by itself, shows it is searching, and joins the ranking when it finishes", async ({ page }) => {
+  test.setTimeout(120_000);
+  await open(page);
+  // Nothing was clicked: the search is already under way, said in the verdict and the forecast badge.
+  const badge = page.locator(".ts-page [data-ref=heroBadge]");
+  const out = page.locator(".ts-page [data-ref=arimaOut]");
+  await expect(out).toContainText("ARIMA(2,1,1)(0,1,0)[12]", { timeout: 90_000 });
+  // Once finished it is in the ranked list like any other model, and the spinner is gone.
+  await expect(page.locator(".ts-page tr[data-arima='1']").first()).toBeVisible();
+  await expect(page.locator(".ts-page .ts-arima-pending")).toHaveCount(0);
+  await expect(page.locator(".ts-page .ts-provisional")).toHaveCount(0);
+  await expect(badge).not.toContainText("searching models");
+});
+
 test("AutoARIMA runs on request and returns the parameters, fit, residual check, backtest and forecast", async ({ page }) => {
   test.setTimeout(120_000);
   await open(page);

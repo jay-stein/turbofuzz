@@ -14,6 +14,8 @@ export interface ShapeCandidate {
   name: string;
   /** Category code per row (aligned with the times); -1 for empty. */
   codes: Int32Array;
+  /** True when every value is a number (a quantity or a numeric code), which names a series less often than text. */
+  numeric?: boolean;
 }
 
 /** A column with its values named, for suggesting which one to pick a single series by. */
@@ -30,6 +32,10 @@ export interface SeriesSuggestion {
   distinct: number;
   /** Share of rows whose value appears at 24 or more moments, so its rows can make a series of their own. */
   coverage: number;
+  /** True when every value is a number: a quantity or code, offered only after the text columns. */
+  numeric: boolean;
+  /** True when each value runs across most of the dates with a similar number of rows, as parallel series do. */
+  sound: boolean;
   /** Largest values first. */
   values: { label: string; rows: number; moments: number }[];
 }
@@ -84,6 +90,14 @@ const MIN_SLOW_ROWS = 60;
  */
 const SLOW_KAPPA = 0.5;
 
+/** Fewest distinct values that read as "several series" rather than a flag; a handful. */
+const HANDFUL = 3;
+/** A value runs across the dates when its first and last moments are at least this share of the whole range apart. */
+const SPREAD_SPAN = 0.5;
+/** Share of rows that must sit in such values, and the smallest value's rows relative to an even split, for the series to read as parallel. */
+const SOUND_SPREAD = 0.8;
+const SOUND_BALANCE = 0.25;
+
 /** Repeated moments checked per column; a long table is sampled evenly. */
 const MAX_RUNS = 5000;
 /** A column explains the repeats when it differs within this share of repeated moments. */
@@ -137,8 +151,9 @@ export function seriesShape(times: Float64Array, keep: Uint8Array | null, candid
       const coverage = checked ? distinctRuns / checked : 0;
       if (coverage >= KEY_COVERAGE) keys.push({ column: cand.column, name: cand.name, distinct: values.size, coverage });
     }
-    // Fewest values first: the column that names the series, not a row id.
-    keys.sort((x, y) => x.distinct - y.distinct || y.coverage - x.coverage);
+    // Text before numeric codes, then fewest values first: the column that names the series, not a row id.
+    const numeric = new Set(candidates.filter((cand) => cand.numeric).map((cand) => cand.column));
+    keys.sort((x, y) => Number(numeric.has(x.column)) - Number(numeric.has(y.column)) || x.distinct - y.distinct || y.coverage - x.coverage);
   }
 
   return {
@@ -194,30 +209,41 @@ export function suggestSeries(times: Float64Array, idx: readonly number[], entit
   const out: SeriesSuggestion[] = [];
   for (const cand of entities) {
     const n = cand.labels.length;
-    const rows = new Uint32Array(n), moments = new Uint32Array(n), last = new Int32Array(n).fill(-1);
+    const rows = new Uint32Array(n), moments = new Uint32Array(n), last = new Int32Array(n).fill(-1), first = new Int32Array(n).fill(-1);
     for (let k = 0; k < idx.length; k++) {
       const code = cand.codes[idx[k]];
       if (code < 0 || code >= n) continue;
       rows[code]++;
+      if (first[code] < 0) first[code] = momentOf[k];
       if (last[code] !== momentOf[k]) { last[code] = momentOf[k]; moments[code]++; }
     }
-    let total = 0, covered = 0, distinct = 0;
+    const span = Math.max(1, id);
+    let total = 0, covered = 0, distinct = 0, spread = 0, least = Infinity;
     for (let c = 0; c < n; c++) {
       if (rows[c] === 0) continue;
       distinct++; total += rows[c];
       if (moments[c] >= MIN_MOMENTS) covered += rows[c];
+      if ((last[c] - first[c]) / span >= SPREAD_SPAN) spread += rows[c];
+      least = Math.min(least, rows[c]);
     }
     if (total === 0 || distinct < 2 || covered / total < 0.5) continue;
+    // Whether the values read as parallel series: each runs across most of the dates, with a similar number of rows.
+    const sound = spread / total >= SOUND_SPREAD && least / (total / distinct) >= SOUND_BALANCE;
     if (changesSlowly(cand.codes, idx, n)) continue;
     const order: number[] = [];
     for (let c = 0; c < n; c++) if (rows[c] > 0) order.push(c);
     order.sort((a, b) => rows[b] - rows[a]);
     out.push({
-      column: cand.column, name: cand.name, distinct, coverage: covered / total,
+      column: cand.column, name: cand.name, distinct, coverage: covered / total, numeric: cand.numeric === true, sound,
       values: order.slice(0, 8).map((c) => ({ label: cand.labels[c], rows: rows[c], moments: moments[c] })),
     });
   }
-  out.sort((a, b) => Number(b.distinct >= 5) - Number(a.distinct >= 5) || a.distinct - b.distinct || b.coverage - a.coverage);
+  out.sort((a, b) =>
+    Number(a.numeric) - Number(b.numeric) ||
+    Number(b.distinct >= HANDFUL) - Number(a.distinct >= HANDFUL) ||
+    Number(b.sound) - Number(a.sound) ||
+    a.distinct - b.distinct ||
+    b.coverage - a.coverage);
   return out.slice(0, 3);
 }
 

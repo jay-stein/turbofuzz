@@ -1989,6 +1989,8 @@ function rawEdges(dataset: Dataset, ids: Uint32Array, column: number): { min: nu
 
 /** Most view groups read as a series (periods times split values). */
 const TS_VIEW_LIMIT = 200_000;
+/** A category value that is a plain number, like the 3 in a column of quantities. */
+const isNumberLabel = (label: string): boolean => label !== "" && Number.isFinite(Number(label));
 function entityCandidates(dataset: Dataset, keep: readonly number[], dateColumn: number): EntityCandidate[] {
   const out: EntityCandidate[] = [];
   dataset.columns.forEach((column, index) => {
@@ -2006,7 +2008,7 @@ function entityCandidates(dataset: Dataset, keep: readonly number[], dateColumn:
       if (code === undefined) { code = labels.length; codeOf.set(value, code); labels.push(value); }
       codes[i] = code;
     });
-    out.push({ column: index, name: column.name, codes, labels });
+    out.push({ column: index, name: column.name, codes, labels, numeric: labels.every(isNumberLabel) });
   });
   return out;
 }
@@ -2026,7 +2028,7 @@ function shapeCandidates(dataset: Dataset, keep: readonly number[], dateColumn: 
       if (code === undefined) { code = codeOf.size; codeOf.set(value, code); }
       codes[i] = code;
     });
-    out.push({ column: index, name: column.name, codes });
+    out.push({ column: index, name: column.name, codes, numeric: [...codeOf.keys()].every(isNumberLabel) });
   });
   return out;
 }
