@@ -159,14 +159,23 @@ test("box regions carry the five-number summary and no filter", () => {
   assert.deepEqual(regions[0].actions, []);
 });
 
-test("correlation cells report r and n and are hover-only", () => {
-  const regions = correlationHitRegions(geom, {
+test("correlation cells report r and n, are hover-only, and cover each pair once", () => {
+  const two = correlationHitRegions(geom, {
     labels: ["price", "qty"],
     values: Float64Array.from([1, 0.42, 0.42, 1]),
     counts: Uint32Array.from([5, 5, 5, 5]),
   });
-  assert.equal(regions.length, 4);
-  assert.deepEqual(regions[1].lines, ["price × qty", "r = 0.42", "n = 5"]);
-  assert.deepEqual(regions[1].actions, []);
-  assert.deepEqual(regions[0].lines, ["price × price", "r = 1.00", "n = 5"]);
+  assert.equal(two.length, 1, "two columns are one pair, not four cells");
+  assert.deepEqual(two[0].lines, ["qty × price", "r = 0.42", "n = 5"]);
+  assert.deepEqual(two[0].actions, []);
+
+  const three = correlationHitRegions(geom, {
+    labels: ["a", "b", "c"],
+    values: Float64Array.from([1, 0.1, 0.2, 0.1, 1, 0.3, 0.2, 0.3, 1]),
+    counts: new Uint32Array(9).fill(7),
+  });
+  // n columns make n(n-1)/2 pairs, laid out as a staircase.
+  assert.deepEqual(three.map((r) => r.lines[0]), ["b × a", "c × a", "c × b"]);
+  assert.deepEqual(three.map((r) => r.lines[1]), ["r = 0.10", "r = 0.20", "r = 0.30"]);
+  assert.ok(three[1].y === three[2].y, "row 2 holds c against a and b");
 });

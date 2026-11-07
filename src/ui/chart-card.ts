@@ -1105,19 +1105,24 @@ export interface CorrelationHitInput {
   counts: ArrayLike<number>;
 }
 
-/** One hoverable cell per correlation pair; hover-only. */
+/**
+ * One hoverable cell per correlation pair; hover-only. A correlation is the same both ways round and a column with itself is
+ * always 1, so only the lower triangle is drawn: n columns make an (n - 1) by (n - 1) staircase, row i holding column i + 1
+ * against each column before it.
+ */
 export function correlationHitRegions(
   geom: PlotGeometry,
   input: CorrelationHitInput,
 ): HitRegion[] {
   const n = input.labels.length;
-  if (n === 0) return [];
-  const sizeX = geom.plotW / n;
-  const sizeY = geom.plotH / n;
+  if (n < 2) return [];
+  const m = n - 1;
+  const sizeX = geom.plotW / m;
+  const sizeY = geom.plotH / m;
   const regions: HitRegion[] = [];
-  for (let row = 0; row < n; row++) {
-    for (let column = 0; column < n; column++) {
-      const index = row * n + column;
+  for (let row = 0; row < m; row++) {
+    for (let column = 0; column <= row; column++) {
+      const index = (row + 1) * n + column;
       const r = input.values[index];
       regions.push({
         x: geom.left + column * sizeX,
@@ -1125,7 +1130,7 @@ export function correlationHitRegions(
         w: sizeX,
         h: sizeY,
         lines: [
-          `${input.labels[row]} × ${input.labels[column]}`,
+          `${input.labels[row + 1]} × ${input.labels[column]}`,
           Number.isFinite(r) ? `r = ${r.toFixed(2)}` : "r = —",
           `n = ${formatCount(input.counts[index] ?? 0)}`,
         ],
@@ -8228,7 +8233,7 @@ export class ChartCard {
           ? Math.max(6, this.config.topN)
           : Math.max(8, this.config.topN);
       const state = this.itemWindow ?? { start: 0, count: Math.min(total, base) };
-      const slot = frame.plotW / Math.max(1, state.count);
+      const slot = frame.plotW / Math.max(1, state.count - 1);
       const steps = Math.round((event.clientX - rect.left - this.plotDrag.x) / Math.max(1, slot));
       if (steps !== 0) {
         this.dragMoved = true;
@@ -14509,9 +14514,11 @@ export class ChartCard {
       { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
       { labels, values, counts },
     );
-    const sizeX = frame.plotW / n;
-    const sizeY = frame.plotH / n;
-    const gridW = frame.plotW;
+    // Lower triangle only: r is the same both ways round and a column with itself is 1, so a full square would show every pair
+    // twice. Row i is column i + 1 against the columns before it.
+    const slots = n - 1;
+    const sizeX = frame.plotW / slots;
+    const sizeY = frame.plotH / slots;
     const gridH = frame.plotH;
     const left = frame.left;
     const top = frame.top;
@@ -14520,23 +14527,24 @@ export class ChartCard {
     let minCount = Infinity;
 
     this.font(ctx, ui, showText ? 10 : 9);
-    for (let row = 0; row < n; row++) {
-      for (let column = 0; column < n; column++) {
-        const index = row * n + column;
+    ctx.strokeStyle = frame.border;
+    ctx.lineWidth = 1;
+    for (let row = 0; row < slots; row++) {
+      for (let column = 0; column <= row; column++) {
+        const index = (row + 1) * n + column;
         const r = values[index];
         const cell = correlationCell(r, zeroColor);
         ctx.fillStyle = cell.bg;
         ctx.fillRect(left + column * sizeX, top + row * sizeY, sizeX, sizeY);
+        ctx.strokeRect(left + column * sizeX + 0.5, top + row * sizeY + 0.5, sizeX - 1, sizeY - 1);
         if (showText) {
           ctx.fillStyle = cell.fg;
           ctx.textAlign = "center";
           const text = Number.isFinite(r) ? r.toFixed(2) : "—";
           ctx.fillText(text, left + (column + 0.5) * sizeX, top + (row + 0.5) * sizeY + 3.5 * ui);
         }
-        if (index !== row * n + row) {
-          const count = counts[index];
-          if (count > 0 && count < minCount) minCount = count;
-        }
+        const count = counts[index];
+        if (count > 0 && count < minCount) minCount = count;
       }
     }
     const corrDomain = resolveColorDomain({ autoMin: -1, autoMax: 1, center: 0 });
@@ -14558,12 +14566,12 @@ export class ChartCard {
       return this.fit(ctx, label, labelWidth);
     };
     ctx.textAlign = "center";
-    labels.forEach((label, column) => {
+    labels.slice(0, slots).forEach((label, column) => {
       ctx.fillStyle = frame.dim;
       ctx.fillText(abbreviate(label), left + (column + 0.5) * sizeX, top + gridH + 14 * ui);
     });
     ctx.textAlign = "right";
-    labels.forEach((label, row) => {
+    labels.slice(1).forEach((label, row) => {
       ctx.fillStyle = frame.dim;
       ctx.fillText(
         this.fit(ctx, label, Math.max(8, left - frame.left - 6 * ui)),
@@ -14572,11 +14580,8 @@ export class ChartCard {
       );
     });
     ctx.textAlign = "left";
-    ctx.strokeStyle = frame.border;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(left + 0.5, top + 0.5, gridW - 1, gridH - 1);
 
-    const notes = [`${n} columns`];
+    const notes = [`${n} columns, each pair once`];
     if (Number.isFinite(minCount)) notes.push(`${minCount.toLocaleString()} min pairwise observations`);
     if (this.statsMs > 0) notes.push(`${Math.round(this.statsMs)} ms`);
     this.noteEl.textContent = notes.join(" · ");
