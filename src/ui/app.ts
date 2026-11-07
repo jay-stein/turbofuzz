@@ -334,6 +334,30 @@ function extensionOf(name: string): string {
   return dot === -1 ? "" : lower.slice(dot);
 }
 
+/** Icons for the toolbar buttons that show only the icon until the pointer or the keyboard reaches them, then spell out their name. */
+const BUTTON_ICONS = {
+  convert: '<path d="M7 7h11l-3-3"/><path d="M17 17H6l3 3"/>',
+  importSettings: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+  recipe: '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>',
+  workspace: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  export: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  theme: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/>',
+};
+
+/** Turns a toolbar button into an icon that shows its name (still its accessible name) when hovered or focused. */
+function expandButton(button: HTMLElement, icon: keyof typeof BUTTON_ICONS, label: string): void {
+  button.classList.add("xbtn");
+  button.replaceChildren(svgIcon(BUTTON_ICONS[icon], "xbtn-icon"), el("span", { class: "xbtn-label" }, [label]));
+}
+function setButtonLabel(button: HTMLElement, label: string): void {
+  const span = button.querySelector(".xbtn-label");
+  if (span === null) button.textContent = label;
+  else span.textContent = label;
+}
+
 function uploadIcon(): SVGElement {
   return svgIcon(
     '<path d="M12 15V4"/><path d="m7 9 5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
@@ -851,23 +875,12 @@ export class App {
     this.metaEl = el("div", { class: "meta" });
     topbar.append(this.metaEl);
 
-    const helpButton = el(
-      "button",
-      { class: "ghost small", type: "button", title: "Open the user guide" },
-      ["Help"],
-    );
-    helpButton.addEventListener("click", () => openHelpDrawer());
-    const settingsButton = el(
-      "button",
-      { class: "ghost small topbar-wide settings-button", type: "button", title: "Settings: date order, first day of the week and public holidays, the conventions the app does not assume", "aria-label": "Settings" },
-      [
-        svgIcon(
-          '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
-          "settings-icon",
-        ),
-      ],
-    );
-    settingsButton.addEventListener("click", () => openSettingsPanel({ onChange: (key) => this.onSettingChanged(key) }));
+    // Settings and Help sit in the toolbar row under the top bar once a table is open; before that they stay here, where a
+    // setting such as the date order can still be chosen ahead of loading a file.
+    const helpButton = this.makeHelpButton();
+    const settingsButton = this.makeSettingsButton();
+    helpButton.classList.add("topbar-pre");
+    settingsButton.classList.add("topbar-pre");
 
     this.themeButton = el(
       "button",
@@ -876,12 +889,13 @@ export class App {
         type: "button",
         title: "Cycle Auto → Light → Dark. Auto follows your operating system.",
       },
-      [`Theme: ${themeLabel(this.themePreference)}`],
+      [],
     ) as HTMLButtonElement;
+    expandButton(this.themeButton, "theme", `Theme: ${themeLabel(this.themePreference)}`);
     this.themeButton.addEventListener("click", () => {
       this.themePreference = nextThemePreference(this.themePreference);
       applyThemePreference(this.themePreference);
-      this.themeButton.textContent = `Theme: ${themeLabel(this.themePreference)}`;
+      setButtonLabel(this.themeButton, `Theme: ${themeLabel(this.themePreference)}`);
     });
     if (typeof window.matchMedia === "function") {
       window
@@ -912,8 +926,9 @@ export class App {
     ) as HTMLButtonElement;
     paletteButton.addEventListener("click", () => this.openPalette());
     helpButton.classList.add("topbar-wide");
+    settingsButton.classList.add("topbar-wide");
     this.themeButton.classList.add("topbar-wide");
-    topbar.append(paletteButton, el("span", { class: "grow" }), this.scoreTile, this.themeButton, settingsButton, helpButton);
+    topbar.append(paletteButton, el("span", { class: "grow" }), this.scoreTile, settingsButton, helpButton, this.themeButton);
 
     this.newButton = el("button", { class: "ghost small topbar-wide", type: "button" }, ["New data"]);
     this.newButton.title = "Load a CSV, Excel, JSON or Parquet file";
@@ -926,8 +941,8 @@ export class App {
     overflowButton.addEventListener("click", () =>
       openMenu(overflowButton, [
         { label: this.themeButton.textContent ?? "Theme", action: () => this.themeButton.click() },
-        { label: "Settings", action: () => settingsButton.click() },
-        { label: "Help", action: () => helpButton.click() },
+        { label: "Settings", action: () => this.openSettings() },
+        { label: "Help", action: () => openHelpDrawer() },
         { label: this.newButton.textContent ?? "New data", action: () => this.newButton.click() },
       ]),
     );
@@ -941,6 +956,28 @@ export class App {
     // A browser OOM kills the worker with its dataset: restart cleanly and
     // tell the user what happened instead of leaving the app stuck.
     this.client.onCrash(() => this.handleWorkerCrash());
+  }
+
+  private openSettings(): void {
+    openSettingsPanel({ onChange: (key) => this.onSettingChanged(key) });
+  }
+
+  private makeSettingsButton(): HTMLButtonElement {
+    const button = el(
+      "button",
+      { class: "ghost small settings-button", type: "button", title: "Settings: date order, first day of the week, public holidays and number format, the conventions the app does not assume" },
+      [],
+    ) as HTMLButtonElement;
+    expandButton(button, "settings", "Settings");
+    button.addEventListener("click", () => this.openSettings());
+    return button;
+  }
+
+  private makeHelpButton(): HTMLButtonElement {
+    const button = el("button", { class: "ghost small", type: "button", title: "Open the user guide" }, []) as HTMLButtonElement;
+    expandButton(button, "help", "Help");
+    button.addEventListener("click", () => openHelpDrawer());
+    return button;
   }
 
   private buildPasteView(): HTMLElement {
@@ -1134,14 +1171,16 @@ export class App {
     this.stepsButton = el(
       "button",
       { class: "ghost small nav-action", type: "button", title: "Review, undo or export the applied changes" },
-      ["Recipe"],
+      [],
     ) as HTMLButtonElement;
+    expandButton(this.stepsButton, "recipe", "Recipe");
     this.stepsButton.addEventListener("click", () => this.openSteps());
     this.undoButton = el(
       "button",
       { class: "ghost small nav-action", type: "button", title: "Nothing to undo yet" },
-      ["Undo"],
+      [],
     ) as HTMLButtonElement;
+    expandButton(this.undoButton, "undo", "Undo");
     this.undoButton.disabled = true;
     this.undoButton.addEventListener("click", () => this.undoLastStep());
 
@@ -1152,8 +1191,9 @@ export class App {
         type: "button",
         title: "Choose a file name and format, then export",
       },
-      ["Export…"],
+      [],
     ) as HTMLButtonElement;
+    expandButton(this.exportButton, "export", "Export…");
     this.exportButton.addEventListener("click", () => this.openExportDialog());
 
     // Lives in the top bar so it is reachable on every page, including
@@ -1166,8 +1206,9 @@ export class App {
         title: "Change how columns are read: integer, number, date, text, identifier…",
         "aria-label": "Convert column types",
       },
-      ["Convert types"],
+      [],
     ) as HTMLButtonElement;
+    expandButton(this.convertTypesButton, "convert", "Convert types");
     this.convertTypesButton.addEventListener("click", () => this.openBatchTypes());
 
     this.headerRowButton = el(
@@ -1178,16 +1219,18 @@ export class App {
         title: "Override where the table starts and ends: header row, rows to skip, footnotes to leave out",
         "aria-label": "Import settings",
       },
-      ["Import settings…"],
+      [],
     ) as HTMLButtonElement;
+    expandButton(this.headerRowButton, "importSettings", "Import settings…");
     this.headerRowButton.disabled = true;
     this.headerRowButton.addEventListener("click", () => void this.openHeaderRowOverride());
 
     const workspaceButton = el(
       "button",
       { class: "ghost small nav-action", type: "button", title: "Save everything on this page in one file, or open one you saved" },
-      ["Workspace ▾"],
+      [],
     ) as HTMLButtonElement;
+    expandButton(workspaceButton, "workspace", "Workspace ▾");
     workspaceButton.addEventListener("click", () =>
       openMenu(workspaceButton, [
         { label: "Save workspace…", title: "Every step, view, chart and filter in one file that rebuilds this page beside the same data", action: () => void this.saveWorkspace() },
@@ -1223,8 +1266,13 @@ export class App {
         { label: "Export…", title: this.exportButton.title, disabled: this.exportButton.disabled, action: () => this.exportButton.click() },
         { label: "Save workspace…", title: "Save every step, view, chart and filter in one file that rebuilds this page beside the same data", action: () => void this.saveWorkspace() },
         { label: "Open workspace…", title: "Open a saved workspace file: its steps, views and charts are replayed on this data", action: () => this.pickWorkspaceFile() },
+        { label: "Settings", action: () => this.openSettings() },
+        { label: "Help", action: () => openHelpDrawer() },
       ]),
     );
+    const navSettings = this.makeSettingsButton();
+    const navHelp = this.makeHelpButton();
+    for (const button of [navSettings, navHelp]) button.classList.add("nav-action");
     const navRow = el("div", { class: "nav-row" }, [
       this.modeSwitch.element,
       tabHost,
@@ -1236,6 +1284,8 @@ export class App {
         this.stepsButton,
         workspaceButton,
         this.exportButton,
+        navSettings,
+        navHelp,
         actionsMenu,
       ]),
     ]);
@@ -4420,7 +4470,7 @@ export class App {
       case "theme":
         this.themePreference = command.preference;
         applyThemePreference(command.preference);
-        this.themeButton.textContent = `Theme: ${command.preference === "auto" ? "Auto" : command.preference === "light" ? "Light" : "Dark"}`;
+        setButtonLabel(this.themeButton, `Theme: ${command.preference === "auto" ? "Auto" : command.preference === "light" ? "Light" : "Dark"}`);
         break;
       case "openClean":
         this.openClean(command.column, command.tab ?? "values");
@@ -7609,7 +7659,10 @@ export class App {
     this.trackSteps(this.stepEntries().filter((entry) => entry.baked !== true));
     const groups = groupSteps(this.stepEntries());
     const count = groups.length;
-    this.stepsButton.textContent = count === 0 ? "Recipe" : `Recipe (${count})`;
+    setButtonLabel(this.stepsButton, count === 0 ? "Recipe" : `Recipe (${count})`);
+    // The count stays in view when only the icon shows.
+    if (count === 0) this.stepsButton.removeAttribute("data-count");
+    else this.stepsButton.dataset.count = String(count);
     this.stepsButton.disabled = count === 0;
     this.stepsButton.title =
       count === 0

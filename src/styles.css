@@ -13681,13 +13681,13 @@ button.qp-tile:hover {
 }
 
 /* Clear data is the one irreversible button on the bar, so it is red all the time, not only on hover. */
-.topbar .danger-ghost {
+.topbar .ghost.danger-ghost {
   color: #fff;
   border-color: #d92d20;
   background: #d92d20;
   font-weight: 600;
 }
-.topbar .danger-ghost:hover:not(:disabled) {
+.topbar .ghost.danger-ghost:hover:not(:disabled) {
   color: #fff;
   border-color: #f04438;
   background: #f04438;
@@ -14276,6 +14276,16 @@ button.qp-tile:hover {
 .settings-suggest { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-sm); color: var(--text-dim); }
 .settings-suggest:empty { display: none; }
 
-/* Settings: a cog, no word. */
-.topbar .settings-button { display: inline-flex; align-items: center; justify-content: center; padding: 4px 7px; }
-.topbar .settings-icon { width: 17px; height: 17px; }
+
+/* Toolbar buttons that show an icon, and spell out their name when the pointer or the keyboard reaches them. */
+.xbtn { display: inline-flex; align-items: center; justify-content: center; padding-left: 9px; padding-right: 9px; position: relative; }
+.xbtn-icon { width: 16px; height: 16px; flex: none; }
+.xbtn-label { display: inline-block; max-width: 0; margin-left: 0; overflow: hidden; white-space: nowrap; opacity: 0; transition: max-width 0.18s ease, margin-left 0.18s ease, opacity 0.12s ease; }
+.xbtn:hover .xbtn-label,
+.xbtn:focus-visible .xbtn-label { max-width: 190px; margin-left: 7px; opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .xbtn-label { transition: none; } }
+/* The Recipe count shows on the icon while the name is folded away. */
+.xbtn[data-count]::after { content: attr(data-count); position: absolute; top: -5px; right: -5px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; line-height: 15px; text-align: center; pointer-events: none; }
+.xbtn[data-count]:hover::after, .xbtn[data-count]:focus-visible::after { display: none; }
+/* Settings and Help ahead of any data live in the top bar; once a table is open they are in the toolbar row. */
+#app:has(.workspace:not(.hidden)) .topbar .topbar-pre { display: none; }
