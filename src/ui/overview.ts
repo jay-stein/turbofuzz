@@ -41,6 +41,10 @@ export interface OverviewCallbacks {
   issueSummary?(): { fix: number; review: number } | null;
   /** Open the Quality page on its Issues tab. */
   onOpenQuality?(): void;
+  /** Open the import settings (header row, rows to skip, where the data ends). */
+  onImportSettings?(): void;
+  /** Open the Outliers page. */
+  onOpenOutliers?(): void;
 }
 
 export type NextStepAction =
@@ -559,6 +563,18 @@ export class Overview {
     });
   }
 
+  private headerNote: string | null = null;
+
+  /** How the header row and the table's edges were found, in a line under the title (null hides it). */
+  setHeaderNote(text: string | null): void {
+    this.headerNote = text;
+    const note = this.root.querySelector<HTMLElement>(".overview-header-note");
+    if (note === null) return;
+    note.hidden = text === null;
+    const span = note.querySelector<HTMLElement>(".overview-header-note-text");
+    if (span !== null) span.textContent = text ?? "";
+  }
+
   /** Refreshes the health tiles after a worker reported new dataset stats. */
   updateHealth(columns: readonly ColumnMeta[], stats: DatasetStats): void {
     const tiles = this.root.querySelector<HTMLElement>(".health-tiles");
@@ -605,6 +621,14 @@ export class Overview {
     stats.addEventListener("click", () => this.callbacks.onOpenStats());
     line.append(stats);
 
+    const note = el("div", { class: "overview-header-note" });
+    note.append(el("span", { class: "overview-header-note-text" }, [this.headerNote ?? ""]));
+    const change = el("button", { class: "ghost small", type: "button", title: "Change where the header row is, which rows to skip, and where the data ends" }, ["Not right? Change how it was read…"]);
+    change.addEventListener("click", () => this.callbacks.onImportSettings?.());
+    note.append(change);
+    note.hidden = this.headerNote === null;
+    line.append(note);
+
     const types = typeMix(loaded.columns);
     if (types !== "") {
       line.append(el("div", { class: "overview-types" }, [types]));
@@ -628,15 +652,28 @@ export class Overview {
       ]);
     }
     const wrap = el("div", { class: "health-tiles" });
+    // A tile that warns is also the way to fix what it counts: it opens the tool for that problem.
+    const fixes: Record<string, { text: string; title: string; run: (node: HTMLElement) => void } | undefined> = {
+      complete: { text: "Fill or blank…", title: "Open Nulls: fill missing cells, or turn a code such as -9 into a blank", run: () => this.callbacks.onOpenCleanNulls() },
+      empties: { text: "Fill or blank…", title: "Open Nulls: fill missing cells, or turn a code such as -9 into a blank", run: () => this.callbacks.onOpenCleanNulls() },
+      duplicates: { text: "Remove…", title: "Choose which copy of each duplicate row to keep", run: (node) => this.callbacks.onDedupe(node) },
+      outliers: { text: "Review…", title: "Open the Outliers page", run: () => this.callbacks.onOpenOutliers?.() },
+    };
     for (const tile of tiles) {
-      const node = el("div", {
-        class: `health-tile${tile.warn ? " warn" : ""}`,
+      const fix = tile.warn ? fixes[tile.id] : undefined;
+      const node = el(fix === undefined ? "div" : "button", {
+        class: `health-tile${tile.warn ? " warn" : ""}${fix === undefined ? "" : " health-tile-fix"}`,
         "data-kind": tile.id,
+        ...(fix === undefined ? {} : { type: "button", title: fix.title }),
       });
       node.append(
         el("span", { class: "health-value" }, [tile.value]),
         el("span", { class: "health-label" }, [tile.label]),
       );
+      if (fix !== undefined) {
+        node.append(el("span", { class: "health-fix" }, [fix.text]));
+        node.addEventListener("click", () => fix.run(node));
+      }
       wrap.append(node);
     }
     const unified = this.callbacks.issueSummary?.() ?? null;

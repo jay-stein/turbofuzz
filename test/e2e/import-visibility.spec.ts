@@ -1,0 +1,46 @@
+import { expect, test, type Page } from "@playwright/test";
+
+async function load(page: Page, name: string, csv: string): Promise<void> {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name, mimeType: "text/csv", buffer: Buffer.from(csv) });
+  await page.locator(".nav-row").waitFor();
+}
+
+function longFile(): string {
+  const rows = ["id,deaths,speed"];
+  for (let i = 1; i <= 900; i++) rows.push(`${i},${i % 7 === 0 ? -9 : i % 5},${40 + (i % 60)}`);
+  rows.push("", "Source: road authority", "Note: -9 means not known");
+  return rows.join("\n");
+}
+
+test("the Overview says which row was taken as the header, and the import dialog shows both ends of the file", async ({ page }) => {
+  await load(page, "roads.csv", longFile());
+  const note = page.locator(".overview-header-note");
+  await expect(note).toContainText("Header: row 1 (assumed)", { timeout: 10_000 });
+  await note.getByRole("button", { name: /Change how it was read/ }).click();
+  const dialog = page.locator(".header-row-modal");
+  await expect(dialog).toBeVisible();
+  // Rows are not all numbered in a big file, so the bottom is shown as it ends, after a gap.
+  await expect(dialog.locator(".header-row-gap")).toBeVisible();
+  await expect(dialog.locator(".header-row-tail").last()).toContainText("-9 means not known");
+});
+
+test("a warning tile on the Overview opens the tool that fixes it, and a code like -9 can be turned into blanks everywhere", async ({ page }) => {
+  const rows = ["id,deaths,speed"];
+  for (let i = 1; i <= 60; i++) rows.push(`${i},${i % 6 === 0 ? -9 : i % 5},${i % 10 === 0 ? -9 : 40 + (i % 60)}`);
+  rows.push("5,,50");
+  rows.push("1,1,41");
+  await load(page, "codes.csv", rows.join("\n"));
+  const dup = page.locator('.health-tile[data-kind="duplicates"]');
+  await expect(dup).toHaveClass(/health-tile-fix/);
+  const empties = page.locator('.health-tile[data-kind="empties"]');
+  await expect(empties).toContainText("1 of 3");
+  await empties.click();
+  const input = page.getByLabel("Add a value to treat as null");
+  await expect(input).toBeVisible();
+  await input.fill("-9");
+  await input.press("Enter");
+  await page.getByRole("button", { name: "Apply nulls" }).click();
+  await expect(page.locator('.health-tile[data-kind="empties"]')).toContainText("2 of 3", { timeout: 15_000 });
+});

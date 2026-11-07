@@ -12,6 +12,10 @@ export interface HeaderRowInput {
   current: HeaderLayout;
   /** True when `current` is a user override rather than the automatic guess. */
   overridden: boolean;
+  /** `preview` holds every row of the source (a worksheet, a small file), so rows can be numbered to the end. */
+  complete?: boolean;
+  /** The last rows of a source too big to hold whole, as parsed; they have no row numbers. */
+  tail?: string[][];
   /** Extra line under the intro, e.g. that one layout applies to several files. */
   note?: string;
 }
@@ -21,6 +25,9 @@ type EndMode = "auto" | "file" | "blank" | "row";
 const MAX_CELLS = 10;
 const MAX_CELL_CHARS = 28;
 const MAX_NAMES = 14;
+/** How much of a whole source is drawn from each end; the rest is a gap you can still reach with the numbers. */
+const HEAD_ROWS = 60;
+const TAIL_ROWS = 30;
 
 function clip(value: string): string {
   return value.length > MAX_CELL_CHARS ? `${value.slice(0, MAX_CELL_CHARS - 1)}…` : value;
@@ -115,7 +122,13 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
     body.append(controls);
 
     const grid = el("div", { class: "header-row-grid", role: "grid", "aria-label": "File preview" });
-    body.append(grid);
+    const jump = el("div", { class: "header-row-jump" }, [el("span", { class: "chart-field-label" }, ["Look at"])]);
+    const toTop = el("button", { class: "ghost small", type: "button" }, ["Top of the file"]);
+    const toBottom = el("button", { class: "ghost small", type: "button" }, ["Bottom of the file"]);
+    toTop.addEventListener("click", () => { grid.scrollTop = 0; });
+    toBottom.addEventListener("click", () => { grid.scrollTop = grid.scrollHeight; });
+    jump.append(toTop, toBottom);
+    body.append(jump, grid);
     const names = el("div", { class: "cast-summary", role: "status" });
     body.append(names);
     modal.append(body);
@@ -166,24 +179,28 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
       const dataStart = skip + levels + after;
       const dataStop = dataStart + detected.rows.length;
       grid.replaceChildren();
-      input.preview.forEach((row, index) => {
-        const role =
-          index < skip
-            ? "skipped"
-            : index < skip + levels
-              ? "header"
-              : index < dataStart
-                ? "skipped"
-                : index < dataStop
-                  ? "data"
-                  : "ignored";
+      const total = input.preview.length;
+      const whole = input.complete === true;
+      const headEnd = whole ? Math.min(total, HEAD_ROWS) : total;
+      const tailStart = whole && total > headEnd ? Math.max(headEnd, total - TAIL_ROWS) : total;
+      const roleOf = (index: number): string =>
+        index < skip
+          ? "skipped"
+          : index < skip + levels
+            ? "header"
+            : index < dataStart
+              ? "skipped"
+              : index < dataStop
+                ? "data"
+                : "ignored";
+      const addRow = (row: string[], index: number | null): void => {
+        const role = index === null ? "tail" : roleOf(index);
         const line = el("div", {
           class: `header-row-line header-row-${role}`,
           role: "row",
-          tabindex: "0",
-          title: `Use row ${index + 1} as the header`,
+          ...(index === null ? {} : { tabindex: "0", title: `Use row ${index + 1} as the header` }),
         });
-        line.append(el("span", { class: "header-row-num" }, [String(index + 1)]));
+        line.append(el("span", { class: "header-row-num" }, [index === null ? "end" : String(index + 1)]));
         const cells = row.slice(0, MAX_CELLS).map((cell) => clip(cell.trim()));
         line.append(
           el("span", { class: "header-row-cells" }, [
@@ -192,10 +209,15 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
           ]),
         );
         const blank = row.every((cell) => cell.trim() === "");
-        if (role === "skipped" || role === "header" || (role === "ignored" && !blank)) {
+        if (index !== null && (role === "skipped" || role === "header" || (role === "ignored" && !blank))) {
           line.append(el("span", { class: "header-row-tag" }, [role]));
         }
-        if (role === "data") {
+        if (index === null) {
+          // An unnumbered tail cannot be cut by row, but a row with most cells empty is probably a note.
+          const filled = row.filter((cell) => cell.trim() !== "").length;
+          if (!blank && filled * 2 < Math.max(2, detected.headers.length)) line.append(el("span", { class: "header-row-tag" }, ["note?"]));
+        }
+        if (index !== null && role === "data") {
           const endHere = el(
             "button",
             {
@@ -213,20 +235,33 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
           });
           line.append(endHere);
         }
-        const pick = (): void => {
-          skip = index;
-          if (levels === 0) levels = 1;
-          render();
-        };
-        line.addEventListener("click", pick);
-        line.addEventListener("keydown", (event) => {
-          if (event.target === line && (event.key === "Enter" || event.key === " ")) {
-            event.preventDefault();
-            pick();
-          }
-        });
+        if (index !== null) {
+          const pick = (): void => {
+            skip = index;
+            if (levels === 0) levels = 1;
+            render();
+          };
+          line.addEventListener("click", pick);
+          line.addEventListener("keydown", (event) => {
+            if (event.target === line && (event.key === "Enter" || event.key === " ")) {
+              event.preventDefault();
+              pick();
+            }
+          });
+        }
         grid.append(line);
-      });
+      };
+      const gap = (text: string): void => {
+        grid.append(el("div", { class: "header-row-gap", role: "separator" }, [text]));
+      };
+      for (let index = 0; index < headEnd; index++) addRow(input.preview[index]!, index);
+      if (whole && tailStart > headEnd) {
+        gap(`${(tailStart - headEnd).toLocaleString()} rows not shown · the bottom of the file follows`);
+        for (let index = tailStart; index < total; index++) addRow(input.preview[index]!, index);
+      } else if (!whole && input.tail !== undefined && input.tail.length > 0) {
+        gap("the file continues · the last rows follow (they cannot be numbered)");
+        for (const row of input.tail) addRow(row, null);
+      }
       const shown = detected.headers
         .slice(0, MAX_NAMES)
         .map((name) => (name === "" ? "(blank)" : name));
@@ -236,7 +271,7 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
         detected.headers.length === 0
           ? "No columns found with this layout."
           : `${detected.headers.length} columns: ${shown.join(", ")}${more > 0 ? `, +${more} more` : ""}. ` +
-            `${detected.rows.length.toLocaleString()} data rows in this preview` +
+            `${detected.rows.length.toLocaleString()} data rows${input.complete === true ? "" : " in this preview"}` +
             (ignored > 0 ? `, ${ignored.toLocaleString()} after them left out.` : ".");
       apply.disabled = detected.headers.length === 0;
     };

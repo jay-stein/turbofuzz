@@ -474,8 +474,12 @@ interface ImportSource {
   layout: HeaderLayout | null;
   /** Shown in the header-row chooser, e.g. that one layout covers several files. */
   note?: string;
-  /** First rows as parsed, before any header handling. */
+  /** First rows as parsed, before any header handling (every row, when `complete`). */
   readPreview: () => Promise<string[][]>;
+  /** The preview is the whole source, so rows can be numbered to the end. */
+  complete?: boolean;
+  /** The last rows of a source too big to read whole, as parsed. */
+  readTail?: () => Promise<string[][]>;
   /** Re-reads the source with a new layout (null = automatic) and rebuilds the table. */
   reload: (layout: HeaderLayout | null) => Promise<void>;
 }
@@ -503,6 +507,28 @@ interface LoadContext {
   reuse: boolean;
   header: string;
   sampled: string | null;
+}
+
+/**
+ * The header row and the table's edges in one plain line, for under the Overview title: where the column names were taken from
+ * and whether anything above, under or after the data was left out. `whole` says the rows seen are the whole source, so what is
+ * left out at the end can be counted.
+ */
+function describeHeader(preview: string[][], layout: HeaderLayout | null, whole: boolean): string {
+  const t = detectTable(preview, layout ?? undefined);
+  const rows = (n: number): string => `${n} row${n === 1 ? "" : "s"}`;
+  const how = layout === null ? "assumed" : "chosen by you";
+  const head =
+    t.headerRows === 0
+      ? `No header row (${how}): columns are named Column 1, 2…`
+      : t.headerRows === 1
+        ? `Header: row ${t.skipRows + 1} (${how}).`
+        : `Header: rows ${t.skipRows + 1}–${t.skipRows + t.headerRows}, joined (${how}).`;
+  const left: string[] = [];
+  if (t.skipRows > 0) left.push(`${rows(t.skipRows)} above it skipped`);
+  if (t.skipAfter > 0) left.push(`${rows(t.skipAfter)} under it skipped`);
+  if (whole && t.footerRows > 0) left.push(`${rows(t.footerRows)} of notes after the data left out`);
+  return `${head}${left.length > 0 ? ` ${left.join("; ")}.` : t.headerRows > 0 && t.skipRows === 0 ? " Nothing skipped." : ""}`;
 }
 
 /** Where the table on screen was read from, for a report's provenance. */
@@ -1385,6 +1411,8 @@ export class App {
 
     this.overviewHost = el("div", { class: "overview-host hidden" });
     this.overview = new Overview(this.overviewHost, {
+      onImportSettings: () => void this.openHeaderRowOverride(),
+      onOpenOutliers: () => this.setView("outliers"),
       onOpenTable: () => this.setView("table"),
       onOpenChart: () => this.setView("chart"),
       onFilterColumn: (column) => this.focusFilterColumn(column),
@@ -1532,6 +1560,7 @@ export class App {
           normalizeRows: false,
           preview: HEADER_PREVIEW_ROWS,
         }).rows,
+      readTail: async () => this.tailOf(text.slice(-HEADER_PREVIEW_BYTES), text.length > HEADER_PREVIEW_BYTES),
       reload: (next) =>
         this.load({
           text,
@@ -1896,6 +1925,8 @@ export class App {
             normalizeRows: false,
             preview: HEADER_PREVIEW_ROWS,
           }).rows,
+        readTail: async () =>
+          this.tailOf(decodeText(await file.slice(Math.max(0, file.size - HEADER_PREVIEW_BYTES)).arrayBuffer()).text, file.size > HEADER_PREVIEW_BYTES),
         reload: async (next) =>
           this.load({
             buffer: await file.arrayBuffer(),
@@ -2129,6 +2160,10 @@ export class App {
           normalizeRows: false,
           preview: HEADER_PREVIEW_ROWS,
         }).rows,
+      readTail: async () => {
+        const all = await reopen();
+        return this.tailOf(decodeText(all.slice(Math.max(0, all.byteLength - HEADER_PREVIEW_BYTES))).text, all.byteLength > HEADER_PREVIEW_BYTES);
+      },
       reload: async (next) =>
         this.load({
           buffer: await reopen(),
@@ -2214,7 +2249,8 @@ export class App {
     const source: ImportSource = {
       name,
       layout: layout ?? null,
-      readPreview: async () => grid.slice(0, HEADER_PREVIEW_ROWS),
+      readPreview: async () => grid,
+      complete: true,
       reload: (next) => this.loadGrid(grid, name, next ?? undefined, true),
     };
     if (layout === undefined && !this.headersCheckbox.checked) {
@@ -6518,6 +6554,35 @@ export class App {
   private setImportSource(source: ImportSource | null): void {
     this.importSource = source;
     this.headerRowButton.disabled = source === null;
+    void this.refreshHeaderNote();
+  }
+
+  /** Says under the Overview title how the header row and the table's edges were read, so a wrong guess is noticed. */
+  private async refreshHeaderNote(): Promise<void> {
+    const source = this.importSource;
+    let note: string | null = null;
+    if (source !== null) {
+      try {
+        const preview = await source.readPreview();
+        if (this.importSource === source) note = describeHeader(preview, source.layout, source.complete === true || preview.length < HEADER_PREVIEW_ROWS);
+      } catch {
+        note = null;
+      }
+    }
+    if (this.importSource !== source) return;
+    this.overview?.setHeaderNote(note);
+  }
+
+  /** The last rows of a text slice taken from the end of a source (its first line is cut mid-way, so it is dropped). */
+  private tailOf(text: string, startsMidRow: boolean): string[][] {
+    if (text === "") return [];
+    const cut = startsMidRow ? text.indexOf("\n") : -1;
+    const rows = parseDelimited(cut >= 0 ? text.slice(cut + 1) : text, {
+      delimiter: this.delimiterSelect.value as Delimiter | "auto",
+      hasHeaders: false,
+      normalizeRows: false,
+    }).rows;
+    return rows.slice(-30);
   }
 
   /** Opens the header-row chooser for the current table and reloads with the choice. */
@@ -6533,9 +6598,17 @@ export class App {
     }
     if (preview.length === 0) return;
     const auto = detectTable(preview);
+    // A source too big to hold whole shows its last rows too: footnotes live there.
+    const complete = source.complete === true || preview.length < HEADER_PREVIEW_ROWS;
+    let tail: string[][] = [];
+    if (!complete && source.readTail !== undefined) {
+      try { tail = await source.readTail(); } catch { tail = []; }
+    }
     const result = await openHeaderRowDialog({
       name: source.name,
       preview,
+      complete,
+      tail,
       current: source.layout ?? { skipRows: auto.skipRows, headerRows: auto.headerRows, skipAfter: auto.skipAfter },
       overridden: source.layout !== null,
       ...(source.note === undefined ? {} : { note: source.note }),
@@ -6554,6 +6627,7 @@ export class App {
 
   private clearData(): void {
     this.importSource = null;
+    this.overview?.setHeaderNote(null);
     this.headerRowButton.disabled = true;
     this.lastLoaded = null;
     this.datasetName = "";

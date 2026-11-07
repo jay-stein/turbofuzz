@@ -665,14 +665,17 @@ function buildNullsTab(
   const hint = el("div", { class: "clean-hint" }, [
     "Ticked values are replaced with a blank when you apply. Untick anything that is a real value (e.g. a town called NULL).",
   ]);
+  const codeHint = el("div", { class: "clean-hint" }, [
+    "Did the data's author use a code for missing, such as -9, 999 or N/A? Type it below: every cell holding exactly that value, in the columns chosen above, becomes a blank.",
+  ]);
   const list = el("div", { class: "null-list" });
 
   const extraField = el("div", { class: "clean-field" });
-  extraField.append(el("span", { class: "clean-label" }, ["Also null"]));
+  extraField.append(el("span", { class: "clean-label" }, ["Missing code"]));
   const extraInput = el("input", {
     class: "text-input",
     type: "text",
-    placeholder: "Add missing value",
+    placeholder: "e.g. -9, 999, N/A",
     spellcheck: "false",
     "aria-label": "Add a value to treat as null",
   }) as HTMLInputElement;
@@ -803,8 +806,9 @@ function buildNullsTab(
   });
   footer.append(cancel, el("span", { class: "grow" }), apply);
 
-  wrap.append(colField, hint, list, extraField, summary, footer);
+  wrap.append(colField, codeHint, extraField, hint, list, summary, footer);
   if (initialColumn !== undefined) colSelect.value = String(initialColumn);
   loadColumn(initialColumn ?? null);
+  window.setTimeout(() => { if (initialColumn === undefined && wrap.isConnected) extraInput.focus(); }, 0);
   return wrap;
 }
