@@ -226,6 +226,18 @@ REFERENCES.teunter2011 = {
   url: "https://doi.org/10.1016/j.ejor.2011.05.018",
   used: "The TSB method: the chance of a sale is updated every period, so the forecast fades when sales stop.",
 };
+REFERENCES.nikolopoulos2011 = {
+  short: "Nikolopoulos et al. (2011)",
+  full: "Nikolopoulos, K., Syntetos, A. A., Boylan, J. E., Petropoulos, F. and Assimakopoulos, V. (2011). An aggregate-disaggregate intermittent demand approach (ADIDA) to forecasting: an empirical proposition and analysis. Journal of the Operational Research Society, 62(3), 544-554.",
+  url: "https://doi.org/10.1057/jors.2010.32",
+  used: "ADIDA: add the history up in buckets, forecast the bucket totals, and spread the forecast back over the periods of a bucket.",
+};
+REFERENCES.petropoulos2015 = {
+  short: "Petropoulos & Kourentzes (2015)",
+  full: "Petropoulos, F. and Kourentzes, N. (2015). Forecast combinations for intermittent demand. Journal of the Operational Research Society, 66(6), 914-924.",
+  url: "https://doi.org/10.1057/jors.2014.62",
+  used: "IMAPA: ADIDA at every bucket length from 1 up to the average gap between sales, the forecasts averaged.",
+};
 REFERENCES.kolassa2016 = {
   short: "Kolassa (2016)",
   full: "Kolassa, S. (2016). Evaluating predictive count data distributions in retail sales forecasting. International Journal of Forecasting, 32(3), 788-803.",
@@ -298,7 +310,7 @@ REFERENCES.statsforecast = {
 /** Ids in a stable order for the Sources list: grouped by what they support. */
 export const REFERENCE_ORDER: string[] = [
   "fpp3", "forecastpkg", "monash",
-  "ets2002", "holt", "winters", "damped", "aicc", "nelder", "croston", "syntetos2005", "teunter2011", "kolassa2016", "boxcox", "guerrero", "boxjenkins", "gardner1980", "jones1980", "kpss", "hansen2010", "diebold2000", "wang2006",
+  "ets2002", "holt", "winters", "damped", "aicc", "nelder", "croston", "syntetos2005", "teunter2011", "nikolopoulos2011", "petropoulos2015", "kolassa2016", "boxcox", "guerrero", "boxjenkins", "gardner1980", "jones1980", "kpss", "hansen2010", "diebold2000", "wang2006",
   "theta", "thetabillah", "m3", "m4", "tourism",
   "bates", "clemen", "smithwallis",
   "stl", "mstl", "bartlett",

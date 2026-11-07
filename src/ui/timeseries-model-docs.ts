@@ -134,6 +134,20 @@ export const MODEL_DOCS: Record<ModelKey, ModelDoc> = {
       "Absolute-error measures reward forecasting zero on a series like this [ref:kolassa2016]: a flat zero forecast scored 0.763 on the same series, better than every method here, and no use for planning stock.",
     ],
   },
+  imapa: {
+    kind: "Intermittent demand",
+    summary: "The history is added up in buckets of 1, 2, 3 ... periods, each set of bucket totals is smoothed, the smoothed total is spread back over the periods of a bucket, and the forecasts of all the bucket lengths are averaged [ref:nikolopoulos2011] [ref:petropoulos2015]. Adding up smooths out the zeros, and averaging over lengths means no single bucket length has to be right.",
+    equations: [
+      "For each bucket length k = 1 ... L: Y<sub>b</sub><sup>(k)</sup> = the sum of k consecutive periods, counted back from the latest; ℓ<sup>(k)</sup> = the SES level of those totals",
+      "ŷ<sub>T+h|T</sub> = (1 / L) Σ<sub>k</sub> ℓ<sup>(k)</sup> / k;   L = the average demand interval, rounded, at most 12.",
+    ],
+    fitting: ["The history starts at the first sale. Each bucket length's smoothing weight is fitted (simple exponential smoothing, one parameter, by likelihood on the bucket totals); a length with fewer than three buckets is left out. A bucket with a missing period is missing."],
+    forecasting: [BAND],
+    differs: [
+      "Shown only for intermittent series, and not Auto's choice: Fading demand is. In our tests (Monash protocol, MASE) it was a little behind Fading demand on 1,757 car-parts series (0.923 against 0.899) and clearly better than Croston with the bias correction (1.022); on 400 rainfall series, where Fading demand lost to the corrected Croston, it was better than both (1.722, against 1.938 and 1.801). It never came last, but it never won clearly either, and two datasets are too few to change what Auto picks, so it is here to pick by hand.",
+      "Its smoothing weights are fitted, not fixed at 0.1 as for the other intermittent methods; on the same series fixed weights did worse (rainfall 2.030). Like them it rewards forecasting a rate, not a spike: absolute-error measures favour a flat zero on a series like this [ref:kolassa2016].",
+    ],
+  },
   hw: {
     kind: "Exponential smoothing",
     summary: "Holt-Winters smoothing with an additive season and a damped additive trend [ref:holt] [ref:winters] [ref:damped]. The level, trend and season each follow the data through their own smoothing weight, and the damping φ makes the trend flatten out so a long forecast does not run away.",

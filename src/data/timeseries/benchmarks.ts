@@ -24,6 +24,8 @@
  * so few non-zero values per series a tuned parameter would mostly fit noise.
  */
 
+import { fitSes } from "./ets.js";
+
 /** The last observed value in [0, o). */
 export function naiveLevel(y: ArrayLike<number>, o: number): number {
   for (let t = o - 1; t >= 0; t--) if (y[t]! === y[t]!) return y[t]!;
@@ -81,6 +83,38 @@ export function fitIntermittent(y: ArrayLike<number>, o: number, alpha = CROSTON
     prob += beta * ((sale ? 1 : 0) - prob);
   }
   return { size, interval, prob, tsbSize, sinceSale };
+}
+
+/** The longest bucket IMAPA adds the history up in: a year of months, and about as many as the gaps between sales are long. */
+export const IMAPA_MAX_LEVELS = 12;
+
+/**
+ * IMAPA (Petropoulos and Kourentzes 2015), the forecast per period: the history from the first sale is added up in non-overlapping
+ * buckets of 1, 2, ... L periods (L is the average gap between sales, at most 12; buckets are counted back from the latest
+ * period), each set of bucket totals is smoothed with simple exponential smoothing (fitted, as ADIDA does), the smoothed total is
+ * spread back over the periods of a bucket, and the forecasts of all the bucket lengths are averaged. A bucket with a missing
+ * period is missing. A length with fewer than three buckets is left out.
+ */
+export function imapaRate(y: ArrayLike<number>, o: number): number {
+  let from = 0;
+  while (from < o && !(y[from]! > 0)) from++;
+  if (from >= o) return 0;
+  const seg = Float64Array.from({ length: o - from }, (_, i) => y[from + i]!);
+  const levels = Math.max(1, Math.min(IMAPA_MAX_LEVELS, Math.round(demandProfile(y, o).adi)));
+  let sum = 0, count = 0;
+  for (let len = 1; len <= levels; len++) {
+    const n = Math.floor(seg.length / len), off = seg.length - n * len;
+    if (len > 1 && n < 3) continue;
+    const totals = new Float64Array(n);
+    for (let b = 0; b < n; b++) {
+      let s = 0;
+      for (let k = 0; k < len; k++) s += seg[off + b * len + k]!;
+      totals[b] = s;
+    }
+    const level = fitSes(len === 1 ? seg : totals, len === 1 ? seg.length : n).level;
+    if (level === level) { sum += level / len; count++; }
+  }
+  return count ? Math.max(0, sum / count) : 0;
 }
 
 export const crostonRate = (f: Intermittent): number => f.size / f.interval;

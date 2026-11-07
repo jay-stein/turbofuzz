@@ -53,3 +53,20 @@ test("intermittent means demand in fewer than three of every four periods, never
   assert.ok(!isIntermittent(Float64Array.from({ length: 40 }, (_, i) => (i % 4 === 0 ? -3 : 0)), 40), "negative values are not demand");
   assert.ok(!isIntermittent(Float64Array.from([0, 0, 5, 0]), 4), "four periods are too few to say");
 });
+
+import { imapaRate } from "../src/data/timeseries/benchmarks.js";
+
+test("IMAPA adds the history up in buckets, smooths each, spreads back, and averages", () => {
+  // A sale of 6 every third period: the demand rate is 2 per period at every bucket length that divides the history.
+  const y = Float64Array.from(Array.from({ length: 36 }, (_, t) => (t % 3 === 0 ? 6 : 0)));
+  const rate = imapaRate(y, y.length);
+  assert.ok(Math.abs(rate - 2) < 0.5, `the rate is near 2 (got ${rate})`);
+  // Zeros before the first sale are not counted, and no sale is no demand.
+  assert.equal(imapaRate(Float64Array.from([0, 0, 0, 0]), 4), 0);
+  const late = Float64Array.from([0, 0, 0, 0, 0, 0, ...y]);
+  assert.ok(Math.abs(imapaRate(late, late.length) - rate) < 1e-9, "leading zeros change nothing");
+  // A missing period is skipped, never read as zero demand, and the rate is never negative.
+  const gappy = Float64Array.from(y);
+  gappy[7] = NaN;
+  assert.ok(Number.isFinite(imapaRate(gappy, gappy.length)) && imapaRate(gappy, gappy.length) >= 0);
+});

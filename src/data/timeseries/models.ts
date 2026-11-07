@@ -13,14 +13,14 @@ import { classicalFigure, etsFitted, etsForecast, etsFrom, etsRun, etsSelect, et
 export { etsSpec } from "./ets.js";
 import { mstl } from "./stl.js";
 import { allPositive, boxCox, guerrero, invBoxCox } from "./boxcox.js";
-import { crostonRate, demandProfile, driftSlope, fitIntermittent, isIntermittent, meanLevel, naiveLevel, sbaRate, tsbRate } from "./benchmarks.js";
+import { crostonRate, demandProfile, driftSlope, fitIntermittent, imapaRate, isIntermittent, meanLevel, naiveLevel, sbaRate, tsbRate } from "./benchmarks.js";
 
-export type ModelKey = "sn" | "hw" | "ets" | "reg" | "theta" | "clim" | "ens" | "comb" | "naive" | "drift" | "mean" | "ses" | "croston" | "sba" | "tsb";
-export const MODEL_KEYS: readonly ModelKey[] = ["sn", "hw", "ets", "reg", "theta", "clim", "ens", "comb", "naive", "drift", "mean", "ses", "croston", "sba", "tsb"];
+export type ModelKey = "sn" | "hw" | "ets" | "reg" | "theta" | "clim" | "ens" | "comb" | "naive" | "drift" | "mean" | "ses" | "croston" | "sba" | "tsb" | "imapa";
+export const MODEL_KEYS: readonly ModelKey[] = ["sn", "hw", "ets", "reg", "theta", "clim", "ens", "comb", "naive", "drift", "mean", "ses", "croston", "sba", "tsb", "imapa"];
 /** The intermittent-demand methods: computed and shown only for a series that is mostly zeros. */
-export const INTERMITTENT_KEYS: readonly ModelKey[] = ["croston", "sba", "tsb"];
+export const INTERMITTENT_KEYS: readonly ModelKey[] = ["croston", "sba", "tsb", "imapa"];
 /** Yardsticks: shown and ranked, but never picked by Auto and never part of the Combination. */
-/** Auto's choice for intermittent demand: the Syntetos-Boylan approximation. */
+/** Auto's choice for intermittent demand: TSB (see its model card for the evidence). */
 export const INTERMITTENT_PICK: ModelKey = "tsb";
 export const BENCHMARK_KEYS: readonly ModelKey[] = ["sn", "clim", "naive", "drift", "mean", "ses"];
 /** The models Auto chooses among and ranks itself against; the other benchmarks are only yardsticks beside them. */
@@ -41,6 +41,7 @@ export const MODEL_INFO: Readonly<Record<ModelKey, { name: string; meth: string 
   croston: { name: "Croston", meth: "Croston's method for intermittent demand" },
   sba: { name: "Croston, corrected", meth: "Croston with the Syntetos-Boylan bias correction (SBA)" },
   tsb: { name: "Fading demand", meth: "Teunter-Syntetos-Babai (TSB) method for intermittent demand" },
+  imapa: { name: "Several time scales", meth: "IMAPA for intermittent demand: the average of smoothed forecasts of the history added up in buckets of 1, 2, 3 ... periods" },
 };
 
 interface BandQ { q10: number; q90: number; q025: number; q975: number }
@@ -139,7 +140,7 @@ export type Futures = Record<ModelKey, Future>;
 /** Inside the worker only: the run plus what the futures need (fits with closures). */
 /** The final seasonally adjusted fit when the season is removed with MSTL. */
 interface LongFinal { s: number; adj: Float64Array; adjM: Float64Array; etsFc: Float64Array; hwFc: Float64Array; thetaFc: Float64Array }
-interface RunInternal extends ModelRun { mS: number; long: LongFinal | null; oc: Record<ModelKey, Float64Array>; etsFinal: EtsState; etsFit: EtsFit; hwFinal: HwState; hwParams: HwParams; regFit: RegFit; thetaFit: ThetaFit; climM: number; climMeans: Float64Array; q: Record<ModelKey, BandQ[]>; yFit: Float64Array; bench: { naive: number; slope: number; mean: number; ses: number; croston: number; sba: number; tsb: number } }
+interface RunInternal extends ModelRun { mS: number; long: LongFinal | null; oc: Record<ModelKey, Float64Array>; etsFinal: EtsState; etsFit: EtsFit; hwFinal: HwState; hwParams: HwParams; regFit: RegFit; thetaFit: ThetaFit; climM: number; climMeans: Float64Array; q: Record<ModelKey, BandQ[]>; yFit: Float64Array; bench: { naive: number; slope: number; mean: number; ses: number; croston: number; sba: number; tsb: number; imapa: number } }
 
 function hwInit(y: Float64Array, m: number, limit: number): HwState {
   let l = 0;
@@ -562,16 +563,16 @@ export function runModels(A: Aggregated, table: TsTable, cfg: TsConfig, splitReq
   // Intermittent demand is decided once, on all the history the forecast is fitted on (up to the split), so the
   // same methods are used in every fold; the kind of series is not something the held-out values can change.
   const intermittent = isIntermittent(yMo, T);
-  const rates = (seg: Float64Array): [number, number, number] => {
+  const rates = (seg: Float64Array): [number, number, number, number] => {
     const f = fitIntermittent(seg, seg.length);
-    return f ? [crostonRate(f), sbaRate(f), tsbRate(f)] : [0, 0, 0];
+    return f ? [crostonRate(f), sbaRate(f), tsbRate(f), imapaRate(seg, seg.length)] : [0, 0, 0, 0];
   };
   origins.forEach((o, k) => {
-    const [cr, sb, ts] = intermittent ? rates(yMo.subarray(startOf(o), o)) : [NaN, NaN, NaN];
-    for (let h = 0; h < H; h++) { oc.croston[k * H + h] = cr; oc.sba[k * H + h] = sb; oc.tsb[k * H + h] = ts; }
+    const [cr, sb, ts, im] = intermittent ? rates(yMo.subarray(startOf(o), o)) : [NaN, NaN, NaN, NaN];
+    for (let h = 0; h < H; h++) { oc.croston[k * H + h] = cr; oc.sba[k * H + h] = sb; oc.tsb[k * H + h] = ts; oc.imapa[k * H + h] = im; }
   });
-  const [crF, sbF, tsF] = intermittent ? rates(yMo.subarray(0, T)) : [NaN, NaN, NaN];
-  const benchFinal = { naive: naiveLevel(yMo, T), slope: driftSlope(yMo, T), mean: meanLevel(yMo, T), ses: sesAt(T, etsFrom(T, m)), croston: crF, sba: sbF, tsb: tsF };
+  const [crF, sbF, tsF, imF] = intermittent ? rates(yMo.subarray(0, T)) : [NaN, NaN, NaN, NaN];
+  const benchFinal = { naive: naiveLevel(yMo, T), slope: driftSlope(yMo, T), mean: meanLevel(yMo, T), ses: sesAt(T, etsFrom(T, m)), croston: crF, sba: sbF, tsb: tsF, imapa: imF };
 
   // Smoothing parameters for the backtest are fitted on data before the first origin
   // only, so no model is scored on periods it was tuned on (that would flatter it).
@@ -842,7 +843,7 @@ export function computeFutures(A: Aggregated, run: RunInternal): Futures {
   const F: Record<ModelKey, Float64Array> = {
     sn: new Float64Array(H), hw: new Float64Array(H), ets: new Float64Array(H), reg: new Float64Array(H), theta: new Float64Array(H), clim: new Float64Array(H), ens: new Float64Array(H), comb: new Float64Array(H),
     naive: new Float64Array(H), drift: new Float64Array(H), mean: new Float64Array(H), ses: new Float64Array(H),
-    croston: new Float64Array(H), sba: new Float64Array(H), tsb: new Float64Array(H),
+    croston: new Float64Array(H), sba: new Float64Array(H), tsb: new Float64Array(H), imapa: new Float64Array(H),
   };
   if (run.long) { F.hw.set(run.long.hwFc); F.ets.set(run.long.etsFc); }
   else {
@@ -862,7 +863,7 @@ export function computeFutures(A: Aggregated, run: RunInternal): Futures {
     F.ens[h] = (F.ets[h] + F.reg[h] + F.theta[h]) / 3;
     F.comb[h] = run.m <= 1 ? (F.ets[h] + F.hw[h]) / 2 : (F.ets[h] + F.theta[h] + F.hw[h]) / 3;
     F.naive[h] = run.bench.naive; F.drift[h] = run.bench.naive + run.bench.slope * (h + 1); F.mean[h] = run.bench.mean; F.ses[h] = run.bench.ses;
-    F.croston[h] = run.bench.croston; F.sba[h] = run.bench.sba; F.tsb[h] = run.bench.tsb;
+    F.croston[h] = run.bench.croston; F.sba[h] = run.bench.sba; F.tsb[h] = run.bench.tsb; F.imapa[h] = run.bench.imapa;
   }
   const floor0 = A.nonNeg ? (v: number): number => Math.max(0, v) : (v: number): number => v;
   const out = {} as Futures;

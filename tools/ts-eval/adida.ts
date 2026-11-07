@@ -70,7 +70,7 @@ const freq: FreqName = id.startsWith("car_parts") ? "monthly" : id.startsWith("v
 const file = readTsf(join(folder, `${id}.tsf`));
 const H = file.horizon ?? (freq === "monthly" ? 12 : 30);
 
-const METHODS = ["croston", "sba", "tsb", "ses", "mean", "adida", "adida01", "imapa", "imapa01", "blend"] as const;
+const METHODS = ["croston", "sba", "tsb", "ses", "mean", "adida", "adida01", "imapa", "imapa01", "app", "blend"] as const;
 type M = (typeof METHODS)[number];
 const mases: Record<M, number[]> = Object.fromEntries(METHODS.map((k) => [k, []])) as never;
 const rmsses: Record<M, number[]> = Object.fromEntries(METHODS.map((k) => [k, []])) as never;
@@ -91,6 +91,7 @@ for (const s of file.series) {
     croston: r.F.croston, sba: r.F.sba, tsb: r.F.tsb, ses: r.F.ses, mean: r.F.mean,
     adida: flat(adida(train, maxLen, null)), adida01: flat(adida(train, maxLen, 0.1)),
     imapa: flat(imapa(train, maxLen, null)), imapa01: flat(imapa(train, maxLen, 0.1)),
+    app: r.F.imapa,
     blend: [],
   };
   f.blend = Array.from({ length: H }, (_, h) => (r.F.sba[h]! + (f.imapa as number[])[h]!) / 2);

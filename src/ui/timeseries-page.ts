@@ -1692,7 +1692,7 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   let deep: { key: string; result: DeepCheck | null } | null = null;
   let deepBusy = false;
   /** Rough complexity, for "prefer the simpler model when it is not significantly worse". */
-  const COMPLEXITY: Record<ModelKey, number> = { croston: 1, sba: 1, tsb: 1, sn: 0, naive: 0, mean: 0, drift: 1, ses: 1, clim: 1, theta: 2, hw: 3, ets: 3, comb: 4, reg: 4, ens: 5 };
+  const COMPLEXITY: Record<ModelKey, number> = { croston: 1, sba: 1, tsb: 1, imapa: 2, sn: 0, naive: 0, mean: 0, drift: 1, ses: 1, clim: 1, theta: 2, hw: 3, ets: 3, comb: 4, reg: 4, ens: 5 };
   const deepKey = (s: TsSnapshot, pick: ModelKey): string => `${curveKey(s)}|${s.cfg.flex}|${pick}`;
   function runDeep(): void {
     const s = snap, pick = s ? selectedModel(s, ui) : null;

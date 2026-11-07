@@ -114,6 +114,7 @@ export const PLAIN: Readonly<Record<string, string>> = {
   croston: "For sales that are mostly zero: average size divided by the usual gap between sales",
   sba: "Croston with its upward bias taken out",
   tsb: "For sales that are mostly zero: the chance of a sale this period times its usual size, fading through long gaps",
+  imapa: "For sales that are mostly zero: the history added up over several time scales, each smoothed, and the forecasts averaged",
 };
 
 export function trustVerdict(v: VerdictInput): Verdict {
