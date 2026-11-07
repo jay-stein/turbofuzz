@@ -1,5 +1,5 @@
 import { openSettingsPanel } from "./settings-panel.js";
-import { updateSettings } from "./settings.js";
+import { readSettings, updateSettings } from "./settings.js";
 import type { DateOrder } from "../parse/dates.js";
 import { clearReviewed, getReviewed, setReviewed } from "./reviewed-issues.js";
 import { clearOptionalMark, getOptionalMarks, setOptionalMark } from "./optional-marks.js";
@@ -730,6 +730,8 @@ export class App {
   private displayFormats = new Map<number, number>();
   /** Columns showing thousands separators (display only, data unchanged). */
   private displayGrouping = new Set<number>();
+  /** The columns whose thousands separators were switched on by the Settings number format, not by the person, so a change of format can take them off again. */
+  private autoGrouped = new Set<number>();
   private columnsStrip!: HTMLElement;
   private tilesOn = readColumnTilesPreference();
   private filterHost!: HTMLElement;
@@ -2622,6 +2624,8 @@ export class App {
     this.showChanges = false;
     this.displayFormats.clear();
     this.displayGrouping.clear();
+    this.autoGrouped.clear();
+    this.applyNumberFormatToTable(false);
     // User-run checks reference filter bits that reset with the data.
     this.dqUserChecks = [];
     this.freshnessRule = null;
@@ -2870,6 +2874,7 @@ export class App {
     this.table.setCount(this.resultCount);
     this.table.setFormats(this.displayFormats);
     this.table.setGrouping(this.displayGrouping);
+    this.table.setLocaleNumbers(readSettings().numberFormat !== "");
     this.table.setShowChanges(this.showChanges);
     this.syncColumnQa();
     this.syncPendingDeletes();
@@ -6679,9 +6684,35 @@ export class App {
   }
 
   /** A setting changed in the panel: what already loaded says what it will take to apply it. */
+  /**
+   * The Settings number format reaches the table: number columns are written in it, and columns with big values (10,000 and up, so
+   * years and small codes stay as they are) get thousands separators unless the person turned them off. With no format chosen the
+   * table is left as it was, separators off unless asked for.
+   */
+  private applyNumberFormatToTable(repaint: boolean): void {
+    const chosen = readSettings().numberFormat !== "";
+    for (const column of this.autoGrouped) this.displayGrouping.delete(column);
+    this.autoGrouped.clear();
+    if (chosen) {
+      this.metas.forEach((meta, column) => {
+        if (meta.type !== "integer" && meta.type !== "number") return;
+        if (meta.role === "provenance" || this.displayGrouping.has(column)) return;
+        const big = Math.max(Math.abs(meta.stats.min ?? 0), Math.abs(meta.stats.max ?? 0));
+        if (big < 10_000) return;
+        this.displayGrouping.add(column);
+        this.autoGrouped.add(column);
+      });
+    }
+    if (repaint && this.table !== null) {
+      this.table.setLocaleNumbers(chosen);
+      this.table.setGrouping(this.displayGrouping);
+    }
+  }
+
   private onSettingChanged(key: "dateOrder" | "weekStart" | "holidays" | "numberFormat"): void {
     this.overview?.refreshNextSteps();
     if (key === "numberFormat") {
+      this.applyNumberFormatToTable(true);
       this.setAction("Number format saved. Numbers on screen are redrawn as they change; open a panel again to see it there.");
       window.dispatchEvent(new Event("resize"));
     }

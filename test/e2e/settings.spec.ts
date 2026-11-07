@@ -56,3 +56,27 @@ test("the number format setting changes the thousands and decimal marks everywhe
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("turbofuzz.settings") ?? "{}"));
   expect(stored.numberFormat).toBe("de-DE");
 });
+
+test("with a number format chosen, big numbers in the table get its thousands separators, and years and small numbers do not", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.getByRole("button", { name: /Settings/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await dialog.locator("#setting-numberFormat").selectOption("en-US");
+  await dialog.getByRole("button", { name: "Done" }).click();
+  const rows = ["year,attendance,score,ratio"];
+  for (let i = 0; i < 30; i++) rows.push(`${2000 + i},${19187 + ((i * 7919) % 13) * 311}.0,${90 + (i % 9)},${(i * 1.25).toFixed(2)}`);
+  await page.locator('input[type="file"]').setInputFiles({ name: "att.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await page.getByRole("tab", { name: "Table" }).click();
+  const first = page.locator(".table-rows .tr").first();
+  await expect(first).toContainText("19,187");
+  await expect(first).toContainText("2000");
+  await expect(first).not.toContainText("2,000");
+  // Switching the format redraws the same cells.
+  await page.getByRole("button", { name: /Settings/ }).click();
+  await dialog.locator("#setting-numberFormat").selectOption("de-DE");
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await expect(first).toContainText("19.187");
+  await expect(page.locator(".table-rows .tr").nth(1)).toContainText("1,25");
+});

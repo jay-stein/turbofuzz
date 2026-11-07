@@ -167,8 +167,17 @@ export class ResultTable {
   private highlights: HighlightRule[] = [];
   /** Per-column fixed decimal display formats (display only, not the data). */
   private formats = new Map<number, number>();
+  /** Whether the Settings number format applies to the cells (it is chosen), repainting the rows when that changes. */
+  setLocaleNumbers(on: boolean): void {
+    if (this.localeNumbers === on) return;
+    this.localeNumbers = on;
+    this.repaintRows();
+  }
+
   /** Per-column thousands-separator display (display only, not the data). */
   private grouping = new Set<number>();
+  /** A number format is chosen in Settings: number columns are written in it, decimal mark included, not as the file spelled them. */
+  private localeNumbers = false;
   private columnQa = new Set<string>();
   private pendingRowDeletes = new Set<number>();
   private pendingColumnDeletes = new Set<number>();
@@ -1506,7 +1515,7 @@ export class ResultTable {
           maximumFractionDigits: 0,
         });
       }
-    } else if (numericType === "number" && (decimals !== undefined || grouped)) {
+    } else if (numericType === "number" && (decimals !== undefined || grouped || this.localeNumbers)) {
       const parsed = parseNumber(value);
       if (Number.isFinite(parsed)) {
         display =
