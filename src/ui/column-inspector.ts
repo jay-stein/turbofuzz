@@ -384,7 +384,7 @@ export function openColumnInspector(
           },
         },
         {
-          label: "KNN (nearest neighbours)…",
+          label: "Fill from similar rows (k nearest neighbours)…",
           action: () => {
             close();
             callbacks.onOpenTransform({ type: "knn", column });

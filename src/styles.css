@@ -14134,7 +14134,7 @@ button.qp-tile:hover {
 .knn-listhead { display: flex; align-items: center; gap: 8px; }
 .knn-find { width: 100%; }
 .knn-list { display: flex; flex-direction: column; min-height: 130px; max-height: 240px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
-.knn-item { display: grid; grid-template-columns: 20px minmax(120px, 1.2fr) auto minmax(0, 1.6fr) 90px; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); font-size: var(--fs-sm); cursor: pointer; }
+.knn-item { display: grid; grid-template-columns: 20px minmax(120px, 1.2fr) auto minmax(0, 1.6fr) 120px; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); font-size: var(--fs-sm); cursor: pointer; }
 .knn-item:last-child { border-bottom: 0; }
 .knn-item:hover:not(.disabled) { background: var(--panel-2); }
 .knn-item.disabled { color: var(--text-faint, var(--text-dim)); cursor: not-allowed; opacity: 0.6; }
@@ -14154,8 +14154,17 @@ button.qp-tile:hover {
 .knn-kbar { flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; gap: 3px; padding: 0; border: 0; background: transparent; cursor: pointer; font: inherit; color: var(--text-dim); }
 .knn-kfill { display: block; border-radius: 3px 3px 0 0; background: var(--border); }
 .knn-kbar:hover .knn-kfill { background: var(--text-dim); }
-.knn-kbar.best .knn-kfill { background: var(--ok); }
-.knn-kbar.on .knn-kfill { background: var(--ts-forecast, var(--accent)); }
+/* One colour family for the bars: the bar in use is solid, the best in the test is outlined. Words above the bars say which is which. */
+.knn-kbar.best .knn-kfill { outline: 2px solid var(--text); outline-offset: -2px; }
+.knn-kbar.on .knn-kfill { background: var(--accent); }
+.knn-kflag { min-height: 12px; margin-bottom: auto; font-size: 10px; font-weight: 700; text-align: center; color: var(--text); white-space: nowrap; }
+.knn-kholder { display: flex; flex-direction: column; gap: 4px; }
+.knn-kaxis { font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.03em; color: var(--text-dim); }
+.knn-listcols { cursor: default; position: sticky; top: 0; background: var(--panel); font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.04em; color: var(--text-dim); text-transform: uppercase; }
+.knn-listcols:hover { background: var(--panel); }
+.knn-listcols-wide { grid-column: 3 / span 2; }
+.knn-listcols-bar { grid-column: 5; white-space: normal; line-height: 1.15; text-transform: none; letter-spacing: 0; font-weight: 500; }
+.knn-step3 { margin-top: 2px; }
 .knn-kbar.plain { cursor: default; flex-basis: 0; flex-grow: 1.6; margin-left: 10px; }
 .knn-kbar.plain .knn-kfill { background: var(--text-dim); opacity: 0.45; }
 .knn-kbar.plain .knn-klabel { font-family: inherit; }

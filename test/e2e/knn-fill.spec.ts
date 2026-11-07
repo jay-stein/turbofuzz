@@ -20,7 +20,7 @@ test("KNN fill: choose columns with the column itself greyed out, test k, previe
   await page.getByRole("tab", { name: "Table" }).click();
   // The fill menu on the empty-cells chip offers it.
   await page.locator('button[title^="Fill the empty cells in one click"]').click();
-  await page.getByRole("menuitem", { name: /Fill from similar rows \(KNN\)/ }).or(page.locator(".context-item", { hasText: /Fill from similar rows \(KNN\)/ })).first().click();
+  await page.getByRole("menuitem", { name: /Fill from similar rows/ }).or(page.locator(".context-item", { hasText: /Fill from similar rows/ })).first().click();
 
   const dialog = page.getByRole("dialog", { name: "Fill empty cells from similar rows" });
   await expect(dialog).toBeVisible();
@@ -38,7 +38,9 @@ test("KNN fill: choose columns with the column itself greyed out, test k, previe
   // The fill is tested on values it was not shown, and a k is suggested.
   await expect(dialog.locator(".knn-verdict")).toContainText(/Tested by hiding \d+ known values/);
   await expect(dialog.locator(".knn-verdict")).toContainText(/a clear gain/);
-  await expect(dialog.locator(".knn-khint")).toContainText(/Best in the test: \d+/);
+  await expect(dialog.locator(".knn-khint")).toContainText(/best in the test|does best/);
+  await expect(dialog.locator(".knn-kaxis")).toContainText(/better/);
+  await expect(dialog.locator(".knn-kflag", { hasText: /in use/ }).first()).toBeVisible();
   await expect(dialog.locator(".knn-kbar")).not.toHaveCount(0);
   await expect(dialog.locator(".knn-sample tbody tr")).not.toHaveCount(0);
 
@@ -75,7 +77,7 @@ test("a KNN fill adds to the Recipe: earlier steps stay, kept as part of the dat
 
   await page.getByRole("tab", { name: "Table" }).click();
   await page.locator('button[title^="Fill the empty cells in one click"]').click();
-  await page.locator(".context-item", { hasText: /Fill from similar rows \(KNN\)/ }).first().click();
+  await page.locator(".context-item", { hasText: /Fill from similar rows/ }).first().click();
   const dialog = page.getByRole("dialog", { name: "Fill empty cells from similar rows" });
   await expect(dialog.locator(".knn-verdict")).toContainText(/Tested by hiding/);
   await dialog.getByRole("button", { name: /^Fill \d+ cells/ }).click();

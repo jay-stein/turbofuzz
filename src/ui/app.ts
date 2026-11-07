@@ -6754,7 +6754,7 @@ export class App {
     const knnTarget = ranked.find((entry) => entry.meta.type !== "identifier" && entry.meta.type !== "date" && entry.meta.type !== "datetime");
     if (knnTarget !== undefined) {
       items.push({
-        label: `Fill from similar rows (KNN)${ranked.length > 1 ? "…" : ` — “${knnTarget.meta.name}”…`}`,
+        label: `Fill from similar rows (k nearest neighbours)${ranked.length > 1 ? "…" : ` — “${knnTarget.meta.name}”…`}`,
         title: "Fill empty cells from the most similar rows, on columns you choose, with a test of how well it does",
         action: () => void this.openKnnFill(knnTarget.index),
       });
@@ -7297,7 +7297,7 @@ export class App {
     addItem("Round…", () => this.openTransform({ type: "round", column }));
     addItem("Group by & aggregate…", () => this.openTransform({ type: "groupBy", column }));
     addItem("Fill missing values…", () => this.openTransform({ type: "impute", column }));
-    addItem("KNN impute…", () => this.openTransform({ type: "knn", column }));
+    addItem("Fill from similar rows (k nearest neighbours)…", () => this.openTransform({ type: "knn", column }));
     addItem("Melt (wide → long)…", () => this.openTransform({ type: "melt", column }));
     addItem("Combine date/time columns…", () =>
       this.openTransform({ type: "combineDate", column }),

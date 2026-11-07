@@ -82,7 +82,7 @@ function kChart(evaluation: KnnEvaluation, selected: number, onPick: (k: number)
       ? worst > 0 ? entry.score / worst : 0
       : entry.score;
     const bar = el("button", {
-      class: `knn-kbar${entry.k === selected ? " on" : ""}${entry.score === bestScore ? " best" : ""}`,
+      class: `knn-kbar${entry.k === selected ? " on" : ""}${entry.k === evaluation.bestK ? " best" : ""}`,
       type: "button",
       title: lowerIsBetter
         ? `k = ${entry.k}: typically off by ${Number(entry.score.toPrecision(3)).toLocaleString()}`
@@ -90,16 +90,24 @@ function kChart(evaluation: KnnEvaluation, selected: number, onPick: (k: number)
     });
     const column = el("span", { class: "knn-kfill" });
     column.style.height = `${Math.max(6, Math.min(100, height * 100)).toFixed(0)}%`;
-    bar.append(column, el("span", { class: "knn-klabel" }, [String(entry.k)]));
+    // Words, not colours, say which bar is which: "best" is the best in the test, "in use" is what will be filled with.
+    const best = entry.k === evaluation.bestK, inUse = entry.k === selected;
+    const flag = el("span", { class: "knn-kflag" }, [best && inUse ? "best · in use" : best ? "best" : inUse ? "in use" : ""]);
+    bar.append(flag, column, el("span", { class: "knn-klabel" }, [String(entry.k)]));
     bar.addEventListener("click", () => onPick(entry.k));
     wrap.append(bar);
   }
   const plain = el("span", { class: "knn-kbar plain", title: `${evaluation.baseline.name}: ${lowerIsBetter ? `typically off by ${Number(evaluation.baseline.score.toPrecision(3)).toLocaleString()}` : `right ${Math.round(evaluation.baseline.score * 100)}% of the time`}` });
   const plainFill = el("span", { class: "knn-kfill" });
   plainFill.style.height = `${Math.max(6, Math.min(100, (lowerIsBetter ? (worst > 0 ? evaluation.baseline.score / worst : 0) : evaluation.baseline.score) * 100)).toFixed(0)}%`;
-  plain.append(plainFill, el("span", { class: "knn-klabel" }, [lowerIsBetter ? "median" : "most common"]));
+  plain.append(el("span", { class: "knn-kflag" }, ["plain fill"]), plainFill, el("span", { class: "knn-klabel" }, [lowerIsBetter ? "median" : "most common"]));
   wrap.append(plain);
-  return wrap;
+  const holder = el("div", { class: "knn-kholder" });
+  holder.append(
+    el("div", { class: "knn-kaxis" }, [lowerIsBetter ? "Typical error: a shorter bar is better" : "How often it was right: a taller bar is better"]),
+    wrap,
+  );
+  return holder;
 }
 
 /**
@@ -113,7 +121,7 @@ export function openKnnDialog(options: KnnDialogOptions): Promise<KnnChoice | nu
     const overlay = el("div", { class: "modal-overlay" });
     const modal = el("div", { class: "modal knn-modal" });
     const head = el("div", { class: "modal-head" });
-    const title = el("h2", {}, ["Fill empty cells from similar rows"]);
+    const title = el("h2", {}, ["Fill empty cells from similar rows (k nearest neighbours)"]);
     const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close" }, ["×"]);
     head.append(title, closeButton);
     modal.append(head);
@@ -131,14 +139,19 @@ export function openKnnDialog(options: KnnDialogOptions): Promise<KnnChoice | nu
     );
 
     const listHead = el("div", { class: "knn-listhead" }, [
-      el("span", { class: "clean-label" }, ["Columns that describe a similar row"]),
+      el("span", { class: "clean-label" }, ["1 · Which columns describe a similar row?"]),
     ]);
     const find = el("input", { class: "text-input knn-find", type: "search", placeholder: "Find a column…", "aria-label": "Find a column", spellcheck: "false" }) as HTMLInputElement;
     const recommend = el("button", { class: "ghost small", type: "button", title: "Tick the columns that go most strongly with the one being filled" }, ["Use recommended"]);
     const none = el("button", { class: "ghost small", type: "button" }, ["Clear"]);
     listHead.append(el("span", { class: "grow" }), recommend, none);
     const list = el("div", { class: "knn-list", role: "group", "aria-label": "Columns that describe a similar row" });
-    body.append(listHead, find, list);
+    // The columns of the list named once, so the bar is not a mystery: it is how closely that column goes with the one being filled.
+    const listCols = el("div", { class: "knn-item knn-listcols", "aria-hidden": "true" }, [
+      el("span"), el("span", {}, ["Column"]), el("span", { class: "knn-listcols-wide" }, ["Kind · strength"]),
+      el("span", { class: "knn-listcols-bar" }, ["How closely it goes with the column being filled"]),
+    ]);
+    body.append(listHead, find, listCols, list);
     body.append(
       el("p", { class: "clean-hint knn-note" }, [
         "Two rows count as similar when they are close on the ticked columns. Fill from a few columns that really go with the one being filled: unrelated ones only add noise.",
@@ -148,11 +161,25 @@ export function openKnnDialog(options: KnnDialogOptions): Promise<KnnChoice | nu
     const kRow = el("div", { class: "knn-krow" });
     const kInput = el("input", { class: "text-input knn-k", type: "number", min: "1", max: "100", value: "5", "aria-label": "Number of neighbours" }) as HTMLInputElement;
     const kHint = el("span", { class: "knn-khint" });
-    kRow.append(el("span", { class: "clean-label" }, ["Neighbours (k)"]), kInput, kHint);
+    const useBest = el("button", { class: "ghost small hidden", type: "button" }, ["Use the best"]);
+    useBest.addEventListener("click", () => {
+      if (evaluation === null) return;
+      kInput.value = String(evaluation.bestK);
+      kTouched = true;
+      renderVerdict();
+      scheduleEvaluate(true);
+    });
+    kRow.append(
+      el("span", { class: "clean-label", title: "k is the number of most similar rows each empty cell borrows from" }, ["2 · How many similar rows to copy from? (k)"]),
+      kInput,
+      kHint,
+      useBest,
+    );
     const chart = el("div", { class: "knn-chartbox" });
     body.append(kRow, chart);
 
     const verdict = el("div", { class: "knn-verdict", role: "status", "aria-live": "polite" });
+    body.append(el("span", { class: "clean-label knn-step3" }, ["3 · How well did it do on values it was not shown?"]));
     const preview = el("div", { class: "knn-preview" });
     body.append(verdict, preview);
     modal.append(body);
@@ -221,6 +248,7 @@ export function openKnnDialog(options: KnnDialogOptions): Promise<KnnChoice | nu
       if (ticked.size === 0) {
         verdict.textContent = "Tick at least one column to measure similarity.";
         kHint.textContent = "";
+        useBest.classList.add("hidden");
         return;
       }
       if (busy) {
@@ -236,12 +264,14 @@ export function openKnnDialog(options: KnnDialogOptions): Promise<KnnChoice | nu
       verdict.classList.add(sentence.tone);
       verdict.textContent = sentence.text;
       if (evaluation.thin) verdict.append(el("div", { class: "knn-thin" }, ["Few rows are available to test with, so treat this as a rough guide."]));
-      kHint.textContent = `Best in the test: ${evaluation.bestK}${k === evaluation.bestK ? " (in use)" : ""}`;
+      kHint.textContent = k === evaluation.bestK ? `${k} is the best in the test, and it is in use` : `${k} in use; the test found ${evaluation.bestK} does best`;
+      useBest.classList.toggle("hidden", k === evaluation.bestK);
+      useBest.textContent = `Use ${evaluation.bestK}`;
       chart.append(
         el("div", { class: "clean-hint" }, [
           evaluation.kind === "number"
-            ? "Typical error for each k, shorter is better; the grey bar is the error of just using the median. A small k copies a few lookalikes (noisy); a large one averages many (smooth, but blurs real differences). Click a bar to use it."
-            : "How often the fill was right for each k, taller is better; the grey bar is always choosing the most common value. Click a bar to use it.",
+            ? "Each bar is a different k, tested by hiding known values and filling them back. The bar on the right is the plain fill (the median) to beat. A small k copies a few lookalikes and is noisy; a large k averages many and blurs real differences. Click a bar to use that k."
+            : "Each bar is a different k, tested by hiding known values and filling them back. The bar on the right is always choosing the most common value, the plain fill to beat. Click a bar to use that k.",
         ]),
         kChart(evaluation, k, (value) => {
           kInput.value = String(value);
@@ -323,7 +353,7 @@ export function openKnnDialog(options: KnnDialogOptions): Promise<KnnChoice | nu
       scores = plan?.scores ?? [];
       missing = plan?.missing ?? 0;
       const pct = options.total > 0 ? Math.round((missing / options.total) * 100) : 0;
-      intro.textContent = `${n(missing)} empty cell${missing === 1 ? "" : "s"} in “${targetName()}” (${pct}% of ${n(options.total)} rows). Each is filled from the most similar rows that have a value, so a house with two bedrooms and a small block borrows from other houses like it, not from every house.`;
+      intro.textContent = `${n(missing)} empty cell${missing === 1 ? "" : "s"} in “${targetName()}” (${pct}% of ${n(options.total)} rows). Each is filled from the k nearest neighbours: the k rows most like it on the columns you tick below, so a house with two bedrooms and a small block borrows from other houses like it, not from every house. Three steps: pick the columns, pick k, check the test.`;
       for (const index of recommendedPredictors(scores)) ticked.add(index);
       busy = false;
       renderList();
@@ -380,7 +410,7 @@ export function openKnnDialog(options: KnnDialogOptions): Promise<KnnChoice | nu
     document.addEventListener("keydown", onKey);
     overlay.append(modal);
     document.body.append(overlay);
-    setupDialog(overlay, "Fill empty cells from similar rows");
+    setupDialog(overlay, "Fill empty cells from similar rows (k nearest neighbours)");
     void loadTarget();
   });
 }
