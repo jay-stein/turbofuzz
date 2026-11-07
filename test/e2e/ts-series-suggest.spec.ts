@@ -56,3 +56,21 @@ test("All N… opens a searchable list of every value", async ({ page }) => {
   expect(visible.length).toBeGreaterThan(0);
   expect(visible.every((t) => t.toLowerCase().includes("w 33 st"))).toBe(true);
 });
+
+test("the mixed-series notice is full size on Explore and a slim line on the other tabs, which opens it", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "2014-02 - Citi Bike trip data.csv", mimeType: "text/csv", buffer: Buffer.from(trips()) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator('.mode-switch-option[data-mode="research"]').click();
+  await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
+  const banner = page.locator(".ts-page [data-ref=mixed]");
+  await expect(banner).toContainText("Several series in one line", { timeout: 20_000 });
+  await expect(banner).not.toHaveClass(/ts-mixed-slim/);
+  await page.locator(".ts-modes [data-mode=forecast]").click();
+  await expect(banner).toHaveClass(/ts-mixed-slim/);
+  await banner.getByRole("button", { name: "Choose one…" }).click();
+  await expect(banner).not.toHaveClass(/ts-mixed-slim/);
+  await expect(banner.locator("button[data-mixed=pick]").first()).toBeVisible();
+});

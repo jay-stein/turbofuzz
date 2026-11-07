@@ -35,7 +35,7 @@ export const MODEL_INFO: Readonly<Record<ModelKey, { name: string; meth: string 
   ens: { name: "Blend with regression", meth: "Average of best smoothing, steady trend and the trend, seasons and drivers model" },
   comb: { name: "Combination", meth: "Average of best smoothing, steady trend and smooth and damp (forecast combination, fpp3 13.4); with no season, best smoothing and smooth and damp" },
   naive: { name: "Repeat last value", meth: "Naive" },
-  drift: { name: "Straight line on", meth: "Drift: the line through the first and last points, extended" },
+  drift: { name: "Drift", meth: "Drift: the line through the first and last points, extended" },
   mean: { name: "Overall average", meth: "Mean of the whole history" },
   ses: { name: "Simple smoothing", meth: "Simple exponential smoothing" },
   croston: { name: "Croston", meth: "Croston's method for intermittent demand" },

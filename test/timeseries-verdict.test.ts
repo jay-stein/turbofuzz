@@ -48,9 +48,9 @@ test("winning most tests is part of it: two thirds, or all of them when there ar
 });
 
 test("a simple method that did better on data it never saw is named, and the model is at most use-with-care", () => {
-  const v = trustVerdict({ ...base, lockRank: 3, beatenBy: ["Repeat last value", "Straight line on"] });
+  const v = trustVerdict({ ...base, lockRank: 3, beatenBy: ["Repeat last value", "Drift"] });
   assert.equal(v.level, "middling");
-  assert.match(v.answers[0]!.text, /^Repeat last value and Straight line on did better on data it never saw, so a simple method is hard to beat here/);
+  assert.match(v.answers[0]!.text, /^Repeat last value and Drift did better on data it never saw, so a simple method is hard to beat here/);
   assert.equal(trustVerdict({ ...base, beatenBy: [] }).level, "holds");
   // The benchmark itself is never told it was beaten by a benchmark.
   assert.equal(trustVerdict({ ...base, baseline: true, beatenBy: ["Overall average"] }).level, "baseline");

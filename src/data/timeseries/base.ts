@@ -84,7 +84,7 @@ export const GRAINS: Readonly<Record<GrainId, Grain>> = {
   min30: minuteGrain("min30", 30, "30-minute", "half-hour", "half-hours"),
   hour: minuteGrain("hour", 60, "Hourly", "hour", "hours"),
   day: {
-    id: "day", unit: "day", n: 1, days: 1, adj: "Daily", noun: "day", nouns: "days", perYear: 365.25, horizon: 42,
+    id: "day", unit: "day", n: 1, days: 1, adj: "Daily", noun: "day", nouns: "days", perYear: 365.25, horizon: 91,
     hPresets: [["1 month", 30], ["3 months", 91], ["6 months", 182], ["1 year", 365], ["2 years", 730]],
     periods: [7, 365], decPeriods: [7, 365.25], seasons: { 7: "weekly", 365: "yearly", 365.25: "yearly" }, smooth: 7, smoothMax: 60, ly: 364, ctx: 365.25, ...YEARLY,
   },

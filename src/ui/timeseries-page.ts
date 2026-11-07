@@ -430,7 +430,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const M = models();
     if (!M) return fullView();
     const T = times();
-    const back = Math.round(Math.max(M.H * 2.5, g().ctx * 1.5));
+    // About five horizons of history before the split: a forecast is a visible part of the picture, not a sliver at its edge.
+    const back = Math.round(Math.max(M.H * 2.5, Math.min(g().ctx * 1.5, M.H * 5)));
     return [T[Math.max(0, M.T - back)], T[M.T + M.H - 1] + (T[1] - T[0]) * 2];
   }
 
@@ -1198,6 +1199,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     box.dataset.value = hit.value;
     box.dataset.sentinelCol = String(col);
   }
+  /** Mixed-series notices opened to full size on a tab other than Explore (they start as a slim line there). */
+  const mixedOpen = new Set<string>();
   function renderMixed(): boolean {
     const box = ref("mixed");
     const s = snap, c = cfg;
@@ -1236,7 +1239,12 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     const alt = !key && sug && others ? `<p class="ts-mixed-alt">Or pick by ${others}</p>` : "";
     if (c.agg === "sum") acts.push(`<button type="button" data-mixed="mean">Average them instead</button>`);
     acts.push(`<button type="button" data-mixed="keep">Keep the ${escapeHtml(c.agg === "twmean" ? "time-weighted mean" : c.agg)}</button>`);
-    box.innerHTML = `<div class="ts-mixed-icon" aria-hidden="true">!</div><div class="ts-mixed-body"><b class="ts-mixed-title">Several series in one line</b><p>${lead}${tail}</p><div class="ts-mixed-acts">${acts.join("")}</div>${alt}</div>`;
+    // The full notice is shown where the series is read (Explore); on the other tabs it is a slim line that opens it.
+    const slim = ui.mode !== "explore" && !mixedOpen.has(keepKey);
+    box.classList.toggle("ts-mixed-slim", slim);
+    box.innerHTML = slim
+      ? `<div class="ts-mixed-icon" aria-hidden="true">!</div><div class="ts-mixed-body"><b class="ts-mixed-title">Several series in one line</b> <button type="button" class="ts-link" data-mixed="expand">Choose one…</button></div>`
+      : `<div class="ts-mixed-icon" aria-hidden="true">!</div><div class="ts-mixed-body"><b class="ts-mixed-title">Several series in one line</b><p>${lead}${tail}</p><div class="ts-mixed-acts">${acts.join("")}</div>${alt}</div>`;
     box.dataset.keep = keepKey;
     box.hidden = false;
     return true;
@@ -1245,6 +1253,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
   function frequencyCell(): [string, string][] {
     const sp = shape?.spacing;
     if (!sp) return [];
+    // "Irregular, usually every 2 hours" is noise on a daily view: it only matters when the view is as fine as the data.
+    if (sp.kind === "irregular" && snap && snap.A.g.days >= 2 * (sp.typicalMs / DAY)) return [];
     const every = cadenceText(sp.typicalMs / DAY);
     const lo = cadenceText(sp.p10Ms / DAY), hi = cadenceText(sp.p90Ms / DAY);
     // "26 to 34 minutes", not "26 minutes to 34 minutes".
@@ -2462,7 +2472,8 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
         const col = Number(mixedAct.dataset.col);
         if (col !== groupColumn) { groupColumn = col; cfg = { ...cfg, group: 0 }; fetchSeries(); }
         else change({ group: 0 });
-      } else if (what === "pick") pickSeries(Number(mixedAct.dataset.col), mixedAct.dataset.label ?? "");
+      } else if (what === "expand") { mixedOpen.add(ref("mixed").dataset.keep ?? ""); renderUI(); }
+      else if (what === "pick") pickSeries(Number(mixedAct.dataset.col), mixedAct.dataset.label ?? "");
       else if (what === "more") openSeriesPicker(Number(mixedAct.dataset.col));
       else if (what === "mean") change({ agg: "mean" });
       else if (what === "keep") {
