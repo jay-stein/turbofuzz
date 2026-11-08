@@ -36,6 +36,8 @@ interface Column {
   nameA: string;
   nameB: string;
   width: number;
+  /** Left out of the comparison: shown greyed and struck through, never marked as changed. */
+  ignored?: boolean;
 }
 
 function widthFor(name: string): number {
@@ -257,6 +259,22 @@ export class SideBySide {
         const name = setup.b.columns[column]?.name ?? "";
         columns.push({ a: -1, b: pairs.length + i, pair: -1, nameA: "", nameB: name, width: widthFor(name) });
       });
+      // Ignored columns stay in view (after the others, in the order the window holds them), but are not compared.
+      let ignoredA = pairs.length + setup.pairing.onlyA.length;
+      let ignoredB = pairs.length + setup.pairing.onlyB.length;
+      for (const entry of setup.pairing.ignored) {
+        const nameA = entry.a < 0 ? "" : setup.a.columns[entry.a]?.name ?? "";
+        const nameB = entry.b < 0 ? "" : setup.b.columns[entry.b]?.name ?? "";
+        columns.push({
+          a: entry.a < 0 ? -1 : ignoredA++,
+          b: entry.b < 0 ? -1 : ignoredB++,
+          pair: -1,
+          nameA,
+          nameB,
+          width: widthFor(nameA.length > nameB.length ? nameA : nameB),
+          ignored: true,
+        });
+      }
     }
     return columns;
   }
@@ -286,7 +304,11 @@ export class SideBySide {
         const template = `34px ${cols.map((column) => `${column.width}px`).join(" ")}`;
         const head = el("div", { class: "cmp-grid-head", style: `grid-template-columns: ${template}` }, [
           el("span", {}),
-          ...cols.map((column) => el("span", { title: side === "a" ? column.nameA : column.nameB }, [side === "a" ? column.nameA : column.nameB])),
+          ...cols.map((column) =>
+            el("span", { class: column.ignored === true ? "cmp-ignored-col" : "", title: (side === "a" ? column.nameA : column.nameB) + (column.ignored === true ? " (ignored: not compared)" : "") }, [
+              side === "a" ? column.nameA : column.nameB,
+            ]),
+          ),
         ]);
         const body = el("div", { class: "cmp-grid-body" });
         body.dataset.template = template;
@@ -323,9 +345,13 @@ export class SideBySide {
         ...columns.map((column) => {
           const name = column.b >= 0 ? column.nameB : column.nameA;
           const renamed = column.pair >= 0 && column.nameA !== column.nameB;
-          return el("span", { title: renamed ? `${column.nameA} → ${column.nameB}` : name }, [
+          return el("span", { class: column.ignored === true ? "cmp-ignored-col" : "", title: (renamed ? `${column.nameA} → ${column.nameB}` : name) + (column.ignored === true ? " (ignored: not compared)" : "") }, [
             name,
-            column.pair < 0 ? el("span", { class: "cmp-head-tag" }, [column.a >= 0 ? " A only" : " B only"]) : "",
+            column.ignored === true
+              ? el("span", { class: "cmp-head-tag" }, [" ignored"])
+              : column.pair < 0
+                ? el("span", { class: "cmp-head-tag" }, [column.a >= 0 ? " A only" : " B only"])
+                : "",
           ]);
         }),
       ]);
@@ -418,7 +444,7 @@ export class SideBySide {
         const cellIndex = side === "a" ? column.a : column.b;
         const value = cells === null ? "" : cells[cellIndex] ?? "";
         const diff = cells !== null && column.pair >= 0 && block.changed[at * pairs + column.pair] === 1;
-        row.append(el("span", { class: `cmp-cell${diff ? " diff" : ""}${value === "" ? " blank" : ""}`, title: value }, [value]));
+        row.append(el("span", { class: `cmp-cell${diff ? " diff" : ""}${value === "" ? " blank" : ""}${column.ignored === true ? " ignored" : ""}`, title: value }, [value]));
       }
       fragment.append(row);
     }
@@ -443,7 +469,7 @@ export class SideBySide {
         const newValue = b !== null && column.b >= 0 ? b[column.b] ?? "" : null;
         const oldValue = a !== null && column.a >= 0 ? a[column.a] ?? "" : null;
         const diff = column.pair >= 0 && block.changed[at * pairs + column.pair] === 1;
-        const cell = el("span", { class: `cmp-cell${diff ? " diff" : ""}` });
+        const cell = el("span", { class: `cmp-cell${diff ? " diff" : ""}${column.ignored === true ? " ignored" : ""}` });
         if (newValue !== null) cell.append(el("span", { class: `cmp-cell-main${newValue === "" ? " blank" : ""}`, title: newValue }, [newValue === "" && diff ? "(empty)" : newValue]));
         else if (oldValue !== null) cell.append(el("span", { class: `cmp-cell-main gone${oldValue === "" ? " blank" : ""}`, title: oldValue }, [oldValue]));
         if (diff && oldValue !== null) cell.append(el("span", { class: `cmp-cell-old${oldValue === "" ? " blank" : ""}`, title: oldValue }, [oldValue === "" ? "(empty)" : oldValue]));

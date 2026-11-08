@@ -340,12 +340,22 @@ test("columns can be ignored: a row-number column differing everywhere stops mat
   await page.getByRole("menuitem", { name: "Compare with a file…" }).click();
   await (await chooser).setFiles(file("after.csv", after));
   const mode = page.getByRole("region", { name: "Compare two datasets" });
-  await mode.getByRole("button", { name: "Ignore n", exact: true }).click();
-  await expect(mode.locator(".cmp-ignored")).toContainText("n");
-  await expect(mode.getByRole("button", { name: "Ignore n", exact: true })).toHaveCount(0);
+  // Every column starts ticked; unticking n leaves it in the list, dimmed, and ticking it again brings it back.
+  for (const name of ["n", "name", "amount"]) await expect(mode.getByRole("checkbox", { name: `Compare ${name}`, exact: true })).toBeChecked();
+  await mode.getByRole("checkbox", { name: "Compare n", exact: true }).uncheck();
+  await expect(mode.getByRole("checkbox", { name: "Compare n", exact: true })).not.toBeChecked();
+  await expect(mode.getByRole("checkbox", { name: "Compare name", exact: true })).toBeChecked();
+  await expect(mode.getByRole("checkbox", { name: "Compare amount", exact: true })).toBeChecked();
+  await expect(mode.locator(".cmp-off")).toContainText("Not compared");
   // With n left out the rows agree, and the report says what was ignored.
   await mode.getByRole("button", { name: "Compare", exact: true }).click();
   await expect(mode.getByRole("heading", { name: "What changed" })).toBeVisible();
   await expect(mode.locator(".cmp-change-name")).toHaveCount(0);
   await expect(mode.locator(".cmp-schema-row")).toHaveText(["Ignoredn"]);
+  // Side by side still shows n, greyed and struck through, and never as a change.
+  await mode.getByRole("button", { name: "Side by side" }).click();
+  await mode.getByRole("button", { name: /^All/ }).click();
+  await expect(mode.locator(".cmp-ignored-col").first()).toHaveText(/^n/);
+  await expect(mode.locator(".cmp-cell.ignored").first()).toHaveCSS("text-decoration-line", "line-through");
+  await expect(mode.locator(".cmp-cell.diff")).toHaveCount(0);
 });

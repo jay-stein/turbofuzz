@@ -8,7 +8,7 @@ Record shipped or attempted UX changes and what was verified.
 
 - **Status:** Verified (unit, e2e with axe)
 - **Related issue / decision:** owner: some columns (a first column that looks like an id but is only a row number) must be left out of a comparison.
-- **What changed:** every row in the setup's Columns table has an Ignore button (paired, only in A, only in B). An ignored column is taken out as if neither side had it: not paired, not a key candidate, not compared, not counted as added or removed, and out of whole-row matching, What shifted and the side-by-side view. Ignored columns appear as chips under the table; clicking one compares it again. The report, HTML and Excel exports list them as Ignored.
+- **What changed:** every row in the setup's Columns table has a Compare tick, on for all; untick a column to leave it out. It stays in the list, dimmed, to tick again. An ignored column is taken out as if neither side had it: not paired, not a key candidate, not compared, not counted as added or removed, and out of whole-row matching and What shifted. Side by side still shows ignored columns, greyed and struck through, never marked as changed. The report, HTML and Excel exports list them as Ignored.
 - **Files / components changed:** src/data/compare/columns.ts, types.ts, report.ts; src/worker/protocol.ts, search.worker.ts; src/ui/worker-client.ts; src/ui/compare/compare-setup.ts, compare-mode.ts, compare-report.ts, compare-export.ts; src/styles.css; test/compare.test.ts, test/e2e/compare.spec.ts
 - **Decision:** Ship
 - **Date:** 2026-11-08

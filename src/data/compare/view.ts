@@ -17,7 +17,7 @@ export interface RowWindow {
   aRow: Int32Array;
   bRow: Int32Array;
   status: Uint8Array;
-  /** Cells per row: the paired columns, then the columns only that side has; null for a gap. */
+  /** Cells per row: the paired columns, the columns only that side has, then its ignored columns; null for a gap. */
   a: (string[] | null)[];
   b: (string[] | null)[];
   /** rows × pairs: 1 where that pair's cell changed. */
@@ -67,8 +67,16 @@ export function rowWindow(
   const from = Math.max(0, Math.min(start, positions.length));
   const to = Math.max(from, Math.min(end, positions.length));
   const size = to - from;
-  const aColumns = [...pairing.pairs.map((pair) => a.columns[pair.a]!), ...pairing.onlyA.map((index) => a.columns[index]!)];
-  const bColumns = [...pairing.pairs.map((pair) => b.columns[pair.b]!), ...pairing.onlyB.map((index) => b.columns[index]!)];
+  const aColumns = [
+    ...pairing.pairs.map((pair) => a.columns[pair.a]!),
+    ...pairing.onlyA.map((index) => a.columns[index]!),
+    ...pairing.ignored.filter((entry) => entry.a >= 0).map((entry) => a.columns[entry.a]!),
+  ];
+  const bColumns = [
+    ...pairing.pairs.map((pair) => b.columns[pair.b]!),
+    ...pairing.onlyB.map((index) => b.columns[index]!),
+    ...pairing.ignored.filter((entry) => entry.b >= 0).map((entry) => b.columns[entry.b]!),
+  ];
   const pairs = pairing.pairs.length;
   const window: RowWindow = {
     start: from,

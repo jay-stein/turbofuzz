@@ -193,27 +193,20 @@ function keySection(state: SetupState, setup: CompareSetupMessage, actions: Setu
   return box;
 }
 
-/** "Columns": each pair, renames made by hand, and the columns only one side has. */
+/** "Columns": each column with a tick for whether it is compared, renames made by hand, and the columns only one side has. */
 function columnSection(state: SetupState, setup: CompareSetupMessage, actions: SetupActions): HTMLElement {
   const { pairing } = setup;
   const manualCount = pairing.pairs.filter((pair) => pair.manual).length;
   const box = section(
     "Columns",
-    `${pairing.pairs.length - manualCount} paired by name${manualCount > 0 ? ` · ${manualCount} by hand` : ""}${pairing.onlyA.length > 0 ? ` · ${pairing.onlyA.length} only in A` : ""}${pairing.onlyB.length > 0 ? ` · ${pairing.onlyB.length} only in B` : ""}`,
+    `${pairing.pairs.length - manualCount} paired by name${manualCount > 0 ? ` · ${manualCount} by hand` : ""}${pairing.onlyA.length > 0 ? ` · ${pairing.onlyA.length} only in A` : ""}${pairing.onlyB.length > 0 ? ` · ${pairing.onlyB.length} only in B` : ""}${pairing.ignored.length > 0 ? ` · ${pairing.ignored.length} not compared` : ""}`,
   );
-  /** An Ignore button for a row: leaves its column (both sides of a pair) out of the comparison. */
-  const ignoreButton = (a: number, b: number, name: string): HTMLElement => {
-    const button = el("button", { class: "link", type: "button", "aria-label": "Ignore " + name }, ["Ignore"]);
-    button.addEventListener("click", () =>
-      actions.setIgnore({ a: a < 0 ? state.ignore.a : [...state.ignore.a, a], b: b < 0 ? state.ignore.b : [...state.ignore.b, b] }),
-    );
-    return button;
-  };
   const keyPairs = new Set(state.key.kind === "pairs" ? state.key.pairs : []);
   const table = el("table", { class: "cmp-columns" });
   table.append(
     el("thead", {}, [
       el("tr", {}, [
+        el("th", { scope: "col" }, ["Compare"]),
         el("th", { scope: "col" }, ["In A"]),
         el("th", { scope: "col" }, [el("span", { class: "sr-only" }, ["Pairs with"])]),
         el("th", { scope: "col" }, ["In B"]),
@@ -226,12 +219,49 @@ function columnSection(state: SetupState, setup: CompareSetupMessage, actions: S
     const column = info.columns[index]!;
     return el("td", {}, [el("span", { class: "cmp-col" }, [typeChip(column.type), el("span", { class: "cmp-col-name" }, [column.name])])]);
   };
-  pairing.pairs.forEach((pair, index) => {
-    const a = setup.a.columns[pair.a]!;
-    const b = setup.b.columns[pair.b]!;
+  const dash = (): HTMLElement => el("td", { class: "cmp-dim" }, ["—"]);
+  const arrow = (text: string): HTMLElement => el("td", { class: "cmp-arrow", "aria-hidden": "true" }, [text]);
+  /** The tick that says whether a column is compared; unticking leaves it out (both sides of a pair), ticking brings it back. */
+  const compareBox = (a: number, b: number, name: string, on: boolean): HTMLElement => {
+    const input = el("input", { type: "checkbox", "aria-label": `Compare ${name}` }) as HTMLInputElement;
+    input.checked = on;
+    input.addEventListener("change", () => {
+      const without = (list: number[], index: number): number[] => list.filter((i) => i !== index);
+      actions.setIgnore(
+        input.checked
+          ? { a: without(state.ignore.a, a), b: without(state.ignore.b, b) }
+          : { a: a < 0 ? state.ignore.a : [...state.ignore.a, a], b: b < 0 ? state.ignore.b : [...state.ignore.b, b] },
+      );
+    });
+    return el("td", { class: "cmp-tick" }, [input]);
+  };
+  const nameOf = (a: number, b: number): string => (a >= 0 ? setup.a.columns[a]!.name : setup.b.columns[b]!.name);
+
+  // Paired columns, with the ones left out kept in place (dimmed, unticked) so they can be ticked again.
+  type PairRow = { a: number; b: number; pair: number } | { a: number; b: number; pair: -1 };
+  const paired: PairRow[] = [
+    ...pairing.pairs.map((pair, index) => ({ a: pair.a, b: pair.b, pair: index })),
+    ...pairing.ignored.filter((entry) => entry.a >= 0 && entry.b >= 0).map((entry) => ({ a: entry.a, b: entry.b, pair: -1 as const })),
+  ].sort((x, y) => x.a - y.a);
+  for (const row of paired) {
+    const a = setup.a.columns[row.a]!;
+    const b = setup.b.columns[row.b]!;
+    if (row.pair < 0) {
+      body.append(
+        el("tr", { class: "cmp-off" }, [
+          compareBox(row.a, row.b, a.name, false),
+          cell(setup.a, row.a),
+          arrow("↔"),
+          cell(setup.b, row.b),
+          el("td", { class: "cmp-col-note" }, ["Not compared"]),
+        ]),
+      );
+      continue;
+    }
+    const pair = pairing.pairs[row.pair]!;
     const notes: string[] = [];
     let tone = "";
-    if (keyPairs.has(index)) {
+    if (keyPairs.has(row.pair)) {
       notes.push("Key");
       tone = "key";
     }
@@ -247,10 +277,12 @@ function columnSection(state: SetupState, setup: CompareSetupMessage, actions: S
       unpair.addEventListener("click", () => actions.setManual(state.manual.filter((m) => m.a !== pair.a || m.b !== pair.b)));
       note.append(" ", unpair);
     }
-    note.append(" ", ignoreButton(pair.a, pair.b, a.name));
-    body.append(el("tr", {}, [cell(setup.a, pair.a), el("td", { class: "cmp-arrow", "aria-hidden": "true" }, ["↔"]), cell(setup.b, pair.b), note]));
-  });
-  for (const index of pairing.onlyA) {
+    body.append(el("tr", {}, [compareBox(pair.a, pair.b, a.name, true), cell(setup.a, pair.a), arrow("↔"), cell(setup.b, pair.b), note]));
+  }
+
+  // Columns only A has, then only B has.
+  const onlyA = [...pairing.onlyA.map((index) => ({ index, on: true })), ...pairing.ignored.filter((entry) => entry.a >= 0 && entry.b < 0).map((entry) => ({ index: entry.a, on: false }))].sort((x, y) => x.index - y.index);
+  for (const { index, on } of onlyA) {
     const pick = el("select", { class: "cmp-select", "aria-label": `Pair ${setup.a.columns[index]!.name} with a column of B` }) as HTMLSelectElement;
     pick.append(el("option", { value: "" }, ["Pair with…"]) as HTMLOptionElement);
     for (const other of pairing.onlyB) pick.append(el("option", { value: String(other) }, [setup.b.columns[other]!.name]) as HTMLOptionElement);
@@ -259,40 +291,29 @@ function columnSection(state: SetupState, setup: CompareSetupMessage, actions: S
       if (pick.value !== "") actions.setManual([...state.manual, { a: index, b: Number(pick.value) }]);
     });
     body.append(
-      el("tr", { class: "only-a" }, [
+      el("tr", { class: on ? "only-a" : "only-a cmp-off" }, [
+        compareBox(index, -1, nameOf(index, -1), on),
         cell(setup.a, index),
-        el("td", { class: "cmp-arrow", "aria-hidden": "true" }, [""]),
-        el("td", {}, [pick]),
-        el("td", { class: "cmp-col-note gone" }, ["Only in A ", ignoreButton(index, -1, setup.a.columns[index]!.name)]),
+        arrow(""),
+        on ? el("td", {}, [pick]) : dash(),
+        el("td", { class: on ? "cmp-col-note gone" : "cmp-col-note" }, [on ? "Only in A" : "Only in A · not compared"]),
       ]),
     );
   }
-  for (const index of pairing.onlyB) {
+  const onlyB = [...pairing.onlyB.map((index) => ({ index, on: true })), ...pairing.ignored.filter((entry) => entry.a < 0 && entry.b >= 0).map((entry) => ({ index: entry.b, on: false }))].sort((x, y) => x.index - y.index);
+  for (const { index, on } of onlyB) {
     body.append(
-      el("tr", { class: "only-b" }, [
-        el("td", { class: "cmp-dim" }, ["—"]),
-        el("td", { class: "cmp-arrow", "aria-hidden": "true" }, [""]),
+      el("tr", { class: on ? "only-b" : "only-b cmp-off" }, [
+        compareBox(-1, index, nameOf(-1, index), on),
+        dash(),
+        arrow(""),
         cell(setup.b, index),
-        el("td", { class: "cmp-col-note added" }, ["Only in B ", ignoreButton(-1, index, setup.b.columns[index]!.name)]),
+        el("td", { class: on ? "cmp-col-note added" : "cmp-col-note" }, [on ? "Only in B" : "Only in B · not compared"]),
       ]),
     );
   }
   table.append(body);
   box.append(el("div", { class: "cmp-table-wrap" }, [table]));
-  if (pairing.ignored.length > 0) {
-    const list = el("div", { class: "cmp-ignored" }, [el("span", { class: "cmp-ignored-label" }, ["Ignored, left out of the comparison:"])]);
-    for (const entry of pairing.ignored) {
-      const a = entry.a < 0 ? "" : setup.a.columns[entry.a]!.name;
-      const b = entry.b < 0 ? "" : setup.b.columns[entry.b]!.name;
-      const name = a === "" ? `${b} (B)` : b === "" ? `${a} (A)` : a === b ? a : `${a} / ${b}`;
-      const restore = el("button", { class: "cmp-chip", type: "button", title: "Compare this column again", "aria-label": `Compare ${name} again` }, [name, " ×"]);
-      restore.addEventListener("click", () =>
-        actions.setIgnore({ a: state.ignore.a.filter((i) => i !== entry.a), b: state.ignore.b.filter((i) => i !== entry.b) }),
-      );
-      list.append(restore);
-    }
-    box.append(list);
-  }
   return box;
 }
 

@@ -16573,31 +16573,31 @@ button.cmp-change-name:hover {
   color: var(--text-dim);
 }
 
-/* Compare: columns left out of the comparison, each with a way to put it back. */
-.cmp-ignored {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 8px;
-  margin-top: 10px;
-  font-size: var(--fs-sm);
+/* Compare: a column left out of the comparison stays in the list, dimmed and unticked. */
+.cmp-tick {
+  width: 1%;
+  text-align: center;
 }
-.cmp-ignored-label {
-  color: var(--text-dim);
-}
-.cmp-chip {
-  padding: 2px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--panel);
-  color: var(--text);
-  font: inherit;
+.cmp-tick input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
   cursor: pointer;
 }
-.cmp-chip:hover {
-  border-color: var(--accent);
+.cmp-off .cmp-col,
+.cmp-off .cmp-col-note {
+  color: var(--text-dim);
+  font-style: italic;
 }
 .cmp-tag.ignored {
   background: color-mix(in srgb, var(--text-dim) 18%, transparent);
   color: var(--text);
+}
+
+/* Side by side: an ignored column stays in view, greyed and struck through, never highlighted as changed. */
+.cmp-ignored-col,
+.cmp-cell.ignored,
+.cmp-cell.ignored .cmp-cell-main {
+  color: var(--text-dim);
+  text-decoration: line-through;
 }
