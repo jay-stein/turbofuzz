@@ -93,7 +93,7 @@ function shiftRows(shift: ShiftReport): string[][] {
   });
 }
 
-/** The workbook: Summary, Changes, Only in A, Only in B and (when computed) What shifted. */
+/** The workbook: Summary, Changes, Only in A, Only in B and (when computed) Drift. */
 export async function changesWorkbook(input: ReportInput, tables: ChangeTables, shift: ShiftReport | null): Promise<Uint8Array> {
   const sheets: Sheet[] = [
     { name: "Summary", headers: ["Item", "Value"], rows: summaryRows(input, tables) },
@@ -102,7 +102,7 @@ export async function changesWorkbook(input: ReportInput, tables: ChangeTables, 
     { name: "Only in B", headers: tables.onlyB.headers, rows: tables.onlyB.rows },
   ];
   if (shift !== null) {
-    sheets.push({ name: "What shifted", headers: ["column", "kind", "shift", "measure", "A", "B"], rows: shiftRows(shift) });
+    sheets.push({ name: "Drift", headers: ["column", "kind", "shift", "measure", "A", "B"], rows: shiftRows(shift) });
   }
   return buildXlsx(sheets);
 }
@@ -146,7 +146,7 @@ export function reportHtml(input: ReportInput, shift: ShiftReport | null, create
     if (e > 0) warnings.push(`${nf.format(e)} rows in ${side} have no key, so they can't be matched.`);
   }
   if (warnings.length > 0) parts.push(`<section class="warn"><h2>Check the key before trusting the numbers</h2><ul>${warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></section>`);
-  if (key.kind === "pairs" && report.changes.length > 0) {
+  if (key.kind !== "content" && report.changes.length > 0) {
     parts.push(
       `<section><h2>Changes by column</h2>${htmlTable(
         ["Column", "Rows changed", "Share", "Most common changes"],
@@ -183,7 +183,7 @@ export function reportHtml(input: ReportInput, shift: ShiftReport | null, create
   }
   if (shift !== null) {
     parts.push(
-      `<section><h2>What shifted</h2><p class="dim">A and B compared as whole populations. Numbers: Population Stability Index and the mean difference in standard deviations; categories: Cramér's V. The verdict measures the size of a shift, not its statistical significance.</p>${htmlTable(
+      `<section><h2>Drift</h2><p class="dim">A and B compared as whole populations. Numbers: Population Stability Index and the mean difference in standard deviations; categories: Cramér's V. The verdict measures the size of a shift, not its statistical significance.</p>${htmlTable(
         ["Column", "Kind", "Shift", "Measure", "A", "B"],
         shiftRows(shift),
       )}</section>`,

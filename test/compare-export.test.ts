@@ -82,7 +82,7 @@ test("the changes workbook holds a summary, the changes, each side's own rows an
   const shift = columnShifts(A, B, input.setup.pairing, new Set([0]));
   const files = unzipSync(await changesWorkbook(input, tables, shift));
   const workbook = strFromU8(files["xl/workbook.xml"]!);
-  assert.deepEqual([...workbook.matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]), ["Summary", "Changes", "Only in A", "Only in B", "What shifted"]);
+  assert.deepEqual([...workbook.matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]), ["Summary", "Changes", "Only in A", "Only in B", "Drift"]);
   assert.match(strFromU8(files["xl/worksheets/sheet1.xml"]!), /sept orders\.csv/);
   assert.match(strFromU8(files["xl/worksheets/sheet3.xml"]!), /=SUM\(A1\)/, "a workbook cell is text, never a formula, so nothing is escaped");
   assert.equal(exportBaseName(input), "compare_sept_orders_vs_oct_orders");

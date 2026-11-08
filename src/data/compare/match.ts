@@ -22,6 +22,10 @@ import {
  * The display order follows B, with each row only in A placed just before the
  * first B row that matches a later A row, so two files in a similar order read
  * like a diff.
+ *
+ * With `byPosition`, row n of A meets row n of B (the files are taken to have
+ * the same shape, and only values change); rows past the shorter side are only
+ * in the longer one.
  */
 export function matchRows(
   a: CompareSide,
@@ -29,7 +33,18 @@ export function matchRows(
   pairing: ColumnPairing,
   keyPairs: readonly ColumnPair[] | null,
   rules: CompareRules,
+  byPosition = false,
 ): MatchResult {
+  if (byPosition) {
+    const length = Math.max(a.rowCount, b.rowCount);
+    const aRow = new Int32Array(length);
+    const bRow = new Int32Array(length);
+    for (let i = 0; i < length; i++) {
+      aRow[i] = i < a.rowCount ? i : -1;
+      bRow[i] = i < b.rowCount ? i : -1;
+    }
+    return summarise(a, b, pairing, rules, aRow, bRow, "position");
+  }
   const mode: MatchResult["mode"] = keyPairs !== null && keyPairs.length > 0 ? "key" : "content";
   const idPairs = mode === "key" ? keyPairs! : pairing.pairs;
   const aIds: Int32Array[] = [];
@@ -125,11 +140,27 @@ export function matchRows(
   flushA(a.rowCount);
   const aRow = aRowAll.slice(0, length);
   const bRow = bRowAll.slice(0, length);
+  return {
+    ...summarise(a, b, pairing, rules, aRow, bRow, mode),
+    duplicateKeys: mode === "key" ? { a: duplicateA, b: duplicateB } : { a: 0, b: 0 },
+    emptyKeys: mode === "key" ? { a: emptyA, b: emptyB } : { a: 0, b: 0 },
+  };
+}
 
-  // Cell differences for matched rows (key mode only: content matches agree by construction).
+/** Cell differences and counts for aligned rows (cells are compared except for content matches, which agree by construction). */
+function summarise(
+  a: CompareSide,
+  b: CompareSide,
+  pairing: ColumnPairing,
+  rules: CompareRules,
+  aRow: Int32Array,
+  bRow: Int32Array,
+  mode: MatchResult["mode"],
+): MatchResult {
+  const length = aRow.length;
   const changed = pairing.pairs.map(() => new BitSet(length));
   const status = new Uint8Array(length);
-  if (mode === "key") {
+  if (mode !== "content") {
     pairing.pairs.forEach((pair, index) => {
       const equal = cellComparer(a.columns[pair.a], b.columns[pair.b], rules);
       const bits = changed[index];
@@ -166,7 +197,7 @@ export function matchRows(
     status,
     changed,
     counts,
-    duplicateKeys: mode === "key" ? { a: duplicateA, b: duplicateB } : { a: 0, b: 0 },
-    emptyKeys: mode === "key" ? { a: emptyA, b: emptyB } : { a: 0, b: 0 },
+    duplicateKeys: { a: 0, b: 0 },
+    emptyKeys: { a: 0, b: 0 },
   };
 }

@@ -165,7 +165,7 @@ function card(shift: ColumnShift): HTMLElement {
   return shift.kind === "numeric" ? numericCard(shift) : categoryCard(shift);
 }
 
-/** "What shifted": the by-group comparison, then every column ranked by how far it moved. */
+/** "Drift": the by-group comparison, then every column ranked by how far it moved. */
 export class ShiftView {
   readonly element: HTMLElement;
   private readonly groupHost: HTMLElement;
@@ -182,7 +182,7 @@ export class ShiftView {
     const page = el("div", { class: "cmp-page cmp-shift-page" });
     page.append(
       el("div", { class: "cmp-intro" }, [
-        el("h1", { tabindex: "-1" }, ["What shifted"]),
+        el("h1", { tabindex: "-1" }, ["Drift"]),
         el("p", {}, [
           "A and B compared as a whole, so no rows need to match. Columns are ranked by how far their values moved.",
         ]),

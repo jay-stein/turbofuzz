@@ -8,6 +8,7 @@ import type { ModelKey } from "../data/timeseries/models.js";
 import type { HeaderLayout } from "../parse/header-detect.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { CompareRules } from "../data/compare/types.js";
+import type { DiffOp } from "../data/compare/diffs.js";
 import type { RowFilter } from "../data/compare/view.js";
 import type { GroupMeasure } from "../data/compare/shift.js";
 import type { ChartExclusion } from "../data/chart-exclusions.js";
@@ -69,6 +70,7 @@ import type {
   CompareClearedMessage,
   CompareResultMessage,
   CompareSetupMessage,
+  CompareDiffsMessage,
   CompareRowsMessage,
   CompareShiftMessage,
   CompareGroupsMessage,
@@ -210,8 +212,12 @@ export class SearchWorkerClient {
     return this.request<CompareSetupMessage>({ type: "compareSetup", manual, ignore, rules });
   }
 
-  compareRun(manual: { a: number; b: number }[], keyPairs: number[] | null, rules: CompareRules, ignore?: { a: number[]; b: number[] }): Promise<CompareResultMessage> {
-    return this.request<CompareResultMessage>({ type: "compareRun", manual, ignore, keyPairs, rules });
+  compareRun(manual: { a: number; b: number }[], keyPairs: number[] | null, rules: CompareRules, ignore?: { a: number[]; b: number[] }, byPosition = false): Promise<CompareResultMessage> {
+    return this.request<CompareResultMessage>({ type: "compareRun", manual, ignore, keyPairs, byPosition, rules });
+  }
+
+  compareDiffs(op: DiffOp, start: number, end: number): Promise<CompareDiffsMessage> {
+    return this.request<CompareDiffsMessage>({ type: "compareDiffs", op, start, end });
   }
 
   compareRows(filter: RowFilter, start: number, end: number): Promise<CompareRowsMessage> {

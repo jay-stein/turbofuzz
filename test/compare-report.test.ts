@@ -28,7 +28,7 @@ const info = (s: CompareSide) => ({ name: s.name, rowCount: s.rowCount, columns:
 
 function input(a: CompareSide, b: CompareSide, key: KeyChoice, rules: CompareRules = DEFAULT_RULES, manual: { a: number; b: number }[] = []): ReportInput {
   const pairing = pairColumns(a, b, manual);
-  const match = matchRows(a, b, pairing, key.kind === "content" ? null : key.pairs.map((i) => pairing.pairs[i]!), rules);
+  const match = matchRows(a, b, pairing, key.kind === "pairs" ? key.pairs.map((i) => pairing.pairs[i]!) : null, rules, key.kind === "position");
   return {
     setup: { type: "compareSetup", requestId: 0, a: info(a), b: info(b), pairing, keys: suggestKeys(a, b, pairing, rules), ms: 1 },
     report: buildReport(a, b, pairing, match),

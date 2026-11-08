@@ -77,6 +77,7 @@ import { buildReport } from "../data/compare/report.js";
 import { DEFAULT_RULES, compareColumn, type ColumnPair, type ColumnPairing, type CompareSide, type MatchResult } from "../data/compare/types.js";
 import { filterPositions, findDifference, rowWindow, type RowFilter } from "../data/compare/view.js";
 import { columnShifts, groupShift, type ShiftReport } from "../data/compare/shift.js";
+import { diffColumns, diffWindow, summariseDiffs, type DiffOp, type DiffSummary } from "../data/compare/diffs.js";
 import { changeTables } from "../data/compare/export.js";
 import { estimateTableBytes } from "../data/memory.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
@@ -114,6 +115,7 @@ import type {
   CompareLoadRequest,
   CompareRunRequest,
   CompareRowsRequest,
+  CompareDiffsRequest,
   CompareFindRequest,
   CompareSetupRequest,
   CompareSideInfo,
@@ -406,6 +408,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "compareFind":
       handleCompareFind(message);
+      break;
+    case "compareDiffs":
+      handleCompareDiffs(message);
       break;
     case "compareShift": {
       const run = compareRun();
@@ -1084,7 +1089,7 @@ function memoryBreakdown(): { dataBytes: number; undoBytes: number; cacheBytes: 
 let compare: {
   b: Dataset;
   bSide: CompareSide;
-  run?: { a: CompareSide; pairing: ColumnPairing; match: MatchResult; filtered: Map<string, Int32Array>; keyPairs: number[]; shift?: ShiftReport };
+  run?: { a: CompareSide; pairing: ColumnPairing; match: MatchResult; filtered: Map<string, Int32Array>; keyPairs: number[]; shift?: ShiftReport; diffs?: { op: DiffOp; summary: DiffSummary[] } };
 } | null = null;
 
 function compareRun(): NonNullable<NonNullable<typeof compare>["run"]> {
@@ -1108,6 +1113,23 @@ function handleCompareRows(message: CompareRowsRequest): void {
   const run = compareRun();
   const window = rowWindow(run.a, compare!.bSide, run.pairing, run.match, filteredRows(message.filter), message.start, message.end);
   post({ type: "compareRows", requestId: message.requestId, window });
+}
+
+function handleCompareDiffs(message: CompareDiffsRequest): void {
+  const run = compareRun();
+  const b = compare!.bSide;
+  const positions = filteredRows({ show: "matched", pairs: [] });
+  const columns = diffColumns(run.a, b, run.pairing);
+  // The summaries (and so the colour scale) are worked out once per operation, over every matched row.
+  if (run.diffs === undefined || run.diffs.op !== message.op) {
+    run.diffs = { op: message.op, summary: summariseDiffs(run.a, b, run.pairing, columns, positions, run.match, message.op) };
+  }
+  const window = diffWindow(run.a, b, run.pairing, run.match, columns, run.match.mode === "key" ? run.keyPairs : [], positions, message.start, message.end, message.op);
+  const labelName = run.match.mode === "key" ? run.keyPairs.map((index) => run.a.columns[run.pairing.pairs[index]!.a]!.name).join(" · ") : "Row";
+  post(
+    { type: "compareDiffs", requestId: message.requestId, columns, summary: run.diffs.summary, labelName, start: window.start, total: window.total, labels: window.labels, values: window.values },
+    [window.values.buffer],
+  );
 }
 
 function handleCompareFind(message: CompareFindRequest): void {
@@ -1192,7 +1214,7 @@ function handleCompareRun(message: CompareRunRequest): void {
   const a = compareSideA(current);
   const pairing = pairColumns(a, compare.bSide, message.manual, message.ignore);
   const keyPairs = message.keyPairs === null ? null : message.keyPairs.map((index) => pairing.pairs[index]).filter((pair): pair is ColumnPair => pair !== undefined);
-  const match = matchRows(a, compare.bSide, pairing, keyPairs, message.rules);
+  const match = matchRows(a, compare.bSide, pairing, keyPairs, message.rules, message.byPosition === true);
   compare.run = { a, pairing, match, filtered: new Map(), keyPairs: message.keyPairs ?? [] };
   post({
     type: "compareResult",

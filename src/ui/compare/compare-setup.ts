@@ -6,7 +6,7 @@ import { el, svgIcon } from "../dom.js";
 import { TYPE_FAMILY, TYPE_GLYPHS } from "../type-glyphs.js";
 
 /** How rows are matched: on these column pairs (indexes into the pairing), or on whole rows. */
-export type KeyChoice = { kind: "pairs"; pairs: number[] } | { kind: "content" };
+export type KeyChoice = { kind: "pairs"; pairs: number[] } | { kind: "content" } | { kind: "position" };
 
 export interface SetupState {
   /** A when it is the data already loaded (it cannot be changed here). */
@@ -178,6 +178,13 @@ function keySection(state: SetupState, setup: CompareSetupMessage, actions: Setu
       if (select.value !== "") actions.setKey({ kind: "pairs", pairs: [Number(select.value)] });
       else select.focus();
     }, select),
+    option(
+      current.kind === "position",
+      "Match rows on position",
+      "Row 1 of A meets row 1 of B, and so on. For files with the same shape and order, where only values change.",
+      `${nf.format(setup.a.rowCount)} and ${nf.format(setup.b.rowCount)} rows`,
+      () => actions.setKey({ kind: "position" }),
+    ),
     option(
       current.kind === "content",
       "No key: match whole rows",
@@ -403,7 +410,7 @@ export function renderSetup(host: HTMLElement, state: SetupState, actions: Setup
     const go = el("button", { class: "primary cmp-go", type: "button" }, ["Compare"]);
     go.disabled = state.busy !== null;
     go.addEventListener("click", () => actions.run());
-    const keyText = state.key.kind === "content" ? "whole rows" : `key ${keyLabel(setup, state.key.pairs)}`;
+    const keyText = state.key.kind === "content" ? "whole rows" : state.key.kind === "position" ? "row position" : `key ${keyLabel(setup, state.key.pairs)}`;
     const goRow = el("section", { class: "cmp-go-row", "aria-label": "Ready to compare" }, [
       go,
       el("div", { class: "cmp-ready-facts" }, [

@@ -70,8 +70,8 @@ export const ROW_ONLY_A = 2;
 export const ROW_ONLY_B = 3;
 
 export interface MatchResult {
-  /** "key" when rows matched on key columns, "content" when whole rows were matched. */
-  mode: "key" | "content";
+  /** "key" when rows matched on key columns, "content" when whole rows were matched, "position" when row n of A met row n of B. */
+  mode: "key" | "content" | "position";
   /** Aligned rows in display order: the row in A and in B, -1 for a gap. */
   aRow: Int32Array;
   bRow: Int32Array;

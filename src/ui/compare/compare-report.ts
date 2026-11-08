@@ -45,7 +45,9 @@ export function describeRun(input: ReportInput): string {
   const parts = [
     key.kind === "content"
       ? "Matched on whole rows"
-      : `Matched on key ${key.pairs.map((i) => setup.a.columns[setup.pairing.pairs[i]?.a ?? -1]?.name ?? "?").join(" + ")}`,
+      : key.kind === "position"
+        ? "Matched on row position"
+        : `Matched on key ${key.pairs.map((i) => setup.a.columns[setup.pairing.pairs[i]?.a ?? -1]?.name ?? "?").join(" + ")}`,
   ];
   if (rules.numberAbs > 0) parts.push(`numbers ±${num.format(rules.numberAbs)}`);
   if (rules.numberRel > 0) parts.push(`numbers ±${num.format(rules.numberRel * 100)}%`);

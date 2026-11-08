@@ -12,6 +12,7 @@ import { changesWorkbook, download, exportBaseName, reportHtml, tableCsv } from 
 import { openMenu } from "../menu.js";
 import { memoryGauge, type MemoryMonitor } from "../memory-gauge.js";
 import { resolveSource, unreadableReason, type ResolvedSource } from "../source-resolver.js";
+import { ValueDiffs, type ValueDiffsState } from "./compare-values.js";
 import { renderSetup, type KeyChoice, type SetupState } from "./compare-setup.js";
 
 export interface CompareModeOptions {
@@ -48,8 +49,11 @@ export class CompareMode {
   private report: { report: CompareReport; ms: number; key: KeyChoice; rules: CompareRules } | null = null;
   private readonly state: SetupState;
   /** Which result tab is open, and how the side-by-side view was left. */
-  private tab: "report" | "rows" | "shift" = "report";
-  /** What shifted, fetched once per comparison, and the group view last chosen. */
+  private tab: "report" | "rows" | "values" | "shift" = "rows";
+  /** How the Value differences sheet was left: the operation, the colour map and its scale. */
+  private valueState: ValueDiffsState = { op: "sub", colour: "coolwarm", scope: "column" };
+  private valueDiffs: ValueDiffs | null = null;
+  /** Drift, fetched once per comparison, and the group view last chosen. */
   private shift: ShiftReport | null = null;
   private groups: GroupChoice | null = null;
   private rows: { filter: RowFilter; layout: GridLayout; changedColumnsOnly: boolean } = {
@@ -120,13 +124,24 @@ export class CompareMode {
     }
     this.sideBySide?.dispose();
     this.sideBySide = null;
-    this.body.classList.toggle("cmp-body-rows", this.stage === "result" && this.tab === "rows");
+    this.valueDiffs?.dispose();
+    this.valueDiffs = null;
+    this.body.classList.toggle("cmp-body-rows", this.stage === "result" && (this.tab === "rows" || this.tab === "values"));
     if (this.stage === "result" && this.report !== null && setup !== null) {
       const result = this.report;
       const host = el("div", { class: "cmp-tab-host" });
       this.body.replaceChildren(this.steps(), host);
       if (this.tab === "shift") {
         void this.showShift(host);
+      } else if (this.tab === "values") {
+        this.valueDiffs = new ValueDiffs({
+          client: this.options.client,
+          state: this.valueState,
+          onState: (state) => {
+            this.valueState = state;
+          },
+        });
+        host.append(this.valueDiffs.element);
       } else if (this.tab === "report") {
         renderReport(host, { setup, report: result.report, ms: result.ms, key: result.key, rules: result.rules }, { rows: (filter) => this.openRows(filter) });
       } else {
@@ -168,14 +183,14 @@ export class CompareMode {
 
   /**
    * The way through a comparison, always on top: Comparison setup, Report,
-   * Side by side, What shifted. The last three wait for a Compare that matches
+   * Spot the difference, Value differences, Report, Drift. The last three wait for a Compare that matches
    * the setup as it stands; Export joins them once there is a result.
    */
   private steps(): HTMLElement {
     const ready = this.report !== null && !this.stale && this.state.setup !== null;
     const current = this.stage === "setup" ? "setup" : this.tab;
     const nav = el("nav", { class: "cmp-steps", "aria-label": "Comparison steps" });
-    const list = [["setup", "Comparison setup"], ["report", "Report"], ["rows", "Side by side"], ["shift", "What shifted"]] as const;
+    const list = [["setup", "Comparison setup"], ["rows", "Spot the difference"], ["values", "Value differences"], ["report", "Report"], ["shift", "Drift"]] as const;
     list.forEach(([step, label], index) => {
       const waiting = step !== "setup" && !ready;
       const button = el("button", { type: "button", class: "cmp-step", title: waiting ? "Press Compare in the setup first" : "" }, [
@@ -199,7 +214,7 @@ export class CompareMode {
       openMenu(exportButton, [
         { label: "Report (HTML page)", title: "The report and what shifted, as one page to share or print: counts and summaries, not the rows", action: () => void this.exportAs("html") },
         { label: "Changes (CSV)", title: "One line per changed cell (key, rows, column, value in A and in B), and one per row only one side has", action: () => void this.exportAs("csv") },
-        { label: "Changes and rows (Excel)", title: "Summary, Changes, Only in A, Only in B and What shifted as sheets of one workbook", action: () => void this.exportAs("xlsx") },
+        { label: "Changes and rows (Excel)", title: "Summary, Changes, Only in A, Only in B and Drift as sheets of one workbook", action: () => void this.exportAs("xlsx") },
       ]),
     );
     nav.append(el("span", { class: "grow" }), this.exportNote);
@@ -207,7 +222,7 @@ export class CompareMode {
     return nav;
   }
 
-  /** What shifted: computed by the worker the first time the tab opens. */
+  /** Drift: computed by the worker the first time the tab opens. */
   private async showShift(host: HTMLElement): Promise<void> {
     const setup = this.state.setup;
     if (setup === null) return;
@@ -352,13 +367,13 @@ export class CompareMode {
     this.state.error = null;
     this.render();
     try {
-      const keyPairs = this.state.key.kind === "content" ? null : this.state.key.pairs;
-      const result = await this.options.client.compareRun(this.state.manual, keyPairs, this.state.rules, this.state.ignore);
+      const keyPairs = this.state.key.kind === "pairs" ? this.state.key.pairs : null;
+      const result = await this.options.client.compareRun(this.state.manual, keyPairs, this.state.rules, this.state.ignore, this.state.key.kind === "position");
       this.state.busy = null;
       this.report = { report: result.report, ms: result.ms, key: this.state.key, rules: this.state.rules };
       this.stale = false;
       this.stage = "result";
-      this.tab = "report";
+      this.tab = "rows";
       this.rows = { ...this.rows, filter: { show: "differences", pairs: [] } };
       this.shift = null;
       this.groups = null;

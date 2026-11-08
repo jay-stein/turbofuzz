@@ -110,6 +110,8 @@ export class SideBySide {
     switch (show) {
       case "all":
         return rows.identical + rows.changed + rows.onlyA + rows.onlyB;
+      case "matched":
+        return rows.identical + rows.changed;
       case "differences":
         return rows.changed + rows.onlyA + rows.onlyB;
       case "changed":

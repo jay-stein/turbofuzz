@@ -288,3 +288,48 @@ test("an ignored column cannot be suggested as a key", () => {
   assert.ok(keys.length > 0);
   for (const key of keys) for (const index of key.pairs) assert.notEqual(a.columns[pairing.pairs[index]!.a].name, "n");
 });
+
+test("matching on position pairs row n with row n, finds value changes, and leaves the extra rows of the longer side", () => {
+  const a = side("a", { name: ["Ada", "Alan", "Grace"], amount: ["10", "20", "30"] });
+  const b = side("b", { name: ["Ada", "Alan", "Grace", "Edsger"], amount: ["10", "25", "30", "40"] });
+  const pairing = pairColumns(a, b);
+  const match = matchRows(a, b, pairing, null, DEFAULT_RULES, true);
+  assert.equal(match.mode, "position");
+  assert.deepEqual([...match.aRow], [0, 1, 2, -1]);
+  assert.deepEqual([...match.bRow], [0, 1, 2, 3]);
+  assert.deepEqual(match.counts, { identical: 2, changed: 1, onlyA: 0, onlyB: 1 });
+  const amount = pairing.pairs.findIndex((pair) => a.columns[pair.a].name === "amount");
+  assert.deepEqual([match.changed[amount].get(0), match.changed[amount].get(1)], [false, true]);
+});
+
+test("value differences: B - A, % change and ratio over matched rows, blank where undefined, with a colour reach that ignores one outlier", async () => {
+  const { diffColumns, diffWindow, summariseDiffs, diffValue } = await import("../src/data/compare/diffs.js");
+  assert.equal(diffValue("sub", 10, 12), 2);
+  assert.equal(diffValue("rsub", 10, 12), -2);
+  assert.equal(diffValue("pct", 10, 12), 20);
+  assert.equal(diffValue("pct", -10, -5), 50);
+  assert.ok(Number.isNaN(diffValue("pct", 0, 5)));
+  assert.equal(diffValue("pct", 0, 0), 0);
+  assert.equal(diffValue("ratio", 4, 6), 1.5);
+  assert.equal(diffValue("abs", 5, 2), 3);
+  assert.ok(Number.isNaN(diffValue("sub", NaN, 2)));
+
+  const n = 200;
+  const a = side("a", { id: Array.from({ length: n }, (_, i) => String(i)), v: Array.from({ length: n }, () => "100"), name: Array.from({ length: n }, () => "x") });
+  const b = side("b", { id: Array.from({ length: n }, (_, i) => String(i)), v: Array.from({ length: n }, (_, i) => (i === 7 ? "100000" : String(100 + (i % 10)))), name: Array.from({ length: n }, () => "x") });
+  const pairing = pairColumns(a, b);
+  const match = matchRows(a, b, pairing, null, DEFAULT_RULES, true);
+  const columns = diffColumns(a, b, pairing);
+  // v is a number on both sides; the text column and the id (read as an identifier) are not offered.
+  assert.deepEqual(columns.map((c) => c.name), ["v"]);
+  const positions = Int32Array.from({ length: n }, (_, i) => i);
+  const summary = summariseDiffs(a, b, pairing, columns, positions, match, "sub");
+  const v = summary[0]!;
+  assert.equal(v.n, n);
+  assert.equal(v.max, 99900);
+  // One outlier of 99,900 does not stretch the scale: the reach is a typical difference.
+  assert.ok(v.reach <= 10, `reach ${v.reach}`);
+  const window = diffWindow(a, b, pairing, match, columns, [], positions, 5, 9, "sub");
+  assert.deepEqual(window.labels, ["Row 6", "Row 7", "Row 8", "Row 9"]);
+  assert.deepEqual([...window.values], [5, 6, 99900, 8]);
+});

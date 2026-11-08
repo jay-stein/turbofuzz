@@ -3,7 +3,7 @@ import { ROW_IDENTICAL, ROW_ONLY_A, ROW_ONLY_B, ROW_CHANGED, type ColumnPairing,
 /** Which aligned rows the side-by-side view shows; `pairs` narrows to rows where any of those column pairs changed (empty: no narrowing). */
 export interface RowFilter {
   /** "differences" is every row that is not identical: changed, only in A or only in B. */
-  show: "all" | "differences" | "changed" | "onlyA" | "onlyB" | "identical";
+  show: "all" | "differences" | "changed" | "onlyA" | "onlyB" | "identical" | "matched";
   pairs: readonly number[];
 }
 
@@ -27,6 +27,8 @@ export interface RowWindow {
 const WANT: Record<RowFilter["show"], number> = {
   all: -1,
   differences: -2,
+  /** Rows present on both sides, changed or not (what the value differences compare). */
+  matched: -3,
   changed: ROW_CHANGED,
   onlyA: ROW_ONLY_A,
   onlyB: ROW_ONLY_B,
@@ -48,6 +50,7 @@ export function filterPositions(match: MatchResult, filter: RowFilter): Int32Arr
   for (let i = 0; i < n; i++) {
     if (want >= 0 && match.status[i] !== want) continue;
     if (want === -2 && match.status[i] === ROW_IDENTICAL) continue;
+    if (want === -3 && (match.status[i] === ROW_ONLY_A || match.status[i] === ROW_ONLY_B)) continue;
     if (bits.length > 0 && !bits.some((set) => set.get(i))) continue;
     out[length++] = i;
   }

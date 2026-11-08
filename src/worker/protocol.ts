@@ -18,6 +18,7 @@ import type { ColumnPairing, CompareRules } from "../data/compare/types.js";
 import type { KeySuggestion } from "../data/compare/keys.js";
 import type { CompareReport } from "../data/compare/report.js";
 import type { RowFilter, RowWindow } from "../data/compare/view.js";
+import type { DiffColumn, DiffOp, DiffSummary } from "../data/compare/diffs.js";
 import type { GroupMeasure, GroupShift, ShiftReport } from "../data/compare/shift.js";
 import type { ChangeTables } from "../data/compare/export.js";
 import type { SimilarClusterEntry } from "../data/similar-clusters.js";
@@ -1327,6 +1328,8 @@ export interface CompareRunRequest {
   manual: { a: number; b: number }[];
   ignore?: { a: number[]; b: number[] };
   keyPairs: number[] | null;
+  /** Match row n of A with row n of B (the files share a shape and only values change); keyPairs is then ignored. */
+  byPosition?: boolean;
   rules: CompareRules;
 }
 
@@ -1350,6 +1353,28 @@ export interface CompareRowsMessage {
   type: "compareRows";
   requestId: number;
   window: RowWindow;
+}
+
+/** A window of the matched rows' differences (B − A, % change, …) over the number columns both sides have. */
+export interface CompareDiffsRequest {
+  type: "compareDiffs";
+  requestId: number;
+  op: DiffOp;
+  start: number;
+  end: number;
+}
+
+export interface CompareDiffsMessage {
+  type: "compareDiffs";
+  requestId: number;
+  columns: DiffColumn[];
+  summary: DiffSummary[];
+  /** What names each row: the key columns, or "Row". */
+  labelName: string;
+  start: number;
+  total: number;
+  labels: string[];
+  values: Float64Array;
 }
 
 /** The next or previous difference after `from` in the filtered rows (-1 when none). */
@@ -1454,6 +1479,7 @@ export type WorkerRequest =
   | CompareRunRequest
   | CompareClearRequest
   | CompareRowsRequest
+  | CompareDiffsRequest
   | CompareFindRequest
   | CompareShiftRequest
   | CompareGroupsRequest
@@ -1829,6 +1855,7 @@ export type WorkerResponse =
   | CompareResultMessage
   | CompareClearedMessage
   | CompareRowsMessage
+  | CompareDiffsMessage
   | CompareFoundMessage
   | CompareShiftMessage
   | CompareGroupsMessage
