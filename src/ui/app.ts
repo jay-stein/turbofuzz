@@ -14,6 +14,7 @@ import { decompressBzip2 } from "../parse/bz2.js";
 import { decodeText } from "../parse/encoding.js";
 import { parseDelimited } from "../parse/parse.js";
 import { detectTable, statedMissingCodes, type HeaderLayout } from "../parse/header-detect.js";
+import { SHEET_COLUMN, combineSheets, type SheetGrid } from "../parse/combine-sheets.js";
 import { openHeaderRowDialog } from "./header-row-dialog.js";
 import { openProtectDialog, type ProtectMode } from "./protect-dialog.js";
 import { openFixPreview } from "./fix-preview-dialog.js";
@@ -305,6 +306,8 @@ interface PickerBulk {
   note?: string;
   disabled?: boolean;
   onSelect: () => void;
+  /** A checkbox under the bulk action that changes how it runs (e.g. add the sheet-name column). */
+  option?: { label: string; title: string; checked: boolean; onChange: (checked: boolean) => void };
 }
 
 /** Reversible missing-value policy change, logged in the Recipe. */
@@ -1842,6 +1845,14 @@ export class App {
         if (!option.disabled) bulk.onSelect();
       });
       this.tablePickerList.append(option);
+      if (bulk.option !== undefined) {
+        const setting = bulk.option;
+        const box = el("input", { type: "checkbox" }) as HTMLInputElement;
+        box.checked = setting.checked;
+        box.disabled = bulk.disabled === true;
+        box.addEventListener("change", () => setting.onChange(box.checked));
+        this.tablePickerList.append(el("label", { class: "table-option-check", title: setting.title }, [box, setting.label]));
+      }
     }
 
     items.forEach((item) => {
@@ -2362,10 +2373,16 @@ export class App {
       }
 
       this.setLoadingText("");
+      // Worksheets with the same columns can be stacked into one table; the sheet-name column is on unless turned off.
+      let addSheetColumn = true;
+      const sameWidth = sheets.every((sheet) => sheet.columns === sheets[0]!.columns);
+      const allListed = total === sheets.length;
+      // The listing counts each sheet's header row; the combined table has one.
+      const totalRows = sheets.reduce((sum, sheet) => sum + sheet.rows, 0) - (this.headersCheckbox.checked ? sheets.length : 0);
       this.showPicker(
         total > sheets.length
           ? `${total} worksheets — first ${sheets.length} shown, pick one`
-          : `${sheets.length} worksheets found — pick one`,
+          : `${sheets.length} worksheets found — pick one, or combine them`,
         sheets.map((sheet) => ({
           label: sheet.name,
           rows: sheet.rows,
@@ -2375,9 +2392,58 @@ export class App {
             void this.loadSheet(sheet.name, fileName);
           },
         })),
+        {
+          label: `Combine all ${sheets.length} worksheets (append rows)`,
+          title: "Stack every worksheet into one table. They need the same columns; the order may differ.",
+          note: !allListed
+            ? "too many worksheets to combine here"
+            : sameWidth
+              ? `about ${totalRows.toLocaleString()} rows × ${sheets[0]!.columns} columns`
+              : "the worksheets have different columns",
+          disabled: !allListed || !sameWidth,
+          onSelect: () => {
+            this.hideTablePicker();
+            void this.loadAllSheets(sheets.map((sheet) => sheet.name), fileName, addSheetColumn);
+          },
+          option: {
+            label: `Add a column ${SHEET_COLUMN} with each row's sheet name`,
+            title: "So you can tell, filter and group the rows by the worksheet they came from",
+            checked: addSheetColumn,
+            onChange: (checked) => {
+              addSheetColumn = checked;
+            },
+          },
+        },
       );
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not read workbook");
+    }
+  }
+
+  /** Combine all worksheets: read each, check they share their columns, and load them as one table. */
+  private async loadAllSheets(names: readonly string[], fileName: string, sheetColumn: boolean): Promise<void> {
+    const pending = this.pendingWorkbook;
+    if (pending === null) return;
+    try {
+      const sheets: SheetGrid[] = [];
+      for (const name of names) {
+        this.setLoadingText(`Reading “${name}”…`);
+        const grid = pending.kind === "xlsx" ? await readWorkbookSheet(pending.buffer, name) : await readLegacySheet(pending.workbook, name);
+        if (grid.length > 0) sheets.push({ name, grid });
+      }
+      const result = combineSheets(sheets, { hasHeaders: this.headersCheckbox.checked, sheetColumn });
+      if (!result.ok) throw new Error(`These worksheets can't be combined: ${result.reason} Load one at a time instead.`);
+      this.setLoadingText("");
+      const base = fileName.replace(/\.[^.]+$/, "");
+      await this.loadTable(result.table, `${base} — ${sheets.length} sheets`, result.hasHeaders, {
+        reuse: false,
+        header: `found in each of ${sheets.length} worksheets`,
+      });
+      this.setAction(
+        `Combined ${sheets.length} worksheets: ${result.rows.toLocaleString()} rows${result.sheetColumn === null ? "" : `, with ${result.sheetColumn} saying which sheet each came from`}.`,
+      );
+    } catch (error) {
+      this.setStatusError(error instanceof Error ? error.message : "Could not combine the worksheets");
     }
   }
 
