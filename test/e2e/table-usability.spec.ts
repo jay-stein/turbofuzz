@@ -57,3 +57,23 @@ test("an empty result offers to clear the filters", async ({ page }) => {
   await page.locator(".table-rows .empty").getByRole("button", { name: "Clear filters" }).click();
   await expect(page.locator(".table-nav-pos")).toHaveText("Rows 1–3 of 3");
 });
+
+test("keep only numbers and keep only text, from a column's menu, change the cells in place", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto("/");
+  const csv = ["price,unit", "\"$1,200\",Unit 4B", "USD 35.5,Level 2", "-7 off,O'Brien-3"].join("\n");
+  await page.locator('input[type="file"]').first().setInputFiles({ name: "k.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("tab", { name: "Table" }).click();
+  await page.locator(".table-rows .tr").first().waitFor();
+  const column = (col: number) => page.locator(`.tr .td[data-col="${col}"]`).allInnerTexts();
+
+  await page.locator(".table-header .th-label", { hasText: "price" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Keep only numbers" }).click();
+  await expect.poll(() => column(0)).toEqual(["1200", "35.5", "-7"]);
+
+  await page.locator(".table-header .th-label", { hasText: "unit" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Keep only text" }).click();
+  await expect.poll(() => column(1)).toEqual(["Unit B", "Level", "O'Brien"]);
+});

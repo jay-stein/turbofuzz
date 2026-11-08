@@ -229,3 +229,15 @@ test("grouped mode impute is executable with a tie-breaking warning", () => {
   assert.ok(script.entries.some((entry) => entry.status === "supported_with_warning"));
 });
 
+
+test("keep only numbers and keep only text export as helpers the pandas script defines", () => {
+  const recipe = pandasRecipe({
+    cleans: [{ name: "price", ops: [{ kind: "keepNumbers", locale: "comma" }, { kind: "keepText" }] }],
+    transforms: [],
+    schema: [],
+  });
+  assert.match(recipe, /^import re$/m);
+  assert.match(recipe, /^def _keep_number\(v, mark\):$/m);
+  assert.match(recipe, /df\["price"\] = df\["price"\]\.map\(lambda v: _keep_number\(v, ","\) if isinstance\(v, str\) else v\)/);
+  assert.match(recipe, /^def _keep_text\(v\):$/m);
+});

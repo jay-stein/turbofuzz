@@ -213,6 +213,20 @@ export function columnActionSections(ctx: ColumnActionContext): ActionSection[] 
       ],
     },
     {
+      label: "Keep only numbers",
+      hint: "Strip everything but the number in each cell: $1,234.50 → 1234.50 (undo from the toast or the Recipe)",
+      icon: ICONS.number,
+      instant: true,
+      run: () => ctx.onQuickClean({ kind: "keepNumbers", locale: meta.numberLocale }),
+    },
+    {
+      label: "Keep only text",
+      hint: "Strip digits and symbols, keeping the words: Unit 4B, Level 2 → Unit B Level (undo from the toast or the Recipe)",
+      icon: ICONS.letters,
+      instant: true,
+      run: () => ctx.onQuickClean({ kind: "keepText" }),
+    },
+    {
       label: "Find & replace…",
       icon: ICONS.replace,
       run: () => ctx.onOpenClean("values", { kind: "replace", find: "", replacement: "", ignoreCase: false }),

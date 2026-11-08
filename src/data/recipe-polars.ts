@@ -120,6 +120,36 @@ function polarsCleanLines(
         const replacement = op.locale === "dot" ? "${1}.${2}" : "${1},${2}";
         return assign(`${column}.str.replace_all(${py(pattern)}, ${py(replacement)})`, name);
       }
+      case "keepNumbers":
+        return [
+          "def _keep_number(v, mark):",
+          "    out, digits, mark_used, minus, negative = [], False, False, False, False",
+          "    for i, ch in enumerate(v):",
+          "        if \"0\" <= ch <= \"9\":",
+          "            if not digits and minus:",
+          "                negative = True",
+          "            out.append(ch)",
+          "            digits = True",
+          "        elif ch == mark and not mark_used and i + 1 < len(v) and \"0\" <= v[i + 1] <= \"9\" and (not digits or (i > 0 and \"0\" <= v[i - 1] <= \"9\")):",
+          "            out.append(ch)",
+          "            mark_used = True",
+          "        elif not digits and ch in \"-\\u2212\":",
+          "            minus = True",
+          "        elif not digits and ch.isalpha():",
+          "            minus = False",
+          "    s = \"\".join(out)",
+          "    return (\"-\" + s if negative else s) if s else None",
+          assign(`${column}.map_elements(lambda v: _keep_number(v, ${py(op.locale === "comma" ? "," : ".")}), return_dtype=pl.Utf8)`, name),
+        ].join("\n");
+      case "keepText":
+        return [
+          "import re",
+          "def _keep_text(v):",
+          "    v = re.sub(r\"[^\\w'\\u2019\\-\\s]|[\\d_]\", \" \", v)",
+          "    v = re.sub(r\"(^|[^\\w])['\\u2019-]+|['\\u2019-]+(?=$|[^\\w])\", r\"\\1\", v)",
+          "    return re.sub(r\"\\s+\", \" \", v).strip() or None",
+          assign(`${column}.map_elements(_keep_text, return_dtype=pl.Utf8)`, name),
+        ].join("\n");
       case "escapeFormulas": {
         const text = `${column}.cast(pl.Utf8, strict=False)`;
         return [

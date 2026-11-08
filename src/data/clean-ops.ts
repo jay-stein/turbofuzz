@@ -16,6 +16,10 @@ export type CleanOp =
   | { kind: "toNumber"; locale: NumberLocale }
   | { kind: "repairDecimal"; locale: NumberLocale }
   | { kind: "escapeFormulas" }
+  /** Keeps only digits, the column's decimal mark and a leading minus: "$1,234.50" → "1234.50". */
+  | { kind: "keepNumbers"; locale: NumberLocale }
+  /** Keeps only letters and spaces (and ' or - inside a word): "Unit 4B, Level 2" → "Unit B Level". */
+  | { kind: "keepText" }
   /** Hides the middle of each value, keeping the first and last few characters. */
   | { kind: "mask"; keepFirst: number; keepLast: number }
   /** Replaces each value with a salted SHA-256 pseudonym (16 hex characters). */
@@ -36,6 +40,56 @@ export type CleanOp =
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Only the number in a cell: its digits, the column's decimal mark when a
+ * digit follows it (and one comes before, or none yet: ".5"), and a minus
+ * when one stands before the first digit with no letter in between.
+ * "$1,234.50" → "1234.50", "-12 kg" → "-12", "Smith-Jones 5" → "5".
+ * No digit at all leaves the cell empty. Missing-value markers stay as they are.
+ */
+export function keepOnlyNumber(value: string, locale: NumberLocale): string {
+  if (isNullToken(value)) return value;
+  const mark = locale === "comma" ? "," : ".";
+  const isDigit = (ch: string | undefined): boolean => ch !== undefined && ch >= "0" && ch <= "9";
+  let out = "";
+  let digits = false;
+  let markUsed = false;
+  let minus = false;
+  let negative = false;
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (isDigit(ch)) {
+      if (!digits && minus) negative = true;
+      out += ch;
+      digits = true;
+    } else if (ch === mark && !markUsed && isDigit(value[i + 1]) && (!digits || isDigit(value[i - 1]))) {
+      out += ch;
+      markUsed = true;
+    } else if (!digits && (ch === "-" || ch === "\u2212")) {
+      minus = true;
+    } else if (!digits && LETTER.test(ch)) {
+      minus = false;
+    }
+  }
+  return out === "" ? "" : negative ? `-${out}` : out;
+}
+
+const LETTER = /\p{L}/u;
+
+/**
+ * Only the words in a cell: letters and spaces, with ' and - kept inside a
+ * word (O'Brien, Jean-Luc); digits and other characters go and spaces close
+ * up. "Unit 4B, Level 2" → "Unit B Level". Missing-value markers stay as they are.
+ */
+export function keepOnlyText(value: string): string {
+  if (isNullToken(value)) return value;
+  return value
+    .replace(/[^\p{L}\p{M}'\u2019\-\s]/gu, " ")
+    .replace(/(^|[^\p{L}\p{M}])['\u2019-]+|['\u2019-]+(?=$|[^\p{L}\p{M}])/gu, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function applyCase(value: string, style: CleanCaseStyle): string {
@@ -100,6 +154,12 @@ function compileOp(op: CleanOp): (value: string) => string {
     }
     case "escapeFormulas":
       return (value) => escapeFormula(value);
+    case "keepNumbers": {
+      const locale = op.locale;
+      return (value) => keepOnlyNumber(value, locale);
+    }
+    case "keepText":
+      return keepOnlyText;
     // Missing-value markers (blank, N/A, null) stay as they are: protecting a
     // gap would turn it into a value.
     case "mask":
@@ -221,6 +281,10 @@ export function describeCleanOp(op: CleanOp): string {
         : "Repair decimal-point values (1.23 → 1,23)";
     case "escapeFormulas":
       return "Escape formula-like cells (=1+1 → '=1+1)";
+    case "keepNumbers":
+      return op.locale === "comma" ? "Keep only numbers ($1.234,50 → 1234,50)" : "Keep only numbers ($1,234.50 → 1234.50)";
+    case "keepText":
+      return "Keep only text (Unit 4B, Level 2 → Unit B Level)";
     case "toDate":
       return `Convert to date (date only, ${describeOrder(op.order)})`;
     case "toDateTime":
@@ -255,6 +319,10 @@ export function describeCleanOpDetail(op: CleanOp): string {
       return `repairDecimal(locale=${op.locale})`;
     case "escapeFormulas":
       return "escapeFormulas()";
+    case "keepNumbers":
+      return `keepNumbers(decimal=${op.locale === "comma" ? "," : "."})`;
+    case "keepText":
+      return "keepText()";
     case "mask":
       return `mask(keepFirst=${op.keepFirst}, keepLast=${op.keepLast})`;
     case "hash":

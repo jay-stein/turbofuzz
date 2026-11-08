@@ -208,3 +208,45 @@ test("incremental clean applies only the new suffix and matches full replay", ()
     applyCleanOps(source, [{ kind: "case", style: "upper" }, { kind: "trim" }]),
   );
 });
+const NUMBER_CASES: [string, string, "dot" | "comma"][] = [
+  ["$1,234.50", "1234.50", "dot"],
+  ["-12 kg", "-12", "dot"],
+  ["−7.5%", "-7.5", "dot"],
+  ["-$5", "-5", "dot"],
+  ["Smith-Jones 5", "5", "dot"],
+  ["Mr. Smith 42", "42", "dot"],
+  [".5 litre", ".5", "dot"],
+  ["5. item", "5", "dot"],
+  ["Tel 02 9876", "029876", "dot"],
+  ["no digits here", "", "dot"],
+  ["€1.234,50", "1234,50", "comma"],
+  ["1,5 kg", "15", "dot"],
+  ["N/A", "N/A", "dot"],
+];
+
+const TEXT_CASES: [string, string][] = [
+  ["Unit 4B, Level 2", "Unit B Level"],
+  ["O'Brien-3", "O'Brien"],
+  ["Jean-Luc #7", "Jean-Luc"],
+  ["ABC-123", "ABC"],
+  ["- item 1 -", "item"],
+  ["Zoë 42", "Zoë"],
+  ["12345", ""],
+  ["N/A", "N/A"],
+];
+
+test("keep only numbers keeps the digits, the column's decimal mark and a leading minus", () => {
+  for (const [input, expected, locale] of NUMBER_CASES) {
+    assert.deepEqual(applyCleanOps([input], [{ kind: "keepNumbers", locale }]), [expected], input);
+  }
+  assert.equal(describeCleanOp({ kind: "keepNumbers", locale: "dot" }), "Keep only numbers ($1,234.50 → 1234.50)");
+  assert.equal(describeCleanOpDetail({ kind: "keepNumbers", locale: "comma" }), "keepNumbers(decimal=,)");
+});
+
+test("keep only text keeps letters and spaces, with ' and - inside words", () => {
+  for (const [input, expected] of TEXT_CASES) {
+    assert.deepEqual(applyCleanOps([input], [{ kind: "keepText" }]), [expected], input);
+  }
+  assert.equal(describeCleanOpDetail({ kind: "keepText" }), "keepText()");
+});
+

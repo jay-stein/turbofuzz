@@ -57,6 +57,8 @@ const OP_TYPES: readonly { value: string; label: string }[] = [
   { value: "title", label: "Title Case" },
   { value: "replace", label: "Find & replace" },
   { value: "toNumber", label: "Convert to number" },
+  { value: "keepNumbers", label: "Keep only numbers" },
+  { value: "keepText", label: "Keep only text" },
   { value: "toDate", label: "Convert to date (date only)" },
   { value: "toDateTime", label: "Convert to date & time" },
 ];
@@ -340,7 +342,7 @@ function buildValuesTab(
 
   const syncOpType = (): void => {
     replaceRow.classList.toggle("hidden", opSelect.value !== "replace");
-    localeRow.classList.toggle("hidden", opSelect.value !== "toNumber");
+    localeRow.classList.toggle("hidden", opSelect.value !== "toNumber" && opSelect.value !== "keepNumbers");
     const dates = opSelect.value === "toDate" || opSelect.value === "toDateTime";
     dateOrderRow.classList.toggle("hidden", !dates);
     datePicker.setWithTime(opSelect.value === "toDateTime");
@@ -395,8 +397,12 @@ function buildValuesTab(
         ignoreCaseInput.checked = initialOp.ignoreCase;
         break;
       case "toNumber":
-        opSelect.value = "toNumber";
+      case "keepNumbers":
+        opSelect.value = initialOp.kind;
         localeSelect.value = initialOp.locale;
+        break;
+      case "keepText":
+        opSelect.value = "keepText";
         break;
       case "toDate":
         opSelect.value = "toDate";
@@ -610,6 +616,10 @@ function readOp(
       return find === "" ? null : { kind: "replace", find, replacement, ignoreCase };
     case "toNumber":
       return { kind: "toNumber", locale };
+    case "keepNumbers":
+      return { kind: "keepNumbers", locale };
+    case "keepText":
+      return { kind: "keepText" };
     case "toDate":
       return { kind: "toDate", order: dateOrder };
     case "toDateTime":

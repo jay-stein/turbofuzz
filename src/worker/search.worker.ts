@@ -2847,7 +2847,12 @@ function cleanTarget(
         break;
       case "mask":
       case "hash":
+      case "keepText":
         type = undefined;
+        break;
+      case "keepNumbers":
+        type = undefined;
+        numberLocale = op.locale;
         break;
       case "recode":
       case "setCells":

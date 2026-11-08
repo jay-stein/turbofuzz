@@ -74,6 +74,8 @@ export const ICONS = {
   allowed: '<path d="M4 6h10"/><path d="M4 12h10"/><path d="M4 18h6"/><path d="M15 17l2 2 4-4"/>',
   compare: '<path d="M8 4v16"/><path d="M16 4v16"/><path d="M4 9h8"/><path d="M12 15h8"/>',
   clock: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
+  number: '<path d="M9 4L7 20"/><path d="M17 4l-2 16"/><path d="M4 9h16"/><path d="M3 15h16"/>',
+  letters: '<path d="M3 18l4.5-12L12 18"/><path d="M4.7 14h5.6"/><path d="M15 9h4.5a2 2 0 0 1 0 4H15v5h5"/>',
   formula: '<path d="M14 4h-2a2 2 0 0 0-2 2v12a2 2 0 0 1-2 2H6"/><path d="M7 11h8"/>',
 } as const;
 

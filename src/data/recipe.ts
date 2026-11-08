@@ -522,6 +522,35 @@ function cleanLines(
         // Mirrors looksLikeFormula(): =, @, tab and CR always; a leading sign
         // only when the rest is not a plain number.
         return `${column} = ${column}.map(lambda v: ("'" + v) if isinstance(v, str) and v != "" and (v[0] in "=@\\t\\r" or (v[0] in "+-" and v[1:] != "" and not re.fullmatch(r"[0-9.,\\s]+", v[1:]))) else v)`;
+      case "keepNumbers":
+        return [
+          "def _keep_number(v, mark):",
+          "    out, digits, mark_used, minus, negative = [], False, False, False, False",
+          "    for i, ch in enumerate(v):",
+          "        if \"0\" <= ch <= \"9\":",
+          "            if not digits and minus:",
+          "                negative = True",
+          "            out.append(ch)",
+          "            digits = True",
+          "        elif ch == mark and not mark_used and i + 1 < len(v) and \"0\" <= v[i + 1] <= \"9\" and (not digits or (i > 0 and \"0\" <= v[i - 1] <= \"9\")):",
+          "            out.append(ch)",
+          "            mark_used = True",
+          "        elif not digits and ch in \"-\\u2212\":",
+          "            minus = True",
+          "        elif not digits and ch.isalpha():",
+          "            minus = False",
+          "    s = \"\".join(out)",
+          "    return (\"-\" + s if negative else s) if s else None",
+          `${column} = ${column}.map(lambda v: _keep_number(v, ${py(op.locale === "comma" ? "," : ".")}) if isinstance(v, str) else v)`,
+        ].join("\n");
+      case "keepText":
+        return [
+          "def _keep_text(v):",
+          "    v = re.sub(r\"[^\\w'\\u2019\\-\\s]|[\\d_]\", \" \", v)",
+          "    v = re.sub(r\"(^|[^\\w])['\\u2019-]+|['\\u2019-]+(?=$|[^\\w])\", r\"\\1\", v)",
+          "    return re.sub(r\"\\s+\", \" \", v).strip() or None",
+          `${column} = ${column}.map(lambda v: _keep_text(v) if isinstance(v, str) else v)`,
+        ].join("\n");
       case "setCells":
         return op.edits
           .map((e) => `df.iloc[${e.row}, df.columns.get_loc(${py(name)})] = ${e.to === "" ? "None" : py(e.to)}  # was ${py(e.from)}`)
