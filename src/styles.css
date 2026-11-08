@@ -16572,3 +16572,32 @@ button.cmp-change-name:hover {
   line-height: 1.5;
   color: var(--text-dim);
 }
+
+/* Compare: columns left out of the comparison, each with a way to put it back. */
+.cmp-ignored {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 10px;
+  font-size: var(--fs-sm);
+}
+.cmp-ignored-label {
+  color: var(--text-dim);
+}
+.cmp-chip {
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.cmp-chip:hover {
+  border-color: var(--accent);
+}
+.cmp-tag.ignored {
+  background: color-mix(in srgb, var(--text-dim) 18%, transparent);
+  color: var(--text);
+}

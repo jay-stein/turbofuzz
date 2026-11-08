@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-08-11 — Compare: ignore columns
+
+- **Status:** Verified (unit, e2e with axe)
+- **Related issue / decision:** owner: some columns (a first column that looks like an id but is only a row number) must be left out of a comparison.
+- **What changed:** every row in the setup's Columns table has an Ignore button (paired, only in A, only in B). An ignored column is taken out as if neither side had it: not paired, not a key candidate, not compared, not counted as added or removed, and out of whole-row matching, What shifted and the side-by-side view. Ignored columns appear as chips under the table; clicking one compares it again. The report, HTML and Excel exports list them as Ignored.
+- **Files / components changed:** src/data/compare/columns.ts, types.ts, report.ts; src/worker/protocol.ts, search.worker.ts; src/ui/worker-client.ts; src/ui/compare/compare-setup.ts, compare-mode.ts, compare-report.ts, compare-export.ts; src/styles.css; test/compare.test.ts, test/e2e/compare.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-08
+
 ### CHG-2026-11-08-10 — Compare and Append accept Excel workbooks and zip, gz and bz2 files
 
 - **Status:** Verified (unit, e2e)

@@ -5,7 +5,7 @@ import { escapeFormula } from "../../data/formula.js";
 import { toDateInputValue } from "../../parse/dates.js";
 import { TYPE_LABELS } from "../../types.js";
 import { buildXlsx, type Sheet } from "../xlsx-writer.js";
-import { describeRun, type ReportInput } from "./compare-report.js";
+import { describeRun, ignoredName, type ReportInput } from "./compare-report.js";
 
 const nf = new Intl.NumberFormat("en");
 const num = new Intl.NumberFormat("en", { maximumFractionDigits: 2 });
@@ -61,6 +61,7 @@ function summaryRows(input: ReportInput, tables: ChangeTables): string[][] {
   for (const name of report.columns.added) lines.push(["Column added", name]);
   for (const name of report.columns.removed) lines.push(["Column removed", name]);
   for (const pair of report.columns.renamed) lines.push(["Column renamed", `${pair.a} → ${pair.b}`]);
+  for (const pair of report.columns.ignored) lines.push(["Column ignored", ignoredName(pair)]);
   for (const change of report.columns.retyped) lines.push(["Column retyped", `${change.name}: ${TYPE_LABELS[change.a]} → ${TYPE_LABELS[change.b]}`]);
   for (const change of report.changes) lines.push([`Changed: ${change.name}`, `${nf.format(change.changed)} rows (${pct(change.changed, rows.matched)})`]);
   if (tables.truncated > 0) lines.push(["Note", `The Changes sheet stops at ${nf.format(tables.changes.rows.length)} lines; ${nf.format(tables.truncated)} more are left out.`]);
@@ -165,6 +166,7 @@ export function reportHtml(input: ReportInput, shift: ShiftReport | null, create
     ...report.columns.added.map((name) => ["Added", name]),
     ...report.columns.removed.map((name) => ["Removed", name]),
     ...report.columns.renamed.map((pair) => ["Renamed", `${pair.a} → ${pair.b}`]),
+    ...report.columns.ignored.map((pair) => ["Ignored", ignoredName(pair)]),
     ...report.columns.retyped.map((c) => ["Retyped", `${c.name}: ${TYPE_LABELS[c.a]} → ${TYPE_LABELS[c.b]}`]),
   ];
   parts.push(`<section><h2>Columns</h2>${schema.length === 0 ? '<p class="dim">The same columns, with the same types, on both sides.</p>' : htmlTable(["Change", "Column"], schema)}</section>`);

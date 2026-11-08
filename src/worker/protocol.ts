@@ -1306,6 +1306,7 @@ export interface CompareSetupRequest {
   type: "compareSetup";
   requestId: number;
   manual: { a: number; b: number }[];
+  ignore?: { a: number[]; b: number[] };
   rules: CompareRules;
 }
 
@@ -1324,6 +1325,7 @@ export interface CompareRunRequest {
   type: "compareRun";
   requestId: number;
   manual: { a: number; b: number }[];
+  ignore?: { a: number[]; b: number[] };
   keyPairs: number[] | null;
   rules: CompareRules;
 }

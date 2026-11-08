@@ -262,3 +262,29 @@ test("columns unique only by chance are not a key: the sides must share at least
   const b = side("b", { age: Array.from({ length: n }, (_, i) => String(20 + ((i * 7) % 50))), income: Array.from({ length: n }, (_, i) => String(30003 + i * 19)) });
   assert.deepEqual(suggestKeys(a, b, pairColumns(a, b), DEFAULT_RULES), []);
 });
+
+test("an ignored column (a row number) is left out: whole-row matching sees identical rows, and the report says so", () => {
+  const a = side("a", { n: ["1", "2", "3"], name: ["Ada", "Alan", "Grace"], only_a: ["x", "y", "z"] });
+  const b = side("b", { n: ["7", "8", "9"], name: ["Ada", "Alan", "Grace"] });
+  // With the row number in, no row matches; without it, all three do.
+  const withN = matchRows(a, b, pairColumns(a, b), null, DEFAULT_RULES);
+  assert.equal(withN.counts.identical, 0);
+  const pairing = pairColumns(a, b, [], { a: [0, 2], b: [0] });
+  assert.deepEqual(pairing.pairs.map((pair) => a.columns[pair.a].name), ["name"]);
+  assert.deepEqual([pairing.onlyA, pairing.onlyB], [[], []]);
+  assert.deepEqual(pairing.ignored, [{ a: 0, b: 0 }, { a: 2, b: -1 }]);
+  const match = matchRows(a, b, pairing, null, DEFAULT_RULES);
+  assert.equal(match.counts.identical, 3);
+  const report = buildReport(a, b, pairing, match);
+  assert.deepEqual(report.columns.ignored, [{ a: "n", b: "n" }, { a: "only_a", b: "" }]);
+  assert.deepEqual(report.columns.removed, []);
+});
+
+test("an ignored column cannot be suggested as a key", () => {
+  const a = side("a", { n: ["1", "2", "3", "4"], code: ["p", "q", "r", "s"], v: ["1", "1", "2", "2"] });
+  const b = side("b", { n: ["1", "2", "3", "4"], code: ["p", "q", "r", "s"], v: ["1", "1", "2", "2"] });
+  const pairing = pairColumns(a, b, [], { a: [0], b: [0] });
+  const keys = suggestKeys(a, b, pairing, DEFAULT_RULES);
+  assert.ok(keys.length > 0);
+  for (const key of keys) for (const index of key.pairs) assert.notEqual(a.columns[pairing.pairs[index]!.a].name, "n");
+});

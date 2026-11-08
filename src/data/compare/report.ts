@@ -35,6 +35,8 @@ export interface CompareReport {
     /** Pairs made by hand: the name in A and in B. */
     renamed: { a: string; b: string }[];
     retyped: { name: string; a: ColumnType; b: ColumnType }[];
+    /** Columns left out of the comparison: the name in A and in B (one is empty when a side has none). */
+    ignored: { a: string; b: string }[];
   };
   /** Every paired column with at least one change, most changed first. */
   changes: ColumnChange[];
@@ -126,6 +128,7 @@ export function buildReport(a: CompareSide, b: CompareSide, pairing: ColumnPairi
       retyped: pairing.pairs
         .filter((pair) => a.columns[pair.a].type !== b.columns[pair.b].type)
         .map((pair) => ({ name: b.columns[pair.b].name, a: a.columns[pair.a].type, b: b.columns[pair.b].type })),
+      ignored: pairing.ignored.map((pair) => ({ a: pair.a < 0 ? "" : a.columns[pair.a].name, b: pair.b < 0 ? "" : b.columns[pair.b].name })),
     },
     changes,
     totals,

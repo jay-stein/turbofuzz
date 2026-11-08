@@ -69,6 +69,7 @@ export class CompareMode {
       b: null,
       setup: null,
       manual: [],
+      ignore: { a: [], b: [] },
       key: { kind: "content" },
       rules: DEFAULT_RULES,
       busy: null,
@@ -147,6 +148,7 @@ export class CompareMode {
         pickB: (file) => void this.pickB(file),
         pickBoth: (a, b) => void this.pickA(a).then(() => (this.state.a !== null && this.state.error === null ? this.pickB(b) : undefined)),
         setManual: (manual) => void this.setManual(manual),
+        setIgnore: (ignore) => void this.setIgnore(ignore),
         setKey: (key) => {
           this.state.key = key;
           this.render();
@@ -272,6 +274,7 @@ export class CompareMode {
     this.state.b = null;
     this.state.setup = null;
     this.state.manual = [];
+    this.state.ignore = { a: [], b: [] };
     this.render();
   }
 
@@ -292,6 +295,7 @@ export class CompareMode {
       const setup = await this.options.client.compareLoad({ name: source.name, buffer: source.buffer, delimiter: "auto", hasHeaders: true });
       void this.options.memory.refresh();
       this.state.manual = [];
+      this.state.ignore = { a: [], b: [] };
       this.applySetup(setup);
       this.state.busy = null;
       this.render();
@@ -303,10 +307,21 @@ export class CompareMode {
   private async setManual(manual: { a: number; b: number }[]): Promise<void> {
     this.state.manual = manual;
     try {
-      this.applySetup(await this.options.client.compareSetup(manual, this.state.rules));
+      this.applySetup(await this.options.client.compareSetup(manual, this.state.rules, this.state.ignore));
       this.render();
     } catch (error) {
       this.fail(error instanceof Error ? error.message : "Could not pair the columns.");
+    }
+  }
+
+  /** Leave columns out of the comparison (or put them back); pairs and key suggestions are worked out again without them. */
+  private async setIgnore(ignore: { a: number[]; b: number[] }): Promise<void> {
+    this.state.ignore = ignore;
+    try {
+      this.applySetup(await this.options.client.compareSetup(this.state.manual, this.state.rules, ignore));
+      this.render();
+    } catch (error) {
+      this.fail(error instanceof Error ? error.message : "Could not update the columns.");
     }
   }
 
@@ -316,7 +331,7 @@ export class CompareMode {
     this.render();
     try {
       const keyPairs = this.state.key.kind === "content" ? null : this.state.key.pairs;
-      const result = await this.options.client.compareRun(this.state.manual, keyPairs, this.state.rules);
+      const result = await this.options.client.compareRun(this.state.manual, keyPairs, this.state.rules, this.state.ignore);
       this.state.busy = null;
       this.report = { report: result.report, ms: result.ms, key: this.state.key, rules: this.state.rules };
       this.stage = "result";

@@ -53,6 +53,14 @@ export interface ColumnPairing {
   /** Columns of A with no partner in B (removed), and of B with none in A (added). */
   onlyA: number[];
   onlyB: number[];
+  /** Columns left out of the comparison on request (-1: that side has none, a pair has both). */
+  ignored: { a: number; b: number }[];
+}
+
+/** Columns to leave out of the comparison, by index into each side's columns. */
+export interface IgnoredColumns {
+  a: readonly number[];
+  b: readonly number[];
 }
 
 /** Row status in the aligned result. */

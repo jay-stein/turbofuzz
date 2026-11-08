@@ -15,6 +15,8 @@ export interface SetupState {
   b: CompareSideInfo | null;
   setup: CompareSetupMessage | null;
   manual: { a: number; b: number }[];
+  /** Columns left out of the comparison, by index into each side. */
+  ignore: { a: number[]; b: number[] };
   key: KeyChoice;
   rules: CompareRules;
   /** What is being read right now ("Reading orders.csv…"), or null. */
@@ -28,6 +30,7 @@ export interface SetupActions {
   /** Two files dropped at once: the earlier name is A, the later B. */
   pickBoth(a: File, b: File): void;
   setManual(manual: { a: number; b: number }[]): void;
+  setIgnore(ignore: { a: number[]; b: number[] }): void;
   setKey(key: KeyChoice): void;
   setRules(rules: CompareRules): void;
   run(): void;
@@ -198,6 +201,14 @@ function columnSection(state: SetupState, setup: CompareSetupMessage, actions: S
     "Columns",
     `${pairing.pairs.length - manualCount} paired by name${manualCount > 0 ? ` · ${manualCount} by hand` : ""}${pairing.onlyA.length > 0 ? ` · ${pairing.onlyA.length} only in A` : ""}${pairing.onlyB.length > 0 ? ` · ${pairing.onlyB.length} only in B` : ""}`,
   );
+  /** An Ignore button for a row: leaves its column (both sides of a pair) out of the comparison. */
+  const ignoreButton = (a: number, b: number, name: string): HTMLElement => {
+    const button = el("button", { class: "link", type: "button", "aria-label": "Ignore " + name }, ["Ignore"]);
+    button.addEventListener("click", () =>
+      actions.setIgnore({ a: a < 0 ? state.ignore.a : [...state.ignore.a, a], b: b < 0 ? state.ignore.b : [...state.ignore.b, b] }),
+    );
+    return button;
+  };
   const keyPairs = new Set(state.key.kind === "pairs" ? state.key.pairs : []);
   const table = el("table", { class: "cmp-columns" });
   table.append(
@@ -236,6 +247,7 @@ function columnSection(state: SetupState, setup: CompareSetupMessage, actions: S
       unpair.addEventListener("click", () => actions.setManual(state.manual.filter((m) => m.a !== pair.a || m.b !== pair.b)));
       note.append(" ", unpair);
     }
+    note.append(" ", ignoreButton(pair.a, pair.b, a.name));
     body.append(el("tr", {}, [cell(setup.a, pair.a), el("td", { class: "cmp-arrow", "aria-hidden": "true" }, ["↔"]), cell(setup.b, pair.b), note]));
   });
   for (const index of pairing.onlyA) {
@@ -251,7 +263,7 @@ function columnSection(state: SetupState, setup: CompareSetupMessage, actions: S
         cell(setup.a, index),
         el("td", { class: "cmp-arrow", "aria-hidden": "true" }, [""]),
         el("td", {}, [pick]),
-        el("td", { class: "cmp-col-note gone" }, ["Only in A"]),
+        el("td", { class: "cmp-col-note gone" }, ["Only in A ", ignoreButton(index, -1, setup.a.columns[index]!.name)]),
       ]),
     );
   }
@@ -261,12 +273,26 @@ function columnSection(state: SetupState, setup: CompareSetupMessage, actions: S
         el("td", { class: "cmp-dim" }, ["—"]),
         el("td", { class: "cmp-arrow", "aria-hidden": "true" }, [""]),
         cell(setup.b, index),
-        el("td", { class: "cmp-col-note added" }, ["Only in B"]),
+        el("td", { class: "cmp-col-note added" }, ["Only in B ", ignoreButton(-1, index, setup.b.columns[index]!.name)]),
       ]),
     );
   }
   table.append(body);
   box.append(el("div", { class: "cmp-table-wrap" }, [table]));
+  if (pairing.ignored.length > 0) {
+    const list = el("div", { class: "cmp-ignored" }, [el("span", { class: "cmp-ignored-label" }, ["Ignored, left out of the comparison:"])]);
+    for (const entry of pairing.ignored) {
+      const a = entry.a < 0 ? "" : setup.a.columns[entry.a]!.name;
+      const b = entry.b < 0 ? "" : setup.b.columns[entry.b]!.name;
+      const name = a === "" ? `${b} (B)` : b === "" ? `${a} (A)` : a === b ? a : `${a} / ${b}`;
+      const restore = el("button", { class: "cmp-chip", type: "button", title: "Compare this column again", "aria-label": `Compare ${name} again` }, [name, " ×"]);
+      restore.addEventListener("click", () =>
+        actions.setIgnore({ a: state.ignore.a.filter((i) => i !== entry.a), b: state.ignore.b.filter((i) => i !== entry.b) }),
+      );
+      list.append(restore);
+    }
+    box.append(list);
+  }
   return box;
 }
 

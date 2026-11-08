@@ -1,4 +1,4 @@
-import type { ColumnPair, ColumnPairing, CompareSide } from "./types.js";
+import type { ColumnPair, ColumnPairing, CompareSide, IgnoredColumns } from "./types.js";
 
 /** Column names compare without case, spaces or punctuation: "Order ID" pairs with "order_id". */
 export function columnNameKey(name: string): string {
@@ -9,11 +9,14 @@ export function columnNameKey(name: string): string {
  * Pairs the columns of A and B: hand-made pairs first (renames), then exact
  * names, then names that agree once case, spaces and punctuation are
  * dropped. Each column pairs at most once; the rest are added or removed.
+ * Ignored columns are taken out afterwards, as if neither side had them: they
+ * are not paired, key candidates, compared or reported as added or removed.
  */
 export function pairColumns(
   a: CompareSide,
   b: CompareSide,
   manual: readonly { a: number; b: number }[] = [],
+  ignore: IgnoredColumns = { a: [], b: [] },
 ): ColumnPairing {
   const usedA = new Set<number>();
   const usedB = new Set<number>();
@@ -47,9 +50,19 @@ export function pairColumns(
     if (match !== undefined && !usedB.has(match)) take(index, match, false);
   });
   pairs.sort((x, y) => x.a - y.a);
+  const skipA = new Set(ignore.a);
+  const skipB = new Set(ignore.b);
+  const onlyA = a.columns.map((_, index) => index).filter((index) => !usedA.has(index));
+  const onlyB = b.columns.map((_, index) => index).filter((index) => !usedB.has(index));
+  const ignored: { a: number; b: number }[] = [
+    ...pairs.filter((pair) => skipA.has(pair.a) || skipB.has(pair.b)).map((pair) => ({ a: pair.a, b: pair.b })),
+    ...onlyA.filter((index) => skipA.has(index)).map((index) => ({ a: index, b: -1 })),
+    ...onlyB.filter((index) => skipB.has(index)).map((index) => ({ a: -1, b: index })),
+  ];
   return {
-    pairs,
-    onlyA: a.columns.map((_, index) => index).filter((index) => !usedA.has(index)),
-    onlyB: b.columns.map((_, index) => index).filter((index) => !usedB.has(index)),
+    pairs: pairs.filter((pair) => !skipA.has(pair.a) && !skipB.has(pair.b)),
+    onlyA: onlyA.filter((index) => !skipA.has(index)),
+    onlyB: onlyB.filter((index) => !skipB.has(index)),
+    ignored,
   };
 }

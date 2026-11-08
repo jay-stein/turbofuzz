@@ -158,16 +158,22 @@ function changesCard(input: ReportInput, actions: ReportActions): HTMLElement {
   return box;
 }
 
-/** Columns added, removed, renamed or retyped between A and B. */
+/** An ignored column as the report names it: its name, with the side when only one has it. */
+export function ignoredName(pair: { a: string; b: string }): string {
+  return pair.a === "" ? `${pair.b} (B only)` : pair.b === "" ? `${pair.a} (A only)` : pair.a === pair.b ? pair.a : `${pair.a} / ${pair.b}`;
+}
+
+/** Columns added, removed, renamed, retyped or ignored between A and B. */
 function columnsCard(report: CompareReport): HTMLElement {
   const box = card("Columns");
-  const { added, removed, renamed, retyped } = report.columns;
+  const { added, removed, renamed, retyped, ignored } = report.columns;
   const row = (kind: string, tone: string, text: string): HTMLElement =>
     el("div", { class: "cmp-schema-row" }, [el("span", { class: `cmp-tag ${tone}` }, [kind]), el("span", { class: "cmp-schema-text" }, [text])]);
   for (const name of added) box.append(row("Added", "added", name));
   for (const name of removed) box.append(row("Removed", "gone", name));
   for (const pair of renamed) box.append(row("Renamed", "renamed", `${pair.a} → ${pair.b}`));
   for (const change of retyped) box.append(row("Retyped", "retyped", `${change.name}: ${TYPE_LABELS[change.a]} → ${TYPE_LABELS[change.b]}`));
+  for (const pair of ignored) box.append(row("Ignored", "ignored", ignoredName(pair)));
   if (added.length + removed.length + renamed.length + retyped.length === 0) {
     box.append(el("p", { class: "cmp-note" }, ["The same columns, with the same types, on both sides."]));
   }

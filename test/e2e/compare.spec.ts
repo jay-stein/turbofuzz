@@ -326,3 +326,26 @@ test("Changed in: column chips narrow the changed rows to the columns ticked", a
   await chips.getByRole("button", { name: "Any column" }).click();
   await expect.poll(ids).toEqual(["1", "2", "3", "4"]);
 });
+
+test("columns can be ignored: a row-number column differing everywhere stops mattering, and it can be put back", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto("/");
+  const before = ["n,name,amount", "1,Ada,10", "2,Alan,20", "3,Grace,30"].join("\n");
+  const after = ["n,name,amount", "7,Ada,10", "8,Alan,20", "9,Grace,30"].join("\n");
+  await page.locator('input[type="file"]').first().setInputFiles(file("before.csv", before));
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: /Load more/ }).click();
+  await page.getByRole("menuitem", { name: "Compare with a file…" }).click();
+  await (await chooser).setFiles(file("after.csv", after));
+  const mode = page.getByRole("region", { name: "Compare two datasets" });
+  await mode.getByRole("button", { name: "Ignore n", exact: true }).click();
+  await expect(mode.locator(".cmp-ignored")).toContainText("n");
+  await expect(mode.getByRole("button", { name: "Ignore n", exact: true })).toHaveCount(0);
+  // With n left out the rows agree, and the report says what was ignored.
+  await mode.getByRole("button", { name: "Compare", exact: true }).click();
+  await expect(mode.getByRole("heading", { name: "What changed" })).toBeVisible();
+  await expect(mode.locator(".cmp-change-name")).toHaveCount(0);
+  await expect(mode.locator(".cmp-schema-row")).toHaveText(["Ignoredn"]);
+});

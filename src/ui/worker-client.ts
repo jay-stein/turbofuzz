@@ -206,12 +206,12 @@ export class SearchWorkerClient {
     return this.request<CompareSetupMessage>({ type: "compareLoad", ...options }, options.buffer === undefined ? [] : [options.buffer]);
   }
 
-  compareSetup(manual: { a: number; b: number }[], rules: CompareRules): Promise<CompareSetupMessage> {
-    return this.request<CompareSetupMessage>({ type: "compareSetup", manual, rules });
+  compareSetup(manual: { a: number; b: number }[], rules: CompareRules, ignore?: { a: number[]; b: number[] }): Promise<CompareSetupMessage> {
+    return this.request<CompareSetupMessage>({ type: "compareSetup", manual, ignore, rules });
   }
 
-  compareRun(manual: { a: number; b: number }[], keyPairs: number[] | null, rules: CompareRules): Promise<CompareResultMessage> {
-    return this.request<CompareResultMessage>({ type: "compareRun", manual, keyPairs, rules });
+  compareRun(manual: { a: number; b: number }[], keyPairs: number[] | null, rules: CompareRules, ignore?: { a: number[]; b: number[] }): Promise<CompareResultMessage> {
+    return this.request<CompareResultMessage>({ type: "compareRun", manual, ignore, keyPairs, rules });
   }
 
   compareRows(filter: RowFilter, start: number, end: number): Promise<CompareRowsMessage> {

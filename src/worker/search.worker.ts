@@ -1173,7 +1173,7 @@ function handleCompareSetup(message: CompareSetupRequest): void {
   const { dataset: current } = state();
   if (compare === null) throw new Error("No dataset to compare with");
   const a = compareSideA(current);
-  const pairing = pairColumns(a, compare.bSide, message.manual);
+  const pairing = pairColumns(a, compare.bSide, message.manual, message.ignore);
   post({
     type: "compareSetup",
     requestId: message.requestId,
@@ -1190,7 +1190,7 @@ function handleCompareRun(message: CompareRunRequest): void {
   const { dataset: current } = state();
   if (compare === null) throw new Error("No dataset to compare with");
   const a = compareSideA(current);
-  const pairing = pairColumns(a, compare.bSide, message.manual);
+  const pairing = pairColumns(a, compare.bSide, message.manual, message.ignore);
   const keyPairs = message.keyPairs === null ? null : message.keyPairs.map((index) => pairing.pairs[index]).filter((pair): pair is ColumnPair => pair !== undefined);
   const match = matchRows(a, compare.bSide, pairing, keyPairs, message.rules);
   compare.run = { a, pairing, match, filtered: new Map(), keyPairs: message.keyPairs ?? [] };
