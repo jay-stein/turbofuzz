@@ -58,8 +58,30 @@ export class FuzzyIndex {
   private votes = new Uint32Array(0);
   private stampId = 0;
   private rowCount = 0;
+  private bytes: number | null = null;
+
+  /**
+   * About how much memory the index holds. Costs fitted to the heap after
+   * building indexes on eleven real columns (within about 10% on each):
+   * per distinct token (its string, its posting list, its dict entry and its
+   * typed-array slots), per posting, per n-gram or phonetic key and per entry
+   * in their lists. Worked out once: the index does not change after build.
+   */
+  memoryBytes(): number {
+    if (this.bytes !== null) return this.bytes;
+    let postings = 0;
+    for (const list of this.postings) postings += list.length;
+    let keys = this.grams.size + this.phonetic.size;
+    let entries = 0;
+    for (const list of this.grams.values()) entries += list.length;
+    for (const list of this.phonetic.values()) entries += list.length;
+    if (keys < 0) keys = 0;
+    this.bytes = Math.round(this.tokens.length * 265 + postings * 10 + keys * 600 + entries * 7);
+    return this.bytes;
+  }
 
   build(values: readonly string[]): FuzzyIndexStats {
+    this.bytes = null;
     const t0 = performance.now();
     this.rowCount = values.length;
     let totalPostings = 0;

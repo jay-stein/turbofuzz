@@ -8,8 +8,10 @@ const REFRESH_MS = 30_000;
 const MEASURE_MS = 20_000;
 
 export interface MemoryState {
-  /** The loaded data (A) and, while comparing, B: the app's own estimate. */
+  /** The app's own estimates: the loaded data (A), undo copies, indexes and caches, and B while comparing. */
   data: number;
+  undo: number;
+  caches: number;
   compare: number;
   /** The whole tab as the browser measured it (page and workers), when it allows that. */
   measured: number | null;
@@ -25,7 +27,12 @@ interface ChromiumMemory {
 
 /** What the gauge shows as in use: the measured tab when there is one, else the data estimate. */
 export function usedBytes(state: MemoryState): number {
-  return state.measured ?? state.data + state.compare;
+  return state.measured ?? estimatedBytes(state);
+}
+
+/** Everything the app's own estimate counts. */
+export function estimatedBytes(state: MemoryState): number {
+  return state.data + state.undo + state.caches + state.compare;
 }
 
 /**
@@ -39,6 +46,7 @@ export class MemoryMonitor {
   private readonly listeners = new Set<(state: MemoryState) => void>();
   private lastMeasure = 0;
   private timer = 0;
+  private soonTimer = 0;
   private busy = false;
   /** Set when the browser refuses to measure (some builds expose the call but do not allow it): stop asking. */
   private measureRefused = false;
@@ -48,6 +56,8 @@ export class MemoryMonitor {
     const deviceGb = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? null;
     this.state = {
       data: 0,
+      undo: 0,
+      caches: 0,
       compare: 0,
       measured: null,
       limit: memoryLimit({ heapLimit: perf.memory?.jsHeapSizeLimit ?? null, deviceMemoryGb: deviceGb }),
@@ -75,7 +85,9 @@ export class MemoryMonitor {
     this.busy = true;
     try {
       const message = await this.client.memory().catch(() => null);
-      if (message !== null) this.state = { ...this.state, data: message.dataBytes, compare: message.compareBytes };
+      if (message !== null) {
+        this.state = { ...this.state, data: message.dataBytes, undo: message.undoBytes, caches: message.cacheBytes, compare: message.compareBytes };
+      }
       this.emit();
       const now = Date.now();
       if (this.canMeasure && now - this.lastMeasure >= MEASURE_MS) {
@@ -92,8 +104,15 @@ export class MemoryMonitor {
     }
   }
 
+  /** A refresh a moment after the data changed, however many changes come in a burst. */
+  soon(): void {
+    window.clearTimeout(this.soonTimer);
+    this.soonTimer = window.setTimeout(() => void this.refresh(), 800);
+  }
+
   dispose(): void {
     window.clearInterval(this.timer);
+    window.clearTimeout(this.soonTimer);
     this.listeners.clear();
   }
 
@@ -194,8 +213,10 @@ function openMemoryPanel(anchor: HTMLElement, monitor: MemoryMonitor): void {
       el("span", { class: "mem-panel-sub" }, [`${formatMemory(used)} of about ${formatMemory(state.limit.bytes)}`]),
     );
     rows.replaceChildren();
-    row(state.compare > 0 ? "Data (A)" : "Data", `≈ ${formatMemory(state.data)}`, "estimate");
-    if (state.compare > 0) row("Compare (B)", `≈ ${formatMemory(state.compare)}`, "estimate");
+    row(state.compare > 0 ? "Data (A)" : "Data", `≈ ${formatMemory(state.data)}`, "the table as it is now");
+    if (state.undo > 0) row("Undo history", `≈ ${formatMemory(state.undo)}`, "kept so steps can be undone");
+    if (state.caches > 0) row("Search and sort indexes", `≈ ${formatMemory(state.caches)}`, "built as you search, sort and filter");
+    if (state.compare > 0) row("Compare (B)", `≈ ${formatMemory(state.compare)}`, "B and the match");
     row("This tab", state.measured === null ? "not measured" : formatMemory(state.measured), state.measured === null ? (monitor.canMeasure ? "measuring…" : "this browser does not say") : "measured by the browser");
     row("This device", state.deviceGb === null ? "not shared by this browser" : state.deviceGb >= 8 ? "8 GB or more" : `about ${state.deviceGb} GB`);
     row(

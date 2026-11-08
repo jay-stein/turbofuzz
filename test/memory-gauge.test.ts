@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import { MemoryMonitor, memoryGauge, usedBytes } from "../src/ui/memory-gauge.js";
+import { MemoryMonitor, estimatedBytes, memoryGauge, usedBytes } from "../src/ui/memory-gauge.js";
 import type { SearchWorkerClient } from "../src/ui/worker-client.js";
 
 const MB = 1024 ** 2;
@@ -20,8 +20,8 @@ function setup(measure?: () => Promise<{ bytes: number }>): void {
   perf.measureUserAgentSpecificMemory = measure;
 }
 
-function client(data: number, compare = 0): SearchWorkerClient {
-  return { memory: async () => ({ type: "memory", requestId: 0, dataBytes: data, compareBytes: compare }) } as unknown as SearchWorkerClient;
+function client(data: number, compare = 0, undo = 0, caches = 0): SearchWorkerClient {
+  return { memory: async () => ({ type: "memory", requestId: 0, dataBytes: data, undoBytes: undo, cacheBytes: caches, compareBytes: compare }) } as unknown as SearchWorkerClient;
 }
 
 test("the gauge stays hidden with no data, then shows the figure, its share and its tone", async () => {
@@ -41,6 +41,17 @@ test("the gauge stays hidden with no data, then shows the figure, its share and 
   assert.equal(full.getAttribute("aria-label"), "Memory: 3.5 GB of about 4.0 GB (88%). Close to the limit.");
   monitor.dispose();
   busy.dispose();
+});
+
+test("undo copies and indexes count too, so a transform or a search moves the gauge", async () => {
+  setup();
+  const monitor = new MemoryMonitor(client(1 * GB, 0, 1 * GB, 0.5 * GB));
+  const gauge = memoryGauge(monitor);
+  await monitor.refresh();
+  assert.equal(estimatedBytes(monitor.state), 2.5 * GB);
+  assert.equal(gauge.querySelector(".mem-label")?.textContent, "2.5 GB");
+  assert.equal(gauge.dataset.tone, "warn");
+  monitor.dispose();
 });
 
 test("where the browser measures the tab, that figure is the one in use; where it refuses, the gauge stops asking", async () => {

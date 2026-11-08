@@ -1413,7 +1413,13 @@ export interface MemoryRequest {
 export interface MemoryMessage {
   type: "memory";
   requestId: number;
+  /** The loaded table as it is now. */
   dataBytes: number;
+  /** Copies kept so cleans and transforms can be undone: original columns, the table before a transform. */
+  undoBytes: number;
+  /** Search text, fuzzy indexes, category bitsets, and sort, filter and export orders. */
+  cacheBytes: number;
+  /** B and the match, while comparing. */
   compareBytes: number;
 }
 

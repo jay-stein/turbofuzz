@@ -408,12 +408,7 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     }
     case "memory":
-      post({
-        type: "memory",
-        requestId: message.requestId,
-        dataBytes: dataset === null ? 0 : datasetBytes(dataset),
-        compareBytes: compare === null ? 0 : datasetBytes(compare.b),
-      });
+      post({ type: "memory", requestId: message.requestId, ...memoryBreakdown() });
       break;
     case "compareExport": {
       const run = compareRun();
@@ -1060,6 +1055,40 @@ function datasetBytes(current: Dataset): number {
     footprints.set(current, bytes);
   }
   return bytes;
+}
+
+/** A cleaned column's original, kept for undo: estimated once. */
+const columnFootprints = new WeakMap<ColumnData, number>();
+
+function columnBytes(column: ColumnData): number {
+  let bytes = columnFootprints.get(column);
+  if (bytes === undefined) {
+    bytes = estimateTableBytes([column], column.raw.length);
+    columnFootprints.set(column, bytes);
+  }
+  return bytes;
+}
+
+/** What the worker holds, in four parts, for the memory gauge. */
+function memoryBreakdown(): { dataBytes: number; undoBytes: number; cacheBytes: number; compareBytes: number } {
+  const typed = (array: { byteLength: number } | null | undefined): number => array?.byteLength ?? 0;
+  const dataBytes = dataset === null ? 0 : datasetBytes(dataset);
+  let undoBytes = transformSource === null || transformSource === dataset ? 0 : datasetBytes(transformSource);
+  for (const source of cleanSource.values()) undoBytes += columnBytes(source);
+  let cacheBytes = typed(sortedIds) + typed(rankAsc) + typed(exportIds) + typed(duplicateRank);
+  if (dataset !== null) for (const column of dataset.columns) cacheBytes += column.cacheBytes();
+  let compareBytes = 0;
+  if (compare !== null) {
+    compareBytes = datasetBytes(compare.b);
+    for (const column of compare.b.columns) compareBytes += column.cacheBytes();
+    const run = compare.run;
+    if (run !== undefined) {
+      compareBytes += typed(run.match.aRow) + typed(run.match.bRow) + typed(run.match.status);
+      for (const bits of run.match.changed) compareBytes += bits.words.byteLength;
+      for (const positions of run.filtered.values()) compareBytes += positions.byteLength;
+    }
+  }
+  return { dataBytes, undoBytes, cacheBytes, compareBytes };
 }
 
 /** Compare mode: B beside the loaded data (A), and the last match with its filtered row lists. */

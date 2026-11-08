@@ -3379,6 +3379,7 @@ export class App {
     this.inFlight = true;
     void send().finally(() => {
       this.inFlight = false;
+      this.memory.soon();
       const next = this.pendingSend;
       this.pendingSend = null;
       if (next !== null && next.generation === this.generation) this.runSend(next.send);

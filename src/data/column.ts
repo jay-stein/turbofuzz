@@ -441,6 +441,34 @@ export class ColumnData {
     this.stats.stddev = null;
   }
 
+  /** Memory held by this column's caches (search text, fuzzy index, category bitsets), beyond its values. */
+  cacheBytes(): number {
+    let bytes = 0;
+    if (this.norm !== null) {
+      // The normalised copy: a slot per value, and a new string for each value normalising changed
+      // (about 28 bytes plus 1.2 a character, fitted to the heap on real columns).
+      const rows = this.norm.length;
+      const step = Math.max(1, Math.floor(rows / 2000));
+      let chars = 0;
+      let changed = 0;
+      let seen = 0;
+      for (let row = 0; row < rows; row += step) {
+        const value = this.norm[row]!;
+        seen++;
+        if (value !== this.raw[row]) {
+          changed++;
+          chars += value.length;
+        }
+      }
+      const share = seen === 0 ? 0 : changed / seen;
+      const average = changed === 0 ? 0 : chars / changed;
+      bytes += rows * 8 + rows * share * (28 + average * 1.2);
+    }
+    if (this.fuzzy !== null) bytes += this.fuzzy.memoryBytes();
+    if (this.cats !== null) for (const set of this.cats.bits) bytes += set.words.byteLength;
+    return Math.round(bytes);
+  }
+
   normalized(): string[] {
     if (this.norm === null) {
       this.norm = this.raw.map((value) => (this.isNull(value) ? "" : normalize(value)));
