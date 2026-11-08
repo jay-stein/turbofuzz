@@ -9465,6 +9465,11 @@ label.null-row {
     display: inline-flex;
   }
 
+  /* The ring alone on a phone; its panel still gives the numbers. */
+  .topbar .mem-label {
+    display: none;
+  }
+
   /* Filters open as a drawer over the data instead of stacking above it. */
   .workspace-body {
     position: relative;
@@ -14499,7 +14504,7 @@ button.qp-tile:hover {
   height: 20px;
   padding: 0 8px;
   border-radius: 6px;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   line-height: 18px;
   letter-spacing: 0.005em;
