@@ -206,7 +206,7 @@ import { remapViewDef, ViewsPanel, type ViewSource } from "./views-panel.js";
 import { openCommandBar, type ParsedCommand } from "./command-bar.js";
 import { openTriagePanel, type TriagePanelHandle } from "./triage-panel.js";
 import { openColumnInspector } from "./column-inspector.js";
-import { CompareMode } from "./compare/compare-mode.js";
+import { CompareMode, unreadableReason } from "./compare/compare-mode.js";
 import { FILE_TYPES as COMPARE_FILE_TYPES } from "./compare/compare-setup.js";
 import { columnActionSections } from "./column-actions.js";
 import { openActionMenu } from "./action-menu.js";
@@ -953,11 +953,16 @@ export class App {
     this.newButton.addEventListener("click", () => this.onNewDataClick());
     this.loadMoreButton = el(
       "button",
-      { class: "ghost small topbar-wide load-more-button hidden", type: "button", "aria-haspopup": "menu", title: "Add another dataset: compare it with this one" },
+      { class: "ghost small topbar-wide load-more-button hidden", type: "button", "aria-haspopup": "menu", title: "Add another dataset: append its rows, or compare it with this one" },
       [svgIcon('<path d="M12 5v14M5 12h14"/>', "new-data-icon"), el("span", {}, ["Load more ▾"])],
     ) as HTMLButtonElement;
     this.loadMoreButton.addEventListener("click", () =>
       openMenu(this.loadMoreButton, [
+        {
+          label: "Append rows from a file…",
+          title: "Add another file's rows under these, columns lined up by name, with _input_filename saying where each row came from",
+          action: () => this.pickAppendFile(),
+        },
         {
           label: "Compare with a file…",
           title: "Line up this data with another file and see what changed (the data here stays as it is)",
@@ -1732,6 +1737,8 @@ export class App {
     importSource?: ImportSource;
     /** A re-read of the source already loaded, so its provenance carries over. */
     reuseSource?: boolean;
+    /** Load more → Append: stack this file under the loaded data. */
+    append?: boolean;
   }): Promise<void> {
     if (this.loading) return;
     this.loading = true;
@@ -1766,6 +1773,7 @@ export class App {
         files: options.files,
         maxRows: options.maxRows,
         headerLayout: options.headerLayout,
+        append: options.append,
         deferStats:
           options.deferStats ??
           ((options.buffer !== undefined || options.files !== undefined) &&
@@ -1780,6 +1788,9 @@ export class App {
         this.setAction(
           `${options.files.length} files appended - ${loaded.rowCount.toLocaleString()} rows with _input_filename.`,
         );
+      }
+      if (options.append === true) {
+        this.setAction(`Appended ${options.name}: ${loaded.rowCount.toLocaleString()} rows now, with _input_filename saying where each came from.`);
       }
     } catch (error) {
       if (error instanceof LoadCancelledError) {
@@ -6751,6 +6762,34 @@ export class App {
     if (key === "dateOrder" && this.metas.some((meta) => meta.dateAmbiguous === true)) {
       this.setAction("Date order saved. The dates already loaded were read before it: use Import settings, then Apply and reload, to read this file with it.");
     }
+  }
+
+  /** Load more → Append rows: choose the file, confirm when Recipe steps would be folded in, then load it under the data. */
+  private pickAppendFile(): void {
+    const input = el("input", { type: "file", accept: COMPARE_FILE_TYPES }) as HTMLInputElement;
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (file !== undefined) void this.appendFile(file);
+    });
+    input.click();
+  }
+
+  private async appendFile(file: File): Promise<void> {
+    const reason = unreadableReason(file.name);
+    if (reason !== null) {
+      this.showToast(reason.replace("Compare reads", "Append reads"));
+      return;
+    }
+    const steps = this.stepEntries().length;
+    if (steps > 0) {
+      const confirmed = await openConfirm({
+        title: `Append the rows of “${file.name}”?`,
+        body: `The table is rebuilt from what you see now plus the new rows. The ${steps} Recipe step${steps === 1 ? "" : "s"} so far stay in the values but can no longer be undone or replayed. To keep them as a recipe, Cancel and save the Recipe first.`,
+        confirmLabel: "Append rows",
+      });
+      if (!confirmed) return;
+    }
+    await this.load({ buffer: await file.arrayBuffer(), name: file.name, source: "file", append: true });
   }
 
   /** The loaded data as compare mode's A card shows it. */

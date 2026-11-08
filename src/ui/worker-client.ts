@@ -118,6 +118,8 @@ export interface LoadOptions {
   headerLayout?: HeaderLayout;
   /** Conventions from Settings the parsers need; filled in from the saved settings when left out. */
   conventions?: { dateOrder: "dmy" | "mdy" | null; numberFormat?: string };
+  /** Stack the file under the loaded data (Load more → Append rows). */
+  append?: boolean;
 }
 
 /** The user cancelled an in-flight load; the dataset is unchanged. */

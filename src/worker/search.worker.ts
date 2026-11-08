@@ -70,7 +70,7 @@ import {
   type NullPolicy,
 } from "../parse/null-tokens.js";
 import { isParquetName, readParquetGrid } from "../parse/parquet.js";
-import { pairColumns } from "../data/compare/columns.js";
+import { columnNameKey, pairColumns } from "../data/compare/columns.js";
 import { suggestKeys } from "../data/compare/keys.js";
 import { matchRows } from "../data/compare/match.js";
 import { buildReport } from "../data/compare/report.js";
@@ -894,6 +894,15 @@ async function handleLoad(message: LoadRequest): Promise<void> {
       cancelNow();
       return;
     }
+    if (message.append === true && dataset !== null) {
+      postLoadProgress(message.requestId, { phase: "build", detail: "Appending rows…" });
+      const combined = await appendToCurrent(dataset, ingested.dataset, message.name, cancelled);
+      if (combined === null) {
+        cancelNow();
+        return;
+      }
+      ingested = { ...ingested, dataset: combined };
+    }
 
     const { dataset: next, encoding, ragged, delimiter } = ingested;
     dataset = next;
@@ -918,7 +927,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
     transformSource = null;
     transformOps = [];
     datasetSource =
-      message.files !== undefined && message.files.length > 1
+      message.append === true || (message.files !== undefined && message.files.length > 1)
         ? "multi"
         : message.buffer !== undefined || (message.files !== undefined && message.files.length > 0)
           ? "file"
@@ -953,6 +962,54 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   } finally {
     if (activeLoad === active) activeLoad = null;
   }
+}
+
+/**
+ * Load more → Append: the loaded data as it is now (cleans and new columns
+ * included, deleted rows left out) with the new file's rows under it. Columns
+ * line up by name, exactly first, then ignoring case, spaces and punctuation;
+ * a column only one side has is empty on the other. `_input_filename` says
+ * where each row came from (the loaded data's name when it had none).
+ */
+async function appendToCurrent(current: Dataset, added: Dataset, addedName: string, cancelled: () => boolean): Promise<Dataset | null> {
+  const isSource = (name: string): boolean => /^_input_filename$/i.test(name);
+  const headers = current.columns.map((column) => column.name);
+  const take = new Array<number>(headers.length).fill(-1);
+  const extra: number[] = [];
+  added.columns.forEach((column, index) => {
+    if (isSource(column.name)) return;
+    let at = headers.indexOf(column.name);
+    if (at < 0 || take[at] >= 0) at = headers.findIndex((name, i) => take[i] < 0 && i < current.columns.length && columnNameKey(name) === columnNameKey(column.name));
+    if (at >= 0 && take[at] < 0) take[at] = index;
+    else extra.push(index);
+  });
+  for (const index of extra) {
+    headers.push(added.columns[index]!.name);
+    take.push(index);
+  }
+  let source = headers.findIndex(isSource);
+  const hadSource = source >= 0;
+  if (!hadSource) {
+    headers.push("_input_filename");
+    take.push(-1);
+    source = headers.length - 1;
+  }
+  const width = headers.length;
+  const rows: string[][] = [];
+  const own = current.columns;
+  for (let r = 0; r < current.rowCount; r++) {
+    if (excludedIds.has(r)) continue;
+    const row = new Array<string>(width).fill("");
+    for (let c = 0; c < own.length; c++) row[c] = own[c]!.raw[r]!;
+    if (!hadSource) row[source] = current.name;
+    rows.push(row);
+  }
+  for (let r = 0; r < added.rowCount; r++) {
+    const row = new Array<string>(width);
+    for (let c = 0; c < width; c++) row[c] = c === source ? addedName : take[c]! >= 0 ? added.columns[take[c]!]!.raw[r]! : "";
+    rows.push(row);
+  }
+  return buildDatasetAsync(`${current.name} + ${addedName}`, headers, rows, () => undefined, "dot", { shouldCancel: cancelled });
 }
 
 /** Compare mode: B beside the loaded data (A), and the last match. */

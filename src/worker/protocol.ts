@@ -169,6 +169,8 @@ export type LoadRequest = {
   headerLayout?: HeaderLayout;
   /** Conventions from Settings the parsers need; null for "not set". */
   conventions?: { dateOrder: "dmy" | "mdy" | null; numberFormat?: string };
+  /** Stack this file's rows under the loaded data as it is now, columns lined up by name, with `_input_filename`. */
+  append?: boolean;
 };
 
 /** Stops the in-flight load at its next cancellation checkpoint. */

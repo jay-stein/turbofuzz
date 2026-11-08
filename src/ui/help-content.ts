@@ -416,6 +416,9 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       note(
         "Compare reads CSV, TSV, JSON and Parquet. Save a workbook sheet as CSV first. While comparing, the rest of the app is locked; Exit compare returns to your data exactly as it was.",
       ),
+      p(
+        "Load more ▾ → Append rows from a file… stacks another file's rows under the data as it is now (deleted rows left out). Columns line up by name, ignoring case and spacing; a column only one file has stays empty for the other's rows, and _input_filename says where each row came from. Recipe steps so far stay in the values but can no longer be undone, so you are asked first when there are any.",
+      ),
     ],
   },
   {

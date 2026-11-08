@@ -78,3 +78,17 @@ test("a workbook is explained, not misread", async ({ page }) => {
   await (await chooser).setFiles({ name: "after.xlsx", mimeType: "application/octet-stream", buffer: Buffer.from("PK") });
   await expect(page.getByRole("alert")).toContainText("save the sheet as CSV");
 });
+
+test("Load more → Append rows stacks a file under the data, columns lined up by name, with _input_filename", async ({ page }) => {
+  await loadA(page);
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: /Load more/ }).click();
+  await page.getByRole("menuitem", { name: "Append rows from a file…" }).click();
+  await (await chooser).setFiles(file("after.csv", B));
+  await expect(page.locator(".count").first()).toContainText("8 rows");
+  await page.getByRole("tab", { name: "Table" }).click();
+  await expect(page.locator(".table-header .th-label")).toHaveText(["id", "name", "amount", "region", "old", "full_name", "new", "_input_filename"]);
+  const column = (index: number) => page.locator(`.tr .td[data-col="${index}"]`).allInnerTexts();
+  await expect.poll(() => column(7)).toEqual(["before.csv", "before.csv", "before.csv", "before.csv", "after.csv", "after.csv", "after.csv", "after.csv"]);
+  await expect.poll(() => column(3)).toEqual(["North", "South", "East", "West", "North", "East", "West", "North"]);
+});
