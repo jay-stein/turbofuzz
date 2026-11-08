@@ -6922,6 +6922,30 @@ export class App {
         if (this.lastLoaded !== null) this.clearData();
         this.setAction("Compare closed and the data cleared: load a file, or compare two, to start again");
       },
+      // Opening B replaces A, so Recipe steps on A are asked about first; A stays as it is.
+      confirmDeepDive: async (side) => {
+        const steps = this.lastLoaded === null ? 0 : this.stepEntries().length;
+        if (side === "a" || steps === 0) return true;
+        return openConfirm({
+          title: `Open B and close the comparison?`,
+          body: `B is loaded in place of “${this.datasetName}”, which is cleared, including its ${steps} Recipe step${steps === 1 ? "" : "s"}. To keep them, Cancel and save the Recipe first.`,
+          confirmLabel: "Open B",
+          danger: true,
+        });
+      },
+      onDeepDive: (side, b) => {
+        for (const node of behind) node.inert = false;
+        this.compareMode = null;
+        document.body.classList.remove("compare-active");
+        if (side === "a") {
+          this.setAction("Comparison closed: A is open for a deep dive. To compare again, use Load more → Compare with a file");
+          return;
+        }
+        if (b === null) return;
+        this.clearData();
+        const opened = b.resolved === null ? this.loadFile(b.file) : this.load({ buffer: b.resolved.buffer, name: b.resolved.name, source: "file" });
+        void opened.then(() => this.setAction("Comparison closed: B is open for a deep dive. To compare again, use Load more → Compare with a file"));
+      },
     });
     this.compareMode = mode;
     document.body.classList.add("compare-active");

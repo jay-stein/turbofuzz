@@ -222,9 +222,9 @@ test("what shifted: no key needed, columns ranked by how far they moved, and a m
   await mode.getByLabel("Choose the file for B").setInputFiles(file("survey_2026.csv", survey(2026)));
   await expect(mode.getByRole("radio", { name: /No key: match whole rows/ })).toBeChecked();
   await mode.getByRole("button", { name: "Compare", exact: true }).click();
-  await mode.getByRole("button", { name: "Drift" }).click();
+  await mode.getByRole("button", { name: "Big Picture" }).click();
 
-  await expect(mode.getByRole("heading", { name: "Drift" })).toBeVisible();
+  await expect(mode.getByRole("heading", { name: "Big Picture" })).toBeVisible();
   await expect(mode.locator(".cmp-shift-page > .cmp-shift .cmp-shift-name")).toHaveText(["score", "channel", "region"]);
   await expect(mode.locator(".cmp-still summary")).toContainText("household");
   await expect(mode.locator(".cmp-shift", { hasText: "channel" }).first()).toContainText("New in B: App (40)");
@@ -363,7 +363,7 @@ test("columns can be ignored: a row-number column differing everywhere stops mat
   await expect(mode.locator(".cmp-cell.diff")).toHaveCount(0);
 });
 
-test("steps run setup, spot the difference, value differences, report, drift; a column only A has is tinted on every row", async ({ page }) => {
+test("steps run setup, spot the difference, value differences, report, big picture; a column only A has is tinted on every row", async ({ page }) => {
   await loadA(page);
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: /Load more/ }).click();
@@ -371,7 +371,7 @@ test("steps run setup, spot the difference, value differences, report, drift; a 
   await (await chooser).setFiles(file("after.csv", B));
   const mode = page.getByRole("region", { name: "Compare two datasets" });
   const steps = mode.getByRole("navigation", { name: "Comparison steps" });
-  await expect(steps.getByRole("button")).toHaveText([/Comparison setup/, /Spot the difference/, /Value differences/, /Report/, /Drift/]);
+  await expect(steps.locator(".cmp-step")).toHaveText([/Comparison setup/, /Spot the difference/, /Value differences/, /Report/, /Big Picture/]);
   await expect(steps.getByRole("button", { name: "Comparison setup" })).toHaveAttribute("aria-current", "page");
   // Nothing to show until Compare is pressed.
   await expect(steps.getByRole("button", { name: "Report" })).toHaveAttribute("aria-disabled", "true");
@@ -418,4 +418,24 @@ test("matching on row position, then Value differences: B minus A, % change, and
   await expect(cells.nth(4)).toHaveText("-25%");
   await mode.getByRole("combobox", { name: "Colour map" }).selectOption("none");
   await expect(cells.nth(1)).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+});
+
+test("Deep dive: from a comparison, analyse A or B on its own with all the tools", async ({ page }) => {
+  for (const side of ["A", "B"] as const) {
+    await loadA(page);
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: /Load more/ }).click();
+    await page.getByRole("menuitem", { name: "Compare with a file…" }).click();
+    await (await chooser).setFiles(file("after.csv", B));
+    const mode = page.getByRole("region", { name: "Compare two datasets" });
+    await expect(mode.locator(".cmp-side-b")).toContainText("after.csv");
+    await mode.getByRole("button", { name: "Deep dive" }).click();
+    await page.getByRole("menuitem", { name: new RegExp(`^Analyse ${side}:`) }).click();
+    await expect(mode).toHaveCount(0);
+    await page.getByRole("tab", { name: "Table" }).click();
+    // A has a column "old", B has "new": the dataset that opened is the one chosen, with the whole workspace.
+    await expect.poll(() => page.locator(".table-header .th-label").allInnerTexts()).toContain(side === "A" ? "old" : "new");
+    await expect(page.locator(".count").first()).toContainText("4 rows");
+    await expect(page.locator("body")).not.toHaveClass(/compare-active/);
+  }
 });

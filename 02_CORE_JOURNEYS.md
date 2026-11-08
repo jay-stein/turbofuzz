@@ -416,7 +416,7 @@ For each journey, capture a baseline before redesigning it. Record the starting 
 3. Press Compare (under Match rows on).
 4. Read the Report; follow a count to those rows in Side by side.
 5. Narrow with Show, Differences and Changed in; step with next/previous difference; switch to one grid if preferred.
-6. Read What shifted for distributions and groups.
+6. Read Big Picture for distributions and groups.
 7. Export the HTML report, the changes CSV or the Excel workbook.
 8. Exit (confirming when A carried Recipe steps); both datasets are cleared.
 

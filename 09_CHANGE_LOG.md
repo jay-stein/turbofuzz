@@ -4,11 +4,20 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-09-02 — Compare: Deep dive on one dataset; the fifth sheet is Big Picture
+
+- **Status:** Verified (e2e)
+- **Related issue / decision:** owner: connect comparison mode with analysis mode, so one of the two datasets can be analysed on its own; name the last sheet Big Picture.
+- **What changed:** Deep dive ▾ in the step bar (from the setup onwards) offers Analyse A and Analyse B. Either closes the comparison and opens that dataset in the normal workspace with every tool: A stays loaded as it is (B is dropped); B is loaded in A's place, asking first when A had Recipe steps. A workbook or archive B is kept as the table taken from it, so no second question about sheets. To compare again: Load more → Compare with a file. The sheet formerly What shifted / Drift is now Big Picture.
+- **Files / components changed:** src/ui/compare/compare-mode.ts, src/ui/app.ts; test/e2e/compare.spec.ts; docs and help text
+- **Decision:** Ship
+- **Date:** 2026-11-09
+
 ### CHG-2026-11-09-01 — Compare: match on position, Value differences, new step order
 
 - **Status:** Verified (unit, e2e with axe, browser; 1M rows × 20 columns: summary 0.2–0.5 s, a 200-row window 0.5 ms)
 - **Related issue / decision:** owner: files with the same shape where only values change; a sheet of B − A (or % change) with a diverging colour map; side by side renamed and made the second sheet.
-- **What changed:** Match rows on position (row n of A with row n of B; extra rows of the longer side are only in that side). Steps are now Comparison setup, Spot the difference (was Side by side; the result opens here), Value differences, Report, Drift (was What shifted; name still open). Value differences shows every row present in both files over the number columns both share: B − A by default, or A − B, % change, ratio B ÷ A, or the size of the change. Cells use a cool–warm colour map (blue below, red above, so never confused with A's red and B's green), or green above and red below, or none; each column on its own scale or all on one, reaching to the 95th percentile so one outlier does not wash out the rest. Each header shows the column's mean difference.
+- **What changed:** Match rows on position (row n of A with row n of B; extra rows of the longer side are only in that side). Steps are now Comparison setup, Spot the difference (was Side by side; the result opens here), Value differences, Report, Big Picture (was What shifted). Value differences shows every row present in both files over the number columns both share: B − A by default, or A − B, % change, ratio B ÷ A, or the size of the change. Cells use a cool–warm colour map (blue below, red above, so never confused with A's red and B's green), or green above and red below, or none; each column on its own scale or all on one, reaching to the 95th percentile so one outlier does not wash out the rest. Each header shows the column's mean difference.
 - **Files / components changed:** src/data/compare/diffs.ts (new), match.ts, types.ts, view.ts; src/ui/compare/compare-values.ts (new), compare-mode.ts, compare-setup.ts, compare-grid.ts, compare-report.ts, compare-export.ts; src/worker/protocol.ts, search.worker.ts; src/ui/worker-client.ts, help-content.ts, styles.css; test/compare.test.ts, test/e2e/compare.spec.ts
 - **Decision:** Ship
 - **Date:** 2026-11-09

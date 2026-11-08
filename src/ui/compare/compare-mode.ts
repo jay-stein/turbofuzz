@@ -29,6 +29,16 @@ export interface CompareModeOptions {
   confirmExit(): Promise<boolean>;
   /** Called after compare mode has closed: both datasets are cleared. */
   onExit(): void;
+  /** Asked before a deep dive: false keeps compare mode open (opening B replaces A, so work on A is asked about). */
+  confirmDeepDive(side: "a" | "b"): Promise<boolean>;
+  /** Called after compare mode has closed for a deep dive on one dataset; for B, the file it was read from. */
+  onDeepDive(side: "a" | "b", b: DeepDiveSource | null): void;
+}
+
+/** Where B can be read again for a deep dive: the file as chosen, or (for a workbook or archive) the table taken from it. */
+export interface DeepDiveSource {
+  file: File;
+  resolved: ResolvedSource | null;
 }
 
 const nf = new Intl.NumberFormat("en");
@@ -53,7 +63,7 @@ export class CompareMode {
   /** How the Value differences sheet was left: the operation, the colour map and its scale. */
   private valueState: ValueDiffsState = { op: "sub", colour: "coolwarm", scope: "column" };
   private valueDiffs: ValueDiffs | null = null;
-  /** Drift, fetched once per comparison, and the group view last chosen. */
+  /** Big Picture, fetched once per comparison, and the group view last chosen. */
   private shift: ShiftReport | null = null;
   private groups: GroupChoice | null = null;
   private rows: { filter: RowFilter; layout: GridLayout; changedColumnsOnly: boolean } = {
@@ -65,6 +75,8 @@ export class CompareMode {
   /** Says when an export could not be saved. */
   private readonly exportNote = el("span", { class: "cmp-export-note", role: "status" });
   private closed = false;
+  /** B's source, kept so a deep dive can load it as the app's data. */
+  private bSource: DeepDiveSource | null = null;
   /** The setup changed after the last comparison, so the result steps wait for another Compare. */
   private stale = false;
 
@@ -183,14 +195,14 @@ export class CompareMode {
 
   /**
    * The way through a comparison, always on top: Comparison setup, Report,
-   * Spot the difference, Value differences, Report, Drift. The last three wait for a Compare that matches
+   * Spot the difference, Value differences, Report, Big Picture. The last three wait for a Compare that matches
    * the setup as it stands; Export joins them once there is a result.
    */
   private steps(): HTMLElement {
     const ready = this.report !== null && !this.stale && this.state.setup !== null;
     const current = this.stage === "setup" ? "setup" : this.tab;
     const nav = el("nav", { class: "cmp-steps", "aria-label": "Comparison steps" });
-    const list = [["setup", "Comparison setup"], ["rows", "Spot the difference"], ["values", "Value differences"], ["report", "Report"], ["shift", "Drift"]] as const;
+    const list = [["setup", "Comparison setup"], ["rows", "Spot the difference"], ["values", "Value differences"], ["report", "Report"], ["shift", "Big Picture"]] as const;
     list.forEach(([step, label], index) => {
       const waiting = step !== "setup" && !ready;
       const button = el("button", { type: "button", class: "cmp-step", title: waiting ? "Press Compare in the setup first" : "" }, [
@@ -209,20 +221,30 @@ export class CompareMode {
       nav.append(button);
       if (index < list.length - 1) nav.append(el("span", { class: "cmp-step-sep", "aria-hidden": "true" }, ["›"]));
     });
+    const dive = el("button", { type: "button", class: "ghost small", "aria-haspopup": "menu", title: "Close the comparison and analyse one dataset on its own, with all the tools" }, ["Deep dive ▾"]);
+    dive.addEventListener("click", () => {
+      const setup = this.state.setup;
+      if (setup === null) return;
+      openMenu(dive, [
+        { label: `Analyse A: ${setup.a.name}`, title: "Closes the comparison and keeps A as the loaded data, ready for the table, quality, pivot and charts", action: () => void this.deepDive("a") },
+        { label: `Analyse B: ${setup.b.name}`, title: "Closes the comparison and loads B as the data, replacing A", action: () => void this.deepDive("b") },
+      ]);
+    });
     const exportButton = el("button", { type: "button", class: "ghost small", "aria-haspopup": "menu" }, ["Export ▾"]);
     exportButton.addEventListener("click", () =>
       openMenu(exportButton, [
         { label: "Report (HTML page)", title: "The report and what shifted, as one page to share or print: counts and summaries, not the rows", action: () => void this.exportAs("html") },
         { label: "Changes (CSV)", title: "One line per changed cell (key, rows, column, value in A and in B), and one per row only one side has", action: () => void this.exportAs("csv") },
-        { label: "Changes and rows (Excel)", title: "Summary, Changes, Only in A, Only in B and Drift as sheets of one workbook", action: () => void this.exportAs("xlsx") },
+        { label: "Changes and rows (Excel)", title: "Summary, Changes, Only in A, Only in B and Big Picture as sheets of one workbook", action: () => void this.exportAs("xlsx") },
       ]),
     );
     nav.append(el("span", { class: "grow" }), this.exportNote);
+    if (this.state.setup !== null) nav.append(dive);
     if (ready) nav.append(exportButton);
     return nav;
   }
 
-  /** Drift: computed by the worker the first time the tab opens. */
+  /** Big Picture: computed by the worker the first time the tab opens. */
   private async showShift(host: HTMLElement): Promise<void> {
     const setup = this.state.setup;
     if (setup === null) return;
@@ -310,6 +332,7 @@ export class CompareMode {
     this.state.setup = null;
     this.state.manual = [];
     this.state.ignore = { a: [], b: [] };
+    this.bSource = null;
     this.render();
   }
 
@@ -327,6 +350,8 @@ export class CompareMode {
         this.render();
         return;
       }
+      // The bytes go to the worker; a table taken from a workbook or archive is kept (a plain file is simply read again).
+      this.bSource = { file, resolved: source.name === file.name ? null : { name: source.name, buffer: source.buffer.slice(0) } };
       const setup = await this.options.client.compareLoad({ name: source.name, buffer: source.buffer, delimiter: "auto", hasHeaders: true });
       void this.options.memory.refresh();
       this.state.manual = [];
@@ -393,6 +418,21 @@ export class CompareMode {
   private showSetup(): void {
     this.stage = "setup";
     this.render();
+  }
+
+  /** Leaves comparing for the normal analysis tools on one dataset (A stays loaded; B is loaded in its place). */
+  private async deepDive(side: "a" | "b"): Promise<void> {
+    if (this.closed || this.state.setup === null) return;
+    if (side === "b" && this.bSource === null) return;
+    if (!(await this.options.confirmDeepDive(side))) return;
+    if (this.closed) return;
+    this.closed = true;
+    this.sideBySide?.dispose();
+    this.valueDiffs?.dispose();
+    await this.options.client.compareClear().catch(() => undefined);
+    void this.options.memory.refresh();
+    this.element.remove();
+    this.options.onDeepDive(side, side === "b" ? this.bSource : null);
   }
 
   private async exit(): Promise<void> {
