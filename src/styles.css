@@ -740,20 +740,97 @@ textarea:focus {
   margin-bottom: 6px;
 }
 
-.table-option-check {
+/* Worksheet picker: every sheet ticked, All / None, one button that says what it does. */
+.sheet-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 2px 4px 8px;
+  font-size: var(--fs-sm);
+}
+.sheet-tools-label {
+  color: var(--text-dim);
+}
+.table-picker-list.sheet-mode {
+  max-height: none;
+  overflow: visible;
+}
+.sheet-list {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.sheet-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.sheet-row:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+.sheet-row input,
+.sheet-column-option input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+.sheet-row:has(input:not(:checked)) .sheet-name {
+  color: var(--text-dim);
+}
+.sheet-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.sheet-size {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+.sheet-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 8px;
+  padding: 12px 4px 2px;
+  border-top: 1px solid var(--border-subtle);
+}
+.sheet-column-option {
+  flex: 1 1 100%;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: -2px 0 6px;
-  padding: 2px 12px 8px;
   font-size: var(--fs-sm);
-  color: var(--text-dim);
   cursor: pointer;
 }
-.table-option-check input {
-  width: 15px;
-  height: 15px;
-  accent-color: var(--accent);
+.sheet-column-option.hidden {
+  display: none;
+}
+.sheet-note {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.sheet-note.warn {
+  color: var(--qa-warn-text, var(--qa-warn));
+}
+.sheet-go {
+  flex: none;
+  margin-left: auto;
 }
 .table-option-bulk:disabled {
   opacity: 0.6;
