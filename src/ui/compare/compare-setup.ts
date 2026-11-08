@@ -33,7 +33,8 @@ export interface SetupActions {
   run(): void;
 }
 
-export const FILE_TYPES = ".csv,.tsv,.psv,.txt,.json,.ndjson,.jsonl,.parquet";
+import { SOURCE_FILE_TYPES as FILE_TYPES } from "../source-resolver.js";
+export { FILE_TYPES };
 
 const nf = new Intl.NumberFormat("en");
 

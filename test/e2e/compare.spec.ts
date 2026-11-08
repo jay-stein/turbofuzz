@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { zipSync } from "fflate";
+import { buildXlsx } from "../../src/ui/xlsx-writer.js";
 
 const A = ["id,name,amount,region,old", "1,Ada,10,North,x", "2,Alan,20,South,y", "3,Grace,30,East,z", "4,Edsger,40,West,w"].join("\n");
 const B = ["id,full_name,amount,Region,new", "1,Ada,10,North,p", "3,Grace,31,East,q", "4,Edsger W.,40,West,r", "5,Barbara,50,North,s"].join("\n");
@@ -77,13 +79,34 @@ test("from the start screen both files are chosen in compare mode, and A stays l
   await expect(page.getByRole("button", { name: "Compare two datasets…" })).toBeVisible();
 });
 
-test("a workbook is explained, not misread", async ({ page }) => {
+test("B can be a workbook: the worksheets are asked, and the chosen one is compared", async ({ page }) => {
   await loadA(page);
+  const bytes = await buildXlsx([
+    { name: "Contents", headers: ["About"], rows: [["after file"]] },
+    { name: "Data", headers: ["id", "full_name", "amount", "Region", "new"], rows: [["1", "Ada", "10", "North", "p"], ["3", "Grace", "31", "East", "q"], ["4", "Edsger W.", "40", "West", "r"], ["5", "Barbara", "50", "North", "s"]] },
+  ]);
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: /Load more/ }).click();
   await page.getByRole("menuitem", { name: "Compare with a file…" }).click();
-  await (await chooser).setFiles({ name: "after.xlsx", mimeType: "application/octet-stream", buffer: Buffer.from("PK") });
-  await expect(page.getByRole("alert")).toContainText("save the sheet as CSV");
+  await (await chooser).setFiles({ name: "after.xlsx", mimeType: "application/octet-stream", buffer: Buffer.from(bytes) });
+  const picker = page.getByRole("group", { name: "Worksheets" });
+  await page.getByRole("button", { name: "None" }).click();
+  await picker.getByLabel("Data", { exact: true }).check();
+  await page.locator(".sheet-go").click();
+  const mode = page.getByRole("region", { name: "Compare two datasets" });
+  await expect(mode.locator(".cmp-side-b")).toContainText("after — Data");
+  await expect(mode.locator(".cmp-side-b")).toContainText("4 rows");
+});
+
+test("Append from a zip with one workbook inside: pick the sheets, rows stack under the data", async ({ page }) => {
+  await loadA(page);
+  const book = await buildXlsx([{ name: "Jan", headers: ["id", "name", "amount"], rows: [["9", "Zed", "5"]] }]);
+  const zip = Buffer.from(zipSync({ "extra/jan.xlsx": book }));
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: /Load more/ }).click();
+  await page.getByRole("menuitem", { name: "Append rows from a file…" }).click();
+  await (await chooser).setFiles({ name: "more.zip", mimeType: "application/zip", buffer: zip });
+  await expect(page.locator(".count").first()).toContainText("5 rows");
 });
 
 test("Load more → Append rows stacks a file under the data, columns lined up by name, with _input_filename", async ({ page }) => {
@@ -174,7 +197,7 @@ test("side by side: counts open their rows, the panes line up with gaps, n finds
     expect(axe.violations.map((v) => `${scheme} ${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
   }
   await mode.getByRole("button", { name: "Exit compare" }).click();
-  expect(await stats.evaluate((node) => node.closest("[inert]") !== null)).toBe(false);
+  await expect.poll(() => stats.evaluate((node) => node.closest("[inert]") !== null)).toBe(false);
 });
 
 test("what shifted: no key needed, columns ranked by how far they moved, and a measure per group", async ({ page }) => {

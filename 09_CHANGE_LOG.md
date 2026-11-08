@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-08-10 — Compare and Append accept Excel workbooks and zip, gz and bz2 files
+
+- **Status:** Verified (unit, e2e)
+- **Related issue / decision:** owner: Excel and zip files for comparison and append.
+- **What changed:** a chosen file is first reduced to a table. A workbook asks which worksheets (the same ticked list as loading: one, or several with the same columns stacked); a zip with several files asks which one; .gz and .bz2 are unpacked, and what is inside may itself be a workbook. A, B and Append all use it.
+- **Files / components changed:** src/ui/source-resolver.ts (new), src/ui/compare/compare-mode.ts, compare-setup.ts, src/ui/app.ts; test/source-resolver.test.ts, test/e2e/compare.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-08
+
 ### CHG-2026-11-08-09 — CSV reading hardened: mixed line endings, UTF-16, quotes that never close
 
 - **Status:** Verified (unit, e2e; the owner's telemetry file loads as 70,505 rows)

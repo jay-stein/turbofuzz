@@ -72,4 +72,4 @@ All six shipped on 2026-11-08 (CHG-2026-11-08-05).
 ## Later
 
 - Mix vs real change in What shifted.
-- B from a workbook or an archive (reuse their pickers).
+

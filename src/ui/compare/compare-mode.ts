@@ -11,6 +11,7 @@ import { ShiftView, type GroupChoice } from "./compare-shift.js";
 import { changesWorkbook, download, exportBaseName, reportHtml, tableCsv } from "./compare-export.js";
 import { openMenu } from "../menu.js";
 import { memoryGauge, type MemoryMonitor } from "../memory-gauge.js";
+import { resolveSource, unreadableReason, type ResolvedSource } from "../source-resolver.js";
 import { renderSetup, type KeyChoice, type SetupState } from "./compare-setup.js";
 
 export interface CompareModeOptions {
@@ -18,7 +19,7 @@ export interface CompareModeOptions {
   /** Memory figures for the gauge in the compare header. */
   memory: MemoryMonitor;
   /** Before B is read: false when the person would rather not risk running out of memory. */
-  roomFor(file: File, buffer: ArrayBuffer): Promise<boolean>;
+  roomFor(file: { name: string }, buffer: ArrayBuffer): Promise<boolean>;
   /** The loaded data (A), or null when A is still to be chosen. */
   loaded: CompareSideInfo | null;
   /** Loads a file as the app's data (A, from the start screen); resolves null when it did not load. */
@@ -30,16 +31,7 @@ export interface CompareModeOptions {
 }
 
 const nf = new Intl.NumberFormat("en");
-const READABLE = /\.(csv|tsv|psv|txt|tab|json|ndjson|jsonl|parquet)$/i;
 const LOCK = '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>';
-
-/** Why a file cannot be compared yet, or null when it can. */
-export function unreadableReason(name: string): string | null {
-  if (READABLE.test(name)) return null;
-  if (/\.(xlsx|xls)$/i.test(name)) return `${name} is a workbook. Compare reads CSV, TSV, JSON and Parquet for now: save the sheet as CSV and choose it again.`;
-  if (/\.(zip|gz|bz2)$/i.test(name)) return `${name} is an archive. Unpack it and choose the file inside.`;
-  return `${name} is not a CSV, TSV, JSON or Parquet file.`;
-}
 
 /**
  * Compare mode: a full-screen layer over the workspace with its own header.
@@ -262,7 +254,17 @@ export class CompareMode {
     this.state.busy = `Reading ${file.name}…`;
     this.state.error = null;
     this.render();
-    const info = await this.options.loadA(file);
+    let source: ResolvedSource | null;
+    try {
+      source = await resolveSource(file);
+    } catch (error) {
+      return this.fail(error instanceof Error ? error.message : `Could not read ${file.name}.`);
+    }
+    if (source === null) {
+      this.state.busy = null;
+      return this.render();
+    }
+    const info = await this.options.loadA(new File([source.buffer], source.name));
     if (info === null) return this.fail(`Could not read ${file.name}.`);
     // Loading new data drops B in the worker, so B is chosen again against this A.
     this.state.busy = null;
@@ -281,13 +283,13 @@ export class CompareMode {
     this.state.error = null;
     this.render();
     try {
-      const buffer = await file.arrayBuffer();
-      if (!(await this.options.roomFor(file, buffer))) {
+      const source = await resolveSource(file);
+      if (source === null || !(await this.options.roomFor(source, source.buffer))) {
         this.state.busy = null;
         this.render();
         return;
       }
-      const setup = await this.options.client.compareLoad({ name: file.name, buffer, delimiter: "auto", hasHeaders: true });
+      const setup = await this.options.client.compareLoad({ name: source.name, buffer: source.buffer, delimiter: "auto", hasHeaders: true });
       void this.options.memory.refresh();
       this.state.manual = [];
       this.applySetup(setup);

@@ -208,7 +208,8 @@ import { remapViewDef, ViewsPanel, type ViewSource } from "./views-panel.js";
 import { openCommandBar, type ParsedCommand } from "./command-bar.js";
 import { openTriagePanel, type TriagePanelHandle } from "./triage-panel.js";
 import { openColumnInspector } from "./column-inspector.js";
-import { CompareMode, unreadableReason } from "./compare/compare-mode.js";
+import { CompareMode } from "./compare/compare-mode.js";
+import { resolveSource, unreadableReason } from "./source-resolver.js";
 import { MemoryMonitor, memoryGauge, usedBytes } from "./memory-gauge.js";
 import { formatMemory, projectLoadBytes } from "../data/memory.js";
 import { FILE_TYPES as COMPARE_FILE_TYPES } from "./compare/compare-setup.js";
@@ -6828,7 +6829,7 @@ export class App {
   private async appendFile(file: File): Promise<void> {
     const reason = unreadableReason(file.name);
     if (reason !== null) {
-      this.showToast(reason.replace("Compare reads", "Append reads"));
+      this.showToast(reason);
       return;
     }
     const steps = this.stepEntries().length;
@@ -6840,9 +6841,16 @@ export class App {
       });
       if (!confirmed) return;
     }
-    const buffer = await file.arrayBuffer();
-    if (!(await this.roomFor(file.name, buffer, "Append"))) return;
-    await this.load({ buffer, name: file.name, source: "file", append: true });
+    let source;
+    try {
+      source = await resolveSource(file);
+    } catch (error) {
+      this.showToast(error instanceof Error ? error.message : `Could not read ${file.name}.`);
+      return;
+    }
+    if (source === null) return;
+    if (!(await this.roomFor(source.name, source.buffer, "Append"))) return;
+    await this.load({ buffer: source.buffer, name: source.name, source: "file", append: true });
   }
 
   /**
