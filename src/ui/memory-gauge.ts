@@ -218,7 +218,10 @@ function openMemoryPanel(anchor: HTMLElement, monitor: MemoryMonitor): void {
     if (state.caches > 0) row("Search and sort indexes", `≈ ${formatMemory(state.caches)}`, "built as you search, sort and filter");
     if (state.compare > 0) row("Compare (B)", `≈ ${formatMemory(state.compare)}`, "B and the match");
     row("This tab", state.measured === null ? "not measured" : formatMemory(state.measured), state.measured === null ? (monitor.canMeasure ? "measuring…" : "this browser does not say") : "measured by the browser");
-    row("This device", state.deviceGb === null ? "not shared by this browser" : state.deviceGb >= 8 ? "8 GB or more" : `about ${state.deviceGb} GB`);
+    // Browsers round the device memory and stop at 8 GB (more would help sites track people), so 64 GB also reads "8 or more".
+    if (state.deviceGb === null) row("This device", "not shared by this browser");
+    else if (state.deviceGb >= 8) row("This device", "8 GB or more", "browsers never report more than 8 GB");
+    else row("This device", `about ${state.deviceGb} GB`, "as the browser rounds it");
     row(
       "Limit for one tab",
       `≈ ${formatMemory(state.limit.bytes)}`,
