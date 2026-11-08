@@ -7,6 +7,8 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   for (const [key, value] of Object.entries(attrs)) {
     if (key === "class") node.className = value;
     else if (key === "text") node.textContent = value;
+    // Through the CSSOM: the deployed Content-Security-Policy (style-src 'self') blocks a style attribute set by setAttribute, not this.
+    else if (key === "style") node.style.cssText = value;
     else node.setAttribute(key, value);
   }
   for (const child of children) node.append(child);
