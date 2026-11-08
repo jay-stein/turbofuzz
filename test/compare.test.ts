@@ -199,3 +199,64 @@ test("the side-by-side view filters aligned rows, cuts a window with both sides'
   assert.equal(findDifference(match, all, 4, 1), -1);
   assert.equal(findDifference(match, all, 3, -1), 1);
 });
+
+test("what shifted: number and category columns ranked by how far they moved, ids and free text skipped", async () => {
+  const { columnShifts, groupShift, psiLevel, cramersLevel } = await import("../src/data/compare/shift.js");
+  const n = 400;
+  const range = (f: (i: number) => string) => Array.from({ length: n }, (_, i) => f(i));
+  const a = side("a", {
+    order_id: range((i) => `O${i}`),
+    price: range((i) => String(100 + (i % 50))),
+    steady: range((i) => String(i % 30)),
+    region: range((i) => ["North", "South", "East", "West"][i % 4]!),
+    note: range((i) => `free text ${i}`),
+  });
+  const b = side("b", {
+    order_id: range((i) => `O${i + 1000}`),
+    price: range((i) => String(130 + (i % 50))),
+    steady: range((i) => String((i + 7) % 30)),
+    region: range((i) => (i % 2 === 0 ? "North" : i % 4 === 1 ? "South" : "Central")),
+    note: range((i) => `other text ${i}`),
+  });
+  const pairing = pairColumns(a, b);
+  const report = columnShifts(a, b, pairing);
+  assert.deepEqual(report.columns.map((shift) => [shift.name, shift.level]), [["price", "large"], ["region", "large"], ["steady", "none"]]);
+  assert.deepEqual(report.skipped.map((skip) => skip.name), ["order_id", "note"]);
+
+  const price = report.columns[0]!;
+  assert.equal(price.kind, "numeric");
+  if (price.kind === "numeric") {
+    assert.equal(price.a.mean, 124.5);
+    assert.equal(price.b.mean, 154.5);
+    assert.ok(price.smd !== null && price.smd > 2, "a 30-point move on a 14-point spread");
+    assert.ok(Math.abs(price.hist.a.reduce((s, x) => s + x, 0) - 1) < 1e-9, "histogram shares add up to 1");
+  }
+  const region = report.columns[1]!;
+  assert.equal(region.kind, "category");
+  if (region.kind === "category") {
+    assert.deepEqual(region.appeared, [{ label: "Central", count: 100 }]);
+    assert.deepEqual(region.vanished.map((v) => v.label), ["East", "West"]);
+    const north = region.values.find((v) => v.label === "North")!;
+    assert.deepEqual([north.a, north.b], [0.25, 0.5]);
+  }
+  assert.deepEqual([psiLevel(0.05), psiLevel(0.1), psiLevel(0.3)], ["none", "mild", "large"]);
+  assert.deepEqual([cramersLevel(0.05), cramersLevel(0.2), cramersLevel(0.3)], ["none", "mild", "large"]);
+
+  // Mean price per region: North 124.5 → mean of B's even rows; Central only in B.
+  const groups = groupShift(a, b, pairing, 3, 1, "mean");
+  const north = groups.groups.find((g) => g.group === "North")!;
+  assert.equal(north.a.rows, 100);
+  assert.equal(north.b.rows, 200);
+  assert.equal(north.a.value, 124);
+  assert.equal(north.b.value, 154);
+  const central = groups.groups.find((g) => g.group === "Central")!;
+  assert.deepEqual(central.a, { rows: 0, value: null });
+  assert.deepEqual(groupShift(a, b, pairing, 3, null, "count").groups.find((g) => g.group === "East")!.b, { rows: 0, value: null });
+});
+
+test("columns unique only by chance are not a key: the sides must share at least 10% of their keys", () => {
+  const n = 300;
+  const a = side("a", { age: Array.from({ length: n }, (_, i) => String(20 + (i % 50))), income: Array.from({ length: n }, (_, i) => String(30000 + i * 17)) });
+  const b = side("b", { age: Array.from({ length: n }, (_, i) => String(20 + ((i * 7) % 50))), income: Array.from({ length: n }, (_, i) => String(30003 + i * 19)) });
+  assert.deepEqual(suggestKeys(a, b, pairColumns(a, b), DEFAULT_RULES), []);
+});

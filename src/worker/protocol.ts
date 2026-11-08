@@ -18,6 +18,7 @@ import type { ColumnPairing, CompareRules } from "../data/compare/types.js";
 import type { KeySuggestion } from "../data/compare/keys.js";
 import type { CompareReport } from "../data/compare/report.js";
 import type { RowFilter, RowWindow } from "../data/compare/view.js";
+import type { GroupMeasure, GroupShift, ShiftReport } from "../data/compare/shift.js";
 import type { SimilarClusterEntry } from "../data/similar-clusters.js";
 import type { AnimationResult } from "../data/chart-frames.js";
 import type { BootstrapProgress, IntervalKind } from "../data/error-bars.js";
@@ -1362,6 +1363,34 @@ export interface CompareFoundMessage {
   index: number;
 }
 
+/** What shifted between A and B, column by column (computed once per comparison). */
+export interface CompareShiftRequest {
+  type: "compareShift";
+  requestId: number;
+}
+
+export interface CompareShiftMessage {
+  type: "compareShift";
+  requestId: number;
+  shift: ShiftReport;
+  ms: number;
+}
+
+/** A measure per group on each side: `group` and `measure` are indexes into the pairing. */
+export interface CompareGroupsRequest {
+  type: "compareGroups";
+  requestId: number;
+  group: number;
+  measure: number | null;
+  agg: GroupMeasure;
+}
+
+export interface CompareGroupsMessage {
+  type: "compareGroups";
+  requestId: number;
+  groups: GroupShift;
+}
+
 /** Leaves compare mode: B and the match are dropped. */
 export interface CompareClearRequest {
   type: "compareClear";
@@ -1380,6 +1409,8 @@ export type WorkerRequest =
   | CompareClearRequest
   | CompareRowsRequest
   | CompareFindRequest
+  | CompareShiftRequest
+  | CompareGroupsRequest
   | LoadRequest
   | CancelLoadRequest
   | SetFilterRequest
@@ -1750,4 +1781,6 @@ export type WorkerResponse =
   | CompareClearedMessage
   | CompareRowsMessage
   | CompareFoundMessage
+  | CompareShiftMessage
+  | CompareGroupsMessage
   | ErrorMessage;

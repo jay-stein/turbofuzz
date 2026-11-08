@@ -168,3 +168,43 @@ test("side by side: counts open their rows, the panes line up with gaps, n finds
   await mode.getByRole("button", { name: "Exit compare" }).click();
   expect(await stats.evaluate((node) => node.closest("[inert]") !== null)).toBe(false);
 });
+
+test("what shifted: no key needed, columns ranked by how far they moved, and a measure per group", async ({ page }) => {
+  const survey = (year: number): string => {
+    const lines = ["region,score,channel,household"];
+    for (let i = 0; i < 80; i++) {
+      const region = year === 2025 ? ["North", "South"][i % 2] : i % 4 === 0 ? "South" : "North";
+      const score = year === 2025 ? 50 + (i % 10) : (region === "North" ? 70 : 50) + (i % 10);
+      const channel = year === 2025 ? ["Web", "Phone"][i % 2] : ["Web", "App"][i % 2];
+      lines.push(`${region},${score},${channel},${["1", "2", "3"][i % 3]}`);
+    }
+    return lines.join("\n");
+  };
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Compare two datasets…" }).click();
+  const mode = page.getByRole("region", { name: "Compare two datasets" });
+  await mode.getByLabel("Choose the file for A").setInputFiles(file("survey_2025.csv", survey(2025)));
+  await expect(mode.locator(".cmp-side-a")).toContainText("80 rows");
+  await mode.getByLabel("Choose the file for B").setInputFiles(file("survey_2026.csv", survey(2026)));
+  await expect(mode.getByRole("radio", { name: /No key: match whole rows/ })).toBeChecked();
+  await mode.getByRole("button", { name: "Compare", exact: true }).click();
+  await mode.getByRole("button", { name: "What shifted" }).click();
+
+  await expect(mode.getByRole("heading", { name: "What shifted" })).toBeVisible();
+  await expect(mode.locator(".cmp-shift-page > .cmp-shift .cmp-shift-name")).toHaveText(["score", "channel", "region"]);
+  await expect(mode.locator(".cmp-still summary")).toContainText("household");
+  await expect(mode.locator(".cmp-shift", { hasText: "channel" }).first()).toContainText("New in B: App (40)");
+
+  await mode.getByLabel("Group by").selectOption({ label: "region" });
+  await mode.getByLabel("Measure").selectOption({ label: "score" });
+  const north = mode.locator(".cmp-group-table tbody tr", { hasText: "North" });
+  await expect(north).toContainText("54n 40");
+  await expect(north).toContainText("74.67n 60");
+
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    const axe = await new AxeBuilder({ page }).include(".compare-mode").analyze();
+    expect(axe.violations.map((v) => `${scheme} ${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
+  }
+});

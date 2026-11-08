@@ -4,6 +4,7 @@ import { suggestKeys } from "../src/data/compare/keys.js";
 import { matchRows } from "../src/data/compare/match.js";
 import { buildReport } from "../src/data/compare/report.js";
 import { filterPositions, rowWindow } from "../src/data/compare/view.js";
+import { columnShifts, groupShift } from "../src/data/compare/shift.js";
 import { DEFAULT_RULES, compareColumn, type CompareSide } from "../src/data/compare/types.js";
 import { measure, ms } from "./bench-utils.js";
 
@@ -22,6 +23,9 @@ const BUDGET = {
   report: Math.max(100, 500 * scale),
   // A screen of the side-by-side view: drawn on every scroll, so it must fit in a frame.
   window: 16,
+  // The floor allows for a busy machine at gate size (200k ran 250-560 ms); the 1M budget is the real target (measured 0.65 s).
+  shift: Math.max(800, 1500 * scale),
+  groups: Math.max(50, 400 * scale),
 };
 
 const cities = ["Sydney", "Melbourne", "Perth", "Hobart", "Darwin", "Adelaide", "Brisbane", "Canberra"];
@@ -97,6 +101,13 @@ const middle = Math.floor(changedRows.length / 2);
 gate(`side-by-side window of 100 changed rows, ${ROWS.toLocaleString()} rows`, BUDGET.window, () => {
   rowWindow(a, b, pairing, match, changedRows, middle, middle + 100);
 }, 20);
+
+gate(`what shifted (every column), ${ROWS.toLocaleString()} rows`, BUDGET.shift, () => {
+  columnShifts(a, b, pairing, new Set([0]));
+});
+gate(`mean per group (city_0 x amount_0), ${ROWS.toLocaleString()} rows`, BUDGET.groups, () => {
+  groupShift(a, b, pairing, 11, 1, "mean");
+});
 
 const expected = { onlyA: Math.ceil(ROWS / 100), onlyB: Math.floor(ROWS / 100) };
 if (match.counts.onlyA !== expected.onlyA || match.counts.onlyB !== expected.onlyB || match.counts.changed === 0) {

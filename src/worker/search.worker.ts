@@ -76,6 +76,7 @@ import { matchRows } from "../data/compare/match.js";
 import { buildReport } from "../data/compare/report.js";
 import { DEFAULT_RULES, compareColumn, type ColumnPair, type ColumnPairing, type CompareSide, type MatchResult } from "../data/compare/types.js";
 import { filterPositions, findDifference, rowWindow, type RowFilter } from "../data/compare/view.js";
+import { columnShifts, groupShift, type ShiftReport } from "../data/compare/shift.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { orderFormat, parseDate, type DateOrder } from "../parse/dates.js";
 import { fuzzyScoreNormalized, normalizeForMatch } from "../search/fuzzy-match.js";
@@ -397,6 +398,18 @@ async function handle(message: WorkerRequest): Promise<void> {
     case "compareFind":
       handleCompareFind(message);
       break;
+    case "compareShift": {
+      const run = compareRun();
+      const started = performance.now();
+      run.shift ??= columnShifts(run.a, compare!.bSide, run.pairing, new Set(run.keyPairs));
+      post({ type: "compareShift", requestId: message.requestId, shift: run.shift, ms: performance.now() - started });
+      break;
+    }
+    case "compareGroups": {
+      const run = compareRun();
+      post({ type: "compareGroups", requestId: message.requestId, groups: groupShift(run.a, compare!.bSide, run.pairing, message.group, message.measure, message.agg) });
+      break;
+    }
     case "compareClear":
       compare = null;
       post({ type: "compareCleared", requestId: message.requestId });
@@ -1025,7 +1038,7 @@ async function appendToCurrent(current: Dataset, added: Dataset, addedName: stri
 let compare: {
   b: Dataset;
   bSide: CompareSide;
-  run?: { a: CompareSide; pairing: ColumnPairing; match: MatchResult; filtered: Map<string, Int32Array> };
+  run?: { a: CompareSide; pairing: ColumnPairing; match: MatchResult; filtered: Map<string, Int32Array>; keyPairs: number[]; shift?: ShiftReport };
 } | null = null;
 
 function compareRun(): NonNullable<NonNullable<typeof compare>["run"]> {
@@ -1134,7 +1147,7 @@ function handleCompareRun(message: CompareRunRequest): void {
   const pairing = pairColumns(a, compare.bSide, message.manual);
   const keyPairs = message.keyPairs === null ? null : message.keyPairs.map((index) => pairing.pairs[index]).filter((pair): pair is ColumnPair => pair !== undefined);
   const match = matchRows(a, compare.bSide, pairing, keyPairs, message.rules);
-  compare.run = { a, pairing, match, filtered: new Map() };
+  compare.run = { a, pairing, match, filtered: new Map(), keyPairs: message.keyPairs ?? [] };
   post({
     type: "compareResult",
     requestId: message.requestId,

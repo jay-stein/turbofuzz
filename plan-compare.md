@@ -26,6 +26,8 @@ Owner scope, agreed 2026-11-08 (DEC-2026-11-08-02). A separate mode with two scr
 - Next / previous difference (`n` / `p`).
 - Toggle to one grid: each changed cell shows the B value over the struck-through A value.
 
+**What shifted** (added 2026-11-08, owner request). The populations compared as wholes, so it works with no key. Each paired column is ranked by how far its values moved: numbers and dates by PSI over A's deciles plus the standardised mean difference (the larger verdict counts), categories by Cramér's V with value shares, new and vanished values. The verdicts are no real shift / mild / large and measure effect size, not significance (with large n almost everything is significant). By group: the mean or sum of a number column, or the row count, per group for A and B, biggest relative moves first. Later: mix vs real change, which splits a moved total into the part from group sizes and the part from values within groups.
+
 **Exports.** The report as a self-contained HTML page; the differences as CSV or Excel (key…, column, A value, B value, status), plus only-in-A / only-in-B rows.
 
 **Locked down.** Compare is read-only. The workspace tabs, cleaning, transforms, recipe and command bar are unavailable until Exit. Exit returns to the workspace exactly as it was.

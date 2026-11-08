@@ -16000,3 +16000,300 @@ button.cmp-change-name:hover {
     border-top: 2px solid var(--border);
   }
 }
+
+/* ---------- Compare mode: What shifted (distributions and groups) ---------- */
+
+.compare-mode {
+  --cmp-a: color-mix(in srgb, var(--text-dim) 70%, transparent);
+  --cmp-b: var(--accent);
+}
+.cmp-shift-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  font-size: var(--fs-sm);
+}
+.cmp-level {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cmp-level.large {
+  background: var(--qa-warn-soft);
+  color: var(--qa-warn-text, var(--qa-warn));
+  box-shadow: inset 0 0 0 1px var(--qa-warn-border);
+}
+.cmp-level.mild {
+  background: var(--accent-soft);
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+}
+.cmp-level.none {
+  background: var(--panel-2);
+  color: var(--text-dim);
+}
+.cmp-method {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.cmp-method summary,
+.cmp-still summary {
+  cursor: pointer;
+  color: var(--text-dim);
+}
+.cmp-method p {
+  margin: 8px 0 0;
+  max-width: 820px;
+  line-height: 1.55;
+}
+.cmp-still {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cmp-still[open] summary {
+  margin-bottom: 12px;
+}
+
+.cmp-groups-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+.cmp-field-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.cmp-group-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.cmp-group-table th {
+  padding: 6px 10px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+.cmp-group-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+.cmp-group-table .num {
+  text-align: right;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cmp-group-name {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.cmp-group-n {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+.cmp-group-change {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 200px;
+}
+.cmp-diverge {
+  position: relative;
+  flex: 1;
+  height: 10px;
+  border-radius: 3px;
+  background: linear-gradient(to right, transparent calc(50% - 0.5px), var(--border) calc(50% - 0.5px), var(--border) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+}
+.cmp-diverge-fill {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  border-radius: 2px;
+}
+.cmp-diverge-fill.up { background: var(--cmp-b); }
+.cmp-diverge-fill.down { background: var(--cmp-changed); }
+.cmp-group-pct {
+  min-width: 62px;
+  text-align: right;
+  font-family: var(--mono);
+}
+
+.cmp-shift {
+  gap: 12px;
+}
+.cmp-shift-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.cmp-shift-name {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 650;
+}
+.cmp-shift-kind,
+.cmp-shift-measure {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.cmp-shift-measure {
+  margin-left: auto;
+  font-family: var(--mono);
+}
+.cmp-shift-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 18px;
+  align-items: center;
+}
+.cmp-stats {
+  display: grid;
+  grid-template-columns: 76px repeat(3, minmax(0, 1fr));
+  gap: 5px 12px;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.cmp-stats > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmp-stat-label {
+  text-align: left;
+  font-family: var(--font-sans);
+  color: var(--text-dim);
+}
+.cmp-stat-diff {
+  color: var(--qa-warn-text, var(--qa-warn));
+  font-weight: 600;
+}
+.cmp-hist-wrap {
+  min-width: 0;
+}
+.cmp-hist {
+  display: block;
+  width: 100%;
+  height: 96px;
+}
+.cmp-hist rect.a {
+  fill: none;
+  stroke: var(--cmp-a);
+  stroke-width: 1.5;
+}
+.cmp-hist rect.b {
+  fill: color-mix(in srgb, var(--cmp-b) 45%, transparent);
+}
+.cmp-hist-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+.cmp-share-legend {
+  display: flex;
+  gap: 16px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.cmp-share-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cmp-key-swatch {
+  width: 14px;
+  height: 8px;
+  border-radius: 2px;
+}
+.cmp-key-swatch.a {
+  background: var(--cmp-a);
+}
+.cmp-key-swatch.a.outline {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px var(--cmp-a);
+}
+.cmp-hist-wrap .cmp-share-legend {
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+.cmp-key-swatch.b {
+  background: var(--cmp-b);
+}
+.cmp-shares {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cmp-share {
+  display: grid;
+  grid-template-columns: minmax(90px, 180px) minmax(0, 1fr) 128px 64px;
+  gap: 12px;
+  align-items: center;
+  font-size: var(--fs-sm);
+}
+.cmp-share-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+}
+.cmp-share-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cmp-share-bar {
+  display: block;
+  height: 7px;
+  min-width: 1px;
+  border-radius: 2px;
+}
+.cmp-share-bar.a {
+  background: var(--cmp-a);
+}
+.cmp-share-bar.b {
+  background: var(--cmp-b);
+}
+.cmp-share-values {
+  font-family: var(--mono);
+  color: var(--text-dim);
+  text-align: right;
+  white-space: nowrap;
+}
+.cmp-share > :last-child {
+  font-family: var(--mono);
+  text-align: right;
+  white-space: nowrap;
+}
+@media (max-width: 760px) {
+  .cmp-shift-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cmp-share {
+    grid-template-columns: minmax(70px, 120px) minmax(0, 1fr) 64px;
+  }
+  .cmp-share-values {
+    display: none;
+  }
+}

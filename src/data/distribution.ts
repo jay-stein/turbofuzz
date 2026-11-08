@@ -20,7 +20,8 @@ export interface DistributionOptions {
   minEffect?: number;
 }
 
-function quantiles(sorted: readonly number[], count: number): number[] {
+/** The count-1 inner cut points that split sorted values into `count` equal-sized groups. */
+export function quantiles(sorted: readonly number[], count: number): number[] {
   const out: number[] = [];
   for (let index = 1; index < count; index++) {
     const position = ((sorted.length - 1) * index) / count;
@@ -32,7 +33,7 @@ function quantiles(sorted: readonly number[], count: number): number[] {
   return out;
 }
 
-function bucketOf(edges: readonly number[], value: number): number {
+export function bucketOf(edges: readonly number[], value: number): number {
   let lo = 0;
   let hi = edges.length;
   while (lo < hi) {
@@ -44,6 +45,50 @@ function bucketOf(edges: readonly number[], value: number): number {
 }
 
 const EPSILON = 1e-4;
+
+/**
+ * Population Stability Index of `second` against `first`, over the deciles of
+ * `first` (sorted ascending). Also returns the decile edges and each side's
+ * counts, so a caller can say which band moved most.
+ */
+export function populationStability(
+  firstSorted: readonly number[],
+  second: ArrayLike<number>,
+): { psi: number; edges: number[]; firstCounts: number[]; secondCounts: number[] } | null {
+  const edges = quantiles(firstSorted, 10);
+  if (edges.length === 0 || firstSorted.length === 0 || second.length === 0) return null;
+  const firstCounts = new Array<number>(10).fill(0);
+  const secondCounts = new Array<number>(10).fill(0);
+  for (const value of firstSorted) firstCounts[bucketOf(edges, value)]++;
+  for (let i = 0; i < second.length; i++) secondCounts[bucketOf(edges, second[i]!)]++;
+  let psi = 0;
+  for (let bucket = 0; bucket < 10; bucket++) {
+    const p = (firstCounts[bucket] ?? 0) / firstSorted.length;
+    const q = (secondCounts[bucket] ?? 0) / second.length;
+    psi += (p - q) * Math.log((p + EPSILON) / (q + EPSILON));
+  }
+  return { psi, edges, firstCounts, secondCounts };
+}
+
+/** Cramér's V between two groups of rows and k categories (two rows, so V = sqrt(χ² / n)). */
+export function cramersVTwoGroups(firstCounts: ArrayLike<number>, secondCounts: ArrayLike<number>): number {
+  let firstRows = 0;
+  let secondRows = 0;
+  for (let i = 0; i < firstCounts.length; i++) firstRows += firstCounts[i] ?? 0;
+  for (let i = 0; i < secondCounts.length; i++) secondRows += secondCounts[i] ?? 0;
+  const total = firstRows + secondRows;
+  if (firstRows === 0 || secondRows === 0) return 0;
+  let chiSquare = 0;
+  for (let code = 0; code < firstCounts.length; code++) {
+    const observedFirst = firstCounts[code] ?? 0;
+    const observedSecond = secondCounts[code] ?? 0;
+    const expectedFirst = ((observedFirst + observedSecond) * firstRows) / total;
+    const expectedSecond = ((observedFirst + observedSecond) * secondRows) / total;
+    if (expectedFirst > 0) chiSquare += ((observedFirst - expectedFirst) * (observedFirst - expectedFirst)) / expectedFirst;
+    if (expectedSecond > 0) chiSquare += ((observedSecond - expectedSecond) * (observedSecond - expectedSecond)) / expectedSecond;
+  }
+  return Math.sqrt(chiSquare / total);
+}
 
 /**
  * Windowed distribution comparison between the first and second half of the
@@ -96,19 +141,14 @@ export function computeDistributionChanges(
     }
     if (firstValues.length < minRows || secondValues.length < minRows) continue;
     const sortedFirst = firstValues.slice().sort((a, b) => a - b);
-    const edges = quantiles(sortedFirst, 10);
-    if (edges.length === 0) continue;
-    const firstCounts = new Array<number>(10).fill(0);
-    const secondCounts = new Array<number>(10).fill(0);
-    for (const value of firstValues) firstCounts[bucketOf(edges, value)]++;
-    for (const value of secondValues) secondCounts[bucketOf(edges, value)]++;
-    let psi = 0;
+    const stability = populationStability(sortedFirst, secondValues);
+    if (stability === null) continue;
+    const { psi, edges, firstCounts, secondCounts } = stability;
     let biggestMove = 0;
     let biggestBucket = 0;
     for (let bucket = 0; bucket < 10; bucket++) {
       const p = (firstCounts[bucket] ?? 0) / firstValues.length;
       const q = (secondCounts[bucket] ?? 0) / secondValues.length;
-      psi += (p - q) * Math.log((p + EPSILON) / (q + EPSILON));
       const move = Math.abs(q - p);
       if (move > biggestMove) {
         biggestMove = move;
@@ -158,30 +198,18 @@ export function computeDistributionChanges(
       }
     }
     if (firstRows < minRows || secondRows < minRows) continue;
-    const total = firstRows + secondRows;
-    let chiSquare = 0;
     let biggestMove = 0;
     let biggestCode = 0;
     for (let code = 0; code < k; code++) {
       const observedFirst = firstCounts[code] ?? 0;
       const observedSecond = secondCounts[code] ?? 0;
-      const expectedFirst = ((observedFirst + observedSecond) * firstRows) / total;
-      const expectedSecond = ((observedFirst + observedSecond) * secondRows) / total;
-      if (expectedFirst > 0) {
-        chiSquare += ((observedFirst - expectedFirst) * (observedFirst - expectedFirst)) / expectedFirst;
-      }
-      if (expectedSecond > 0) {
-        chiSquare +=
-          ((observedSecond - expectedSecond) * (observedSecond - expectedSecond)) / expectedSecond;
-      }
       const move = Math.abs(observedFirst / firstRows - observedSecond / secondRows);
       if (move > biggestMove) {
         biggestMove = move;
         biggestCode = code;
       }
     }
-    // Two rows (halves) × k categories: min(df) = 1, so V = sqrt(χ² / n).
-    const v = Math.sqrt(chiSquare / total);
+    const v = cramersVTwoGroups(firstCounts, secondCounts);
     if (v < minEffect) continue;
     changes.push({
       column: columnIndex,

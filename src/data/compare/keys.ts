@@ -15,6 +15,12 @@ export interface KeySuggestion {
 
 /** A key may have up to this share of empty or repeated rows on a side: they are reported, not a reason to drop the key. */
 const PROBLEM_SHARE = 0.01;
+/**
+ * A key must link the sides: at least this share of B's keys is also in A.
+ * Columns that are unique only by chance (age + income in an anonymous survey)
+ * share almost nothing and would pair rows at random.
+ */
+const MIN_OVERLAP = 0.1;
 
 /** Rows read when screening candidates; survivors are verified on every row. */
 const SAMPLE = 20_000;
@@ -89,7 +95,7 @@ export function suggestKeys(a: CompareSide, b: CompareSide, pairing: ColumnPairi
     if (inA === null || inB === null) return null;
     const { shared, filled } = overlapOf(fullA, fullB);
     const problems = { emptyA: inA.empty, emptyB: inB.empty, duplicateA: inA.duplicate, duplicateB: inB.duplicate };
-    return shared > 0 ? { pairs: indexes, overlap: shared / filled, shared, filled, problems } : null;
+    return filled > 0 && shared / filled >= MIN_OVERLAP ? { pairs: indexes, overlap: shared / filled, shared, filled, problems } : null;
   };
   // Overlap ranks first; an id-like name, then a whole-number or text type, break near-ties (a unique price is a poor key).
   const score = (suggestion: KeySuggestion): number => {

@@ -8,6 +8,7 @@ import type { HeaderLayout } from "../parse/header-detect.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { CompareRules } from "../data/compare/types.js";
 import type { RowFilter } from "../data/compare/view.js";
+import type { GroupMeasure } from "../data/compare/shift.js";
 import type { ChartExclusion } from "../data/chart-exclusions.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { TimeGrain, ViewDef } from "../data/aggregate.js";
@@ -68,6 +69,8 @@ import type {
   CompareResultMessage,
   CompareSetupMessage,
   CompareRowsMessage,
+  CompareShiftMessage,
+  CompareGroupsMessage,
   CompareFoundMessage,
   RowsMessage,
   RowIdsMessage,
@@ -213,6 +216,14 @@ export class SearchWorkerClient {
 
   compareFind(filter: RowFilter, from: number, dir: 1 | -1): Promise<CompareFoundMessage> {
     return this.request<CompareFoundMessage>({ type: "compareFind", filter, from, dir });
+  }
+
+  compareShift(): Promise<CompareShiftMessage> {
+    return this.request<CompareShiftMessage>({ type: "compareShift" });
+  }
+
+  compareGroups(group: number, measure: number | null, agg: GroupMeasure): Promise<CompareGroupsMessage> {
+    return this.request<CompareGroupsMessage>({ type: "compareGroups", group, measure, agg });
   }
 
   compareClear(): Promise<CompareClearedMessage> {

@@ -6,6 +6,8 @@ import type { SearchWorkerClient } from "../worker-client.js";
 import { renderReport } from "./compare-report.js";
 import { SideBySide, type GridLayout } from "./compare-grid.js";
 import type { RowFilter } from "../../data/compare/view.js";
+import type { ShiftReport } from "../../data/compare/shift.js";
+import { ShiftView, type GroupChoice } from "./compare-shift.js";
 import { renderSetup, type KeyChoice, type SetupState } from "./compare-setup.js";
 
 export interface CompareModeOptions {
@@ -45,7 +47,10 @@ export class CompareMode {
   private report: { report: CompareReport; ms: number; key: KeyChoice; rules: CompareRules } | null = null;
   private readonly state: SetupState;
   /** Which result tab is open, and how the side-by-side view was left. */
-  private tab: "report" | "rows" = "report";
+  private tab: "report" | "rows" | "shift" = "report";
+  /** What shifted, fetched once per comparison, and the group view last chosen. */
+  private shift: ShiftReport | null = null;
+  private groups: GroupChoice | null = null;
   private rows: { filter: RowFilter; layout: GridLayout; changedColumnsOnly: boolean } = {
     filter: { show: "all", pair: null },
     layout: "panes",
@@ -113,7 +118,9 @@ export class CompareMode {
       const result = this.report;
       const host = el("div", { class: "cmp-tab-host" });
       this.body.replaceChildren(this.tabs(), host);
-      if (this.tab === "report") {
+      if (this.tab === "shift") {
+        void this.showShift(host);
+      } else if (this.tab === "report") {
         renderReport(host, { setup, report: result.report, ms: result.ms, key: result.key, rules: result.rules }, { rows: (filter) => this.openRows(filter) });
       } else {
         this.sideBySide = new SideBySide({
@@ -151,7 +158,7 @@ export class CompareMode {
   /** Report | Side by side, and the way back to setup. */
   private tabs(): HTMLElement {
     const nav = el("nav", { class: "cmp-tabs", "aria-label": "Compare views" });
-    for (const [tab, label] of [["report", "Report"], ["rows", "Side by side"]] as const) {
+    for (const [tab, label] of [["report", "Report"], ["rows", "Side by side"], ["shift", "What shifted"]] as const) {
       const button = el("button", { type: "button", class: "cmp-tab" }, [label]);
       if (this.tab === tab) button.setAttribute("aria-current", "page");
       button.addEventListener("click", () => {
@@ -164,6 +171,32 @@ export class CompareMode {
     back.addEventListener("click", () => this.showSetup());
     nav.append(el("span", { class: "grow" }), back);
     return nav;
+  }
+
+  /** What shifted: computed by the worker the first time the tab opens. */
+  private async showShift(host: HTMLElement): Promise<void> {
+    const setup = this.state.setup;
+    if (setup === null) return;
+    if (this.shift === null) {
+      host.replaceChildren(el("div", { class: "cmp-page" }, [el("div", { class: "cmp-busy", role: "status" }, [el("span", { class: "load-spinner", "aria-hidden": "true" }), "Comparing the distributions…"])]));
+      try {
+        this.shift = (await this.options.client.compareShift()).shift;
+      } catch (error) {
+        host.replaceChildren(el("p", { class: "cmp-error", role: "alert" }, [error instanceof Error ? error.message : "Could not compare the distributions."]));
+        return;
+      }
+      if (this.tab !== "shift" || !host.isConnected) return;
+    }
+    const view = new ShiftView({
+      client: this.options.client,
+      setup,
+      shift: this.shift,
+      groups: this.groups,
+      onGroups: (choice) => {
+        this.groups = choice;
+      },
+    });
+    host.replaceChildren(view.element);
   }
 
   /** From a count or a column in the report: those rows, side by side. */
@@ -239,6 +272,8 @@ export class CompareMode {
       this.stage = "result";
       this.tab = "report";
       this.rows = { ...this.rows, filter: { show: "all", pair: null } };
+      this.shift = null;
+      this.groups = null;
       this.render();
       this.body.querySelector<HTMLElement>("h1")?.focus();
     } catch (error) {
