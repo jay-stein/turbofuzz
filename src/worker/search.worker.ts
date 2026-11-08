@@ -78,6 +78,7 @@ import { DEFAULT_RULES, compareColumn, type ColumnPair, type ColumnPairing, type
 import { filterPositions, findDifference, rowWindow, type RowFilter } from "../data/compare/view.js";
 import { columnShifts, groupShift, type ShiftReport } from "../data/compare/shift.js";
 import { changeTables } from "../data/compare/export.js";
+import { estimateTableBytes } from "../data/memory.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { orderFormat, parseDate, type DateOrder } from "../parse/dates.js";
 import { fuzzyScoreNormalized, normalizeForMatch } from "../search/fuzzy-match.js";
@@ -406,6 +407,14 @@ async function handle(message: WorkerRequest): Promise<void> {
       post({ type: "compareShift", requestId: message.requestId, shift: run.shift, ms: performance.now() - started });
       break;
     }
+    case "memory":
+      post({
+        type: "memory",
+        requestId: message.requestId,
+        dataBytes: dataset === null ? 0 : datasetBytes(dataset),
+        compareBytes: compare === null ? 0 : datasetBytes(compare.b),
+      });
+      break;
     case "compareExport": {
       const run = compareRun();
       const keyPairs = run.match.mode === "key" ? run.keyPairs : null;
@@ -1039,6 +1048,18 @@ async function appendToCurrent(current: Dataset, added: Dataset, addedName: stri
     rows.push(row);
   }
   return buildDatasetAsync(`${current.name} + ${addedName}`, headers, rows, () => undefined, "dot", { shouldCancel: cancelled });
+}
+
+/** Each dataset's memory estimate, kept until the dataset is replaced (a clean or a transform makes a new one). */
+const footprints = new WeakMap<Dataset, number>();
+
+function datasetBytes(current: Dataset): number {
+  let bytes = footprints.get(current);
+  if (bytes === undefined) {
+    bytes = estimateTableBytes(current.columns, current.rowCount);
+    footprints.set(current, bytes);
+  }
+  return bytes;
 }
 
 /** Compare mode: B beside the loaded data (A), and the last match with its filtered row lists. */

@@ -3,6 +3,7 @@ import { setupDialog } from "./dialog.js";
 import { detectDelimiter } from "../parse/delimiter.js";
 import { decodeText } from "../parse/encoding.js";
 import { parseDelimited } from "../parse/parse.js";
+import { formatMemory } from "../data/memory.js";
 
 /** Estimated cells above which a browser load is likely to exhaust memory. */
 export const LARGE_LOAD_CELLS = 8_000_000;
@@ -63,6 +64,7 @@ export type LargeLoadChoice = "sample" | "all" | null;
 export function openLargeLoadDialog(
   estimate: LoadEstimate,
   fileName: string,
+  memory?: { need: number; limit: number },
 ): Promise<LargeLoadChoice> {
   return new Promise((resolve) => {
     const overlay = el("div", { class: "modal-overlay" });
@@ -76,7 +78,9 @@ export function openLargeLoadDialog(
 
     modal.append(
       el("p", { class: "confirm-body" }, [
-        `“${fileName}” is roughly ${estimate.rows.toLocaleString()} rows × ${estimate.columns.toLocaleString()} columns (≈${estimate.cells.toLocaleString()} cells). Browsers usually run out of memory on files this size, which can hang or crash this tab.`,
+        `“${fileName}” is roughly ${estimate.rows.toLocaleString()} rows × ${estimate.columns.toLocaleString()} columns (≈${estimate.cells.toLocaleString()} cells).${
+          memory === undefined ? "" : ` Loading it needs about ${formatMemory(memory.need)}, and this browser allows one tab about ${formatMemory(memory.limit)}.`
+        } Browsers usually run out of memory on files this size, which can hang or crash this tab.`,
       ]),
       el("p", { class: "confirm-body" }, [
         `Loading the first ${SAMPLE_ROWS.toLocaleString()} rows gives you a workable sample of the structure and values; you can still load the full file at your own risk.`,

@@ -1404,6 +1404,19 @@ export interface CompareExportMessage {
   tables: ChangeTables;
 }
 
+/** What the loaded data (and B, while comparing) holds in memory: an estimate in bytes. */
+export interface MemoryRequest {
+  type: "memory";
+  requestId: number;
+}
+
+export interface MemoryMessage {
+  type: "memory";
+  requestId: number;
+  dataBytes: number;
+  compareBytes: number;
+}
+
 /** Leaves compare mode: B and the match are dropped. */
 export interface CompareClearRequest {
   type: "compareClear";
@@ -1425,6 +1438,7 @@ export type WorkerRequest =
   | CompareShiftRequest
   | CompareGroupsRequest
   | CompareExportRequest
+  | MemoryRequest
   | LoadRequest
   | CancelLoadRequest
   | SetFilterRequest
@@ -1798,4 +1812,5 @@ export type WorkerResponse =
   | CompareShiftMessage
   | CompareGroupsMessage
   | CompareExportMessage
+  | MemoryMessage
   | ErrorMessage;

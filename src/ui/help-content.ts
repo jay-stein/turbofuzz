@@ -427,6 +427,19 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     ],
   },
   {
+    id: "memory",
+    title: "Memory",
+    summary: "How much the data takes, and how close it is to what the browser allows.",
+    blocks: [
+      p(
+        "The ring in the top bar (and in compare mode) shows the memory in use against what the browser allows one tab, usually a few GB however much the computer has. It turns amber past 60% and red past 85%. Click it for the details: the data's own estimate (A and B while comparing), the browser's measurement of the whole tab where it allows one (Chrome and Edge), the device memory where the browser shares it, and the limit.",
+      ),
+      p(
+        "Before a large file loads, the app works out what it will need and offers a sample when it would take most of the limit. Comparing with or appending a file that would push the total past 85% asks first. Running out stops the tab, and the data in it is lost.",
+      ),
+    ],
+  },
+  {
     id: "privacy",
     title: "Privacy and security",
     summary: "Nothing leaves this tab — enforced by the browser.",

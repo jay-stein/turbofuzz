@@ -72,6 +72,7 @@ import type {
   CompareShiftMessage,
   CompareGroupsMessage,
   CompareExportMessage,
+  MemoryMessage,
   CompareFoundMessage,
   RowsMessage,
   RowIdsMessage,
@@ -229,6 +230,11 @@ export class SearchWorkerClient {
 
   compareExport(): Promise<CompareExportMessage> {
     return this.request<CompareExportMessage>({ type: "compareExport" });
+  }
+
+  /** The loaded data's (and B's) memory estimate. */
+  memory(): Promise<MemoryMessage> {
+    return this.request<MemoryMessage>({ type: "memory" });
   }
 
   compareClear(): Promise<CompareClearedMessage> {

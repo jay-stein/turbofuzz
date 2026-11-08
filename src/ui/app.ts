@@ -207,6 +207,8 @@ import { openCommandBar, type ParsedCommand } from "./command-bar.js";
 import { openTriagePanel, type TriagePanelHandle } from "./triage-panel.js";
 import { openColumnInspector } from "./column-inspector.js";
 import { CompareMode, unreadableReason } from "./compare/compare-mode.js";
+import { MemoryMonitor, memoryGauge, usedBytes } from "./memory-gauge.js";
+import { formatMemory, projectLoadBytes } from "../data/memory.js";
 import { FILE_TYPES as COMPARE_FILE_TYPES } from "./compare/compare-setup.js";
 import { columnActionSections } from "./column-actions.js";
 import { openActionMenu } from "./action-menu.js";
@@ -618,6 +620,8 @@ const HEADER_PREVIEW_BYTES = 1_000_000;
 
 export class App {
   private readonly client = new SearchWorkerClient();
+  /** The memory figures behind the gauges in the top bar and in compare mode. */
+  private readonly memory = new MemoryMonitor(this.client);
   private metas: ColumnMeta[] = [];
   private rowCount = 0;
   private datasetName = "";
@@ -946,7 +950,7 @@ export class App {
     helpButton.classList.add("topbar-wide");
     settingsButton.classList.add("topbar-wide");
     this.themeButton.classList.add("topbar-wide");
-    topbar.append(paletteButton, el("span", { class: "grow" }), this.scoreTile, settingsButton, helpButton, this.themeButton);
+    topbar.append(paletteButton, el("span", { class: "grow" }), memoryGauge(this.memory), this.scoreTile, settingsButton, helpButton, this.themeButton);
 
     this.newButton = el("button", { class: "ghost small topbar-wide", type: "button" }, ["New data"]);
     this.newButton.title = "Load a CSV, Excel, JSON or Parquet file";
@@ -2112,8 +2116,12 @@ export class App {
     this.sampleNote = null;
     if (isParquetName(fileName)) return "all";
     const estimate = estimateFromBuffer(buffer.byteLength, buffer);
-    if (estimate === null || estimate.cells <= LARGE_LOAD_CELLS) return "all";
-    const choice = await openLargeLoadDialog(estimate, fileName);
+    if (estimate === null) return "all";
+    // Large by cells, or likely to need most of what the browser allows one tab.
+    const need = projectLoadBytes(buffer.byteLength, estimate.cells);
+    const limit = this.memory.state.limit.bytes;
+    if (estimate.cells <= LARGE_LOAD_CELLS && need <= limit * 0.75) return "all";
+    const choice = await openLargeLoadDialog(estimate, fileName, { need, limit });
     if (choice === null) {
       this.hideLoadProgress();
       this.statusEl.classList.remove("error");
@@ -2618,6 +2626,7 @@ export class App {
   }
 
   private openWorkspace(loaded: LoadedMessage | TransformedMessage): void {
+    void this.memory.refresh();
     if (loaded.type === "transformed") {
       this.bakeSteps(loaded.ops);
     } else {
@@ -6789,7 +6798,28 @@ export class App {
       });
       if (!confirmed) return;
     }
-    await this.load({ buffer: await file.arrayBuffer(), name: file.name, source: "file", append: true });
+    const buffer = await file.arrayBuffer();
+    if (!(await this.roomFor(file.name, buffer, "Append"))) return;
+    await this.load({ buffer, name: file.name, source: "file", append: true });
+  }
+
+  /**
+   * Before adding a file to what is already loaded (compare's B, append): asks
+   * when the two together would take more than 85% of what the browser
+   * allows one tab. Resolves false when the person would rather not.
+   */
+  private async roomFor(name: string, buffer: ArrayBuffer, action: "Compare" | "Append"): Promise<boolean> {
+    await this.memory.refresh();
+    const estimate = estimateFromBuffer(buffer.byteLength, buffer);
+    const need = projectLoadBytes(buffer.byteLength, estimate?.cells ?? Math.ceil(buffer.byteLength / 8));
+    const used = usedBytes(this.memory.state);
+    const limit = this.memory.state.limit.bytes;
+    if (used + need <= limit * 0.85) return true;
+    return openConfirm({
+      title: "This may not fit in memory",
+      body: `${action === "Compare" ? "Comparing with" : "Appending"} “${name}” needs about ${formatMemory(need)} more. With the ${formatMemory(used)} already in use that is about ${formatMemory(used + need)}, and this browser allows one tab about ${formatMemory(limit)}. If it runs out, the tab stops and the data is lost.`,
+      confirmLabel: `${action} anyway`,
+    });
   }
 
   /** The loaded data as compare mode's A card shows it. */
@@ -6816,6 +6846,8 @@ export class App {
     if (this.compareMode !== null || this.loading) return;
     const mode = new CompareMode({
       client: this.client,
+      memory: this.memory,
+      roomFor: (file, buffer) => this.roomFor(file.name, buffer, "Compare"),
       loaded: this.lastLoaded === null ? null : this.compareSideInfo(),
       loadA: async (file) => {
         const before = this.lastLoaded;
@@ -6942,6 +6974,7 @@ export class App {
   }
 
   private clearData(): void {
+    void this.memory.refresh();
     this.importSource = null;
     this.overview?.setHeaderNote(null);
     this.headerRowButton.disabled = true;

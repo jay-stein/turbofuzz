@@ -10,10 +10,15 @@ import type { ShiftReport } from "../../data/compare/shift.js";
 import { ShiftView, type GroupChoice } from "./compare-shift.js";
 import { changesWorkbook, download, exportBaseName, reportHtml, tableCsv } from "./compare-export.js";
 import { openMenu } from "../menu.js";
+import { memoryGauge, type MemoryMonitor } from "../memory-gauge.js";
 import { renderSetup, type KeyChoice, type SetupState } from "./compare-setup.js";
 
 export interface CompareModeOptions {
   client: SearchWorkerClient;
+  /** Memory figures for the gauge in the compare header. */
+  memory: MemoryMonitor;
+  /** Before B is read: false when the person would rather not risk running out of memory. */
+  roomFor(file: File, buffer: ArrayBuffer): Promise<boolean>;
   /** The loaded data (A), or null when A is still to be chosen. */
   loaded: CompareSideInfo | null;
   /** Loads a file as the app's data (A, from the start screen); resolves null when it did not load. */
@@ -86,6 +91,7 @@ export class CompareMode {
       el("span", { class: "cmp-locked-note" }, ["Other tools are locked until you exit"]),
       this.files,
       el("span", { class: "grow" }),
+      memoryGauge(options.memory),
       exit,
     ]);
     this.body = el("div", { class: "cmp-body" });
@@ -276,7 +282,13 @@ export class CompareMode {
     this.render();
     try {
       const buffer = await file.arrayBuffer();
+      if (!(await this.options.roomFor(file, buffer))) {
+        this.state.busy = null;
+        this.render();
+        return;
+      }
       const setup = await this.options.client.compareLoad({ name: file.name, buffer, delimiter: "auto", hasHeaders: true });
+      void this.options.memory.refresh();
       this.state.manual = [];
       this.applySetup(setup);
       this.state.busy = null;
@@ -335,6 +347,7 @@ export class CompareMode {
     this.closed = true;
     this.sideBySide?.dispose();
     await this.options.client.compareClear().catch(() => undefined);
+    void this.options.memory.refresh();
     this.element.remove();
     this.options.onExit();
   }
