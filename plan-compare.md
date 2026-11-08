@@ -42,10 +42,12 @@ Owner scope, agreed 2026-11-08 (DEC-2026-11-08-02). A separate mode with two scr
 
 ## Speed (gate)
 
-- `bench/compare.ts` wired into `npm run gate` with p95 budgets. Proposed starting budgets, to be set from first measurements:
-  - Match + diff, 1M × 20 vs 1M × 20 with a key: ≤ 2 s.
-  - Same with no key (whole-row): ≤ 3 s.
-  - Window of 100 aligned rows: ≤ 16 ms.
+- `bench/compare.ts` (`npm run bench:compare`), in `npm run gate` at 200k rows with budgets scaled from these at 1M × 20 vs 1M × 20:
+  - Suggest keys ≤ 1.5 s (measured 1.1 s).
+  - Match + diff with a key ≤ 2 s (measured 1.7 s).
+  - Whole-row match, no key ≤ 4.5 s (measured 2.9–4.1 s). It numbers every cell of both sides (40M) and stays exact: rows are grouped by value ids and verified, never equal on a hash alone.
+  - Report ≤ 0.5 s (measured 0.16 s).
+  - Window of 100 aligned rows ≤ 16 ms (milestone 4).
 - Memory: two datasets live at once; warn above a combined size threshold.
 
 ## Milestones (one commit per feature)
