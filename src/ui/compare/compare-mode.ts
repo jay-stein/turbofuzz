@@ -99,6 +99,7 @@ export class CompareMode {
       renderSetup(this.body, this.state, {
         pickA: (file) => void this.pickA(file),
         pickB: (file) => void this.pickB(file),
+        pickBoth: (a, b) => void this.pickA(a).then(() => (this.state.a !== null && this.state.error === null ? this.pickB(b) : undefined)),
         setManual: (manual) => void this.setManual(manual),
         setKey: (key) => {
           this.state.key = key;
@@ -109,7 +110,6 @@ export class CompareMode {
           this.render();
         },
         run: () => void this.run(),
-        cancel: () => void this.exit(),
       });
   }
 

@@ -2,7 +2,7 @@ import { DEFAULT_RULES, type CompareRules } from "../../data/compare/types.js";
 import type { KeySuggestion } from "../../data/compare/keys.js";
 import { TYPE_LABELS } from "../../types.js";
 import type { CompareSetupMessage, CompareSideInfo } from "../../worker/protocol.js";
-import { el } from "../dom.js";
+import { el, svgIcon } from "../dom.js";
 import { TYPE_FAMILY, TYPE_GLYPHS } from "../type-glyphs.js";
 
 /** How rows are matched: on these column pairs (indexes into the pairing), or on whole rows. */
@@ -25,11 +25,12 @@ export interface SetupState {
 export interface SetupActions {
   pickA(file: File): void;
   pickB(file: File): void;
+  /** Two files dropped at once: the earlier name is A, the later B. */
+  pickBoth(a: File, b: File): void;
   setManual(manual: { a: number; b: number }[]): void;
   setKey(key: KeyChoice): void;
   setRules(rules: CompareRules): void;
   run(): void;
-  cancel(): void;
 }
 
 export const FILE_TYPES = ".csv,.tsv,.psv,.txt,.json,.ndjson,.jsonl,.parquet";
@@ -62,29 +63,45 @@ function sideCard(
   canPick: boolean,
   pick: (file: File) => void,
 ): HTMLElement {
-  const card = el("div", { class: `cmp-side cmp-side-${letter.toLowerCase()}` });
+  const empty = info === null && canPick;
+  const card = el("div", { class: `cmp-side cmp-side-${letter.toLowerCase()}${empty ? " cmp-drop" : ""}` });
   const input = el("input", { type: "file", accept: FILE_TYPES, class: "hidden", "aria-label": `Choose the file for ${letter}` }) as HTMLInputElement;
   input.addEventListener("change", () => {
     const file = input.files?.[0];
     if (file !== undefined) pick(file);
     input.value = "";
   });
+  const role = letter === "A" ? "before" : "after";
+  if (empty) {
+    // No file yet: the whole card is a drop target, and says so.
+    const button = el("button", { class: "primary small", type: "button" }, ["Choose file…"]);
+    button.addEventListener("click", () => input.click());
+    card.append(
+      el("span", { class: "cmp-drop-icon", "aria-hidden": "true" }, [svgIcon('<path d="M12 15V4M7 9l5-5 5 5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>', "cmp-drop-svg")]),
+      el("span", { class: "cmp-drop-title" }, [el("span", { class: "cmp-letter", "aria-hidden": "true" }, [letter]), `Drop the ${role} file here`]),
+      el("span", { class: "cmp-drop-sub" }, ["CSV, TSV, JSON or Parquet"]),
+      button,
+      input,
+    );
+  }
   const body = el("div", { class: "cmp-side-body" }, [
     el("span", { class: "cmp-side-role" }, [letter === "A" ? "Before" : "After"]),
   ]);
   if (info === null) {
-    body.append(el("span", { class: "cmp-side-empty" }, ["No file yet"]), el("span", { class: "cmp-side-meta" }, ["CSV, TSV, JSON or Parquet · drop it here"]));
+    body.append(el("span", { class: "cmp-side-empty" }, ["No file yet"]));
   } else {
     body.append(
       el("span", { class: "cmp-side-name", title: info.name }, [info.name]),
       el("span", { class: "cmp-side-meta" }, [`${nf.format(info.rowCount)} rows × ${info.columns.length} columns${note === "" ? "" : ` · ${note}`}`]),
     );
   }
-  card.append(el("span", { class: "cmp-letter", "aria-hidden": "true" }, [letter]), body);
+  if (!empty) card.append(el("span", { class: "cmp-letter", "aria-hidden": "true" }, [letter]), body);
   if (canPick) {
-    const button = el("button", { class: info === null ? "primary small" : "ghost small", type: "button" }, [info === null ? "Choose file…" : "Change…"]);
-    button.addEventListener("click", () => input.click());
-    card.append(button, input);
+    if (!empty) {
+      const button = el("button", { class: "ghost small", type: "button" }, ["Change…"]);
+      button.addEventListener("click", () => input.click());
+      card.append(button, input);
+    }
     card.addEventListener("dragover", (event) => {
       if (!Array.from(event.dataTransfer?.types ?? []).includes("Files")) return;
       event.preventDefault();
@@ -92,11 +109,13 @@ function sideCard(
     });
     card.addEventListener("dragleave", () => card.classList.remove("dragging"));
     card.addEventListener("drop", (event) => {
-      const file = event.dataTransfer?.files[0];
+      const files = event.dataTransfer?.files;
       card.classList.remove("dragging");
-      if (file === undefined) return;
+      // Two files at once are handled by the page: one for each side.
+      if (files === undefined || files.length !== 1) return;
       event.preventDefault();
-      pick(file);
+      event.stopPropagation();
+      pick(files[0]!);
     });
   }
   return card;
@@ -292,12 +311,33 @@ function rulesSection(state: SetupState, actions: SetupActions): HTMLElement {
 /** The setup screen: both sides, how rows and columns line up, and when values count as equal. */
 export function renderSetup(host: HTMLElement, state: SetupState, actions: SetupActions): void {
   const page = el("div", { class: "cmp-page" });
+  const ready = state.a !== null && state.b !== null;
   page.append(
     el("div", { class: "cmp-intro" }, [
       el("h1", {}, ["Compare two datasets"]),
-      el("p", {}, ["Choose how rows and columns line up, then compare. You can come back here at any time."]),
+      el("p", {}, [
+        ready
+          ? "Check how rows and columns line up, then compare. You can come back here at any time."
+          : state.aLoaded
+            ? "Drop the file to compare with your data below, or choose it."
+            : "Drop the before file on the left and the after file on the right, or drop both at once.",
+      ]),
     ]),
   );
+  // Files dropped anywhere on the page: two fill both sides, one fills the side still empty.
+  page.addEventListener("dragover", (event) => {
+    if (Array.from(event.dataTransfer?.types ?? []).includes("Files")) event.preventDefault();
+  });
+  page.addEventListener("drop", (event) => {
+    const files = [...(event.dataTransfer?.files ?? [])];
+    if (files.length === 0) return;
+    event.preventDefault();
+    if (files.length >= 2 && !state.aLoaded) {
+      const [first, second] = files.slice(0, 2).sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }));
+      actions.pickBoth(first!, second!);
+    } else if (state.a === null && !state.aLoaded) actions.pickA(files[0]!);
+    else actions.pickB(files[files.length - 1]!);
+  });
   page.append(
     el("div", { class: "cmp-sides" }, [
       sideCard("A", state.a, state.aLoaded ? "the loaded data, as it is now" : "", !state.aLoaded, actions.pickA),
@@ -311,21 +351,20 @@ export function renderSetup(host: HTMLElement, state: SetupState, actions: Setup
 
   const setup = state.setup;
   if (setup !== null && state.a !== null && state.b !== null) {
-    const main = el("div", { class: "cmp-main" }, [keySection(state, setup, actions), columnSection(state, setup, actions)]);
+    // How rows match, then the button that runs it; column details and value rules refine it.
     const go = el("button", { class: "primary cmp-go", type: "button" }, ["Compare"]);
     go.disabled = state.busy !== null;
     go.addEventListener("click", () => actions.run());
-    const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
-    cancel.addEventListener("click", () => actions.cancel());
     const keyText = state.key.kind === "content" ? "whole rows" : `key ${keyLabel(setup, state.key.pairs)}`;
-    const ready = el("section", { class: "cmp-card cmp-ready", "aria-label": "Ready to compare" }, [
+    const goRow = el("section", { class: "cmp-go-row", "aria-label": "Ready to compare" }, [
+      go,
       el("div", { class: "cmp-ready-facts" }, [
         el("span", {}, [`${nf.format(setup.a.rowCount)} rows in A · ${nf.format(setup.b.rowCount)} in B`]),
-        el("span", {}, [`${keyText} · ${setup.pairing.pairs.length} column pair${setup.pairing.pairs.length === 1 ? "" : "s"}`]),
+        el("span", {}, [`Matching on ${keyText} · ${setup.pairing.pairs.length} column pair${setup.pairing.pairs.length === 1 ? "" : "s"}`]),
       ]),
-      el("div", { class: "cmp-ready-actions" }, [go, cancel]),
     ]);
-    page.append(el("div", { class: "cmp-columns-layout" }, [main, el("aside", { class: "cmp-aside" }, [rulesSection(state, actions), ready])]));
+    const main = el("div", { class: "cmp-main" }, [keySection(state, setup, actions), goRow, columnSection(state, setup, actions)]);
+    page.append(el("div", { class: "cmp-columns-layout" }, [main, el("aside", { class: "cmp-aside" }, [rulesSection(state, actions)])]));
   }
   host.replaceChildren(page);
 }

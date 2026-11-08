@@ -92,3 +92,22 @@ test("Load more → Append rows stacks a file under the data, columns lined up b
   await expect.poll(() => column(7)).toEqual(["before.csv", "before.csv", "before.csv", "before.csv", "after.csv", "after.csv", "after.csv", "after.csv"]);
   await expect.poll(() => column(3)).toEqual(["North", "South", "East", "West", "North", "East", "West", "North"]);
 });
+
+test("two files dropped on the empty compare screen fill both sides, the earlier name as A", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Compare two datasets…" }).click();
+  const mode = page.getByRole("region", { name: "Compare two datasets" });
+  await expect(mode.getByText("Drop the before file here")).toBeVisible();
+  await expect(mode.getByText("Drop the after file here")).toBeVisible();
+  const drop = await page.evaluateHandle(([a, b]) => {
+    const data = new DataTransfer();
+    data.items.add(new File([b], "orders_2026-10.csv", { type: "text/csv" }));
+    data.items.add(new File([a], "orders_2026-09.csv", { type: "text/csv" }));
+    return data;
+  }, [A, B]);
+  await mode.locator(".cmp-page").dispatchEvent("drop", { dataTransfer: drop });
+  await expect(mode.locator(".cmp-side-a")).toContainText("orders_2026-09.csv");
+  await expect(mode.locator(".cmp-side-b")).toContainText("orders_2026-10.csv");
+  await expect(mode.getByRole("button", { name: "Compare", exact: true })).toBeVisible();
+});
