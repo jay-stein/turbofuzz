@@ -92,12 +92,33 @@ export function structureTable(
   return { headers, rows, ragged };
 }
 
+/** How far into a file line endings are checked: Papaparse guesses from its first chunk too. */
+const LINE_ENDING_SAMPLE = 1 << 20;
+
+/**
+ * Papaparse picks one line ending from the start of the file, so a file whose
+ * header ends in CRLF but whose rows end in LF (or the reverse) reads as a
+ * single row. When the start mixes the two, CRLF becomes LF throughout;
+ * quoted line breaks stay inside their cells either way.
+ */
+export function evenLineEndings(text: string): string {
+  const sample = text.length > LINE_ENDING_SAMPLE ? text.slice(0, LINE_ENDING_SAMPLE) : text;
+  let crlf = false;
+  let lf = false;
+  for (let at = sample.indexOf("\n"); at !== -1; at = sample.indexOf("\n", at + 1)) {
+    if (at > 0 && sample.charCodeAt(at - 1) === 13) crlf = true;
+    else lf = true;
+    if (crlf && lf) return text.replace(/\r\n/g, "\n");
+  }
+  return text;
+}
+
 export function parseDelimited(text: string, options: ParseOptions = {}): ParsedTable {  const delimiter =
     options.delimiter !== undefined && options.delimiter !== "auto"
       ? options.delimiter
       : detectDelimiter(text);
 
-  const result = Papa.parse<string[]>(text, {
+  const result = Papa.parse<string[]>(evenLineEndings(text), {
     delimiter,
     skipEmptyLines: "greedy",
     ...(options.preview === undefined ? {} : { preview: options.preview }),

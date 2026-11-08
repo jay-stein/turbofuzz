@@ -128,3 +128,14 @@ test("sameHeaderRow folds case and whitespace for the Import all check", () => {
   assert.equal(sameHeaderRow(["name"], ["name", "total"]), false);
   assert.equal(sameHeaderRow([], []), true);
 });
+
+test("a CRLF header over LF rows still splits into rows", () => {
+  const parsed = parseDelimited("id,site,volume\r\n1,10001,3\n2,10001,1\n3,10002,7\n");
+  assert.deepEqual(parsed.headers, ["id", "site", "volume"]);
+  assert.deepEqual(parsed.rows, [["1", "10001", "3"], ["2", "10001", "1"], ["3", "10002", "7"]]);
+});
+
+test("CRLF rows with a line break inside a quoted cell keep it in the cell", () => {
+  const parsed = parseDelimited('id,note\r\n1,"two\nlines"\r\n2,plain\r\n');
+  assert.deepEqual(parsed.rows, [["1", "two\nlines"], ["2", "plain"]]);
+});
