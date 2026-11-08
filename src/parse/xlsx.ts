@@ -169,7 +169,7 @@ function normalizeTarget(target: string): string {
  */
 export async function listWorkbookSheets(
   buffer: ArrayBuffer,
-  limit = 50,
+  limit = 100,
 ): Promise<WorkbookListing> {
   const data = new Uint8Array(buffer);
 

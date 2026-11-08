@@ -284,6 +284,8 @@ const MULTI_FILE_EXTENSIONS = [".csv", ".tsv", ".psv", ".txt", ".dat"];
 const PREFLIGHT_BYTES = 256 * 1024;
 const DEFER_STATS_BYTES = 2_000_000;
 const WORKBOOK_EXTENSIONS = [".xlsx", ".xls"];
+/** Worksheets listed (and so loadable or combinable) from one workbook. */
+const MAX_SHEETS = 100;
 const UNSUPPORTED_COMPRESSION = [".xz", ".zst", ".7z", ".rar", ".tar", ".lz4"];
 const UNSUPPORTED_FORMATS: { extensions: string[]; message: string }[] = [
   {
@@ -2347,12 +2349,12 @@ export class App {
       let sheets;
       let total: number;
       if (extensionOf(fileName) === ".xls") {
-        const legacy = await listLegacySheets(buffer, 50);
+        const legacy = await listLegacySheets(buffer, MAX_SHEETS);
         this.pendingWorkbook = { kind: "xls", workbook: legacy.workbook };
         sheets = legacy.sheets;
         total = legacy.total;
       } else {
-        const listing = await listWorkbookSheets(buffer, 50);
+        const listing = await listWorkbookSheets(buffer, MAX_SHEETS);
         this.pendingWorkbook = { kind: "xlsx", buffer };
         sheets = listing.sheets;
         total = listing.total;

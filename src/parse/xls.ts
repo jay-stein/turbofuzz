@@ -17,7 +17,7 @@ export interface LegacyListing {
  */
 export async function listLegacySheets(
   buffer: ArrayBuffer,
-  limit = 50,
+  limit = 100,
 ): Promise<LegacyListing> {
   const XLSX = await import("xlsx");
   const workbook = XLSX.read(buffer, { type: "array" });

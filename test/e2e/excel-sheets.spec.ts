@@ -69,3 +69,13 @@ test("same number of columns but different names: combining explains which sheet
     "These worksheets can't be combined: “Staff” is missing “amount” and “region”, and has “name” and “team”, which “Jan” does not. Load one at a time instead.",
   );
 });
+
+test("a workbook with 100 worksheets lists them all, and all 100 combine", async ({ page }) => {
+  const many: Sheet[] = Array.from({ length: 100 }, (_, i) => ({ name: `S${i + 1}`, headers: ["id", "value"], rows: [[String(i), String(i * 2)]] }));
+  await openWorkbook(page, many);
+  await expect(page.locator(".table-picker-title")).toHaveText("100 worksheets in sales.xlsx");
+  await expect(page.locator(".sheet-row")).toHaveCount(100);
+  await page.locator(".sheet-go").click();
+  await page.locator(".nav-row").waitFor();
+  await expect(page.locator(".count").first()).toContainText("100 rows");
+});
