@@ -40,6 +40,12 @@ test("Load more → Compare: the loaded data is A, a key is suggested, a rename 
   await expect(mode.getByRole("heading", { name: "What changed" })).toBeVisible();
   await expect(mode.locator(".cmp-tile-value")).toHaveText(["1", "2", "1", "1", "4 → 4"]);
   await expect(mode.locator(".cmp-change-name")).toHaveText(["full_name", "amount"]);
+  await expect(mode.locator(".cmp-schema-row")).toHaveText(["Addednew", "Removedold", "Renamedname → full_name"]);
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    const axe = await new AxeBuilder({ page }).include(".compare-mode").analyze();
+    expect(axe.violations.map((v) => `${scheme} ${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
+  }
 
   await mode.getByRole("button", { name: "Exit compare" }).click();
   await expect(mode).toHaveCount(0);

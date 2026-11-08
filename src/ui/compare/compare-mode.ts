@@ -1,8 +1,9 @@
-import { DEFAULT_RULES } from "../../data/compare/types.js";
+import { DEFAULT_RULES, type CompareRules } from "../../data/compare/types.js";
 import type { CompareReport } from "../../data/compare/report.js";
 import type { CompareSetupMessage, CompareSideInfo } from "../../worker/protocol.js";
 import { el, svgIcon } from "../dom.js";
 import type { SearchWorkerClient } from "../worker-client.js";
+import { renderReport } from "./compare-report.js";
 import { renderSetup, type KeyChoice, type SetupState } from "./compare-setup.js";
 
 export interface CompareModeOptions {
@@ -38,7 +39,8 @@ export class CompareMode {
   private readonly body: HTMLElement;
   private readonly files: HTMLElement;
   private stage: "setup" | "result" = "setup";
-  private report: { report: CompareReport; ms: number } | null = null;
+  /** The last result, with the key and rules it was run with (setup may change them afterwards). */
+  private report: { report: CompareReport; ms: number; key: KeyChoice; rules: CompareRules } | null = null;
   private readonly state: SetupState;
   private closed = false;
 
@@ -94,7 +96,13 @@ export class CompareMode {
         el("span", { class: "cmp-file", title: setup.b.name }, [setup.b.name]),
       );
     }
-    if (this.stage === "result" && this.report !== null && setup !== null) this.renderResult(setup, this.report.report, this.report.ms);
+    if (this.stage === "result" && this.report !== null && setup !== null) {
+      renderReport(
+        this.body,
+        { setup, report: this.report.report, ms: this.report.ms, key: this.report.key, rules: this.report.rules },
+        { setup: () => this.showSetup() },
+      );
+    }
     else
       renderSetup(this.body, this.state, {
         pickA: (file) => void this.pickA(file),
@@ -175,7 +183,7 @@ export class CompareMode {
       const keyPairs = this.state.key.kind === "content" ? null : this.state.key.pairs;
       const result = await this.options.client.compareRun(this.state.manual, keyPairs, this.state.rules);
       this.state.busy = null;
-      this.report = { report: result.report, ms: result.ms };
+      this.report = { report: result.report, ms: result.ms, key: this.state.key, rules: this.state.rules };
       this.stage = "result";
       this.render();
       this.body.querySelector<HTMLElement>("h1")?.focus();
@@ -201,76 +209,5 @@ export class CompareMode {
     await this.options.client.compareClear().catch(() => undefined);
     this.element.remove();
     this.options.onExit();
-  }
-
-  /** The headline numbers; the full report and the side-by-side table build on this. */
-  private renderResult(setup: CompareSetupMessage, report: CompareReport, ms: number): void {
-    const keyChoice: KeyChoice = this.state.key;
-    const rows = report.rows;
-    const tile = (label: string, value: string, sub: string, tone: string): HTMLElement =>
-      el("div", { class: `cmp-tile ${tone}` }, [
-        el("span", { class: "cmp-tile-label" }, [el("span", { class: "cmp-dot", "aria-hidden": "true" }), label]),
-        el("span", { class: "cmp-tile-value" }, [value]),
-        el("span", { class: "cmp-tile-sub" }, [sub]),
-      ]);
-    const share = (n: number): string => (rows.matched === 0 ? "" : `${((n / rows.matched) * 100).toFixed(1)}% of matched rows`);
-    const page = el("div", { class: "cmp-page" });
-    const back = el("button", { class: "ghost small", type: "button" }, ["← Setup"]);
-    back.addEventListener("click", () => this.showSetup());
-    const how = keyChoice.kind === "content" ? "whole rows" : `key ${keyChoice.pairs.map((i) => setup.a.columns[setup.pairing.pairs[i]?.a ?? -1]?.name).join(" + ")}`;
-    page.append(
-      el("div", { class: "cmp-intro cmp-intro-row" }, [
-        el("div", {}, [
-          el("h1", { tabindex: "-1" }, ["What changed"]),
-          el("p", {}, [`Matched on ${how} · compared in ${ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`}`]),
-        ]),
-        back,
-      ]),
-      el("div", { class: "cmp-tiles" }, [
-        tile("Identical", nf.format(rows.identical), share(rows.identical), "same"),
-        tile("Changed", nf.format(rows.changed), share(rows.changed), "changed"),
-        tile("Only in A (removed)", nf.format(rows.onlyA), "not in B", "only-a"),
-        tile("Only in B (added)", nf.format(rows.onlyB), "new in B", "only-b"),
-        tile("Rows", `${nf.format(rows.a)} → ${nf.format(rows.b)}`, `${rows.b - rows.a >= 0 ? "+" : "−"}${nf.format(Math.abs(rows.b - rows.a))} · ${nf.format(rows.matched)} matched`, "rows"),
-      ]),
-    );
-    const warnings: string[] = [];
-    const dup = report.duplicateKeys;
-    const empty = report.emptyKeys;
-    for (const [side, d, e] of [["A", dup.a, empty.a], ["B", dup.b, empty.b]] as const) {
-      if (d > 0) warnings.push(`${nf.format(d)} row${d === 1 ? "" : "s"} in ${side} repeat a key; repeats pair in file order.`);
-      if (e > 0) warnings.push(`${nf.format(e)} row${e === 1 ? "" : "s"} in ${side} have no key, so they can't be matched.`);
-    }
-    if (warnings.length > 0) {
-      page.append(
-        el("section", { class: "cmp-warn", "aria-label": "Key problems" }, [
-          el("h2", {}, ["Check the key before trusting the numbers"]),
-          el("ul", {}, warnings.map((text) => el("li", {}, [text]))),
-        ]),
-      );
-    }
-    if (report.changes.length > 0) {
-      const list = el("section", { class: "cmp-card" }, [
-        el("div", { class: "cmp-section-head" }, [el("h2", { class: "cmp-section-title" }, ["Changes by column"])]),
-      ]);
-      for (const change of report.changes) {
-        list.append(
-          el("div", { class: "cmp-change" }, [
-            el("span", { class: "cmp-change-name" }, [change.name]),
-            el("span", { class: "cmp-change-count" }, [`${nf.format(change.changed)} · ${(change.share * 100).toFixed(1)}%`]),
-            el("span", { class: "cmp-change-top" }, [
-              change.top
-                .slice(0, 2)
-                .map((pair) => `${pair.from === "" ? "(empty)" : pair.from} → ${pair.to === "" ? "(empty)" : pair.to} ×${nf.format(pair.count)}`)
-                .join("   "),
-            ]),
-          ]),
-        );
-      }
-      page.append(list);
-    } else if (rows.matched > 0) {
-      page.append(el("p", { class: "cmp-note" }, ["No cell changed in the matched rows."]));
-    }
-    this.body.replaceChildren(page);
   }
 }

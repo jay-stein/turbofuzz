@@ -15261,7 +15261,7 @@ button.qp-tile:hover {
   border-radius: 999px;
   background: var(--accent-soft);
   color: color-mix(in srgb, var(--accent) 70%, var(--text));
-  font-family: var(--font, inherit);
+  font-family: var(--font-sans);
   font-size: 11px;
   font-weight: 600;
 }
@@ -15435,29 +15435,184 @@ button.qp-tile:hover {
   padding-left: 18px;
   line-height: 1.6;
 }
+.cmp-bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.cmp-bar-part {
+  min-width: 3px;
+  flex-basis: 0;
+}
+.cmp-bar-part.same { background: color-mix(in srgb, var(--text-dim) 45%, transparent); }
+.cmp-bar-part.changed { background: var(--cmp-changed); }
+.cmp-bar-part.only-a { background: var(--cmp-gone); }
+.cmp-bar-part.only-b { background: var(--cmp-added); }
+
 .cmp-change {
   display: grid;
-  grid-template-columns: minmax(110px, 180px) 150px minmax(0, 1fr);
-  gap: 14px;
-  align-items: baseline;
-  padding: 9px 0;
+  grid-template-columns: minmax(110px, 170px) 170px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding: 11px 0;
   border-top: 1px solid var(--border-subtle);
   font-size: var(--fs-sm);
 }
 .cmp-change-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--mono);
   font-weight: 600;
 }
+.cmp-change-measure {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
 .cmp-change-count {
   font-family: var(--mono);
+  font-weight: 600;
   color: var(--cmp-changed);
 }
-.cmp-change-top {
+.cmp-change-share {
+  font-weight: 400;
+  color: var(--text-dim);
+}
+.cmp-meter {
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.cmp-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--cmp-changed);
+}
+.cmp-pairs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-family: var(--mono);
+}
+.cmp-pair {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.cmp-old,
+.cmp-new {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: pre;
-  font-family: var(--mono);
+  white-space: nowrap;
+  max-width: 40%;
+}
+.cmp-old {
+  color: var(--cmp-gone);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--cmp-gone) 55%, transparent);
+}
+.cmp-new {
+  color: var(--cmp-added);
+}
+.cmp-to,
+.cmp-times {
   color: var(--text-dim);
+}
+.cmp-times {
+  margin-left: auto;
+}
+.cmp-quiet {
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.cmp-report-side {
+  flex: 1 1 320px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.cmp-schema-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.cmp-tag {
+  flex: none;
+  min-width: 68px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+.cmp-tag.added { background: var(--cmp-added-soft); color: var(--ok-text, var(--cmp-added)); }
+.cmp-tag.gone { background: var(--cmp-gone-soft); color: var(--cmp-gone); }
+.cmp-tag.renamed { background: var(--accent-soft); color: color-mix(in srgb, var(--accent) 70%, var(--text)); }
+.cmp-tag.retyped { background: var(--qa-warn-soft); color: var(--qa-warn-text, var(--qa-warn)); }
+.cmp-schema-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+}
+.cmp-totals {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--panel-2);
+}
+.cmp-totals-name {
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.cmp-totals-grid {
+  display: grid;
+  grid-template-columns: 48px repeat(2, minmax(0, 1fr));
+  gap: 4px 10px;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.cmp-totals-grid > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmp-totals-label {
+  text-align: left;
+  font-family: var(--font-sans);
+  color: var(--text-dim);
+}
+.cmp-diff {
+  color: var(--qa-warn-text, var(--qa-warn));
+  font-weight: 600;
+}
+.cmp-pct {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+.cmp-old.cmp-blank,
+.cmp-new.cmp-blank {
+  color: var(--text-dim);
+  font-style: italic;
+  text-decoration: none;
 }
 @media (max-width: 640px) {
   .cmp-page {
