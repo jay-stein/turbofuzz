@@ -239,7 +239,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
   {
     id: "table-nav",
     title: "Moving around the Table",
-    summary: "Where you are, Go to (Ctrl+G), Top and Bottom, Reverse and file row numbers.",
+    summary: "Where you are, Go to (Ctrl+G), Top and Bottom, Reverse, Shuffle and file row numbers.",
     blocks: [
       p(
         "The bar under the Table says which rows are on screen (Rows 41–66 of 12,480) and how they are ordered: file order, sorted by a column, shuffled or reversed, with Back to file order when they are not in the file's own order.",
@@ -248,6 +248,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Go to (Ctrl+G, or click the row read-out): 250 for row 250 in this order, -1 for the last row, 50% for halfway down, file 1234 for row 1,234 of the loaded data wherever sorting put it, or a column's name (a close spelling is fine).",
         "Top and Bottom (Ctrl+Home and Ctrl+End) jump to the first and last row.",
         "Reverse puts the last row first, whatever the order (file order or a sort). Sorting by a header starts a fresh order, not reversed; a shuffle ends it.",
+        "Shuffle shows every row in a random order; click it again for a new one. Back to file order undoes it.",
         "First / last N keeps only the first or last rows of the current order (as pandas head() and tail() do). It is a filter like any other: a chip shows it, Clear all removes it, and Copy, Chart, Pivot View and Export use the same rows. After a shuffle, the first N are a random N.",
         "File row shows each row's number in the loaded data next to #. It stays with the row through sorting, filtering and shuffling; # is the place in the current order.",
         "From the command bar: goto 250, goto -1, goto file 1234, goto amount, reverse, head 100, tail 50, head all.",

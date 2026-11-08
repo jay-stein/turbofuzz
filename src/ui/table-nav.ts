@@ -1,6 +1,6 @@
 /**
  * The Table's status bar, under the rows: where you are ("Rows 41–66 of 12,480"),
- * Top and Bottom, Reverse, the File row column, what the order is, and Go to (Ctrl+G)
+ * Top and Bottom, Reverse, Shuffle, the File row column, what the order is, and Go to (Ctrl+G)
  * for a row by position, by its number in the file, a share of the way down, or a
  * column by name.
  */
@@ -28,6 +28,8 @@ export interface TableNavOptions {
   onTop(): void;
   onBottom(): void;
   onReverse(on: boolean): void;
+  /** Every row in a new random order (again, when already shuffled). */
+  onShuffle(): void;
   /** Opens the New column window (at the end). */
   onAddColumn(): void;
   /** First / last N rows of the current order; null for all rows. */
@@ -45,6 +47,7 @@ const ICONS = {
   top: '<path d="M5 4h14M12 20V9M7 13l5-5 5 5"/>',
   bottom: '<path d="M5 20h14M12 4v11M7 11l5 5 5-5"/>',
   reverse: '<path d="M8 4v16M4 8l4-4 4 4M16 20V4M12 16l4 4 4-4"/>',
+  shuffle: '<path d="M3 7h3.5c4 0 6.5 10 11 10H21"/><path d="M3 17h3.5c1.6 0 2.9-1.6 4-3.6"/><path d="M14.5 9.6C15.6 8 16.7 7 18 7h3"/><path d="M18.5 4.5L21 7l-2.5 2.5"/><path d="M18.5 14.5L21 17l-2.5 2.5"/>',
   limit: '<path d="M4 6h16M4 10h16M4 14h7M4 18h7"/>',
   add: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16M18.5 10v4M16.5 12h4"/>',
 };
@@ -83,6 +86,8 @@ export class TableNav {
     const bottom = button("", "Bottom", "Last row (Ctrl+End)", ICONS.bottom);
     this.reverse = button("", "Reverse", "Reverse the current order: the last row comes first", ICONS.reverse);
     this.reverse.setAttribute("aria-pressed", "false");
+    const shuffle = button("", "Shuffle", "Show every row in a random order; click again for a new order", ICONS.shuffle);
+    shuffle.addEventListener("click", () => options.onShuffle());
     this.fileRow = button("", "File row", "Show each row's number in the loaded data, which stays with the row through sorting and filtering");
     this.limit = button("", "First / last N ▾", "Keep only the first or last rows of this order, like pandas head() and tail(); Copy, Chart and Export use the same rows", ICONS.limit);
     this.limit.setAttribute("aria-haspopup", "menu");
@@ -124,6 +129,7 @@ export class TableNav {
       top,
       bottom,
       this.reverse,
+      shuffle,
       this.limit,
       this.fileRow,
       el("span", { class: "table-nav-sep", "aria-hidden": "true" }),

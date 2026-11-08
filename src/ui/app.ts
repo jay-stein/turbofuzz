@@ -632,7 +632,7 @@ export class App {
   private transformCommitSizes: number[] = [];
   private filterPanel: FilterPanel | null = null;
   private table: ResultTable | null = null;
-  /** The status bar under the Table: position, Top/Bottom, Reverse, File row, order, Go to. */
+  /** The status bar under the Table: position, Top/Bottom, Reverse, Shuffle, File row, order, Go to. */
   private tableNav: TableNav | null = null;
   /** The worker's current order, as last read (column -1 is file order). */
   private tableOrder: { column: number; dir: 1 | -1; reversed: boolean } = { column: -1, dir: 1, reversed: false };
@@ -2805,6 +2805,7 @@ export class App {
       onTop: () => this.table?.scrollToTop(),
       onBottom: () => this.table?.scrollToBottom(),
       onReverse: (on) => this.reverseTable(on),
+      onShuffle: () => this.shuffleRows(),
       onRowLimit: (limit) => this.setRowLimit(limit),
       onAddColumn: () => void this.openNewColumn(),
       onShowAllColumns: () => this.setHiddenColumns(new Set()),

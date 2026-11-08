@@ -106,3 +106,16 @@ test("first / last N rows is a filter: a chip, the count and the row read-out fo
   await page.getByRole("button", { name: "Clear all" }).click();
   await expect(page.locator(".table-nav-pos")).toHaveText(/of 1,000$/);
 });
+
+test("Shuffle in the bar puts every row in a random order, and Back to file order undoes it", async ({ page }) => {
+  await openTable(page);
+  const nav = page.getByRole("toolbar", { name: "Table navigation" });
+  await nav.getByRole("button", { name: "Shuffle" }).click();
+  await expect(order(page)).toHaveText("shuffled");
+  await expect(page.locator(".table-nav-pos")).toHaveText(/of 1,000$/);
+  const firstTen = await page.locator(".table-rows .tr").evaluateAll((trs) => trs.slice(0, 10).map((tr) => tr.querySelectorAll(".td")[1]?.textContent));
+  expect(firstTen).not.toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]);
+  await page.getByRole("button", { name: "Back to file order" }).click();
+  await expect(order(page)).toHaveText("file order");
+  await expect(firstId(page)).toHaveText("1");
+});
