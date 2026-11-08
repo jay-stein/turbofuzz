@@ -1056,7 +1056,7 @@ function compareRun(): NonNullable<NonNullable<typeof compare>["run"]> {
 
 function filteredRows(filter: RowFilter): Int32Array {
   const run = compareRun();
-  const key = `${filter.show}:${filter.pair ?? ""}`;
+  const key = `${filter.show}:${filter.pairs.join(",")}`;
   let positions = run.filtered.get(key);
   if (positions === undefined) {
     positions = filterPositions(run.match, filter);

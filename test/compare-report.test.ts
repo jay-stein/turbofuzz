@@ -57,7 +57,7 @@ test("the report shows the rows, the key problems, the changes, the columns and 
   const document = setupDom();
   const host = document.createElement("div") as unknown as HTMLElement;
   const opened: string[] = [];
-  renderReport(host, input(A, B, { kind: "pairs", pairs: [0] }), { rows: (filter) => opened.push(`${filter.show}:${filter.pair}`) });
+  renderReport(host, input(A, B, { kind: "pairs", pairs: [0] }), { rows: (filter) => opened.push(`${filter.show}:${filter.pairs.join(",")}`) });
   const text = (selector: string): string[] => [...host.querySelectorAll(selector)].map((node) => node.textContent ?? "");
 
   assert.deepEqual(text(".cmp-tile-value"), ["1", "3", "1", "2", "5 → 6"]);
@@ -74,7 +74,7 @@ test("the report shows the rows, the key problems, the changes, the columns and 
   // Counts and column names open those rows side by side.
   (host.querySelectorAll(".cmp-tile")[2] as unknown as { click(): void }).click();
   (host.querySelector(".cmp-change-name") as unknown as { click(): void }).click();
-  assert.deepEqual(opened, ["onlyA:null", "changed:1"]);
+  assert.deepEqual(opened, ["onlyA:", "changed:1"]);
 });
 
 test("matching on whole rows says why no cell changes are listed", () => {

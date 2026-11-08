@@ -126,23 +126,53 @@ export class SideBySide {
       ["identical", "Identical", "same"],
     ];
     for (const [show, label, tone] of shows) {
-      const button = el("button", { type: "button", class: "cmp-seg", "aria-pressed": String(this.filter.show === show && this.filter.pair === null) }, [
+      const button = el("button", { type: "button", class: "cmp-seg", "aria-pressed": String(this.filter.show === show) }, [
         tone === "" ? "" : el("span", { class: `cmp-seg-dot ${tone}`, "aria-hidden": "true" }),
         label,
         el("span", { class: "cmp-seg-count" }, [nf.format(this.count(show))]),
       ]);
-      button.addEventListener("click", () => this.setFilter({ show, pair: null }));
+      button.addEventListener("click", () => this.setFilter({ show, pairs: [] }));
       group.append(button);
     }
     bar.append(group);
-    if (this.filter.pair !== null) {
-      const pair = this.options.setup.pairing.pairs[this.filter.pair];
-      const name = pair === undefined ? "?" : this.options.setup.b.columns[pair.b]?.name ?? "?";
-      const chip = el("button", { type: "button", class: "cmp-filter-chip", title: "Show every changed row again" }, [`Changed in ${name}`, el("span", { "aria-hidden": "true" }, [" ×"])]);
-      chip.setAttribute("aria-label", `Changed in ${name}: clear this filter`);
-      chip.addEventListener("click", () => this.setFilter({ show: "changed", pair: null }));
-      bar.append(chip);
+    const wrap = el("div", { class: "cmp-toolbar-wrap" }, [bar]);
+    const columns = this.columnChips();
+    if (columns !== null) wrap.append(columns);
+    return this.withRest(bar, wrap);
+  }
+
+  /**
+   * Changed in: one chip per changed column, with its count. Ticking some shows
+   * only the rows where any of them changed (amount or status, say).
+   */
+  private columnChips(): HTMLElement | null {
+    const { report } = this.options;
+    if ((this.filter.show !== "changed" && this.filter.show !== "differences") || report.changes.length === 0) return null;
+    const chosen = new Set(this.filter.pairs);
+    const row = el("div", { class: "cmp-column-chips", role: "group", "aria-label": "Changed in" }, [el("span", { class: "cmp-chips-label" }, ["Changed in:"])]);
+    for (const change of report.changes) {
+      const on = chosen.has(change.pair);
+      const chip = el("button", { type: "button", class: "cmp-column-chip", "aria-pressed": String(on), title: on ? `Stop narrowing to ${change.name}` : `Show only rows where ${change.name} changed` }, [
+        change.name,
+        el("span", { class: "cmp-seg-count" }, [nf.format(change.changed)]),
+      ]);
+      chip.addEventListener("click", () => {
+        const next = on ? this.filter.pairs.filter((pair) => pair !== change.pair) : [...this.filter.pairs, change.pair];
+        next.sort((x, y) => x - y);
+        this.setFilter({ show: next.length > 0 ? "changed" : this.filter.show, pairs: next });
+      });
+      row.append(chip);
     }
+    if (chosen.size > 0) {
+      const any = el("button", { type: "button", class: "link cmp-chips-clear" }, ["Any column"]);
+      any.addEventListener("click", () => this.setFilter({ show: this.filter.show, pairs: [] }));
+      row.append(any);
+    }
+    return row;
+  }
+
+  /** The rest of the toolbar (column focus, steps, layout), appended to the first row. */
+  private withRest(bar: HTMLElement, wrap: HTMLElement): HTMLElement {
     const focus = el("input", { type: "checkbox" }) as HTMLInputElement;
     focus.checked = this.changedOnly;
     focus.disabled = this.options.key.kind === "content";
@@ -173,7 +203,7 @@ export class SideBySide {
       layouts.append(button);
     }
     bar.append(layouts);
-    return bar;
+    return wrap;
   }
 
   private legend(): HTMLElement {
@@ -232,11 +262,14 @@ export class SideBySide {
   }
 
   private build(): void {
-    // Rows where one column changed are all changed rows, so the report counts them.
+    // With one column the report knows the count; with several, a row can change in more than one, so the worker's count settles it.
+    const pairs = this.filter.pairs;
     this.total =
-      this.filter.pair === null
+      pairs.length === 0
         ? this.count(this.filter.show)
-        : this.options.report.changes.find((change) => change.pair === this.filter.pair)?.changed ?? 0;
+        : pairs.length === 1
+          ? this.options.report.changes.find((change) => change.pair === pairs[0])?.changed ?? 0
+          : this.count("changed");
     this.block = null;
     this.pending = null;
     this.scrollers.length = 0;
@@ -344,6 +377,7 @@ export class SideBySide {
         if (seq !== this.seq) return;
         this.block = message.window;
         this.pending = null;
+        if (message.window.total !== this.total) this.setTotal(message.window.total);
       } catch (error) {
         this.status.textContent = error instanceof Error ? error.message : "Could not read the rows.";
         return;
@@ -419,6 +453,16 @@ export class SideBySide {
     }
     body.style.transform = `translateY(${first * GRID_ROW}px)`;
     body.replaceChildren(fragment);
+  }
+
+  /** The worker's count of the filtered rows, when it differs from the estimate the view was built with. */
+  private setTotal(total: number): void {
+    this.total = total;
+    const height = this.rowHeight();
+    for (const spacer of this.spacers) spacer.style.height = `${total * height}px`;
+    this.view.querySelector(".cmp-empty-rows")?.remove();
+    if (total === 0) this.view.append(el("p", { class: "cmp-empty-rows" }, ["No rows here."]));
+    this.updatePosition();
   }
 
   private updatePosition(): void {

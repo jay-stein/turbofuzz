@@ -30,14 +30,14 @@ Owner scope, agreed 2026-11-08 (DEC-2026-11-08-02). A separate mode with two scr
 
 **Exports.** The report as a self-contained HTML page; the differences as CSV or Excel (key…, column, A value, B value, status), plus only-in-A / only-in-B rows.
 
-**Locked down.** Compare is read-only. The workspace tabs, cleaning, transforms, recipe and command bar are unavailable until Exit. Exit returns to the workspace exactly as it was.
+**Locked down.** Compare is read-only. The workspace tabs, cleaning, transforms, recipe and command bar are unavailable until Exit. Exit clears both datasets and returns to the start screen: compare is a one-off analysis (owner, 2026-11-08). When A carried Recipe steps, Exit asks first.
 
 **Out of scope (v1).** Matching rows by similarity when there is no key; three or more datasets; merging changes back; editing in compare mode; saving a compare session.
 
 ## Architecture
 
 - **In the main worker** (`search.worker.ts`), not a separate one (changed in M2): A is the loaded dataset as it is now (cleans, transforms, without deleted rows), used in place with no copy; B is ingested beside it with the same parser and dropped on Exit or on any new load. This saves copying A between workers. The lockdown is the full-screen compare layer, which also mutes the app's shortcuts.
-- From the start screen, A is chosen inside compare mode and loads as the app's data, so after Exit the person carries on with A.
+- From the start screen, A is chosen inside compare mode and loads as the app's data. Exit clears it with B.
 - B reads CSV/TSV/JSON/Parquet; workbooks and archives are explained (save as CSV) until their pickers are reused.
 - **Matching** (`src/data/compare/`, pure and unit-tested): normalise key values → hash map from key to row in A → probe with B. Output: a row-pair index (`aRow`, `bRow`, -1 for a gap) in display order, plus per-pair status and a changed-cell bitset. No-key mode hashes whole normalised rows into a multiset.
 - **Rendering**: windows of rows are requested by pair position, like the table today. Both panes are thin `ResultTable`-style virtual grids driven from one scroll position.

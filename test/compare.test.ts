@@ -179,13 +179,14 @@ test("the side-by-side view filters aligned rows, cuts a window with both sides'
   const b = side("b", { id: ["1", "3", "4", "5"], name: ["Ada", "Grace", "Edsger W.", "Barbara"], new: ["p", "q", "r", "s"] });
   const { pairing, match } = compare(a, b, ["id"]);
   // Aligned: 0/0 same, 1/-1 only A, 2/1 same, 3/2 changed (name), -1/3 only B.
-  const all = filterPositions(match, { show: "all", pair: null });
+  const all = filterPositions(match, { show: "all", pairs: [] });
   assert.deepEqual([...all], [0, 1, 2, 3, 4]);
-  assert.deepEqual([...filterPositions(match, { show: "changed", pair: null })], [3]);
-  assert.deepEqual([...filterPositions(match, { show: "onlyB", pair: null })], [4]);
-  assert.deepEqual([...filterPositions(match, { show: "all", pair: 1 })], [3], "rows where name changed");
-  assert.deepEqual([...filterPositions(match, { show: "identical", pair: null })], [0, 2]);
-  assert.deepEqual([...filterPositions(match, { show: "differences", pair: null })], [1, 3, 4], "changed, only in A and only in B together");
+  assert.deepEqual([...filterPositions(match, { show: "changed", pairs: [] })], [3]);
+  assert.deepEqual([...filterPositions(match, { show: "onlyB", pairs: [] })], [4]);
+  assert.deepEqual([...filterPositions(match, { show: "all", pairs: [1] })], [3], "rows where name changed");
+  assert.deepEqual([...filterPositions(match, { show: "changed", pairs: [0, 2] })], [], "neither id nor old changed");
+  assert.deepEqual([...filterPositions(match, { show: "identical", pairs: [] })], [0, 2]);
+  assert.deepEqual([...filterPositions(match, { show: "differences", pairs: [] })], [1, 3, 4], "changed, only in A and only in B together");
 
   const window = rowWindow(a, b, pairing, match, all, 1, 4);
   assert.equal(window.start, 1);

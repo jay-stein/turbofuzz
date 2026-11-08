@@ -1,10 +1,10 @@
 import { ROW_IDENTICAL, ROW_ONLY_A, ROW_ONLY_B, ROW_CHANGED, type ColumnPairing, type CompareSide, type MatchResult } from "./types.js";
 
-/** Which aligned rows the side-by-side view shows; `pair` narrows to rows where that column pair changed. */
+/** Which aligned rows the side-by-side view shows; `pairs` narrows to rows where any of those column pairs changed (empty: no narrowing). */
 export interface RowFilter {
   /** "differences" is every row that is not identical: changed, only in A or only in B. */
   show: "all" | "differences" | "changed" | "onlyA" | "onlyB" | "identical";
-  pair: number | null;
+  pairs: readonly number[];
 }
 
 /** A slice of the filtered rows, ready to draw: each side's cells, the row status and the changed cells. */
@@ -36,9 +36,9 @@ const WANT: Record<RowFilter["show"], number> = {
 /** The aligned positions a filter keeps, in display order. */
 export function filterPositions(match: MatchResult, filter: RowFilter): Int32Array {
   const want = WANT[filter.show];
-  const bits = filter.pair === null ? null : match.changed[filter.pair] ?? null;
+  const bits = filter.pairs.map((pair) => match.changed[pair]).filter((set) => set !== undefined);
   const n = match.status.length;
-  if (want === -1 && bits === null) {
+  if (want === -1 && bits.length === 0) {
     const all = new Int32Array(n);
     for (let i = 0; i < n; i++) all[i] = i;
     return all;
@@ -48,7 +48,7 @@ export function filterPositions(match: MatchResult, filter: RowFilter): Int32Arr
   for (let i = 0; i < n; i++) {
     if (want >= 0 && match.status[i] !== want) continue;
     if (want === -2 && match.status[i] === ROW_IDENTICAL) continue;
-    if (bits !== null && !bits.get(i)) continue;
+    if (bits.length > 0 && !bits.some((set) => set.get(i))) continue;
     out[length++] = i;
   }
   return out.slice(0, length);

@@ -47,9 +47,10 @@ test("Load more → Compare: the loaded data is A, a key is suggested, a rename 
     expect(axe.violations.map((v) => `${scheme} ${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
   }
 
+  // Exit clears both datasets: back to the start screen.
   await mode.getByRole("button", { name: "Exit compare" }).click();
   await expect(mode).toHaveCount(0);
-  await expect(page.locator(".count").first()).toContainText("4 rows");
+  await expect(page.getByRole("button", { name: "Compare two datasets…" })).toBeVisible();
 });
 
 test("from the start screen both files are chosen in compare mode, and A stays loaded after Exit", async ({ page }) => {
@@ -73,7 +74,7 @@ test("from the start screen both files are chosen in compare mode, and A stays l
   await expect(mode.getByText("Matched on whole rows")).toBeVisible();
 
   await mode.getByRole("button", { name: "Exit compare" }).click();
-  await expect(page.locator(".count").first()).toContainText("4 rows");
+  await expect(page.getByRole("button", { name: "Compare two datasets…" })).toBeVisible();
 });
 
 test("a workbook is explained, not misread", async ({ page }) => {
@@ -164,7 +165,7 @@ test("side by side: counts open their rows, the panes line up with gaps, n finds
   // A column in the report opens the rows where it changed.
   await mode.getByRole("button", { name: "Report", exact: true }).click();
   await mode.getByRole("button", { name: "amount", exact: true }).click();
-  await expect(mode.locator(".cmp-filter-chip")).toContainText("Changed in amount");
+  await expect(mode.getByRole("group", { name: "Changed in" }).getByRole("button", { name: /^amount/ })).toHaveAttribute("aria-pressed", "true");
   await expect(mode.locator(".cmp-rows-status")).toHaveText("Rows 1–1 of 1");
 
   for (const scheme of ["light", "dark"] as const) {
@@ -246,4 +247,59 @@ test("Export saves the HTML report, the changes as CSV and a workbook with every
   const xlsx = await save("Changes and rows (Excel)");
   expect(xlsx.name).toBe("compare_before_vs_after.xlsx");
   expect(xlsx.bytes.subarray(0, 2).toString("latin1")).toBe("PK");
+});
+
+test("leaving compare asks first when the data had Recipe steps, then clears both datasets", async ({ page }) => {
+  await loadA(page);
+  await page.getByRole("tab", { name: "Table" }).click();
+  await page.locator(".table-header .th-label", { hasText: "name" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Change case" }).click();
+  await page.getByRole("menuitem", { name: "UPPERCASE" }).click();
+  await expect(page.locator(".tr .td[data-col=\"1\"]").first()).toHaveText("ADA");
+  await expect(page.locator(".nav-actions button", { hasText: /^Recipe/ })).toHaveText(/Recipe \(1\)/);
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: /Load more/ }).click();
+  await page.getByRole("menuitem", { name: "Compare with a file…" }).click();
+  await (await chooser).setFiles(file("after.csv", B));
+  const mode = page.getByRole("region", { name: "Compare two datasets" });
+  await expect(mode.locator(".cmp-key").first()).toBeVisible();
+
+  await mode.getByRole("button", { name: "Exit compare" }).click();
+  const confirm = page.getByRole("dialog", { name: "Exit compare and clear the data?" });
+  await expect(confirm).toContainText("1 Recipe step");
+  await confirm.getByRole("button", { name: "Cancel" }).click();
+  await expect(mode).toBeVisible();
+
+  await mode.getByRole("button", { name: "Exit compare" }).click();
+  await page.getByRole("button", { name: "Exit and clear" }).click();
+  await expect(mode).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Compare two datasets…" })).toBeVisible();
+});
+
+test("Changed in: column chips narrow the changed rows to the columns ticked", async ({ page }) => {
+  const a = ["id,amount,status,city", "1,10,open,Oslo", "2,20,open,Rome", "3,30,open,Lima", "4,40,open,Pune"].join("\n");
+  const b = ["id,amount,status,city", "1,11,open,Oslo", "2,20,shut,Rome", "3,30,open,Kiev", "4,41,shut,Pune"].join("\n");
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto("/");
+  await page.locator('input[type="file"]').first().setInputFiles(file("a.csv", a));
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: /Load more/ }).click();
+  await page.getByRole("menuitem", { name: "Compare with a file…" }).click();
+  await (await chooser).setFiles(file("b.csv", b));
+  const mode = page.getByRole("region", { name: "Compare two datasets" });
+  await mode.getByRole("button", { name: "Compare", exact: true }).click();
+  await mode.getByRole("button", { name: "Side by side" }).click();
+  const ids = () => mode.locator(".cmp-pane.cmp-side-a .cmp-row").evaluateAll((rows) => rows.map((row) => row.children[1]?.textContent ?? ""));
+  await expect.poll(ids).toEqual(["1", "2", "3", "4"]);
+
+  const chips = mode.getByRole("group", { name: "Changed in" });
+  await chips.getByRole("button", { name: /^amount/ }).click();
+  await expect.poll(ids).toEqual(["1", "4"]);
+  await chips.getByRole("button", { name: /^status/ }).click();
+  await expect.poll(ids).toEqual(["1", "2", "4"]);
+  await expect(mode.locator(".cmp-rows-status")).toHaveText("Rows 1–3 of 3");
+  await chips.getByRole("button", { name: "Any column" }).click();
+  await expect.poll(ids).toEqual(["1", "2", "3", "4"]);
 });

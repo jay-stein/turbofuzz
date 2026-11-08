@@ -96,7 +96,7 @@ gate(`report, ${ROWS.toLocaleString()} rows`, BUDGET.report, () => {
   buildReport(a, b, pairing, match);
 });
 
-const changedRows = filterPositions(match, { show: "changed", pair: null });
+const changedRows = filterPositions(match, { show: "changed", pairs: [] });
 const middle = Math.floor(changedRows.length / 2);
 gate(`side-by-side window of 100 changed rows, ${ROWS.toLocaleString()} rows`, BUDGET.window, () => {
   rowWindow(a, b, pairing, match, changedRows, middle, middle + 100);

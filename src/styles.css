@@ -16302,3 +16302,50 @@ button.cmp-change-name:hover {
     display: none;
   }
 }
+
+/* Changed in: one chip per changed column under the side-by-side toolbar. */
+.cmp-toolbar-wrap {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+}
+.cmp-column-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--panel);
+}
+.cmp-chips-label {
+  margin-right: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.cmp-column-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.cmp-column-chip:hover {
+  border-color: var(--cmp-changed);
+}
+.cmp-column-chip[aria-pressed="true"] {
+  border-color: var(--cmp-changed);
+  background: var(--cmp-changed-soft);
+  font-weight: 600;
+}
+.cmp-chips-clear {
+  margin-left: 4px;
+  font-size: var(--fs-sm);
+}

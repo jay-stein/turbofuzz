@@ -6822,11 +6822,23 @@ export class App {
         await this.loadFile(file);
         return this.lastLoaded === before || this.lastLoaded === null ? null : this.compareSideInfo();
       },
+      // Compare is a one-off analysis: leaving it clears both datasets. Work done on A before comparing is lost, so that is asked first.
+      confirmExit: async () => {
+        const steps = this.lastLoaded === null ? 0 : this.stepEntries().length;
+        if (steps === 0) return true;
+        return openConfirm({
+          title: `Exit compare and clear the data?`,
+          body: `Leaving compare mode clears both datasets, including the ${steps} Recipe step${steps === 1 ? "" : "s"} on “${this.datasetName}”. The Recipe can't be saved from compare mode; to keep steps another time, save the Recipe before comparing.`,
+          confirmLabel: "Exit and clear",
+          danger: true,
+        });
+      },
       onExit: () => {
         for (const node of behind) node.inert = false;
         this.compareMode = null;
         document.body.classList.remove("compare-active");
-        this.setAction("Left compare mode");
+        if (this.lastLoaded !== null) this.clearData();
+        this.setAction("Compare closed and the data cleared: load a file, or compare two, to start again");
       },
     });
     this.compareMode = mode;

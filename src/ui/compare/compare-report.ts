@@ -135,7 +135,7 @@ function changesCard(input: ReportInput, actions: ReportActions): HTMLElement {
       el("div", { class: "cmp-change" }, [
         (() => {
           const name = el("button", { type: "button", class: "cmp-change-name", title: `Show the rows where ${change.name} changed` }, [change.name]);
-          name.addEventListener("click", () => actions.rows({ show: "changed", pair: change.pair }));
+          name.addEventListener("click", () => actions.rows({ show: "changed", pairs: [change.pair] }));
           return name;
         })(),
         el("div", { class: "cmp-change-measure" }, [
@@ -231,12 +231,12 @@ export function renderReport(host: HTMLElement, input: ReportInput, actions: Rep
   page.append(
     el("div", { class: "cmp-intro" }, [el("h1", { tabindex: "-1" }, ["What changed"]), el("p", {}, [describeRun(input)])]),
     el("div", { class: "cmp-tiles" }, [
-      tile("Identical", nf.format(rows.identical), share(rows.identical), "same", () => actions.rows({ show: "identical", pair: null })),
-      tile("Changed", nf.format(rows.changed), share(rows.changed), "changed", () => actions.rows({ show: "changed", pair: null })),
-      tile("Only in A (removed)", nf.format(rows.onlyA), "not in B", "only-a", () => actions.rows({ show: "onlyA", pair: null })),
-      tile("Only in B (added)", nf.format(rows.onlyB), "new in B", "only-b", () => actions.rows({ show: "onlyB", pair: null })),
+      tile("Identical", nf.format(rows.identical), share(rows.identical), "same", () => actions.rows({ show: "identical", pairs: [] })),
+      tile("Changed", nf.format(rows.changed), share(rows.changed), "changed", () => actions.rows({ show: "changed", pairs: [] })),
+      tile("Only in A (removed)", nf.format(rows.onlyA), "not in B", "only-a", () => actions.rows({ show: "onlyA", pairs: [] })),
+      tile("Only in B (added)", nf.format(rows.onlyB), "new in B", "only-b", () => actions.rows({ show: "onlyB", pairs: [] })),
       tile("Rows", `${nf.format(rows.a)} → ${nf.format(rows.b)}`, `${signed(rows.b - rows.a)} · ${nf.format(rows.matched)} matched`, "rows", () =>
-        actions.rows({ show: "all", pair: null }),
+        actions.rows({ show: "all", pairs: [] }),
       ),
     ]),
     composition(report),

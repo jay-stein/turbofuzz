@@ -405,7 +405,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     summary: "Line up two versions of a table and see what changed.",
     blocks: [
       p(
-        "With data loaded, Load more ▾ → Compare with a file… compares it (as it is now, cleans included, deleted rows left out) with another file. From the start screen, Compare two datasets… lets you choose both files; the first one loads as your data, so after Exit you carry on with it.",
+        "With data loaded, Load more ▾ → Compare with a file… compares it (as it is now, cleans included, deleted rows left out) with another file. From the start screen, Compare two datasets… lets you choose both files. Compare is a one-off analysis: Exit compare clears both datasets and returns to the start screen (it asks first if the data had Recipe steps).",
       ),
       list(
         "Match rows on — a key column that is filled and unique on both sides is suggested (up to 1% of rows may have an empty or repeated key; they are counted and shown as warnings). Choose another column, or match whole rows when there is no key.",
@@ -419,7 +419,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Export ▾ saves the comparison: Report (HTML page) holds the report and what shifted as one page to share or print, with counts and summaries but not the rows; Changes (CSV) has one line per changed cell (key, row numbers, column, value in A and in B) and one per row only one side has, with formula-like cells escaped; Changes and rows (Excel) is a workbook with Summary, Changes, Only in A, Only in B and What shifted sheets, every value kept as text so codes like 007 stay as they are.",
       ),
       note(
-        "Compare reads CSV, TSV, JSON and Parquet. Save a workbook sheet as CSV first. While comparing, the rest of the app is locked; Exit compare returns to your data exactly as it was.",
+        "Compare reads CSV, TSV, JSON and Parquet. Save a workbook sheet as CSV first. While comparing, the rest of the app is locked; Exit compare clears both datasets.",
       ),
       p(
         "Load more ▾ → Append rows from a file… stacks another file's rows under the data as it is now (deleted rows left out). Columns line up by name, ignoring case and spacing; a column only one file has stays empty for the other's rows, and _input_filename says where each row came from. Recipe steps so far stay in the values but can no longer be undone, so you are asked first when there are any.",

@@ -18,7 +18,9 @@ export interface CompareModeOptions {
   loaded: CompareSideInfo | null;
   /** Loads a file as the app's data (A, from the start screen); resolves null when it did not load. */
   loadA(file: File): Promise<CompareSideInfo | null>;
-  /** Called after compare mode has closed (B dropped). */
+  /** Asked before leaving: false keeps compare mode open (Exit clears both datasets). */
+  confirmExit(): Promise<boolean>;
+  /** Called after compare mode has closed: both datasets are cleared. */
   onExit(): void;
 }
 
@@ -54,7 +56,7 @@ export class CompareMode {
   private shift: ShiftReport | null = null;
   private groups: GroupChoice | null = null;
   private rows: { filter: RowFilter; layout: GridLayout; changedColumnsOnly: boolean } = {
-    filter: { show: "differences", pair: null },
+    filter: { show: "differences", pairs: [] },
     layout: "panes",
     changedColumnsOnly: false,
   };
@@ -76,7 +78,7 @@ export class CompareMode {
       error: null,
     };
     this.files = el("span", { class: "cmp-files" });
-    const exit = el("button", { class: "ghost small", type: "button" }, ["Exit compare"]);
+    const exit = el("button", { class: "ghost small", type: "button", title: "Leave compare mode: both datasets are cleared, and you start again from the start screen" }, ["Exit compare"]);
     exit.addEventListener("click", () => void this.exit());
     const header = el("div", { class: "cmp-header" }, [
       el("span", { class: "cmp-brand" }, ["TurboFuzz"]),
@@ -305,7 +307,7 @@ export class CompareMode {
       this.report = { report: result.report, ms: result.ms, key: this.state.key, rules: this.state.rules };
       this.stage = "result";
       this.tab = "report";
-      this.rows = { ...this.rows, filter: { show: "differences", pair: null } };
+      this.rows = { ...this.rows, filter: { show: "differences", pairs: [] } };
       this.shift = null;
       this.groups = null;
       this.render();
@@ -327,6 +329,8 @@ export class CompareMode {
   }
 
   private async exit(): Promise<void> {
+    if (this.closed) return;
+    if (!(await this.options.confirmExit())) return;
     if (this.closed) return;
     this.closed = true;
     this.sideBySide?.dispose();
